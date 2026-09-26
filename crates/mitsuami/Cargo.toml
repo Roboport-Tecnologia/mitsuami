@@ -56,6 +56,10 @@ name = "lists"
 harness = false
 
 [[test]]
+name = "contacts"
+harness = false
+
+[[test]]
 name = "conformance"
 harness = false
 

@@ -8,7 +8,7 @@ permissions:
   contents: read
 
 env:
-  EXAMPLES: showcase todos escape_hatches
+  EXAMPLES: showcase todos contacts escape_hatches
 
 jobs:
   version:
@@ -135,7 +135,7 @@ jobs:
           cat > notes.md <<'EOF'
           ## Examples
 
-          The `showcase`, `todos` and `escape_hatches` examples, built for each platform:
+          The `showcase`, `todos`, `contacts` and `escape_hatches` examples, built for each platform:
 
           - **Windows** (x86_64): needs the [Windows App Runtime 2.4 or later](https://aka.ms/windowsappsdk/2.5/latest/windowsappruntimeinstall-x64.exe).
           - **macOS** (Apple silicon and Intel): the binaries aren't signed. Run `xattr -dr com.apple.quarantine <folder>` after extracting, or allow them in System Settings → Privacy & Security.
