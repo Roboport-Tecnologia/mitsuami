@@ -137,6 +137,12 @@ Cons: we give up native auto-layout behaviours, and we must handle RTL mirroring
 
 `ScrollView` is the exception at the edges. The native scroll container scrolls, and we lay out its content.
 
+`List` goes one step further: it is the platform's list control (NSTableView, ListView, gtk::ListView, QML `ListView`), which scrolls, recycles cells and owns the selection, while we build and lay out what's in the rows.
+- **Only the rows near the viewport exist.** After each layout, the core works out from the scroll offset which rows are in view or within a viewport of it, mounts those (each in a host `Container` with its `RowKey`), and disposes the rest. It happens between commits, so a scroll is followed by the rows it reveals within the same run-loop turn.
+- **One table of row heights**, kept by the core and sent as `Prop::Rows`: each mounted row is laid out on its own at the row width, and rows not yet mounted count as an estimate. Native lists give every row exactly its height with no spacing, so the core knows where every row is: frames, `scroll_into_view`, visibility and the a11y tree work as for any scrolled content, and scrolling to an unmounted row is plain arithmetic.
+- **Rows are keyed** like `For`'s: a data change keeps the mounted rows whose keys stay, with their state, and backends turn it into native inserts, removes and moves.
+- **Selection and activation are the platform's:** backends report `Changed(Rows)` and `RowActivated`; the app binds the selected keys (`List::selected`) and handles `on_activate`. Rows read as list items named by their text.
+
 ### Units
 
 ```rust
@@ -205,6 +211,7 @@ pub enum Command {
 
 pub enum UiEvent {   // backend → core, through the EventSink
     Click, Changed(EventValue), Submit, FocusIn, FocusOut, Scrolled(Point),
+    RowActivated(RowKey), RowWidth(f32),   // lists (§3)
     WindowResized(Size), WindowCloseRequested, MetricsChanged,
     Pointer(PointerEvent),  // drawn custom widgets (§6.3)
     Custom(AnyValue),       // custom widgets and native views, their own event types
@@ -673,8 +680,9 @@ This is exposed as `Backend::capture`.
 | **M5 — Ergonomics** ✅ | `#[component]`, `view!`, stores, resources | Demo rewritten with macros |
 | **KDE Plasma** ✅ | Qt Quick and Kirigami backend (`mitsuami-kirigami`, the `kde` feature), after a spike (`spikes/kirigami`) | The same tests and conformance suite pass with `--native` on Kirigami |
 | **M6 — Visual review** | Stories, the variant matrix, perceptual diff, `cargo mitsuami visual review` HTML report, CI on three OSes | A PR that changes a widget shows up as a reviewable visual diff on all three platforms |
+| **M7 — Lists** | A virtualised `List` on each platform's list control (§3): the core mounts the rows near the viewport, keyed, with one table of row heights; selection, activation and keyboard navigation are native | A 10 000-row list scrolls, selects and filters on every backend, and the `lists` suite and the List conformance tests pass with `--native` |
 
-Out of scope for the MVP: lists/virtualisation, menus beyond a basic app menu, dialogs beyond an alert, the a11y implementation (the model exists), animations, and a devtools inspector.
+Out of scope for the MVP: menus beyond a basic app menu, dialogs beyond an alert, the a11y implementation (the model exists), animations, and a devtools inspector.
 
 ---
 

@@ -52,14 +52,14 @@ Validate as you go. Panic on protocol violations such as an unknown node, a doub
 |---|---|
 | `Create { id, kind, props }` | Create the native widget and apply `props`. **Give it a zero frame**: the core only sends frames that differ from the last one it sent, so a widget born with its own frame stays wrong (AppKit labels do this). |
 | `SetProp { id, prop }` | Apply the prop (tables below). For `Value`, skip the update if the widget already shows it, so the caret and IME composition survive. |
-| `Insert { parent, child, index }` | Attach at `index` among the parent's native children. **ScrollView**: its single child is the scrolled content (AppKit: `documentView`). |
+| `Insert { parent, child, index }` | Attach at `index` among the parent's native children. **ScrollView**: its single child is the scrolled content (AppKit: `documentView`). **List**: the child is a row host, put in its row's cell (§8b). |
 | `Remove { parent, child }` | Detach only. |
 | `Destroy { id }` | Free the widget. It comes for every native node of a removed subtree, children first; the root has already been removed. Drop observers, signal handlers and targets. |
 | `SetFrame { id, frame }` | Place the widget, relative to its native parent's top-left. Never sent for windows. A ScrollView's content frame is in content coordinates. |
 | `SetA11y { id, a11y }` | Set the accessible label, description and hidden state. |
 | `SetWindowSize { id, size }` | Set the window's **content area** size (excluding title bar and menu bar). |
 | `SetFocusOrder { window, order }` | Make Tab visit `order` in sequence, wrapping around. It is window-wide, across nested containers. The platform still decides *which* controls can take focus (disabled controls, macOS keyboard navigation settings). See §9. |
-| `ScrollTo { id, offset }` | Scroll the ScrollView so `offset` is at its top-left. Already clamped. The platform then **reports `Scrolled`**, as for a user scroll. |
+| `ScrollTo { id, offset }` | Scroll the ScrollView or List so `offset` is at its top-left. Already clamped. The platform then **reports `Scrolled`**, as for a user scroll. |
 | `Focus { id }` | Give the control keyboard focus. The focus change is reported through your focus tracking (§4), not by this command. |
 
 ### Widget kinds
@@ -74,6 +74,7 @@ Validate as you go. Panic on protocol violations such as an unknown node, a doub
 | `Checkbox` | `NSButton` checkbox | `gtk::CheckButton` | `CheckBox` | `QQC2.CheckBox` |
 | `Switch` | `NSSwitch` | `gtk::Switch` | `ToggleSwitch` | `QQC2.Switch` |
 | `ScrollView` | `NSScrollView` | `gtk::ScrolledWindow` | `ScrollViewer` | `QQC2.ScrollView` around a `Flickable` |
+| `List` (§8b) | view-based `NSTableView` in an `NSScrollView` (to do) | `gtk::ListView` (to do) | `ListView` (to do) | QML `ListView` over a model (to do) |
 | `Custom` (native render) | the render's view (`NativeRender`) | the render's widget (`mitsuami_gtk::NativeRender`) | the render's element | the render's item |
 | `Custom` (drawn) | `DrawnView`: flipped `NSView` that rasterizes the display list | a `gtk::DrawingArea` rasterized with Cairo | a `Canvas` with Win2D, or `Microsoft.UI.Composition` shapes | a `QQuickPaintedItem` painted with `QPainter` |
 | `Native` | the app's `NSView` (`NativeView::appkit`) | the app's `gtk::Widget` (`NativeView::gtk`) | the app's `FrameworkElement` | the app's QML item (`NativeView::qml`) |
@@ -92,6 +93,10 @@ Validate as you go. Panic on protocol violations such as an unknown node, a doub
 | `TextStyle` | Text (and controls) | Map to the platform type ramp: GTK style classes (`title-1`, `heading`, `caption`, `monospace`); WinUI text styles (`TitleTextBlockStyle`, …); Kirigami's `Heading` sizes and its small and fixed-width fonts. |
 | `Variant` | Button | Primary = the default / suggested action (GTK `suggested-action`, WinUI `AccentButtonStyle`, Qt `highlighted`); Destructive (GTK `destructive-action`); Plain = borderless (GTK and Qt `flat`). |
 | `ScrollAxes` | ScrollView | Which scrollbars / scroll directions exist. |
+| `Rows` | List | The rows, in order: each one's `RowKey` and height. Diff by key into native inserts, removes and moves (§8b). |
+| `Row` | Container | This container is the host of that row of its List. |
+| `SelectionMode` | List | None, Single or Multiple. |
+| `Selected` | List | The selected rows. Setting it **must not** emit `Changed`. |
 | `Custom` | Custom | The widget's props and definition. Native render: call its `update` when they differ. Drawn: just keep them for `native_state`. See §8a. |
 | `Drawing` | Custom (drawn) | The display list to rasterize. Redraw. |
 | `Native` | Native | Your own payload type: on `Create`, the factory; later, re-apply its updates. |
@@ -107,7 +112,10 @@ Native callbacks **only** call `events.emit(id, event)` on the `EventSink` given
 | `Changed(Bool)` | the user toggles a checkbox or switch | the core set `Checked`. **GTK `toggled`/`notify::active` and WinUI `Checked`/`Unchecked`/`Toggled` fire on programmatic sets**, so guard them. Qt's `toggled` is the user's only (`checkedChanged` is anyone's). |
 | `Submit` | **Return/Enter** in a text field (GTK `activate`; WinUI `KeyDown` with `Enter`) | editing ends in other ways: Tab, a click elsewhere, focus loss. AppKit's field action does fire then; that was a real bug. |
 | `FocusIn` / `FocusOut` | keyboard focus moves, **from any source** (click, Tab, code): out for the old control first, then in for the new | |
-| `Scrolled(offset)` | a ScrollView's offset changes, by the user **or** by `ScrollTo` | |
+| `Scrolled(offset)` | a ScrollView's or List's offset changes, by the user **or** by `ScrollTo` | |
+| `Changed(Rows)` | the user (or assistive technology) changes a List's selection, including rows deselected because they were removed | the core set `Selected` |
+| `RowActivated(key)` | a List row is double-clicked, or Enter is pressed on it | |
+| `RowWidth(width)` | a List gives its rows a width other than its own (legacy scroll bars, insets): once it's known, and when it changes | |
 | `WindowResized(size)` | the window's content area changes size (report the content size, excluding any menu bar you placed in the window) | |
 | `WindowCloseRequested` | the user asks to close a window. **Don't close it**: the app decides, and the core sends `Destroy`. | |
 | `MetricsChanged` | text scale, scale factor, theme or contrast changes | |
@@ -149,12 +157,15 @@ These make one test suite run against every backend.
   - `Activate`: press the button or toggle the control. Prefer the platform's accessibility press (AppKit `accessibilityPerformPress`; its return value lies for offscreen windows, so the result is ignored).
   - `SetValue(text)`: set the field's text, then emit `Changed(Text)` yourself, because an assistive technology edit is a user edit.
   - `Focus`: move keyboard focus to the control.
+  - `Select` on a List's row host: select that row (the only selected one), as a screen reader's select does, and report `Changed(Rows)` on the List. `Unsupported` if the list's `SelectionMode` is None.
+  - `Activate` on a row host: report `RowActivated` on the List.
   - Return `ActionError::Disabled` for disabled controls and `Unsupported` for actions that don't apply.
 - **`synthesize(id, input)`**: behave as close to real input as the platform allows.
   - `Key(Char | Backspace | Enter | Tab)` on text fields must go through the platform's text-editing path, so the real signals fire. AppKit drives the field editor (`insertText:`, `doCommandBySelector:`).
   - If the field wasn't focused, focus it and **put the caret at the end**: focusing selects all, and the first keystroke would replace everything.
   - Enter or Space on buttons, Space on toggles.
-  - `Scroll { dx, dy }` scrolls a ScrollView like a scroll wheel would, clamped.
+  - `Scroll { dx, dy }` scrolls a ScrollView or List like a scroll wheel would, clamped.
+  - `Up`, `Down`, `Home`, `End` and `Enter` on a List go through the list's own key handling: they move the selection and scroll to it, or activate the selected row.
   - `Click(point)` on **drawn** custom widgets: a real down/up pair through your drawn view's event handlers. `Unsupported` elsewhere; native controls often track the mouse in a modal loop.
 - **`native_state(id)`**: **read back from the widget** what it actually shows: text, title, value, placeholder, checked, enabled, frame, children (in native order), focused, and scroll offset. Only cache what the platform can't report (AppKit caches the text style and variant). After every settle, the test harness compares this with the core and fails on any difference. This check has caught every serious backend bug so far.
 - **`capture(id, reply)`**: offscreen RGBA8 at backing scale, rows top to bottom. Reply when the image is ready, right away if possible. Examples:
@@ -194,6 +205,18 @@ Also:
 - A context (`AppKitCx`) for factories: the main-thread marker, an `Emitter` that queues `UiEvent::Custom(AnyValue::new(event))` for the node, and a way to hear a control's actions whose targets live as long as the node.
 - **`perform` on custom widgets:** call the render's `perform`. Return `Unsupported` when it doesn't handle an action; the core then emits the event the widget's shared definition maps it to. **On native views:** perform on the accessibility element the way the screen reader would. That can be a child of the view (AppKit: an `NSStepper`'s cell).
 - Put the widget-specific `objc2`-style bindings on your crate's public API (AppKit re-exports `objc2`, `objc2_app_kit`, `objc2_foundation`), so apps use the same versions.
+
+## 8b. Lists
+
+A `List` is the platform's list control: it scrolls, recycles cells, and draws and handles the selection. The core owns what's in the rows. **Both work from one table of row heights, so they agree on where every row is.**
+
+- **The data is `Prop::Rows`:** every row's `RowKey` and height, in order. Only a few rows are mounted: the core works out which rows are in view, or within a viewport of it, and builds those. Each one is a `Container` with `Prop::Row(key)`, inserted as the List's native child. The List's native children are the mounted rows' hosts, in row order.
+- **Your model is the keys.** When `Rows` changes, diff the keys into native inserts, removes and moves (not a reload), so the selection and scroll position follow the rows. When only heights change, tell the list to re-read them (`noteHeightOfRowsWithIndexesChanged:` and its equivalents).
+- **Rows are exactly as high as `Rows` says, one right below the other.** Turn off spacing between rows, cell padding, minimum row heights and insets. Selection highlights stay native. If the rows can't span the list's width (legacy scroll bars), report the width they get with `RowWidth`: the core lays rows out at that width.
+- **Cells:** when the platform asks for a row's cell, give it that row's host if the core mounted it, or else an empty cell of the row's height. When a host arrives (`Insert`) for a row whose cell exists, put it in the cell; otherwise keep it until the platform asks. A host's `SetFrame` gives its size; its position is the platform's to set.
+- **Callbacks come at any time.** A table can ask for cells, heights and counts in the middle of your own `apply` (a reload, a scroll, a resize). Keep the list's data (keys, heights, key → host) in a small `Rc<RefCell<…>>` of its own that the data source reads, never your backend's main state or the `Ui`, and only `emit` from there.
+- **`native_state` of a row host** reports the rect the platform gave that row (its position in the list's content and its size), and the List reports its `Rows`, `SelectionMode` and `Selected` as the native control shows them. The harness's mirror check then compares the platform's geometry with the core's.
+- **Focus:** the List itself takes focus (it's in the Tab order), as the native control does.
 
 ## 9. Tab order
 
@@ -277,5 +300,6 @@ cargo run -p mitsuami --example showcase        # look at it
 7. Services + native services checks.
 8. `capture` + visual baselines.
 9. The drawn view, then `NativeRender` and `NativeView` (§8a) → the `escape_hatches` suite passes. The example has one widget from each platform (rating: AppKit, lock: GTK, pips pager: WinUI). Add the native render for yours (`examples/escape_hatches/<widget>/<os>.rs`), and for any other of the three your platform has as a real control (WinUI has a rating control too), and name it in the widget's `Render` impl with `native::<W>()`. For the others, prefer an ad hoc render built the way your platform's apps build that widget (`ad_hoc::<W>()`) over the drawn one; only a real platform control counts as native.
+10. `List` (§8b) → the `lists` suite and the List conformance tests pass.
 
 When something in the contract doesn't fit your platform, **change the contract rather than working around it**, and update the other backends and this guide. Capture and the clipboard became async for exactly this reason.

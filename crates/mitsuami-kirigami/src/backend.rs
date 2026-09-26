@@ -39,6 +39,10 @@ const KEY_TAB: i32 = 0x0100_0001;
 const KEY_BACKSPACE: i32 = 0x0100_0003;
 const KEY_RETURN: i32 = 0x0100_0004;
 const KEY_ESCAPE: i32 = 0x0100_0000;
+const KEY_HOME: i32 = 0x0100_0010;
+const KEY_END: i32 = 0x0100_0011;
+const KEY_UP: i32 = 0x0100_0013;
+const KEY_DOWN: i32 = 0x0100_0015;
 const KEY_UNKNOWN: i32 = 0x01ff_ffff;
 
 /// A window's content host and what it reports.
@@ -570,6 +574,7 @@ impl State {
                 Widget::Scroll { view, flickable }
             }
             WidgetKind::Fragment => violation(command, "fragments are core-only"),
+            WidgetKind::List => violation(command, "List isn't implemented by this backend yet"),
         };
         let item = widget.item();
         item.set_node(node_key(id));
@@ -1037,6 +1042,10 @@ impl Backend for KirigamiBackend {
                         Key::Enter => (KEY_RETURN, "\r".into()),
                         Key::Tab => (KEY_TAB, "\t".into()),
                         Key::Escape => (KEY_ESCAPE, "\u{1b}".into()),
+                        Key::Up => (KEY_UP, String::new()),
+                        Key::Down => (KEY_DOWN, String::new()),
+                        Key::Home => (KEY_HOME, String::new()),
+                        Key::End => (KEY_END, String::new()),
                     };
                     window.key(code, false, &text);
                     Ok(())

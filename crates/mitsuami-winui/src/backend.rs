@@ -1005,6 +1005,7 @@ impl State {
                 (Widget::Scroll(scroll), element)
             }
             WidgetKind::Fragment => violation(command, "fragments are core-only"),
+            WidgetKind::List => violation(command, "List isn't implemented by this backend yet"),
         };
         // The core assumes new nodes start with a zero frame and only sends
         // frames that differ.

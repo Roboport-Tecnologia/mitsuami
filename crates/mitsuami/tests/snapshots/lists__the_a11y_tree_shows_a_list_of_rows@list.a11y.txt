@@ -1,0 +1,8 @@
+Window "mitsuami test"
+  List
+    ListItem "Item 0"
+      StaticText "Item 0"
+    ListItem "Item 1" selected
+      StaticText "Item 1"
+    ListItem "Item 2"
+      StaticText "Item 2"

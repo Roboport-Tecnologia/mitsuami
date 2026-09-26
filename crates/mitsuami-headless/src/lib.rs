@@ -20,8 +20,8 @@ use mitsuami_core::backend::{
 };
 use mitsuami_core::units::SpacingScale;
 use mitsuami_core::{
-    Command, EventValue, NodeId, Point, PointerEvent, PointerKind, Prop, Rect, Size, TextStyle, UiEvent, WidgetKind,
-    find_prop,
+    Command, EventValue, ListRow, NodeId, Point, PointerEvent, PointerKind, Prop, Rect, RowKey, SelectionMode, Size,
+    TextStyle, UiEvent, WidgetKind, find_prop,
 };
 
 /// Fixed metrics: 16px body text, 4/8/12/16/24 spacing, scale factor 1.
@@ -101,6 +101,71 @@ impl State {
         if node.scroll_offset != offset {
             node.scroll_offset = offset;
             self.emit(id, UiEvent::Scrolled(offset));
+        }
+    }
+
+    /// A list's rows and where each one is, as a native list places them:
+    /// one below the other, each as high as the core says.
+    fn rows(&self, list: NodeId) -> Vec<(ListRow, f32)> {
+        let rows = self.nodes.get(&list).and_then(|n| find_prop!(n.props, Rows)).unwrap_or_default();
+        let mut top = 0.0;
+        rows.into_iter()
+            .map(|row| {
+                top += row.height;
+                (row, top - row.height)
+            })
+            .collect()
+    }
+
+    /// Selects rows as the user would, reporting it.
+    fn select(&mut self, list: NodeId, selection: Vec<RowKey>) {
+        let current = find_prop!(self.nodes[&list].props, Selected).unwrap_or_default();
+        if current != selection {
+            self.set_prop(list, Prop::Selected(selection.clone()));
+            self.emit(list, UiEvent::Changed(EventValue::Rows(selection)));
+        }
+    }
+
+    /// Scrolls a list just enough to show a row, as native lists do when
+    /// the keyboard moves the selection.
+    fn reveal(&mut self, list: NodeId, key: RowKey) {
+        let Some((row, top)) = self.rows(list).into_iter().find(|(row, _)| row.key == key) else { return };
+        let node = &self.nodes[&list];
+        let (offset, visible) = (node.scroll_offset, node.frame.height());
+        let y = if top < offset.y {
+            top
+        } else if top + row.height > offset.y + visible {
+            top + row.height - visible
+        } else {
+            offset.y
+        };
+        self.scroll(list, Point::new(offset.x, y));
+    }
+
+    /// Checks what a native list needs of its row hosts, once a batch is in.
+    fn check_lists(&self, command: &Command) {
+        for (id, node) in &self.nodes {
+            if node.kind != WidgetKind::List {
+                continue;
+            }
+            let rows = self.rows(*id);
+            let mut last = None;
+            for child in &node.children {
+                let child = &self.nodes[child];
+                let Some(key) = find_prop!(child.props, Row).filter(|_| child.kind == WidgetKind::Container) else {
+                    violation(
+                        command,
+                        &format!("list {id} has a child that isn't a row host (a Container with a Prop::Row)"),
+                    );
+                };
+                let Some(index) = rows.iter().position(|(row, _)| row.key == key) else {
+                    violation(command, &format!("list {id} hosts row {key:?}, which isn't in its Prop::Rows"));
+                };
+                if last.is_some_and(|last| last >= index) {
+                    violation(command, &format!("list {id}'s row hosts aren't in row order"));
+                }
+                last = Some(index);
+            }
         }
     }
 
@@ -261,6 +326,15 @@ impl Backend for HeadlessBackend {
                 Command::SetProp { id, prop } => {
                     state.node(*id, command);
                     state.set_prop(*id, prop.clone());
+                    // Like native lists, removing rows deselects them.
+                    if let Prop::Rows(rows) = prop {
+                        let selected = find_prop!(state.nodes[id].props, Selected).unwrap_or_default();
+                        let kept: Vec<RowKey> =
+                            selected.iter().copied().filter(|k| rows.iter().any(|r| r.key == *k)).collect();
+                        if kept != selected {
+                            state.select(*id, kept);
+                        }
+                    }
                 }
                 Command::Insert { parent, child, index } => {
                     if let Some(p) = state.node(*child, command).parent {
@@ -319,8 +393,8 @@ impl Backend for HeadlessBackend {
                     state.focus_orders.insert(*window, order.clone());
                 }
                 Command::ScrollTo { id, offset } => {
-                    if state.node(*id, command).kind != WidgetKind::ScrollView {
-                        violation(command, "not a ScrollView");
+                    if !state.node(*id, command).kind.scrolls() {
+                        violation(command, "not a ScrollView or List");
                     }
                     state.scroll(*id, *offset);
                 }
@@ -329,6 +403,9 @@ impl Backend for HeadlessBackend {
                     state.focus(*id);
                 }
             }
+        }
+        if let Some(last) = batch.last() {
+            state.check_lists(last);
         }
     }
 
@@ -393,8 +470,25 @@ impl Backend for HeadlessBackend {
             }
             (
                 A11yAction::Focus,
-                WidgetKind::Button | WidgetKind::TextInput | WidgetKind::Checkbox | WidgetKind::Switch,
+                WidgetKind::Button
+                | WidgetKind::TextInput
+                | WidgetKind::Checkbox
+                | WidgetKind::Switch
+                | WidgetKind::List,
             ) => state.focus(id),
+            (A11yAction::Select | A11yAction::Activate, WidgetKind::Container) => {
+                let row = find_prop!(state.nodes[&id].props, Row);
+                let list = state.nodes[&id].parent.filter(|p| state.nodes[p].kind == WidgetKind::List);
+                let (Some(row), Some(list)) = (row, list) else { return Err(ActionError::Unsupported) };
+                if *action == A11yAction::Activate {
+                    state.emit(list, UiEvent::RowActivated(row));
+                } else if find_prop!(state.nodes[&list].props, SelectionMode).unwrap_or_default() == SelectionMode::None
+                {
+                    return Err(ActionError::Unsupported);
+                } else {
+                    state.select(list, vec![row]);
+                }
+            }
             (A11yAction::ScrollIntoView, _) => {}
             _ => return Err(ActionError::Unsupported),
         }
@@ -422,12 +516,20 @@ impl Backend for HeadlessBackend {
                 return Ok(());
             }
             SyntheticInput::Scroll { dx, dy } => {
-                if kind != WidgetKind::ScrollView {
+                if !kind.scrolls() {
                     return Err(ActionError::Unsupported);
                 }
                 let node = &state.nodes[&id];
-                let axes = find_prop!(node.props, ScrollAxes).unwrap_or_default();
-                let content = node.children.first().map_or(Size::ZERO, |c| state.nodes[c].frame.size);
+                let (axes, content) = match kind {
+                    WidgetKind::List => (
+                        mitsuami_core::ScrollAxes::Vertical,
+                        Size::new(node.frame.width(), state.rows(id).iter().map(|(r, _)| r.height).sum()),
+                    ),
+                    _ => (
+                        find_prop!(node.props, ScrollAxes).unwrap_or_default(),
+                        node.children.first().map_or(Size::ZERO, |c| state.nodes[c].frame.size),
+                    ),
+                };
                 let viewport = node.frame.size;
                 let clamp = |v: f32, content: f32, viewport: f32, on: bool| {
                     if on { v.clamp(0.0, (content - viewport).max(0.0)) } else { 0.0 }
@@ -465,6 +567,35 @@ impl Backend for HeadlessBackend {
                 drop(state);
                 return self.perform(id, &A11yAction::Activate);
             }
+            // Arrows, Home and End move the selection (from the first
+            // selected row) and show it; Enter activates it.
+            (WidgetKind::List, Key::Up | Key::Down | Key::Home | Key::End | Key::Enter) => {
+                if find_prop!(state.nodes[&id].props, SelectionMode).unwrap_or_default() == SelectionMode::None {
+                    return Err(ActionError::Unsupported);
+                }
+                state.focus(id);
+                let rows: Vec<RowKey> = state.rows(id).iter().map(|(r, _)| r.key).collect();
+                let selected = find_prop!(state.nodes[&id].props, Selected).unwrap_or_default();
+                let current = selected.first().and_then(|k| rows.iter().position(|r| r == k));
+                if *key == Key::Enter {
+                    if let Some(row) = selected.first() {
+                        state.emit(id, UiEvent::RowActivated(*row));
+                    }
+                    return Ok(());
+                }
+                let last = rows.len().checked_sub(1);
+                let next = match (key, current) {
+                    (Key::Home, _) | (Key::Down, None) => rows.first().map(|_| 0),
+                    (Key::End, _) | (Key::Up, None) => last,
+                    (Key::Up, Some(i)) => Some(i.saturating_sub(1)),
+                    (_, Some(i)) => Some((i + 1).min(last.unwrap_or(0))),
+                    (_, None) => None,
+                };
+                if let Some(row) = next.map(|i| rows[i]) {
+                    state.select(id, vec![row]);
+                    state.reveal(id, row);
+                }
+            }
             _ => return Err(ActionError::Unsupported),
         }
         Ok(())
@@ -473,14 +604,22 @@ impl Backend for HeadlessBackend {
     fn native_state(&self, id: NodeId) -> Option<NativeState> {
         let state = self.state.borrow();
         let node = state.nodes.get(&id)?;
+        // A list places its rows itself: the core only gives their sizes.
+        let row = find_prop!(node.props, Row)
+            .zip(node.parent.filter(|p| state.nodes[p].kind == WidgetKind::List))
+            .and_then(|(key, list)| state.rows(list).into_iter().find(|(r, _)| r.key == key));
+        let frame = match row {
+            Some((row, top)) => Rect::new(0.0, top, node.frame.width(), row.height),
+            None => node.frame,
+        };
         Some(NativeState {
             kind: node.kind,
             props: node.props.clone(),
-            frame: node.frame,
+            frame,
             parent: node.parent,
             children: node.children.clone(),
             focused: state.focused == Some(id),
-            scroll_offset: (node.kind == WidgetKind::ScrollView).then_some(node.scroll_offset),
+            scroll_offset: node.kind.scrolls().then_some(node.scroll_offset),
         })
     }
 

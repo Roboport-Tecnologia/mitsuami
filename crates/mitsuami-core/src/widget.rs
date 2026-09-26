@@ -44,6 +44,11 @@ pub enum WidgetKind {
     /// A native scroll container. It has exactly one native child, the
     /// content, which the core lays out and may be larger than the viewport.
     ScrollView,
+    /// A native list control (NSTableView, ListView, gtk::ListView, QML
+    /// ListView). Its data is [`Prop::Rows`]; its native children are the
+    /// hosts of the rows the core has mounted (`Container`s with a
+    /// [`Prop::Row`]), in row order. It scrolls like a `ScrollView`.
+    List,
     /// A custom widget (see [`CustomWidget`](crate::CustomWidget)), named
     /// after it. Its props travel as [`Prop::Custom`].
     Custom(&'static str),
@@ -62,11 +67,17 @@ impl WidgetKind {
         matches!(self, WidgetKind::Window | WidgetKind::Container | WidgetKind::ScrollView)
     }
 
+    /// Scrolls its content: `ScrollTo` and `Scrolled` apply.
+    pub fn scrolls(self) -> bool {
+        matches!(self, WidgetKind::ScrollView | WidgetKind::List)
+    }
+
     pub fn name(self) -> &'static str {
         match self {
             WidgetKind::Window => "Window",
             WidgetKind::Container => "Container",
             WidgetKind::ScrollView => "ScrollView",
+            WidgetKind::List => "List",
             WidgetKind::Fragment => "Fragment",
             WidgetKind::Text => "Text",
             WidgetKind::Button => "Button",
@@ -121,6 +132,30 @@ impl ScrollAxes {
     }
 }
 
+/// Identity of a row of a `List`, stable while its item's key stays in the
+/// data. Assigned by the core.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
+pub struct RowKey(pub u64);
+
+/// One row of a `List`'s data: its key and its height. The height is the
+/// row's measured height once it has been mounted, an estimate before.
+/// Native lists give every row exactly this height, with no spacing between
+/// rows, so the core knows where each row is.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct ListRow {
+    pub key: RowKey,
+    pub height: f32,
+}
+
+/// How many rows of a `List` can be selected.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Hash)]
+pub enum SelectionMode {
+    #[default]
+    None,
+    Single,
+    Multiple,
+}
+
 /// A property of a native widget. Which ones apply depends on the kind.
 #[derive(Clone, Debug, PartialEq)]
 pub enum Prop {
@@ -139,6 +174,13 @@ pub enum Prop {
     Variant(ButtonVariant),
     /// Which axes a `ScrollView` scrolls.
     ScrollAxes(ScrollAxes),
+    /// A `List`'s rows, in order.
+    Rows(Vec<ListRow>),
+    /// Which row of its `List` a row host shows.
+    Row(RowKey),
+    SelectionMode(SelectionMode),
+    /// The selected rows of a `List`.
+    Selected(Vec<RowKey>),
     /// A custom widget's props, with its renders.
     Custom(CustomProps),
     /// What a drawn custom widget shows. Computed by the core after layout,
@@ -191,4 +233,4 @@ macro_rules! static_value {
     )*};
 }
 
-static_value!(TextStyle, ButtonVariant, ScrollAxes);
+static_value!(TextStyle, ButtonVariant, ScrollAxes, SelectionMode);

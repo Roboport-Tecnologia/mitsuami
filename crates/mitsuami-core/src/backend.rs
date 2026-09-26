@@ -76,7 +76,7 @@ impl FontSizes {
 #[derive(Clone, Debug, PartialEq)]
 pub enum SyntheticInput {
     Key(Key),
-    /// Scroll-wheel / trackpad scroll over a `ScrollView`, in logical units
+    /// Scroll-wheel / trackpad scroll over a `ScrollView` or `List`, in logical units
     /// (positive = towards the end of the content).
     Scroll {
         dx: f32,
@@ -95,6 +95,10 @@ pub enum Key {
     Escape,
     Tab,
     Backspace,
+    Up,
+    Down,
+    Home,
+    End,
 }
 
 /// What a native widget actually shows, read back from the platform.
@@ -108,7 +112,7 @@ pub struct NativeState {
     pub children: Vec<NodeId>,
     /// Has keyboard focus (for text fields: is being edited).
     pub focused: bool,
-    /// `ScrollView`s only: the current scroll offset.
+    /// `ScrollView`s and `List`s only: the current scroll offset.
     pub scroll_offset: Option<Point>,
 }
 

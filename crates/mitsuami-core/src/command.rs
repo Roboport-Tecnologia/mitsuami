@@ -3,7 +3,7 @@
 use crate::a11y::A11yProps;
 use crate::any_value::AnyValue;
 use crate::geometry::{Point, Rect, Size};
-use crate::widget::{NodeId, Prop, WidgetKind};
+use crate::widget::{NodeId, Prop, RowKey, WidgetKind};
 
 /// A change the backend must apply to the native widget tree.
 ///
@@ -60,7 +60,7 @@ pub enum Command {
         window: NodeId,
         order: Vec<NodeId>,
     },
-    /// Scrolls a `ScrollView` so `offset` (content coordinates) is at its
+    /// Scrolls a `ScrollView` or `List` so `offset` (content coordinates) is at its
     /// top-left. Already clamped by the core. Like user scrolling, it makes
     /// the backend report `Scrolled`.
     ScrollTo {
@@ -77,6 +77,8 @@ pub enum EventValue {
     Text(String),
     Bool(bool),
     Number(f64),
+    /// A `List`'s selected rows.
+    Rows(Vec<RowKey>),
 }
 
 /// Something that happened in the native UI.
@@ -92,8 +94,14 @@ pub enum UiEvent {
     WindowCloseRequested,
     /// Platform metrics changed (text size, color scheme, …).
     MetricsChanged,
-    /// A `ScrollView`'s scroll offset changed (by the user or by `ScrollTo`).
+    /// A `ScrollView`'s or `List`'s scroll offset changed (by the user or
+    /// by `ScrollTo`).
     Scrolled(Point),
+    /// A `List`'s row was activated: double-clicked, or Enter pressed on it.
+    RowActivated(RowKey),
+    /// The width a `List` gives its rows, when it isn't the list's own
+    /// width (scroll bars that take room from the rows, list insets).
+    RowWidth(f32),
     /// A pointer event on a drawn custom widget, in its coordinates.
     Pointer(PointerEvent),
     /// An event of a custom widget or native view, of its own type.

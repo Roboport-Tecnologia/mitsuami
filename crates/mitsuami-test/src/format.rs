@@ -21,6 +21,16 @@ fn describe_props(props: &[Prop]) -> String {
             Prop::TextStyle(s) => extra.push(format!("style={s:?}")),
             Prop::Variant(v) => extra.push(format!("variant={v:?}")),
             Prop::ScrollAxes(a) => extra.push(format!("scroll={a:?}")),
+            // A list's data can be long: its size is enough.
+            Prop::Rows(rows) => {
+                extra.push(format!("rows={} height={}", rows.len(), Num(rows.iter().map(|r| r.height).sum::<f32>())))
+            }
+            Prop::Row(key) => extra.push(format!("row={}", key.0)),
+            Prop::SelectionMode(mode) => extra.push(format!("selection={mode:?}")),
+            Prop::Selected(rows) => {
+                let rows: Vec<String> = rows.iter().map(|r| r.0.to_string()).collect();
+                extra.push(format!("selected=[{}]", rows.join(" ")));
+            }
             Prop::Custom(c) => extra.push(format!("{c:?}")),
             Prop::Drawing(d) => extra.push(format!("drawing={}ops", d.ops().len())),
             Prop::Native(n) => extra.push(format!("{n:?}")),
@@ -75,6 +85,9 @@ pub(crate) fn a11y(root: &A11yNode) -> String {
         }
         if let Some(checked) = node.checked {
             let _ = write!(out, " checked={checked}");
+        }
+        if node.selected == Some(true) {
+            out.push_str(" selected");
         }
         if !node.enabled {
             out.push_str(" disabled");
@@ -204,7 +217,7 @@ pub(crate) fn wireframe(root: &NodeInfo) -> String {
         match kind {
             WidgetKind::Window => "#8a8f98",
             WidgetKind::Container | WidgetKind::Fragment => "#b5bac2",
-            WidgetKind::ScrollView => "#5f7fa0",
+            WidgetKind::ScrollView | WidgetKind::List => "#5f7fa0",
             WidgetKind::Text => "#3f7f5f",
             WidgetKind::Button => "#2f6fdf",
             WidgetKind::TextInput => "#a0602a",

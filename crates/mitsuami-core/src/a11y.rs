@@ -83,6 +83,9 @@ pub enum A11yAction {
     Increment,
     Decrement,
     ScrollIntoView,
+    /// Select a `List` row (in a single-selection list, instead of the
+    /// selected one; in a multiple-selection list, as the only one).
+    Select,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -111,6 +114,8 @@ pub struct A11yNode {
     pub description: Option<String>,
     pub value: Option<String>,
     pub checked: Option<bool>,
+    /// List rows: whether the row is selected.
+    pub selected: Option<bool>,
     pub enabled: bool,
     pub test_id: Option<String>,
     /// In window coordinates.

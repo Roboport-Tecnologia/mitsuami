@@ -52,6 +52,10 @@ name = "control_flow"
 harness = false
 
 [[test]]
+name = "lists"
+harness = false
+
+[[test]]
 name = "conformance"
 harness = false
 

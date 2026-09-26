@@ -546,6 +546,7 @@ impl State {
                 Widget::Scroll { scrolled, viewport }
             }
             WidgetKind::Fragment => violation(command, "fragments are core-only"),
+            WidgetKind::List => violation(command, "List isn't implemented by this backend yet"),
         };
         self.by_widget.borrow_mut().insert(widget.widget().clone(), id);
         self.nodes.insert(

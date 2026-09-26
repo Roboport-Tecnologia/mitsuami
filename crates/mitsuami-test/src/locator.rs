@@ -39,6 +39,7 @@ impl<'a> Locator<'a> {
                             description: None,
                             value: None,
                             checked: None,
+                            selected: None,
                             enabled: true,
                             test_id: node.test_id.clone(),
                             frame: node.frame,
@@ -150,6 +151,13 @@ impl<'a> Locator<'a> {
     /// Activates the control: click a button, toggle a checkbox.
     pub async fn click(&self) {
         self.act(A11yAction::Activate).await;
+    }
+
+    /// Selects a list row, as assistive technology would: in place of the
+    /// selected row, or of every selected row in a multiple-selection list.
+    /// Clicking a row ([`click`](Self::click)) activates it instead.
+    pub async fn select(&self) {
+        self.act(A11yAction::Select).await;
     }
 
     /// Replaces a text field's content in one step.
