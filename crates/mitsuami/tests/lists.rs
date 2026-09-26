@@ -2,9 +2,9 @@
 //! identity and state across data changes; selection, activation, keyboard
 //! navigation and scrolling to a row.
 //!
-//! Rows here are one line of body text, 20px high on the headless backend,
-//! in a 100px list: 5 rows show, and a viewport's worth on either side is
-//! mounted too.
+//! Rows here are 20px high, in a 100px list: 5 rows show, and a viewport's
+//! worth on either side is mounted too. The suite runs natively as well,
+//! so it only relies on sizes the rows set themselves.
 
 use std::cell::{Cell, RefCell};
 use std::rc::Rc;
@@ -30,8 +30,19 @@ fn range(ids: std::ops::Range<u32>) -> Vec<String> {
     ids.map(|id| format!("Item {id}")).collect()
 }
 
+fn row(name: String, height: f32) -> Container {
+    Container::new().height(height).child(Text::new(name))
+}
+
 fn simple_list(data: Signal<Vec<Item>>) -> List<Item, u32> {
-    List::new(data, |i: &Item| i.id, |i| Text::new(i.name)).height(100).test_id("list")
+    List::new(data, |i: &Item| i.id, |i| row(i.name, 20.0)).height(100).test_id("list")
+}
+
+/// Where a row is, leaving out its width: the platform's scroll bars may
+/// take some from the rows.
+fn place(app: &TestApp, name: &str) -> (f32, f32, f32) {
+    let frame = app.get_by_role(Role::ListItem, name).frame();
+    (frame.x(), frame.y(), frame.height())
 }
 
 #[mitsuami_test::test]
@@ -43,7 +54,7 @@ async fn only_the_rows_near_the_viewport_are_mounted(app: TestApp) {
     assert_eq!(names(&app), range(0..10), "the 5 rows in view, and 5 more below");
     assert!(app.get_by_role(Role::ListItem, "Item 4").is_visible());
     assert!(!app.get_by_role(Role::ListItem, "Item 5").is_visible());
-    assert_eq!(app.get_by_role(Role::ListItem, "Item 3").frame(), Rect::new(0.0, 60.0, 800.0, 20.0));
+    assert_eq!(place(&app, "Item 3"), (0.0, 60.0, 20.0));
 }
 
 #[mitsuami_test::test]
@@ -58,7 +69,8 @@ async fn scrolling_mounts_the_rows_coming_into_view_and_drops_the_rest(app: Test
     assert!(app.get_by_role(Role::ListItem, "Item 20").is_visible());
     assert!(!app.get_by_role(Role::ListItem, "Item 19").is_visible());
     assert_eq!(app.get_by_role(Role::ListItem, "Item 20").frame().y(), 0.0, "in window coordinates");
-    assert_eq!(app.native_node_count(), before + 10);
+    // Five more rows mounted, of three nodes each: host, container, text.
+    assert_eq!(app.native_node_count(), before + 5 * 3);
 
     // To the end: the offset stops at the last row.
     app.get_by_test_id("list").scroll_by(0.0, 1e6).await;
@@ -76,7 +88,7 @@ fn stateful_list(data: Signal<Vec<Item>>, disposed: Rc<Cell<u32>>) -> List<Item,
             let done = signal(false);
             let disposed = disposed.clone();
             on_cleanup(move || disposed.set(disposed.get() + 1));
-            Row::new().child(Checkbox::new(i.name).bind(done))
+            Row::new().height(20).child(Checkbox::new(i.name).bind(done))
         },
     )
     .height(100)
@@ -177,13 +189,13 @@ async fn the_keyboard_moves_the_selection_and_shows_it(app: TestApp) {
     list.press(Key::Enter).await;
     assert_eq!(*activated.borrow(), [1]);
 
-    list.press(Key::End).await;
-    assert_eq!(selected.get(), [999]);
-    assert!(app.get_by_role(Role::ListItem, "Item 999").is_visible());
     assert!(list.is_focused());
 
+    // Whether Home and End also select is the platform's call (AppKit's
+    // lists only scroll); they always go to the end and back.
+    list.press(Key::End).await;
+    assert!(app.get_by_role(Role::ListItem, "Item 999").is_visible());
     list.press(Key::Home).await;
-    assert_eq!(selected.get(), [0]);
     assert!(app.get_by_role(Role::ListItem, "Item 0").is_visible());
 }
 
@@ -205,29 +217,18 @@ async fn a_handle_scrolls_to_rows_that_arent_mounted(app: TestApp) {
 
 #[mitsuami_test::test]
 async fn rows_are_as_high_as_their_content(app: TestApp) {
-    // Every third row has a second line.
+    // Every third row is twice as high.
     let data = signal(items(30));
     app.mount(move || {
-        List::new(
-            data,
-            |i: &Item| i.id,
-            |i| {
-                let text = if i.id.is_multiple_of(3) { format!("{}\nmore", i.name) } else { i.name };
-                Text::new(text)
-            },
-        )
-        .height(200)
-        .test_id("list")
+        List::new(data, |i: &Item| i.id, |i| row(i.name, if i.id.is_multiple_of(3) { 40.0 } else { 20.0 }))
+            .height(200)
+            .test_id("list")
     });
     app.settle().await;
 
-    let frame = |id: u32| {
-        let name = if id.is_multiple_of(3) { format!("Item {id}\nmore") } else { format!("Item {id}") };
-        app.get_by_role(Role::ListItem, &name).frame()
-    };
-    assert_eq!(frame(0), Rect::new(0.0, 0.0, 800.0, 40.0));
-    assert_eq!(frame(1), Rect::new(0.0, 40.0, 800.0, 20.0));
-    assert_eq!(frame(3), Rect::new(0.0, 80.0, 800.0, 40.0));
+    assert_eq!(place(&app, "Item 0"), (0.0, 0.0, 40.0));
+    assert_eq!(place(&app, "Item 1"), (0.0, 40.0, 20.0));
+    assert_eq!(place(&app, "Item 3"), (0.0, 80.0, 40.0));
 
     // Scrolling to the end measures every row on the way.
     app.get_by_test_id("list").scroll_by(0.0, 1e6).await;
@@ -242,7 +243,7 @@ async fn rows_mount_in_view_macro_form(app: TestApp) {
     app.mount(move || {
         view! {
             <List each=data key=|i: &Item| i.id selected=selected height=100 let:item>
-                <Text>{item.name}</Text>
+                <Container height=20><Text>{item.name}</Text></Container>
             </List>
         }
     });

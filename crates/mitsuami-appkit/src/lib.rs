@@ -3,6 +3,7 @@
 //! - Containers are flipped `NSView`s that do no layout of their own; the
 //!   core positions every child with `setFrame:`.
 //! - Leaf widgets are stock AppKit controls, measured through their cells.
+//! - Lists are view-based `NSTableView`s whose cells are the core's row hosts.
 //! - Escape hatches: [`NativeRender`] for custom widgets, [`NativeView`]
 //!   for any `NSView`, and a rasterizer for drawn custom widgets.
 //! - Control actions and delegate callbacks become [`UiEvent`](mitsuami_core::UiEvent)s.
@@ -17,6 +18,8 @@ mod backend;
 mod classes;
 #[cfg(target_os = "macos")]
 mod custom;
+#[cfg(target_os = "macos")]
+mod list;
 #[cfg(target_os = "macos")]
 mod services;
 

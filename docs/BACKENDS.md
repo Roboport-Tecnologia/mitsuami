@@ -74,7 +74,7 @@ Validate as you go. Panic on protocol violations such as an unknown node, a doub
 | `Checkbox` | `NSButton` checkbox | `gtk::CheckButton` | `CheckBox` | `QQC2.CheckBox` |
 | `Switch` | `NSSwitch` | `gtk::Switch` | `ToggleSwitch` | `QQC2.Switch` |
 | `ScrollView` | `NSScrollView` | `gtk::ScrolledWindow` | `ScrollViewer` | `QQC2.ScrollView` around a `Flickable` |
-| `List` (§8b) | view-based `NSTableView` in an `NSScrollView` (to do) | `gtk::ListView` (to do) | `ListView` (to do) | QML `ListView` over a model (to do) |
+| `List` (§8b) | view-based `NSTableView` in an `NSScrollView` | `gtk::ListView` (to do) | `ListView` (to do) | QML `ListView` over a model (to do) |
 | `Custom` (native render) | the render's view (`NativeRender`) | the render's widget (`mitsuami_gtk::NativeRender`) | the render's element | the render's item |
 | `Custom` (drawn) | `DrawnView`: flipped `NSView` that rasterizes the display list | a `gtk::DrawingArea` rasterized with Cairo | a `Canvas` with Win2D, or `Microsoft.UI.Composition` shapes | a `QQuickPaintedItem` painted with `QPainter` |
 | `Native` | the app's `NSView` (`NativeView::appkit`) | the app's `gtk::Widget` (`NativeView::gtk`) | the app's `FrameworkElement` | the app's QML item (`NativeView::qml`) |
@@ -211,7 +211,7 @@ Also:
 A `List` is the platform's list control: it scrolls, recycles cells, and draws and handles the selection. The core owns what's in the rows. **Both work from one table of row heights, so they agree on where every row is.**
 
 - **The data is `Prop::Rows`:** every row's `RowKey` and height, in order. Only a few rows are mounted: the core works out which rows are in view, or within a viewport of it, and builds those. Each one is a `Container` with `Prop::Row(key)`, inserted as the List's native child. The List's native children are the mounted rows' hosts, in row order.
-- **Your model is the keys.** When `Rows` changes, diff the keys into native inserts, removes and moves (not a reload), so the selection and scroll position follow the rows. When only heights change, tell the list to re-read them (`noteHeightOfRowsWithIndexesChanged:` and its equivalents).
+- **Your model is the keys.** When `Rows` changes, the selection must follow the rows, not their indexes: diff the keys into native inserts, removes and moves, or reload and select the rows that stayed selected (AppKit reloads). Report `Changed(Rows)` if selected rows went. When only heights change, tell the list to re-read them (`noteHeightOfRowsWithIndexesChanged:` and its equivalents), without animating.
 - **Rows are exactly as high as `Rows` says, one right below the other.** Turn off spacing between rows, cell padding, minimum row heights and insets. Selection highlights stay native. If the rows can't span the list's width (legacy scroll bars), report the width they get with `RowWidth`: the core lays rows out at that width.
 - **Cells:** when the platform asks for a row's cell, give it that row's host if the core mounted it, or else an empty cell of the row's height. When a host arrives (`Insert`) for a row whose cell exists, put it in the cell; otherwise keep it until the platform asks. A host's `SetFrame` gives its size; its position is the platform's to set.
 - **Callbacks come at any time.** A table can ask for cells, heights and counts in the middle of your own `apply` (a reload, a scroll, a resize). Keep the list's data (keys, heights, key → host) in a small `Rc<RefCell<…>>` of its own that the data source reads, never your backend's main state or the `Ui`, and only `emit` from there.

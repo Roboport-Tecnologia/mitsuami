@@ -60,4 +60,47 @@ async fn agree(app: &TestApp) {
     app.expect(by_role(Role::Button, "Sign up")).to_be_enabled().await;
 }
 
+#[derive(Clone)]
+struct Contact {
+    id: u32,
+    name: &'static str,
+    email: &'static str,
+}
+
+const CONTACTS: [Contact; 8] = [
+    Contact { id: 1, name: "Ada Lovelace", email: "ada@example.com" },
+    Contact { id: 2, name: "Alan Turing", email: "alan@example.com" },
+    Contact { id: 3, name: "Grace Hopper", email: "grace@example.com" },
+    Contact { id: 4, name: "Edsger Dijkstra", email: "edsger@example.com" },
+    Contact { id: 5, name: "Barbara Liskov", email: "barbara@example.com" },
+    Contact { id: 6, name: "Donald Knuth", email: "don@example.com" },
+    Contact { id: 7, name: "Frances Allen", email: "fran@example.com" },
+    Contact { id: 8, name: "John Backus", email: "john@example.com" },
+];
+
+/// A list with a selected row, cut off at the bottom: the platform draws the
+/// rows' selection and the scroll bar.
+#[mitsuami_test::story(sizes = [(280, fit)], play = select_grace)]
+fn list() -> impl View {
+    let selected = signal(Vec::<u32>::new());
+    Column::new().child(
+        List::new(
+            || CONTACTS.to_vec(),
+            |c: &Contact| c.id,
+            |c| {
+                Column::new()
+                    .padding_x(12)
+                    .padding_y(6)
+                    .children((Text::new(c.name), Text::new(c.email).text_style(TextStyle::Caption)))
+            },
+        )
+        .selected(selected)
+        .height(180),
+    )
+}
+
+async fn select_grace(app: &TestApp) {
+    app.get_by_role(Role::ListItem, "Grace Hopper grace@example.com").select().await;
+}
+
 mitsuami_test::main!();

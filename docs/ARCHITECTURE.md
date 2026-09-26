@@ -728,6 +728,16 @@ Things the AppKit backend taught us, some of them now part of the contract:
 - **Synthesized clicks** (`SyntheticInput::Click`) are for drawn widgets only. Native controls track the mouse in a loop of their own, waiting for real events; tests drive them with accessibility actions.
 - The drawn render sizes its stars from the body font, so it sits close to the native rating control. Headless wireframes draw display lists, so drawn widgets show up in reviews without pixels.
 
+### M7 on AppKit (lists)
+
+- **A view-based `NSTableView`, one column and no header, in an `NSScrollView`.** Plain style (`NSTableViewStylePlain`), no intercell spacing, fixed row heights from `tableView:heightOfRow:`: rows are exactly as high as the core says, so `rectOfRow:` matches the core's frames, which the mirror check compares.
+- **Cells are the row hosts.** `tableView:viewForTableColumn:row:` returns the row's host if the core mounted it, or else an empty view; a host that arrives later reloads its row. The data source and delegate only read the list's own data (keys, heights, hosts) and emit: the table calls them in the middle of `apply`.
+- **Data changes reload, then reselect by key.** Height-only changes go through `noteHeightOfRowsWithIndexesChanged:` with animations off.
+- **Return activates the selected row** (a table subclass's `keyDown:`), as it opens the selected item in Finder and Mail; double-click is the table's `doubleAction`. Home and End only scroll, as in every AppKit list.
+- **No automatic content insets.** `NSScrollView` insets its content for the title bar on its own (`automaticallyAdjustsContentInsets`), which showed once a fit-height window shrank: content drawn a title bar's height up while the offset still said 0. Scroll views and lists turn it off; the core places them.
+- **Captures lay the window out first** (`layoutSubtreeIfNeeded`): tables place their row views in a layout pass, which offscreen windows only get when asked.
+- **Known gap: captures show no row selection.** macOS 26's `NSTableRowView` sets its selection on its layer instead of drawing it, and `cacheDisplayInRect:` only runs views' drawing code. The selection itself is real (the tests check it natively); only baselines miss it.
+
 ### M2 (GTK 4)
 
 What the GTK 4 backend taught us:

@@ -11,8 +11,8 @@ use mitsuami_core::backend::{
 };
 use mitsuami_core::units::SpacingScale;
 use mitsuami_core::{
-    ButtonVariant, Command, CustomProps, EventValue, NodeId, Opaque, Point, Prop, Rect, ScrollAxes, Size, TextStyle,
-    UiEvent, WidgetKind, find_prop,
+    ButtonVariant, Command, CustomProps, EventValue, NodeId, Opaque, Point, Prop, Rect, RowKey, ScrollAxes,
+    SelectionMode, Size, TextStyle, UiEvent, WidgetKind, find_prop,
 };
 use objc2::rc::Retained;
 use objc2::runtime::{AnyObject, ProtocolObject};
@@ -65,6 +65,7 @@ enum Widget {
     Checkbox(Retained<NSButton>),
     Switch(Retained<NSSwitch>),
     Scroll(Retained<NSScrollView>),
+    List(crate::list::List),
     /// A custom widget with an AppKit render, and the props it last got.
     Custom {
         view: Retained<NSView>,
@@ -95,6 +96,7 @@ impl Widget {
             Widget::Button(v) | Widget::Checkbox(v) => v,
             Widget::Switch(v) => v,
             Widget::Scroll(v) => v,
+            Widget::List(list) => &list.scroll,
             Widget::Custom { view, .. } | Widget::Native { view, .. } => view,
             Widget::Drawn { view, .. } => view,
         }
@@ -108,9 +110,19 @@ impl Widget {
             Widget::Window { .. }
             | Widget::Host(_)
             | Widget::Scroll(_)
+            | Widget::List(_)
             | Widget::Custom { .. }
             | Widget::Drawn { .. }
             | Widget::Native { .. } => None,
+        }
+    }
+
+    /// The view that takes keyboard focus: a list's table, not its scroll
+    /// view.
+    fn key_view(&self) -> Retained<NSView> {
+        match self {
+            Widget::List(list) => Retained::into_super(Retained::into_super(Retained::into_super(list.table.clone()))),
+            widget => widget.view().retain(),
         }
     }
 }
@@ -123,6 +135,8 @@ struct Node {
     /// Action targets of native renders and native views.
     _targets: Vec<Retained<ClosureTarget>>,
     parent: Option<NodeId>,
+    /// Row hosts: which row of their list they show.
+    row: Option<RowKey>,
     /// Props AppKit can't report back faithfully.
     text_style: Option<TextStyle>,
     variant: Option<ButtonVariant>,
@@ -314,6 +328,7 @@ impl State {
                 | WidgetKind::Switch
                 | WidgetKind::TextInput
                 | WidgetKind::ScrollView
+                | WidgetKind::List
         )
         .then(|| ActionTarget::new(mtm, id, kind, self.events.clone()));
         let action = Some(sel!(fire:));
@@ -423,23 +438,18 @@ impl State {
                 let scroll = NSScrollView::initWithFrame(NSScrollView::alloc(mtm), crate::classes::zero_rect());
                 scroll.setDrawsBackground(false);
                 scroll.setAutohidesScrollers(true);
-                let clip = scroll.contentView();
-                clip.setPostsBoundsChangedNotifications(true);
-                if let Some(target) = &target {
-                    // SAFETY: the target is removed as an observer when the node is destroyed.
-                    unsafe {
-                        NSNotificationCenter::defaultCenter().addObserver_selector_name_object(
-                            target,
-                            sel!(scrolled:),
-                            Some(NSViewBoundsDidChangeNotification),
-                            Some(&clip),
-                        );
-                    }
-                }
+                // The core places the content; AppKit mustn't inset it for
+                // the title bar on top of that.
+                scroll.setAutomaticallyAdjustsContentInsets(false);
+                observe_scrolling(&scroll, target.as_deref());
                 Widget::Scroll(scroll)
             }
+            WidgetKind::List => {
+                let list = crate::list::List::new(mtm, id, self.events.clone());
+                observe_scrolling(&list.scroll, target.as_deref());
+                Widget::List(list)
+            }
             WidgetKind::Fragment => violation(command, "fragments are core-only"),
-            WidgetKind::List => violation(command, "List isn't implemented by this backend yet"),
         };
         // The core assumes new nodes start with a zero frame and only sends
         // frames that differ; AppKit controls come with their own.
@@ -449,7 +459,16 @@ impl State {
         self.by_view.borrow_mut().insert(key(widget.view()), id);
         self.nodes.insert(
             id,
-            Node { kind, widget, _target: target, _targets: targets, parent: None, text_style: None, variant: None },
+            Node {
+                kind,
+                widget,
+                _target: target,
+                _targets: targets,
+                parent: None,
+                row: None,
+                text_style: None,
+                variant: None,
+            },
         );
     }
 
@@ -478,6 +497,10 @@ impl State {
                 w.control().unwrap().setFont(Some(&font(*style)));
                 node.text_style = Some(*style);
             }
+            (Prop::Rows(rows), Widget::List(list)) => list.set_rows(rows.clone()),
+            (Prop::SelectionMode(mode), Widget::List(list)) => list.set_mode(*mode),
+            (Prop::Selected(rows), Widget::List(list)) => list.set_selected(rows),
+            (Prop::Row(row), Widget::Host(_)) => node.row = Some(*row),
             (Prop::ScrollAxes(axes), Widget::Scroll(scroll)) => {
                 scroll.setHasVerticalScroller(axes.vertical());
                 scroll.setHasHorizontalScroller(axes.horizontal());
@@ -542,6 +565,14 @@ impl State {
                     self.nodes.get_mut(child).unwrap().parent = Some(*parent);
                     return;
                 }
+                if let Widget::List(list) = &self.nodes[parent].widget {
+                    let Some(row) = self.nodes[child].row else {
+                        violation(command, "a List's children are row hosts (Containers with a Prop::Row)")
+                    };
+                    list.insert(row, *child, child_view);
+                    self.nodes.get_mut(child).unwrap().parent = Some(*parent);
+                    return;
+                }
                 let siblings = parent_view.subviews();
                 if *index >= siblings.len() {
                     parent_view.addSubview(&child_view);
@@ -561,6 +592,7 @@ impl State {
                 }
                 match &self.nodes[parent].widget {
                     Widget::Scroll(scroll) => scroll.setDocumentView(None),
+                    Widget::List(list) => list.remove(self.nodes[child].row.expect("inserted with a row")),
                     _ => self.view(*child, command).removeFromSuperview(),
                 }
                 self.nodes.get_mut(child).unwrap().parent = None;
@@ -579,10 +611,28 @@ impl State {
                         window.setDelegate(None);
                         window.close();
                     }
+                    Widget::List(list) => {
+                        list.detach();
+                        list.scroll.removeFromSuperview();
+                    }
                     widget => widget.view().removeFromSuperview(),
                 }
             }
             Command::SetFrame { id, frame } => {
+                let rect = NSRect::new(
+                    NSPoint::new(frame.x() as f64, frame.y() as f64),
+                    NSSize::new(frame.width() as f64, frame.height() as f64),
+                );
+                if let Some(Widget::List(list)) = self.nodes.get(id).map(|n| &n.widget) {
+                    list.set_frame(rect);
+                    return;
+                }
+                // A row's place is the table's to decide; only its size is ours.
+                if let Some(Widget::List(_)) = self.nodes.get(id).and_then(|n| n.parent).map(|p| &self.nodes[&p].widget)
+                {
+                    self.view(*id, command).setFrameSize(rect.size);
+                    return;
+                }
                 let view = self.view(*id, command);
                 // Layout places what the user sees, the alignment rect, as
                 // Auto Layout does; controls draw their bezels inset from
@@ -618,10 +668,16 @@ impl State {
                 // navigation setting).
                 for old in self.focus_orders.remove(window).unwrap_or_default() {
                     if let Some(node) = self.nodes.get(&old) {
-                        unsafe { node.widget.view().setNextKeyView(None) };
+                        unsafe { node.widget.key_view().setNextKeyView(None) };
                     }
                 }
-                let views: Vec<Retained<NSView>> = order.iter().map(|id| self.view(*id, command)).collect();
+                let views: Vec<Retained<NSView>> = order
+                    .iter()
+                    .map(|id| match self.nodes.get(id) {
+                        Some(node) => node.widget.key_view(),
+                        None => violation(command, &format!("node {id} does not exist")),
+                    })
+                    .collect();
                 for (i, view) in views.iter().enumerate() {
                     let next = &views[(i + 1) % views.len()];
                     unsafe { view.setNextKeyView(Some(next)) };
@@ -631,14 +687,33 @@ impl State {
             }
             Command::ScrollTo { id, offset } => match self.nodes.get(id).map(|n| &n.widget) {
                 Some(Widget::Scroll(scroll)) => scroll_to(scroll, NSPoint::new(offset.x as f64, offset.y as f64)),
-                _ => violation(command, "not a ScrollView"),
+                Some(Widget::List(list)) => scroll_to(&list.scroll, NSPoint::new(offset.x as f64, offset.y as f64)),
+                _ => violation(command, "not a ScrollView or List"),
             },
             Command::Focus { id } => {
-                let view = self.view(*id, command);
+                let Some(node) = self.nodes.get(id) else { violation(command, "node does not exist") };
+                let view = node.widget.key_view();
                 if let Some(window) = view.window() {
                     window.makeFirstResponder(Some(&view));
                 }
             }
+        }
+    }
+}
+
+/// Reports a scroll view's clip view moving, through the node's target.
+fn observe_scrolling(scroll: &NSScrollView, target: Option<&ActionTarget>) {
+    let clip = scroll.contentView();
+    clip.setPostsBoundsChangedNotifications(true);
+    if let Some(target) = target {
+        // SAFETY: the target is removed as an observer when the node is destroyed.
+        unsafe {
+            NSNotificationCenter::defaultCenter().addObserver_selector_name_object(
+                target,
+                sel!(scrolled:),
+                Some(NSViewBoundsDidChangeNotification),
+                Some(&clip),
+            );
         }
     }
 }
@@ -651,12 +726,12 @@ fn scroll_to(scroll: &NSScrollView, origin: NSPoint) {
 }
 
 fn focused(widget: &Widget) -> bool {
-    let view = widget.view();
+    let view = widget.key_view();
     let Some(responder) = view.window().and_then(|w| w.firstResponder()) else { return false };
     match widget {
         // While editing, the window's field editor is first responder.
         Widget::Field(field) => field.currentEditor().is_some(),
-        _ => std::ptr::eq(&*responder as *const _ as *const NSView, view as *const NSView),
+        _ => std::ptr::eq(&*responder as *const _ as *const NSView, &*view as *const NSView),
     }
 }
 
@@ -739,12 +814,34 @@ impl Backend for AppKitBackend {
                 None => intrinsic(view),
             },
             // Measured by the core.
-            Widget::Drawn { .. } | Widget::Window { .. } | Widget::Host(_) | Widget::Scroll(_) => Size::ZERO,
+            Widget::Drawn { .. } | Widget::Window { .. } | Widget::Host(_) | Widget::Scroll(_) | Widget::List(_) => {
+                Size::ZERO
+            }
         };
         Size::new(request.known_width.unwrap_or(natural.width), request.known_height.unwrap_or(natural.height))
     }
 
     fn perform(&mut self, id: NodeId, action: &A11yAction) -> Result<(), ActionError> {
+        // A list's rows: select or activate them in the table. The table
+        // only calls back into its own data, never into our state.
+        {
+            let state = self.state.borrow();
+            let node = state.nodes.get(&id).ok_or(ActionError::UnknownNode)?;
+            if let (Some(row), Some(Widget::List(list))) =
+                (node.row, node.parent.and_then(|p| state.nodes.get(&p)).map(|p| &p.widget))
+            {
+                match action {
+                    A11yAction::Select if list.mode() != SelectionMode::None => {
+                        list.set_selected(&[row]);
+                        list.report_selection();
+                    }
+                    A11yAction::Activate => list.activate(row),
+                    A11yAction::ScrollIntoView => {}
+                    _ => return Err(ActionError::Unsupported),
+                }
+                return Ok(());
+            }
+        }
         let (widget_view, control_enabled, kind, events, custom) = {
             let state = self.state.borrow();
             let node = state.nodes.get(&id).ok_or(ActionError::UnknownNode)?;
@@ -788,8 +885,9 @@ impl Backend for AppKitBackend {
                 events.emit(id, UiEvent::Changed(EventValue::Text(text.clone())));
             }
             (A11yAction::Focus, _) => {
-                let window = widget_view.window().ok_or(ActionError::Unsupported)?;
-                if !window.makeFirstResponder(Some(&widget_view)) {
+                let view = self.state.borrow().nodes.get(&id).map(|n| n.widget.key_view()).unwrap_or(widget_view);
+                let window = view.window().ok_or(ActionError::Unsupported)?;
+                if !window.makeFirstResponder(Some(&view)) {
                     return Err(ActionError::Unsupported);
                 }
                 // The window delegate reports the focus change.
@@ -831,6 +929,7 @@ impl Backend for AppKitBackend {
         if let SyntheticInput::Scroll { dx, dy } = input {
             let scroll = match self.state.borrow().nodes.get(&id).map(|n| &n.widget) {
                 Some(Widget::Scroll(scroll)) => scroll.clone(),
+                Some(Widget::List(list)) => list.scroll.clone(),
                 Some(_) => return Err(ActionError::Unsupported),
                 None => return Err(ActionError::UnknownNode),
             };
@@ -848,6 +947,46 @@ impl Backend for AppKitBackend {
             return Ok(());
         }
         let SyntheticInput::Key(key) = input else { unreachable!() };
+        let table = match self.state.borrow().nodes.get(&id).map(|n| &n.widget) {
+            Some(Widget::List(list)) => Some(list.table.clone()),
+            _ => None,
+        };
+        if let Some(table) = table {
+            // Real key events, through the table's own key handling: arrows
+            // move the selection and scroll to it, Home and End scroll, and
+            // Return activates (ours).
+            let (code, character) = match key {
+                Key::Up => (126, '\u{f700}'),
+                Key::Down => (125, '\u{f701}'),
+                Key::Home => (115, '\u{f729}'),
+                Key::End => (119, '\u{f72b}'),
+                Key::Enter => (36, '\r'),
+                _ => return Err(ActionError::Unsupported),
+            };
+            let window = table.window().ok_or(ActionError::Unsupported)?;
+            window.makeFirstResponder(Some(&table));
+            let characters = ns(&character.to_string());
+            let flags = if *key == Key::Enter {
+                NSEventModifierFlags::empty()
+            } else {
+                NSEventModifierFlags::Function | NSEventModifierFlags::NumericPad
+            };
+            let event = NSEvent::keyEventWithType_location_modifierFlags_timestamp_windowNumber_context_characters_charactersIgnoringModifiers_isARepeat_keyCode(
+                NSEventType::KeyDown,
+                NSPoint::new(0.0, 0.0),
+                flags,
+                0.0,
+                window.windowNumber(),
+                None,
+                &characters,
+                &characters,
+                false,
+                code,
+            )
+            .ok_or(ActionError::Unsupported)?;
+            table.keyDown(&event);
+            return Ok(());
+        }
         let (view, kind) = {
             let state = self.state.borrow();
             let node = state.nodes.get(&id).ok_or(ActionError::UnknownNode)?;
@@ -934,7 +1073,12 @@ impl Backend for AppKitBackend {
                 props.push(Prop::Drawing(view.drawing()));
             }
             Widget::Native { last, .. } => props.push(Prop::Native(last.clone())),
-            Widget::Host(_) => {}
+            Widget::List(list) => {
+                props.push(Prop::Rows(list.native_rows()));
+                props.push(Prop::SelectionMode(list.mode()));
+                props.push(Prop::Selected(list.selected()));
+            }
+            Widget::Host(_) => props.extend(node.row.map(Prop::Row)),
         }
         if let Some(control) = node.widget.control() {
             props.push(Prop::Enabled(control.isEnabled()));
@@ -943,8 +1087,19 @@ impl Backend for AppKitBackend {
         props.extend(node.variant.map(Prop::Variant));
         let view = node.widget.view();
         let f = view.alignmentRectForFrame(view.frame());
+        let mut frame = Rect::new(f.origin.x as f32, f.origin.y as f32, f.size.width as f32, f.size.height as f32);
+        // A row is where the table put it.
+        if let (Some(row), Some(Widget::List(list))) =
+            (node.row, node.parent.and_then(|p| state.nodes.get(&p)).map(|p| &p.widget))
+        {
+            frame = list.row_rect(row).unwrap_or(frame);
+        }
         let by_view = state.by_view.borrow();
         let (children, scroll_offset) = match &node.widget {
+            Widget::List(list) => {
+                let origin = list.scroll.contentView().bounds().origin;
+                (list.children(), Some(Point::new(origin.x as f32, origin.y as f32)))
+            }
             Widget::Scroll(scroll) => {
                 let origin = scroll.contentView().bounds().origin;
                 (
@@ -957,7 +1112,7 @@ impl Backend for AppKitBackend {
         Some(NativeState {
             kind: node.kind,
             props,
-            frame: Rect::new(f.origin.x as f32, f.origin.y as f32, f.size.width as f32, f.size.height as f32),
+            frame,
             parent: node.parent,
             children,
             focused: focused(&node.widget),
@@ -982,6 +1137,9 @@ impl AppKitBackend {
             let state = self.state.borrow();
             state.nodes.get(&id).ok_or(CaptureError::UnknownNode)?.widget.view().retain()
         };
+        // Views that lay out their own subviews (a table's rows) do it in
+        // a layout pass, which offscreen windows only get when asked.
+        view.layoutSubtreeIfNeeded();
         let bounds = view.bounds();
         let rep = view
             .bitmapImageRepForCachingDisplayInRect(bounds)
