@@ -740,6 +740,16 @@ Things the AppKit backend taught us, some of them now part of the contract:
 - **Captures lay the window out first** (`layoutSubtreeIfNeeded`), for the same reason.
 - **Known gap: captures show no row selection.** macOS 26's `NSTableRowView` sets its selection on its layer instead of drawing it, and `cacheDisplayInRect:` only runs views' drawing code. The selection itself is real (the tests check it natively); only baselines miss it.
 
+### M7 on GTK (lists)
+
+- **A `gtk::ListView` in a `ScrolledWindow`, over a `gio::ListStore` of row keys,** with `NoSelection`, `SingleSelection` or `MultiSelection` around it. A `SingleSelection` only takes `set_selected` (`set_selection` does nothing), and a splice that replaces items drops their selection even when the same keys come back, so the backend reselects by key after every data change.
+- **Rows are the factory's binds.** Each item's child is a box that takes the row's host when it arrives and is as high as the estimate until then: empty cells would be 0px high, and GTK would bind every row. GTK binds and unbinds during layout, and unbinds and rebinds a row it keeps when the model changes, so the rows bound are compared with the rows reported once the main loop is idle, and only the difference is reported: rows that stay keep their state.
+- **Data changes are one splice**, of the part between the rows that stayed at the start and at the end.
+- **GTK prepares about 200 rows** (GtkListView keeps that many item widgets), and keeps its cursor row and selected rows bound wherever it scrolls. When rows are inserted above the view, it scrolls to keep the rows in view where they were.
+- **Rows it keeps but doesn't place** (only the rows in view are allocated) are positioned from the nearest placed row and the heights of the rows between.
+- **Tests allocate lists on settle.** List views bind and place rows when allocated, at the next frame, and on a Broadway display nobody watches frames stall after a paint (§ M2): waiting for a frame timed out. `settle` allocates each changed list's scrolled window again at its frame, as its host does, which lays the list view out synchronously.
+- **No key events, no key signals:** GTK 4 can't inject keys and its list keyboard handling has no signals to emit, so synthesized arrows, Home, End and Enter do what it does: move the selection and show it, or activate. `list.scroll-to-item` scrolls to a row (`ListView::scroll_to` needs GTK 4.12). Row padding is reset with CSS (`listview.mitsuami-list > row`).
+
 ### M2 (GTK 4)
 
 What the GTK 4 backend taught us:

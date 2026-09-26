@@ -3,6 +3,7 @@
 //! - Containers are a small widget subclass that does no layout of its own;
 //!   it allocates every child at the frame the core computed.
 //! - Leaf widgets are stock GTK widgets, measured with `gtk_widget_measure`.
+//! - Lists are `gtk::ListView`s whose items hold the core's row hosts.
 //! - Escape hatches: [`NativeRender`] for custom widgets, [`NativeView`] for
 //!   any GTK widget, and a Cairo rasterizer for drawn custom widgets.
 //! - Signals become [`UiEvent`](mitsuami_core::UiEvent)s.
@@ -21,6 +22,8 @@ mod custom;
 mod display;
 #[cfg(target_os = "linux")]
 mod host;
+#[cfg(target_os = "linux")]
+mod list;
 #[cfg(target_os = "linux")]
 mod services;
 

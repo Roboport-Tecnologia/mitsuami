@@ -4,8 +4,8 @@
 //!
 //! Rows here are 20px high, in a 100px list: 5 rows show. Which others the
 //! platform prepares is its business (headless prepares none, AppKit a
-//! few), so the suite checks what every platform does: the rows in view are
-//! mounted, and rows far away aren't. It runs natively as well, so it only
+//! few, GTK about 200), so the suite checks what every platform does: the
+//! rows in view are mounted, and rows far away aren't. It runs natively as well, so it only
 //! relies on sizes the rows set themselves.
 
 use std::cell::{Cell, RefCell};
@@ -30,6 +30,16 @@ fn names(app: &TestApp) -> Vec<String> {
 
 fn mounted(app: &TestApp, id: u32) -> bool {
     names(app).contains(&format!("Item {id}"))
+}
+
+/// The rows in view, top to bottom.
+fn in_view(app: &TestApp) -> Vec<u32> {
+    app.a11y_tree()
+        .walk()
+        .into_iter()
+        .filter(|n| n.role == Role::ListItem && app.ui().visible_rect(n.id).is_some_and(|r| !r.size.is_empty()))
+        .filter_map(|n| n.name.as_deref()?.strip_prefix("Item ")?.parse().ok())
+        .collect()
 }
 
 /// Mounted, and in view.
@@ -60,7 +70,7 @@ async fn only_the_rows_near_the_viewport_are_mounted(app: TestApp) {
 
     assert!((0..5).all(|id| shows(&app, id)), "the 5 rows in view");
     assert!(!shows(&app, 5));
-    assert!(names(&app).len() < 30, "{} rows mounted", names(&app).len());
+    assert!(names(&app).len() < 250, "{} rows mounted", names(&app).len());
     assert!(!mounted(&app, 500));
     assert_eq!(place(&app, "Item 3"), (0.0, 60.0, 20.0));
 }
@@ -71,12 +81,18 @@ async fn scrolling_mounts_the_rows_coming_into_view_and_drops_the_rest(app: Test
     app.mount(move || simple_list(data));
     app.settle().await;
 
-    app.get_by_test_id("list").scroll_by(0.0, 400.0).await;
+    // Far down: which rows exactly depends on the platform's guesses for
+    // the rows it skipped (AppKit approximates long tables).
+    app.get_by_test_id("list").scroll_by(0.0, 10_000.0).await;
 
-    assert!((20..25).all(|id| shows(&app, id)), "the rows in view");
-    assert!(!shows(&app, 19) && !shows(&app, 25));
-    assert!(!mounted(&app, 0), "gone, with its native widgets");
-    assert_eq!(app.get_by_role(Role::ListItem, "Item 20").frame().y(), 0.0, "in window coordinates");
+    let rows = in_view(&app);
+    assert!(rows.len() >= 5 && rows[0] > 400, "rows in view: {rows:?}");
+    assert!(rows.windows(2).all(|w| w[1] == w[0] + 1), "rows in view: {rows:?}");
+    let top = app.get_by_role(Role::ListItem, format!("Item {}", rows[0])).frame();
+    assert!(top.y() <= 0.0 && top.y() + top.height() > 0.0, "the first covers the top edge, in window coordinates");
+    // Far from the view, gone with its native widgets. (Not row 0: GTK
+    // keeps its cursor row, and selected rows, bound wherever it scrolls.)
+    assert!(!mounted(&app, 250), "gone, with its native widgets");
 
     // To the end: the last row sits on the list's bottom edge. (The offset
     // is the platform's: it depends on its guesses for the rows skipped.)
@@ -113,10 +129,11 @@ async fn rows_keep_their_state_when_the_data_changes(app: TestApp) {
     data.update(|items| items.insert(0, Item { id: 100, name: "New".into() }));
     app.settle().await;
 
+    // The same row, with its state. (Where it is now is the platform's
+    // call: GTK keeps the rows in view where they were.)
     let item_2 = app.get_by_role(Role::Checkbox, "Item 2");
-    assert_eq!(item_2.id(), checkbox, "the same row, moved down");
+    assert_eq!(item_2.id(), checkbox);
     assert!(item_2.is_checked());
-    assert_eq!(item_2.frame().y(), 60.0);
 
     let before = disposed.get();
     data.update(|items| items.retain(|i| i.id != 2));
@@ -133,7 +150,7 @@ async fn unmounting_releases_every_row(app: TestApp) {
     app.mount(move || stateful_list(data, d));
     app.settle().await;
     let rows = app.a11y_tree().walk().into_iter().filter(|n| n.role == Role::ListItem).count() as u32;
-    assert!(rows < 30, "{rows} rows mounted");
+    assert!(rows < 250, "{rows} rows mounted");
 
     app.unmount();
 

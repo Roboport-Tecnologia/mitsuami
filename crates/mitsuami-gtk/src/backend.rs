@@ -15,8 +15,8 @@ use mitsuami_core::backend::{
 use mitsuami_core::services::Reply;
 use mitsuami_core::units::SpacingScale;
 use mitsuami_core::{
-    ButtonVariant, Command, CustomProps, EventValue, NodeId, Opaque, Point, Prop, Rect, ScrollAxes, Size, TextStyle,
-    UiEvent, WidgetKind, find_prop,
+    ButtonVariant, Command, CustomProps, EventValue, NodeId, Opaque, Point, Prop, Rect, RowKey, ScrollAxes,
+    SelectionMode, Size, TextStyle, UiEvent, WidgetKind, find_prop,
 };
 
 use crate::custom::{DrawnArea, Emitter, ErasedRender, GtkCx, NativePayload};
@@ -58,6 +58,7 @@ enum Widget {
         scrolled: gtk::ScrolledWindow,
         viewport: gtk::Viewport,
     },
+    List(crate::list::List),
     /// A custom widget with a GTK render, and the props it last got.
     Custom {
         widget: gtk::Widget,
@@ -90,6 +91,7 @@ impl Widget {
             Widget::Checkbox(w) => w.upcast_ref(),
             Widget::Switch(w) => w.upcast_ref(),
             Widget::Scroll { scrolled, .. } => scrolled.upcast_ref(),
+            Widget::List(list) => list.scrolled.upcast_ref(),
             Widget::Custom { widget, .. } | Widget::Native { widget, .. } => widget,
             Widget::Drawn { drawn, .. } => drawn.area.upcast_ref(),
         }
@@ -105,7 +107,16 @@ impl Widget {
 
     /// Measured, never laid out inside: controls and escape hatches.
     fn is_leaf(&self) -> bool {
-        !matches!(self, Widget::Window(_) | Widget::Host(_) | Widget::Scroll { .. })
+        !matches!(self, Widget::Window(_) | Widget::Host(_) | Widget::Scroll { .. } | Widget::List(_))
+    }
+
+    /// The widget that takes keyboard focus: a list's view, not its
+    /// scrolled window.
+    fn focus_widget(&self) -> gtk::Widget {
+        match self {
+            Widget::List(list) => list.view.clone().upcast(),
+            widget => widget.widget().clone(),
+        }
     }
 }
 
@@ -113,6 +124,8 @@ struct Node {
     kind: WidgetKind,
     widget: Widget,
     parent: Option<NodeId>,
+    /// Row hosts: which row of their list they show.
+    row: Option<RowKey>,
     /// Props GTK can't report back faithfully.
     text_style: Option<TextStyle>,
     variant: Option<ButtonVariant>,
@@ -133,6 +146,9 @@ pub(crate) struct State {
     pending_show: Vec<NodeId>,
     /// The app's menu, installed in every window, current and future.
     pub(crate) menu: Option<MenuParts>,
+    /// A list changed (its rows, a row's size, its scroll position): the
+    /// list view must lay out again before its rows are known.
+    lists_dirty: Cell<bool>,
 }
 
 impl Drop for State {
@@ -277,6 +293,7 @@ impl GtkBackend {
                 log: Vec::new(),
                 pending_show: Vec::new(),
                 menu: None,
+                lists_dirty: Cell::new(false),
             })),
         }
     }
@@ -332,6 +349,38 @@ impl GtkHandle {
                 window.present();
             }
         }
+    }
+
+    /// Lets list views that changed lay out now, rather than at the next
+    /// frame: they bind rows (and place them) when allocated, and on a
+    /// display nobody watches, frames stall. Each list's scrolled window is
+    /// allocated again at its frame, as its host does; then the rows the
+    /// list views report are delivered.
+    fn layout_lists(&self) {
+        let lists: Vec<(gtk::ScrolledWindow, Rect)> = {
+            let state = self.state.borrow();
+            if !state.lists_dirty.replace(false) {
+                return;
+            }
+            let frames = state.frames.borrow();
+            state
+                .nodes
+                .values()
+                .filter_map(|n| match &n.widget {
+                    Widget::List(list) if list.scrolled.is_mapped() => {
+                        let frame = frames.get(list.scrolled.upcast_ref::<gtk::Widget>()).copied()?;
+                        Some((list.scrolled.clone(), frame))
+                    }
+                    _ => None,
+                })
+                .collect()
+        };
+        for (scrolled, frame) in lists {
+            scrolled.measure(gtk::Orientation::Horizontal, -1);
+            let transform = gsk::Transform::new().translate(&graphene::Point::new(frame.x(), frame.y()));
+            scrolled.allocate(frame.width().round() as i32, frame.height().round() as i32, -1, Some(transform));
+        }
+        self.pump();
     }
 
     /// Dispatches whatever the GTK main context has ready, without waiting.
@@ -426,6 +475,7 @@ impl mitsuami_core::TestHooks for GtkHandle {
     fn settle(&self) {
         self.show_pending_windows();
         self.pump();
+        self.layout_lists();
     }
 }
 
@@ -546,12 +596,21 @@ impl State {
                 Widget::Scroll { scrolled, viewport }
             }
             WidgetKind::Fragment => violation(command, "fragments are core-only"),
-            WidgetKind::List => violation(command, "List isn't implemented by this backend yet"),
+            WidgetKind::List => Widget::List(crate::list::List::new(id, events.clone())),
         };
         self.by_widget.borrow_mut().insert(widget.widget().clone(), id);
         self.nodes.insert(
             id,
-            Node { kind, widget, parent: None, text_style: None, variant: None, switch_label: None, settings_handlers },
+            Node {
+                kind,
+                widget,
+                parent: None,
+                row: None,
+                text_style: None,
+                variant: None,
+                switch_label: None,
+                settings_handlers,
+            },
         );
     }
 
@@ -661,6 +720,11 @@ impl State {
                 }
                 node.variant = Some(*variant);
             }
+            (Prop::Rows(rows), Widget::List(list)) => list.set_rows(rows.clone()),
+            (Prop::SelectionMode(mode), Widget::List(list)) => list.set_mode(*mode),
+            (Prop::Selected(rows), Widget::List(list)) => list.set_selected(rows),
+            (Prop::EstimatedRowHeight(height), Widget::List(list)) => list.set_estimate(*height),
+            (Prop::Row(row), Widget::Host(_)) => node.row = Some(*row),
             (Prop::ScrollAxes(axes), Widget::Scroll { scrolled, .. }) => {
                 let policy = |on: bool| if on { gtk::PolicyType::Automatic } else { gtk::PolicyType::Never };
                 scrolled.set_policy(policy(axes.horizontal()), policy(axes.vertical()));
@@ -750,6 +814,12 @@ impl State {
                         }
                         viewport.set_child(Some(&child_widget));
                     }
+                    Some(Widget::List(list)) => {
+                        let Some(row) = self.nodes[child].row else {
+                            violation(command, "a List's children are row hosts (Containers with a Prop::Row)")
+                        };
+                        list.insert(row, *child, child_widget);
+                    }
                     _ => {
                         let parent_widget = self.widget(*parent, command);
                         let mut before = parent_widget.first_child();
@@ -768,6 +838,7 @@ impl State {
                 }
                 match &self.nodes[parent].widget {
                     Widget::Scroll { viewport, .. } => viewport.set_child(None::<&gtk::Widget>),
+                    Widget::List(list) => list.remove(self.nodes[child].row.expect("inserted with a row")),
                     _ => self.widget(*child, command).unparent(),
                 }
                 self.nodes.get_mut(child).unwrap().parent = None;
@@ -801,6 +872,11 @@ impl State {
                 // Hosts ask for their frame size, so their parents must
                 // measure again, not just reallocate.
                 widget.queue_resize();
+                if let Some(Widget::List(list)) =
+                    self.nodes[id].parent.and_then(|p| self.nodes.get(&p)).map(|p| &p.widget)
+                {
+                    list.row_measured(frame.height());
+                }
                 if let Some((scrolled, viewport)) = self.scroll_of(&widget) {
                     sync_scroll(&self.frames, &scrolled, &viewport);
                 }
@@ -825,18 +901,31 @@ impl State {
                 parts.window.set_default_size(size.width as i32, size.height as i32 + parts.header_height);
             }
             Command::SetFocusOrder { window, order } => {
-                let widgets: Vec<gtk::Widget> = order.iter().map(|id| self.widget(*id, command)).collect();
+                let widgets: Vec<gtk::Widget> = order
+                    .iter()
+                    .map(|id| match self.nodes.get(id) {
+                        Some(node) => node.widget.focus_widget(),
+                        None => violation(command, &format!("node {id} does not exist")),
+                    })
+                    .collect();
                 let (_, root) = self.window_root(*window, command);
                 *root.focus_order.borrow_mut() = widgets;
             }
             Command::ScrollTo { id, offset } => match self.nodes.get(id).map(|n| &n.widget) {
                 Some(Widget::Scroll { scrolled, .. }) => scroll_to(scrolled, *offset),
-                _ => violation(command, "not a ScrollView"),
+                Some(Widget::List(list)) => scroll_to(&list.scrolled, *offset),
+                _ => violation(command, "not a ScrollView or List"),
             },
-            Command::Focus { id } => {
-                self.widget(*id, command).grab_focus();
-            }
-            Command::ScrollToRow { .. } => violation(command, "List isn't implemented by this backend yet"),
+            Command::Focus { id } => match self.nodes.get(id) {
+                Some(node) => {
+                    node.widget.focus_widget().grab_focus();
+                }
+                None => violation(command, "node does not exist"),
+            },
+            Command::ScrollToRow { id, row } => match self.nodes.get(id).map(|n| &n.widget) {
+                Some(Widget::List(list)) => list.scroll_to_row(*row),
+                _ => violation(command, "not a List"),
+            },
         }
     }
 }
@@ -912,6 +1001,9 @@ impl Backend for GtkBackend {
                 state.apply(command);
             }
         });
+        if state.nodes.values().any(|n| matches!(n.widget, Widget::List(_))) {
+            state.lists_dirty.set(true);
+        }
     }
 
     fn measure(&mut self, id: NodeId, request: MeasureRequest) -> Size {
@@ -923,12 +1015,35 @@ impl Backend for GtkBackend {
                 .unwrap_or_else(|| measure_widget(widget, false, request)),
             Widget::Native { widget, measure: Some(measure), .. } => measure(widget, &request),
             // Measured by the core.
-            Widget::Drawn { .. } | Widget::Window(_) | Widget::Host(_) | Widget::Scroll { .. } => Size::ZERO,
+            Widget::Drawn { .. } | Widget::Window(_) | Widget::Host(_) | Widget::Scroll { .. } | Widget::List(_) => {
+                Size::ZERO
+            }
             widget => measure_widget(widget.widget(), matches!(widget, Widget::Label(_)), request),
         }
     }
 
     fn perform(&mut self, id: NodeId, action: &A11yAction) -> Result<(), ActionError> {
+        // A list's rows: what GTK's own row actions do. Handlers only
+        // touch the list's data and emit.
+        {
+            let state = self.state.borrow();
+            let node = state.nodes.get(&id).ok_or(ActionError::UnknownNode)?;
+            if let (Some(row), Some(Widget::List(list))) =
+                (node.row, node.parent.and_then(|p| state.nodes.get(&p)).map(|p| &p.widget))
+            {
+                state.lists_dirty.set(true);
+                match action {
+                    A11yAction::Select if list.mode() != SelectionMode::None => list.select(row),
+                    A11yAction::Activate => list.activate(row),
+                    A11yAction::ScrollIntoView => {}
+                    _ => return Err(ActionError::Unsupported),
+                }
+                return Ok(());
+            }
+            if let (A11yAction::Focus, Widget::List(list)) = (action, &node.widget) {
+                return if list.view.grab_focus() { Ok(()) } else { Err(ActionError::Unsupported) };
+            }
+        }
         let (widget, kind, events, custom) = {
             let state = self.state.borrow();
             let node = state.nodes.get(&id).ok_or(ActionError::UnknownNode)?;
@@ -1015,6 +1130,10 @@ impl Backend for GtkBackend {
         if let SyntheticInput::Scroll { dx, dy } = input {
             let scrolled = match self.state.borrow().nodes.get(&id).map(|n| &n.widget) {
                 Some(Widget::Scroll { scrolled, .. }) => scrolled.clone(),
+                Some(Widget::List(list)) => {
+                    self.state.borrow().lists_dirty.set(true);
+                    list.scrolled.clone()
+                }
                 Some(_) => return Err(ActionError::Unsupported),
                 None => return Err(ActionError::UnknownNode),
             };
@@ -1033,6 +1152,40 @@ impl Backend for GtkBackend {
             return Ok(());
         }
         let SyntheticInput::Key(key) = input else { unreachable!() };
+        // Lists: GTK 4 can't inject key events, and its list keyboard
+        // handling has no signals to emit, so do what it does: arrows,
+        // Home and End move the selection and show it; Enter activates.
+        {
+            let state = self.state.borrow();
+            if let Some(Widget::List(list)) = state.nodes.get(&id).map(|n| &n.widget) {
+                state.lists_dirty.set(true);
+                if list.mode() == SelectionMode::None {
+                    return Err(ActionError::Unsupported);
+                }
+                list.view.grab_focus();
+                let rows = list.rows();
+                let selected = list.selected();
+                let current = selected.first().and_then(|k| rows.iter().position(|r| r == k));
+                if *key == Key::Enter {
+                    if let Some(row) = selected.first() {
+                        list.activate(*row);
+                    }
+                    return Ok(());
+                }
+                let last = rows.len().checked_sub(1);
+                let next = match (key, current) {
+                    (Key::Home, _) | (Key::Down, None) => rows.first().map(|_| 0),
+                    (Key::End, _) | (Key::Up, None) => last,
+                    (Key::Up, Some(i)) => Some(i.saturating_sub(1)),
+                    (Key::Down, Some(i)) => Some((i + 1).min(last.unwrap_or(0))),
+                    _ => return Err(ActionError::Unsupported),
+                };
+                if let Some(row) = next.map(|i| rows[i]) {
+                    list.select(row);
+                }
+                return Ok(());
+            }
+        }
         let (widget, kind, map) = {
             let state = self.state.borrow();
             let node = state.nodes.get(&id).ok_or(ActionError::UnknownNode)?;
@@ -1111,7 +1264,13 @@ impl Backend for GtkBackend {
                 props.push(Prop::Drawing(drawn.drawing()));
             }
             Widget::Native { last, .. } => props.push(Prop::Native(last.clone())),
-            Widget::Host(_) => {}
+            Widget::List(list) => {
+                props.push(Prop::Rows(list.rows()));
+                props.extend(list.estimate().map(Prop::EstimatedRowHeight));
+                props.push(Prop::SelectionMode(list.mode()));
+                props.push(Prop::Selected(list.selected()));
+            }
+            Widget::Host(_) => props.extend(node.row.map(Prop::Row)),
         }
         let widget = node.widget.widget();
         if node.widget.is_control() {
@@ -1126,8 +1285,14 @@ impl Backend for GtkBackend {
             }
             _ => state.frames.borrow().get(widget).copied().unwrap_or_default(),
         };
+        // A row is where the list view put it.
+        let frame = match (node.row, node.parent.and_then(|p| state.nodes.get(&p)).map(|p| &p.widget)) {
+            (Some(row), Some(Widget::List(list))) => list.row_rect(row, &state.frames).unwrap_or(frame),
+            _ => frame,
+        };
         let by_widget = state.by_widget.borrow();
         let (children, scroll_offset) = match &node.widget {
+            Widget::List(list) => (list.children(), Some(scroll_offset(&list.scrolled))),
             Widget::Scroll { scrolled, viewport } => (
                 viewport.child().and_then(|c| by_widget.get(&c).copied()).into_iter().collect(),
                 Some(scroll_offset(scrolled)),
@@ -1145,6 +1310,8 @@ impl Backend for GtkBackend {
         drop(by_widget);
         let focus = widget.root().and_then(|r| r.focus());
         let focused = !matches!(node.widget, Widget::Window(_)) && owning_node(&state.by_widget, focus) == Some(id);
+        // A list's focus is on its view, or on one of its rows' item
+        // widgets; a control in a row owns its own.
         Some(NativeState { kind: node.kind, props, frame, parent: node.parent, children, focused, scroll_offset })
     }
 
