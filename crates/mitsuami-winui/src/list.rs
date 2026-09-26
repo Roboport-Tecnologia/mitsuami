@@ -6,7 +6,8 @@
 //! realised (`RowShown`, `RowHidden`), comparing them with the rows
 //! reported once the dispatcher is free (and at the end of each `apply`),
 //! so a row whose container is recycled and realised again at once keeps
-//! its state. Each container's content is a `Canvas` cell that holds the
+//! its state. Each container's content is a `Canvas` cell (the item
+//! template's root) that holds the
 //! row's host once the core sends it, and is as high as it, or the
 //! estimate until then.
 //!
@@ -27,6 +28,12 @@ use crate::later;
 
 type R<T> = windows_core::Result<T>;
 
+/// Each container shows a `Canvas`, our cell: XAML creates it from the
+/// item template (content set on a container directly is replaced by the
+/// item when XAML prepares it).
+const ITEM_TEMPLATE: &str =
+    r#"<DataTemplate xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"><Canvas/></DataTemplate>"#;
+
 /// Rows exactly as high as their cells, with nothing around them.
 const ITEM_STYLE: &str = r#"<Style xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation" TargetType="ListViewItem">
     <Setter Property="Padding" Value="0"/>
@@ -45,9 +52,8 @@ struct Data {
     /// The mounted rows' hosts, and their heights.
     hosts: HashMap<RowKey, (NodeId, w::UIElement)>,
     heights: HashMap<RowKey, f64>,
-    /// Each container's cell (by COM identity), and the cells of the rows
-    /// realised, with how many containers each is realised in.
-    container_cells: HashMap<usize, w::Canvas>,
+    /// The cells of the rows realised, with how many containers each is
+    /// realised in.
     /// The row each container was last realised for.
     container_rows: HashMap<usize, RowKey>,
     cells: HashMap<RowKey, w::Canvas>,
@@ -127,6 +133,8 @@ impl List {
         let view = w::ListView::new()?;
         let style: w::Style = w::XamlReader::Load(ITEM_STYLE)?.cast()?;
         view.cast::<w::IItemsControl>()?.SetItemContainerStyle(&style)?;
+        let template: w::DataTemplate = w::XamlReader::Load(ITEM_TEMPLATE)?.cast()?;
+        view.cast::<w::IItemsControl>()?.SetItemTemplate(&template)?;
         let data = Rc::new(RefCell::new(Data::default()));
         let mut revokers = Vec::new();
 
@@ -137,21 +145,19 @@ impl List {
                 else {
                     return;
                 };
-                _ = args.SetHandled(true);
                 let (Ok(container), Some(key)) = (args.ItemContainer(), args.Item().ok().as_ref().and_then(key_of))
                 else {
                     return;
                 };
                 let recycled = args.InRecycleQueue().unwrap_or(false);
                 let mut d = data.borrow_mut();
-                let cell = match d.container_cells.get(&identity(&container)) {
-                    Some(cell) => cell.clone(),
-                    None => {
-                        let Ok(cell) = w::Canvas::new() else { return };
-                        _ = container.cast::<w::IContentControl>().and_then(|c| c.SetContent(&cell));
-                        d.container_cells.insert(identity(&container), cell.clone());
-                        cell
-                    }
+                let Some(cell) = container
+                    .cast::<w::IContentControl>()
+                    .and_then(|c| c.ContentTemplateRoot())
+                    .ok()
+                    .and_then(|root| root.cast::<w::Canvas>().ok())
+                else {
+                    return;
                 };
                 // XAML may reuse a container without recycling it first:
                 // whatever row it showed goes, either way.

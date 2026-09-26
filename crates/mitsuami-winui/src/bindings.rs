@@ -947,6 +947,30 @@ unsafe impl Send for DataReader {}
 unsafe impl Sync for DataReader {}
 #[repr(transparent)]
 #[derive(Clone, Debug, Eq, PartialEq)]
+pub struct DataTemplate(windows_core::IUnknown);
+windows_core::imp::interface_hierarchy!(DataTemplate, windows_core::IUnknown, windows_core::IInspectable);
+windows_core::imp::required_hierarchy!(DataTemplate, FrameworkTemplate, DependencyObject);
+impl windows_core::RuntimeType for DataTemplate {
+    const SIGNATURE: windows_core::imp::ConstBuffer =
+        windows_core::imp::ConstBuffer::for_class::<Self, IDataTemplate>();
+}
+unsafe impl windows_core::Interface for DataTemplate {
+    type Vtable = <IDataTemplate as windows_core::Interface>::Vtable;
+    const IID: windows_core::GUID = <IDataTemplate as windows_core::Interface>::IID;
+}
+impl core::ops::Deref for DataTemplate {
+    type Target = IDataTemplate;
+    fn deref(&self) -> &Self::Target {
+        unsafe { core::mem::transmute(self) }
+    }
+}
+impl windows_core::RuntimeName for DataTemplate {
+    const NAME: &'static str = "Microsoft.UI.Xaml.DataTemplate";
+}
+unsafe impl Send for DataTemplate {}
+unsafe impl Sync for DataTemplate {}
+#[repr(transparent)]
+#[derive(Clone, Debug, Eq, PartialEq)]
 pub struct DependencyObject(windows_core::IUnknown);
 windows_core::imp::interface_hierarchy!(DependencyObject, windows_core::IUnknown, windows_core::IInspectable);
 impl windows_core::RuntimeType for DependencyObject {
@@ -1599,6 +1623,30 @@ impl windows_core::RuntimeName for FrameworkElementAutomationPeer {
 }
 unsafe impl Send for FrameworkElementAutomationPeer {}
 unsafe impl Sync for FrameworkElementAutomationPeer {}
+#[repr(transparent)]
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct FrameworkTemplate(windows_core::IUnknown);
+windows_core::imp::interface_hierarchy!(FrameworkTemplate, windows_core::IUnknown, windows_core::IInspectable);
+windows_core::imp::required_hierarchy!(FrameworkTemplate, DependencyObject);
+impl windows_core::RuntimeType for FrameworkTemplate {
+    const SIGNATURE: windows_core::imp::ConstBuffer =
+        windows_core::imp::ConstBuffer::for_class::<Self, IFrameworkTemplate>();
+}
+unsafe impl windows_core::Interface for FrameworkTemplate {
+    type Vtable = <IFrameworkTemplate as windows_core::Interface>::Vtable;
+    const IID: windows_core::GUID = <IFrameworkTemplate as windows_core::Interface>::IID;
+}
+impl core::ops::Deref for FrameworkTemplate {
+    type Target = IFrameworkTemplate;
+    fn deref(&self) -> &Self::Target {
+        unsafe { core::mem::transmute(self) }
+    }
+}
+impl windows_core::RuntimeName for FrameworkTemplate {
+    const NAME: &'static str = "Microsoft.UI.Xaml.FrameworkTemplate";
+}
+unsafe impl Send for FrameworkTemplate {}
+unsafe impl Sync for FrameworkTemplate {}
 pub const GWL_EXSTYLE: i32 = -20;
 #[repr(transparent)]
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -2409,6 +2457,16 @@ impl IContentControl {
             .ok()
         }
     }
+    pub fn ContentTemplateRoot(&self) -> windows_core::Result<UIElement> {
+        unsafe {
+            let mut result__ = core::mem::zeroed();
+            (windows_core::Interface::vtable(self).ContentTemplateRoot)(
+                windows_core::Interface::as_raw(self),
+                &mut result__,
+            )
+            .and_then(|| windows_core::imp::Type::from_abi(result__))
+        }
+    }
 }
 #[repr(C)]
 pub struct IContentControl_Vtbl {
@@ -2416,6 +2474,14 @@ pub struct IContentControl_Vtbl {
     pub Content:
         unsafe extern "system" fn(*mut core::ffi::c_void, *mut *mut core::ffi::c_void) -> windows_core::HRESULT,
     pub SetContent: unsafe extern "system" fn(*mut core::ffi::c_void, *mut core::ffi::c_void) -> windows_core::HRESULT,
+    ContentTemplate: usize,
+    SetContentTemplate: usize,
+    ContentTemplateSelector: usize,
+    SetContentTemplateSelector: usize,
+    ContentTransitions: usize,
+    SetContentTransitions: usize,
+    pub ContentTemplateRoot:
+        unsafe extern "system" fn(*mut core::ffi::c_void, *mut *mut core::ffi::c_void) -> windows_core::HRESULT,
 }
 windows_core::imp::define_interface!(IContentDialog, IContentDialog_Vtbl, 0xac2145a3_4a32_5305_a81d_47509515bfce);
 impl windows_core::RuntimeType for IContentDialog {
@@ -2765,6 +2831,14 @@ pub struct IDataReaderStatics_Vtbl {
         *mut core::ffi::c_void,
         *mut *mut core::ffi::c_void,
     ) -> windows_core::HRESULT,
+}
+windows_core::imp::define_interface!(IDataTemplate, IDataTemplate_Vtbl, 0x08fa70fa_ee75_5e92_a101_f52d0e1e9fab);
+impl windows_core::RuntimeType for IDataTemplate {
+    const SIGNATURE: windows_core::imp::ConstBuffer = windows_core::imp::ConstBuffer::for_interface::<Self>();
+}
+#[repr(C)]
+pub struct IDataTemplate_Vtbl {
+    pub base__: windows_core::IInspectable_Vtbl,
 }
 windows_core::imp::define_interface!(IDependencyObject, IDependencyObject_Vtbl, 0xe7beaee7_160e_50f7_8789_d63463f979fa);
 impl windows_core::RuntimeType for IDependencyObject {
@@ -3341,6 +3415,18 @@ pub struct IFrameworkElementAutomationPeerStatics_Vtbl {
         *mut *mut core::ffi::c_void,
     ) -> windows_core::HRESULT,
 }
+windows_core::imp::define_interface!(
+    IFrameworkTemplate,
+    IFrameworkTemplate_Vtbl,
+    0x0084c7c2_de48_5b0b_8a5a_e4fb76b7f7d1
+);
+impl windows_core::RuntimeType for IFrameworkTemplate {
+    const SIGNATURE: windows_core::imp::ConstBuffer = windows_core::imp::ConstBuffer::for_interface::<Self>();
+}
+#[repr(C)]
+pub struct IFrameworkTemplate_Vtbl {
+    pub base__: windows_core::IInspectable_Vtbl,
+}
 windows_core::imp::define_interface!(IGeneralTransform, IGeneralTransform_Vtbl, 0x04eedeeb_31e5_54c0_ae3f_8bd06645d339);
 impl windows_core::RuntimeType for IGeneralTransform {
     const SIGNATURE: windows_core::imp::ConstBuffer = windows_core::imp::ConstBuffer::for_interface::<Self>();
@@ -3486,6 +3572,18 @@ impl IItemsControl {
                 .and_then(|| windows_core::imp::Type::from_abi(result__))
         }
     }
+    pub fn SetItemTemplate<P0>(&self, value: P0) -> windows_core::Result<()>
+    where
+        P0: windows_core::Param<DataTemplate>,
+    {
+        unsafe {
+            (windows_core::Interface::vtable(self).SetItemTemplate)(
+                windows_core::Interface::as_raw(self),
+                value.param().abi(),
+            )
+            .ok()
+        }
+    }
     pub fn SetItemContainerStyle<P0>(&self, value: P0) -> windows_core::Result<()>
     where
         P0: windows_core::Param<Style>,
@@ -3506,7 +3604,8 @@ pub struct IItemsControl_Vtbl {
     SetItemsSource: usize,
     pub Items: unsafe extern "system" fn(*mut core::ffi::c_void, *mut *mut core::ffi::c_void) -> windows_core::HRESULT,
     ItemTemplate: usize,
-    SetItemTemplate: usize,
+    pub SetItemTemplate:
+        unsafe extern "system" fn(*mut core::ffi::c_void, *mut core::ffi::c_void) -> windows_core::HRESULT,
     ItemTemplateSelector: usize,
     SetItemTemplateSelector: usize,
     ItemsPanel: usize,
