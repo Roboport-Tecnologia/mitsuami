@@ -13,8 +13,8 @@ use mitsuami_core::backend::{
 use mitsuami_core::services::{MenuBarData, MenuEntry, Reply};
 use mitsuami_core::units::SpacingScale;
 use mitsuami_core::{
-    AnyValue, ButtonVariant, Command, CustomProps, EventValue, NodeId, Opaque, Point, Prop, Rect, ScrollAxes, Size,
-    TextStyle, UiEvent, WidgetKind, find_prop,
+    AnyValue, ButtonVariant, Command, CustomProps, EventValue, NodeId, Opaque, Point, Prop, Rect, RowKey, ScrollAxes,
+    SelectionMode, Size, TextStyle, UiEvent, WidgetKind, find_prop,
 };
 use windows_core::{EventRevoker, HSTRING, IInspectable, IUnknown, Interface};
 
@@ -144,6 +144,7 @@ enum Widget {
     Checkbox(w::CheckBox),
     Switch(w::ToggleSwitch),
     Scroll(w::ScrollViewer),
+    List(crate::list::List),
     /// A custom widget with a native render, and the props it shows.
     Custom {
         render: Rc<dyn ErasedRender>,
@@ -179,6 +180,8 @@ struct Node {
     /// they don't get our frame directly.
     inner: Option<w::UIElement>,
     parent: Option<NodeId>,
+    /// Row hosts: which row of their list they show.
+    row: Option<RowKey>,
     revokers: Vec<EventRevoker>,
     /// The value the native widget is known to show, set by the core or
     /// reported to it. Change events that match it are programmatic.
@@ -515,6 +518,7 @@ impl mitsuami_core::TestHooks for WinUiHandle {
     /// call that caused them: dispatch them.
     fn settle(&self) {
         runtime::pump();
+        self.state.borrow().layout_lists();
         self.sync_focus();
         // MITSUAMI_SHOW_WINDOWS=1: tests have no run loop to show them.
         self.show_pending_windows();
@@ -1005,7 +1009,11 @@ impl State {
                 (Widget::Scroll(scroll), element)
             }
             WidgetKind::Fragment => violation(command, "fragments are core-only"),
-            WidgetKind::List => violation(command, "List isn't implemented by this backend yet"),
+            WidgetKind::List => {
+                let list = crate::list::List::new(id, emitter.clone())?;
+                let element = list.view.cast()?;
+                (Widget::List(list), element)
+            }
         };
         // The core assumes new nodes start with a zero frame and only sends
         // frames that differ.
@@ -1027,6 +1035,7 @@ impl State {
                 element,
                 inner,
                 parent: None,
+                row: None,
                 revokers,
                 shown_text,
                 shown_checked,
@@ -1116,6 +1125,11 @@ impl State {
                 node.text_style = Some(*text_style);
             }
             (Prop::ScrollAxes(axes), Widget::Scroll(s)) => set_scroll_axes(&s.cast()?, *axes)?,
+            (Prop::Rows(rows), Widget::List(list)) => list.set_rows(rows.clone())?,
+            (Prop::SelectionMode(mode), Widget::List(list)) => list.set_mode(*mode)?,
+            (Prop::Selected(rows), Widget::List(list)) => list.set_selected(rows)?,
+            (Prop::EstimatedRowHeight(height), Widget::List(list)) => list.set_estimate(*height),
+            (Prop::Row(row), Widget::Host(_)) => node.row = Some(*row),
             (Prop::Variant(variant), Widget::Button(b)) => {
                 let name = match variant {
                     ButtonVariant::Primary => "AccentButtonStyle",
@@ -1156,6 +1170,12 @@ impl State {
                     violation(command, "child is still attached");
                 }
                 match &self.nodes.get(parent).map(|n| &n.widget) {
+                    Some(Widget::List(list)) => {
+                        let Some(row) = self.nodes[child].row else {
+                            violation(command, "a List's children are row hosts (Containers with a Prop::Row)")
+                        };
+                        list.insert(row, *child, child_element.clone());
+                    }
                     Some(Widget::Scroll(scroll)) => {
                         let content = scroll.cast::<w::IContentControl>()?;
                         if content.Content().is_ok_and(|c| !c.as_raw().is_null()) {
@@ -1183,6 +1203,7 @@ impl State {
                 }
                 let child_element = self.element(*child, command);
                 match &self.nodes[parent].widget {
+                    Widget::List(list) => list.remove(self.nodes[child].row.expect("inserted with a row")),
                     Widget::Scroll(scroll) => scroll.cast::<w::IContentControl>()?.SetContent(None::<&IInspectable>)?,
                     _ => {
                         let children = self.children(*parent, command)?;
@@ -1217,6 +1238,11 @@ impl State {
                 let fe: w::IFrameworkElement = element.cast()?;
                 fe.SetWidth(frame.width() as f64)?;
                 fe.SetHeight(frame.height() as f64)?;
+                if let (Some(row), Some(Widget::List(list))) =
+                    (self.nodes[id].row, self.nodes[id].parent.and_then(|p| self.nodes.get(&p)).map(|p| &p.widget))
+                {
+                    list.set_row_height(row, frame.height());
+                }
             }
             Command::SetA11y { id, a11y } => {
                 self.element(*id, command);
@@ -1252,15 +1278,31 @@ impl State {
                     let node = &self.nodes[id];
                     scroll_now(&self.emitter, *id, &node.offset, &scroll.cast()?, *offset)?;
                 }
-                _ => violation(command, "not a ScrollView"),
+                Some(Widget::List(list)) => list.scroll_to(*offset)?,
+                _ => violation(command, "not a ScrollView or List"),
             },
             Command::Focus { id } => {
                 self.element(*id, command);
                 self.focus(*id, w::FocusState::Programmatic);
             }
-            Command::ScrollToRow { .. } => violation(command, "List isn't implemented by this backend yet"),
+            Command::ScrollToRow { id, row } => match self.nodes.get(id).map(|n| &n.widget) {
+                Some(Widget::List(list)) => list.scroll_to_row(*row)?,
+                _ => violation(command, "not a List"),
+            },
         }
         Ok(())
+    }
+
+    /// Lets list views lay out now rather than at XAML's next layout pass:
+    /// they realise the containers of the rows in view, and the rows they
+    /// report are built in the same run-loop turn. Their handlers only
+    /// touch their own data and emit.
+    fn layout_lists(&self) {
+        for node in self.nodes.values() {
+            if let Widget::List(list) = &node.widget {
+                list.layout();
+            }
+        }
     }
 
     /// The window `id` is in (or is).
@@ -1332,7 +1374,15 @@ fn wrap(control: &w::UIElement) -> R<w::UIElement> {
 }
 
 fn is_control(widget: &Widget) -> bool {
-    matches!(widget, Widget::Field(_) | Widget::Button(_) | Widget::Checkbox(_) | Widget::Switch(_) | Widget::Scroll(_))
+    matches!(
+        widget,
+        Widget::Field(_)
+            | Widget::Button(_)
+            | Widget::Checkbox(_)
+            | Widget::Switch(_)
+            | Widget::Scroll(_)
+            | Widget::List(_)
+    )
 }
 
 fn set_scroll_axes(scroll: &w::IScrollViewer, axes: ScrollAxes) -> R<()> {
@@ -1442,6 +1492,7 @@ impl Backend for WinUiBackend {
                 panic!("winui backend: {command:?} failed: {error}");
             }
         }
+        state.layout_lists();
     }
 
     fn measure(&mut self, id: NodeId, request: MeasureRequest) -> Size {
@@ -1472,12 +1523,33 @@ impl Backend for WinUiBackend {
             Widget::Native { measure: Some(measure), .. } => measure(node.control(), &request),
             Widget::Native { measure: None, .. } => ceil(measure_element(&node.element, infinite)),
             // Measured by the core.
-            Widget::Drawn { .. } | Widget::Window(_) | Widget::Host(_) | Widget::Scroll(_) => Size::ZERO,
+            Widget::Drawn { .. } | Widget::Window(_) | Widget::Host(_) | Widget::Scroll(_) | Widget::List(_) => {
+                Size::ZERO
+            }
         };
         Size::new(request.known_width.unwrap_or(natural.width), request.known_height.unwrap_or(natural.height))
     }
 
     fn perform(&mut self, id: NodeId, action: &A11yAction) -> Result<(), ActionError> {
+        // A list's rows: select or activate them, as clicking or double
+        // clicking their container does.
+        {
+            let state = self.state.borrow();
+            let node = state.nodes.get(&id).ok_or(ActionError::UnknownNode)?;
+            if let (Some(row), Some(Widget::List(list))) =
+                (node.row, node.parent.and_then(|p| state.nodes.get(&p)).map(|p| &p.widget))
+            {
+                match action {
+                    A11yAction::Select if list.mode() != SelectionMode::None => {
+                        list.select(row).map_err(|_| ActionError::Unsupported)?
+                    }
+                    A11yAction::Activate => list.activate(row),
+                    A11yAction::ScrollIntoView => {}
+                    _ => return Err(ActionError::Unsupported),
+                }
+                return Ok(());
+            }
+        }
         let (element, kind, enabled, shown_text, events, custom) = {
             let state = self.state.borrow();
             let node = state.nodes.get(&id).ok_or(ActionError::UnknownNode)?;
@@ -1601,6 +1673,27 @@ impl Backend for WinUiBackend {
                 .then(|| node.element.cast::<w::IControl>().and_then(|c| c.IsEnabled()).unwrap_or(true));
             (node.kind, node.element.clone(), enabled)
         };
+        {
+            let state = self.state.borrow();
+            if let Some(Widget::List(list)) = state.nodes.get(&id).map(|n| &n.widget) {
+                return match input {
+                    SyntheticInput::Scroll { dy, .. } => {
+                        let scroll = list.scroll_viewer().ok_or(ActionError::Unsupported)?;
+                        let max = scroll.ScrollableHeight().unwrap_or(0.0).max(0.0);
+                        let y = (scroll.VerticalOffset().unwrap_or(0.0) + *dy as f64).clamp(0.0, max);
+                        list.scroll_to(Point::new(0.0, y as f32)).map_err(|_| ActionError::Unsupported)
+                    }
+                    SyntheticInput::Key(key) if list.mode() != SelectionMode::None => {
+                        _ = list.view.cast::<w::IUIElement>().and_then(|e| e.Focus(w::FocusState::Keyboard));
+                        match list.key(*key) {
+                            Ok(true) => Ok(()),
+                            _ => Err(ActionError::Unsupported),
+                        }
+                    }
+                    _ => Err(ActionError::Unsupported),
+                };
+            }
+        }
         if let SyntheticInput::Scroll { dx, dy } = input {
             let scroll: w::IScrollViewer = element.cast().map_err(|_| ActionError::Unsupported)?;
             _ = element.cast::<w::IUIElement>().and_then(|e| e.UpdateLayout());
@@ -1717,9 +1810,15 @@ impl Backend for WinUiBackend {
                 props.push(Prop::Drawing(view.drawing()));
             }
             Widget::Native { last, .. } => props.push(Prop::Native(last.clone())),
-            Widget::Host(_) => {}
+            Widget::List(list) => {
+                props.push(Prop::Rows(list.rows()));
+                props.extend(list.estimate().map(Prop::EstimatedRowHeight));
+                props.push(Prop::SelectionMode(list.mode()));
+                props.push(Prop::Selected(list.selected()));
+            }
+            Widget::Host(_) => props.extend(node.row.map(Prop::Row)),
         }
-        if is_control(&node.widget) && !matches!(node.widget, Widget::Scroll(_)) {
+        if is_control(&node.widget) && !matches!(node.widget, Widget::Scroll(_) | Widget::List(_)) {
             props.push(Prop::Enabled(node.element.cast::<w::IControl>().ok()?.IsEnabled().ok()?));
         }
         props.extend(node.text_style.map(Prop::TextStyle));
@@ -1738,9 +1837,15 @@ impl Backend for WinUiBackend {
                 )
             }
         };
+        // A row is where the list view put it.
+        let frame = match node.parent.and_then(|p| state.nodes.get(&p)).map(|p| &p.widget) {
+            Some(Widget::List(list)) => list.row_rect(&node.element, frame),
+            _ => frame,
+        };
         let by_element = state.by_element.borrow();
         let known = |element: &IInspectable| by_element.get(&key(element)).copied();
         let (children, scroll_offset) = match &node.widget {
+            Widget::List(list) => (list.children(), Some(list.scroll_offset())),
             Widget::Scroll(s) => {
                 let scroll: w::IScrollViewer = s.cast().ok()?;
                 let content = node.element.cast::<w::IContentControl>().ok()?.Content().ok();

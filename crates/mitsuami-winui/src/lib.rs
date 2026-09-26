@@ -48,6 +48,8 @@ mod custom;
 #[cfg(all(windows, target_env = "msvc"))]
 mod later;
 #[cfg(all(windows, target_env = "msvc"))]
+mod list;
+#[cfg(all(windows, target_env = "msvc"))]
 mod runtime;
 #[cfg(all(windows, target_env = "msvc"))]
 mod services;
