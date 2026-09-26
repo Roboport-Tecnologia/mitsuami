@@ -66,15 +66,12 @@ jobs:
           MITSUAMI_NATIVE: "1"
           MITSUAMI_IMAGE: ${{ matrix.os }}
 
-      # Missing and changed snapshots, and the diffs, at their paths in the
-      # repository. `.github/scripts/accept-snapshots.sh <run id>` accepts them.
-      # The archive path is relative: GNU tar reads `D:\…` as a remote host.
+      # Missing and changed snapshots, for `.github/scripts/accept-snapshots.sh
+      # <run id>`, and the visual review report of the changed captures.
       - name: Collect snapshots for review
         if: failure()
         shell: bash
-        run: |
-          find crates -path '*/tests/*' \( -name '*.new' -o -name '*.new.png' -o -name '*.diff.png' \) -print0 \
-            | tar --null -cf snapshots.tar -T -
+        run: .github/scripts/collect-review.sh ${{ matrix.os }}
 
       - name: Upload snapshots for review
         if: failure()
@@ -82,6 +79,14 @@ jobs:
         with:
           name: snapshots-${{ matrix.os }}
           path: snapshots.tar
+          if-no-files-found: ignore
+
+      - name: Upload the visual review
+        if: failure()
+        uses: actions/upload-artifact@v5
+        with:
+          name: visual-review-${{ matrix.os }}
+          path: visual-review
           if-no-files-found: ignore
 
   # The Qt Quick and Kirigami backend (the `kde` feature) on its own:
@@ -122,9 +127,7 @@ jobs:
       - name: Collect snapshots for review
         if: failure()
         shell: bash
-        run: |
-          find crates -path '*/tests/*' \( -name '*.new' -o -name '*.new.png' -o -name '*.diff.png' \) -print0 \
-            | tar --null -cf snapshots.tar -T -
+        run: .github/scripts/collect-review.sh archlinux-2026.09.20-kde
 
       - name: Upload snapshots for review
         if: failure()
@@ -132,4 +135,12 @@ jobs:
         with:
           name: snapshots-archlinux-2026.09.20-kde
           path: snapshots.tar
+          if-no-files-found: ignore
+
+      - name: Upload the visual review
+        if: failure()
+        uses: actions/upload-artifact@v5
+        with:
+          name: visual-review-archlinux-2026.09.20-kde
+          path: visual-review
           if-no-files-found: ignore

@@ -633,7 +633,7 @@ This is exposed as `Backend::capture`.
 
 **Review.**
 - `cargo mitsuami visual review` (the `cargo-mitsuami` crate; in this repository an alias in `.cargo/config.toml` runs the workspace's copy, and apps `cargo install` it) finds every pending capture in the workspace (`<name>.new.png` under `tests/visual/`) and serves a review page on the loopback interface, behind a random token in its URL. Each change shows why its pixels changed (from the layouts), and its baseline and capture side by side, as a swipe, as an onion skin, or as the diff image. Accept moves the capture and its layout over the baseline, Reject deletes them. `--out <dir>` writes the same page as a static, read-only report instead. `cargo mitsuami visual accept [filter]` accepts without the page, and `cargo mitsuami visual` runs the native tests and says what's left to review.
-- CI runs the story matrix on macOS, Windows and Linux runners. It uploads the report as an artifact and fails the build on unapproved diffs.
+- CI runs the story matrix on macOS, Windows and Linux runners (and KDE's container), and fails the build on unapproved diffs. Each failed job uploads the static report as a `visual-review-<image>` artifact, next to `snapshots-<image>`, and says in the run's summary how many captures it holds (`.github/scripts/collect-review.sh`).
 - Later: a PR comment with a summary, and a small hosted review service (the real "Chromatic" part).
 
 ### What mitsuami tests about itself
