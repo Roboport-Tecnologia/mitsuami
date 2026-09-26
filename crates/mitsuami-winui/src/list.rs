@@ -48,6 +48,8 @@ struct Data {
     /// Each container's cell (by COM identity), and the cells of the rows
     /// realised, with how many containers each is realised in.
     container_cells: HashMap<usize, w::Canvas>,
+    /// The row each container was last realised for.
+    container_rows: HashMap<usize, RowKey>,
     cells: HashMap<RowKey, w::Canvas>,
     bound: HashMap<RowKey, usize>,
     /// The rows reported shown, and the selection last reported or set.
@@ -59,6 +61,10 @@ struct Data {
     learned: Option<f64>,
     mode: SelectionMode,
     scroll: Option<w::IScrollViewer>,
+    /// Set while the backend changes the items or the selection: XAML
+    /// reports selections in between (items removed) that aren't the
+    /// user's.
+    muted: bool,
 }
 
 impl Data {
@@ -147,29 +153,24 @@ impl List {
                         cell
                     }
                 };
-                let host = d.hosts.get(&key).map(|(_, host)| host.clone());
-                if recycled {
-                    if let Some(host) = host {
-                        take_out(&cell, &host);
-                    }
-                    if d.cells.get(&key) == Some(&cell) {
-                        d.cells.remove(&key);
-                    }
-                    if let Some(count) = d.bound.get_mut(&key) {
-                        *count -= 1;
-                        if *count == 0 {
-                            d.bound.remove(&key);
-                        }
-                    }
-                } else {
-                    if let Some(host) = &host {
+                // XAML may reuse a container without recycling it first:
+                // whatever row it showed goes, either way.
+                let container_key = identity(&container);
+                if let Some(old) = d.container_rows.remove(&container_key)
+                    && (recycled || old != key)
+                {
+                    release(&mut d, old, &cell);
+                }
+                if !recycled {
+                    if let Some(host) = d.hosts.get(&key).map(|(_, host)| host.clone()) {
                         if let Some(old) = d.cells.get(&key).filter(|c| **c != cell) {
-                            take_out(old, host);
+                            take_out(old, &host);
                         }
-                        put_in(&cell, host);
+                        put_in(&cell, &host);
                     }
                     set_height(&cell, d.height(key));
                     d.cells.insert(key, cell);
+                    d.container_rows.insert(container_key, key);
                     *d.bound.entry(key).or_default() += 1;
                 }
                 queue_report(&data, &mut d, &events, id);
@@ -179,6 +180,9 @@ impl List {
         revokers.push(view.cast::<w::ISelector>()?.SelectionChanged({
             let (data, events, view) = (data.clone(), events.clone(), view.clone());
             move |_, _| {
+                if data.borrow().muted {
+                    return;
+                }
                 let now = selected(&view, &data.borrow());
                 let mut d = data.borrow_mut();
                 if d.selection != now {
@@ -262,12 +266,18 @@ impl List {
             d.rows = rows;
         }
         let items = self.items()?;
-        for _ in 0..removed {
-            items.RemoveAt(prefix as u32)?;
-        }
-        for (i, item) in new_items.iter().enumerate() {
-            items.InsertAt((prefix + i) as u32, item)?;
-        }
+        self.data.borrow_mut().muted = true;
+        let spliced = (|| -> R<()> {
+            for _ in 0..removed {
+                items.RemoveAt(prefix as u32)?;
+            }
+            for (i, item) in new_items.iter().enumerate() {
+                items.InsertAt((prefix + i) as u32, item)?;
+            }
+            Ok(())
+        })();
+        self.data.borrow_mut().muted = false;
+        spliced?;
         let kept: Vec<RowKey> = {
             let d = self.data.borrow();
             selected.iter().copied().filter(|k| d.index.contains_key(k)).collect()
@@ -302,6 +312,13 @@ impl List {
             let items: Vec<IInspectable> = indexes.iter().map(|i| d.items[*i].clone()).collect();
             (indexes, items, d.mode)
         };
+        self.data.borrow_mut().muted = true;
+        let result = self.select_natively(mode, &indexes, &items);
+        self.data.borrow_mut().muted = false;
+        result
+    }
+
+    fn select_natively(&self, mode: SelectionMode, indexes: &[usize], items: &[IInspectable]) -> R<()> {
         match mode {
             SelectionMode::None => Ok(()),
             SelectionMode::Single => {
@@ -310,7 +327,7 @@ impl List {
             SelectionMode::Multiple => {
                 let selected = self.view.cast::<w::IListViewBase>()?.SelectedItems()?;
                 selected.Clear()?;
-                for item in &items {
+                for item in items {
                     selected.Append(item)?;
                 }
                 Ok(())
@@ -526,6 +543,22 @@ fn find_scroll_viewer(root: &w::DependencyObject) -> Option<w::IScrollViewer> {
         }
     }
     None
+}
+
+/// A container lets go of a row: its host leaves the cell.
+fn release(d: &mut Data, key: RowKey, cell: &w::Canvas) {
+    if let Some((_, host)) = d.hosts.get(&key) {
+        take_out(cell, host);
+    }
+    if d.cells.get(&key) == Some(cell) {
+        d.cells.remove(&key);
+    }
+    if let Some(count) = d.bound.get_mut(&key) {
+        *count -= 1;
+        if *count == 0 {
+            d.bound.remove(&key);
+        }
+    }
 }
 
 /// Reports the rows realised and let go since the last report.

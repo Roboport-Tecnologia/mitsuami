@@ -1861,12 +1861,17 @@ impl Backend for WinUiBackend {
             Widget::Host(canvas) => (panel_children(canvas, &known), None),
             _ => (Vec::new(), None),
         };
-        let focused = !matches!(node.widget, Widget::Window(_))
-            && node
-                .control()
-                .cast::<w::IUIElement>()
-                .and_then(|e| e.FocusState())
-                .is_ok_and(|f| f != w::FocusState::Unfocused);
+        // A list's focus goes to a row's container: the list has it when
+        // the window's focus tracking (which walks up to it) says so.
+        let list_focused = matches!(node.widget, Widget::List(_))
+            && state.window_of(id).is_some_and(|parts| parts.focus.get() == Some(id));
+        let focused = list_focused
+            || !matches!(node.widget, Widget::Window(_))
+                && node
+                    .control()
+                    .cast::<w::IUIElement>()
+                    .and_then(|e| e.FocusState())
+                    .is_ok_and(|f| f != w::FocusState::Unfocused);
         Some(NativeState { kind: node.kind, props, frame, parent: node.parent, children, focused, scroll_offset })
     }
 
