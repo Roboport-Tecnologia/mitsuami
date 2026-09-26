@@ -29,6 +29,8 @@ mod events;
 #[cfg(all(target_os = "linux", feature = "qt"))]
 mod ffi;
 #[cfg(all(target_os = "linux", feature = "qt"))]
+mod list;
+#[cfg(all(target_os = "linux", feature = "qt"))]
 mod qml;
 #[cfg(all(target_os = "linux", feature = "qt"))]
 mod services;

@@ -13,7 +13,7 @@ use mitsuami_core::backend::{
 use mitsuami_core::services::Reply;
 use mitsuami_core::{
     ButtonVariant, Command, CustomProps, DisplayList, EventValue, NodeId, Opaque, Point, PointerEvent, Prop, Rect,
-    ScrollAxes, Size, TextStyle, UiEvent, WidgetKind, find_prop,
+    RowKey, ScrollAxes, SelectionMode, Size, TextStyle, UiEvent, WidgetKind, find_prop,
 };
 
 use crate::custom::{Emitter, ErasedRender, KirigamiCx, NativePayload, flatten};
@@ -141,6 +141,7 @@ enum Widget {
         view: QmlObject,
         flickable: QmlObject,
     },
+    List(crate::list::List),
     /// A custom widget with a KDE render, and the props it last got.
     Custom {
         item: QmlObject,
@@ -178,6 +179,7 @@ impl Widget {
             | Widget::Custom { item: i, .. }
             | Widget::Drawn { item: i, .. }
             | Widget::Native { item: i, .. } => *i,
+            Widget::List(list) => list.view,
         }
     }
 
@@ -207,12 +209,13 @@ impl Widget {
                 | Widget::Switch(_)
                 | Widget::Custom { .. }
                 | Widget::Native { .. }
+                | Widget::List(_)
         )
     }
 
     /// Measured, never laid out inside: controls and escape hatches.
     fn is_leaf(&self) -> bool {
-        !matches!(self, Widget::Window { .. } | Widget::Host(_) | Widget::Scroll { .. })
+        !matches!(self, Widget::Window { .. } | Widget::Host(_) | Widget::Scroll { .. } | Widget::List(_))
     }
 }
 
@@ -220,6 +223,8 @@ struct Node {
     kind: WidgetKind,
     widget: Widget,
     parent: Option<NodeId>,
+    /// Row hosts: which row of their list they show.
+    row: Option<RowKey>,
     /// Props Qt can't report back faithfully.
     text_style: Option<TextStyle>,
     variant: Option<ButtonVariant>,
@@ -471,6 +476,14 @@ impl mitsuami_core::TestHooks for KirigamiHandle {
     fn settle(&self) {
         self.show_pending_windows();
         self.pump();
+        // List views place and create delegates when they polish, before
+        // a frame: have it now, so rows are where the view says.
+        for (_, root) in self.windows() {
+            if root.has_rendered() {
+                root.window.polish_items();
+            }
+        }
+        self.pump();
     }
 }
 
@@ -574,7 +587,7 @@ impl State {
                 Widget::Scroll { view, flickable }
             }
             WidgetKind::Fragment => violation(command, "fragments are core-only"),
-            WidgetKind::List => violation(command, "List isn't implemented by this backend yet"),
+            WidgetKind::List => Widget::List(crate::list::List::new(id, events.clone())),
         };
         let item = widget.item();
         item.set_node(node_key(id));
@@ -589,7 +602,16 @@ impl State {
         }
         self.nodes.insert(
             id,
-            Node { kind, widget, parent: None, text_style: None, variant: None, scroll_axes: None, switch_label: None },
+            Node {
+                kind,
+                widget,
+                parent: None,
+                row: None,
+                text_style: None,
+                variant: None,
+                scroll_axes: None,
+                switch_label: None,
+            },
         );
     }
 
@@ -686,6 +708,11 @@ impl State {
                 b.set_bool("flat", *variant == ButtonVariant::Plain);
                 node.variant = Some(*variant);
             }
+            (Prop::Rows(rows), Widget::List(list)) => list.set_rows(rows.clone()),
+            (Prop::SelectionMode(mode), Widget::List(list)) => list.set_mode(*mode),
+            (Prop::Selected(rows), Widget::List(list)) => list.set_selected(rows),
+            (Prop::EstimatedRowHeight(height), Widget::List(list)) => list.set_estimate(*height),
+            (Prop::Row(row), Widget::Host(_)) => node.row = Some(*row),
             (Prop::ScrollAxes(axes), Widget::Scroll { view, .. }) => {
                 let bits = match axes {
                     ScrollAxes::Horizontal => 1,
@@ -758,6 +785,14 @@ impl State {
                 if self.nodes[child].parent.is_some() {
                     violation(command, "child is still attached");
                 }
+                if let Widget::List(list) = &self.nodes[parent].widget {
+                    let Some(row) = self.nodes[child].row else {
+                        violation(command, "a List's children are row hosts (Containers with a Prop::Row)")
+                    };
+                    list.insert(row, *child, item);
+                    self.nodes.get_mut(child).unwrap().parent = Some(*parent);
+                    return;
+                }
                 let parent_widget = self.widget(*parent, command);
                 let content = parent_widget.content();
                 if matches!(parent_widget, Widget::Scroll { .. }) && !content.child_items().is_empty() {
@@ -773,7 +808,10 @@ impl State {
                 if self.nodes.get(child).and_then(|n| n.parent) != Some(*parent) {
                     violation(command, "not a child of this parent");
                 }
-                self.widget(*child, command).item().set_parent_item(None, 0);
+                match &self.nodes[parent].widget {
+                    Widget::List(list) => list.remove(self.nodes[child].row.expect("inserted with a row")),
+                    _ => self.widget(*child, command).item().set_parent_item(None, 0),
+                }
                 self.nodes.get_mut(child).unwrap().parent = None;
             }
             Command::Destroy { id } => {
@@ -799,6 +837,11 @@ impl State {
                 // aren't shown: controls draw their frames regardless of size.
                 if widget.is_leaf() {
                     item.set_bool("visible", !frame.size.is_empty());
+                }
+                if let Some(Widget::List(list)) =
+                    self.nodes[id].parent.and_then(|p| self.nodes.get(&p)).map(|p| &p.widget)
+                {
+                    list.row_measured(frame.height());
                 }
                 let flickable = match widget {
                     Widget::Scroll { flickable, .. } => Some(*flickable),
@@ -833,7 +876,8 @@ impl State {
                     flickable.set_real("contentX", offset.x as f64);
                     flickable.set_real("contentY", offset.y as f64);
                 }
-                _ => violation(command, "not a ScrollView"),
+                Some(Widget::List(list)) => list.scroll_to(*offset),
+                _ => violation(command, "not a ScrollView or List"),
             },
             Command::Focus { id } => {
                 let widget = self.widget(*id, command);
@@ -841,7 +885,10 @@ impl State {
                     widget.item().force_focus();
                 }
             }
-            Command::ScrollToRow { .. } => violation(command, "List isn't implemented by this backend yet"),
+            Command::ScrollToRow { id, row } => match self.nodes.get(id).map(|n| &n.widget) {
+                Some(Widget::List(list)) => list.scroll_to_row(*row),
+                _ => violation(command, "not a List"),
+            },
         }
     }
 }
@@ -908,12 +955,33 @@ impl Backend for KirigamiBackend {
             }
             Widget::Native { item, measure: Some(measure), .. } => measure(*item, &request),
             // Measured by the core.
-            Widget::Drawn { .. } | Widget::Window { .. } | Widget::Host(_) | Widget::Scroll { .. } => Size::ZERO,
+            Widget::Drawn { .. }
+            | Widget::Window { .. }
+            | Widget::Host(_)
+            | Widget::Scroll { .. }
+            | Widget::List(_) => Size::ZERO,
             widget => measure_item(widget.item(), matches!(widget, Widget::Label(_)), request),
         }
     }
 
     fn perform(&mut self, id: NodeId, action: &A11yAction) -> Result<(), ActionError> {
+        // A list's rows: select or activate them, as a click or a double
+        // click on their delegate does.
+        {
+            let state = self.state.borrow();
+            let node = state.nodes.get(&id).ok_or(ActionError::UnknownNode)?;
+            if let (Some(row), Some(Widget::List(list))) =
+                (node.row, node.parent.and_then(|p| state.nodes.get(&p)).map(|p| &p.widget))
+            {
+                match action {
+                    A11yAction::Select if list.mode() != SelectionMode::None => list.select(row),
+                    A11yAction::Activate => list.activate(row),
+                    A11yAction::ScrollIntoView => {}
+                    _ => return Err(ActionError::Unsupported),
+                }
+                return Ok(());
+            }
+        }
         let (item, kind, focusable, events, custom) = {
             let state = self.state.borrow();
             let node = state.nodes.get(&id).ok_or(ActionError::UnknownNode)?;
@@ -1005,6 +1073,19 @@ impl Backend for KirigamiBackend {
                 window.click(widget_item.map_to_scene(*point));
                 Ok(())
             }
+            SyntheticInput::Scroll { dy, .. } if kind == WidgetKind::List => {
+                // `ListView`'s content starts at `originY`.
+                let view = widget_item;
+                let (origin, max) = (view.real("originY"), (view.real("contentHeight") - view.real("height")).max(0.0));
+                let offset = (view.real("contentY") - origin + *dy as f64).clamp(0.0, max);
+                if offset >= max && *dy > 0.0 {
+                    // Rows not shown yet are estimates: Qt goes to the real end.
+                    view.invoke("positionViewAtEnd");
+                } else {
+                    view.set_real("contentY", offset + origin);
+                }
+                Ok(())
+            }
             SyntheticInput::Scroll { dx, dy } => {
                 if kind != WidgetKind::ScrollView {
                     return Err(ActionError::Unsupported);
@@ -1022,6 +1103,31 @@ impl Backend for KirigamiBackend {
                 Ok(())
             }
             SyntheticInput::Key(key) => match (kind, key) {
+                // Real key events, through the list view's own keyboard
+                // navigation (and ours for Home, End and Return).
+                (WidgetKind::List, Key::Up | Key::Down | Key::Home | Key::End | Key::Enter) => {
+                    let window = window.ok_or(ActionError::Unsupported)?;
+                    if self
+                        .state
+                        .borrow()
+                        .nodes
+                        .get(&id)
+                        .map(|n| &n.widget)
+                        .is_some_and(|w| matches!(w, Widget::List(list) if list.mode() == SelectionMode::None))
+                    {
+                        return Err(ActionError::Unsupported);
+                    }
+                    widget_item.force_focus();
+                    let (code, text) = match key {
+                        Key::Up => (KEY_UP, ""),
+                        Key::Down => (KEY_DOWN, ""),
+                        Key::Home => (KEY_HOME, ""),
+                        Key::End => (KEY_END, ""),
+                        _ => (KEY_RETURN, "\r"),
+                    };
+                    window.key(code, false, text);
+                    Ok(())
+                }
                 (WidgetKind::TextInput, _) => {
                     // Real key events, through Qt's text editing.
                     let window = window.ok_or(ActionError::Unsupported)?;
@@ -1090,7 +1196,13 @@ impl Backend for KirigamiBackend {
                 props.push(Prop::Drawing(drawing.clone()));
             }
             Widget::Native { last, .. } => props.push(Prop::Native(last.clone())),
-            Widget::Host(_) => {}
+            Widget::List(list) => {
+                props.push(Prop::Rows(list.rows()));
+                props.extend(list.estimate().map(Prop::EstimatedRowHeight));
+                props.push(Prop::SelectionMode(list.mode()));
+                props.push(Prop::Selected(list.selected()));
+            }
+            Widget::Host(_) => props.extend(node.row.map(Prop::Row)),
         }
         if node.widget.is_control() {
             props.push(Prop::Enabled(item.bool("enabled")));
@@ -1104,14 +1216,23 @@ impl Backend for KirigamiBackend {
             }
             _ => frame_of(item),
         };
+        // A row is where the list view put it.
+        let frame = match node.parent.and_then(|p| state.nodes.get(&p)).map(|p| &p.widget) {
+            Some(Widget::List(list)) => list.row_rect(item, frame),
+            _ => frame,
+        };
         let (children, scroll_offset) = match &node.widget {
+            Widget::List(list) => (Vec::new(), Some(list.scroll_offset())),
             Widget::Scroll { flickable, .. } => (node.widget.content().child_items(), Some(scroll_offset(*flickable))),
             Widget::Window { .. } | Widget::Host(_) => (item.child_items(), None),
             _ => (Vec::new(), None),
         };
         // Items that stand for nodes themselves: `node()` walks up the tree.
         let own = node_key(id);
-        let children = children.iter().filter_map(|c| c.node()).filter(|key| *key != own).map(node_from_key).collect();
+        let children = match &node.widget {
+            Widget::List(list) => list.children(),
+            _ => children.iter().filter_map(|c| c.node()).filter(|key| *key != own).map(node_from_key).collect(),
+        };
         let window = {
             let mut top = id;
             while let Some(parent) = state.nodes.get(&top).and_then(|n| n.parent) {

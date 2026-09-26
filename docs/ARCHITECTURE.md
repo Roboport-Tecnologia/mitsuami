@@ -750,6 +750,15 @@ Things the AppKit backend taught us, some of them now part of the contract:
 - **Tests allocate lists on settle.** List views bind and place rows when allocated, at the next frame, and on a Broadway display nobody watches frames stall after a paint (§ M2): waiting for a frame timed out. `settle` allocates each changed list's scrolled window again at its frame, as its host does, which lays the list view out synchronously.
 - **No key events, no key signals:** GTK 4 can't inject keys and its list keyboard handling has no signals to emit, so synthesized arrows, Home, End and Enter do what it does: move the selection and show it, or activate. `list.scroll-to-item` scrolls to a row (`ListView::scroll_to` needs GTK 4.12). Row padding is reset with CSS (`listview.mitsuami-list > row`).
 
+### M7 on Kirigami (lists)
+
+- **A QML `ListView` over the row keys, with Qt Quick Controls' `ItemDelegate`s,** so the style draws the rows' highlight. Each delegate holds its row's host (`mitsuamiHost`) and is as high as it, or the estimate until it arrives. No C++: the view's QML keeps the selection, activation and keyboard handling, and Rust sets properties (`mitsuamiKeys`, `mitsuamiSelected`, `mitsuamiScrollTo`, …) and listens to three argument-less signals.
+- **Rows are the delegates.** Delegates announce their creation and destruction with `Qt.callLater`, which coalesces them to once per event loop turn; Rust then compares the rows that have a delegate with the rows it reported. A data change resets the view and recreates its delegates, so without that a row would be hidden and shown again, and lose its state. The scroll position is put back after the reset.
+- **The keyboard moves the current row, which is the selection** (`keyNavigationEnabled`), with Home, End and Return added in `Keys.onPressed`. Synthesized keys are real key events.
+- **`ListView`'s content starts at `originY`,** which moves as rows turn out taller or shorter than estimated: offsets and row positions are taken from it. At the end, a list stays there as rows are measured (`positionViewAtEnd()`, which also handles a scroll to the end over estimated rows).
+- **List views place delegates when they polish,** before a frame: `settle` polishes the windows, so rows are where the view says when tests look.
+- Qt keeps the heights of rows it has laid out; the estimate is the app's, or the first row measured.
+
 ### M2 (GTK 4)
 
 What the GTK 4 backend taught us:

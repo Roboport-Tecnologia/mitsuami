@@ -34,6 +34,15 @@ impl Events {
         }
     }
 
+    /// Reports a change the user didn't make but must hear about, even
+    /// while the backend applies commands: selected rows a data change
+    /// removed.
+    pub(crate) fn emit_always(&self, id: NodeId, event: UiEvent) {
+        let was = self.0.muted.replace(false);
+        self.emit(id, event);
+        self.0.muted.set(was);
+    }
+
     pub(crate) fn muted<R>(&self, f: impl FnOnce() -> R) -> R {
         let was = self.0.muted.replace(true);
         let result = f();

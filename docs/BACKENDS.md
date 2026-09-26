@@ -75,7 +75,7 @@ Validate as you go. Panic on protocol violations such as an unknown node, a doub
 | `Checkbox` | `NSButton` checkbox | `gtk::CheckButton` | `CheckBox` | `QQC2.CheckBox` |
 | `Switch` | `NSSwitch` | `gtk::Switch` | `ToggleSwitch` | `QQC2.Switch` |
 | `ScrollView` | `NSScrollView` | `gtk::ScrolledWindow` | `ScrollViewer` | `QQC2.ScrollView` around a `Flickable` |
-| `List` (§8b) | view-based `NSTableView` in an `NSScrollView` | `gtk::ListView` over a `gio::ListStore` of keys | `ListView` (to do) | QML `ListView` over a model (to do) |
+| `List` (§8b) | view-based `NSTableView` in an `NSScrollView` | `gtk::ListView` over a `gio::ListStore` of keys | `ListView` (to do) | QML `ListView` over the keys, with `QQC2.ItemDelegate`s |
 | `Custom` (native render) | the render's view (`NativeRender`) | the render's widget (`mitsuami_gtk::NativeRender`) | the render's element | the render's item |
 | `Custom` (drawn) | `DrawnView`: flipped `NSView` that rasterizes the display list | a `gtk::DrawingArea` rasterized with Cairo | a `Canvas` with Win2D, or `Microsoft.UI.Composition` shapes | a `QQuickPaintedItem` painted with `QPainter` |
 | `Native` | the app's `NSView` (`NativeView::appkit`) | the app's `gtk::Widget` (`NativeView::gtk`) | the app's `FrameworkElement` | the app's QML item (`NativeView::qml`) |
