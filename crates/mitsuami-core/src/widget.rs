@@ -45,8 +45,9 @@ pub enum WidgetKind {
     /// content, which the core lays out and may be larger than the viewport.
     ScrollView,
     /// A native list control (NSTableView, ListView, gtk::ListView, QML
-    /// ListView). Its data is [`Prop::Rows`]; its native children are the
-    /// hosts of the rows the core has mounted (`Container`s with a
+    /// ListView). Its data is [`Prop::Rows`]. The platform decides which rows
+    /// exist (`RowShown`, `RowHidden`); its native children are the hosts of
+    /// the rows the core mounted for those (`Container`s with a
     /// [`Prop::Row`]), in row order. It scrolls like a `ScrollView`.
     List,
     /// A custom widget (see [`CustomWidget`](crate::CustomWidget)), named
@@ -137,16 +138,6 @@ impl ScrollAxes {
 #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub struct RowKey(pub u64);
 
-/// One row of a `List`'s data: its key and its height. The height is the
-/// row's measured height once it has been mounted, an estimate before.
-/// Native lists give every row exactly this height, with no spacing between
-/// rows, so the core knows where each row is.
-#[derive(Clone, Copy, Debug, PartialEq)]
-pub struct ListRow {
-    pub key: RowKey,
-    pub height: f32,
-}
-
 /// How many rows of a `List` can be selected.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Hash)]
 pub enum SelectionMode {
@@ -175,7 +166,10 @@ pub enum Prop {
     /// Which axes a `ScrollView` scrolls.
     ScrollAxes(ScrollAxes),
     /// A `List`'s rows, in order.
-    Rows(Vec<ListRow>),
+    Rows(Vec<RowKey>),
+    /// How high a `List`'s rows are likely to be, for platforms that must
+    /// size rows before they're shown.
+    EstimatedRowHeight(f32),
     /// Which row of its `List` a row host shows.
     Row(RowKey),
     SelectionMode(SelectionMode),

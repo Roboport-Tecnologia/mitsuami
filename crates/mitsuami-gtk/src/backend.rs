@@ -836,6 +836,7 @@ impl State {
             Command::Focus { id } => {
                 self.widget(*id, command).grab_focus();
             }
+            Command::ScrollToRow { .. } => violation(command, "List isn't implemented by this backend yet"),
         }
     }
 }

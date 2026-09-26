@@ -1,10 +1,12 @@
-//! `List`: only the rows near the viewport are mounted; rows keep their
-//! identity and state across data changes; selection, activation, keyboard
-//! navigation and scrolling to a row.
+//! `List`: the rows the platform shows are mounted, and only those; rows
+//! keep their identity and state across data changes; selection,
+//! activation, keyboard navigation and scrolling to a row.
 //!
-//! Rows here are 20px high, in a 100px list: 5 rows show, and a viewport's
-//! worth on either side is mounted too. The suite runs natively as well,
-//! so it only relies on sizes the rows set themselves.
+//! Rows here are 20px high, in a 100px list: 5 rows show. Which others the
+//! platform prepares is its business (headless prepares none, AppKit a
+//! few), so the suite checks what every platform does: the rows in view are
+//! mounted, and rows far away aren't. It runs natively as well, so it only
+//! relies on sizes the rows set themselves.
 
 use std::cell::{Cell, RefCell};
 use std::rc::Rc;
@@ -26,8 +28,13 @@ fn names(app: &TestApp) -> Vec<String> {
     app.a11y_tree().walk().into_iter().filter(|n| n.role == Role::ListItem).filter_map(|n| n.name.clone()).collect()
 }
 
-fn range(ids: std::ops::Range<u32>) -> Vec<String> {
-    ids.map(|id| format!("Item {id}")).collect()
+fn mounted(app: &TestApp, id: u32) -> bool {
+    names(app).contains(&format!("Item {id}"))
+}
+
+/// Mounted, and in view.
+fn shows(app: &TestApp, id: u32) -> bool {
+    mounted(app, id) && app.get_by_role(Role::ListItem, format!("Item {id}")).is_visible()
 }
 
 fn row(name: String, height: f32) -> Container {
@@ -51,9 +58,10 @@ async fn only_the_rows_near_the_viewport_are_mounted(app: TestApp) {
     app.mount(move || simple_list(data));
     app.settle().await;
 
-    assert_eq!(names(&app), range(0..10), "the 5 rows in view, and 5 more below");
-    assert!(app.get_by_role(Role::ListItem, "Item 4").is_visible());
-    assert!(!app.get_by_role(Role::ListItem, "Item 5").is_visible());
+    assert!((0..5).all(|id| shows(&app, id)), "the 5 rows in view");
+    assert!(!shows(&app, 5));
+    assert!(names(&app).len() < 30, "{} rows mounted", names(&app).len());
+    assert!(!mounted(&app, 500));
     assert_eq!(place(&app, "Item 3"), (0.0, 60.0, 20.0));
 }
 
@@ -61,22 +69,21 @@ async fn only_the_rows_near_the_viewport_are_mounted(app: TestApp) {
 async fn scrolling_mounts_the_rows_coming_into_view_and_drops_the_rest(app: TestApp) {
     let data = signal(items(1000));
     app.mount(move || simple_list(data));
-    let before = app.native_node_count();
+    app.settle().await;
 
     app.get_by_test_id("list").scroll_by(0.0, 400.0).await;
 
-    assert_eq!(names(&app), range(15..30), "a viewport above, the rows in view, and a viewport below");
-    assert!(app.get_by_role(Role::ListItem, "Item 20").is_visible());
-    assert!(!app.get_by_role(Role::ListItem, "Item 19").is_visible());
+    assert!((20..25).all(|id| shows(&app, id)), "the rows in view");
+    assert!(!shows(&app, 19) && !shows(&app, 25));
+    assert!(!mounted(&app, 0), "gone, with its native widgets");
     assert_eq!(app.get_by_role(Role::ListItem, "Item 20").frame().y(), 0.0, "in window coordinates");
-    // Five more rows mounted, of three nodes each: host, container, text.
-    assert_eq!(app.native_node_count(), before + 5 * 3);
 
-    // To the end: the offset stops at the last row.
+    // To the end: the last row sits on the list's bottom edge. (The offset
+    // is the platform's: it depends on its guesses for the rows skipped.)
     app.get_by_test_id("list").scroll_by(0.0, 1e6).await;
-    let list = app.get_by_test_id("list").id();
-    assert_eq!(app.ui().scroll_offset(list), Some(Point::new(0.0, 19_900.0)));
-    assert_eq!(names(&app), range(990..1000));
+    assert!((995..1000).all(|id| shows(&app, id)));
+    let (list, last) = (app.get_by_test_id("list").frame(), app.get_by_role(Role::ListItem, "Item 999").frame());
+    assert_eq!(last.y() + last.height(), list.y() + list.height());
 }
 
 /// A row with local state (its checkbox) and a cleanup counter.
@@ -110,12 +117,12 @@ async fn rows_keep_their_state_when_the_data_changes(app: TestApp) {
     assert_eq!(item_2.id(), checkbox, "the same row, moved down");
     assert!(item_2.is_checked());
     assert_eq!(item_2.frame().y(), 60.0);
-    assert_eq!(disposed.get(), 1, "one row pushed out of the mounted range");
 
+    let before = disposed.get();
     data.update(|items| items.retain(|i| i.id != 2));
     app.settle().await;
     app.expect(by_role(Role::Checkbox, "Item 2")).not_to_exist().await;
-    assert_eq!(disposed.get(), 2);
+    assert_eq!(disposed.get(), before + 1, "its row was disposed");
 }
 
 #[mitsuami_test::test]
@@ -125,11 +132,13 @@ async fn unmounting_releases_every_row(app: TestApp) {
     let d = disposed.clone();
     app.mount(move || stateful_list(data, d));
     app.settle().await;
+    let rows = app.a11y_tree().walk().into_iter().filter(|n| n.role == Role::ListItem).count() as u32;
+    assert!(rows < 30, "{rows} rows mounted");
 
     app.unmount();
 
     assert_eq!(app.native_node_count(), 0);
-    assert_eq!(disposed.get(), 10, "only mounted rows had state");
+    assert_eq!(disposed.get(), rows, "every mounted row, and only those, had state");
 }
 
 #[mitsuami_test::test]
@@ -169,9 +178,9 @@ async fn activating_a_row_reports_its_key(app: TestApp) {
     let a = activated.clone();
     app.mount(move || simple_list(data).on_activate(move |id| a.borrow_mut().push(id)));
 
-    app.get_by_role(Role::ListItem, "Item 7").click().await;
+    app.get_by_role(Role::ListItem, "Item 3").click().await;
 
-    assert_eq!(*activated.borrow(), [7]);
+    assert_eq!(*activated.borrow(), [3]);
 }
 
 #[mitsuami_test::test]
@@ -212,7 +221,9 @@ async fn a_handle_scrolls_to_rows_that_arent_mounted(app: TestApp) {
 
     let row = app.get_by_role(Role::ListItem, "Item 500");
     assert!(row.is_visible());
-    assert_eq!(row.frame().y(), 80.0, "scrolled just enough: it's the last row in view");
+    // Scrolled just enough: it's the last row in view (to within float
+    // rounding, ten thousand points down).
+    assert!((row.frame().y() - 80.0).abs() < 0.01, "at {}", row.frame().y());
 }
 
 #[mitsuami_test::test]
@@ -230,10 +241,12 @@ async fn rows_are_as_high_as_their_content(app: TestApp) {
     assert_eq!(place(&app, "Item 1"), (0.0, 40.0, 20.0));
     assert_eq!(place(&app, "Item 3"), (0.0, 80.0, 40.0));
 
-    // Scrolling to the end measures every row on the way.
+    // At the end, the last row sits on the list's bottom edge, however
+    // high the platform guessed the rows it skipped.
     app.get_by_test_id("list").scroll_by(0.0, 1e6).await;
-    let list = app.get_by_test_id("list").id();
-    assert_eq!(app.ui().scroll_offset(list), Some(Point::new(0.0, 10.0 * 40.0 + 20.0 * 20.0 - 200.0)));
+    let list = app.get_by_test_id("list").frame();
+    let last = app.get_by_role(Role::ListItem, "Item 29").frame();
+    assert_eq!((last.height(), last.y() + last.height()), (20.0, list.y() + list.height()));
 }
 
 #[mitsuami_test::test]
@@ -249,7 +262,7 @@ async fn rows_mount_in_view_macro_form(app: TestApp) {
     });
     app.get_by_role(Role::ListItem, "Item 2").select().await;
     assert_eq!(selected.get(), [2]);
-    assert_eq!(names(&app), range(0..10));
+    assert!((0..5).all(|id| shows(&app, id)));
 }
 
 #[mitsuami_test::test]

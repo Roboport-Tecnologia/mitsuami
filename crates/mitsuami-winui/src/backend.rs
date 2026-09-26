@@ -1258,6 +1258,7 @@ impl State {
                 self.element(*id, command);
                 self.focus(*id, w::FocusState::Programmatic);
             }
+            Command::ScrollToRow { .. } => violation(command, "List isn't implemented by this backend yet"),
         }
         Ok(())
     }

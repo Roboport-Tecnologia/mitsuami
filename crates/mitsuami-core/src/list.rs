@@ -1,15 +1,15 @@
-//! `List`: a native list control that mounts only the rows in view.
+//! `List`: the platform's list control, with rows built by the core.
 //!
 //! The native control (NSTableView, ListView, gtk::ListView, QML ListView)
-//! scrolls, selects and draws rows. The core decides which rows exist:
-//! after each layout it works out the rows in view, or within a viewport of
-//! it, and the list mounts those, each in a host `Container` carrying its
-//! [`RowKey`], and disposes the rest. Rows are keyed like [`For`](crate::For)'s.
+//! virtualises: it scrolls, decides which rows to realise, recycles them,
+//! and draws and handles the selection. When it realises a row it reports
+//! `RowShown`, and the list mounts that row, in a host `Container` carrying
+//! its [`RowKey`]; when it lets a row go (`RowHidden`), the list disposes
+//! it. Rows are keyed like [`For`](crate::For)'s.
 
 use std::cell::RefCell;
 use std::collections::HashMap;
 use std::hash::Hash;
-use std::ops::Range;
 use std::rc::Rc;
 
 use mitsuami_reactive::{IntoValue, Owner, Signal, Value, effect, untrack};
@@ -36,10 +36,10 @@ pub struct RowRender<T>(Rc<dyn Fn(T) -> AnyView>);
 ///     .grow(1.0)
 /// ```
 ///
-/// Only the rows in view, and a viewport's worth on either side, are
-/// mounted; the others exist only as their keys and heights. Rows can hold
-/// any view. Each row is laid out at the list's width and is as high as its
-/// content; rows not mounted yet count as [`estimated_row_height`](List::estimated_row_height).
+/// Only the rows the platform shows (in view, or about to be) are mounted;
+/// the others exist only as their keys. Rows can hold any view. Each row is
+/// laid out at the width the list gives its rows, and is as high as its
+/// content.
 ///
 /// Rows are read by screen readers (and found by tests) as list items named
 /// by their text.
@@ -94,8 +94,8 @@ impl<T: 'static, K: 'static, R> List<T, K, R> {
         self
     }
 
-    /// How high rows are before they are mounted and measured. By default,
-    /// the mean height of the rows measured so far.
+    /// How high rows are likely to be, for platforms that size rows before
+    /// they're shown (AppKit). By default, the rows shown so far tell.
     pub fn estimated_row_height(mut self, height: impl Into<Length>) -> Self {
         self.estimate = match height.into() {
             Length::Px(px) => Some(px),
@@ -159,17 +159,17 @@ impl<K: 'static> Default for ListHandle<K> {
     }
 }
 
-/// The list's items and mounted rows, shared by its effects and the core's
-/// mount requests.
+/// The list's items and mounted rows, shared by its effects and handlers.
 struct Rows<T, K> {
-    /// The items, in order, with their row keys.
-    items: Vec<(RowKey, T)>,
+    /// The rows, in order.
+    order: Vec<RowKey>,
+    items: HashMap<RowKey, T>,
+    position: HashMap<RowKey, usize>,
     row_keys: HashMap<K, RowKey>,
     keys: HashMap<RowKey, K>,
     next_key: u64,
     /// Mounted rows: host node and scope.
     mounted: HashMap<RowKey, (NodeId, Owner)>,
-    range: Range<usize>,
 }
 
 impl<T: Clone + 'static, K: Eq + Hash + Clone + 'static> View for List<T, K> {
@@ -179,59 +179,74 @@ impl<T: Clone + 'static, K: Eq + Hash + Clone + 'static> View for List<T, K> {
         element.prop(Value::Static(mode), Prop::SelectionMode);
         element.prop(Value::Static(Vec::new()), Prop::Rows);
         element.prop(Value::Static(Vec::new()), Prop::Selected);
+        if let Some(estimate) = estimate {
+            element.prop(Value::Static(estimate), Prop::EstimatedRowHeight);
+        }
         let id = element.build(ui);
 
         let rows: Rc<RefCell<Rows<T, K>>> = Rc::new(RefCell::new(Rows {
-            items: Vec::new(),
+            order: Vec::new(),
+            items: HashMap::new(),
+            position: HashMap::new(),
             row_keys: HashMap::new(),
             keys: HashMap::new(),
             next_key: 1,
             mounted: HashMap::new(),
-            range: 0..0,
         }));
         // Row scopes hang off a scope of their own in the building owner, so
         // they survive re-runs of the list's effects.
         let rows_scope = Owner::current().map(|o| o.child()).unwrap_or_else(Owner::new_root);
 
-        // Mounts the rows in `range` that aren't, disposes those outside it,
-        // and puts the hosts in row order.
-        let remount = {
+        // Puts the mounted rows' hosts in row order.
+        let arrange = {
             let (ui, rows) = (ui.clone(), rows.clone());
-            move |range: Range<usize>| {
-                let mut rows = rows.borrow_mut();
-                let range = range.start.min(rows.items.len())..range.end.min(rows.items.len());
-                let wanted: Vec<(RowKey, T)> = rows.items[range.clone()].to_vec();
-                let keep: std::collections::HashSet<RowKey> = wanted.iter().map(|(k, _)| *k).collect();
-                let gone: Vec<RowKey> = rows.mounted.keys().filter(|k| !keep.contains(k)).copied().collect();
-                for row in gone {
-                    let (host, owner) = rows.mounted.remove(&row).expect("mounted");
+            move || {
+                let rows = rows.borrow();
+                let mut hosts: Vec<(usize, NodeId)> =
+                    rows.mounted.iter().map(|(row, (host, _))| (rows.position[row], *host)).collect();
+                hosts.sort();
+                ui.set_children(id, hosts.into_iter().map(|(_, host)| host).collect());
+            }
+        };
+        let unmount = {
+            let ui = ui.clone();
+            move |rows: &mut Rows<T, K>, row: RowKey| {
+                if let Some((host, owner)) = rows.mounted.remove(&row) {
                     owner.dispose();
                     ui.destroy(host);
                 }
-                for (row, item) in wanted {
-                    if rows.mounted.contains_key(&row) {
-                        continue;
-                    }
-                    let host = ui.create(WidgetKind::Container, vec![Prop::Row(row)]);
-                    let owner = rows_scope.child();
-                    let content = owner.with(|| (render.0)(item).build(&ui));
-                    ui.append_child(host, content);
-                    rows.mounted.insert(row, (host, owner));
-                }
-                rows.range = range;
-                let order: Vec<NodeId> =
-                    rows.items[rows.range.clone()].iter().map(|(k, _)| rows.mounted[k].0).collect();
-                ui.set_children(id, order);
             }
         };
-        let remount = Rc::new(remount);
-        ui.register_list(id, estimate, {
-            let remount = remount.clone();
-            Rc::new(move |range| remount(range))
-        });
+
+        // The platform shows and lets go of rows: mount and dispose them.
+        {
+            let (ui_, rows, arrange, unmount) = (ui.clone(), rows.clone(), arrange.clone(), unmount.clone());
+            ui.on_event(id, move |event| {
+                match event {
+                    UiEvent::RowShown(row) => {
+                        let item = {
+                            let rows = rows.borrow();
+                            if rows.mounted.contains_key(row) {
+                                return;
+                            }
+                            let Some(item) = rows.items.get(row).cloned() else { return };
+                            item
+                        };
+                        let host = ui_.create(WidgetKind::Container, vec![Prop::Row(*row)]);
+                        let owner = rows_scope.child();
+                        let content = owner.with(|| (render.0)(item).build(&ui_));
+                        ui_.append_child(host, content);
+                        rows.borrow_mut().mounted.insert(*row, (host, owner));
+                    }
+                    UiEvent::RowHidden(row) => unmount(&mut rows.borrow_mut(), *row),
+                    _ => return,
+                }
+                arrange();
+            });
+        }
 
         // The data: keep the row keys of items that stay, give new ones
-        // theirs, and drop the rows of items that went.
+        // theirs, and dispose the rows of items that went.
         {
             let (ui, rows) = (ui.clone(), rows.clone());
             effect(move || {
@@ -242,7 +257,8 @@ impl<T: Clone + 'static, K: Eq + Hash + Clone + 'static> View for List<T, K> {
                         let rows = &mut *rows;
                         let mut row_keys = HashMap::with_capacity(items.len());
                         let mut keys = HashMap::with_capacity(items.len());
-                        let mut next = Vec::with_capacity(items.len());
+                        let mut by_key = HashMap::with_capacity(items.len());
+                        let mut order = Vec::with_capacity(items.len());
                         for item in items {
                             let k = key(&item);
                             let row = match rows.row_keys.get(&k) {
@@ -254,35 +270,23 @@ impl<T: Clone + 'static, K: Eq + Hash + Clone + 'static> View for List<T, K> {
                             };
                             row_keys.insert(k.clone(), row);
                             keys.insert(row, k);
-                            next.push((row, item));
+                            by_key.insert(row, item);
+                            order.push(row);
                         }
-                        rows.items = next;
+                        rows.position = order.iter().enumerate().map(|(i, row)| (*row, i)).collect();
+                        rows.items = by_key;
                         rows.row_keys = row_keys;
                         rows.keys = keys;
-                        rows.items.iter().map(|(k, _)| *k).collect::<Vec<_>>()
-                    };
-                    ui.set_list_rows(id, order);
-                    // Keep the mounted rows that stay, where they are now.
-                    let range = rows.borrow().range.clone();
-                    let kept: Vec<RowKey> = {
-                        let rows = rows.borrow();
-                        rows.mounted.keys().filter(|k| rows.keys.contains_key(k)).copied().collect()
-                    };
-                    let range = {
-                        let rows = rows.borrow();
-                        let indices: Vec<usize> = rows
-                            .items
-                            .iter()
-                            .enumerate()
-                            .filter(|(_, (k, _))| kept.contains(k))
-                            .map(|(i, _)| i)
-                            .collect();
-                        match (indices.first(), indices.last()) {
-                            (Some(first), Some(last)) => *first..last + 1,
-                            _ => range.start.min(rows.items.len())..range.start.min(rows.items.len()),
+                        rows.order = order.clone();
+                        let gone: Vec<RowKey> =
+                            rows.mounted.keys().filter(|row| !rows.items.contains_key(row)).copied().collect();
+                        for row in gone {
+                            unmount(rows, row);
                         }
+                        order
                     };
-                    remount(range);
+                    ui.set_prop(id, Prop::Rows(order));
+                    arrange();
                 });
             });
         }

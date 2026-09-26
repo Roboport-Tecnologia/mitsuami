@@ -316,9 +316,30 @@ impl mitsuami_core::TestHooks for AppKitHandle {
     fn node_count(&self) -> usize {
         AppKitHandle::node_count(self)
     }
+
+    /// Offscreen windows get no display cycle, where tables add the rows
+    /// scrolling brought into view.
+    fn settle(&self) {
+        self.state.borrow().layout_lists();
+    }
 }
 
 impl State {
+    /// Lets tables lay out their rows now rather than at the next display:
+    /// they report the rows they show, and the core builds those in the
+    /// same run-loop turn, before anything is drawn. Their callbacks only
+    /// emit.
+    fn layout_lists(&self) {
+        for node in self.nodes.values() {
+            if let Widget::List(list) = &node.widget {
+                // Scrolling doesn't mark the table as needing layout; its
+                // rows follow at the next display.
+                list.table.setNeedsLayout(true);
+                list.scroll.layoutSubtreeIfNeeded();
+            }
+        }
+    }
+
     fn create(&mut self, id: NodeId, kind: WidgetKind, command: &Command) {
         let mtm = self.mtm;
         let target = matches!(
@@ -499,6 +520,7 @@ impl State {
             }
             (Prop::Rows(rows), Widget::List(list)) => list.set_rows(rows.clone()),
             (Prop::SelectionMode(mode), Widget::List(list)) => list.set_mode(*mode),
+            (Prop::EstimatedRowHeight(height), Widget::List(list)) => list.set_estimate(*height),
             (Prop::Selected(rows), Widget::List(list)) => list.set_selected(rows),
             (Prop::Row(row), Widget::Host(_)) => node.row = Some(*row),
             (Prop::ScrollAxes(axes), Widget::Scroll(scroll)) => {
@@ -627,10 +649,13 @@ impl State {
                     list.set_frame(rect);
                     return;
                 }
-                // A row's place is the table's to decide; only its size is ours.
-                if let Some(Widget::List(_)) = self.nodes.get(id).and_then(|n| n.parent).map(|p| &self.nodes[&p].widget)
-                {
-                    self.view(*id, command).setFrameSize(rect.size);
+                // A row fills its cell, and the table makes the row as high.
+                let parent = self.nodes.get(id).and_then(|n| n.parent).map(|p| &self.nodes[&p].widget);
+                if let Some(Widget::List(list)) = parent {
+                    self.view(*id, command).setFrame(rect);
+                    if let Some(row) = self.nodes[id].row {
+                        list.set_row_height(row, frame.height());
+                    }
                     return;
                 }
                 let view = self.view(*id, command);
@@ -689,6 +714,10 @@ impl State {
                 Some(Widget::Scroll(scroll)) => scroll_to(scroll, NSPoint::new(offset.x as f64, offset.y as f64)),
                 Some(Widget::List(list)) => scroll_to(&list.scroll, NSPoint::new(offset.x as f64, offset.y as f64)),
                 _ => violation(command, "not a ScrollView or List"),
+            },
+            Command::ScrollToRow { id, row } => match self.nodes.get(id).map(|n| &n.widget) {
+                Some(Widget::List(list)) => list.scroll_to_row(*row),
+                _ => violation(command, "not a List"),
             },
             Command::Focus { id } => {
                 let Some(node) = self.nodes.get(id) else { violation(command, "node does not exist") };
@@ -778,6 +807,7 @@ impl Backend for AppKitBackend {
             }
             state.apply(command);
         }
+        state.layout_lists();
     }
 
     fn measure(&mut self, id: NodeId, request: MeasureRequest) -> Size {
@@ -1074,7 +1104,8 @@ impl Backend for AppKitBackend {
             }
             Widget::Native { last, .. } => props.push(Prop::Native(last.clone())),
             Widget::List(list) => {
-                props.push(Prop::Rows(list.native_rows()));
+                props.push(Prop::Rows(list.rows()));
+                props.extend(list.estimate().map(Prop::EstimatedRowHeight));
                 props.push(Prop::SelectionMode(list.mode()));
                 props.push(Prop::Selected(list.selected()));
             }

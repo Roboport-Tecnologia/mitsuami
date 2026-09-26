@@ -70,6 +70,13 @@ pub enum Command {
     Focus {
         id: NodeId,
     },
+    /// Scrolls a `List` just enough to show a row, as the platform's own
+    /// "scroll to row" does. The platform then reports `Scrolled`, and the
+    /// rows it shows.
+    ScrollToRow {
+        id: NodeId,
+        row: RowKey,
+    },
 }
 
 #[derive(Clone, Debug, PartialEq)]
@@ -97,10 +104,16 @@ pub enum UiEvent {
     /// A `ScrollView`'s or `List`'s scroll offset changed (by the user or
     /// by `ScrollTo`).
     Scrolled(Point),
+    /// A `List` realised a row: it's in view, or about to be. The core
+    /// mounts the row and sends its host.
+    RowShown(RowKey),
+    /// A `List` let go of a row it had shown. The core disposes it.
+    RowHidden(RowKey),
     /// A `List`'s row was activated: double-clicked, or Enter pressed on it.
     RowActivated(RowKey),
     /// The width a `List` gives its rows, when it isn't the list's own
-    /// width (scroll bars that take room from the rows, list insets).
+    /// width (scroll bars that take room from the rows, list insets). Rows
+    /// are laid out at that width.
     RowWidth(f32),
     /// A pointer event on a drawn custom widget, in its coordinates.
     Pointer(PointerEvent),

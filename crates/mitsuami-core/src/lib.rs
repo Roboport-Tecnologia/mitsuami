@@ -42,6 +42,6 @@ pub use style::{Align, Display, FlexDirection, GridPlacement, Justify, Style, Te
 pub use ui::{NodeInfo, Ui, WeakUi};
 pub use units::{Length, LengthExt, Spacing};
 pub use view::{AnyView, Callback, Children, Slot, View};
-pub use widget::{ButtonVariant, ListRow, NodeId, Prop, RowKey, ScrollAxes, SelectionMode, TextStyle, WidgetKind};
+pub use widget::{ButtonVariant, NodeId, Prop, RowKey, ScrollAxes, SelectionMode, TextStyle, WidgetKind};
 
 pub use mitsuami_reactive as reactive;

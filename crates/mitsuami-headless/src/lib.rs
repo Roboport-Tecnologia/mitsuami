@@ -10,7 +10,7 @@ mod services;
 pub use services::{FakeServices, FakeServicesHandle, Pending, PendingAlert, PendingOpen, PendingSave};
 
 use std::cell::RefCell;
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 use std::rc::Rc;
 
 use mitsuami_core::a11y::{A11yAction, A11yProps, ActionError};
@@ -20,8 +20,8 @@ use mitsuami_core::backend::{
 };
 use mitsuami_core::units::SpacingScale;
 use mitsuami_core::{
-    Command, EventValue, ListRow, NodeId, Point, PointerEvent, PointerKind, Prop, Rect, RowKey, SelectionMode, Size,
-    TextStyle, UiEvent, WidgetKind, find_prop,
+    Command, EventValue, NodeId, Point, PointerEvent, PointerKind, Prop, Rect, RowKey, SelectionMode, Size, TextStyle,
+    UiEvent, WidgetKind, find_prop,
 };
 
 /// Fixed metrics: 16px body text, 4/8/12/16/24 spacing, scale factor 1.
@@ -52,6 +52,22 @@ struct HeadlessNode {
     parent: Option<NodeId>,
     children: Vec<NodeId>,
     scroll_offset: Point,
+    /// Lists only: the rows realised, as reported.
+    shown: BTreeSet<RowKey>,
+    /// Lists only: where the rows are, and each row's index in it.
+    placed: Vec<Placed>,
+    placed_index: std::collections::HashMap<RowKey, usize>,
+    /// Lists only: the heights of the rows measured so far, kept when
+    /// they're let go, as native lists keep them.
+    heights: BTreeMap<RowKey, f32>,
+}
+
+/// Where a list placed a row.
+#[derive(Clone, Copy)]
+struct Placed {
+    key: RowKey,
+    top: f32,
+    height: f32,
 }
 
 struct State {
@@ -95,26 +111,97 @@ impl State {
             .find(|candidate| self.nodes.get(candidate).is_some_and(|n| find_prop!(n.props, Enabled) != Some(false)))
     }
 
-    /// Moves a scroll view, reporting it like a platform would.
+    /// Moves a scroll view, reporting it like a platform would. Lists then
+    /// show the rows that came into view.
     fn scroll(&mut self, id: NodeId, offset: Point) {
         let node = self.nodes.get_mut(&id).unwrap();
         if node.scroll_offset != offset {
             node.scroll_offset = offset;
+            let kind = node.kind;
             self.emit(id, UiEvent::Scrolled(offset));
+            if kind == WidgetKind::List {
+                self.show_rows(id);
+            }
         }
     }
 
-    /// A list's rows and where each one is, as a native list places them:
-    /// one below the other, each as high as the core says.
-    fn rows(&self, list: NodeId) -> Vec<(ListRow, f32)> {
-        let rows = self.nodes.get(&list).and_then(|n| find_prop!(n.props, Rows)).unwrap_or_default();
+    /// A list's rows and where it placed them.
+    fn rows(&self, list: NodeId) -> &[Placed] {
+        &self.nodes[&list].placed
+    }
+
+    fn row(&self, list: NodeId, key: RowKey) -> Option<Placed> {
+        let node = &self.nodes[&list];
+        node.placed_index.get(&key).map(|i| node.placed[*i])
+    }
+
+    /// Places a list's rows one below the other, as native lists do: rows
+    /// measured so far as high as their hosts were, the others as high as
+    /// the estimate (the app's, or the mean of the rows measured so far, or
+    /// two lines of text).
+    fn place_rows(&mut self, list: NodeId) {
+        let node = &self.nodes[&list];
+        let rows: BTreeSet<RowKey> = find_prop!(node.props, Rows).unwrap_or_default().into_iter().collect();
+        let measured: Vec<(RowKey, f32)> = node
+            .children
+            .iter()
+            .filter_map(|host| {
+                let host = &self.nodes[host];
+                Some((find_prop!(host.props, Row)?, host.frame.height()))
+            })
+            .filter(|(_, height)| *height > 0.0)
+            .collect();
+        let heights = &mut self.nodes.get_mut(&list).unwrap().heights;
+        heights.retain(|key, _| rows.contains(key));
+        heights.extend(measured);
+        let placed = self.placement(list);
+        let node = self.nodes.get_mut(&list).unwrap();
+        node.placed_index = placed.iter().enumerate().map(|(i, r)| (r.key, i)).collect();
+        node.placed = placed;
+    }
+
+    fn placement(&self, list: NodeId) -> Vec<Placed> {
+        let node = &self.nodes[&list];
+        let heights = &node.heights;
+        let estimate = find_prop!(node.props, EstimatedRowHeight).unwrap_or_else(|| match heights.len() {
+            0 => (self.metrics.font_sizes.body * 2.0).round(),
+            n => (heights.values().sum::<f32>() / n as f32).round(),
+        });
         let mut top = 0.0;
-        rows.into_iter()
-            .map(|row| {
-                top += row.height;
-                (row, top - row.height)
+        find_prop!(node.props, Rows)
+            .unwrap_or_default()
+            .into_iter()
+            .map(|key| {
+                let height = heights.get(&key).copied().unwrap_or(estimate);
+                top += height;
+                Placed { key, top: top - height, height }
             })
             .collect()
+    }
+
+    /// Realises the rows in a list's view and lets go of the others,
+    /// reporting both, as native lists do (without prefetching any).
+    fn show_rows(&mut self, list: NodeId) {
+        let node = &self.nodes[&list];
+        let (start, end) = (node.scroll_offset.y, node.scroll_offset.y + node.frame.height());
+        let shown: BTreeSet<RowKey> = if end > start {
+            self.rows(list).iter().filter(|r| r.top < end && r.top + r.height > start).map(|r| r.key).collect()
+        } else {
+            BTreeSet::new()
+        };
+        let before = std::mem::replace(&mut self.nodes.get_mut(&list).unwrap().shown, shown.clone());
+        for row in before.difference(&shown) {
+            self.emit(list, UiEvent::RowHidden(*row));
+        }
+        for row in shown.difference(&before) {
+            self.emit(list, UiEvent::RowShown(*row));
+        }
+    }
+
+    /// The largest offset of a list: its rows' height less its own.
+    fn clamp_list(&self, list: NodeId, y: f32) -> f32 {
+        let total: f32 = self.rows(list).iter().map(|r| r.height).sum();
+        y.clamp(0.0, (total - self.nodes[&list].frame.height()).max(0.0))
     }
 
     /// Selects rows as the user would, reporting it.
@@ -129,16 +216,17 @@ impl State {
     /// Scrolls a list just enough to show a row, as native lists do when
     /// the keyboard moves the selection.
     fn reveal(&mut self, list: NodeId, key: RowKey) {
-        let Some((row, top)) = self.rows(list).into_iter().find(|(row, _)| row.key == key) else { return };
+        let Some(row) = self.row(list, key) else { return };
         let node = &self.nodes[&list];
         let (offset, visible) = (node.scroll_offset, node.frame.height());
-        let y = if top < offset.y {
-            top
-        } else if top + row.height > offset.y + visible {
-            top + row.height - visible
+        let y = if row.top < offset.y {
+            row.top
+        } else if row.top + row.height > offset.y + visible {
+            row.top + row.height - visible
         } else {
             offset.y
         };
+        let y = self.clamp_list(list, y);
         self.scroll(list, Point::new(offset.x, y));
     }
 
@@ -158,7 +246,7 @@ impl State {
                         &format!("list {id} has a child that isn't a row host (a Container with a Prop::Row)"),
                     );
                 };
-                let Some(index) = rows.iter().position(|(row, _)| row.key == key) else {
+                let Some(index) = rows.iter().position(|r| r.key == key) else {
                     violation(command, &format!("list {id} hosts row {key:?}, which isn't in its Prop::Rows"));
                 };
                 if last.is_some_and(|last| last >= index) {
@@ -320,6 +408,10 @@ impl Backend for HeadlessBackend {
                             parent: None,
                             children: Vec::new(),
                             scroll_offset: Point::ZERO,
+                            shown: BTreeSet::new(),
+                            placed: Vec::new(),
+                            placed_index: Default::default(),
+                            heights: BTreeMap::new(),
                         },
                     );
                 }
@@ -329,8 +421,7 @@ impl Backend for HeadlessBackend {
                     // Like native lists, removing rows deselects them.
                     if let Prop::Rows(rows) = prop {
                         let selected = find_prop!(state.nodes[id].props, Selected).unwrap_or_default();
-                        let kept: Vec<RowKey> =
-                            selected.iter().copied().filter(|k| rows.iter().any(|r| r.key == *k)).collect();
+                        let kept: Vec<RowKey> = selected.iter().copied().filter(|k| rows.contains(k)).collect();
                         if kept != selected {
                             state.select(*id, kept);
                         }
@@ -402,10 +493,31 @@ impl Backend for HeadlessBackend {
                     state.node(*id, command);
                     state.focus(*id);
                 }
+                Command::ScrollToRow { id, row } => {
+                    if state.node(*id, command).kind != WidgetKind::List {
+                        violation(command, "not a List");
+                    }
+                    state.place_rows(*id);
+                    state.reveal(*id, *row);
+                }
             }
         }
         if let Some(last) = batch.last() {
+            // New data, sizes or rows: what's in view may have changed.
+            let lists: Vec<NodeId> =
+                state.nodes.iter().filter(|(_, n)| n.kind == WidgetKind::List).map(|(id, _)| *id).collect();
+            for list in &lists {
+                state.place_rows(*list);
+            }
             state.check_lists(last);
+            for list in lists {
+                let offset = state.nodes[&list].scroll_offset;
+                let y = state.clamp_list(list, offset.y);
+                if y != offset.y {
+                    state.scroll(list, Point::new(offset.x, y));
+                }
+                state.show_rows(list);
+            }
         }
     }
 
@@ -523,7 +635,7 @@ impl Backend for HeadlessBackend {
                 let (axes, content) = match kind {
                     WidgetKind::List => (
                         mitsuami_core::ScrollAxes::Vertical,
-                        Size::new(node.frame.width(), state.rows(id).iter().map(|(r, _)| r.height).sum()),
+                        Size::new(node.frame.width(), state.rows(id).iter().map(|r| r.height).sum()),
                     ),
                     _ => (
                         find_prop!(node.props, ScrollAxes).unwrap_or_default(),
@@ -574,7 +686,7 @@ impl Backend for HeadlessBackend {
                     return Err(ActionError::Unsupported);
                 }
                 state.focus(id);
-                let rows: Vec<RowKey> = state.rows(id).iter().map(|(r, _)| r.key).collect();
+                let rows: Vec<RowKey> = state.rows(id).iter().map(|r| r.key).collect();
                 let selected = find_prop!(state.nodes[&id].props, Selected).unwrap_or_default();
                 let current = selected.first().and_then(|k| rows.iter().position(|r| r == k));
                 if *key == Key::Enter {
@@ -607,9 +719,9 @@ impl Backend for HeadlessBackend {
         // A list places its rows itself: the core only gives their sizes.
         let row = find_prop!(node.props, Row)
             .zip(node.parent.filter(|p| state.nodes[p].kind == WidgetKind::List))
-            .and_then(|(key, list)| state.rows(list).into_iter().find(|(r, _)| r.key == key));
+            .and_then(|(key, list)| state.row(list, key));
         let frame = match row {
-            Some((row, top)) => Rect::new(0.0, top, node.frame.width(), row.height),
+            Some(row) => Rect::new(0.0, row.top, node.frame.width(), node.frame.height()),
             None => node.frame,
         };
         Some(NativeState {

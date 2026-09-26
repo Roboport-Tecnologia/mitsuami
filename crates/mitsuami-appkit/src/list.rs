@@ -1,24 +1,28 @@
 //! `List`: a view-based `NSTableView` with one column and no header, in an
 //! `NSScrollView`.
 //!
-//! The table asks for rows whenever it likes, including in the middle of our
-//! own `apply` (a reload, a scroll, a resize), so its data source reads only
-//! the list's own [`ListData`], never the backend's state, and only emits.
-//! Each row's cell view is the row's host, once the core has mounted it, or
-//! an empty view until then.
+//! The table virtualises: it adds row views for the rows it shows and
+//! removes them when they scroll away, and we report both (`RowShown`,
+//! `RowHidden`) so the core mounts and disposes those rows. Each row's cell
+//! is a plain view that holds the row's host once the core sends it.
+//!
+//! The table calls its data source and delegate whenever it likes,
+//! including in the middle of our own `apply` (a reload, a scroll, a
+//! resize), so they read only the list's own [`ListData`], never the
+//! backend's state, and only emit.
 
 use std::cell::{Cell, RefCell};
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::rc::Rc;
 
-use mitsuami_core::{EventSink, EventValue, ListRow, NodeId, Rect, RowKey, SelectionMode, UiEvent};
+use mitsuami_core::{EventSink, EventValue, NodeId, Rect, RowKey, SelectionMode, UiEvent};
 use objc2::rc::Retained;
 use objc2::runtime::{AnyObject, NSObject, NSObjectProtocol, ProtocolObject};
 use objc2::{DefinedClass, MainThreadMarker, MainThreadOnly, define_class, msg_send, sel};
 use objc2_app_kit::{
     NSAnimationContext, NSControlTextEditingDelegate, NSEvent, NSScrollView, NSTableColumn,
-    NSTableColumnResizingOptions, NSTableView, NSTableViewColumnAutoresizingStyle, NSTableViewDataSource,
-    NSTableViewDelegate, NSTableViewStyle, NSView,
+    NSTableColumnResizingOptions, NSTableRowView, NSTableView, NSTableViewColumnAutoresizingStyle,
+    NSTableViewDataSource, NSTableViewDelegate, NSTableViewStyle, NSView,
 };
 use objc2_foundation::{NSIndexSet, NSInteger, NSMutableIndexSet, NSNotFound, NSNotification, NSSize, NSString};
 
@@ -27,13 +31,41 @@ use crate::classes::{HostView, zero_rect};
 /// What the table shows, shared by the backend and the table's data source.
 #[derive(Default)]
 pub(crate) struct ListData {
-    rows: Vec<ListRow>,
+    rows: Vec<RowKey>,
     index: HashMap<RowKey, usize>,
+    /// The rows' heights, from their hosts' sizes.
+    heights: HashMap<RowKey, f64>,
+    estimate: Option<f64>,
+    /// Without the app's estimate: the first row measured.
+    learned: Option<f64>,
     /// The mounted rows' hosts.
     hosts: HashMap<RowKey, (NodeId, Retained<NSView>)>,
+    /// The cells of the rows the table shows.
+    cells: HashMap<RowKey, Retained<HostView>>,
+    /// The table's row views (by address), and the rows they show.
+    row_views: HashMap<usize, RowKey>,
+    /// The rows reported shown.
+    shown: HashSet<RowKey>,
     mode: SelectionMode,
     /// Set while the backend changes the selection itself.
     muted: bool,
+    /// Set while the table reloads: rows come and go, and only the
+    /// difference is reported at the end.
+    reloading: bool,
+}
+
+impl ListData {
+    /// The keys of the rows at these indexes.
+    fn keys(&self, indexes: &NSIndexSet) -> Vec<RowKey> {
+        indices(indexes).into_iter().filter_map(|i| self.rows.get(i).copied()).collect()
+    }
+
+    /// How high rows not shown yet are: the app's estimate, or else the
+    /// first row measured, or else a line of text and padding. It stays
+    /// put once known: the table keeps the heights it read.
+    fn estimate(&self) -> f64 {
+        self.estimate.or(self.learned).unwrap_or(24.0)
+    }
 }
 
 pub(crate) type SharedList = Rc<RefCell<ListData>>;
@@ -74,9 +106,10 @@ define_class!(
     unsafe impl NSTableViewDelegate for ListSource {
         #[unsafe(method(tableView:heightOfRow:))]
         fn height_of_row(&self, _table: &NSTableView, row: NSInteger) -> f64 {
-            // AppKit wants rows at least a point high.
             let data = self.ivars().data.borrow();
-            data.rows.get(row as usize).map_or(1.0, |r| (r.height as f64).max(1.0))
+            let height = data.rows.get(row as usize).and_then(|key| data.heights.get(key).copied());
+            // AppKit wants rows at least a point high.
+            height.unwrap_or_else(|| data.estimate()).max(1.0)
         }
 
         #[unsafe(method_id(tableView:viewForTableColumn:row:))]
@@ -86,12 +119,37 @@ define_class!(
             _column: Option<&NSTableColumn>,
             row: NSInteger,
         ) -> Option<Retained<NSView>> {
-            let host = {
-                let data = self.ivars().data.borrow();
-                data.rows.get(row as usize).and_then(|r| data.hosts.get(&r.key)).map(|(_, view)| view.clone())
-            };
-            // Not mounted yet: an empty cell, until the core sends the host.
-            Some(host.unwrap_or_else(|| Retained::into_super(HostView::new(self.mtm(), false))))
+            let cell = HostView::new(self.mtm(), false);
+            let mut data = self.ivars().data.borrow_mut();
+            if let Some(key) = data.rows.get(row as usize).copied() {
+                if let Some((_, host)) = data.hosts.get(&key) {
+                    cell.addSubview(host);
+                }
+                data.cells.insert(key, cell.clone());
+            }
+            Some(Retained::into_super(cell))
+        }
+
+        #[unsafe(method(tableView:didAddRowView:forRow:))]
+        fn did_add_row_view(&self, _table: &NSTableView, row_view: &NSTableRowView, row: NSInteger) {
+            let ListIvars { id, events, data } = self.ivars();
+            let mut data = data.borrow_mut();
+            let Some(key) = data.rows.get(row as usize).copied() else { return };
+            data.row_views.insert(row_view as *const _ as usize, key);
+            if !data.reloading && data.shown.insert(key) {
+                events.emit(*id, UiEvent::RowShown(key));
+            }
+        }
+
+        #[unsafe(method(tableView:didRemoveRowView:forRow:))]
+        fn did_remove_row_view(&self, _table: &NSTableView, row_view: &NSTableRowView, _row: NSInteger) {
+            let ListIvars { id, events, data } = self.ivars();
+            let mut data = data.borrow_mut();
+            let Some(key) = data.row_views.remove(&(row_view as *const _ as usize)) else { return };
+            data.cells.remove(&key);
+            if !data.reloading && data.shown.remove(&key) {
+                events.emit(*id, UiEvent::RowHidden(key));
+            }
         }
 
         #[unsafe(method(tableView:shouldSelectRow:))]
@@ -113,7 +171,7 @@ define_class!(
 
 impl ListIvars {
     fn activate(&self, row: NSInteger) {
-        let key = self.data.borrow().rows.get(usize::try_from(row).ok().unwrap_or(usize::MAX)).map(|r| r.key);
+        let key = usize::try_from(row).ok().and_then(|row| self.data.borrow().rows.get(row).copied());
         if let Some(key) = key {
             self.events.emit(self.id, UiEvent::RowActivated(key));
         }
@@ -140,13 +198,6 @@ define_class!(
         }
     }
 );
-
-impl ListData {
-    /// The keys of the rows at these indexes.
-    fn keys(&self, indexes: &NSIndexSet) -> Vec<RowKey> {
-        indices(indexes).into_iter().filter_map(|i| self.rows.get(i).map(|r| r.key)).collect()
-    }
-}
 
 fn indices(set: &NSIndexSet) -> Vec<usize> {
     let mut out = Vec::with_capacity(set.count());
@@ -180,7 +231,7 @@ pub(crate) struct List {
     pub table: Retained<ListTable>,
     column: Retained<NSTableColumn>,
     _source: Retained<ListSource>,
-    pub data: SharedList,
+    data: SharedList,
     /// The row width last reported.
     reported_width: Cell<Option<f32>>,
 }
@@ -193,7 +244,7 @@ impl List {
         let table: Retained<ListTable> =
             unsafe { msg_send![super(ListTable::alloc(mtm).set_ivars(ivars())), initWithFrame: zero_rect()] };
         table.setHeaderView(None);
-        // Rows exactly as high as the core says, one right below the other.
+        // Rows exactly as high as their hosts, one right below the other.
         table.setStyle(NSTableViewStyle::Plain);
         table.setIntercellSpacing(NSSize::new(0.0, 0.0));
         table.setUsesAutomaticRowHeights(false);
@@ -218,39 +269,64 @@ impl List {
         List { scroll, table, column, _source: source, data, reported_width: Cell::new(None) }
     }
 
-    /// New rows. The same keys with new heights: the table re-reads the
-    /// heights. Otherwise it reloads, and keeps the selected rows that
-    /// stayed selected (reporting it if some went).
-    pub(crate) fn set_rows(&self, rows: Vec<ListRow>) {
-        let (same_keys, changed_heights, selected) = {
-            let data = self.data.borrow();
-            let same = data.rows.len() == rows.len() && data.rows.iter().zip(&rows).all(|(a, b)| a.key == b.key);
-            let changed: Vec<usize> =
-                data.rows.iter().zip(&rows).enumerate().filter(|(_, (a, b))| a != b).map(|(i, _)| i).collect();
-            (same, changed, data.keys(&self.table.selectedRowIndexes()))
-        };
+    /// New rows: the table reloads, keeps the selected rows that stayed
+    /// (reporting it if some went), and reports the rows it shows now.
+    pub(crate) fn set_rows(&self, rows: Vec<RowKey>) {
+        let selected = self.selected();
         {
             let mut data = self.data.borrow_mut();
-            data.index = rows.iter().enumerate().map(|(i, r)| (r.key, i)).collect();
+            let index: HashMap<RowKey, usize> = rows.iter().enumerate().map(|(i, r)| (*r, i)).collect();
+            data.heights.retain(|key, _| index.contains_key(key));
+            data.index = index;
             data.rows = rows;
+            data.muted = true;
+            data.reloading = true;
         }
-        if same_keys {
-            if !changed_heights.is_empty() {
-                without_animation(|| self.table.noteHeightOfRowsWithIndexesChanged(&index_set(changed_heights)));
-            }
-            return;
-        }
-        self.data.borrow_mut().muted = true;
         self.table.reloadData();
+        // The table adds its row views back at its next layout: have it
+        // now, so rows that stay are seen to stay (and keep their state).
+        self.table.setNeedsLayout(true);
+        self.table.layoutSubtreeIfNeeded();
         let kept: Vec<RowKey> = {
             let data = self.data.borrow();
             selected.iter().copied().filter(|k| data.index.contains_key(k)).collect()
         };
         self.select(&kept);
-        self.data.borrow_mut().muted = false;
+        {
+            let mut data = self.data.borrow_mut();
+            data.muted = false;
+            data.reloading = false;
+        }
         if kept != selected {
             self.report_selection();
         }
+        self.report_shown();
+    }
+
+    /// Reports the rows shown and let go since the last report.
+    fn report_shown(&self) {
+        let ListIvars { id, events, data } = self.table.ivars();
+        let mut data = data.borrow_mut();
+        let now: HashSet<RowKey> = data.row_views.values().copied().collect();
+        let mut hidden: Vec<RowKey> = data.shown.difference(&now).copied().collect();
+        let mut shown: Vec<RowKey> = now.difference(&data.shown).copied().collect();
+        hidden.sort_by_key(|k| data.index.get(k).copied());
+        shown.sort_by_key(|k| data.index.get(k).copied());
+        for row in hidden {
+            events.emit(*id, UiEvent::RowHidden(row));
+        }
+        for row in shown {
+            events.emit(*id, UiEvent::RowShown(row));
+        }
+        data.shown = now;
+    }
+
+    pub(crate) fn set_estimate(&self, height: f32) {
+        self.data.borrow_mut().estimate = Some(height as f64);
+    }
+
+    pub(crate) fn estimate(&self) -> Option<f32> {
+        self.data.borrow().estimate.map(|h| h as f32)
     }
 
     /// Selects rows without reporting it.
@@ -271,8 +347,8 @@ impl List {
     /// Reports the selection as the user's: what a screen reader's select
     /// does.
     pub(crate) fn report_selection(&self) {
-        let ListIvars { id, events, data } = self.table.ivars();
-        events.emit(*id, UiEvent::Changed(EventValue::Rows(data.borrow().keys(&self.table.selectedRowIndexes()))));
+        let ListIvars { id, events, .. } = self.table.ivars();
+        events.emit(*id, UiEvent::Changed(EventValue::Rows(self.selected())));
     }
 
     pub(crate) fn set_mode(&self, mode: SelectionMode) {
@@ -284,24 +360,50 @@ impl List {
         self.data.borrow().mode
     }
 
-    /// Hosts a mounted row, and shows it if its row is on screen.
+    /// Hosts a mounted row, in its cell if the table shows it.
     pub(crate) fn insert(&self, key: RowKey, id: NodeId, view: Retained<NSView>) {
-        self.data.borrow_mut().hosts.insert(key, (id, view));
-        self.reload_row(key);
+        let mut data = self.data.borrow_mut();
+        if let Some(cell) = data.cells.get(&key) {
+            cell.addSubview(&view);
+        }
+        data.hosts.insert(key, (id, view));
     }
 
-    /// Unhosts a row; an empty cell takes its place.
     pub(crate) fn remove(&self, key: RowKey) {
-        let removed = self.data.borrow_mut().hosts.remove(&key);
-        if removed.is_some() {
-            self.reload_row(key);
+        if let Some((_, view)) = self.data.borrow_mut().hosts.remove(&key) {
+            view.removeFromSuperview();
         }
     }
 
-    fn reload_row(&self, key: RowKey) {
-        let index = self.data.borrow().index.get(&key).copied();
-        if let Some(index) = index {
-            self.table.reloadDataForRowIndexes_columnIndexes(&index_set([index]), &index_set([0]));
+    /// A row's host has a new height: the table re-reads it. The first
+    /// one measured, without the app's estimate, becomes the estimate, and
+    /// the table re-reads every row's height, once. A list scrolled to its
+    /// end stays there.
+    pub(crate) fn set_row_height(&self, key: RowKey, height: f32) {
+        let changed = {
+            let mut data = self.data.borrow_mut();
+            let height = height as f64;
+            if data.heights.insert(key, height) == Some(height) {
+                return;
+            }
+            if data.estimate.is_none() && data.learned.is_none() {
+                data.learned = Some(height);
+                index_set(0..data.rows.len())
+            } else {
+                match data.index.get(&key) {
+                    Some(index) => index_set([*index]),
+                    None => return,
+                }
+            }
+        };
+        let clip = self.scroll.contentView();
+        let at_end = clip.bounds().origin.y > 0.0
+            && clip.bounds().origin.y + clip.bounds().size.height >= self.table.frame().size.height - 0.5;
+        without_animation(|| self.table.noteHeightOfRowsWithIndexesChanged(&changed));
+        if at_end {
+            let end = (self.table.frame().size.height - clip.bounds().size.height).max(0.0);
+            clip.scrollToPoint(objc2_foundation::NSPoint::new(clip.bounds().origin.x, end));
+            self.scroll.reflectScrolledClipView(&clip);
         }
     }
 
@@ -315,6 +417,13 @@ impl List {
         if self.reported_width.replace(Some(width)) != Some(width) {
             let ListIvars { id, events, .. } = self.table.ivars();
             events.emit(*id, UiEvent::RowWidth(width));
+        }
+    }
+
+    pub(crate) fn scroll_to_row(&self, key: RowKey) {
+        let index = self.data.borrow().index.get(&key).copied();
+        if let Some(index) = index {
+            self.table.scrollRowToVisible(index as NSInteger);
         }
     }
 
@@ -342,15 +451,10 @@ impl List {
         Some(Rect::new(r.origin.x as f32, r.origin.y as f32, r.size.width as f32, r.size.height as f32))
     }
 
-    /// The rows as the table has them: its row count, and each row's height.
-    pub(crate) fn native_rows(&self) -> Vec<ListRow> {
+    /// The rows as the table has them.
+    pub(crate) fn rows(&self) -> Vec<RowKey> {
         let data = self.data.borrow();
-        (0..self.table.numberOfRows())
-            .map(|i| ListRow {
-                key: data.rows.get(i as usize).map_or(RowKey(0), |r| r.key),
-                height: self.table.rectOfRow(i).size.height as f32,
-            })
-            .collect()
+        (0..self.table.numberOfRows()).filter_map(|i| data.rows.get(i as usize).copied()).collect()
     }
 
     pub(crate) fn selected(&self) -> Vec<RowKey> {

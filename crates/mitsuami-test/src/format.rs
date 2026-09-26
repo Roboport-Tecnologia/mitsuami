@@ -22,9 +22,8 @@ fn describe_props(props: &[Prop]) -> String {
             Prop::Variant(v) => extra.push(format!("variant={v:?}")),
             Prop::ScrollAxes(a) => extra.push(format!("scroll={a:?}")),
             // A list's data can be long: its size is enough.
-            Prop::Rows(rows) => {
-                extra.push(format!("rows={} height={}", rows.len(), Num(rows.iter().map(|r| r.height).sum::<f32>())))
-            }
+            Prop::Rows(rows) => extra.push(format!("rows={}", rows.len())),
+            Prop::EstimatedRowHeight(h) => extra.push(format!("estimated_row_height={}", Num(*h))),
             Prop::Row(key) => extra.push(format!("row={}", key.0)),
             Prop::SelectionMode(mode) => extra.push(format!("selection={mode:?}")),
             Prop::Selected(rows) => {
@@ -125,6 +124,7 @@ pub(crate) fn commands(log: &[Command]) -> String {
             }
             Command::ScrollTo { id, offset } => format!("scroll {id} to {},{}", Num(offset.x), Num(offset.y)),
             Command::Focus { id } => format!("focus {id}"),
+            Command::ScrollToRow { id, row } => format!("scroll {id} to row {}", row.0),
         };
         out.push_str(&line);
         out.push('\n');

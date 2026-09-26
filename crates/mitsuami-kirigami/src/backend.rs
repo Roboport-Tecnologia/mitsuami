@@ -841,6 +841,7 @@ impl State {
                     widget.item().force_focus();
                 }
             }
+            Command::ScrollToRow { .. } => violation(command, "List isn't implemented by this backend yet"),
         }
     }
 }

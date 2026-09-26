@@ -137,10 +137,10 @@ Cons: we give up native auto-layout behaviours, and we must handle RTL mirroring
 
 `ScrollView` is the exception at the edges. The native scroll container scrolls, and we lay out its content.
 
-`List` goes one step further: it is the platform's list control (NSTableView, ListView, gtk::ListView, QML `ListView`), which scrolls, recycles cells and owns the selection, while we build and lay out what's in the rows.
-- **Only the rows near the viewport exist.** After each layout, the core works out from the scroll offset which rows are in view or within a viewport of it, mounts those (each in a host `Container` with its `RowKey`), and disposes the rest. It happens between commits, so a scroll is followed by the rows it reveals within the same run-loop turn.
-- **One table of row heights**, kept by the core and sent as `Prop::Rows`: each mounted row is laid out on its own at the row width, and rows not yet mounted count as an estimate. Native lists give every row exactly its height with no spacing, so the core knows where every row is: frames, `scroll_into_view`, visibility and the a11y tree work as for any scrolled content, and scrolling to an unmounted row is plain arithmetic.
-- **Rows are keyed** like `For`'s: a data change keeps the mounted rows whose keys stay, with their state, and backends turn it into native inserts, removes and moves.
+`List` goes further: it is the platform's list control (NSTableView, ListView, gtk::ListView, QML `ListView`). Virtualising lists is a solved problem, and the platform solves it: it scrolls, decides which rows to realise (prefetching around the view), recycles them, and owns the selection. We build and lay out what's in the rows.
+- **The platform decides which rows exist.** When it realises a row, the backend reports `RowShown(key)` and the core mounts that row, in a host `Container` carrying its `RowKey`; when it lets one go, `RowHidden(key)`, and the core disposes it. The data is just the keys (`Prop::Rows`).
+- **The core lays out each mounted row** on its own, at the width the list gives its rows (`RowWidth`), and sends its size; the platform makes the row that high and places it. Where rows are is the platform's: the core reads a row's position back (`native_state`) for frames, visibility and the a11y tree, and scrolls to a row with `ScrollToRow`, which works for rows that aren't mounted.
+- **Rows are keyed** like `For`'s: a data change keeps the mounted rows whose keys stay, with their state.
 - **Selection and activation are the platform's:** backends report `Changed(Rows)` and `RowActivated`; the app binds the selected keys (`List::selected`) and handles `on_activate`. Rows read as list items named by their text.
 
 ### Units
@@ -206,12 +206,13 @@ pub enum Command {
     SetWindowSize { id: NodeId, size: Size },
     SetFocusOrder { window: NodeId, order: Vec<NodeId> }, // Tab order, owned by the core
     ScrollTo      { id: NodeId, offset: Point },        // already clamped; backend reports Scrolled
+    ScrollToRow   { id: NodeId, row: RowKey },          // lists: the platform scrolls to a row
     Focus         { id: NodeId },
 }
 
 pub enum UiEvent {   // backend → core, through the EventSink
     Click, Changed(EventValue), Submit, FocusIn, FocusOut, Scrolled(Point),
-    RowActivated(RowKey), RowWidth(f32),   // lists (§3)
+    RowShown(RowKey), RowHidden(RowKey), RowActivated(RowKey), RowWidth(f32),   // lists (§3)
     WindowResized(Size), WindowCloseRequested, MetricsChanged,
     Pointer(PointerEvent),  // drawn custom widgets (§6.3)
     Custom(AnyValue),       // custom widgets and native views, their own event types
@@ -680,7 +681,7 @@ This is exposed as `Backend::capture`.
 | **M5 — Ergonomics** ✅ | `#[component]`, `view!`, stores, resources | Demo rewritten with macros |
 | **KDE Plasma** ✅ | Qt Quick and Kirigami backend (`mitsuami-kirigami`, the `kde` feature), after a spike (`spikes/kirigami`) | The same tests and conformance suite pass with `--native` on Kirigami |
 | **M6 — Visual review** | Stories, the variant matrix, perceptual diff, `cargo mitsuami visual review` HTML report, CI on three OSes | A PR that changes a widget shows up as a reviewable visual diff on all three platforms |
-| **M7 — Lists** | A virtualised `List` on each platform's list control (§3): the core mounts the rows near the viewport, keyed, with one table of row heights; selection, activation and keyboard navigation are native | A 10 000-row list scrolls, selects and filters on every backend, and the `lists` suite and the List conformance tests pass with `--native` |
+| **M7 — Lists** | A virtualised `List` on each platform's list control (§3): the platform realises rows and the core mounts those, keyed, and lays out what's in them; scrolling, selection, activation and keyboard navigation are native | A 10 000-row list scrolls, selects and filters on every backend, and the `lists` and `contacts` suites pass with `--native` |
 
 Out of scope for the MVP: menus beyond a basic app menu, dialogs beyond an alert, the a11y implementation (the model exists), animations, and a devtools inspector.
 
@@ -730,12 +731,13 @@ Things the AppKit backend taught us, some of them now part of the contract:
 
 ### M7 on AppKit (lists)
 
-- **A view-based `NSTableView`, one column and no header, in an `NSScrollView`.** Plain style (`NSTableViewStylePlain`), no intercell spacing, fixed row heights from `tableView:heightOfRow:`: rows are exactly as high as the core says, so `rectOfRow:` matches the core's frames, which the mirror check compares.
-- **Cells are the row hosts.** `tableView:viewForTableColumn:row:` returns the row's host if the core mounted it, or else an empty view; a host that arrives later reloads its row. The data source and delegate only read the list's own data (keys, heights, hosts) and emit: the table calls them in the middle of `apply`.
-- **Data changes reload, then reselect by key.** Height-only changes go through `noteHeightOfRowsWithIndexesChanged:` with animations off.
+- **A view-based `NSTableView`, one column and no header, in an `NSScrollView`.** Plain style (`NSTableViewStylePlain`), no intercell spacing, row heights from `tableView:heightOfRow:`: the hosts' heights, and for rows not shown yet the app's estimate, or else the first row measured. The estimate stays put once known (the table re-reads every height that once): the table keeps the heights it read, so a drifting estimate left rows above the view at stale heights.
+- **Rows shown are the table's row views.** `tableView:didAddRowView:forRow:` and `didRemoveRowView:` report `RowShown` and `RowHidden`. Each cell is a plain view that takes the row's host when it arrives. The data source and delegate only read the list's own data (keys, heights, hosts, cells) and emit: the table calls them in the middle of `apply`.
+- **Tables add row views in a layout pass,** at the next display, which offscreen windows never get. The backend lays its lists out at the end of each `apply` and in `settle`, so rows a change or a scroll reveals are reported and built in the same run-loop turn, before anything is drawn. Scrolling doesn't mark the table as needing layout, so it's marked first.
+- **Data changes reload, then reselect by key.** The reload lays out right away, and only the difference in rows shown is reported: rows that stay keep their state. Height changes go through `noteHeightOfRowsWithIndexesChanged:` with animations off; a list scrolled to its end stays there when rows turn out taller than estimated.
 - **Return activates the selected row** (a table subclass's `keyDown:`), as it opens the selected item in Finder and Mail; double-click is the table's `doubleAction`. Home and End only scroll, as in every AppKit list.
 - **No automatic content insets.** `NSScrollView` insets its content for the title bar on its own (`automaticallyAdjustsContentInsets`), which showed once a fit-height window shrank: content drawn a title bar's height up while the offset still said 0. Scroll views and lists turn it off; the core places them.
-- **Captures lay the window out first** (`layoutSubtreeIfNeeded`): tables place their row views in a layout pass, which offscreen windows only get when asked.
+- **Captures lay the window out first** (`layoutSubtreeIfNeeded`), for the same reason.
 - **Known gap: captures show no row selection.** macOS 26's `NSTableRowView` sets its selection on its layer instead of drawing it, and `cacheDisplayInRect:` only runs views' drawing code. The selection itself is real (the tests check it natively); only baselines miss it.
 
 ### M2 (GTK 4)

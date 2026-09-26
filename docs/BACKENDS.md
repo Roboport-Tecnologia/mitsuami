@@ -59,7 +59,8 @@ Validate as you go. Panic on protocol violations such as an unknown node, a doub
 | `SetA11y { id, a11y }` | Set the accessible label, description and hidden state. |
 | `SetWindowSize { id, size }` | Set the window's **content area** size (excluding title bar and menu bar). |
 | `SetFocusOrder { window, order }` | Make Tab visit `order` in sequence, wrapping around. It is window-wide, across nested containers. The platform still decides *which* controls can take focus (disabled controls, macOS keyboard navigation settings). See §9. |
-| `ScrollTo { id, offset }` | Scroll the ScrollView or List so `offset` is at its top-left. Already clamped. The platform then **reports `Scrolled`**, as for a user scroll. |
+| `ScrollTo { id, offset }` | Scroll the ScrollView or List so `offset` is at its top-left. Already clamped (a List clamps it itself). The platform then **reports `Scrolled`**, as for a user scroll. |
+| `ScrollToRow { id, row }` | Scroll the List just enough to show that row, with the platform's own "scroll to row". Report `Scrolled`, and the rows shown. |
 | `Focus { id }` | Give the control keyboard focus. The focus change is reported through your focus tracking (§4), not by this command. |
 
 ### Widget kinds
@@ -93,7 +94,8 @@ Validate as you go. Panic on protocol violations such as an unknown node, a doub
 | `TextStyle` | Text (and controls) | Map to the platform type ramp: GTK style classes (`title-1`, `heading`, `caption`, `monospace`); WinUI text styles (`TitleTextBlockStyle`, …); Kirigami's `Heading` sizes and its small and fixed-width fonts. |
 | `Variant` | Button | Primary = the default / suggested action (GTK `suggested-action`, WinUI `AccentButtonStyle`, Qt `highlighted`); Destructive (GTK `destructive-action`); Plain = borderless (GTK and Qt `flat`). |
 | `ScrollAxes` | ScrollView | Which scrollbars / scroll directions exist. |
-| `Rows` | List | The rows, in order: each one's `RowKey` and height. Diff by key into native inserts, removes and moves (§8b). |
+| `Rows` | List | The rows' keys, in order (§8b). |
+| `EstimatedRowHeight` | List | How high rows are likely to be, for platforms that size rows before showing them. |
 | `Row` | Container | This container is the host of that row of its List. |
 | `SelectionMode` | List | None, Single or Multiple. |
 | `Selected` | List | The selected rows. Setting it **must not** emit `Changed`. |
@@ -114,6 +116,8 @@ Native callbacks **only** call `events.emit(id, event)` on the `EventSink` given
 | `FocusIn` / `FocusOut` | keyboard focus moves, **from any source** (click, Tab, code): out for the old control first, then in for the new | |
 | `Scrolled(offset)` | a ScrollView's or List's offset changes, by the user **or** by `ScrollTo` | |
 | `Changed(Rows)` | the user (or assistive technology) changes a List's selection, including rows deselected because they were removed | the core set `Selected` |
+| `RowShown(key)` | a List realises a row (it's in view, or about to be) | it already had |
+| `RowHidden(key)` | a List lets go of a row it had shown | a reload shows it again right away: report only the difference |
 | `RowActivated(key)` | a List row is double-clicked, or Enter is pressed on it | |
 | `RowWidth(width)` | a List gives its rows a width other than its own (legacy scroll bars, insets): once it's known, and when it changes | |
 | `WindowResized(size)` | the window's content area changes size (report the content size, excluding any menu bar you placed in the window) | |
@@ -208,14 +212,16 @@ Also:
 
 ## 8b. Lists
 
-A `List` is the platform's list control: it scrolls, recycles cells, and draws and handles the selection. The core owns what's in the rows. **Both work from one table of row heights, so they agree on where every row is.**
+A `List` is the platform's list control, and the platform virtualises it: it scrolls, decides which rows to realise, recycles them, and draws and handles the selection. The core builds what's in the rows.
 
-- **The data is `Prop::Rows`:** every row's `RowKey` and height, in order. Only a few rows are mounted: the core works out which rows are in view, or within a viewport of it, and builds those. Each one is a `Container` with `Prop::Row(key)`, inserted as the List's native child. The List's native children are the mounted rows' hosts, in row order.
-- **Your model is the keys.** When `Rows` changes, the selection must follow the rows, not their indexes: diff the keys into native inserts, removes and moves, or reload and select the rows that stayed selected (AppKit reloads). Report `Changed(Rows)` if selected rows went. When only heights change, tell the list to re-read them (`noteHeightOfRowsWithIndexesChanged:` and its equivalents), without animating.
-- **Rows are exactly as high as `Rows` says, one right below the other.** Turn off spacing between rows, cell padding, minimum row heights and insets. Selection highlights stay native. If the rows can't span the list's width (legacy scroll bars), report the width they get with `RowWidth`: the core lays rows out at that width.
-- **Cells:** when the platform asks for a row's cell, give it that row's host if the core mounted it, or else an empty cell of the row's height. When a host arrives (`Insert`) for a row whose cell exists, put it in the cell; otherwise keep it until the platform asks. A host's `SetFrame` gives its size; its position is the platform's to set.
-- **Callbacks come at any time.** A table can ask for cells, heights and counts in the middle of your own `apply` (a reload, a scroll, a resize). Keep the list's data (keys, heights, key → host) in a small `Rc<RefCell<…>>` of its own that the data source reads, never your backend's main state or the `Ui`, and only `emit` from there.
-- **`native_state` of a row host** reports the rect the platform gave that row (its position in the list's content and its size), and the List reports its `Rows`, `SelectionMode` and `Selected` as the native control shows them. The harness's mirror check then compares the platform's geometry with the core's.
+- **The data is `Prop::Rows`:** the rows' keys, in order. When `Rows` changes, the selection must follow the rows, not their indexes: diff the keys into native inserts, removes and moves, or reload and select the rows that stayed selected (AppKit reloads). Report `Changed(Rows)` if selected rows went.
+- **Report the rows you realise:** `RowShown(key)` when the platform prepares a row (a cell asked for, a delegate created, a container realised), `RowHidden(key)` when it recycles it. The core mounts each shown row as a `Container` with `Prop::Row(key)`, inserted as the List's native child, and disposes it when hidden. The List's native children are those hosts, in row order. A reload that shows the same rows again must not hide and show them: report only the difference, or their state goes.
+- **Cells:** give a realised row an empty cell until its host arrives (`Insert`), then put the host in it. A host's `SetFrame` is its size, at origin 0; make the row that high, and place it where the platform places rows.
+- **Heights:** rows the platform hasn't shown yet need a height from somewhere if it sizes rows up front (AppKit): `EstimatedRowHeight` if the app gave one, or else the first row measured. **Keep the heights of rows you've measured** when you let them go, and keep the estimate steady: guesses that change as rows come and go move rows in and out of view, and the rows shown flip back and forth.
+- **Row width:** the core lays rows out at the list's width. If rows get another width (legacy scroll bars, insets), report it with `RowWidth`.
+- **Build rows before drawing.** Report rows as soon as the platform decides them, ideally inside the `apply` or scroll that changed them, so the core builds them in the same run-loop turn: platforms that realise rows in a layout pass (AppKit) run it at the end of `apply` and in `settle`.
+- **Callbacks come at any time.** A table can ask for cells, heights and counts in the middle of your own `apply` (a reload, a scroll, a resize). Keep the list's data (keys, heights, hosts, cells) in a small `Rc<RefCell<…>>` of its own that the data source reads, never your backend's main state or the `Ui`, and only `emit` from there.
+- **`native_state` of a row host** reports the rect the platform gave that row, in the list's content; the core uses its position (that's where frames inside rows, visibility and `scroll_into_view` come from), and the mirror check compares its size with the host's. The List reports its `Rows`, `SelectionMode` and `Selected` as the native control shows them.
 - **Focus:** the List itself takes focus (it's in the Tab order), as the native control does.
 
 ## 9. Tab order
@@ -300,6 +306,6 @@ cargo run -p mitsuami --example showcase        # look at it
 7. Services + native services checks.
 8. `capture` + visual baselines.
 9. The drawn view, then `NativeRender` and `NativeView` (§8a) → the `escape_hatches` suite passes. The example has one widget from each platform (rating: AppKit, lock: GTK, pips pager: WinUI). Add the native render for yours (`examples/escape_hatches/<widget>/<os>.rs`), and for any other of the three your platform has as a real control (WinUI has a rating control too), and name it in the widget's `Render` impl with `native::<W>()`. For the others, prefer an ad hoc render built the way your platform's apps build that widget (`ad_hoc::<W>()`) over the drawn one; only a real platform control counts as native.
-10. `List` (§8b) → the `lists` suite and the List conformance tests pass.
+10. `List` (§8b) → the `lists` and `contacts` suites pass.
 
 When something in the contract doesn't fit your platform, **change the contract rather than working around it**, and update the other backends and this guide. Capture and the clipboard became async for exactly this reason.

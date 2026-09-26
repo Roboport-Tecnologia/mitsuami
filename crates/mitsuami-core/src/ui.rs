@@ -7,7 +7,6 @@
 
 use std::cell::RefCell;
 use std::collections::{BTreeMap, BTreeSet};
-use std::ops::Range;
 use std::rc::{Rc, Weak};
 
 use taffy::TaffyTree;
@@ -21,11 +20,9 @@ use crate::services::{Alert, MenuBar, OpenFile, SaveFile, ServiceError, Services
 use crate::style::{Align, Display, FlexDirection, Style, TextDirection};
 use crate::task::{Clock, Executor, Sleep, TaskHandle};
 use crate::units::ResolveContext;
-use crate::widget::{ListRow, NodeId, Prop, RowKey, WidgetKind};
+use crate::widget::{NodeId, Prop, RowKey, WidgetKind};
 
 pub(crate) type Handler = Rc<dyn Fn(&UiEvent)>;
-/// How the core asks a list's view to mount a range of rows.
-pub(crate) type MountRows = Rc<dyn Fn(Range<usize>)>;
 type Handler0 = Rc<dyn Fn()>;
 
 struct Node {
@@ -50,39 +47,8 @@ struct Node {
     fit_height: bool,
     /// ScrollViews and Lists only: how far the content is scrolled.
     scroll_offset: Point,
-}
-
-/// What the core keeps for each `List`: its rows, their heights, and how to
-/// ask its view to mount rows.
-struct ListState {
-    rows: Vec<RowKey>,
-    /// Heights of the rows that have been mounted, as last laid out.
-    heights: BTreeMap<RowKey, f32>,
-    estimate: Option<f32>,
-    /// The width the native list gives its rows, if not its own.
+    /// Lists only: the width the platform gives their rows, if not their own.
     row_width: Option<f32>,
-    /// The rows last asked to be mounted.
-    requested: Option<Range<usize>>,
-    mount: MountRows,
-}
-
-impl ListState {
-    /// The height of rows not measured yet: the app's estimate, or else the
-    /// mean of the measured ones, or else two lines of body text.
-    fn estimate(&self, body: f32) -> f32 {
-        self.estimate.unwrap_or_else(|| match self.heights.len() {
-            0 => (body * 2.0).round(),
-            n => (self.heights.values().sum::<f32>() / n as f32).round(),
-        })
-    }
-
-    fn data(&self, body: f32) -> Vec<ListRow> {
-        let estimate = self.estimate(body);
-        self.rows
-            .iter()
-            .map(|key| ListRow { key: *key, height: self.heights.get(key).copied().unwrap_or(estimate) })
-            .collect()
-    }
 }
 
 impl Node {
@@ -125,9 +91,6 @@ struct Inner {
     focused: BTreeMap<NodeId, NodeId>,
     commit_scheduler: Option<Rc<dyn Fn()>>,
     commit_scheduled: bool,
-    lists: BTreeMap<NodeId, ListState>,
-    /// Rows lists want mounted, handed to their views after the commit.
-    list_requests: Vec<(MountRows, Range<usize>)>,
 }
 
 /// Handle to a UI instance: one backend, its windows and their node trees.
@@ -199,8 +162,6 @@ impl Ui {
                 menu_queue: Default::default(),
                 commit_scheduler: None,
                 commit_scheduled: false,
-                lists: BTreeMap::new(),
-                list_requests: Vec::new(),
             })),
         }
     }
@@ -409,6 +370,7 @@ impl Ui {
                     window_size: Size::ZERO,
                     fit_height: false,
                     scroll_offset: Point::ZERO,
+                    row_width: None,
                 },
             );
             inner.styles_dirty = true;
@@ -626,7 +588,6 @@ impl Ui {
                 inner.windows.retain(|w| *w != node_id);
                 inner.focus_orders.remove(&node_id);
                 inner.focused.retain(|window, focused| *window != node_id && *focused != node_id);
-                inner.lists.remove(&node_id);
                 if node.kind.is_native() {
                     inner.pending.push(Command::Destroy { id: node_id });
                 }
@@ -712,28 +673,14 @@ impl Ui {
             self.executor.run_ready(self);
             self.process_events();
             self.commit();
-            let mounted = self.mount_list_rows();
             let idle = {
                 let inner = self.inner.borrow();
                 inner.events.is_empty() && inner.menu_queue.is_empty()
             };
-            if idle && !mounted && !self.executor.has_ready() {
+            if idle && !self.executor.has_ready() {
                 return;
             }
         }
-    }
-
-    /// Hands lists the rows the last layout found they should mount.
-    /// Returns whether there were any.
-    fn mount_list_rows(&self) -> bool {
-        let requests = std::mem::take(&mut self.inner.borrow_mut().list_requests);
-        let any = !requests.is_empty();
-        crate::task::with_current(self, || {
-            for (mount, range) in requests {
-                mitsuami_reactive::batch(|| mount(range));
-            }
-        });
-        any
     }
 
     /// Asks the backend to perform an accessibility action, then dispatches
@@ -799,8 +746,10 @@ impl Ui {
     }
 
     /// Frame relative to the native parent, as last sent to the backend.
+    /// A list's rows are where the platform put them, at the size sent.
     pub fn frame(&self, id: NodeId) -> Option<Rect> {
-        self.inner.borrow().nodes.get(&id).map(|n| n.frame)
+        let inner = self.inner.borrow();
+        inner.nodes.contains_key(&id).then(|| inner.placed_frame(id))
     }
 
     /// Frame in the coordinates of the node's window.
@@ -810,7 +759,7 @@ impl Ui {
         if node.kind == WidgetKind::Window {
             return Some(node.frame);
         }
-        Some(node.frame.offset(inner.window_origin(id)?))
+        Some(inner.placed_frame(id).offset(inner.window_origin(id)?))
     }
 
     /// The part of a node that can be seen: its window frame, clipped by
@@ -836,7 +785,8 @@ impl Ui {
         node.kind.scrolls().then_some(node.scroll_offset)
     }
 
-    /// Scrolls a `ScrollView` or `List`, clamping to its content.
+    /// Scrolls a `ScrollView` or `List`, clamping to its content (a list
+    /// clamps it itself: its content is the platform's).
     pub fn scroll_to(&self, id: NodeId, offset: Point) {
         {
             let mut inner = self.inner.borrow_mut();
@@ -868,6 +818,27 @@ impl Ui {
                 current
             };
             let Some(scroll_view) = scroll_view else { return };
+            // In a list, show the target's row: where rows are is the
+            // platform's business.
+            let row = {
+                let inner = self.inner.borrow();
+                let mut current = Some(target);
+                while let Some(node) = current.and_then(|c| inner.nodes.get(&c)) {
+                    if node.native_parent == Some(scroll_view) {
+                        break;
+                    }
+                    current = node.native_parent;
+                }
+                (inner.nodes[&scroll_view].kind == WidgetKind::List)
+                    .then(|| current.and_then(|host| crate::find_prop!(inner.nodes[&host].props, Row)))
+            };
+            if let Some(row) = row {
+                if let Some(row) = row {
+                    self.scroll_to_row(scroll_view, row);
+                }
+                target = scroll_view;
+                continue;
+            }
             let (Some(rect), Some(viewport)) = (self.window_frame(target), self.window_frame(scroll_view)) else {
                 return;
             };
@@ -886,52 +857,17 @@ impl Ui {
 
     // ---------------------------------------------------------------- lists
 
-    /// Makes `id`, a `List`, virtualised: after each layout the core works
-    /// out which rows (indices into those set with [`Ui::set_list_rows`])
-    /// are in view or close to it, and calls `mount` with them when that
-    /// changes, between commits. Unmeasured rows are `estimate` high.
-    pub(crate) fn register_list(&self, id: NodeId, estimate: Option<f32>, mount: MountRows) {
-        let list =
-            ListState { rows: Vec::new(), heights: BTreeMap::new(), estimate, row_width: None, requested: None, mount };
-        self.inner.borrow_mut().lists.insert(id, list);
-        self.changed();
-    }
-
-    /// Sets a `List`'s rows, in order.
-    pub(crate) fn set_list_rows(&self, id: NodeId, rows: Vec<RowKey>) {
-        let data = {
+    /// Scrolls a `List` just enough to show a row, mounted or not. The
+    /// platform scrolls and reports it.
+    pub(crate) fn scroll_to_row(&self, id: NodeId, row: RowKey) {
+        {
             let mut inner = self.inner.borrow_mut();
-            let body = inner.metrics.font_sizes.body;
-            let Some(list) = inner.lists.get_mut(&id) else { return };
-            let keys: BTreeSet<RowKey> = rows.iter().copied().collect();
-            list.heights.retain(|key, _| keys.contains(key));
-            list.rows = rows;
-            list.requested = None;
-            list.data(body)
-        };
-        self.set_prop(id, Prop::Rows(data));
-    }
-
-    /// Scrolls a `List` just enough to show a row, mounted or not.
-    pub(crate) fn scroll_to_row(&self, id: NodeId, key: RowKey) {
-        let next = {
-            let inner = self.inner.borrow();
-            let Some(node) = inner.nodes.get(&id) else { return };
-            let rows = crate::find_prop!(node.props, Rows).unwrap_or_default();
-            let mut top = 0.0;
-            let Some(row) = rows.iter().find(|row| {
-                let found = row.key == key;
-                if !found {
-                    top += row.height;
-                }
-                found
-            }) else {
+            if inner.nodes.get(&id).is_none_or(|n| n.kind != WidgetKind::List) {
                 return;
-            };
-            fit(top, row.height, node.scroll_offset.y, node.frame.height())
-        };
-        let x = self.scroll_offset(id).unwrap_or_default().x;
-        self.scroll_to(id, Point::new(x, next));
+            }
+            inner.pending.push(Command::ScrollToRow { id, row });
+        }
+        self.changed();
     }
 
     /// The window a node is attached to, if any.
@@ -1279,19 +1215,14 @@ impl Inner {
         });
     }
 
-    /// Lays out a `List`'s mounted rows, each on its own at the row width,
-    /// records their heights, and places them one below the other. Then
-    /// asks for the rows that are in view, or within a viewport of it.
+    /// Lays out a `List`'s mounted rows, each on its own at the width the
+    /// list gives its rows. Their sizes are sent; where they go is the
+    /// platform's to decide.
     fn layout_list(&mut self, list: NodeId) {
-        let body = self.metrics.font_sizes.body;
         let node = &self.nodes[&list];
-        let (frame, hosts) = (node.frame, node.native_children.clone());
-        let Some(state) = self.lists.get(&list) else { return };
-        let width = state.row_width.unwrap_or(frame.width());
-        let mut heights = Vec::new();
-        for host in &hosts {
-            let node = &self.nodes[host];
-            let (Some(t), Some(key)) = (node.taffy, crate::find_prop!(node.props, Row)) else { continue };
+        let width = node.row_width.unwrap_or(node.frame.width());
+        for host in node.native_children.clone() {
+            let Some(t) = self.nodes[&host].taffy else { continue };
             if let Ok(style) = self.taffy.style(t)
                 && style.size.width != taffy::Dimension::length(width)
             {
@@ -1304,68 +1235,13 @@ impl Inner {
                 height: taffy::AvailableSpace::MaxContent,
             };
             self.compute_layout(t, available);
-            heights.push((key, self.taffy.layout(t).map_or(0.0, |l| l.size.height)));
-        }
-        let state = self.lists.get_mut(&list).expect("checked above");
-        state.heights.extend(heights);
-        let data = state.data(body);
-
-        let rows = Prop::Rows(data.clone());
-        let node = self.nodes.get_mut(&list).unwrap();
-        if node.prop(&rows) != Some(&rows) {
-            node.props.retain(|p| p.key() != rows.key());
-            node.props.push(rows.clone());
-            self.pending.push(Command::SetProp { id: list, prop: rows });
-        }
-
-        let mut tops = std::collections::HashMap::with_capacity(data.len());
-        let mut top = 0.0;
-        for row in &data {
-            tops.insert(row.key, (top, row.height));
-            top += row.height;
-        }
-        for host in hosts {
-            let Some(&(y, height)) = crate::find_prop!(self.nodes[&host].props, Row).and_then(|k| tops.get(&k)) else {
-                continue;
-            };
-            let frame = Rect::new(0.0, y, width, height);
+            let height = self.taffy.layout(t).map_or(0.0, |l| l.size.height);
+            let frame = Rect::new(0.0, 0.0, width, height);
             if self.nodes[&host].frame != frame {
                 self.nodes.get_mut(&host).unwrap().frame = frame;
                 self.pending.push(Command::SetFrame { id: host, frame });
             }
             self.collect_frames(host);
-        }
-
-        // Rows may have gone from under the scroll offset.
-        let offset = self.nodes[&list].scroll_offset;
-        if let Some(clamped) = self.clamp_scroll(list, offset)
-            && clamped != offset
-        {
-            self.nodes.get_mut(&list).unwrap().scroll_offset = clamped;
-            self.pending.push(Command::ScrollTo { id: list, offset: clamped });
-        }
-
-        let viewport = frame.height();
-        let (start, end) =
-            (self.nodes[&list].scroll_offset.y - viewport, self.nodes[&list].scroll_offset.y + 2.0 * viewport);
-        let mut first = data.len();
-        let mut last = data.len();
-        let mut top = 0.0;
-        for (index, row) in data.iter().enumerate() {
-            if first == data.len() && top + row.height > start {
-                first = index;
-            }
-            if top >= end {
-                last = index;
-                break;
-            }
-            top += row.height;
-        }
-        let range = if viewport > 0.0 { first.min(last)..last } else { 0..0 };
-        let state = self.lists.get_mut(&list).unwrap();
-        if state.requested.as_ref() != Some(&range) {
-            state.requested = Some(range.clone());
-            self.list_requests.push((state.mount.clone(), range));
         }
     }
 
@@ -1434,8 +1310,8 @@ impl Inner {
                 }
             }
             UiEvent::RowWidth(width) => {
-                if let Some(list) = self.lists.get_mut(&id) {
-                    list.row_width = Some(*width);
+                if let Some(node) = self.nodes.get_mut(&id) {
+                    node.row_width = Some(*width);
                 }
             }
             UiEvent::WindowResized(size) => {
@@ -1477,15 +1353,27 @@ impl Inner {
             return Point::ZERO;
         }
         let parent = node.native_parent.map_or(Point::ZERO, |p| self.content_origin(p));
-        Point::new(
-            parent.x + node.frame.origin.x - node.scroll_offset.x,
-            parent.y + node.frame.origin.y - node.scroll_offset.y,
-        )
+        let origin = self.placed_frame(id).origin;
+        Point::new(parent.x + origin.x - node.scroll_offset.x, parent.y + origin.y - node.scroll_offset.y)
     }
 
     /// Window coordinates of the origin `id`'s frame is relative to.
     fn window_origin(&self, id: NodeId) -> Option<Point> {
         Some(self.nodes.get(&id)?.native_parent.map_or(Point::ZERO, |p| self.content_origin(p)))
+    }
+
+    /// A node's frame in its native parent. A list's rows are where the
+    /// platform placed them (as its `native_state` says), at the size the
+    /// core sent.
+    fn placed_frame(&self, id: NodeId) -> Rect {
+        let node = &self.nodes[&id];
+        match node.native_parent.map(|p| self.nodes[&p].kind) {
+            Some(WidgetKind::List) => {
+                let origin = self.backend.native_state(id).map_or(node.frame.origin, |s| s.frame.origin);
+                Rect { origin, size: node.frame.size }
+            }
+            _ => node.frame,
+        }
     }
 
     fn clamp_scroll(&self, id: NodeId, offset: Point) -> Option<Point> {
@@ -1495,10 +1383,7 @@ impl Inner {
                 crate::find_prop!(node.props, ScrollAxes).unwrap_or_default(),
                 node.native_children.first().map_or(Size::ZERO, |c| self.nodes[c].frame.size),
             ),
-            WidgetKind::List => {
-                let rows = crate::find_prop!(node.props, Rows).unwrap_or_default();
-                (crate::ScrollAxes::Vertical, Size::new(node.frame.width(), rows.iter().map(|r| r.height).sum()))
-            }
+            WidgetKind::List => (crate::ScrollAxes::Vertical, Size::new(node.frame.width(), f32::INFINITY)),
             _ => return None,
         };
         let viewport = node.frame.size;
@@ -1520,7 +1405,8 @@ impl Inner {
 
     fn inspect(&self, id: NodeId, parent_origin: Point) -> NodeInfo {
         let node = &self.nodes[&id];
-        let frame = if node.kind == WidgetKind::Window { node.frame } else { node.frame.offset(parent_origin) };
+        let frame =
+            if node.kind == WidgetKind::Window { node.frame } else { self.placed_frame(id).offset(parent_origin) };
         let origin = Inner::child_origin(node, frame);
         NodeInfo {
             id,
@@ -1547,7 +1433,8 @@ impl Inner {
         if a11y.hidden || node.style.is_hidden() {
             return Vec::new();
         }
-        let frame = if node.kind == WidgetKind::Window { node.frame } else { node.frame.offset(parent_origin) };
+        let frame =
+            if node.kind == WidgetKind::Window { node.frame } else { self.placed_frame(id).offset(parent_origin) };
         let origin = Inner::child_origin(node, frame);
         let children: Vec<A11yNode> = node.native_children.iter().flat_map(|c| self.a11y(*c, origin)).collect();
 
