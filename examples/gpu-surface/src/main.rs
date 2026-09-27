@@ -8,6 +8,7 @@
 //!   each frame, and reconfigures when it changes.
 //! - Bands and a circle drawn in points: a stretched frame shows as an
 //!   oval.
+//! - On Windows it uses Direct3D 12 (see `main`).
 //! - A slider sets how fast the bands move; the status line shows the
 //!   size `on_resize` reports. `GPU_SURFACE_LOG=1` prints the frame rate.
 //! - It takes input: the circle follows the pointer, and the status line
@@ -177,7 +178,14 @@ fn render(instance: wgpu::Instance, targets: mpsc::Receiver<Target>, speed: Arc<
 fn main() {
     App::new()
         .window("GPU surface", Size::new(720.0, 540.0), || {
-            let instance = wgpu::Instance::new(wgpu::InstanceDescriptor::new_without_display_handle_from_env());
+            let mut descriptor = wgpu::InstanceDescriptor::new_without_display_handle();
+            // Direct3D 12 on Windows: after fast resizes, NVIDIA's Vulkan
+            // presents to a child window of a XAML window at 2 frames a
+            // second. `WGPU_BACKEND` still picks another.
+            if cfg!(windows) {
+                descriptor.backends = wgpu::Backends::DX12;
+            }
+            let instance = wgpu::Instance::new(descriptor.with_env());
             let (send, targets) = mpsc::channel();
             let shared_speed = Arc::new(AtomicU32::new(1.0f32.to_bits()));
             let spot: Spot = Arc::new([AtomicU32::new(120f32.to_bits()), AtomicU32::new(120f32.to_bits())]);
