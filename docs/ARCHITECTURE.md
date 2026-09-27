@@ -891,9 +891,10 @@ Things the AppKit backend taught us, some of them now part of the contract:
 - **`TextInput::read_only`** is the one semantic option every platform's text field has: AppKit `editable` off (still `selectable`), GTK's `editable`, Qt's `readOnly`, XAML's `IsReadOnly`. The text can be selected and copied, and the app can still set it. The a11y tree gets `read_only`.
 - **Focus is the platform's.** GTK, Qt and WinUI keep read-only fields in the Tab order; AppKit's refuse keyboard focus (`acceptsFirstResponder` is false) unless Full Keyboard Access is on, and take it from a click. The core's focus order still lists them: AppKit skips views that can't become key.
 - **Nothing can be typed into one.** `synthesize` returns `ActionError::ReadOnly` for any key, before focusing, and `perform(SetValue)` too: AppKit can't deliver keys to a field it won't focus, and WinUI's backend edits through the selection, which `IsReadOnly` doesn't stop.
+- **Where typing goes after the app sets the text is the platform's.** A field focused when the window opened keeps its caret where the set left it: GTK's `set_text` leaves it at the start, AppKit at the end. The tests accept either.
 - **Tweaks for the rest.** A length limit is GTK's, Qt's and WinUI's (AppKit needs a formatter); icons in the field are GTK's; a header is WinUI's. Secure entry is another control on AppKit and WinUI (`NSSecureTextField`, `PasswordBox`), so it is a widget of its own.
 - **The example's tweaks:** a borderless field on AppKit (captured; macOS 26 draws a rounded bezel as it draws the default one, so that tweak showed nothing), a search icon on GTK, `maximumLength` on Qt, a header on WinUI (`ITextBox.Header` added to the bindings).
-- **Run on AppKit only:** GTK, Kirigami and WinUI are only type-checked, and CI hasn't run them.
+- **Run on AppKit and GTK:** Kirigami and WinUI are only type-checked, and CI hasn't run them.
 
 ### PasswordInput
 
