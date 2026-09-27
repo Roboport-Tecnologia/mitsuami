@@ -4,9 +4,9 @@ use std::rc::Rc;
 
 use mitsuami_core::reactive::{IntoValue, Value};
 use mitsuami_core::{Opaque, Tweak};
-use mitsuami_widgets::{Button, Checkbox, Select, Slider, Switch};
+use mitsuami_widgets::{Button, Checkbox, Progress, Select, Slider, Switch};
 use objc2::DowncastTarget;
-use objc2_app_kit::{NSButton, NSPopUpButton, NSSlider, NSSwitch, NSView};
+use objc2_app_kit::{NSButton, NSPopUpButton, NSProgressIndicator, NSSlider, NSSwitch, NSView};
 
 /// A built-in widget, and the AppKit control that shows it.
 pub trait Tweakable {
@@ -31,6 +31,10 @@ impl Tweakable for Select {
 
 impl Tweakable for Slider {
     type Native = NSSlider;
+}
+
+impl Tweakable for Progress {
+    type Native = NSProgressIndicator;
 }
 
 /// Settings as the backend runs them, on the node's view.

@@ -2,6 +2,9 @@
 //! along a task is, or animates for work of unknown length, and reads as a
 //! progress bar named by its label whose value is the percentage.
 
+use std::cell::RefCell;
+use std::rc::Rc;
+
 use mitsuami::core::{A11yAction, ActionError, Prop, WidgetKind};
 use mitsuami::prelude::*;
 use mitsuami_test::prelude::*;
@@ -61,6 +64,47 @@ async fn has_a_size_and_takes_no_actions(app: TestApp) {
         assert!(!bar.frame().size.is_empty(), "{name} has no size");
         assert_eq!(app.ui().perform(bar.id(), &A11yAction::Activate), Err(ActionError::Unsupported));
     }
+}
+
+/// Logs whether the native bar is indeterminate, each time the tweak runs.
+fn log_indeterminate(log: Rc<RefCell<Vec<bool>>>) -> Tweak<Progress> {
+    platform! {
+        macos => mitsuami::appkit::tweak(move |p: &mitsuami::appkit::objc2_app_kit::NSProgressIndicator| {
+            log.borrow_mut().push(p.isIndeterminate())
+        }),
+        // GTK bars have no indeterminate mode: they pulse while nothing is
+        // known, with no fraction.
+        gtk => mitsuami::gtk::tweak(move |p: &mitsuami::gtk::gtk::ProgressBar| log.borrow_mut().push(p.fraction() == 0.0)),
+        kde => mitsuami::kirigami::tweak(move |p: &mitsuami::kirigami::QmlObject| {
+            log.borrow_mut().push(p.bool("indeterminate"))
+        }),
+        windows => mitsuami::winui::tweak(move |p: &mitsuami::winui::bindings::ProgressBar| {
+            use mitsuami::winui::windows_core::Interface;
+            log.borrow_mut().push(p.cast::<mitsuami::winui::bindings::IProgressBar>()?.IsIndeterminate()?);
+            Ok(())
+        }),
+    }
+}
+
+/// Given before the value, the tweak still runs after it, and again when
+/// it changes.
+#[mitsuami_test::test]
+async fn a_tweak_runs_on_the_native_bar_after_its_props(app: TestApp) {
+    let log = Rc::new(RefCell::new(Vec::new()));
+    let connecting = signal(true);
+    let tweak = log_indeterminate(log.clone());
+    app.mount(move || Progress::new("Upload").native(tweak).value(0.5).indeterminate(connecting));
+
+    let props = app.get_by_role(Role::ProgressBar, "Upload").native_state().props;
+    assert!(props.iter().any(|p| matches!(p, Prop::Tweak(_))));
+    if app.is_headless() {
+        assert!(log.borrow().is_empty());
+        return;
+    }
+    assert_eq!(log.borrow().last(), Some(&true));
+    connecting.set(false);
+    app.settle().await;
+    assert_eq!(log.borrow().last(), Some(&false));
 }
 
 mitsuami_test::main!();

@@ -668,6 +668,14 @@ impl Progress {
         self.indeterminate = indeterminate.into_value();
         self
     }
+
+    /// Raw platform settings: see [`Tweak`]. Progress bars have no semantic
+    /// options past the value: what the platforms offer (sizes on AppKit,
+    /// text on GTK, paused and error states on WinUI) is each one's own.
+    pub fn native(mut self, tweak: Tweak<Progress>) -> Progress {
+        tweak.apply(&mut self.element);
+        self
+    }
 }
 
 // ----------------------------------------------------------- view! tags

@@ -235,6 +235,35 @@ fn slider_tweak() -> Tweak<Slider> {
     }
 }
 
+/// A raw platform setting through `.native()`: a small bar on AppKit, the
+/// percentage on GTK, the palette's highlight on Qt, the paused state on
+/// WinUI.
+#[mitsuami_test::story(sizes = [(240, fit)])]
+fn progress_tweaked() -> impl View {
+    Column::new()
+        .padding(16)
+        .gap(12)
+        .children((Progress::new("Plain").value(0.6), Progress::new("Tweaked").value(0.6).native(progress_tweak())))
+}
+
+fn progress_tweak() -> Tweak<Progress> {
+    platform! {
+        macos => mitsuami::appkit::tweak(|p: &mitsuami::appkit::objc2_app_kit::NSProgressIndicator| {
+            p.setControlSize(mitsuami::appkit::objc2_app_kit::NSControlSize::Small)
+        }),
+        gtk => mitsuami::gtk::tweak(|p: &mitsuami::gtk::gtk::ProgressBar| p.set_show_text(true)),
+        kde => mitsuami::kirigami::tweak(|p: &mitsuami::kirigami::QmlObject| {
+            if let Some(palette) = p.object("palette") {
+                palette.set_str("highlight", "#8e44ad");
+            }
+        }),
+        windows => mitsuami::winui::tweak(|p: &mitsuami::winui::bindings::ProgressBar| {
+            use mitsuami::winui::windows_core::Interface;
+            p.cast::<mitsuami::winui::bindings::IProgressBar>()?.SetShowPaused(true)
+        }),
+    }
+}
+
 /// Sliders and progress bars as wide as the story; without a step, and
 /// with one.
 #[mitsuami_test::story(sizes = [(240, fit)])]

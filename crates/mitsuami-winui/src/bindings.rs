@@ -4585,12 +4585,21 @@ impl IProgressBar {
                 .ok()
         }
     }
+    pub fn SetShowPaused(&self, value: bool) -> windows_core::Result<()> {
+        unsafe {
+            (windows_core::Interface::vtable(self).SetShowPaused)(windows_core::Interface::as_raw(self), value).ok()
+        }
+    }
 }
 #[repr(C)]
 pub struct IProgressBar_Vtbl {
     pub base__: windows_core::IInspectable_Vtbl,
     pub IsIndeterminate: unsafe extern "system" fn(*mut core::ffi::c_void, *mut bool) -> windows_core::HRESULT,
     pub SetIsIndeterminate: unsafe extern "system" fn(*mut core::ffi::c_void, bool) -> windows_core::HRESULT,
+    ShowError: usize,
+    SetShowError: usize,
+    ShowPaused: usize,
+    pub SetShowPaused: unsafe extern "system" fn(*mut core::ffi::c_void, bool) -> windows_core::HRESULT,
 }
 windows_core::imp::define_interface!(
     IProgressBarFactory,

@@ -5,7 +5,7 @@ use std::rc::Rc;
 use gtk::prelude::*;
 use mitsuami_core::reactive::{IntoValue, Value};
 use mitsuami_core::{Opaque, Tweak};
-use mitsuami_widgets::{Button, Checkbox, Select, Slider, Switch};
+use mitsuami_widgets::{Button, Checkbox, Progress, Select, Slider, Switch};
 
 /// A built-in widget, and the GTK widget that shows it.
 pub trait Tweakable {
@@ -30,6 +30,10 @@ impl Tweakable for Select {
 
 impl Tweakable for Slider {
     type Native = gtk::Scale;
+}
+
+impl Tweakable for Progress {
+    type Native = gtk::ProgressBar;
 }
 
 /// Settings as the backend runs them, on the node's widget.

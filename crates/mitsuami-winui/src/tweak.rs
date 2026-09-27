@@ -4,7 +4,7 @@ use std::rc::Rc;
 
 use mitsuami_core::reactive::{IntoValue, Value};
 use mitsuami_core::{Opaque, Tweak};
-use mitsuami_widgets::{Button, Checkbox, Select, Slider, Switch};
+use mitsuami_widgets::{Button, Checkbox, Progress, Select, Slider, Switch};
 use windows_core::Interface;
 
 use crate::bindings as w;
@@ -32,6 +32,10 @@ impl Tweakable for Select {
 
 impl Tweakable for Slider {
     type Native = w::Slider;
+}
+
+impl Tweakable for Progress {
+    type Native = w::ProgressBar;
 }
 
 /// Settings as the backend runs them, on the node's element.
