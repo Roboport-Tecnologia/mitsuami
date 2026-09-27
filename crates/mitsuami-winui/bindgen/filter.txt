@@ -24,7 +24,7 @@ Microsoft.UI.Windowing.IAppWindowClosingEventArgs::put_Cancel
 Microsoft.UI.WindowId
 
 Microsoft.UI.Xaml.UIElement::{}
-Microsoft.UI.Xaml.IUIElement::{UpdateLayout, put_Clip, get_FocusState, put_TabIndex, put_IsTabStop, Measure, get_DesiredSize, get_XamlRoot, put_XamlRoot, Focus, put_TabFocusNavigation, get_KeyboardAccelerators, add_GotFocus, remove_GotFocus, add_LostFocus, remove_LostFocus, add_KeyDown, remove_KeyDown, add_PreviewKeyDown, remove_PreviewKeyDown, add_PointerPressed, remove_PointerPressed, add_PointerReleased, remove_PointerReleased, add_DoubleTapped, remove_DoubleTapped, TransformToVisual}
+Microsoft.UI.Xaml.IUIElement::{UpdateLayout, put_Clip, get_FocusState, put_TabIndex, put_IsTabStop, Measure, get_DesiredSize, get_XamlRoot, put_XamlRoot, Focus, put_TabFocusNavigation, get_KeyboardAccelerators, add_GotFocus, remove_GotFocus, add_LostFocus, remove_LostFocus, add_KeyDown, remove_KeyDown, add_PreviewKeyDown, remove_PreviewKeyDown, add_PointerPressed, remove_PointerPressed, add_PointerReleased, remove_PointerReleased, add_PointerWheelChanged, remove_PointerWheelChanged, add_DoubleTapped, remove_DoubleTapped, TransformToVisual}
 Microsoft.UI.Xaml.IFrameworkElement::{get_Width, put_Width, get_Height, put_Height, put_HorizontalAlignment, put_VerticalAlignment, put_RequestedTheme, put_Style, get_ActualWidth, get_ActualHeight, put_MinWidth, add_SizeChanged, remove_SizeChanged, add_Loaded, remove_Loaded, get_IsLoaded}
 Microsoft.UI.Xaml.ISizeChangedEventArgs::get_NewSize
 Microsoft.UI.Xaml.IRoutedEventArgs::get_OriginalSource
@@ -214,8 +214,9 @@ Microsoft.UI.Windowing.TitleBarHeightOption
 Microsoft.UI.Xaml.Controls.TitleBar::{}
 Microsoft.UI.Xaml.Controls.ITitleBar::{get_Title, put_Title}
 Microsoft.UI.Xaml.Input.PointerEventHandler
-Microsoft.UI.Xaml.Input.IPointerRoutedEventArgs::GetCurrentPoint
-Microsoft.UI.Input.IPointerPoint::get_Position
+Microsoft.UI.Xaml.Input.IPointerRoutedEventArgs::{GetCurrentPoint, put_Handled}
+Microsoft.UI.Input.IPointerPoint::{get_Position, get_Properties}
+Microsoft.UI.Input.IPointerPointProperties::{get_MouseWheelDelta, get_IsHorizontalMouseWheel}
 Windows.Foundation.Point
 Microsoft.UI.Xaml.Automation.Provider.IRangeValueProvider::{SetValue, get_Value, get_SmallChange, get_Minimum, get_Maximum}
 Microsoft.UI.Xaml.Controls.RatingControl::CreateInstance

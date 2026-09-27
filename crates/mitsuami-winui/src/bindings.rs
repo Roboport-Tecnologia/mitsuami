@@ -5142,6 +5142,13 @@ impl IPointerPoint {
                 .map(|| result__)
         }
     }
+    pub fn Properties(&self) -> windows_core::Result<PointerPointProperties> {
+        unsafe {
+            let mut result__ = core::mem::zeroed();
+            (windows_core::Interface::vtable(self).Properties)(windows_core::Interface::as_raw(self), &mut result__)
+                .and_then(|| windows_core::imp::Type::from_abi(result__))
+        }
+    }
 }
 #[repr(C)]
 pub struct IPointerPoint_Vtbl {
@@ -5151,6 +5158,56 @@ pub struct IPointerPoint_Vtbl {
     PointerDeviceType: usize,
     PointerId: usize,
     pub Position: unsafe extern "system" fn(*mut core::ffi::c_void, *mut Point) -> windows_core::HRESULT,
+    pub Properties:
+        unsafe extern "system" fn(*mut core::ffi::c_void, *mut *mut core::ffi::c_void) -> windows_core::HRESULT,
+}
+windows_core::imp::define_interface!(
+    IPointerPointProperties,
+    IPointerPointProperties_Vtbl,
+    0xd760ed77_4b10_57a5_b3cc_d9bf3413e996
+);
+impl windows_core::RuntimeType for IPointerPointProperties {
+    const SIGNATURE: windows_core::imp::ConstBuffer = windows_core::imp::ConstBuffer::for_interface::<Self>();
+}
+impl IPointerPointProperties {
+    pub fn IsHorizontalMouseWheel(&self) -> windows_core::Result<bool> {
+        unsafe {
+            let mut result__ = core::mem::zeroed();
+            (windows_core::Interface::vtable(self).IsHorizontalMouseWheel)(
+                windows_core::Interface::as_raw(self),
+                &mut result__,
+            )
+            .map(|| result__)
+        }
+    }
+    pub fn MouseWheelDelta(&self) -> windows_core::Result<i32> {
+        unsafe {
+            let mut result__ = core::mem::zeroed();
+            (windows_core::Interface::vtable(self).MouseWheelDelta)(
+                windows_core::Interface::as_raw(self),
+                &mut result__,
+            )
+            .map(|| result__)
+        }
+    }
+}
+#[repr(C)]
+pub struct IPointerPointProperties_Vtbl {
+    pub base__: windows_core::IInspectable_Vtbl,
+    ContactRect: usize,
+    IsBarrelButtonPressed: usize,
+    IsCanceled: usize,
+    IsEraser: usize,
+    pub IsHorizontalMouseWheel: unsafe extern "system" fn(*mut core::ffi::c_void, *mut bool) -> windows_core::HRESULT,
+    IsInRange: usize,
+    IsInverted: usize,
+    IsLeftButtonPressed: usize,
+    IsMiddleButtonPressed: usize,
+    IsPrimary: usize,
+    IsRightButtonPressed: usize,
+    IsXButton1Pressed: usize,
+    IsXButton2Pressed: usize,
+    pub MouseWheelDelta: unsafe extern "system" fn(*mut core::ffi::c_void, *mut i32) -> windows_core::HRESULT,
 }
 windows_core::imp::define_interface!(
     IPointerRoutedEventArgs,
@@ -5161,6 +5218,9 @@ impl windows_core::RuntimeType for IPointerRoutedEventArgs {
     const SIGNATURE: windows_core::imp::ConstBuffer = windows_core::imp::ConstBuffer::for_interface::<Self>();
 }
 impl IPointerRoutedEventArgs {
+    pub fn SetHandled(&self, value: bool) -> windows_core::Result<()> {
+        unsafe { (windows_core::Interface::vtable(self).SetHandled)(windows_core::Interface::as_raw(self), value).ok() }
+    }
     pub fn GetCurrentPoint<P0>(&self, relativeto: P0) -> windows_core::Result<PointerPoint>
     where
         P0: windows_core::Param<UIElement>,
@@ -5182,7 +5242,7 @@ pub struct IPointerRoutedEventArgs_Vtbl {
     Pointer: usize,
     KeyModifiers: usize,
     Handled: usize,
-    SetHandled: usize,
+    pub SetHandled: unsafe extern "system" fn(*mut core::ffi::c_void, bool) -> windows_core::HRESULT,
     IsGenerated: usize,
     pub GetCurrentPoint: unsafe extern "system" fn(
         *mut core::ffi::c_void,
@@ -7137,6 +7197,32 @@ impl IUIElement {
             ))
         }
     }
+    pub fn PointerWheelChanged<F>(&self, handler: F) -> windows_core::Result<windows_core::EventRevoker>
+    where
+        F: Fn(windows_core::Ref<windows_core::IInspectable>, windows_core::Ref<PointerRoutedEventArgs>) + 'static,
+    {
+        let handler: PointerEventHandler = {
+            let com = windows_core::imp::DelegateBox::<PointerEventHandler, F>::new(
+                &PointerEventHandlerBox::<F>::VTABLE,
+                handler,
+            );
+            unsafe { core::mem::transmute(windows_core::imp::box_new(com)) }
+        };
+        unsafe {
+            let mut result__ = core::mem::zeroed();
+            let token__ = (windows_core::Interface::vtable(self).PointerWheelChanged)(
+                windows_core::Interface::as_raw(self),
+                windows_core::Interface::as_raw(&handler),
+                &mut result__,
+            )
+            .map(|| result__)?;
+            Ok(windows_core::EventRevoker::new(
+                self.clone(),
+                token__,
+                windows_core::Interface::vtable(self).RemovePointerWheelChanged,
+            ))
+        }
+    }
     pub fn DoubleTapped<F>(&self, handler: F) -> windows_core::Result<windows_core::EventRevoker>
     where
         F: Fn(windows_core::Ref<windows_core::IInspectable>, windows_core::Ref<DoubleTappedRoutedEventArgs>) + 'static,
@@ -7388,8 +7474,9 @@ pub struct IUIElement_Vtbl {
     RemovePointerCaptureLost: usize,
     PointerCanceled: usize,
     RemovePointerCanceled: usize,
-    PointerWheelChanged: usize,
-    RemovePointerWheelChanged: usize,
+    pub PointerWheelChanged:
+        unsafe extern "system" fn(*mut core::ffi::c_void, *mut core::ffi::c_void, *mut i64) -> windows_core::HRESULT,
+    pub RemovePointerWheelChanged: unsafe extern "system" fn(*mut core::ffi::c_void, i64) -> windows_core::HRESULT,
     Tapped: usize,
     RemoveTapped: usize,
     pub DoubleTapped:
@@ -9109,6 +9196,29 @@ impl windows_core::RuntimeName for PointerPoint {
 }
 unsafe impl Send for PointerPoint {}
 unsafe impl Sync for PointerPoint {}
+#[repr(transparent)]
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct PointerPointProperties(windows_core::IUnknown);
+windows_core::imp::interface_hierarchy!(PointerPointProperties, windows_core::IUnknown, windows_core::IInspectable);
+impl windows_core::RuntimeType for PointerPointProperties {
+    const SIGNATURE: windows_core::imp::ConstBuffer =
+        windows_core::imp::ConstBuffer::for_class::<Self, IPointerPointProperties>();
+}
+unsafe impl windows_core::Interface for PointerPointProperties {
+    type Vtable = <IPointerPointProperties as windows_core::Interface>::Vtable;
+    const IID: windows_core::GUID = <IPointerPointProperties as windows_core::Interface>::IID;
+}
+impl core::ops::Deref for PointerPointProperties {
+    type Target = IPointerPointProperties;
+    fn deref(&self) -> &Self::Target {
+        unsafe { core::mem::transmute(self) }
+    }
+}
+impl windows_core::RuntimeName for PointerPointProperties {
+    const NAME: &'static str = "Microsoft.UI.Input.PointerPointProperties";
+}
+unsafe impl Send for PointerPointProperties {}
+unsafe impl Sync for PointerPointProperties {}
 #[repr(transparent)]
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct PointerRoutedEventArgs(windows_core::IUnknown);

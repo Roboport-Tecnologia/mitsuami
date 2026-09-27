@@ -222,8 +222,12 @@ struct Node {
     shown_index: Rc<Cell<i32>>,
     /// Sliders and number boxes: the value.
     shown_number: Rc<Cell<f64>>,
-    /// ScrollViews: the offset last reported.
+    /// ScrollViews: the offset last reported, and Shift+wheel on their
+    /// content.
     offset: Rc<Cell<Point>>,
+    shift_wheel: Option<EventRevoker>,
+    /// A ScrollView's content: hit-testable everywhere, for the wheel.
+    scroll_content: bool,
     /// Props XAML can't report back faithfully.
     text_style: Option<TextStyle>,
     role: Option<ButtonRole>,
@@ -1249,6 +1253,8 @@ impl State {
                 shown_index,
                 shown_number,
                 offset,
+                shift_wheel: None,
+                scroll_content: false,
                 text_style: None,
                 role: None,
                 button_style: None,
@@ -1524,24 +1530,13 @@ impl State {
                 set_button_style(b, node.role, node.button_style)?;
             }
             (Prop::Tweak(tweak), _) => node.tweak = Some(tweak.clone()),
-            (Prop::Tooltip(text), widget) => {
+            (Prop::Tooltip(text), _) => {
                 // On the control itself, not the Border a native render sits in.
                 let control = node.inner.as_ref().unwrap_or(&node.element);
                 let value = (!text.is_empty()).then(|| boxed(text));
                 w::ToolTipService::SetToolTip(control, value.as_ref())?;
-                // A Canvas without a background isn't hit-testable, so the
-                // pointer would never rest on it: a clear one, while it has
-                // a tooltip, as drawn views have.
-                if let Widget::Host(canvas) = widget {
-                    let panel = canvas.cast::<w::IPanel>()?;
-                    if text.is_empty() {
-                        panel.SetBackground(None::<&w::Brush>)?;
-                    } else {
-                        let clear = w::SolidColorBrush::CreateInstanceWithColor(w::Color { a: 0, r: 0, g: 0, b: 0 })?;
-                        panel.SetBackground(&clear)?;
-                    }
-                }
                 node.tooltip = text.clone();
+                set_hit_testable(node)?;
                 set_help_text(node)?;
             }
             _ => {}
@@ -1605,6 +1600,11 @@ impl State {
                         fe.SetHorizontalAlignment(w::HorizontalAlignment::Left)?;
                         fe.SetVerticalAlignment(w::VerticalAlignment::Top)?;
                         content.SetContent(&child_element)?;
+                        let wheel = shift_wheel(scroll, &child_element)?;
+                        self.nodes.get_mut(parent).unwrap().shift_wheel = Some(wheel);
+                        let child_node = self.nodes.get_mut(child).unwrap();
+                        child_node.scroll_content = true;
+                        set_hit_testable(child_node)?;
                     }
                     Some(_) => {
                         let children = self.children(*parent, command)?;
@@ -1622,7 +1622,13 @@ impl State {
                 let child_element = self.element(*child, command);
                 match &self.nodes[parent].widget {
                     Widget::List(list) => list.remove(self.nodes[child].row.expect("inserted with a row")),
-                    Widget::Scroll(scroll) => scroll.cast::<w::IContentControl>()?.SetContent(None::<&IInspectable>)?,
+                    Widget::Scroll(scroll) => {
+                        scroll.cast::<w::IContentControl>()?.SetContent(None::<&IInspectable>)?;
+                        self.nodes.get_mut(parent).unwrap().shift_wheel = None;
+                        let child_node = self.nodes.get_mut(child).unwrap();
+                        child_node.scroll_content = false;
+                        set_hit_testable(child_node)?;
+                    }
                     _ => {
                         let children = self.children(*parent, command)?;
                         let mut index = 0;
@@ -1894,6 +1900,58 @@ fn scroll_axes(scroll: &w::IScrollViewer) -> R<ScrollAxes> {
         (true, true) => ScrollAxes::Both,
         (true, false) => ScrollAxes::Horizontal,
         _ => ScrollAxes::Vertical,
+    })
+}
+
+/// A Canvas without a background isn't hit-testable, so the pointer would
+/// never rest on it, and the wheel would pass it by: a clear one while it
+/// has a tooltip (as drawn views have) or is a ScrollView's content.
+fn set_hit_testable(node: &Node) -> R<()> {
+    let Widget::Host(canvas) = &node.widget else { return Ok(()) };
+    let panel = canvas.cast::<w::IPanel>()?;
+    if node.tooltip.is_empty() && !node.scroll_content {
+        panel.SetBackground(None::<&w::Brush>)
+    } else {
+        let clear = w::SolidColorBrush::CreateInstanceWithColor(w::Color { a: 0, r: 0, g: 0, b: 0 })?;
+        panel.SetBackground(&clear)
+    }
+}
+
+/// How far a wheel notch scrolls: XAML's 3 lines of 16 px.
+const WHEEL_NOTCH: f64 = 48.0;
+
+/// Shift+wheel scrolls sideways in Windows' own apps (Explorer, Edge) and
+/// on the other platforms, but not in XAML's `ScrollViewer`
+/// (microsoft-ui-xaml#8553, closed as not planned). The content sees the
+/// wheel before the scroll viewer does: scroll it there, as far as a notch
+/// scrolls down, if it can scroll sideways.
+fn shift_wheel(scroll: &w::ScrollViewer, content: &w::UIElement) -> R<EventRevoker> {
+    let scroll: w::IScrollViewer = scroll.cast()?;
+    // Where the last notch sent the view, and when: XAML applies a scroll
+    // at its next layout, so notches that come before it add up.
+    let last: Cell<Option<(f64, Instant)>> = Cell::new(None);
+    content.cast::<w::IUIElement>()?.PointerWheelChanged(move |_, args| {
+        let Some(args) = args.as_ref() else { return };
+        let width = scroll.ScrollableWidth().unwrap_or(0.0);
+        if unsafe { w::GetKeyState(w::VK_SHIFT) } >= 0 || width <= 0.0 {
+            return;
+        }
+        let Ok(props) = args.GetCurrentPoint(None).and_then(|p| p.cast::<w::IPointerPoint>()?.Properties()) else {
+            return;
+        };
+        let props: w::IPointerPointProperties = ok(props.cast(), "cast to PointerPointProperties");
+        if props.IsHorizontalMouseWheel().unwrap_or(true) {
+            return;
+        }
+        let from = match last.get() {
+            Some((x, at)) if at.elapsed() < Duration::from_millis(250) => x,
+            _ => scroll.HorizontalOffset().unwrap_or(0.0),
+        };
+        let delta = props.MouseWheelDelta().unwrap_or(0) as f64 / 120.0;
+        let x = (from - delta * WHEEL_NOTCH).clamp(0.0, width);
+        last.set(Some((x, Instant::now())));
+        _ = scroll.ChangeViewWithOptionalAnimation(Some(x), None, None, true);
+        _ = args.SetHandled(true);
     })
 }
 
