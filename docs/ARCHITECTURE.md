@@ -926,7 +926,7 @@ Things the AppKit backend taught us, some of them now part of the contract:
 
 ### Text: a line limit and tweaks
 
-- **`Text::max_lines`** is the one semantic option every platform's label has: at most so many lines, the last cut off with the platform's ellipsis (AppKit `maximumNumberOfLines`, GTK `lines` with `ellipsize`, Qt `maximumLineCount` with `elide`, XAML `MaxLines` with `TextTrimming`). The label is measured as limited, and still read out in full. 0 lifts the limit, as on AppKit and WinUI.
+- **`Text::max_lines`** is the one semantic option every platform's label has: at most so many lines, the last cut off with the platform's ellipsis (AppKit `maximumNumberOfLines`, GTK `lines` with `ellipsize`, Qt `maximumLineCount` with `elide`, XAML `MaxLines` with `TextTrimming`). The label is measured as limited, and still read out in full. 0 lifts the limit, as on AppKit and WinUI. Qt's eliding labels also drop the lines past their height, so Kirigami measures them with the height lifted: a label's frame is 0 high until its first layout, and measured as one line from it.
 - **Not selectable text, yet.** AppKit, GTK and WinUI labels can be made selectable (`selectable`, `selectable`, `IsTextSelectionEnabled`), but Qt's `QQC2.Label` can't; KDE's `Kirigami.SelectableLabel` is another control, a `TextEdit`. It would be a prop that makes the Kirigami backend create a different item.
 - **Tweaks for the rest.** Colours, style classes, rich text and letter spacing are each platform's own.
 - **The example's tweaks:** the secondary label colour on AppKit (captured), `dim-label` on GTK, Markdown (`textFormat`) on Qt, `CharacterSpacing` on WinUI (bindings added, with `MaxLines` and `TextTrimming`).

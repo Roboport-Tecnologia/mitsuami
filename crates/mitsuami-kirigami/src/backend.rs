@@ -1240,9 +1240,14 @@ fn measure_item(item: QmlObject, wraps: bool, request: MeasureRequest) -> Size {
             if natural <= available { natural } else { available.floor().max(min_content()) }
         }
     };
+    // An eliding label also drops the lines past its height, and its
+    // frame's may be less than it needs (0 before its first layout).
+    let frame_height = item.real("height");
+    item.set_real("height", f32::MAX as f64);
     item.set_real("width", width as f64);
     let height = item.real("implicitHeight").ceil() as f32;
     item.set_real("width", frame_width);
+    item.set_real("height", frame_height);
     Size::new(width, request.known_height.unwrap_or(height))
 }
 
