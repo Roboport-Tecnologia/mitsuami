@@ -147,6 +147,10 @@ impl Grid {
 /// sized parent); otherwise it grows with its content and never scrolls.
 /// As in CSS, its natural size is its content's, so in a flex container its
 /// siblings shrink along with it unless they have `.shrink(0.0)`.
+/// Also as in CSS, a flex item doesn't shrink below its content's width:
+/// a horizontal scroll view in a column that grows in a row needs
+/// `.min_width(0)` on that column, or both are as wide as the content, and
+/// there's nothing to scroll.
 pub struct ScrollView {
     outer: Element,
     content: Container,

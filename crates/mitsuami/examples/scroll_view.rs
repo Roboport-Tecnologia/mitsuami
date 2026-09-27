@@ -32,7 +32,10 @@ fn gallery() -> impl View {
                 Text::new("Vertical").text_style(TextStyle::Caption),
                 ScrollView::new().width(160).height(120).child(Column::new().gap(Spacing::Xs).children(rows(20))),
             )),
-            Column::new().gap(Spacing::Sm).grow(1.0).children((
+            // Without a minimum width of 0, the column is as wide as the
+            // widest content in it (as in CSS), and the scroll views in it
+            // with it: they'd have nothing to scroll.
+            Column::new().gap(Spacing::Sm).grow(1.0).min_width(0).children((
                 Text::new("Horizontal").text_style(TextStyle::Caption),
                 ScrollView::horizontal().height(56).child(
                     Row::new().gap(Spacing::Sm).children((1..=12).map(|i| tile(format!("{i}"))).collect::<Vec<_>>()),
