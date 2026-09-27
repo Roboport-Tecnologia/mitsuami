@@ -42,8 +42,13 @@ fn rings(size: u32, phase: f64) -> Pixels {
     Pixels::new(size, size, rgba)
 }
 
+/// The PNG is built in and written out, so a released binary shows it away
+/// from the source tree.
 fn file() -> std::path::PathBuf {
-    std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("tests/assets/blue-red-20x10.png")
+    let path = std::env::temp_dir().join("mitsuami-example-blue-red-20x10.png");
+    std::fs::write(&path, include_bytes!("../tests/assets/blue-red-20x10.png"))
+        .expect("the temporary directory is writable");
+    path
 }
 
 fn gallery() -> impl View {
