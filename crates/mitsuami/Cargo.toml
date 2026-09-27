@@ -96,6 +96,10 @@ name = "tooltip"
 harness = false
 
 [[test]]
+name = "context_menu"
+harness = false
+
+[[test]]
 name = "toolbar"
 harness = false
 

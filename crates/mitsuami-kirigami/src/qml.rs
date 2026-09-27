@@ -35,13 +35,42 @@ const TEXT_STYLE: &str = r#"
 "#;
 
 fn a11y(default_name: &str) -> String {
-    a11y_with(default_name, "hovered")
+    format!("{}{}", a11y_with(default_name, "hovered"), context_menu_handlers("parent"))
 }
 
 /// For items that aren't controls (labels, images, container hosts), which
 /// have no `hovered`: a `HoverHandler` says when the pointer is on them.
 fn a11y_hover(default_name: &str) -> String {
-    format!("{}\n    HoverHandler {{ id: mitsuamiHover }}\n", a11y_with(default_name, "mitsuamiHover.hovered"))
+    format!(
+        "{}\n    HoverHandler {{ id: mitsuamiHover }}\n{}",
+        a11y_with(default_name, "mitsuamiHover.hovered"),
+        context_menu_handlers("parent")
+    )
+}
+
+/// What shows an item's context menu with the pointer: a right-click, on
+/// the press as KDE's menus open, and a long press on touch. `owner` is the
+/// item with the menu (`mitsuamiContextMenu`), which the handlers' own
+/// item is or is in. They're off while it has none, so a press goes on to
+/// the items under it: a child without a menu shows its container's. A
+/// right press is taken whole (`WithinBounds`), so only the innermost menu
+/// shows; a long press is only watched, so it still scrolls and presses.
+fn context_menu_handlers(owner: &str) -> String {
+    format!(
+        r#"
+    TapHandler {{
+        acceptedButtons: Qt.RightButton
+        gesturePolicy: TapHandler.WithinBounds
+        enabled: {owner}.mitsuamiContextMenu !== null
+        onPressedChanged: if (pressed) {owner}.mitsuamiPopupContextMenu(parent, point.position.x, point.position.y)
+    }}
+    TapHandler {{
+        acceptedDevices: PointerDevice.TouchScreen | PointerDevice.Stylus
+        enabled: {owner}.mitsuamiContextMenu !== null
+        onLongPressed: {owner}.mitsuamiPopupContextMenu(parent, point.position.x, point.position.y)
+    }}
+"#
+    )
 }
 
 /// The accessible name, description and hiding, and the tooltip: Qt
@@ -61,9 +90,38 @@ fn a11y_with(default_name: &str, hovered: &str) -> String {
     QQC2.ToolTip.text: mitsuamiTooltip
     QQC2.ToolTip.visible: mitsuamiTooltip !== "" && {hovered}
     QQC2.ToolTip.delay: Qt.styleHints.mousePressAndHoldInterval
-"#
+{CONTEXT_MENU}"#
     )
 }
+
+/// The context menu: a `QQC2.Menu` the backend makes from the app's (see
+/// `ContextMenu` in `services.rs`), whose parent is this item, popped up at
+/// a point of `item`. The Menu key and Shift+F10 show it at the item's
+/// centre, as Qt's widgets do, when the item or a child without a menu has
+/// the focus: keys a child doesn't take come to its parent.
+///
+/// A long press reaches the handlers of every item under the finger: the
+/// innermost shows its menu, and the others see it open.
+const CONTEXT_MENU: &str = r#"
+    property QtObject mitsuamiContextMenu: null
+    function mitsuamiIsMenuKey(event) {
+        return event.key === Qt.Key_Menu || (event.key === Qt.Key_F10 && (event.modifiers & Qt.ShiftModifier))
+    }
+    function mitsuamiPopupContextMenu(item, x, y) {
+        const menu = mitsuamiContextMenu
+        const window = Window.window
+        if (!menu || (window && window.mitsuamiShownMenu && window.mitsuamiShownMenu.visible)) return
+        if (window) window.mitsuamiShownMenu = menu
+        const at = item.mapToItem(menu.parent, x, y)
+        menu.popup(at.x, at.y)
+    }
+    Keys.onPressed: (event) => {
+        if (mitsuamiContextMenu && mitsuamiIsMenuKey(event)) {
+            mitsuamiPopupContextMenu(mitsuamiContextMenu.parent, width / 2, height / 2)
+            event.accepted = true
+        }
+    }
+"#;
 
 /// `drawer` is the window's menus' global drawer, when it has menus: it has to
 /// be there from the start (see `Wiring::install` in `services.rs`).
@@ -91,6 +149,8 @@ Kirigami.ApplicationWindow {{
     property bool mitsuamiModal: false
     // Set by the backend: whether this is Qt's focus window.
     property bool mitsuamiFocused: false
+    // The context menu last shown in the window (see `qml::CONTEXT_MENU`).
+    property QtObject mitsuamiShownMenu: null
     Shortcut {{
         sequences: [StandardKey.Cancel]
         enabled: mitsuamiWindow.mitsuamiModal && mitsuamiWindow.mitsuamiFocused
@@ -315,11 +375,15 @@ QQC2.ScrollView {{
         flickableDirection: scroll.mitsuamiAxes === 1 ? Flickable.HorizontalFlick
             : scroll.mitsuamiAxes === 2 ? Flickable.VerticalFlick : Flickable.HorizontalAndVerticalFlick
         clip: true
+        // On the flickable, where the scroll view puts its children's:
+        // under the content, which shows its own menus first.
+        {}
     }}
     {}
 }}
 "#,
-        a11y("\"\"")
+        context_menu_handlers("scroll"),
+        a11y_with("\"\"", "hovered")
     )
 }
 
@@ -354,7 +418,8 @@ QQC2.ScrollView {{
         id: view
         objectName: "mitsuamiListView"
         // In the list view: a scroll view with more than one child makes
-        // its own flickable.
+        // its own flickable. Rows without a menu show the list's.
+        {}
         Binding {{
             target: scroll.background
             when: scroll.background !== null
@@ -437,6 +502,13 @@ QQC2.ScrollView {{
                 mitsuamiOpen(mitsuamiKeys[currentIndex])
                 event.accepted = true
             }}
+            // The Menu key shows the current row's menu, as in Dolphin.
+            else if (scroll.mitsuamiIsMenuKey(event) && currentItem && currentItem.mitsuamiHost
+                     && currentItem.mitsuamiHost.mitsuamiContextMenu) {{
+                const host = currentItem.mitsuamiHost
+                host.mitsuamiPopupContextMenu(host, host.width / 2, host.height / 2)
+                event.accepted = true
+            }}
         }}
         delegate: QQC2.ItemDelegate {{
             required property string modelData
@@ -462,7 +534,8 @@ QQC2.ScrollView {{
     }}
 }}
 "#,
-        a11y("\"\"")
+        a11y_with("\"\"", "hovered"),
+        context_menu_handlers("scroll")
     )
 }
 

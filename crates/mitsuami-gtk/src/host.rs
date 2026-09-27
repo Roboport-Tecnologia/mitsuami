@@ -127,6 +127,11 @@ mod imp {
             let mut next = self.obj().first_child();
             while let Some(child) = next {
                 next = child.next_sibling();
+                // A context menu's popover places itself, by the host.
+                if let Some(popover) = child.downcast_ref::<gtk::Popover>() {
+                    popover.present();
+                    continue;
+                }
                 // Hidden by the backend (an empty frame): nothing to place.
                 if !child.is_child_visible() {
                     continue;

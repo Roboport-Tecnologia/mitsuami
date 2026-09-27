@@ -1845,6 +1845,29 @@ unsafe impl Send for FileSavePicker {}
 unsafe impl Sync for FileSavePicker {}
 #[repr(transparent)]
 #[derive(Clone, Debug, Eq, PartialEq)]
+pub struct FlyoutBase(windows_core::IUnknown);
+windows_core::imp::interface_hierarchy!(FlyoutBase, windows_core::IUnknown, windows_core::IInspectable);
+windows_core::imp::required_hierarchy!(FlyoutBase, DependencyObject);
+impl windows_core::RuntimeType for FlyoutBase {
+    const SIGNATURE: windows_core::imp::ConstBuffer = windows_core::imp::ConstBuffer::for_class::<Self, IFlyoutBase>();
+}
+unsafe impl windows_core::Interface for FlyoutBase {
+    type Vtable = <IFlyoutBase as windows_core::Interface>::Vtable;
+    const IID: windows_core::GUID = <IFlyoutBase as windows_core::Interface>::IID;
+}
+impl core::ops::Deref for FlyoutBase {
+    type Target = IFlyoutBase;
+    fn deref(&self) -> &Self::Target {
+        unsafe { core::mem::transmute(self) }
+    }
+}
+impl windows_core::RuntimeName for FlyoutBase {
+    const NAME: &'static str = "Microsoft.UI.Xaml.Controls.Primitives.FlyoutBase";
+}
+unsafe impl Send for FlyoutBase {}
+unsafe impl Sync for FlyoutBase {}
+#[repr(transparent)]
+#[derive(Clone, Debug, Eq, PartialEq)]
 pub struct FocusManager(windows_core::IUnknown);
 windows_core::imp::interface_hierarchy!(FocusManager, windows_core::IUnknown, windows_core::IInspectable);
 impl FocusManager {
@@ -3894,6 +3917,14 @@ pub struct IFileSavePickerFactory_Vtbl {
         *mut *mut core::ffi::c_void,
     ) -> windows_core::HRESULT,
 }
+windows_core::imp::define_interface!(IFlyoutBase, IFlyoutBase_Vtbl, 0xbb6603bf_744d_5c31_a87d_744394634d77);
+impl windows_core::RuntimeType for IFlyoutBase {
+    const SIGNATURE: windows_core::imp::ConstBuffer = windows_core::imp::ConstBuffer::for_interface::<Self>();
+}
+#[repr(C)]
+pub struct IFlyoutBase_Vtbl {
+    pub base__: windows_core::IInspectable_Vtbl,
+}
 windows_core::imp::define_interface!(IFocusManager, IFocusManager_Vtbl, 0x9fd07bc5_d2d4_53fe_a31a_846de8b7a257);
 impl windows_core::RuntimeType for IFocusManager {
     const SIGNATURE: windows_core::imp::ConstBuffer = windows_core::imp::ConstBuffer::for_interface::<Self>();
@@ -4949,6 +4980,42 @@ impl windows_core::RuntimeType for IMenuBarItemFactory {
 }
 #[repr(C)]
 pub struct IMenuBarItemFactory_Vtbl {
+    pub base__: windows_core::IInspectable_Vtbl,
+    pub CreateInstance: unsafe extern "system" fn(
+        *mut core::ffi::c_void,
+        *mut core::ffi::c_void,
+        *mut *mut core::ffi::c_void,
+        *mut *mut core::ffi::c_void,
+    ) -> windows_core::HRESULT,
+}
+windows_core::imp::define_interface!(IMenuFlyout, IMenuFlyout_Vtbl, 0xf4c77c6c_1fa5_5d85_8559_5d02b7d4e5e7);
+impl windows_core::RuntimeType for IMenuFlyout {
+    const SIGNATURE: windows_core::imp::ConstBuffer = windows_core::imp::ConstBuffer::for_interface::<Self>();
+}
+impl IMenuFlyout {
+    pub fn Items(&self) -> windows_core::Result<windows_collections::IVector<MenuFlyoutItemBase>> {
+        unsafe {
+            let mut result__ = core::mem::zeroed();
+            (windows_core::Interface::vtable(self).Items)(windows_core::Interface::as_raw(self), &mut result__)
+                .and_then(|| windows_core::imp::Type::from_abi(result__))
+        }
+    }
+}
+#[repr(C)]
+pub struct IMenuFlyout_Vtbl {
+    pub base__: windows_core::IInspectable_Vtbl,
+    pub Items: unsafe extern "system" fn(*mut core::ffi::c_void, *mut *mut core::ffi::c_void) -> windows_core::HRESULT,
+}
+windows_core::imp::define_interface!(
+    IMenuFlyoutFactory,
+    IMenuFlyoutFactory_Vtbl,
+    0xa3d225de_6b35_5442_b6c9_06fd24139a63
+);
+impl windows_core::RuntimeType for IMenuFlyoutFactory {
+    const SIGNATURE: windows_core::imp::ConstBuffer = windows_core::imp::ConstBuffer::for_interface::<Self>();
+}
+#[repr(C)]
+pub struct IMenuFlyoutFactory_Vtbl {
     pub base__: windows_core::IInspectable_Vtbl,
     pub CreateInstance: unsafe extern "system" fn(
         *mut core::ffi::c_void,
@@ -7698,6 +7765,25 @@ impl IUIElement {
             (windows_core::Interface::vtable(self).SetVisibility)(windows_core::Interface::as_raw(self), value).ok()
         }
     }
+    pub fn ContextFlyout(&self) -> windows_core::Result<FlyoutBase> {
+        unsafe {
+            let mut result__ = core::mem::zeroed();
+            (windows_core::Interface::vtable(self).ContextFlyout)(windows_core::Interface::as_raw(self), &mut result__)
+                .and_then(|| windows_core::imp::Type::from_abi(result__))
+        }
+    }
+    pub fn SetContextFlyout<P0>(&self, value: P0) -> windows_core::Result<()>
+    where
+        P0: windows_core::Param<FlyoutBase>,
+    {
+        unsafe {
+            (windows_core::Interface::vtable(self).SetContextFlyout)(
+                windows_core::Interface::as_raw(self),
+                value.param().abi(),
+            )
+            .ok()
+        }
+    }
     pub fn KeyboardAccelerators(&self) -> windows_core::Result<windows_collections::IVector<KeyboardAccelerator>> {
         unsafe {
             let mut result__ = core::mem::zeroed();
@@ -8026,8 +8112,10 @@ pub struct IUIElement_Vtbl {
     ManipulationMode: usize,
     SetManipulationMode: usize,
     PointerCaptures: usize,
-    ContextFlyout: usize,
-    SetContextFlyout: usize,
+    pub ContextFlyout:
+        unsafe extern "system" fn(*mut core::ffi::c_void, *mut *mut core::ffi::c_void) -> windows_core::HRESULT,
+    pub SetContextFlyout:
+        unsafe extern "system" fn(*mut core::ffi::c_void, *mut core::ffi::c_void) -> windows_core::HRESULT,
     CompositeMode: usize,
     SetCompositeMode: usize,
     Lights: usize,
@@ -9297,6 +9385,50 @@ impl windows_core::RuntimeName for MenuBarItem {
 }
 unsafe impl Send for MenuBarItem {}
 unsafe impl Sync for MenuBarItem {}
+#[repr(transparent)]
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct MenuFlyout(windows_core::IUnknown);
+windows_core::imp::interface_hierarchy!(MenuFlyout, windows_core::IUnknown, windows_core::IInspectable);
+windows_core::imp::required_hierarchy!(MenuFlyout, FlyoutBase, DependencyObject);
+impl MenuFlyout {
+    pub fn new() -> windows_core::Result<Self> {
+        Self::IMenuFlyoutFactory(|this| unsafe {
+            let mut result__ = core::mem::zeroed();
+            (windows_core::Interface::vtable(this).CreateInstance)(
+                windows_core::Interface::as_raw(this),
+                core::ptr::null_mut(),
+                core::ptr::null_mut(),
+                &mut result__,
+            )
+            .and_then(|| windows_core::imp::Type::from_abi(result__))
+        })
+    }
+    fn IMenuFlyoutFactory<R, F: FnOnce(&IMenuFlyoutFactory) -> windows_core::Result<R>>(
+        callback: F,
+    ) -> windows_core::Result<R> {
+        static SHARED: windows_core::imp::FactoryCache<MenuFlyout, IMenuFlyoutFactory> =
+            windows_core::imp::FactoryCache::new();
+        SHARED.call(callback)
+    }
+}
+impl windows_core::RuntimeType for MenuFlyout {
+    const SIGNATURE: windows_core::imp::ConstBuffer = windows_core::imp::ConstBuffer::for_class::<Self, IMenuFlyout>();
+}
+unsafe impl windows_core::Interface for MenuFlyout {
+    type Vtable = <IMenuFlyout as windows_core::Interface>::Vtable;
+    const IID: windows_core::GUID = <IMenuFlyout as windows_core::Interface>::IID;
+}
+impl core::ops::Deref for MenuFlyout {
+    type Target = IMenuFlyout;
+    fn deref(&self) -> &Self::Target {
+        unsafe { core::mem::transmute(self) }
+    }
+}
+impl windows_core::RuntimeName for MenuFlyout {
+    const NAME: &'static str = "Microsoft.UI.Xaml.Controls.MenuFlyout";
+}
+unsafe impl Send for MenuFlyout {}
+unsafe impl Sync for MenuFlyout {}
 #[repr(transparent)]
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct MenuFlyoutItem(windows_core::IUnknown);

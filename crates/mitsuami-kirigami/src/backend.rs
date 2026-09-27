@@ -21,7 +21,7 @@ use crate::custom::{Emitter, ErasedRender, KirigamiCx, NativePayload, flatten};
 use crate::events::{Events, node_from_key, node_key};
 use crate::ffi::{self, Callback, QmlObject};
 use crate::qml;
-use crate::services::{KirigamiServices, Menus, drawer_qml};
+use crate::services::{ContextMenu, KirigamiServices, Menus, drawer_qml};
 use crate::theme;
 
 /// How the backend behaves; apps and tests want different things.
@@ -238,6 +238,13 @@ impl Widget {
         !matches!(self, Widget::Window { .. } | Widget::Custom { .. } | Widget::Drawn { .. } | Widget::Native { .. })
     }
 
+    /// Made from our templates, which show a context menu
+    /// (`qml::CONTEXT_MENU`), except text fields: they keep KDE's own, with
+    /// Cut, Copy and Paste, as a field's own menu wins on every platform.
+    fn shows_context_menu(&self) -> bool {
+        self.has_tooltip() && !matches!(self, Widget::Field(_))
+    }
+
     /// The item that takes keyboard focus and input: a list's list view.
     fn input_item(&self) -> QmlObject {
         match self {
@@ -345,6 +352,8 @@ struct Node {
     /// Windows: modal, and the window they belong to (Qt reads back the
     /// modality, but not which node the transient parent is).
     modal: Option<(Option<NodeId>, Modality)>,
+    /// The context menu, once the app gave one.
+    context_menu: Option<ContextMenu>,
 }
 
 pub(crate) struct State {
@@ -373,6 +382,9 @@ impl Drop for State {
                     drawer.delete_later();
                 }
                 root.window.delete_later();
+            }
+            if let Some(menu) = &node.context_menu {
+                menu.delete_later();
             }
         }
     }
@@ -792,6 +804,7 @@ impl State {
                 modal: None,
                 scroll_axes: None,
                 a11y_label: None,
+                context_menu: None,
             },
         );
     }
@@ -895,6 +908,7 @@ impl State {
             node.modal = Some((*owner, *modality));
             return;
         }
+        let events = self.events.clone();
         let Some(node) = self.nodes.get_mut(&id) else { violation(command, "node does not exist") };
         match (prop, &mut node.widget) {
             (Prop::Title(t), Widget::Window { root }) => {
@@ -1044,6 +1058,16 @@ impl State {
                     widget.item().set_str("mitsuamiTooltip", text);
                 }
                 node.tooltip = text.clone();
+            }
+            // Custom renders, drawn and native items and text fields keep
+            // it on the node without showing it.
+            (Prop::ContextMenu(entries), widget) => {
+                let item = widget.shows_context_menu().then(|| widget.item());
+                node.context_menu
+                    .get_or_insert_with(|| {
+                        ContextMenu::new(move |chosen| events.emit(id, UiEvent::ContextMenuItem(chosen)))
+                    })
+                    .set(item, entries);
             }
             (Prop::Rows(rows), Widget::List(list)) => list.set_rows(rows.clone()),
             (Prop::SelectionMode(mode), Widget::List(list)) => list.set_mode(*mode),
@@ -1205,6 +1229,10 @@ impl State {
                 let Some(node) = self.nodes.remove(id) else { violation(command, "node does not exist") };
                 self.pending_show.retain(|w| w != id);
                 self.menus.forget(*id);
+                // Not the item's child: a popup only has it as its parent.
+                if let Some(menu) = &node.context_menu {
+                    menu.delete_later();
+                }
                 match &node.widget {
                     Widget::Window { root } => {
                         // The menu drawer isn't the window's child: it
@@ -1393,6 +1421,9 @@ impl Backend for KirigamiBackend {
     }
 
     fn perform(&mut self, id: NodeId, action: &A11yAction) -> Result<(), ActionError> {
+        if let A11yAction::ContextMenuItem(item) = action {
+            return self.choose_context_menu_item(id, *item);
+        }
         // A list's rows: select or activate them, as a click or a double
         // click on their delegate does.
         {
@@ -1733,6 +1764,7 @@ impl Backend for KirigamiBackend {
         } else {
             node.tooltip.clone()
         }));
+        props.extend(node.context_menu.as_ref().map(|menu| Prop::ContextMenu(menu.shown())));
         let frame = match &node.widget {
             Widget::Window { root } => {
                 let size = root.size.get();
@@ -1815,6 +1847,28 @@ impl Backend for KirigamiBackend {
             Some((rgba, width, height, scale_factor)) => Ok(Image { width, height, scale_factor, rgba }),
             None => Err(CaptureError::Failed("Qt rendered nothing".into())),
         });
+    }
+}
+
+impl KirigamiBackend {
+    /// What assistive technology does once it has shown the menu: trigger
+    /// the item's action, as clicking it does. A disabled item (or one in
+    /// a disabled container) gets no input, so it shows no menu.
+    fn choose_context_menu_item(&self, id: NodeId, item: u32) -> Result<(), ActionError> {
+        let action = {
+            let state = self.state.borrow();
+            let node = state.nodes.get(&id).ok_or(ActionError::UnknownNode)?;
+            if !node.widget.item().bool("enabled") {
+                return Err(ActionError::Disabled);
+            }
+            node.context_menu.as_ref().and_then(|menu| menu.action(item)).ok_or(ActionError::Unsupported)?
+        };
+        if !action.bool("enabled") {
+            return Err(ActionError::Disabled);
+        }
+        // No state borrow: the action's handler reports the choice.
+        action.invoke("trigger");
+        Ok(())
     }
 }
 

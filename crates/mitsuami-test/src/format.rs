@@ -4,6 +4,7 @@ use std::fmt::Write;
 
 use mitsuami_core::draw::{DrawOp, PathElement};
 use mitsuami_core::geometry::Num;
+use mitsuami_core::services::MenuEntry;
 use mitsuami_core::{A11yNode, Color, Command, DisplayList, ImageSource, NodeInfo, Point, Prop, Shape, WidgetKind};
 
 fn describe_props(props: &[Prop]) -> String {
@@ -17,6 +18,7 @@ fn describe_props(props: &[Prop]) -> String {
             Prop::Value(s) => extra.push(format!("value={s:?}")),
             Prop::Placeholder(s) => extra.push(format!("placeholder={s:?}")),
             Prop::Tooltip(s) => extra.push(format!("tooltip={s:?}")),
+            Prop::ContextMenu(entries) => extra.push(format!("context_menu=[{}]", menu_entries(entries))),
             Prop::Options(options) => extra.push(format!("options={options:?}")),
             Prop::SelectedIndex(index) => {
                 extra.push(format!("selected={}", index.map_or("none".to_owned(), |i| i.to_string())))
@@ -75,6 +77,19 @@ fn describe_props(props: &[Prop]) -> String {
         out.push_str(&e);
     }
     out
+}
+
+/// `Rename, -, Sort By [Name, Date]`: titles, separators and submenus.
+fn menu_entries(entries: &[MenuEntry]) -> String {
+    let entries: Vec<String> = entries
+        .iter()
+        .map(|entry| match entry {
+            MenuEntry::Item(item) => item.title.clone(),
+            MenuEntry::Separator => "-".to_owned(),
+            MenuEntry::Submenu(menu) => format!("{} [{}]", menu.title, menu_entries(&menu.entries)),
+        })
+        .collect();
+    entries.join(", ")
 }
 
 /// ```text

@@ -7,6 +7,7 @@ use std::sync::Arc;
 use crate::any_value::Opaque;
 use crate::custom::CustomProps;
 use crate::draw::DisplayList;
+use crate::services::MenuEntry;
 
 /// Stable identity of a node for the lifetime of a [`Ui`](crate::Ui).
 #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
@@ -402,6 +403,11 @@ pub enum Prop {
     /// its tooltip, and assistive technology reads as its description.
     /// Any widget or container can have one; empty: none.
     Tooltip(String),
+    /// The menu the platform shows its own way on a right-click, a long
+    /// press or the menu key: items, separators and submenus. Any widget
+    /// or container can have one; empty: none. The node reports the item
+    /// chosen as [`UiEvent::ContextMenuItem`](crate::UiEvent::ContextMenuItem).
+    ContextMenu(Vec<MenuEntry>),
     /// A window is modal, belonging to `owner` (the window it was declared
     /// in, if any). Sent once, before the window is shown.
     Modal {

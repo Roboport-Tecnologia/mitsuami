@@ -125,6 +125,8 @@ pub enum UiEvent {
     Remeasure,
     /// An event of a custom widget or native view, of its own type.
     Custom(AnyValue),
+    /// The item of the node's context menu with this id was chosen.
+    ContextMenuItem(u32),
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]

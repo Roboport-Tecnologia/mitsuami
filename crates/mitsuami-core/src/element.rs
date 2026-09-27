@@ -6,6 +6,7 @@ use mitsuami_reactive::{IntoValue, Value, effect};
 
 use crate::a11y::{A11yProps, Role};
 use crate::command::UiEvent;
+use crate::services::{Menu, MenuEntries, install_context_menu};
 use crate::style::{Align, Edges, GridPlacement, Position, Style, TextDirection};
 use crate::ui::{Handler, Ui};
 use crate::units::Length;
@@ -210,6 +211,25 @@ pub trait ElementBuilder: Sized {
         self.element().prop(text.into_value(), Prop::Tooltip);
         self
     }
+
+    /// A context menu: the platform shows it its own way, on a right-click,
+    /// a long press or the menu key, and over children without one of
+    /// their own. Takes items, separators and submenus, as a [`Menu`]
+    /// does, with the same reactive titles, states and check marks:
+    ///
+    /// ```ignore
+    /// Text::new(name).context_menu((
+    ///     MenuItem::new("Rename").on_select(rename),
+    ///     MenuSeparator,
+    ///     MenuItem::new("Delete").on_select(delete),
+    /// ))
+    /// ```
+    fn context_menu(mut self, entries: impl MenuEntries) -> Self {
+        let menu = Menu::new(String::new()).children(entries);
+        self.element().after_build(move |ui, id| install_context_menu(ui, id, menu));
+        self
+    }
+
     fn a11y_label(mut self, label: impl Into<String>) -> Self {
         self.element().a11y.label = Some(label.into());
         self

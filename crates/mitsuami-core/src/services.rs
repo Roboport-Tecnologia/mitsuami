@@ -1,4 +1,5 @@
-//! Platform services: clipboard, dialogs and the menu bar.
+//! Platform services: clipboard, dialogs and the menu bar. Widgets'
+//! context menus are made of the same menus.
 //!
 //! [`Services`] is the contract each platform implements, separately from
 //! the widget [`Backend`](crate::Backend). Tests install a scripted fake in
@@ -8,6 +9,7 @@
 //! same methods on [`Ui`].
 
 use std::cell::RefCell;
+use std::collections::HashMap;
 use std::future::Future;
 use std::path::PathBuf;
 use std::rc::Rc;
@@ -15,9 +17,10 @@ use std::task::{Poll, Waker};
 
 use mitsuami_reactive::{IntoValue, Signal, Value, inject};
 
+use crate::command::UiEvent;
 use crate::ui::Ui;
 use crate::view::View;
-use crate::widget::{CurrentWindow, NodeId, WidgetKind};
+use crate::widget::{CurrentWindow, NodeId, Prop, WidgetKind};
 
 /// Delivers the user's answer. Called once, possibly long after the request.
 pub type Reply<T> = Box<dyn FnOnce(T)>;
@@ -324,6 +327,28 @@ impl MenuBarData {
         }
         self.menus.len() == other.menus.len() && self.menus.iter().zip(&other.menus).all(|(a, b)| strip(a) == strip(b))
     }
+}
+
+/// The item at `path` among these entries: the titles of its submenus,
+/// then its own, e.g. `["Sort By", "Name"]`.
+pub fn find_menu_item<'a>(entries: &'a [MenuEntry], path: &[&str]) -> Option<&'a MenuItemData> {
+    let (title, rest) = path.split_first()?;
+    entries.iter().find_map(|entry| match entry {
+        MenuEntry::Item(item) if rest.is_empty() && item.title == *title => Some(item),
+        MenuEntry::Submenu(submenu) if !rest.is_empty() && submenu.title == *title => {
+            find_menu_item(&submenu.entries, rest)
+        }
+        _ => None,
+    })
+}
+
+/// The item with this id among these entries, submenus' included.
+pub fn menu_item_by_id(entries: &[MenuEntry], id: u32) -> Option<&MenuItemData> {
+    entries.iter().find_map(|entry| match entry {
+        MenuEntry::Item(item) if item.id == id => Some(item),
+        MenuEntry::Submenu(submenu) => menu_item_by_id(&submenu.entries, id),
+        _ => None,
+    })
 }
 
 impl MenuData {
@@ -815,6 +840,51 @@ impl MenuBar {
         let menus = self.menus.iter().filter_map(|menu| walk.menu(menu)).collect();
         (MenuBarData { menus }, walk.handlers)
     }
+}
+
+impl Menu {
+    /// The menu's entries as data, for a context menu (whose title isn't
+    /// shown), and each item's handler; see [`MenuBar::collect`].
+    fn collect_entries(
+        &self,
+        ids: &mut Vec<u32>,
+        new_id: &mut dyn FnMut() -> u32,
+    ) -> (Vec<MenuEntry>, Vec<(u32, Handler)>) {
+        let mut walk = Walk { ids, position: 0, new_id, handlers: Vec::new() };
+        let mut entries = Vec::new();
+        walk.entries(&self.entries, &mut entries);
+        (entries, walk.handlers)
+    }
+}
+
+/// Gives a node the context menu `.context_menu(...)` built: sends it as
+/// [`Prop::ContextMenu`] again whenever its reactive parts change, and runs
+/// an item's handler when the platform reports it chosen. Ids only need to
+/// be unique within the node's menu, since the choice comes as the node's
+/// event.
+pub(crate) fn install_context_menu(ui: &Ui, id: NodeId, menu: Menu) {
+    let handlers: Rc<RefCell<HashMap<u32, Handler>>> = Rc::default();
+    // As menu bars' handlers do, they run in the scope that built the menu.
+    let scope = mitsuami_reactive::Owner::current();
+    let chosen = handlers.clone();
+    ui.on_event(id, move |event| {
+        let UiEvent::ContextMenuItem(item) = event else { return };
+        let Some(handler) = chosen.borrow().get(item).cloned() else { return };
+        match scope {
+            Some(scope) if scope.is_alive() => scope.with(|| handler()),
+            _ => handler(),
+        }
+    });
+    let ui = ui.clone();
+    let (mut ids, mut next_id) = (Vec::new(), 0);
+    mitsuami_reactive::effect(move || {
+        let (entries, collected) = menu.collect_entries(&mut ids, &mut || {
+            next_id += 1;
+            next_id
+        });
+        *handlers.borrow_mut() = collected.into_iter().collect();
+        ui.set_prop(id, Prop::ContextMenu(entries));
+    });
 }
 
 struct Walk<'a> {

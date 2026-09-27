@@ -21,7 +21,7 @@ use mitsuami_core::{
 
 use crate::custom::{DrawnArea, Emitter, ErasedRender, GtkCx, NativePayload};
 use crate::host::{Events, Frames, Host, WindowRoot};
-use crate::services::{GtkServices, Menus};
+use crate::services::{ContextMenu, GtkServices, Menus, choose_context_item};
 
 /// How the backend behaves; apps and tests want different things.
 #[derive(Clone, Debug, Default)]
@@ -188,6 +188,8 @@ struct Node {
     modal: Option<(Option<NodeId>, Modality)>,
     /// Signal handlers on objects that outlive the node.
     settings_handlers: Vec<glib::SignalHandlerId>,
+    /// The context menu, once the app gave one.
+    context_menu: Option<ContextMenu>,
 }
 
 pub(crate) struct State {
@@ -209,6 +211,9 @@ impl Drop for State {
     /// GTK keeps toplevels alive until they're destroyed; a backend's
     /// windows go with it.
     fn drop(&mut self) {
+        for menu in self.nodes.values().filter_map(|node| node.context_menu.as_ref()) {
+            menu.close();
+        }
         for node in self.nodes.values() {
             if let Widget::Window(parts) = &node.widget {
                 parts.window.destroy();
@@ -822,6 +827,7 @@ impl State {
                 a11y_label: None,
                 modal: None,
                 settings_handlers,
+                context_menu: None,
             },
         );
     }
@@ -1093,6 +1099,17 @@ impl State {
             (Prop::Tooltip(t), widget) => {
                 widget.focus_widget().set_tooltip_text(Some(t.as_str()).filter(|t| !t.is_empty()))
             }
+            // On the widget the pointer rests on, as the tooltip is, and
+            // for its children without one of their own.
+            (Prop::ContextMenu(entries), widget) => {
+                let events = self.events.clone();
+                node.context_menu
+                    .get_or_insert_with(|| {
+                        let activate = move |item| events.emit(id, UiEvent::ContextMenuItem(item));
+                        ContextMenu::new(&widget.focus_widget(), Rc::new(activate))
+                    })
+                    .set(entries);
+            }
             (Prop::Rows(rows), Widget::List(list)) => list.set_rows(rows.clone()),
             (Prop::SelectionMode(mode), Widget::List(list)) => list.set_mode(*mode),
             (Prop::ListStyle(style), Widget::List(list)) => list.set_style(*style),
@@ -1269,6 +1286,9 @@ impl State {
             }
             Command::Destroy { id } => {
                 let Some(node) = self.nodes.remove(id) else { violation(command, "node does not exist") };
+                if let Some(menu) = &node.context_menu {
+                    menu.close();
+                }
                 let widget = node.widget.widget().clone();
                 self.by_widget.borrow_mut().remove(&widget);
                 self.frames.borrow_mut().remove(&widget);
@@ -1564,6 +1584,18 @@ impl Backend for GtkBackend {
     }
 
     fn perform(&mut self, id: NodeId, action: &A11yAction) -> Result<(), ActionError> {
+        // Any node's, list rows' included. A disabled widget shows none.
+        if let A11yAction::ContextMenuItem(item) = action {
+            let actions = {
+                let state = self.state.borrow();
+                let node = state.nodes.get(&id).ok_or(ActionError::UnknownNode)?;
+                if !node.widget.focus_widget().is_sensitive() {
+                    return Err(ActionError::Disabled);
+                }
+                node.context_menu.as_ref().map(ContextMenu::chooser).ok_or(ActionError::Unsupported)?
+            };
+            return choose_context_item(&actions, *item);
+        }
         // A list's rows: what GTK's own row actions do. Handlers only
         // touch the list's data and emit.
         {
@@ -1927,6 +1959,7 @@ impl Backend for GtkBackend {
         props.extend(node.button_style.map(Prop::ButtonStyle));
         props.extend(node.tweak.clone().map(Prop::Tweak));
         props.push(Prop::Tooltip(text(node.widget.focus_widget().tooltip_text())));
+        props.extend(node.context_menu.as_ref().map(|m| Prop::ContextMenu(m.entries(&node.widget.focus_widget()))));
         let frame = match &node.widget {
             Widget::Window(parts) => {
                 let size = parts.host.window_root().expect("window hosts have a root").size.get();

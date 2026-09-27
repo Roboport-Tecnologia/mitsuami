@@ -8,7 +8,7 @@ use std::rc::Rc;
 
 use mitsuami_core::NodeId;
 use mitsuami_core::services::{
-    Alert, MenuBarData, MenuData, MenuEntry, MenuItemData, OpenFile, Reply, SaveFile, ServiceError, Services,
+    Alert, MenuBarData, MenuItemData, OpenFile, Reply, SaveFile, ServiceError, Services, find_menu_item,
 };
 
 /// A request waiting for the test to answer it.
@@ -110,7 +110,7 @@ impl FakeServicesHandle {
             if data.title != *menu {
                 return None;
             }
-            find_item(data, rest)
+            find_menu_item(&data.entries, rest).cloned()
         })
     }
 
@@ -123,15 +123,6 @@ impl FakeServicesHandle {
         activate(item.id);
         true
     }
-}
-
-fn find_item(menu: &MenuData, path: &[&str]) -> Option<MenuItemData> {
-    let (title, rest) = path.split_first()?;
-    menu.entries.iter().find_map(|entry| match entry {
-        MenuEntry::Item(item) if rest.is_empty() && item.title == *title => Some(item.clone()),
-        MenuEntry::Submenu(submenu) if !rest.is_empty() && submenu.title == *title => find_item(submenu, rest),
-        _ => None,
-    })
 }
 
 impl Services for FakeServices {

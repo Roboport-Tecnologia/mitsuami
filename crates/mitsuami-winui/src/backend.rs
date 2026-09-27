@@ -10,7 +10,7 @@ use mitsuami_core::backend::{
     Appearance, AvailableSpace, Backend, CaptureError, EventSink, FontSizes, Image, Key, MeasureRequest, NativeState,
     PlatformMetrics, SyntheticInput,
 };
-use mitsuami_core::services::{MenuBarData, MenuCheck, MenuData, MenuEntry, MenuItemData, Reply};
+use mitsuami_core::services::{MenuBarData, MenuCheck, MenuData, MenuEntry, MenuItemData, Reply, Shortcut};
 use mitsuami_core::units::SpacingScale;
 use mitsuami_core::{
     AnyValue, ButtonRole, ButtonStyle, Command, CustomProps, EventValue, ImageFit, ImageSource, Modality, NodeId,
@@ -265,10 +265,37 @@ struct Node {
     /// place of the tooltip.
     description: Option<String>,
     tooltip: String,
+    /// Set once the core gave a context menu.
+    context_menu: Option<ContextMenu>,
 }
 
 type Callback = Rc<dyn Fn()>;
 type MenuItems = Rc<RefCell<HashMap<u32, (w::MenuFlyoutItemBase, MenuCheck)>>>;
+
+/// A node's context menu: what the core sent, and the `MenuFlyout` showing
+/// it as the control's `ContextFlyout` (none while it's empty).
+struct ContextMenu {
+    sent: Vec<MenuEntry>,
+    flyout: Option<w::MenuFlyout>,
+    items: MenuItems,
+    revokers: Vec<EventRevoker>,
+    /// Reports an item chosen.
+    activate: Rc<dyn Fn(u32)>,
+    /// The control's own flyout (a text box's Cut, Copy and Paste), back
+    /// while the app's menu is empty.
+    own: Option<w::FlyoutBase>,
+}
+
+impl ContextMenu {
+    fn has_items(menu: &Option<ContextMenu>) -> bool {
+        menu.as_ref().is_some_and(|menu| menu.flyout.is_some())
+    }
+}
+
+/// Entries as one menu, to compare and update them as menu bars are.
+fn as_menu_bar(entries: &[MenuEntry]) -> MenuBarData {
+    MenuBarData { menus: vec![MenuData { title: String::new(), entries: entries.to_vec() }] }
+}
 
 /// The app's menus, each window's own, and how to report a choice.
 #[derive(Default)]
@@ -974,7 +1001,12 @@ fn refresh_menu(parts: &mut WindowParts, menus: &Menus) {
 }
 
 fn update_menu(parts: &WindowParts, menu: &MenuBarData) {
-    let mut items = parts.menu_items.borrow_mut();
+    update_items(&parts.menu_items, menu);
+}
+
+/// Shows new enabled and checked states on built items.
+fn update_items(items: &MenuItems, menu: &MenuBarData) {
+    let mut items = items.borrow_mut();
     for data in menu.items() {
         let Some((item, check)) = items.get_mut(&data.id) else { continue };
         _ = item.cast::<w::IControl>().and_then(|c| c.SetIsEnabled(data.enabled));
@@ -1005,7 +1037,12 @@ fn install_menu(parts: &mut WindowParts, menu: &MenuBarData, activate: &Rc<dyn F
     parts.menu_revokers.clear();
     parts.menu_items.borrow_mut().clear();
     if !menu.menus.is_empty() {
-        let mut built = MenuBuild { activate, revokers: &mut parts.menu_revokers, items: &parts.menu_items };
+        let mut built = MenuBuild {
+            activate,
+            revokers: &mut parts.menu_revokers,
+            items: &parts.menu_items,
+            scope: format!("window-{}", parts.node),
+        };
         let menu_bar = ok(built.menu_bar(menu), "building the menu bar");
         let element: w::UIElement = ok(menu_bar.cast(), "menu bar element");
         _ = w::Grid::SetRow(&ok(element.cast::<w::FrameworkElement>(), "menu bar element"), MENU_ROW);
@@ -1041,13 +1078,17 @@ fn escape_closes(root: &w::Grid, hwnd: w::HWND) -> R<EventRevoker> {
     Ok(revoker)
 }
 
-/// Builds a window's `MenuBar`. Items with a role stay where the app put
-/// them: Windows has no standard place of its own for About, Settings or
-/// Exit, and no standard titles or shortcuts for them.
+/// Builds a window's `MenuBar`, or a context menu's `MenuFlyout`: the
+/// same items. Items with a role stay where the app put them: Windows has
+/// no standard place of its own for About, Settings or Exit, and no
+/// standard titles or shortcuts for them.
 struct MenuBuild<'a> {
     activate: &'a Rc<dyn Fn(u32)>,
     revokers: &'a mut Vec<EventRevoker>,
     items: &'a MenuItems,
+    /// Where its radio groups' names are unique: XAML's are the thread's,
+    /// and ids only the menu's.
+    scope: String,
 }
 
 impl MenuBuild<'_> {
@@ -1062,6 +1103,13 @@ impl MenuBuild<'_> {
             menus.Append(&item)?;
         }
         Ok(menu_bar)
+    }
+
+    fn flyout(&mut self, entries: &[MenuEntry]) -> R<w::MenuFlyout> {
+        let flyout = w::MenuFlyout::new()?;
+        let menu = MenuData { title: String::new(), entries: entries.to_vec() };
+        self.entries(&flyout.cast::<w::IMenuFlyout>()?.Items()?, &menu)?;
+        Ok(flyout)
     }
 
     fn entries(&mut self, entries: &windows_collections::IVector<w::MenuFlyoutItemBase>, menu: &MenuData) -> R<()> {
@@ -1090,7 +1138,7 @@ impl MenuBuild<'_> {
             MenuCheck::Check(_) => w::ToggleMenuFlyoutItem::new()?.cast()?,
             MenuCheck::Radio(_) => {
                 let radio = w::RadioMenuFlyoutItem::new()?;
-                let name = format!("mitsuami-{}", group.unwrap_or(data.id));
+                let name = format!("mitsuami-{}-{}", self.scope, group.unwrap_or(data.id));
                 radio.cast::<w::IRadioMenuFlyoutItem>()?.SetGroupName(&name)?;
                 radio.cast()?
             }
@@ -1124,14 +1172,84 @@ impl MenuBuild<'_> {
         let (id, activate, items) = (data.id, self.activate.clone(), Rc::downgrade(self.items));
         self.revokers.push(iface.Click(move |_, _| {
             if let Some(items) = items.upgrade() {
-                for (item, check) in items.borrow().values() {
-                    show_check(item, *check);
-                }
+                show_checks(&items);
             }
             activate(id);
         })?);
         self.items.borrow_mut().insert(data.id, (element.clone(), data.check));
         Ok(element)
+    }
+}
+
+/// What a context menu shows, read back from its items. XAML can't keep
+/// ids or roles: those come from what was sent.
+fn read_menu(items: &windows_collections::IVector<w::MenuFlyoutItemBase>, menu: &ContextMenu) -> Vec<MenuEntry> {
+    let ids: HashMap<usize, u32> = menu.items.borrow().iter().map(|(id, (item, _))| (key(item), *id)).collect();
+    let read_item = |item: &w::MenuFlyoutItemBase| -> Option<MenuItemData> {
+        let id = *ids.get(&key(item))?;
+        let sent = mitsuami_core::services::menu_item_by_id(&menu.sent, id);
+        let check = if let Ok(radio) = item.cast::<w::IRadioMenuFlyoutItem>() {
+            MenuCheck::Radio(radio.IsChecked().ok()?)
+        } else if let Ok(toggle) = item.cast::<w::IToggleMenuFlyoutItem>() {
+            MenuCheck::Check(toggle.IsChecked().ok()?)
+        } else {
+            MenuCheck::None
+        };
+        let accelerators = item.cast::<w::IUIElement>().ok()?.KeyboardAccelerators().ok()?;
+        let shortcut = (accelerators.Size().ok()? > 0)
+            .then(|| accelerators.GetAt(0).ok()?.cast::<w::IKeyboardAccelerator>().ok())
+            .flatten()
+            .and_then(|accel| {
+                let key = char::from_u32(accel.Key().ok()?.0 as u32)?;
+                let modifiers = accel.Modifiers().ok()?;
+                Some(Shortcut {
+                    // XAML's keys are upper case: the case sent, if it's this key.
+                    key: sent
+                        .and_then(|s| s.shortcut)
+                        .map(|s| s.key)
+                        .filter(|k| k.eq_ignore_ascii_case(&key))
+                        .unwrap_or(key.to_ascii_lowercase()),
+                    primary: modifiers.contains(w::VirtualKeyModifiers::Control),
+                    shift: modifiers.contains(w::VirtualKeyModifiers::Shift),
+                    alt: modifiers.contains(w::VirtualKeyModifiers::Menu),
+                })
+            });
+        Some(MenuItemData {
+            id,
+            title: item.cast::<w::IMenuFlyoutItem>().ok()?.Text().ok()?.to_string(),
+            shortcut,
+            enabled: item.cast::<w::IControl>().ok()?.IsEnabled().ok()?,
+            check,
+            role: sent.map(|s| s.role).unwrap_or_default(),
+        })
+    };
+    fn read(
+        items: &windows_collections::IVector<w::MenuFlyoutItemBase>,
+        read_item: &dyn Fn(&w::MenuFlyoutItemBase) -> Option<MenuItemData>,
+    ) -> Vec<MenuEntry> {
+        (0..items.Size().unwrap_or(0))
+            .filter_map(|i| items.GetAt(i).ok())
+            .filter_map(|item| {
+                if item.cast::<w::MenuFlyoutSeparator>().is_ok() {
+                    Some(MenuEntry::Separator)
+                } else if let Ok(sub) = item.cast::<w::IMenuFlyoutSubItem>() {
+                    Some(MenuEntry::Submenu(MenuData {
+                        title: sub.Text().ok()?.to_string(),
+                        entries: read(&sub.Items().ok()?, read_item),
+                    }))
+                } else {
+                    read_item(&item).map(MenuEntry::Item)
+                }
+            })
+            .collect()
+    }
+    read(items, &read_item)
+}
+
+/// Puts back the app's checked states on items XAML flipped.
+fn show_checks(items: &MenuItems) {
+    for (item, check) in items.borrow().values() {
+        show_check(item, *check);
     }
 }
 
@@ -1658,6 +1776,7 @@ impl State {
                 a11y_label: None,
                 description: None,
                 tooltip: String::new(),
+                context_menu: None,
             },
         );
         Ok(())
@@ -1943,6 +2062,49 @@ impl State {
                 node.tooltip = text.clone();
                 set_hit_testable(node)?;
                 set_help_text(node)?;
+            }
+            (Prop::ContextMenu(entries), _) => {
+                // On the control the pointer is on, as the tooltip. XAML
+                // shows it on a right-click, a press and hold, Shift+F10
+                // and the Menu key, and `ContextRequested` bubbles: a child
+                // without one shows its container's.
+                let control: w::IUIElement = node.control().cast()?;
+                let events = self.emitter.clone();
+                let menu = match &mut node.context_menu {
+                    Some(menu) => menu,
+                    menu @ None => menu.insert(ContextMenu {
+                        sent: Vec::new(),
+                        flyout: None,
+                        items: MenuItems::default(),
+                        revokers: Vec::new(),
+                        activate: Rc::new(move |item| events.emit(id, UiEvent::ContextMenuItem(item))),
+                        own: control.ContextFlyout().ok(),
+                    }),
+                };
+                // In place when only enabled and checked states changed,
+                // so an open menu stays open, as the menu bar does.
+                if menu.flyout.is_some() && as_menu_bar(entries).same_structure(&as_menu_bar(&menu.sent)) {
+                    update_items(&menu.items, &as_menu_bar(entries));
+                } else if menu.flyout.is_some() || !entries.is_empty() {
+                    menu.revokers.clear();
+                    menu.items.borrow_mut().clear();
+                    menu.flyout = None;
+                    if !entries.is_empty() {
+                        let mut built = MenuBuild {
+                            activate: &menu.activate,
+                            revokers: &mut menu.revokers,
+                            items: &menu.items,
+                            scope: format!("node-{id}"),
+                        };
+                        menu.flyout = Some(built.flyout(entries)?);
+                    }
+                    match &menu.flyout {
+                        Some(flyout) => control.SetContextFlyout(flyout)?,
+                        None => control.SetContextFlyout(menu.own.as_ref())?,
+                    }
+                }
+                menu.sent = entries.clone();
+                set_hit_testable(node)?;
             }
             _ => {}
         }
@@ -2361,12 +2523,13 @@ fn scroll_axes(scroll: &w::IScrollViewer) -> R<ScrollAxes> {
 }
 
 /// A Canvas without a background isn't hit-testable, so the pointer would
-/// never rest on it, and the wheel would pass it by: a clear one while it
-/// has a tooltip (as drawn views have) or is a ScrollView's content.
+/// never rest on it, a right-click would pass it by, and so would the
+/// wheel: a clear one while it has a tooltip (as drawn views have) or a
+/// context menu, or is a ScrollView's content.
 fn set_hit_testable(node: &Node) -> R<()> {
     let Widget::Host(canvas) = &node.widget else { return Ok(()) };
     let panel = canvas.cast::<w::IPanel>()?;
-    if node.tooltip.is_empty() && !node.scroll_content {
+    if node.tooltip.is_empty() && !node.scroll_content && !ContextMenu::has_items(&node.context_menu) {
         panel.SetBackground(None::<&w::Brush>)
     } else {
         let clear = w::SolidColorBrush::CreateInstanceWithColor(w::Color { a: 0, r: 0, g: 0, b: 0 })?;
@@ -2571,6 +2734,9 @@ impl Backend for WinUiBackend {
     }
 
     fn perform(&mut self, id: NodeId, action: &A11yAction) -> Result<(), ActionError> {
+        if let A11yAction::ContextMenuItem(item) = action {
+            return self.choose_context_menu_item(id, *item);
+        }
         // A list's rows: select or activate them, as clicking or double
         // clicking their container does.
         {
@@ -3063,6 +3229,15 @@ impl Backend for WinUiBackend {
         props.extend(node.tweak.clone().map(Prop::Tweak));
         // "" when it has none.
         props.push(Prop::Tooltip(unboxed(w::ToolTipService::GetToolTip(node.control())).unwrap_or_default()));
+        if let Some(menu) = &node.context_menu {
+            let shown = node.control().cast::<w::IUIElement>().ok()?.ContextFlyout().ok();
+            // Ours, or the control's own (or none) while the app's is empty.
+            let ours = menu.flyout.as_ref().filter(|flyout| shown.as_ref().is_some_and(|s| key(s) == key(*flyout)));
+            props.push(Prop::ContextMenu(match ours {
+                Some(flyout) => read_menu(&flyout.cast::<w::IMenuFlyout>().ok()?.Items().ok()?, menu),
+                None => Vec::new(),
+            }));
+        }
 
         let frame = match &node.widget {
             Widget::Window(_) => Rect::ZERO,
@@ -3155,6 +3330,46 @@ fn elements(collection: &w::UIElementCollection) -> Vec<w::UIElement> {
 }
 
 impl WinUiBackend {
+    /// What Narrator does once it has shown a control's context menu: the
+    /// item's UIA Invoke (Toggle for a check item), which clicks it as the
+    /// pointer does, so the item's `Click` handler reports it. A disabled
+    /// control gets no input, so shows no menu.
+    fn choose_context_menu_item(&self, id: NodeId, item: u32) -> Result<(), ActionError> {
+        let (element, items, activate) = {
+            let state = self.state.borrow();
+            let node = state.nodes.get(&id).ok_or(ActionError::UnknownNode)?;
+            if node.control().cast::<w::IControl>().and_then(|c| c.IsEnabled()).is_ok_and(|on| !on) {
+                return Err(ActionError::Disabled);
+            }
+            let menu =
+                node.context_menu.as_ref().filter(|menu| menu.flyout.is_some()).ok_or(ActionError::Unsupported)?;
+            let element = menu.items.borrow().get(&item).map(|(element, _)| element.clone());
+            (element.ok_or(ActionError::Unsupported)?, menu.items.clone(), menu.activate.clone())
+        };
+        if !element.cast::<w::IControl>().and_then(|c| c.IsEnabled()).unwrap_or(false) {
+            return Err(ActionError::Disabled);
+        }
+        // No state borrow: the item's `Click` handler emits the choice.
+        let peer = w::FrameworkElementAutomationPeer::CreatePeerForElement(
+            &element.cast::<w::UIElement>().map_err(|_| ActionError::Unsupported)?,
+        )
+        .map_err(|_| ActionError::Unsupported)?;
+        let pattern = |which| peer.GetPattern(which).ok();
+        if let Some(invoke) = pattern(w::PatternInterface::Invoke).and_then(|p| p.cast::<w::IInvokeProvider>().ok()) {
+            invoke.Invoke().map_err(|_| ActionError::Unsupported)
+        } else if let Some(toggle) =
+            pattern(w::PatternInterface::Toggle).and_then(|p| p.cast::<w::IToggleProvider>().ok())
+        {
+            toggle.Toggle().map_err(|_| ActionError::Unsupported)
+        } else {
+            // An item whose peer has neither (a radio item may not): what
+            // its `Click` handler does.
+            show_checks(&items);
+            activate(item);
+            Ok(())
+        }
+    }
+
     /// Tab pressed in `id`: move along its window's order.
     fn tab_from(&self, id: NodeId) {
         let state = self.state.borrow();

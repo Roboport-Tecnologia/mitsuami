@@ -1,4 +1,5 @@
-use mitsuami_core::{A11yAction, A11yNode, Key, NativeState, NodeId, Point, Rect, Role, SyntheticInput};
+use mitsuami_core::services::{MenuEntry, find_menu_item};
+use mitsuami_core::{A11yAction, A11yNode, Key, NativeState, NodeId, Point, Rect, Role, SyntheticInput, find_prop};
 
 use crate::app::TestApp;
 use crate::format;
@@ -238,6 +239,38 @@ impl<'a> Locator<'a> {
 
     pub async fn decrement(&self) {
         self.act(A11yAction::Decrement).await;
+    }
+
+    /// The context menu a right-click here shows: the node's, or that of
+    /// the nearest container around it with one. `None`: no menu.
+    pub fn context_menu(&self) -> Option<(NodeId, Vec<MenuEntry>)> {
+        let ui = self.app.ui();
+        let mut id = Some(self.id());
+        while let Some(node) = id {
+            // Separators alone show nothing.
+            let shown = |menu: &Vec<MenuEntry>| menu.iter().any(|e| !matches!(e, MenuEntry::Separator));
+            if let Some(menu) = find_prop!(ui.props(node), ContextMenu).filter(shown) {
+                return Some((node, menu));
+            }
+            id = ui.parent(node);
+        }
+        None
+    }
+
+    /// Chooses an item of the context menu a right-click here shows (see
+    /// [`context_menu`](Self::context_menu)), by the titles of its
+    /// submenus and its own, as assistive technology would once it has
+    /// shown the menu: `choose_menu_item(&["Sort By", "Name"])`.
+    pub async fn choose_menu_item(&self, path: &[&str]) {
+        self.app.settle().await;
+        let Some((node, menu)) = self.context_menu() else { self.fail(&format!("{} has no context menu", self.query)) };
+        let Some(item) = find_menu_item(&menu, path) else {
+            self.fail(&format!("the context menu of {} has no item {path:?}", self.query))
+        };
+        if let Err(e) = self.app.ui().perform(node, &A11yAction::ContextMenuItem(item.id)) {
+            self.fail(&format!("cannot choose {path:?} in the context menu of {}: {e}", self.query));
+        }
+        self.app.settle().await;
     }
 
     /// Clicks at a point in the node's own coordinates. Drawn custom

@@ -10,6 +10,7 @@ use mitsuami_core::backend::{
     Appearance, AvailableSpace, Backend, CaptureError, EventSink, FontSizes, Image, Key, MeasureRequest, NativeState,
     PlatformMetrics, SyntheticInput,
 };
+use mitsuami_core::services::MenuEntry;
 use mitsuami_core::units::SpacingScale;
 use mitsuami_core::{
     ButtonRole, ButtonStyle, Command, CustomProps, EventValue, ImageFit, ImageSource, Modality, NodeId, Opaque,
@@ -35,6 +36,7 @@ use objc2_foundation::{NSArray, NSDictionary, NSNotificationCenter, NSPoint, NSR
 use crate::classes::{ActionTarget, ClosureTarget, DrawnView, HostView, ViewMap, WindowDelegate};
 use crate::custom::{AppKitCx, Emitter, ErasedRender, NativePayload};
 use crate::number_field::NumberField;
+use crate::services::ItemTarget;
 use crate::toolbar::Toolbar;
 
 /// How the backend behaves; apps and tests want different things.
@@ -196,6 +198,10 @@ struct Node {
     modal: Option<(Option<NodeId>, Modality)>,
     /// The app's raw settings, run after every other prop.
     tweak: Option<Opaque>,
+    /// The context menu the app gave, if it gave one (AppKit can't tell
+    /// radio items from check items, nor keep roles), and the target of
+    /// its items, which only hold weak references to it.
+    context_menu: Option<(Vec<MenuEntry>, Retained<ClosureTarget>)>,
 }
 
 struct State {
@@ -675,12 +681,14 @@ impl State {
                 mixed: None,
                 checked: false,
                 tweak: None,
+                context_menu: None,
             },
         );
     }
 
     fn set_prop(&mut self, id: NodeId, prop: &Prop, command: &Command) {
         let mtm = self.mtm;
+        let events = self.events.clone();
         let Some(node) = self.nodes.get_mut(&id) else { violation(command, "node does not exist") };
         match (prop, &mut node.widget) {
             (Prop::Title(t), Widget::Window { window, .. }) => window.setTitle(&ns(t)),
@@ -884,6 +892,40 @@ impl State {
                     _ => {}
                 }
                 widget.view().setToolTip(text.as_deref());
+            }
+            (Prop::ContextMenu(entries), widget) => {
+                let target = match node.context_menu.take() {
+                    Some((_, target)) => target,
+                    None => ClosureTarget::new(mtm, move |sender| {
+                        if let Some(item) = sender.downcast_ref::<NSMenuItem>() {
+                            events.emit(id, UiEvent::ContextMenuItem(item.tag() as u32));
+                        }
+                    }),
+                };
+                // AppKit shows a view's menu on a right-click or a Control-
+                // click, and a view without one passes the click up to its
+                // superview: children show their container's.
+                let menu = (!entries.is_empty()).then(|| {
+                    let target = ItemTarget { object: &target, action: sel!(fire:) };
+                    crate::services::context_menu(mtm, entries, target)
+                });
+                // On the views the pointer rests on, as tooltips are. A
+                // pop-up button's menu is its options, which a right-click
+                // shows too: it keeps the menu on the node.
+                let set = |view: &NSView| unsafe { view.setMenu(menu.as_deref()) };
+                match widget {
+                    Widget::Select(_) => {}
+                    Widget::NumberInput(n) => {
+                        set(n.field());
+                        set(n.stepper());
+                    }
+                    Widget::List(list) => set(&list.table),
+                    _ => {}
+                }
+                if !matches!(widget, Widget::Select(_)) {
+                    set(widget.view());
+                }
+                node.context_menu = Some((entries.clone(), target));
             }
             (Prop::Tweak(tweak), _) => node.tweak = Some(tweak.clone()),
             (Prop::Custom(new), Widget::Custom { view, render, props }) => {
@@ -1368,6 +1410,9 @@ impl Backend for AppKitBackend {
     }
 
     fn perform(&mut self, id: NodeId, action: &A11yAction) -> Result<(), ActionError> {
+        if let A11yAction::ContextMenuItem(item) = action {
+            return self.choose_context_menu_item(id, *item);
+        }
         // A list's rows: select or activate them in the table. The table
         // only calls back into its own data, never into our state.
         {
@@ -1760,6 +1805,13 @@ impl Backend for AppKitBackend {
         props.extend(node.tweak.clone().map(Prop::Tweak));
         let view = node.widget.view();
         props.push(Prop::Tooltip(view.toolTip().map(|t| t.to_string()).unwrap_or_default()));
+        if let Some((sent, _)) = &node.context_menu {
+            props.push(Prop::ContextMenu(match (&node.widget, view.menu()) {
+                (Widget::Select(_), _) => sent.clone(),
+                (_, Some(menu)) => crate::services::context_menu_entries(&menu, sent),
+                (_, None) => Vec::new(),
+            }));
+        }
         let f = view.alignmentRectForFrame(view.frame());
         let mut frame = Rect::new(f.origin.x as f32, f.origin.y as f32, f.size.width as f32, f.size.height as f32);
         // A row is where the table put it.
@@ -1823,6 +1875,31 @@ impl Backend for AppKitBackend {
 }
 
 impl AppKitBackend {
+    /// What VoiceOver does once it has shown a view's menu: press the
+    /// item, which sends its action. A disabled control shows no menu.
+    fn choose_context_menu_item(&self, id: NodeId, item: u32) -> Result<(), ActionError> {
+        let (menu, enabled) = {
+            let state = self.state.borrow();
+            let node = state.nodes.get(&id).ok_or(ActionError::UnknownNode)?;
+            let menu = match node.widget {
+                Widget::Select(_) => None,
+                _ => node.widget.view().menu(),
+            };
+            (menu, node.widget.control().is_none_or(|c| c.isEnabled()))
+        };
+        if !enabled {
+            return Err(ActionError::Disabled);
+        }
+        let (item, menu) =
+            menu.and_then(|menu| crate::services::find_tagged(&menu, item)).ok_or(ActionError::Unsupported)?;
+        if !item.isEnabled() {
+            return Err(ActionError::Disabled);
+        }
+        // No state borrow: the item's target emits the choice.
+        menu.performActionForItemAtIndex(menu.indexOfItem(&item));
+        Ok(())
+    }
+
     /// Escape, as the keyboard sends it to the focused view's window: a key
     /// equivalent first (a Cancel button's), then to the first responder,
     /// whose unhandled `cancelOperation:` reaches the window's delegate.

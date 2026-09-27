@@ -98,6 +98,10 @@ pub enum A11yAction {
     /// Select a `List` row (in a single-selection list, instead of the
     /// selected one; in a multiple-selection list, as the only one).
     Select,
+    /// Choose the item of the node's context menu with this id, as
+    /// assistive technology does once it has shown the menu. The menu
+    /// itself never opens.
+    ContextMenuItem(u32),
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]

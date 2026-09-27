@@ -18,6 +18,7 @@ use mitsuami_core::backend::{
     AvailableSpace, Backend, CaptureError, EventSink, FontSizes, Image, Key, MeasureRequest, NativeState,
     PlatformMetrics, SyntheticInput,
 };
+use mitsuami_core::services::menu_item_by_id;
 use mitsuami_core::units::SpacingScale;
 use mitsuami_core::{
     Command, EventValue, ImageSource, NodeId, Orientation, Point, PointerEvent, PointerKind, Prop, Rect, RowKey,
@@ -648,6 +649,17 @@ impl Backend for HeadlessBackend {
             return Err(ActionError::Disabled);
         }
         let kind = node.kind;
+        if let A11yAction::ContextMenuItem(item) = action {
+            let menu = find_prop!(node.props, ContextMenu).unwrap_or_default();
+            return match menu_item_by_id(&menu, *item).map(|item| item.enabled) {
+                Some(true) => {
+                    state.emit(id, UiEvent::ContextMenuItem(*item));
+                    Ok(())
+                }
+                Some(false) => Err(ActionError::Disabled),
+                None => Err(ActionError::Unsupported),
+            };
+        }
         match (action, kind) {
             (A11yAction::Activate, WidgetKind::Button) => {
                 state.focus(id);

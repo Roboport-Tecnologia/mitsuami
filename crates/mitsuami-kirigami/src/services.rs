@@ -115,10 +115,10 @@ impl Wiring {
     }
 }
 
-/// Sets enabled and checked states in place.
-fn apply_states(drawer: QmlObject, menu: &MenuBarData) {
+/// Sets enabled and checked states in place, in the actions under `root`.
+fn apply_states(root: QmlObject, menu: &MenuBarData) {
     for item in menu.items() {
-        let Some(action) = drawer.child(&item_name(item.id)) else { continue };
+        let Some(action) = root.child(&item_name(item.id)) else { continue };
         action.set_bool("enabled", item.enabled);
         if let MenuCheck::Check(on) | MenuCheck::Radio(on) = item.check {
             action.set_bool("checked", on);
@@ -146,9 +146,29 @@ fn sequence(shortcut: &Shortcut) -> String {
     keys
 }
 
+/// Where a menu's QML goes: the global drawer, whose submenus and
+/// separators are Kirigami actions too, or a context menu (`QQC2.Menu`).
+#[derive(Clone, Copy, PartialEq)]
+enum Form {
+    Drawer,
+    ContextMenu,
+}
+
 /// One item. Radio items are in their group's `ActionGroup`, which is
 /// exclusive, so Qt draws them as one choice.
-fn item_qml(item: &MenuItemData, shortcut: Option<Shortcut>, icon: Option<&str>, group: Option<u32>) -> String {
+///
+/// An action's shortcut works wherever its menu is, open or not, as a menu
+/// bar's do. A context menu's only works while it's open, as on the other
+/// platforms: otherwise rows with the same menu would make one another's
+/// shortcut ambiguous, and so would the menu bar item it repeats. Closed,
+/// it has none (`mitsuamiMenu` is the menu, see [`context_menu_qml`]).
+fn item_qml(
+    item: &MenuItemData,
+    shortcut: Option<Shortcut>,
+    icon: Option<&str>,
+    group: Option<u32>,
+    form: Form,
+) -> String {
     let mut qml = format!(
         "Kirigami.Action {{ objectName: {}; text: {}; enabled: {}",
         js_string(&item_name(item.id)),
@@ -156,7 +176,11 @@ fn item_qml(item: &MenuItemData, shortcut: Option<Shortcut>, icon: Option<&str>,
         item.enabled
     );
     if let Some(shortcut) = shortcut {
-        _ = write!(qml, "; shortcut: {}", js_string(&sequence(&shortcut)));
+        let keys = js_string(&sequence(&shortcut));
+        match form {
+            Form::Drawer => _ = write!(qml, "; shortcut: {keys}"),
+            Form::ContextMenu => _ = write!(qml, "; shortcut: mitsuamiMenu.visible ? {keys} : undefined"),
+        }
     }
     if let Some(icon) = icon {
         _ = write!(qml, "; icon.name: {}", js_string(icon));
@@ -171,9 +195,8 @@ fn item_qml(item: &MenuItemData, shortcut: Option<Shortcut>, icon: Option<&str>,
     qml
 }
 
-/// A menu, or a submenu: an action whose children are its entries.
-/// `groups` collects the radio groups' `ActionGroup`s.
-fn menu_qml(menu: &MenuData, groups: &mut Vec<String>) -> String {
+/// A menu's entries. `groups` collects the radio groups' `ActionGroup`s.
+fn entries_qml(menu: &MenuData, groups: &mut Vec<String>, form: Form) -> String {
     let entries: Vec<String> = menu
         .entries
         .iter()
@@ -183,13 +206,22 @@ fn menu_qml(menu: &MenuData, groups: &mut Vec<String>) -> String {
                 if group == Some(item.id) {
                     groups.push(format!("QQC2.ActionGroup {{ id: mitsuamiGroup{} }}", item.id));
                 }
-                item_qml(item, item.shortcut, None, group)
+                item_qml(item, item.shortcut, None, group, form)
             }
-            MenuEntry::Submenu(submenu) => menu_qml(submenu, groups),
-            MenuEntry::Separator => "Kirigami.Action { separator: true }".into(),
+            MenuEntry::Submenu(submenu) => menu_qml(submenu, groups, form),
+            MenuEntry::Separator if form == Form::Drawer => "Kirigami.Action { separator: true }".into(),
+            MenuEntry::Separator => "QQC2.MenuSeparator { }".into(),
         })
         .collect();
-    format!("Kirigami.Action {{ text: {}\n{}\n}}", js_string(&menu.title), entries.join("\n"))
+    entries.join("\n")
+}
+
+/// A menu, or a submenu: in the drawer an action whose children are its
+/// entries, in a context menu a `QQC2.Menu`.
+fn menu_qml(menu: &MenuData, groups: &mut Vec<String>, form: Form) -> String {
+    let entries = entries_qml(menu, groups, form);
+    let kind = if form == Form::Drawer { "Kirigami.Action { text" } else { "QQC2.Menu { title" };
+    format!("{kind}: {}\n{entries}\n}}", js_string(&menu.title))
 }
 
 /// The global drawer's QML for a window's menus, or none without menus.
@@ -205,20 +237,20 @@ pub(crate) fn drawer_qml(menu: &MenuBarData) -> Option<String> {
     let about = menu.take_role(MenuRole::About);
     let quit = menu.take_role(MenuRole::Quit);
     let mut groups = Vec::new();
-    let mut actions: Vec<String> = menu.menus.iter().map(|m| menu_qml(m, &mut groups)).collect();
+    let mut actions: Vec<String> = menu.menus.iter().map(|m| menu_qml(m, &mut groups, Form::Drawer)).collect();
     if let Some(item) = settings {
         let shortcut = item.shortcut.unwrap_or(Shortcut::primary(',').shift());
-        actions.push(item_qml(&item, Some(shortcut), Some("settings-configure"), None));
+        actions.push(item_qml(&item, Some(shortcut), Some("settings-configure"), None, Form::Drawer));
     }
     if let Some(item) = about {
-        actions.push(item_qml(&item, item.shortcut, Some("help-about"), None));
+        actions.push(item_qml(&item, item.shortcut, Some("help-about"), None, Form::Drawer));
     }
     // Plasma's binding; `StandardKey.Quit` maps to several, which Qt's
     // shortcuts warn about.
     actions.push(match quit {
         Some(item) => {
             let item = MenuItemData { title: "Quit".into(), ..item };
-            item_qml(&item, Some(Shortcut::primary('q')), Some("application-exit"), None)
+            item_qml(&item, Some(Shortcut::primary('q')), Some("application-exit"), None, Form::Drawer)
         }
         None => "Kirigami.Action { objectName: \"mitsuamiQuit\"; text: \"Quit\"; icon.name: \"application-exit\"; \
                  shortcut: \"Ctrl+Q\" }"
@@ -229,6 +261,128 @@ pub(crate) fn drawer_qml(menu: &MenuBarData) -> Option<String> {
         groups.join("\n"),
         actions.join(",\n")
     ))
+}
+
+/// A context menu's QML, or none without entries: a `QQC2.Menu`, which the
+/// desktop style draws, of the same actions as the drawer's, with
+/// `QQC2.MenuSeparator`s and submenus.
+fn context_menu_qml(menu: &MenuData) -> Option<String> {
+    if menu.entries.is_empty() {
+        return None;
+    }
+    let mut groups = Vec::new();
+    let entries = entries_qml(menu, &mut groups, Form::ContextMenu);
+    Some(format!("QQC2.Menu {{ id: mitsuamiMenu\n{}\n{entries}\n}}", groups.join("\n")))
+}
+
+/// A node's context menu: the app's entries (as the one menu of a bar, for
+/// [`MenuBarData`]'s helpers), and the `QQC2.Menu` that shows them, made
+/// as they come so it's whole before it's shown. Its parent is the node's
+/// item, whose `mitsuamiContextMenu` it is (see `qml::CONTEXT_MENU`).
+pub(crate) struct ContextMenu {
+    entries: Rc<RefCell<MenuBarData>>,
+    menu: Option<QmlObject>,
+    /// Reports the item chosen.
+    choose: Rc<dyn Fn(u32)>,
+}
+
+impl ContextMenu {
+    pub(crate) fn new(choose: impl Fn(u32) + 'static) -> ContextMenu {
+        ContextMenu { entries: Rc::default(), menu: None, choose: Rc::new(choose) }
+    }
+
+    /// Shows `entries` on `item`, or only keeps them if the item can't
+    /// show a menu (`None`). In place when only enabled and checked states
+    /// changed, which keeps an open menu open.
+    pub(crate) fn set(&mut self, item: Option<QmlObject>, entries: &[MenuEntry]) {
+        let data = MenuBarData { menus: vec![MenuData { title: String::new(), entries: entries.to_vec() }] };
+        let same = self.menu.is_some() && self.entries.borrow().same_structure(&data);
+        self.entries.replace(data);
+        if let Some(menu) = self.menu.filter(|_| same) {
+            return apply_states(menu, &self.entries.borrow());
+        }
+        if let Some(old) = self.menu.take() {
+            if let Some(item) = item {
+                item.set_object("mitsuamiContextMenu", None);
+            }
+            retire(old);
+        }
+        let Some(item) = item else { return };
+        let Some(qml) = context_menu_qml(&self.entries.borrow().menus[0]) else { return };
+        let menu = QmlObject::load_in(&qml, item);
+        // As in the drawer, Qt checks a checkable action itself when it's
+        // triggered: the menu goes back to what the app shows first.
+        for entry in self.entries.borrow().items() {
+            let Some(action) = menu.child(&item_name(entry.id)) else { continue };
+            let (entries, choose, id) = (self.entries.clone(), self.choose.clone(), entry.id);
+            action.connect("triggered(QObject*)", move || {
+                apply_states(menu, &entries.borrow());
+                choose(id);
+            });
+        }
+        item.set_object("mitsuamiContextMenu", Some(menu));
+        self.menu = Some(menu);
+    }
+
+    /// The action of the item with this id, if the menu is shown.
+    pub(crate) fn action(&self, id: u32) -> Option<QmlObject> {
+        self.menu?.child(&item_name(id))
+    }
+
+    /// The entries as the menu shows them: items' titles, enabled and
+    /// checked states from their actions, the rest as the app gave it.
+    pub(crate) fn shown(&self) -> Vec<MenuEntry> {
+        fn read(menu: QmlObject, entries: &[MenuEntry]) -> Vec<MenuEntry> {
+            entries
+                .iter()
+                .map(|entry| match entry {
+                    MenuEntry::Item(item) => {
+                        let Some(action) = menu.child(&item_name(item.id)) else { return entry.clone() };
+                        let checked = action.bool("checked");
+                        MenuEntry::Item(MenuItemData {
+                            title: action.str("text"),
+                            enabled: action.bool("enabled"),
+                            check: match item.check {
+                                MenuCheck::None => MenuCheck::None,
+                                MenuCheck::Check(_) => MenuCheck::Check(checked),
+                                MenuCheck::Radio(_) => MenuCheck::Radio(checked),
+                            },
+                            ..item.clone()
+                        })
+                    }
+                    MenuEntry::Submenu(submenu) => MenuEntry::Submenu(MenuData {
+                        title: submenu.title.clone(),
+                        entries: read(menu, &submenu.entries),
+                    }),
+                    MenuEntry::Separator => MenuEntry::Separator,
+                })
+                .collect()
+        }
+        let entries = self.entries.borrow();
+        let entries = entries.menus.first().map(|m| m.entries.as_slice()).unwrap_or_default();
+        match self.menu {
+            Some(menu) => read(menu, entries),
+            None => entries.to_vec(),
+        }
+    }
+
+    /// The menu goes with its node.
+    pub(crate) fn delete_later(&self) {
+        if let Some(menu) = self.menu {
+            menu.delete_later();
+        }
+    }
+}
+
+/// A menu that's been replaced: an open one stays until it closes, as an
+/// open `NSMenu` does on AppKit, and what's chosen in it still reports its
+/// id; a closed one goes.
+fn retire(menu: QmlObject) {
+    if menu.bool("visible") {
+        menu.connect("closed()", move || menu.delete_later());
+    } else {
+        menu.delete_later();
+    }
 }
 
 pub struct KirigamiServices {

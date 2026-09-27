@@ -8,8 +8,8 @@ use std::rc::{Rc, Weak};
 use block2::RcBlock;
 use mitsuami_core::NodeId;
 use mitsuami_core::services::{
-    Alert, AlertStyle, FileFilter, MenuBarData, MenuCheck, MenuEntry, MenuItemData, MenuRole, OpenFile, Reply,
-    SaveFile, ServiceError, Services, Shortcut,
+    Alert, AlertStyle, FileFilter, MenuBarData, MenuCheck, MenuData, MenuEntry, MenuItemData, MenuRole, OpenFile,
+    Reply, SaveFile, ServiceError, Services, Shortcut, menu_item_by_id,
 };
 use objc2::rc::Retained;
 use objc2::runtime::{AnyObject, NSObject, NSObjectProtocol, Sel};
@@ -355,6 +355,19 @@ fn modifiers(shortcut: &Shortcut) -> NSEventModifierFlags {
     mask
 }
 
+/// Where menu items send their action: the item's tag is its id.
+#[derive(Clone, Copy)]
+pub(crate) struct ItemTarget<'a> {
+    pub(crate) object: &'a AnyObject,
+    pub(crate) action: Sel,
+}
+
+impl<'a> From<&'a MenuTarget> for ItemTarget<'a> {
+    fn from(target: &'a MenuTarget) -> ItemTarget<'a> {
+        ItemTarget { object: target as &AnyObject, action: sel!(choose:) }
+    }
+}
+
 /// One of the app's items. The check mark is AppKit's for radio items
 /// too: its menus show a group's choice with one.
 fn app_item(
@@ -362,11 +375,11 @@ fn app_item(
     data: &MenuItemData,
     title: &str,
     shortcut: Option<Shortcut>,
-    target: &MenuTarget,
+    target: ItemTarget,
 ) -> Retained<NSMenuItem> {
     let key = shortcut.map(|s| s.key.to_string()).unwrap_or_default();
-    let item = item(mtm, title, Some(sel!(choose:)), &key);
-    unsafe { item.setTarget(Some(target as &AnyObject)) };
+    let item = item(mtm, title, Some(target.action), &key);
+    unsafe { item.setTarget(Some(target.object)) };
     item.setTag(data.id as isize);
     item.setEnabled(data.enabled);
     if let Some(shortcut) = shortcut {
@@ -378,7 +391,7 @@ fn app_item(
     item
 }
 
-fn app_items(mtm: MainThreadMarker, entries: &[MenuEntry], target: &MenuTarget) -> Vec<Retained<NSMenuItem>> {
+pub(crate) fn app_items(mtm: MainThreadMarker, entries: &[MenuEntry], target: ItemTarget) -> Vec<Retained<NSMenuItem>> {
     entries
         .iter()
         .map(|entry| match entry {
@@ -389,10 +402,76 @@ fn app_items(mtm: MainThreadMarker, entries: &[MenuEntry], target: &MenuTarget) 
         .collect()
 }
 
+/// A context menu: the app's entries, enabled as the app says.
+pub(crate) fn context_menu(mtm: MainThreadMarker, entries: &[MenuEntry], target: ItemTarget) -> Retained<NSMenu> {
+    let menu = NSMenu::new(mtm);
+    menu.setAutoenablesItems(false);
+    for item in app_items(mtm, entries, target) {
+        menu.addItem(&item);
+    }
+    menu
+}
+
+/// What a context menu shows, read back from AppKit. It can't tell a
+/// radio item from a check item, nor keep a role: those come from `sent`.
+pub(crate) fn context_menu_entries(menu: &NSMenu, sent: &[MenuEntry]) -> Vec<MenuEntry> {
+    fn read(menu: &NSMenu, sent: &[MenuEntry]) -> Vec<MenuEntry> {
+        menu.itemArray()
+            .iter()
+            .map(|item| {
+                if item.isSeparatorItem() {
+                    return MenuEntry::Separator;
+                }
+                if let Some(submenu) = item.submenu() {
+                    return MenuEntry::Submenu(MenuData {
+                        title: item.title().to_string(),
+                        entries: read(&submenu, sent),
+                    });
+                }
+                let id = item.tag() as u32;
+                let original = menu_item_by_id(sent, id);
+                let on = item.state() == NSControlStateValueOn;
+                let key = item.keyEquivalent().to_string();
+                let mask = item.keyEquivalentModifierMask();
+                MenuEntry::Item(MenuItemData {
+                    id,
+                    title: item.title().to_string(),
+                    shortcut: key.chars().next().map(|key| Shortcut {
+                        key,
+                        primary: mask.contains(NSEventModifierFlags::Command),
+                        shift: mask.contains(NSEventModifierFlags::Shift),
+                        alt: mask.contains(NSEventModifierFlags::Option),
+                    }),
+                    enabled: item.isEnabled(),
+                    check: match original.map(|s| s.check) {
+                        Some(MenuCheck::Radio(_)) => MenuCheck::Radio(on),
+                        Some(MenuCheck::Check(_)) => MenuCheck::Check(on),
+                        _ if on => MenuCheck::Check(true),
+                        _ => MenuCheck::None,
+                    },
+                    role: original.map(|s| s.role).unwrap_or_default(),
+                })
+            })
+            .collect()
+    }
+    read(menu, sent)
+}
+
+/// The item of a context menu with this id, submenus' included, and the
+/// menu holding it.
+pub(crate) fn find_tagged(menu: &NSMenu, id: u32) -> Option<(Retained<NSMenuItem>, Retained<NSMenu>)> {
+    menu.itemArray().iter().find_map(|item| match item.submenu() {
+        Some(submenu) => find_tagged(&submenu, id),
+        None if !item.isSeparatorItem() && item.tag() as u32 == id => Some((item, menu.retain())),
+        None => None,
+    })
+}
+
 /// The app menu, the app's File menu (if any), Edit (what makes ⌘C/⌘V/⌘Z
 /// work in text fields), then the app's other menus. Items with a role go
 /// to the app menu, with AppKit's titles and shortcuts, as Qt puts them.
 fn menu_bar(mtm: MainThreadMarker, mut menus: MenuBarData, target: &MenuTarget) -> Retained<NSMenu> {
+    let target = ItemTarget::from(target);
     let name = NSProcessInfo::processInfo().processName().to_string();
     let bar = NSMenu::new(mtm);
     let command = |key| Some(Shortcut::primary(key));

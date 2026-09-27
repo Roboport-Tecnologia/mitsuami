@@ -6,6 +6,9 @@
 //! Shortcuts work in every window. GTK's text widgets
 //! bring their own Cut/Copy/Paste context menus and keybindings, so there is
 //! no Edit menu to add.
+//!
+//! Widgets' context menus are built as the app's menus are, and shown in a
+//! popover at the pointer, or added to a text widget's own menu.
 
 use std::cell::{Cell, RefCell};
 use std::collections::{HashMap, HashSet};
@@ -14,11 +17,11 @@ use std::rc::{Rc, Weak};
 
 use gtk::prelude::*;
 use gtk::{gdk, gio, glib};
-use mitsuami_core::NodeId;
 use mitsuami_core::services::{
-    Alert, MenuBarData, MenuCheck, MenuEntry, MenuItemData, MenuRole, OpenFile, Reply, SaveFile, ServiceError,
-    Services, Shortcut,
+    Alert, MenuBarData, MenuCheck, MenuData, MenuEntry, MenuItemData, MenuRole, OpenFile, Reply, SaveFile,
+    ServiceError, Services, Shortcut, menu_item_by_id,
 };
+use mitsuami_core::{ActionError, NodeId};
 
 use crate::backend::{GtkHandle, State, WindowParts, dialog_parent, file_filters};
 
@@ -58,17 +61,21 @@ impl MenuParts {
     /// Enabled and checked states, in place: rebuilding would close the
     /// menu if it's open.
     fn update(&mut self, data: MenuBarData) {
-        for item in data.items() {
-            let Some(action) = self.actions.lookup_action(&action_name(item.id)).and_downcast::<gio::SimpleAction>()
-            else {
-                continue;
-            };
-            action.set_enabled(item.enabled);
-            if let Some(state) = check_state(item) {
-                action.set_state(&state);
-            }
-        }
+        update_actions(&self.actions, &data.items());
         self.data = data;
+    }
+}
+
+/// Items' enabled and checked states, on their actions.
+fn update_actions(actions: &gio::SimpleActionGroup, items: &[&MenuItemData]) {
+    for item in items {
+        let Some(action) = actions.lookup_action(&action_name(item.id)).and_downcast::<gio::SimpleAction>() else {
+            continue;
+        };
+        action.set_enabled(item.enabled);
+        if let Some(state) = check_state(item) {
+            action.set_state(&state);
+        }
     }
 }
 
@@ -136,6 +143,8 @@ impl Menus {
     /// their own, as GNOME's don't.
     fn build(&self, data: MenuBarData, modal: bool) -> MenuParts {
         let mut builder = Builder {
+            group: GROUP,
+            exact: false,
             actions: gio::SimpleActionGroup::new(),
             shortcuts: Vec::new(),
             activate: self.activate.clone().unwrap_or_else(|| Rc::new(|_| {})),
@@ -189,6 +198,11 @@ impl Menus {
 }
 
 struct Builder {
+    /// The action group's name on the widget: `mitsuami.item-1`.
+    group: &'static str,
+    /// Keeps empty sections (from leading, trailing or doubled separators),
+    /// so the entries read back as they came; GTK shows none of them.
+    exact: bool,
     actions: gio::SimpleActionGroup,
     shortcuts: Vec<(String, String, Option<glib::Variant>)>,
     activate: Rc<dyn Fn(u32)>,
@@ -197,9 +211,10 @@ struct Builder {
 impl Builder {
     /// Separators split entries into sections.
     fn sections(&mut self, entries: &[MenuEntry]) -> Vec<gio::Menu> {
+        let exact = self.exact;
         entries
             .split(|e| matches!(e, MenuEntry::Separator))
-            .filter(|group| !group.is_empty())
+            .filter(|group| exact || !group.is_empty())
             .map(|group| {
                 let section = gio::Menu::new();
                 for entry in group {
@@ -235,7 +250,7 @@ impl Builder {
         let (activate, id) = (self.activate.clone(), data.id);
         action.connect_activate(move |_, _| activate(id));
         self.actions.add_action(&action);
-        let detailed = format!("{GROUP}.{name}");
+        let detailed = format!("{}.{name}", self.group);
         let item = gio::MenuItem::new(Some(title), None);
         item.set_action_and_target_value(Some(&detailed), target.as_ref());
         if let Some(shortcut) = shortcut {
@@ -280,6 +295,289 @@ fn trigger(shortcut: &Shortcut) -> String {
         None => trigger.push(shortcut.key),
     }
     trigger
+}
+
+/// The group of a widget's context menu actions: `context.item-1`.
+const CONTEXT_GROUP: &str = "context";
+
+/// A widget's context menu as GTK objects: the model a popover (or a text
+/// widget's own menu) shows, and the items' actions, which the widget
+/// carries. Both are kept across changes, so a shown menu follows them.
+pub(crate) struct ContextMenu {
+    data: Vec<MenuEntry>,
+    model: gio::Menu,
+    actions: gio::SimpleActionGroup,
+    activate: Rc<dyn Fn(u32)>,
+    /// The popover while it's shown, parented to the widget.
+    popover: Rc<RefCell<Option<gtk::PopoverMenu>>>,
+}
+
+impl ContextMenu {
+    /// A menu for `widget`, whose items call `activate` with their id.
+    /// Text widgets add it to their own Cut/Copy/Paste menu, as their
+    /// `extra-menu`; other widgets show it in a popover of their own.
+    pub(crate) fn new(widget: &gtk::Widget, activate: Rc<dyn Fn(u32)>) -> ContextMenu {
+        let menu = ContextMenu {
+            data: Vec::new(),
+            model: gio::Menu::new(),
+            actions: gio::SimpleActionGroup::new(),
+            activate,
+            popover: Rc::default(),
+        };
+        widget.insert_action_group(CONTEXT_GROUP, Some(&menu.actions));
+        match text_widget(widget) {
+            Some(TextWidget::Entry(entry)) => entry.set_extra_menu(Some(&menu.model)),
+            Some(TextWidget::Password(entry)) => entry.set_extra_menu(Some(&menu.model)),
+            Some(TextWidget::Text(text)) => text.set_extra_menu(Some(&menu.model)),
+            None => menu.attach(widget),
+        }
+        menu
+    }
+
+    /// How GTK's widgets open their menu ("menu.popup"): a secondary click
+    /// or a long press at the pointer, Shift+F10 or the Menu key at the
+    /// widget. Bubbling, so children that claim these (a text field's own
+    /// menu, a child's menu) keep them, and children without one show
+    /// this. Without items, the event goes on to the container.
+    fn attach(&self, widget: &gtk::Widget) {
+        let click = gtk::GestureClick::new();
+        click.set_button(gdk::BUTTON_SECONDARY);
+        let (model, popover) = (self.model.clone(), self.popover.clone());
+        click.connect_pressed(move |gesture, _, x, y| {
+            if has_items(&model) {
+                gesture.set_state(gtk::EventSequenceState::Claimed);
+                popup(&gesture.widget().expect("attached"), &model, &popover, Some((x, y)));
+            } else {
+                gesture.set_state(gtk::EventSequenceState::Denied);
+            }
+        });
+        widget.add_controller(click);
+
+        let press = gtk::GestureLongPress::new();
+        press.set_touch_only(true);
+        let (model, popover) = (self.model.clone(), self.popover.clone());
+        press.connect_pressed(move |gesture, x, y| {
+            if has_items(&model) {
+                gesture.set_state(gtk::EventSequenceState::Claimed);
+                popup(&gesture.widget().expect("attached"), &model, &popover, Some((x, y)));
+            } else {
+                gesture.set_state(gtk::EventSequenceState::Denied);
+            }
+        });
+        widget.add_controller(press);
+
+        let keys = gtk::ShortcutController::new();
+        let (model, popover) = (self.model.clone(), self.popover.clone());
+        let action = gtk::CallbackAction::new(move |widget, _| {
+            if !has_items(&model) {
+                return glib::Propagation::Proceed;
+            }
+            popup(widget, &model, &popover, None);
+            glib::Propagation::Stop
+        });
+        keys.add_shortcut(gtk::Shortcut::new(gtk::ShortcutTrigger::parse_string("<Shift>F10|Menu"), Some(action)));
+        widget.add_controller(keys);
+    }
+
+    /// Takes the app's entries: states in place when only they changed,
+    /// otherwise the model and actions filled again.
+    pub(crate) fn set(&mut self, entries: &[MenuEntry]) {
+        let bar = |entries: &[MenuEntry]| MenuBarData {
+            menus: vec![MenuData { title: String::new(), entries: entries.to_vec() }],
+        };
+        let new = bar(entries);
+        if bar(&self.data).same_structure(&new) {
+            update_actions(&self.actions, &new.items());
+        } else {
+            for name in self.actions.list_actions() {
+                self.actions.remove_action(&name);
+            }
+            let mut builder = Builder {
+                group: CONTEXT_GROUP,
+                exact: true,
+                actions: self.actions.clone(),
+                shortcuts: Vec::new(),
+                activate: self.activate.clone(),
+            };
+            let sections = builder.sections(entries);
+            self.model.remove_all();
+            for section in &sections {
+                self.model.append_section(None, section);
+            }
+        }
+        self.data = entries.to_vec();
+    }
+
+    /// The popover goes before the widget: GTK wants a widget's children
+    /// gone before it's finalized.
+    pub(crate) fn close(&self) {
+        if let Some(popover) = self.popover.borrow_mut().take() {
+            popover.unparent();
+        }
+    }
+
+    /// What the menu shows, read from the model the widget has (its own
+    /// popover's, or a text widget's `extra-menu`) and the actions' states.
+    /// Roles mean nothing here and come from the app's entries.
+    pub(crate) fn entries(&self, widget: &gtk::Widget) -> Vec<MenuEntry> {
+        let model = match text_widget(widget) {
+            Some(TextWidget::Entry(entry)) => entry.extra_menu(),
+            Some(TextWidget::Password(entry)) => entry.extra_menu(),
+            Some(TextWidget::Text(text)) => text.extra_menu(),
+            None => Some(self.model.clone().upcast()),
+        };
+        model.map(|model| self.read_sections(&model)).unwrap_or_default()
+    }
+
+    fn read_sections(&self, model: &gio::MenuModel) -> Vec<MenuEntry> {
+        let mut entries = Vec::new();
+        for i in 0..model.n_items() {
+            if i > 0 {
+                entries.push(MenuEntry::Separator);
+            }
+            if let Some(section) = model.item_link(i, "section") {
+                entries.extend(self.read_items(&section));
+            }
+        }
+        entries
+    }
+
+    fn read_items(&self, section: &gio::MenuModel) -> Vec<MenuEntry> {
+        let string = |i, name| {
+            section.item_attribute_value(i, name, Some(glib::VariantTy::STRING)).and_then(|v| v.get::<String>())
+        };
+        (0..section.n_items())
+            .filter_map(|i| {
+                let title = string(i, "label").unwrap_or_default();
+                if let Some(submenu) = section.item_link(i, "submenu") {
+                    let entries = self.read_sections(&submenu);
+                    return Some(MenuEntry::Submenu(MenuData { title, entries }));
+                }
+                let action = string(i, "action")?;
+                let name = action.strip_prefix(&format!("{CONTEXT_GROUP}."))?;
+                let id: u32 = name.strip_prefix("item-")?.parse().ok()?;
+                let action = self.actions.lookup_action(name)?;
+                let sent = menu_item_by_id(&self.data, id);
+                let target = string(i, "target");
+                let state = action.state();
+                let check = match (state.as_ref().and_then(|s| s.get::<bool>()), state.and_then(|s| s.get::<String>()))
+                {
+                    (Some(on), _) => MenuCheck::Check(on),
+                    (None, Some(chosen)) => MenuCheck::Radio(target.as_ref() == Some(&chosen)),
+                    (None, None) => MenuCheck::None,
+                };
+                // The accel label GTK shows; parsed only if it isn't the
+                // app's shortcut as written.
+                let shortcut = string(i, "accel").and_then(|accel| match sent.and_then(|s| s.shortcut) {
+                    Some(shortcut) if trigger(&shortcut) == accel => Some(shortcut),
+                    _ => parse_trigger(&accel),
+                });
+                Some(MenuEntry::Item(MenuItemData {
+                    id,
+                    title,
+                    shortcut,
+                    enabled: action.is_enabled(),
+                    check,
+                    role: sent.map(|s| s.role).unwrap_or_default(),
+                }))
+            })
+            .collect()
+    }
+
+    /// The items' actions, for [`choose_context_item`] once no backend
+    /// state is borrowed.
+    pub(crate) fn chooser(&self) -> gio::SimpleActionGroup {
+        self.actions.clone()
+    }
+}
+
+/// What assistive technology does once it has shown the menu: activate the
+/// item's action, whose handler reports the choice. A radio item's action
+/// takes its id.
+pub(crate) fn choose_context_item(actions: &gio::SimpleActionGroup, id: u32) -> Result<(), ActionError> {
+    let name = action_name(id);
+    let action = actions.lookup_action(&name).ok_or(ActionError::Unsupported)?;
+    if !action.is_enabled() {
+        return Err(ActionError::Disabled);
+    }
+    let target = action.parameter_type().map(|_| id.to_string().to_variant());
+    actions.activate_action(&name, target.as_ref());
+    Ok(())
+}
+
+/// Text widgets, which have their own context menu.
+enum TextWidget {
+    Entry(gtk::Entry),
+    Password(gtk::PasswordEntry),
+    /// A spin button's text.
+    Text(gtk::Text),
+}
+
+fn text_widget(widget: &gtk::Widget) -> Option<TextWidget> {
+    if let Some(entry) = widget.downcast_ref::<gtk::Entry>() {
+        return Some(TextWidget::Entry(entry.clone()));
+    }
+    if let Some(entry) = widget.downcast_ref::<gtk::PasswordEntry>() {
+        return Some(TextWidget::Password(entry.clone()));
+    }
+    // The spin buttons' own secondary clicks go to their minimum and
+    // maximum, so a spin button's menu is its text's.
+    let spin = widget.downcast_ref::<gtk::SpinButton>()?;
+    spin.delegate().and_downcast::<gtk::Text>().map(TextWidget::Text)
+}
+
+/// Whether the menu has an item to show: empty sections show nothing.
+fn has_items(model: &gio::Menu) -> bool {
+    (0..model.n_items()).any(|i| model.item_link(i, "section").is_some_and(|s| s.n_items() > 0))
+}
+
+/// Shows the menu as GTK's labels and text fields show theirs: without an
+/// arrow, below and after the pointer, or at the whole widget from the
+/// keyboard. The popover is made on demand and unparented once closed,
+/// after the chosen item's action runs (GTK closes the menu first).
+fn popup(
+    widget: &gtk::Widget,
+    model: &gio::Menu,
+    slot: &Rc<RefCell<Option<gtk::PopoverMenu>>>,
+    at: Option<(f64, f64)>,
+) {
+    let existing = slot.borrow().clone();
+    let popover = existing.unwrap_or_else(|| {
+        let popover = gtk::PopoverMenu::from_model(Some(model));
+        popover.set_has_arrow(false);
+        popover.set_halign(gtk::Align::Start);
+        popover.set_parent(widget);
+        let weak = Rc::downgrade(slot);
+        popover.connect_closed(move |popover| {
+            let (popover, slot) = (popover.clone(), weak.clone());
+            glib::idle_add_local_once(move || {
+                // Shown again meanwhile, or already gone with its widget.
+                if popover.is_visible() || popover.parent().is_none() {
+                    return;
+                }
+                popover.unparent();
+                if let Some(slot) = slot.upgrade() {
+                    slot.borrow_mut().take_if(|p| *p == popover);
+                }
+            });
+        });
+        *slot.borrow_mut() = Some(popover.clone());
+        popover
+    });
+    let rect = at.map(|(x, y)| gdk::Rectangle::new(x as i32, y as i32, 1, 1));
+    popover.set_pointing_to(rect.as_ref());
+    popover.popup();
+}
+
+/// A shortcut from GTK's notation, e.g. `<Control><Shift>n`.
+fn parse_trigger(accel: &str) -> Option<Shortcut> {
+    let (key, modifiers) = gtk::accelerator_parse(accel)?;
+    Some(Shortcut {
+        key: key.to_unicode()?,
+        primary: modifiers.contains(gdk::ModifierType::CONTROL_MASK),
+        shift: modifiers.contains(gdk::ModifierType::SHIFT_MASK),
+        alt: modifiers.contains(gdk::ModifierType::ALT_MASK),
+    })
 }
 
 pub struct GtkServices {

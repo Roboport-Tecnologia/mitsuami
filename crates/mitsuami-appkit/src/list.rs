@@ -20,7 +20,7 @@ use objc2::rc::Retained;
 use objc2::runtime::{AnyObject, NSObject, NSObjectProtocol, ProtocolObject};
 use objc2::{DefinedClass, MainThreadMarker, MainThreadOnly, define_class, msg_send, sel};
 use objc2_app_kit::{
-    NSAnimationContext, NSBorderType, NSControlTextEditingDelegate, NSEvent, NSScrollView, NSTableColumn,
+    NSAnimationContext, NSBorderType, NSControlTextEditingDelegate, NSEvent, NSMenu, NSScrollView, NSTableColumn,
     NSTableColumnResizingOptions, NSTableRowView, NSTableView, NSTableViewColumnAutoresizingStyle,
     NSTableViewDataSource, NSTableViewDelegate, NSTableViewStyle, NSView,
 };
@@ -196,8 +196,45 @@ define_class!(
             }
             unsafe { msg_send![super(self), keyDown: event] }
         }
+
+        /// A right-click in a row: the menu of the view under the pointer,
+        /// or of the nearest one around it, as outside a table. The table
+        /// takes right-clicks on its rows' labels to itself, and would
+        /// show only its own menu (the `List`'s).
+        #[unsafe(method_id(menuForEvent:))]
+        fn menu_for_event(&self, event: &NSEvent) -> Option<Retained<NSMenu>> {
+            self.row_menu(event).or_else(|| unsafe { msg_send![super(self), menuForEvent: event] })
+        }
+
     }
 );
+
+impl ListTable {
+    /// The menu of the view under the pointer in a row, or of the nearest
+    /// view around it. The table's `hitTest:` answers itself over its
+    /// rows' labels, so the search starts from the cell.
+    fn row_menu(&self, event: &NSEvent) -> Option<Retained<NSMenu>> {
+        let point = self.convertPoint_fromView(event.locationInWindow(), None);
+        let (row, column) = (self.rowAtPoint(point), self.columnAtPoint(point));
+        if row < 0 || column < 0 {
+            return None;
+        }
+        let cell = self.viewAtColumn_row_makeIfNecessary(column, row, false)?;
+        // `hitTest:` takes a point in the superview's coordinates.
+        let around = unsafe { cell.superview() }?;
+        let mut view = cell.hitTest(around.convertPoint_fromView(point, Some(self)));
+        while let Some(v) = view {
+            if let Some(menu) = v.menu() {
+                return Some(menu);
+            }
+            if std::ptr::eq(&*v, &*cell) {
+                break;
+            }
+            view = unsafe { v.superview() };
+        }
+        None
+    }
+}
 
 fn indices(set: &NSIndexSet) -> Vec<usize> {
     let mut out = Vec::with_capacity(set.count());
