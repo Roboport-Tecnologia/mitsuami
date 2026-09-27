@@ -787,7 +787,10 @@ Things the AppKit backend taught us, some of them now part of the contract:
 - **A `ListView` whose `Items` are the row keys, boxed strings,** so XAML's own collection takes the inserts and removes (one splice per data change, as on GTK). An item container style from markup takes the padding, margin and minimum height off `ListViewItem`s.
 - **Rows are realised containers.** `ContainerContentChanging` fires when a container is realised for a row and when it goes to the recycle queue (a reused container fires for its old row, then its new one). Each container's content is a `Canvas` cell that takes the row's host, as high as it or the estimate. The rows realised are compared with the rows reported once the dispatcher is free, and at the end of each `apply`, after `UpdateLayout` realises what a change brought into view.
 - **Selection** is `SelectedIndex` or `SelectedItems`; the selection set is recorded first, so the later `SelectionChanged` finds it reported. Double-clicks find their row up the visual tree to its container; Return activates the selected row (`PreviewKeyDown`). The list's scroll viewer is its template's, found in the visual tree.
-- **Not run yet:** written and type-checked on macOS; the Windows CI job runs it.
+- **Rows are placed from the scroll viewer's content,** not the view: XAML applies a scroll at its next layout, so right after one the view's transform plus the offset counted the scroll twice, and rows in view read as far below it.
+- **A cell is never 0 high.** A row keeps its last measured height, or the estimate until it has one, including while a new host waits for its frame. Rows above the view that shrank to 0 and grew back made XAML shift the offset to keep the rows in view still, a little further each layout pass: a scroll to row 500 crept to the end of the list.
+- **Focus is a row container's,** so the list has it when the window's focus tracking says so. `settle` resyncs that tracking from `FocusManager.GetFocusedElement(XamlRoot)`, walked up to the nearest node, as `GotFocus` does; it used to look for a node whose own control was focused, found none, and cleared the list's (and a `NumberBox`'s, whose focus is its text box's).
+- **Run on WinUI:** the `lists` and `contacts` suites pass natively.
 
 ### M7 on Kirigami (lists)
 
@@ -812,7 +815,7 @@ Things the AppKit backend taught us, some of them now part of the contract:
 
 ### Slider and Progress
 
-- **A step means what the platform's step means.** AppKit's is tick marks that the knob only stops at (`allowsTickMarkValuesOnly`); WinUI snaps to `StepFrequency` and steps by `SmallChange`; Qt's sliders only move by it from the keyboard (`snapMode` stays off unless asked). GTK's scales have no stepped mode at all, so the backend snaps the user's moves to the step in `change-value` (see below). Without a step each keeps its default: WinUI's is 1, which it snaps to, and Qt's `increase()` moves by 0.1. GTK needs one to move at all, so it gets a tenth of the range. Tests only check which way a step moves.
+- **A step means what the platform's step means.** AppKit's is tick marks that the knob only stops at (`allowsTickMarkValuesOnly`); WinUI snaps drags of the knob to `StepFrequency` (not values set through automation or by the app) and steps by `SmallChange`; Qt's sliders only move by it from the keyboard (`snapMode` stays off unless asked). GTK's scales have no stepped mode at all, so the backend snaps the user's moves to the step in `change-value` (see below). Without a step each keeps its default: WinUI's is 1, which it snaps to, and Qt's `increase()` moves by 0.1. GTK needs one to move at all, so it gets a tenth of the range. Tests only check which way a step moves.
 - **The value follows the range.** The platforms clamp the value to the range, so a range sent after the value would lose it: the core queues the value again after every range change.
 - **A clamp while the range is set isn't the user's.** XAML reports it from inside the range's setter: a new `Slider` starts at 0 of 0–100, so a range of 120–480 moved it to 120 and WinUI reported that as a move, overwriting the app's value (the text example's width). The backend now expects the clamped value before it sets the range, for `Slider` and `NumberBox` alike.
 - **Sliders and progress bars have no natural width on AppKit** (no intrinsic width): they're as wide as the layout makes them, stretched in a column. The others measure theirs.
@@ -866,7 +869,7 @@ Things the AppKit backend taught us, some of them now part of the contract:
 - **Only the user's moves snap.** `change-value` carries drags, clicks, scrolls and keys; values the app sets pass through as given. `SetValue` emits `change-value` too, as a drag would, so it snaps.
 - **A mark at each step, by default,** as AppKit draws tick marks for a step: `gtk::Scale::add_mark` below (or beside) the trough, redrawn when the step or range changes. `mitsuami::gtk::show_step_marks(scale, false)` in a tweak turns them off; since tweaks run after every prop, the setting lives on the scale (its `Steps`, kept as object data) and marks are only redrawn when what they'd show changes. Marks make the scale taller, which it measures itself, and Adwaita draws the knob as a pin pointing at them rather than a circle (`slider-horz-scale-has-marks-below.png`), as in any GTK app with marks.
 - **Marks only where steps are 24 px apart.** While dragging, GTK holds the knob on a mark until the pointer is 12 px away (`MARK_SNAP_LENGTH`), and snapping always leaves it on one. With steps closer than 24 px it holds past the next step, and the knob jumps several at once (the example's 57 px slider with ten steps jumped four). At 24 px the hold is at most half a step, which snapping does anyway. The length the knob travels is the frame less the scale's CSS padding (12 px each side on Adwaita, read with the deprecated `StyleContext::padding`, the only API for it). Whether marks fit depends on the length and changes the thickness, so `measure` decides them for the length it's asked about, and `SetFrame` for the final one.
-- **Run on GTK and headless;** `stops_on_its_steps_where_the_platform_snaps` expects 80 for a move to 83 on GTK and WinUI (WinUI only type-checked); `gtk_marks_its_steps_unless_told_not_to` checks the marks by the scale's height, and that dense or short sliders have none, on GTK only.
+- **Run on GTK and headless;** `stops_on_its_steps_where_the_platform_snaps` expects 80 for a move to 83 on GTK, where the backend snaps a screen reader's moves too, and 80 or 83 elsewhere (WinUI keeps 83: run); `gtk_marks_its_steps_unless_told_not_to` checks the marks by the scale's height, and that dense or short sliders have none, on GTK only.
 
 ### Progress: tweaks only
 
@@ -940,7 +943,7 @@ Things the AppKit backend taught us, some of them now part of the contract:
 - **A spin button to assistive technology** (`Role::SpinButton`), named by its label, with the number as its value. On AppKit the field and the stepper both get the label, as VoiceOver finds them separately.
 - **Not tested: typing keys into one.** `synthesize` has no `NumberInput` path yet on any backend (each would drive the field inside); the suite uses assistive technology's `SetValue`, `Increment` and `Decrement`.
 - **The example's tweaks:** `valueWraps` off on AppKit, `wrap` on GTK and Qt, `Compact` spin buttons on WinUI (`NumberBox` bindings added).
-- **Run on AppKit and headless;** GTK, Kirigami and WinUI are only type-checked, and CI hasn't run them.
+- **Run on AppKit, WinUI and headless;** GTK and Kirigami are only type-checked, and CI hasn't run them.
 
 ### Image
 
@@ -953,7 +956,7 @@ Things the AppKit backend taught us, some of them now part of the contract:
 - **An image to assistive technology** (`Role::Image`), named by its label (GTK's `alternative-text`, Qt's `Accessible.Graphic`); without one, decorative. It takes no focus. No platform gives an image's source back, so backends keep it on the node for the mirror check.
 - **`draws_what_it_is_given` checks the pixels on screen:** a capture of the window, blue and red where the fixture has them, so a mirrored or swapped-channel image fails.
 - **The example's tweaks:** a photo frame on AppKit (`imageFrameStyle`), `content-fit` cover on GTK, `smooth` off on Qt, `UniformToFill` on WinUI (`Image`, `Stretch`, `BitmapImage`, `WriteableBitmap`, `Uri` and `IBufferByteAccess` added to the bindings).
-- **Run on AppKit and headless;** GTK, Kirigami and WinUI are only type-checked, and the shim's image provider only compiled against Qt 6 headers on macOS (not linked). Unverified on WinUI: that unpackaged apps load a `BitmapImage` from an absolute `file:///` URI, and paths with spaces or `#`.
+- **Run on AppKit, WinUI and headless;** GTK and Kirigami are only type-checked, and the shim's image provider only compiled against Qt 6 headers on macOS (not linked). An unpackaged WinUI app loads a `BitmapImage` from an absolute `file:///` URI; paths with spaces or `#` are unverified. WinUI's `settle` waits for files being decoded (`ImageOpened` or `ImageFailed`), as it waits for spinners to load: `expect` only retries while the app has tasks, and XAML's decoding isn't one.
 
 ### Tooltips
 

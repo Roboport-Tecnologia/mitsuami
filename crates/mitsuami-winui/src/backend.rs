@@ -172,9 +172,10 @@ enum Widget {
         source: Option<ImageSource>,
         fit: Option<ImageFit>,
         /// Files: the bitmap XAML decodes in the background, and whether
-        /// decoding failed.
+        /// decoding failed, or is done.
         bitmap: Option<w::BitmapImage>,
         failed: Rc<Cell<bool>>,
+        opened: Rc<Cell<bool>>,
     },
     Scroll(w::ScrollViewer),
     List(crate::list::List),
@@ -481,24 +482,22 @@ impl WinUiHandle {
     }
 
     /// Reports focus moves XAML made on its own (a focused control became
-    /// disabled or went away) whose `GotFocus` hasn't arrived yet.
+    /// disabled or went away) whose `GotFocus` hasn't arrived yet. XAML
+    /// focuses parts of composite controls (a list's row container, a
+    /// number box's text box): the node is the nearest one up from there.
     pub(crate) fn sync_focus(&self) {
         let state = self.state.borrow();
-        let focused: Vec<NodeId> = state
-            .nodes
-            .iter()
-            .filter(|(_, n)| !matches!(n.widget, Widget::Window(_)))
-            .filter(|(_, n)| {
-                n.control()
-                    .cast::<w::IUIElement>()
-                    .and_then(|e| e.FocusState())
-                    .is_ok_and(|f| f != w::FocusState::Unfocused)
-            })
-            .map(|(id, _)| *id)
-            .collect();
         for node in state.nodes.values() {
             let Widget::Window(parts) = &node.widget else { continue };
-            let now = focused.iter().copied().find(|id| state.window_of(*id).is_some_and(|p| p.node == parts.node));
+            let element = parts
+                .host
+                .cast::<w::IUIElement>()
+                .and_then(|h| h.XamlRoot())
+                .and_then(|root| w::FocusManager::GetFocusedElementWithRoot(&root))
+                .ok()
+                .filter(|e| !e.as_raw().is_null());
+            let now = resolve(&state.by_element, element)
+                .filter(|id| !matches!(state.nodes.get(id).map(|n| &n.widget), Some(Widget::Window(_))));
             report_focus(&state.emitter, &parts.focus, now);
         }
     }
@@ -677,12 +676,14 @@ impl mitsuami_core::TestHooks for WinUiHandle {
     /// call that caused them: dispatch them.
     fn settle(&self) {
         runtime::pump();
-        // Spinners have no size until XAML loads them, at its next frame:
-        // wait for it, so tests see the size the app gets.
+        // Spinners have no size until XAML loads them, at its next frame,
+        // and images from files until XAML has decoded them, in the
+        // background: wait for both, so tests see the size the app gets.
         let deadline = Instant::now() + Duration::from_secs(2);
-        while self.state.borrow().nodes.values().any(|n| {
-            matches!(&n.widget, Widget::Spinner(ring)
-                if !ring.cast::<w::IFrameworkElement>().and_then(|f| f.IsLoaded()).unwrap_or(true))
+        while self.state.borrow().nodes.values().any(|n| match &n.widget {
+            Widget::Spinner(ring) => !ring.cast::<w::IFrameworkElement>().and_then(|f| f.IsLoaded()).unwrap_or(true),
+            Widget::Image { bitmap: Some(_), failed, opened, .. } => !failed.get() && !opened.get(),
+            _ => false,
         }) && Instant::now() < deadline
         {
             runtime::wait(Some(Duration::from_millis(5)));
@@ -1226,10 +1227,13 @@ impl State {
             // read shows nothing.
             WidgetKind::Image => {
                 let image = w::Image::new()?;
-                let failed = Rc::new(Cell::new(false));
+                let (failed, opened) = (Rc::new(Cell::new(false)), Rc::new(Cell::new(false)));
                 revokers.push(image.ImageOpened({
-                    let emitter = emitter.clone();
-                    move |_, _| emitter.emit(id, UiEvent::Remeasure)
+                    let (emitter, opened) = (emitter.clone(), opened.clone());
+                    move |_, _| {
+                        opened.set(true);
+                        emitter.emit(id, UiEvent::Remeasure);
+                    }
                 })?);
                 revokers.push(image.ImageFailed({
                     let (emitter, failed) = (emitter.clone(), failed.clone());
@@ -1239,7 +1243,7 @@ impl State {
                     }
                 })?);
                 let element = image.cast()?;
-                (Widget::Image { image, source: None, fit: None, bitmap: None, failed }, element)
+                (Widget::Image { image, source: None, fit: None, bitmap: None, failed, opened }, element)
             }
             WidgetKind::TextInput => {
                 let field = w::TextBox::new()?;
@@ -1368,8 +1372,9 @@ impl State {
             (Prop::Step(new), Widget::Slider { step, .. } | Widget::Number { step, .. }) => *step = *new,
             // Acted on when it's shown.
             (Prop::Modal { owner, modality }, Widget::Window(parts)) => parts.modal = Some((*owner, *modality)),
-            (Prop::Image(new), Widget::Image { image, source, bitmap, failed, .. }) => {
+            (Prop::Image(new), Widget::Image { image, source, bitmap, failed, opened, .. }) => {
                 failed.set(false);
+                opened.set(false);
                 *bitmap = None;
                 match new {
                     ImageSource::Pixels(pixels) => {
@@ -1493,7 +1498,7 @@ impl State {
             (Prop::Number(n), Widget::Slider { slider, .. }) => {
                 node.shown_number.set(*n);
                 slider.cast::<w::IRangeBase>()?.SetValue(*n)?;
-                // XAML snaps what it's given to its step.
+                // XAML clamps what it's given to its range.
                 node.shown_number.set(slider.cast::<w::IRangeBase>()?.Value()?);
             }
             (Prop::Range { min, max }, Widget::Number { number, .. }) => {
@@ -2715,11 +2720,12 @@ impl Backend for WinUiBackend {
             Widget::Host(canvas) => (panel_children(canvas, &known), None),
             _ => (Vec::new(), None),
         };
-        // A list's focus goes to a row's container: the list has it when
-        // the window's focus tracking (which walks up to it) says so.
-        let list_focused = matches!(node.widget, Widget::List(_))
+        // Composite controls give focus to a part (a list's row container,
+        // a number box's text box): the control has it when the window's
+        // focus tracking (which walks up to it) says so.
+        let tracked = !matches!(node.widget, Widget::Window(_))
             && state.window_of(id).is_some_and(|parts| parts.focus.get() == Some(id));
-        let focused = list_focused
+        let focused = tracked
             || !matches!(node.widget, Widget::Window(_))
                 && node
                     .control()

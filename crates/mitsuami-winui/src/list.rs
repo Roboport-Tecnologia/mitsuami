@@ -100,11 +100,12 @@ impl Data {
         self.estimate.or(self.learned).unwrap_or(32.0)
     }
 
+    /// A row's cell height: as measured last, else the estimate. Never 0
+    /// while a new host waits for its height: rows above the view that
+    /// shrank and grew back made XAML shift the offset to keep the rows in
+    /// view still, a little further down every layout pass.
     fn height(&self, key: RowKey) -> f64 {
-        match self.hosts.contains_key(&key) {
-            true => self.heights.get(&key).copied().unwrap_or(0.0),
-            false => self.estimate(),
-        }
+        self.heights.get(&key).copied().unwrap_or_else(|| self.estimate())
     }
 }
 
@@ -437,7 +438,7 @@ impl List {
         let mut d = self.data.borrow_mut();
         if let Some(cell) = d.cells.get(&key).cloned() {
             put_in(&cell, &host);
-            set_height(&cell, d.heights.get(&key).copied().unwrap_or(0.0));
+            set_height(&cell, d.height(key));
         }
         d.hosts.insert(key, (id, host));
     }
@@ -448,7 +449,7 @@ impl List {
             && let Some(cell) = d.cells.get(&key).cloned()
         {
             take_out(&cell, &host);
-            set_height(&cell, d.estimate());
+            set_height(&cell, d.height(key));
         }
     }
 
@@ -506,14 +507,17 @@ impl List {
         Point::new(0.0, scroll.VerticalOffset().unwrap_or(0.0) as f32)
     }
 
-    /// Where the view put a row: its host's position in the view, in its
-    /// content's coordinates, at the host's size.
+    /// Where the view put a row: its host's position in the scroll
+    /// viewer's content, at the host's size. Measured from the content,
+    /// not the view: XAML applies a scroll at its next layout, so right
+    /// after one the view's transform and the offset disagree.
     pub(crate) fn row_rect(&self, host: &w::UIElement, size: Rect) -> Rect {
         let placed = (|| {
-            let view: w::UIElement = self.view.cast().ok()?;
-            let point = host.cast::<w::IUIElement>().ok()?.TransformToVisual(&view).ok()?;
+            let content = self.scroll_viewer()?.cast::<w::IContentControl>().ok()?.Content().ok()?;
+            let content: w::UIElement = content.cast().ok()?;
+            let point = host.cast::<w::IUIElement>().ok()?.TransformToVisual(&content).ok()?;
             let point = point.cast::<w::IGeneralTransform>().ok()?.TransformPoint(w::Point { x: 0.0, y: 0.0 }).ok()?;
-            Some(point.y + self.scroll_offset().y)
+            Some(point.y)
         })();
         match placed {
             Some(y) => Rect::new(0.0, y, size.width(), size.height()),
