@@ -91,6 +91,12 @@ unsafe extern "C" {
 
     fn mq_clipboard_text() -> *mut c_char;
     fn mq_set_clipboard_text(text: *const c_char);
+
+    fn mq_wayland_display() -> Raw;
+    fn mq_window_wl_surface(window: Raw) -> Raw;
+    fn mq_item_window(item: Raw) -> Raw;
+    fn mq_window_dpr(window: Raw) -> f64;
+    fn mq_window_margins(window: Raw, left: *mut i32, top: *mut i32);
 }
 
 // ------------------------------------------------------------- callbacks
@@ -216,6 +222,11 @@ pub(crate) fn set_color_scheme(path: &std::path::Path) {
 
 pub(crate) fn device_pixel_ratio() -> f64 {
     unsafe { mq_device_pixel_ratio() }
+}
+
+/// Qt's `wl_display`, on Wayland.
+pub(crate) fn wayland_display() -> Option<NonNull<c_void>> {
+    NonNull::new(unsafe { mq_wayland_display() })
 }
 
 pub(crate) fn clipboard_text() -> Option<String> {
@@ -421,6 +432,29 @@ impl QmlObject {
 
     pub(crate) fn set_geometry(self, x: f64, y: f64, width: f64, height: f64) {
         unsafe { mq_set_geometry(self.raw(), x, y, width, height) }
+    }
+
+    /// An item's window, once it's in one.
+    pub(crate) fn item_window(self) -> Option<QmlObject> {
+        QmlObject::from_raw(unsafe { mq_item_window(self.raw()) })
+    }
+
+    /// A window's `wl_surface`, on Wayland, while it has one.
+    pub(crate) fn wl_surface(self) -> Option<NonNull<c_void>> {
+        NonNull::new(unsafe { mq_window_wl_surface(self.raw()) })
+    }
+
+    /// A window's scale: device pixels to a logical one.
+    pub(crate) fn device_pixel_ratio(self) -> f64 {
+        unsafe { mq_window_dpr(self.raw()) }
+    }
+
+    /// Where a window's content starts in its surface, past decorations
+    /// Qt draws itself.
+    pub(crate) fn content_origin(self) -> (i32, i32) {
+        let (mut left, mut top) = (0, 0);
+        unsafe { mq_window_margins(self.raw(), &mut left, &mut top) };
+        (left, top)
     }
 
     pub(crate) fn map_to_scene(self, point: Point) -> Point {

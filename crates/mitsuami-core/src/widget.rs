@@ -79,6 +79,11 @@ pub enum WidgetKind {
     /// a picture from [`Prop::Image`], at its own size unless the layout
     /// sizes it, fitted as [`Prop::ImageFit`] says.
     Image,
+    /// A native surface the app presents to with its own GPU API, off the
+    /// UI thread (an `NSView` backed by a `CAMetalLayer`, a Wayland
+    /// subsurface, a child window). The backend reports it as
+    /// `SurfaceReady`, then its size in pixels as `SurfaceResized`.
+    GpuSurface,
     /// A native scroll container. It has exactly one native child, the
     /// content, which the core lays out and may be larger than the viewport.
     ScrollView,
@@ -131,6 +136,7 @@ impl WidgetKind {
             WidgetKind::Progress => "Progress",
             WidgetKind::Spinner => "Spinner",
             WidgetKind::Image => "Image",
+            WidgetKind::GpuSurface => "GpuSurface",
             WidgetKind::Custom(name) => name,
             WidgetKind::Native => "Native",
         }
@@ -362,7 +368,8 @@ pub enum Prop {
     /// ellipsis, as the platform draws one. `None`: all of them.
     MaxLines(Option<u32>),
     /// Caption of a `Button`, `Checkbox` or `Switch`; accessible name of a
-    /// `Switch`, `Select`, `Slider`, `NumberInput`, `Progress` or `Image`.
+    /// `Switch`, `Select`, `Slider`, `NumberInput`, `Progress`, `Image` or
+    /// `GpuSurface`.
     Label(String),
     /// Current text of a `TextInput` or `PasswordInput`.
     Value(String),

@@ -128,6 +128,10 @@ name = "spinner"
 harness = false
 
 [[test]]
+name = "gpu_surface"
+harness = false
+
+[[test]]
 name = "tasks"
 harness = false
 

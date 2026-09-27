@@ -37,6 +37,7 @@ use crate::classes::{ActionTarget, ClosureTarget, DrawnView, HostView, ViewMap, 
 use crate::custom::{AppKitCx, Emitter, ErasedRender, NativePayload};
 use crate::number_field::NumberField;
 use crate::services::ItemTarget;
+use crate::surface::SurfaceView;
 use crate::toolbar::Toolbar;
 
 /// How the backend behaves; apps and tests want different things.
@@ -89,6 +90,7 @@ enum Widget {
         running: bool,
     },
     Image(Retained<NSImageView>),
+    GpuSurface(Retained<SurfaceView>),
     Scroll(Retained<NSScrollView>),
     List(crate::list::List),
     /// A custom widget with an AppKit render, and the props it last got.
@@ -126,6 +128,7 @@ impl Widget {
             Widget::Progress(v) => v,
             Widget::Spinner { indicator, .. } => indicator,
             Widget::Image(v) => v,
+            Widget::GpuSurface(v) => v,
             Widget::Scroll(v) => v,
             Widget::List(list) => &list.scroll,
             Widget::Custom { view, .. } | Widget::Native { view, .. } => view,
@@ -146,6 +149,7 @@ impl Widget {
             | Widget::Progress(_)
             | Widget::Spinner { .. }
             | Widget::Image(_)
+            | Widget::GpuSurface(_)
             | Widget::Host(_)
             | Widget::Scroll(_)
             | Widget::List(_)
@@ -596,6 +600,11 @@ impl State {
             // Not editable, framed or animated: what `NSImageView` is
             // made as.
             WidgetKind::Image => Widget::Image(NSImageView::new(mtm)),
+            WidgetKind::GpuSurface => {
+                let (view, handle) = SurfaceView::new(mtm, id, self.events.clone());
+                self.events.emit(id, UiEvent::SurfaceReady(handle));
+                Widget::GpuSurface(view)
+            }
             WidgetKind::Progress => {
                 let progress = NSProgressIndicator::new(mtm);
                 progress.setMinValue(0.0);
@@ -785,6 +794,7 @@ impl State {
                 node.fit = Some(*fit);
             }
             (Prop::Label(t), Widget::Image(view)) => view.setAccessibilityLabel(Some(&ns(t))),
+            (Prop::Label(t), Widget::GpuSurface(view)) => view.setAccessibilityLabel(Some(&ns(t))),
             (Prop::Label(t), Widget::Progress(p) | Widget::Spinner { indicator: p, .. }) => {
                 p.setAccessibilityLabel(Some(&ns(t)))
             }
@@ -1085,6 +1095,11 @@ impl State {
                     Widget::List(list) => {
                         list.detach();
                         list.scroll.removeFromSuperview();
+                    }
+                    // The app's handle may keep it: it just stops showing.
+                    Widget::GpuSurface(view) => {
+                        view.detach();
+                        view.removeFromSuperview();
                     }
                     widget => widget.view().removeFromSuperview(),
                 }
@@ -1394,6 +1409,8 @@ impl Backend for AppKitBackend {
             Widget::Image(view) => view.image().map_or(Size::ZERO, |image| ceil_size(image.size())),
             Widget::Progress(p) => intrinsic(p),
             Widget::Spinner { indicator, .. } => intrinsic(indicator),
+            // As large as the layout makes it.
+            Widget::GpuSurface(_) => Size::ZERO,
             Widget::Custom { view, render, props } => {
                 render.measure(view, props.props(), &request).unwrap_or_else(|| intrinsic(view))
             }
@@ -1766,6 +1783,11 @@ impl Backend for AppKitBackend {
                         NSImageScaling::ScaleAxesIndependently => ImageFit::Stretch,
                         _ => ImageFit::Contain,
                     }));
+                }
+            }
+            Widget::GpuSurface(view) => {
+                if let Some(label) = view.accessibilityLabel() {
+                    props.push(Prop::Label(label.to_string()));
                 }
             }
             Widget::Scroll(scroll) => {

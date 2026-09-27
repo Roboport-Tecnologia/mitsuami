@@ -45,6 +45,8 @@ mod platforms;
 
 pub use app::App;
 pub use mitsuami_core as core;
+/// The `raw-window-handle` a [`SurfaceHandle`](prelude::SurfaceHandle) implements.
+pub use mitsuami_core::raw_window_handle;
 pub use mitsuami_macros::{component, view};
 pub use mitsuami_reactive as reactive;
 pub use mitsuami_widgets as widgets;
@@ -88,15 +90,15 @@ pub mod prelude {
     pub use mitsuami_core::{
         Align, ButtonRole, ButtonStyle, Callback, Children, Element, ElementBuilder, FlexDirection, For, GridPlacement,
         ImageFit, ImageSource, Justify, Length, LengthExt, List, ListHandle, ListStyle, Modality, NodeId, Orientation,
-        Pixels, Point, Role, ScrollAxes, SelectionMode, Show, Size, Slot, Spacing, TextDirection, TextStyle, Track,
-        Tweak, Ui, View, WindowSize, repeat,
+        Pixels, Point, Role, ScrollAxes, SelectionMode, Show, Size, Slot, Spacing, SurfaceHandle, SurfaceSize,
+        TextDirection, TextStyle, Track, Tweak, Ui, View, WindowSize, repeat,
     };
     pub use mitsuami_reactive::{
         Computed, IntoValue, Owner, Signal, Value, batch, computed, effect, inject, on_cleanup, provide, signal,
         untrack, watch,
     };
     pub use mitsuami_widgets::{
-        Button, Checkbox, Column, Container, Grid, Image, NumberInput, PasswordInput, Progress, Row, ScrollView,
-        Select, Slider, Spinner, Switch, Text, TextInput, Toolbar, Window,
+        Button, Checkbox, Column, Container, GpuSurface, Grid, Image, NumberInput, PasswordInput, Progress, Row,
+        ScrollView, Select, Slider, Spinner, Switch, Text, TextInput, Toolbar, Window,
     };
 }

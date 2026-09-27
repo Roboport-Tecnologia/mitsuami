@@ -17,6 +17,7 @@ mod resource;
 pub mod services;
 mod store;
 pub mod style;
+mod surface;
 pub mod task;
 mod tweak;
 mod ui;
@@ -40,6 +41,7 @@ pub use list::{List, ListHandle, RowRender};
 pub use resource::{Action, Resource, action, resource, resource_on};
 pub use store::{Store, provide_stores, use_store};
 pub use style::{Align, Display, FlexDirection, GridPlacement, Justify, Style, TextDirection, Track, repeat};
+pub use surface::{NativeSurface, SurfaceHandle, SurfaceSize};
 pub use tweak::Tweak;
 pub use ui::{NodeInfo, Ui, WeakUi};
 pub use units::{Length, LengthExt, Spacing};
@@ -50,3 +52,4 @@ pub use widget::{
 };
 
 pub use mitsuami_reactive as reactive;
+pub use raw_window_handle;

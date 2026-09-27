@@ -3,6 +3,7 @@
 use crate::a11y::A11yProps;
 use crate::any_value::AnyValue;
 use crate::geometry::{Point, Rect, Size};
+use crate::surface::{SurfaceHandle, SurfaceSize};
 use crate::widget::{NodeId, Prop, RowKey, WidgetKind};
 
 /// A change the backend must apply to the native widget tree.
@@ -127,6 +128,12 @@ pub enum UiEvent {
     Custom(AnyValue),
     /// The item of the node's context menu with this id was chosen.
     ContextMenuItem(u32),
+    /// A `GpuSurface`'s native surface exists: the app can make its GPU
+    /// surface on it. Reported once, before any `SurfaceResized`; its size
+    /// may still be empty.
+    SurfaceReady(SurfaceHandle),
+    /// A `GpuSurface`'s size in pixels, or its scale, changed.
+    SurfaceResized(SurfaceSize),
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]

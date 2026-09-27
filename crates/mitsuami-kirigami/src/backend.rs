@@ -22,6 +22,7 @@ use crate::events::{Events, node_from_key, node_key};
 use crate::ffi::{self, Callback, QmlObject};
 use crate::qml;
 use crate::services::{ContextMenu, KirigamiServices, Menus, drawer_qml};
+use crate::surface::SurfaceItem;
 use crate::theme;
 
 /// How the backend behaves; apps and tests want different things.
@@ -179,6 +180,7 @@ enum Widget {
         fit: Option<ImageFit>,
         pixels: Option<ffi::ProvidedPixels>,
     },
+    GpuSurface(SurfaceItem),
     Scroll {
         view: QmlObject,
         flickable: QmlObject,
@@ -228,6 +230,7 @@ impl Widget {
             | Widget::Custom { item: i, .. }
             | Widget::Drawn { item: i, .. }
             | Widget::Native { item: i, .. } => *i,
+            Widget::GpuSurface(surface) => surface.item,
             Widget::List(list) => list.root,
         }
     }
@@ -741,6 +744,7 @@ impl State {
             }
             WidgetKind::Progress => Widget::Progress(QmlObject::load(&qml::progress())),
             WidgetKind::Spinner => Widget::Spinner(QmlObject::load(&qml::spinner())),
+            WidgetKind::GpuSurface => Widget::GpuSurface(SurfaceItem::new(id, events.clone())),
             WidgetKind::Image => {
                 let item = QmlObject::load(&qml::image());
                 // Loading is synchronous, but should an image finish (or
@@ -936,6 +940,10 @@ impl State {
                 | Widget::Image { item: s, .. },
             ) => {
                 s.set_str("mitsuamiA11yName", t);
+                node.a11y_label = Some(t.clone());
+            }
+            (Prop::Label(t), Widget::GpuSurface(surface)) => {
+                surface.item.set_str("mitsuamiA11yName", t);
                 node.a11y_label = Some(t.clone());
             }
             (Prop::Options(options), Widget::Select(s)) => {
@@ -1246,6 +1254,12 @@ impl State {
                         host.destroy();
                         action.destroy();
                     }
+                    // The app's handle may keep its surface: it just stops
+                    // showing.
+                    Widget::GpuSurface(surface) => {
+                        surface.detach();
+                        surface.item.destroy();
+                    }
                     widget => widget.item().destroy(),
                 }
             }
@@ -1292,6 +1306,7 @@ impl State {
                         | Widget::Progress(_)
                         | Widget::Spinner(_)
                         | Widget::Image { .. }
+                        | Widget::GpuSurface(_)
                 );
                 if !named_by_label || label.is_some() {
                     item.set_str("mitsuamiA11yName", label.as_deref().unwrap_or_default());
@@ -1410,6 +1425,8 @@ impl Backend for KirigamiBackend {
                 let natural = pixels.size();
                 Size::new(request.known_width.unwrap_or(natural.width), request.known_height.unwrap_or(natural.height))
             }
+            // As large as the layout makes it.
+            Widget::GpuSurface(_) => Size::new(request.known_width.unwrap_or(0.0), request.known_height.unwrap_or(0.0)),
             // Measured by the core.
             Widget::Drawn { .. }
             | Widget::Window { .. }
@@ -1725,6 +1742,7 @@ impl Backend for KirigamiBackend {
                 props.extend(source.clone().map(Prop::Image));
                 props.extend(fit.map(Prop::ImageFit));
             }
+            Widget::GpuSurface(_) => props.extend(node.a11y_label.clone().map(Prop::Label)),
             Widget::Select(s) => {
                 props.extend(node.a11y_label.clone().map(Prop::Label));
                 props.push(Prop::Options(option_texts(*s)));

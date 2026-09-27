@@ -11,11 +11,12 @@ repository.workspace = true
 [features]
 # Builds the backend. Without it the crate is empty, so the workspace builds
 # on Linux machines without Qt; `mitsuami`'s `kde` feature turns it on.
-qt = []
+qt = ["dep:mitsuami-wayland"]
 
 [dependencies]
 mitsuami-core.workspace = true
 mitsuami-widgets.workspace = true
+mitsuami-wayland = { workspace = true, optional = true }
 
 [dev-dependencies]
 mitsuami-reactive.workspace = true

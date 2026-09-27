@@ -6,7 +6,7 @@ use std::rc::Rc;
 use mitsuami_core::{
     Align, AnyView, ButtonRole, ButtonStyle, Children, CurrentWindow, Display, Element, ElementBuilder, EventValue,
     FlexDirection, ImageFit, ImageSource, Justify, Length, Modality, NodeId, Orientation, Pixels, Point, Prop,
-    ScrollAxes, TextStyle, Track, Tweak, Ui, UiEvent, View, WidgetKind, WindowSize,
+    ScrollAxes, SurfaceHandle, SurfaceSize, TextStyle, Track, Tweak, Ui, UiEvent, View, WidgetKind, WindowSize,
 };
 use mitsuami_reactive::{IntoValue, Signal, Value, computed, effect, inject, on_cleanup, provide, untrack};
 
@@ -1212,6 +1212,69 @@ impl Image {
     }
 }
 
+/// A surface the app draws on with its own GPU API (wgpu, Vulkan, Metal,
+/// Direct3D), at its own pace and on its own thread, as it would draw on a
+/// window of its own: an `NSView` backed by a `CAMetalLayer` on AppKit.
+/// It has no natural size; the layout sizes it.
+///
+/// `on_ready` gets its [`SurfaceHandle`] once the native surface exists,
+/// and `on_resize` its size in pixels whenever that or its scale changes;
+/// the handle's `size()` has it too, for a render thread. The handle keeps
+/// the native surface alive after the widget is gone, so drop it (and the
+/// GPU surface made on it) when the app is done presenting.
+///
+/// The surface sits above the window's own content, as the platform
+/// layers it. Its label is its accessible name.
+///
+/// ```ignore
+/// GpuSurface::new()
+///     .label("Machine")
+///     .on_ready(move |surface| renderer.send(Message::Surface(surface)))
+///     .on_resize(move |size| renderer.send(Message::Resize(size)))
+/// ```
+pub struct GpuSurface(Element);
+
+widget!(GpuSurface);
+
+impl Default for GpuSurface {
+    fn default() -> GpuSurface {
+        GpuSurface::new()
+    }
+}
+
+impl GpuSurface {
+    pub fn new() -> GpuSurface {
+        GpuSurface(Element::new(WidgetKind::GpuSurface))
+    }
+
+    /// Its accessible name: what the app draws there.
+    pub fn label(mut self, label: impl IntoValue<String>) -> GpuSurface {
+        self.0.prop(label.into_value(), Prop::Label);
+        self
+    }
+
+    /// The native surface exists: make the GPU surface on it. Called once.
+    pub fn on_ready(mut self, handler: impl Fn(SurfaceHandle) + 'static) -> GpuSurface {
+        self.0.on(move |event| {
+            if let UiEvent::SurfaceReady(surface) = event {
+                handler(surface.clone());
+            }
+        });
+        self
+    }
+
+    /// Its size in pixels, or its scale, changed: configure the GPU
+    /// surface for it.
+    pub fn on_resize(mut self, handler: impl Fn(SurfaceSize) + 'static) -> GpuSurface {
+        self.0.on(move |event| {
+            if let UiEvent::SurfaceResized(size) = event {
+                handler(*size);
+            }
+        });
+        self
+    }
+}
+
 /// A spinner, as the platform draws one, for work of unknown length: a
 /// spinning `NSProgressIndicator`, `gtk::Spinner`, `ProgressRing`,
 /// `QQC2.BusyIndicator`. It spins while running (from the start, unless
@@ -1424,6 +1487,14 @@ impl Image {
     pub fn source(mut self, source: impl IntoValue<ImageSource>) -> Image {
         self.0.prop(source.into_value(), Prop::Image);
         self
+    }
+}
+
+impl GpuSurface {
+    /// `<GpuSurface label="Machine" @ready=… @resize=…/>`
+    #[doc(hidden)]
+    pub fn __tag() -> GpuSurface {
+        GpuSurface::new()
     }
 }
 

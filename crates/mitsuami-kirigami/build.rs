@@ -21,7 +21,17 @@ fn main() {
     let mut includes = Vec::new();
     for module in MODULES {
         match pkg_config::Config::new().atleast_version("6.5").probe(module) {
-            Ok(lib) => includes.extend(lib.include_paths),
+            Ok(lib) => {
+                // Qt's platform headers (`qpa/`, for a window's
+                // `wl_surface`) are under the module's version.
+                if module == "Qt6Gui" {
+                    for path in lib.include_paths.iter().filter(|p| p.ends_with("QtGui")) {
+                        includes.push(path.join(&lib.version));
+                        includes.push(path.join(&lib.version).join("QtGui"));
+                    }
+                }
+                includes.extend(lib.include_paths)
+            }
             Err(e) => panic!(
                 "mitsuami-kirigami: the Qt 6 development files are missing ({module}): {e}\n\
                  Install Qt 6.5 or newer with Qt Quick Controls, plus Kirigami and qqc2-desktop-style."

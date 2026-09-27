@@ -475,6 +475,18 @@ fn images() -> impl View {
     ))
 }
 
+/// A GPU surface nothing has presented to yet, between two lines: where
+/// it sits and how large it is. Captures show what the platform draws
+/// before the app presents (captures don't read GPU surfaces' content).
+#[mitsuami_test::story(sizes = [(240, fit)])]
+fn gpu_surfaces() -> impl View {
+    Column::new().padding(16).gap(8).children((
+        Text::new("Above"),
+        GpuSurface::new().label("Screen").height(96),
+        Text::new("Below"),
+    ))
+}
+
 /// Spin boxes as each platform draws them: a field and a stepper on
 /// AppKit, buttons inside the field elsewhere. GTK sizes them for their
 /// range's widest number.

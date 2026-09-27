@@ -283,6 +283,7 @@ pub(crate) fn wireframe(root: &NodeInfo) -> String {
             | WidgetKind::Progress
             | WidgetKind::Spinner => "#1f8a8a",
             WidgetKind::Image => "#b8860b",
+            WidgetKind::GpuSurface => "#2b2b2b",
             WidgetKind::Custom(_) | WidgetKind::Native => "#c0392b",
         }
     }

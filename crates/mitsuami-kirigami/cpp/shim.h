@@ -132,4 +132,13 @@ void mq_set_url_str(QObject* object, const char* name, const char* url);
 // Clipboard.
 char* mq_clipboard_text(void);
 void mq_set_clipboard_text(const char* text);
+
+// GPU surfaces, on Wayland: Qt's wl_display, a window's wl_surface (both
+// null on other platforms, or before the window has one), an item's
+// window, and a window's scale and decoration margins.
+void* mq_wayland_display(void);
+void* mq_window_wl_surface(QObject* window);
+QObject* mq_item_window(QObject* item);
+double mq_window_dpr(QObject* window);
+void mq_window_margins(QObject* window, int32_t* left, int32_t* top);
 }

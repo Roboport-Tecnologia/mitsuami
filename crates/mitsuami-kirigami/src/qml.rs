@@ -361,6 +361,12 @@ Image {{
     )
 }
 
+/// What keeps a GPU surface's space; the surface is over it, and takes
+/// no input.
+pub(crate) fn gpu_surface() -> String {
+    format!("Item {{ Accessible.role: Accessible.Graphic; {} }}", a11y_hover("\"\""))
+}
+
 pub(crate) fn spinner() -> String {
     format!("QQC2.BusyIndicator {{ running: false; {} }}", a11y("\"\""))
 }

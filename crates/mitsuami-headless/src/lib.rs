@@ -18,11 +18,12 @@ use mitsuami_core::backend::{
     AvailableSpace, Backend, CaptureError, EventSink, FontSizes, Image, Key, MeasureRequest, NativeState,
     PlatformMetrics, SyntheticInput,
 };
+use mitsuami_core::raw_window_handle::{HandleError, RawDisplayHandle, RawWindowHandle};
 use mitsuami_core::services::menu_item_by_id;
 use mitsuami_core::units::SpacingScale;
 use mitsuami_core::{
-    Command, EventValue, ImageSource, NodeId, Orientation, Point, PointerEvent, PointerKind, Prop, Rect, RowKey,
-    SelectionMode, Size, TextStyle, UiEvent, WidgetKind, find_prop,
+    Command, EventValue, ImageSource, NativeSurface, NodeId, Orientation, Point, PointerEvent, PointerKind, Prop, Rect,
+    RowKey, SelectionMode, Size, SurfaceHandle, SurfaceSize, TextStyle, UiEvent, WidgetKind, find_prop,
 };
 
 /// A window's toolbar: this high, above its content, with its items this
@@ -66,6 +67,22 @@ struct HeadlessNode {
     /// Lists only: the heights of the rows measured so far, kept when
     /// they're let go, as native lists keep them.
     heights: BTreeMap<RowKey, f32>,
+    /// GPU surfaces only: what the app got.
+    surface: Option<SurfaceHandle>,
+}
+
+/// A `GpuSurface` with nothing to present to: the app gets it, and its
+/// sizes, but no window handle.
+struct HeadlessSurface;
+
+impl NativeSurface for HeadlessSurface {
+    fn window_handle(&self) -> Result<RawWindowHandle, HandleError> {
+        Err(HandleError::NotSupported)
+    }
+
+    fn display_handle(&self) -> Result<RawDisplayHandle, HandleError> {
+        Err(HandleError::NotSupported)
+    }
 }
 
 /// Where a list placed a row.
@@ -96,6 +113,22 @@ impl State {
     fn emit(&self, id: NodeId, event: UiEvent) {
         if let Some(events) = &self.events {
             events.emit(id, event);
+        }
+    }
+
+    /// Reports a GPU surface's size in pixels (its frame at the scale
+    /// factor, rounded, as platforms round), if it changed.
+    fn size_surface(&self, id: NodeId) {
+        let node = &self.nodes[&id];
+        let Some(surface) = &node.surface else { return };
+        let scale = self.metrics.scale_factor;
+        let size = SurfaceSize {
+            width: (node.frame.width() * scale).round() as u32,
+            height: (node.frame.height() * scale).round() as u32,
+            scale,
+        };
+        if surface.set_size(size) {
+            self.emit(id, UiEvent::SurfaceResized(size));
         }
     }
 
@@ -377,6 +410,11 @@ impl HeadlessHandle {
     pub fn set_metrics(&self, metrics: PlatformMetrics) {
         let mut state = self.state.borrow_mut();
         state.metrics = metrics;
+        let surfaces: Vec<NodeId> =
+            state.nodes.iter().filter(|(_, n)| n.surface.is_some()).map(|(id, _)| *id).collect();
+        for surface in surfaces {
+            state.size_surface(surface);
+        }
         let windows: Vec<NodeId> =
             state.nodes.iter().filter(|(_, n)| n.kind == WidgetKind::Window).map(|(id, _)| *id).collect();
         for window in windows {
@@ -461,8 +499,14 @@ impl Backend for HeadlessBackend {
                             placed: Vec::new(),
                             placed_index: Default::default(),
                             heights: BTreeMap::new(),
+                            surface: None,
                         },
                     );
+                    if *kind == WidgetKind::GpuSurface {
+                        let surface = SurfaceHandle::new(HeadlessSurface);
+                        state.nodes.get_mut(id).unwrap().surface = Some(surface.clone());
+                        state.emit(*id, UiEvent::SurfaceReady(surface));
+                    }
                 }
                 Command::SetProp { id, prop } => {
                     state.node(*id, command);
@@ -533,6 +577,7 @@ impl Backend for HeadlessBackend {
                         violation(command, "window frames belong to the platform");
                     }
                     node.frame = *frame;
+                    state.size_surface(*id);
                 }
                 Command::SetA11y { id, a11y } => state.node(*id, command).a11y = a11y.clone(),
                 Command::SetWindowSize { id, size } => state.node(*id, command).frame.size = *size,

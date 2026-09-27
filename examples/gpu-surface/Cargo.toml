@@ -1,0 +1,17 @@
+# A GpuSurface presented to with wgpu from a thread of its own:
+# `cargo run --manifest-path examples/gpu-surface/Cargo.toml`.
+# A crate of its own, outside the workspace, so wgpu isn't built with the
+# workspace's tests.
+[package]
+name = "gpu-surface-example"
+version = "0.0.0"
+edition = "2024"
+license = "MIT OR Apache-2.0"
+publish = false
+
+[workspace]
+
+[dependencies]
+mitsuami = { path = "../../crates/mitsuami" }
+wgpu = "30"
+pollster = "0.4"

@@ -36,6 +36,8 @@ mod qml;
 #[cfg(all(target_os = "linux", feature = "qt"))]
 mod services;
 #[cfg(all(target_os = "linux", feature = "qt"))]
+mod surface;
+#[cfg(all(target_os = "linux", feature = "qt"))]
 mod theme;
 #[cfg(all(target_os = "linux", feature = "qt"))]
 mod tweak;

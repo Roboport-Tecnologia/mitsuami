@@ -22,6 +22,7 @@ use windows_core::{EventRevoker, HSTRING, IInspectable, IUnknown, Interface};
 use crate::bindings as w;
 use crate::custom::{DrawnView, ErasedRender, Measure, NativePayload, WinUiCx};
 use crate::runtime;
+use crate::surface::SurfaceHost;
 
 /// How the backend behaves; apps and tests want different things.
 #[derive(Clone, Debug)]
@@ -191,6 +192,7 @@ enum Widget {
         failed: Rc<Cell<bool>>,
         opened: Rc<Cell<bool>>,
     },
+    GpuSurface(SurfaceHost),
     Scroll(w::ScrollViewer),
     List(crate::list::List),
     /// A custom widget with a native render, and the props it shows.
@@ -1462,6 +1464,11 @@ impl State {
                 let element = canvas.cast()?;
                 (Widget::Host(canvas), element)
             }
+            WidgetKind::GpuSurface => {
+                let surface = SurfaceHost::new(id, emitter.clone())?;
+                let element = surface.canvas.cast()?;
+                (Widget::GpuSurface(surface), element)
+            }
             WidgetKind::Custom(_) => {
                 let Command::Create { props, .. } = command else { unreachable!() };
                 let Some(custom) = find_prop!(props, Custom) else {
@@ -1871,7 +1878,8 @@ impl State {
                 | Widget::Number { .. }
                 | Widget::Progress(_)
                 | Widget::Spinner(_)
-                | Widget::Image { .. },
+                | Widget::Image { .. }
+                | Widget::GpuSurface(_),
             ) => {
                 w::AutomationProperties::SetName(&node.element, t)?;
                 node.a11y_label = Some(t.clone());
@@ -2241,6 +2249,11 @@ impl State {
                 self.pending_show.retain(|w| w != id);
                 self.menus.windows.remove(id);
                 drop(node.revokers);
+                // The app's handle may keep its child window: it just stops
+                // showing.
+                if let Widget::GpuSurface(surface) = &node.widget {
+                    surface.detach();
+                }
                 if let Widget::Window(parts) = node.widget {
                     let WindowParts { window, menu_revokers, modal, disabled, .. } = *parts;
                     drop(menu_revokers);
@@ -2363,6 +2376,19 @@ impl State {
     }
 
     /// The window `id` is in (or is).
+    /// Gives GPU surfaces that are now in a window their child windows.
+    fn attach_surfaces(&self) {
+        for (id, node) in &self.nodes {
+            if let Widget::GpuSurface(surface) = &node.widget
+                && !surface.is_attached()
+                && let Some(parts) = self.window_of(*id)
+                && let Err(error) = surface.attach(parts.hwnd)
+            {
+                panic!("winui backend: a GpuSurface's child window: {error}");
+            }
+        }
+    }
+
     fn window_of(&self, id: NodeId) -> Option<&WindowParts> {
         let mut current = Some(id);
         while let Some(id) = current {
@@ -2678,6 +2704,7 @@ impl Backend for WinUiBackend {
                 panic!("winui backend: {command:?} failed: {error}");
             }
         }
+        state.attach_surfaces();
         state.layout_lists();
     }
 
@@ -2720,6 +2747,8 @@ impl Backend for WinUiBackend {
                 )
             }
             Widget::Image { .. } => Size::ZERO,
+            // As large as the layout makes it.
+            Widget::GpuSurface(_) => Size::ZERO,
             Widget::Custom { render, props } => render
                 .measure(node.control(), props.props(), &request)
                 .unwrap_or_else(|| ceil(measure_element(&node.element, infinite))),
@@ -3180,6 +3209,12 @@ impl Backend for WinUiBackend {
                     props.push(Prop::Label(name));
                 }
                 props.push(Prop::Running(ring.cast::<w::IProgressRing>().ok()?.IsActive().ok()?));
+            }
+            Widget::GpuSurface(_) => {
+                let name = w::AutomationProperties::GetName(&node.element).unwrap_or_default();
+                if !name.is_empty() {
+                    props.push(Prop::Label(name));
+                }
             }
             Widget::Image { source, fit, .. } => {
                 let name = w::AutomationProperties::GetName(&node.element).unwrap_or_default();

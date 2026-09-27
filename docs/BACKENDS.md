@@ -81,6 +81,7 @@ Validate as you go. Panic on protocol violations such as an unknown node, a doub
 | `Progress` | `NSProgressIndicator` bar | `gtk::ProgressBar` (pulsed by a timer while indeterminate) | `ProgressBar` | `QQC2.ProgressBar` |
 | `Spinner` | spinning `NSProgressIndicator` (`displayedWhenStopped` off) | `gtk::Spinner` | `ProgressRing` | `QQC2.BusyIndicator` |
 | `Image` | `NSImageView` | `gtk::Picture` | `Image` (a `BitmapImage`, or a `WriteableBitmap` for pixels) | QML `Image` (an image provider for pixels) |
+| `GpuSurface` (§8c) | `NSView` whose backing layer is a `CAMetalLayer` | `gtk::DrawingArea` keeping the space, under a Wayland subsurface of our own (`mitsuami-wayland`) | `Canvas` keeping the space, under a child HWND | `Item` keeping the space, under a Wayland subsurface of our own |
 | `Select` | `NSPopUpButton` (items added to its menu) | `gtk::DropDown` over a `gtk::StringList` | `ComboBox` of `ComboBoxItem`s | `QQC2.ComboBox` |
 | `ScrollView` | `NSScrollView` | `gtk::ScrolledWindow` | `ScrollViewer` | `QQC2.ScrollView` around a `Flickable` |
 | `List` (§8b) | view-based `NSTableView` in an `NSScrollView` | `gtk::ListView` over a `gio::ListStore` of keys | `ListView` over the keys (boxed strings), with `Canvas` cells | QML `ListView` over the keys, with `QQC2.ItemDelegate`s |
@@ -95,7 +96,7 @@ Validate as you go. Panic on protocol violations such as an unknown node, a doub
 | `Title` | Window | |
 | `Text` | Text | |
 | `MaxLines` | Text | At most this many lines, the last cut off with the platform's ellipsis; `None`: all. AppKit `maximumNumberOfLines` (the cell truncating its last visible line), GTK `lines` with `ellipsize` end (GTK only limits ellipsizing labels), Qt `maximumLineCount` with `elide` right, XAML `MaxLines` with `TextTrimming` `CharacterEllipsis`. Measure the label as limited. Report it back. |
-| `Label` | Button, Checkbox, Switch, Select, Slider, NumberInput, Progress, Image | Only buttons and checkboxes show it; for the others it's the accessible name. |
+| `Label` | Button, Checkbox, Switch, Select, Slider, NumberInput, Progress, Image, GpuSurface | Only buttons and checkboxes show it; for the others it's the accessible name. |
 | `Value` | TextInput, PasswordInput | Don't re-set a value the widget already shows. Report a password field's text back too: the mirror check compares it, though the a11y tree never shows it. |
 | `Placeholder` | TextInput, PasswordInput | |
 | `ReadOnly` | TextInput | Shows the text, still selectable, but not editable: AppKit `editable` off (`selectable` stays on), GTK and XAML `editable` / `IsReadOnly`, Qt `readOnly`. Keyboard focus is the platform's: AppKit's read-only fields take it from a click, and from Tab only with Full Keyboard Access. The app can still set `Value`. Report it as the field shows it. |
@@ -156,6 +157,8 @@ Native callbacks **only** call `events.emit(id, event)` on the `EventSink` given
 | `Remeasure` | a widget's natural size changed on its own, e.g. an image the platform decoded in the background | |
 | `Pointer(event)` | primary button down / up on a **drawn** custom widget, in its coordinates | |
 | `Custom(value)` | a native render or native view emits (through your `Emitter`) | |
+| `SurfaceReady(handle)` | a `GpuSurface`'s native surface exists (§8c): once, before any `SurfaceResized` | |
+| `SurfaceResized(size)` | a `GpuSurface`'s size in pixels or its scale changes; set it on the handle too (`set_size` says whether it changed) | its size is empty |
 | `ContextMenuItem(id)` | the user (or assistive technology) chooses an item of the node's context menu | the core set `ContextMenu`. XAML and Qt toggle a check item themselves when it's clicked: put back the app's state before reporting it. |
 
 Focus tracking needs one global observer, not per-widget guesses. Examples: AppKit uses KVO on `NSWindow.firstResponder`, GTK can use `notify::focus-widget` on the window, Qt Quick has the window's `activeFocusItemChanged`, and WinUI uses a bubbling `GotFocus` on the window's root. WinUI raises it asynchronously, so its backend also reports the focus moves it makes itself right away, and drops the late event. Map the focused native object to the nearest known node by walking up its parents. Composite widgets (a text field's inner editor, a scrolled window's viewport) put focus on children you didn't create.
@@ -269,6 +272,16 @@ A `List` is the platform's list control, and the platform virtualises it: it scr
 - **Callbacks come at any time.** A table can ask for cells, heights and counts in the middle of your own `apply` (a reload, a scroll, a resize). Keep the list's data (keys, heights, hosts, cells) in a small `Rc<RefCell<…>>` of its own that the data source reads, never your backend's main state or the `Ui`, and only `emit` from there.
 - **`native_state` of a row host** reports the rect the platform gave that row, in the list's content; the core uses its position (that's where frames inside rows, visibility and `scroll_into_view` come from), and the mirror check compares its size with the host's. The List reports its `Rows`, `SelectionMode` and `Selected` as the native control shows them, and its `ListStyle` as last set.
 - **Focus:** the List itself takes focus (it's in the Tab order), as the native control does.
+
+## 8c. GPU surfaces
+
+A `GpuSurface` is a native surface the app presents to with its own GPU API, from its own thread. The backend makes the native surface, places it over its widget and reports its size; it never draws in it.
+
+- **Hand it out as a `SurfaceHandle`:** implement `NativeSurface` (the `raw-window-handle` window and display handles) for your native surface and wrap it with `SurfaceHandle::new`, then report `SurfaceReady(handle)`. Make it when the platform can: AppKit on `Create`, Wayland once the window has a surface (when the widget is mapped), WinUI once the node is in a window.
+- **The handle owns the surface:** it lives until the app's last handle is dropped, after the node is destroyed too, since a GPU surface made on it must not outlive it. `Destroy` only stops it showing and reporting, and must keep the window from taking it down (WinUI moves its child window under `HWND_MESSAGE`). The last handle may be dropped on any thread: free what must be freed on the UI thread there (AppKit's main queue, WinUI's `WM_CLOSE`). Don't let the widget hold a handle to itself past its node, or it never goes.
+- **Follow the widget:** where the surface is a window of its own (a subsurface, a child window), place it after each of the window's frames, so layout, scrolling and resizes all move it, and hide it while the widget has no size or isn't shown. It takes no input, so the toolkit keeps the pointer.
+- **Report its size in pixels and its scale** as `SurfaceResized`, and set it on the handle first (`SurfaceHandle::set_size`), so a render thread that reads it sees it as soon as the app does.
+- **Measure it as nothing:** it's as large as the layout makes it. `native_state` reports its `Label`.
 
 ## 9. Tab order
 

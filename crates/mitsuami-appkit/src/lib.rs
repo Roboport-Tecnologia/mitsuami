@@ -26,6 +26,8 @@ mod number_field;
 #[cfg(target_os = "macos")]
 mod services;
 #[cfg(target_os = "macos")]
+mod surface;
+#[cfg(target_os = "macos")]
 mod toolbar;
 #[cfg(target_os = "macos")]
 mod tweak;

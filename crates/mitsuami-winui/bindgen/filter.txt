@@ -281,3 +281,21 @@ Windows.Win32.EnableWindow
 Windows.Win32.IsWindowEnabled
 Microsoft.UI.Xaml.Input.FocusManager::GetFocusedElementWithRoot
 Windows.Win32.GetActiveWindow
+Microsoft.UI.Xaml.Media.CompositionTarget::{add_Rendering, remove_Rendering}
+Windows.Win32.CreateWindowExW
+Windows.Win32.RegisterClassExW
+Windows.Win32.WNDCLASSEXW
+Windows.Win32.DefWindowProcW
+Windows.Win32.DestroyWindow
+Windows.Win32.SetParent
+Windows.Win32.HWND_MESSAGE
+Windows.Win32.SetWindowPos
+Windows.Win32.HWND_TOP
+Windows.Win32.SWP_NOACTIVATE
+Windows.Win32.SWP_SHOWWINDOW
+Windows.Win32.SWP_HIDEWINDOW
+Windows.Win32.WS_CHILD
+Windows.Win32.WS_CLIPSIBLINGS
+Windows.Win32.WM_NCHITTEST
+Windows.Win32.HTTRANSPARENT
+Windows.Win32.GetModuleHandleW

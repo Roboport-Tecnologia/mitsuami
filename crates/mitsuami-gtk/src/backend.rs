@@ -22,6 +22,7 @@ use mitsuami_core::{
 use crate::custom::{DrawnArea, Emitter, ErasedRender, GtkCx, NativePayload};
 use crate::host::{Events, Frames, Host, WindowRoot};
 use crate::services::{ContextMenu, GtkServices, Menus, choose_context_item};
+use crate::surface::SurfaceArea;
 
 /// How the backend behaves; apps and tests want different things.
 #[derive(Clone, Debug, Default)]
@@ -84,6 +85,7 @@ enum Widget {
         source: Option<ImageSource>,
         fit: Option<ImageFit>,
     },
+    GpuSurface(SurfaceArea),
     Scroll {
         scrolled: gtk::ScrolledWindow,
         viewport: gtk::Viewport,
@@ -127,6 +129,7 @@ impl Widget {
             Widget::Progress { bar, .. } => bar.upcast_ref(),
             Widget::Spinner(w) => w.upcast_ref(),
             Widget::Picture { picture, .. } => picture.upcast_ref(),
+            Widget::GpuSurface(surface) => surface.area.upcast_ref(),
             Widget::Scroll { scrolled, .. } => scrolled.upcast_ref(),
             Widget::List(list) => list.scrolled.upcast_ref(),
             Widget::Custom { widget, .. } | Widget::Native { widget, .. } => widget,
@@ -771,6 +774,7 @@ impl State {
             WidgetKind::Progress => Widget::Progress { bar: gtk::ProgressBar::new(), pulsing: Rc::default() },
             WidgetKind::Spinner => Widget::Spinner(gtk::Spinner::new()),
             WidgetKind::Image => Widget::Picture { picture: gtk::Picture::new(), source: None, fit: None },
+            WidgetKind::GpuSurface => Widget::GpuSurface(SurfaceArea::new(id, events.clone())),
             WidgetKind::TextInput => {
                 let entry = gtk::Entry::new();
                 let e = events.clone();
@@ -994,6 +998,10 @@ impl State {
             }
             (Prop::Label(t), Widget::Spinner(s)) => {
                 s.update_property(&[gtk::accessible::Property::Label(t)]);
+                node.a11y_label = Some(t.clone());
+            }
+            (Prop::Label(t), Widget::GpuSurface(surface)) => {
+                surface.area.update_property(&[gtk::accessible::Property::Label(t)]);
                 node.a11y_label = Some(t.clone());
             }
             (Prop::Label(t), Widget::Picture { picture, .. }) => {
@@ -1306,6 +1314,10 @@ impl State {
                     parts.items.remove(at);
                     parts.header.remove(&widget);
                 }
+                // The app's handle may keep its surface: it just stops showing.
+                if let Widget::GpuSurface(surface) = &node.widget {
+                    surface.detach();
+                }
                 match &node.widget {
                     Widget::Window(parts) => {
                         self.menus.forget(*id);
@@ -1576,6 +1588,8 @@ impl Backend for GtkBackend {
                 let size = pixels.size();
                 Size::new(request.known_width.unwrap_or(size.width), request.known_height.unwrap_or(size.height))
             }
+            // As large as the layout makes it.
+            Widget::GpuSurface(_) => Size::new(request.known_width.unwrap_or(0.0), request.known_height.unwrap_or(0.0)),
             // Measured by the core.
             Widget::Drawn { .. } | Widget::Window(_) | Widget::Host(_) | Widget::Scroll { .. } | Widget::List(_) => {
                 Size::ZERO
@@ -1930,6 +1944,7 @@ impl Backend for GtkBackend {
                     }));
                 }
             }
+            Widget::GpuSurface(_) => props.extend(node.a11y_label.clone().map(Prop::Label)),
             Widget::Scroll { scrolled, .. } => {
                 props.push(Prop::ScrollAxes(scroll_axes(scrolled)));
                 props.push(Prop::ScrollBars(scroll_bars(scrolled)));

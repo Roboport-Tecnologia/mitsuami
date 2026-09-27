@@ -1,0 +1,20 @@
+[package]
+name = "mitsuami-wayland"
+description = "GpuSurface on Wayland for mitsuami's Linux backends: a desync subsurface of a window's surface"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+authors.workspace = true
+repository.workspace = true
+
+[dependencies]
+mitsuami-core.workspace = true
+
+[target.'cfg(target_os = "linux")'.dependencies]
+wayland-client.workspace = true
+wayland-backend.workspace = true
+wayland-protocols.workspace = true
+
+[lints]
+workspace = true

@@ -22,6 +22,7 @@
 #include <QQuickStyle>
 #include <QQuickWindow>
 #include <QThread>
+#include <qpa/qplatformnativeinterface.h>
 #include <QUrl>
 #include <cstring>
 
@@ -606,4 +607,38 @@ char* mq_clipboard_text(void) {
 }
 
 void mq_set_clipboard_text(const char* text) { QGuiApplication::clipboard()->setText(QString::fromUtf8(text)); }
+}
+
+// ------------------------------------------------------------ GPU surfaces
+
+static bool on_wayland() { return QGuiApplication::platformName().startsWith(QLatin1String("wayland")); }
+
+void* mq_wayland_display(void) {
+    if (!on_wayland()) return nullptr;
+    return QGuiApplication::platformNativeInterface()->nativeResourceForIntegration("wl_display");
+}
+
+void* mq_window_wl_surface(QObject* window) {
+    auto* w = qobject_cast<QWindow*>(window);
+    if (!w || !w->handle() || !on_wayland()) return nullptr;
+    return QGuiApplication::platformNativeInterface()->nativeResourceForWindow("surface", w);
+}
+
+QObject* mq_item_window(QObject* item) {
+    auto* quick = qobject_cast<QQuickItem*>(item);
+    return quick ? quick->window() : nullptr;
+}
+
+double mq_window_dpr(QObject* window) {
+    auto* w = qobject_cast<QWindow*>(window);
+    return w ? w->devicePixelRatio() : 1.0;
+}
+
+// Qt's own decorations (without the compositor's) are part of the window's
+// surface, around its content.
+void mq_window_margins(QObject* window, int32_t* left, int32_t* top) {
+    auto* w = qobject_cast<QWindow*>(window);
+    QMargins m = w ? w->frameMargins() : QMargins();
+    *left = m.left();
+    *top = m.top();
 }

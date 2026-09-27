@@ -55,6 +55,8 @@ mod runtime;
 #[cfg(all(windows, target_env = "msvc"))]
 mod services;
 #[cfg(all(windows, target_env = "msvc"))]
+mod surface;
+#[cfg(all(windows, target_env = "msvc"))]
 mod tweak;
 
 #[cfg(all(windows, target_env = "msvc"))]

@@ -30,6 +30,7 @@ bends to each platform's native controls, never the other way around:
   validates the protocol and stands in for a platform in tests.
 - Backends: `mitsuami-appkit`, `mitsuami-gtk` (Linux only),
   `mitsuami-winui` (Windows only), `mitsuami-kirigami` (Linux, `qt` feature).
+  `mitsuami-wayland` is GTK's and Kirigami's `GpuSurface` on Wayland.
 - `crates/mitsuami-test`: the test kit (queries, actions, snapshots, stories).
 - `docs/BACKENDS.md` is the backend contract; `docs/ARCHITECTURE.md` has the
   design, the MVP plan (§14) and implementation notes per milestone (§16).
@@ -110,7 +111,8 @@ linking) against Homebrew's Qt 6 (`brew install qt`):
 ```sh
 cd crates/mitsuami-kirigami && Q=/opt/homebrew/lib && clang++ -std=c++17 -fsyntax-only \
   -Icpp -F$Q -I/opt/homebrew/include $(for f in QtCore QtGui QtQml QtQuick \
-  QtQuickControls2 QtWidgets QtQmlIntegration; do echo -I$Q/$f.framework/Headers; done) cpp/shim.cpp
+  QtQuickControls2 QtWidgets QtQmlIntegration; do echo -I$Q/$f.framework/Headers; done) \
+  -I$(echo $Q/QtGui.framework/Headers/6.*/QtGui) cpp/shim.cpp
 ```
  Say in `docs/ARCHITECTURE.md` when code was only type-checked.
 
