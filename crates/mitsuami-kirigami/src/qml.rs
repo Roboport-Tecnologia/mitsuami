@@ -305,9 +305,25 @@ QQC2.ScrollView {{
         function mitsuamiShow(index) {{
             if (index >= 0) positionViewAtIndex(index, ListView.Contain)
         }}
-        function mitsuamiPick(key) {{
+        // Multiple selection is KDE's (Dolphin's, Qt's extended selection):
+        // Ctrl-click toggles a row, Shift-click or Shift and the arrows
+        // select the rows from the anchor, and Ctrl+A selects them all.
+        property string mitsuamiAnchor: ""
+        property int mitsuamiKeyModifiers: 0
+        function mitsuamiPick(key, modifiers) {{
             if (mitsuamiMode === 0) return
-            mitsuamiSelected = [key]
+            const anchor = mitsuamiKeys.indexOf(mitsuamiAnchor)
+            if (mitsuamiMode === 2 && (modifiers & Qt.ShiftModifier) && anchor >= 0) {{
+                const index = mitsuamiKeys.indexOf(key)
+                mitsuamiSelected = mitsuamiKeys.slice(Math.min(anchor, index), Math.max(anchor, index) + 1)
+            }} else if (mitsuamiMode === 2 && (modifiers & Qt.ControlModifier)) {{
+                const on = mitsuamiSelected.indexOf(key) < 0
+                mitsuamiSelected = mitsuamiKeys.filter(k => k === key ? on : mitsuamiSelected.indexOf(k) >= 0)
+                mitsuamiAnchor = key
+            }} else {{
+                mitsuamiSelected = [key]
+                mitsuamiAnchor = key
+            }}
             mitsuamiMuted = true
             currentIndex = mitsuamiKeys.indexOf(key)
             mitsuamiMuted = false
@@ -324,10 +340,17 @@ QQC2.ScrollView {{
         // The keyboard moves the current row; it's the selection.
         onCurrentIndexChanged: if (!mitsuamiMuted && currentIndex >= 0) {{
             mitsuamiShow(currentIndex)
-            mitsuamiPick(mitsuamiKeys[currentIndex])
+            mitsuamiPick(mitsuamiKeys[currentIndex], mitsuamiKeyModifiers)
         }}
+        // Before the view's own handling, which moves the current row.
         Keys.onPressed: (event) => {{
-            if (event.key === Qt.Key_Home && count > 0) {{ currentIndex = 0; event.accepted = true }}
+            mitsuamiKeyModifiers = event.modifiers & Qt.ShiftModifier
+            if (event.matches(StandardKey.SelectAll) && mitsuamiMode === 2) {{
+                mitsuamiSelected = mitsuamiKeys.slice()
+                mitsuamiSelectionChanged()
+                event.accepted = true
+            }}
+            else if (event.key === Qt.Key_Home && count > 0) {{ currentIndex = 0; event.accepted = true }}
             else if (event.key === Qt.Key_End && count > 0) {{ currentIndex = count - 1; event.accepted = true }}
             else if ((event.key === Qt.Key_Return || event.key === Qt.Key_Enter) && currentIndex >= 0) {{
                 mitsuamiOpen(mitsuamiKeys[currentIndex])
@@ -349,7 +372,10 @@ QQC2.ScrollView {{
             focusPolicy: Qt.NoFocus
             highlighted: view.mitsuamiSelected.indexOf(modelData) >= 0
             contentItem: Item {{ }}
-            onClicked: view.mitsuamiPick(modelData)
+            // `clicked` doesn't say which modifiers were held.
+            TapHandler {{
+                onTapped: view.mitsuamiPick(modelData, point.modifiers)
+            }}
             onDoubleClicked: view.mitsuamiOpen(modelData)
             Component.onCompleted: view.mitsuamiNotify()
             Component.onDestruction: view.mitsuamiNotify()
