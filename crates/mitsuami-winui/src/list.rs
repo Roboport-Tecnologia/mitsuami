@@ -317,13 +317,29 @@ impl List {
         Ok(())
     }
 
+    /// XAML clears the selection when the mode changes, whichever way:
+    /// report the rows it let go.
     pub(crate) fn set_mode(&self, mode: SelectionMode) -> R<()> {
         self.data.borrow_mut().mode = mode;
-        self.view.cast::<w::IListViewBase>()?.SetSelectionMode(match mode {
+        self.data.borrow_mut().muted = true;
+        let set = self.view.cast::<w::IListViewBase>()?.SetSelectionMode(match mode {
             SelectionMode::None => w::ListViewSelectionMode::None,
             SelectionMode::Single => w::ListViewSelectionMode::Single,
             SelectionMode::Multiple => w::ListViewSelectionMode::Multiple,
-        })
+        });
+        self.data.borrow_mut().muted = false;
+        set?;
+        let now = self.selected();
+        let changed = {
+            let mut d = self.data.borrow_mut();
+            let changed = d.selection != now;
+            d.selection = now.clone();
+            changed
+        };
+        if changed {
+            self.events.emit(self.id, UiEvent::Changed(EventValue::Rows(now)));
+        }
+        Ok(())
     }
 
     pub(crate) fn mode(&self) -> SelectionMode {

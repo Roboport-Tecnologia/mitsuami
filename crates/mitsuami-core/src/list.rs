@@ -52,7 +52,7 @@ pub struct List<T: 'static = (), K: 'static = (), R = RowRender<T>> {
     each: Value<Vec<T>>,
     key: KeyFn<T, K>,
     render: R,
-    mode: Option<SelectionMode>,
+    mode: Option<Value<SelectionMode>>,
     style: Option<ListStyle>,
     selected: Option<Signal<Vec<K>>>,
     on_activate: Option<Rc<dyn Fn(K)>>,
@@ -98,8 +98,11 @@ impl<T: 'static, K: 'static, R> List<T, K, R> {
         self
     }
 
-    pub fn selection_mode(mut self, mode: SelectionMode) -> Self {
-        self.mode = Some(mode);
+    /// How many rows can be selected. It can change while the list shows:
+    /// the selection keeps what the new mode can hold (none, or the row the
+    /// platform keeps), and the rows let go are reported as deselected.
+    pub fn selection_mode(mut self, mode: impl IntoValue<SelectionMode>) -> Self {
+        self.mode = Some(mode.into_value());
         self
     }
 
@@ -212,8 +215,11 @@ struct Rows<T, K> {
 impl<T: Clone + 'static, K: Eq + Hash + Clone + 'static> View for List<T, K> {
     fn build(self, ui: &Ui) -> NodeId {
         let List { mut element, each, key, render, mode, style, selected, on_activate, estimate, handle } = self;
-        let mode = mode.unwrap_or(if selected.is_some() { SelectionMode::Single } else { SelectionMode::None });
-        element.prop(Value::Static(mode), Prop::SelectionMode);
+        let mode = mode.unwrap_or(Value::Static(match selected {
+            Some(_) => SelectionMode::Single,
+            None => SelectionMode::None,
+        }));
+        element.prop(mode, Prop::SelectionMode);
         element.prop(Value::Static(Vec::new()), Prop::Rows);
         element.prop(Value::Static(Vec::new()), Prop::Selected);
         if let Some(style) = style {

@@ -222,7 +222,11 @@ impl List {
         }
     }
 
+    /// GTK has no mode to change, only selection models to swap: the new
+    /// one keeps what it can hold of the old one's selection, as AppKit's
+    /// tables do, and the rows let go are reported.
     pub(crate) fn set_mode(&self, mode: SelectionMode) {
+        let selected = self.selected();
         self.data.borrow_mut().mode = mode;
         let model: gtk::SelectionModel = match mode {
             SelectionMode::None => gtk::NoSelection::new(Some(self.store.clone())).upcast(),
@@ -243,6 +247,15 @@ impl List {
             }
         });
         self.view.set_model(Some(&model));
+        let kept: Vec<RowKey> = match mode {
+            SelectionMode::None => Vec::new(),
+            SelectionMode::Single => selected.iter().take(1).copied().collect(),
+            SelectionMode::Multiple => selected.clone(),
+        };
+        self.set_selected(&kept);
+        if kept != selected {
+            self.report_selection();
+        }
     }
 
     pub(crate) fn mode(&self) -> SelectionMode {

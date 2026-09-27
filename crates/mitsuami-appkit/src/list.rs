@@ -353,9 +353,25 @@ impl List {
         events.emit(*id, UiEvent::Changed(EventValue::Rows(self.selected())));
     }
 
+    /// The table keeps its selection when it stops allowing several rows,
+    /// or any: keep what the new mode holds, `selectedRow` (the row
+    /// selected last) for one, and report the rows let go.
     pub(crate) fn set_mode(&self, mode: SelectionMode) {
+        let selected = self.selected();
         self.data.borrow_mut().mode = mode;
         self.table.setAllowsMultipleSelection(mode == SelectionMode::Multiple);
+        let kept: Vec<RowKey> = match mode {
+            SelectionMode::None => Vec::new(),
+            SelectionMode::Single if selected.len() > 1 => {
+                let last = usize::try_from(self.table.selectedRow()).ok();
+                last.and_then(|row| self.data.borrow().rows.get(row).copied()).into_iter().collect()
+            }
+            _ => selected.clone(),
+        };
+        if kept != selected {
+            self.set_selected(&kept);
+            self.report_selection();
+        }
     }
 
     pub(crate) fn mode(&self) -> SelectionMode {

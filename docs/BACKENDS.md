@@ -121,7 +121,7 @@ Validate as you go. Panic on protocol violations such as an unknown node, a doub
 | `Rows` | List | The rows' keys, in order (§8b). |
 | `EstimatedRowHeight` | List | How high rows are likely to be, for platforms that size rows before showing them. |
 | `Row` | Container | This container is the host of that row of its List. |
-| `SelectionMode` | List | None, Single or Multiple. |
+| `SelectionMode` | List | None, Single or Multiple. It can change while the list shows: keep what the platform keeps of the selection, never more than the new mode holds (none, or one row), and **report `Changed(Rows)`** if rows were let go. |
 | `ListStyle` | List | Automatic, Plain or Framed; sent only if the app chose one. Automatic draws as Plain. Report back what was sent: no toolkit tells Automatic from Plain. |
 | `Selected` | List | The selected rows. Setting it **must not** emit `Changed`. |
 | `Custom` | Custom | The widget's props and definition. Native render: call its `update` when they differ. Drawn: just keep them for `native_state`. See §8a. |
@@ -142,7 +142,7 @@ Native callbacks **only** call `events.emit(id, event)` on the `EventSink` given
 | `Submit` | **Return/Enter** in a text or password field (GTK `activate`; WinUI `KeyDown` with `Enter`) | editing ends in other ways: Tab, a click elsewhere, focus loss. AppKit's field action does fire then; that was a real bug. |
 | `FocusIn` / `FocusOut` | keyboard focus moves, **from any source** (click, Tab, code): out for the old control first, then in for the new | |
 | `Scrolled(offset)` | a ScrollView's or List's offset changes, by the user **or** by `ScrollTo` | |
-| `Changed(Rows)` | the user (or assistive technology) changes a List's selection, including rows deselected because they were removed | the core set `Selected` |
+| `Changed(Rows)` | the user (or assistive technology) changes a List's selection, including rows deselected because they were removed or the `SelectionMode` can't hold them | the core set `Selected` |
 | `RowShown(key)` | a List realises a row (it's in view, or about to be) | it already had |
 | `RowHidden(key)` | a List lets go of a row it had shown | a reload shows it again right away: report only the difference |
 | `RowActivated(key)` | a List row is double-clicked, or Enter is pressed on it | |

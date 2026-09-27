@@ -120,7 +120,19 @@ impl List {
         }
     }
 
+    /// The selection is ours: keep what the new mode holds, the first row
+    /// for one, and report the rows let go.
     pub(crate) fn set_mode(&self, mode: SelectionMode) {
+        let selected = self.selected();
+        let kept: Vec<RowKey> = match mode {
+            SelectionMode::None => Vec::new(),
+            SelectionMode::Single => selected.iter().take(1).copied().collect(),
+            SelectionMode::Multiple => selected.clone(),
+        };
+        if kept != selected {
+            self.set_selected(&kept);
+            self.events.emit_always(self.id, UiEvent::Changed(EventValue::Rows(kept)));
+        }
         self.data.borrow_mut().mode = mode;
         let mode = match mode {
             SelectionMode::None => 0,

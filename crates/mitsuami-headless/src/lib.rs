@@ -426,6 +426,19 @@ impl Backend for HeadlessBackend {
                             state.select(*id, kept);
                         }
                     }
+                    // A mode that holds fewer rows lets go of the others:
+                    // none, or all but the first.
+                    if let Prop::SelectionMode(mode) = prop {
+                        let selected = find_prop!(state.nodes[id].props, Selected).unwrap_or_default();
+                        let kept = match mode {
+                            SelectionMode::None => Vec::new(),
+                            SelectionMode::Single => selected.iter().take(1).copied().collect(),
+                            SelectionMode::Multiple => selected.clone(),
+                        };
+                        if kept != selected {
+                            state.select(*id, kept);
+                        }
+                    }
                 }
                 Command::Insert { parent, child, index } => {
                     if let Some(p) = state.node(*child, command).parent {

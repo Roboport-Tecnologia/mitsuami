@@ -2,8 +2,9 @@
 //!
 //! - The two styles: edge to edge, as in a sidebar or a window's main
 //!   content, and framed, as inside a form.
-//! - A playground: add and remove rows, select one or several, activate
-//!   one (double-click or Return), and scroll to the last.
+//! - A playground: add and remove rows, select one or several (a switch
+//!   changes the selection mode), activate one (double-click or Return),
+//!   and scroll to the last.
 //! - A raw platform setting, through `.native()`. Lists have no semantic
 //!   options past their rows, selection and style: what platforms offer is
 //!   each one's own.
@@ -60,6 +61,7 @@ fn playground() -> impl View {
     let rows = signal((1..=20).collect::<Vec<u32>>());
     let next = signal(21u32);
     let selected = signal(Vec::<u32>::new());
+    let several = signal(true);
     let activated = signal(None::<u32>);
     let handle = ListHandle::new();
     let scroll_handle = handle.clone();
@@ -84,8 +86,12 @@ fn playground() -> impl View {
                 }
             }),
         )),
+        Row::new()
+            .gap(Spacing::Md)
+            .align(Align::Center)
+            .children((Text::new("Select several"), Switch::new("Select several").bind(several))),
         List::new(rows, |n: &u32| *n, |n| row(format!("Row {n}")))
-            .selection_mode(SelectionMode::Multiple)
+            .selection_mode(move || if several.get() { SelectionMode::Multiple } else { SelectionMode::Single })
             .selected(selected)
             .on_activate(move |n| activated.set(Some(n)))
             .handle(handle)

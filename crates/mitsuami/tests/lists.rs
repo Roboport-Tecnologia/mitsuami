@@ -190,6 +190,44 @@ async fn lists_without_a_selection_cant_select(app: TestApp) {
 }
 
 #[mitsuami_test::test]
+async fn changing_the_selection_mode_keeps_what_it_can_hold(app: TestApp) {
+    let data = signal(items(10));
+    let selected = signal(vec![1]);
+    let mode = signal(SelectionMode::Single);
+    app.mount(move || simple_list(data).selected(selected).selection_mode(mode));
+    app.settle().await;
+    let is_selected = |id: u32| app.get_by_role(Role::ListItem, format!("Item {id}")).node().selected == Some(true);
+
+    // A mode that holds more keeps the selection, except on WinUI: XAML
+    // clears it on every mode change.
+    mode.set(SelectionMode::Multiple);
+    app.settle().await;
+    let kept = selected.get();
+    assert!(kept == [1] || kept.is_empty(), "kept {kept:?}");
+    selected.set(vec![1, 3]);
+    app.settle().await;
+    assert!(is_selected(1) && is_selected(3));
+
+    // One that holds fewer keeps what the platform keeps: AppKit the row
+    // selected last, GTK, Qt and headless the first, WinUI none.
+    mode.set(SelectionMode::Single);
+    app.settle().await;
+    let kept = selected.get();
+    assert!(kept.is_empty() || kept == [1] || kept == [3], "kept {kept:?}");
+    for id in [1, 3] {
+        assert_eq!(is_selected(id), kept.contains(&id));
+    }
+
+    selected.set(vec![2]);
+    mode.set(SelectionMode::None);
+    app.settle().await;
+    assert_eq!(selected.get(), Vec::<u32>::new());
+    assert!(!is_selected(2));
+    let row = app.get_by_role(Role::ListItem, "Item 2").id();
+    assert_eq!(app.ui().perform(row, &A11yAction::Select), Err(mitsuami::core::ActionError::Unsupported));
+}
+
+#[mitsuami_test::test]
 async fn activating_a_row_reports_its_key(app: TestApp) {
     let data = signal(items(1000));
     let activated = Rc::new(RefCell::new(Vec::new()));
