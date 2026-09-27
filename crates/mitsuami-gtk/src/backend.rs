@@ -437,6 +437,31 @@ impl GtkHandle {
         self.pump();
     }
 
+    /// Lets header bars whose items changed place them now, rather than at
+    /// the next frame, as lists do: each is allocated again where it is.
+    fn layout_headers(&self) {
+        let headers: Vec<gtk::HeaderBar> = {
+            let state = self.state.borrow();
+            state
+                .nodes
+                .values()
+                .filter_map(|n| match &n.widget {
+                    Widget::Window(parts) if parts.header.is_mapped() && parts.header.should_layout() => {
+                        Some(parts.header.clone())
+                    }
+                    _ => None,
+                })
+                .collect()
+        };
+        for header in headers {
+            let Some(bounds) = header.parent().and_then(|p| header.compute_bounds(&p)) else { continue };
+            header.measure(gtk::Orientation::Horizontal, -1);
+            let transform = gsk::Transform::new().translate(&graphene::Point::new(bounds.x(), bounds.y()));
+            header.allocate(bounds.width().round() as i32, bounds.height().round() as i32, -1, Some(transform));
+        }
+        self.pump();
+    }
+
     /// Dispatches whatever the GTK main context has ready, without waiting.
     pub fn pump(&self) {
         let context = glib::MainContext::default();
@@ -537,6 +562,7 @@ impl mitsuami_core::TestHooks for GtkHandle {
         self.show_pending_windows();
         self.pump();
         self.layout_lists();
+        self.layout_headers();
     }
 }
 
