@@ -72,6 +72,10 @@ name = "checkbox"
 harness = false
 
 [[test]]
+name = "switch"
+harness = false
+
+[[test]]
 name = "select"
 harness = false
 

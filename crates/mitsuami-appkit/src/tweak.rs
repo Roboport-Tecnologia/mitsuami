@@ -4,9 +4,9 @@ use std::rc::Rc;
 
 use mitsuami_core::reactive::{IntoValue, Value};
 use mitsuami_core::{Opaque, Tweak};
-use mitsuami_widgets::{Button, Checkbox};
+use mitsuami_widgets::{Button, Checkbox, Switch};
 use objc2::DowncastTarget;
-use objc2_app_kit::{NSButton, NSView};
+use objc2_app_kit::{NSButton, NSSwitch, NSView};
 
 /// A built-in widget, and the AppKit control that shows it.
 pub trait Tweakable {
@@ -19,6 +19,10 @@ impl Tweakable for Button {
 
 impl Tweakable for Checkbox {
     type Native = NSButton;
+}
+
+impl Tweakable for Switch {
+    type Native = NSSwitch;
 }
 
 /// Settings as the backend runs them, on the node's view.

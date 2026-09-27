@@ -413,6 +413,14 @@ impl Switch {
         element.prop(label.into_value(), Prop::Label);
         Switch(element)
     }
+
+    /// Raw platform settings: see [`Tweak`]. Switches have no semantic
+    /// options past `checked`: what the platforms offer (sizes, GTK's
+    /// delayed state, WinUI's on and off text) is each one's own.
+    pub fn native(mut self, tweak: Tweak<Switch>) -> Switch {
+        tweak.apply(&mut self.0);
+        self
+    }
 }
 
 /// A pop-up menu of text options to choose one from: `NSPopUpButton`,

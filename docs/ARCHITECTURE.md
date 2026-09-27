@@ -398,7 +398,7 @@ Button::new("Continue").role(ButtonRole::Default).native(platform! {
 - `tweak_with(value, |b, v| …)` runs again when the value changes; only the tweak is sent again.
 - A tweak can make the native control disagree with the core's props (an icon for a label, say); the mirror check then fails in tests. Set what the semantic props don't.
 - `_ => Tweak::none()` leaves the other platforms alone. Headless tests keep the tweak but don't run it.
-- The widget's type names the native one (`Tweakable`): `Button` is `NSButton`, `gtk::Button`, a `QQC2.Button` item (`QmlObject`, set by property name) and XAML's `Button`, whose closure returns a `windows_core::Result`; `Checkbox` is `NSButton`, `gtk::CheckButton`, a `QQC2.CheckBox` item and XAML's `CheckBox`.
+- The widget's type names the native one (`Tweakable`): `Button` is `NSButton`, `gtk::Button`, a `QQC2.Button` item (`QmlObject`, set by property name) and XAML's `Button`, whose closure returns a `windows_core::Result`; `Checkbox` is `NSButton`, `gtk::CheckButton`, a `QQC2.CheckBox` item and XAML's `CheckBox`; `Switch` is `NSSwitch`, `gtk::Switch`, a `QQC2.Switch` item and XAML's `ToggleSwitch`.
 
 ## 7. Accessibility and i18n affordances (designed in now, implemented later)
 
@@ -824,6 +824,12 @@ Things the AppKit backend taught us, some of them now part of the contract:
 - **`Checked` is kept underneath while mixed:** AppKit and Qt keep it on the node (the control has one state), GTK's `active` holds it, and WinUI keeps it in `shown_checked`; leaving the mixed state always emits, whatever it lands on.
 - **Tweaks as for buttons.** The example and story tweaks: the box after its label on AppKit (`imagePosition` trailing, captured), GTK's `selection-mode` class (a round check where the theme has one), Qt's `spacing`, a round box on WinUI (`CornerRadius`).
 - **Run on AppKit only:** GTK, Kirigami and WinUI are only type-checked, and CI hasn't run them; where Qt and WinUI land from the mixed state is from their documented toggle rules, not seen.
+
+### Switch: tweaks only
+
+- **No semantic options past `checked`.** What the platforms offer isn't shared: control sizes on AppKit, GTK's `state` apart from `active` (for settings that take time to apply), on and off text on WinUI, a caption Qt's switch draws itself. So `Switch` only gets `.native(tweak)`, and the example's tweak is one of those per platform: a small control on AppKit (captured), a delayed state on GTK, the switch's own text on Qt, `OnContent`/`OffContent` on WinUI.
+- **A tweak that connects a signal must guard itself,** since tweaks run again when props change: the GTK tweak marks the switch with a widget name.
+- **Run on AppKit only:** GTK, Kirigami and WinUI are only type-checked, and CI hasn't run them.
 
 ### M2 (GTK 4)
 

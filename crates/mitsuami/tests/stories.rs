@@ -126,6 +126,46 @@ fn checkbox_tweak() -> Tweak<Checkbox> {
     }
 }
 
+/// A raw platform setting through `.native()`: a small switch on AppKit,
+/// its own text on Qt, on and off text on WinUI. GTK's tweak delays the
+/// switch's state, which a still capture doesn't show.
+#[mitsuami_test::story(sizes = [(240, fit)])]
+fn switch_tweaked() -> impl View {
+    Column::new()
+        .padding(16)
+        .gap(8)
+        .align(Align::Start)
+        .children((Switch::new("Plain").checked(true), Switch::new("Tweaked").checked(true).native(switch_tweak())))
+}
+
+fn switch_tweak() -> Tweak<Switch> {
+    platform! {
+        macos => mitsuami::appkit::tweak(|s: &mitsuami::appkit::objc2_app_kit::NSSwitch| {
+            s.setControlSize(mitsuami::appkit::objc2_app_kit::NSControlSize::Small)
+        }),
+        gtk => mitsuami::gtk::tweak(|s: &mitsuami::gtk::gtk::Switch| {
+            use mitsuami::gtk::gtk::{glib, prelude::*};
+            // Once: a tweak runs again whenever the props change.
+            if s.widget_name() != "delayed" {
+                s.set_widget_name("delayed");
+                s.connect_state_set(|s, on| {
+                    let s = s.clone();
+                    glib::timeout_add_local_once(std::time::Duration::from_secs(1), move || s.set_state(on));
+                    glib::Propagation::Stop
+                });
+            }
+        }),
+        kde => mitsuami::kirigami::tweak(|s: &mitsuami::kirigami::QmlObject| s.set_str("text", "Tweaked")),
+        windows => mitsuami::winui::tweak(|s: &mitsuami::winui::bindings::ToggleSwitch| {
+            use mitsuami::winui::bindings::{IToggleSwitch, PropertyValue};
+            use mitsuami::winui::windows_core::Interface;
+            let s = s.cast::<IToggleSwitch>()?;
+            s.SetOnContent(&PropertyValue::CreateString("On")?)?;
+            s.SetOffContent(&PropertyValue::CreateString("Off")?)
+        }),
+    }
+}
+
 /// Sliders and progress bars as wide as the story; without a step, and
 /// with one.
 #[mitsuami_test::story(sizes = [(240, fit)])]
