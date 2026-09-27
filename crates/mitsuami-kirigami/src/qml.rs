@@ -74,6 +74,10 @@ pub(crate) fn window(drawer: Option<&str>) -> String {
     format!(
         r#"
 Kirigami.ApplicationWindow {{
+    // Kirigami's windows show themselves; the backend shows them after
+    // their first layout, once modality is set: Qt ignores it on a
+    // window already shown.
+    visible: false
     width: 800
     height: 600
     {drawer}

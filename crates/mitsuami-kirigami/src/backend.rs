@@ -1695,8 +1695,16 @@ impl Backend for KirigamiBackend {
 /// Opens dialogs on this window, or the active one.
 pub(crate) fn dialog_parent(handle: &KirigamiHandle, parent: Option<NodeId>) -> Option<Rc<WindowRoot>> {
     let windows = handle.windows();
+    // Qt's windows are active with the focused window's transient parents
+    // too (a modal window's owner, which it blocks): take the focused one.
+    let active: Vec<&Rc<WindowRoot>> =
+        windows.iter().map(|(_, root)| root).filter(|root| root.window.bool("active")).collect();
+    let focused = active
+        .iter()
+        .find(|root| !active.iter().any(|other| other.window.object("transientParent") == Some(root.window)))
+        .or(active.first());
     parent
         .and_then(|id| windows.iter().find(|(w, _)| *w == id).map(|(_, root)| root.clone()))
-        .or_else(|| windows.iter().find(|(_, root)| root.window.bool("active")).map(|(_, root)| root.clone()))
+        .or_else(|| focused.map(|root| (*root).clone()))
         .or_else(|| windows.first().map(|(_, root)| root.clone()))
 }
