@@ -87,7 +87,7 @@ pub mod prelude {
     pub use mitsuami_core::{Action, Resource, Store, action, resource, resource_on, use_store};
     pub use mitsuami_core::{
         Align, ButtonVariant, Callback, Children, Element, ElementBuilder, FlexDirection, For, GridPlacement, Justify,
-        Length, LengthExt, List, ListHandle, NodeId, Point, Role, SelectionMode, Show, Size, Slot, Spacing,
+        Length, LengthExt, List, ListHandle, ListStyle, NodeId, Point, Role, SelectionMode, Show, Size, Slot, Spacing,
         TextDirection, TextStyle, Track, Ui, View, WindowSize, repeat,
     };
     pub use mitsuami_reactive::{

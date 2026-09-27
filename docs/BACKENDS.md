@@ -107,6 +107,7 @@ Validate as you go. Panic on protocol violations such as an unknown node, a doub
 | `EstimatedRowHeight` | List | How high rows are likely to be, for platforms that size rows before showing them. |
 | `Row` | Container | This container is the host of that row of its List. |
 | `SelectionMode` | List | None, Single or Multiple. |
+| `ListStyle` | List | Automatic, Plain or Framed; sent only if the app chose one. Automatic draws as Plain. Report back what was sent: no toolkit tells Automatic from Plain. |
 | `Selected` | List | The selected rows. Setting it **must not** emit `Changed`. |
 | `Custom` | Custom | The widget's props and definition. Native render: call its `update` when they differ. Drawn: just keep them for `native_state`. See §8a. |
 | `Drawing` | Custom (drawn) | The display list to rasterize. Redraw. |
@@ -230,11 +231,11 @@ A `List` is the platform's list control, and the platform virtualises it: it scr
 - **Report the rows you realise:** `RowShown(key)` when the platform prepares a row (a cell asked for, a delegate created, a container realised), `RowHidden(key)` when it recycles it. The core mounts each shown row as a `Container` with `Prop::Row(key)`, inserted as the List's native child, and disposes it when hidden. The List's native children are those hosts, in row order. A reload that shows the same rows again must not hide and show them: report only the difference, or their state goes.
 - **Cells:** give a realised row an empty cell until its host arrives (`Insert`), then put the host in it. A host's `SetFrame` is its size, at origin 0; make the row that high, and place it where the platform places rows.
 - **Heights:** rows the platform hasn't shown yet need a height from somewhere if it sizes rows up front (AppKit): `EstimatedRowHeight` if the app gave one, or else the first row measured. **Keep the heights of rows you've measured** when you let them go, and keep the estimate steady: guesses that change as rows come and go move rows in and out of view, and the rows shown flip back and forth.
-- **Row width:** the core lays rows out at the list's width. If rows get another width (legacy scroll bars, insets), report it with `RowWidth`.
+- **Row width:** the core lays rows out at the list's width. If rows get another width (legacy scroll bars, a scroll bar's own column as on Breeze, a `Framed` list's border, insets), report it with `RowWidth`.
 - **Platforms keep rows of their own.** Which rows the platform realises is its call, and the tests allow for it: AppKit prepares a few around the view, GTK about 200, and GTK keeps its cursor row and selected rows bound wherever it scrolls. Where rows go when rows are inserted above the view is its call too (GTK keeps the rows in view where they were).
 - **Build rows before drawing.** Report rows as soon as the platform decides them, ideally inside the `apply` or scroll that changed them, so the core builds them in the same run-loop turn: platforms that realise rows in a layout pass (AppKit) run it at the end of `apply` and in `settle`.
 - **Callbacks come at any time.** A table can ask for cells, heights and counts in the middle of your own `apply` (a reload, a scroll, a resize). Keep the list's data (keys, heights, hosts, cells) in a small `Rc<RefCell<…>>` of its own that the data source reads, never your backend's main state or the `Ui`, and only `emit` from there.
-- **`native_state` of a row host** reports the rect the platform gave that row, in the list's content; the core uses its position (that's where frames inside rows, visibility and `scroll_into_view` come from), and the mirror check compares its size with the host's. The List reports its `Rows`, `SelectionMode` and `Selected` as the native control shows them.
+- **`native_state` of a row host** reports the rect the platform gave that row, in the list's content; the core uses its position (that's where frames inside rows, visibility and `scroll_into_view` come from), and the mirror check compares its size with the host's. The List reports its `Rows`, `SelectionMode` and `Selected` as the native control shows them, and its `ListStyle` as last set.
 - **Focus:** the List itself takes focus (it's in the Tab order), as the native control does.
 
 ## 9. Tab order

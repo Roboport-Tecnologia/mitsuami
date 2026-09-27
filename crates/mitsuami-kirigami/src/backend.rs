@@ -185,7 +185,16 @@ impl Widget {
             | Widget::Custom { item: i, .. }
             | Widget::Drawn { item: i, .. }
             | Widget::Native { item: i, .. } => *i,
+            Widget::List(list) => list.root,
+        }
+    }
+
+    /// The item that takes keyboard focus and input: a list's list view.
+    fn input_item(&self) -> QmlObject {
+        match self {
+            Widget::Scroll { flickable, .. } => *flickable,
             Widget::List(list) => list.view,
+            widget => widget.item(),
         }
     }
 
@@ -778,6 +787,7 @@ impl State {
             }
             (Prop::Rows(rows), Widget::List(list)) => list.set_rows(rows.clone()),
             (Prop::SelectionMode(mode), Widget::List(list)) => list.set_mode(*mode),
+            (Prop::ListStyle(style), Widget::List(list)) => list.set_style(*style),
             (Prop::Selected(rows), Widget::List(list)) => list.set_selected(rows),
             (Prop::EstimatedRowHeight(height), Widget::List(list)) => list.set_estimate(*height),
             (Prop::Row(row), Widget::Host(_)) => node.row = Some(*row),
@@ -954,7 +964,7 @@ impl State {
             Command::Focus { id } => {
                 let widget = self.widget(*id, command);
                 if widget.is_focusable() {
-                    widget.item().force_focus();
+                    widget.input_item().force_focus();
                 }
             }
             Command::ScrollToRow { id, row } => match self.nodes.get(id).map(|n| &n.widget) {
@@ -1062,7 +1072,7 @@ impl Backend for KirigamiBackend {
                 return Ok(());
             }
         }
-        let (item, kind, focusable, events, custom) = {
+        let (item, input, kind, focusable, events, custom) = {
             let state = self.state.borrow();
             let node = state.nodes.get(&id).ok_or(ActionError::UnknownNode)?;
             let item = node.widget.item();
@@ -1074,7 +1084,7 @@ impl Backend for KirigamiBackend {
                 Widget::Custom { render, props, .. } => Some((render.clone(), props.props().clone())),
                 _ => None,
             };
-            (item, node.kind, node.widget.is_focusable(), state.events.clone(), custom)
+            (item, node.widget.input_item(), node.kind, node.widget.is_focusable(), state.events.clone(), custom)
         };
         if let Some((render, props)) = custom {
             return render.perform(item, &props, action, &Emitter::new(events, id));
@@ -1128,7 +1138,7 @@ impl Backend for KirigamiBackend {
                     return Err(ActionError::Unsupported);
                 }
                 // The window's focus observer reports the change.
-                item.force_focus();
+                input.force_focus();
             }
             (A11yAction::ScrollIntoView, _) => {}
             _ => return Err(ActionError::Unsupported),
@@ -1151,11 +1161,7 @@ impl Backend for KirigamiBackend {
             if node.widget.is_control() && !node.widget.item().bool("enabled") {
                 return Err(ActionError::Disabled);
             }
-            let item = match &node.widget {
-                Widget::Scroll { flickable, .. } => *flickable,
-                widget => widget.item(),
-            };
-            (item, node.kind, window)
+            (node.widget.input_item(), node.kind, window)
         };
         match input {
             SyntheticInput::Click(point) => {
@@ -1308,6 +1314,7 @@ impl Backend for KirigamiBackend {
                 props.push(Prop::Rows(list.rows()));
                 props.extend(list.estimate().map(Prop::EstimatedRowHeight));
                 props.push(Prop::SelectionMode(list.mode()));
+                props.extend(list.style().map(Prop::ListStyle));
                 props.push(Prop::Selected(list.selected()));
             }
             Widget::Host(_) => props.extend(node.row.map(Prop::Row)),

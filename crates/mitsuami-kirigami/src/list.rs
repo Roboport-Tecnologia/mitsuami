@@ -1,5 +1,6 @@
 //! `List`: a QML `ListView` over the row keys, with Qt Quick Controls'
-//! item delegates (see [`qml::list`](crate::qml::list)).
+//! item delegates, in the style's scroll view (see
+//! [`qml::list`](crate::qml::list)).
 //!
 //! The list view virtualises: it creates delegates for the rows in view
 //! (and its cache buffer) and destroys them when they scroll away. The
@@ -16,7 +17,7 @@ use std::cell::RefCell;
 use std::collections::{HashMap, HashSet};
 use std::rc::Rc;
 
-use mitsuami_core::{EventValue, NodeId, Point, Rect, RowKey, SelectionMode, UiEvent};
+use mitsuami_core::{EventValue, ListStyle, NodeId, Point, Rect, RowKey, SelectionMode, UiEvent};
 
 use crate::events::Events;
 use crate::ffi::QmlObject;
@@ -34,9 +35,16 @@ struct Data {
     /// Without the app's estimate: the first row measured.
     learned: Option<f64>,
     mode: SelectionMode,
+    /// Qt can't tell `Automatic` from `Plain`.
+    style: Option<ListStyle>,
+    /// The width last reported for rows.
+    row_width: Option<f64>,
 }
 
 pub(crate) struct List {
+    /// The scroll view: the item that stands for the list.
+    pub root: QmlObject,
+    /// The list view in it.
     pub view: QmlObject,
     id: NodeId,
     events: Events,
@@ -49,8 +57,19 @@ fn parse(key: &str) -> Option<RowKey> {
 
 impl List {
     pub(crate) fn new(id: NodeId, events: Events) -> List {
-        let view = QmlObject::load(&qml::list());
+        let root = QmlObject::load(&qml::list());
+        let view = root.child("mitsuamiListView").expect("lists have a list view");
         let data = Rc::new(RefCell::new(Data::default()));
+        {
+            // The scroll bar's column, and a frame, take room from the rows.
+            let (data, events) = (data.clone(), events.clone());
+            view.connect("widthChanged()", move || {
+                let width = view.real("width");
+                if data.borrow_mut().row_width.replace(width) != Some(width) {
+                    events.emit(id, UiEvent::RowWidth(width as f32));
+                }
+            });
+        }
         {
             let (data, events) = (data.clone(), events.clone());
             view.connect("mitsuamiRowsChanged()", move || rows_changed(view, &data, &events, id));
@@ -74,7 +93,7 @@ impl List {
             let events = events.clone();
             view.connect(signal, move || events.emit(id, UiEvent::Scrolled(scroll_offset(view))));
         }
-        List { view, id, events, data }
+        List { root, view, id, events, data }
     }
 
     /// New rows. The view resets, so its scroll position is put back, and
@@ -113,6 +132,15 @@ impl List {
 
     pub(crate) fn mode(&self) -> SelectionMode {
         self.data.borrow().mode
+    }
+
+    pub(crate) fn set_style(&self, style: ListStyle) {
+        self.data.borrow_mut().style = Some(style);
+        self.root.set_bool("mitsuamiFramed", style.framed());
+    }
+
+    pub(crate) fn style(&self) -> Option<ListStyle> {
+        self.data.borrow().style
     }
 
     /// Selects rows without reporting it; the first is the current row.

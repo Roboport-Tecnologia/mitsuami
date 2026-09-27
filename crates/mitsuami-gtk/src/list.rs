@@ -18,7 +18,7 @@ use std::rc::Rc;
 
 use gtk::prelude::*;
 use gtk::{gio, glib};
-use mitsuami_core::{EventValue, NodeId, Point, Rect, RowKey, SelectionMode, UiEvent};
+use mitsuami_core::{EventValue, ListStyle, NodeId, Point, Rect, RowKey, SelectionMode, UiEvent};
 
 use crate::host::Events;
 
@@ -41,6 +41,10 @@ struct Data {
     /// Without the app's estimate: the first row measured.
     learned: Option<i32>,
     mode: SelectionMode,
+    /// GTK can't tell `Automatic` from `Plain`.
+    style: Option<ListStyle>,
+    /// The width last reported for rows.
+    row_width: Option<f64>,
 }
 
 impl Data {
@@ -95,6 +99,8 @@ impl List {
             estimate: None,
             learned: None,
             mode: SelectionMode::None,
+            style: None,
+            row_width: None,
         }));
         let store = gio::ListStore::new::<gtk::StringObject>();
         let factory = gtk::SignalListItemFactory::new();
@@ -168,6 +174,17 @@ impl List {
                 events.emit(id, UiEvent::Scrolled(Point::new(h.value() as f32, v.value() as f32)))
             });
         }
+        {
+            // The view is as wide as its horizontal page: a frame takes
+            // room from the rows.
+            let (data, events) = (data.clone(), events.clone());
+            scrolled.hadjustment().connect_page_size_notify(move |h| {
+                let width = h.page_size();
+                if width > 0.0 && data.borrow_mut().row_width.replace(width) != Some(width) {
+                    events.emit(id, UiEvent::RowWidth(width as f32));
+                }
+            });
+        }
         let list = List { scrolled, view, store, id, events, data, muted: Rc::default() };
         list.set_mode(SelectionMode::None);
         list
@@ -226,6 +243,15 @@ impl List {
 
     pub(crate) fn mode(&self) -> SelectionMode {
         self.data.borrow().mode
+    }
+
+    pub(crate) fn set_style(&self, style: ListStyle) {
+        self.data.borrow_mut().style = Some(style);
+        self.scrolled.set_has_frame(style.framed());
+    }
+
+    pub(crate) fn style(&self) -> Option<ListStyle> {
+        self.data.borrow().style
     }
 
     /// Selects rows without reporting it. A single selection only takes

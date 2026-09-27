@@ -618,6 +618,7 @@ impl State {
             }
             (Prop::Rows(rows), Widget::List(list)) => list.set_rows(rows.clone()),
             (Prop::SelectionMode(mode), Widget::List(list)) => list.set_mode(*mode),
+            (Prop::ListStyle(style), Widget::List(list)) => list.set_style(*style),
             (Prop::EstimatedRowHeight(height), Widget::List(list)) => list.set_estimate(*height),
             (Prop::Selected(rows), Widget::List(list)) => list.set_selected(rows),
             (Prop::Row(row), Widget::Host(_)) => node.row = Some(*row),
@@ -1269,6 +1270,7 @@ impl Backend for AppKitBackend {
                 props.push(Prop::Rows(list.rows()));
                 props.extend(list.estimate().map(Prop::EstimatedRowHeight));
                 props.push(Prop::SelectionMode(list.mode()));
+                props.extend(list.style().map(Prop::ListStyle));
                 props.push(Prop::Selected(list.selected()));
             }
             Widget::Host(_) => props.extend(node.row.map(Prop::Row)),

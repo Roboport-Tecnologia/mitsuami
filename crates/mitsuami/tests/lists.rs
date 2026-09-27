@@ -292,3 +292,16 @@ async fn the_a11y_tree_shows_a_list_of_rows(app: TestApp) {
 }
 
 mitsuami_test::main!();
+
+/// A frame takes room from the rows (on platforms that draw one), and rows
+/// are laid out at what's left.
+#[mitsuami_test::test]
+async fn a_framed_lists_rows_fit_inside_it(app: TestApp) {
+    let data = signal(items(3));
+    app.mount(move || simple_list(data).list_style(ListStyle::Framed));
+    app.settle().await;
+
+    let list = app.get_by_test_id("list").frame();
+    let row = app.get_by_role(Role::ListItem, "Item 0").frame();
+    assert!(row.width() <= list.width(), "a {}px row in a {}px list", row.width(), list.width());
+}

@@ -19,7 +19,7 @@ use crate::element::{Element, ElementBuilder};
 use crate::ui::{Ui, WeakUi};
 use crate::units::Length;
 use crate::view::{AnyView, View};
-use crate::widget::{NodeId, Prop, RowKey, SelectionMode, WidgetKind};
+use crate::widget::{ListStyle, NodeId, Prop, RowKey, SelectionMode, WidgetKind};
 
 type KeyFn<T, K> = Rc<dyn Fn(&T) -> K>;
 type RowOf<K> = Rc<dyn Fn(&K) -> Option<RowKey>>;
@@ -49,6 +49,7 @@ pub struct List<T: 'static, K: 'static, R = RowRender<T>> {
     key: KeyFn<T, K>,
     render: R,
     mode: Option<SelectionMode>,
+    style: Option<ListStyle>,
     selected: Option<Signal<Vec<K>>>,
     on_activate: Option<Rc<dyn Fn(K)>>,
     estimate: Option<f32>,
@@ -71,7 +72,18 @@ impl<T: 'static, K: 'static, R> List<T, K, R> {
     }
 
     fn with_element(element: Element, each: Value<Vec<T>>, key: KeyFn<T, K>, render: R) -> List<T, K, R> {
-        List { element, each, key, render, mode: None, selected: None, on_activate: None, estimate: None, handle: None }
+        List {
+            element,
+            each,
+            key,
+            render,
+            mode: None,
+            style: None,
+            selected: None,
+            on_activate: None,
+            estimate: None,
+            handle: None,
+        }
     }
 
     /// Binds the selection, as the selected rows' keys, both ways. Lists
@@ -84,6 +96,17 @@ impl<T: 'static, K: 'static, R> List<T, K, R> {
 
     pub fn selection_mode(mut self, mode: SelectionMode) -> Self {
         self.mode = Some(mode);
+        self
+    }
+
+    /// How the list sits in its surroundings: edge to edge (the default) or
+    /// framed. Pick per platform with `platform!`:
+    ///
+    /// ```ignore
+    /// List::new(..).list_style(platform! { kde => ListStyle::Framed, _ => ListStyle::Plain })
+    /// ```
+    pub fn list_style(mut self, style: ListStyle) -> Self {
+        self.style = Some(style);
         self
     }
 
@@ -174,11 +197,14 @@ struct Rows<T, K> {
 
 impl<T: Clone + 'static, K: Eq + Hash + Clone + 'static> View for List<T, K> {
     fn build(self, ui: &Ui) -> NodeId {
-        let List { mut element, each, key, render, mode, selected, on_activate, estimate, handle } = self;
+        let List { mut element, each, key, render, mode, style, selected, on_activate, estimate, handle } = self;
         let mode = mode.unwrap_or(if selected.is_some() { SelectionMode::Single } else { SelectionMode::None });
         element.prop(Value::Static(mode), Prop::SelectionMode);
         element.prop(Value::Static(Vec::new()), Prop::Rows);
         element.prop(Value::Static(Vec::new()), Prop::Selected);
+        if let Some(style) = style {
+            element.prop(Value::Static(style), Prop::ListStyle);
+        }
         if let Some(estimate) = estimate {
             element.prop(Value::Static(estimate), Prop::EstimatedRowHeight);
         }
@@ -382,8 +408,8 @@ impl<T: 'static> ElementBuilder for ListWithoutKey<T> {
 impl<T: Clone + 'static, K: Eq + Hash + Clone + 'static> List<T, K, ()> {
     #[doc(hidden)]
     pub fn __children<V: View>(self, render: impl Fn(T) -> V + 'static) -> List<T, K> {
-        let List { element, each, key, mode, selected, on_activate, estimate, handle, .. } = self;
+        let List { element, each, key, mode, style, selected, on_activate, estimate, handle, .. } = self;
         let render = RowRender(Rc::new(move |item| AnyView::new(render(item))) as Rc<dyn Fn(T) -> AnyView>);
-        List { element, each, key, render, mode, selected, on_activate, estimate, handle }
+        List { element, each, key, render, mode, style, selected, on_activate, estimate, handle }
     }
 }

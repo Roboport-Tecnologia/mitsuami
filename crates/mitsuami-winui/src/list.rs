@@ -19,7 +19,7 @@ use std::cell::{Cell, RefCell};
 use std::collections::{HashMap, HashSet};
 use std::rc::Rc;
 
-use mitsuami_core::{EventValue, NodeId, Point, Rect, RowKey, SelectionMode, UiEvent};
+use mitsuami_core::{EventValue, ListStyle, NodeId, Point, Rect, RowKey, SelectionMode, UiEvent};
 use windows_core::{EventRevoker, IInspectable, IUnknown, Interface};
 
 use crate::backend::{Events, boxed};
@@ -42,6 +42,23 @@ const ITEM_STYLE: &str = r#"<Style xmlns="http://schemas.microsoft.com/winfx/200
     <Setter Property="HorizontalContentAlignment" Value="Stretch"/>
     <Setter Property="VerticalContentAlignment" Value="Stretch"/>
 </Style>"#;
+
+/// A framed list: a card's border and background, which follow the theme.
+/// Without `BasedOn`, the default style still gives the template (as for
+/// `ITEM_STYLE`).
+const FRAMED_STYLE: &str = r#"<Style xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation" TargetType="ListView">
+    <Setter Property="BorderThickness" Value="1"/>
+    <Setter Property="BorderBrush" Value="{ThemeResource CardStrokeColorDefaultBrush}"/>
+    <Setter Property="Background" Value="{ThemeResource CardBackgroundFillColorDefaultBrush}"/>
+    <Setter Property="CornerRadius" Value="{ThemeResource ControlCornerRadius}"/>
+</Style>"#;
+
+/// A plain list: the default style's.
+const PLAIN_STYLE: &str =
+    r#"<Style xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation" TargetType="ListView"/>"#;
+
+/// The framed style's border, on each side.
+const FRAME_BORDER: f32 = 1.0;
 
 #[derive(Default)]
 struct Data {
@@ -66,6 +83,11 @@ struct Data {
     /// Without the app's estimate: the first row measured.
     learned: Option<f64>,
     mode: SelectionMode,
+    /// XAML can't tell `Automatic` from `Plain`.
+    style: Option<ListStyle>,
+    /// The list's width, and the width last reported for rows.
+    width: Option<f32>,
+    row_width: Option<f32>,
     scroll: Option<w::IScrollViewer>,
     /// Set while the backend changes the items or the selection: XAML
     /// reports selections in between (items removed) that aren't the
@@ -306,6 +328,36 @@ impl List {
 
     pub(crate) fn mode(&self) -> SelectionMode {
         self.data.borrow().mode
+    }
+
+    pub(crate) fn set_style(&self, style: ListStyle) -> R<()> {
+        let markup = if style.framed() { FRAMED_STYLE } else { PLAIN_STYLE };
+        let xaml: w::Style = w::XamlReader::Load(markup)?.cast()?;
+        self.view.cast::<w::IFrameworkElement>()?.SetStyle(&xaml)?;
+        self.data.borrow_mut().style = Some(style);
+        self.report_row_width();
+        Ok(())
+    }
+
+    pub(crate) fn style(&self) -> Option<ListStyle> {
+        self.data.borrow().style
+    }
+
+    /// The list's width: rows get it, less a frame's border.
+    pub(crate) fn set_width(&self, width: f32) {
+        self.data.borrow_mut().width = Some(width);
+        self.report_row_width();
+    }
+
+    fn report_row_width(&self) {
+        let mut d = self.data.borrow_mut();
+        let Some(width) = d.width else { return };
+        let border = if d.style.is_some_and(ListStyle::framed) { 2.0 * FRAME_BORDER } else { 0.0 };
+        let row_width = (width - border).max(0.0);
+        if d.row_width.replace(row_width) != Some(row_width) {
+            drop(d);
+            self.events.emit(self.id, UiEvent::RowWidth(row_width));
+        }
     }
 
     /// Selects rows without reporting it: the selection it expects is set

@@ -159,6 +159,27 @@ pub enum SelectionMode {
     Multiple,
 }
 
+/// How a `List` sits in its surroundings, mapped to each platform's native
+/// look. Choosing per platform is up to the app, with `platform!`.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Hash)]
+pub enum ListStyle {
+    /// The same as `Plain`, on every platform.
+    #[default]
+    Automatic,
+    /// Edge to edge, on the surface around it: sidebars, a window's main
+    /// content.
+    Plain,
+    /// In a bordered box, on the platform's content background: a list
+    /// inside a form or a dialog.
+    Framed,
+}
+
+impl ListStyle {
+    pub fn framed(self) -> bool {
+        self == ListStyle::Framed
+    }
+}
+
 /// A property of a native widget. Which ones apply depends on the kind.
 #[derive(Clone, Debug, PartialEq)]
 pub enum Prop {
@@ -206,6 +227,7 @@ pub enum Prop {
     /// Which row of its `List` a row host shows.
     Row(RowKey),
     SelectionMode(SelectionMode),
+    ListStyle(ListStyle),
     /// The selected rows of a `List`.
     Selected(Vec<RowKey>),
     /// A custom widget's props, with its renders.
@@ -262,4 +284,4 @@ macro_rules! static_value {
     )*};
 }
 
-static_value!(TextStyle, ButtonVariant, ScrollAxes, SelectionMode);
+static_value!(TextStyle, ButtonVariant, ScrollAxes, SelectionMode, ListStyle);

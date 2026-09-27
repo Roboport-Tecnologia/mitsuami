@@ -1258,6 +1258,7 @@ impl State {
             (Prop::ScrollAxes(axes), Widget::Scroll(s)) => set_scroll_axes(&s.cast()?, *axes)?,
             (Prop::Rows(rows), Widget::List(list)) => list.set_rows(rows.clone())?,
             (Prop::SelectionMode(mode), Widget::List(list)) => list.set_mode(*mode)?,
+            (Prop::ListStyle(style), Widget::List(list)) => list.set_style(*style)?,
             (Prop::Selected(rows), Widget::List(list)) => list.set_selected(rows)?,
             (Prop::EstimatedRowHeight(height), Widget::List(list)) => list.set_estimate(*height),
             (Prop::Row(row), Widget::Host(_)) => node.row = Some(*row),
@@ -1369,6 +1370,9 @@ impl State {
                 let fe: w::IFrameworkElement = element.cast()?;
                 fe.SetWidth(frame.width() as f64)?;
                 fe.SetHeight(frame.height() as f64)?;
+                if let Widget::List(list) = &self.nodes[id].widget {
+                    list.set_width(frame.width());
+                }
                 if let (Some(row), Some(Widget::List(list))) =
                     (self.nodes[id].row, self.nodes[id].parent.and_then(|p| self.nodes.get(&p)).map(|p| &p.widget))
                 {
@@ -2020,6 +2024,7 @@ impl Backend for WinUiBackend {
                 props.push(Prop::Rows(list.rows()));
                 props.extend(list.estimate().map(Prop::EstimatedRowHeight));
                 props.push(Prop::SelectionMode(list.mode()));
+                props.extend(list.style().map(Prop::ListStyle));
                 props.push(Prop::Selected(list.selected()));
             }
             Widget::Host(_) => props.extend(node.row.map(Prop::Row)),

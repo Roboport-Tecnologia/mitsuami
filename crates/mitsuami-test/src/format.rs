@@ -39,6 +39,7 @@ fn describe_props(props: &[Prop]) -> String {
             Prop::EstimatedRowHeight(h) => extra.push(format!("estimated_row_height={}", Num(*h))),
             Prop::Row(key) => extra.push(format!("row={}", key.0)),
             Prop::SelectionMode(mode) => extra.push(format!("selection={mode:?}")),
+            Prop::ListStyle(style) => extra.push(format!("list_style={style:?}")),
             Prop::Selected(rows) => {
                 let rows: Vec<String> = rows.iter().map(|r| r.0.to_string()).collect();
                 extra.push(format!("selected=[{}]", rows.join(" ")));

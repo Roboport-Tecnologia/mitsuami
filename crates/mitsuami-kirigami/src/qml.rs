@@ -178,97 +178,119 @@ QQC2.ScrollView {{
     )
 }
 
-/// A list: a `ListView` over the row keys (as strings), whose delegates
-/// are Qt Quick Controls' item delegates, drawn by the style with its own
-/// highlight. A delegate holds its row's host (`mitsuamiHost`) once the
-/// backend puts it there, and is as high as it, or the estimate until then.
+/// A list: a `ListView` over the row keys (as strings), in a scroll view,
+/// whose delegates are Qt Quick Controls' item delegates, drawn by the
+/// style with its own highlight. A delegate holds its row's host
+/// (`mitsuamiHost`) once the backend puts it there, and is as high as it,
+/// or the estimate until then.
 ///
-/// Rust sets `mitsuamiKeys`, `mitsuamiSelected`, `mitsuamiMode` (0 none,
-/// 1 single, 2 multiple), `mitsuamiEstimate` and `mitsuamiScrollTo` (an
-/// index), and listens to `mitsuamiRowsChanged()` (delegates came or went,
-/// coalesced to once per event loop turn), `mitsuamiSelectionChanged()`
-/// (the user changed the selection) and `mitsuamiActivate()` (the row
-/// `mitsuamiActivated` was double-clicked, or Return pressed on it).
+/// The scroll view is the style's: Breeze's gives its scroll bar a column
+/// of its own, so rows are narrower than the list, and draws its frame when
+/// `mitsuamiFramed` is set (the list view is then on the View colours). Its
+/// `background` is that frame; setting it directly works on styles from
+/// before `Kirigami.StyleHints.showFramedBackground`.
+///
+/// Rust sets, on the list view (`mitsuamiListView`), `mitsuamiKeys`,
+/// `mitsuamiSelected`, `mitsuamiMode` (0 none, 1 single, 2 multiple),
+/// `mitsuamiEstimate` and `mitsuamiScrollTo` (an index), and listens to
+/// `mitsuamiRowsChanged()` (delegates came or went, coalesced to once per
+/// event loop turn), `mitsuamiSelectionChanged()` (the user changed the
+/// selection) and `mitsuamiActivate()` (the row `mitsuamiActivated` was
+/// double-clicked, or Return pressed on it).
 pub(crate) fn list() -> String {
     format!(
         r#"
-ListView {{
-    id: view
-    property var mitsuamiKeys: []
-    property var mitsuamiSelected: []
-    readonly property string mitsuamiSelectedKeys: mitsuamiSelected.join(",")
-    property int mitsuamiMode: 0
-    property real mitsuamiEstimate: 24
-    property int mitsuamiScrollTo: -1
-    property string mitsuamiActivated: ""
-    property bool mitsuamiMuted: false
-    // At the end, a list stays there as rows turn out taller than estimated.
-    property bool mitsuamiAtEnd: false
-    onContentYChanged: mitsuamiAtEnd = count > 0 && atYEnd
-    onContentHeightChanged: if (mitsuamiAtEnd) Qt.callLater(view.positionViewAtEnd)
-    signal mitsuamiRowsChanged()
-    signal mitsuamiSelectionChanged()
-    signal mitsuamiActivate()
-    model: mitsuamiKeys
-    clip: true
-    boundsBehavior: Flickable.StopAtBounds
-    keyNavigationEnabled: true
-    currentIndex: -1
-    activeFocusOnTab: true
-    QQC2.ScrollBar.vertical: QQC2.ScrollBar {{ }}
-    function mitsuamiNotify() {{ Qt.callLater(view.mitsuamiRowsChanged) }}
-    function mitsuamiShow(index) {{
-        if (index >= 0) positionViewAtIndex(index, ListView.Contain)
-    }}
-    function mitsuamiPick(key) {{
-        if (mitsuamiMode === 0) return
-        mitsuamiSelected = [key]
-        mitsuamiMuted = true
-        currentIndex = mitsuamiKeys.indexOf(key)
-        mitsuamiMuted = false
-        mitsuamiSelectionChanged()
-    }}
-    function mitsuamiOpen(key) {{
-        mitsuamiActivated = key
-        mitsuamiActivate()
-    }}
-    onMitsuamiScrollToChanged: if (mitsuamiScrollTo >= 0) {{
-        mitsuamiShow(mitsuamiScrollTo)
-        mitsuamiScrollTo = -1
-    }}
-    // The keyboard moves the current row; it's the selection.
-    onCurrentIndexChanged: if (!mitsuamiMuted && currentIndex >= 0) {{
-        mitsuamiShow(currentIndex)
-        mitsuamiPick(mitsuamiKeys[currentIndex])
-    }}
-    Keys.onPressed: (event) => {{
-        if (event.key === Qt.Key_Home && count > 0) {{ currentIndex = 0; event.accepted = true }}
-        else if (event.key === Qt.Key_End && count > 0) {{ currentIndex = count - 1; event.accepted = true }}
-        else if ((event.key === Qt.Key_Return || event.key === Qt.Key_Enter) && currentIndex >= 0) {{
-            mitsuamiOpen(mitsuamiKeys[currentIndex])
-            event.accepted = true
+QQC2.ScrollView {{
+    id: scroll
+    property bool mitsuamiFramed: false
+    QQC2.ScrollBar.horizontal.policy: QQC2.ScrollBar.AlwaysOff
+    {}
+    ListView {{
+        id: view
+        objectName: "mitsuamiListView"
+        // In the list view: a scroll view with more than one child makes
+        // its own flickable.
+        Binding {{
+            target: scroll.background
+            when: scroll.background !== null
+            property: "visible"
+            value: scroll.mitsuamiFramed
+        }}
+        property var mitsuamiKeys: []
+        property var mitsuamiSelected: []
+        readonly property string mitsuamiSelectedKeys: mitsuamiSelected.join(",")
+        property int mitsuamiMode: 0
+        property real mitsuamiEstimate: 24
+        property int mitsuamiScrollTo: -1
+        property string mitsuamiActivated: ""
+        property bool mitsuamiMuted: false
+        // At the end, a list stays there as rows turn out taller than estimated.
+        property bool mitsuamiAtEnd: false
+        onContentYChanged: mitsuamiAtEnd = count > 0 && atYEnd
+        onContentHeightChanged: if (mitsuamiAtEnd) Qt.callLater(view.positionViewAtEnd)
+        signal mitsuamiRowsChanged()
+        signal mitsuamiSelectionChanged()
+        signal mitsuamiActivate()
+        model: mitsuamiKeys
+        clip: true
+        boundsBehavior: Flickable.StopAtBounds
+        keyNavigationEnabled: true
+        currentIndex: -1
+        activeFocusOnTab: true
+        function mitsuamiNotify() {{ Qt.callLater(view.mitsuamiRowsChanged) }}
+        function mitsuamiShow(index) {{
+            if (index >= 0) positionViewAtIndex(index, ListView.Contain)
+        }}
+        function mitsuamiPick(key) {{
+            if (mitsuamiMode === 0) return
+            mitsuamiSelected = [key]
+            mitsuamiMuted = true
+            currentIndex = mitsuamiKeys.indexOf(key)
+            mitsuamiMuted = false
+            mitsuamiSelectionChanged()
+        }}
+        function mitsuamiOpen(key) {{
+            mitsuamiActivated = key
+            mitsuamiActivate()
+        }}
+        onMitsuamiScrollToChanged: if (mitsuamiScrollTo >= 0) {{
+            mitsuamiShow(mitsuamiScrollTo)
+            mitsuamiScrollTo = -1
+        }}
+        // The keyboard moves the current row; it's the selection.
+        onCurrentIndexChanged: if (!mitsuamiMuted && currentIndex >= 0) {{
+            mitsuamiShow(currentIndex)
+            mitsuamiPick(mitsuamiKeys[currentIndex])
+        }}
+        Keys.onPressed: (event) => {{
+            if (event.key === Qt.Key_Home && count > 0) {{ currentIndex = 0; event.accepted = true }}
+            else if (event.key === Qt.Key_End && count > 0) {{ currentIndex = count - 1; event.accepted = true }}
+            else if ((event.key === Qt.Key_Return || event.key === Qt.Key_Enter) && currentIndex >= 0) {{
+                mitsuamiOpen(mitsuamiKeys[currentIndex])
+                event.accepted = true
+            }}
+        }}
+        delegate: QQC2.ItemDelegate {{
+            required property string modelData
+            property string mitsuamiKey: modelData
+            property Item mitsuamiHost: null
+            width: view.width
+            height: mitsuamiHost ? mitsuamiHost.height : view.mitsuamiEstimate
+            padding: 0
+            topInset: 0
+            bottomInset: 0
+            // The style's inset for its own padding, which rows don't have.
+            leftInset: Kirigami.Units.mediumSpacing
+            rightInset: Kirigami.Units.mediumSpacing
+            focusPolicy: Qt.NoFocus
+            highlighted: view.mitsuamiSelected.indexOf(modelData) >= 0
+            contentItem: Item {{ }}
+            onClicked: view.mitsuamiPick(modelData)
+            onDoubleClicked: view.mitsuamiOpen(modelData)
+            Component.onCompleted: view.mitsuamiNotify()
+            Component.onDestruction: view.mitsuamiNotify()
         }}
     }}
-    delegate: QQC2.ItemDelegate {{
-        required property string modelData
-        property string mitsuamiKey: modelData
-        property Item mitsuamiHost: null
-        width: view.width
-        height: mitsuamiHost ? mitsuamiHost.height : view.mitsuamiEstimate
-        padding: 0
-        topInset: 0
-        bottomInset: 0
-        leftInset: 0
-        rightInset: 0
-        focusPolicy: Qt.NoFocus
-        highlighted: view.mitsuamiSelected.indexOf(modelData) >= 0
-        contentItem: Item {{ }}
-        onClicked: view.mitsuamiPick(modelData)
-        onDoubleClicked: view.mitsuamiOpen(modelData)
-        Component.onCompleted: view.mitsuamiNotify()
-        Component.onDestruction: view.mitsuamiNotify()
-    }}
-    {}
 }}
 "#,
         a11y("\"\"")

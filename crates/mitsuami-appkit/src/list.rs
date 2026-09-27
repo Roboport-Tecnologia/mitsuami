@@ -15,12 +15,12 @@ use std::cell::{Cell, RefCell};
 use std::collections::{HashMap, HashSet};
 use std::rc::Rc;
 
-use mitsuami_core::{EventSink, EventValue, NodeId, Rect, RowKey, SelectionMode, UiEvent};
+use mitsuami_core::{EventSink, EventValue, ListStyle, NodeId, Rect, RowKey, SelectionMode, UiEvent};
 use objc2::rc::Retained;
 use objc2::runtime::{AnyObject, NSObject, NSObjectProtocol, ProtocolObject};
 use objc2::{DefinedClass, MainThreadMarker, MainThreadOnly, define_class, msg_send, sel};
 use objc2_app_kit::{
-    NSAnimationContext, NSControlTextEditingDelegate, NSEvent, NSScrollView, NSTableColumn,
+    NSAnimationContext, NSBorderType, NSControlTextEditingDelegate, NSEvent, NSScrollView, NSTableColumn,
     NSTableColumnResizingOptions, NSTableRowView, NSTableView, NSTableViewColumnAutoresizingStyle,
     NSTableViewDataSource, NSTableViewDelegate, NSTableViewStyle, NSView,
 };
@@ -234,6 +234,8 @@ pub(crate) struct List {
     data: SharedList,
     /// The row width last reported.
     reported_width: Cell<Option<f32>>,
+    /// AppKit can't tell `Automatic` from `Plain`.
+    style: Cell<Option<ListStyle>>,
 }
 
 impl List {
@@ -266,7 +268,7 @@ impl List {
         // the title bar on top of that.
         scroll.setAutomaticallyAdjustsContentInsets(false);
         scroll.setDocumentView(Some(&table));
-        List { scroll, table, column, _source: source, data, reported_width: Cell::new(None) }
+        List { scroll, table, column, _source: source, data, reported_width: Cell::new(None), style: Cell::new(None) }
     }
 
     /// New rows: the table reloads, keeps the selected rows that stayed
@@ -360,6 +362,17 @@ impl List {
         self.data.borrow().mode
     }
 
+    /// A framed list has the bezel border, which takes room from the rows.
+    pub(crate) fn set_style(&self, style: ListStyle) {
+        self.style.set(Some(style));
+        self.scroll.setBorderType(if style.framed() { NSBorderType::BezelBorder } else { NSBorderType::NoBorder });
+        self.set_frame(self.scroll.frame());
+    }
+
+    pub(crate) fn style(&self) -> Option<ListStyle> {
+        self.style.get()
+    }
+
     /// Hosts a mounted row, in its cell if the table shows it.
     pub(crate) fn insert(&self, key: RowKey, id: NodeId, view: Retained<NSView>) {
         let mut data = self.data.borrow_mut();
@@ -408,7 +421,8 @@ impl List {
     }
 
     /// Sizes the list, and its one column to the width rows get, which it
-    /// reports when it changes: legacy scroll bars take room from the rows.
+    /// reports when it changes: legacy scroll bars and a border take room
+    /// from the rows.
     pub(crate) fn set_frame(&self, frame: objc2_foundation::NSRect) {
         self.scroll.setFrame(frame);
         let width = self.scroll.contentSize().width;
