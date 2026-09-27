@@ -19,29 +19,34 @@ fn launcher() -> impl View {
     let busy = signal(false);
     let status = signal(String::from("Ready"));
     let machines = signal(0);
-    Column::new().padding(Spacing::Xl).gap(Spacing::Lg).children((
-        Toolbar::new().children((
-            Show::new(busy, || {
-                Row::new()
-                    .gap(Spacing::Sm)
-                    .align(Align::Center)
-                    .children((Spinner::new("Downloading presets"), Text::new("Downloading presets… 12 MB")))
-            }),
-            Text::new(status).max_lines(1).max_width(320).tooltip(status),
-            Button::new("New machine").on_click(move || machines.update(|m| *m += 1)),
-        )),
-        Text::new(move || match machines.get() {
-            0 => "No machines yet.".to_owned(),
-            1 => "1 machine.".to_owned(),
-            n => format!("{n} machines."),
-        }),
-        Row::new().gap(Spacing::Md).children((
-            Button::new(move || if busy.get() { "Stop the download" } else { "Start a download" }.to_owned())
-                .on_click(move || busy.update(|b| *b = !*b)),
-            Button::new("Long status").on_click(move || status.set(LONG.to_owned())),
-            Button::new("Short status").on_click(move || status.set("Ready".to_owned())),
-        )),
-    ))
+    view! {
+        <Column padding=Spacing::Xl gap=Spacing::Lg>
+            <Toolbar>
+                <Show when=busy>
+                    <Row gap=Spacing::Sm align=Align::Center>
+                        <Spinner label="Downloading presets"/>
+                        <Text>"Downloading presets… 12 MB"</Text>
+                    </Row>
+                </Show>
+                <Text max_lines=1 max_width=320 tooltip=status>{status}</Text>
+                <Button @click=move || machines.update(|m| *m += 1)>"New machine"</Button>
+            </Toolbar>
+            <Text>
+                {move || match machines.get() {
+                    0 => "No machines yet.".to_owned(),
+                    1 => "1 machine.".to_owned(),
+                    n => format!("{n} machines."),
+                }}
+            </Text>
+            <Row gap=Spacing::Md>
+                <Button @click=move || busy.update(|b| *b = !*b)>
+                    {move || if busy.get() { "Stop the download" } else { "Start a download" }.to_owned()}
+                </Button>
+                <Button @click=move || status.set(LONG.to_owned())>"Long status"</Button>
+                <Button @click=move || status.set("Ready".to_owned())>"Short status"</Button>
+            </Row>
+        </Column>
+    }
 }
 
 fn main() {
