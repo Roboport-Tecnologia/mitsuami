@@ -815,6 +815,19 @@ impl Backend for HeadlessBackend {
                     state.reveal(id, row);
                 }
             }
+            // A dialog (a modal window) asks to close, as every platform's
+            // do; a plain window ignores it.
+            (_, Key::Escape) => {
+                let mut window = Some(id);
+                while let Some(w) = window.filter(|w| state.nodes[w].kind != WidgetKind::Window) {
+                    window = state.nodes[&w].parent;
+                }
+                if let Some(window) = window
+                    && state.nodes[&window].props.iter().any(|p| matches!(p, Prop::Modal { .. }))
+                {
+                    state.emit(window, UiEvent::WindowCloseRequested);
+                }
+            }
             _ => return Err(ActionError::Unsupported),
         }
         Ok(())

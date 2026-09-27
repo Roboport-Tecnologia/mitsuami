@@ -77,8 +77,10 @@ impl Window {
     /// Modal: while it's open, it blocks the window it's declared in
     /// ([`Modality::Window`], a sheet on macOS) or the whole app
     /// ([`Modality::Application`]), and stays above that window. Set
-    /// before it opens. A sheet has no close button: give its content
-    /// one, e.g. a `ButtonRole::Cancel` button, which Escape presses.
+    /// before it opens. Like any dialog, Escape asks it to close, as its
+    /// close button does (on AppKit a `ButtonRole::Cancel` button takes
+    /// Escape first). A sheet has no close button: give its content a
+    /// way out, e.g. that Cancel button.
     pub fn modal(mut self, modality: Modality) -> Window {
         self.modality = Value::Static(Some(modality));
         self

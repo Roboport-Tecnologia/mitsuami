@@ -172,6 +172,8 @@ pub(crate) struct WindowIvars {
     views: ViewMap,
     /// The node we last reported as focused.
     focused: Cell<Option<NodeId>>,
+    /// A dialog: Escape asks it to close.
+    modal: Cell<bool>,
 }
 
 define_class!(
@@ -202,6 +204,17 @@ define_class!(
                 if let Some(new) = now {
                     events.emit(new, UiEvent::FocusIn);
                 }
+            }
+        }
+    }
+
+    impl WindowDelegate {
+        /// Escape, from whatever has the focus and didn't use it: the
+        /// window hands action messages nobody took to its delegate.
+        #[unsafe(method(cancelOperation:))]
+        fn cancel_operation(&self, _sender: Option<&AnyObject>) {
+            if self.ivars().modal.get() {
+                self.ivars().events.emit(self.ivars().id, UiEvent::WindowCloseRequested);
             }
         }
     }
@@ -242,8 +255,18 @@ impl WindowDelegate {
         events: EventSink,
         views: ViewMap,
     ) -> Retained<WindowDelegate> {
-        let this = WindowDelegate::alloc(mtm).set_ivars(WindowIvars { id, events, views, focused: Cell::new(None) });
+        let this = WindowDelegate::alloc(mtm).set_ivars(WindowIvars {
+            id,
+            events,
+            views,
+            focused: Cell::new(None),
+            modal: Cell::new(false),
+        });
         unsafe { msg_send![super(this), init] }
+    }
+
+    pub(crate) fn set_modal(&self, modal: bool) {
+        self.ivars().modal.set(modal);
     }
 
     pub(crate) fn observe_focus(&self, window: &NSWindow) {

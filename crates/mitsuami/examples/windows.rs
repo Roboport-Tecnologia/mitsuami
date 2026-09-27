@@ -8,6 +8,8 @@
 //! - "Open machines as" picks how the machine windows open: plain windows,
 //!   sheets on the launcher (`Modality::Window`), or windows that block the
 //!   whole app (`Modality::Application`). It applies from the next opening.
+//!   Escape closes a modal one, as it closes dialogs (asking first, with
+//!   unsaved changes); a plain one ignores it.
 
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 

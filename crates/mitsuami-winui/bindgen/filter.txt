@@ -47,7 +47,9 @@ Microsoft.UI.Xaml.Input.KeyboardNavigationMode
 Microsoft.UI.Xaml.Input.KeyEventHandler
 Microsoft.UI.Xaml.Input.IKeyRoutedEventArgs::{get_Key, put_Handled}
 Microsoft.UI.Xaml.Input.KeyboardAccelerator::CreateInstance
-Microsoft.UI.Xaml.Input.IKeyboardAccelerator::{get_Key, put_Key, get_Modifiers, put_Modifiers}
+Microsoft.UI.Xaml.Input.IKeyboardAccelerator::{get_Key, put_Key, get_Modifiers, put_Modifiers, add_Invoked, remove_Invoked}
+Microsoft.UI.Xaml.Input.KeyboardAcceleratorInvokedEventArgs::{}
+Microsoft.UI.Xaml.Input.IKeyboardAcceleratorInvokedEventArgs::{put_Handled}
 Microsoft.UI.Xaml.Media.VisualTreeHelper::{GetParent, GetChildrenCount, GetChild, GetOpenPopupsForXamlRoot}
 Microsoft.UI.Xaml.Controls.Primitives.IPopup::get_Child
 Microsoft.UI.Xaml.Controls.Primitives.Popup::{}
