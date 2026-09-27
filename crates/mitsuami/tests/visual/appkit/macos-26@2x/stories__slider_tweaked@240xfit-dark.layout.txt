@@ -1,5 +1,0 @@
-Window "mitsuami test" [0,0 240×84]
-  Container [0,0 240×84]
-    Slider "Plain" value=40 range=0..100 [16,16 208×16]
-    Container [16,44 208×24]
-      Slider "Tweaked" value=4 range=0..10 step=1 tweak [16,44 24×24]

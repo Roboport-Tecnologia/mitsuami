@@ -1,4 +1,0 @@
-Window "mitsuami test" [0,0 240×80]
-  Container [0,0 240×80]
-    TextInput value="Ada" [16,16 208×24]
-    TextInput tweak value="Ada" [16,48 208×16]

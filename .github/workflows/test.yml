@@ -21,7 +21,7 @@ jobs:
       fail-fast: false
       matrix:
         # Pinned, so native rendering only changes when we move images.
-        os: [ubuntu-24.04, macos-15, windows-2025]
+        os: [ubuntu-24.04, macos-26, windows-2025]
     runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v5

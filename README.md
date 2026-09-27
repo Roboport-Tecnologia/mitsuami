@@ -60,16 +60,17 @@ MITSUAMI_SHOW_WINDOWS=1 MITSUAMI_NATIVE=1 cargo test   # …and watch them
 MITSUAMI_UPDATE_SNAPSHOTS=1 cargo test       # accept snapshot / visual baseline changes
 MITSUAMI_WAIT_MS=5000 cargo test             # longer wait for background work in assertions
 MITSUAMI_SKIP_MACHINE_SNAPSHOTS=1 cargo test # skip native snapshots that depend on fonts, OS and scale
-MITSUAMI_IMAGE=macos-15 cargo test           # name the machine image native snapshots belong to (CI sets it)
+MITSUAMI_IMAGE=macos-26 cargo test           # name the machine image native snapshots belong to (CI sets it)
 MITSUAMI_NATIVE=1 cargo test -p mitsuami -p mitsuami-kirigami \
   --features mitsuami/kde,mitsuami-test/kde,mitsuami-kirigami/qt   # native tests on Kirigami
 ```
 
 Native snapshots and visual baselines depend on the machine, so they are
 kept per machine image: `tests/{snapshots,visual}/<backend>/<image>/`, where
-the image defaults to the OS and its version (`macos-26@2x`). CI records its
-own; when a run fails on missing or changed ones, it uploads them, and
-`.github/scripts/accept-snapshots.sh <run id>` accepts them.
+the image defaults to the OS and its version (`macos-26@2x`). Only CI's are
+kept in the repository; a machine's own are recorded on its first run and
+ignored by git. When a CI run fails on missing or changed ones, it uploads
+them, and `.github/scripts/accept-snapshots.sh <run id>` accepts them.
 
 CI tests only run when started by hand, `gh workflow run test.yml --ref
 <branch>`, and before a release (headless only) when a tag is pushed.

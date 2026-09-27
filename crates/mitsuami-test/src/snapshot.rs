@@ -37,7 +37,7 @@ pub(crate) fn on_ci() -> bool {
 
 /// The machine image that native snapshots and baselines belong to:
 /// `MITSUAMI_IMAGE` if set (CI sets it to the runner's image, like
-/// `macos-15`), or else the OS and its version (`macos-26`, `ubuntu-24.04`,
+/// `macos-26`), or else the OS and its version (`macos-26`, `ubuntu-24.04`,
 /// `windows-26100`). A display scale other than 1× is appended
 /// (`macos-26@2x`): captures are in physical pixels.
 pub(crate) fn image(scale_factor: f32) -> String {

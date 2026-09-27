@@ -66,11 +66,12 @@ Backend rules the tests enforce:
 - `cargo test --workspace` runs headless; `MITSUAMI_NATIVE=1 cargo test
   --workspace` runs on this machine's native backend (AppKit on macOS).
 - Native snapshots and visual baselines are per machine image
-  (`tests/{snapshots,visual}/<backend>/<image>/`). A missing baseline is
-  recorded on first run; don't set `MITSUAMI_IMAGE` locally, or a new image
-  directory gets recorded.
+  (`tests/{snapshots,visual}/<backend>/<image>/`). Only CI's images are
+  committed; this machine's (`macos-26@2x`) is recorded on first run and
+  ignored by git. Don't set `MITSUAMI_IMAGE` locally, or you'd record into
+  CI's image directory.
 - CI runs only by hand: `gh workflow run test.yml --ref <branch>`. Baselines
-  for new stories on the other platforms come from a failed CI run:
+  for new stories, on every platform, come from a failed CI run:
   `.github/scripts/accept-snapshots.sh <run id>`.
 - Don't run CI for now, for the same reason as visual baselines below:
   development moves too fast. Type-check the other platforms from macOS
