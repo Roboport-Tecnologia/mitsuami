@@ -6,3 +6,6 @@ target/
 snapshots.tar
 # This machine's captures (Arch has no VERSION_ID); only CI's are kept
 crates/mitsuami/tests/*/*/arch-unknown/
+# Windows machines' captures: only CI's image (windows-2025) is kept
+crates/mitsuami/tests/*/winui/*
+!crates/mitsuami/tests/*/winui/windows-2025/
