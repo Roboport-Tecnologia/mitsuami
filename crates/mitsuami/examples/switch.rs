@@ -12,22 +12,29 @@
 use mitsuami::prelude::*;
 
 fn heading(text: &str) -> impl View {
-    Text::new(text.to_string()).text_style(TextStyle::Headline)
+    view! { <Text text_style=TextStyle::Headline>{text.to_string()}</Text> }
 }
 
 /// A caption and a switch, as settings screens pair them.
 fn setting(caption: impl IntoValue<String>, switch: Switch) -> impl View {
-    Row::new().gap(Spacing::Md).align(Align::Center).children((Text::new(caption).grow(1.0), switch))
+    view! {
+        <Row gap=Spacing::Md align=Align::Center>
+            <Text grow=1.0>{caption}</Text>
+            {switch}
+        </Row>
+    }
 }
 
 fn gallery() -> impl View {
-    Column::new().gap(Spacing::Sm).children((
-        heading("States"),
-        setting("Off", Switch::new("Off")),
-        setting("On", Switch::new("On").checked(true)),
-        setting("Off, disabled", Switch::new("Off, disabled").enabled(false)),
-        setting("On, disabled", Switch::new("On, disabled").checked(true).enabled(false)),
-    ))
+    view! {
+        <Column gap=Spacing::Sm>
+            {heading("States")}
+            {setting("Off", view! { <Switch>"Off"</Switch> })}
+            {setting("On", view! { <Switch checked=true>"On"</Switch> })}
+            {setting("Off, disabled", view! { <Switch enabled=false>"Off, disabled"</Switch> })}
+            {setting("On, disabled", view! { <Switch checked=true enabled=false>"On, disabled"</Switch> })}
+        </Column>
+    }
 }
 
 /// One switch, and its props to change.
@@ -36,29 +43,29 @@ fn playground() -> impl View {
     let on = signal(true);
     let enabled = signal(true);
     let flips = signal(0);
-    Column::new().gap(Spacing::Md).children((
-        heading("Try it"),
-        Grid::new()
-            .columns([Track::MaxContent, Track::Size(1.fr())])
-            .column_gap(Spacing::Md)
-            .row_gap(Spacing::Sm)
-            .align(Align::Center)
-            .children((
-                Text::new("Label"),
-                TextInput::new().a11y_label("Label").bind(label),
-                Text::new("On"),
-                Checkbox::new("On").bind(on),
-                Text::new("Enabled"),
-                Checkbox::new("Enabled").bind(enabled),
-            )),
-        setting(label, Switch::new(label).bind(on).enabled(enabled).on_change(move |_| flips.update(|f| *f += 1))),
-        Text::new(move || match flips.get() {
-            0 => "Not flipped yet".to_string(),
-            1 => "Flipped once".to_string(),
-            n => format!("Flipped {n} times"),
-        })
-        .text_style(TextStyle::Caption),
-    ))
+    view! {
+        <Column gap=Spacing::Md>
+            {heading("Try it")}
+            <Grid columns=[Track::MaxContent, Track::Size(1.fr())] column_gap=Spacing::Md row_gap=Spacing::Sm align=Align::Center>
+                <Text>"Label"</Text>
+                <TextInput a11y_label="Label" bind=label/>
+                <Text>"On"</Text>
+                <Checkbox bind=on>"On"</Checkbox>
+                <Text>"Enabled"</Text>
+                <Checkbox bind=enabled>"Enabled"</Checkbox>
+            </Grid>
+            {setting(label, view! {
+                <Switch bind=on enabled=enabled @change=move |_| flips.update(|f| *f += 1)>{label}</Switch>
+            })}
+            <Text text_style=TextStyle::Caption>
+                {move || match flips.get() {
+                    0 => "Not flipped yet".to_string(),
+                    1 => "Flipped once".to_string(),
+                    n => format!("Flipped {n} times"),
+                }}
+            </Text>
+        </Column>
+    }
 }
 
 /// A setting only this platform has, straight on the native switch.
@@ -101,18 +108,26 @@ fn platform_option() -> impl View {
             "WinUI: OnContent and OffContent say On or Off beside the track.",
         ),
     };
-    Column::new().gap(Spacing::Sm).children((
-        heading("A platform option"),
-        setting("Plain", Switch::new("Plain").checked(true)),
-        setting("Tweaked", Switch::new("Tweaked").checked(true).native(tweak)),
-        Text::new(about).text_style(TextStyle::Caption),
-    ))
+    view! {
+        <Column gap=Spacing::Sm>
+            {heading("A platform option")}
+            {setting("Plain", view! { <Switch checked=true>"Plain"</Switch> })}
+            {setting("Tweaked", view! { <Switch checked=true native=tweak>"Tweaked"</Switch> })}
+            <Text text_style=TextStyle::Caption>{about}</Text>
+        </Column>
+    }
 }
 
 fn main() {
     App::new()
         .window("Switch", WindowSize::FitHeight(560.0), || {
-            Column::new().padding(Spacing::Xl).gap(Spacing::Xl).children((gallery(), playground(), platform_option()))
+            view! {
+                <Column padding=Spacing::Xl gap=Spacing::Xl>
+                    {gallery()}
+                    {playground()}
+                    {platform_option()}
+                </Column>
+            }
         })
         .run();
 }

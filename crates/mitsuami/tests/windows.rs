@@ -312,7 +312,7 @@ async fn a_nested_dialog_applies_or_drops_its_changes(app: TestApp) {
                     <Button @click=move || dialog.set(true)>"Advanced…"</Button>
                     <Window title="Advanced" modal=Modality::Window bind=dialog @open=move || draft.set(form.get_untracked())>
                         <Column>
-                            <NumberInput a11y_label="Processors" bind=draft/>
+                            <NumberInput label="Processors" bind=draft/>
                             <Button role=ButtonRole::Cancel @click=move || dialog.set(false)>"Cancel"</Button>
                             <Button role=ButtonRole::Default @click=move || {
                                 form.set(draft.get_untracked());

@@ -64,7 +64,7 @@ async fn takes_no_focus(app: TestApp) {
 #[mitsuami_test::test]
 async fn works_in_view_macros(app: TestApp) {
     let loading = signal(false);
-    app.mount(move || view! { <Spinner a11y_label="Loading" running=loading/> });
+    app.mount(move || view! { <Spinner label="Loading" running=loading/> });
 
     assert!(props(&app).contains(&Prop::Running(false)));
 }

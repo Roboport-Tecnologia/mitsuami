@@ -88,8 +88,8 @@ pub mod prelude {
     pub use mitsuami_core::{
         Align, ButtonRole, ButtonStyle, Callback, Children, Element, ElementBuilder, FlexDirection, For, GridPlacement,
         ImageFit, ImageSource, Justify, Length, LengthExt, List, ListHandle, ListStyle, Modality, NodeId, Orientation,
-        Pixels, Point, Role, SelectionMode, Show, Size, Slot, Spacing, TextDirection, TextStyle, Track, Tweak, Ui,
-        View, WindowSize, repeat,
+        Pixels, Point, Role, ScrollAxes, SelectionMode, Show, Size, Slot, Spacing, TextDirection, TextStyle, Track,
+        Tweak, Ui, View, WindowSize, repeat,
     };
     pub use mitsuami_reactive::{
         Computed, IntoValue, Owner, Signal, Value, batch, computed, effect, inject, on_cleanup, provide, signal,

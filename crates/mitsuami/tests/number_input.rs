@@ -185,7 +185,7 @@ async fn has_a_size_and_takes_focus(app: TestApp) {
 #[mitsuami_test::test]
 async fn works_in_view_macros(app: TestApp) {
     let copies = signal(3);
-    app.mount(move || view! { <NumberInput a11y_label="Copies" bind=copies/> });
+    app.mount(move || view! { <NumberInput label="Copies" bind=copies/> });
 
     app.expect(by_role(Role::SpinButton, "Copies")).to_have_value("3").await;
     app.get(by_role(Role::SpinButton, "Copies")).set_number(7.0).await;

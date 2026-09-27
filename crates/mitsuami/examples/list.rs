@@ -14,7 +14,8 @@
 use mitsuami::prelude::*;
 
 fn heading(text: &str) -> impl View {
-    Text::new(text.to_string()).text_style(TextStyle::Headline)
+    let text = text.to_string();
+    view! { <Text text_style=TextStyle::Headline>{text}</Text> }
 }
 
 const FRUIT: [&str; 12] = [
@@ -33,27 +34,37 @@ const FRUIT: [&str; 12] = [
 ];
 
 fn row(text: String) -> impl View {
-    Row::new().padding_x(Spacing::Md).padding_y(Spacing::Xs).child(Text::new(text))
+    view! {
+        <Row padding_x=Spacing::Md padding_y=Spacing::Xs>
+            <Text>{text}</Text>
+        </Row>
+    }
 }
 
 fn fruit_list(style: ListStyle) -> List<&'static str, &'static str> {
-    List::new(|| FRUIT.to_vec(), |f: &&str| *f, |f| row(f.to_string())).list_style(style).height(140).grow(1.0)
+    view! {
+        <List each=|| FRUIT.to_vec() key=|f: &&str| *f list_style=style height=140 grow=1.0 let:f>
+            {row(f.to_string())}
+        </List>
+    }
 }
 
 fn gallery() -> impl View {
-    Column::new().gap(Spacing::Md).children((
-        heading("Styles"),
-        Row::new().gap(Spacing::Lg).children((
-            Column::new()
-                .gap(Spacing::Sm)
-                .grow(1.0)
-                .children((Text::new("Plain").text_style(TextStyle::Caption), fruit_list(ListStyle::Plain))),
-            Column::new()
-                .gap(Spacing::Sm)
-                .grow(1.0)
-                .children((Text::new("Framed").text_style(TextStyle::Caption), fruit_list(ListStyle::Framed))),
-        )),
-    ))
+    view! {
+        <Column gap=Spacing::Md>
+            {heading("Styles")}
+            <Row gap=Spacing::Lg>
+                <Column gap=Spacing::Sm grow=1.0>
+                    <Text text_style=TextStyle::Caption>"Plain"</Text>
+                    {fruit_list(ListStyle::Plain)}
+                </Column>
+                <Column gap=Spacing::Sm grow=1.0>
+                    <Text text_style=TextStyle::Caption>"Framed"</Text>
+                    {fruit_list(ListStyle::Framed)}
+                </Column>
+            </Row>
+        </Column>
+    }
 }
 
 /// A list of numbered rows to add to, select in, remove from and scroll.
@@ -75,35 +86,44 @@ fn playground() -> impl View {
         rows.update(|r| r.retain(|n| !gone.contains(n)));
         selected.set(Vec::new());
     };
-    Column::new().gap(Spacing::Md).children((
-        heading("Try it"),
-        Row::new().gap(Spacing::Sm).children((
-            Button::new("Add").on_click(add),
-            Button::new("Remove selected").enabled(move || !selected.get().is_empty()).on_click(remove),
-            Button::new("Scroll to last").on_click(move || {
-                if let Some(last) = rows.get_untracked().last() {
-                    scroll_handle.scroll_to(last);
-                }
-            }),
-        )),
-        Row::new()
-            .gap(Spacing::Md)
-            .align(Align::Center)
-            .children((Text::new("Select several"), Switch::new("Select several").bind(several))),
-        List::new(rows, |n: &u32| *n, |n| row(format!("Row {n}")))
-            .selection_mode(move || if several.get() { SelectionMode::Multiple } else { SelectionMode::Single })
-            .selected(selected)
-            .on_activate(move |n| activated.set(Some(n)))
-            .handle(handle)
-            .list_style(ListStyle::Framed)
-            .height(160),
-        Text::new(move || {
-            let selected = selected.get();
-            let activated = activated.get().map_or("none".to_string(), |n| format!("Row {n}"));
-            format!("{} of {} selected; last activated: {activated}", selected.len(), rows.get().len())
-        })
-        .text_style(TextStyle::Caption),
-    ))
+    view! {
+        <Column gap=Spacing::Md>
+            {heading("Try it")}
+            <Row gap=Spacing::Sm>
+                <Button @click=add>"Add"</Button>
+                <Button enabled=move || !selected.get().is_empty() @click=remove>"Remove selected"</Button>
+                <Button @click=move || {
+                    if let Some(last) = rows.get_untracked().last() {
+                        scroll_handle.scroll_to(last);
+                    }
+                }>"Scroll to last"</Button>
+            </Row>
+            <Row gap=Spacing::Md align=Align::Center>
+                <Text>"Select several"</Text>
+                <Switch bind=several>"Select several"</Switch>
+            </Row>
+            <List
+                each=rows
+                key=|n: &u32| *n
+                selection_mode=move || if several.get() { SelectionMode::Multiple } else { SelectionMode::Single }
+                selected=selected
+                @activate=move |n| activated.set(Some(n))
+                handle=handle
+                list_style=ListStyle::Framed
+                height=160
+                let:n
+            >
+                {row(format!("Row {n}"))}
+            </List>
+            <Text text_style=TextStyle::Caption>
+                {move || {
+                    let selected = selected.get();
+                    let activated = activated.get().map_or("none".to_string(), |n| format!("Row {n}"));
+                    format!("{} of {} selected; last activated: {activated}", selected.len(), rows.get().len())
+                }}
+            </Text>
+        </Column>
+    }
 }
 
 /// A setting only this platform has, straight on the native list view.
@@ -132,25 +152,37 @@ fn platform_option() -> impl View {
         ),
     };
     let selected = signal(Vec::<&'static str>::new());
-    Column::new().gap(Spacing::Md).children((
-        heading("A platform option"),
-        List::new(|| FRUIT.to_vec(), |f: &&str| *f, |f| row(f.to_string()))
-            .selected(selected)
-            .list_style(ListStyle::Framed)
-            .height(140)
-            .native(tweak),
-        Text::new(about).text_style(TextStyle::Caption),
-    ))
+    view! {
+        <Column gap=Spacing::Md>
+            {heading("A platform option")}
+            <List
+                each=|| FRUIT.to_vec()
+                key=|f: &&str| *f
+                selected=selected
+                list_style=ListStyle::Framed
+                height=140
+                native=tweak
+                let:f
+            >
+                {row(f.to_string())}
+            </List>
+            <Text text_style=TextStyle::Caption>{about}</Text>
+        </Column>
+    }
 }
 
 fn main() {
     App::new()
         .window("List", WindowSize::FitHeight(640.0), || {
-            ScrollView::new().child(Column::new().padding(Spacing::Xl).gap(Spacing::Xl).children((
-                gallery(),
-                playground(),
-                platform_option(),
-            )))
+            view! {
+                <ScrollView>
+                    <Column padding=Spacing::Xl gap=Spacing::Xl>
+                        {gallery()}
+                        {playground()}
+                        {platform_option()}
+                    </Column>
+                </ScrollView>
+            }
         })
         .run();
 }

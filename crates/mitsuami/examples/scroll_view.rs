@@ -12,63 +12,72 @@
 use mitsuami::prelude::*;
 
 fn heading(text: &str) -> impl View {
-    Text::new(text.to_string()).text_style(TextStyle::Headline)
+    let text = text.to_string();
+    view! { <Text text_style=TextStyle::Headline>{text}</Text> }
 }
 
 fn rows(count: usize) -> Vec<Text> {
-    (1..=count).map(|i| Text::new(format!("Row {i}"))).collect()
+    (1..=count).map(|i| view! { <Text>{format!("Row {i}")}</Text> }).collect()
 }
 
 /// A tile for the horizontal and two-way scroll views.
 fn tile(label: String) -> impl View {
-    Column::new().width(72).height(48).justify(Justify::Center).align(Align::Center).child(Text::new(label))
+    view! {
+        <Column width=72 height=48 justify=Justify::Center align=Align::Center>
+            <Text>{label}</Text>
+        </Column>
+    }
 }
 
 fn gallery() -> impl View {
-    Column::new().gap(Spacing::Md).children((
-        heading("Axes"),
-        Row::new().gap(Spacing::Lg).align(Align::Start).children((
-            Column::new().gap(Spacing::Sm).children((
-                Text::new("Vertical").text_style(TextStyle::Caption),
-                ScrollView::new().width(160).height(120).child(Column::new().gap(Spacing::Xs).children(rows(20))),
-            )),
-            // Without a minimum width of 0, the column is as wide as the
-            // widest content in it (as in CSS), and the scroll views in it
-            // with it: they'd have nothing to scroll.
-            Column::new().gap(Spacing::Sm).grow(1.0).min_width(0).children((
-                Text::new("Horizontal").text_style(TextStyle::Caption),
-                ScrollView::horizontal().height(56).child(
-                    Row::new().gap(Spacing::Sm).children((1..=12).map(|i| tile(format!("{i}"))).collect::<Vec<_>>()),
-                ),
-                Text::new("Both").text_style(TextStyle::Caption),
-                ScrollView::both().height(120).child(
-                    Grid::new()
-                        .columns((0..8).map(|_| Track::Size(72.into())).collect::<Vec<_>>())
-                        .gap(Spacing::Sm)
-                        .children((0..48).map(|i| tile(format!("{},{}", i / 8 + 1, i % 8 + 1))).collect::<Vec<_>>()),
-                ),
-            )),
-        )),
-    ))
+    let strip = (1..=12).map(|i| tile(format!("{i}"))).collect::<Vec<_>>();
+    let grid = (0..48).map(|i| tile(format!("{},{}", i / 8 + 1, i % 8 + 1))).collect::<Vec<_>>();
+    let columns = (0..8).map(|_| Track::Size(72.into())).collect::<Vec<_>>();
+    view! {
+        <Column gap=Spacing::Md>
+            {heading("Axes")}
+            <Row gap=Spacing::Lg align=Align::Start>
+                <Column gap=Spacing::Sm>
+                    <Text text_style=TextStyle::Caption>"Vertical"</Text>
+                    <ScrollView width=160 height=120>
+                        <Column gap=Spacing::Xs>{rows(20)}</Column>
+                    </ScrollView>
+                </Column>
+                // Without a minimum width of 0, the column is as wide as the
+                // widest content in it (as in CSS), and the scroll views in it
+                // with it: they'd have nothing to scroll.
+                <Column gap=Spacing::Sm grow=1.0 min_width=0>
+                    <Text text_style=TextStyle::Caption>"Horizontal"</Text>
+                    <ScrollView axes=ScrollAxes::Horizontal height=56>
+                        <Row gap=Spacing::Sm>{strip}</Row>
+                    </ScrollView>
+                    <Text text_style=TextStyle::Caption>"Both"</Text>
+                    <ScrollView axes=ScrollAxes::Both height=120>
+                        <Grid columns=columns gap=Spacing::Sm>{grid}</Grid>
+                    </ScrollView>
+                </Column>
+            </Row>
+        </Column>
+    }
 }
 
 /// One scroll view, its scroll bars to turn off, and its offset.
 fn playground() -> impl View {
     let bars = signal(true);
     let offset = signal(Point::new(0.0, 0.0));
-    Column::new().gap(Spacing::Md).children((
-        heading("Try it"),
-        Row::new().gap(Spacing::Md).align(Align::Center).children((
-            Text::new("Scroll bars"),
-            Switch::new("Scroll bars").bind(bars),
-            Text::new(move || format!("Scrolled to {:.0}", offset.get().y)).text_style(TextStyle::Caption),
-        )),
-        ScrollView::new()
-            .height(120)
-            .scroll_bars(bars)
-            .on_scroll(move |p| offset.set(p))
-            .child(Column::new().gap(Spacing::Xs).children(rows(40))),
-    ))
+    view! {
+        <Column gap=Spacing::Md>
+            {heading("Try it")}
+            <Row gap=Spacing::Md align=Align::Center>
+                <Text>"Scroll bars"</Text>
+                <Switch bind=bars>"Scroll bars"</Switch>
+                <Text text_style=TextStyle::Caption>{move || format!("Scrolled to {:.0}", offset.get().y)}</Text>
+            </Row>
+            <ScrollView height=120 scroll_bars=bars @scroll=move |p| offset.set(p)>
+                <Column gap=Spacing::Xs>{rows(40)}</Column>
+            </ScrollView>
+        </Column>
+    }
 }
 
 /// A setting only this platform has, straight on the native scroll view.
@@ -102,24 +111,32 @@ fn platform_option() -> impl View {
             "WinUI: IsScrollInertiaEnabled off stops a touch or touchpad scroll as soon as you let go.",
         ),
     };
-    Column::new().gap(Spacing::Md).children((
-        heading("A platform option"),
-        Row::new().gap(Spacing::Lg).children((
-            ScrollView::new().width(160).height(120).child(Column::new().gap(Spacing::Xs).children(rows(20))),
-            ScrollView::new()
-                .width(160)
-                .height(120)
-                .native(tweak)
-                .child(Column::new().gap(Spacing::Xs).children(rows(20))),
-        )),
-        Text::new(about).text_style(TextStyle::Caption),
-    ))
+    view! {
+        <Column gap=Spacing::Md>
+            {heading("A platform option")}
+            <Row gap=Spacing::Lg>
+                <ScrollView width=160 height=120>
+                    <Column gap=Spacing::Xs>{rows(20)}</Column>
+                </ScrollView>
+                <ScrollView width=160 height=120 native=tweak>
+                    <Column gap=Spacing::Xs>{rows(20)}</Column>
+                </ScrollView>
+            </Row>
+            <Text text_style=TextStyle::Caption>{about}</Text>
+        </Column>
+    }
 }
 
 fn main() {
     App::new()
         .window("Scroll view", WindowSize::FitHeight(560.0), || {
-            Column::new().padding(Spacing::Xl).gap(Spacing::Xl).children((gallery(), playground(), platform_option()))
+            view! {
+                <Column padding=Spacing::Xl gap=Spacing::Xl>
+                    {gallery()}
+                    {playground()}
+                    {platform_option()}
+                </Column>
+            }
         })
         .run();
 }

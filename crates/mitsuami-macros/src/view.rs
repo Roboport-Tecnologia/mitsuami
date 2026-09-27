@@ -311,6 +311,15 @@ fn unbrace(expr: Expr) -> Expr {
     {
         return inner.clone();
     }
+    // `{mac!(…)}` parses as a statement.
+    if let Expr::Block(block) = &expr
+        && block.attrs.is_empty()
+        && block.label.is_none()
+        && let [Stmt::Macro(stmt)] = block.block.stmts.as_slice()
+        && stmt.semi_token.is_none()
+    {
+        return Expr::Macro(syn::ExprMacro { attrs: stmt.attrs.clone(), mac: stmt.mac.clone() });
+    }
     expr
 }
 

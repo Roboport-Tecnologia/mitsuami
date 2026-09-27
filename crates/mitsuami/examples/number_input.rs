@@ -11,27 +11,29 @@
 use mitsuami::prelude::*;
 
 fn heading(text: &str) -> impl View {
-    Text::new(text.to_string()).text_style(TextStyle::Headline)
+    view! { <Text text_style=TextStyle::Headline>{text.to_string()}</Text> }
 }
 
 fn gallery() -> impl View {
-    Column::new().gap(Spacing::Md).children((
-        heading("Spin boxes"),
-        Grid::new()
-            .columns([Track::MaxContent, Track::MaxContent])
-            .column_gap(Spacing::Md)
-            .row_gap(Spacing::Sm)
-            .align(Align::Center)
-            .children((
-                Text::new("Copies (1 to 99)"),
-                NumberInput::new("Copies").range(1, 99).value(2),
+    view! {
+        <Column gap=Spacing::Md>
+            {heading("Spin boxes")}
+            <Grid
+                columns=[Track::MaxContent, Track::MaxContent]
+                column_gap=Spacing::Md
+                row_gap=Spacing::Sm
+                align=Align::Center
+            >
+                <Text>"Copies (1 to 99)"</Text>
+                <NumberInput label="Copies" range_with=(1, 99) value=2/>
                 // GTK sizes a spin box for its range's widest number.
-                Text::new("Memory, MB (16 to 4096, by 16)"),
-                NumberInput::new("Memory").range(16, 4096).step(16).value(512),
-                Text::new("Disabled"),
-                NumberInput::new("Disabled").value(7).enabled(false),
-            )),
-    ))
+                <Text>"Memory, MB (16 to 4096, by 16)"</Text>
+                <NumberInput label="Memory" range_with=(16, 4096) step=16 value=512/>
+                <Text>"Disabled"</Text>
+                <NumberInput label="Disabled" value=7 enabled=false/>
+            </Grid>
+        </Column>
+    }
 }
 
 /// One spin box, and its props to change.
@@ -40,25 +42,33 @@ fn playground() -> impl View {
     let step = signal(1);
     let enabled = signal(true);
     let value = signal(10);
-    Column::new().gap(Spacing::Md).children((
-        heading("Try it"),
-        Grid::new()
-            .columns([Track::MaxContent, Track::MaxContent])
-            .column_gap(Spacing::Md)
-            .row_gap(Spacing::Sm)
-            .align(Align::Center)
-            .children((
-                Text::new("Maximum"),
-                NumberInput::new("Maximum").range(1, 100_000).bind(max),
-                Text::new("Step"),
-                NumberInput::new("Step").range(1, 1000).bind(step),
-                Text::new("Enabled"),
-                Switch::new("Enabled").bind(enabled),
-                Text::new("Value"),
-                NumberInput::new("Value").range_with(move || (0, max.get())).step(step).enabled(enabled).bind(value),
-            )),
-        Text::new(move || format!("The app has {}", value.get())),
-    ))
+    view! {
+        <Column gap=Spacing::Md>
+            {heading("Try it")}
+            <Grid
+                columns=[Track::MaxContent, Track::MaxContent]
+                column_gap=Spacing::Md
+                row_gap=Spacing::Sm
+                align=Align::Center
+            >
+                <Text>"Maximum"</Text>
+                <NumberInput label="Maximum" range_with=(1, 100_000) bind=max/>
+                <Text>"Step"</Text>
+                <NumberInput label="Step" range_with=(1, 1000) bind=step/>
+                <Text>"Enabled"</Text>
+                <Switch bind=enabled>"Enabled"</Switch>
+                <Text>"Value"</Text>
+                <NumberInput
+                    label="Value"
+                    range_with=move || (0, max.get())
+                    step=step
+                    enabled=enabled
+                    bind=value
+                />
+            </Grid>
+            <Text>{move || format!("The app has {}", value.get())}</Text>
+        </Column>
+    }
 }
 
 /// A setting only this platform has, straight on the native spin box.
@@ -84,20 +94,28 @@ fn platform_option() -> impl View {
         ),
     };
     let value = signal(5);
-    Column::new().gap(Spacing::Md).children((
-        heading("A platform option"),
-        Row::new().gap(Spacing::Md).align(Align::Center).children((
-            NumberInput::new("Tweaked").range(1, 10).bind(value).native(tweak),
-            Text::new(move || format!("{}", value.get())),
-        )),
-        Text::new(about).text_style(TextStyle::Caption),
-    ))
+    view! {
+        <Column gap=Spacing::Md>
+            {heading("A platform option")}
+            <Row gap=Spacing::Md align=Align::Center>
+                <NumberInput label="Tweaked" range_with=(1, 10) bind=value native=tweak/>
+                <Text>{move || format!("{}", value.get())}</Text>
+            </Row>
+            <Text text_style=TextStyle::Caption>{about}</Text>
+        </Column>
+    }
 }
 
 fn main() {
     App::new()
         .window("NumberInput", WindowSize::FitHeight(480.0), || {
-            Column::new().padding(Spacing::Xl).gap(Spacing::Xl).children((gallery(), playground(), platform_option()))
+            view! {
+                <Column padding=Spacing::Xl gap=Spacing::Xl>
+                    {gallery()}
+                    {playground()}
+                    {platform_option()}
+                </Column>
+            }
         })
         .run();
 }

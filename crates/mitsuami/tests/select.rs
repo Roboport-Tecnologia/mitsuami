@@ -177,7 +177,7 @@ async fn takes_focus(app: TestApp) {
 #[mitsuami_test::test]
 async fn works_in_view_macros(app: TestApp) {
     let chosen = signal(1);
-    app.mount(move || view! { <Select a11y_label="Color" options=COLORS bind=chosen/> });
+    app.mount(move || view! { <Select label="Color" options=COLORS bind=chosen/> });
 
     app.expect(by_role(Role::ComboBox, "Color")).to_have_value("Green").await;
     app.get_by_role(Role::ComboBox, "Color").select_option("Red").await;

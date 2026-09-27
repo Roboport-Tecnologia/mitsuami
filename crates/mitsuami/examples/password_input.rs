@@ -12,7 +12,8 @@
 use mitsuami::prelude::*;
 
 fn heading(text: &str) -> impl View {
-    Text::new(text.to_string()).text_style(TextStyle::Headline)
+    let text = text.to_string();
+    view! { <Text text_style=TextStyle::Headline>{text}</Text> }
 }
 
 fn sign_in() -> impl View {
@@ -24,33 +25,34 @@ fn sign_in() -> impl View {
             signed_in.set(Some(user.get_untracked()));
         }
     };
-    Column::new().gap(Spacing::Md).children((
-        heading("Sign in"),
-        Grid::new()
-            .columns([Track::MaxContent, Track::Size(1.fr())])
-            .column_gap(Spacing::Md)
-            .row_gap(Spacing::Sm)
-            .align(Align::Center)
-            .children((
-                Text::new("User"),
-                TextInput::new().a11y_label("User").placeholder("Name or email").bind(user),
-                Text::new("Password"),
-                PasswordInput::new().a11y_label("Password").placeholder("Required").bind(password).on_submit(submit),
-            )),
-        Row::new().gap(Spacing::Md).align(Align::Center).children((
-            Text::new(move || match signed_in.get() {
-                Some(user) if !user.is_empty() => format!("Signed in as {user}"),
-                Some(_) => "Signed in".to_string(),
-                None => "Press Return in the password field to sign in".to_string(),
-            })
-            .text_style(TextStyle::Caption)
-            .grow(1.0),
-            Button::new("Sign in")
-                .role(ButtonRole::Default)
-                .enabled(move || !password.get().is_empty())
-                .on_click(submit),
-        )),
-    ))
+    view! {
+        <Column gap=Spacing::Md>
+            {heading("Sign in")}
+            <Grid
+                columns=[Track::MaxContent, Track::Size(1.fr())]
+                column_gap=Spacing::Md
+                row_gap=Spacing::Sm
+                align=Align::Center
+            >
+                <Text>"User"</Text>
+                <TextInput a11y_label="User" placeholder="Name or email" bind=user/>
+                <Text>"Password"</Text>
+                <PasswordInput a11y_label="Password" placeholder="Required" bind=password @submit=submit/>
+            </Grid>
+            <Row gap=Spacing::Md align=Align::Center>
+                <Text text_style=TextStyle::Caption grow=1.0>
+                    {move || match signed_in.get() {
+                        Some(user) if !user.is_empty() => format!("Signed in as {user}"),
+                        Some(_) => "Signed in".to_string(),
+                        None => "Press Return in the password field to sign in".to_string(),
+                    }}
+                </Text>
+                <Button role=ButtonRole::Default enabled=move || !password.get().is_empty() @click=submit>
+                    "Sign in"
+                </Button>
+            </Row>
+        </Column>
+    }
 }
 
 /// Two fields, and what they say together.
@@ -58,36 +60,39 @@ fn playground() -> impl View {
     let new = signal(String::new());
     let confirm = signal(String::new());
     let enabled = signal(true);
-    Column::new().gap(Spacing::Md).children((
-        heading("Try it"),
-        Grid::new()
-            .columns([Track::MaxContent, Track::Size(1.fr())])
-            .column_gap(Spacing::Md)
-            .row_gap(Spacing::Sm)
-            .align(Align::Center)
-            .children((
-                Text::new("New"),
-                PasswordInput::new().a11y_label("New password").bind(new).enabled(enabled),
-                Text::new("Confirm"),
-                PasswordInput::new().a11y_label("Confirm password").bind(confirm).enabled(enabled),
-                Text::new("Enabled"),
-                Switch::new("Enabled").bind(enabled),
-            )),
-        Text::new(move || {
-            let (new, confirm) = (new.get(), confirm.get());
-            let length = new.chars().count();
-            if new.is_empty() {
-                "Type a new password".to_string()
-            } else if confirm.is_empty() {
-                format!("{length} characters; now confirm it")
-            } else if new == confirm {
-                format!("{length} characters; they match")
-            } else {
-                format!("{length} characters; they don't match")
-            }
-        })
-        .text_style(TextStyle::Caption),
-    ))
+    view! {
+        <Column gap=Spacing::Md>
+            {heading("Try it")}
+            <Grid
+                columns=[Track::MaxContent, Track::Size(1.fr())]
+                column_gap=Spacing::Md
+                row_gap=Spacing::Sm
+                align=Align::Center
+            >
+                <Text>"New"</Text>
+                <PasswordInput a11y_label="New password" bind=new enabled=enabled/>
+                <Text>"Confirm"</Text>
+                <PasswordInput a11y_label="Confirm password" bind=confirm enabled=enabled/>
+                <Text>"Enabled"</Text>
+                <Switch bind=enabled>"Enabled"</Switch>
+            </Grid>
+            <Text text_style=TextStyle::Caption>
+                {move || {
+                    let (new, confirm) = (new.get(), confirm.get());
+                    let length = new.chars().count();
+                    if new.is_empty() {
+                        "Type a new password".to_string()
+                    } else if confirm.is_empty() {
+                        format!("{length} characters; now confirm it")
+                    } else if new == confirm {
+                        format!("{length} characters; they match")
+                    } else {
+                        format!("{length} characters; they don't match")
+                    }
+                }}
+            </Text>
+        </Column>
+    }
 }
 
 /// A setting only this platform has, straight on the native field.
@@ -118,18 +123,26 @@ fn platform_option() -> impl View {
             "WinUI: PasswordChar hides the text behind asterisks instead of dots.",
         ),
     };
-    Column::new().gap(Spacing::Md).children((
-        heading("A platform option"),
-        PasswordInput::new().a11y_label("Plain").value("correct horse"),
-        PasswordInput::new().a11y_label("Tweaked").value("correct horse").native(tweak),
-        Text::new(about).text_style(TextStyle::Caption),
-    ))
+    view! {
+        <Column gap=Spacing::Md>
+            {heading("A platform option")}
+            <PasswordInput a11y_label="Plain" value="correct horse"/>
+            <PasswordInput a11y_label="Tweaked" value="correct horse" native=tweak/>
+            <Text text_style=TextStyle::Caption>{about}</Text>
+        </Column>
+    }
 }
 
 fn main() {
     App::new()
         .window("Password input", WindowSize::FitHeight(560.0), || {
-            Column::new().padding(Spacing::Xl).gap(Spacing::Xl).children((sign_in(), playground(), platform_option()))
+            view! {
+                <Column padding=Spacing::Xl gap=Spacing::Xl>
+                    {sign_in()}
+                    {playground()}
+                    {platform_option()}
+                </Column>
+            }
         })
         .run();
 }

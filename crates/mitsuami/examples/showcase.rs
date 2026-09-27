@@ -33,14 +33,18 @@ fn counter(log_lines: Signal<Vec<u32>>) -> impl View {
                 .item(MenuItem::new("Reset…", confirm_reset).enabled(move || count.get() != 0)),
         ),
     );
-    Column::new().gap(Spacing::Md).children((
-        Text::new(move || format!("Count: {}", count.get())).text_style(TextStyle::Title),
-        Row::new().gap(Spacing::Sm).children((
-            Button::new("Increment").role(ButtonRole::Default).on_click(increment),
-            Button::new("Reset…").enabled(move || count.get() != 0).on_click(confirm_reset),
-        )),
-        Show::new(move || count.get() >= 5, || Text::new("That's a lot of clicks.").text_style(TextStyle::Caption)),
-    ))
+    view! {
+        <Column gap=Spacing::Md>
+            <Text text_style=TextStyle::Title>{move || format!("Count: {}", count.get())}</Text>
+            <Row gap=Spacing::Sm>
+                <Button role=ButtonRole::Default @click=increment>"Increment"</Button>
+                <Button enabled=move || count.get() != 0 @click=confirm_reset>"Reset…"</Button>
+            </Row>
+            <Show when=move || count.get() >= 5>
+                <Text text_style=TextStyle::Caption>"That's a lot of clicks."</Text>
+            </Show>
+        </Column>
+    }
 }
 
 fn signup() -> impl View {
@@ -51,33 +55,37 @@ fn signup() -> impl View {
     let volume = signal(50.0_f64);
     let submitted = signal(None::<String>);
     let submit = move || submitted.set(Some(name.get_untracked()));
-    Column::new().gap(Spacing::Md).children((
-        Text::new("Sign up").text_style(TextStyle::Headline),
-        Grid::new()
-            .columns([Track::MaxContent, Track::Size(1.fr())])
-            .column_gap(Spacing::Md)
-            .row_gap(Spacing::Sm)
-            .align(Align::Center)
-            .children((
-                Text::new("Name"),
-                TextInput::new().a11y_label("Name").placeholder("Ada Lovelace").bind(name).on_submit(submit),
-                Text::new("Newsletter"),
-                Switch::new("Newsletter").bind(newsletter),
-                Text::new("Plan"),
-                Select::new("Plan").options(["Free", "Pro", "Team"]).bind(plan),
-                Text::new(move || format!("Volume ({})", volume.get().round())),
-                Slider::new("Volume").range(0.0, 100.0).step(10.0).bind(volume),
-            )),
-        Checkbox::new("I agree to the terms").bind(agreed),
-        Row::new().gap(Spacing::Sm).align(Align::Center).children((
-            Button::new("Sign up").role(ButtonRole::Default).enabled(agreed).on_click(submit),
-            Text::new(move || match submitted.get() {
-                Some(who) if who.is_empty() => "Signed up anonymously".to_string(),
-                Some(who) => format!("Welcome, {who}!"),
-                None => String::new(),
-            }),
-        )),
-    ))
+    view! {
+        <Column gap=Spacing::Md>
+            <Text text_style=TextStyle::Headline>"Sign up"</Text>
+            <Grid
+                columns=[Track::MaxContent, Track::Size(1.fr())]
+                column_gap=Spacing::Md
+                row_gap=Spacing::Sm
+                align=Align::Center
+            >
+                <Text>"Name"</Text>
+                <TextInput a11y_label="Name" placeholder="Ada Lovelace" bind=name @submit=submit/>
+                <Text>"Newsletter"</Text>
+                <Switch bind=newsletter>"Newsletter"</Switch>
+                <Text>"Plan"</Text>
+                <Select label="Plan" options=["Free", "Pro", "Team"] bind=plan/>
+                <Text>{move || format!("Volume ({})", volume.get().round())}</Text>
+                <Slider label="Volume" range_with=(0.0, 100.0) step=10.0 bind=volume/>
+            </Grid>
+            <Checkbox bind=agreed>"I agree to the terms"</Checkbox>
+            <Row gap=Spacing::Sm align=Align::Center>
+                <Button role=ButtonRole::Default enabled=agreed @click=submit>"Sign up"</Button>
+                <Text>
+                    {move || match submitted.get() {
+                        Some(who) if who.is_empty() => "Signed up anonymously".to_string(),
+                        Some(who) => format!("Welcome, {who}!"),
+                        None => String::new(),
+                    }}
+                </Text>
+            </Row>
+        </Column>
+    }
 }
 
 /// A pretend download: work of unknown length while it connects, then how
@@ -100,13 +108,17 @@ fn download() -> impl View {
             running.set(false);
         });
     };
-    Row::new().gap(Spacing::Md).align(Align::Center).children((
-        Button::new("Download").enabled(move || !running.get()).on_click(start),
-        Progress::new("Download").value(done).indeterminate(connecting).grow(1.0),
-        Text::new(move || {
-            if connecting.get() { "Connecting…".to_string() } else { format!("{}%", (done.get() * 100.0).round()) }
-        }),
-    ))
+    view! {
+        <Row gap=Spacing::Md align=Align::Center>
+            <Button enabled=move || !running.get() @click=start>"Download"</Button>
+            <Progress label="Download" value=done indeterminate=connecting grow=1.0/>
+            <Text>
+                {move || {
+                    if connecting.get() { "Connecting…".to_string() } else { format!("{}%", (done.get() * 100.0).round()) }
+                }}
+            </Text>
+        </Row>
+    }
 }
 
 fn uptime() -> impl View {
@@ -117,24 +129,32 @@ fn uptime() -> impl View {
             seconds.update(|s| *s += 1);
         }
     });
-    Text::new(move || format!("Open for {}s", seconds.get())).text_style(TextStyle::Caption)
+    view! { <Text text_style=TextStyle::Caption>{move || format!("Open for {}s", seconds.get())}</Text> }
 }
 
 fn log(lines: Signal<Vec<u32>>) -> impl View {
-    ScrollView::new().height(120).child(For::new(lines, |i: &u32| *i, |i| Text::new(format!("Log line {i}"))))
+    view! {
+        <ScrollView height=120>
+            <For each=lines key=|i: &u32| *i let:i>
+                <Text>{format!("Log line {i}")}</Text>
+            </For>
+        </ScrollView>
+    }
 }
 
 fn main() {
     App::new()
         .window("mitsuami showcase", WindowSize::FitHeight(343.0), || {
             let log_lines = signal((1..=20).collect::<Vec<u32>>());
-            Column::new().padding(Spacing::Xl).gap(Spacing::Xl).children((
-                counter(log_lines),
-                signup(),
-                download(),
-                log(log_lines),
-                uptime(),
-            ))
+            view! {
+                <Column padding=Spacing::Xl gap=Spacing::Xl>
+                    {counter(log_lines)}
+                    {signup()}
+                    {download()}
+                    {log(log_lines)}
+                    {uptime()}
+                </Column>
+            }
         })
         .run();
 }

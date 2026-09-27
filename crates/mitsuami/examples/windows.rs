@@ -54,7 +54,7 @@ fn advanced_window(form: Settings, open: Signal<bool>) -> impl View {
             <Column padding=Spacing::Xl gap=Spacing::Lg>
                 <Row gap=Spacing::Md align=Align::Center>
                     <Text>"Processors"</Text>
-                    <NumberInput a11y_label="Processors" range_with=(1, 16) bind=cpus/>
+                    <NumberInput label="Processors" range_with=(1, 16) bind=cpus/>
                 </Row>
                 <Row gap=Spacing::Sm justify=Justify::End>
                     <Button role=ButtonRole::Cancel @click=move || open.set(false)>"Cancel"</Button>
@@ -112,7 +112,7 @@ fn machine_window(name: &'static str, editing: Signal<bool>, saved: Settings, op
             <Column padding=Spacing::Xl gap=Spacing::Lg>
                 <Row gap=Spacing::Md align=Align::Center>
                     <Text>"Memory (MB)"</Text>
-                    <NumberInput a11y_label="Memory (MB)" range_with=(16, 512) step=16 bind=form.memory/>
+                    <NumberInput label="Memory (MB)" range_with=(16, 512) step=16 bind=form.memory/>
                 </Row>
                 <Row gap=Spacing::Md align=Align::Center>
                     <Text grow=1.0>{move || format!("Processors: {}", form.cpus.get())}</Text>
@@ -158,7 +158,7 @@ fn main() {
                         // A sheet on macOS; elsewhere a dialog that blocks
                         // this window (GTK's block the whole app).
                         <Select
-                            a11y_label="Open machines as"
+                            label="Open machines as"
                             options=["Plain windows", "Blocking this window", "Blocking the app"]
                             bind=open_as
                         />

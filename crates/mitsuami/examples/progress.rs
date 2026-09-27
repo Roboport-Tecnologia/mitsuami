@@ -14,29 +14,31 @@ use std::time::Duration;
 use mitsuami::prelude::*;
 
 fn heading(text: &str) -> impl View {
-    Text::new(text.to_string()).text_style(TextStyle::Headline)
+    view! { <Text text_style=TextStyle::Headline>{text.to_string()}</Text> }
 }
 
 fn gallery() -> impl View {
-    Column::new().gap(Spacing::Md).children((
-        heading("Values"),
-        Grid::new()
-            .columns([Track::MaxContent, Track::Size(1.fr())])
-            .column_gap(Spacing::Md)
-            .row_gap(Spacing::Md)
-            .align(Align::Center)
-            .children((
-                Text::new("Not started"),
-                Progress::new("Not started").value(0.0),
-                Text::new("A third"),
-                Progress::new("A third").value(1.0 / 3.0),
-                Text::new("Done"),
-                Progress::new("Done").value(1.0),
+    view! {
+        <Column gap=Spacing::Md>
+            {heading("Values")}
+            <Grid
+                columns=[Track::MaxContent, Track::Size(1.fr())]
+                column_gap=Spacing::Md
+                row_gap=Spacing::Md
+                align=Align::Center
+            >
+                <Text>"Not started"</Text>
+                <Progress label="Not started" value=0.0/>
+                <Text>"A third"</Text>
+                <Progress label="A third" value={1.0 / 3.0}/>
+                <Text>"Done"</Text>
+                <Progress label="Done" value=1.0/>
                 // Animated as the platform animates it.
-                Text::new("Unknown"),
-                Progress::new("Unknown"),
-            )),
-    ))
+                <Text>"Unknown"</Text>
+                <Progress label="Unknown"/>
+            </Grid>
+        </Column>
+    }
 }
 
 /// One bar, its props to change, and a task to drive it.
@@ -58,24 +60,31 @@ fn playground() -> impl View {
             running.set(false);
         });
     };
-    Column::new().gap(Spacing::Md).children((
-        heading("Try it"),
-        Grid::new()
-            .columns([Track::MaxContent, Track::Size(1.fr())])
-            .column_gap(Spacing::Md)
-            .row_gap(Spacing::Sm)
-            .align(Align::Center)
-            .children((
-                Text::new(move || format!("Value ({:.0}%)", value.get())),
-                Slider::new("Value").range(0.0, 100.0).bind(value).enabled(move || !running.get()),
-                Text::new("Indeterminate"),
-                Switch::new("Indeterminate").bind(indeterminate).enabled(move || !running.get()),
-            )),
-        Row::new().gap(Spacing::Md).align(Align::Center).children((
-            Progress::new("Download").value(move || value.get() / 100.0).indeterminate(indeterminate).grow(1.0),
-            Button::new("Download").enabled(move || !running.get()).on_click(download),
-        )),
-    ))
+    view! {
+        <Column gap=Spacing::Md>
+            {heading("Try it")}
+            <Grid
+                columns=[Track::MaxContent, Track::Size(1.fr())]
+                column_gap=Spacing::Md
+                row_gap=Spacing::Sm
+                align=Align::Center
+            >
+                <Text>{move || format!("Value ({:.0}%)", value.get())}</Text>
+                <Slider label="Value" range_with=(0.0, 100.0) bind=value enabled=move || !running.get()/>
+                <Text>"Indeterminate"</Text>
+                <Switch bind=indeterminate enabled=move || !running.get()>"Indeterminate"</Switch>
+            </Grid>
+            <Row gap=Spacing::Md align=Align::Center>
+                <Progress
+                    label="Download"
+                    value=move || value.get() / 100.0
+                    indeterminate=indeterminate
+                    grow=1.0
+                />
+                <Button enabled=move || !running.get() @click=download>"Download"</Button>
+            </Row>
+        </Column>
+    }
 }
 
 /// A setting only this platform has, straight on the native bar.
@@ -107,18 +116,26 @@ fn platform_option() -> impl View {
             "WinUI: ShowPaused draws the bar in its paused state.",
         ),
     };
-    Column::new().gap(Spacing::Md).children((
-        heading("A platform option"),
-        Progress::new("Plain").value(0.6),
-        Progress::new("Tweaked").value(0.6).native(tweak),
-        Text::new(about).text_style(TextStyle::Caption),
-    ))
+    view! {
+        <Column gap=Spacing::Md>
+            {heading("A platform option")}
+            <Progress label="Plain" value=0.6/>
+            <Progress label="Tweaked" value=0.6 native=tweak/>
+            <Text text_style=TextStyle::Caption>{about}</Text>
+        </Column>
+    }
 }
 
 fn main() {
     App::new()
         .window("Progress", WindowSize::FitHeight(560.0), || {
-            Column::new().padding(Spacing::Xl).gap(Spacing::Xl).children((gallery(), playground(), platform_option()))
+            view! {
+                <Column padding=Spacing::Xl gap=Spacing::Xl>
+                    {gallery()}
+                    {playground()}
+                    {platform_option()}
+                </Column>
+            }
         })
         .run();
 }

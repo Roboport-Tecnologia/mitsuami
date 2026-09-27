@@ -346,23 +346,26 @@ impl ScrollView {
     }
 
     fn with_axes(axes: ScrollAxes) -> ScrollView {
-        let mut outer = Element::new(WidgetKind::ScrollView);
-        outer.prop(axes.into_value(), Prop::ScrollAxes);
-        outer.style.scroll_x = axes.horizontal();
-        outer.style.scroll_y = axes.vertical();
+        let outer = Element::new(WidgetKind::ScrollView);
+        ScrollView { outer, content: Container::new().shrink(0.0) }.axes(axes)
+    }
+
+    /// The axes it scrolls along. In `view!`, where there's no constructor
+    /// to pick them: `<ScrollView axes=ScrollAxes::Horizontal>`.
+    pub fn axes(mut self, axes: ScrollAxes) -> ScrollView {
+        self.outer.prop(axes.into_value(), Prop::ScrollAxes);
+        self.outer.style.scroll_x = axes.horizontal();
+        self.outer.style.scroll_y = axes.vertical();
         // The content stretches across the non-scrolling axis and keeps its
         // natural size along the scrolling ones.
-        outer.style.flex_direction =
+        self.outer.style.flex_direction =
             if axes == ScrollAxes::Horizontal { FlexDirection::Row } else { FlexDirection::Column };
         // Horizontal content flows in a row; the other kinds in a column.
-        let mut content = Container::new().shrink(0.0);
-        if axes == ScrollAxes::Horizontal {
-            content = content.flex_direction(FlexDirection::Row);
-        }
-        if axes == ScrollAxes::Both {
-            content = content.align_self(Align::Start);
-        }
-        ScrollView { outer, content }
+        let content = &mut self.content.0.style;
+        content.flex_direction =
+            if axes == ScrollAxes::Horizontal { FlexDirection::Row } else { FlexDirection::Column };
+        content.align_self = (axes == ScrollAxes::Both).then_some(Align::Start);
+        self
     }
 
     pub fn children(mut self, children: impl Children) -> ScrollView {
@@ -747,6 +750,13 @@ impl Select {
         Select { element, options: Value::Static(Vec::new()), selected: Value::Static(0) }
     }
 
+    /// Its label: the accessible name, which `new` takes. In `view!`,
+    /// `<Select label="…"/>`.
+    pub fn label(mut self, label: impl IntoValue<String>) -> Select {
+        self.element.prop(label.into_value(), Prop::Label);
+        self
+    }
+
     /// The options, in order: a list of strings, or a signal or closure
     /// giving one.
     pub fn options(mut self, options: impl IntoValue<Vec<String>>) -> Select {
@@ -831,6 +841,13 @@ impl Slider {
         let mut element = Element::new(WidgetKind::Slider);
         element.prop(label.into_value(), Prop::Label);
         Slider { element, range: Value::Static((0.0, 100.0)), value: Value::Static(0.0) }
+    }
+
+    /// Its label: the accessible name, which `new` takes. In `view!`,
+    /// `<Slider label="…"/>`.
+    pub fn label(mut self, label: impl IntoValue<String>) -> Slider {
+        self.element.prop(label.into_value(), Prop::Label);
+        self
     }
 
     pub fn range(mut self, min: f64, max: f64) -> Slider {
@@ -938,6 +955,13 @@ impl NumberInput {
         NumberInput { element, range: Value::Static((0, 100)), value: Value::Static(0) }
     }
 
+    /// Its label: the accessible name, which `new` takes. In `view!`,
+    /// `<NumberInput label="…"/>`.
+    pub fn label(mut self, label: impl IntoValue<String>) -> NumberInput {
+        self.element.prop(label.into_value(), Prop::Label);
+        self
+    }
+
     pub fn range(mut self, min: i32, max: i32) -> NumberInput {
         self.range = Value::Static((min, max));
         self
@@ -1034,6 +1058,13 @@ impl Progress {
         let mut element = Element::new(WidgetKind::Progress);
         element.prop(label.into_value(), Prop::Label);
         Progress { element, value: None, indeterminate: Value::Static(false) }
+    }
+
+    /// Its label: the accessible name, which `new` takes. In `view!`,
+    /// `<Progress label="…"/>`.
+    pub fn label(mut self, label: impl IntoValue<String>) -> Progress {
+        self.element.prop(label.into_value(), Prop::Label);
+        self
     }
 
     /// How far along, from 0 to 1.
@@ -1143,6 +1174,13 @@ impl Spinner {
         let mut element = Element::new(WidgetKind::Spinner);
         element.prop(label.into_value(), Prop::Label);
         Spinner { element, running: Value::Static(true) }
+    }
+
+    /// Its label: the accessible name, which `new` takes. In `view!`,
+    /// `<Spinner label="…"/>`.
+    pub fn label(mut self, label: impl IntoValue<String>) -> Spinner {
+        self.element.prop(label.into_value(), Prop::Label);
+        self
     }
 
     /// Spins while true; shows nothing while false.

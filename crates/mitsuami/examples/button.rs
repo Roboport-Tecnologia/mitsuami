@@ -25,29 +25,34 @@ const STYLES: [(&str, ButtonStyle); 3] = [
 ];
 
 fn heading(text: &str) -> impl View {
-    Text::new(text.to_string()).text_style(TextStyle::Headline)
+    view! { <Text text_style=TextStyle::Headline>{text.to_string()}</Text> }
 }
 
 /// A row per role, a column per style, and the same disabled.
 fn gallery() -> impl View {
-    let mut cells: Vec<AnyView> = ["", "Bordered", "Borderless", "Disabled"].map(|h| AnyView::new(Text::new(h))).into();
+    let mut cells: Vec<AnyView> =
+        ["", "Bordered", "Borderless", "Disabled"].map(|h| AnyView::new(view! { <Text>{h}</Text> })).into();
     for (name, role) in ROLES {
         cells.extend([
-            AnyView::new(Text::new(name)),
-            AnyView::new(Row::new().child(Button::new(name).role(role))),
-            AnyView::new(Row::new().child(Button::new(name).role(role).button_style(ButtonStyle::Borderless))),
-            AnyView::new(Row::new().child(Button::new(name).role(role).enabled(false))),
+            AnyView::new(view! { <Text>{name}</Text> }),
+            AnyView::new(view! { <Row><Button role=role>{name}</Button></Row> }),
+            AnyView::new(view! { <Row><Button role=role button_style=ButtonStyle::Borderless>{name}</Button></Row> }),
+            AnyView::new(view! { <Row><Button role=role enabled=false>{name}</Button></Row> }),
         ]);
     }
-    Column::new().gap(Spacing::Md).children((
-        heading("Roles and styles"),
-        Grid::new()
-            .columns([Track::MaxContent, Track::MaxContent, Track::MaxContent, Track::MaxContent])
-            .column_gap(Spacing::Lg)
-            .row_gap(Spacing::Sm)
-            .align(Align::Center)
-            .children(cells),
-    ))
+    view! {
+        <Column gap=Spacing::Md>
+            {heading("Roles and styles")}
+            <Grid
+                columns=[Track::MaxContent, Track::MaxContent, Track::MaxContent, Track::MaxContent]
+                column_gap=Spacing::Lg
+                row_gap=Spacing::Sm
+                align=Align::Center
+            >
+                {cells}
+            </Grid>
+        </Column>
+    }
 }
 
 /// One button, and its props to change.
@@ -57,36 +62,38 @@ fn playground() -> impl View {
     let label = signal("Save".to_string());
     let enabled = signal(true);
     let clicks = signal(0);
-    Column::new().gap(Spacing::Md).children((
-        heading("Try it"),
-        Grid::new()
-            .columns([Track::MaxContent, Track::Size(1.fr())])
-            .column_gap(Spacing::Md)
-            .row_gap(Spacing::Sm)
-            .align(Align::Center)
-            .children((
-                Text::new("Role"),
-                Row::new().child(Select::new("Role").options(ROLES.map(|(name, _)| name)).bind(role)),
-                Text::new("Style"),
-                Row::new().child(Select::new("Style").options(STYLES.map(|(name, _)| name)).bind(style)),
-                Text::new("Label"),
-                TextInput::new().a11y_label("Label").bind(label),
-                Text::new("Enabled"),
-                Switch::new("Enabled").bind(enabled),
-            )),
-        Row::new().gap(Spacing::Md).align(Align::Center).children((
-            Button::new(label)
-                .role(move || ROLES[role.get()].1)
-                .button_style(move || STYLES[style.get()].1)
-                .enabled(enabled)
-                .on_click(move || clicks.update(|c| *c += 1)),
-            Text::new(move || match clicks.get() {
-                0 => "Not clicked yet".to_string(),
-                1 => "Clicked once".to_string(),
-                n => format!("Clicked {n} times"),
-            }),
-        )),
-    ))
+    view! {
+        <Column gap=Spacing::Md>
+            {heading("Try it")}
+            <Grid columns=[Track::MaxContent, Track::Size(1.fr())] column_gap=Spacing::Md row_gap=Spacing::Sm align=Align::Center>
+                <Text>"Role"</Text>
+                <Row><Select label="Role" options=ROLES.map(|(name, _)| name) bind=role/></Row>
+                <Text>"Style"</Text>
+                <Row><Select label="Style" options=STYLES.map(|(name, _)| name) bind=style/></Row>
+                <Text>"Label"</Text>
+                <TextInput a11y_label="Label" bind=label/>
+                <Text>"Enabled"</Text>
+                <Switch bind=enabled>"Enabled"</Switch>
+            </Grid>
+            <Row gap=Spacing::Md align=Align::Center>
+                <Button
+                    role=move || ROLES[role.get()].1
+                    button_style=move || STYLES[style.get()].1
+                    enabled=enabled
+                    @click=move || clicks.update(|c| *c += 1)
+                >
+                    {label}
+                </Button>
+                <Text>
+                    {move || match clicks.get() {
+                        0 => "Not clicked yet".to_string(),
+                        1 => "Clicked once".to_string(),
+                        n => format!("Clicked {n} times"),
+                    }}
+                </Text>
+            </Row>
+        </Column>
+    }
 }
 
 /// A setting only this platform has, straight on the native button.
@@ -119,20 +126,28 @@ fn platform_option() -> impl View {
             "WinUI: a CornerRadius of 16 rounds the button's ends.",
         ),
     };
-    Column::new().gap(Spacing::Md).children((
-        heading("A platform option"),
-        Row::new().gap(Spacing::Md).align(Align::Center).children((
-            Button::new("Default").role(ButtonRole::Default),
-            Button::new("Tweaked").role(ButtonRole::Default).native(tweak),
-        )),
-        Text::new(about).text_style(TextStyle::Caption),
-    ))
+    view! {
+        <Column gap=Spacing::Md>
+            {heading("A platform option")}
+            <Row gap=Spacing::Md align=Align::Center>
+                <Button role=ButtonRole::Default>"Default"</Button>
+                <Button role=ButtonRole::Default native=tweak>"Tweaked"</Button>
+            </Row>
+            <Text text_style=TextStyle::Caption>{about}</Text>
+        </Column>
+    }
 }
 
 fn main() {
     App::new()
         .window("Button", WindowSize::FitHeight(560.0), || {
-            Column::new().padding(Spacing::Xl).gap(Spacing::Xl).children((gallery(), playground(), platform_option()))
+            view! {
+                <Column padding=Spacing::Xl gap=Spacing::Xl>
+                    {gallery()}
+                    {playground()}
+                    {platform_option()}
+                </Column>
+            }
         })
         .run();
 }

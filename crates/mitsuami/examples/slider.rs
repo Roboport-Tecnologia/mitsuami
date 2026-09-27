@@ -12,36 +12,40 @@
 use mitsuami::prelude::*;
 
 fn heading(text: &str) -> impl View {
-    Text::new(text.to_string()).text_style(TextStyle::Headline)
+    view! { <Text text_style=TextStyle::Headline>{text.to_string()}</Text> }
 }
 
 fn gallery() -> impl View {
-    let vertical = |name: &str, value: f64| Slider::new(name).orientation(Orientation::Vertical).value(value);
-    Column::new().gap(Spacing::Md).children((
-        heading("Horizontal"),
-        Grid::new()
-            .columns([Track::MaxContent, Track::Size(1.fr())])
-            .column_gap(Spacing::Md)
-            .row_gap(Spacing::Sm)
-            .align(Align::Center)
-            .children((
-                Text::new("No step"),
-                Slider::new("No step").value(30.0),
-                Text::new("A step of 20"),
+    let vertical = |name: &str, value: f64| {
+        view! { <Slider label=name orientation=Orientation::Vertical value=value/> }
+    };
+    view! {
+        <Column gap=Spacing::Md>
+            {heading("Horizontal")}
+            <Grid
+                columns=[Track::MaxContent, Track::Size(1.fr())]
+                column_gap=Spacing::Md
+                row_gap=Spacing::Sm
+                align=Align::Center
+            >
+                <Text>"No step"</Text>
+                <Slider label="No step" value=30.0/>
+                <Text>"A step of 20"</Text>
                 // What a step does is the platform's: tick marks the knob
                 // stops at on AppKit, snapping on WinUI, keyboard moves on
                 // GTK and Qt.
-                Slider::new("A step of 20").step(20.0).value(40.0),
-                Text::new("Disabled"),
-                Slider::new("Disabled").value(70.0).enabled(false),
-            )),
-        heading("Vertical"),
-        Row::new().gap(Spacing::Xl).height(140).children((
-            vertical("Bass", 20.0),
-            vertical("Mid", 50.0),
-            vertical("Treble", 80.0),
-        )),
-    ))
+                <Slider label="A step of 20" step=20.0 value=40.0/>
+                <Text>"Disabled"</Text>
+                <Slider label="Disabled" value=70.0 enabled=false/>
+            </Grid>
+            {heading("Vertical")}
+            <Row gap=Spacing::Xl height=140>
+                {vertical("Bass", 20.0)}
+                {vertical("Mid", 50.0)}
+                {vertical("Treble", 80.0)}
+            </Row>
+        </Column>
+    }
 }
 
 /// One slider, and its props to change.
@@ -50,31 +54,37 @@ fn playground() -> impl View {
     let enabled = signal(true);
     let value = signal(50.0);
     let is_vertical = move || vertical.get() == 1;
-    Column::new().gap(Spacing::Md).children((
-        heading("Try it"),
-        Grid::new()
-            .columns([Track::MaxContent, Track::Size(1.fr())])
-            .column_gap(Spacing::Md)
-            .row_gap(Spacing::Sm)
-            .align(Align::Center)
-            .children((
-                Text::new("Orientation"),
-                Row::new().child(Select::new("Orientation").options(["Horizontal", "Vertical"]).bind(vertical)),
-                Text::new("Enabled"),
-                Switch::new("Enabled").bind(enabled),
-            )),
-        Row::new().gap(Spacing::Md).align(Align::Center).children((
-            // Tall when vertical, as wide as the row when horizontal:
-            // sliders take their length from the layout.
-            Slider::new("Value")
-                .orientation(move || if is_vertical() { Orientation::Vertical } else { Orientation::Horizontal })
-                .enabled(enabled)
-                .bind(value)
-                .height(move || if is_vertical() { Length::Px(140.0) } else { Length::Auto })
-                .grow(move || if is_vertical() { 0.0 } else { 1.0 }),
-            Text::new(move || format!("{:.0}", value.get())),
-        )),
-    ))
+    view! {
+        <Column gap=Spacing::Md>
+            {heading("Try it")}
+            <Grid
+                columns=[Track::MaxContent, Track::Size(1.fr())]
+                column_gap=Spacing::Md
+                row_gap=Spacing::Sm
+                align=Align::Center
+            >
+                <Text>"Orientation"</Text>
+                <Row>
+                    <Select label="Orientation" options=["Horizontal", "Vertical"] bind=vertical/>
+                </Row>
+                <Text>"Enabled"</Text>
+                <Switch bind=enabled>"Enabled"</Switch>
+            </Grid>
+            <Row gap=Spacing::Md align=Align::Center>
+                // Tall when vertical, as wide as the row when horizontal:
+                // sliders take their length from the layout.
+                <Slider
+                    label="Value"
+                    orientation=move || if is_vertical() { Orientation::Vertical } else { Orientation::Horizontal }
+                    enabled=enabled
+                    bind=value
+                    height=move || if is_vertical() { Length::Px(140.0) } else { Length::Auto }
+                    grow=move || if is_vertical() { 0.0 } else { 1.0 }
+                />
+                <Text>{move || format!("{:.0}", value.get())}</Text>
+            </Row>
+        </Column>
+    }
 }
 
 /// A setting only this platform has, straight on the native slider.
@@ -109,27 +119,37 @@ fn platform_option() -> impl View {
         ),
     };
     let value = signal(4.0);
-    Column::new().gap(Spacing::Md).children((
-        heading("A platform option"),
-        Row::new().gap(Spacing::Md).align(Align::Center).children((
-            // As wide as the row, as sliders take their length from the
-            // layout; AppKit's dial has a size of its own.
-            Slider::new("Tweaked")
-                .range(0.0, 10.0)
-                .step(1.0)
-                .bind(value)
-                .grow(platform! { macos => 0.0, _ => 1.0 })
-                .native(tweak),
-            Text::new(move || format!("{:.0}", value.get())),
-        )),
-        Text::new(about).text_style(TextStyle::Caption),
-    ))
+    view! {
+        <Column gap=Spacing::Md>
+            {heading("A platform option")}
+            <Row gap=Spacing::Md align=Align::Center>
+                // As wide as the row, as sliders take their length from the
+                // layout; AppKit's dial has a size of its own.
+                <Slider
+                    label="Tweaked"
+                    range_with=(0.0, 10.0)
+                    step=1.0
+                    bind=value
+                    grow=platform! { macos => 0.0, _ => 1.0 }
+                    native=tweak
+                />
+                <Text>{move || format!("{:.0}", value.get())}</Text>
+            </Row>
+            <Text text_style=TextStyle::Caption>{about}</Text>
+        </Column>
+    }
 }
 
 fn main() {
     App::new()
         .window("Slider", WindowSize::FitHeight(640.0), || {
-            Column::new().padding(Spacing::Xl).gap(Spacing::Xl).children((gallery(), playground(), platform_option()))
+            view! {
+                <Column padding=Spacing::Xl gap=Spacing::Xl>
+                    {gallery()}
+                    {playground()}
+                    {platform_option()}
+                </Column>
+            }
         })
         .run();
 }

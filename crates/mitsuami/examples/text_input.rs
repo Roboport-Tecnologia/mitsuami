@@ -12,34 +12,38 @@
 use mitsuami::prelude::*;
 
 fn heading(text: &str) -> impl View {
-    Text::new(text.to_string()).text_style(TextStyle::Headline)
+    let text = text.to_string();
+    view! { <Text text_style=TextStyle::Headline>{text}</Text> }
 }
 
 fn gallery() -> impl View {
-    Column::new().gap(Spacing::Md).children((
-        heading("Fields"),
-        Grid::new()
-            .columns([Track::MaxContent, Track::Size(1.fr())])
-            .column_gap(Spacing::Md)
-            .row_gap(Spacing::Sm)
-            .align(Align::Center)
-            .children((
-                Text::new("Empty"),
-                TextInput::new().a11y_label("Empty").placeholder("A placeholder"),
-                Text::new("With text"),
-                TextInput::new().a11y_label("With text").value("Ada Lovelace"),
+    view! {
+        <Column gap=Spacing::Md>
+            {heading("Fields")}
+            <Grid
+                columns=[Track::MaxContent, Track::Size(1.fr())]
+                column_gap=Spacing::Md
+                row_gap=Spacing::Sm
+                align=Align::Center
+            >
+                <Text>"Empty"</Text>
+                <TextInput a11y_label="Empty" placeholder="A placeholder"/>
+                <Text>"With text"</Text>
+                <TextInput a11y_label="With text" value="Ada Lovelace"/>
                 // Selectable and copyable, and read as usual.
-                Text::new("Read-only"),
-                TextInput::new().a11y_label("Read-only").value("ABCD-1234-EFGH").read_only(true),
-                Text::new("Disabled"),
-                TextInput::new().a11y_label("Disabled").value("Can't edit this").enabled(false),
+                <Text>"Read-only"</Text>
+                <TextInput a11y_label="Read-only" value="ABCD-1234-EFGH" read_only=true/>
+                <Text>"Disabled"</Text>
+                <TextInput a11y_label="Disabled" value="Can't edit this" enabled=false/>
                 // Scrolls as the platform scrolls it.
-                Text::new("Long"),
-                TextInput::new()
-                    .a11y_label("Long")
-                    .value("A line of text much longer than the field is wide, to scroll through"),
-            )),
-    ))
+                <Text>"Long"</Text>
+                <TextInput
+                    a11y_label="Long"
+                    value="A line of text much longer than the field is wide, to scroll through"
+                />
+            </Grid>
+        </Column>
+    }
 }
 
 /// One field, and its props to change.
@@ -49,38 +53,42 @@ fn playground() -> impl View {
     let read_only = signal(false);
     let enabled = signal(true);
     let submitted = signal(None::<String>);
-    Column::new().gap(Spacing::Md).children((
-        heading("Try it"),
-        Grid::new()
-            .columns([Track::MaxContent, Track::Size(1.fr())])
-            .column_gap(Spacing::Md)
-            .row_gap(Spacing::Sm)
-            .align(Align::Center)
-            .children((
-                Text::new("Placeholder"),
-                TextInput::new().a11y_label("Placeholder").bind(placeholder),
-                Text::new("Read-only"),
-                Switch::new("Read-only").bind(read_only),
-                Text::new("Enabled"),
-                Switch::new("Enabled").bind(enabled),
-                Text::new("Name"),
-                TextInput::new()
-                    .a11y_label("Name")
-                    .placeholder(placeholder)
-                    .bind(text)
-                    .read_only(read_only)
-                    .enabled(enabled)
-                    .on_submit(move || submitted.set(Some(text.get_untracked()))),
-            )),
-        Text::new(move || {
-            let typed = format!("{} characters", text.get().chars().count());
-            match submitted.get() {
-                Some(name) => format!("{typed}; submitted \"{name}\""),
-                None => format!("{typed}; press Return to submit"),
-            }
-        })
-        .text_style(TextStyle::Caption),
-    ))
+    view! {
+        <Column gap=Spacing::Md>
+            {heading("Try it")}
+            <Grid
+                columns=[Track::MaxContent, Track::Size(1.fr())]
+                column_gap=Spacing::Md
+                row_gap=Spacing::Sm
+                align=Align::Center
+            >
+                <Text>"Placeholder"</Text>
+                <TextInput a11y_label="Placeholder" bind=placeholder/>
+                <Text>"Read-only"</Text>
+                <Switch bind=read_only>"Read-only"</Switch>
+                <Text>"Enabled"</Text>
+                <Switch bind=enabled>"Enabled"</Switch>
+                <Text>"Name"</Text>
+                <TextInput
+                    a11y_label="Name"
+                    placeholder=placeholder
+                    bind=text
+                    read_only=read_only
+                    enabled=enabled
+                    @submit=move || submitted.set(Some(text.get_untracked()))
+                />
+            </Grid>
+            <Text text_style=TextStyle::Caption>
+                {move || {
+                    let typed = format!("{} characters", text.get().chars().count());
+                    match submitted.get() {
+                        Some(name) => format!("{typed}; submitted \"{name}\""),
+                        None => format!("{typed}; press Return to submit"),
+                    }
+                }}
+            </Text>
+        </Column>
+    }
 }
 
 /// A setting only this platform has, straight on the native field.
@@ -110,18 +118,26 @@ fn platform_option() -> impl View {
             "WinUI: Header draws a caption above the text box, WinUI's own way to label it.",
         ),
     };
-    Column::new().gap(Spacing::Md).children((
-        heading("A platform option"),
-        TextInput::new().a11y_label("Plain").placeholder("Plain"),
-        TextInput::new().a11y_label("Tweaked").placeholder("Tweaked").native(tweak),
-        Text::new(about).text_style(TextStyle::Caption),
-    ))
+    view! {
+        <Column gap=Spacing::Md>
+            {heading("A platform option")}
+            <TextInput a11y_label="Plain" placeholder="Plain"/>
+            <TextInput a11y_label="Tweaked" placeholder="Tweaked" native=tweak/>
+            <Text text_style=TextStyle::Caption>{about}</Text>
+        </Column>
+    }
 }
 
 fn main() {
     App::new()
         .window("Text input", WindowSize::FitHeight(560.0), || {
-            Column::new().padding(Spacing::Xl).gap(Spacing::Xl).children((gallery(), playground(), platform_option()))
+            view! {
+                <Column padding=Spacing::Xl gap=Spacing::Xl>
+                    {gallery()}
+                    {playground()}
+                    {platform_option()}
+                </Column>
+            }
         })
         .run();
 }

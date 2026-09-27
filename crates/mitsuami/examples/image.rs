@@ -13,7 +13,8 @@
 use mitsuami::prelude::*;
 
 fn heading(text: &str) -> impl View {
-    Text::new(text.to_string()).text_style(TextStyle::Headline)
+    let text = text.to_string();
+    view! { <Text text_style=TextStyle::Headline>{text}</Text> }
 }
 
 /// A checkerboard of `square`-pixel squares.
@@ -48,54 +49,62 @@ fn file() -> std::path::PathBuf {
 fn gallery() -> impl View {
     let blue = [40, 90, 200, 255];
     let light = [240, 240, 240, 255];
-    Column::new().gap(Spacing::Md).children((
-        heading("At their own size"),
-        Row::new().gap(Spacing::Lg).align(Align::End).children((
-            Column::new().gap(Spacing::Xs).align(Align::Start).children((
-                Image::pixels(checkerboard(64, 64, 8, blue, light)).label("Pixels at 1×"),
-                Text::new("64 px at 1×").text_style(TextStyle::Caption),
-            )),
-            // Half the points, each pixel its own on a 2× display.
-            Column::new().gap(Spacing::Xs).align(Align::Start).children((
-                Image::pixels(checkerboard(64, 64, 8, blue, light).scale(2.0)).label("Pixels at 2×"),
-                Text::new("64 px at 2×").text_style(TextStyle::Caption),
-            )),
-            Column::new().gap(Spacing::Xs).align(Align::Start).children((
-                Image::file(file()).label("A PNG file"),
-                Text::new("A PNG file").text_style(TextStyle::Caption),
-            )),
-        )),
-    ))
+    view! {
+        <Column gap=Spacing::Md>
+            {heading("At their own size")}
+            <Row gap=Spacing::Lg align=Align::End>
+                <Column gap=Spacing::Xs align=Align::Start>
+                    <Image source=ImageSource::Pixels(checkerboard(64, 64, 8, blue, light)) label="Pixels at 1×"/>
+                    <Text text_style=TextStyle::Caption>"64 px at 1×"</Text>
+                </Column>
+                // Half the points, each pixel its own on a 2× display.
+                <Column gap=Spacing::Xs align=Align::Start>
+                    <Image source=ImageSource::Pixels(checkerboard(64, 64, 8, blue, light).scale(2.0)) label="Pixels at 2×"/>
+                    <Text text_style=TextStyle::Caption>"64 px at 2×"</Text>
+                </Column>
+                <Column gap=Spacing::Xs align=Align::Start>
+                    <Image source=ImageSource::File(file()) label="A PNG file"/>
+                    <Text text_style=TextStyle::Caption>"A PNG file"</Text>
+                </Column>
+            </Row>
+        </Column>
+    }
 }
 
 /// Pixels the app makes again whenever what they show changes.
 fn live() -> impl View {
     let phase = signal(0.0);
-    Column::new().gap(Spacing::Md).children((
-        heading("Live pixels"),
-        Row::new().gap(Spacing::Md).align(Align::Center).children((
-            Image::pixels(move || rings(96, phase.get() / 10.0)).label("Rings"),
-            Slider::new("Phase").range(0.0, 100.0).bind(phase).grow(1.0),
-        )),
-    ))
+    view! {
+        <Column gap=Spacing::Md>
+            {heading("Live pixels")}
+            <Row gap=Spacing::Md align=Align::Center>
+                <Image source=move || ImageSource::Pixels(rings(96, phase.get() / 10.0)) label="Rings"/>
+                <Slider label="Phase" range_with=(0.0, 100.0) bind=phase grow=1.0/>
+            </Row>
+        </Column>
+    }
 }
 
 /// A picture in a wide frame, fitted as chosen.
 fn playground() -> impl View {
     let fit = signal(0);
     let fits = [ImageFit::Contain, ImageFit::Stretch];
-    Column::new().gap(Spacing::Md).children((
-        heading("Try it"),
-        Row::new()
-            .gap(Spacing::Md)
-            .align(Align::Center)
-            .children((Text::new("Fit"), Select::new("Fit").options(["Contain", "Stretch"]).bind(fit))),
-        Image::pixels(checkerboard(64, 64, 8, [200, 60, 60, 255], [240, 240, 240, 255]))
-            .label("Fitted")
-            .fit(move || fits[fit.get()])
-            .width(240)
-            .height(80),
-    ))
+    view! {
+        <Column gap=Spacing::Md>
+            {heading("Try it")}
+            <Row gap=Spacing::Md align=Align::Center>
+                <Text>"Fit"</Text>
+                <Select label="Fit" options=["Contain", "Stretch"] bind=fit/>
+            </Row>
+            <Image
+                source=ImageSource::Pixels(checkerboard(64, 64, 8, [200, 60, 60, 255], [240, 240, 240, 255]))
+                label="Fitted"
+                fit=move || fits[fit.get()]
+                width=240
+                height=80
+            />
+        </Column>
+    }
 }
 
 /// A setting only this platform has, straight on the native image view.
@@ -122,26 +131,32 @@ fn platform_option() -> impl View {
             "WinUI: Stretch UniformToFill fills the frame, cropping what doesn't fit.",
         ),
     };
-    Column::new().gap(Spacing::Md).children((
-        heading("A platform option"),
-        Image::pixels(checkerboard(24, 12, 4, [30, 30, 30, 255], [250, 200, 40, 255]))
-            .label("Tweaked")
-            .native(tweak)
-            .width(192)
-            .height(64),
-        Text::new(about).text_style(TextStyle::Caption),
-    ))
+    view! {
+        <Column gap=Spacing::Md>
+            {heading("A platform option")}
+            <Image
+                source=ImageSource::Pixels(checkerboard(24, 12, 4, [30, 30, 30, 255], [250, 200, 40, 255]))
+                label="Tweaked"
+                native=tweak
+                width=192
+                height=64
+            />
+            <Text text_style=TextStyle::Caption>{about}</Text>
+        </Column>
+    }
 }
 
 fn main() {
     App::new()
         .window("Image", WindowSize::FitHeight(560.0), || {
-            Column::new().padding(Spacing::Xl).gap(Spacing::Xl).children((
-                gallery(),
-                live(),
-                playground(),
-                platform_option(),
-            ))
+            view! {
+                <Column padding=Spacing::Xl gap=Spacing::Xl>
+                    {gallery()}
+                    {live()}
+                    {playground()}
+                    {platform_option()}
+                </Column>
+            }
         })
         .run();
 }

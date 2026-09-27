@@ -27,7 +27,7 @@ fn main() {
                     ui.destroy(window);
                 }
             });
-            Column::new().padding(20).child(Text::new(status))
+            view! { <Column padding=20><Text>{status}</Text></Column> }
         })
         .run();
     let elapsed = started.elapsed();

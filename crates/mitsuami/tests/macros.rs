@@ -425,4 +425,50 @@ async fn components_have_a_scope_of_their_own(app: TestApp) {
     assert_eq!(disposed.get(), 1, "the component's scope was disposed with it");
 }
 
+/// Tags whose builders take their label, or pick their axes, in `new`
+/// build the same native widgets: the label reaches the platform as
+/// `Prop::Label`, not only as the accessible name.
+#[mitsuami_test::test]
+async fn tags_build_what_their_constructors_build(app: TestApp) {
+    let tiles = || ["A", "B", "C"].map(Text::new).into_iter().collect::<Vec<_>>();
+    app.mount(move || {
+        Column::new().children((
+            Select::new("Plan").options(["Free", "Pro"]).test_id("select"),
+            Slider::new("Volume").range(0.0, 10.0).test_id("slider"),
+            NumberInput::new("Copies").range(1, 9).test_id("number"),
+            Progress::new("Upload").value(0.5).test_id("progress"),
+            Spinner::new("Loading").test_id("spinner"),
+            ScrollView::horizontal().height(40).test_id("scroll").child(Row::new().children(tiles())),
+        ))
+    });
+    let ids = ["select", "slider", "number", "progress", "spinner", "scroll"];
+    let state = |app: &TestApp| {
+        let mut state: Vec<_> = ids
+            .map(|id| {
+                format!("{:?} {:?}", app.get(by_test_id(id)).native_state().props, app.get(by_test_id(id)).frame())
+            })
+            .into();
+        state.extend(["A", "B", "C"].map(|t| format!("{t} {:?}", app.get(by_text(t)).frame())));
+        state
+    };
+    let built = state(&app);
+    app.unmount();
+
+    app.mount(move || {
+        view! {
+            <Column>
+                <Select label="Plan" options=["Free", "Pro"] test_id="select"/>
+                <Slider label="Volume" range_with=(0.0, 10.0) test_id="slider"/>
+                <NumberInput label="Copies" range_with=(1, 9) test_id="number"/>
+                <Progress label="Upload" value=0.5 test_id="progress"/>
+                <Spinner label="Loading" test_id="spinner"/>
+                <ScrollView axes=ScrollAxes::Horizontal height=40 test_id="scroll">
+                    <Row>{tiles()}</Row>
+                </ScrollView>
+            </Column>
+        }
+    });
+    assert_eq!(state(&app), built);
+}
+
 mitsuami_test::main!();

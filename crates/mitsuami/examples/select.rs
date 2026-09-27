@@ -15,33 +15,27 @@ use mitsuami::prelude::*;
 const SIZES: [&str; 3] = ["Small", "Medium", "Large"];
 
 fn heading(text: &str) -> impl View {
-    Text::new(text.to_string()).text_style(TextStyle::Headline)
+    view! { <Text text_style=TextStyle::Headline>{text.to_string()}</Text> }
 }
 
 /// A select beside its caption: selects draw none, so the label is only
 /// the accessible name.
 fn labelled(caption: &'static str, select: Select) -> (Text, impl View) {
-    (Text::new(caption), Row::new().child(select))
+    (view! { <Text>{caption}</Text> }, view! { <Row>{select}</Row> })
 }
 
 fn gallery() -> impl View {
-    Column::new().gap(Spacing::Md).children((
-        heading("Selects"),
-        Grid::new()
-            .columns([Track::MaxContent, Track::Size(1.fr())])
-            .column_gap(Spacing::Md)
-            .row_gap(Spacing::Sm)
-            .align(Align::Center)
-            .children((
-                labelled("First option", Select::new("First option").options(SIZES)),
-                labelled("Chosen", Select::new("Chosen").options(SIZES).selected(2)),
-                labelled("Disabled", Select::new("Disabled").options(SIZES).selected(1).enabled(false)),
-                labelled(
-                    "A long option",
-                    Select::new("A long option").options(["Short", "A much, much longer option"]),
-                ),
-            )),
-    ))
+    view! {
+        <Column gap=Spacing::Md>
+            {heading("Selects")}
+            <Grid columns=[Track::MaxContent, Track::Size(1.fr())] column_gap=Spacing::Md row_gap=Spacing::Sm align=Align::Center>
+                {labelled("First option", view! { <Select label="First option" options=SIZES/> })}
+                {labelled("Chosen", view! { <Select label="Chosen" options=SIZES selected=2/> })}
+                {labelled("Disabled", view! { <Select label="Disabled" options=SIZES selected=1 enabled=false/> })}
+                {labelled("A long option", view! { <Select label="A long option" options=["Short", "A much, much longer option"]/> })}
+            </Grid>
+        </Column>
+    }
 }
 
 /// One select, and its props to change.
@@ -51,27 +45,25 @@ fn playground() -> impl View {
         move || text.get().split(',').map(|o| o.trim().to_string()).filter(|o| !o.is_empty()).collect::<Vec<_>>();
     let chosen = signal(0);
     let enabled = signal(true);
-    Column::new().gap(Spacing::Md).children((
-        heading("Try it"),
-        Grid::new()
-            .columns([Track::MaxContent, Track::Size(1.fr())])
-            .column_gap(Spacing::Md)
-            .row_gap(Spacing::Sm)
-            .align(Align::Center)
-            .children((
-                Text::new("Options"),
-                TextInput::new().a11y_label("Options").placeholder("Comma-separated").bind(text),
-                Text::new("Enabled"),
-                Switch::new("Enabled").bind(enabled),
-                Text::new("Color"),
-                Row::new().child(Select::new("Color").options(options).bind(chosen).enabled(enabled)),
-            )),
-        Text::new(move || match options().get(chosen.get()) {
-            Some(option) => format!("Chosen: {option} (option {})", chosen.get() + 1),
-            None => "No options".to_string(),
-        })
-        .text_style(TextStyle::Caption),
-    ))
+    view! {
+        <Column gap=Spacing::Md>
+            {heading("Try it")}
+            <Grid columns=[Track::MaxContent, Track::Size(1.fr())] column_gap=Spacing::Md row_gap=Spacing::Sm align=Align::Center>
+                <Text>"Options"</Text>
+                <TextInput a11y_label="Options" placeholder="Comma-separated" bind=text/>
+                <Text>"Enabled"</Text>
+                <Switch bind=enabled>"Enabled"</Switch>
+                <Text>"Color"</Text>
+                <Row><Select label="Color" options=options bind=chosen enabled=enabled/></Row>
+            </Grid>
+            <Text text_style=TextStyle::Caption>
+                {move || match options().get(chosen.get()) {
+                    Some(option) => format!("Chosen: {option} (option {})", chosen.get() + 1),
+                    None => "No options".to_string(),
+                }}
+            </Text>
+        </Column>
+    }
 }
 
 /// A setting only this platform has, straight on the native select.
@@ -98,20 +90,28 @@ fn platform_option() -> impl View {
             "WinUI: Header draws a caption above the combo box, WinUI's own way to label it.",
         ),
     };
-    Column::new().gap(Spacing::Md).children((
-        heading("A platform option"),
-        Row::new().gap(Spacing::Lg).align(Align::Center).children((
-            Select::new("Plain").options(SIZES).selected(1),
-            Select::new("Tweaked").options(SIZES).selected(1).native(tweak),
-        )),
-        Text::new(about).text_style(TextStyle::Caption),
-    ))
+    view! {
+        <Column gap=Spacing::Md>
+            {heading("A platform option")}
+            <Row gap=Spacing::Lg align=Align::Center>
+                <Select label="Plain" options=SIZES selected=1/>
+                <Select label="Tweaked" options=SIZES selected=1 native=tweak/>
+            </Row>
+            <Text text_style=TextStyle::Caption>{about}</Text>
+        </Column>
+    }
 }
 
 fn main() {
     App::new()
         .window("Select", WindowSize::FitHeight(560.0), || {
-            Column::new().padding(Spacing::Xl).gap(Spacing::Xl).children((gallery(), playground(), platform_option()))
+            view! {
+                <Column padding=Spacing::Xl gap=Spacing::Xl>
+                    {gallery()}
+                    {playground()}
+                    {platform_option()}
+                </Column>
+            }
         })
         .run();
 }

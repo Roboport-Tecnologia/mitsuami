@@ -72,8 +72,8 @@ async fn works_in_view_macros(app: TestApp) {
     app.mount(move || {
         view! {
             <Column>
-                <Progress a11y_label="Upload" value=done/>
-                <Progress a11y_label="Loading" indeterminate=true/>
+                <Progress label="Upload" value=done/>
+                <Progress label="Loading" indeterminate=true/>
             </Column>
         }
     });

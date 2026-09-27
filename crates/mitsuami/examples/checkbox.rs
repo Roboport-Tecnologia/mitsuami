@@ -13,19 +13,27 @@
 use mitsuami::prelude::*;
 
 fn heading(text: &str) -> impl View {
-    Text::new(text.to_string()).text_style(TextStyle::Headline)
+    view! { <Text text_style=TextStyle::Headline>{text.to_string()}</Text> }
 }
 
 /// Unchecked, checked and mixed, then the same disabled.
 fn gallery() -> impl View {
     let row = |enabled: bool| {
-        Row::new().gap(Spacing::Lg).children((
-            Checkbox::new("Unchecked").enabled(enabled),
-            Checkbox::new("Checked").checked(true).enabled(enabled),
-            Checkbox::new("Mixed").mixed(true).enabled(enabled),
-        ))
+        view! {
+            <Row gap=Spacing::Lg>
+                <Checkbox enabled=enabled>"Unchecked"</Checkbox>
+                <Checkbox checked=true enabled=enabled>"Checked"</Checkbox>
+                <Checkbox mixed=true enabled=enabled>"Mixed"</Checkbox>
+            </Row>
+        }
     };
-    Column::new().gap(Spacing::Md).children((heading("States"), row(true), row(false)))
+    view! {
+        <Column gap=Spacing::Md>
+            {heading("States")}
+            {row(true)}
+            {row(false)}
+        </Column>
+    }
 }
 
 /// One checkbox, and its props to change.
@@ -35,38 +43,38 @@ fn playground() -> impl View {
     let mixed = signal(true);
     let enabled = signal(true);
     let last = signal(None::<bool>);
-    Column::new().gap(Spacing::Md).children((
-        heading("Try it"),
-        Grid::new()
-            .columns([Track::MaxContent, Track::Size(1.fr())])
-            .column_gap(Spacing::Md)
-            .row_gap(Spacing::Sm)
-            .align(Align::Center)
-            .children((
-                Text::new("Label"),
-                TextInput::new().a11y_label("Label").bind(label),
-                Text::new("Checked"),
-                Switch::new("Checked").bind(checked),
-                Text::new("Mixed"),
-                Switch::new("Mixed").bind(mixed),
-                Text::new("Enabled"),
-                Switch::new("Enabled").bind(enabled),
-            )),
-        Row::new().gap(Spacing::Md).align(Align::Center).children((
-            // A click leaves the mixed state wherever the platform lands.
-            Checkbox::new(label).checked(checked).mixed(mixed).enabled(enabled).on_change(move |value| {
-                checked.set(value);
-                mixed.set(false);
-                last.set(Some(value));
-            }),
-            Text::new(move || match last.get() {
-                None => "Not clicked yet".to_string(),
-                Some(true) => "Last click checked it".to_string(),
-                Some(false) => "Last click unchecked it".to_string(),
-            })
-            .text_style(TextStyle::Caption),
-        )),
-    ))
+    view! {
+        <Column gap=Spacing::Md>
+            {heading("Try it")}
+            <Grid columns=[Track::MaxContent, Track::Size(1.fr())] column_gap=Spacing::Md row_gap=Spacing::Sm align=Align::Center>
+                <Text>"Label"</Text>
+                <TextInput a11y_label="Label" bind=label/>
+                <Text>"Checked"</Text>
+                <Switch bind=checked>"Checked"</Switch>
+                <Text>"Mixed"</Text>
+                <Switch bind=mixed>"Mixed"</Switch>
+                <Text>"Enabled"</Text>
+                <Switch bind=enabled>"Enabled"</Switch>
+            </Grid>
+            <Row gap=Spacing::Md align=Align::Center>
+                // A click leaves the mixed state wherever the platform lands.
+                <Checkbox checked=checked mixed=mixed enabled=enabled @change=move |value| {
+                    checked.set(value);
+                    mixed.set(false);
+                    last.set(Some(value));
+                }>
+                    {label}
+                </Checkbox>
+                <Text text_style=TextStyle::Caption>
+                    {move || match last.get() {
+                        None => "Not clicked yet".to_string(),
+                        Some(true) => "Last click checked it".to_string(),
+                        Some(false) => "Last click unchecked it".to_string(),
+                    }}
+                </Text>
+            </Row>
+        </Column>
+    }
 }
 
 /// A box that checks the others: mixed while only some are.
@@ -75,16 +83,19 @@ fn select_all() -> impl View {
     let fruit = [signal(true), signal(false), signal(false)];
     let all = move || fruit.iter().all(|f| f.get());
     let some = move || fruit.iter().any(|f| f.get()) && !all();
-    Column::new().gap(Spacing::Sm).children((
-        heading("Select all"),
-        Checkbox::new("All fruit").checked(all).mixed(some).on_change(move |checked| {
-            fruit.iter().for_each(|f| f.set(checked));
-        }),
-        Column::new()
-            .padding_x(Spacing::Xl)
-            .gap(Spacing::Sm)
-            .children(names.iter().zip(fruit).map(|(name, f)| Checkbox::new(*name).bind(f)).collect::<Vec<_>>()),
-    ))
+    view! {
+        <Column gap=Spacing::Sm>
+            {heading("Select all")}
+            <Checkbox checked=all mixed=some @change=move |checked| {
+                fruit.iter().for_each(|f| f.set(checked));
+            }>
+                "All fruit"
+            </Checkbox>
+            <Column padding_x=Spacing::Xl gap=Spacing::Sm>
+                {names.iter().zip(fruit).map(|(name, f)| view! { <Checkbox bind=f>{*name}</Checkbox> }).collect::<Vec<_>>()}
+            </Column>
+        </Column>
+    }
 }
 
 /// A setting only this platform has, straight on the native checkbox.
@@ -117,25 +128,29 @@ fn platform_option() -> impl View {
             "WinUI: a CornerRadius of 10 makes the box round.",
         ),
     };
-    Column::new().gap(Spacing::Md).children((
-        heading("A platform option"),
-        Row::new()
-            .gap(Spacing::Lg)
-            .align(Align::Center)
-            .children((Checkbox::new("Plain").checked(true), Checkbox::new("Tweaked").checked(true).native(tweak))),
-        Text::new(about).text_style(TextStyle::Caption),
-    ))
+    view! {
+        <Column gap=Spacing::Md>
+            {heading("A platform option")}
+            <Row gap=Spacing::Lg align=Align::Center>
+                <Checkbox checked=true>"Plain"</Checkbox>
+                <Checkbox checked=true native=tweak>"Tweaked"</Checkbox>
+            </Row>
+            <Text text_style=TextStyle::Caption>{about}</Text>
+        </Column>
+    }
 }
 
 fn main() {
     App::new()
         .window("Checkbox", WindowSize::FitHeight(640.0), || {
-            Column::new().padding(Spacing::Xl).gap(Spacing::Xl).children((
-                gallery(),
-                playground(),
-                select_all(),
-                platform_option(),
-            ))
+            view! {
+                <Column padding=Spacing::Xl gap=Spacing::Xl>
+                    {gallery()}
+                    {playground()}
+                    {select_all()}
+                    {platform_option()}
+                </Column>
+            }
         })
         .run();
 }

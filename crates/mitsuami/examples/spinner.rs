@@ -13,20 +13,30 @@ use std::time::Duration;
 use mitsuami::prelude::*;
 
 fn heading(text: &str) -> impl View {
-    Text::new(text.to_string()).text_style(TextStyle::Headline)
+    view! { <Text text_style=TextStyle::Headline>{text.to_string()}</Text> }
 }
 
 /// A spinner beside what it's for, as apps show them.
 fn beside(spinner: Spinner, text: impl IntoValue<String>) -> impl View {
-    Row::new().gap(Spacing::Sm).align(Align::Center).children((spinner, Text::new(text)))
+    view! {
+        <Row gap=Spacing::Sm align=Align::Center>
+            {spinner}
+            <Text>{text}</Text>
+        </Row>
+    }
 }
 
 fn gallery() -> impl View {
-    Column::new().gap(Spacing::Md).children((
-        heading("States"),
-        beside(Spinner::new("Running"), "Running"),
-        beside(Spinner::new("Stopped").running(false), "Stopped: nothing shows, and the text stays put"),
-    ))
+    view! {
+        <Column gap=Spacing::Md>
+            {heading("States")}
+            {beside(view! { <Spinner label="Running"/> }, "Running")}
+            {beside(
+                view! { <Spinner label="Stopped" running=false/> },
+                "Stopped: nothing shows, and the text stays put",
+            )}
+        </Column>
+    }
 }
 
 /// One spinner, started and stopped by hand or by a task.
@@ -42,17 +52,19 @@ fn playground() -> impl View {
             loading.set(false);
         });
     };
-    Column::new().gap(Spacing::Md).children((
-        heading("Try it"),
-        Row::new().gap(Spacing::Md).align(Align::Center).children((
-            Text::new("Running"),
-            Switch::new("Running").bind(running).enabled(move || !loading.get()),
-            Button::new("Load for two seconds").enabled(move || !loading.get()).on_click(load),
-        )),
-        beside(Spinner::new("Photos").running(running), move || {
-            if running.get() { "Loading photos…".to_string() } else { "Photos loaded".to_string() }
-        }),
-    ))
+    view! {
+        <Column gap=Spacing::Md>
+            {heading("Try it")}
+            <Row gap=Spacing::Md align=Align::Center>
+                <Text>"Running"</Text>
+                <Switch bind=running enabled=move || !loading.get()>"Running"</Switch>
+                <Button enabled=move || !loading.get() @click=load>"Load for two seconds"</Button>
+            </Row>
+            {beside(view! { <Spinner label="Photos" running=running/> }, move || {
+                if running.get() { "Loading photos…".to_string() } else { "Photos loaded".to_string() }
+            })}
+        </Column>
+    }
 }
 
 /// A setting only this platform has, straight on the native spinner.
@@ -88,18 +100,26 @@ fn platform_option() -> impl View {
             "WinUI: a ProgressRing can show a value: IsIndeterminate off, at 60 %.",
         ),
     };
-    Column::new().gap(Spacing::Md).children((
-        heading("A platform option"),
-        beside(Spinner::new("Plain"), "Plain"),
-        beside(Spinner::new("Tweaked").native(tweak), "Tweaked"),
-        Text::new(about).text_style(TextStyle::Caption),
-    ))
+    view! {
+        <Column gap=Spacing::Md>
+            {heading("A platform option")}
+            {beside(view! { <Spinner label="Plain"/> }, "Plain")}
+            {beside(view! { <Spinner label="Tweaked" native=tweak/> }, "Tweaked")}
+            <Text text_style=TextStyle::Caption>{about}</Text>
+        </Column>
+    }
 }
 
 fn main() {
     App::new()
         .window("Spinner", WindowSize::FitHeight(460.0), || {
-            Column::new().padding(Spacing::Xl).gap(Spacing::Xl).children((gallery(), playground(), platform_option()))
+            view! {
+                <Column padding=Spacing::Xl gap=Spacing::Xl>
+                    {gallery()}
+                    {playground()}
+                    {platform_option()}
+                </Column>
+            }
         })
         .run();
 }

@@ -157,7 +157,7 @@ async fn has_a_size_and_takes_focus(app: TestApp) {
 #[mitsuami_test::test]
 async fn works_in_view_macros(app: TestApp) {
     let volume = signal(30.0);
-    app.mount(move || view! { <Slider a11y_label="Volume" bind=volume/> });
+    app.mount(move || view! { <Slider label="Volume" bind=volume/> });
 
     app.expect(by_role(Role::Slider, "Volume")).to_have_value("30").await;
     app.get_by_role(Role::Slider, "Volume").set_number(70.0).await;

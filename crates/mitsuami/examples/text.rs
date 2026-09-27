@@ -15,7 +15,8 @@ const PARAGRAPH: &str = "Being native on each platform is this toolkit's reason 
                          wraps and cuts off.";
 
 fn heading(text: &str) -> impl View {
-    Text::new(text.to_string()).text_style(TextStyle::Headline)
+    let text = text.to_string();
+    view! { <Text text_style=TextStyle::Headline>{text}</Text> }
 }
 
 fn gallery() -> impl View {
@@ -28,36 +29,42 @@ fn gallery() -> impl View {
         ("Caption", TextStyle::Caption),
         ("Monospace", TextStyle::Monospace),
     ];
-    Column::new().gap(Spacing::Md).children((
-        heading("Styles"),
-        Column::new()
-            .gap(Spacing::Xs)
-            .children(styles.into_iter().map(|(name, style)| Text::new(name).text_style(style)).collect::<Vec<_>>()),
-    ))
+    view! {
+        <Column gap=Spacing::Md>
+            {heading("Styles")}
+            <Column gap=Spacing::Xs>
+                {styles.into_iter().map(|(name, style)| view! { <Text text_style=style>{name}</Text> }).collect::<Vec<_>>()}
+            </Column>
+        </Column>
+    }
 }
 
 /// A paragraph, its width and its line limit.
 fn playground() -> impl View {
     let lines = signal(2.0_f64);
     let width = signal(320.0_f64);
-    Column::new().gap(Spacing::Md).children((
-        heading("Try it"),
-        Grid::new()
-            .columns([Track::MaxContent, Track::Size(1.fr())])
-            .column_gap(Spacing::Md)
-            .row_gap(Spacing::Sm)
-            .align(Align::Center)
-            .children((
-                Text::new(move || match lines.get() as u32 {
-                    0 => "Lines (all)".to_string(),
-                    n => format!("Lines ({n})"),
-                }),
-                Slider::new("Lines").range(0.0, 6.0).step(1.0).bind(lines),
-                Text::new(move || format!("Width ({:.0})", width.get())),
-                Slider::new("Width").range(120.0, 480.0).bind(width),
-            )),
-        Text::new(PARAGRAPH).max_lines(move || lines.get() as u32).width(move || Length::Px(width.get() as f32)),
-    ))
+    view! {
+        <Column gap=Spacing::Md>
+            {heading("Try it")}
+            <Grid
+                columns=[Track::MaxContent, Track::Size(1.fr())]
+                column_gap=Spacing::Md
+                row_gap=Spacing::Sm
+                align=Align::Center
+            >
+                <Text>
+                    {move || match lines.get() as u32 {
+                        0 => "Lines (all)".to_string(),
+                        n => format!("Lines ({n})"),
+                    }}
+                </Text>
+                <Slider label="Lines" range_with=(0.0, 6.0) step=1.0 bind=lines/>
+                <Text>{move || format!("Width ({:.0})", width.get())}</Text>
+                <Slider label="Width" range_with=(120.0, 480.0) bind=width/>
+            </Grid>
+            <Text max_lines=move || lines.get() as u32 width=move || Length::Px(width.get() as f32)>{PARAGRAPH}</Text>
+        </Column>
+    }
 }
 
 /// A setting only this platform has, straight on the native label.
@@ -94,18 +101,26 @@ fn platform_option() -> impl View {
         kde => "text, with **some** of it _marked up_",
         _ => "text, as the tweak shows it",
     };
-    Column::new().gap(Spacing::Md).children((
-        heading("A platform option"),
-        Text::new(format!("Plain {sample}")),
-        Text::new(format!("Tweaked {sample}")).native(tweak),
-        Text::new(about).text_style(TextStyle::Caption),
-    ))
+    view! {
+        <Column gap=Spacing::Md>
+            {heading("A platform option")}
+            <Text>{format!("Plain {sample}")}</Text>
+            <Text native=tweak>{format!("Tweaked {sample}")}</Text>
+            <Text text_style=TextStyle::Caption>{about}</Text>
+        </Column>
+    }
 }
 
 fn main() {
     App::new()
         .window("Text", WindowSize::FitHeight(640.0), || {
-            Column::new().padding(Spacing::Xl).gap(Spacing::Xl).children((gallery(), playground(), platform_option()))
+            view! {
+                <Column padding=Spacing::Xl gap=Spacing::Xl>
+                    {gallery()}
+                    {playground()}
+                    {platform_option()}
+                </Column>
+            }
         })
         .run();
 }
