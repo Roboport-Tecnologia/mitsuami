@@ -11,8 +11,8 @@ use mitsuami_core::backend::{
 };
 use mitsuami_core::units::SpacingScale;
 use mitsuami_core::{
-    ButtonRole, ButtonStyle, Command, CustomProps, EventValue, NodeId, Opaque, Point, Prop, Rect, RowKey, ScrollAxes,
-    SelectionMode, Size, TextStyle, UiEvent, WidgetKind, find_prop,
+    ButtonRole, ButtonStyle, Command, CustomProps, EventValue, NodeId, Opaque, Orientation, Point, Prop, Rect, RowKey,
+    ScrollAxes, SelectionMode, Size, TextStyle, UiEvent, WidgetKind, find_prop,
 };
 use objc2::rc::Retained;
 use objc2::runtime::{AnyObject, ProtocolObject};
@@ -155,6 +155,8 @@ struct Node {
     text_style: Option<TextStyle>,
     role: Option<ButtonRole>,
     button_style: Option<ButtonStyle>,
+    /// Sliders: whether the app gave an `Orientation`.
+    orientation: Option<Orientation>,
     /// Checkboxes: whether the app gave `Mixed`, and the `Checked` the box
     /// shows when it isn't mixed.
     mixed: Option<bool>,
@@ -539,6 +541,7 @@ impl State {
                 text_style: None,
                 role: None,
                 button_style: None,
+                orientation: None,
                 mixed: None,
                 checked: false,
                 tweak: None,
@@ -598,6 +601,10 @@ impl State {
                 set_ticks(slider, *new);
             }
             (Prop::Number(n), Widget::Slider { slider, .. }) => slider.setDoubleValue(*n),
+            (Prop::Orientation(o), Widget::Slider { slider, .. }) => {
+                slider.setVertical(o.vertical());
+                node.orientation = Some(*o);
+            }
             (Prop::Label(t), Widget::Progress(p)) => p.setAccessibilityLabel(Some(&ns(t))),
             (Prop::Progress(progress), Widget::Progress(p)) => {
                 p.setIndeterminate(progress.is_none());
@@ -1295,6 +1302,13 @@ impl Backend for AppKitBackend {
                 props.push(Prop::Range { min: slider.minValue(), max: slider.maxValue() });
                 props.push(Prop::Step(*step));
                 props.push(Prop::Number(slider.doubleValue()));
+                if node.orientation.is_some() {
+                    props.push(Prop::Orientation(if slider.isVertical() {
+                        Orientation::Vertical
+                    } else {
+                        Orientation::Horizontal
+                    }));
+                }
             }
             Widget::Progress(p) => {
                 if let Some(label) = p.accessibilityLabel() {

@@ -129,4 +129,65 @@ async fn works_in_view_macros(app: TestApp) {
     assert_eq!(volume.get_untracked(), 70.0);
 }
 
+/// Vertical sliders are as tall as the layout makes them and as wide as the
+/// platform draws them; moving one up the range still raises it.
+#[mitsuami_test::test]
+async fn runs_vertically(app: TestApp) {
+    let volume = signal(50.0);
+    let orientation = signal(Orientation::Vertical);
+    app.mount(move || Row::new().height(160).child(Slider::new("Volume").orientation(orientation).bind(volume)));
+    let slider = by_role(Role::Slider, "Volume");
+
+    assert!(has(&app, slider.clone(), Prop::Orientation(Orientation::Vertical)));
+    let frame = app.get(slider.clone()).frame();
+    assert!(frame.height() > frame.width(), "{frame} isn't upright");
+
+    app.get(slider.clone()).increment().await;
+    assert!(volume.get_untracked() > 50.0);
+
+    orientation.set(Orientation::Horizontal);
+    app.settle().await;
+    assert!(has(&app, slider, Prop::Orientation(Orientation::Horizontal)));
+}
+
+/// Logs the native slider's value, each time the tweak runs.
+fn log_value(log: Rc<RefCell<Vec<f64>>>) -> Tweak<Slider> {
+    platform! {
+        macos => mitsuami::appkit::tweak(move |s: &mitsuami::appkit::objc2_app_kit::NSSlider| {
+            log.borrow_mut().push(s.doubleValue())
+        }),
+        gtk => mitsuami::gtk::tweak(move |s: &mitsuami::gtk::gtk::Scale| {
+            use mitsuami::gtk::gtk::prelude::*;
+            log.borrow_mut().push(s.value())
+        }),
+        kde => mitsuami::kirigami::tweak(move |s: &mitsuami::kirigami::QmlObject| log.borrow_mut().push(s.real("value"))),
+        windows => mitsuami::winui::tweak(move |s: &mitsuami::winui::bindings::Slider| {
+            use mitsuami::winui::windows_core::Interface;
+            log.borrow_mut().push(s.cast::<mitsuami::winui::bindings::IRangeBase>()?.Value()?);
+            Ok(())
+        }),
+    }
+}
+
+/// Given before the value, the tweak still runs after it, and again when
+/// it changes.
+#[mitsuami_test::test]
+async fn a_tweak_runs_on_the_native_slider_after_its_props(app: TestApp) {
+    let log = Rc::new(RefCell::new(Vec::new()));
+    let volume = signal(30.0);
+    let tweak = log_value(log.clone());
+    app.mount(move || Slider::new("Volume").native(tweak).value(volume));
+
+    let props = app.get_by_role(Role::Slider, "Volume").native_state().props;
+    assert!(props.iter().any(|p| matches!(p, Prop::Tweak(_))));
+    if app.is_headless() {
+        assert!(log.borrow().is_empty());
+        return;
+    }
+    assert_eq!(log.borrow().last(), Some(&30.0));
+    volume.set(70.0);
+    app.settle().await;
+    assert_eq!(log.borrow().last(), Some(&70.0));
+}
+
 mitsuami_test::main!();

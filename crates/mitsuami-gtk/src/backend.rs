@@ -15,8 +15,8 @@ use mitsuami_core::backend::{
 use mitsuami_core::services::Reply;
 use mitsuami_core::units::SpacingScale;
 use mitsuami_core::{
-    ButtonRole, ButtonStyle, Command, CustomProps, EventValue, NodeId, Opaque, Point, Prop, Rect, RowKey, ScrollAxes,
-    SelectionMode, Size, TextStyle, UiEvent, WidgetKind, find_prop,
+    ButtonRole, ButtonStyle, Command, CustomProps, EventValue, NodeId, Opaque, Orientation, Point, Prop, Rect, RowKey,
+    ScrollAxes, SelectionMode, Size, TextStyle, UiEvent, WidgetKind, find_prop,
 };
 
 use crate::custom::{DrawnArea, Emitter, ErasedRender, GtkCx, NativePayload};
@@ -154,6 +154,8 @@ struct Node {
     text_style: Option<TextStyle>,
     role: Option<ButtonRole>,
     button_style: Option<ButtonStyle>,
+    /// Sliders: whether the app gave an `Orientation`.
+    orientation: Option<Orientation>,
     /// Checkboxes: whether the app gave `Mixed`.
     mixed: Option<bool>,
     /// The app's raw settings, run after every other prop.
@@ -661,6 +663,7 @@ impl State {
                 text_style: None,
                 role: None,
                 button_style: None,
+                orientation: None,
                 mixed: None,
                 tweak: None,
                 a11y_label: None,
@@ -775,6 +778,17 @@ impl State {
                 set_increments(scale, *new);
             }
             (Prop::Number(n), Widget::Slider { scale, .. }) => scale.set_value(*n),
+            (Prop::Orientation(o), Widget::Slider { scale, .. }) => {
+                scale.set_orientation(if o.vertical() {
+                    gtk::Orientation::Vertical
+                } else {
+                    gtk::Orientation::Horizontal
+                });
+                // GTK runs vertical scales top down; apps invert them so
+                // that up is more, as on the other platforms.
+                scale.set_inverted(o.vertical());
+                node.orientation = Some(*o);
+            }
             (Prop::Label(t), Widget::Progress { bar, .. }) => {
                 bar.update_property(&[gtk::accessible::Property::Label(t)]);
                 node.a11y_label = Some(t.clone());
@@ -1425,6 +1439,12 @@ impl Backend for GtkBackend {
                 props.push(Prop::Range { min: adjustment.lower(), max: adjustment.upper() });
                 props.push(Prop::Step(*step));
                 props.push(Prop::Number(adjustment.value()));
+                if node.orientation.is_some() {
+                    props.push(Prop::Orientation(match scale.orientation() {
+                        gtk::Orientation::Vertical => Orientation::Vertical,
+                        _ => Orientation::Horizontal,
+                    }));
+                }
             }
             Widget::Progress { bar, pulsing } => {
                 props.extend(node.a11y_label.clone().map(Prop::Label));

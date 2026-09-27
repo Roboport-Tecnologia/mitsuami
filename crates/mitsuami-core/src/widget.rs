@@ -148,6 +148,21 @@ pub enum ButtonStyle {
     Borderless,
 }
 
+/// Which way a `Slider` runs. Every platform has vertical sliders; larger
+/// values are up on all of them.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Hash)]
+pub enum Orientation {
+    #[default]
+    Horizontal,
+    Vertical,
+}
+
+impl Orientation {
+    pub fn vertical(self) -> bool {
+        self == Orientation::Vertical
+    }
+}
+
 /// Scrolling directions of a `ScrollView`.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Hash)]
 pub enum ScrollAxes {
@@ -241,6 +256,8 @@ pub enum Prop {
     /// its sliders snap, and to move by from the keyboard. `None`: the
     /// platform's default.
     Step(Option<f64>),
+    /// Which way a `Slider` runs.
+    Orientation(Orientation),
     /// How far along a `Progress` is, from 0 to 1. `None`: not known (an
     /// indeterminate, animated bar).
     Progress(Option<f64>),
@@ -289,6 +306,7 @@ impl Prop {
                 | Prop::TextStyle(_)
                 | Prop::ButtonRole(_)
                 | Prop::ButtonStyle(_)
+                | Prop::Orientation(_)
                 | Prop::Custom(_)
                 | Prop::Native(_)
                 | Prop::Tweak(_)
@@ -317,4 +335,4 @@ macro_rules! static_value {
     )*};
 }
 
-static_value!(TextStyle, ButtonRole, ButtonStyle, ScrollAxes, SelectionMode, ListStyle);
+static_value!(TextStyle, ButtonRole, ButtonStyle, Orientation, ScrollAxes, SelectionMode, ListStyle);

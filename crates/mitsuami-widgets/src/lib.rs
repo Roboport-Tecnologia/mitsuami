@@ -5,7 +5,7 @@ use std::rc::Rc;
 
 use mitsuami_core::{
     Align, ButtonRole, ButtonStyle, Children, Display, Element, ElementBuilder, EventValue, FlexDirection, Justify,
-    Length, NodeId, Point, Prop, ScrollAxes, TextStyle, Track, Tweak, Ui, UiEvent, View, WidgetKind,
+    Length, NodeId, Orientation, Point, Prop, ScrollAxes, TextStyle, Track, Tweak, Ui, UiEvent, View, WidgetKind,
 };
 use mitsuami_reactive::{IntoValue, Signal, Value};
 
@@ -512,8 +512,8 @@ impl Select {
     }
 }
 
-/// A slider: a number in a range, as the platform's slider shows it. Its
-/// label is its accessible name. What its step does is the platform's:
+/// A slider: a number in a range, as the platform's slider shows it,
+/// horizontal or vertical. Its label is its accessible name. What its step does is the platform's:
 /// AppKit shows it as tick marks the knob stops at, WinUI snaps to it, GTK
 /// and Qt move by it from the keyboard.
 ///
@@ -590,6 +590,18 @@ impl Slider {
 
     pub fn enabled(mut self, enabled: impl IntoValue<bool>) -> Slider {
         self.element.prop(enabled.into_value(), Prop::Enabled);
+        self
+    }
+
+    /// Which way it runs; larger values are up when vertical.
+    pub fn orientation(mut self, orientation: impl IntoValue<Orientation>) -> Slider {
+        self.element.prop(orientation.into_value(), Prop::Orientation);
+        self
+    }
+
+    /// Raw platform settings, past the semantic ones: see [`Tweak`].
+    pub fn native(mut self, tweak: Tweak<Slider>) -> Slider {
+        tweak.apply(&mut self.element);
         self
     }
 

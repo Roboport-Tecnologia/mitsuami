@@ -5489,6 +5489,28 @@ impl ISlider {
             (windows_core::Interface::vtable(self).SetStepFrequency)(windows_core::Interface::as_raw(self), value).ok()
         }
     }
+    pub fn SetTickFrequency(&self, value: f64) -> windows_core::Result<()> {
+        unsafe {
+            (windows_core::Interface::vtable(self).SetTickFrequency)(windows_core::Interface::as_raw(self), value).ok()
+        }
+    }
+    pub fn SetTickPlacement(&self, value: TickPlacement) -> windows_core::Result<()> {
+        unsafe {
+            (windows_core::Interface::vtable(self).SetTickPlacement)(windows_core::Interface::as_raw(self), value).ok()
+        }
+    }
+    pub fn Orientation(&self) -> windows_core::Result<Orientation> {
+        unsafe {
+            let mut result__ = core::mem::zeroed();
+            (windows_core::Interface::vtable(self).Orientation)(windows_core::Interface::as_raw(self), &mut result__)
+                .map(|| result__)
+        }
+    }
+    pub fn SetOrientation(&self, value: Orientation) -> windows_core::Result<()> {
+        unsafe {
+            (windows_core::Interface::vtable(self).SetOrientation)(windows_core::Interface::as_raw(self), value).ok()
+        }
+    }
 }
 #[repr(C)]
 pub struct ISlider_Vtbl {
@@ -5497,6 +5519,14 @@ pub struct ISlider_Vtbl {
     SetIntermediateValue: usize,
     pub StepFrequency: unsafe extern "system" fn(*mut core::ffi::c_void, *mut f64) -> windows_core::HRESULT,
     pub SetStepFrequency: unsafe extern "system" fn(*mut core::ffi::c_void, f64) -> windows_core::HRESULT,
+    SnapsTo: usize,
+    SetSnapsTo: usize,
+    TickFrequency: usize,
+    pub SetTickFrequency: unsafe extern "system" fn(*mut core::ffi::c_void, f64) -> windows_core::HRESULT,
+    TickPlacement: usize,
+    pub SetTickPlacement: unsafe extern "system" fn(*mut core::ffi::c_void, TickPlacement) -> windows_core::HRESULT,
+    pub Orientation: unsafe extern "system" fn(*mut core::ffi::c_void, *mut Orientation) -> windows_core::HRESULT,
+    pub SetOrientation: unsafe extern "system" fn(*mut core::ffi::c_void, Orientation) -> windows_core::HRESULT,
 }
 windows_core::imp::define_interface!(ISliderFactory, ISliderFactory_Vtbl, 0x06604d71_34ca_5f39_9656_29d81d3c110c);
 impl windows_core::RuntimeType for ISliderFactory {
@@ -7668,6 +7698,20 @@ impl windows_core::RuntimeName for MenuFlyoutSeparator {
 }
 unsafe impl Send for MenuFlyoutSeparator {}
 unsafe impl Sync for MenuFlyoutSeparator {}
+#[repr(transparent)]
+#[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
+pub struct Orientation(pub i32);
+impl Orientation {
+    pub const Vertical: Self = Self(0);
+    pub const Horizontal: Self = Self(1);
+}
+impl windows_core::imp::TypeKind for Orientation {
+    type TypeKind = windows_core::imp::CopyType;
+}
+impl windows_core::RuntimeType for Orientation {
+    const SIGNATURE: windows_core::imp::ConstBuffer =
+        windows_core::imp::ConstBuffer::from_slice(b"enum(Microsoft.UI.Xaml.Controls.Orientation;i4)");
+}
 pub type PACKAGEDEPENDENCY_CONTEXT = *mut core::ffi::c_void;
 #[repr(C)]
 #[derive(Clone, Copy)]
@@ -9126,6 +9170,23 @@ impl windows_core::imp::TypeKind for Thickness {
 impl windows_core::RuntimeType for Thickness {
     const SIGNATURE: windows_core::imp::ConstBuffer =
         windows_core::imp::ConstBuffer::from_slice(b"struct(Microsoft.UI.Xaml.Thickness;f8;f8;f8;f8)");
+}
+#[repr(transparent)]
+#[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
+pub struct TickPlacement(pub i32);
+impl TickPlacement {
+    pub const None: Self = Self(0);
+    pub const TopLeft: Self = Self(1);
+    pub const BottomRight: Self = Self(2);
+    pub const Outside: Self = Self(3);
+    pub const Inline: Self = Self(4);
+}
+impl windows_core::imp::TypeKind for TickPlacement {
+    type TypeKind = windows_core::imp::CopyType;
+}
+impl windows_core::RuntimeType for TickPlacement {
+    const SIGNATURE: windows_core::imp::ConstBuffer =
+        windows_core::imp::ConstBuffer::from_slice(b"enum(Microsoft.UI.Xaml.Controls.Primitives.TickPlacement;i4)");
 }
 #[repr(transparent)]
 #[derive(Clone, Debug, Eq, PartialEq)]

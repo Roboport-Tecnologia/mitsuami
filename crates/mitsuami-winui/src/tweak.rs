@@ -4,7 +4,7 @@ use std::rc::Rc;
 
 use mitsuami_core::reactive::{IntoValue, Value};
 use mitsuami_core::{Opaque, Tweak};
-use mitsuami_widgets::{Button, Checkbox, Select, Switch};
+use mitsuami_widgets::{Button, Checkbox, Select, Slider, Switch};
 use windows_core::Interface;
 
 use crate::bindings as w;
@@ -28,6 +28,10 @@ impl Tweakable for Switch {
 
 impl Tweakable for Select {
     type Native = w::ComboBox;
+}
+
+impl Tweakable for Slider {
+    type Native = w::Slider;
 }
 
 /// Settings as the backend runs them, on the node's element.

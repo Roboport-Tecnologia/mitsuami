@@ -398,7 +398,7 @@ Button::new("Continue").role(ButtonRole::Default).native(platform! {
 - `tweak_with(value, |b, v| …)` runs again when the value changes; only the tweak is sent again.
 - A tweak can make the native control disagree with the core's props (an icon for a label, say); the mirror check then fails in tests. Set what the semantic props don't.
 - `_ => Tweak::none()` leaves the other platforms alone. Headless tests keep the tweak but don't run it.
-- The widget's type names the native one (`Tweakable`): `Button` is `NSButton`, `gtk::Button`, a `QQC2.Button` item (`QmlObject`, set by property name) and XAML's `Button`, whose closure returns a `windows_core::Result`; `Checkbox` is `NSButton`, `gtk::CheckButton`, a `QQC2.CheckBox` item and XAML's `CheckBox`; `Switch` is `NSSwitch`, `gtk::Switch`, a `QQC2.Switch` item and XAML's `ToggleSwitch`; `Select` is `NSPopUpButton`, `gtk::DropDown`, a `QQC2.ComboBox` item and XAML's `ComboBox`.
+- The widget's type names the native one (`Tweakable`): `Button` is `NSButton`, `gtk::Button`, a `QQC2.Button` item (`QmlObject`, set by property name) and XAML's `Button`, whose closure returns a `windows_core::Result`; `Checkbox` is `NSButton`, `gtk::CheckButton`, a `QQC2.CheckBox` item and XAML's `CheckBox`; `Switch` is `NSSwitch`, `gtk::Switch`, a `QQC2.Switch` item and XAML's `ToggleSwitch`; `Select` is `NSPopUpButton`, `gtk::DropDown`, a `QQC2.ComboBox` item and XAML's `ComboBox`; `Slider` is `NSSlider`, `gtk::Scale`, a `QQC2.Slider` item and XAML's `Slider`.
 
 ## 7. Accessibility and i18n affordances (designed in now, implemented later)
 
@@ -836,6 +836,14 @@ Things the AppKit backend taught us, some of them now part of the contract:
 - **No semantic options past the options and the choice.** The nearest, a borderless select for toolbars, is AppKit's `bordered` and Qt's `flat` only: GTK's theme has no flat dropdown (GTK 4.14's `_common.scss` flattens dropdowns only inside `.toolbar`) and `GtkDropDown` has no API for one, and WinUI's `ComboBox` has no such style. Editable combo boxes are another widget on AppKit (`NSComboBox`) and missing from `GtkDropDown`. So `Select` only gets `.native(tweak)`.
 - **The example's tweaks:** a borderless pop-up on AppKit (captured; it's measured narrower), search in the pop-up on GTK (`enable-search`), `flat` on Qt, a `Header` on WinUI (`IComboBox::put_Header` added to the bindings).
 - **Tweaks run after the options too:** replacing them re-runs the tweak, like any prop change.
+- **Run on AppKit only:** GTK, Kirigami and WinUI are only type-checked, and CI hasn't run them.
+
+### Slider: orientation and tweaks
+
+- **`Slider::orientation`** is the one semantic option every platform's slider has: AppKit `vertical`, GTK's `orientation`, Qt's `orientation`, XAML's `Orientation` (bindings added). Tick marks (not on Qt's), a drawn value (GTK only) and reversed direction (not on AppKit or Qt) aren't shared, so they're tweaks.
+- **Up is more, everywhere.** AppKit, Qt and WinUI put the minimum at the bottom; GTK puts it at the top, and GTK apps set `inverted` to turn that round, so the backend does too.
+- **Length comes from the layout.** A vertical slider is as tall as its container makes it (AppKit's have no natural height, as its horizontal ones have no natural width); headless measures one 20 × 160.
+- **The example's tweaks:** a circular slider on AppKit (captured, sized at its natural size), `draw-value` on GTK, `snapMode` on Qt, tick marks on WinUI (`TickFrequency`, `TickPlacement` added to the bindings).
 - **Run on AppKit only:** GTK, Kirigami and WinUI are only type-checked, and CI hasn't run them.
 
 ### M2 (GTK 4)

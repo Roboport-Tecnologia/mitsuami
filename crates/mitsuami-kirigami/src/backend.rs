@@ -12,8 +12,8 @@ use mitsuami_core::backend::{
 };
 use mitsuami_core::services::Reply;
 use mitsuami_core::{
-    ButtonRole, ButtonStyle, Command, CustomProps, DisplayList, EventValue, NodeId, Opaque, Point, PointerEvent, Prop,
-    Rect, RowKey, ScrollAxes, SelectionMode, Size, TextStyle, UiEvent, WidgetKind, find_prop,
+    ButtonRole, ButtonStyle, Command, CustomProps, DisplayList, EventValue, NodeId, Opaque, Orientation, Point,
+    PointerEvent, Prop, Rect, RowKey, ScrollAxes, SelectionMode, Size, TextStyle, UiEvent, WidgetKind, find_prop,
 };
 
 use crate::custom::{Emitter, ErasedRender, KirigamiCx, NativePayload, flatten};
@@ -242,6 +242,10 @@ impl Widget {
     }
 }
 
+/// `Qt::Orientation`, a `Slider`'s `orientation`.
+const QT_HORIZONTAL: i32 = 1;
+const QT_VERTICAL: i32 = 2;
+
 /// `Qt::CheckState`, a `CheckBox`'s `checkState`.
 const UNCHECKED: i32 = 0;
 const PARTIALLY_CHECKED: i32 = 1;
@@ -257,6 +261,8 @@ struct Node {
     text_style: Option<TextStyle>,
     role: Option<ButtonRole>,
     button_style: Option<ButtonStyle>,
+    /// Sliders: whether the app gave an `Orientation`.
+    orientation: Option<Orientation>,
     /// Checkboxes: whether the app gave `Mixed`, and the `Checked` the box
     /// shows when it isn't mixed.
     mixed: Option<bool>,
@@ -671,6 +677,7 @@ impl State {
                 text_style: None,
                 role: None,
                 button_style: None,
+                orientation: None,
                 mixed: None,
                 checked: false,
                 tweak: None,
@@ -777,6 +784,10 @@ impl State {
             }
             (Prop::Step(step), Widget::Slider(s)) => s.set_real("stepSize", step.unwrap_or(0.0)),
             (Prop::Number(n), Widget::Slider(s)) => s.set_real("value", *n),
+            (Prop::Orientation(o), Widget::Slider(s)) => {
+                s.set_int("orientation", if o.vertical() { QT_VERTICAL } else { QT_HORIZONTAL });
+                node.orientation = Some(*o);
+            }
             (Prop::Progress(progress), Widget::Progress(p)) => {
                 p.set_bool("indeterminate", progress.is_none());
                 if let Some(fraction) = progress {
@@ -1350,6 +1361,13 @@ impl Backend for KirigamiBackend {
                 let step = s.real("stepSize");
                 props.push(Prop::Step((step > 0.0).then_some(step)));
                 props.push(Prop::Number(s.real("value")));
+                if node.orientation.is_some() {
+                    props.push(Prop::Orientation(if s.int("orientation") == QT_VERTICAL {
+                        Orientation::Vertical
+                    } else {
+                        Orientation::Horizontal
+                    }));
+                }
             }
             Widget::Progress(p) => {
                 props.extend(node.a11y_label.clone().map(Prop::Label));

@@ -191,6 +191,50 @@ fn select_tweak() -> Tweak<Select> {
     }
 }
 
+/// Vertical sliders, as tall as the story makes them: up is more on every
+/// platform.
+#[mitsuami_test::story(sizes = [(240, fit)])]
+fn vertical_sliders() -> impl View {
+    let slider = |name: &str, value: f64| Slider::new(name).orientation(Orientation::Vertical).value(value);
+    Row::new().padding(16).gap(24).height(180).children((
+        slider("Bass", 20.0),
+        slider("Mid", 50.0),
+        slider("Treble", 80.0),
+        slider("Off", 50.0).enabled(false),
+    ))
+}
+
+/// A raw platform setting through `.native()`: a circular slider on AppKit,
+/// the value drawn beside the scale on GTK, tick marks on WinUI. Qt's tweak
+/// snaps while dragging, which a still capture doesn't show.
+#[mitsuami_test::story(sizes = [(240, fit)])]
+fn slider_tweaked() -> impl View {
+    Column::new().padding(16).gap(12).children((
+        Slider::new("Plain").value(40.0),
+        Row::new().child(Slider::new("Tweaked").range(0.0, 10.0).step(1.0).value(4.0).native(slider_tweak())),
+    ))
+}
+
+fn slider_tweak() -> Tweak<Slider> {
+    platform! {
+        macos => mitsuami::appkit::tweak(|s: &mitsuami::appkit::objc2_app_kit::NSSlider| {
+            s.setSliderType(mitsuami::appkit::objc2_app_kit::NSSliderType::Circular)
+        }),
+        gtk => mitsuami::gtk::tweak(|s: &mitsuami::gtk::gtk::Scale| {
+            use mitsuami::gtk::gtk::prelude::*;
+            s.set_draw_value(true)
+        }),
+        kde => mitsuami::kirigami::tweak(|s: &mitsuami::kirigami::QmlObject| s.set_int("snapMode", 1)),
+        windows => mitsuami::winui::tweak(|s: &mitsuami::winui::bindings::Slider| {
+            use mitsuami::winui::bindings::{ISlider, TickPlacement};
+            use mitsuami::winui::windows_core::Interface;
+            let s = s.cast::<ISlider>()?;
+            s.SetTickFrequency(1.0)?;
+            s.SetTickPlacement(TickPlacement::Outside)
+        }),
+    }
+}
+
 /// Sliders and progress bars as wide as the story; without a step, and
 /// with one.
 #[mitsuami_test::story(sizes = [(240, fit)])]

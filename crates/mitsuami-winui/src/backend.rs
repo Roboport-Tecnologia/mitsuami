@@ -13,8 +13,8 @@ use mitsuami_core::backend::{
 use mitsuami_core::services::{MenuBarData, MenuEntry, Reply};
 use mitsuami_core::units::SpacingScale;
 use mitsuami_core::{
-    AnyValue, ButtonRole, ButtonStyle, Command, CustomProps, EventValue, NodeId, Opaque, Point, Prop, Rect, RowKey,
-    ScrollAxes, SelectionMode, Size, TextStyle, UiEvent, WidgetKind, find_prop,
+    AnyValue, ButtonRole, ButtonStyle, Command, CustomProps, EventValue, NodeId, Opaque, Orientation, Point, Prop,
+    Rect, RowKey, ScrollAxes, SelectionMode, Size, TextStyle, UiEvent, WidgetKind, find_prop,
 };
 use windows_core::{EventRevoker, HSTRING, IInspectable, IUnknown, Interface};
 
@@ -208,6 +208,8 @@ struct Node {
     text_style: Option<TextStyle>,
     role: Option<ButtonRole>,
     button_style: Option<ButtonStyle>,
+    /// Sliders: whether the app gave an `Orientation`.
+    orientation: Option<Orientation>,
     /// Checkboxes: whether the app gave `Mixed`.
     mixed: Option<bool>,
     /// The app's raw settings, run after every other prop.
@@ -1133,6 +1135,7 @@ impl State {
                 text_style: None,
                 role: None,
                 button_style: None,
+                orientation: None,
                 mixed: None,
                 tweak: None,
                 a11y_label: None,
@@ -1227,6 +1230,11 @@ impl State {
                 let value = new.unwrap_or(1.0);
                 slider.cast::<w::ISlider>()?.SetStepFrequency(value)?;
                 slider.cast::<w::IRangeBase>()?.SetSmallChange(value)?;
+            }
+            (Prop::Orientation(o), Widget::Slider { slider, .. }) => {
+                let orientation = if o.vertical() { w::Orientation::Vertical } else { w::Orientation::Horizontal };
+                slider.cast::<w::ISlider>()?.SetOrientation(orientation)?;
+                node.orientation = Some(*o);
             }
             (Prop::Number(n), Widget::Slider { slider, .. }) => {
                 node.shown_number.set(*n);
@@ -2038,6 +2046,14 @@ impl Backend for WinUiBackend {
                 props.push(Prop::Range { min: range.Minimum().ok()?, max: range.Maximum().ok()? });
                 props.push(Prop::Step(*step));
                 props.push(Prop::Number(range.Value().ok()?));
+                if node.orientation.is_some() {
+                    let vertical = slider.cast::<w::ISlider>().ok()?.Orientation().ok()? == w::Orientation::Vertical;
+                    props.push(Prop::Orientation(if vertical {
+                        Orientation::Vertical
+                    } else {
+                        Orientation::Horizontal
+                    }));
+                }
             }
             Widget::Progress(p) => {
                 let name = w::AutomationProperties::GetName(&node.element).unwrap_or_default();

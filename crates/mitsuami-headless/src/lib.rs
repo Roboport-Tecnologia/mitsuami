@@ -20,8 +20,8 @@ use mitsuami_core::backend::{
 };
 use mitsuami_core::units::SpacingScale;
 use mitsuami_core::{
-    Command, EventValue, NodeId, Point, PointerEvent, PointerKind, Prop, Rect, RowKey, SelectionMode, Size, TextStyle,
-    UiEvent, WidgetKind, find_prop,
+    Command, EventValue, NodeId, Orientation, Point, PointerEvent, PointerKind, Prop, Rect, RowKey, SelectionMode,
+    Size, TextStyle, UiEvent, WidgetKind, find_prop,
 };
 
 /// Fixed metrics: 16px body text, 4/8/12/16/24 spacing, scale factor 1.
@@ -548,7 +548,10 @@ impl Backend for HeadlessBackend {
                 Size::new(16.0 + 6.0 + text.width, line.max(16.0))
             }
             WidgetKind::Switch => Size::new(40.0, 24.0),
-            WidgetKind::Slider => Size::new(160.0, 20.0),
+            WidgetKind::Slider => match find_prop!(node.props, Orientation).unwrap_or_default() {
+                Orientation::Horizontal => Size::new(160.0, 20.0),
+                Orientation::Vertical => Size::new(20.0, 160.0),
+            },
             WidgetKind::Progress => Size::new(160.0, 8.0),
             // Sized for its chosen option, with room for the arrow.
             WidgetKind::Select => {
