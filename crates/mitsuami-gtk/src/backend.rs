@@ -988,6 +988,12 @@ impl State {
                 node.button_style = Some(*style);
             }
             (Prop::Tweak(tweak), _) => node.tweak = Some(tweak.clone()),
+            // On the widget the pointer rests on: a list's view, not the
+            // scrolled window around it. GTK reads it to assistive
+            // technology as the description.
+            (Prop::Tooltip(t), widget) => {
+                widget.focus_widget().set_tooltip_text(Some(t.as_str()).filter(|t| !t.is_empty()))
+            }
             (Prop::Rows(rows), Widget::List(list)) => list.set_rows(rows.clone()),
             (Prop::SelectionMode(mode), Widget::List(list)) => list.set_mode(*mode),
             (Prop::ListStyle(style), Widget::List(list)) => list.set_style(*style),
@@ -1763,6 +1769,7 @@ impl Backend for GtkBackend {
         props.extend(node.role.map(Prop::ButtonRole));
         props.extend(node.button_style.map(Prop::ButtonStyle));
         props.extend(node.tweak.clone().map(Prop::Tweak));
+        props.push(Prop::Tooltip(text(node.widget.focus_widget().tooltip_text())));
         let frame = match &node.widget {
             Widget::Window(parts) => {
                 let size = parts.host.window_root().expect("window hosts have a root").size.get();

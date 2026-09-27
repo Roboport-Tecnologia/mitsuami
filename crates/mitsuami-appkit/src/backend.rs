@@ -797,6 +797,19 @@ impl State {
                 b.setBordered(*style != ButtonStyle::Borderless);
                 node.button_style = Some(*style);
             }
+            (Prop::Tooltip(t), widget) => {
+                let text = (!t.is_empty()).then(|| ns(t));
+                // On the views the pointer rests on, which cover the node's.
+                match widget {
+                    Widget::NumberInput(n) => {
+                        n.field().setToolTip(text.as_deref());
+                        n.stepper().setToolTip(text.as_deref());
+                    }
+                    Widget::List(list) => list.table.setToolTip(text.as_deref()),
+                    _ => {}
+                }
+                widget.view().setToolTip(text.as_deref());
+            }
             (Prop::Tweak(tweak), _) => node.tweak = Some(tweak.clone()),
             (Prop::Custom(new), Widget::Custom { view, render, props }) => {
                 if props != new {
@@ -1591,6 +1604,7 @@ impl Backend for AppKitBackend {
         props.extend(node.button_style.map(Prop::ButtonStyle));
         props.extend(node.tweak.clone().map(Prop::Tweak));
         let view = node.widget.view();
+        props.push(Prop::Tooltip(view.toolTip().map(|t| t.to_string()).unwrap_or_default()));
         let f = view.alignmentRectForFrame(view.frame());
         let mut frame = Rect::new(f.origin.x as f32, f.origin.y as f32, f.size.width as f32, f.size.height as f32);
         // A row is where the table put it.

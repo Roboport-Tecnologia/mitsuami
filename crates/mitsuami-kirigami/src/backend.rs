@@ -207,6 +207,12 @@ impl Widget {
         }
     }
 
+    /// Made from our templates, which show a tooltip (`qml::a11y`). A
+    /// window's host isn't: a window takes no tooltip.
+    fn has_tooltip(&self) -> bool {
+        !matches!(self, Widget::Window { .. } | Widget::Custom { .. } | Widget::Drawn { .. } | Widget::Native { .. })
+    }
+
     /// The item that takes keyboard focus and input: a list's list view.
     fn input_item(&self) -> QmlObject {
         match self {
@@ -301,6 +307,9 @@ struct Node {
     /// Switches, selects, sliders and progress bars show no caption; the
     /// label is their accessible name.
     a11y_label: Option<String>,
+    /// The tooltip, for items made elsewhere (custom renders, drawn and
+    /// native items), which have no `mitsuamiTooltip` to hold it.
+    tooltip: String,
 }
 
 pub(crate) struct State {
@@ -732,6 +741,7 @@ impl State {
                 mixed: None,
                 checked: false,
                 tweak: None,
+                tooltip: String::new(),
                 scroll_axes: None,
                 a11y_label: None,
             },
@@ -940,6 +950,12 @@ impl State {
                 node.button_style = Some(*style);
             }
             (Prop::Tweak(tweak), _) => node.tweak = Some(tweak.clone()),
+            (Prop::Tooltip(text), widget) => {
+                if widget.has_tooltip() {
+                    widget.item().set_str("mitsuamiTooltip", text);
+                }
+                node.tooltip = text.clone();
+            }
             (Prop::Rows(rows), Widget::List(list)) => list.set_rows(rows.clone()),
             (Prop::SelectionMode(mode), Widget::List(list)) => list.set_mode(*mode),
             (Prop::ListStyle(style), Widget::List(list)) => list.set_style(*style),
@@ -1553,6 +1569,11 @@ impl Backend for KirigamiBackend {
         props.extend(node.role.map(Prop::ButtonRole));
         props.extend(node.button_style.map(Prop::ButtonStyle));
         props.extend(node.tweak.clone().map(Prop::Tweak));
+        props.push(Prop::Tooltip(if node.widget.has_tooltip() {
+            node.widget.item().str("mitsuamiTooltip")
+        } else {
+            node.tooltip.clone()
+        }));
         let frame = match &node.widget {
             Widget::Window { root } => {
                 let size = root.size.get();

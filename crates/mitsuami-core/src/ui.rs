@@ -1533,7 +1533,9 @@ impl Inner {
             id,
             role,
             name,
-            description: a11y.description,
+            // A tooltip is read as the description, as every platform
+            // reads one, unless the app gave its own.
+            description: a11y.description.or_else(|| crate::find_prop!(props, Tooltip).filter(|t| !t.is_empty())),
             value: match node.kind {
                 WidgetKind::TextInput => Some(crate::find_prop!(props, Value).unwrap_or_default()),
                 // Never read out.

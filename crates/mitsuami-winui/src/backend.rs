@@ -237,6 +237,10 @@ struct Node {
     /// Switches, selects, sliders and progress bars: their label, which is
     /// only their accessible name.
     a11y_label: Option<String>,
+    /// The app's accessible description, which UIA's help text shows in
+    /// place of the tooltip.
+    description: Option<String>,
+    tooltip: String,
 }
 
 type Callback = Rc<dyn Fn()>;
@@ -311,6 +315,13 @@ fn ok<T>(result: R<T>, what: &str) -> T {
 /// COM identity of an element.
 fn key(element: &impl Interface) -> usize {
     element.cast::<IUnknown>().map_or(0, |u| u.as_raw() as usize)
+}
+
+/// UIA's help text: the app's description, else the tooltip, as the core's
+/// accessibility tree has it.
+fn set_help_text(node: &Node) -> R<()> {
+    let help = node.description.as_deref().unwrap_or(&node.tooltip);
+    w::AutomationProperties::SetHelpText(node.control(), help)
 }
 
 pub(crate) fn boxed(text: &str) -> IInspectable {
@@ -1228,6 +1239,8 @@ impl State {
                 mixed: None,
                 tweak: None,
                 a11y_label: None,
+                description: None,
+                tooltip: String::new(),
             },
         );
         Ok(())
@@ -1488,6 +1501,26 @@ impl State {
                 set_button_style(b, node.role, node.button_style)?;
             }
             (Prop::Tweak(tweak), _) => node.tweak = Some(tweak.clone()),
+            (Prop::Tooltip(text), widget) => {
+                // On the control itself, not the Border a native render sits in.
+                let control = node.inner.as_ref().unwrap_or(&node.element);
+                let value = (!text.is_empty()).then(|| boxed(text));
+                w::ToolTipService::SetToolTip(control, value.as_ref())?;
+                // A Canvas without a background isn't hit-testable, so the
+                // pointer would never rest on it: a clear one, while it has
+                // a tooltip, as drawn views have.
+                if let Widget::Host(canvas) = widget {
+                    let panel = canvas.cast::<w::IPanel>()?;
+                    if text.is_empty() {
+                        panel.SetBackground(None::<&w::Brush>)?;
+                    } else {
+                        let clear = w::SolidColorBrush::CreateInstanceWithColor(w::Color { a: 0, r: 0, g: 0, b: 0 })?;
+                        panel.SetBackground(&clear)?;
+                    }
+                }
+                node.tooltip = text.clone();
+                set_help_text(node)?;
+            }
             _ => {}
         }
         Ok(())
@@ -1627,7 +1660,9 @@ impl State {
                 if !named_by_label || label.is_some() {
                     w::AutomationProperties::SetName(&element, label.as_deref().unwrap_or(""))?;
                 }
-                w::AutomationProperties::SetHelpText(&element, description.as_deref().unwrap_or(""))?;
+                let node = self.nodes.get_mut(id).unwrap();
+                node.description = description.clone();
+                set_help_text(node)?;
                 w::AutomationProperties::SetAccessibilityView(
                     &element,
                     if *hidden { w::AccessibilityView::Raw } else { w::AccessibilityView::Content },
@@ -2462,6 +2497,8 @@ impl Backend for WinUiBackend {
         props.extend(node.role.map(Prop::ButtonRole));
         props.extend(node.button_style.map(Prop::ButtonStyle));
         props.extend(node.tweak.clone().map(Prop::Tweak));
+        // "" when it has none.
+        props.push(Prop::Tooltip(unboxed(w::ToolTipService::GetToolTip(node.control())).unwrap_or_default()));
 
         let frame = match &node.widget {
             Widget::Window(_) => Rect::ZERO,
