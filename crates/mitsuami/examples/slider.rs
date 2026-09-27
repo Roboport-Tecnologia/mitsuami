@@ -112,7 +112,14 @@ fn platform_option() -> impl View {
     Column::new().gap(Spacing::Md).children((
         heading("A platform option"),
         Row::new().gap(Spacing::Md).align(Align::Center).children((
-            Slider::new("Tweaked").range(0.0, 10.0).step(1.0).bind(value).native(tweak),
+            // As wide as the row, as sliders take their length from the
+            // layout; AppKit's dial has a size of its own.
+            Slider::new("Tweaked")
+                .range(0.0, 10.0)
+                .step(1.0)
+                .bind(value)
+                .grow(platform! { macos => 0.0, _ => 1.0 })
+                .native(tweak),
             Text::new(move || format!("{:.0}", value.get())),
         )),
         Text::new(about).text_style(TextStyle::Caption),

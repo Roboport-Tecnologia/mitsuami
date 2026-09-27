@@ -838,6 +838,9 @@ impl State {
             if let Widget::Window(parts) = &node.widget {
                 parts.window.set_transient_for(owner.as_ref());
                 parts.window.set_modal(true);
+                if node.modal.is_none() {
+                    parts.window.add_controller(escape_closes());
+                }
                 node.modal = Some((prop_owner(prop), *modality));
             }
             return;
@@ -1604,6 +1607,9 @@ impl Backend for GtkBackend {
             return Ok(());
         }
         let SyntheticInput::Key(key) = input else { unreachable!() };
+        if *key == Key::Escape {
+            return self.escape(id);
+        }
         // Lists: GTK 4 can't inject key events, and its list keyboard
         // handling has no signals to emit, so do what it does: arrows,
         // Home and End move the selection and show it; Enter activates.
@@ -1916,5 +1922,53 @@ fn prop_owner(prop: &Prop) -> Option<NodeId> {
     match prop {
         Prop::Modal { owner, .. } => *owner,
         _ => None,
+    }
+}
+
+/// The name of a modal window's Escape controller.
+const ESCAPE: &str = "mitsuami-escape";
+
+/// What `GtkDialog` does: Escape closes the window, which asks first
+/// (`close-request`, which the backend reports and stops). In the bubble
+/// phase, so a focused widget that uses Escape itself (an open popover,
+/// entry completion) gets it first.
+fn escape_closes() -> gtk::ShortcutController {
+    let controller = gtk::ShortcutController::new();
+    controller.set_name(Some(ESCAPE));
+    controller.set_propagation_phase(gtk::PropagationPhase::Bubble);
+    let close = gtk::CallbackAction::new(|widget, _| {
+        if let Some(window) = widget.downcast_ref::<gtk::Window>() {
+            window.close();
+        }
+        glib::Propagation::Stop
+    });
+    controller.add_shortcut(gtk::Shortcut::new(gtk::ShortcutTrigger::parse_string("Escape"), Some(close)));
+    controller
+}
+
+impl GtkBackend {
+    /// Escape on a node. GTK 4 can't inject key events, so after focusing
+    /// the node, the window's Escape shortcut runs as a key press would
+    /// run it; a plain window has none, and nothing happens, as with a
+    /// real Escape.
+    fn escape(&mut self, id: NodeId) -> Result<(), ActionError> {
+        let widget = {
+            let state = self.state.borrow();
+            state.nodes.get(&id).ok_or(ActionError::UnknownNode)?.widget.widget().clone()
+        };
+        if widget.is_focusable() {
+            widget.grab_focus();
+        }
+        let window = widget.root().and_then(|r| r.downcast::<gtk::Window>().ok()).ok_or(ActionError::Unsupported)?;
+        let controllers = window.observe_controllers();
+        let controller = (0..controllers.n_items())
+            .filter_map(|i| controllers.item(i).and_downcast::<gtk::ShortcutController>())
+            .find(|c| c.name().as_deref() == Some(ESCAPE));
+        if let Some(action) =
+            controller.and_then(|c| c.item(0).and_downcast::<gtk::Shortcut>()).and_then(|shortcut| shortcut.action())
+        {
+            action.activate(gtk::ShortcutActionFlags::empty(), &window, None);
+        }
+        Ok(())
     }
 }

@@ -4365,6 +4365,35 @@ impl IKeyboardAccelerator {
             (windows_core::Interface::vtable(self).SetModifiers)(windows_core::Interface::as_raw(self), value).ok()
         }
     }
+    pub fn Invoked<F>(&self, handler: F) -> windows_core::Result<windows_core::EventRevoker>
+    where
+        F: Fn(windows_core::Ref<KeyboardAccelerator>, windows_core::Ref<KeyboardAcceleratorInvokedEventArgs>) + 'static,
+    {
+        let handler: TypedEventHandler<KeyboardAccelerator, KeyboardAcceleratorInvokedEventArgs> = {
+            let com = windows_core::imp::DelegateBox::<
+                TypedEventHandler<KeyboardAccelerator, KeyboardAcceleratorInvokedEventArgs>,
+                F,
+            >::new(
+                &TypedEventHandlerBox::<KeyboardAccelerator, KeyboardAcceleratorInvokedEventArgs, F>::VTABLE,
+                handler,
+            );
+            unsafe { core::mem::transmute(windows_core::imp::box_new(com)) }
+        };
+        unsafe {
+            let mut result__ = core::mem::zeroed();
+            let token__ = (windows_core::Interface::vtable(self).Invoked)(
+                windows_core::Interface::as_raw(self),
+                windows_core::Interface::as_raw(&handler),
+                &mut result__,
+            )
+            .map(|| result__)?;
+            Ok(windows_core::EventRevoker::new(
+                self.clone(),
+                token__,
+                windows_core::Interface::vtable(self).RemoveInvoked,
+            ))
+        }
+    }
 }
 #[repr(C)]
 pub struct IKeyboardAccelerator_Vtbl {
@@ -4373,6 +4402,13 @@ pub struct IKeyboardAccelerator_Vtbl {
     pub SetKey: unsafe extern "system" fn(*mut core::ffi::c_void, VirtualKey) -> windows_core::HRESULT,
     pub Modifiers: unsafe extern "system" fn(*mut core::ffi::c_void, *mut VirtualKeyModifiers) -> windows_core::HRESULT,
     pub SetModifiers: unsafe extern "system" fn(*mut core::ffi::c_void, VirtualKeyModifiers) -> windows_core::HRESULT,
+    IsEnabled: usize,
+    SetIsEnabled: usize,
+    ScopeOwner: usize,
+    SetScopeOwner: usize,
+    pub Invoked:
+        unsafe extern "system" fn(*mut core::ffi::c_void, *mut core::ffi::c_void, *mut i64) -> windows_core::HRESULT,
+    pub RemoveInvoked: unsafe extern "system" fn(*mut core::ffi::c_void, i64) -> windows_core::HRESULT,
 }
 windows_core::imp::define_interface!(
     IKeyboardAcceleratorFactory,
@@ -4391,6 +4427,25 @@ pub struct IKeyboardAcceleratorFactory_Vtbl {
         *mut *mut core::ffi::c_void,
         *mut *mut core::ffi::c_void,
     ) -> windows_core::HRESULT,
+}
+windows_core::imp::define_interface!(
+    IKeyboardAcceleratorInvokedEventArgs,
+    IKeyboardAcceleratorInvokedEventArgs_Vtbl,
+    0x62c9fdb0_b574_527d_97eb_5c7f674441e0
+);
+impl windows_core::RuntimeType for IKeyboardAcceleratorInvokedEventArgs {
+    const SIGNATURE: windows_core::imp::ConstBuffer = windows_core::imp::ConstBuffer::for_interface::<Self>();
+}
+impl IKeyboardAcceleratorInvokedEventArgs {
+    pub fn SetHandled(&self, value: bool) -> windows_core::Result<()> {
+        unsafe { (windows_core::Interface::vtable(self).SetHandled)(windows_core::Interface::as_raw(self), value).ok() }
+    }
+}
+#[repr(C)]
+pub struct IKeyboardAcceleratorInvokedEventArgs_Vtbl {
+    pub base__: windows_core::IInspectable_Vtbl,
+    Handled: usize,
+    pub SetHandled: unsafe extern "system" fn(*mut core::ffi::c_void, bool) -> windows_core::HRESULT,
 }
 windows_core::imp::define_interface!(
     ILaunchActivatedEventArgs,
@@ -8514,6 +8569,33 @@ impl windows_core::RuntimeName for KeyboardAccelerator {
 }
 unsafe impl Send for KeyboardAccelerator {}
 unsafe impl Sync for KeyboardAccelerator {}
+#[repr(transparent)]
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct KeyboardAcceleratorInvokedEventArgs(windows_core::IUnknown);
+windows_core::imp::interface_hierarchy!(
+    KeyboardAcceleratorInvokedEventArgs,
+    windows_core::IUnknown,
+    windows_core::IInspectable
+);
+impl windows_core::RuntimeType for KeyboardAcceleratorInvokedEventArgs {
+    const SIGNATURE: windows_core::imp::ConstBuffer =
+        windows_core::imp::ConstBuffer::for_class::<Self, IKeyboardAcceleratorInvokedEventArgs>();
+}
+unsafe impl windows_core::Interface for KeyboardAcceleratorInvokedEventArgs {
+    type Vtable = <IKeyboardAcceleratorInvokedEventArgs as windows_core::Interface>::Vtable;
+    const IID: windows_core::GUID = <IKeyboardAcceleratorInvokedEventArgs as windows_core::Interface>::IID;
+}
+impl core::ops::Deref for KeyboardAcceleratorInvokedEventArgs {
+    type Target = IKeyboardAcceleratorInvokedEventArgs;
+    fn deref(&self) -> &Self::Target {
+        unsafe { core::mem::transmute(self) }
+    }
+}
+impl windows_core::RuntimeName for KeyboardAcceleratorInvokedEventArgs {
+    const NAME: &'static str = "Microsoft.UI.Xaml.Input.KeyboardAcceleratorInvokedEventArgs";
+}
+unsafe impl Send for KeyboardAcceleratorInvokedEventArgs {}
+unsafe impl Sync for KeyboardAcceleratorInvokedEventArgs {}
 #[repr(transparent)]
 #[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
 pub struct KeyboardNavigationMode(pub i32);

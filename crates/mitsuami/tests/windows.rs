@@ -218,4 +218,50 @@ async fn a_modal_window_closes_like_any_other(app: TestApp) {
     assert_eq!(count.get_untracked(), 1);
 }
 
+/// Escape asks a dialog (a modal window) to close, as the close button
+/// does, whichever modality; a plain window ignores it, as on every
+/// platform.
+#[mitsuami_test::test]
+async fn escape_asks_a_modal_window_to_close(app: TestApp) {
+    let (sheet, dialog, plain) = (signal(true), signal(true), signal(true));
+    app.mount(move || {
+        let field = |name: &'static str| move || TextInput::new().a11y_label(name);
+        Column::new().children((
+            Window::new("Sheet").modal(Modality::Window).bind(sheet).content(field("In the sheet")),
+            Window::new("Dialog").modal(Modality::Application).bind(dialog).content(field("In the dialog")),
+            Window::new("Plain").bind(plain).content(field("In the window")),
+        ))
+    });
+
+    app.get_by_label("In the sheet").press(Key::Escape).await;
+    assert!(!sheet.get_untracked());
+    app.get_by_label("In the dialog").press(Key::Escape).await;
+    assert!(!dialog.get_untracked());
+    app.get_by_label("In the window").press(Key::Escape).await;
+    assert!(plain.get_untracked());
+}
+
+/// AppKit gives Escape to a Cancel button first (its key equivalent); the
+/// other platforms' Cancel buttons are ordinary, so the window takes it.
+#[mitsuami_test::test]
+async fn escape_presses_the_cancel_button_on_appkit(app: TestApp) {
+    let by = Rc::new(Cell::new(""));
+    let (button, request) = (by.clone(), by.clone());
+    app.mount(move || {
+        let (button, request) = (button.clone(), request.clone());
+        Window::new("Sheet").modal(Modality::Window).on_close_request(move || request.set("request")).content(
+            move || {
+                let button = button.clone();
+                Column::new().children((
+                    TextInput::new().a11y_label("Name"),
+                    Button::new("Cancel").role(ButtonRole::Cancel).on_click(move || button.set("button")),
+                ))
+            },
+        )
+    });
+
+    app.get_by_label("Name").press(Key::Escape).await;
+    assert_eq!(by.get(), if app.backend_name() == "appkit" { "button" } else { "request" });
+}
+
 mitsuami_test::main!();

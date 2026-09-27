@@ -831,6 +831,8 @@ impl State {
             root.window.set_object("transientParent", parent);
             // Qt::Dialog (which includes Qt::Window).
             root.window.set_int("flags", root.window.int("flags") | 0x3);
+            // Escape asks it to close.
+            root.window.set_bool("mitsuamiModal", true);
             root.window.set_int(
                 "modality",
                 match modality {
@@ -1502,6 +1504,16 @@ impl Backend for KirigamiBackend {
                 (WidgetKind::Button, Key::Enter | Key::Char(' '))
                 | (WidgetKind::Checkbox | WidgetKind::Switch, Key::Char(' ')) => {
                     self.perform(id, &A11yAction::Activate)
+                }
+                // A real Escape, from the node if it takes focus: a modal
+                // window's shortcut asks it to close.
+                (_, Key::Escape) => {
+                    let window = window.ok_or(ActionError::Unsupported)?;
+                    if self.state.borrow().nodes.get(&id).is_some_and(|n| n.widget.is_control()) {
+                        widget_item.force_focus();
+                    }
+                    window.key(KEY_ESCAPE, false, "\u{1b}");
+                    Ok(())
                 }
                 _ => Err(ActionError::Unsupported),
             },

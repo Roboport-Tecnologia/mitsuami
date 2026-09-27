@@ -72,6 +72,8 @@ pub(crate) struct WindowParts {
     /// The windows it disabled while it's open (application-modal), to
     /// enable again when it closes.
     disabled: Vec<w::HWND>,
+    /// Dialogs (modal windows): the Escape accelerator's handler.
+    escape: Option<EventRevoker>,
 }
 
 impl WindowParts {
@@ -660,7 +662,7 @@ impl mitsuami_core::TestHooks for WinUiHandle {
             Some(Widget::Window(parts)) => parts.hwnd,
             _ => return,
         };
-        unsafe { _ = w::PostMessageW(hwnd, w::WM_CLOSE as u32, 0, 0) };
+        request_close(hwnd);
         runtime::pump();
     }
 
@@ -802,6 +804,30 @@ fn install_menu(parts: &mut WindowParts, menu: &MenuBarData, activate: &Rc<dyn F
     if let Some(size) = parts.requested {
         resize_client(parts, size);
     }
+}
+
+/// `WM_CLOSE`, which the close button and Alt+F4 end in: the app window
+/// raises `Closing`, which asks the app.
+fn request_close(hwnd: w::HWND) {
+    unsafe { _ = w::PostMessageW(hwnd, w::WM_CLOSE as u32, 0, 0) };
+}
+
+/// What a Win32 dialog does with Escape (`IDCANCEL`): it asks to close, as
+/// the close button does. An accelerator only fires when the focused
+/// control didn't use the key, so an open drop-down still closes itself.
+fn escape_closes(root: &w::Grid, hwnd: w::HWND) -> R<EventRevoker> {
+    let accelerator = w::KeyboardAccelerator::new()?;
+    let accel: w::IKeyboardAccelerator = accelerator.cast()?;
+    accel.SetKey(w::VirtualKey::Escape)?;
+    accel.SetModifiers(w::VirtualKeyModifiers::None)?;
+    let revoker = accel.Invoked(move |_, args| {
+        if let Some(args) = args.as_ref() {
+            _ = args.cast::<w::IKeyboardAcceleratorInvokedEventArgs>().and_then(|a| a.SetHandled(true));
+        }
+        request_close(hwnd);
+    })?;
+    root.cast::<w::IUIElement>()?.KeyboardAccelerators()?.Append(&accelerator)?;
+    Ok(revoker)
 }
 
 fn build_menu_bar(menu: &MenuBarData, activate: &Rc<dyn Fn(u32)>, revokers: &mut Vec<EventRevoker>) -> R<w::MenuBar> {
@@ -1008,6 +1034,7 @@ impl State {
             tab_order,
             modal: None,
             disabled: Vec::new(),
+            escape: None,
         };
         if let Some((menu, activate)) = &self.menu {
             install_menu(&mut parts, menu, activate);
@@ -1371,7 +1398,12 @@ impl State {
             (Prop::Drawing(drawing), Widget::Drawn { view, .. }) => view.set_drawing(drawing)?,
             (Prop::Step(new), Widget::Slider { step, .. } | Widget::Number { step, .. }) => *step = *new,
             // Acted on when it's shown.
-            (Prop::Modal { owner, modality }, Widget::Window(parts)) => parts.modal = Some((*owner, *modality)),
+            (Prop::Modal { owner, modality }, Widget::Window(parts)) => {
+                parts.modal = Some((*owner, *modality));
+                if parts.escape.is_none() {
+                    parts.escape = Some(escape_closes(&parts.root, parts.hwnd)?);
+                }
+            }
             (Prop::Image(new), Widget::Image { image, source, bitmap, failed, opened, .. }) => {
                 failed.set(false);
                 opened.set(false);
@@ -2452,6 +2484,29 @@ impl Backend for WinUiBackend {
             return Err(ActionError::Disabled);
         }
         let SyntheticInput::Key(key) = input else { unreachable!() };
+        if *key == Key::Escape {
+            // What the accelerator does, in the node's window if it's a
+            // dialog; a plain window ignores Escape. Keys are synthesized
+            // by driving controls here, not by sending input.
+            let hwnd = {
+                let state = self.state.borrow();
+                let mut current = Some(id);
+                loop {
+                    match current.and_then(|c| state.nodes.get(&c)) {
+                        Some(Node { widget: Widget::Window(parts), .. }) => {
+                            break parts.escape.is_some().then_some(parts.hwnd);
+                        }
+                        Some(node) => current = node.parent,
+                        None => break None,
+                    }
+                }
+            };
+            if let Some(hwnd) = hwnd {
+                request_close(hwnd);
+                runtime::pump();
+            }
+            return Ok(());
+        }
         match (widget_kind, key) {
             (WidgetKind::TextInput, Key::Char(_) | Key::Backspace | Key::Enter | Key::Tab) => {
                 let field: w::ITextBox = element.cast().map_err(|_| ActionError::Unsupported)?;

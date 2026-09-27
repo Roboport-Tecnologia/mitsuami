@@ -67,6 +67,12 @@ fn a11y_with(default_name: &str, hovered: &str) -> String {
 
 /// `drawer` is the app menu's global drawer, when there is one: it has to
 /// be there from the start (see `MenuParts::install`).
+///
+/// A modal window (`mitsuamiModal`) is a dialog, and Escape asks it to
+/// close, as a `QDialog`'s does: through `close()`, whose close event the
+/// backend reports and vetoes. `StandardKey.Cancel` is Escape (and ⌘. on
+/// macOS). A `Shortcut` matches in its focus window, not by `active`,
+/// which a window with a transient parent reports for its parent too.
 pub(crate) fn window(drawer: Option<&str>) -> String {
     // One page, with no padding: its content item is the content host.
     // The page's title goes in Kirigami's toolbar above it.
@@ -74,12 +80,19 @@ pub(crate) fn window(drawer: Option<&str>) -> String {
     format!(
         r#"
 Kirigami.ApplicationWindow {{
+    id: mitsuamiWindow
     // Kirigami's windows show themselves; the backend shows them after
     // their first layout, once modality is set: Qt ignores it on a
     // window already shown.
     visible: false
     width: 800
     height: 600
+    property bool mitsuamiModal: false
+    Shortcut {{
+        sequences: [StandardKey.Cancel]
+        enabled: mitsuamiWindow.mitsuamiModal
+        onActivated: mitsuamiWindow.close()
+    }}
     {drawer}
     pageStack.initialPage: Kirigami.Page {{
         objectName: "mitsuamiPage"

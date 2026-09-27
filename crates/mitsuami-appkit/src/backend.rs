@@ -662,7 +662,10 @@ impl State {
         match (prop, &mut node.widget) {
             (Prop::Title(t), Widget::Window { window, .. }) => window.setTitle(&ns(t)),
             // Acted on when the window is shown.
-            (Prop::Modal { owner, modality }, Widget::Window { .. }) => node.modal = Some((*owner, *modality)),
+            (Prop::Modal { owner, modality }, Widget::Window { _delegate, .. }) => {
+                _delegate.set_modal(true);
+                node.modal = Some((*owner, *modality));
+            }
             (Prop::Text(t), Widget::Label(l)) => l.setStringValue(&ns(t)),
             // 0 is AppKit's "no limit"; the cell puts an ellipsis at the
             // end of the last line it shows.
@@ -1473,6 +1476,9 @@ impl Backend for AppKitBackend {
             return Ok(());
         }
         let SyntheticInput::Key(key) = input else { unreachable!() };
+        if *key == Key::Escape {
+            return self.escape(id);
+        }
         let table = match self.state.borrow().nodes.get(&id).map(|n| &n.widget) {
             Some(Widget::List(list)) => Some(list.table.clone()),
             _ => None,
@@ -1742,6 +1748,35 @@ impl Backend for AppKitBackend {
 }
 
 impl AppKitBackend {
+    /// Escape, as the keyboard sends it to the focused view's window: a key
+    /// equivalent first (a Cancel button's), then to the first responder,
+    /// whose unhandled `cancelOperation:` reaches the window's delegate.
+    fn escape(&self, id: NodeId) -> Result<(), ActionError> {
+        let view = self.state.borrow().nodes.get(&id).ok_or(ActionError::UnknownNode)?.widget.key_view();
+        let window = view.window().ok_or(ActionError::Unsupported)?;
+        if view.acceptsFirstResponder() {
+            window.makeFirstResponder(Some(&view));
+        }
+        let escape = ns("\u{1b}");
+        let event = NSEvent::keyEventWithType_location_modifierFlags_timestamp_windowNumber_context_characters_charactersIgnoringModifiers_isARepeat_keyCode(
+            NSEventType::KeyDown,
+            NSPoint::new(0.0, 0.0),
+            NSEventModifierFlags::empty(),
+            0.0,
+            window.windowNumber(),
+            None,
+            &escape,
+            &escape,
+            false,
+            53,
+        )
+        .ok_or(ActionError::Unsupported)?;
+        if !window.performKeyEquivalent(&event) {
+            window.sendEvent(&event);
+        }
+        Ok(())
+    }
+
     fn capture_now(&self, id: NodeId) -> Result<Image, CaptureError> {
         let view = {
             let state = self.state.borrow();
