@@ -229,6 +229,11 @@ impl Services for KirigamiServices {
         let qml = format!(
             "Kirigami.PromptDialog {{\n\
              dialogType: Kirigami.PromptDialog.{dialog_type}\n\
+             // Kirigami's, kept in the window: its opening slide ends\n\
+             // past a short window's bottom, and Qt moving it back in\n\
+             // loops the binding.\n\
+             y: parent ? Math.min(Math.round((parent.height - height) / 2)\n\
+                 + Kirigami.Units.gridUnit * 2 * (1 - opacity), parent.height - height) : 0\n\
              standardButtons: Kirigami.Dialog.NoButton\n\
              customFooterActions: [\n{}\n]\n}}",
             actions.join(",\n")

@@ -360,6 +360,16 @@ fn violation(command: &Command, problem: &str) -> ! {
     panic!("kirigami backend: protocol violation in {command:?}: {problem}")
 }
 
+/// A key pressed in a window, which the user's keys reach once it's the
+/// focused window: its shortcuts (a modal window's Escape) only match then.
+fn key_in(window: QmlObject, code: i32, text: &str) {
+    if !window.bool("mitsuamiFocused") {
+        window.invoke("requestActivate");
+        pump_until(Duration::from_secs(2), || window.bool("mitsuamiFocused"));
+    }
+    window.key(code, false, text);
+}
+
 /// Runs Qt's event loop until `done` holds or `timeout` passes.
 fn pump_until(timeout: Duration, mut done: impl FnMut() -> bool) -> bool {
     let started = Instant::now();
@@ -1469,7 +1479,7 @@ impl Backend for KirigamiBackend {
                         Key::End => (KEY_END, ""),
                         _ => (KEY_RETURN, "\r"),
                     };
-                    window.key(code, false, text);
+                    key_in(window, code, text);
                     Ok(())
                 }
                 (WidgetKind::TextInput | WidgetKind::PasswordInput, _) => {
@@ -1503,7 +1513,7 @@ impl Backend for KirigamiBackend {
                         Key::Home => (KEY_HOME, String::new()),
                         Key::End => (KEY_END, String::new()),
                     };
-                    window.key(code, false, &text);
+                    key_in(window, code, &text);
                     Ok(())
                 }
                 (WidgetKind::Button, Key::Enter | Key::Char(' '))
@@ -1517,7 +1527,7 @@ impl Backend for KirigamiBackend {
                     if self.state.borrow().nodes.get(&id).is_some_and(|n| n.widget.is_control()) {
                         widget_item.force_focus();
                     }
-                    window.key(KEY_ESCAPE, false, "\u{1b}");
+                    key_in(window, KEY_ESCAPE, "\u{1b}");
                     Ok(())
                 }
                 _ => Err(ActionError::Unsupported),
@@ -1712,16 +1722,10 @@ impl Backend for KirigamiBackend {
 /// Opens dialogs on this window, or the active one.
 pub(crate) fn dialog_parent(handle: &KirigamiHandle, parent: Option<NodeId>) -> Option<Rc<WindowRoot>> {
     let windows = handle.windows();
-    // Qt's windows are active with the focused window's transient parents
-    // too (a modal window's owner, which it blocks): take the focused one.
-    let active: Vec<&Rc<WindowRoot>> =
-        windows.iter().map(|(_, root)| root).filter(|root| root.window.bool("active")).collect();
-    let focused = active
-        .iter()
-        .find(|root| !active.iter().any(|other| other.window.object("transientParent") == Some(root.window)))
-        .or(active.first());
+    // Not by `active`: a modal window's owner, which it blocks, reports it
+    // too, and so do the owner's other dialogs.
     parent
         .and_then(|id| windows.iter().find(|(w, _)| *w == id).map(|(_, root)| root.clone()))
-        .or_else(|| focused.map(|root| (*root).clone()))
+        .or_else(|| windows.iter().find(|(_, root)| root.window.bool("mitsuamiFocused")).map(|(_, root)| root.clone()))
         .or_else(|| windows.first().map(|(_, root)| root.clone()))
 }

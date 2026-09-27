@@ -253,6 +253,16 @@ void mq_init(mq_callback callback) {
     const bool plasma = theme.isEmpty() ? qEnvironmentVariable("XDG_CURRENT_DESKTOP").contains("KDE") : theme == "kde";
     if (!plasma && qEnvironmentVariableIsEmpty("QT_STYLE_OVERRIDE")) QApplication::setStyle("breeze");
     if (qEnvironmentVariableIsEmpty("QT_QUICK_CONTROLS_STYLE")) QQuickStyle::setStyle("org.kde.desktop");
+    // Our windows' `mitsuamiFocused`: whether the window has the keyboard.
+    // QML's `active` is also true for a focused window's transient parent,
+    // and so for its siblings, and Qt's window shortcuts match by it.
+    QObject::connect(app, &QGuiApplication::focusWindowChanged, app, [](QWindow* focus) {
+        for (QWindow* window : QGuiApplication::allWindows()) {
+            if (window->metaObject()->indexOfProperty("mitsuamiFocused") >= 0) {
+                window->setProperty("mitsuamiFocused", window == focus);
+            }
+        }
+    });
     g_main_thread = QThread::currentThread();
     g_engine = new QQmlEngine();
     g_pixels = new PixelsProvider();
@@ -510,11 +520,23 @@ int32_t mq_a11y_action(QObject* item, const char* action) {
     return 0;
 }
 
+// Qt Gui's, exported for QTest (qtestkeyboard.h declares it the same way):
+// offers a key to the shortcuts, as Qt does with the platform's keys.
+extern "C++" {
+QT_BEGIN_NAMESPACE
+Q_GUI_EXPORT bool qt_sendShortcutOverrideEvent(QObject* o, ulong timestamp, int k, Qt::KeyboardModifiers mods,
+                                               const QString& text, bool autorep, ushort count);
+QT_END_NAMESPACE
+}
+
 // A real key press and release, delivered to the window's focused item.
+// Shortcuts get it first, as QTest's do: a shortcut that takes it is all
+// the key does.
 void mq_key(QObject* window, int32_t key, int32_t shift, const char* text) {
     auto* quick = qobject_cast<QQuickWindow*>(window);
     Qt::KeyboardModifiers modifiers = shift ? Qt::ShiftModifier : Qt::NoModifier;
     QString t = QString::fromUtf8(text);
+    if (qt_sendShortcutOverrideEvent(quick, 0, key, modifiers, t, false, 1)) return;
     QKeyEvent press(QEvent::KeyPress, key, modifiers, t);
     QKeyEvent release(QEvent::KeyRelease, key, modifiers, t);
     QCoreApplication::sendEvent(quick, &press);

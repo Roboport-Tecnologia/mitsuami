@@ -220,7 +220,8 @@ async fn a_modal_window_closes_like_any_other(app: TestApp) {
 
 /// Escape asks a dialog (a modal window) to close, as the close button
 /// does, whichever modality; a plain window ignores it, as on every
-/// platform.
+/// platform. The app-modal dialog goes first: while it shows, it blocks
+/// the other windows (Qt doesn't give them keys).
 #[mitsuami_test::test]
 async fn escape_asks_a_modal_window_to_close(app: TestApp) {
     let (sheet, dialog, plain) = (signal(true), signal(true), signal(true));
@@ -233,10 +234,10 @@ async fn escape_asks_a_modal_window_to_close(app: TestApp) {
         ))
     });
 
-    app.get_by_label("In the sheet").press(Key::Escape).await;
-    assert!(!sheet.get_untracked());
     app.get_by_label("In the dialog").press(Key::Escape).await;
     assert!(!dialog.get_untracked());
+    app.get_by_label("In the sheet").press(Key::Escape).await;
+    assert!(!sheet.get_untracked());
     app.get_by_label("In the window").press(Key::Escape).await;
     assert!(plain.get_untracked());
 }

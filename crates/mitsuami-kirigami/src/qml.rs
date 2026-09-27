@@ -71,8 +71,9 @@ fn a11y_with(default_name: &str, hovered: &str) -> String {
 /// A modal window (`mitsuamiModal`) is a dialog, and Escape asks it to
 /// close, as a `QDialog`'s does: through `close()`, whose close event the
 /// backend reports and vetoes. `StandardKey.Cancel` is Escape (and ⌘. on
-/// macOS). A `Shortcut` matches in its focus window, not by `active`,
-/// which a window with a transient parent reports for its parent too.
+/// macOS). Qt matches window shortcuts by `active`, which a dialog reports
+/// whenever its owner or another of its owner's dialogs has the keyboard,
+/// so the shortcut is on only while its window has it (`mitsuamiFocused`).
 pub(crate) fn window(drawer: Option<&str>) -> String {
     // One page, with no padding: its content item is the content host.
     // The page's title goes in Kirigami's toolbar above it.
@@ -88,9 +89,11 @@ Kirigami.ApplicationWindow {{
     width: 800
     height: 600
     property bool mitsuamiModal: false
+    // Set by the backend: whether this is Qt's focus window.
+    property bool mitsuamiFocused: false
     Shortcut {{
         sequences: [StandardKey.Cancel]
-        enabled: mitsuamiWindow.mitsuamiModal
+        enabled: mitsuamiWindow.mitsuamiModal && mitsuamiWindow.mitsuamiFocused
         onActivated: mitsuamiWindow.close()
     }}
     {drawer}
