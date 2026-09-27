@@ -1175,8 +1175,11 @@ impl State {
                     let Some(index) = index.checked_sub(content) else {
                         violation(command, "toolbar items go after the window's content")
                     };
-                    // Hidden until it has a size.
+                    // Hidden until it has a size. The header bar stretches
+                    // its children to its height; centred, the host keeps
+                    // its own, as a label's text is centred in the bar.
                     child_widget.set_visible(false);
+                    child_widget.set_valign(gtk::Align::Center);
                     parts.items.insert(index.min(parts.items.len()), (*child, child_widget));
                     pack_items(parts);
                     self.nodes.get_mut(child).unwrap().parent = Some(*parent);
