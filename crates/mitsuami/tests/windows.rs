@@ -295,4 +295,65 @@ async fn works_in_view_macros(app: TestApp) {
     app.expect(by_text("128 MB")).to_be_visible().await;
 }
 
+/// A dialog nested in a window, as apps nest them: it edits a draft of the
+/// window's form, started at each opening, which OK applies and Cancel or
+/// the close button drops.
+#[mitsuami_test::test]
+async fn a_nested_dialog_applies_or_drops_its_changes(app: TestApp) {
+    let open = signal(true);
+    let form = signal(2);
+    let dialog = signal(false);
+    app.mount(move || {
+        let draft = signal(0);
+        view! {
+            <Window title="Machine" bind=open>
+                <Column>
+                    <Text>{move || format!("{} CPUs", form.get())}</Text>
+                    <Button @click=move || dialog.set(true)>"Advanced…"</Button>
+                    <Window title="Advanced" modal=Modality::Window bind=dialog @open=move || draft.set(form.get_untracked())>
+                        <Column>
+                            <NumberInput a11y_label="Processors" bind=draft/>
+                            <Button role=ButtonRole::Cancel @click=move || dialog.set(false)>"Cancel"</Button>
+                            <Button role=ButtonRole::Default @click=move || {
+                                form.set(draft.get_untracked());
+                                dialog.set(false);
+                            }>"OK"</Button>
+                        </Column>
+                    </Window>
+                </Column>
+            </Window>
+        }
+    });
+    let owner = machine(&app).expect("open");
+    let processors = || by_role(Role::SpinButton, "Processors");
+
+    app.get_by_role(Role::Button, "Advanced…").click().await;
+    let advanced = app.window_titled("Advanced").expect("the dialog opened");
+    assert_eq!(modal(&app, advanced), Some(Prop::Modal { owner: Some(owner), modality: Modality::Window }));
+    app.expect(processors()).to_have_value("2").await;
+    app.get(processors()).set_number(4.0).await;
+    app.get_by_role(Role::Button, "Cancel").click().await;
+    assert_eq!(app.window_titled("Advanced"), None);
+    app.expect(by_text("2 CPUs")).to_be_visible().await;
+
+    // Each opening starts from the form, not from the dropped draft.
+    app.get_by_role(Role::Button, "Advanced…").click().await;
+    app.expect(processors()).to_have_value("2").await;
+    app.get(processors()).set_number(4.0).await;
+    app.get_by_role(Role::Button, "OK").click().await;
+    app.expect(by_text("4 CPUs")).to_be_visible().await;
+
+    app.get_by_role(Role::Button, "Advanced…").click().await;
+    app.close_window(app.window_titled("Advanced").expect("open")).await;
+    assert_eq!(app.window_titled("Advanced"), None);
+    assert!(!dialog.get_untracked());
+
+    // It closes with the window it's nested in.
+    app.get_by_role(Role::Button, "Advanced…").click().await;
+    open.set(false);
+    app.settle().await;
+    assert_eq!(app.window_titled("Advanced"), None);
+    assert_eq!(machine(&app), None);
+}
+
 mitsuami_test::main!();

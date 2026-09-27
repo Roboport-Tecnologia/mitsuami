@@ -53,6 +53,7 @@ pub struct Window<T = Value<String>> {
     size: WindowSize,
     modality: Value<Option<Modality>>,
     open: Value<bool>,
+    on_open: Option<Rc<dyn Fn()>>,
     on_close_request: Option<Rc<dyn Fn()>>,
     content: Option<Rc<dyn Fn() -> AnyView>>,
 }
@@ -65,6 +66,7 @@ impl Window {
             size: WindowSize::FitHeight(480.0),
             modality: Value::Static(None),
             open: Value::Static(true),
+            on_open: None,
             on_close_request: None,
             content: None,
         }
@@ -109,6 +111,13 @@ impl<T> Window<T> {
         self.open(open).on_close_request(move || open.set(false))
     }
 
+    /// Called each time it opens, before its content is built: to start a
+    /// form from what's saved, say.
+    pub fn on_open(mut self, handler: impl Fn() + 'static) -> Window<T> {
+        self.on_open = Some(Rc::new(handler));
+        self
+    }
+
     /// Called when the user asks to close it (the close button, ⌘W, Alt+F4).
     /// It stays open unless the app closes it.
     pub fn on_close_request(mut self, handler: impl Fn() + 'static) -> Window<T> {
@@ -128,7 +137,7 @@ impl View for Window {
     /// top-level.
     fn build(self, ui: &Ui) -> NodeId {
         let placeholder = ui.create(WidgetKind::Fragment, Vec::new());
-        let Window { title, size, modality, open, on_close_request, content } = self;
+        let Window { title, size, modality, open, on_open, on_close_request, content } = self;
         // The window it's declared in, which a modal window belongs to.
         let owner = inject::<CurrentWindow>().map(|w| w.0);
         let ui = ui.clone();
@@ -143,6 +152,9 @@ impl View for Window {
             let titled = ui.clone();
             effect(move || titled.set_prop(window, Prop::Title(title.get())));
             provide(CurrentWindow(window));
+            if let Some(handler) = &on_open {
+                handler();
+            }
             if let Some(content) = &content {
                 let root = content().build(&ui);
                 ui.append_child(window, root);
@@ -1169,8 +1181,8 @@ impl Window {
     /// until `title` is set, and only then a `View`.
     #[doc(hidden)]
     pub fn __tag() -> Window<()> {
-        let Window { title: _, size, modality, open, on_close_request, content } = Window::new(String::new());
-        Window { title: (), size, modality, open, on_close_request, content }
+        let Window { title: _, size, modality, open, on_open, on_close_request, content } = Window::new(String::new());
+        Window { title: (), size, modality, open, on_open, on_close_request, content }
     }
 
     /// Its content, built each time it opens.
@@ -1182,8 +1194,8 @@ impl Window {
 
 impl Window<()> {
     pub fn title(self, title: impl IntoValue<String>) -> Window {
-        let Window { title: (), size, modality, open, on_close_request, content } = self;
-        Window { title: title.into_value(), size, modality, open, on_close_request, content }
+        let Window { title: (), size, modality, open, on_open, on_close_request, content } = self;
+        Window { title: title.into_value(), size, modality, open, on_open, on_close_request, content }
     }
 }
 

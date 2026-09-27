@@ -4,6 +4,10 @@
 //!   while a flag is true, as 2ksbox's launcher opens its windows.
 //! - Closing a machine window with unsaved changes asks first; without
 //!   changes, it closes.
+//! - "Advanced…" in a machine window opens a dialog on that window, nested
+//!   in it: OK applies its changes to the machine window's form, Cancel
+//!   (or Escape, or its close button) drops them. It closes with the
+//!   machine window.
 //! - "About" opens a window that its close button closes (`bind`).
 //! - "Open machines as" picks how the machine windows open: plain windows,
 //!   sheets on the launcher (`Modality::Window`), or windows that block the
@@ -18,11 +22,58 @@ use mitsuami::prelude::*;
 /// What "Open machines as" offers, in its order.
 const MODALITIES: [Option<Modality>; 3] = [None, Some(Modality::Window), Some(Modality::Application)];
 
+/// A machine's settings, one signal each, so fields bind to them.
+#[derive(Clone, Copy)]
+struct Settings {
+    memory: Signal<i32>,
+    cpus: Signal<i32>,
+}
+
+impl Settings {
+    fn new(memory: i32, cpus: i32) -> Settings {
+        Settings { memory: signal(memory), cpus: signal(cpus) }
+    }
+
+    fn copy_from(self, other: Settings) {
+        self.memory.set(other.memory.get_untracked());
+        self.cpus.set(other.cpus.get_untracked());
+    }
+
+    fn differs_from(self, other: Settings) -> bool {
+        self.memory.get() != other.memory.get() || self.cpus.get() != other.cpus.get()
+    }
+}
+
+/// The advanced settings of a machine window's form, in a dialog on that
+/// window. Its own draft starts from the form at each opening; OK copies it
+/// back, anything else drops it.
+fn advanced_window(form: Settings, open: Signal<bool>) -> impl View {
+    let cpus = signal(0);
+    view! {
+        <Window title="Advanced" modal=Modality::Window bind=open @open=move || cpus.set(form.cpus.get_untracked())>
+            <Column padding=Spacing::Xl gap=Spacing::Lg>
+                <Row gap=Spacing::Md align=Align::Center>
+                    <Text>"Processors"</Text>
+                    <NumberInput a11y_label="Processors" range_with=(1, 16) bind=cpus/>
+                </Row>
+                <Row gap=Spacing::Sm justify=Justify::End>
+                    <Button role=ButtonRole::Cancel @click=move || open.set(false)>"Cancel"</Button>
+                    <Button role=ButtonRole::Default @click=move || {
+                        form.cpus.set(cpus.get_untracked());
+                        open.set(false);
+                    }>"OK"</Button>
+                </Row>
+            </Column>
+        </Window>
+    }
+}
+
 /// One machine's settings, edited in a window of its own.
-fn machine_window(name: &'static str, editing: Signal<bool>, memory: Signal<i32>, open_as: Signal<usize>) -> impl View {
+fn machine_window(name: &'static str, editing: Signal<bool>, saved: Settings, open_as: Signal<usize>) -> impl View {
     // What the form shows, apart from what's saved until "Save".
-    let draft = signal(memory.get_untracked());
-    let unsaved = move || draft.get() != memory.get();
+    let form = Settings::new(0, 0);
+    let advanced = signal(false);
+    let unsaved = move || form.differs_from(saved);
     let ask_to_close = move || {
         if !unsaved() {
             editing.set(false);
@@ -40,7 +91,7 @@ fn machine_window(name: &'static str, editing: Signal<bool>, memory: Signal<i32>
             .await;
             match answer {
                 0 => {
-                    memory.set(draft.get_untracked());
+                    saved.copy_from(form);
                     editing.set(false);
                 }
                 2 => editing.set(false),
@@ -48,39 +99,50 @@ fn machine_window(name: &'static str, editing: Signal<bool>, memory: Signal<i32>
             }
         });
     };
-    Window::new(move || if unsaved() { format!("{name} (edited)") } else { name.to_owned() })
-        .size(WindowSize::FitHeight(360.0))
-        .modality(move || MODALITIES[open_as.get()])
-        .open(editing)
-        .on_close_request(ask_to_close)
-        .content(move || {
+    view! {
+        <Window
+            title=move || if unsaved() { format!("{name} (edited)") } else { name.to_owned() }
+            size=WindowSize::FitHeight(360.0)
+            modality=move || MODALITIES[open_as.get()]
+            open=editing
             // Each opening starts from what's saved.
-            draft.set(memory.get_untracked());
-            Column::new().padding(Spacing::Xl).gap(Spacing::Lg).children((
-                Row::new().gap(Spacing::Md).align(Align::Center).children((
-                    Text::new("Memory (MB)"),
-                    NumberInput::new("Memory (MB)").range(16, 512).step(16).bind(draft),
-                )),
-                Row::new().gap(Spacing::Sm).justify(Justify::End).children((
-                    Button::new("Cancel").role(ButtonRole::Cancel).on_click(ask_to_close),
-                    Button::new("Save").role(ButtonRole::Default).enabled(unsaved).on_click(move || {
-                        memory.set(draft.get_untracked());
+            @open=move || form.copy_from(saved)
+            @close_request=ask_to_close
+        >
+            <Column padding=Spacing::Xl gap=Spacing::Lg>
+                <Row gap=Spacing::Md align=Align::Center>
+                    <Text>"Memory (MB)"</Text>
+                    <NumberInput a11y_label="Memory (MB)" range_with=(16, 512) step=16 bind=form.memory/>
+                </Row>
+                <Row gap=Spacing::Md align=Align::Center>
+                    <Text grow=1.0>{move || format!("Processors: {}", form.cpus.get())}</Text>
+                    <Button @click=move || advanced.set(true)>"Advanced…"</Button>
+                </Row>
+                <Row gap=Spacing::Sm justify=Justify::End>
+                    <Button role=ButtonRole::Cancel @click=ask_to_close>"Cancel"</Button>
+                    <Button role=ButtonRole::Default enabled=unsaved @click=move || {
+                        saved.copy_from(form);
                         editing.set(false);
-                    }),
-                )),
-            ))
-        })
+                    }>"Save"</Button>
+                </Row>
+                // Declared in the machine window: it's a sheet on it, and
+                // closes with it.
+                {advanced_window(form, advanced)}
+            </Column>
+        </Window>
+    }
 }
 
-fn machine_row(name: &'static str, memory: i32, open_as: Signal<usize>) -> impl View {
+fn machine_row(name: &'static str, saved: Settings, open_as: Signal<usize>) -> impl View {
     let editing = signal(false);
-    let memory = signal(memory);
-    Row::new().gap(Spacing::Md).align(Align::Center).children((
-        Text::new(name).grow(1.0),
-        Text::new(move || format!("{} MB", memory.get())),
-        Button::new("Edit…").enabled(move || !editing.get()).on_click(move || editing.set(true)),
-        machine_window(name, editing, memory, open_as),
-    ))
+    view! {
+        <Row gap=Spacing::Md align=Align::Center>
+            <Text grow=1.0>{name}</Text>
+            <Text>{move || format!("{} MB, {} CPU", saved.memory.get(), saved.cpus.get())}</Text>
+            <Button enabled=move || !editing.get() @click=move || editing.set(true)>"Edit…"</Button>
+            {machine_window(name, editing, saved, open_as)}
+        </Row>
+    }
 }
 
 fn main() {
@@ -88,26 +150,32 @@ fn main() {
         .window("Machines", WindowSize::FitHeight(420.0), || {
             let about = signal(false);
             let open_as = signal(1);
-            Column::new().padding(Spacing::Xl).gap(Spacing::Md).children((
-                Text::new("Machines").text_style(TextStyle::Title),
-                Row::new().gap(Spacing::Md).align(Align::Center).children((
-                    Text::new("Open machines as"),
-                    // A sheet on macOS; elsewhere a dialog that blocks this
-                    // window (GTK's block the whole app).
-                    Select::new("Open machines as")
-                        .options(["Plain windows", "Blocking this window", "Blocking the app"])
-                        .bind(open_as),
-                )),
-                machine_row("Windows 98", 64, open_as),
-                machine_row("Windows XP", 256, open_as),
-                Row::new().justify(Justify::End).child(Button::new("About").on_click(move || about.set(true))),
-                Window::new("About").bind(about).content(|| {
-                    Column::new().padding(Spacing::Xl).gap(Spacing::Sm).children((
-                        Text::new("mitsuami").text_style(TextStyle::Headline),
-                        Text::new("Windows opened while the app runs."),
-                    ))
-                }),
-            ))
+            view! {
+                <Column padding=Spacing::Xl gap=Spacing::Md>
+                    <Text text_style=TextStyle::Title>"Machines"</Text>
+                    <Row gap=Spacing::Md align=Align::Center>
+                        <Text>"Open machines as"</Text>
+                        // A sheet on macOS; elsewhere a dialog that blocks
+                        // this window (GTK's block the whole app).
+                        <Select
+                            a11y_label="Open machines as"
+                            options=["Plain windows", "Blocking this window", "Blocking the app"]
+                            bind=open_as
+                        />
+                    </Row>
+                    {machine_row("Windows 98", Settings::new(64, 1), open_as)}
+                    {machine_row("Windows XP", Settings::new(256, 2), open_as)}
+                    <Row justify=Justify::End>
+                        <Button @click=move || about.set(true)>"About"</Button>
+                    </Row>
+                    <Window title="About" bind=about>
+                        <Column padding=Spacing::Xl gap=Spacing::Sm>
+                            <Text text_style=TextStyle::Headline>"mitsuami"</Text>
+                            <Text>"Windows opened while the app runs."</Text>
+                        </Column>
+                    </Window>
+                </Column>
+            }
         })
         .run();
 }
