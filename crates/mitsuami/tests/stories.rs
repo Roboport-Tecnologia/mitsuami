@@ -360,6 +360,7 @@ fn text_input_tweak() -> Tweak<TextInput> {
     platform! {
         macos => mitsuami::appkit::tweak(|f: &mitsuami::appkit::objc2_app_kit::NSTextField| f.setBezeled(false)),
         gtk => mitsuami::gtk::tweak(|e: &mitsuami::gtk::gtk::Entry| {
+            use mitsuami::gtk::gtk::prelude::EntryExt;
             e.set_icon_from_icon_name(mitsuami::gtk::gtk::EntryIconPosition::Primary, Some("system-search-symbolic"))
         }),
         kde => mitsuami::kirigami::tweak(|f: &mitsuami::kirigami::QmlObject| f.set_int("maximumLength", 8)),

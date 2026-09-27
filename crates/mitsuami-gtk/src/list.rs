@@ -72,14 +72,18 @@ fn item(key: RowKey) -> gtk::StringObject {
     gtk::StringObject::new(&key.0.to_string())
 }
 
-/// Rows exactly as high as their hosts, with nothing between them.
+/// Rows exactly as high as their hosts, with nothing between them. The
+/// theme draws `show-separators` as a row border, so that one stays.
 fn install_css() {
     thread_local!(static INSTALLED: Cell<bool> = const { Cell::new(false) });
     if INSTALLED.replace(true) {
         return;
     }
     let provider = gtk::CssProvider::new();
-    provider.load_from_data("listview.mitsuami-list > row { padding: 0; margin: 0; min-height: 0; border: none; }");
+    provider.load_from_data(
+        "listview.mitsuami-list > row { padding: 0; margin: 0; min-height: 0; }
+         listview.mitsuami-list:not(.separators) > row { border: none; }",
+    );
     if let Some(display) = gtk::gdk::Display::default() {
         gtk::style_context_add_provider_for_display(&display, &provider, gtk::STYLE_PROVIDER_PRIORITY_APPLICATION);
     }
