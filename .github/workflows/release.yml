@@ -7,9 +7,6 @@ on:
 permissions:
   contents: read
 
-env:
-  EXAMPLES: showcase todos contacts escape_hatches
-
 jobs:
   version:
     name: Check the tag matches the workspace version
@@ -75,6 +72,10 @@ jobs:
       - name: Install the toolchain from rust-toolchain.toml
         run: rustup toolchain install
 
+      # Every example but run_loop_smoke, a check that the run loop ends.
+      - name: List the examples
+        run: echo "EXAMPLES=$(ls crates/mitsuami/examples | sed 's/\.rs$//' | grep -vx run_loop_smoke | xargs)" >> "$GITHUB_ENV"
+
       - name: Install GTK 4
         if: runner.os == 'Linux'
         run: sudo apt-get update && sudo apt-get install -y libgtk-4-dev
@@ -118,9 +119,51 @@ jobs:
           name: ${{ env.ARCHIVE }}
           path: ${{ env.ARCHIVE }}.*
 
+  # The same examples on Qt Quick and Kirigami (the `kde` feature), in an
+  # Arch Linux container as in the KDE tests: Kirigami 6 isn't packaged for
+  # Ubuntu 24.04. GTK 4 is there because the test kit, a dev-dependency,
+  # needs it to build; the examples don't link it.
+  examples-kde:
+    name: Build the examples (linux-x86_64-kde)
+    needs: test
+    runs-on: ubuntu-24.04
+    container: archlinux:base-devel-20260920.0.596911
+    defaults:
+      run:
+        shell: bash
+    env:
+      ARCHIVE: mitsuami-examples-${{ github.ref_name }}-linux-x86_64-kde
+    steps:
+      - name: Install Qt, Kirigami and GTK 4
+        run: |
+          echo 'Server = https://archive.archlinux.org/repos/2026/09/20/$repo/os/$arch' > /etc/pacman.d/mirrorlist
+          pacman -Syu --noconfirm --needed git rustup zip qt6-declarative kirigami qqc2-desktop-style gtk4
+
+      - uses: actions/checkout@v5
+
+      - name: Install the toolchain from rust-toolchain.toml
+        run: rustup toolchain install
+
+      - name: List the examples
+        run: echo "EXAMPLES=$(ls crates/mitsuami/examples | sed 's/\.rs$//' | grep -vx run_loop_smoke | xargs)" >> "$GITHUB_ENV"
+
+      - name: Build
+        run: cargo build --release -p mitsuami --features kde $(printf -- '--example %s ' $EXAMPLES)
+
+      - name: Package
+        run: |
+          mkdir "$ARCHIVE"
+          for e in $EXAMPLES; do cp "target/release/examples/$e" "$ARCHIVE/"; done
+          zip -r "$ARCHIVE.zip" "$ARCHIVE"
+
+      - uses: actions/upload-artifact@v5
+        with:
+          name: ${{ env.ARCHIVE }}
+          path: ${{ env.ARCHIVE }}.zip
+
   release:
     name: Create the GitHub release
-    needs: [publish, examples]
+    needs: [publish, examples, examples-kde]
     runs-on: ubuntu-24.04
     permissions:
       contents: write
@@ -135,11 +178,12 @@ jobs:
           cat > notes.md <<'EOF'
           ## Examples
 
-          The `showcase`, `todos`, `contacts` and `escape_hatches` examples, built for each platform:
+          Every example, built for each platform:
 
           - **Windows** (x86_64): needs the [Windows App Runtime 2.4 or later](https://aka.ms/windowsappsdk/2.5/latest/windowsappruntimeinstall-x64.exe).
           - **macOS** (Apple silicon and Intel): the binaries aren't signed. Run `xattr -dr com.apple.quarantine <folder>` after extracting, or allow them in System Settings → Privacy & Security.
           - **Linux** (x86_64): needs GTK 4.10 or later and glibc 2.39 or later (Ubuntu 24.04 and newer).
+          - **Linux, KDE Plasma** (x86_64, the `-kde` archive): the same examples on Qt Quick and Kirigami. Built on Arch Linux as of 20 September 2026, so it needs Qt 6, Kirigami and qqc2-desktop-style at least as new as Arch's then, and a glibc to match.
           EOF
           gh release create "$GITHUB_REF_NAME" dist/* --repo "$GITHUB_REPOSITORY" \
             --title "$GITHUB_REF_NAME" --notes-file notes.md --generate-notes
