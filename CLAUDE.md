@@ -68,6 +68,11 @@ Backend rules the tests enforce:
 - CI runs only by hand: `gh workflow run test.yml --ref <branch>`. Baselines
   for new stories on the other platforms come from a failed CI run:
   `.github/scripts/accept-snapshots.sh <run id>`.
+- Visual stories aren't validated yet: development moves too fast for
+  baselines to keep up. Missing or failing visual baselines (stories, and
+  the other platforms' captures) are expected; don't treat them as
+  regressions, and don't try to fix them. The maintainer will review every
+  capture by eye in a later pass. Still add a story for each new widget.
 
 ## Checking other platforms from macOS
 
