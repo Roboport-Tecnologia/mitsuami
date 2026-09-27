@@ -18,7 +18,10 @@ Microsoft.UI.Dispatching.DispatcherQueueHandler
 Microsoft.UI.Xaml.Window::CreateInstance
 Microsoft.UI.Xaml.IWindow::{Activate, Close, get_Content, put_Content, get_Title, put_Title, put_ExtendsContentIntoTitleBar, SetTitleBar}
 Microsoft.UI.Xaml.IWindow2::get_AppWindow
-Microsoft.UI.Windowing.IAppWindow::{get_TitleBar, get_Id, Move, Show, add_Closing, remove_Closing, put_IsShownInSwitchers}
+Microsoft.UI.Windowing.IAppWindow::{get_TitleBar, get_Id, Move, Show, add_Closing, remove_Closing, put_IsShownInSwitchers, get_Presenter, get_Position, get_Size}
+Microsoft.UI.Windowing.AppWindowPresenter::{}
+Microsoft.UI.Windowing.OverlappedPresenter::{}
+Microsoft.UI.Windowing.IOverlappedPresenter::{put_IsModal, get_IsModal, put_IsMinimizable, put_IsMaximizable}
 Microsoft.UI.Windowing.IAppWindow2::{get_ClientSize, ResizeClient}
 Microsoft.UI.Windowing.IAppWindowClosingEventArgs::put_Cancel
 Microsoft.UI.WindowId
@@ -256,3 +259,7 @@ Microsoft.UI.Xaml.Media.Imaging.WriteableBitmap::CreateInstanceWithDimensions
 Microsoft.UI.Xaml.Media.Imaging.IWriteableBitmap::{get_PixelBuffer, Invalidate}
 Windows.Foundation.Uri::CreateUri
 Windows.Win32.IBufferByteAccess
+Windows.Win32.SetWindowLongPtrW
+Windows.Win32.GWLP_HWNDPARENT
+Windows.Win32.EnableWindow
+Windows.Win32.IsWindowEnabled

@@ -106,6 +106,7 @@ Validate as you go. Panic on protocol violations such as an unknown node, a doub
 | `Step` | Slider, NumberInput | Use it as the platform uses a step (tick marks, snapping, keyboard increments; what a spin box's buttons add). A platform with no stepped slider snaps the user's moves to it, as its apps do (GTK: in `change-value`, with a mark at each step that a tweak can turn off). `None`: the platform's default. Keep it on the node if the platform can't read it back. |
 | `Number` | Slider, NumberInput | The value; a `NumberInput`'s is a whole number in an `i32`. Setting it **must not** emit `Changed`. |
 | `Progress` | Progress | From 0 to 1, or `None` for work of unknown length: the platform's indeterminate, animated bar. |
+| `Modal { owner, modality }` | Window | Sent once, right after `Create`, before the window is shown. Show it modal the platform's way: `Window` blocks its owner (AppKit: a sheet on it), `Application` the whole app (AppKit: `runModalForWindow`, started outside the tick). Keep it above its owner (transient, owned). Destroying it ends the sheet or modal state and gives the owner back. Keep it on the node and report it. |
 | `Tooltip` | any node | The platform's tooltip on the view the pointer rests on (`toolTip`, `set_tooltip_text`, `ToolTipService`, the attached `QQC2.ToolTip` on hover); empty removes it. Make it reach assistive technology as the description unless the node has its own (AppKit and GTK do that themselves). Report it for every node, `""` when none. |
 | `Image` | Image | A file (the platform decodes it; unreadable: show nothing, measure zero) or `Pixels`: straight RGBA8, sRGB, at `scale` pixels to a point. Measure it at its size in points (`Pixels::size`), not its pixel count. Keep it on the node: no platform gives the pixels back. |
 | `ImageFit` | Image | `Contain` or `Stretch`, sent only if the app chose; otherwise the platform's default fit. |
@@ -207,6 +208,8 @@ These make one test suite run against every backend.
   - GTK: `gtk::WidgetPaintable` + snapshot + `render_texture` (Cairo renderer), then download. Replies from the frame clock's `after-paint`, once the widget is mapped and laid out.
   - WinUI: `RenderTargetBitmap.RenderAsync`, then `GetPixelsAsync`, replying from the completion.
   - Qt Quick: `QQuickWindow::grabWindow`, which renders right away (in software on the offscreen platform), cropped to the node.
+
+**`TestHooks::close_window`** clicks a window's close button the way the user would, through the platform (`performClose:`, `gtk::Window::close`, `QQuickWindow::close`, a posted `WM_CLOSE` on WinUI: XAML's `Window.Close` skips `Closing`), so the platform reports `WindowCloseRequested` itself. Never close the window: whether it closes is the app's call, and the core destroys it if so.
 
 **`TestHooks::settle`** runs after every settle and while a test awaits something the platform completes (a capture). Use it to let the platform catch up without blocking: GTK presents windows there and dispatches what its main context has ready (allocations, adjustments, focus). AppKit does everything synchronously and leaves it empty.
 

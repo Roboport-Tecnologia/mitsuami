@@ -4,6 +4,7 @@ use std::cell::RefCell;
 use std::collections::HashMap;
 use std::rc::Rc;
 
+use block2::RcBlock;
 use mitsuami_core::a11y::{A11yAction, A11yProps, ActionError};
 use mitsuami_core::backend::{
     Appearance, AvailableSpace, Backend, CaptureError, EventSink, FontSizes, Image, Key, MeasureRequest, NativeState,
@@ -11,8 +12,8 @@ use mitsuami_core::backend::{
 };
 use mitsuami_core::units::SpacingScale;
 use mitsuami_core::{
-    ButtonRole, ButtonStyle, Command, CustomProps, EventValue, ImageFit, ImageSource, NodeId, Opaque, Orientation,
-    Point, Prop, Rect, RowKey, ScrollAxes, SelectionMode, Size, TextStyle, UiEvent, WidgetKind, find_prop,
+    ButtonRole, ButtonStyle, Command, CustomProps, EventValue, ImageFit, ImageSource, Modality, NodeId, Opaque,
+    Orientation, Point, Prop, Rect, RowKey, ScrollAxes, SelectionMode, Size, TextStyle, UiEvent, WidgetKind, find_prop,
 };
 use objc2::rc::Retained;
 use objc2::runtime::{AnyObject, ProtocolObject};
@@ -28,6 +29,7 @@ use objc2_app_kit::{
     NSSwitch, NSTextField, NSView, NSViewBoundsDidChangeNotification, NSWindow, NSWindowOrderingMode,
     NSWindowStyleMask, NSWorkspace,
 };
+use objc2_core_foundation::{CFRunLoop, kCFRunLoopDefaultMode};
 use objc2_foundation::{NSArray, NSDictionary, NSNotificationCenter, NSPoint, NSRange, NSRect, NSSize, NSString};
 
 use crate::classes::{ActionTarget, ClosureTarget, DrawnView, HostView, ViewMap, WindowDelegate};
@@ -187,6 +189,8 @@ struct Node {
     /// back (the fit only if the app chose one).
     image: Option<ImageSource>,
     fit: Option<ImageFit>,
+    /// Windows: modal, and the window they belong to.
+    modal: Option<(Option<NodeId>, Modality)>,
     /// The app's raw settings, run after every other prop.
     tweak: Option<Opaque>,
 }
@@ -322,14 +326,49 @@ impl AppKitHandle {
         }
     }
 
-    /// Orders front windows whose first layout has been applied.
+    /// Orders front windows whose first layout has been applied: a sheet
+    /// on the window it belongs to, a window in the app's modal loop, or
+    /// an ordinary window.
     pub fn show_pending_windows(&self) {
         let pending = std::mem::take(&mut self.state.borrow_mut().pending_show);
         for id in pending {
-            if let Some(window) = self.ns_window(id) {
-                window.center();
-                window.makeKeyAndOrderFront(None);
+            let Some(window) = self.ns_window(id) else { continue };
+            let modal = self.state.borrow().nodes.get(&id).and_then(|n| n.modal);
+            let owner = modal.and_then(|(owner, _)| owner).and_then(|owner| self.ns_window(owner));
+            match (modal.map(|(_, modality)| modality), owner) {
+                (Some(Modality::Window), Some(owner)) => owner.beginSheet_completionHandler(&window, None),
+                (Some(_), owner) => {
+                    match owner {
+                        Some(owner) => centre_on(&window, &owner),
+                        None => window.center(),
+                    }
+                    self.run_modal(id, window);
+                }
+                (None, _) => {
+                    window.center();
+                    window.makeKeyAndOrderFront(None);
+                }
             }
+        }
+    }
+
+    /// Runs the app's modal loop for the window, once the current run-loop
+    /// turn is over: it's a nested loop, which mustn't start inside a
+    /// tick. The UI keeps ticking in it (the app's observer runs in the
+    /// modal panel mode too). It ends when the window is destroyed.
+    fn run_modal(&self, id: NodeId, window: Retained<NSWindow>) {
+        let state = self.state.clone();
+        let block = RcBlock::new(move || {
+            // Destroyed before it got to run.
+            if !state.borrow().nodes.contains_key(&id) {
+                return;
+            }
+            let mtm = state.borrow().mtm;
+            NSApplication::sharedApplication(mtm).runModalForWindow(&window);
+        });
+        if let Some(run_loop) = CFRunLoop::main() {
+            unsafe { run_loop.perform_block(Some(kCFRunLoopDefaultMode.unwrap()), Some(&block)) };
+            run_loop.wake_up();
         }
     }
 
@@ -356,6 +395,13 @@ impl mitsuami_core::TestHooks for AppKitHandle {
 
     fn resize_window(&self, window: NodeId, size: Size) {
         AppKitHandle::resize_window(self, window, size);
+    }
+
+    /// As the close button does: the window asks its delegate.
+    fn close_window(&self, window: NodeId) {
+        if let Some(window) = self.ns_window(window) {
+            window.performClose(None);
+        }
     }
 
     fn take_command_log(&self) -> Vec<Command> {
@@ -602,6 +648,7 @@ impl State {
                 scroll_bars: true,
                 image: None,
                 fit: None,
+                modal: None,
                 mixed: None,
                 checked: false,
                 tweak: None,
@@ -614,6 +661,8 @@ impl State {
         let Some(node) = self.nodes.get_mut(&id) else { violation(command, "node does not exist") };
         match (prop, &mut node.widget) {
             (Prop::Title(t), Widget::Window { window, .. }) => window.setTitle(&ns(t)),
+            // Acted on when the window is shown.
+            (Prop::Modal { owner, modality }, Widget::Window { .. }) => node.modal = Some((*owner, *modality)),
             (Prop::Text(t), Widget::Label(l)) => l.setStringValue(&ns(t)),
             // 0 is AppKit's "no limit"; the cell puts an ellipsis at the
             // end of the last line it shows.
@@ -924,6 +973,18 @@ impl State {
                 }
                 match &node.widget {
                     Widget::Window { window, _delegate, .. } => {
+                        // Out of the sheet, or of the modal loop, first.
+                        if let Some(parent) = window.sheetParent() {
+                            parent.endSheet(window);
+                        }
+                        let app = NSApplication::sharedApplication(self.mtm);
+                        if app.modalWindow().is_some_and(|m| std::ptr::eq(&*m, &**window)) {
+                            // `stopModal` only works from an event handler;
+                            // this runs in a tick. The empty event makes the
+                            // loop notice.
+                            app.abortModal();
+                            post_empty_event(&app);
+                        }
                         _delegate.stop_observing_focus(window);
                         window.setDelegate(None);
                         window.close();
@@ -1022,6 +1083,33 @@ impl State {
                 }
             }
         }
+    }
+}
+
+/// Centres a window on another, as dialogs open over their window.
+fn centre_on(window: &NSWindow, owner: &NSWindow) {
+    let (own, frame) = (owner.frame(), window.frame());
+    window.setFrameOrigin(NSPoint::new(
+        (own.origin.x + (own.size.width - frame.size.width) / 2.0).round(),
+        (own.origin.y + (own.size.height - frame.size.height) / 2.0).round(),
+    ));
+}
+
+/// An empty event, which wakes the app's event loop.
+fn post_empty_event(app: &NSApplication) {
+    let event = NSEvent::otherEventWithType_location_modifierFlags_timestamp_windowNumber_context_subtype_data1_data2(
+        NSEventType::ApplicationDefined,
+        NSPoint::new(0.0, 0.0),
+        NSEventModifierFlags::empty(),
+        0.0,
+        0,
+        None,
+        0,
+        0,
+        0,
+    );
+    if let Some(event) = event {
+        app.postEvent_atStart(&event, false);
     }
 }
 
@@ -1483,7 +1571,10 @@ impl Backend for AppKitBackend {
         let mut props = Vec::new();
         let checked = |s: isize| Prop::Checked(s == NSControlStateValueOn);
         match &node.widget {
-            Widget::Window { window, .. } => props.push(Prop::Title(window.title().to_string())),
+            Widget::Window { window, .. } => {
+                props.push(Prop::Title(window.title().to_string()));
+                props.extend(node.modal.map(|(owner, modality)| Prop::Modal { owner, modality }));
+            }
             Widget::Label(l) => {
                 props.push(Prop::Text(l.stringValue().to_string()));
                 let lines = l.maximumNumberOfLines();

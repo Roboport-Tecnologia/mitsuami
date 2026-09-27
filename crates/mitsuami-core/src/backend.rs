@@ -163,6 +163,10 @@ pub trait TestHooks {
     /// Resizes a window's content area the way the user would, so the
     /// platform reports it back as `WindowResized`.
     fn resize_window(&self, window: NodeId, size: Size);
+    /// Clicks the window's close button, the way the user would, so the
+    /// platform reports `WindowCloseRequested`. Whether it closes is the
+    /// app's call.
+    fn close_window(&self, window: NodeId);
     /// Commands applied since the last call (record them when asked to).
     fn take_command_log(&self) -> Vec<Command>;
     /// Live native nodes, as a leak detector.

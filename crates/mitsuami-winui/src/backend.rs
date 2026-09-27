@@ -13,9 +13,9 @@ use mitsuami_core::backend::{
 use mitsuami_core::services::{MenuBarData, MenuEntry, Reply};
 use mitsuami_core::units::SpacingScale;
 use mitsuami_core::{
-    AnyValue, ButtonRole, ButtonStyle, Command, CustomProps, EventValue, ImageFit, ImageSource, NodeId, Opaque,
-    Orientation, Pixels, Point, Prop, Rect, RowKey, ScrollAxes, SelectionMode, Size, TextStyle, UiEvent, WidgetKind,
-    find_prop,
+    AnyValue, ButtonRole, ButtonStyle, Command, CustomProps, EventValue, ImageFit, ImageSource, Modality, NodeId,
+    Opaque, Orientation, Pixels, Point, Prop, Rect, RowKey, ScrollAxes, SelectionMode, Size, TextStyle, UiEvent,
+    WidgetKind, find_prop,
 };
 use windows_core::{EventRevoker, HSTRING, IInspectable, IUnknown, Interface};
 
@@ -67,6 +67,11 @@ pub(crate) struct WindowParts {
     focus: Rc<Cell<Option<NodeId>>>,
     /// The Tab order sent by the core.
     tab_order: Rc<RefCell<Vec<NodeId>>>,
+    /// Modal, and the window it belongs to: acted on when it's shown.
+    modal: Option<(Option<NodeId>, Modality)>,
+    /// The windows it disabled while it's open (application-modal), to
+    /// enable again when it closes.
+    disabled: Vec<w::HWND>,
 }
 
 impl WindowParts {
@@ -512,15 +517,78 @@ impl WinUiHandle {
         }
     }
 
-    /// Makes visible the windows whose first layout has been applied.
+    /// Makes visible the windows whose first layout has been applied,
+    /// modal ones first made modal.
     pub fn show_pending_windows(&self) {
         let pending = std::mem::take(&mut self.state.borrow_mut().pending_show);
-        let state = self.state.borrow();
         for id in pending {
+            self.make_modal(id);
+            let state = self.state.borrow();
             if let Some(Widget::Window(parts)) = state.nodes.get(&id).map(|n| &n.widget) {
                 set_transparent(parts.hwnd, false);
                 unsafe { _ = w::SetForegroundWindow(parts.hwnd) };
             }
+        }
+    }
+
+    /// The Windows App SDK's way: owned by its window (`GWLP_HWNDPARENT`,
+    /// how a WinUI 3 window gets an owner), centred on it, and `IsModal`,
+    /// which disables the owner while it's shown; a dialog's presenter
+    /// can't be minimized or maximized. Application-modal (or without an
+    /// owner, where `IsModal` can't apply), it also disables the app's
+    /// other windows, as Win32 apps do, until it closes.
+    fn make_modal(&self, id: NodeId) {
+        let mut state = self.state.borrow_mut();
+        let Some(Widget::Window(parts)) = state.nodes.get(&id).map(|n| &n.widget) else { return };
+        let Some((owner, modality)) = parts.modal else { return };
+        let (hwnd, app_window) = (parts.hwnd, parts.app_window.clone());
+        let owner = owner.and_then(|o| match state.nodes.get(&o).map(|n| &n.widget) {
+            Some(Widget::Window(owner)) => Some((owner.hwnd, owner.app_window.clone())),
+            _ => None,
+        });
+        let others: Vec<w::HWND> = state
+            .nodes
+            .values()
+            .filter_map(|n| match &n.widget {
+                Widget::Window(other) if other.hwnd != hwnd => Some(other.hwnd),
+                _ => None,
+            })
+            .collect();
+        let app = app_window.cast::<w::IAppWindow>().ok();
+        if let Some((owner_hwnd, owner_window)) = &owner {
+            unsafe { w::SetWindowLongPtrW(hwnd, w::GWLP_HWNDPARENT, *owner_hwnd as isize) };
+            // Centred on its owner, as dialogs open.
+            let owner_window = owner_window.cast::<w::IAppWindow>().ok();
+            if let (Some(app), Some(owner_window)) = (&app, owner_window)
+                && let (Ok(at), Ok(size), Ok(own)) = (owner_window.Position(), owner_window.Size(), app.Size())
+            {
+                _ = app.Move(w::PointInt32 {
+                    x: at.x + (size.width - own.width) / 2,
+                    y: at.y + (size.height - own.height) / 2,
+                });
+            }
+        }
+        if let Some(presenter) =
+            app.and_then(|a| a.Presenter().ok()).and_then(|p| p.cast::<w::IOverlappedPresenter>().ok())
+        {
+            _ = presenter.SetIsMinimizable(false);
+            _ = presenter.SetIsMaximizable(false);
+            if owner.is_some() {
+                _ = presenter.SetIsModal(true);
+            }
+        }
+        let mut disabled = Vec::new();
+        if modality == Modality::Application || owner.is_none() {
+            for other in others {
+                // Already disabled (by another modal window): not ours to enable.
+                if unsafe { w::IsWindowEnabled(other) }.as_bool() {
+                    unsafe { _ = w::EnableWindow(other, false.into()) };
+                    disabled.push(other);
+                }
+            }
+        }
+        if let Some(Widget::Window(parts)) = state.nodes.get_mut(&id).map(|n| &mut n.widget) {
+            parts.disabled = disabled;
         }
     }
 
@@ -583,6 +651,18 @@ impl mitsuami_core::TestHooks for WinUiHandle {
 
     fn resize_window(&self, window: NodeId, size: Size) {
         WinUiHandle::resize_window(self, window, size);
+    }
+
+    /// `WM_CLOSE`, which the close button and Alt+F4 end in: the app
+    /// window raises `Closing`. `Window.Close()` wouldn't: it closes
+    /// without asking.
+    fn close_window(&self, window: NodeId) {
+        let hwnd = match self.state.borrow().nodes.get(&window).map(|n| &n.widget) {
+            Some(Widget::Window(parts)) => parts.hwnd,
+            _ => return,
+        };
+        unsafe { _ = w::PostMessageW(hwnd, w::WM_CLOSE as u32, 0, 0) };
+        runtime::pump();
     }
 
     fn take_command_log(&self) -> Vec<Command> {
@@ -925,6 +1005,8 @@ impl State {
             size,
             focus,
             tab_order,
+            modal: None,
+            disabled: Vec::new(),
         };
         if let Some((menu, activate)) = &self.menu {
             install_menu(&mut parts, menu, activate);
@@ -1284,6 +1366,8 @@ impl State {
             (Prop::Custom(new), Widget::Drawn { props, .. }) => *props = new.clone(),
             (Prop::Drawing(drawing), Widget::Drawn { view, .. }) => view.set_drawing(drawing)?,
             (Prop::Step(new), Widget::Slider { step, .. } | Widget::Number { step, .. }) => *step = *new,
+            // Acted on when it's shown.
+            (Prop::Modal { owner, modality }, Widget::Window(parts)) => parts.modal = Some((*owner, *modality)),
             (Prop::Image(new), Widget::Image { image, source, bitmap, failed, .. }) => {
                 failed.set(false);
                 *bitmap = None;
@@ -1650,9 +1734,19 @@ impl State {
                 self.pending_show.retain(|w| w != id);
                 drop(node.revokers);
                 if let Widget::Window(parts) = node.widget {
-                    let WindowParts { window, menu_revokers, .. } = *parts;
+                    let WindowParts { window, menu_revokers, modal, disabled, .. } = *parts;
                     drop(menu_revokers);
+                    // What it disabled comes back before it closes, so its
+                    // owner is the window that becomes active.
+                    for other in disabled {
+                        unsafe { _ = w::EnableWindow(other, true.into()) };
+                    }
                     window.cast::<w::IWindow>()?.Close()?;
+                    if let Some(Some(Widget::Window(owner))) =
+                        modal.and_then(|(owner, _)| owner).map(|o| self.nodes.get(&o).map(|n| &n.widget))
+                    {
+                        unsafe { _ = w::SetForegroundWindow(owner.hwnd) };
+                    }
                 }
             }
             Command::SetFrame { id, frame } => {
@@ -2445,7 +2539,10 @@ impl Backend for WinUiBackend {
         let node = state.nodes.get(&id)?;
         let mut props = Vec::new();
         match &node.widget {
-            Widget::Window(parts) => props.push(Prop::Title(parts.window.cast::<w::IWindow>().ok()?.Title().ok()?)),
+            Widget::Window(parts) => {
+                props.push(Prop::Title(parts.window.cast::<w::IWindow>().ok()?.Title().ok()?));
+                props.extend(parts.modal.map(|(owner, modality)| Prop::Modal { owner, modality }));
+            }
             Widget::Label(l) => {
                 let text: w::ITextBlock = l.cast().ok()?;
                 props.push(Prop::Text(text.Text().ok()?));

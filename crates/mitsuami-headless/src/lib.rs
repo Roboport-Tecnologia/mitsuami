@@ -362,6 +362,10 @@ impl mitsuami_core::TestHooks for HeadlessHandle {
         HeadlessHandle::resize_window(self, window, size);
     }
 
+    fn close_window(&self, window: NodeId) {
+        self.state.borrow_mut().emit(window, UiEvent::WindowCloseRequested);
+    }
+
     fn take_command_log(&self) -> Vec<Command> {
         HeadlessHandle::take_command_log(self)
     }

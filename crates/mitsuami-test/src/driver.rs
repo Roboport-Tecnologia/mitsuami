@@ -53,6 +53,10 @@ impl Driver {
         self.hooks.resize_window(window, size);
     }
 
+    pub(crate) fn close_window(&self, window: NodeId) {
+        self.hooks.close_window(window);
+    }
+
     pub(crate) fn take_command_log(&self) -> Vec<Command> {
         self.hooks.take_command_log()
     }

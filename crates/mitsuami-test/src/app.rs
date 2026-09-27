@@ -5,9 +5,9 @@ use std::time::{Duration, Instant};
 
 use mitsuami_core::task::ManualClock;
 
-use mitsuami_core::{A11yNode, Appearance, Command, NodeId, NodeInfo, Role, Size, Ui, View, WindowSize};
+use mitsuami_core::{A11yNode, Appearance, Command, CurrentWindow, NodeId, NodeInfo, Role, Size, Ui, View, WindowSize};
 use mitsuami_headless::{FakeServices, FakeServicesHandle, HeadlessHandle};
-use mitsuami_reactive::Owner;
+use mitsuami_reactive::{Owner, provide};
 
 use crate::driver::{Driver, Mode};
 use crate::locator::{Expectation, Locator};
@@ -185,7 +185,10 @@ impl TestApp {
         let window = self.window();
         let mounted = self.mounted.get().unwrap_or_else(|| self.owner.child());
         self.mounted.set(Some(mounted));
-        let root = mounted.with(|| view().build(&self.ui));
+        let root = mounted.with(|| {
+            provide(CurrentWindow(window));
+            view().build(&self.ui)
+        });
         self.ui.append_child(window, root);
         self.settle_now();
         root
@@ -226,6 +229,19 @@ impl TestApp {
     pub async fn resize(&self, width: f32, height: f32) {
         self.driver.resize_window(self.window(), Size::new(width, height));
         self.settle().await;
+    }
+
+    /// Clicks a window's close button, as the user would. Whether it
+    /// closes is the app's call.
+    pub async fn close_window(&self, window: NodeId) {
+        self.settle().await;
+        self.driver.close_window(window);
+        self.settle().await;
+    }
+
+    /// The open window with this title, other than the test window.
+    pub fn window_titled(&self, title: &str) -> Option<NodeId> {
+        self.ui.windows().into_iter().find(|w| self.ui.a11y_tree(*w).and_then(|n| n.name).as_deref() == Some(title))
     }
 
     pub fn get(&self, query: Query) -> Locator<'_> {

@@ -45,6 +45,10 @@ fn describe_props(props: &[Prop]) -> String {
             Prop::Image(ImageSource::File(path)) => extra.push(format!("file={:?}", path.display().to_string())),
             Prop::Image(ImageSource::Pixels(p)) => extra.push(format!("{p:?}")),
             Prop::ImageFit(fit) => extra.push(format!("fit={fit:?}")),
+            Prop::Modal { owner, modality } => {
+                extra.push(format!("modal={modality:?}"));
+                extra.extend(owner.map(|o| format!("owner={o}")));
+            }
             // A list's data can be long: its size is enough.
             Prop::Rows(rows) => extra.push(format!("rows={}", rows.len())),
             Prop::EstimatedRowHeight(h) => extra.push(format!("estimated_row_height={}", Num(*h))),

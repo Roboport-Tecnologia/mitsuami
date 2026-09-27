@@ -1,6 +1,6 @@
 //! Starting an app on the native backend of the target platform.
 
-use mitsuami_core::{AnyView, Ui, UiEvent, View, WindowSize, provide_stores};
+use mitsuami_core::{AnyView, CurrentWindow, Ui, UiEvent, View, WindowSize, provide_stores};
 use mitsuami_reactive::{Owner, provide};
 
 struct WindowSpec {
@@ -77,7 +77,10 @@ fn open(ui: &Ui, app: Owner, spec: WindowSpec) {
     // Each window owns its reactive state; closing it disposes everything,
     // including the tasks it started.
     let owner = app.child();
-    let root = owner.with(|| (spec.content)().build(ui));
+    let root = owner.with(|| {
+        provide(CurrentWindow(window));
+        (spec.content)().build(ui)
+    });
     ui.append_child(window, root);
     let weak = ui.downgrade();
     ui.on_event(window, move |event| {

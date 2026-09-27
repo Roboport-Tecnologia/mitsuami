@@ -96,6 +96,10 @@ name = "tooltip"
 harness = false
 
 [[test]]
+name = "windows"
+harness = false
+
+[[test]]
 name = "progress"
 harness = false
 

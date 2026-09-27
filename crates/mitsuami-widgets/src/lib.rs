@@ -4,11 +4,11 @@
 use std::rc::Rc;
 
 use mitsuami_core::{
-    Align, ButtonRole, ButtonStyle, Children, Display, Element, ElementBuilder, EventValue, FlexDirection, ImageFit,
-    ImageSource, Justify, Length, NodeId, Orientation, Pixels, Point, Prop, ScrollAxes, TextStyle, Track, Tweak, Ui,
-    UiEvent, View, WidgetKind,
+    Align, AnyView, ButtonRole, ButtonStyle, Children, CurrentWindow, Display, Element, ElementBuilder, EventValue,
+    FlexDirection, ImageFit, ImageSource, Justify, Length, Modality, NodeId, Orientation, Pixels, Point, Prop,
+    ScrollAxes, TextStyle, Track, Tweak, Ui, UiEvent, View, WidgetKind, WindowSize,
 };
-use mitsuami_reactive::{IntoValue, Signal, Value};
+use mitsuami_reactive::{IntoValue, Signal, Value, computed, effect, inject, on_cleanup, provide, untrack};
 
 macro_rules! widget {
     ($t:ty) => {
@@ -24,6 +24,142 @@ macro_rules! widget {
             }
         }
     };
+}
+
+// ---------------------------------------------------------------- windows
+
+/// A window the app opens while it runs: shown while `open` is true, with
+/// its content built when it opens and disposed when it closes. Declare it
+/// anywhere in the tree, next to the state that opens it; it closes with
+/// the scope that declared it, and belongs to the window it's declared in.
+///
+/// The close button asks: [`bind`](Self::bind) closes it by setting the
+/// flag, or [`on_close_request`](Self::on_close_request) lets the app
+/// decide (to ask about unsaved changes, say). Without either, the close
+/// button does nothing.
+///
+/// ```ignore
+/// let editing = signal(false);
+/// Column::new().children((
+///     Button::new("Edit…").on_click(move || editing.set(true)),
+///     Window::new("Machine").bind(editing).content(|| machine_form()),
+/// ))
+/// ```
+pub struct Window {
+    title: Value<String>,
+    size: WindowSize,
+    modality: Value<Option<Modality>>,
+    open: Value<bool>,
+    on_close_request: Option<Rc<dyn Fn()>>,
+    content: Option<Rc<dyn Fn() -> AnyView>>,
+}
+
+impl Window {
+    /// Open, 480 wide, as tall as its content.
+    pub fn new(title: impl IntoValue<String>) -> Window {
+        Window {
+            title: title.into_value(),
+            size: WindowSize::FitHeight(480.0),
+            modality: Value::Static(None),
+            open: Value::Static(true),
+            on_close_request: None,
+            content: None,
+        }
+    }
+
+    /// Its content size when it opens: a [`Size`](mitsuami_core::Size),
+    /// or [`WindowSize::FitHeight`] to fit the height to the content.
+    pub fn size(mut self, size: impl Into<WindowSize>) -> Window {
+        self.size = size.into();
+        self
+    }
+
+    /// Modal: while it's open, it blocks the window it's declared in
+    /// ([`Modality::Window`], a sheet on macOS) or the whole app
+    /// ([`Modality::Application`]), and stays above that window. Set
+    /// before it opens. A sheet has no close button: give its content
+    /// one, e.g. a `ButtonRole::Cancel` button, which Escape presses.
+    pub fn modal(mut self, modality: Modality) -> Window {
+        self.modality = Value::Static(Some(modality));
+        self
+    }
+
+    /// Modal or not, as a value that can change: read each time it opens,
+    /// so a change applies at the next opening.
+    pub fn modality(mut self, modality: impl IntoValue<Option<Modality>>) -> Window {
+        self.modality = modality.into_value();
+        self
+    }
+
+    /// Shown while true.
+    pub fn open(mut self, open: impl IntoValue<bool>) -> Window {
+        self.open = open.into_value();
+        self
+    }
+
+    /// Shown while the signal is true; the close button sets it false.
+    pub fn bind(self, open: Signal<bool>) -> Window {
+        self.open(open).on_close_request(move || open.set(false))
+    }
+
+    /// Called when the user asks to close it (the close button, ⌘W, Alt+F4).
+    /// It stays open unless the app closes it.
+    pub fn on_close_request(mut self, handler: impl Fn() + 'static) -> Window {
+        self.on_close_request = Some(Rc::new(handler));
+        self
+    }
+
+    /// What it shows, built each time it opens.
+    pub fn content<V: View>(mut self, content: impl Fn() -> V + 'static) -> Window {
+        self.content = Some(Rc::new(move || AnyView::new(content())));
+        self
+    }
+}
+
+impl View for Window {
+    /// A placeholder in the tree, which takes no room; the window is
+    /// top-level.
+    fn build(self, ui: &Ui) -> NodeId {
+        let placeholder = ui.create(WidgetKind::Fragment, Vec::new());
+        let Window { title, size, modality, open, on_close_request, content } = self;
+        // The window it's declared in, which a modal window belongs to.
+        let owner = inject::<CurrentWindow>().map(|w| w.0);
+        let ui = ui.clone();
+        let show = move || {
+            let window = ui.create_window(String::new(), size);
+            if let Some(modality) = modality.get() {
+                // With no window to block, it blocks the app.
+                let modality = if owner.is_some() { modality } else { Modality::Application };
+                ui.set_prop(window, Prop::Modal { owner, modality });
+            }
+            let title = title.clone();
+            let titled = ui.clone();
+            effect(move || titled.set_prop(window, Prop::Title(title.get())));
+            provide(CurrentWindow(window));
+            if let Some(content) = &content {
+                let root = content().build(&ui);
+                ui.append_child(window, root);
+            }
+            if let Some(handler) = on_close_request.clone() {
+                ui.on_event(window, move |event| {
+                    if *event == UiEvent::WindowCloseRequested {
+                        handler();
+                    }
+                });
+            }
+            let ui = ui.clone();
+            on_cleanup(move || ui.destroy(window));
+        };
+        // In a scope of its own even when it's always open, so what it
+        // provides (its `CurrentWindow`) stays inside it.
+        let open = computed(move || open.get());
+        effect(move || {
+            if open.get() {
+                untrack(&show);
+            }
+        });
+        placeholder
+    }
 }
 
 // ------------------------------------------------------------- containers

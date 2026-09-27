@@ -255,6 +255,25 @@ pub enum ImageFit {
     Stretch,
 }
 
+/// What a modal `Window` blocks while it's open, shown each platform's way.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+pub enum Modality {
+    /// The window it belongs to (the one it's declared in): a sheet on
+    /// that window on macOS, Qt's `WindowModal`, an owned `IsModal` window
+    /// on WinUI. GTK's modal windows block the whole app.
+    Window,
+    /// Every other window of the app: a window in AppKit's modal loop,
+    /// Qt's `ApplicationModal`, a modal window on GTK, and on WinUI an
+    /// owned `IsModal` window that also disables the app's other windows.
+    Application,
+}
+
+/// The window whose content is being built: provided in each window's
+/// scope, so views can find the window they're in (a modal `Window`
+/// belongs to it).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct CurrentWindow(pub NodeId);
+
 /// Which way a `Slider` runs. Every platform has vertical sliders; larger
 /// values are up on all of them.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Hash)]
@@ -376,6 +395,12 @@ pub enum Prop {
     /// its tooltip, and assistive technology reads as its description.
     /// Any widget or container can have one; empty: none.
     Tooltip(String),
+    /// A window is modal, belonging to `owner` (the window it was declared
+    /// in, if any). Sent once, before the window is shown.
+    Modal {
+        owner: Option<NodeId>,
+        modality: Modality,
+    },
     /// What an `Image` shows.
     Image(ImageSource),
     /// How an `Image` fills its frame; sent only if the app chose.
@@ -481,5 +506,6 @@ static_value!(
     ListStyle,
     ImageSource,
     Pixels,
-    ImageFit
+    ImageFit,
+    Modality
 );

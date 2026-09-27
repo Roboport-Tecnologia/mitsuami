@@ -15,8 +15,8 @@ use mitsuami_core::backend::{
 use mitsuami_core::services::Reply;
 use mitsuami_core::units::SpacingScale;
 use mitsuami_core::{
-    ButtonRole, ButtonStyle, Command, CustomProps, EventValue, ImageFit, ImageSource, NodeId, Opaque, Orientation,
-    Point, Prop, Rect, RowKey, ScrollAxes, SelectionMode, Size, TextStyle, UiEvent, WidgetKind, find_prop,
+    ButtonRole, ButtonStyle, Command, CustomProps, EventValue, ImageFit, ImageSource, Modality, NodeId, Opaque,
+    Orientation, Point, Prop, Rect, RowKey, ScrollAxes, SelectionMode, Size, TextStyle, UiEvent, WidgetKind, find_prop,
 };
 
 use crate::custom::{DrawnArea, Emitter, ErasedRender, GtkCx, NativePayload};
@@ -180,6 +180,8 @@ struct Node {
     /// Switches, selects, sliders and progress bars have no caption, only
     /// an accessible label, which GTK doesn't read back.
     a11y_label: Option<String>,
+    /// Windows: modal, and the window they belong to.
+    modal: Option<(Option<NodeId>, Modality)>,
     /// Signal handlers on objects that outlive the node.
     settings_handlers: Vec<glib::SignalHandlerId>,
 }
@@ -510,6 +512,13 @@ impl mitsuami_core::TestHooks for GtkHandle {
         GtkHandle::resize_window(self, window, size);
     }
 
+    /// As the close button does: GTK emits `close-request`.
+    fn close_window(&self, window: NodeId) {
+        if let Some((gtk_window, _, _)) = self.window_parts(window) {
+            gtk_window.close();
+        }
+    }
+
     fn take_command_log(&self) -> Vec<Command> {
         GtkHandle::take_command_log(self)
     }
@@ -743,6 +752,7 @@ impl State {
                 mixed: None,
                 tweak: None,
                 a11y_label: None,
+                modal: None,
                 settings_handlers,
             },
         );
@@ -815,6 +825,23 @@ impl State {
     }
 
     fn set_prop(&mut self, id: NodeId, prop: &Prop, command: &Command) {
+        // Transient for the window it belongs to, and modal. GTK's modal
+        // windows block the whole app, so both modalities are the same
+        // here; GNOME attaches modal dialogs to their parent itself. Not
+        // `destroy_with_parent`: the core destroys it.
+        if let Prop::Modal { owner, modality } = prop {
+            let owner = owner.and_then(|o| match self.nodes.get(&o).map(|n| &n.widget) {
+                Some(Widget::Window(parts)) => Some(parts.window.clone()),
+                _ => None,
+            });
+            let Some(node) = self.nodes.get_mut(&id) else { violation(command, "node does not exist") };
+            if let Widget::Window(parts) = &node.widget {
+                parts.window.set_transient_for(owner.as_ref());
+                parts.window.set_modal(true);
+                node.modal = Some((prop_owner(prop), *modality));
+            }
+            return;
+        }
         let Some(node) = self.nodes.get_mut(&id) else { violation(command, "node does not exist") };
         match (prop, &mut node.widget) {
             (Prop::Title(t), Widget::Window(parts)) => parts.window.set_title(Some(t)),
@@ -1664,7 +1691,10 @@ impl Backend for GtkBackend {
         let mut props = Vec::new();
         let text = |s: Option<glib::GString>| s.map(|s| s.to_string()).unwrap_or_default();
         match &node.widget {
-            Widget::Window(parts) => props.push(Prop::Title(text(parts.window.title()))),
+            Widget::Window(parts) => {
+                props.push(Prop::Title(text(parts.window.title())));
+                props.extend(node.modal.map(|(owner, modality)| Prop::Modal { owner, modality }));
+            }
             Widget::Label(l) => {
                 props.push(Prop::Text(l.text().to_string()));
                 let limited = l.ellipsize() != pango::EllipsizeMode::None && l.lines() > 0;
@@ -1880,4 +1910,11 @@ pub(crate) fn file_filters(filters: &[mitsuami_core::services::FileFilter]) -> O
         store.append(&gtk_filter);
     }
     Some(store)
+}
+
+fn prop_owner(prop: &Prop) -> Option<NodeId> {
+    match prop {
+        Prop::Modal { owner, .. } => *owner,
+        _ => None,
+    }
 }

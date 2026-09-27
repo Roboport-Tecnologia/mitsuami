@@ -12,8 +12,8 @@ use mitsuami_core::backend::{
 };
 use mitsuami_core::services::Reply;
 use mitsuami_core::{
-    ButtonRole, ButtonStyle, Command, CustomProps, DisplayList, EventValue, ImageFit, ImageSource, NodeId, Opaque,
-    Orientation, Point, PointerEvent, Prop, Rect, RowKey, ScrollAxes, SelectionMode, Size, TextStyle, UiEvent,
+    ButtonRole, ButtonStyle, Command, CustomProps, DisplayList, EventValue, ImageFit, ImageSource, Modality, NodeId,
+    Opaque, Orientation, Point, PointerEvent, Prop, Rect, RowKey, ScrollAxes, SelectionMode, Size, TextStyle, UiEvent,
     WidgetKind, find_prop,
 };
 
@@ -310,6 +310,9 @@ struct Node {
     /// The tooltip, for items made elsewhere (custom renders, drawn and
     /// native items), which have no `mitsuamiTooltip` to hold it.
     tooltip: String,
+    /// Windows: modal, and the window they belong to (Qt reads back the
+    /// modality, but not which node the transient parent is).
+    modal: Option<(Option<NodeId>, Modality)>,
 }
 
 pub(crate) struct State {
@@ -542,6 +545,15 @@ impl mitsuami_core::TestHooks for KirigamiHandle {
         KirigamiHandle::resize_window(self, window, size);
     }
 
+    /// `QWindow::close()` asks the platform to close the window, which
+    /// sends the close event the close button sends; the window's close
+    /// filter reports it.
+    fn close_window(&self, window: NodeId) {
+        if let Some(root) = self.window_root(window) {
+            root.window.invoke("close");
+        }
+    }
+
     fn take_command_log(&self) -> Vec<Command> {
         KirigamiHandle::take_command_log(self)
     }
@@ -742,6 +754,7 @@ impl State {
                 checked: false,
                 tweak: None,
                 tooltip: String::new(),
+                modal: None,
                 scroll_axes: None,
                 a11y_label: None,
             },
@@ -806,6 +819,28 @@ impl State {
     }
 
     fn set_prop(&mut self, id: NodeId, prop: &Prop, command: &Command) {
+        // A dialog over the window it belongs to, as 2ksbox's are: set
+        // before the window is first shown, which is when Qt applies them.
+        if let Prop::Modal { owner, modality } = prop {
+            let parent = owner.and_then(|o| match self.nodes.get(&o).map(|n| &n.widget) {
+                Some(Widget::Window { root }) => Some(root.window),
+                _ => None,
+            });
+            let Some(node) = self.nodes.get_mut(&id) else { violation(command, "node does not exist") };
+            let Widget::Window { root } = &node.widget else { violation(command, "only windows are modal") };
+            root.window.set_object("transientParent", parent);
+            // Qt::Dialog (which includes Qt::Window).
+            root.window.set_int("flags", root.window.int("flags") | 0x3);
+            root.window.set_int(
+                "modality",
+                match modality {
+                    Modality::Window => 1,
+                    Modality::Application => 2,
+                },
+            );
+            node.modal = Some((*owner, *modality));
+            return;
+        }
         let Some(node) = self.nodes.get_mut(&id) else { violation(command, "node does not exist") };
         match (prop, &mut node.widget) {
             (Prop::Title(t), Widget::Window { root }) => {
@@ -1479,7 +1514,18 @@ impl Backend for KirigamiBackend {
         let mut props = Vec::new();
         let item = node.widget.item();
         match &node.widget {
-            Widget::Window { root } => props.push(Prop::Title(root.window.str("title"))),
+            Widget::Window { root } => {
+                props.push(Prop::Title(root.window.str("title")));
+                // The modality as Qt has it; the owner as the node has it.
+                if let Some((owner, modality)) = node.modal {
+                    let modality = match root.window.int("modality") {
+                        1 => Modality::Window,
+                        2 => Modality::Application,
+                        _ => modality,
+                    };
+                    props.push(Prop::Modal { owner, modality });
+                }
+            }
             Widget::Label(l) => {
                 props.push(Prop::Text(l.str("text")));
                 let lines = l.int("maximumLineCount");
