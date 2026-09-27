@@ -940,7 +940,7 @@ Things the AppKit backend taught us, some of them now part of the contract:
 - **A spin button to assistive technology** (`Role::SpinButton`), named by its label, with the number as its value. On AppKit the field and the stepper both get the label, as VoiceOver finds them separately.
 - **Not tested: typing keys into one.** `synthesize` has no `NumberInput` path yet on any backend (each would drive the field inside); the suite uses assistive technology's `SetValue`, `Increment` and `Decrement`.
 - **The example's tweaks:** `valueWraps` off on AppKit, `wrap` on GTK and Qt, `Compact` spin buttons on WinUI (`NumberBox` bindings added).
-- **Run on AppKit and headless;** GTK, Kirigami and WinUI are only type-checked, and CI hasn't run them.
+- **Run on AppKit, WinUI and headless;** GTK and Kirigami are only type-checked, and CI hasn't run them.
 
 ### Image
 

@@ -1716,6 +1716,52 @@ impl windows_core::RuntimeName for FileSavePicker {
 unsafe impl Send for FileSavePicker {}
 unsafe impl Sync for FileSavePicker {}
 #[repr(transparent)]
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct FocusManager(windows_core::IUnknown);
+windows_core::imp::interface_hierarchy!(FocusManager, windows_core::IUnknown, windows_core::IInspectable);
+impl FocusManager {
+    pub fn GetFocusedElementWithRoot<P0>(xamlroot: P0) -> windows_core::Result<windows_core::IInspectable>
+    where
+        P0: windows_core::Param<XamlRoot>,
+    {
+        Self::IFocusManagerStatics(|this| unsafe {
+            let mut result__ = core::mem::zeroed();
+            (windows_core::Interface::vtable(this).GetFocusedElementWithRoot)(
+                windows_core::Interface::as_raw(this),
+                xamlroot.param().abi(),
+                &mut result__,
+            )
+            .and_then(|| windows_core::imp::Type::from_abi(result__))
+        })
+    }
+    fn IFocusManagerStatics<R, F: FnOnce(&IFocusManagerStatics) -> windows_core::Result<R>>(
+        callback: F,
+    ) -> windows_core::Result<R> {
+        static SHARED: windows_core::imp::FactoryCache<FocusManager, IFocusManagerStatics> =
+            windows_core::imp::FactoryCache::new();
+        SHARED.call(callback)
+    }
+}
+impl windows_core::RuntimeType for FocusManager {
+    const SIGNATURE: windows_core::imp::ConstBuffer =
+        windows_core::imp::ConstBuffer::for_class::<Self, IFocusManager>();
+}
+unsafe impl windows_core::Interface for FocusManager {
+    type Vtable = <IFocusManager as windows_core::Interface>::Vtable;
+    const IID: windows_core::GUID = <IFocusManager as windows_core::Interface>::IID;
+}
+impl core::ops::Deref for FocusManager {
+    type Target = IFocusManager;
+    fn deref(&self) -> &Self::Target {
+        unsafe { core::mem::transmute(self) }
+    }
+}
+impl windows_core::RuntimeName for FocusManager {
+    const NAME: &'static str = "Microsoft.UI.Xaml.Input.FocusManager";
+}
+unsafe impl Send for FocusManager {}
+unsafe impl Sync for FocusManager {}
+#[repr(transparent)]
 #[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
 pub struct FocusState(pub i32);
 impl FocusState {
@@ -3604,6 +3650,51 @@ pub struct IFileSavePickerFactory_Vtbl {
     pub CreateInstance: unsafe extern "system" fn(
         *mut core::ffi::c_void,
         WindowId,
+        *mut *mut core::ffi::c_void,
+    ) -> windows_core::HRESULT,
+}
+windows_core::imp::define_interface!(IFocusManager, IFocusManager_Vtbl, 0x9fd07bc5_d2d4_53fe_a31a_846de8b7a257);
+impl windows_core::RuntimeType for IFocusManager {
+    const SIGNATURE: windows_core::imp::ConstBuffer = windows_core::imp::ConstBuffer::for_interface::<Self>();
+}
+#[repr(C)]
+pub struct IFocusManager_Vtbl {
+    pub base__: windows_core::IInspectable_Vtbl,
+}
+windows_core::imp::define_interface!(
+    IFocusManagerStatics,
+    IFocusManagerStatics_Vtbl,
+    0xe73dce04_e23a_5fb3_96ab_7df04c51dff2
+);
+impl windows_core::RuntimeType for IFocusManagerStatics {
+    const SIGNATURE: windows_core::imp::ConstBuffer = windows_core::imp::ConstBuffer::for_interface::<Self>();
+}
+#[repr(C)]
+pub struct IFocusManagerStatics_Vtbl {
+    pub base__: windows_core::IInspectable_Vtbl,
+    GotFocus: usize,
+    RemoveGotFocus: usize,
+    LostFocus: usize,
+    RemoveLostFocus: usize,
+    GettingFocus: usize,
+    RemoveGettingFocus: usize,
+    LosingFocus: usize,
+    RemoveLosingFocus: usize,
+    TryFocusAsync: usize,
+    TryMoveFocusAsync: usize,
+    TryMoveFocusWithOptionsAsync: usize,
+    TryMoveFocusWithOptions: usize,
+    FindNextElement: usize,
+    FindFirstFocusableElement: usize,
+    FindLastFocusableElement: usize,
+    FindNextElementWithOptions: usize,
+    FindNextFocusableElement: usize,
+    FindNextFocusableElementWithHint: usize,
+    TryMoveFocus: usize,
+    GetFocusedElement: usize,
+    pub GetFocusedElementWithRoot: unsafe extern "system" fn(
+        *mut core::ffi::c_void,
+        *mut core::ffi::c_void,
         *mut *mut core::ffi::c_void,
     ) -> windows_core::HRESULT,
 }

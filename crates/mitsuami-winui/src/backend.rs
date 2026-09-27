@@ -481,24 +481,22 @@ impl WinUiHandle {
     }
 
     /// Reports focus moves XAML made on its own (a focused control became
-    /// disabled or went away) whose `GotFocus` hasn't arrived yet.
+    /// disabled or went away) whose `GotFocus` hasn't arrived yet. XAML
+    /// focuses parts of composite controls (a list's row container, a
+    /// number box's text box): the node is the nearest one up from there.
     pub(crate) fn sync_focus(&self) {
         let state = self.state.borrow();
-        let focused: Vec<NodeId> = state
-            .nodes
-            .iter()
-            .filter(|(_, n)| !matches!(n.widget, Widget::Window(_)))
-            .filter(|(_, n)| {
-                n.control()
-                    .cast::<w::IUIElement>()
-                    .and_then(|e| e.FocusState())
-                    .is_ok_and(|f| f != w::FocusState::Unfocused)
-            })
-            .map(|(id, _)| *id)
-            .collect();
         for node in state.nodes.values() {
             let Widget::Window(parts) = &node.widget else { continue };
-            let now = focused.iter().copied().find(|id| state.window_of(*id).is_some_and(|p| p.node == parts.node));
+            let element = parts
+                .host
+                .cast::<w::IUIElement>()
+                .and_then(|h| h.XamlRoot())
+                .and_then(|root| w::FocusManager::GetFocusedElementWithRoot(&root))
+                .ok()
+                .filter(|e| !e.as_raw().is_null());
+            let now = resolve(&state.by_element, element)
+                .filter(|id| !matches!(state.nodes.get(id).map(|n| &n.widget), Some(Widget::Window(_))));
             report_focus(&state.emitter, &parts.focus, now);
         }
     }
@@ -2715,11 +2713,12 @@ impl Backend for WinUiBackend {
             Widget::Host(canvas) => (panel_children(canvas, &known), None),
             _ => (Vec::new(), None),
         };
-        // A list's focus goes to a row's container: the list has it when
-        // the window's focus tracking (which walks up to it) says so.
-        let list_focused = matches!(node.widget, Widget::List(_))
+        // Composite controls give focus to a part (a list's row container,
+        // a number box's text box): the control has it when the window's
+        // focus tracking (which walks up to it) says so.
+        let tracked = !matches!(node.widget, Widget::Window(_))
             && state.window_of(id).is_some_and(|parts| parts.focus.get() == Some(id));
-        let focused = list_focused
+        let focused = tracked
             || !matches!(node.widget, Widget::Window(_))
                 && node
                     .control()
