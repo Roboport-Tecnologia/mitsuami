@@ -265,14 +265,20 @@ pub(crate) fn drawer_qml(menu: &MenuBarData) -> Option<String> {
 
 /// A context menu's QML, or none without entries: a `QQC2.Menu`, which the
 /// desktop style draws, of the same actions as the drawer's, with
-/// `QQC2.MenuSeparator`s and submenus.
+/// `QQC2.MenuSeparator`s and submenus. `mitsuamiOwner` is its item while
+/// it's open in the window's overlay (see `qml::CONTEXT_MENU`).
 fn context_menu_qml(menu: &MenuData) -> Option<String> {
     if menu.entries.is_empty() {
         return None;
     }
     let mut groups = Vec::new();
     let entries = entries_qml(menu, &mut groups, Form::ContextMenu);
-    Some(format!("QQC2.Menu {{ id: mitsuamiMenu\n{}\n{entries}\n}}", groups.join("\n")))
+    Some(format!(
+        "QQC2.Menu {{ id: mitsuamiMenu\n\
+         property Item mitsuamiOwner: null\n\
+         onClosed: if (mitsuamiOwner) {{ parent = mitsuamiOwner; mitsuamiOwner = null }}\n{}\n{entries}\n}}",
+        groups.join("\n")
+    ))
 }
 
 /// A node's context menu: the app's entries (as the one menu of a bar, for

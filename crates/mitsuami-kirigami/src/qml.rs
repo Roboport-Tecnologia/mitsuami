@@ -102,6 +102,13 @@ fn a11y_with(default_name: &str, hovered: &str) -> String {
 ///
 /// A long press reaches the handlers of every item under the finger: the
 /// innermost shows its menu, and the others see it open.
+///
+/// While it's open, and until its exit transition ends, the menu is in the
+/// window's overlay: an item it chose may move its item (a list's rows
+/// reset, and a row's host leaves the window between delegates), and a
+/// popup whose parent changes window shows itself again in the new one.
+/// It goes back to its item once closed (`mitsuamiOwner`, see
+/// `context_menu_qml` in `services.rs`).
 const CONTEXT_MENU: &str = r#"
     property QtObject mitsuamiContextMenu: null
     function mitsuamiIsMenuKey(event) {
@@ -112,6 +119,11 @@ const CONTEXT_MENU: &str = r#"
         const window = Window.window
         if (!menu || (window && window.mitsuamiShownMenu && window.mitsuamiShownMenu.visible)) return
         if (window) window.mitsuamiShownMenu = menu
+        const overlay = QQC2.Overlay.overlay
+        if (overlay) {
+            menu.mitsuamiOwner = menu.parent
+            menu.parent = overlay
+        }
         const at = item.mapToItem(menu.parent, x, y)
         menu.popup(at.x, at.y)
     }
