@@ -512,6 +512,13 @@ which builds the same tree as `Column::new().gap(…).children((Text::new(…).t
 - Built: `NumberInput` (its `SpinBox`), `Image` (its shader preview), tooltips (`.tooltip(text)` on any widget, for its elided status line).
 - Built, though not widgets: windows opened while the app runs, modal or not (`Window`, §16; every secondary window of the launcher is an application-modal dialog over it); Escape closing its dialogs (the launcher's `Shortcut`s), as a modal `Window` does (§16); its header, whose download progress and status line are items of the window's `Toolbar` (§16); menus, which 2ksbox plans to add: submenus, check and radio items, reactive titles and items, roles, and a window's own menus in `view!` (§16).
 - Left to the app: a separator line (WinUI has no separator control outside menus and app bars) and a disclosure header (Qt Quick has none; 2ksbox builds its own from a `ToolButton`).
+- Planned, for 2ksbox's player (its emulated machine's picture): a GPU surface, a widget the app presents to with its own GPU API (wgpu, Vulkan, Metal, Direct3D) at its own pace, off mitsuami's loop, through `raw-window-handle` handles, and told of its size and scale. 2ksbox's spike (`spikes/player-gtk` in that repo) measured two routes on GTK. `GtkGraphicsOffload` fed dma-bufs waits for GTK's frame clock, about one refresh more than a winit window (47.6 against 32.8 ms from a frame's publish to its presentation at 60 Hz). A desync `wl_subsurface` of the window's surface, placed over the widget, sized with `wp_viewport` and given an empty input region so GTK keeps the pointer, matched the winit window. The routes per platform:
+  - AppKit: an `NSView` backed by a `CAMetalLayer`.
+  - WinUI: a `SwapChainPanel` (Direct3D 12 only, in wgpu), or a child HWND, which nothing of XAML can draw over.
+  - GTK: the desync subsurface on Wayland, a child window on X11.
+  - Kirigami: a `QQuickRhiItem`, or a foreign `QWindow`.
+
+  The surface sits above the window's own content, so anything drawn over it (an overlay, a toolbar in full screen) needs the platform's own layering. The same app also needs pointer lock and a keyboard grab, which none of the toolkits offers everywhere (GTK has `gdk_toplevel_inhibit_system_shortcuts`, and nothing for pointer lock). One lesson for any app that runs a GLib-based library's main loop on another thread in its process (2ksbox runs QEMU's): GTK, and Qt's GLib event dispatcher, run on GLib's global default `GMainContext`, so that library needs a GLib of its own, or its loop dispatches the toolkit's sources on its thread.
 
 **Idiomatic shell components (post-MVP).** These are where most of the "feels native" effect comes from:
 
