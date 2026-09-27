@@ -1493,7 +1493,7 @@ impl State {
             (Prop::Number(n), Widget::Slider { slider, .. }) => {
                 node.shown_number.set(*n);
                 slider.cast::<w::IRangeBase>()?.SetValue(*n)?;
-                // XAML snaps what it's given to its step.
+                // XAML clamps what it's given to its range.
                 node.shown_number.set(slider.cast::<w::IRangeBase>()?.Value()?);
             }
             (Prop::Range { min, max }, Widget::Number { number, .. }) => {

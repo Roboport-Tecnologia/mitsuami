@@ -62,9 +62,11 @@ async fn reports_where_the_user_moves_it(app: TestApp) {
     assert_eq!(seen.borrow().last(), Some(&down));
 }
 
-// GTK has no stepped scale, so mitsuami snaps its drags to the step; WinUI
-// snaps to its `StepFrequency`. Elsewhere it's the platform's: AppKit's knob
-// stops on tick marks while tracking, and Qt only snaps when asked.
+// GTK has no stepped scale, so mitsuami snaps its moves to the step, a
+// screen reader's too. Elsewhere it's the platform's: AppKit's knob stops on
+// tick marks while tracking, WinUI snaps drags of the knob to its
+// `StepFrequency` but not values set through automation, and Qt only snaps
+// when asked.
 #[mitsuami_test::test]
 async fn stops_on_its_steps_where_the_platform_snaps(app: TestApp) {
     let seen = Rc::new(RefCell::new(Vec::new()));
@@ -75,7 +77,7 @@ async fn stops_on_its_steps_where_the_platform_snaps(app: TestApp) {
 
     app.get_by_role(Role::Slider, "Volume").set_number(83.0).await;
     let moved = number(&app, by_role(Role::Slider, "Volume"));
-    if matches!(app.backend_name(), "gtk" | "winui") {
+    if app.backend_name() == "gtk" {
         assert_eq!(moved, 80.0);
     } else {
         assert!(moved == 80.0 || moved == 83.0, "moved to {moved}");
