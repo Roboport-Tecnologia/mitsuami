@@ -100,6 +100,17 @@ async fn binds_both_ways(app: TestApp) {
     assert!(has(&app, by_role(Role::Slider, "Volume"), Prop::Number(60.0)));
 }
 
+/// A range away from where the native slider starts (WinUI's at 0 of
+/// 0–100) clamps it on the way; that's no move of the user's.
+#[mitsuami_test::test]
+async fn a_bound_value_survives_its_range_being_set(app: TestApp) {
+    let width = signal(320.0);
+    app.mount(move || Slider::new("Width").range(120.0, 480.0).bind(width));
+
+    assert_eq!(width.get_untracked(), 320.0);
+    assert!(has(&app, by_role(Role::Slider, "Width"), Prop::Number(320.0)));
+}
+
 #[mitsuami_test::test]
 async fn keeps_its_value_in_its_range(app: TestApp) {
     let range = signal((0.0, 100.0));

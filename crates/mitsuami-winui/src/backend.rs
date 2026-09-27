@@ -1373,7 +1373,10 @@ impl State {
             }
             (Prop::Range { min, max }, Widget::Slider { slider, .. }) => {
                 let range: w::IRangeBase = slider.cast()?;
-                // Widen first, so the value isn't clamped on the way.
+                // A value the new range clamps isn't the user's, and XAML
+                // reports it while the range is set: expect it first.
+                node.shown_number.set(range.Value()?.max(*min).min(*max));
+                // Widen first, so the value is clamped once, to the new range.
                 if *min < range.Maximum()? {
                     range.SetMinimum(*min)?;
                     range.SetMaximum(*max)?;
@@ -1405,7 +1408,10 @@ impl State {
             }
             (Prop::Range { min, max }, Widget::Number { number, .. }) => {
                 let iface: w::INumberBox = number.cast()?;
-                // Widen first, so the value isn't clamped on the way.
+                // A value the new range clamps isn't the user's, and XAML
+                // reports it while the range is set: expect it first.
+                node.shown_number.set(iface.Value()?.max(*min).min(*max));
+                // Widen first, so the value is clamped once, to the new range.
                 if *min < iface.Maximum()? {
                     iface.SetMinimum(*min)?;
                     iface.SetMaximum(*max)?;
