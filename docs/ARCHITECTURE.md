@@ -787,7 +787,10 @@ Things the AppKit backend taught us, some of them now part of the contract:
 - **A `ListView` whose `Items` are the row keys, boxed strings,** so XAML's own collection takes the inserts and removes (one splice per data change, as on GTK). An item container style from markup takes the padding, margin and minimum height off `ListViewItem`s.
 - **Rows are realised containers.** `ContainerContentChanging` fires when a container is realised for a row and when it goes to the recycle queue (a reused container fires for its old row, then its new one). Each container's content is a `Canvas` cell that takes the row's host, as high as it or the estimate. The rows realised are compared with the rows reported once the dispatcher is free, and at the end of each `apply`, after `UpdateLayout` realises what a change brought into view.
 - **Selection** is `SelectedIndex` or `SelectedItems`; the selection set is recorded first, so the later `SelectionChanged` finds it reported. Double-clicks find their row up the visual tree to its container; Return activates the selected row (`PreviewKeyDown`). The list's scroll viewer is its template's, found in the visual tree.
-- **Not run yet:** written and type-checked on macOS; the Windows CI job runs it.
+- **Rows are placed from the scroll viewer's content,** not the view: XAML applies a scroll at its next layout, so right after one the view's transform plus the offset counted the scroll twice, and rows in view read as far below it.
+- **A cell is never 0 high.** A row keeps its last measured height, or the estimate until it has one, including while a new host waits for its frame. Rows above the view that shrank to 0 and grew back made XAML shift the offset to keep the rows in view still, a little further each layout pass: a scroll to row 500 crept to the end of the list.
+- **Focus is a row container's,** so the list has it when the window's focus tracking says so. `settle` resyncs that tracking from `FocusManager.GetFocusedElement(XamlRoot)`, walked up to the nearest node, as `GotFocus` does; it used to look for a node whose own control was focused, found none, and cleared the list's (and a `NumberBox`'s, whose focus is its text box's).
+- **Run on WinUI:** the `lists` and `contacts` suites pass natively.
 
 ### M7 on Kirigami (lists)
 
