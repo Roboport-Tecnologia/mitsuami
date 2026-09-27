@@ -66,6 +66,24 @@ async fn has_a_size_and_takes_no_actions(app: TestApp) {
     }
 }
 
+#[mitsuami_test::test]
+async fn works_in_view_macros(app: TestApp) {
+    let done = signal(0.25);
+    app.mount(move || {
+        view! {
+            <Column>
+                <Progress a11y_label="Upload" value=done/>
+                <Progress a11y_label="Loading" indeterminate=true/>
+            </Column>
+        }
+    });
+
+    app.expect(by_role(Role::ProgressBar, "Upload")).to_have_value("25%").await;
+    done.set(0.5);
+    app.expect(by_role(Role::ProgressBar, "Upload")).to_have_value("50%").await;
+    assert!(has(&app, by_role(Role::ProgressBar, "Loading"), Prop::Progress(None)));
+}
+
 /// Logs whether the native bar is indeterminate, each time the tweak runs.
 fn log_indeterminate(log: Rc<RefCell<Vec<bool>>>) -> Tweak<Progress> {
     platform! {

@@ -266,3 +266,4 @@ Windows.Win32.GWLP_HWNDPARENT
 Windows.Win32.EnableWindow
 Windows.Win32.IsWindowEnabled
 Microsoft.UI.Xaml.Input.FocusManager::GetFocusedElementWithRoot
+Windows.Win32.GetActiveWindow

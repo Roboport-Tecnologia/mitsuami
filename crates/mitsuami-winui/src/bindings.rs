@@ -3,6 +3,7 @@ windows_core::link!("ole32.dll" "system" fn CoInitializeEx(pvreserved : *const c
 windows_core::link!("user32.dll" "system" fn DispatchMessageW(lpmsg : *const MSG) -> LRESULT);
 windows_core::link!("user32.dll" "system" fn EnableWindow(hwnd : HWND, benable : windows_core::BOOL) -> windows_core::BOOL);
 windows_core::link!("user32.dll" "system" fn EnumWindows(lpenumfunc : WNDENUMPROC, lparam : LPARAM) -> windows_core::BOOL);
+windows_core::link!("user32.dll" "system" fn GetActiveWindow() -> HWND);
 windows_core::link!("user32.dll" "system" fn GetClassNameW(hwnd : HWND, lpclassname : windows_core::PWSTR, nmaxcount : i32) -> i32);
 windows_core::link!("kernel32.dll" "system" fn GetCurrentProcessId() -> u32);
 windows_core::link!("kernel32.dll" "system" fn GetCurrentThreadId() -> u32);

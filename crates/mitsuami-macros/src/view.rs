@@ -174,10 +174,11 @@ impl Cursor {
             }
             (None, false) => {
                 let children = tuple(children);
-                // `Show` keeps its children to rebuild them, so they own
-                // what they use. Every other tag builds them right away,
-                // like the builder API, so siblings can share variables.
-                let rebuilt = name.rsplit("::").next() == Some("Show");
+                // `Show` and `Window` keep their children to rebuild them,
+                // so they own what they use. Every other tag builds them
+                // right away, like the builder API, so siblings can share
+                // variables.
+                let rebuilt = matches!(name.rsplit("::").next(), Some("Show" | "Window"));
                 out = if rebuilt {
                     quote!(#out.#children_method(move || #children))
                 } else {

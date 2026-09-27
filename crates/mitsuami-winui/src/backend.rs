@@ -611,20 +611,28 @@ impl WinUiHandle {
             },
             None => None,
         };
-        // No (or an unknown) parent: the focused window, else any window.
+        // No (or an unknown) parent: the active window, else one a modal
+        // window doesn't block, focused if one is, else any window. Every
+        // window keeps its focused control while inactive, so focus alone
+        // picked a modal window's owner, which it blocks.
         let parts = parts.or_else(|| {
-            let windows = state.nodes.values().filter_map(|n| match &n.widget {
-                Widget::Window(parts) => Some(&**parts),
-                _ => None,
-            });
-            let mut fallback = None;
-            for parts in windows {
-                if parts.focus.get().is_some() {
-                    return Some(parts);
-                }
-                fallback.get_or_insert(parts);
-            }
-            fallback
+            let windows: Vec<&WindowParts> = state
+                .nodes
+                .values()
+                .filter_map(|n| match &n.widget {
+                    Widget::Window(parts) => Some(&**parts),
+                    _ => None,
+                })
+                .collect();
+            let active = unsafe { w::GetActiveWindow() };
+            let enabled = |p: &&WindowParts| unsafe { w::IsWindowEnabled(p.hwnd) }.as_bool();
+            windows
+                .iter()
+                .find(|p| p.hwnd == active)
+                .or_else(|| windows.iter().find(|p| enabled(p) && p.focus.get().is_some()))
+                .or_else(|| windows.iter().find(|p| enabled(p)))
+                .or(windows.first())
+                .copied()
         })?;
         Some(f(parts))
     }
