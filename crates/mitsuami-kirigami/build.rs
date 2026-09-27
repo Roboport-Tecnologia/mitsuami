@@ -10,8 +10,11 @@ const MODULES: [&str; 5] = ["Qt6Widgets", "Qt6Quick", "Qt6Qml", "Qt6QuickControl
 fn main() {
     println!("cargo:rerun-if-changed=cpp/shim.h");
     println!("cargo:rerun-if-changed=cpp/shim.cpp");
+    println!("cargo:rerun-if-env-changed=MITSUAMI_SKIP_QT");
     let linux = std::env::var("CARGO_CFG_TARGET_OS").is_ok_and(|os| os == "linux");
-    if !linux || std::env::var_os("CARGO_FEATURE_QT").is_none() {
+    // `MITSUAMI_SKIP_QT=1`: no C++ layer, for type-checking (`cargo check`,
+    // `clippy`) where Qt isn't installed, e.g. from macOS. Doesn't link.
+    if !linux || std::env::var_os("CARGO_FEATURE_QT").is_none() || std::env::var_os("MITSUAMI_SKIP_QT").is_some() {
         return;
     }
     let out = PathBuf::from(std::env::var("OUT_DIR").unwrap());
