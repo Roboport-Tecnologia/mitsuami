@@ -264,4 +264,34 @@ async fn escape_presses_the_cancel_button_on_appkit(app: TestApp) {
     assert_eq!(by.get(), if app.backend_name() == "appkit" { "button" } else { "request" });
 }
 
+/// In `view!`, the title is an attribute, wherever it's written, and the
+/// children are the content, built at each opening.
+#[mitsuami_test::test]
+async fn works_in_view_macros(app: TestApp) {
+    let open = signal(true);
+    let memory = signal(64);
+    app.mount(move || {
+        view! {
+            <Column>
+                <Text>"Launcher"</Text>
+                <Window bind=open modal=Modality::Window title="Machine">
+                    <Text>{move || format!("{} MB", memory.get())}</Text>
+                </Window>
+            </Column>
+        }
+    });
+    let window = machine(&app).expect("the window opened");
+    assert_eq!(modal(&app, window), Some(Prop::Modal { owner: Some(app.window()), modality: Modality::Window }));
+    app.expect(by_text("64 MB")).to_be_visible().await;
+
+    app.close_window(window).await;
+    assert!(!open.get_untracked());
+    app.expect(by_text("64 MB")).not_to_exist().await;
+
+    memory.set(128);
+    open.set(true);
+    app.settle().await;
+    app.expect(by_text("128 MB")).to_be_visible().await;
+}
+
 mitsuami_test::main!();

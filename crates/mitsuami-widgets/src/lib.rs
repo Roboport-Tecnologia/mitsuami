@@ -45,8 +45,11 @@ macro_rules! widget {
 ///     Window::new("Machine").bind(editing).content(|| machine_form()),
 /// ))
 /// ```
-pub struct Window {
-    title: Value<String>,
+///
+/// In `view!`, its title is an attribute and its children are its content:
+/// `<Window title="Machine" bind=editing>…</Window>`.
+pub struct Window<T = Value<String>> {
+    title: T,
     size: WindowSize,
     modality: Value<Option<Modality>>,
     open: Value<bool>,
@@ -66,10 +69,12 @@ impl Window {
             content: None,
         }
     }
+}
 
+impl<T> Window<T> {
     /// Its content size when it opens: a [`Size`](mitsuami_core::Size),
     /// or [`WindowSize::FitHeight`] to fit the height to the content.
-    pub fn size(mut self, size: impl Into<WindowSize>) -> Window {
+    pub fn size(mut self, size: impl Into<WindowSize>) -> Window<T> {
         self.size = size.into();
         self
     }
@@ -81,38 +86,38 @@ impl Window {
     /// close button does (on AppKit a `ButtonRole::Cancel` button takes
     /// Escape first). A sheet has no close button: give its content a
     /// way out, e.g. that Cancel button.
-    pub fn modal(mut self, modality: Modality) -> Window {
+    pub fn modal(mut self, modality: Modality) -> Window<T> {
         self.modality = Value::Static(Some(modality));
         self
     }
 
     /// Modal or not, as a value that can change: read each time it opens,
     /// so a change applies at the next opening.
-    pub fn modality(mut self, modality: impl IntoValue<Option<Modality>>) -> Window {
+    pub fn modality(mut self, modality: impl IntoValue<Option<Modality>>) -> Window<T> {
         self.modality = modality.into_value();
         self
     }
 
     /// Shown while true.
-    pub fn open(mut self, open: impl IntoValue<bool>) -> Window {
+    pub fn open(mut self, open: impl IntoValue<bool>) -> Window<T> {
         self.open = open.into_value();
         self
     }
 
     /// Shown while the signal is true; the close button sets it false.
-    pub fn bind(self, open: Signal<bool>) -> Window {
+    pub fn bind(self, open: Signal<bool>) -> Window<T> {
         self.open(open).on_close_request(move || open.set(false))
     }
 
     /// Called when the user asks to close it (the close button, ⌘W, Alt+F4).
     /// It stays open unless the app closes it.
-    pub fn on_close_request(mut self, handler: impl Fn() + 'static) -> Window {
+    pub fn on_close_request(mut self, handler: impl Fn() + 'static) -> Window<T> {
         self.on_close_request = Some(Rc::new(handler));
         self
     }
 
     /// What it shows, built each time it opens.
-    pub fn content<V: View>(mut self, content: impl Fn() -> V + 'static) -> Window {
+    pub fn content<V: View>(mut self, content: impl Fn() -> V + 'static) -> Window<T> {
         self.content = Some(Rc::new(move || AnyView::new(content())));
         self
     }
@@ -1156,6 +1161,29 @@ impl Container {
     #[doc(hidden)]
     pub fn __children<C: Children>(self, children: impl FnOnce() -> C) -> Container {
         self.children(children())
+    }
+}
+
+impl Window {
+    /// `<Window title="Machine" bind=editing>…</Window>`: a `Window<()>`
+    /// until `title` is set, and only then a `View`.
+    #[doc(hidden)]
+    pub fn __tag() -> Window<()> {
+        let Window { title: _, size, modality, open, on_close_request, content } = Window::new(String::new());
+        Window { title: (), size, modality, open, on_close_request, content }
+    }
+
+    /// Its content, built each time it opens.
+    #[doc(hidden)]
+    pub fn __children<V: View>(self, content: impl Fn() -> V + 'static) -> Window {
+        self.content(content)
+    }
+}
+
+impl Window<()> {
+    pub fn title(self, title: impl IntoValue<String>) -> Window {
+        let Window { title: (), size, modality, open, on_close_request, content } = self;
+        Window { title: title.into_value(), size, modality, open, on_close_request, content }
     }
 }
 
