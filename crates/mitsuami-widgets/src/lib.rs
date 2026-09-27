@@ -359,6 +359,73 @@ impl TextInput {
     }
 }
 
+/// Single-line entry of a password: the platform's password field, which
+/// hides the text as the platform does (bullets, and a button to show it
+/// where the platform has one) and never reads it out.
+pub struct PasswordInput(Element);
+widget!(PasswordInput);
+
+impl Default for PasswordInput {
+    fn default() -> PasswordInput {
+        PasswordInput::new()
+    }
+}
+
+impl PasswordInput {
+    pub fn new() -> PasswordInput {
+        PasswordInput(Element::new(WidgetKind::PasswordInput))
+    }
+
+    pub fn value(mut self, value: impl IntoValue<String>) -> PasswordInput {
+        self.0.prop(value.into_value(), Prop::Value);
+        self
+    }
+
+    /// Two-way binding, Vue's `v-model`.
+    pub fn bind(self, signal: Signal<String>) -> PasswordInput {
+        self.value(signal).on_input(move |text| signal.set(text))
+    }
+
+    pub fn placeholder(mut self, placeholder: impl IntoValue<String>) -> PasswordInput {
+        self.0.prop(placeholder.into_value(), Prop::Placeholder);
+        self
+    }
+
+    pub fn enabled(mut self, enabled: impl IntoValue<bool>) -> PasswordInput {
+        self.0.prop(enabled.into_value(), Prop::Enabled);
+        self
+    }
+
+    /// Raw platform settings: see [`Tweak`]. Password fields have no
+    /// semantic options past a text field's: what the platforms offer
+    /// (GTK's peek icon, WinUI's reveal mode, the bullet on Qt and WinUI)
+    /// is each one's own.
+    pub fn native(mut self, tweak: Tweak<PasswordInput>) -> PasswordInput {
+        tweak.apply(&mut self.0);
+        self
+    }
+
+    /// Called on every edit with the new text.
+    pub fn on_input(mut self, handler: impl Fn(String) + 'static) -> PasswordInput {
+        self.0.on(move |event| {
+            if let UiEvent::Changed(EventValue::Text(text)) = event {
+                handler(text.clone());
+            }
+        });
+        self
+    }
+
+    /// Called when the user confirms (Return / Enter).
+    pub fn on_submit(mut self, handler: impl Fn() + 'static) -> PasswordInput {
+        self.0.on(move |event| {
+            if *event == UiEvent::Submit {
+                handler();
+            }
+        });
+        self
+    }
+}
+
 macro_rules! toggle {
     ($t:ident) => {
         impl $t {
@@ -819,6 +886,13 @@ impl TextInput {
     #[doc(hidden)]
     pub fn __tag() -> TextInput {
         TextInput::new()
+    }
+}
+
+impl PasswordInput {
+    #[doc(hidden)]
+    pub fn __tag() -> PasswordInput {
+        PasswordInput::new()
     }
 }
 

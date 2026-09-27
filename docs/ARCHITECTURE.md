@@ -398,7 +398,7 @@ Button::new("Continue").role(ButtonRole::Default).native(platform! {
 - `tweak_with(value, |b, v| …)` runs again when the value changes; only the tweak is sent again.
 - A tweak can make the native control disagree with the core's props (an icon for a label, say); the mirror check then fails in tests. Set what the semantic props don't.
 - `_ => Tweak::none()` leaves the other platforms alone. Headless tests keep the tweak but don't run it.
-- The widget's type names the native one (`Tweakable`): `Button` is `NSButton`, `gtk::Button`, a `QQC2.Button` item (`QmlObject`, set by property name) and XAML's `Button`, whose closure returns a `windows_core::Result`; `Checkbox` is `NSButton`, `gtk::CheckButton`, a `QQC2.CheckBox` item and XAML's `CheckBox`; `Switch` is `NSSwitch`, `gtk::Switch`, a `QQC2.Switch` item and XAML's `ToggleSwitch`; `Select` is `NSPopUpButton`, `gtk::DropDown`, a `QQC2.ComboBox` item and XAML's `ComboBox`; `Slider` is `NSSlider`, `gtk::Scale`, a `QQC2.Slider` item and XAML's `Slider`; `Progress` is `NSProgressIndicator`, `gtk::ProgressBar`, a `QQC2.ProgressBar` item and XAML's `ProgressBar`; `Spinner` is `NSProgressIndicator`, `gtk::Spinner`, a `QQC2.BusyIndicator` item and XAML's `ProgressRing`; `TextInput` is `NSTextField`, `gtk::Entry`, a `QQC2.TextField` item and XAML's `TextBox`.
+- The widget's type names the native one (`Tweakable`): `Button` is `NSButton`, `gtk::Button`, a `QQC2.Button` item (`QmlObject`, set by property name) and XAML's `Button`, whose closure returns a `windows_core::Result`; `Checkbox` is `NSButton`, `gtk::CheckButton`, a `QQC2.CheckBox` item and XAML's `CheckBox`; `Switch` is `NSSwitch`, `gtk::Switch`, a `QQC2.Switch` item and XAML's `ToggleSwitch`; `Select` is `NSPopUpButton`, `gtk::DropDown`, a `QQC2.ComboBox` item and XAML's `ComboBox`; `Slider` is `NSSlider`, `gtk::Scale`, a `QQC2.Slider` item and XAML's `Slider`; `Progress` is `NSProgressIndicator`, `gtk::ProgressBar`, a `QQC2.ProgressBar` item and XAML's `ProgressBar`; `Spinner` is `NSProgressIndicator`, `gtk::Spinner`, a `QQC2.BusyIndicator` item and XAML's `ProgressRing`; `TextInput` is `NSTextField`, `gtk::Entry`, a `QQC2.TextField` item and XAML's `TextBox`; `PasswordInput` is `NSSecureTextField`, `gtk::PasswordEntry`, a `Kirigami.PasswordField` item and XAML's `PasswordBox`.
 
 ## 7. Accessibility and i18n affordances (designed in now, implemented later)
 
@@ -494,6 +494,7 @@ which builds the same tree as `Column::new().gap(…).children((Text::new(…).t
 | Text | NSTextField (label) | TextBlock | gtk::Label | QQC2.Label |
 | Button | NSButton | Button | gtk::Button | QQC2.Button |
 | TextInput | NSTextField | TextBox | gtk::Entry | QQC2.TextField |
+| PasswordInput | NSSecureTextField | PasswordBox | gtk::PasswordEntry | Kirigami.PasswordField |
 | Checkbox | NSButton (checkbox) | CheckBox | gtk::CheckButton | QQC2.CheckBox |
 | Switch | NSSwitch | ToggleSwitch | gtk::Switch | QQC2.Switch |
 | Slider | NSSlider | Slider | gtk::Scale | QQC2.Slider |
@@ -878,6 +879,15 @@ Things the AppKit backend taught us, some of them now part of the contract:
 - **Nothing can be typed into one.** `synthesize` returns `ActionError::ReadOnly` for any key, before focusing, and `perform(SetValue)` too: AppKit can't deliver keys to a field it won't focus, and WinUI's backend edits through the selection, which `IsReadOnly` doesn't stop.
 - **Tweaks for the rest.** A length limit is GTK's, Qt's and WinUI's (AppKit needs a formatter); icons in the field are GTK's; a header is WinUI's. Secure entry is another control on AppKit and WinUI (`NSSecureTextField`, `PasswordBox`), so it is a widget of its own.
 - **The example's tweaks:** a borderless field on AppKit (captured; macOS 26 draws a rounded bezel as it draws the default one, so that tweak showed nothing), a search icon on GTK, `maximumLength` on Qt, a header on WinUI (`ITextBox.Header` added to the bindings).
+- **Run on AppKit only:** GTK, Kirigami and WinUI are only type-checked, and CI hasn't run them.
+
+### PasswordInput
+
+- **A widget of its own**, not a `TextInput` option: AppKit and WinUI make password fields from other controls (`NSSecureTextField`, `PasswordBox`), and GTK's `PasswordEntry` isn't a `gtk::Entry`. Qt uses `Kirigami.PasswordField`, KDE's own, a `QQC2.TextField` that echoes bullets. It has a text field's props and events: `Value`, `Placeholder`, `Enabled`, `Changed(Text)`, `Submit`. No read-only: `PasswordBox` has none.
+- **Hidden as each platform hides it.** Bullets everywhere; a button that shows the text on Qt and WinUI, their default; GTK's peek icon is off, GTK's default. Showing it is up to the platform and the app's tweaks.
+- **A text field to assistive technology**, as every platform exposes one (AppKit's secure subrole, Qt's and UIA's password flag): role `TextField`, named by its label or placeholder, with `password` set and no value. `native_state` still reports the text, for the mirror check.
+- **WinUI edits at the end.** `PasswordBox` has no caret or selection API, so synthesized keys append to or trim `Password`, where typing into a focused box goes, and it has no settable Value pattern, so `SetValue` sets `Password`.
+- **The example's tweaks:** no bullets on AppKit (`echosBullets` off on the cell; captured), the peek icon on GTK, `showPassword` on Qt, asterisks on WinUI (`PasswordChar`; `PasswordBox` bindings added).
 - **Run on AppKit only:** GTK, Kirigami and WinUI are only type-checked, and CI hasn't run them.
 
 ### M2 (GTK 4)

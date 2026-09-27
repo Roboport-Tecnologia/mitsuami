@@ -39,6 +39,10 @@ pub enum WidgetKind {
     Text,
     Button,
     TextInput,
+    /// A native password field (NSSecureTextField, PasswordBox,
+    /// gtk::PasswordEntry, Kirigami.PasswordField): a `TextInput` whose
+    /// text is hidden, as each platform hides it.
+    PasswordInput,
     Checkbox,
     Switch,
     /// A native pop-up menu of text options (NSPopUpButton, ComboBox,
@@ -97,6 +101,7 @@ impl WidgetKind {
             WidgetKind::Text => "Text",
             WidgetKind::Button => "Button",
             WidgetKind::TextInput => "TextInput",
+            WidgetKind::PasswordInput => "PasswordInput",
             WidgetKind::Checkbox => "Checkbox",
             WidgetKind::Switch => "Switch",
             WidgetKind::Select => "Select",
@@ -233,7 +238,7 @@ pub enum Prop {
     /// Caption of a `Button`, `Checkbox` or `Switch`; accessible name of a
     /// `Switch`, `Select`, `Slider` or `Progress`.
     Label(String),
-    /// Current text of a `TextInput`.
+    /// Current text of a `TextInput` or `PasswordInput`.
     Value(String),
     Placeholder(String),
     /// A `TextInput` shows its text, which can be selected and copied, but

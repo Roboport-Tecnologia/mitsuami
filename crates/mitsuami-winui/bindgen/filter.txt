@@ -78,6 +78,8 @@ Microsoft.UI.Xaml.Controls.IComboBox::{put_Header}
 Microsoft.UI.Xaml.Controls.ComboBoxItem::CreateInstance
 Microsoft.UI.Xaml.Controls.ITextBox::{get_Text, put_Text, put_Header, get_IsReadOnly, put_IsReadOnly, get_PlaceholderText, put_PlaceholderText, get_SelectionStart, put_SelectionStart, get_SelectionLength, put_SelectionLength, get_SelectedText, put_SelectedText, add_TextChanged, remove_TextChanged}
 Microsoft.UI.Xaml.Controls.TextChangedEventHandler
+Microsoft.UI.Xaml.Controls.PasswordBox::CreateInstance
+Microsoft.UI.Xaml.Controls.IPasswordBox::{get_Password, put_Password, get_PasswordChar, put_PasswordChar, get_PlaceholderText, put_PlaceholderText, add_PasswordChanged, remove_PasswordChanged}
 Microsoft.UI.Xaml.Controls.ScrollViewer::CreateInstance
 Microsoft.UI.Xaml.Controls.IScrollViewer::{get_HorizontalOffset, get_VerticalOffset, get_ScrollableWidth, get_ScrollableHeight, get_HorizontalScrollBarVisibility, put_HorizontalScrollBarVisibility, get_VerticalScrollBarVisibility, put_VerticalScrollBarVisibility, put_HorizontalScrollMode, put_VerticalScrollMode, ChangeViewWithOptionalAnimation, add_ViewChanged, remove_ViewChanged}
 Microsoft.UI.Xaml.Controls.ScrollBarVisibility

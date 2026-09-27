@@ -95,7 +95,7 @@ pub mod prelude {
         untrack, watch,
     };
     pub use mitsuami_widgets::{
-        Button, Checkbox, Column, Container, Grid, Progress, Row, ScrollView, Select, Slider, Spinner, Switch, Text,
-        TextInput,
+        Button, Checkbox, Column, Container, Grid, PasswordInput, Progress, Row, ScrollView, Select, Slider, Spinner,
+        Switch, Text, TextInput,
     };
 }

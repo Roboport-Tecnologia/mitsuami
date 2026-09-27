@@ -51,6 +51,7 @@ enum Widget {
     Host(Host),
     Label(gtk::Label),
     Entry(gtk::Entry),
+    Password(gtk::PasswordEntry),
     Button(gtk::Button),
     Checkbox(gtk::CheckButton),
     Switch(gtk::Switch),
@@ -104,6 +105,7 @@ impl Widget {
             Widget::Window(WindowParts { host, .. }) | Widget::Host(host) => host.upcast_ref(),
             Widget::Label(w) => w.upcast_ref(),
             Widget::Entry(w) => w.upcast_ref(),
+            Widget::Password(w) => w.upcast_ref(),
             Widget::Button(w) => w.upcast_ref(),
             Widget::Checkbox(w) => w.upcast_ref(),
             Widget::Switch(w) => w.upcast_ref(),
@@ -124,6 +126,7 @@ impl Widget {
             self,
             Widget::Label(_)
                 | Widget::Entry(_)
+                | Widget::Password(_)
                 | Widget::Button(_)
                 | Widget::Checkbox(_)
                 | Widget::Switch(_)
@@ -652,6 +655,18 @@ impl State {
                 entry.connect_activate(move |_| events.emit(id, UiEvent::Submit));
                 Widget::Entry(entry)
             }
+            // Without the peek icon, GTK's default: GNOME apps add it where
+            // they want it.
+            WidgetKind::PasswordInput => {
+                let entry = gtk::PasswordEntry::new();
+                let e = events.clone();
+                entry.connect_changed(move |entry| {
+                    e.emit(id, UiEvent::Changed(EventValue::Text(entry.text().to_string())))
+                });
+                // Only Return activates; leaving the field doesn't submit.
+                entry.connect_activate(move |_| events.emit(id, UiEvent::Submit));
+                Widget::Password(entry)
+            }
             WidgetKind::ScrollView => {
                 let scrolled = gtk::ScrolledWindow::new();
                 scrolled.set_policy(gtk::PolicyType::Never, gtk::PolicyType::Automatic);
@@ -847,6 +862,12 @@ impl State {
             (Prop::Placeholder(t), Widget::Entry(e)) => e.set_placeholder_text(Some(t)),
             // Still focusable and selectable, so its text can be copied.
             (Prop::ReadOnly(r), Widget::Entry(e)) => e.set_editable(!r),
+            (Prop::Value(t), Widget::Password(e)) => {
+                if e.text() != t.as_str() {
+                    e.set_text(t);
+                }
+            }
+            (Prop::Placeholder(t), Widget::Password(e)) => e.set_placeholder_text(Some(t)),
             (Prop::Checked(c), Widget::Checkbox(b)) => b.set_active(*c),
             (Prop::Mixed(m), Widget::Checkbox(b)) => {
                 b.set_inconsistent(*m);
@@ -1355,8 +1376,8 @@ impl Backend for GtkBackend {
                 let index = option_texts(&options).iter().position(|o| o == text).ok_or(ActionError::Unsupported)?;
                 dropdown.set_selected(index as u32);
             }
-            (A11yAction::SetValue(text), WidgetKind::TextInput) => {
-                let entry = widget.downcast_ref::<gtk::Entry>().ok_or(ActionError::Unsupported)?;
+            (A11yAction::SetValue(text), WidgetKind::TextInput | WidgetKind::PasswordInput) => {
+                let entry = widget.dynamic_cast_ref::<gtk::Editable>().ok_or(ActionError::Unsupported)?;
                 if !entry.is_editable() {
                     return Err(ActionError::ReadOnly);
                 }
@@ -1479,11 +1500,14 @@ impl Backend for GtkBackend {
             (node.widget.widget().clone(), node.kind, state.by_widget.clone())
         };
         match (kind, key) {
-            (WidgetKind::TextInput, Key::Char(_) | Key::Backspace | Key::Enter | Key::Tab) => {
+            (
+                WidgetKind::TextInput | WidgetKind::PasswordInput,
+                Key::Char(_) | Key::Backspace | Key::Enter | Key::Tab,
+            ) => {
                 // GTK 4 can't inject key events. Emit the keybinding signals
                 // the keys map to instead, on the widgets that handle them:
                 // the entry's inner text widget, and the window for Tab.
-                let entry = widget.downcast_ref::<gtk::Entry>().ok_or(ActionError::Unsupported)?;
+                let entry = widget.dynamic_cast_ref::<gtk::Editable>().ok_or(ActionError::Unsupported)?;
                 // It would take the keys and ignore them; nothing can be
                 // typed into it on any platform.
                 if !entry.is_editable() {
@@ -1528,6 +1552,12 @@ impl Backend for GtkBackend {
                     props.push(Prop::Placeholder(p.to_string()));
                 }
                 props.push(Prop::ReadOnly(!e.is_editable()));
+            }
+            Widget::Password(e) => {
+                props.push(Prop::Value(e.text().to_string()));
+                if let Some(p) = e.placeholder_text() {
+                    props.push(Prop::Placeholder(p.to_string()));
+                }
             }
             Widget::Button(b) => props.push(Prop::Label(text(b.label()))),
             Widget::Checkbox(c) => {

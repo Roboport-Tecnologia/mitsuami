@@ -140,6 +140,7 @@ enum Widget {
     Host(w::Canvas),
     Label(w::TextBlock),
     Field(w::TextBox),
+    Password(w::PasswordBox),
     Button(w::Button),
     Checkbox(w::CheckBox),
     Switch(w::ToggleSwitch),
@@ -1075,20 +1076,32 @@ impl State {
                         }
                     }
                 })?);
-                revokers.push(field.cast::<w::IUIElement>()?.KeyDown({
-                    let emitter = emitter.clone();
-                    move |_, args| {
-                        let enter = args
-                            .as_ref()
-                            .and_then(|a| a.cast::<w::IKeyRoutedEventArgs>().ok()?.Key().ok())
-                            .is_some_and(|k| k == w::VirtualKey::Enter);
-                        if enter {
-                            emitter.emit(id, UiEvent::Submit);
+                revokers.push(submit_on_enter(&field.cast()?, &emitter, id)?);
+                let element = field.cast()?;
+                (Widget::Field(field), element)
+            }
+            // With XAML's default reveal button, shown while there's text.
+            WidgetKind::PasswordInput => {
+                let field = w::PasswordBox::new()?;
+                // PasswordChanged also fires for programmatic sets: only
+                // text the core doesn't know about is a user edit.
+                revokers.push(field.cast::<w::IPasswordBox>()?.PasswordChanged({
+                    let (emitter, shown) = (emitter.clone(), shown_text.clone());
+                    move |sender, _| {
+                        let Some(text) =
+                            sender.as_ref().and_then(|s| s.cast::<w::IPasswordBox>().ok()?.Password().ok())
+                        else {
+                            return;
+                        };
+                        if *shown.borrow() != text {
+                            *shown.borrow_mut() = text.clone();
+                            emitter.emit(id, UiEvent::Changed(EventValue::Text(text)));
                         }
                     }
                 })?);
+                revokers.push(submit_on_enter(&field.cast()?, &emitter, id)?);
                 let element = field.cast()?;
-                (Widget::Field(field), element)
+                (Widget::Password(field), element)
             }
             WidgetKind::ScrollView => {
                 let scroll = w::ScrollViewer::new()?;
@@ -1280,6 +1293,14 @@ impl State {
             (Prop::Placeholder(t), Widget::Field(f)) => f.cast::<w::ITextBox>()?.SetPlaceholderText(t)?,
             // Still focusable and selectable, so its text can be copied.
             (Prop::ReadOnly(r), Widget::Field(f)) => f.cast::<w::ITextBox>()?.SetIsReadOnly(*r)?,
+            (Prop::Value(t), Widget::Password(f)) => {
+                let field: w::IPasswordBox = f.cast()?;
+                if field.Password()? != *t {
+                    *node.shown_text.borrow_mut() = t.clone();
+                    field.SetPassword(t)?;
+                }
+            }
+            (Prop::Placeholder(t), Widget::Password(f)) => f.cast::<w::IPasswordBox>()?.SetPlaceholderText(t)?,
             (Prop::Checked(c), Widget::Checkbox(b)) => {
                 node.shown_checked.set(*c);
                 // The mixed state shows over it.
@@ -1547,6 +1568,13 @@ impl State {
                     EventValue::Text(text)
                 })
             }),
+            Widget::Password(f) => f.cast::<w::IPasswordBox>().and_then(|f| f.Password()).ok().and_then(|text| {
+                let mut shown = node.shown_text.borrow_mut();
+                (*shown != text).then(|| {
+                    *shown = text.clone();
+                    EventValue::Text(text)
+                })
+            }),
             Widget::Slider { slider, .. } => slider
                 .cast::<w::IRangeBase>()
                 .and_then(|r| r.Value())
@@ -1603,10 +1631,25 @@ fn wrap(control: &w::UIElement) -> R<w::UIElement> {
     border.cast()
 }
 
+/// Return submits a text or password box; leaving it doesn't.
+fn submit_on_enter(field: &w::IUIElement, emitter: &Events, id: NodeId) -> R<EventRevoker> {
+    let emitter = emitter.clone();
+    field.KeyDown(move |_, args| {
+        let enter = args
+            .as_ref()
+            .and_then(|a| a.cast::<w::IKeyRoutedEventArgs>().ok()?.Key().ok())
+            .is_some_and(|k| k == w::VirtualKey::Enter);
+        if enter {
+            emitter.emit(id, UiEvent::Submit);
+        }
+    })
+}
+
 fn is_control(widget: &Widget) -> bool {
     matches!(
         widget,
         Widget::Field(_)
+            | Widget::Password(_)
             | Widget::Button(_)
             | Widget::Checkbox(_)
             | Widget::Switch(_)
@@ -1741,7 +1784,7 @@ impl Backend for WinUiBackend {
                 });
                 ceil(measure_element(&node.element, w::Size { width: width.unwrap_or(f32::INFINITY), ..infinite }))
             }
-            Widget::Field(_) => {
+            Widget::Field(_) | Widget::Password(_) => {
                 // Text boxes have no useful intrinsic width.
                 let size = ceil(measure_element(&node.element, infinite));
                 Size::new(size.width.max(200.0), size.height)
@@ -1865,6 +1908,13 @@ impl Backend for WinUiBackend {
                 // An assistive technology edit is a user edit; report it now
                 // rather than when XAML's (asynchronous) TextChanged arrives.
                 *shown_text.borrow_mut() = text.clone();
+                events.emit(id, UiEvent::Changed(EventValue::Text(text.clone())));
+            }
+            // Password boxes don't let UI Automation set their value.
+            (A11yAction::SetValue(text), WidgetKind::PasswordInput) => {
+                let field: w::IPasswordBox = element.cast().map_err(|_| ActionError::Unsupported)?;
+                *shown_text.borrow_mut() = text.clone();
+                field.SetPassword(text).map_err(|_| ActionError::Unsupported)?;
                 events.emit(id, UiEvent::Changed(EventValue::Text(text.clone())));
             }
             (A11yAction::Focus, _) => {
@@ -2028,6 +2078,37 @@ impl Backend for WinUiBackend {
                 self.state.borrow().report_value(id);
                 result.map_err(|_| ActionError::Unsupported)
             }
+            (WidgetKind::PasswordInput, Key::Char(_) | Key::Backspace | Key::Enter | Key::Tab) => {
+                let field: w::IPasswordBox = element.cast().map_err(|_| ActionError::Unsupported)?;
+                let ui: w::IUIElement = element.cast().map_err(|_| ActionError::Unsupported)?;
+                if ui.FocusState().unwrap_or(w::FocusState::Unfocused) == w::FocusState::Unfocused {
+                    self.state.borrow().focus(id, w::FocusState::Keyboard);
+                }
+                // Password boxes have no caret or selection to edit through:
+                // edits go to the end, where typing into a focused box puts
+                // them, and PasswordChanged reports them.
+                let edit = |edit: &dyn Fn(&mut String)| -> windows_core::Result<()> {
+                    let mut text = field.Password()?;
+                    edit(&mut text);
+                    field.SetPassword(&text)
+                };
+                let result = match key {
+                    Key::Char(c) => edit(&|t| t.push(*c)),
+                    Key::Backspace => edit(&|t| {
+                        t.pop();
+                    }),
+                    Key::Enter => {
+                        self.state.borrow().emitter().emit(id, UiEvent::Submit);
+                        Ok(())
+                    }
+                    _ => {
+                        self.tab_from(id);
+                        Ok(())
+                    }
+                };
+                self.state.borrow().report_value(id);
+                result.map_err(|_| ActionError::Unsupported)
+            }
             (WidgetKind::Button, Key::Enter | Key::Char(' '))
             | (WidgetKind::Checkbox | WidgetKind::Switch, Key::Char(' ')) => self.perform(id, &A11yAction::Activate),
             _ => Err(ActionError::Unsupported),
@@ -2045,6 +2126,14 @@ impl Backend for WinUiBackend {
                 let field: w::ITextBox = f.cast().ok()?;
                 props.push(Prop::Value(field.Text().ok()?));
                 props.push(Prop::ReadOnly(field.IsReadOnly().ok()?));
+                let placeholder = field.PlaceholderText().ok()?;
+                if !placeholder.is_empty() {
+                    props.push(Prop::Placeholder(placeholder));
+                }
+            }
+            Widget::Password(f) => {
+                let field: w::IPasswordBox = f.cast().ok()?;
+                props.push(Prop::Value(field.Password().ok()?));
                 let placeholder = field.PlaceholderText().ok()?;
                 if !placeholder.is_empty() {
                     props.push(Prop::Placeholder(placeholder));

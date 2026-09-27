@@ -1057,6 +1057,7 @@ impl Inner {
                 node.kind,
                 WidgetKind::Button
                     | WidgetKind::TextInput
+                    | WidgetKind::PasswordInput
                     | WidgetKind::Checkbox
                     | WidgetKind::Switch
                     | WidgetKind::Select
@@ -1306,7 +1307,9 @@ impl Inner {
             UiEvent::Changed(value) => {
                 let Some(node) = self.nodes.get_mut(&id) else { return };
                 let prop = match (node.kind, value) {
-                    (WidgetKind::TextInput, EventValue::Text(text)) => Prop::Value(text.clone()),
+                    (WidgetKind::TextInput | WidgetKind::PasswordInput, EventValue::Text(text)) => {
+                        Prop::Value(text.clone())
+                    }
                     (WidgetKind::Checkbox | WidgetKind::Switch, EventValue::Bool(b)) => Prop::Checked(*b),
                     (WidgetKind::List, EventValue::Rows(rows)) => Prop::Selected(rows.clone()),
                     (WidgetKind::Select, EventValue::Index(index)) => Prop::SelectedIndex(Some(*index)),
@@ -1473,7 +1476,9 @@ impl Inner {
             WidgetKind::List => Role::List,
             WidgetKind::Text => Role::StaticText,
             WidgetKind::Button => Role::Button,
-            WidgetKind::TextInput => Role::TextField,
+            // A text field that hides its text, as every platform exposes
+            // one (AppKit's secure subrole, Qt's and UIA's password flag).
+            WidgetKind::TextInput | WidgetKind::PasswordInput => Role::TextField,
             WidgetKind::Checkbox => Role::Checkbox,
             WidgetKind::Switch => Role::Switch,
             WidgetKind::Select => Role::ComboBox,
@@ -1497,7 +1502,7 @@ impl Inner {
                 | WidgetKind::Slider
                 | WidgetKind::Progress
                 | WidgetKind::Spinner => crate::find_prop!(props, Label),
-                WidgetKind::TextInput => crate::find_prop!(props, Placeholder),
+                WidgetKind::TextInput | WidgetKind::PasswordInput => crate::find_prop!(props, Placeholder),
                 // Rows read as their text, as screen readers read native rows.
                 WidgetKind::Container if row.is_some() => {
                     let texts: Vec<&str> = children
@@ -1521,6 +1526,8 @@ impl Inner {
             description: a11y.description,
             value: match node.kind {
                 WidgetKind::TextInput => Some(crate::find_prop!(props, Value).unwrap_or_default()),
+                // Never read out.
+                WidgetKind::PasswordInput => None,
                 // The chosen option; empty without options.
                 WidgetKind::Select => {
                     let options = crate::find_prop!(props, Options).unwrap_or_default();
@@ -1540,6 +1547,7 @@ impl Inner {
             },
             mixed: node.kind == WidgetKind::Checkbox && crate::find_prop!(props, Mixed) == Some(true),
             read_only: crate::find_prop!(props, ReadOnly) == Some(true),
+            password: node.kind == WidgetKind::PasswordInput,
             selected,
             enabled: crate::find_prop!(props, Enabled).unwrap_or(true),
             test_id: node.test_id.clone(),

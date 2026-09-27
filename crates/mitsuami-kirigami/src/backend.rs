@@ -637,8 +637,9 @@ impl State {
             }
             WidgetKind::Progress => Widget::Progress(QmlObject::load(&qml::progress())),
             WidgetKind::Spinner => Widget::Spinner(QmlObject::load(&qml::spinner())),
-            WidgetKind::TextInput => {
-                let field = QmlObject::load(&qml::text_field());
+            WidgetKind::TextInput | WidgetKind::PasswordInput => {
+                let qml = if kind == WidgetKind::TextInput { qml::text_field() } else { qml::password_field() };
+                let field = QmlObject::load(&qml);
                 let e = events.clone();
                 // `textEdited` is the user's; `textChanged` fires for ours too.
                 field
@@ -1195,7 +1196,7 @@ impl Backend for KirigamiBackend {
                 let index = option_texts(item).iter().position(|o| o == text).ok_or(ActionError::Unsupported)?;
                 item.set_int("mitsuamiChoice", index as i32);
             }
-            (A11yAction::SetValue(text), WidgetKind::TextInput) => {
+            (A11yAction::SetValue(text), WidgetKind::TextInput | WidgetKind::PasswordInput) => {
                 if item.bool("readOnly") {
                     return Err(ActionError::ReadOnly);
                 }
@@ -1309,7 +1310,7 @@ impl Backend for KirigamiBackend {
                     window.key(code, false, text);
                     Ok(())
                 }
-                (WidgetKind::TextInput, _) => {
+                (WidgetKind::TextInput | WidgetKind::PasswordInput, _) => {
                     // It would take the keys and ignore them; nothing can be
                     // typed into it on any platform.
                     if widget_item.bool("readOnly") {

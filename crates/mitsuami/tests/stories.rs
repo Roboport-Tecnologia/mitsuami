@@ -339,6 +339,36 @@ fn text_input_tweak() -> Tweak<TextInput> {
     }
 }
 
+/// Password fields: empty with a placeholder, filled (hidden as each
+/// platform hides it), disabled, and tweaked: no bullets on AppKit, the
+/// peek icon on GTK, the password shown on Qt, asterisks on WinUI.
+#[mitsuami_test::story(sizes = [(240, fit)])]
+fn password_inputs() -> impl View {
+    Column::new().padding(16).gap(8).children((
+        PasswordInput::new().a11y_label("Empty").placeholder("Password"),
+        PasswordInput::new().a11y_label("Filled").value("correct horse"),
+        PasswordInput::new().a11y_label("Disabled").value("correct horse").enabled(false),
+        PasswordInput::new().a11y_label("Tweaked").value("correct horse").native(password_input_tweak()),
+    ))
+}
+
+fn password_input_tweak() -> Tweak<PasswordInput> {
+    platform! {
+        macos => mitsuami::appkit::tweak(|f: &mitsuami::appkit::objc2_app_kit::NSSecureTextField| {
+            use mitsuami::appkit::objc2_app_kit::NSSecureTextFieldCell;
+            if let Some(cell) = f.cell().and_then(|c| c.downcast::<NSSecureTextFieldCell>().ok()) {
+                cell.setEchosBullets(false);
+            }
+        }),
+        gtk => mitsuami::gtk::tweak(|e: &mitsuami::gtk::gtk::PasswordEntry| e.set_show_peek_icon(true)),
+        kde => mitsuami::kirigami::tweak(|f: &mitsuami::kirigami::QmlObject| f.set_bool("showPassword", true)),
+        windows => mitsuami::winui::tweak(|f: &mitsuami::winui::bindings::PasswordBox| {
+            use mitsuami::winui::windows_core::Interface;
+            f.cast::<mitsuami::winui::bindings::IPasswordBox>()?.SetPasswordChar("*")
+        }),
+    }
+}
+
 /// Sliders and progress bars as wide as the story; without a step, and
 /// with one.
 #[mitsuami_test::story(sizes = [(240, fit)])]

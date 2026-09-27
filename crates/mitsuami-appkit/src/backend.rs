@@ -23,9 +23,9 @@ use objc2_app_kit::{
     NSControlStateValueOff, NSControlStateValueOn, NSEvent, NSEventModifierFlags, NSEventType, NSFont, NSFontTextStyle,
     NSFontTextStyleBody, NSFontTextStyleCallout, NSFontTextStyleCaption1, NSFontTextStyleHeadline,
     NSFontTextStyleLargeTitle, NSFontTextStyleTitle1, NSFontWeightRegular, NSMenuItem, NSPopUpButton,
-    NSProgressIndicator, NSProgressIndicatorStyle, NSScreen, NSScrollView, NSSlider, NSStandardKeyBindingResponding,
-    NSSwitch, NSTextField, NSView, NSViewBoundsDidChangeNotification, NSWindow, NSWindowOrderingMode,
-    NSWindowStyleMask, NSWorkspace,
+    NSProgressIndicator, NSProgressIndicatorStyle, NSScreen, NSScrollView, NSSecureTextField, NSSlider,
+    NSStandardKeyBindingResponding, NSSwitch, NSTextField, NSView, NSViewBoundsDidChangeNotification, NSWindow,
+    NSWindowOrderingMode, NSWindowStyleMask, NSWorkspace,
 };
 use objc2_foundation::{NSArray, NSDictionary, NSNotificationCenter, NSPoint, NSRange, NSRect, NSSize, NSString};
 
@@ -381,6 +381,7 @@ impl State {
                 | WidgetKind::Select
                 | WidgetKind::Slider
                 | WidgetKind::TextInput
+                | WidgetKind::PasswordInput
                 | WidgetKind::ScrollView
                 | WidgetKind::List
         )
@@ -516,6 +517,23 @@ impl State {
                 // No target-action: submit comes from the delegate (Return
                 // only), edits from `controlTextDidChange:`.
                 let field = NSTextField::textFieldWithString(&ns(""), mtm);
+                if let Some(target) = &target {
+                    // SAFETY: the node keeps the target alive as long as the field.
+                    unsafe { field.setDelegate(Some(ProtocolObject::from_ref(&**target))) };
+                }
+                Widget::Field(field)
+            }
+            WidgetKind::PasswordInput => {
+                // A text field whose cell and field editor hide the text;
+                // the rest is a text field's, delegate included.
+                // `textFieldWithString:` is inherited: called on the secure
+                // class, it makes a secure field set up as a text field.
+                // SAFETY: the class method returns an autoreleased instance
+                // of the class it's called on.
+                let field: Retained<NSSecureTextField> = unsafe {
+                    msg_send![<NSSecureTextField as objc2::ClassType>::class(), textFieldWithString: &*ns("")]
+                };
+                let field = field.into_super();
                 if let Some(target) = &target {
                     // SAFETY: the node keeps the target alive as long as the field.
                     unsafe { field.setDelegate(Some(ProtocolObject::from_ref(&**target))) };
@@ -1141,7 +1159,7 @@ impl Backend for AppKitBackend {
                 let (Some(index), Some(menu)) = (index, popup.menu()) else { return Err(ActionError::Unsupported) };
                 menu.performActionForItemAtIndex(index as isize);
             }
-            (A11yAction::SetValue(text), WidgetKind::TextInput) => {
+            (A11yAction::SetValue(text), WidgetKind::TextInput | WidgetKind::PasswordInput) => {
                 let field: &NSTextField = widget_view.downcast_ref().ok_or(ActionError::Unsupported)?;
                 if !field.isEditable() {
                     return Err(ActionError::ReadOnly);
@@ -1263,7 +1281,10 @@ impl Backend for AppKitBackend {
             (node.widget.view().retain(), node.kind)
         };
         match (kind, key) {
-            (WidgetKind::TextInput, Key::Char(_) | Key::Backspace | Key::Enter | Key::Tab) => {
+            (
+                WidgetKind::TextInput | WidgetKind::PasswordInput,
+                Key::Char(_) | Key::Backspace | Key::Enter | Key::Tab,
+            ) => {
                 // Drive the field editor, the object that receives real
                 // keystrokes: text goes through `insertText:`, and editing
                 // keys through `doCommandBySelector:`, which is what

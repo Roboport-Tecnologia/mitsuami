@@ -96,6 +96,12 @@ pub(crate) fn text_field() -> String {
     format!("QQC2.TextField {{ {TEXT_STYLE} {} }}", a11y("placeholderText"))
 }
 
+/// KDE's password field: a text field that echoes bullets, with a button
+/// that shows the password.
+pub(crate) fn password_field() -> String {
+    format!("Kirigami.PasswordField {{ {TEXT_STYLE} {} }}", a11y("placeholderText"))
+}
+
 pub(crate) fn checkbox() -> String {
     format!("QQC2.CheckBox {{ {TEXT_STYLE} {} }}", a11y("text"))
 }

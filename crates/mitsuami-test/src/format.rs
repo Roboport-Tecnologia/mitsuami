@@ -111,6 +111,9 @@ pub(crate) fn a11y(root: &A11yNode) -> String {
         if node.read_only {
             out.push_str(" read_only");
         }
+        if node.password {
+            out.push_str(" password");
+        }
         if node.selected == Some(true) {
             out.push_str(" selected");
         }
@@ -247,6 +250,7 @@ pub(crate) fn wireframe(root: &NodeInfo) -> String {
             WidgetKind::Text => "#3f7f5f",
             WidgetKind::Button => "#2f6fdf",
             WidgetKind::TextInput => "#a0602a",
+            WidgetKind::PasswordInput => "#8a4f1f",
             WidgetKind::Checkbox | WidgetKind::Switch => "#8a4fbf",
             WidgetKind::Select | WidgetKind::Slider | WidgetKind::Progress | WidgetKind::Spinner => "#1f8a8a",
             WidgetKind::Custom(_) | WidgetKind::Native => "#c0392b",

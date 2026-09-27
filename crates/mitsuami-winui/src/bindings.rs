@@ -4316,6 +4316,140 @@ pub struct IPanel_Vtbl {
     pub SetBackground:
         unsafe extern "system" fn(*mut core::ffi::c_void, *mut core::ffi::c_void) -> windows_core::HRESULT,
 }
+windows_core::imp::define_interface!(IPasswordBox, IPasswordBox_Vtbl, 0x6d3ccff7_aaee_5adc_8298_33300fa119da);
+impl windows_core::RuntimeType for IPasswordBox {
+    const SIGNATURE: windows_core::imp::ConstBuffer = windows_core::imp::ConstBuffer::for_interface::<Self>();
+}
+impl IPasswordBox {
+    pub fn Password(&self) -> windows_core::Result<String> {
+        unsafe {
+            let mut result__ = core::mem::zeroed();
+            (windows_core::Interface::vtable(self).Password)(windows_core::Interface::as_raw(self), &mut result__).map(
+                || {
+                    let hstring: windows_core::HSTRING = core::mem::transmute(result__);
+                    hstring.to_string_lossy()
+                },
+            )
+        }
+    }
+    pub fn SetPassword(&self, value: &str) -> windows_core::Result<()> {
+        unsafe {
+            (windows_core::Interface::vtable(self).SetPassword)(
+                windows_core::Interface::as_raw(self),
+                core::mem::transmute_copy(&windows_core::HSTRING::from(value)),
+            )
+            .ok()
+        }
+    }
+    pub fn PasswordChar(&self) -> windows_core::Result<String> {
+        unsafe {
+            let mut result__ = core::mem::zeroed();
+            (windows_core::Interface::vtable(self).PasswordChar)(windows_core::Interface::as_raw(self), &mut result__)
+                .map(|| {
+                    let hstring: windows_core::HSTRING = core::mem::transmute(result__);
+                    hstring.to_string_lossy()
+                })
+        }
+    }
+    pub fn SetPasswordChar(&self, value: &str) -> windows_core::Result<()> {
+        unsafe {
+            (windows_core::Interface::vtable(self).SetPasswordChar)(
+                windows_core::Interface::as_raw(self),
+                core::mem::transmute_copy(&windows_core::HSTRING::from(value)),
+            )
+            .ok()
+        }
+    }
+    pub fn PlaceholderText(&self) -> windows_core::Result<String> {
+        unsafe {
+            let mut result__ = core::mem::zeroed();
+            (windows_core::Interface::vtable(self).PlaceholderText)(
+                windows_core::Interface::as_raw(self),
+                &mut result__,
+            )
+            .map(|| {
+                let hstring: windows_core::HSTRING = core::mem::transmute(result__);
+                hstring.to_string_lossy()
+            })
+        }
+    }
+    pub fn SetPlaceholderText(&self, value: &str) -> windows_core::Result<()> {
+        unsafe {
+            (windows_core::Interface::vtable(self).SetPlaceholderText)(
+                windows_core::Interface::as_raw(self),
+                core::mem::transmute_copy(&windows_core::HSTRING::from(value)),
+            )
+            .ok()
+        }
+    }
+    pub fn PasswordChanged<F>(&self, handler: F) -> windows_core::Result<windows_core::EventRevoker>
+    where
+        F: Fn(windows_core::Ref<windows_core::IInspectable>, windows_core::Ref<RoutedEventArgs>) + 'static,
+    {
+        let handler: RoutedEventHandler = {
+            let com = windows_core::imp::DelegateBox::<RoutedEventHandler, F>::new(
+                &RoutedEventHandlerBox::<F>::VTABLE,
+                handler,
+            );
+            unsafe { core::mem::transmute(windows_core::imp::box_new(com)) }
+        };
+        unsafe {
+            let mut result__ = core::mem::zeroed();
+            let token__ = (windows_core::Interface::vtable(self).PasswordChanged)(
+                windows_core::Interface::as_raw(self),
+                windows_core::Interface::as_raw(&handler),
+                &mut result__,
+            )
+            .map(|| result__)?;
+            Ok(windows_core::EventRevoker::new(
+                self.clone(),
+                token__,
+                windows_core::Interface::vtable(self).RemovePasswordChanged,
+            ))
+        }
+    }
+}
+#[repr(C)]
+pub struct IPasswordBox_Vtbl {
+    pub base__: windows_core::IInspectable_Vtbl,
+    pub Password:
+        unsafe extern "system" fn(*mut core::ffi::c_void, *mut *mut core::ffi::c_void) -> windows_core::HRESULT,
+    pub SetPassword: unsafe extern "system" fn(*mut core::ffi::c_void, *mut core::ffi::c_void) -> windows_core::HRESULT,
+    pub PasswordChar:
+        unsafe extern "system" fn(*mut core::ffi::c_void, *mut *mut core::ffi::c_void) -> windows_core::HRESULT,
+    pub SetPasswordChar:
+        unsafe extern "system" fn(*mut core::ffi::c_void, *mut core::ffi::c_void) -> windows_core::HRESULT,
+    IsPasswordRevealButtonEnabled: usize,
+    SetIsPasswordRevealButtonEnabled: usize,
+    MaxLength: usize,
+    SetMaxLength: usize,
+    Header: usize,
+    SetHeader: usize,
+    HeaderTemplate: usize,
+    SetHeaderTemplate: usize,
+    pub PlaceholderText:
+        unsafe extern "system" fn(*mut core::ffi::c_void, *mut *mut core::ffi::c_void) -> windows_core::HRESULT,
+    pub SetPlaceholderText:
+        unsafe extern "system" fn(*mut core::ffi::c_void, *mut core::ffi::c_void) -> windows_core::HRESULT,
+    SelectionHighlightColor: usize,
+    SetSelectionHighlightColor: usize,
+    PreventKeyboardDisplayOnProgrammaticFocus: usize,
+    SetPreventKeyboardDisplayOnProgrammaticFocus: usize,
+    PasswordRevealMode: usize,
+    SetPasswordRevealMode: usize,
+    TextReadingOrder: usize,
+    SetTextReadingOrder: usize,
+    InputScope: usize,
+    SetInputScope: usize,
+    CanPasteClipboardContent: usize,
+    SelectionFlyout: usize,
+    SetSelectionFlyout: usize,
+    Description: usize,
+    SetDescription: usize,
+    pub PasswordChanged:
+        unsafe extern "system" fn(*mut core::ffi::c_void, *mut core::ffi::c_void, *mut i64) -> windows_core::HRESULT,
+    pub RemovePasswordChanged: unsafe extern "system" fn(*mut core::ffi::c_void, i64) -> windows_core::HRESULT,
+}
 windows_core::imp::define_interface!(IPickFileResult, IPickFileResult_Vtbl, 0xe6f2e3d6_7bb0_5d81_9e7d_6fd35a1f25ab);
 impl windows_core::RuntimeType for IPickFileResult {
     const SIGNATURE: windows_core::imp::ConstBuffer = windows_core::imp::ConstBuffer::for_interface::<Self>();
@@ -7871,6 +8005,41 @@ impl windows_core::RuntimeName for Panel {
 }
 unsafe impl Send for Panel {}
 unsafe impl Sync for Panel {}
+#[repr(transparent)]
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct PasswordBox(windows_core::IUnknown);
+windows_core::imp::interface_hierarchy!(PasswordBox, windows_core::IUnknown, windows_core::IInspectable);
+windows_core::imp::required_hierarchy!(PasswordBox, Control, FrameworkElement, UIElement, DependencyObject);
+impl PasswordBox {
+    pub fn new() -> windows_core::Result<Self> {
+        Self::IActivationFactory(|f| f.ActivateInstance::<Self>())
+    }
+    fn IActivationFactory<R, F: FnOnce(&windows_core::imp::IGenericFactory) -> windows_core::Result<R>>(
+        callback: F,
+    ) -> windows_core::Result<R> {
+        static SHARED: windows_core::imp::FactoryCache<PasswordBox, windows_core::imp::IGenericFactory> =
+            windows_core::imp::FactoryCache::new();
+        SHARED.call(callback)
+    }
+}
+impl windows_core::RuntimeType for PasswordBox {
+    const SIGNATURE: windows_core::imp::ConstBuffer = windows_core::imp::ConstBuffer::for_class::<Self, IPasswordBox>();
+}
+unsafe impl windows_core::Interface for PasswordBox {
+    type Vtable = <IPasswordBox as windows_core::Interface>::Vtable;
+    const IID: windows_core::GUID = <IPasswordBox as windows_core::Interface>::IID;
+}
+impl core::ops::Deref for PasswordBox {
+    type Target = IPasswordBox;
+    fn deref(&self) -> &Self::Target {
+        unsafe { core::mem::transmute(self) }
+    }
+}
+impl windows_core::RuntimeName for PasswordBox {
+    const NAME: &'static str = "Microsoft.UI.Xaml.Controls.PasswordBox";
+}
+unsafe impl Send for PasswordBox {}
+unsafe impl Sync for PasswordBox {}
 #[repr(transparent)]
 #[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
 pub struct PatternInterface(pub i32);

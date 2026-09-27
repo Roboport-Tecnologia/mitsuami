@@ -88,6 +88,10 @@ name = "progress"
 harness = false
 
 [[test]]
+name = "password_input"
+harness = false
+
+[[test]]
 name = "spinner"
 harness = false
 

@@ -542,7 +542,7 @@ impl Backend for HeadlessBackend {
                 let text = text_size(&label(), font, None);
                 Size::new(text.width + 24.0, (line + 8.0).max(28.0))
             }
-            WidgetKind::TextInput => Size::new(200.0, line + 8.0),
+            WidgetKind::TextInput | WidgetKind::PasswordInput => Size::new(200.0, line + 8.0),
             WidgetKind::Checkbox => {
                 let text = text_size(&label(), font, None);
                 Size::new(16.0 + 6.0 + text.width, line.max(16.0))
@@ -594,7 +594,7 @@ impl Backend for HeadlessBackend {
                 state.focus(id);
                 state.emit(id, UiEvent::Changed(EventValue::Bool(checked)));
             }
-            (A11yAction::SetValue(text), WidgetKind::TextInput) => {
+            (A11yAction::SetValue(text), WidgetKind::TextInput | WidgetKind::PasswordInput) => {
                 if find_prop!(state.nodes[&id].props, ReadOnly) == Some(true) {
                     return Err(ActionError::ReadOnly);
                 }
@@ -632,6 +632,7 @@ impl Backend for HeadlessBackend {
                 A11yAction::Focus,
                 WidgetKind::Button
                 | WidgetKind::TextInput
+                | WidgetKind::PasswordInput
                 | WidgetKind::Checkbox
                 | WidgetKind::Switch
                 | WidgetKind::Select
@@ -710,7 +711,7 @@ impl Backend for HeadlessBackend {
             return Err(ActionError::ReadOnly);
         }
         match (kind, key) {
-            (WidgetKind::TextInput, Key::Char(_) | Key::Backspace) => {
+            (WidgetKind::TextInput | WidgetKind::PasswordInput, Key::Char(_) | Key::Backspace) => {
                 state.focus(id);
                 let mut text = find_prop!(state.nodes[&id].props, Value).unwrap_or_default();
                 match key {
@@ -722,9 +723,9 @@ impl Backend for HeadlessBackend {
                 state.set_prop(id, Prop::Value(text.clone()));
                 state.emit(id, UiEvent::Changed(EventValue::Text(text)));
             }
-            (WidgetKind::TextInput, Key::Enter) => state.emit(id, UiEvent::Submit),
+            (WidgetKind::TextInput | WidgetKind::PasswordInput, Key::Enter) => state.emit(id, UiEvent::Submit),
             // Moves focus on; the field keeps its text and does not submit.
-            (WidgetKind::TextInput, Key::Tab) => {
+            (WidgetKind::TextInput | WidgetKind::PasswordInput, Key::Tab) => {
                 if let Some(next) = state.next_focusable(id) {
                     state.focus(next);
                 }

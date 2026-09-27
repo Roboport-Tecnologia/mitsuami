@@ -130,6 +130,8 @@ pub struct A11yNode {
     pub mixed: bool,
     /// Text fields: shown, but not editable.
     pub read_only: bool,
+    /// Text fields: the text is hidden, and not in `value`.
+    pub password: bool,
     /// List rows: whether the row is selected.
     pub selected: Option<bool>,
     pub enabled: bool,

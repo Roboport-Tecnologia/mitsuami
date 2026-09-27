@@ -5,7 +5,7 @@ use std::rc::Rc;
 use gtk::prelude::*;
 use mitsuami_core::reactive::{IntoValue, Value};
 use mitsuami_core::{Opaque, Tweak};
-use mitsuami_widgets::{Button, Checkbox, Progress, Select, Slider, Spinner, Switch, TextInput};
+use mitsuami_widgets::{Button, Checkbox, PasswordInput, Progress, Select, Slider, Spinner, Switch, TextInput};
 
 use crate::backend::{STEPS, Steps, update_marks};
 
@@ -44,6 +44,10 @@ impl Tweakable for Spinner {
 
 impl Tweakable for TextInput {
     type Native = gtk::Entry;
+}
+
+impl Tweakable for PasswordInput {
+    type Native = gtk::PasswordEntry;
 }
 
 /// Whether a slider's scale shows a mark at each step; it does by default,
