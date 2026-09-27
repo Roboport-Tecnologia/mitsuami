@@ -3393,6 +3393,15 @@ impl IControl {
             (windows_core::Interface::vtable(self).SetIsEnabled)(windows_core::Interface::as_raw(self), value).ok()
         }
     }
+    pub fn SetVerticalContentAlignment(&self, value: VerticalAlignment) -> windows_core::Result<()> {
+        unsafe {
+            (windows_core::Interface::vtable(self).SetVerticalContentAlignment)(
+                windows_core::Interface::as_raw(self),
+                value,
+            )
+            .ok()
+        }
+    }
     pub fn SetBackground<P0>(&self, value: P0) -> windows_core::Result<()>
     where
         P0: windows_core::Param<Brush>,
@@ -3461,7 +3470,8 @@ pub struct IControl_Vtbl {
     HorizontalContentAlignment: usize,
     SetHorizontalContentAlignment: usize,
     VerticalContentAlignment: usize,
-    SetVerticalContentAlignment: usize,
+    pub SetVerticalContentAlignment:
+        unsafe extern "system" fn(*mut core::ffi::c_void, VerticalAlignment) -> windows_core::HRESULT,
     Background: usize,
     pub SetBackground:
         unsafe extern "system" fn(*mut core::ffi::c_void, *mut core::ffi::c_void) -> windows_core::HRESULT,
@@ -4057,6 +4067,9 @@ impl IFrameworkElement {
                 .ok()
         }
     }
+    pub fn SetMargin(&self, value: Thickness) -> windows_core::Result<()> {
+        unsafe { (windows_core::Interface::vtable(self).SetMargin)(windows_core::Interface::as_raw(self), value).ok() }
+    }
     pub fn SetStyle<P0>(&self, value: P0) -> windows_core::Result<()>
     where
         P0: windows_core::Param<Style>,
@@ -4162,7 +4175,7 @@ pub struct IFrameworkElement_Vtbl {
     pub SetVerticalAlignment:
         unsafe extern "system" fn(*mut core::ffi::c_void, VerticalAlignment) -> windows_core::HRESULT,
     Margin: usize,
-    SetMargin: usize,
+    pub SetMargin: unsafe extern "system" fn(*mut core::ffi::c_void, Thickness) -> windows_core::HRESULT,
     Name: usize,
     SetName: usize,
     BaseUri: usize,

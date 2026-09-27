@@ -770,19 +770,37 @@ fn insert_toolbar_item(parts: &mut WindowParts, id: NodeId, host: &w::UIElement,
         let bar = w::CommandBar::new()?;
         let element: w::UIElement = bar.cast()?;
         w::Grid::SetRow(&element.cast::<w::FrameworkElement>()?, TOOLBAR_ROW)?;
+        // The bar ends at the window's edge: its "More" button, last,
+        // spaces itself from it, and with no secondary commands it doesn't
+        // show. Inset the items as far from that edge as the title bar
+        // insets the title from the other (2 + 14). The bar has no
+        // background, and its padding only reaches its content area.
+        let margin = w::Thickness { left: 0.0, top: 0.0, right: 16.0, bottom: 0.0 };
+        bar.cast::<w::IFrameworkElement>()?.SetMargin(margin)?;
         // Hidden until an item has something to show.
         element.cast::<w::IUIElement>()?.SetVisibility(w::Visibility::Collapsed)?;
         parts.root.cast::<w::IPanel>()?.Children()?.Append(&element)?;
         parts.toolbar = Some(bar);
     }
+    let bar: w::IUIElement = parts.toolbar.as_ref().expect("made above").cast()?;
     let container = w::AppBarElementContainer::new()?;
     container.cast::<w::IContentControl>()?.SetContent(host)?;
-    // Empty until its first frame.
-    container.cast::<w::IUIElement>()?.SetVisibility(w::Visibility::Collapsed)?;
+    // Centred in the bar, as the bar's own buttons are: the container is
+    // the bar's height, and puts its content at the top by default.
+    container.cast::<w::IControl>()?.SetVerticalContentAlignment(w::VerticalAlignment::Center)?;
     let index = index.min(parts.toolbar_items.len());
     let commands = parts.toolbar.as_ref().expect("made above").PrimaryCommands()?;
     commands.InsertAt(index as u32, &container.cast::<w::ICommandBarElement>()?)?;
-    parts.toolbar_items.insert(index, (id, container));
+    parts.toolbar_items.insert(index, (id, container.clone()));
+    // XAML measures only what's in a live tree, and a collapsed bar keeps
+    // its items out of it: lay them out once, shown, so the core can
+    // measure what's in them (a button measures nothing out of the tree).
+    let shown = bar.Visibility()?;
+    bar.SetVisibility(w::Visibility::Visible)?;
+    parts.root.cast::<w::IUIElement>()?.UpdateLayout()?;
+    bar.SetVisibility(shown)?;
+    // Empty until its first frame.
+    container.cast::<w::IUIElement>()?.SetVisibility(w::Visibility::Collapsed)?;
     Ok(())
 }
 
