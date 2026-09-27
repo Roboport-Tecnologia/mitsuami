@@ -188,8 +188,8 @@ impl Services for WinUiServices {
         }
     }
 
-    fn set_menu(&mut self, menu: &MenuBarData, activate: Rc<dyn Fn(u32)>) {
-        self.backend.set_menu(menu, activate);
+    fn set_menu(&mut self, window: Option<NodeId>, menu: &MenuBarData, activate: Rc<dyn Fn(u32)>) {
+        self.backend.set_menu(window, menu, activate);
     }
 }
 

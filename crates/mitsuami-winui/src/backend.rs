@@ -10,7 +10,7 @@ use mitsuami_core::backend::{
     Appearance, AvailableSpace, Backend, CaptureError, EventSink, FontSizes, Image, Key, MeasureRequest, NativeState,
     PlatformMetrics, SyntheticInput,
 };
-use mitsuami_core::services::{MenuBarData, MenuEntry, Reply};
+use mitsuami_core::services::{MenuBarData, MenuCheck, MenuData, MenuEntry, MenuItemData, Reply};
 use mitsuami_core::units::SpacingScale;
 use mitsuami_core::{
     AnyValue, ButtonRole, ButtonStyle, Command, CustomProps, EventValue, ImageFit, ImageSource, Modality, NodeId,
@@ -55,6 +55,11 @@ pub(crate) struct WindowParts {
     pub(crate) id: w::WindowId,
     menu_bar: Option<w::MenuBar>,
     menu_revokers: Vec<EventRevoker>,
+    /// The menus the bar shows (the app's and the window's own), to tell
+    /// what changed.
+    menu_shown: MenuBarData,
+    /// The bar's items by id, and the check mark each should show.
+    menu_items: MenuItems,
     /// The content size the app asked for, re-applied when the menu bar
     /// changes height.
     requested: Option<Size>,
@@ -260,8 +265,25 @@ struct Node {
 }
 
 type Callback = Rc<dyn Fn()>;
-/// The app's menus and how to report a choice.
-type Menus = (MenuBarData, Rc<dyn Fn(u32)>);
+type MenuItems = Rc<RefCell<HashMap<u32, (w::MenuFlyoutItemBase, MenuCheck)>>>;
+
+/// The app's menus, each window's own, and how to report a choice.
+#[derive(Default)]
+struct Menus {
+    app: MenuBarData,
+    windows: HashMap<NodeId, MenuBarData>,
+    activate: Option<Rc<dyn Fn(u32)>>,
+}
+
+impl Menus {
+    /// What a window's bar shows: the app's menus, and its own.
+    fn shown(&self, window: NodeId) -> MenuBarData {
+        match self.windows.get(&window) {
+            Some(own) => self.app.merged(own),
+            None => self.app.clone(),
+        }
+    }
+}
 
 /// Native element (by COM identity) → node, shared with focus handlers.
 type ElementMap = Rc<RefCell<HashMap<usize, NodeId>>>;
@@ -309,7 +331,7 @@ pub(crate) struct State {
     emitter: Events,
     log: Vec<Command>,
     pending_show: Vec<NodeId>,
-    menu: Option<Menus>,
+    menus: Menus,
 }
 
 pub struct WinUiBackend {
@@ -473,7 +495,7 @@ impl WinUiBackend {
                 emitter: Events { sink: EventSink::default(), wake: Rc::default(), muted: Rc::default() },
                 log: Vec::new(),
                 pending_show: Vec::new(),
-                menu: None,
+                menus: Menus::default(),
             })),
         }
     }
@@ -651,13 +673,23 @@ impl WinUiHandle {
         self.window_parts(id, |parts| parts.host.cast::<w::IUIElement>().ok()?.XamlRoot().ok()).flatten()
     }
 
-    /// Installs the app's menus in every window (and windows created later).
-    pub(crate) fn set_menu(&self, menu: &MenuBarData, activate: Rc<dyn Fn(u32)>) {
+    /// Installs the app's menus (`None`), shown in every window, or a
+    /// window's own, shown in it with the app's. A window's menus may come
+    /// before the window does: it gets them when it's created.
+    pub(crate) fn set_menu(&self, window: Option<NodeId>, menu: &MenuBarData, activate: Rc<dyn Fn(u32)>) {
         let mut state = self.state.borrow_mut();
-        state.menu = Some((menu.clone(), activate.clone()));
-        for node in state.nodes.values_mut() {
-            if let Widget::Window(parts) = &mut node.widget {
-                install_menu(parts, menu, &activate);
+        let State { nodes, menus, .. } = &mut *state;
+        menus.activate = Some(activate);
+        match window {
+            None => menus.app = menu.clone(),
+            Some(window) if menu.menus.is_empty() => _ = menus.windows.remove(&window),
+            Some(window) => _ = menus.windows.insert(window, menu.clone()),
+        }
+        for (id, node) in nodes.iter_mut() {
+            if let Widget::Window(parts) = &mut node.widget
+                && window.is_none_or(|w| w == *id)
+            {
+                refresh_menu(parts, menus);
             }
         }
     }
@@ -879,6 +911,40 @@ fn resize_client(parts: &WindowParts, size: Size) {
     }
 }
 
+/// Brings a window's bar up to date with the menus it shows: in place
+/// when only enabled and checked states changed, so an open menu stays
+/// open, and rebuilt otherwise.
+fn refresh_menu(parts: &mut WindowParts, menus: &Menus) {
+    let shown = menus.shown(parts.node);
+    if parts.menu_bar.is_some() && shown.same_structure(&parts.menu_shown) {
+        update_menu(parts, &shown);
+    } else if shown != parts.menu_shown {
+        let activate = menus.activate.clone().unwrap_or_else(|| Rc::new(|_| {}));
+        install_menu(parts, &shown, &activate);
+    }
+    parts.menu_shown = shown;
+}
+
+fn update_menu(parts: &WindowParts, menu: &MenuBarData) {
+    let mut items = parts.menu_items.borrow_mut();
+    for data in menu.items() {
+        let Some((item, check)) = items.get_mut(&data.id) else { continue };
+        _ = item.cast::<w::IControl>().and_then(|c| c.SetIsEnabled(data.enabled));
+        *check = data.check;
+        show_check(item, data.check);
+    }
+}
+
+/// Sets what a toggle or radio item shows. Only `Click` reports a choice,
+/// so this never does.
+fn show_check(item: &w::MenuFlyoutItemBase, check: MenuCheck) {
+    match check {
+        MenuCheck::None => {}
+        MenuCheck::Check(on) => _ = item.cast::<w::IToggleMenuFlyoutItem>().and_then(|t| t.SetIsChecked(on)),
+        MenuCheck::Radio(on) => _ = item.cast::<w::IRadioMenuFlyoutItem>().and_then(|r| r.SetIsChecked(on)),
+    }
+}
+
 fn install_menu(parts: &mut WindowParts, menu: &MenuBarData, activate: &Rc<dyn Fn(u32)>) {
     let children = ok(parts.root.cast::<w::IPanel>().and_then(|p| p.Children()), "root children");
     if let Some(old) = parts.menu_bar.take() {
@@ -889,8 +955,10 @@ fn install_menu(parts: &mut WindowParts, menu: &MenuBarData, activate: &Rc<dyn F
         }
     }
     parts.menu_revokers.clear();
+    parts.menu_items.borrow_mut().clear();
     if !menu.menus.is_empty() {
-        let menu_bar = ok(build_menu_bar(menu, activate, &mut parts.menu_revokers), "building the menu bar");
+        let mut built = MenuBuild { activate, revokers: &mut parts.menu_revokers, items: &parts.menu_items };
+        let menu_bar = ok(built.menu_bar(menu), "building the menu bar");
         let element: w::UIElement = ok(menu_bar.cast(), "menu bar element");
         _ = w::Grid::SetRow(&ok(element.cast::<w::FrameworkElement>(), "menu bar element"), MENU_ROW);
         _ = children.Append(&element);
@@ -925,52 +993,98 @@ fn escape_closes(root: &w::Grid, hwnd: w::HWND) -> R<EventRevoker> {
     Ok(revoker)
 }
 
-fn build_menu_bar(menu: &MenuBarData, activate: &Rc<dyn Fn(u32)>, revokers: &mut Vec<EventRevoker>) -> R<w::MenuBar> {
-    let menu_bar = w::MenuBar::new()?;
-    let menus = menu_bar.cast::<w::IMenuBar>()?.Items()?;
-    for data in &menu.menus {
-        let item = w::MenuBarItem::new()?;
-        let item_iface: w::IMenuBarItem = item.cast()?;
-        item_iface.SetTitle(&data.title)?;
-        let entries = item_iface.Items()?;
-        for entry in &data.entries {
-            match entry {
-                MenuEntry::Item { id, title, shortcut, enabled } => {
-                    let flyout_item = w::MenuFlyoutItem::new()?;
-                    let iface: w::IMenuFlyoutItem = flyout_item.cast()?;
-                    iface.SetText(title)?;
-                    flyout_item.cast::<w::IControl>()?.SetIsEnabled(*enabled)?;
-                    if let Some(shortcut) = shortcut
-                        && let Some(key) = virtual_key(shortcut.key)
-                    {
-                        let accelerator = w::KeyboardAccelerator::new()?;
-                        let accel: w::IKeyboardAccelerator = accelerator.cast()?;
-                        accel.SetKey(key)?;
-                        let mut modifiers = w::VirtualKeyModifiers::None;
-                        if shortcut.primary {
-                            modifiers |= w::VirtualKeyModifiers::Control;
-                        }
-                        if shortcut.shift {
-                            modifiers |= w::VirtualKeyModifiers::Shift;
-                        }
-                        if shortcut.alt {
-                            modifiers |= w::VirtualKeyModifiers::Menu;
-                        }
-                        accel.SetModifiers(modifiers)?;
-                        flyout_item.cast::<w::IUIElement>()?.KeyboardAccelerators()?.Append(&accelerator)?;
-                    }
-                    let (id, activate) = (*id, activate.clone());
-                    revokers.push(iface.Click(move |_, _| activate(id))?);
-                    entries.Append(&flyout_item.cast::<w::MenuFlyoutItemBase>()?)?;
+/// Builds a window's `MenuBar`. Items with a role stay where the app put
+/// them: Windows has no standard place of its own for About, Settings or
+/// Exit, and no standard titles or shortcuts for them.
+struct MenuBuild<'a> {
+    activate: &'a Rc<dyn Fn(u32)>,
+    revokers: &'a mut Vec<EventRevoker>,
+    items: &'a MenuItems,
+}
+
+impl MenuBuild<'_> {
+    fn menu_bar(&mut self, menu: &MenuBarData) -> R<w::MenuBar> {
+        let menu_bar = w::MenuBar::new()?;
+        let menus = menu_bar.cast::<w::IMenuBar>()?.Items()?;
+        for data in &menu.menus {
+            let item = w::MenuBarItem::new()?;
+            let item_iface: w::IMenuBarItem = item.cast()?;
+            item_iface.SetTitle(&data.title)?;
+            self.entries(&item_iface.Items()?, data)?;
+            menus.Append(&item)?;
+        }
+        Ok(menu_bar)
+    }
+
+    fn entries(&mut self, entries: &windows_collections::IVector<w::MenuFlyoutItemBase>, menu: &MenuData) -> R<()> {
+        for (entry, group) in menu.entries.iter().zip(menu.radio_groups()) {
+            let element = match entry {
+                MenuEntry::Item(data) => self.item(data, group)?,
+                MenuEntry::Submenu(submenu) => {
+                    let sub = w::MenuFlyoutSubItem::new()?;
+                    let iface: w::IMenuFlyoutSubItem = sub.cast()?;
+                    iface.SetText(&submenu.title)?;
+                    self.entries(&iface.Items()?, submenu)?;
+                    sub.cast()?
                 }
-                MenuEntry::Separator => {
-                    entries.Append(&w::MenuFlyoutSeparator::new()?.cast::<w::MenuFlyoutItemBase>()?)?;
+                MenuEntry::Separator => w::MenuFlyoutSeparator::new()?.cast()?,
+            };
+            entries.Append(&element)?;
+        }
+        Ok(())
+    }
+
+    /// A `MenuFlyoutItem`, or for a check mark a `ToggleMenuFlyoutItem`, or
+    /// a `RadioMenuFlyoutItem` grouped with the radio items next to it.
+    fn item(&mut self, data: &MenuItemData, group: Option<u32>) -> R<w::MenuFlyoutItemBase> {
+        let element: w::MenuFlyoutItemBase = match data.check {
+            MenuCheck::None => w::MenuFlyoutItem::new()?.cast()?,
+            MenuCheck::Check(_) => w::ToggleMenuFlyoutItem::new()?.cast()?,
+            MenuCheck::Radio(_) => {
+                let radio = w::RadioMenuFlyoutItem::new()?;
+                let name = format!("mitsuami-{}", group.unwrap_or(data.id));
+                radio.cast::<w::IRadioMenuFlyoutItem>()?.SetGroupName(&name)?;
+                radio.cast()?
+            }
+        };
+        show_check(&element, data.check);
+        let iface: w::IMenuFlyoutItem = element.cast()?;
+        iface.SetText(&data.title)?;
+        element.cast::<w::IControl>()?.SetIsEnabled(data.enabled)?;
+        if let Some(shortcut) = data.shortcut
+            && let Some(key) = virtual_key(shortcut.key)
+        {
+            let accelerator = w::KeyboardAccelerator::new()?;
+            let accel: w::IKeyboardAccelerator = accelerator.cast()?;
+            accel.SetKey(key)?;
+            let mut modifiers = w::VirtualKeyModifiers::None;
+            if shortcut.primary {
+                modifiers |= w::VirtualKeyModifiers::Control;
+            }
+            if shortcut.shift {
+                modifiers |= w::VirtualKeyModifiers::Shift;
+            }
+            if shortcut.alt {
+                modifiers |= w::VirtualKeyModifiers::Menu;
+            }
+            accel.SetModifiers(modifiers)?;
+            element.cast::<w::IUIElement>()?.KeyboardAccelerators()?.Append(&accelerator)?;
+        }
+        // XAML flips a toggle or radio item as it's clicked. What it shows
+        // is the app's state, so put it back: the app's choice comes back
+        // from the core.
+        let (id, activate, items) = (data.id, self.activate.clone(), Rc::downgrade(self.items));
+        self.revokers.push(iface.Click(move |_, _| {
+            if let Some(items) = items.upgrade() {
+                for (item, check) in items.borrow().values() {
+                    show_check(item, *check);
                 }
             }
-        }
-        menus.Append(&item)?;
+            activate(id);
+        })?);
+        self.items.borrow_mut().insert(data.id, (element.clone(), data.check));
+        Ok(element)
     }
-    Ok(menu_bar)
 }
 
 fn virtual_key(c: char) -> Option<w::VirtualKey> {
@@ -1121,6 +1235,8 @@ impl State {
             id: window_id,
             menu_bar: None,
             menu_revokers: Vec::new(),
+            menu_shown: MenuBarData::default(),
+            menu_items: MenuItems::default(),
             requested: None,
             node: id,
             emitter,
@@ -1133,9 +1249,7 @@ impl State {
             toolbar: None,
             toolbar_items: Vec::new(),
         };
-        if let Some((menu, activate)) = &self.menu {
-            install_menu(&mut parts, menu, activate);
-        }
+        refresh_menu(&mut parts, &self.menus);
         Ok((Widget::Window(Box::new(parts)), host_element, revokers))
     }
 
@@ -1890,6 +2004,7 @@ impl State {
                 let Some(node) = self.nodes.remove(id) else { violation(command, "node does not exist") };
                 self.by_element.borrow_mut().remove(&key(&node.element));
                 self.pending_show.retain(|w| w != id);
+                self.menus.windows.remove(id);
                 drop(node.revokers);
                 if let Widget::Window(parts) = node.widget {
                     let WindowParts { window, menu_revokers, modal, disabled, .. } = *parts;

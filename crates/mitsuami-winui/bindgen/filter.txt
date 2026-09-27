@@ -131,7 +131,13 @@ Microsoft.UI.Xaml.Controls.ICommandBar::get_PrimaryCommands
 Microsoft.UI.Xaml.Controls.ICommandBarElement::get_IsInOverflow
 Microsoft.UI.Xaml.Controls.AppBarElementContainer::CreateInstance
 Microsoft.UI.Xaml.Controls.MenuFlyoutItem::CreateInstance
-Microsoft.UI.Xaml.Controls.IMenuFlyoutItem::{put_Text, add_Click, remove_Click}
+Microsoft.UI.Xaml.Controls.IMenuFlyoutItem::{get_Text, put_Text, add_Click, remove_Click}
+Microsoft.UI.Xaml.Controls.MenuFlyoutSubItem::CreateInstance
+Microsoft.UI.Xaml.Controls.IMenuFlyoutSubItem::{get_Items, get_Text, put_Text}
+Microsoft.UI.Xaml.Controls.ToggleMenuFlyoutItem::CreateInstance
+Microsoft.UI.Xaml.Controls.IToggleMenuFlyoutItem::{get_IsChecked, put_IsChecked}
+Microsoft.UI.Xaml.Controls.RadioMenuFlyoutItem::CreateInstance
+Microsoft.UI.Xaml.Controls.IRadioMenuFlyoutItem::{get_IsChecked, put_IsChecked, get_GroupName, put_GroupName}
 Microsoft.UI.Xaml.Controls.MenuFlyoutSeparator::CreateInstance
 Microsoft.UI.Xaml.Controls.MenuFlyoutItemBase::{}
 Windows.System.VirtualKey

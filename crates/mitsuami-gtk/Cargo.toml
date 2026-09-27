@@ -16,6 +16,9 @@ mitsuami-widgets.workspace = true
 gtk.workspace = true
 libc.workspace = true
 
+[target.'cfg(target_os = "linux")'.dev-dependencies]
+mitsuami-reactive.workspace = true
+
 [[test]]
 name = "services"
 harness = false

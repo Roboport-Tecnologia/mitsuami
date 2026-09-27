@@ -2,30 +2,34 @@
 //!
 //! GNOME apps have no menu bar: the app's menus go in a menu button at the
 //! end of each window's header bar (the "primary menu", F10), one section
-//! per menu, plus Quit. Shortcuts work in every window. GTK's text widgets
+//! per menu, plus Quit. A window's own menus join the app's in its button.
+//! Shortcuts work in every window. GTK's text widgets
 //! bring their own Cut/Copy/Paste context menus and keybindings, so there is
 //! no Edit menu to add.
 
-use std::cell::Cell;
+use std::cell::{Cell, RefCell};
+use std::collections::HashMap;
 use std::path::PathBuf;
-use std::rc::Rc;
+use std::rc::{Rc, Weak};
 
 use gtk::prelude::*;
 use gtk::{gdk, gio, glib};
 use mitsuami_core::NodeId;
 use mitsuami_core::services::{
-    Alert, MenuBarData, MenuEntry, OpenFile, Reply, SaveFile, ServiceError, Services, Shortcut,
+    Alert, MenuBarData, MenuCheck, MenuEntry, MenuItemData, MenuRole, OpenFile, Reply, SaveFile, ServiceError,
+    Services, Shortcut,
 };
 
-use crate::backend::{GtkHandle, WindowParts, dialog_parent, file_filters};
+use crate::backend::{GtkHandle, State, WindowParts, dialog_parent, file_filters};
 
-/// The app's menu as GTK objects, shared by every window.
+/// A window's primary menu as GTK objects, and the data it was built from.
 pub(crate) struct MenuParts {
+    data: MenuBarData,
     model: gio::Menu,
     actions: gio::SimpleActionGroup,
-    /// `(trigger, action)` pairs, e.g. `("<Control>n", "app.item-1")`.
-    shortcuts: Vec<(String, String)>,
-    has_app_menus: bool,
+    /// `(trigger, action, target)`, e.g. `("<Control>n", "mitsuami.item-1", None)`.
+    shortcuts: Vec<(String, String, Option<glib::Variant>)>,
+    has_menus: bool,
 }
 
 const GROUP: &str = "mitsuami";
@@ -33,23 +37,221 @@ const GROUP: &str = "mitsuami";
 impl MenuParts {
     /// Puts the menu in a window: the header bar's menu button, the actions
     /// and the keyboard shortcuts.
-    pub(crate) fn install(&self, window: &WindowParts) {
+    fn install(&self, window: &WindowParts) {
         window.window.insert_action_group(GROUP, Some(&self.actions));
         window.menu_button.set_menu_model(Some(&self.model));
-        window.menu_button.set_visible(self.has_app_menus);
+        window.menu_button.set_visible(self.has_menus);
         let controller = &window.shortcuts;
         while let Some(old) = controller.item(0).and_downcast::<gtk::Shortcut>() {
             controller.remove_shortcut(&old);
         }
-        for (trigger, action) in &self.shortcuts {
+        for (trigger, action, target) in &self.shortcuts {
             if let Some(trigger) = gtk::ShortcutTrigger::parse_string(trigger) {
-                controller.add_shortcut(gtk::Shortcut::new(Some(trigger), Some(gtk::NamedAction::new(action))));
+                let shortcut = gtk::Shortcut::new(Some(trigger), Some(gtk::NamedAction::new(action)));
+                // A radio item's action takes the item's id.
+                shortcut.set_arguments(target.as_ref());
+                controller.add_shortcut(shortcut);
             }
         }
     }
+
+    /// Enabled and checked states, in place: rebuilding would close the
+    /// menu if it's open.
+    fn update(&mut self, data: MenuBarData) {
+        for item in data.items() {
+            let Some(action) = self.actions.lookup_action(&action_name(item.id)).and_downcast::<gio::SimpleAction>()
+            else {
+                continue;
+            };
+            action.set_enabled(item.enabled);
+            if let Some(state) = check_state(item) {
+                action.set_state(&state);
+            }
+        }
+        self.data = data;
+    }
 }
 
-/// `<Control><Shift>n`, the notation of `gtk_shortcut_trigger_parse_string`.
+/// The menus windows show: the app's, and each window's own with them.
+#[derive(Default)]
+pub(crate) struct Menus {
+    app: MenuBarData,
+    /// Windows' own menus, which may come before the window does.
+    windows: HashMap<NodeId, MenuBarData>,
+    activate: Option<Rc<dyn Fn(u32)>>,
+    /// Each window's primary menu.
+    installed: HashMap<NodeId, MenuParts>,
+    /// For Quit, which asks every window to close.
+    pub(crate) backend: Weak<RefCell<State>>,
+}
+
+impl Menus {
+    /// Takes the app's menus (`None`) or a window's; an empty bar removes a
+    /// window's.
+    pub(crate) fn set(&mut self, window: Option<NodeId>, menu: &MenuBarData, activate: Rc<dyn Fn(u32)>) {
+        self.activate = Some(activate);
+        match window {
+            None => self.app = menu.clone(),
+            Some(window) if menu.menus.is_empty() => _ = self.windows.remove(&window),
+            Some(window) => _ = self.windows.insert(window, menu.clone()),
+        }
+    }
+
+    /// Brings a window's primary menu up to date: in place when only
+    /// states changed, otherwise built again.
+    pub(crate) fn show_in(&mut self, id: NodeId, window: &WindowParts) {
+        let data = match self.windows.get(&id) {
+            Some(own) => self.app.merged(own),
+            None => self.app.clone(),
+        };
+        if let Some(parts) = self.installed.get_mut(&id)
+            && parts.data.same_structure(&data)
+        {
+            parts.update(data);
+            return;
+        }
+        let parts = self.build(data);
+        parts.install(window);
+        self.installed.insert(id, parts);
+    }
+
+    pub(crate) fn actions(&self, id: NodeId) -> Option<gio::ActionGroup> {
+        self.installed.get(&id).map(|parts| parts.actions.clone().upcast())
+    }
+
+    /// The window is gone. Its own menus stay until the app removes them.
+    pub(crate) fn forget(&mut self, id: NodeId) {
+        self.installed.remove(&id);
+    }
+
+    /// One section per menu, split at its separators and labelled with its
+    /// title; submenus in their section. Items with a role go last, in
+    /// GNOME's order: Preferences, About, Quit.
+    fn build(&self, data: MenuBarData) -> MenuParts {
+        let mut builder = Builder {
+            actions: gio::SimpleActionGroup::new(),
+            shortcuts: Vec::new(),
+            activate: self.activate.clone().unwrap_or_else(|| Rc::new(|_| {})),
+        };
+        let model = gio::Menu::new();
+        let mut rest = data.clone();
+        let settings = rest.take_role(MenuRole::Settings);
+        let about = rest.take_role(MenuRole::About);
+        let quit = rest.take_role(MenuRole::Quit);
+        for menu in &rest.menus {
+            for (i, section) in builder.sections(&menu.entries).into_iter().enumerate() {
+                // The menu's title labels its first section.
+                let label = (i == 0).then_some(menu.title.as_str());
+                model.append_section(label, &section);
+            }
+        }
+        let last = gio::Menu::new();
+        if let Some(settings) = &settings {
+            // GNOME's shortcut for Preferences.
+            let shortcut = settings.shortcut.or(Some(Shortcut::primary(',')));
+            last.append_item(&builder.item(settings, &settings.title, shortcut));
+        }
+        if let Some(about) = &about {
+            last.append_item(&builder.item(about, &about.title, about.shortcut));
+        }
+        match &quit {
+            // The app's own Quit, in place of ours.
+            Some(quit) => last.append_item(&builder.item(quit, "Quit", Some(Shortcut::primary('q')))),
+            None => {
+                let action = gio::SimpleAction::new("quit", None);
+                let backend = self.backend.clone();
+                action.connect_activate(move |_, _| {
+                    if let Some(backend) = GtkHandle::from_weak(&backend) {
+                        backend.request_quit();
+                    }
+                });
+                builder.actions.add_action(&action);
+                let item = gio::MenuItem::new(Some("Quit"), Some(&format!("{GROUP}.quit")));
+                item.set_attribute_value("accel", Some(&"<Control>q".to_variant()));
+                last.append_item(&item);
+                builder.shortcuts.push(("<Control>q".into(), format!("{GROUP}.quit"), None));
+            }
+        }
+        model.append_section(None, &last);
+        let has_menus = !data.menus.is_empty();
+        MenuParts { data, model, actions: builder.actions, shortcuts: builder.shortcuts, has_menus }
+    }
+}
+
+struct Builder {
+    actions: gio::SimpleActionGroup,
+    shortcuts: Vec<(String, String, Option<glib::Variant>)>,
+    activate: Rc<dyn Fn(u32)>,
+}
+
+impl Builder {
+    /// Separators split entries into sections.
+    fn sections(&mut self, entries: &[MenuEntry]) -> Vec<gio::Menu> {
+        entries
+            .split(|e| matches!(e, MenuEntry::Separator))
+            .filter(|group| !group.is_empty())
+            .map(|group| {
+                let section = gio::Menu::new();
+                for entry in group {
+                    match entry {
+                        MenuEntry::Item(item) => section.append_item(&self.item(item, &item.title, item.shortcut)),
+                        MenuEntry::Submenu(menu) => {
+                            let submenu = gio::Menu::new();
+                            for part in self.sections(&menu.entries) {
+                                submenu.append_section(None, &part);
+                            }
+                            section.append_submenu(Some(&menu.title), &submenu);
+                        }
+                        MenuEntry::Separator => {}
+                    }
+                }
+                section
+            })
+            .collect()
+    }
+
+    /// An item and its action. A check item's action holds a boolean; a
+    /// radio item's holds its own id while chosen and "" otherwise, with
+    /// its id as the item's target, which is how GTK tells radio items.
+    /// Neither changes its own state: the app's comes back from the core.
+    fn item(&mut self, data: &MenuItemData, title: &str, shortcut: Option<Shortcut>) -> gio::MenuItem {
+        let name = action_name(data.id);
+        let target = matches!(data.check, MenuCheck::Radio(_)).then(|| data.id.to_string().to_variant());
+        let action = match check_state(data) {
+            Some(state) => gio::SimpleAction::new_stateful(&name, target.as_ref().map(|t| t.type_()), &state),
+            None => gio::SimpleAction::new(&name, None),
+        };
+        action.set_enabled(data.enabled);
+        let (activate, id) = (self.activate.clone(), data.id);
+        action.connect_activate(move |_, _| activate(id));
+        self.actions.add_action(&action);
+        let detailed = format!("{GROUP}.{name}");
+        let item = gio::MenuItem::new(Some(title), None);
+        item.set_action_and_target_value(Some(&detailed), target.as_ref());
+        if let Some(shortcut) = shortcut {
+            let trigger = trigger(&shortcut);
+            item.set_attribute_value("accel", Some(&trigger.to_variant()));
+            self.shortcuts.push((trigger, detailed, target));
+        }
+        item
+    }
+}
+
+fn action_name(id: u32) -> String {
+    format!("item-{id}")
+}
+
+/// The state of a check or radio item's action.
+fn check_state(item: &MenuItemData) -> Option<glib::Variant> {
+    match item.check {
+        MenuCheck::None => None,
+        MenuCheck::Check(on) => Some(on.to_variant()),
+        MenuCheck::Radio(on) => Some(if on { item.id.to_string() } else { String::new() }.to_variant()),
+    }
+}
+
+/// `<Control><Shift>n`, the notation of `gtk_shortcut_trigger_parse_string`,
+/// which names keys like `,` (`comma`).
 fn trigger(shortcut: &Shortcut) -> String {
     let mut trigger = String::new();
     if shortcut.primary {
@@ -61,94 +263,23 @@ fn trigger(shortcut: &Shortcut) -> String {
     if shortcut.alt {
         trigger.push_str("<Alt>");
     }
-    trigger.push(shortcut.key);
+    // SAFETY: any keyval is a valid `Key`; unknown ones have no name.
+    let key: gdk::Key = unsafe { glib::translate::from_glib(gdk::unicode_to_keyval(shortcut.key as u32)) };
+    match key.name() {
+        Some(name) => trigger.push_str(&name),
+        None => trigger.push(shortcut.key),
+    }
     trigger
 }
 
 pub struct GtkServices {
     backend: GtkHandle,
-    /// The last menu installed, to update enabled states in place instead
-    /// of rebuilding (which would close an open menu).
-    menu: Option<MenuBarData>,
 }
 
 impl GtkServices {
     pub(crate) fn new(backend: GtkHandle) -> GtkServices {
-        GtkServices { backend, menu: None }
+        GtkServices { backend }
     }
-
-    fn build_menu(&self, menu: &MenuBarData, activate: Rc<dyn Fn(u32)>) -> MenuParts {
-        let model = gio::Menu::new();
-        let actions = gio::SimpleActionGroup::new();
-        let mut shortcuts = Vec::new();
-        for app_menu in &menu.menus {
-            // Separators split a menu into sections.
-            let mut section_of = |entries: &[MenuEntry]| {
-                let section = gio::Menu::new();
-                for entry in entries {
-                    if let MenuEntry::Item { id, title, shortcut, enabled } = entry {
-                        let name = format!("item-{id}");
-                        let action = gio::SimpleAction::new(&name, None);
-                        action.set_enabled(*enabled);
-                        let (activate, id) = (activate.clone(), *id);
-                        action.connect_activate(move |_, _| activate(id));
-                        actions.add_action(&action);
-                        let item = gio::MenuItem::new(Some(title), Some(&format!("{GROUP}.{name}")));
-                        if let Some(shortcut) = shortcut {
-                            let trigger = trigger(shortcut);
-                            item.set_attribute_value("accel", Some(&trigger.to_variant()));
-                            shortcuts.push((trigger, format!("{GROUP}.{name}")));
-                        }
-                        section.append_item(&item);
-                    }
-                }
-                section
-            };
-            let groups: Vec<&[MenuEntry]> =
-                app_menu.entries.split(|e| matches!(e, MenuEntry::Separator)).filter(|g| !g.is_empty()).collect();
-            for (i, group) in groups.into_iter().enumerate() {
-                // The menu's title labels its first section.
-                let label = (i == 0).then_some(app_menu.title.as_str());
-                model.append_section(label, &section_of(group));
-            }
-        }
-        let quit = gio::SimpleAction::new("quit", None);
-        let backend = self.backend.weak();
-        quit.connect_activate(move |_, _| {
-            if let Some(backend) = GtkHandle::from_weak(&backend) {
-                backend.request_quit();
-            }
-        });
-        actions.add_action(&quit);
-        let section = gio::Menu::new();
-        let item = gio::MenuItem::new(Some("Quit"), Some(&format!("{GROUP}.quit")));
-        item.set_attribute_value("accel", Some(&"<Control>q".to_variant()));
-        section.append_item(&item);
-        model.append_section(None, &section);
-        shortcuts.push(("<Control>q".into(), format!("{GROUP}.quit")));
-        MenuParts { model, actions, shortcuts, has_app_menus: !menu.menus.is_empty() }
-    }
-}
-
-/// Same menus, items and shortcuts; only enabled states may differ.
-fn same_structure(a: &MenuBarData, b: &MenuBarData) -> bool {
-    let strip = |m: &MenuBarData| {
-        m.menus
-            .iter()
-            .map(|menu| {
-                let entries: Vec<_> = menu
-                    .entries
-                    .iter()
-                    .map(|e| match e {
-                        MenuEntry::Item { id, title, shortcut, .. } => Some((*id, title.clone(), *shortcut)),
-                        MenuEntry::Separator => None,
-                    })
-                    .collect();
-                (menu.title.clone(), entries)
-            })
-            .collect::<Vec<_>>()
-    };
-    strip(a) == strip(b)
 }
 
 /// Wraps a one-shot reply for callbacks GTK types as reusable.
@@ -247,29 +378,7 @@ impl Services for GtkServices {
             .save(window.as_ref(), None::<&gio::Cancellable>, move |result| reply(result.ok().and_then(|f| path(&f))));
     }
 
-    fn set_menu(&mut self, menu: &MenuBarData, activate: Rc<dyn Fn(u32)>) {
-        if let Some(installed) = &self.menu
-            && same_structure(installed, menu)
-            && let Some(parts) = self.backend.menu_actions()
-        {
-            for entry in menu.menus.iter().flat_map(|m| &m.entries) {
-                if let MenuEntry::Item { id, enabled, .. } = entry
-                    && let Some(action) = parts.lookup_action(&format!("item-{id}")).and_downcast::<gio::SimpleAction>()
-                {
-                    action.set_enabled(*enabled);
-                }
-            }
-        } else {
-            let parts = self.build_menu(menu, activate);
-            self.backend.set_menu(parts);
-        }
-        self.menu = Some(menu.clone());
-    }
-}
-
-impl GtkHandle {
-    /// The installed menu's actions.
-    fn menu_actions(&self) -> Option<gio::SimpleActionGroup> {
-        self.with_menu(|menu| menu.actions.clone())
+    fn set_menu(&mut self, window: Option<NodeId>, menu: &MenuBarData, activate: Rc<dyn Fn(u32)>) {
+        self.backend.set_menu(window, menu, activate);
     }
 }

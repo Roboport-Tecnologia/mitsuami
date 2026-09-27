@@ -224,11 +224,18 @@ Implement `Services`. **Never block**: reply later, from the platform's completi
 | clipboard write (async reply, can fail) | `NSPasteboard` (replies immediately) | `gdk::Clipboard::set_text` | `Clipboard.SetContent` (throws while another process holds the clipboard: reply `Err`) | `QClipboard` (replies immediately) |
 | alert | `NSAlert` sheet on the parent | `gtk::AlertDialog::choose` | `ContentDialog` (one at a time per window) | `Kirigami.PromptDialog` in the window's overlay |
 | open / save | `NSOpenPanel` / `NSSavePanel` sheets with `UTType` filters | `gtk::FileDialog` (`open`/`open_multiple`/`save`) with `gtk::FileFilter` | `FileOpenPicker` / `FileSavePicker` (need the window handle: `InitializeWithWindow`) | Qt Quick's `FileDialog` / `FolderDialog` (Plasma's own through its platform theme) |
-| menus | the global `NSMenu` bar: app menu, the app's File, Edit, the rest | `gio::Menu` on the application (`set_menubar`) or a `PopoverMenuBar` in each window | a `MenuBar` in each window | a `Kirigami.GlobalDrawer` shown as a menu (`isMenu`) in each window |
+| menus | the global `NSMenu` bar: app menu, the app's File, Edit, the rest; a window's own menus while it's main | the header bar's primary menu (a `gio::Menu` section per menu) in each window | a `MenuBar` in each window | a `Kirigami.GlobalDrawer` shown as a menu (`isMenu`) in each window |
+| submenus | `NSMenuItem.submenu` | `gio::Menu::append_submenu` | `MenuFlyoutSubItem` | nested `Kirigami.Action`s |
+| check / radio items | `NSMenuItem.state` | a stateful action (boolean; a radio item's holds its id, its target) | `ToggleMenuFlyoutItem` / `RadioMenuFlyoutItem` (`GroupName`) | `checkable` actions; a radio group in one `QQC2.ActionGroup` |
+| roles (About, Settings, Quit) | the app menu, AppKit's titles and shortcuts | the last section: Settings, About, Quit | where the app put them | the end of the drawer: Settings, About, Quit |
 
 - **`parent: None`** means the active window: AppKit uses the key window, then the main window. Only fall back to app-modal if there is no window.
 - **Menus inside the window** (GTK without a global menu, WinUI): the menu bar takes space the core doesn't know about. Put it above your content host, and report the **remaining** content size in `WindowResized`.
 - Keep the platform's standard menus (Quit, Edit with Cut/Copy/Paste/Undo) and leave their enabling to the platform. The app's own items follow its `enabled` state.
+- **`set_menu(None, …)` is the app's menus; `set_menu(Some(window), …)` is that window's own,** shown with the app's (`MenuBarData::merged`), and an empty bar removes them. A window's menus usually arrive before its `CreateWindow` is applied, and may arrive after it's destroyed: keep them by `NodeId`.
+- **Update in place when you can:** if `MenuBarData::same_structure` holds, only enabled and checked states changed; rebuilding would close an open menu.
+- **Items with a role** go where the platform puts them: `MenuBarData::take_role` takes them out of the app's menus, tidying separators. A Quit item replaces your own Quit. Where the platform has no place for them, leave them.
+- **Check and radio items** are drawn by the platform. If it toggles an item itself on a click, put the app's state back: the core sends the new state when the app changes it, and only the user's choice may call `activate`.
 - `Shortcut::primary` is Ctrl on GTK, Qt and WinUI.
 
 ## 8a. Escape hatches: custom widgets, native views and tweaks
@@ -329,7 +336,7 @@ cargo run -p mitsuami --example showcase        # look at it
 - **Mirror checks** run after every settle, comparing native and core children, props, frames, focus and scroll offsets. A failure names the node and the difference.
 - **Visual baselines** are stored per backend and machine image in `tests/visual/<name>/<image>/` (ARCHITECTURE.md §12). The first run creates them; look at them. CI records its own: a failing run uploads them, and `.github/scripts/accept-snapshots.sh <run id>` accepts them.
 - **Headless-only tests** (fake metrics, simulated system changes) are skipped in native runs.
-- **Your real services** aren't exercised by app tests, which use a scripted fake. Copy `mitsuami-appkit/tests/services.rs`: a private clipboard if possible, the real menu structure plus an activation, an alert answered through its real button, and a cancelled file dialog.
+- **Your real services** aren't exercised by app tests, which use a scripted fake. Copy `mitsuami-appkit/tests/services.rs`: a private clipboard if possible, the real menu structure plus an activation (submenus, check marks, roles, a window's own menus), an alert answered through its real button, and a cancelled file dialog.
 
 ## 13. Suggested order
 

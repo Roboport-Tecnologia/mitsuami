@@ -11,9 +11,10 @@ mod checks {
     use std::rc::Rc;
     use std::time::{Duration, Instant};
 
-    use mitsuami_core::services::{Alert, Menu, MenuBar, MenuItem, OpenFile, Shortcut};
+    use mitsuami_core::services::{Alert, Menu, MenuBar, MenuItem, MenuRole, OpenFile, Shortcut};
     use mitsuami_core::{Size, Ui};
     use mitsuami_kirigami::{BackendOptions, KirigamiBackend, KirigamiHandle};
+    use mitsuami_reactive::signal;
 
     pub struct Fixture {
         pub ui: Ui,
@@ -62,10 +63,12 @@ mod checks {
             MenuBar::new()
                 .menu(
                     Menu::new("File")
-                        .item(MenuItem::new("New", move || c.set(c.get() + 1)).shortcut(Shortcut::primary('n')))
-                        .item(MenuItem::new("Unavailable", move || unavailable.set(100)).enabled(false)),
+                        .item(
+                            MenuItem::new("New").on_select(move || c.set(c.get() + 1)).shortcut(Shortcut::primary('n')),
+                        )
+                        .item(MenuItem::new("Unavailable").on_select(move || unavailable.set(100)).enabled(false)),
                 )
-                .menu(Menu::new("View").item(MenuItem::new("Zoom", || {}))),
+                .menu(Menu::new("View").item(MenuItem::new("Zoom"))),
         );
         let window = f.ui.create_window("menu host", Size::new(400.0, 300.0));
         f.ui.tick();
@@ -87,6 +90,92 @@ mod checks {
         f.ui.tick();
         assert_eq!(chosen.get(), 1, "the handler ran, and only the enabled one");
         f.ui.destroy(window);
+        f.ui.tick();
+    }
+
+    pub fn submenus_check_marks_and_radio_groups(f: &Fixture) {
+        let (opened, sidebar, zoom) = (Rc::new(Cell::new(0)), signal(true), signal(1));
+        let o = opened.clone();
+        f.ui.set_menu(
+            MenuBar::new()
+                .menu(Menu::new("File").submenu(
+                    Menu::new("Open Recent").item(MenuItem::new("notes.txt").on_select(move || o.set(o.get() + 1))),
+                ))
+                .menu(
+                    Menu::new("View")
+                        .item(MenuItem::new("Show Sidebar").bind(sidebar))
+                        .separator()
+                        .item(MenuItem::new("Small").radio((zoom, 1)))
+                        .item(MenuItem::new("Large").radio((zoom, 2))),
+                ),
+        );
+        let window = f.ui.create_window("menu host", Size::new(400.0, 300.0));
+        f.ui.tick();
+        let drawer = f.handle.qml_window(window).unwrap().object("globalDrawer").expect("a global drawer");
+        assert!(drawer.find("text", "Open Recent").is_some(), "the submenu");
+        drawer.find("text", "notes.txt").expect("its item").invoke("trigger");
+        f.ui.tick();
+        assert_eq!(opened.get(), 1);
+
+        let show = drawer.find("text", "Show Sidebar").expect("the check item");
+        assert!(show.bool("checkable") && show.bool("checked"));
+        show.invoke("trigger");
+        f.ui.tick();
+        assert!(!sidebar.get_untracked(), "choosing it toggles the signal");
+        assert!(!show.bool("checked"), "and the drawer follows");
+
+        let (small, large) = (drawer.find("text", "Small").unwrap(), drawer.find("text", "Large").unwrap());
+        assert!(small.bool("checked") && !large.bool("checked"));
+        large.invoke("trigger");
+        f.ui.tick();
+        assert_eq!(zoom.get_untracked(), 2);
+        assert!(!small.bool("checked") && large.bool("checked"), "one choice of the group");
+        f.ui.destroy(window);
+        f.ui.tick();
+    }
+
+    /// Settings, About and the app's Quit end the drawer, with KDE's icons
+    /// and shortcuts; the Help menu About leaves empty goes.
+    pub fn role_items_end_the_drawer(f: &Fixture) {
+        let quit = Rc::new(Cell::new(0));
+        let q = quit.clone();
+        f.ui.set_menu(
+            MenuBar::new()
+                .menu(Menu::new("Edit").item(MenuItem::new("Preferences…").role(MenuRole::Settings)))
+                .menu(Menu::new("Help").item(MenuItem::new("About Launcher").role(MenuRole::About)))
+                .menu(Menu::new("File").item(MenuItem::new("Exit").role(MenuRole::Quit).on_select(move || q.set(1)))),
+        );
+        let window = f.ui.create_window("menu host", Size::new(400.0, 300.0));
+        f.ui.tick();
+        let drawer = f.handle.qml_window(window).unwrap().object("globalDrawer").expect("a global drawer");
+        let settings = drawer.find("text", "Preferences…").expect("the settings item");
+        assert_eq!(settings.str("shortcut"), "Ctrl+Shift+,");
+        assert!(drawer.find("text", "About Launcher").is_some());
+        assert!(drawer.find("text", "Help").is_none(), "left empty, so gone");
+        assert!(drawer.child("mitsuamiQuit").is_none(), "the app's Quit replaces ours");
+        let exit = drawer.find("text", "Quit").expect("the app's Quit, with KDE's title");
+        assert_eq!(exit.str("shortcut"), "Ctrl+Q");
+        exit.invoke("trigger");
+        f.ui.tick();
+        assert_eq!(quit.get(), 1, "the app's handler ran");
+        f.ui.destroy(window);
+        f.ui.tick();
+    }
+
+    /// A window's own menus arrive before it's created, as a `MenuBar` in
+    /// its content sends them, and are only in its drawer.
+    pub fn windows_have_their_own_menus(f: &Fixture) {
+        f.ui.set_menu(MenuBar::new().menu(Menu::new("File").item(MenuItem::new("New"))));
+        let main = f.ui.create_window("main", Size::new(400.0, 300.0));
+        let other = f.ui.create_window("other", Size::new(400.0, 300.0));
+        f.ui.set_window_menu(main, MenuBar::new().menu(Menu::new("Machine").item(MenuItem::new("Start"))));
+        f.ui.tick();
+        let drawer = |w| f.handle.qml_window(w).unwrap().object("globalDrawer").expect("a global drawer");
+        assert!(drawer(main).find("text", "Start").is_some() && drawer(main).find("text", "New").is_some());
+        assert!(drawer(other).find("text", "Start").is_none(), "only in its window");
+        assert!(drawer(other).find("text", "New").is_some(), "the app's are in every window");
+        f.ui.destroy(main);
+        f.ui.destroy(other);
         f.ui.tick();
     }
 
@@ -136,9 +225,12 @@ fn main() {
     use std::panic::{AssertUnwindSafe, catch_unwind};
 
     type Check = (&'static str, fn(&checks::Fixture));
-    let checks: [Check; 4] = [
+    let checks: [Check; 7] = [
         ("clipboard_round_trips", checks::clipboard_round_trips),
         ("menus_are_installed_and_activate", checks::menus_are_installed_and_activate),
+        ("submenus_check_marks_and_radio_groups", checks::submenus_check_marks_and_radio_groups),
+        ("role_items_end_the_drawer", checks::role_items_end_the_drawer),
+        ("windows_have_their_own_menus", checks::windows_have_their_own_menus),
         ("alerts_are_answered_through_their_buttons", checks::alerts_are_answered_through_their_buttons),
         ("file_dialogs_report_cancellation", checks::file_dialogs_report_cancellation),
     ];

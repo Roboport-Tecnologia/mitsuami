@@ -29,8 +29,8 @@ fn counter(log_lines: Signal<Vec<u32>>) -> impl View {
     set_menu(
         MenuBar::new().menu(
             Menu::new("Counter")
-                .item(MenuItem::new("Increment", increment).shortcut(Shortcut::primary('i')))
-                .item(MenuItem::new("Reset…", confirm_reset).enabled(move || count.get() != 0)),
+                .item(MenuItem::new("Increment").on_select(increment).shortcut(Shortcut::primary('i')))
+                .item(MenuItem::new("Reset…").on_select(confirm_reset).enabled(move || count.get() != 0)),
         ),
     );
     view! {

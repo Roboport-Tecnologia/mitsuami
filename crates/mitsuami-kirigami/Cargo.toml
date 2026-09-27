@@ -17,6 +17,9 @@ qt = []
 mitsuami-core.workspace = true
 mitsuami-widgets.workspace = true
 
+[dev-dependencies]
+mitsuami-reactive.workspace = true
+
 [build-dependencies]
 cc.workspace = true
 pkg-config.workspace = true

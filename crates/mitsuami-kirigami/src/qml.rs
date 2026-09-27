@@ -65,8 +65,8 @@ fn a11y_with(default_name: &str, hovered: &str) -> String {
     )
 }
 
-/// `drawer` is the app menu's global drawer, when there is one: it has to
-/// be there from the start (see `MenuParts::install`).
+/// `drawer` is the window's menus' global drawer, when it has menus: it has to
+/// be there from the start (see `Wiring::install` in `services.rs`).
 ///
 /// A modal window (`mitsuamiModal`) is a dialog, and Escape asks it to
 /// close, as a `QDialog`'s does: through `close()`, whose close event the

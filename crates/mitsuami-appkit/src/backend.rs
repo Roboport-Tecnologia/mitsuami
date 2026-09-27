@@ -383,6 +383,14 @@ impl AppKitHandle {
         }
     }
 
+    /// The window node showing this native window.
+    pub(crate) fn window_node(&self, ns_window: &NSWindow) -> Option<NodeId> {
+        self.state.borrow().nodes.iter().find_map(|(id, node)| match &node.widget {
+            Widget::Window { window, .. } if std::ptr::eq(&**window, ns_window) => Some(*id),
+            _ => None,
+        })
+    }
+
     /// Escape hatch: the native view of any node (a window's content view).
     pub fn ns_view(&self, id: NodeId) -> Option<Retained<NSView>> {
         let state = self.state.borrow();

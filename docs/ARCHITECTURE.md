@@ -240,7 +240,7 @@ pub trait Services {
     fn alert(&mut self, parent: Option<NodeId>, alert: &Alert, reply: Reply<usize>);   // never blocks
     fn open_file(&mut self, parent: Option<NodeId>, request: &OpenFile, reply: Reply<Option<Vec<PathBuf>>>);
     fn save_file(&mut self, parent: Option<NodeId>, request: &SaveFile, reply: Reply<Option<PathBuf>>);
-    fn set_menu(&mut self, menu: &MenuBarData, activate: Rc<dyn Fn(u32)>); // keeps the platform's standard menus
+    fn set_menu(&mut self, window: Option<NodeId>, menu: &MenuBarData, activate: Rc<dyn Fn(u32)>); // the app's or a window's; keeps the platform's standard menus
 }
 ```
 
@@ -510,14 +510,14 @@ which builds the same tree as `Column::new().gap(…).children((Text::new(…).t
 **What comes next is driven by 2ksbox.** mitsuami was started to replace the Qt Quick launcher of 2ksbox (a Windows 98/XP emulator; `launcher-qt/qml` in that repo). Widgets are added as that launcher needs them, and only widgets every platform has a native control for: what one platform lacks is the app's to build, as a custom widget (§6.3). From the launcher so far:
 
 - Built: `NumberInput` (its `SpinBox`), `Image` (its shader preview), tooltips (`.tooltip(text)` on any widget, for its elided status line).
-- Built, though not widgets: windows opened while the app runs, modal or not (`Window`, §16; every secondary window of the launcher is an application-modal dialog over it); Escape closing its dialogs (the launcher's `Shortcut`s), as a modal `Window` does (§16); its header, whose download progress and status line are items of the window's `Toolbar` (§16).
+- Built, though not widgets: windows opened while the app runs, modal or not (`Window`, §16; every secondary window of the launcher is an application-modal dialog over it); Escape closing its dialogs (the launcher's `Shortcut`s), as a modal `Window` does (§16); its header, whose download progress and status line are items of the window's `Toolbar` (§16); menus, which 2ksbox plans to add: submenus, check and radio items, reactive titles and items, roles, and a window's own menus in `view!` (§16).
 - Left to the app: a separator line (WinUI has no separator control outside menus and app bars) and a disclosure header (Qt Quick has none; 2ksbox builds its own from a `ToolButton`).
 
 **Idiomatic shell components (post-MVP).** These are where most of the "feels native" effect comes from:
 
 - `AppShell`, `Sidebar` (source list / NavigationView / split view)
 - `Toolbar` (NSToolbar / CommandBar / HeaderBar): items at its trailing end are built (§16)
-- `MenuBar` (the global menu on macOS; an in-window menu or hamburger elsewhere)
+- `MenuBar` (the global menu on macOS; an in-window menu or hamburger elsewhere): built (§16)
 - `Preferences`
 
 ---
@@ -1002,6 +1002,17 @@ Things the AppKit backend taught us, some of them now part of the contract:
 - **WinUI:** a `CommandBar` in a row of its own under the title and menu bars, collapsed while no item shows, with each host in an `AppBarElementContainer` among its primary commands; its defaults (overflow, trailing commands) are kept. The window grows by the bar, as with the menu bar. The windows' `TitleBar` control would put items beside the title (`RightHeader`), as on AppKit and GTK; `CommandBar` was chosen as WinUI's toolbar control, and `TitleBar`'s areas sit in the drag region.
 - **Run on AppKit and headless;** GTK, Kirigami and WinUI are only type-checked, and CI hasn't run them. Unverified until they run: that GTK reads an item's place right once the header bar has allocated it, and never gives an item more room than it asks for; that Kirigami 6 resolves `DisplayHint.KeepVisible`, and that `ActionToolBar` honours `visible` and makes each `displayComponent` once; that WinUI's `TransformToVisual` from the bar gives a negative y, that the bar's height is known right after it's shown, and that `IsInOverflow` tells an item moved to its overflow menu.
 
+### Menus
+
+- **Menus stay a service, not widgets.** Every platform builds its menus from data and calls back with the item chosen, and on macOS the bar isn't in any window. So a `MenuBar` is data (`MenuBarData`) the core sends again whenever it changes, not nodes in the tree: menus have no frames, no Tab order and nothing for the mirror check to read back.
+- **What's built:** submenus; check items (`MenuItem::bind` toggles a signal, `checked` only shows it) and radio items (`radio((signal, value))`, a pair so `view!` can write `radio=(zoom, Zoom::Large)`); reactive titles, visibility (`visible`, on items and menus) and lists of items (`Menu::children_with`); roles (`MenuRole::{About, Settings, Quit}`); and a window's own menus, a `MenuBar` in its content, written in `view!` (`<MenuBar>`, `<Menu title=…>`, `<MenuItem>`, `<MenuSeparator/>`). `MenuItem::new` takes only the title now, with `on_select` for the handler, as `Button` has `on_click`.
+- **Radio items next to each other form a group,** as a separator ends one on every platform. The core keeps a group exclusive: choosing an item sets the signal, and every item's check comes from it. `MenuData::radio_groups` names each group by its first item, for the platforms that group natively.
+- **Ids are unique across bars and stay put while the structure does:** each bar gives the item at each position the same id on every rebuild. So when only enabled and checked states change (`MenuBarData::same_structure`), GTK, WinUI and Kirigami update the items in place, and an open menu stays open. Any other change rebuilds that window's menus. AppKit rebuilds its bar every time, as it did before.
+- **A window's menus are shown with the app's** (`MenuBarData::merged`): a window menu titled like an app menu joins it after a separator, and the others follow. On GTK, WinUI and Kirigami that's what the window shows. On macOS, where the bar is the app's, a window's menus are there while it's the main window (`NSWindowDidBecomeMain`/`ResignMain`), the window menu commands act on. A window's menus reach the services while its content is built, before the backend has applied its `CreateWindow`, so backends keep them by `NodeId` and use them when the window is made; Kirigami builds its drawer inline then, as it needs to. A `MenuBar` outside any window is the app's, as `set_menu` is; installing the app's menus again replaces them.
+- **Roles move items only where the platform has a place for them** (`MenuBarData::take_role` takes them out, with separators and menus left empty). AppKit puts About, Settings and Quit in the app menu with its own titles and shortcuts ("About <app>", "Settings…" ⌘,, "Quit <app>" ⌘Q), as Qt's menu roles do. GTK puts them in the primary menu's last section in GNOME's order (Settings, About, Quit), Settings getting Ctrl+, if the app gave it none. Kirigami ends the drawer with them (Settings with KDE's Ctrl+Shift+,, About, Quit, with their theme icons), as KDE apps do. On Windows there's no standard place, so they stay where the app put them. An app's Quit replaces the platform's (AppKit's `terminate:`, GTK's and Kirigami's "ask every window to close"), titled and bound as the platform's is; on Windows it's an ordinary item.
+- **Check marks are the platform's:** AppKit's item `state` (a check mark for radio items too, as AppKit's menus show a choice); a boolean stateful action on GTK, and for a radio item an action of its own holding its id while chosen, with the id as the item's target, which GTK draws as a radio; `ToggleMenuFlyoutItem` and `RadioMenuFlyoutItem` (`GroupName` from the group's first id) on WinUI; `checkable` actions on Kirigami, each radio group in one exclusive `QQC2.ActionGroup`. XAML and Qt toggle an item themselves when it's clicked, so their backends put back the app's state before reporting the choice; only the user's click reports one.
+- **Run on AppKit and headless** (`tests/menus.rs`, and the AppKit services test, which posts the main-window notifications itself since test windows are never main); `examples/menus.rs` is for trying them by hand. GTK, Kirigami and WinUI are only type-checked, and CI hasn't run them. Unverified until they run: that GTK draws per-item radio actions as radio items and that a shortcut's target reaches one; that Kirigami's menu draws radio indicators and keeps an `ActionGroup` exclusive, that `QKeySequence` reads "Ctrl+Shift+,", and whether reinstalling a finished window's drawer still warns about a binding loop; that XAML flips `IsChecked` before it raises `Click`.
+
 ### M2 (GTK 4)
 
 What the GTK 4 backend taught us:
@@ -1021,7 +1032,7 @@ What the GTK 4 backend taught us:
 - **Capture replies from the frame clock** (`after-paint` of the next frame), and the test executor lets the backend run while a test awaits. `TestHooks::settle` was added to the contract for this: platforms that complete work asynchronously catch up there.
 - **Broadway frames stall without a browser** after a paint, until something new is drawn, so nothing may wait for two frames in a row.
 - **The test display has portals off** (`GDK_DEBUG=no-portals`): otherwise file dialogs open on the real desktop, and its dark mode and fonts leak into tests.
-- **Menus go in the header bar** (GNOME's primary menu button): one labelled section per app menu, then Quit (Ctrl+Q, which asks every window to close). Shortcuts are installed in every window. GTK's text widgets have their own Cut/Copy/Paste context menus, so there's no Edit menu.
+- **Menus go in the header bar** (GNOME's primary menu button): one labelled section per app menu, then Quit (Ctrl+Q, which asks every window to close). Menus are covered in § Menus. Shortcuts are installed in every window. GTK's text widgets have their own Cut/Copy/Paste context menus, so there's no Edit menu.
 - **Alerts** use `gtk::AlertDialog`: Escape chooses the last button. GTK has no alert styles, so `AlertStyle` is ignored.
 - Not done yet: the `adwaita` feature, a reduced GTK 4.8 mode, and `gtk::Application` integration (single instance, app ID). `run` drives a plain GLib main loop.
 

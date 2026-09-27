@@ -588,6 +588,7 @@ dependencies = [
  "gtk4",
  "libc",
  "mitsuami-core",
+ "mitsuami-reactive",
  "mitsuami-widgets",
 ]
 
@@ -604,6 +605,7 @@ version = "0.0.1"
 dependencies = [
  "cc",
  "mitsuami-core",
+ "mitsuami-reactive",
  "mitsuami-widgets",
  "pkg-config",
 ]

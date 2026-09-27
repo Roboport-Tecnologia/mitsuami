@@ -10,7 +10,7 @@ use mitsuami_core::backend::{
     Appearance, AvailableSpace, Backend, CaptureError, EventSink, Image, Key, MeasureRequest, NativeState,
     PlatformMetrics, SyntheticInput,
 };
-use mitsuami_core::services::Reply;
+use mitsuami_core::services::{MenuBarData, Reply};
 use mitsuami_core::{
     ButtonRole, ButtonStyle, Command, CustomProps, DisplayList, EventValue, ImageFit, ImageSource, Modality, NodeId,
     Opaque, Orientation, Point, PointerEvent, Prop, Rect, RowKey, ScrollAxes, SelectionMode, Size, TextStyle, UiEvent,
@@ -21,7 +21,7 @@ use crate::custom::{Emitter, ErasedRender, KirigamiCx, NativePayload, flatten};
 use crate::events::{Events, node_from_key, node_key};
 use crate::ffi::{self, Callback, QmlObject};
 use crate::qml;
-use crate::services::{KirigamiServices, MenuParts};
+use crate::services::{KirigamiServices, Menus, drawer_qml};
 use crate::theme;
 
 /// How the backend behaves; apps and tests want different things.
@@ -63,8 +63,10 @@ pub(crate) struct WindowRoot {
     requested: Cell<Option<Size>>,
     /// The height of Kirigami's toolbar above the content, once known.
     header: Cell<Option<f64>>,
-    /// The app's menu, a Kirigami global drawer.
+    /// Its menus, a Kirigami global drawer.
     pub(crate) drawer: Cell<Option<QmlObject>>,
+    /// What the drawer shows: the app's menus and the window's own.
+    pub(crate) menu: RefCell<MenuBarData>,
     /// Its toolbar items, in order.
     toolbar: RefCell<Vec<NodeId>>,
 }
@@ -351,8 +353,8 @@ pub(crate) struct State {
     events: Events,
     log: Vec<Command>,
     pending_show: Vec<NodeId>,
-    /// The app's menu, installed in every window, current and future.
-    pub(crate) menu: Option<MenuParts>,
+    /// The app's menus and windows' own, for windows current and future.
+    pub(crate) menus: Menus,
 }
 
 impl Drop for State {
@@ -441,7 +443,7 @@ impl KirigamiBackend {
             events: Events::default(),
             log: Vec::new(),
             pending_show: Vec::new(),
-            menu: None,
+            menus: Menus::default(),
         }));
         // Theme and font changes are metrics changes, for every window.
         let weak = Rc::downgrade(&state);
@@ -558,21 +560,8 @@ impl KirigamiHandle {
         state.upgrade().map(|state| KirigamiHandle { state })
     }
 
-    pub(crate) fn with_menu<R>(&self, f: impl FnOnce(&MenuParts) -> R) -> Option<R> {
-        self.state.borrow().menu.as_ref().map(f)
-    }
-
-    pub(crate) fn with_menu_mut<R>(&self, f: impl FnOnce(&mut MenuParts) -> R) -> Option<R> {
-        self.state.borrow_mut().menu.as_mut().map(f)
-    }
-
-    /// Installs (or replaces) the app menu in every window.
-    pub(crate) fn set_menu(&self, menu: MenuParts) {
-        let windows = self.windows();
-        for (_, root) in &windows {
-            menu.install(root);
-        }
-        self.state.borrow_mut().menu = Some(menu);
+    pub(crate) fn with_menus<R>(&self, f: impl FnOnce(&mut Menus) -> R) -> R {
+        f(&mut self.state.borrow_mut().menus)
     }
 }
 
@@ -809,7 +798,9 @@ impl State {
 
     fn create_window(&mut self, id: NodeId) -> Widget {
         let events = self.events.clone();
-        let window = QmlObject::load(&qml::window(self.menu.as_ref().and_then(|m| m.drawer_qml())));
+        let menu = self.menus.of(id);
+        let drawer = drawer_qml(&menu);
+        let window = QmlObject::load(&qml::window(drawer.as_deref()));
         let host = window.child("mitsuamiHost").expect("windows have a content host");
         let root = Rc::new(WindowRoot {
             id,
@@ -820,6 +811,7 @@ impl State {
             requested: Cell::new(None),
             header: Cell::new(None),
             drawer: Cell::new(None),
+            menu: RefCell::new(menu),
             toolbar: RefCell::new(Vec::new()),
         });
         for signal in ["widthChanged()", "heightChanged()"] {
@@ -861,10 +853,12 @@ impl State {
         let e = events.clone();
         window.connect("devicePixelRatioChanged()", move || e.emit(id, UiEvent::MetricsChanged));
         self.pending_show.push(id);
-        if let Some(menu) = &self.menu {
-            // Its drawer came with the window, if the app has menus.
+        if drawer.is_some()
+            && let Some(wiring) = &self.menus.wiring
+        {
+            // Its drawer came with the window, if it has menus.
             root.drawer.set(window.object("globalDrawer"));
-            menu.connect(&root);
+            wiring.connect(&root);
         }
         Widget::Window { root }
     }
@@ -1203,6 +1197,7 @@ impl State {
             Command::Destroy { id } => {
                 let Some(node) = self.nodes.remove(id) else { violation(command, "node does not exist") };
                 self.pending_show.retain(|w| w != id);
+                self.menus.forget(*id);
                 match &node.widget {
                     Widget::Window { root } => {
                         // The menu drawer isn't the window's child: it

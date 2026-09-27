@@ -12,7 +12,7 @@ use mitsuami_core::backend::{
     Appearance, AvailableSpace, Backend, CaptureError, EventSink, FontSizes, Image, Key, MeasureRequest, NativeState,
     PlatformMetrics, SyntheticInput,
 };
-use mitsuami_core::services::Reply;
+use mitsuami_core::services::{MenuBarData, Reply};
 use mitsuami_core::units::SpacingScale;
 use mitsuami_core::{
     ButtonRole, ButtonStyle, Command, CustomProps, EventValue, ImageFit, ImageSource, Modality, NodeId, Opaque,
@@ -21,7 +21,7 @@ use mitsuami_core::{
 
 use crate::custom::{DrawnArea, Emitter, ErasedRender, GtkCx, NativePayload};
 use crate::host::{Events, Frames, Host, WindowRoot};
-use crate::services::{GtkServices, MenuParts};
+use crate::services::{GtkServices, Menus};
 
 /// How the backend behaves; apps and tests want different things.
 #[derive(Clone, Debug, Default)]
@@ -198,8 +198,8 @@ pub(crate) struct State {
     events: Events,
     log: Vec<Command>,
     pending_show: Vec<NodeId>,
-    /// The app's menu, installed in every window, current and future.
-    pub(crate) menu: Option<MenuParts>,
+    /// The app's menus and windows' own, and each window's primary menu.
+    pub(crate) menus: Menus,
     /// A list changed (its rows, a row's size, its scroll position): the
     /// list view must lay out again before its rows are known.
     lists_dirty: Cell<bool>,
@@ -337,19 +337,19 @@ impl GtkBackend {
             settings.set_gtk_application_prefer_dark_theme(appearance == Appearance::Dark);
             settings.set_gtk_theme_name(Some("Adwaita"));
         }
-        GtkBackend {
-            state: Rc::new(RefCell::new(State {
-                options,
-                nodes: HashMap::new(),
-                by_widget: WidgetMap::default(),
-                frames: Frames::default(),
-                events: Events::default(),
-                log: Vec::new(),
-                pending_show: Vec::new(),
-                menu: None,
-                lists_dirty: Cell::new(false),
-            })),
-        }
+        let state = Rc::new(RefCell::new(State {
+            options,
+            nodes: HashMap::new(),
+            by_widget: WidgetMap::default(),
+            frames: Frames::default(),
+            events: Events::default(),
+            log: Vec::new(),
+            pending_show: Vec::new(),
+            menus: Menus::default(),
+            lists_dirty: Cell::new(false),
+        }));
+        state.borrow_mut().menus.backend = Rc::downgrade(&state);
+        GtkBackend { state }
     }
 
     pub fn handle(&self) -> GtkHandle {
@@ -448,6 +448,13 @@ impl GtkHandle {
         self.window_parts(id).map(|(window, _, _)| window)
     }
 
+    /// The actions of a window's primary menu, for tests: GTK has no getter
+    /// for a widget's action groups.
+    #[doc(hidden)]
+    pub fn menu_actions(&self, window: NodeId) -> Option<gtk::gio::ActionGroup> {
+        self.state.borrow().menus.actions(window)
+    }
+
     /// Escape hatch: the native widget of any node (a window's content host).
     pub fn gtk_widget(&self, id: NodeId) -> Option<gtk::Widget> {
         self.state.borrow().nodes.get(&id).map(|n| n.widget.widget().clone())
@@ -483,27 +490,23 @@ impl GtkHandle {
         }
     }
 
-    pub(crate) fn weak(&self) -> Weak<RefCell<State>> {
-        Rc::downgrade(&self.state)
-    }
-
     pub(crate) fn from_weak(state: &Weak<RefCell<State>>) -> Option<GtkHandle> {
         state.upgrade().map(|state| GtkHandle { state })
     }
 
-    pub(crate) fn with_menu<R>(&self, f: impl FnOnce(&MenuParts) -> R) -> Option<R> {
-        self.state.borrow().menu.as_ref().map(f)
-    }
-
-    /// Installs (or replaces) the app menu in every window.
-    pub(crate) fn set_menu(&self, menu: MenuParts) {
+    /// Takes the app's menus (`window` is `None`) or a window's own, and
+    /// brings the primary menus showing them up to date.
+    pub(crate) fn set_menu(&self, window: Option<NodeId>, menu: &MenuBarData, activate: Rc<dyn Fn(u32)>) {
         let mut state = self.state.borrow_mut();
-        for node in state.nodes.values() {
-            if let Widget::Window(parts) = &node.widget {
-                menu.install(parts);
+        let State { nodes, menus, .. } = &mut *state;
+        menus.set(window, menu, activate);
+        for (id, node) in nodes.iter() {
+            if let Widget::Window(parts) = &node.widget
+                && window.is_none_or(|w| w == *id)
+            {
+                menus.show_in(*id, parts);
             }
         }
-        state.menu = Some(menu);
     }
 }
 
@@ -849,9 +852,7 @@ impl State {
         }
         self.pending_show.push(id);
         let parts = WindowParts { window, host, header, header_height, items: Vec::new(), menu_button, shortcuts };
-        if let Some(menu) = &self.menu {
-            menu.install(&parts);
-        }
+        self.menus.show_in(id, &parts);
         parts
     }
 
@@ -1248,7 +1249,10 @@ impl State {
                     parts.header.remove(&widget);
                 }
                 match &node.widget {
-                    Widget::Window(parts) => parts.window.destroy(),
+                    Widget::Window(parts) => {
+                        self.menus.forget(*id);
+                        parts.window.destroy();
+                    }
                     _ => {
                         if let Some(viewport) = widget.parent().and_then(|p| p.downcast::<gtk::Viewport>().ok()) {
                             viewport.set_child(None::<&gtk::Widget>);

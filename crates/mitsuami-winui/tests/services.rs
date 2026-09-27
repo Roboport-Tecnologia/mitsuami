@@ -12,6 +12,7 @@ mod checks {
 
     use mitsuami_core::services::{Alert, Menu, MenuBar, MenuItem, OpenFile, Shortcut};
     use mitsuami_core::{NodeId, Size, Ui};
+    use mitsuami_reactive::signal;
     use mitsuami_winui::bindings as w;
     use mitsuami_winui::{BackendOptions, WinUiBackend, WinUiHandle};
     use windows_core::Interface;
@@ -100,10 +101,12 @@ mod checks {
             MenuBar::new()
                 .menu(
                     Menu::new("File")
-                        .item(MenuItem::new("New", move || c.set(c.get() + 1)).shortcut(Shortcut::primary('n')))
-                        .item(MenuItem::new("Unavailable", || {}).enabled(false)),
+                        .item(
+                            MenuItem::new("New").on_select(move || c.set(c.get() + 1)).shortcut(Shortcut::primary('n')),
+                        )
+                        .item(MenuItem::new("Unavailable").enabled(false)),
                 )
-                .menu(Menu::new("View").item(MenuItem::new("Zoom", || {}))),
+                .menu(Menu::new("View").item(MenuItem::new("Zoom"))),
         );
         f.ui.tick();
 
@@ -130,6 +133,76 @@ mod checks {
         assert_eq!(chosen.get(), 1, "the handler ran");
         f.ui.set_menu(MenuBar::new());
         f.ui.destroy(window);
+        f.ui.tick();
+    }
+
+    fn menu_bar(f: &Fixture, window: NodeId) -> Option<windows_collections::IVector<w::MenuBarItem>> {
+        let bar: w::MenuBar = children(&root(f, window)).into_iter().find_map(|c| c.cast().ok())?;
+        bar.cast::<w::IMenuBar>().unwrap().Items().ok()
+    }
+
+    fn titles(menus: &windows_collections::IVector<w::MenuBarItem>) -> Vec<String> {
+        (0..menus.Size().unwrap())
+            .map(|i| menus.GetAt(i).unwrap().cast::<w::IMenuBarItem>().unwrap().Title().unwrap())
+            .collect()
+    }
+
+    fn text(item: &w::MenuFlyoutItemBase) -> String {
+        match item.cast::<w::IMenuFlyoutSubItem>() {
+            Ok(sub) => sub.Text().unwrap(),
+            Err(_) => item.cast::<w::IMenuFlyoutItem>().map(|i| i.Text().unwrap()).unwrap_or_default(),
+        }
+    }
+
+    /// A window's own menus join the app's in its bar, and only its bar;
+    /// check marks are toggle and radio items, updated in place.
+    pub fn window_menus_nest_and_check(f: &Fixture) {
+        let (host, other) = (window(f, "menu host"), window(f, "other window"));
+        let sidebar = signal(true);
+        let zoom = signal(1);
+        f.ui.set_menu(MenuBar::new().menu(Menu::new("File").item(MenuItem::new("New"))));
+        f.ui.set_window_menu(
+            host,
+            MenuBar::new().menu(Menu::new("File").item(MenuItem::new("Run"))).menu(
+                Menu::new("View")
+                    .item(MenuItem::new("Show Sidebar").bind(sidebar))
+                    .separator()
+                    .item(MenuItem::new("Small").radio((zoom, 1)))
+                    .item(MenuItem::new("Large").radio((zoom, 2)))
+                    .submenu(Menu::new("Tools").item(MenuItem::new("Options"))),
+            ),
+        );
+        f.ui.tick();
+
+        let menus = menu_bar(f, host).expect("a MenuBar in the window");
+        assert_eq!(titles(&menus), ["File", "View"]);
+        let file = menus.GetAt(0).unwrap().cast::<w::IMenuBarItem>().unwrap().Items().unwrap();
+        let file: Vec<String> = (0..file.Size().unwrap()).map(|i| text(&file.GetAt(i).unwrap())).collect();
+        assert_eq!(file, ["New", "", "Run"], "the window's File joins the app's, after a separator");
+        assert_eq!(titles(&menu_bar(f, other).expect("the app's menus")), ["File"]);
+
+        let view = menus.GetAt(1).unwrap().cast::<w::IMenuBarItem>().unwrap().Items().unwrap();
+        let toggle = view.GetAt(0).unwrap();
+        assert!(toggle.cast::<w::IToggleMenuFlyoutItem>().unwrap().IsChecked().unwrap());
+        let radio = |i| view.GetAt(i).unwrap().cast::<w::IRadioMenuFlyoutItem>().unwrap();
+        assert_eq!(radio(2).GroupName().unwrap(), radio(3).GroupName().unwrap(), "one group");
+        assert!(radio(2).IsChecked().unwrap() && !radio(3).IsChecked().unwrap());
+        let tools = view.GetAt(4).unwrap().cast::<w::IMenuFlyoutSubItem>().expect("a submenu");
+        assert_eq!(tools.Text().unwrap(), "Tools");
+        assert_eq!(text(&tools.Items().unwrap().GetAt(0).unwrap()), "Options");
+
+        sidebar.set(false);
+        zoom.set(2);
+        f.ui.tick();
+        assert!(!toggle.cast::<w::IToggleMenuFlyoutItem>().unwrap().IsChecked().unwrap(), "the same item, updated");
+        assert!(!radio(2).IsChecked().unwrap() && radio(3).IsChecked().unwrap());
+
+        f.ui.set_window_menu(host, MenuBar::new());
+        f.ui.set_menu(MenuBar::new());
+        f.ui.tick();
+        assert!(menu_bar(f, host).is_none(), "no menus, no bar");
+        f.ui.destroy(host);
+        f.ui.destroy(other);
         f.ui.tick();
     }
 
@@ -205,9 +278,10 @@ fn main() {
     use std::panic::{AssertUnwindSafe, catch_unwind};
 
     type Check = (&'static str, fn(&checks::Fixture));
-    let checks: [Check; 4] = [
+    let checks: [Check; 5] = [
         ("clipboard_round_trips", checks::clipboard_round_trips),
         ("menus_are_installed_and_activate", checks::menus_are_installed_and_activate),
+        ("window_menus_nest_and_check", checks::window_menus_nest_and_check),
         ("alerts_are_answered_through_their_dialog", checks::alerts_are_answered_through_their_dialog),
         ("open_pickers_report_cancellation", checks::open_pickers_report_cancellation),
     ];

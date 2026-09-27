@@ -4949,6 +4949,17 @@ impl windows_core::RuntimeType for IMenuFlyoutItem {
     const SIGNATURE: windows_core::imp::ConstBuffer = windows_core::imp::ConstBuffer::for_interface::<Self>();
 }
 impl IMenuFlyoutItem {
+    pub fn Text(&self) -> windows_core::Result<String> {
+        unsafe {
+            let mut result__ = core::mem::zeroed();
+            (windows_core::Interface::vtable(self).Text)(windows_core::Interface::as_raw(self), &mut result__).map(
+                || {
+                    let hstring: windows_core::HSTRING = core::mem::transmute(result__);
+                    hstring.to_string_lossy()
+                },
+            )
+        }
+    }
     pub fn SetText(&self, value: &str) -> windows_core::Result<()> {
         unsafe {
             (windows_core::Interface::vtable(self).SetText)(
@@ -4988,7 +4999,7 @@ impl IMenuFlyoutItem {
 #[repr(C)]
 pub struct IMenuFlyoutItem_Vtbl {
     pub base__: windows_core::IInspectable_Vtbl,
-    Text: usize,
+    pub Text: unsafe extern "system" fn(*mut core::ffi::c_void, *mut *mut core::ffi::c_void) -> windows_core::HRESULT,
     pub SetText: unsafe extern "system" fn(*mut core::ffi::c_void, *mut core::ffi::c_void) -> windows_core::HRESULT,
     Command: usize,
     SetCommand: usize,
@@ -5062,6 +5073,50 @@ pub struct IMenuFlyoutSeparatorFactory_Vtbl {
         *mut *mut core::ffi::c_void,
         *mut *mut core::ffi::c_void,
     ) -> windows_core::HRESULT,
+}
+windows_core::imp::define_interface!(
+    IMenuFlyoutSubItem,
+    IMenuFlyoutSubItem_Vtbl,
+    0x6b0688c1_47b0_53b5_b6f9_5ec5d6623b84
+);
+impl windows_core::RuntimeType for IMenuFlyoutSubItem {
+    const SIGNATURE: windows_core::imp::ConstBuffer = windows_core::imp::ConstBuffer::for_interface::<Self>();
+}
+impl IMenuFlyoutSubItem {
+    pub fn Items(&self) -> windows_core::Result<windows_collections::IVector<MenuFlyoutItemBase>> {
+        unsafe {
+            let mut result__ = core::mem::zeroed();
+            (windows_core::Interface::vtable(self).Items)(windows_core::Interface::as_raw(self), &mut result__)
+                .and_then(|| windows_core::imp::Type::from_abi(result__))
+        }
+    }
+    pub fn Text(&self) -> windows_core::Result<String> {
+        unsafe {
+            let mut result__ = core::mem::zeroed();
+            (windows_core::Interface::vtable(self).Text)(windows_core::Interface::as_raw(self), &mut result__).map(
+                || {
+                    let hstring: windows_core::HSTRING = core::mem::transmute(result__);
+                    hstring.to_string_lossy()
+                },
+            )
+        }
+    }
+    pub fn SetText(&self, value: &str) -> windows_core::Result<()> {
+        unsafe {
+            (windows_core::Interface::vtable(self).SetText)(
+                windows_core::Interface::as_raw(self),
+                core::mem::transmute_copy(&windows_core::HSTRING::from(value)),
+            )
+            .ok()
+        }
+    }
+}
+#[repr(C)]
+pub struct IMenuFlyoutSubItem_Vtbl {
+    pub base__: windows_core::IInspectable_Vtbl,
+    pub Items: unsafe extern "system" fn(*mut core::ffi::c_void, *mut *mut core::ffi::c_void) -> windows_core::HRESULT,
+    pub Text: unsafe extern "system" fn(*mut core::ffi::c_void, *mut *mut core::ffi::c_void) -> windows_core::HRESULT,
+    pub SetText: unsafe extern "system" fn(*mut core::ffi::c_void, *mut core::ffi::c_void) -> windows_core::HRESULT,
 }
 pub const INFINITE: u32 = 4294967295;
 windows_core::imp::define_interface!(INumberBox, INumberBox_Vtbl, 0xc18eb0e9_29fb_525d_abbc_d6b2110f542e);
@@ -5936,6 +5991,76 @@ pub struct IPropertyValueStatics_Vtbl {
     pub CreateString: unsafe extern "system" fn(
         *mut core::ffi::c_void,
         *mut core::ffi::c_void,
+        *mut *mut core::ffi::c_void,
+    ) -> windows_core::HRESULT,
+}
+windows_core::imp::define_interface!(
+    IRadioMenuFlyoutItem,
+    IRadioMenuFlyoutItem_Vtbl,
+    0x9d6f45f5_5532_5669_8f02_05735953026a
+);
+impl windows_core::RuntimeType for IRadioMenuFlyoutItem {
+    const SIGNATURE: windows_core::imp::ConstBuffer = windows_core::imp::ConstBuffer::for_interface::<Self>();
+}
+impl IRadioMenuFlyoutItem {
+    pub fn IsChecked(&self) -> windows_core::Result<bool> {
+        unsafe {
+            let mut result__ = core::mem::zeroed();
+            (windows_core::Interface::vtable(self).IsChecked)(windows_core::Interface::as_raw(self), &mut result__)
+                .map(|| result__)
+        }
+    }
+    pub fn SetIsChecked(&self, value: bool) -> windows_core::Result<()> {
+        unsafe {
+            (windows_core::Interface::vtable(self).SetIsChecked)(windows_core::Interface::as_raw(self), value).ok()
+        }
+    }
+    pub fn GroupName(&self) -> windows_core::Result<String> {
+        unsafe {
+            let mut result__ = core::mem::zeroed();
+            (windows_core::Interface::vtable(self).GroupName)(windows_core::Interface::as_raw(self), &mut result__).map(
+                || {
+                    let hstring: windows_core::HSTRING = core::mem::transmute(result__);
+                    hstring.to_string_lossy()
+                },
+            )
+        }
+    }
+    pub fn SetGroupName(&self, value: &str) -> windows_core::Result<()> {
+        unsafe {
+            (windows_core::Interface::vtable(self).SetGroupName)(
+                windows_core::Interface::as_raw(self),
+                core::mem::transmute_copy(&windows_core::HSTRING::from(value)),
+            )
+            .ok()
+        }
+    }
+}
+#[repr(C)]
+pub struct IRadioMenuFlyoutItem_Vtbl {
+    pub base__: windows_core::IInspectable_Vtbl,
+    pub IsChecked: unsafe extern "system" fn(*mut core::ffi::c_void, *mut bool) -> windows_core::HRESULT,
+    pub SetIsChecked: unsafe extern "system" fn(*mut core::ffi::c_void, bool) -> windows_core::HRESULT,
+    pub GroupName:
+        unsafe extern "system" fn(*mut core::ffi::c_void, *mut *mut core::ffi::c_void) -> windows_core::HRESULT,
+    pub SetGroupName:
+        unsafe extern "system" fn(*mut core::ffi::c_void, *mut core::ffi::c_void) -> windows_core::HRESULT,
+}
+windows_core::imp::define_interface!(
+    IRadioMenuFlyoutItemFactory,
+    IRadioMenuFlyoutItemFactory_Vtbl,
+    0x113822d2_35a3_5b0d_9d0d_c3830ec1973b
+);
+impl windows_core::RuntimeType for IRadioMenuFlyoutItemFactory {
+    const SIGNATURE: windows_core::imp::ConstBuffer = windows_core::imp::ConstBuffer::for_interface::<Self>();
+}
+#[repr(C)]
+pub struct IRadioMenuFlyoutItemFactory_Vtbl {
+    pub base__: windows_core::IInspectable_Vtbl,
+    pub CreateInstance: unsafe extern "system" fn(
+        *mut core::ffi::c_void,
+        *mut core::ffi::c_void,
+        *mut *mut core::ffi::c_void,
         *mut *mut core::ffi::c_void,
     ) -> windows_core::HRESULT,
 }
@@ -7337,6 +7462,52 @@ pub struct IToggleButton_Vtbl {
     pub Unchecked:
         unsafe extern "system" fn(*mut core::ffi::c_void, *mut core::ffi::c_void, *mut i64) -> windows_core::HRESULT,
     pub RemoveUnchecked: unsafe extern "system" fn(*mut core::ffi::c_void, i64) -> windows_core::HRESULT,
+}
+windows_core::imp::define_interface!(
+    IToggleMenuFlyoutItem,
+    IToggleMenuFlyoutItem_Vtbl,
+    0x1803f260_67e4_5bc1_a63a_123510167bb8
+);
+impl windows_core::RuntimeType for IToggleMenuFlyoutItem {
+    const SIGNATURE: windows_core::imp::ConstBuffer = windows_core::imp::ConstBuffer::for_interface::<Self>();
+}
+impl IToggleMenuFlyoutItem {
+    pub fn IsChecked(&self) -> windows_core::Result<bool> {
+        unsafe {
+            let mut result__ = core::mem::zeroed();
+            (windows_core::Interface::vtable(self).IsChecked)(windows_core::Interface::as_raw(self), &mut result__)
+                .map(|| result__)
+        }
+    }
+    pub fn SetIsChecked(&self, value: bool) -> windows_core::Result<()> {
+        unsafe {
+            (windows_core::Interface::vtable(self).SetIsChecked)(windows_core::Interface::as_raw(self), value).ok()
+        }
+    }
+}
+#[repr(C)]
+pub struct IToggleMenuFlyoutItem_Vtbl {
+    pub base__: windows_core::IInspectable_Vtbl,
+    pub IsChecked: unsafe extern "system" fn(*mut core::ffi::c_void, *mut bool) -> windows_core::HRESULT,
+    pub SetIsChecked: unsafe extern "system" fn(*mut core::ffi::c_void, bool) -> windows_core::HRESULT,
+}
+windows_core::imp::define_interface!(
+    IToggleMenuFlyoutItemFactory,
+    IToggleMenuFlyoutItemFactory_Vtbl,
+    0x426dfd57_6cc9_570f_950d_37437235dc89
+);
+impl windows_core::RuntimeType for IToggleMenuFlyoutItemFactory {
+    const SIGNATURE: windows_core::imp::ConstBuffer = windows_core::imp::ConstBuffer::for_interface::<Self>();
+}
+#[repr(C)]
+pub struct IToggleMenuFlyoutItemFactory_Vtbl {
+    pub base__: windows_core::IInspectable_Vtbl,
+    pub CreateInstance: unsafe extern "system" fn(
+        *mut core::ffi::c_void,
+        *mut core::ffi::c_void,
+        *mut *mut core::ffi::c_void,
+        *mut *mut core::ffi::c_void,
+    ) -> windows_core::HRESULT,
 }
 windows_core::imp::define_interface!(IToggleProvider, IToggleProvider_Vtbl, 0x021080c2_30a9_52ef_bc32_2b79847b6ba7);
 impl windows_core::RuntimeType for IToggleProvider {
@@ -9243,6 +9414,49 @@ unsafe impl Send for MenuFlyoutSeparator {}
 unsafe impl Sync for MenuFlyoutSeparator {}
 #[repr(transparent)]
 #[derive(Clone, Debug, Eq, PartialEq)]
+pub struct MenuFlyoutSubItem(windows_core::IUnknown);
+windows_core::imp::interface_hierarchy!(MenuFlyoutSubItem, windows_core::IUnknown, windows_core::IInspectable);
+windows_core::imp::required_hierarchy!(
+    MenuFlyoutSubItem,
+    MenuFlyoutItemBase,
+    Control,
+    FrameworkElement,
+    UIElement,
+    DependencyObject
+);
+impl MenuFlyoutSubItem {
+    pub fn new() -> windows_core::Result<Self> {
+        Self::IActivationFactory(|f| f.ActivateInstance::<Self>())
+    }
+    fn IActivationFactory<R, F: FnOnce(&windows_core::imp::IGenericFactory) -> windows_core::Result<R>>(
+        callback: F,
+    ) -> windows_core::Result<R> {
+        static SHARED: windows_core::imp::FactoryCache<MenuFlyoutSubItem, windows_core::imp::IGenericFactory> =
+            windows_core::imp::FactoryCache::new();
+        SHARED.call(callback)
+    }
+}
+impl windows_core::RuntimeType for MenuFlyoutSubItem {
+    const SIGNATURE: windows_core::imp::ConstBuffer =
+        windows_core::imp::ConstBuffer::for_class::<Self, IMenuFlyoutSubItem>();
+}
+unsafe impl windows_core::Interface for MenuFlyoutSubItem {
+    type Vtable = <IMenuFlyoutSubItem as windows_core::Interface>::Vtable;
+    const IID: windows_core::GUID = <IMenuFlyoutSubItem as windows_core::Interface>::IID;
+}
+impl core::ops::Deref for MenuFlyoutSubItem {
+    type Target = IMenuFlyoutSubItem;
+    fn deref(&self) -> &Self::Target {
+        unsafe { core::mem::transmute(self) }
+    }
+}
+impl windows_core::RuntimeName for MenuFlyoutSubItem {
+    const NAME: &'static str = "Microsoft.UI.Xaml.Controls.MenuFlyoutSubItem";
+}
+unsafe impl Send for MenuFlyoutSubItem {}
+unsafe impl Sync for MenuFlyoutSubItem {}
+#[repr(transparent)]
+#[derive(Clone, Debug, Eq, PartialEq)]
 pub struct NumberBox(windows_core::IUnknown);
 windows_core::imp::interface_hierarchy!(NumberBox, windows_core::IUnknown, windows_core::IInspectable);
 windows_core::imp::required_hierarchy!(NumberBox, Control, FrameworkElement, UIElement, DependencyObject);
@@ -9951,6 +10165,59 @@ impl windows_core::RuntimeName for PropertyValue {
 }
 pub const QS_ALLINPUT: i32 = 7423;
 pub const RPC_E_CHANGED_MODE: windows_core::HRESULT = windows_core::HRESULT(0x80010106_u32 as _);
+#[repr(transparent)]
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct RadioMenuFlyoutItem(windows_core::IUnknown);
+windows_core::imp::interface_hierarchy!(RadioMenuFlyoutItem, windows_core::IUnknown, windows_core::IInspectable);
+windows_core::imp::required_hierarchy!(
+    RadioMenuFlyoutItem,
+    MenuFlyoutItem,
+    MenuFlyoutItemBase,
+    Control,
+    FrameworkElement,
+    UIElement,
+    DependencyObject
+);
+impl RadioMenuFlyoutItem {
+    pub fn new() -> windows_core::Result<Self> {
+        Self::IRadioMenuFlyoutItemFactory(|this| unsafe {
+            let mut result__ = core::mem::zeroed();
+            (windows_core::Interface::vtable(this).CreateInstance)(
+                windows_core::Interface::as_raw(this),
+                core::ptr::null_mut(),
+                core::ptr::null_mut(),
+                &mut result__,
+            )
+            .and_then(|| windows_core::imp::Type::from_abi(result__))
+        })
+    }
+    fn IRadioMenuFlyoutItemFactory<R, F: FnOnce(&IRadioMenuFlyoutItemFactory) -> windows_core::Result<R>>(
+        callback: F,
+    ) -> windows_core::Result<R> {
+        static SHARED: windows_core::imp::FactoryCache<RadioMenuFlyoutItem, IRadioMenuFlyoutItemFactory> =
+            windows_core::imp::FactoryCache::new();
+        SHARED.call(callback)
+    }
+}
+impl windows_core::RuntimeType for RadioMenuFlyoutItem {
+    const SIGNATURE: windows_core::imp::ConstBuffer =
+        windows_core::imp::ConstBuffer::for_class::<Self, IRadioMenuFlyoutItem>();
+}
+unsafe impl windows_core::Interface for RadioMenuFlyoutItem {
+    type Vtable = <IRadioMenuFlyoutItem as windows_core::Interface>::Vtable;
+    const IID: windows_core::GUID = <IRadioMenuFlyoutItem as windows_core::Interface>::IID;
+}
+impl core::ops::Deref for RadioMenuFlyoutItem {
+    type Target = IRadioMenuFlyoutItem;
+    fn deref(&self) -> &Self::Target {
+        unsafe { core::mem::transmute(self) }
+    }
+}
+impl windows_core::RuntimeName for RadioMenuFlyoutItem {
+    const NAME: &'static str = "Microsoft.UI.Xaml.Controls.RadioMenuFlyoutItem";
+}
+unsafe impl Send for RadioMenuFlyoutItem {}
+unsafe impl Sync for RadioMenuFlyoutItem {}
 #[repr(transparent)]
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct RangeBase(windows_core::IUnknown);
@@ -11063,6 +11330,59 @@ impl windows_core::RuntimeName for ToggleButton {
 }
 unsafe impl Send for ToggleButton {}
 unsafe impl Sync for ToggleButton {}
+#[repr(transparent)]
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct ToggleMenuFlyoutItem(windows_core::IUnknown);
+windows_core::imp::interface_hierarchy!(ToggleMenuFlyoutItem, windows_core::IUnknown, windows_core::IInspectable);
+windows_core::imp::required_hierarchy!(
+    ToggleMenuFlyoutItem,
+    MenuFlyoutItem,
+    MenuFlyoutItemBase,
+    Control,
+    FrameworkElement,
+    UIElement,
+    DependencyObject
+);
+impl ToggleMenuFlyoutItem {
+    pub fn new() -> windows_core::Result<Self> {
+        Self::IToggleMenuFlyoutItemFactory(|this| unsafe {
+            let mut result__ = core::mem::zeroed();
+            (windows_core::Interface::vtable(this).CreateInstance)(
+                windows_core::Interface::as_raw(this),
+                core::ptr::null_mut(),
+                core::ptr::null_mut(),
+                &mut result__,
+            )
+            .and_then(|| windows_core::imp::Type::from_abi(result__))
+        })
+    }
+    fn IToggleMenuFlyoutItemFactory<R, F: FnOnce(&IToggleMenuFlyoutItemFactory) -> windows_core::Result<R>>(
+        callback: F,
+    ) -> windows_core::Result<R> {
+        static SHARED: windows_core::imp::FactoryCache<ToggleMenuFlyoutItem, IToggleMenuFlyoutItemFactory> =
+            windows_core::imp::FactoryCache::new();
+        SHARED.call(callback)
+    }
+}
+impl windows_core::RuntimeType for ToggleMenuFlyoutItem {
+    const SIGNATURE: windows_core::imp::ConstBuffer =
+        windows_core::imp::ConstBuffer::for_class::<Self, IToggleMenuFlyoutItem>();
+}
+unsafe impl windows_core::Interface for ToggleMenuFlyoutItem {
+    type Vtable = <IToggleMenuFlyoutItem as windows_core::Interface>::Vtable;
+    const IID: windows_core::GUID = <IToggleMenuFlyoutItem as windows_core::Interface>::IID;
+}
+impl core::ops::Deref for ToggleMenuFlyoutItem {
+    type Target = IToggleMenuFlyoutItem;
+    fn deref(&self) -> &Self::Target {
+        unsafe { core::mem::transmute(self) }
+    }
+}
+impl windows_core::RuntimeName for ToggleMenuFlyoutItem {
+    const NAME: &'static str = "Microsoft.UI.Xaml.Controls.ToggleMenuFlyoutItem";
+}
+unsafe impl Send for ToggleMenuFlyoutItem {}
+unsafe impl Sync for ToggleMenuFlyoutItem {}
 #[repr(transparent)]
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct ToggleSwitch(windows_core::IUnknown);

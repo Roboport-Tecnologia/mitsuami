@@ -13,9 +13,11 @@ mod checks {
 
     use gtk::glib;
     use gtk::prelude::*;
-    use mitsuami_core::services::{Alert, Menu, MenuBar, MenuItem, OpenFile, Shortcut};
+    use mitsuami_core::NodeId;
+    use mitsuami_core::services::{Alert, Menu, MenuBar, MenuItem, MenuRole, OpenFile, Shortcut};
     use mitsuami_core::{Size, Ui};
     use mitsuami_gtk::{BackendOptions, GtkBackend, GtkHandle};
+    use mitsuami_reactive::signal;
 
     pub struct Fixture {
         pub ui: Ui,
@@ -100,10 +102,12 @@ mod checks {
             MenuBar::new()
                 .menu(
                     Menu::new("File")
-                        .item(MenuItem::new("New", move || c.set(c.get() + 1)).shortcut(Shortcut::primary('n')))
-                        .item(MenuItem::new("Unavailable", move || unavailable.set(100)).enabled(false)),
+                        .item(
+                            MenuItem::new("New").on_select(move || c.set(c.get() + 1)).shortcut(Shortcut::primary('n')),
+                        )
+                        .item(MenuItem::new("Unavailable").on_select(move || unavailable.set(100)).enabled(false)),
                 )
-                .menu(Menu::new("View").item(MenuItem::new("Zoom", || {}))),
+                .menu(Menu::new("View").item(MenuItem::new("Zoom"))),
         );
         f.ui.tick();
         let gtk_window = f.handle.gtk_window(window).unwrap();
@@ -137,6 +141,110 @@ mod checks {
         f.ui.tick();
         assert_eq!(chosen.get(), 1, "the handler ran, and only the enabled one");
         f.ui.destroy(window);
+        f.ui.tick();
+    }
+
+    /// The window's primary menu model.
+    fn menu_model(f: &Fixture, window: NodeId) -> gtk::gio::MenuModel {
+        let header = f.handle.gtk_window(window).unwrap().titlebar().expect("a header bar");
+        let button = find::<gtk::MenuButton>(&header, &|_| true).expect("the menu button");
+        button.menu_model().expect("a menu model")
+    }
+
+    fn string(model: &gtk::gio::MenuModel, i: i32, name: &str) -> Option<String> {
+        model.item_attribute_value(i, name, None).and_then(|v| v.get::<String>())
+    }
+
+    fn labels(model: &gtk::gio::MenuModel) -> Vec<String> {
+        (0..model.n_items()).map(|i| string(model, i, "label").unwrap_or_default()).collect()
+    }
+
+    /// `mitsuami.item-3` → `item-3`, as the window's action group names it.
+    fn action(model: &gtk::gio::MenuModel, i: i32) -> String {
+        string(model, i, "action").unwrap().trim_start_matches("mitsuami.").to_string()
+    }
+
+    pub fn items_check_nest_and_take_roles(f: &Fixture) {
+        let window = f.ui.create_window("menu host", Size::new(400.0, 300.0));
+        f.ui.tick();
+        let (sidebar, zoom) = (signal(true), signal(1));
+        f.ui.set_menu(
+            MenuBar::new()
+                .menu(
+                    Menu::new("View")
+                        .item(MenuItem::new("Sidebar").bind(sidebar))
+                        .separator()
+                        .item(MenuItem::new("Small").radio((zoom, 1)))
+                        .item(MenuItem::new("Large").radio((zoom, 2)))
+                        .submenu(Menu::new("Recent").item(MenuItem::new("a.txt"))),
+                )
+                .menu(Menu::new("Help").item(MenuItem::new("About Host").role(MenuRole::About)))
+                .menu(Menu::new("Edit").item(MenuItem::new("Preferences").role(MenuRole::Settings))),
+        );
+        f.ui.tick();
+        let model = menu_model(f, window);
+        // View's two sections, then the last one: Help and Edit are left
+        // empty by their roles' items, and go.
+        assert_eq!(labels(&model), ["View", "", ""]);
+        let last = model.item_link(2, "section").unwrap();
+        assert_eq!(labels(&last), ["Preferences", "About Host", "Quit"], "GNOME's order");
+        assert_eq!(string(&last, 0, "accel").as_deref(), Some("<Control>comma"));
+
+        let actions = f.handle.menu_actions(window).expect("the window's menu actions");
+        let first = model.item_link(0, "section").unwrap();
+        let check = action(&first, 0);
+        assert_eq!(actions.action_state(&check).and_then(|s| s.get::<bool>()), Some(true));
+        actions.activate_action(&check, None);
+        f.ui.tick();
+        assert!(!sidebar.get_untracked(), "choosing toggles the signal");
+        assert_eq!(actions.action_state(&check).and_then(|s| s.get::<bool>()), Some(false));
+        assert_eq!(menu_model(f, window), model, "states change in place");
+
+        // Radio items: each item's action holds its id while chosen, and
+        // the item targets its id.
+        let second = model.item_link(1, "section").unwrap();
+        let (small, large) = (action(&second, 0), action(&second, 1));
+        let state = |name: &str| actions.action_state(name).and_then(|s| s.get::<String>()).unwrap();
+        let large_target = string(&second, 1, "target").expect("a radio target");
+        assert_eq!(state(&small), string(&second, 0, "target").unwrap());
+        assert_eq!(state(&large), "");
+        actions.activate_action(&large, Some(&large_target.to_variant()));
+        f.ui.tick();
+        assert_eq!(zoom.get_untracked(), 2);
+        assert_eq!((state(&small), state(&large)), (String::new(), large_target));
+
+        let recent = second.item_link(2, "submenu").expect("the Recent submenu");
+        assert_eq!(string(&second, 2, "label").as_deref(), Some("Recent"));
+        assert_eq!(labels(&recent.item_link(0, "section").unwrap()), ["a.txt"]);
+        f.ui.set_menu(MenuBar::new());
+        f.ui.destroy(window);
+        f.ui.tick();
+    }
+
+    pub fn windows_show_their_own_menus(f: &Fixture) {
+        let (first, second) = (
+            f.ui.create_window("first", Size::new(400.0, 300.0)),
+            f.ui.create_window("second", Size::new(400.0, 300.0)),
+        );
+        f.ui.set_menu(MenuBar::new().menu(Menu::new("File").item(MenuItem::new("New"))));
+        // Before the windows are created: the view builds its menus first.
+        f.ui.set_window_menu(
+            first,
+            MenuBar::new()
+                .menu(Menu::new("File").item(MenuItem::new("Run")))
+                .menu(Menu::new("Machine").item(MenuItem::new("Start"))),
+        );
+        f.ui.tick();
+        // The window's File joins the app's, after a separator: a section.
+        assert_eq!(labels(&menu_model(f, first)), ["File", "", "Machine", ""]);
+        assert_eq!(labels(&menu_model(f, second)), ["File", ""]);
+
+        f.ui.set_window_menu(first, MenuBar::new());
+        f.ui.tick();
+        assert_eq!(labels(&menu_model(f, first)), ["File", ""]);
+        f.ui.set_menu(MenuBar::new());
+        f.ui.destroy(first);
+        f.ui.destroy(second);
         f.ui.tick();
     }
 
@@ -182,9 +290,11 @@ fn main() {
     use std::panic::{AssertUnwindSafe, catch_unwind};
 
     type Check = (&'static str, fn(&checks::Fixture));
-    let checks: [Check; 4] = [
+    let checks: [Check; 6] = [
         ("clipboard_round_trips", checks::clipboard_round_trips),
         ("menus_are_installed_and_activate", checks::menus_are_installed_and_activate),
+        ("items_check_nest_and_take_roles", checks::items_check_nest_and_take_roles),
+        ("windows_show_their_own_menus", checks::windows_show_their_own_menus),
         ("alerts_are_answered_through_their_buttons", checks::alerts_are_answered_through_their_buttons),
         ("file_dialogs_report_cancellation", checks::file_dialogs_report_cancellation),
     ];

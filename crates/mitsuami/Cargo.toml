@@ -132,6 +132,10 @@ name = "services"
 harness = false
 
 [[test]]
+name = "menus"
+harness = false
+
+[[test]]
 name = "escape_hatches"
 harness = false
 

@@ -16,7 +16,7 @@ use crate::backend::{AvailableSpace, Backend, EventSink, MeasureRequest, NativeS
 use crate::command::{Command, EventValue, UiEvent};
 use crate::custom::CustomProps;
 use crate::geometry::{Point, Rect, Size, WindowSize};
-use crate::services::{Alert, MenuBar, OpenFile, SaveFile, ServiceError, Services, reply_future};
+use crate::services::{Alert, MenuBar, MenuBarData, OpenFile, SaveFile, ServiceError, Services, reply_future};
 use crate::style::{Align, Display, FlexDirection, Style, TextDirection};
 use crate::task::{Clock, Executor, Sleep, TaskHandle};
 use crate::units::ResolveContext;
@@ -83,7 +83,12 @@ struct Inner {
     windows: Vec<NodeId>,
     styles_dirty: bool,
     resync: BTreeSet<NodeId>,
-    menu_handlers: std::collections::HashMap<u32, Handler0>,
+    /// Each menu bar's item handlers: the app's (`None`) and windows'.
+    menu_handlers: BTreeMap<Option<NodeId>, std::collections::HashMap<u32, Handler0>>,
+    /// The effect keeping each menu bar up to date.
+    menu_effects: BTreeMap<Option<NodeId>, mitsuami_reactive::Effect>,
+    /// Menu item ids are unique across every bar.
+    next_menu_id: u32,
     menu_queue: std::collections::VecDeque<u32>,
     /// Last focus order sent, per window.
     focus_orders: BTreeMap<NodeId, Vec<NodeId>>,
@@ -158,7 +163,9 @@ impl Ui {
                 resync: BTreeSet::new(),
                 focus_orders: BTreeMap::new(),
                 focused: BTreeMap::new(),
-                menu_handlers: Default::default(),
+                menu_handlers: BTreeMap::new(),
+                menu_effects: BTreeMap::new(),
+                next_menu_id: 1,
                 menu_queue: Default::default(),
                 commit_scheduler: None,
                 commit_scheduled: false,
@@ -272,29 +279,80 @@ impl Ui {
         answer
     }
 
-    /// Installs the app's menus. Reactive `enabled` states are re-sent to
-    /// the platform when they change, for as long as the current scope lives.
+    /// Installs the app's menus, replacing the ones installed before.
+    /// Their reactive parts (titles, enabled and checked states, which
+    /// items there are) are sent to the platform again when they change,
+    /// for as long as the current scope lives.
     pub fn set_menu(&self, menu: MenuBar) {
-        let (data, handlers) = menu.into_parts();
-        self.inner.borrow_mut().menu_handlers = handlers
-            .into_iter()
-            .map(|(id, handler)| {
-                let handler = crate::task::in_current_scope(move |()| handler());
-                (id, Rc::new(move || handler(())) as Handler0)
-            })
-            .collect();
+        self.install_menu(None, menu);
+    }
+
+    /// Installs a window's own menus, shown with the app's, until the
+    /// current scope ends. A [`MenuBar`] in the window's content does this.
+    pub fn set_window_menu(&self, window: NodeId, menu: MenuBar) {
+        self.install_menu(Some(window), menu);
+        let ui = self.downgrade();
+        mitsuami_reactive::on_cleanup(move || {
+            if let Some(ui) = ui.upgrade() {
+                ui.remove_menu(Some(window));
+            }
+        });
+    }
+
+    fn install_menu(&self, target: Option<NodeId>, menu: MenuBar) {
+        // Handlers run in the scope the menu was installed from, so they
+        // can spawn tasks that live as long as it.
+        let scope = mitsuami_reactive::Owner::current();
+        let activate = self.menu_activate();
+        let (ui, services) = (self.clone(), self.services.clone());
+        let mut ids = Vec::new();
+        let effect = mitsuami_reactive::effect(move || {
+            let mut new_id = || {
+                let mut inner = ui.inner.borrow_mut();
+                inner.next_menu_id += 1;
+                inner.next_menu_id - 1
+            };
+            let (data, handlers) = menu.collect(&mut ids, &mut new_id);
+            let handlers = handlers
+                .into_iter()
+                .map(|(id, handler)| {
+                    let handler: Handler0 = Rc::new(move || match scope {
+                        Some(scope) if scope.is_alive() => scope.with(|| handler()),
+                        _ => handler(),
+                    });
+                    (id, handler)
+                })
+                .collect();
+            ui.inner.borrow_mut().menu_handlers.insert(target, handlers);
+            services.borrow_mut().set_menu(target, &data, activate.clone());
+        });
+        if let Some(replaced) = self.inner.borrow_mut().menu_effects.insert(target, effect) {
+            replaced.dispose();
+        }
+    }
+
+    /// Removes a window's menus, when the scope that installed them ends.
+    fn remove_menu(&self, target: Option<NodeId>) {
+        let effect = {
+            let mut inner = self.inner.borrow_mut();
+            inner.menu_handlers.remove(&target);
+            inner.menu_effects.remove(&target)
+        };
+        if let Some(effect) = effect {
+            effect.dispose();
+            self.services.borrow_mut().set_menu(target, &MenuBarData::default(), self.menu_activate());
+        }
+    }
+
+    /// What platforms call with the id of the item chosen.
+    fn menu_activate(&self) -> Rc<dyn Fn(u32)> {
         let weak = self.downgrade();
-        let activate: Rc<dyn Fn(u32)> = Rc::new(move |id| {
+        Rc::new(move |id| {
             if let Some(ui) = weak.upgrade() {
                 ui.inner.borrow_mut().menu_queue.push_back(id);
                 ui.changed();
             }
-        });
-        let services = self.services.clone();
-        mitsuami_reactive::effect(move || {
-            let data = data();
-            services.borrow_mut().set_menu(&data, activate.clone());
-        });
+        })
     }
 
     /// Tasks that have not finished yet.
@@ -609,7 +667,7 @@ impl Ui {
             let chosen = {
                 let mut inner = self.inner.borrow_mut();
                 let id = inner.menu_queue.pop_front();
-                id.and_then(|id| inner.menu_handlers.get(&id).cloned())
+                id.and_then(|id| inner.menu_handlers.values().find_map(|handlers| handlers.get(&id)).cloned())
             };
             if let Some(handler) = chosen {
                 mitsuami_reactive::batch(|| handler());

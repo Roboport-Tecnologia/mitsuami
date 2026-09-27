@@ -2,12 +2,14 @@
 //! the test answer it.
 
 use std::cell::RefCell;
-use std::collections::VecDeque;
+use std::collections::{BTreeMap, VecDeque};
 use std::path::PathBuf;
 use std::rc::Rc;
 
 use mitsuami_core::NodeId;
-use mitsuami_core::services::{Alert, MenuBarData, MenuEntry, OpenFile, Reply, SaveFile, ServiceError, Services};
+use mitsuami_core::services::{
+    Alert, MenuBarData, MenuData, MenuEntry, MenuItemData, OpenFile, Reply, SaveFile, ServiceError, Services,
+};
 
 /// A request waiting for the test to answer it.
 pub struct Pending<Request, Answer> {
@@ -35,6 +37,7 @@ struct State {
     opens: VecDeque<PendingOpen>,
     saves: VecDeque<PendingSave>,
     menu: Option<MenuBarData>,
+    window_menus: BTreeMap<NodeId, MenuBarData>,
     activate: Option<Rc<dyn Fn(u32)>>,
 }
 
@@ -92,24 +95,43 @@ impl FakeServicesHandle {
         self.state.borrow().menu.clone()
     }
 
-    /// Chooses `menu › item`, like a click or its shortcut would. Returns
-    /// `false` if there is no such item or it is disabled.
-    pub fn choose_menu_item(&self, menu: &str, item: &str) -> bool {
-        let (id, activate) = {
-            let state = self.state.borrow();
-            let Some(bar) = &state.menu else { return false };
-            let found = bar.menus.iter().filter(|m| m.title == menu).flat_map(|m| &m.entries).find_map(|e| match e {
-                MenuEntry::Item { id, title, enabled: true, .. } if title == item => Some(*id),
-                _ => None,
-            });
-            match (found, &state.activate) {
-                (Some(id), Some(activate)) => (id, activate.clone()),
-                _ => return false,
+    /// A window's own menus (a `MenuBar` in its content), without the app's.
+    pub fn window_menu(&self, window: NodeId) -> Option<MenuBarData> {
+        self.state.borrow().window_menus.get(&window).cloned()
+    }
+
+    /// The item at `path`, e.g. `["File", "Open Recent", "notes.txt"]`:
+    /// a menu, its submenus, then the item's title. Looks in the app's
+    /// menus, then in each window's.
+    pub fn menu_item(&self, path: &[&str]) -> Option<MenuItemData> {
+        let state = self.state.borrow();
+        let (menu, rest) = path.split_first()?;
+        state.menu.iter().chain(state.window_menus.values()).flat_map(|bar| &bar.menus).find_map(|data| {
+            if data.title != *menu {
+                return None;
             }
-        };
-        activate(id);
+            find_item(data, rest)
+        })
+    }
+
+    /// Chooses the item at `path` (see [`menu_item`](Self::menu_item)),
+    /// like a click or its shortcut would. Returns `false` if there is no
+    /// such item or it is disabled.
+    pub fn choose_menu_item(&self, path: &[&str]) -> bool {
+        let Some(item) = self.menu_item(path).filter(|item| item.enabled) else { return false };
+        let Some(activate) = self.state.borrow().activate.clone() else { return false };
+        activate(item.id);
         true
     }
+}
+
+fn find_item(menu: &MenuData, path: &[&str]) -> Option<MenuItemData> {
+    let (title, rest) = path.split_first()?;
+    menu.entries.iter().find_map(|entry| match entry {
+        MenuEntry::Item(item) if rest.is_empty() && item.title == *title => Some(item.clone()),
+        MenuEntry::Submenu(submenu) if !rest.is_empty() && submenu.title == *title => find_item(submenu, rest),
+        _ => None,
+    })
 }
 
 impl Services for FakeServices {
@@ -135,9 +157,14 @@ impl Services for FakeServices {
         self.state.borrow_mut().saves.push_back(Pending { request: request.clone(), parent, reply });
     }
 
-    fn set_menu(&mut self, menu: &MenuBarData, activate: Rc<dyn Fn(u32)>) {
+    fn set_menu(&mut self, window: Option<NodeId>, menu: &MenuBarData, activate: Rc<dyn Fn(u32)>) {
         let mut state = self.state.borrow_mut();
-        state.menu = Some(menu.clone());
+        match window {
+            None => state.menu = Some(menu.clone()),
+            Some(window) if menu.menus.is_empty() => _ = state.window_menus.remove(&window),
+            Some(window) => _ = state.window_menus.insert(window, menu.clone()),
+        }
+        // Ids are unique across bars, and every bar reports to the same Ui.
         state.activate = Some(activate);
     }
 }

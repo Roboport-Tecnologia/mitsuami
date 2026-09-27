@@ -2,73 +2,126 @@
 //!
 //! Kirigami apps put their menus in a global drawer shown as a menu
 //! (`isMenu`): a hamburger button in the page toolbar, one submenu per app
-//! menu, then Quit. Shortcuts work in every window. Qt's text fields bring
+//! menu, then Settings, About and Quit, as KDE apps end theirs. Each
+//! window's drawer holds the app's menus and the window's own. Shortcuts
+//! work in every window that has them. Qt's text fields bring
 //! their own Cut/Copy/Paste context menus, so there is no Edit menu.
 //! Alerts are `Kirigami.PromptDialog`s; file dialogs are Qt Quick's, which
 //! Plasma replaces with its own through its platform theme.
 
 use std::cell::{Cell, RefCell};
+use std::collections::HashMap;
+use std::fmt::Write;
 use std::path::PathBuf;
 use std::rc::Rc;
 
 use mitsuami_core::NodeId;
 use mitsuami_core::services::{
-    Alert, AlertStyle, FileFilter, MenuBarData, MenuEntry, OpenFile, Reply, SaveFile, ServiceError, Services, Shortcut,
+    Alert, AlertStyle, FileFilter, MenuBarData, MenuCheck, MenuData, MenuEntry, MenuItemData, MenuRole, OpenFile,
+    Reply, SaveFile, ServiceError, Services, Shortcut,
 };
 
 use crate::backend::{KirigamiHandle, WindowRoot, dialog_parent};
 use crate::ffi::{self, QmlObject, js_string};
 
-/// The app's menu, as QML for a global drawer, and what its items do.
-pub(crate) struct MenuParts {
-    qml: String,
-    activate: Rc<dyn Fn(u32)>,
-    items: Vec<u32>,
-    has_app_menus: bool,
-    backend: KirigamiHandle,
+/// The menus the app installed: the app's, and each window's own.
+#[derive(Default)]
+pub(crate) struct Menus {
+    app: MenuBarData,
+    windows: HashMap<NodeId, MenuBarData>,
+    /// Set with the first menus: a window gets a drawer only once there are.
+    pub(crate) wiring: Option<Wiring>,
 }
 
-impl MenuParts {
-    /// The global drawer's QML, for windows created while this menu is
-    /// installed: they get it inline. A window without app menus gets none.
-    pub(crate) fn drawer_qml(&self) -> Option<&str> {
-        self.has_app_menus.then_some(self.qml.as_str())
+impl Menus {
+    /// What a window's drawer shows.
+    pub(crate) fn of(&self, window: NodeId) -> MenuBarData {
+        match self.windows.get(&window) {
+            Some(own) => self.app.merged(own),
+            None => self.app.clone(),
+        }
     }
 
-    /// Puts the menu in an existing window: a global drawer of its own.
-    /// Kirigami's hamburger button warns about a binding loop when a drawer
-    /// or its actions arrive after the window is complete, so windows get
-    /// their drawer inline when they're created (see [`MenuParts::drawer_qml`]);
-    /// this is only for a menu whose structure changes later.
-    pub(crate) fn install(&self, root: &WindowRoot) {
+    /// Forgets a window's menus, when it's destroyed.
+    pub(crate) fn forget(&mut self, window: NodeId) {
+        self.windows.remove(&window);
+    }
+}
+
+/// What the drawers' actions do: run the app's items, or quit.
+#[derive(Clone)]
+pub(crate) struct Wiring {
+    activate: Rc<dyn Fn(u32)>,
+    quit: Rc<dyn Fn()>,
+}
+
+impl Wiring {
+    /// Shows `menu` in a window: in place when only enabled and checked
+    /// states changed, as rebuilding the drawer would close it if open.
+    fn update(&self, root: &Rc<WindowRoot>, menu: MenuBarData) {
+        let drawer = root.drawer.get();
+        let same = drawer.is_some() && root.menu.borrow().same_structure(&menu);
+        let empty = drawer.is_none() && menu.menus.is_empty();
+        root.menu.replace(menu);
+        match drawer {
+            Some(drawer) if same => apply_states(drawer, &root.menu.borrow()),
+            _ if empty => {}
+            _ => self.install(root),
+        }
+    }
+
+    /// Puts the window's menus in an existing window: a global drawer of
+    /// its own. Kirigami's hamburger button warns about a binding loop when
+    /// a drawer or its actions arrive after the window is complete, so
+    /// windows get their drawer inline when they're created (see
+    /// [`drawer_qml`]); this is only for menus whose structure changes
+    /// later.
+    fn install(&self, root: &Rc<WindowRoot>) {
         if let Some(old) = root.drawer.take() {
             root.window.set_object("globalDrawer", None);
             old.destroy();
         }
-        let Some(qml) = self.drawer_qml() else { return };
+        let Some(qml) = drawer_qml(&root.menu.borrow()) else { return };
         let Some(overlay) = root.window.object("overlay") else { return };
-        let drawer = QmlObject::load_in(qml, overlay);
+        let drawer = QmlObject::load_in(&qml, overlay);
         root.window.set_object("globalDrawer", Some(drawer));
         root.drawer.set(Some(drawer));
         self.connect(root);
     }
 
-    /// Makes the window's drawer's actions run the items.
-    pub(crate) fn connect(&self, root: &WindowRoot) {
+    /// Makes the window's drawer's actions run the items. Qt checks a
+    /// checkable action itself when it's triggered: the drawer goes back to
+    /// what the app shows, and the app's state comes back if it changes.
+    pub(crate) fn connect(&self, root: &Rc<WindowRoot>) {
         let Some(drawer) = root.drawer.get() else { return };
-        for id in &self.items {
-            if let Some(action) = drawer.child(&item_name(*id)) {
-                let (activate, id) = (self.activate.clone(), *id);
-                action.connect("triggered(QObject*)", move || activate(id));
+        let menu = root.menu.borrow();
+        for item in menu.items() {
+            if let Some(action) = drawer.child(&item_name(item.id)) {
+                let (activate, id, weak) = (self.activate.clone(), item.id, Rc::downgrade(root));
+                action.connect("triggered(QObject*)", move || {
+                    if let Some(root) = weak.upgrade()
+                        && let Some(drawer) = root.drawer.get()
+                    {
+                        apply_states(drawer, &root.menu.borrow());
+                    }
+                    activate(id);
+                });
             }
         }
         if let Some(quit) = drawer.child("mitsuamiQuit") {
-            let backend = self.backend.weak();
-            quit.connect("triggered(QObject*)", move || {
-                if let Some(backend) = KirigamiHandle::from_weak(&backend) {
-                    backend.request_quit();
-                }
-            });
+            let request = self.quit.clone();
+            quit.connect("triggered(QObject*)", move || request());
+        }
+    }
+}
+
+/// Sets enabled and checked states in place.
+fn apply_states(drawer: QmlObject, menu: &MenuBarData) {
+    for item in menu.items() {
+        let Some(action) = drawer.child(&item_name(item.id)) else { continue };
+        action.set_bool("enabled", item.enabled);
+        if let MenuCheck::Check(on) | MenuCheck::Radio(on) = item.check {
+            action.set_bool("checked", on);
         }
     }
 }
@@ -93,70 +146,99 @@ fn sequence(shortcut: &Shortcut) -> String {
     keys
 }
 
-fn menu_qml(menu: &MenuBarData) -> (String, Vec<u32>) {
-    let mut items = Vec::new();
-    let mut menus = Vec::new();
-    for app_menu in &menu.menus {
-        let mut entries = Vec::new();
-        for entry in &app_menu.entries {
-            match entry {
-                MenuEntry::Item { id, title, shortcut, enabled } => {
-                    items.push(*id);
-                    let shortcut = shortcut.as_ref().map(|s| format!("; shortcut: {}", js_string(&sequence(s))));
-                    entries.push(format!(
-                        "Kirigami.Action {{ objectName: {}; text: {}; enabled: {enabled}{} }}",
-                        js_string(&item_name(*id)),
-                        js_string(title),
-                        shortcut.unwrap_or_default()
-                    ));
-                }
-                MenuEntry::Separator => entries.push("Kirigami.Action { separator: true }".into()),
-            }
-        }
-        menus.push(format!("Kirigami.Action {{ text: {}\n{}\n}}", js_string(&app_menu.title), entries.join("\n")));
-    }
-    menus.push(
-        // Plasma's binding; `StandardKey.Quit` maps to several, which Qt's
-        // shortcuts warn about.
-        "Kirigami.Action { objectName: \"mitsuamiQuit\"; text: \"Quit\"; icon.name: \"application-exit\"; \
-         shortcut: \"Ctrl+Q\" }"
-            .into(),
+/// One item. Radio items are in their group's `ActionGroup`, which is
+/// exclusive, so Qt draws them as one choice.
+fn item_qml(item: &MenuItemData, shortcut: Option<Shortcut>, icon: Option<&str>, group: Option<u32>) -> String {
+    let mut qml = format!(
+        "Kirigami.Action {{ objectName: {}; text: {}; enabled: {}",
+        js_string(&item_name(item.id)),
+        js_string(&item.title),
+        item.enabled
     );
-    (format!("Kirigami.GlobalDrawer {{ isMenu: true\nactions: [\n{}\n] }}", menus.join(",\n")), items)
+    if let Some(shortcut) = shortcut {
+        _ = write!(qml, "; shortcut: {}", js_string(&sequence(&shortcut)));
+    }
+    if let Some(icon) = icon {
+        _ = write!(qml, "; icon.name: {}", js_string(icon));
+    }
+    if let MenuCheck::Check(on) | MenuCheck::Radio(on) = item.check {
+        _ = write!(qml, "; checkable: true; checked: {on}");
+    }
+    if let Some(group) = group {
+        _ = write!(qml, "; QQC2.ActionGroup.group: mitsuamiGroup{group}");
+    }
+    qml.push_str(" }");
+    qml
+}
+
+/// A menu, or a submenu: an action whose children are its entries.
+/// `groups` collects the radio groups' `ActionGroup`s.
+fn menu_qml(menu: &MenuData, groups: &mut Vec<String>) -> String {
+    let entries: Vec<String> = menu
+        .entries
+        .iter()
+        .zip(menu.radio_groups())
+        .map(|(entry, group)| match entry {
+            MenuEntry::Item(item) => {
+                if group == Some(item.id) {
+                    groups.push(format!("QQC2.ActionGroup {{ id: mitsuamiGroup{} }}", item.id));
+                }
+                item_qml(item, item.shortcut, None, group)
+            }
+            MenuEntry::Submenu(submenu) => menu_qml(submenu, groups),
+            MenuEntry::Separator => "Kirigami.Action { separator: true }".into(),
+        })
+        .collect();
+    format!("Kirigami.Action {{ text: {}\n{}\n}}", js_string(&menu.title), entries.join("\n"))
+}
+
+/// The global drawer's QML for a window's menus, or none without menus.
+/// Items with a role end the drawer, as in KDE apps: Settings (with KDE's
+/// Ctrl+Shift+, unless it has a shortcut), About, then Quit. The app's
+/// Quit item replaces ours, with our title and shortcut.
+pub(crate) fn drawer_qml(menu: &MenuBarData) -> Option<String> {
+    if menu.menus.is_empty() {
+        return None;
+    }
+    let mut menu = menu.clone();
+    let settings = menu.take_role(MenuRole::Settings);
+    let about = menu.take_role(MenuRole::About);
+    let quit = menu.take_role(MenuRole::Quit);
+    let mut groups = Vec::new();
+    let mut actions: Vec<String> = menu.menus.iter().map(|m| menu_qml(m, &mut groups)).collect();
+    if let Some(item) = settings {
+        let shortcut = item.shortcut.unwrap_or(Shortcut::primary(',').shift());
+        actions.push(item_qml(&item, Some(shortcut), Some("settings-configure"), None));
+    }
+    if let Some(item) = about {
+        actions.push(item_qml(&item, item.shortcut, Some("help-about"), None));
+    }
+    // Plasma's binding; `StandardKey.Quit` maps to several, which Qt's
+    // shortcuts warn about.
+    actions.push(match quit {
+        Some(item) => {
+            let item = MenuItemData { title: "Quit".into(), ..item };
+            item_qml(&item, Some(Shortcut::primary('q')), Some("application-exit"), None)
+        }
+        None => "Kirigami.Action { objectName: \"mitsuamiQuit\"; text: \"Quit\"; icon.name: \"application-exit\"; \
+                 shortcut: \"Ctrl+Q\" }"
+            .into(),
+    });
+    Some(format!(
+        "Kirigami.GlobalDrawer {{ isMenu: true\n{}\nactions: [\n{}\n] }}",
+        groups.join("\n"),
+        actions.join(",\n")
+    ))
 }
 
 pub struct KirigamiServices {
     backend: KirigamiHandle,
-    /// The last menu installed, to update enabled states in place instead
-    /// of rebuilding (which would close an open menu).
-    menu: Option<MenuBarData>,
 }
 
 impl KirigamiServices {
     pub(crate) fn new(backend: KirigamiHandle) -> KirigamiServices {
-        KirigamiServices { backend, menu: None }
+        KirigamiServices { backend }
     }
-}
-
-/// Same menus, items and shortcuts; only enabled states may differ.
-fn same_structure(a: &MenuBarData, b: &MenuBarData) -> bool {
-    let strip = |m: &MenuBarData| {
-        m.menus
-            .iter()
-            .map(|menu| {
-                let entries: Vec<_> = menu
-                    .entries
-                    .iter()
-                    .map(|e| match e {
-                        MenuEntry::Item { id, title, shortcut, .. } => Some((*id, title.clone(), *shortcut)),
-                        MenuEntry::Separator => None,
-                    })
-                    .collect();
-                (menu.title.clone(), entries)
-            })
-            .collect::<Vec<_>>()
-    };
-    strip(a) == strip(b)
 }
 
 /// A reply several signals may answer; the first one wins, and the dialog
@@ -315,41 +397,29 @@ impl Services for KirigamiServices {
         self.open_dialog(dialog, parent);
     }
 
-    fn set_menu(&mut self, menu: &MenuBarData, activate: Rc<dyn Fn(u32)>) {
-        let same = self.menu.as_ref().is_some_and(|installed| same_structure(installed, menu))
-            && self.backend.with_menu(|_| ()).is_some();
-        if same {
-            for (_, root) in self.backend.windows() {
-                let Some(drawer) = root.drawer.get() else { continue };
-                for entry in menu.menus.iter().flat_map(|m| &m.entries) {
-                    if let MenuEntry::Item { id, enabled, .. } = entry
-                        && let Some(action) = drawer.child(&item_name(*id))
-                    {
-                        action.set_bool("enabled", *enabled);
-                    }
-                }
+    fn set_menu(&mut self, window: Option<NodeId>, menu: &MenuBarData, activate: Rc<dyn Fn(u32)>) {
+        let backend = self.backend.weak();
+        let quit: Rc<dyn Fn()> = Rc::new(move || {
+            if let Some(backend) = KirigamiHandle::from_weak(&backend) {
+                backend.request_quit();
             }
-            // Windows opened later build their drawer from this.
-            let (qml, _) = menu_qml(menu);
-            self.backend.update_menu_qml(qml);
-        } else {
-            let (qml, items) = menu_qml(menu);
-            let parts = MenuParts {
-                qml,
-                activate,
-                items,
-                has_app_menus: !menu.menus.is_empty(),
-                backend: self.backend.clone(),
-            };
-            self.backend.set_menu(parts);
+        });
+        let wiring = Wiring { activate, quit };
+        self.backend.with_menus(|menus| {
+            menus.wiring = Some(wiring.clone());
+            match window {
+                None => menus.app = menu.clone(),
+                Some(window) if menu.menus.is_empty() => menus.forget(window),
+                Some(window) => _ = menus.windows.insert(window, menu.clone()),
+            }
+        });
+        // A window not created yet gets its drawer with it.
+        for (id, root) in self.backend.windows() {
+            if window.is_none_or(|w| w == id) {
+                let shown = self.backend.with_menus(|menus| menus.of(id));
+                wiring.update(&root, shown);
+            }
         }
-        self.menu = Some(menu.clone());
-    }
-}
-
-impl KirigamiHandle {
-    fn update_menu_qml(&self, qml: String) {
-        self.with_menu_mut(|menu| menu.qml = qml);
     }
 }
 

@@ -14,19 +14,16 @@ fn editor() -> impl View {
     set_menu(
         MenuBar::new().menu(
             Menu::new("File")
-                .item(MenuItem::new("Clear", move || text.set(String::new())).enabled(dirty))
+                .item(MenuItem::new("Clear").on_select(move || text.set(String::new())).enabled(dirty))
                 .separator()
-                .item(
-                    MenuItem::new("Save…", move || {
-                        spawn_local(async move {
-                            match save_file(SaveFile::new().name("notes.txt")).await {
-                                Some(path) => status.set(format!("saved to {}", path.display())),
-                                None => status.set("save cancelled".into()),
-                            }
-                        });
-                    })
-                    .shortcut(Shortcut::primary('s')),
-                ),
+                .item(MenuItem::new("Save…").shortcut(Shortcut::primary('s')).on_select(move || {
+                    spawn_local(async move {
+                        match save_file(SaveFile::new().name("notes.txt")).await {
+                            Some(path) => status.set(format!("saved to {}", path.display())),
+                            None => status.set("save cancelled".into()),
+                        }
+                    });
+                })),
         ),
     );
     Column::new().gap(8).children((
@@ -121,12 +118,12 @@ async fn menus_run_their_handlers_and_follow_reactive_state(app: TestApp) {
     assert_eq!(menu.menus[0].title, "File");
 
     // "Clear" is disabled while there's nothing to clear.
-    assert!(!app.services().choose_menu_item("File", "Clear"));
+    assert!(!app.services().choose_menu_item(&["File", "Clear"]));
     app.get_by_label("Notes").fill("something").await;
-    assert!(app.services().choose_menu_item("File", "Clear"));
+    assert!(app.services().choose_menu_item(&["File", "Clear"]));
     app.expect(by_label("Notes")).to_have_value("").await;
 
-    assert!(app.services().choose_menu_item("File", "Save…"));
+    assert!(app.services().choose_menu_item(&["File", "Save…"]));
     app.settle().await;
     app.services().take_save_file().expect("a save panel").respond(None);
     app.expect(by_text("save cancelled")).to_exist().await;

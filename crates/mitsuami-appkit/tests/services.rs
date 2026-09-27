@@ -10,12 +10,16 @@ mod checks {
     use std::rc::Rc;
 
     use mitsuami_appkit::{AppKitBackend, AppKitHandle, BackendOptions};
-    use mitsuami_core::services::{Alert, Menu, MenuBar, MenuItem, OpenFile, Shortcut};
+    use mitsuami_core::services::{Alert, Menu, MenuBar, MenuItem, MenuRole, OpenFile, Shortcut};
     use mitsuami_core::{Size, Ui};
     use objc2::rc::Retained;
     use objc2::runtime::AnyObject;
-    use objc2_app_kit::{NSApplication, NSButton, NSEventModifierFlags, NSSavePanel, NSView, NSWindow};
-    use objc2_foundation::{NSDate, NSRunLoop};
+    use objc2_app_kit::{
+        NSApplication, NSButton, NSControlStateValueOff, NSControlStateValueOn, NSEventModifierFlags, NSMenu,
+        NSMenuItem, NSSavePanel, NSView, NSWindow, NSWindowDidBecomeMainNotification,
+        NSWindowDidResignMainNotification,
+    };
+    use objc2_foundation::{NSDate, NSNotificationCenter, NSRunLoop};
 
     pub struct Fixture {
         pub ui: Ui,
@@ -81,10 +85,12 @@ mod checks {
             MenuBar::new()
                 .menu(
                     Menu::new("File")
-                        .item(MenuItem::new("New", move || c.set(c.get() + 1)).shortcut(Shortcut::primary('n')))
-                        .item(MenuItem::new("Unavailable", || {}).enabled(false)),
+                        .item(
+                            MenuItem::new("New").on_select(move || c.set(c.get() + 1)).shortcut(Shortcut::primary('n')),
+                        )
+                        .item(MenuItem::new("Unavailable").enabled(false)),
                 )
-                .menu(Menu::new("View").item(MenuItem::new("Zoom", || {}))),
+                .menu(Menu::new("View").item(MenuItem::new("Zoom"))),
         );
         let mtm = objc2::MainThreadMarker::new().unwrap();
         let bar = NSApplication::sharedApplication(mtm).mainMenu().expect("a main menu");
@@ -101,6 +107,118 @@ mod checks {
         file.performActionForItemAtIndex(0);
         f.ui.tick();
         assert_eq!(chosen.get(), 1, "the handler ran");
+    }
+
+    fn main_menu() -> Retained<NSMenu> {
+        let mtm = objc2::MainThreadMarker::new().unwrap();
+        NSApplication::sharedApplication(mtm).mainMenu().expect("a main menu")
+    }
+
+    fn titles(menu: &NSMenu) -> Vec<String> {
+        menu.itemArray().iter().map(|i| if i.isSeparatorItem() { "-".into() } else { i.title().to_string() }).collect()
+    }
+
+    fn submenu(menu: &NSMenu, title: &str) -> Retained<NSMenu> {
+        menu.itemWithTitle(&objc2_foundation::NSString::from_str(title)).and_then(|i| i.submenu()).expect(title)
+    }
+
+    fn item(menu: &NSMenu, title: &str) -> Retained<NSMenuItem> {
+        menu.itemWithTitle(&objc2_foundation::NSString::from_str(title)).expect(title)
+    }
+
+    pub fn submenus_check_marks_and_roles(f: &Fixture) {
+        let settings = Rc::new(Cell::new(0));
+        let s = settings.clone();
+        let sidebar = mitsuami_reactive::signal(true);
+        let zoom = mitsuami_reactive::signal(1);
+        f.ui.set_menu(
+            MenuBar::new()
+                .menu(
+                    Menu::new("File")
+                        .submenu(Menu::new("Open Recent").item(MenuItem::new("notes.txt")))
+                        .separator()
+                        .item(
+                            MenuItem::new("Preferences").role(MenuRole::Settings).on_select(move || s.set(s.get() + 1)),
+                        ),
+                )
+                .menu(
+                    Menu::new("View")
+                        .item(MenuItem::new("Show Sidebar").bind(sidebar))
+                        .separator()
+                        .item(MenuItem::new("Small").radio((zoom, 0)))
+                        .item(MenuItem::new("Large").radio((zoom, 1))),
+                )
+                .menu(Menu::new("Help").item(MenuItem::new("About the app").role(MenuRole::About))),
+        );
+        let bar = main_menu();
+        let name = objc2_foundation::NSProcessInfo::processInfo().processName().to_string();
+        let app_menu = bar.itemAtIndex(0).and_then(|i| i.submenu()).unwrap();
+        assert_eq!(
+            titles(&app_menu),
+            [
+                format!("About {name}"),
+                "-".into(),
+                "Settings…".into(),
+                "-".into(),
+                format!("Hide {name}"),
+                "-".into(),
+                format!("Quit {name}")
+            ],
+            "roles go to the app menu, with AppKit's titles"
+        );
+        assert_eq!(item(&app_menu, "Settings…").keyEquivalent().to_string(), ",");
+        assert_eq!(titles(&bar)[1..], ["File", "Edit", "View"], "Help went with its only item");
+
+        let file = submenu(&bar, "File");
+        assert_eq!(titles(&file), ["Open Recent"], "and File lost the separator before Settings");
+        assert_eq!(titles(&submenu(&file, "Open Recent")), ["notes.txt"]);
+
+        let view = submenu(&bar, "View");
+        let state = |title: &str| {
+            submenu(&main_menu(), "View").itemWithTitle(&objc2_foundation::NSString::from_str(title)).unwrap().state()
+        };
+        assert_eq!(state("Show Sidebar"), NSControlStateValueOn);
+        assert_eq!((state("Small"), state("Large")), (NSControlStateValueOff, NSControlStateValueOn));
+
+        view.performActionForItemAtIndex(0);
+        view.performActionForItemAtIndex(2);
+        f.ui.tick();
+        assert!(!sidebar.get_untracked());
+        assert_eq!(zoom.get_untracked(), 0);
+        assert_eq!(state("Show Sidebar"), NSControlStateValueOff, "the menu follows the signal");
+        assert_eq!((state("Small"), state("Large")), (NSControlStateValueOn, NSControlStateValueOff));
+
+        app_menu.performActionForItemAtIndex(2);
+        f.ui.tick();
+        assert_eq!(settings.get(), 1, "Settings… runs the app's item");
+        f.ui.set_menu(MenuBar::new());
+    }
+
+    /// Test windows are never main, so the notifications AppKit sends are
+    /// posted by hand.
+    pub fn window_menus_are_there_while_it_is_main(f: &Fixture) {
+        let window = f.ui.create_window("editor", Size::new(400.0, 300.0));
+        f.ui.set_menu(MenuBar::new().menu(Menu::new("File").item(MenuItem::new("New"))));
+        f.ui.set_window_menu(
+            window,
+            MenuBar::new()
+                .menu(Menu::new("File").item(MenuItem::new("Export…")))
+                .menu(Menu::new("Format").item(MenuItem::new("Bold"))),
+        );
+        f.ui.tick();
+        assert_eq!(titles(&main_menu())[1..], ["File", "Edit"], "not main: only the app's menus");
+
+        let ns_window = f.handle.ns_window(window).unwrap();
+        let center = NSNotificationCenter::defaultCenter();
+        unsafe { center.postNotificationName_object(NSWindowDidBecomeMainNotification, Some(&ns_window)) };
+        assert_eq!(titles(&main_menu())[1..], ["File", "Edit", "Format"]);
+        assert_eq!(titles(&submenu(&main_menu(), "File")), ["New", "-", "Export…"], "its File joins the app's");
+
+        unsafe { center.postNotificationName_object(NSWindowDidResignMainNotification, Some(&ns_window)) };
+        assert_eq!(titles(&main_menu())[1..], ["File", "Edit"]);
+        f.ui.destroy(window);
+        f.ui.set_menu(MenuBar::new());
+        f.ui.tick();
     }
 
     pub fn alerts_are_answered_through_their_sheet(f: &Fixture) {
@@ -149,9 +267,11 @@ fn main() {
     use std::panic::{AssertUnwindSafe, catch_unwind};
 
     type Check = (&'static str, fn(&checks::Fixture));
-    let checks: [Check; 4] = [
+    let checks: [Check; 6] = [
         ("clipboard_round_trips", checks::clipboard_round_trips),
         ("menus_are_installed_and_activate", checks::menus_are_installed_and_activate),
+        ("submenus_check_marks_and_roles", checks::submenus_check_marks_and_roles),
+        ("window_menus_are_there_while_it_is_main", checks::window_menus_are_there_while_it_is_main),
         ("alerts_are_answered_through_their_sheet", checks::alerts_are_answered_through_their_sheet),
         ("open_panels_report_cancellation", checks::open_panels_report_cancellation),
     ];

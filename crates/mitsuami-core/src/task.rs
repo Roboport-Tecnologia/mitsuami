@@ -45,16 +45,6 @@ pub(crate) fn with_current<R>(ui: &Ui, f: impl FnOnce() -> R) -> R {
     result
 }
 
-/// Wraps `f` to run inside the reactive scope that is current now, so code
-/// a component triggers later (event handlers, tasks) sees the same context.
-pub(crate) fn in_current_scope<A>(f: impl Fn(A) + 'static) -> impl Fn(A) + 'static {
-    let owner = Owner::current();
-    move |arg| match owner {
-        Some(owner) if owner.is_alive() => owner.with(|| f(arg)),
-        _ => f(arg),
-    }
-}
-
 /// Time as the UI sees it. Apps use real time; tests use a manual clock.
 pub trait Clock {
     /// Time elapsed since the clock started.
