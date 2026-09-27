@@ -72,6 +72,37 @@ fn text_styles() -> impl View {
     ))
 }
 
+/// A paragraph cut off at two lines and at one, with the platform's
+/// ellipsis, and a tweaked label: the secondary colour on AppKit, dimmed on
+/// GTK, Markdown on Qt, spread letters on WinUI.
+#[mitsuami_test::story(sizes = [(240, fit)])]
+fn text_tweaked() -> impl View {
+    let paragraph = "Widgets behave, size, animate and respond as the platform's own controls do, \
+                     and text wraps as the platform wraps it.";
+    Column::new().padding(16).gap(8).children((
+        Text::new(paragraph).max_lines(2),
+        Text::new(paragraph).max_lines(1),
+        Text::new("Tweaked, with **some** of it _marked up_").native(text_tweak()),
+    ))
+}
+
+fn text_tweak() -> Tweak<Text> {
+    platform! {
+        macos => mitsuami::appkit::tweak(|t: &mitsuami::appkit::objc2_app_kit::NSTextField| {
+            t.setTextColor(Some(&mitsuami::appkit::objc2_app_kit::NSColor::secondaryLabelColor()))
+        }),
+        gtk => mitsuami::gtk::tweak(|l: &mitsuami::gtk::gtk::Label| {
+            use mitsuami::gtk::gtk::prelude::*;
+            l.add_css_class("dim-label")
+        }),
+        kde => mitsuami::kirigami::tweak(|l: &mitsuami::kirigami::QmlObject| l.set_int("textFormat", 3)),
+        windows => mitsuami::winui::tweak(|t: &mitsuami::winui::bindings::TextBlock| {
+            use mitsuami::winui::windows_core::Interface;
+            t.cast::<mitsuami::winui::bindings::ITextBlock>()?.SetCharacterSpacing(200)
+        }),
+    }
+}
+
 #[mitsuami_test::story(sizes = [(200, fit)])]
 fn toggles() -> impl View {
     Column::new().padding(16).gap(8).align(Align::Start).children((

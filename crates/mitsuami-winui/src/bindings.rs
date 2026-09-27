@@ -5851,9 +5851,20 @@ impl ITextBlock {
             (windows_core::Interface::vtable(self).SetFontWeight)(windows_core::Interface::as_raw(self), value).ok()
         }
     }
+    pub fn SetCharacterSpacing(&self, value: i32) -> windows_core::Result<()> {
+        unsafe {
+            (windows_core::Interface::vtable(self).SetCharacterSpacing)(windows_core::Interface::as_raw(self), value)
+                .ok()
+        }
+    }
     pub fn SetTextWrapping(&self, value: TextWrapping) -> windows_core::Result<()> {
         unsafe {
             (windows_core::Interface::vtable(self).SetTextWrapping)(windows_core::Interface::as_raw(self), value).ok()
+        }
+    }
+    pub fn SetTextTrimming(&self, value: TextTrimming) -> windows_core::Result<()> {
+        unsafe {
+            (windows_core::Interface::vtable(self).SetTextTrimming)(windows_core::Interface::as_raw(self), value).ok()
         }
     }
     pub fn Text(&self) -> windows_core::Result<String> {
@@ -5876,6 +5887,18 @@ impl ITextBlock {
             .ok()
         }
     }
+    pub fn MaxLines(&self) -> windows_core::Result<i32> {
+        unsafe {
+            let mut result__ = core::mem::zeroed();
+            (windows_core::Interface::vtable(self).MaxLines)(windows_core::Interface::as_raw(self), &mut result__)
+                .map(|| result__)
+        }
+    }
+    pub fn SetMaxLines(&self, value: i32) -> windows_core::Result<()> {
+        unsafe {
+            (windows_core::Interface::vtable(self).SetMaxLines)(windows_core::Interface::as_raw(self), value).ok()
+        }
+    }
 }
 #[repr(C)]
 pub struct ITextBlock_Vtbl {
@@ -5892,17 +5915,36 @@ pub struct ITextBlock_Vtbl {
     FontStretch: usize,
     SetFontStretch: usize,
     CharacterSpacing: usize,
-    SetCharacterSpacing: usize,
+    pub SetCharacterSpacing: unsafe extern "system" fn(*mut core::ffi::c_void, i32) -> windows_core::HRESULT,
     Foreground: usize,
     SetForeground: usize,
     TextWrapping: usize,
     pub SetTextWrapping: unsafe extern "system" fn(*mut core::ffi::c_void, TextWrapping) -> windows_core::HRESULT,
     TextTrimming: usize,
-    SetTextTrimming: usize,
+    pub SetTextTrimming: unsafe extern "system" fn(*mut core::ffi::c_void, TextTrimming) -> windows_core::HRESULT,
     TextAlignment: usize,
     SetTextAlignment: usize,
     pub Text: unsafe extern "system" fn(*mut core::ffi::c_void, *mut *mut core::ffi::c_void) -> windows_core::HRESULT,
     pub SetText: unsafe extern "system" fn(*mut core::ffi::c_void, *mut core::ffi::c_void) -> windows_core::HRESULT,
+    Inlines: usize,
+    Padding: usize,
+    SetPadding: usize,
+    LineHeight: usize,
+    SetLineHeight: usize,
+    LineStackingStrategy: usize,
+    SetLineStackingStrategy: usize,
+    IsTextSelectionEnabled: usize,
+    SetIsTextSelectionEnabled: usize,
+    SelectedText: usize,
+    ContentStart: usize,
+    ContentEnd: usize,
+    SelectionStart: usize,
+    SelectionEnd: usize,
+    BaselineOffset: usize,
+    SelectionHighlightColor: usize,
+    SetSelectionHighlightColor: usize,
+    pub MaxLines: unsafe extern "system" fn(*mut core::ffi::c_void, *mut i32) -> windows_core::HRESULT,
+    pub SetMaxLines: unsafe extern "system" fn(*mut core::ffi::c_void, i32) -> windows_core::HRESULT,
 }
 windows_core::imp::define_interface!(ITextBox, ITextBox_Vtbl, 0x873af7c2_ab89_5d76_8dbe_3d6325669df5);
 impl windows_core::RuntimeType for ITextBox {
@@ -9483,6 +9525,22 @@ impl<F: Fn(windows_core::Ref<windows_core::IInspectable>, windows_core::Ref<Text
             windows_core::HRESULT(0)
         }
     }
+}
+#[repr(transparent)]
+#[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
+pub struct TextTrimming(pub i32);
+impl TextTrimming {
+    pub const None: Self = Self(0);
+    pub const CharacterEllipsis: Self = Self(1);
+    pub const WordEllipsis: Self = Self(2);
+    pub const Clip: Self = Self(3);
+}
+impl windows_core::imp::TypeKind for TextTrimming {
+    type TypeKind = windows_core::imp::CopyType;
+}
+impl windows_core::RuntimeType for TextTrimming {
+    const SIGNATURE: windows_core::imp::ConstBuffer =
+        windows_core::imp::ConstBuffer::from_slice(b"enum(Microsoft.UI.Xaml.TextTrimming;i4)");
 }
 #[repr(transparent)]
 #[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]

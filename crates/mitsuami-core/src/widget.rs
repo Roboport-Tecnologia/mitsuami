@@ -235,6 +235,9 @@ pub enum Prop {
     Title(String),
     /// Text content of a `Text`.
     Text(String),
+    /// How many lines a `Text` shows at most, the last one cut off with an
+    /// ellipsis, as the platform draws one. `None`: all of them.
+    MaxLines(Option<u32>),
     /// Caption of a `Button`, `Checkbox` or `Switch`; accessible name of a
     /// `Switch`, `Select`, `Slider` or `Progress`.
     Label(String),
@@ -319,6 +322,7 @@ impl Prop {
         matches!(
             self,
             Prop::Text(_)
+                | Prop::MaxLines(_)
                 | Prop::Label(_)
                 | Prop::Placeholder(_)
                 | Prop::Options(_)

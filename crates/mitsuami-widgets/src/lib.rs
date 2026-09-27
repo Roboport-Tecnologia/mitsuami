@@ -264,6 +264,23 @@ impl Text {
         self.0.prop(style.into_value(), Prop::TextStyle);
         self
     }
+
+    /// Shows at most this many lines, the last one cut off with an
+    /// ellipsis where the text goes on, as the platform draws one; 0 shows
+    /// them all. It's still read out in full.
+    pub fn max_lines(mut self, lines: impl IntoValue<u32>) -> Text {
+        self.0.prop(lines.into_value(), |n| Prop::MaxLines((n > 0).then_some(n)));
+        self
+    }
+
+    /// Raw platform settings, past the semantic ones: see [`Tweak`]. What
+    /// the platforms offer (colours on AppKit and GTK, Markdown on Qt,
+    /// character spacing on WinUI, selection on all but Qt's labels) is
+    /// each one's own.
+    pub fn native(mut self, tweak: Tweak<Text>) -> Text {
+        tweak.apply(&mut self.0);
+        self
+    }
 }
 
 pub struct Button(Element);

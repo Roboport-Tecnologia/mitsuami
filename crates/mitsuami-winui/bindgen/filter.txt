@@ -35,6 +35,7 @@ Microsoft.UI.Xaml.HorizontalAlignment
 Microsoft.UI.Xaml.VerticalAlignment
 Microsoft.UI.Xaml.FocusState
 Microsoft.UI.Xaml.TextWrapping
+Microsoft.UI.Xaml.TextTrimming
 Microsoft.UI.Xaml.Style
 Microsoft.UI.Xaml.CornerRadius
 Microsoft.UI.Xaml.IXamlRoot::get_RasterizationScale
@@ -60,7 +61,7 @@ Microsoft.UI.Xaml.Controls.Canvas::{CreateInstance, SetLeft, SetTop, GetLeft, Ge
 Microsoft.UI.Xaml.Controls.IPanel::{get_Children, put_Background}
 Microsoft.UI.Xaml.Controls.UIElementCollection::{}
 Microsoft.UI.Xaml.Controls.TextBlock::CreateInstance
-Microsoft.UI.Xaml.Controls.ITextBlock::{get_Text, put_Text, put_TextWrapping, put_FontSize, put_FontWeight, put_FontFamily}
+Microsoft.UI.Xaml.Controls.ITextBlock::{get_Text, put_Text, put_TextWrapping, get_MaxLines, put_MaxLines, put_TextTrimming, put_CharacterSpacing, put_FontSize, put_FontWeight, put_FontFamily}
 Microsoft.UI.Xaml.Media.FontFamily::CreateInstanceWithName
 Windows.UI.Text.FontWeight
 Microsoft.UI.Xaml.Controls.IControl::{get_IsEnabled, put_IsEnabled, put_FontSize, put_FontWeight, put_FontFamily, put_Background, put_BorderThickness, get_CornerRadius, put_CornerRadius}

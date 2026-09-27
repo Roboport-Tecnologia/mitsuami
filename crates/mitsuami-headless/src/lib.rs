@@ -536,15 +536,15 @@ impl Backend for HeadlessBackend {
                     AvailableSpace::MinContent => Some(0.0),
                     AvailableSpace::MaxContent => None,
                 });
-                text_size(&text, font, wrap)
+                text_size(&text, font, wrap, find_prop!(node.props, MaxLines).flatten())
             }
             WidgetKind::Button => {
-                let text = text_size(&label(), font, None);
+                let text = text_size(&label(), font, None, None);
                 Size::new(text.width + 24.0, (line + 8.0).max(28.0))
             }
             WidgetKind::TextInput | WidgetKind::PasswordInput => Size::new(200.0, line + 8.0),
             WidgetKind::Checkbox => {
-                let text = text_size(&label(), font, None);
+                let text = text_size(&label(), font, None, None);
                 Size::new(16.0 + 6.0 + text.width, line.max(16.0))
             }
             WidgetKind::Switch => Size::new(40.0, 24.0),
@@ -558,7 +558,7 @@ impl Backend for HeadlessBackend {
             WidgetKind::Select => {
                 let options = find_prop!(node.props, Options).unwrap_or_default();
                 let chosen = find_prop!(node.props, SelectedIndex).flatten().and_then(|i| options.get(i).cloned());
-                Size::new(text_size(&chosen.unwrap_or_default(), font, None).width + 32.0, (line + 8.0).max(28.0))
+                Size::new(text_size(&chosen.unwrap_or_default(), font, None, None).width + 32.0, (line + 8.0).max(28.0))
             }
             // Native renders are stood in for by the drawn one, if any.
             // Native views have no stand-in: size them with styles.
@@ -801,7 +801,8 @@ impl Backend for HeadlessBackend {
 }
 
 /// Greedy word wrap with fixed-width characters.
-fn text_size(text: &str, font: f32, wrap_width: Option<f32>) -> Size {
+/// At most `max_lines` lines: the rest are cut off.
+fn text_size(text: &str, font: f32, wrap_width: Option<f32>, max_lines: Option<u32>) -> Size {
     let char_width = font * 0.5;
     let line_height = (font * 1.25).round();
     let mut lines: Vec<usize> = Vec::new();
@@ -819,6 +820,9 @@ fn text_size(text: &str, font: f32, wrap_width: Option<f32>) -> Size {
             }
         }
         lines.push(current);
+    }
+    if let Some(max) = max_lines {
+        lines.truncate(max as usize);
     }
     let widest = lines.iter().copied().max().unwrap_or(0);
     Size::new(widest as f32 * char_width, lines.len().max(1) as f32 * line_height)

@@ -45,6 +45,10 @@ const KEY_UP: i32 = 0x0100_0013;
 const KEY_DOWN: i32 = 0x0100_0015;
 const KEY_UNKNOWN: i32 = 0x01ff_ffff;
 
+// `Text.elide` values (`Qt::TextElideMode`).
+const ELIDE_RIGHT: i32 = 1;
+const ELIDE_NONE: i32 = 3;
+
 /// A window's content host and what it reports.
 pub(crate) struct WindowRoot {
     id: NodeId,
@@ -759,6 +763,11 @@ impl State {
                 }
             }
             (Prop::Text(t), Widget::Label(l)) => l.set_str("text", t),
+            // Qt elides the last line it shows.
+            (Prop::MaxLines(lines), Widget::Label(l)) => {
+                l.set_int("maximumLineCount", lines.map_or(i32::MAX, |n| n as i32));
+                l.set_int("elide", if lines.is_some() { ELIDE_RIGHT } else { ELIDE_NONE });
+            }
             (Prop::Label(t), Widget::Button(b) | Widget::Checkbox(b)) => b.set_str("text", t),
             (
                 Prop::Label(t),
@@ -1365,7 +1374,11 @@ impl Backend for KirigamiBackend {
         let item = node.widget.item();
         match &node.widget {
             Widget::Window { root } => props.push(Prop::Title(root.window.str("title"))),
-            Widget::Label(l) => props.push(Prop::Text(l.str("text"))),
+            Widget::Label(l) => {
+                props.push(Prop::Text(l.str("text")));
+                let lines = l.int("maximumLineCount");
+                props.push(Prop::MaxLines((lines != i32::MAX).then_some(lines as u32)));
+            }
             Widget::Field(f) => {
                 props.push(Prop::Value(f.str("text")));
                 props.push(Prop::Placeholder(f.str("placeholderText")));

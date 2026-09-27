@@ -595,6 +595,14 @@ impl State {
         match (prop, &mut node.widget) {
             (Prop::Title(t), Widget::Window { window, .. }) => window.setTitle(&ns(t)),
             (Prop::Text(t), Widget::Label(l)) => l.setStringValue(&ns(t)),
+            // 0 is AppKit's "no limit"; the cell puts an ellipsis at the
+            // end of the last line it shows.
+            (Prop::MaxLines(lines), Widget::Label(l)) => {
+                l.setMaximumNumberOfLines(lines.map_or(0, |n| n as isize));
+                if let Some(cell) = l.cell() {
+                    cell.setTruncatesLastVisibleLine(lines.is_some());
+                }
+            }
             (Prop::Label(t), Widget::Button(b) | Widget::Checkbox(b)) => b.setTitle(&ns(t)),
             (Prop::Label(t), Widget::Switch(s)) => s.setAccessibilityLabel(Some(&ns(t))),
             (Prop::Label(t), Widget::Select(p)) => p.setAccessibilityLabel(Some(&ns(t))),
@@ -1353,7 +1361,11 @@ impl Backend for AppKitBackend {
         let checked = |s: isize| Prop::Checked(s == NSControlStateValueOn);
         match &node.widget {
             Widget::Window { window, .. } => props.push(Prop::Title(window.title().to_string())),
-            Widget::Label(l) => props.push(Prop::Text(l.stringValue().to_string())),
+            Widget::Label(l) => {
+                props.push(Prop::Text(l.stringValue().to_string()));
+                let lines = l.maximumNumberOfLines();
+                props.push(Prop::MaxLines((lines > 0).then_some(lines as u32)));
+            }
             Widget::Field(f) => {
                 props.push(Prop::Value(f.stringValue().to_string()));
                 if let Some(p) = f.placeholderString() {

@@ -796,6 +796,11 @@ impl State {
         match (prop, &mut node.widget) {
             (Prop::Title(t), Widget::Window(parts)) => parts.window.set_title(Some(t)),
             (Prop::Text(t), Widget::Label(l)) => l.set_text(t),
+            // GTK limits the lines of wrapping labels that ellipsize.
+            (Prop::MaxLines(lines), Widget::Label(l)) => {
+                l.set_lines(lines.map_or(-1, |n| n as i32));
+                l.set_ellipsize(if lines.is_some() { pango::EllipsizeMode::End } else { pango::EllipsizeMode::None });
+            }
             (Prop::Label(t), Widget::Button(b)) => b.set_label(t),
             (Prop::Label(t), Widget::Checkbox(c)) => c.set_label(Some(t)),
             (Prop::Label(t), Widget::Switch(s)) => {
@@ -1572,7 +1577,11 @@ impl Backend for GtkBackend {
         let text = |s: Option<glib::GString>| s.map(|s| s.to_string()).unwrap_or_default();
         match &node.widget {
             Widget::Window(parts) => props.push(Prop::Title(text(parts.window.title()))),
-            Widget::Label(l) => props.push(Prop::Text(l.text().to_string())),
+            Widget::Label(l) => {
+                props.push(Prop::Text(l.text().to_string()));
+                let limited = l.ellipsize() != pango::EllipsizeMode::None && l.lines() > 0;
+                props.push(Prop::MaxLines(limited.then(|| l.lines() as u32)));
+            }
             Widget::Entry(e) => {
                 props.push(Prop::Value(e.text().to_string()));
                 if let Some(p) = e.placeholder_text() {

@@ -33,6 +33,7 @@ fn describe_props(props: &[Prop]) -> String {
             Prop::Running(b) => extra.push(format!("running={b}")),
             Prop::Mixed(b) => extra.push(format!("mixed={b}")),
             Prop::ReadOnly(b) => extra.push(format!("read_only={b}")),
+            Prop::MaxLines(n) => extra.push(format!("max_lines={}", n.map_or("none".to_owned(), |n| n.to_string()))),
             Prop::Enabled(b) => extra.push(format!("enabled={b}")),
             Prop::TextStyle(s) => extra.push(format!("style={s:?}")),
             Prop::ButtonRole(r) => extra.push(format!("role={r:?}")),

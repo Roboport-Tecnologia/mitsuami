@@ -1199,6 +1199,17 @@ impl State {
                 parts.title_bar.cast::<w::ITitleBar>()?.SetTitle(t)?;
             }
             (Prop::Text(t), Widget::Label(l)) => l.cast::<w::ITextBlock>()?.SetText(t)?,
+            // 0 is XAML's "no limit"; trimming puts an ellipsis at the end
+            // of the last line shown.
+            (Prop::MaxLines(lines), Widget::Label(l)) => {
+                let text: w::ITextBlock = l.cast()?;
+                text.SetMaxLines(lines.map_or(0, |n| n as i32))?;
+                text.SetTextTrimming(if lines.is_some() {
+                    w::TextTrimming::CharacterEllipsis
+                } else {
+                    w::TextTrimming::None
+                })?;
+            }
             (Prop::Label(t), Widget::Button(_) | Widget::Checkbox(_)) => {
                 node.element.cast::<w::IContentControl>()?.SetContent(&boxed(t))?
             }
@@ -2146,7 +2157,12 @@ impl Backend for WinUiBackend {
         let mut props = Vec::new();
         match &node.widget {
             Widget::Window(parts) => props.push(Prop::Title(parts.window.cast::<w::IWindow>().ok()?.Title().ok()?)),
-            Widget::Label(l) => props.push(Prop::Text(l.cast::<w::ITextBlock>().ok()?.Text().ok()?)),
+            Widget::Label(l) => {
+                let text: w::ITextBlock = l.cast().ok()?;
+                props.push(Prop::Text(text.Text().ok()?));
+                let lines = text.MaxLines().ok()?;
+                props.push(Prop::MaxLines((lines > 0).then_some(lines as u32)));
+            }
             Widget::Field(f) => {
                 let field: w::ITextBox = f.cast().ok()?;
                 props.push(Prop::Value(field.Text().ok()?));
