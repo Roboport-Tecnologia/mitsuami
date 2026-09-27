@@ -625,7 +625,7 @@ impl State {
             WidgetKind::Slider => {
                 let scale = gtk::Scale::new(gtk::Orientation::Horizontal, None::<&gtk::Adjustment>);
                 scale.connect_value_changed(move |s| events.emit(id, UiEvent::Changed(EventValue::Number(s.value()))));
-                let steps = Rc::new(Steps { step: Cell::new(None), marks: Cell::new(true) });
+                let steps = Rc::new(Steps::default());
                 // SAFETY: the key only ever holds an `Rc<Steps>`.
                 unsafe { scale.set_data(STEPS, steps.clone()) };
                 // GTK's scales have no stepped mode: with a step, the user's
@@ -1039,6 +1039,10 @@ impl State {
                 let widget = self.widget(*id, command);
                 self.frames.borrow_mut().insert(widget.clone(), *frame);
                 self.update_child_visible(*id);
+                if let Widget::Slider { scale, steps } = &self.nodes[id].widget {
+                    let vertical = scale.orientation() == gtk::Orientation::Vertical;
+                    set_travel(scale, steps, if vertical { frame.height() } else { frame.width() });
+                }
                 // Hosts ask for their frame size, so their parents must
                 // measure again, not just reallocate.
                 widget.queue_resize();
@@ -1109,32 +1113,58 @@ fn set_increments(scale: &gtk::Scale, step: Option<f64>) {
     scale.set_increments(step, step * 10.0);
 }
 
-/// A slider's step, and whether a mark shows at each one.
+/// A slider's step, whether a mark shows at each one, and the length its
+/// knob travels, which decides whether the marks fit.
+#[derive(Default)]
 pub(crate) struct Steps {
     step: Cell<Option<f64>>,
-    pub(crate) marks: Cell<bool>,
+    pub(crate) hidden: Cell<bool>,
+    length: Cell<f64>,
+    /// The marks on the scale: range and step, if any.
+    shown: Cell<Option<(f64, f64, f64)>>,
 }
 
 /// Where a scale keeps its [`Steps`].
 pub(crate) const STEPS: &str = "mitsuami-steps";
 
-/// Past this many steps, marks run together into a bar.
-const MOST_MARKS: f64 = 50.0;
+/// How far from its mark GTK holds the knob while dragging
+/// (`MARK_SNAP_LENGTH` in `gtkrange.c`). With steps closer than twice that,
+/// it holds the knob past the next step, which then jumps several at once.
+const MARK_HOLD: f64 = 12.0;
 
 /// A mark at every step, as AppKit draws its tick marks, unless the app
-/// turned them off or there are too many to tell apart.
+/// turned them off or the steps are too close for GTK's drag.
 pub(crate) fn update_marks(scale: &gtk::Scale, steps: &Steps) {
-    scale.clear_marks();
-    let Some(step) = steps.step.get().filter(|s| *s > 0.0 && steps.marks.get()) else { return };
     let adjustment = scale.adjustment();
     let (min, max) = (adjustment.lower(), adjustment.upper());
-    let count = ((max - min) / step + 1e-9).floor();
-    if count > MOST_MARKS {
+    let wanted = steps
+        .step
+        .get()
+        .filter(|step| *step > 0.0 && !steps.hidden.get())
+        .filter(|step| steps.length.get() * step / (max - min) >= 2.0 * MARK_HOLD)
+        .map(|step| (min, max, step));
+    if steps.shown.replace(wanted) == wanted {
         return;
     }
-    for i in 0..=count as u32 {
-        scale.add_mark(min + i as f64 * step, gtk::PositionType::Bottom, None);
+    scale.clear_marks();
+    if let Some((min, max, step)) = wanted {
+        for i in 0..=((max - min) / step + 1e-9).floor() as u32 {
+            scale.add_mark(min + i as f64 * step, gtk::PositionType::Bottom, None);
+        }
     }
+}
+
+/// Sets the length a slider's knob travels in a frame of `length` along it:
+/// the frame less the scale's padding, which the knob overhangs.
+fn set_travel(scale: &gtk::Scale, steps: &Steps, length: f32) {
+    #[allow(deprecated)] // The only way to read a widget's CSS padding.
+    let padding = scale.style_context().padding();
+    let padding = match scale.orientation() {
+        gtk::Orientation::Vertical => padding.top() + padding.bottom(),
+        _ => padding.left() + padding.right(),
+    };
+    steps.length.set((length as f64 - padding as f64).max(0.0));
+    update_marks(scale, steps);
 }
 
 /// The step nearest `value`, counting from the minimum, within the range.
@@ -1232,6 +1262,18 @@ impl Backend for GtkBackend {
                 .measure(widget, props.props(), &request)
                 .unwrap_or_else(|| measure_widget(widget, false, request)),
             Widget::Native { widget, measure: Some(measure), .. } => measure(widget, &request),
+            // Marks make a scale thicker, and whether they fit depends on
+            // its length: decide for the length being measured.
+            Widget::Slider { scale, steps } => {
+                let length = match scale.orientation() {
+                    gtk::Orientation::Vertical => request.known_height,
+                    _ => request.known_width,
+                };
+                if let Some(length) = length {
+                    set_travel(scale, steps, length);
+                }
+                measure_widget(scale.upcast_ref(), false, request)
+            }
             // Measured by the core.
             Widget::Drawn { .. } | Widget::Window(_) | Widget::Host(_) | Widget::Scroll { .. } | Widget::List(_) => {
                 Size::ZERO

@@ -43,7 +43,7 @@ impl Tweakable for Spinner {
 }
 
 /// Whether a slider's scale shows a mark at each step; it does by default,
-/// up to 50 of them. For a tweak:
+/// when the steps are far enough apart to drag between. For a tweak:
 /// `gtk::tweak(|s: &gtk::Scale| gtk::show_step_marks(s, false))`.
 pub fn show_step_marks(scale: &gtk::Scale, show: bool) {
     // SAFETY: the backend only ever keeps an `Rc<Steps>` under this key.
@@ -51,7 +51,7 @@ pub fn show_step_marks(scale: &gtk::Scale, show: bool) {
     // SAFETY: the scale owns it, and it's only read here.
     let steps = unsafe { steps.as_ref() }.clone();
     // Tweaks run after every prop: only redraw when it changes.
-    if steps.marks.replace(show) != show {
+    if steps.hidden.replace(!show) == show {
         update_marks(scale, &steps);
     }
 }

@@ -213,7 +213,9 @@ async fn a_tweak_runs_on_the_native_slider_after_its_props(app: TestApp) {
 }
 
 /// GTK draws a mark at each step, which makes the scale taller; a tweak
-/// turns them off, and back on. The other platforms' tick marks are theirs.
+/// turns them off, and back on. Steps too close to drag between (GTK holds
+/// the knob 12 px from a mark) get none. The other platforms' tick marks
+/// are theirs.
 #[mitsuami_test::test]
 async fn gtk_marks_its_steps_unless_told_not_to(app: TestApp) {
     if app.backend_name() != "gtk" {
@@ -221,14 +223,19 @@ async fn gtk_marks_its_steps_unless_told_not_to(app: TestApp) {
     }
     let marks = signal(true);
     app.mount(move || {
-        Column::new().children((
-            Slider::new("Plain").range(0.0, 10.0),
-            Slider::new("Stepped").range(0.0, 10.0).step(1.0).native(step_marks(marks)),
+        Column::new().width(200).children((
+            Slider::new("Plain").range(0.0, 4.0),
+            Slider::new("Stepped").range(0.0, 4.0).step(1.0).native(step_marks(marks)),
+            Slider::new("Dense").range(0.0, 10.0).step(1.0),
+            // At its natural width, as in the example.
+            Row::new().child(Slider::new("Short").range(0.0, 10.0).step(1.0)),
         ))
     });
     let height = |name: &str| app.get(by_role(Role::Slider, name)).frame().height();
 
     assert!(height("Stepped") > height("Plain"), "no marks: {} tall", height("Stepped"));
+    assert_eq!(height("Dense"), height("Plain"));
+    assert_eq!(height("Short"), height("Plain"));
     marks.set(false);
     app.settle().await;
     assert_eq!(height("Stepped"), height("Plain"));
