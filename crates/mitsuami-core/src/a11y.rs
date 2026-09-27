@@ -19,6 +19,9 @@ pub enum Role {
     /// A button that pops up a list of options to choose one from (a
     /// `Select`). Its value is the chosen option.
     ComboBox,
+    /// How far along a task is. Its value is the percentage, unless it
+    /// isn't known.
+    ProgressBar,
     Image,
     Slider,
     List,
@@ -82,9 +85,10 @@ pub enum A11yAction {
     /// Press / click / toggle, whatever the control's primary action is.
     Activate,
     Focus,
-    /// Replace a text field's text, or choose the `Select` option with this
-    /// text.
+    /// Replace a text field's text, choose the `Select` option with this
+    /// text, or move a `Slider` to this number.
     SetValue(String),
+    /// Step an adjustable control (a slider) up or down.
     Increment,
     Decrement,
     ScrollIntoView,

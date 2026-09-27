@@ -47,6 +47,8 @@ fn signup() -> impl View {
     let name = signal(String::new());
     let agreed = signal(false);
     let newsletter = signal(true);
+    let plan = signal(0);
+    let volume = signal(50.0_f64);
     let submitted = signal(None::<String>);
     let submit = move || submitted.set(Some(name.get_untracked()));
     Column::new().gap(Spacing::Md).children((
@@ -61,6 +63,10 @@ fn signup() -> impl View {
                 TextInput::new().a11y_label("Name").placeholder("Ada Lovelace").bind(name).on_submit(submit),
                 Text::new("Newsletter"),
                 Switch::new("Newsletter").bind(newsletter),
+                Text::new("Plan"),
+                Select::new("Plan").options(["Free", "Pro", "Team"]).bind(plan),
+                Text::new(move || format!("Volume ({})", volume.get().round())),
+                Slider::new("Volume").range(0.0, 100.0).step(10.0).bind(volume),
             )),
         Checkbox::new("I agree to the terms").bind(agreed),
         Row::new().gap(Spacing::Sm).align(Align::Center).children((
@@ -71,6 +77,35 @@ fn signup() -> impl View {
                 None => String::new(),
             }),
         )),
+    ))
+}
+
+/// A pretend download: work of unknown length while it connects, then how
+/// far along it is.
+fn download() -> impl View {
+    let running = signal(false);
+    let connecting = signal(false);
+    let done = signal(0.0_f64);
+    let start = move || {
+        running.set(true);
+        connecting.set(true);
+        done.set(0.0);
+        spawn_local(async move {
+            sleep(std::time::Duration::from_secs(1)).await;
+            connecting.set(false);
+            for step in 1..=20 {
+                sleep(std::time::Duration::from_millis(100)).await;
+                done.set(step as f64 / 20.0);
+            }
+            running.set(false);
+        });
+    };
+    Row::new().gap(Spacing::Md).align(Align::Center).children((
+        Button::new("Download").enabled(move || !running.get()).on_click(start),
+        Progress::new("Download").value(done).indeterminate(connecting).grow(1.0),
+        Text::new(move || {
+            if connecting.get() { "Connecting…".to_string() } else { format!("{}%", (done.get() * 100.0).round()) }
+        }),
     ))
 }
 
@@ -96,6 +131,7 @@ fn main() {
             Column::new().padding(Spacing::Xl).gap(Spacing::Xl).children((
                 counter(log_lines),
                 signup(),
+                download(),
                 log(log_lines),
                 uptime(),
             ))

@@ -94,6 +94,12 @@ macro_rules! static_values {
 
 static_values!(String, bool, char, f32, f64, i8, i16, i32, i64, u8, u16, u32, u64, usize, isize);
 
+impl IntoValue<(f64, f64)> for (f64, f64) {
+    fn into_value(self) -> Value<(f64, f64)> {
+        Value::Static(self)
+    }
+}
+
 impl<T: 'static> IntoValue<Vec<T>> for Vec<T> {
     fn into_value(self) -> Value<Vec<T>> {
         Value::Static(self)

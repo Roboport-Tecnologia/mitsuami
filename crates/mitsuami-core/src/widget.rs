@@ -44,6 +44,12 @@ pub enum WidgetKind {
     /// A native pop-up menu of text options (NSPopUpButton, ComboBox,
     /// gtk::DropDown, QQC2.ComboBox). Its options are [`Prop::Options`].
     Select,
+    /// A native slider (NSSlider, Slider, gtk::Scale, QQC2.Slider): a
+    /// [`Prop::Number`] in a [`Prop::Range`], in [`Prop::Step`]s.
+    Slider,
+    /// A native progress bar (NSProgressIndicator, ProgressBar,
+    /// gtk::ProgressBar, QQC2.ProgressBar): a [`Prop::Progress`].
+    Progress,
     /// A native scroll container. It has exactly one native child, the
     /// content, which the core lays out and may be larger than the viewport.
     ScrollView,
@@ -89,6 +95,8 @@ impl WidgetKind {
             WidgetKind::Checkbox => "Checkbox",
             WidgetKind::Switch => "Switch",
             WidgetKind::Select => "Select",
+            WidgetKind::Slider => "Slider",
+            WidgetKind::Progress => "Progress",
             WidgetKind::Custom(name) => name,
             WidgetKind::Native => "Native",
         }
@@ -159,7 +167,7 @@ pub enum Prop {
     /// Text content of a `Text`.
     Text(String),
     /// Caption of a `Button`, `Checkbox` or `Switch`; accessible name of a
-    /// `Switch` or `Select`.
+    /// `Switch`, `Select`, `Slider` or `Progress`.
     Label(String),
     /// Current text of a `TextInput`.
     Value(String),
@@ -173,6 +181,21 @@ pub enum Prop {
     /// Which option of a `Select` is chosen: always one, unless it has no
     /// options.
     SelectedIndex(Option<usize>),
+    /// A `Slider`'s value, within its range. The core sends it after the
+    /// range, which may have clamped it.
+    Number(f64),
+    /// The values a `Slider` can take.
+    Range {
+        min: f64,
+        max: f64,
+    },
+    /// A `Slider`'s step, used as the platform uses one: to snap to, where
+    /// its sliders snap, and to move by from the keyboard. `None`: the
+    /// platform's default.
+    Step(Option<f64>),
+    /// How far along a `Progress` is, from 0 to 1. `None`: not known (an
+    /// indeterminate, animated bar).
+    Progress(Option<f64>),
     /// Which axes a `ScrollView` scrolls.
     ScrollAxes(ScrollAxes),
     /// A `List`'s rows, in order.

@@ -466,6 +466,152 @@ impl Select {
     }
 }
 
+/// A slider: a number in a range, as the platform's slider shows it. Its
+/// label is its accessible name. What its step does is the platform's:
+/// AppKit shows it as tick marks the knob stops at, WinUI snaps to it, GTK
+/// and Qt move by it from the keyboard.
+///
+/// ```ignore
+/// let volume = signal(50.0);
+/// Slider::new("Volume").range(0.0, 100.0).step(10.0).bind(volume)
+/// ```
+pub struct Slider {
+    element: Element,
+    range: Value<(f64, f64)>,
+    value: Value<f64>,
+}
+
+impl ElementBuilder for Slider {
+    fn element(&mut self) -> &mut Element {
+        &mut self.element
+    }
+}
+
+impl View for Slider {
+    fn build(mut self, ui: &Ui) -> NodeId {
+        // Clamped as the native slider clamps it.
+        let clamp = |v: f64, (min, max): (f64, f64)| v.max(min).min(max);
+        let value = match (self.value, self.range.clone()) {
+            (Value::Static(v), Value::Static(range)) => Value::Static(clamp(v, range)),
+            (value, range) => Value::Dynamic(Rc::new(move || clamp(value.get(), range.get()))),
+        };
+        self.element.prop(self.range, |(min, max)| Prop::Range { min, max });
+        self.element.prop(value, Prop::Number);
+        self.element.build(ui)
+    }
+}
+
+impl Slider {
+    /// From 0 to 100, at 0.
+    pub fn new(label: impl IntoValue<String>) -> Slider {
+        let mut element = Element::new(WidgetKind::Slider);
+        element.prop(label.into_value(), Prop::Label);
+        Slider { element, range: Value::Static((0.0, 100.0)), value: Value::Static(0.0) }
+    }
+
+    pub fn range(mut self, min: f64, max: f64) -> Slider {
+        self.range = Value::Static((min, max));
+        self
+    }
+
+    /// A range that changes: `(min, max)`.
+    pub fn range_with(mut self, range: impl IntoValue<(f64, f64)>) -> Slider {
+        self.range = range.into_value();
+        self
+    }
+
+    /// The step the platform snaps to (where its sliders snap) and moves by
+    /// from the keyboard. Without one, the platform's default.
+    pub fn step(mut self, step: impl IntoValue<f64>) -> Slider {
+        let step = step.into_value();
+        let step = match step {
+            Value::Static(s) => Value::Static(Some(s)),
+            dynamic => Value::Dynamic(Rc::new(move || Some(dynamic.get()))),
+        };
+        self.element.prop(step, Prop::Step);
+        self
+    }
+
+    pub fn value(mut self, value: impl IntoValue<f64>) -> Slider {
+        self.value = value.into_value();
+        self
+    }
+
+    /// Two-way binding, Vue's `v-model`.
+    pub fn bind(self, signal: Signal<f64>) -> Slider {
+        self.value(signal).on_change(move |value| signal.set(value))
+    }
+
+    pub fn enabled(mut self, enabled: impl IntoValue<bool>) -> Slider {
+        self.element.prop(enabled.into_value(), Prop::Enabled);
+        self
+    }
+
+    /// Called with the new value as the user moves the slider.
+    pub fn on_change(mut self, handler: impl Fn(f64) + 'static) -> Slider {
+        self.element.on(move |event| {
+            if let UiEvent::Changed(EventValue::Number(value)) = event {
+                handler(*value);
+            }
+        });
+        self
+    }
+}
+
+/// A progress bar, as the platform draws one: how far along a task is, from
+/// 0 to 1, or, until a value is given (or while `indeterminate`), an
+/// animated bar for work of unknown length. Its label is its accessible
+/// name.
+///
+/// ```ignore
+/// Progress::new("Upload").value(move || sent.get() / total)
+/// ```
+pub struct Progress {
+    element: Element,
+    value: Option<Value<f64>>,
+    indeterminate: Value<bool>,
+}
+
+impl ElementBuilder for Progress {
+    fn element(&mut self) -> &mut Element {
+        &mut self.element
+    }
+}
+
+impl View for Progress {
+    fn build(mut self, ui: &Ui) -> NodeId {
+        let progress = match (self.value, self.indeterminate) {
+            (None, _) => Value::Static(None),
+            (Some(Value::Static(v)), Value::Static(unknown)) => Value::Static((!unknown).then_some(v.clamp(0.0, 1.0))),
+            (Some(value), unknown) => {
+                Value::Dynamic(Rc::new(move || (!unknown.get()).then(|| value.get().clamp(0.0, 1.0))))
+            }
+        };
+        self.element.prop(progress, Prop::Progress);
+        self.element.build(ui)
+    }
+}
+
+impl Progress {
+    pub fn new(label: impl IntoValue<String>) -> Progress {
+        let mut element = Element::new(WidgetKind::Progress);
+        element.prop(label.into_value(), Prop::Label);
+        Progress { element, value: None, indeterminate: Value::Static(false) }
+    }
+
+    /// How far along, from 0 to 1.
+    pub fn value(mut self, value: impl IntoValue<f64>) -> Progress {
+        self.value = Some(value.into_value());
+        self
+    }
+
+    /// Shows work of unknown length instead of the value while true.
+    pub fn indeterminate(mut self, indeterminate: impl IntoValue<bool>) -> Progress {
+        self.indeterminate = indeterminate.into_value();
+        self
+    }
+}
+
 // ----------------------------------------------------------- view! tags
 //
 // `view!` builds `<Tag …>children</Tag>` as
@@ -556,5 +702,25 @@ impl Select {
             options: Value::Static(Vec::new()),
             selected: Value::Static(0),
         }
+    }
+}
+
+impl Slider {
+    /// `<Slider a11y_label="Volume" bind=volume/>`
+    #[doc(hidden)]
+    pub fn __tag() -> Slider {
+        Slider {
+            element: Element::new(WidgetKind::Slider),
+            range: Value::Static((0.0, 100.0)),
+            value: Value::Static(0.0),
+        }
+    }
+}
+
+impl Progress {
+    /// `<Progress a11y_label="Upload" value=done/>`
+    #[doc(hidden)]
+    pub fn __tag() -> Progress {
+        Progress { element: Element::new(WidgetKind::Progress), value: None, indeterminate: Value::Static(false) }
     }
 }

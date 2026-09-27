@@ -22,9 +22,9 @@ use objc2_app_kit::{
     NSApplication, NSBackingStoreType, NSBitmapFormat, NSButton, NSControl, NSControlStateValueOff,
     NSControlStateValueOn, NSEvent, NSEventModifierFlags, NSEventType, NSFont, NSFontTextStyle, NSFontTextStyleBody,
     NSFontTextStyleCallout, NSFontTextStyleCaption1, NSFontTextStyleHeadline, NSFontTextStyleLargeTitle,
-    NSFontTextStyleTitle1, NSFontWeightRegular, NSMenuItem, NSPopUpButton, NSScreen, NSScrollView,
-    NSStandardKeyBindingResponding, NSSwitch, NSTextField, NSView, NSViewBoundsDidChangeNotification, NSWindow,
-    NSWindowOrderingMode, NSWindowStyleMask, NSWorkspace,
+    NSFontTextStyleTitle1, NSFontWeightRegular, NSMenuItem, NSPopUpButton, NSProgressIndicator, NSScreen, NSScrollView,
+    NSSlider, NSStandardKeyBindingResponding, NSSwitch, NSTextField, NSView, NSViewBoundsDidChangeNotification,
+    NSWindow, NSWindowOrderingMode, NSWindowStyleMask, NSWorkspace,
 };
 use objc2_foundation::{NSArray, NSDictionary, NSNotificationCenter, NSPoint, NSRange, NSRect, NSSize, NSString};
 
@@ -65,6 +65,13 @@ enum Widget {
     Checkbox(Retained<NSButton>),
     Switch(Retained<NSSwitch>),
     Select(Retained<NSPopUpButton>),
+    /// A slider, and the step it was given: AppKit steps by tick marks,
+    /// which only approximate one that doesn't divide the range.
+    Slider {
+        slider: Retained<NSSlider>,
+        step: Option<f64>,
+    },
+    Progress(Retained<NSProgressIndicator>),
     Scroll(Retained<NSScrollView>),
     List(crate::list::List),
     /// A custom widget with an AppKit render, and the props it last got.
@@ -97,6 +104,8 @@ impl Widget {
             Widget::Button(v) | Widget::Checkbox(v) => v,
             Widget::Switch(v) => v,
             Widget::Select(v) => v,
+            Widget::Slider { slider, .. } => slider,
+            Widget::Progress(v) => v,
             Widget::Scroll(v) => v,
             Widget::List(list) => &list.scroll,
             Widget::Custom { view, .. } | Widget::Native { view, .. } => view,
@@ -110,7 +119,9 @@ impl Widget {
             Widget::Button(v) | Widget::Checkbox(v) => Some(v),
             Widget::Switch(v) => Some(v),
             Widget::Select(v) => Some(v),
+            Widget::Slider { slider, .. } => Some(slider),
             Widget::Window { .. }
+            | Widget::Progress(_)
             | Widget::Host(_)
             | Widget::Scroll(_)
             | Widget::List(_)
@@ -351,6 +362,7 @@ impl State {
                 | WidgetKind::Checkbox
                 | WidgetKind::Switch
                 | WidgetKind::Select
+                | WidgetKind::Slider
                 | WidgetKind::TextInput
                 | WidgetKind::ScrollView
                 | WidgetKind::List
@@ -461,6 +473,20 @@ impl State {
                 }
                 Widget::Select(popup)
             }
+            WidgetKind::Slider => {
+                let slider = NSSlider::new(mtm);
+                unsafe {
+                    slider.setTarget(target_obj);
+                    slider.setAction(action);
+                }
+                Widget::Slider { slider, step: None }
+            }
+            WidgetKind::Progress => {
+                let progress = NSProgressIndicator::new(mtm);
+                progress.setMinValue(0.0);
+                progress.setMaxValue(1.0);
+                Widget::Progress(progress)
+            }
             WidgetKind::TextInput => {
                 // No target-action: submit comes from the delegate (Return
                 // only), edits from `controlTextDidChange:`.
@@ -549,6 +575,28 @@ impl State {
             }
             (Prop::SelectedIndex(index), Widget::Select(p)) => {
                 p.selectItemAtIndex(index.map_or(-1, |i| i as isize));
+            }
+            (Prop::Label(t), Widget::Slider { slider, .. }) => slider.setAccessibilityLabel(Some(&ns(t))),
+            (Prop::Range { min, max }, Widget::Slider { slider, step }) => {
+                slider.setMinValue(*min);
+                slider.setMaxValue(*max);
+                set_ticks(slider, *step);
+            }
+            (Prop::Step(new), Widget::Slider { slider, step }) => {
+                *step = *new;
+                set_ticks(slider, *new);
+            }
+            (Prop::Number(n), Widget::Slider { slider, .. }) => slider.setDoubleValue(*n),
+            (Prop::Label(t), Widget::Progress(p)) => p.setAccessibilityLabel(Some(&ns(t))),
+            (Prop::Progress(progress), Widget::Progress(p)) => {
+                p.setIndeterminate(progress.is_none());
+                match progress {
+                    Some(fraction) => {
+                        unsafe { p.stopAnimation(None) };
+                        p.setDoubleValue(*fraction);
+                    }
+                    None => unsafe { p.startAnimation(None) },
+                }
             }
             (Prop::Value(t), Widget::Field(f)) => {
                 // Don't disturb the caret when the field already shows it.
@@ -834,6 +882,21 @@ fn a11y_element(view: &NSView) -> Retained<AnyObject> {
 }
 
 /// `intrinsicContentSize`, with "no intrinsic size" (-1) as zero.
+/// AppKit's steps are tick marks, which the knob then only stops at.
+fn set_ticks(slider: &NSSlider, step: Option<f64>) {
+    let range = slider.maxValue() - slider.minValue();
+    match step.filter(|s| *s > 0.0 && range > 0.0) {
+        Some(step) => {
+            slider.setNumberOfTickMarks((range / step).round() as isize + 1);
+            slider.setAllowsTickMarkValuesOnly(true);
+        }
+        None => {
+            slider.setNumberOfTickMarks(0);
+            slider.setAllowsTickMarkValuesOnly(false);
+        }
+    }
+}
+
 fn intrinsic(view: &NSView) -> Size {
     let size = view.intrinsicContentSize();
     ceil_size(NSSize::new(size.width.max(0.0), size.height.max(0.0)))
@@ -886,8 +949,11 @@ impl Backend for AppKitBackend {
             }
             Widget::Button(v) | Widget::Checkbox(v) => ceil_size(v.intrinsicContentSize()),
             Widget::Switch(v) => ceil_size(v.intrinsicContentSize()),
-            // Sized for its widest item.
+            // AppKit sizes pop-up buttons for their widest item.
             Widget::Select(v) => ceil_size(v.intrinsicContentSize()),
+            // No natural width: they're as wide as the layout makes them.
+            Widget::Slider { slider, .. } => intrinsic(slider),
+            Widget::Progress(p) => intrinsic(p),
             Widget::Custom { view, render, props } => {
                 render.measure(view, props.props(), &request).unwrap_or_else(|| intrinsic(view))
             }
@@ -958,6 +1024,20 @@ impl Backend for AppKitBackend {
             }
             (A11yAction::Decrement, WidgetKind::Native) => {
                 let _: bool = unsafe { msg_send![&*a11y_element(&widget_view), accessibilityPerformDecrement] };
+            }
+            // What VoiceOver's increment and decrement do.
+            (A11yAction::Increment, WidgetKind::Slider) => {
+                let _: bool = unsafe { msg_send![&*a11y_element(&widget_view), accessibilityPerformIncrement] };
+            }
+            (A11yAction::Decrement, WidgetKind::Slider) => {
+                let _: bool = unsafe { msg_send![&*a11y_element(&widget_view), accessibilityPerformDecrement] };
+            }
+            (A11yAction::SetValue(text), WidgetKind::Slider) => {
+                let slider: &NSSlider = widget_view.downcast_ref().ok_or(ActionError::Unsupported)?;
+                let value: f64 = text.trim().parse().map_err(|_| ActionError::Unsupported)?;
+                // As if dragged there: the slider sends its action.
+                slider.setDoubleValue(value);
+                unsafe { slider.sendAction_to(slider.action(), slider.target().as_deref()) };
             }
             (A11yAction::SetValue(text), WidgetKind::Select) => {
                 // As if the item were picked from the open menu: the pop-up
@@ -1155,6 +1235,20 @@ impl Backend for AppKitBackend {
                 props.push(Prop::Options(p.itemTitles().iter().map(|t| t.to_string()).collect()));
                 let index = p.indexOfSelectedItem();
                 props.push(Prop::SelectedIndex((index >= 0).then_some(index as usize)));
+            }
+            Widget::Slider { slider, step } => {
+                if let Some(label) = slider.accessibilityLabel() {
+                    props.push(Prop::Label(label.to_string()));
+                }
+                props.push(Prop::Range { min: slider.minValue(), max: slider.maxValue() });
+                props.push(Prop::Step(*step));
+                props.push(Prop::Number(slider.doubleValue()));
+            }
+            Widget::Progress(p) => {
+                if let Some(label) = p.accessibilityLabel() {
+                    props.push(Prop::Label(label.to_string()));
+                }
+                props.push(Prop::Progress((!p.isIndeterminate()).then(|| p.doubleValue())));
             }
             Widget::Scroll(scroll) => {
                 props.push(Prop::ScrollAxes(match (scroll.hasHorizontalScroller(), scroll.hasVerticalScroller()) {

@@ -548,11 +548,13 @@ impl Backend for HeadlessBackend {
                 Size::new(16.0 + 6.0 + text.width, line.max(16.0))
             }
             WidgetKind::Switch => Size::new(40.0, 24.0),
-            // Sized for its widest option, with room for the arrow.
+            WidgetKind::Slider => Size::new(160.0, 20.0),
+            WidgetKind::Progress => Size::new(160.0, 8.0),
+            // Sized for its chosen option, with room for the arrow.
             WidgetKind::Select => {
                 let options = find_prop!(node.props, Options).unwrap_or_default();
-                let widest = options.iter().map(|o| text_size(o, font, None).width).fold(0.0, f32::max);
-                Size::new(widest + 32.0, (line + 8.0).max(28.0))
+                let chosen = find_prop!(node.props, SelectedIndex).flatten().and_then(|i| options.get(i).cloned());
+                Size::new(text_size(&chosen.unwrap_or_default(), font, None).width + 32.0, (line + 8.0).max(28.0))
             }
             // Native renders are stood in for by the drawn one, if any.
             // Native views have no stand-in: size them with styles.
@@ -586,6 +588,27 @@ impl Backend for HeadlessBackend {
                 state.set_prop(id, Prop::Value(text.clone()));
                 state.emit(id, UiEvent::Changed(EventValue::Text(text.clone())));
             }
+            (A11yAction::SetValue(_) | A11yAction::Increment | A11yAction::Decrement, WidgetKind::Slider) => {
+                let props = &state.nodes[&id].props;
+                let (min, max) = props
+                    .iter()
+                    .find_map(|p| match p {
+                        Prop::Range { min, max } => Some((*min, *max)),
+                        _ => None,
+                    })
+                    .unwrap_or((0.0, 1.0));
+                let value = find_prop!(props, Number).unwrap_or(min);
+                // Steps by the step, or a tenth of the range without one.
+                let step = find_prop!(props, Step).flatten().unwrap_or((max - min) / 10.0);
+                let value = match action {
+                    A11yAction::SetValue(text) => text.trim().parse().map_err(|_| ActionError::Unsupported)?,
+                    A11yAction::Increment => value + step,
+                    _ => value - step,
+                };
+                let value = value.clamp(min, max);
+                state.set_prop(id, Prop::Number(value));
+                state.emit(id, UiEvent::Changed(EventValue::Number(value)));
+            }
             (A11yAction::SetValue(text), WidgetKind::Select) => {
                 let options = find_prop!(state.nodes[&id].props, Options).unwrap_or_default();
                 let index = options.iter().position(|o| o == text).ok_or(ActionError::Unsupported)?;
@@ -599,6 +622,7 @@ impl Backend for HeadlessBackend {
                 | WidgetKind::Checkbox
                 | WidgetKind::Switch
                 | WidgetKind::Select
+                | WidgetKind::Slider
                 | WidgetKind::List,
             ) => state.focus(id),
             (A11yAction::Select | A11yAction::Activate, WidgetKind::Container) => {

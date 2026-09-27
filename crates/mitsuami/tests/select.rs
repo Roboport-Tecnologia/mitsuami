@@ -144,12 +144,14 @@ async fn refuses_options_it_does_not_have_and_disabled_choices(app: TestApp) {
     app.expect(by_role(Role::ComboBox, "Color")).to_have_value("Red").await;
 }
 
+// Whether it's sized for its widest option (AppKit) or the chosen one
+// (GTK, XAML, Qt) is the platform's call.
 #[mitsuami_test::test]
-async fn is_sized_for_its_widest_option(app: TestApp) {
+async fn is_sized_for_its_options(app: TestApp) {
     app.mount(|| {
         Column::new().align(Align::Start).children((
             Select::new("Short").options(["A", "B"]),
-            Select::new("Long").options(["A", "A considerably longer option"]),
+            Select::new("Long").options(["A considerably longer option", "A"]),
         ))
     });
     let short = app.get_by_role(Role::ComboBox, "Short").frame();

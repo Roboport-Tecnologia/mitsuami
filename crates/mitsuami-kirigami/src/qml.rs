@@ -102,7 +102,7 @@ pub(crate) fn switch() -> String {
 /// A select. Rust sets `mitsuamiOptions` and `currentIndex`, and reads the
 /// options back from `mitsuamiOptionTexts` (joined with U+001F). Setting
 /// `mitsuamiChoice` chooses an option as the user does: it reports it with
-/// `activated`. Sized for the widest option, as on the other platforms.
+/// `activated`.
 pub(crate) fn select() -> String {
     format!(
         r#"
@@ -111,7 +111,6 @@ QQC2.ComboBox {{
     readonly property string mitsuamiOptionTexts: mitsuamiOptions.join("\u001f")
     property int mitsuamiChoice: -1
     model: mitsuamiOptions
-    implicitContentWidthPolicy: QQC2.ComboBox.WidestText
     onMitsuamiChoiceChanged: if (mitsuamiChoice >= 0) {{
         currentIndex = mitsuamiChoice
         mitsuamiChoice = -1
@@ -123,6 +122,36 @@ QQC2.ComboBox {{
 "#,
         a11y("\"\"")
     )
+}
+
+/// A slider. Rust sets `from`, `to`, `stepSize` (0: Qt's default) and
+/// `value`, and moves it as the keyboard does, reporting it with `moved`:
+/// `mitsuamiStepBy` (1 or -1) steps it, `mitsuamiMoveTo` sets it.
+pub(crate) fn slider() -> String {
+    format!(
+        r#"
+QQC2.Slider {{
+    property int mitsuamiStepBy: 0
+    property real mitsuamiMoveTo: NaN
+    onMitsuamiStepByChanged: if (mitsuamiStepBy !== 0) {{
+        if (mitsuamiStepBy > 0) increase(); else decrease()
+        mitsuamiStepBy = 0
+        moved()
+    }}
+    onMitsuamiMoveToChanged: if (!isNaN(mitsuamiMoveTo)) {{
+        value = mitsuamiMoveTo
+        mitsuamiMoveTo = NaN
+        moved()
+    }}
+    {}
+}}
+"#,
+        a11y("\"\"")
+    )
+}
+
+pub(crate) fn progress() -> String {
+    format!("QQC2.ProgressBar {{ from: 0; to: 1; {} }}", a11y("\"\""))
 }
 
 /// Our content goes in the flickable's content item; the scroll bars follow

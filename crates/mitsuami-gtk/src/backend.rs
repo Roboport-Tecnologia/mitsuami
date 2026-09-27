@@ -58,6 +58,17 @@ enum Widget {
         dropdown: gtk::DropDown,
         options: gtk::StringList,
     },
+    /// A scale, and the step it was given (GTK needs one to move by).
+    Slider {
+        scale: gtk::Scale,
+        step: Option<f64>,
+    },
+    /// A progress bar, and whether it pulses: GTK shows work of unknown
+    /// length by `pulse()` calls, which a timer makes while it's set.
+    Progress {
+        bar: gtk::ProgressBar,
+        pulsing: Rc<Cell<bool>>,
+    },
     Scroll {
         scrolled: gtk::ScrolledWindow,
         viewport: gtk::Viewport,
@@ -95,6 +106,8 @@ impl Widget {
             Widget::Checkbox(w) => w.upcast_ref(),
             Widget::Switch(w) => w.upcast_ref(),
             Widget::Select { dropdown, .. } => dropdown.upcast_ref(),
+            Widget::Slider { scale, .. } => scale.upcast_ref(),
+            Widget::Progress { bar, .. } => bar.upcast_ref(),
             Widget::Scroll { scrolled, .. } => scrolled.upcast_ref(),
             Widget::List(list) => list.scrolled.upcast_ref(),
             Widget::Custom { widget, .. } | Widget::Native { widget, .. } => widget,
@@ -112,6 +125,7 @@ impl Widget {
                 | Widget::Checkbox(_)
                 | Widget::Switch(_)
                 | Widget::Select { .. }
+                | Widget::Slider { .. }
         )
     }
 
@@ -139,8 +153,8 @@ struct Node {
     /// Props GTK can't report back faithfully.
     text_style: Option<TextStyle>,
     variant: Option<ButtonVariant>,
-    /// Switches and selects have no caption, only an accessible label,
-    /// which GTK doesn't read back.
+    /// Switches, selects, sliders and progress bars have no caption, only
+    /// an accessible label, which GTK doesn't read back.
     a11y_label: Option<String>,
     /// Signal handlers on objects that outlive the node.
     settings_handlers: Vec<glib::SignalHandlerId>,
@@ -591,6 +605,12 @@ impl State {
                 });
                 Widget::Select { dropdown, options }
             }
+            WidgetKind::Slider => {
+                let scale = gtk::Scale::new(gtk::Orientation::Horizontal, None::<&gtk::Adjustment>);
+                scale.connect_value_changed(move |s| events.emit(id, UiEvent::Changed(EventValue::Number(s.value()))));
+                Widget::Slider { scale, step: None }
+            }
+            WidgetKind::Progress => Widget::Progress { bar: gtk::ProgressBar::new(), pulsing: Rc::default() },
             WidgetKind::TextInput => {
                 let entry = gtk::Entry::new();
                 let e = events.clone();
@@ -727,6 +747,40 @@ impl State {
                     dropdown.set_selected(if chosen < count { chosen } else { 0 });
                 }
             }
+            (Prop::Label(t), Widget::Slider { scale, .. }) => {
+                scale.update_property(&[gtk::accessible::Property::Label(t)]);
+                node.a11y_label = Some(t.clone());
+            }
+            (Prop::Range { min, max }, Widget::Slider { scale, step }) => {
+                scale.set_range(*min, *max);
+                set_increments(scale, *step);
+            }
+            (Prop::Step(new), Widget::Slider { scale, step }) => {
+                *step = *new;
+                set_increments(scale, *new);
+            }
+            (Prop::Number(n), Widget::Slider { scale, .. }) => scale.set_value(*n),
+            (Prop::Label(t), Widget::Progress { bar, .. }) => {
+                bar.update_property(&[gtk::accessible::Property::Label(t)]);
+                node.a11y_label = Some(t.clone());
+            }
+            (Prop::Progress(progress), Widget::Progress { bar, pulsing }) => match progress {
+                Some(fraction) => {
+                    pulsing.set(false);
+                    bar.set_fraction(*fraction);
+                }
+                None if !pulsing.replace(true) => {
+                    let (bar, pulsing) = (bar.downgrade(), pulsing.clone());
+                    glib::timeout_add_local(Duration::from_millis(100), move || match bar.upgrade() {
+                        Some(bar) if pulsing.get() => {
+                            bar.pulse();
+                            glib::ControlFlow::Continue
+                        }
+                        _ => glib::ControlFlow::Break,
+                    });
+                }
+                None => {}
+            },
             // With options, GTK always has one chosen (its selection
             // autoselects), and so does the core.
             (Prop::SelectedIndex(Some(index)), Widget::Select { dropdown, .. }) => dropdown.set_selected(*index as u32),
@@ -969,6 +1023,15 @@ impl State {
     }
 }
 
+/// GTK's scales move by their step from the keyboard and snap to nothing.
+/// Without a step they need one anyway: a tenth of the range, with pages
+/// of ten steps as `gtk::Scale::with_range` makes them.
+fn set_increments(scale: &gtk::Scale, step: Option<f64>) {
+    let adjustment = scale.adjustment();
+    let step = step.unwrap_or((adjustment.upper() - adjustment.lower()) / 10.0);
+    scale.set_increments(step, step * 10.0);
+}
+
 /// A select's options, as it shows them.
 fn option_texts(options: &gtk::StringList) -> Vec<String> {
     (0..options.n_items()).filter_map(|i| options.string(i)).map(|s| s.to_string()).collect()
@@ -1062,18 +1125,6 @@ impl Backend for GtkBackend {
             Widget::Drawn { .. } | Widget::Window(_) | Widget::Host(_) | Widget::Scroll { .. } | Widget::List(_) => {
                 Size::ZERO
             }
-            // GTK sizes a drop-down for the chosen option; the other
-            // platforms, and so the contract, for the widest.
-            Widget::Select { dropdown, options } => {
-                let size = measure_widget(dropdown.upcast_ref(), false, request);
-                if request.known_width.is_some() {
-                    return size;
-                }
-                let width = |text: &str| dropdown.create_pango_layout(Some(text)).pixel_size().0 as f32;
-                let chosen = options.string(dropdown.selected()).map_or(0.0, |s| width(&s));
-                let widest = option_texts(options).iter().map(|s| width(s)).fold(0.0, f32::max);
-                Size::new(size.width - chosen + widest, size.height)
-            }
             widget => measure_widget(widget.widget(), matches!(widget, Widget::Label(_)), request),
         }
     }
@@ -1129,6 +1180,16 @@ impl Backend for GtkBackend {
             (A11yAction::Activate, WidgetKind::Switch) => {
                 let switch = widget.downcast_ref::<gtk::Switch>().ok_or(ActionError::Unsupported)?;
                 switch.set_active(!switch.is_active());
+            }
+            // What GTK's accessible increment and decrement do: a step.
+            (A11yAction::Increment | A11yAction::Decrement, WidgetKind::Slider) => {
+                let adjustment = widget.downcast_ref::<gtk::Range>().ok_or(ActionError::Unsupported)?.adjustment();
+                let step = adjustment.step_increment();
+                adjustment.set_value(adjustment.value() + if *action == A11yAction::Increment { step } else { -step });
+            }
+            (A11yAction::SetValue(text), WidgetKind::Slider) => {
+                let range = widget.downcast_ref::<gtk::Range>().ok_or(ActionError::Unsupported)?;
+                range.set_value(text.trim().parse().map_err(|_| ActionError::Unsupported)?);
             }
             // What choosing from the pop-up does.
             (A11yAction::SetValue(text), WidgetKind::Select) => {
@@ -1316,6 +1377,17 @@ impl Backend for GtkBackend {
                 props.push(Prop::Options(option_texts(options)));
                 let index = dropdown.selected();
                 props.push(Prop::SelectedIndex((index != gtk::INVALID_LIST_POSITION).then_some(index as usize)));
+            }
+            Widget::Slider { scale, step } => {
+                props.extend(node.a11y_label.clone().map(Prop::Label));
+                let adjustment = scale.adjustment();
+                props.push(Prop::Range { min: adjustment.lower(), max: adjustment.upper() });
+                props.push(Prop::Step(*step));
+                props.push(Prop::Number(adjustment.value()));
+            }
+            Widget::Progress { bar, pulsing } => {
+                props.extend(node.a11y_label.clone().map(Prop::Label));
+                props.push(Prop::Progress((!pulsing.get()).then(|| bar.fraction())));
             }
             Widget::Scroll { scrolled, .. } => {
                 let (h, v) = scrolled.policy();

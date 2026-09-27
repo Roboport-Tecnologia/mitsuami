@@ -171,6 +171,11 @@ impl<'a> Locator<'a> {
         self.act(A11yAction::SetValue(option.to_owned())).await;
     }
 
+    /// Moves a `Slider` to this number, as assistive technology would.
+    pub async fn set_number(&self, number: f64) {
+        self.act(A11yAction::SetValue(number.to_string())).await;
+    }
+
     /// Types text one key at a time, like a user would.
     pub async fn type_text(&self, text: &str) {
         self.app.settle().await;

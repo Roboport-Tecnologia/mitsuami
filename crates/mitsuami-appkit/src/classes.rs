@@ -13,7 +13,7 @@ use objc2::runtime::{AnyObject, NSObject, NSObjectProtocol, Sel};
 use objc2::{DefinedClass, MainThreadMarker, MainThreadOnly, define_class, msg_send, sel};
 use objc2_app_kit::{
     NSButton, NSColor, NSControl, NSControlStateValueOn, NSControlTextEditingDelegate, NSEvent, NSPopUpButton,
-    NSRectFill, NSSwitch, NSTextField, NSTextFieldDelegate, NSTextView, NSView, NSWindow, NSWindowDelegate,
+    NSRectFill, NSSlider, NSSwitch, NSTextField, NSTextFieldDelegate, NSTextView, NSView, NSWindow, NSWindowDelegate,
 };
 use objc2_foundation::{
     NSKeyValueObservingOptions, NSNotification, NSObjectNSKeyValueObserverRegistration, NSPoint, NSRect, NSSize,
@@ -86,6 +86,10 @@ define_class!(
                 },
                 WidgetKind::Switch => match sender.downcast_ref::<NSSwitch>() {
                     Some(s) => UiEvent::Changed(EventValue::Bool(s.state() == NSControlStateValueOn)),
+                    None => return,
+                },
+                WidgetKind::Slider => match sender.downcast_ref::<NSSlider>() {
+                    Some(s) => UiEvent::Changed(EventValue::Number(s.doubleValue())),
                     None => return,
                 },
                 WidgetKind::Select => match sender.downcast_ref::<NSPopUpButton>().map(|p| p.indexOfSelectedItem()) {

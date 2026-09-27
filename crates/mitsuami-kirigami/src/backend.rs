@@ -138,6 +138,8 @@ enum Widget {
     Checkbox(QmlObject),
     Switch(QmlObject),
     Select(QmlObject),
+    Slider(QmlObject),
+    Progress(QmlObject),
     Scroll {
         view: QmlObject,
         flickable: QmlObject,
@@ -177,6 +179,8 @@ impl Widget {
             | Widget::Checkbox(i)
             | Widget::Switch(i)
             | Widget::Select(i)
+            | Widget::Slider(i)
+            | Widget::Progress(i)
             | Widget::Scroll { view: i, .. }
             | Widget::Custom { item: i, .. }
             | Widget::Drawn { item: i, .. }
@@ -203,6 +207,7 @@ impl Widget {
                 | Widget::Checkbox(_)
                 | Widget::Switch(_)
                 | Widget::Select(_)
+                | Widget::Slider(_)
         )
     }
 
@@ -215,6 +220,7 @@ impl Widget {
                 | Widget::Checkbox(_)
                 | Widget::Switch(_)
                 | Widget::Select(_)
+                | Widget::Slider(_)
                 | Widget::Custom { .. }
                 | Widget::Native { .. }
                 | Widget::List(_)
@@ -237,8 +243,8 @@ struct Node {
     text_style: Option<TextStyle>,
     variant: Option<ButtonVariant>,
     scroll_axes: Option<ScrollAxes>,
-    /// Switches and selects show no caption; the label is their
-    /// accessible name.
+    /// Switches, selects, sliders and progress bars show no caption; the
+    /// label is their accessible name.
     a11y_label: Option<String>,
 }
 
@@ -587,6 +593,15 @@ impl State {
                 });
                 Widget::Select(select)
             }
+            WidgetKind::Slider => {
+                let slider = QmlObject::load(&qml::slider());
+                // `moved` is the user's; `valueChanged` fires for ours too.
+                slider.connect("moved()", move || {
+                    events.emit(id, UiEvent::Changed(EventValue::Number(slider.real("value"))))
+                });
+                Widget::Slider(slider)
+            }
+            WidgetKind::Progress => Widget::Progress(QmlObject::load(&qml::progress())),
             WidgetKind::TextInput => {
                 let field = QmlObject::load(&qml::text_field());
                 let e = events.clone();
@@ -704,7 +719,7 @@ impl State {
             }
             (Prop::Text(t), Widget::Label(l)) => l.set_str("text", t),
             (Prop::Label(t), Widget::Button(b) | Widget::Checkbox(b)) => b.set_str("text", t),
-            (Prop::Label(t), Widget::Switch(s) | Widget::Select(s)) => {
+            (Prop::Label(t), Widget::Switch(s) | Widget::Select(s) | Widget::Slider(s) | Widget::Progress(s)) => {
                 s.set_str("mitsuamiA11yName", t);
                 node.a11y_label = Some(t.clone());
             }
@@ -725,6 +740,18 @@ impl State {
                         -1
                     },
                 );
+            }
+            (Prop::Range { min, max }, Widget::Slider(s)) => {
+                s.set_real("from", *min);
+                s.set_real("to", *max);
+            }
+            (Prop::Step(step), Widget::Slider(s)) => s.set_real("stepSize", step.unwrap_or(0.0)),
+            (Prop::Number(n), Widget::Slider(s)) => s.set_real("value", *n),
+            (Prop::Progress(progress), Widget::Progress(p)) => {
+                p.set_bool("indeterminate", progress.is_none());
+                if let Some(fraction) = progress {
+                    p.set_real("value", *fraction);
+                }
             }
             (Prop::SelectedIndex(index), Widget::Select(s)) => {
                 s.set_int("currentIndex", index.map_or(-1, |i| i as i32))
@@ -897,7 +924,11 @@ impl State {
                 let A11yProps { label, description, hidden, .. } = a11y;
                 let node = &self.nodes[id];
                 // A switch's or select's accessible name is its label prop.
-                if !matches!(node.widget, Widget::Switch(_) | Widget::Select(_)) || label.is_some() {
+                let named_by_label = matches!(
+                    node.widget,
+                    Widget::Switch(_) | Widget::Select(_) | Widget::Slider(_) | Widget::Progress(_)
+                );
+                if !named_by_label || label.is_some() {
                     item.set_str("mitsuamiA11yName", label.as_deref().unwrap_or_default());
                 }
                 item.set_str("mitsuamiA11yDescription", description.as_deref().unwrap_or_default());
@@ -1061,6 +1092,13 @@ impl Backend for KirigamiBackend {
                 if !item.accessible_action("Toggle") {
                     return Err(ActionError::Unsupported);
                 }
+            }
+            // What the arrow keys do.
+            (A11yAction::Increment | A11yAction::Decrement, WidgetKind::Slider) => {
+                item.set_int("mitsuamiStepBy", if *action == A11yAction::Increment { 1 } else { -1 });
+            }
+            (A11yAction::SetValue(text), WidgetKind::Slider) => {
+                item.set_real("mitsuamiMoveTo", text.trim().parse().map_err(|_| ActionError::Unsupported)?);
             }
             // As if the option were picked from the pop-up.
             (A11yAction::SetValue(text), WidgetKind::Select) => {
@@ -1240,6 +1278,17 @@ impl Backend for KirigamiBackend {
             Widget::Switch(s) => {
                 props.extend(node.a11y_label.clone().map(Prop::Label));
                 props.push(Prop::Checked(s.bool("checked")));
+            }
+            Widget::Slider(s) => {
+                props.extend(node.a11y_label.clone().map(Prop::Label));
+                props.push(Prop::Range { min: s.real("from"), max: s.real("to") });
+                let step = s.real("stepSize");
+                props.push(Prop::Step((step > 0.0).then_some(step)));
+                props.push(Prop::Number(s.real("value")));
+            }
+            Widget::Progress(p) => {
+                props.extend(node.a11y_label.clone().map(Prop::Label));
+                props.push(Prop::Progress((!p.bool("indeterminate")).then(|| p.real("value"))));
             }
             Widget::Select(s) => {
                 props.extend(node.a11y_label.clone().map(Prop::Label));

@@ -20,6 +20,15 @@ fn describe_props(props: &[Prop]) -> String {
             Prop::SelectedIndex(index) => {
                 extra.push(format!("selected={}", index.map_or("none".to_owned(), |i| i.to_string())))
             }
+            Prop::Number(n) => extra.push(format!("value={}", Num(*n as f32))),
+            Prop::Range { min, max } => extra.push(format!("range={}..{}", Num(*min as f32), Num(*max as f32))),
+            Prop::Step(step) => {
+                extra.push(format!("step={}", step.map_or("default".to_owned(), |s| Num(s as f32).to_string())))
+            }
+            Prop::Progress(progress) => extra.push(format!(
+                "progress={}",
+                progress.map_or("indeterminate".to_owned(), |p| Num(p as f32).to_string())
+            )),
             Prop::Checked(b) => extra.push(format!("checked={b}")),
             Prop::Enabled(b) => extra.push(format!("enabled={b}")),
             Prop::TextStyle(s) => extra.push(format!("style={s:?}")),
@@ -226,7 +235,7 @@ pub(crate) fn wireframe(root: &NodeInfo) -> String {
             WidgetKind::Button => "#2f6fdf",
             WidgetKind::TextInput => "#a0602a",
             WidgetKind::Checkbox | WidgetKind::Switch => "#8a4fbf",
-            WidgetKind::Select => "#1f8a8a",
+            WidgetKind::Select | WidgetKind::Slider | WidgetKind::Progress => "#1f8a8a",
             WidgetKind::Custom(_) | WidgetKind::Native => "#c0392b",
         }
     }

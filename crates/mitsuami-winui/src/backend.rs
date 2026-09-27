@@ -144,6 +144,13 @@ enum Widget {
     Checkbox(w::CheckBox),
     Switch(w::ToggleSwitch),
     Select(w::ComboBox),
+    /// A slider, and the step it was given (XAML reads back its own
+    /// default without one).
+    Slider {
+        slider: w::Slider,
+        step: Option<f64>,
+    },
+    Progress(w::ProgressBar),
     Scroll(w::ScrollViewer),
     List(crate::list::List),
     /// A custom widget with a native render, and the props it shows.
@@ -190,13 +197,15 @@ struct Node {
     shown_checked: Rc<Cell<bool>>,
     /// Selects: the chosen index, or -1.
     shown_index: Rc<Cell<i32>>,
+    /// Sliders: the value.
+    shown_number: Rc<Cell<f64>>,
     /// ScrollViews: the offset last reported.
     offset: Rc<Cell<Point>>,
     /// Props XAML can't report back faithfully.
     text_style: Option<TextStyle>,
     variant: Option<ButtonVariant>,
-    /// Switches and selects: their label, which is only their accessible
-    /// name.
+    /// Switches, selects, sliders and progress bars: their label, which is
+    /// only their accessible name.
     a11y_label: Option<String>,
 }
 
@@ -301,22 +310,6 @@ fn option_texts(combo: &w::ComboBox) -> Vec<String> {
     (0..items.Size().unwrap_or(0))
         .filter_map(|i| unboxed(items.GetAt(i).ok()?.cast::<w::IContentControl>().ok()?.Content()))
         .collect()
-}
-
-/// How wide `text` is in a control's font for `style`.
-fn text_width(text: &str, style: TextStyle) -> f32 {
-    let measure = || -> R<f32> {
-        let block = w::TextBlock::new()?;
-        let iface: w::ITextBlock = block.cast()?;
-        iface.SetText(text)?;
-        iface.SetFontSize(font_size(style))?;
-        iface.SetFontWeight(w::FontWeight { weight: font_weight(style) })?;
-        if style == TextStyle::Monospace {
-            iface.SetFontFamily(&w::FontFamily::CreateInstanceWithName(MONOSPACE)?)?;
-        }
-        Ok(measure_element(&block.cast()?, w::Size { width: f32::INFINITY, height: f32::INFINITY }).width)
-    };
-    measure().unwrap_or(0.0)
 }
 
 /// Measures with the frame size we imposed lifted: XAML's `Measure` honours
@@ -876,6 +869,7 @@ impl State {
         let shown_text = Rc::new(RefCell::new(String::new()));
         let shown_checked = Rc::new(Cell::new(false));
         let shown_index = Rc::new(Cell::new(-1));
+        let shown_number = Rc::new(Cell::new(0.0));
         let offset = Rc::new(Cell::new(Point::ZERO));
         let mut revokers = Vec::new();
         let mut inner = None;
@@ -1008,6 +1002,30 @@ impl State {
                 let element = combo.cast()?;
                 (Widget::Select(combo), element)
             }
+            WidgetKind::Slider => {
+                let slider = w::Slider::new()?;
+                // Setting the value or the range reports it too: only a
+                // value the core doesn't know about is the user's.
+                let (emitter, shown) = (emitter.clone(), shown_number.clone());
+                revokers.push(slider.cast::<w::IRangeBase>()?.ValueChanged(move |sender, _| {
+                    let Some(value) = sender.as_ref().and_then(|s| s.cast::<w::IRangeBase>().ok()?.Value().ok()) else {
+                        return;
+                    };
+                    if shown.replace(value) != value {
+                        emitter.emit(id, UiEvent::Changed(EventValue::Number(value)));
+                    }
+                })?);
+                let element = slider.cast()?;
+                (Widget::Slider { slider, step: None }, element)
+            }
+            WidgetKind::Progress => {
+                let progress = w::ProgressBar::new()?;
+                let range: w::IRangeBase = progress.cast()?;
+                range.SetMinimum(0.0)?;
+                range.SetMaximum(1.0)?;
+                let element = progress.cast()?;
+                (Widget::Progress(progress), element)
+            }
             WidgetKind::TextInput => {
                 let field = w::TextBox::new()?;
                 let iface: w::ITextBox = field.cast()?;
@@ -1087,6 +1105,7 @@ impl State {
                 shown_text,
                 shown_checked,
                 shown_index,
+                shown_number,
                 offset,
                 text_style: None,
                 variant: None,
@@ -1110,6 +1129,7 @@ impl State {
             }
             (Prop::Custom(new), Widget::Drawn { props, .. }) => *props = new.clone(),
             (Prop::Drawing(drawing), Widget::Drawn { view, .. }) => view.set_drawing(drawing)?,
+            (Prop::Step(new), Widget::Slider { step, .. }) => *step = *new,
             (Prop::Native(opaque), Widget::Native { last, .. }) => {
                 // The creating payload was applied on creation.
                 if opaque != last
@@ -1132,7 +1152,7 @@ impl State {
             (Prop::Label(t), Widget::Button(_) | Widget::Checkbox(_)) => {
                 node.element.cast::<w::IContentControl>()?.SetContent(&boxed(t))?
             }
-            (Prop::Label(t), Widget::Switch(_) | Widget::Select(_)) => {
+            (Prop::Label(t), Widget::Switch(_) | Widget::Select(_) | Widget::Slider { .. } | Widget::Progress(_)) => {
                 w::AutomationProperties::SetName(&node.element, t)?;
                 node.a11y_label = Some(t.clone());
             }
@@ -1160,6 +1180,39 @@ impl State {
                     items.Append(&item.cast::<IInspectable>()?)?;
                 }
                 selector.SetSelectedIndex(index)?;
+            }
+            (Prop::Range { min, max }, Widget::Slider { slider, .. }) => {
+                let range: w::IRangeBase = slider.cast()?;
+                // Widen first, so the value isn't clamped on the way.
+                if *min < range.Maximum()? {
+                    range.SetMinimum(*min)?;
+                    range.SetMaximum(*max)?;
+                } else {
+                    range.SetMaximum(*max)?;
+                    range.SetMinimum(*min)?;
+                }
+                // A value the new range clamped isn't the user's; the core
+                // sends it next.
+                node.shown_number.set(range.Value()?);
+            }
+            (Prop::Step(new), Widget::Slider { slider, .. }) => {
+                // XAML snaps to `StepFrequency` and steps by `SmallChange`;
+                // both are 1 unless set.
+                let value = new.unwrap_or(1.0);
+                slider.cast::<w::ISlider>()?.SetStepFrequency(value)?;
+                slider.cast::<w::IRangeBase>()?.SetSmallChange(value)?;
+            }
+            (Prop::Number(n), Widget::Slider { slider, .. }) => {
+                node.shown_number.set(*n);
+                slider.cast::<w::IRangeBase>()?.SetValue(*n)?;
+                // XAML snaps what it's given to its step.
+                node.shown_number.set(slider.cast::<w::IRangeBase>()?.Value()?);
+            }
+            (Prop::Progress(progress), Widget::Progress(p)) => {
+                p.cast::<w::IProgressBar>()?.SetIsIndeterminate(progress.is_none())?;
+                if let Some(fraction) = progress {
+                    p.cast::<w::IRangeBase>()?.SetValue(*fraction)?;
+                }
             }
             (Prop::SelectedIndex(index), Widget::Select(combo)) => {
                 let index = index.map_or(-1, |i| i as i32);
@@ -1328,7 +1381,11 @@ impl State {
                 let element = self.nodes[id].control().clone();
                 let A11yProps { label, description, hidden, .. } = a11y;
                 // An empty name means "derive it from the content".
-                if !matches!(self.nodes[id].widget, Widget::Switch(_) | Widget::Select(_)) || label.is_some() {
+                let named_by_label = matches!(
+                    self.nodes[id].widget,
+                    Widget::Switch(_) | Widget::Select(_) | Widget::Slider { .. } | Widget::Progress(_)
+                );
+                if !named_by_label || label.is_some() {
                     w::AutomationProperties::SetName(&element, label.as_deref().unwrap_or(""))?;
                 }
                 w::AutomationProperties::SetHelpText(&element, description.as_deref().unwrap_or(""))?;
@@ -1408,6 +1465,11 @@ impl State {
                     EventValue::Text(text)
                 })
             }),
+            Widget::Slider { slider, .. } => slider
+                .cast::<w::IRangeBase>()
+                .and_then(|r| r.Value())
+                .ok()
+                .and_then(|v| (node.shown_number.replace(v) != v).then_some(EventValue::Number(v))),
             Widget::Select(combo) => combo
                 .cast::<w::ISelector>()
                 .and_then(|s| s.SelectedIndex())
@@ -1464,6 +1526,7 @@ fn is_control(widget: &Widget) -> bool {
             | Widget::Checkbox(_)
             | Widget::Switch(_)
             | Widget::Select(_)
+            | Widget::Slider { .. }
             | Widget::Scroll(_)
             | Widget::List(_)
     )
@@ -1598,21 +1661,12 @@ impl Backend for WinUiBackend {
                 let size = ceil(measure_element(&node.element, infinite));
                 Size::new(size.width.max(200.0), size.height)
             }
-            Widget::Button(_) | Widget::Checkbox(_) | Widget::Switch(_) => {
-                ceil(measure_element(&node.element, infinite))
-            }
-            // XAML sizes a combo box for the chosen option; the other
-            // platforms, and so the contract, for the widest.
-            Widget::Select(combo) => {
-                let size = ceil(measure_element(&node.element, infinite));
-                let texts = option_texts(combo);
-                let chosen = combo.cast::<w::ISelector>().and_then(|s| s.SelectedIndex()).unwrap_or(-1);
-                let style = node.text_style.unwrap_or_default();
-                let width = |text: &str| text_width(text, style);
-                let current = usize::try_from(chosen).ok().and_then(|i| texts.get(i)).map_or(0.0, |t| width(t));
-                let widest = texts.iter().map(|t| width(t)).fold(0.0, f32::max);
-                Size::new((size.width - current + widest).ceil(), size.height)
-            }
+            Widget::Button(_)
+            | Widget::Checkbox(_)
+            | Widget::Switch(_)
+            | Widget::Select(_)
+            | Widget::Slider { .. }
+            | Widget::Progress(_) => ceil(measure_element(&node.element, infinite)),
             Widget::Custom { render, props } => render
                 .measure(node.control(), props.props(), &request)
                 .unwrap_or_else(|| ceil(measure_element(&node.element, infinite))),
@@ -1681,6 +1735,24 @@ impl Backend for WinUiBackend {
                     .and_then(|p| p.cast())
                     .map_err(|_| ActionError::Unsupported)?;
                 toggle.Toggle().map_err(|_| ActionError::Unsupported)?;
+                self.state.borrow().report_value(id);
+            }
+            // What a screen reader does: the RangeValue pattern.
+            (A11yAction::Increment | A11yAction::Decrement | A11yAction::SetValue(_), WidgetKind::Slider) => {
+                let range: w::IRangeValueProvider = peer()?
+                    .GetPattern(w::PatternInterface::RangeValue)
+                    .and_then(|p| p.cast())
+                    .map_err(|_| ActionError::Unsupported)?;
+                let value = match action {
+                    A11yAction::SetValue(text) => text.trim().parse().map_err(|_| ActionError::Unsupported)?,
+                    _ => {
+                        let step = range.SmallChange().unwrap_or(1.0);
+                        let step = if *action == A11yAction::Increment { step } else { -step };
+                        let (min, max) = (range.Minimum().unwrap_or(f64::MIN), range.Maximum().unwrap_or(f64::MAX));
+                        (range.Value().unwrap_or(0.0) + step).clamp(min, max)
+                    }
+                };
+                range.SetValue(value).map_err(|_| ActionError::Unsupported)?;
                 self.state.borrow().report_value(id);
             }
             (A11yAction::SetValue(text), WidgetKind::Select) => {
@@ -1896,6 +1968,25 @@ impl Backend for WinUiBackend {
                     props.push(Prop::Label(name));
                 }
                 props.push(Prop::Checked(s.cast::<w::IToggleSwitch>().ok()?.IsOn().ok()?));
+            }
+            Widget::Slider { slider, step } => {
+                let name = w::AutomationProperties::GetName(&node.element).unwrap_or_default();
+                if !name.is_empty() {
+                    props.push(Prop::Label(name));
+                }
+                let range: w::IRangeBase = slider.cast().ok()?;
+                props.push(Prop::Range { min: range.Minimum().ok()?, max: range.Maximum().ok()? });
+                props.push(Prop::Step(*step));
+                props.push(Prop::Number(range.Value().ok()?));
+            }
+            Widget::Progress(p) => {
+                let name = w::AutomationProperties::GetName(&node.element).unwrap_or_default();
+                if !name.is_empty() {
+                    props.push(Prop::Label(name));
+                }
+                let indeterminate = p.cast::<w::IProgressBar>().ok()?.IsIndeterminate().ok()?;
+                let value = p.cast::<w::IRangeBase>().ok()?.Value().ok()?;
+                props.push(Prop::Progress((!indeterminate).then_some(value)));
             }
             Widget::Select(combo) => {
                 let name = w::AutomationProperties::GetName(&node.element).unwrap_or_default();

@@ -68,6 +68,14 @@ name = "select"
 harness = false
 
 [[test]]
+name = "slider"
+harness = false
+
+[[test]]
+name = "progress"
+harness = false
+
+[[test]]
 name = "tasks"
 harness = false
 

@@ -769,11 +769,20 @@ Things the AppKit backend taught us, some of them now part of the contract:
 ### Select
 
 - **One option is always chosen, as with HTML's `<select>`,** the first unless the app says otherwise; an index past the options chooses the first too. Only a `Select` without options has none. GTK forced this: `gtk::DropDown`'s selection autoselects and can't be cleared. `Prop::SelectedIndex` is `None` only when there are no options.
-- **Sized for the widest option, whichever is chosen,** so choosing doesn't move the layout. `NSPopUpButton` does that already, and Qt does with `implicitContentWidthPolicy: WidestText`. GTK and XAML size for the chosen option, so their backends add the difference between the widest option's text and the chosen one's (Pango layouts, or a scratch `TextBlock` in the control's font).
+- **Sized as the platform sizes it:** `NSPopUpButton` for its widest item, `gtk::DropDown`, `ComboBox` and `QQC2.ComboBox` for the chosen one, so on those choosing can resize it (and relayout). Native wins: the backends don't even that out.
 - **Replacing the options keeps the chosen index** where it can, else chooses the first, as the core does; the core only sends the index when that changes it. Every backend replaces its items in one step and puts the index back itself: `NSPopUpButton`'s `removeAllItems`, a `StringList` splice, `ItemCollection.Clear` and a new QML model all lose the selection.
 - **Options with the same text stay apart.** AppKit adds `NSMenuItem`s to the menu (`addItemWithTitle:` drops earlier items with the same title); XAML's items are `ComboBoxItem`s rather than boxed strings.
 - **Choosing is what the pop-up does** (`select_option`, `A11yAction::SetValue`): AppKit performs the menu item's action (`performActionForItemAtIndex:`), GTK and XAML set the index and report it, and Qt sets it and emits `activated`, the user's signal. Opening the pop-up would start a modal loop, so tests never do.
 - **Tab reaches it where the platform says:** macOS skips pop-up buttons unless Full Keyboard Access is on, as it skips buttons. The core puts selects in the focus order.
+- **Not run yet on GTK, WinUI and Kirigami:** written and type-checked on macOS; CI runs them.
+
+### Slider and Progress
+
+- **A step means what the platform's step means.** AppKit's is tick marks that the knob only stops at (`allowsTickMarkValuesOnly`); WinUI snaps to `StepFrequency` and steps by `SmallChange`; GTK's scales and Qt's sliders only move by it from the keyboard (GTK doesn't snap, and Qt leaves `snapMode` off unless asked). Without a step each keeps its default: WinUI's is 1, which it snaps to, and Qt's `increase()` moves by 0.1. GTK needs one to move at all, so it gets a tenth of the range. Tests only check which way a step moves.
+- **The value follows the range.** The platforms clamp the value to the range, so a range sent after the value would lose it: the core queues the value again after every range change.
+- **Sliders and progress bars have no natural width on AppKit** (no intrinsic width): they're as wide as the layout makes them, stretched in a column. The others measure theirs.
+- **Indeterminate progress animates as the platform animates it:** `NSProgressIndicator` and XAML's and Qt's bars on their own, GTK's by `pulse()` calls, which a 100 ms timer makes while the bar is indeterminate, as GTK apps do.
+- **Stepping and setting do what assistive technology or the keyboard does:** VoiceOver's increment, and the action as for a drag; GTK's step on the adjustment; UIA's RangeValue pattern; and on Qt the keys' `increase()` or `decrease()`, then `moved()`, the user's signal.
 - **Not run yet on GTK, WinUI and Kirigami:** written and type-checked on macOS; CI runs them.
 
 ### M2 (GTK 4)

@@ -914,6 +914,20 @@ impl Inner {
     /// ones included): custom widgets and native views can't be created
     /// without theirs.
     fn queue_prop(&mut self, id: NodeId, prop: Prop) {
+        // A new range may clamp a slider's value: the value follows it.
+        let then = match prop {
+            Prop::Range { .. } => {
+                self.nodes.get(&id).and_then(|n| n.props.iter().find(|p| matches!(p, Prop::Number(_)))).cloned()
+            }
+            _ => None,
+        };
+        self.queue_prop_now(id, prop);
+        if let Some(number) = then {
+            self.queue_prop_now(id, number);
+        }
+    }
+
+    fn queue_prop_now(&mut self, id: NodeId, prop: Prop) {
         let create = self.pending.iter_mut().rev().find_map(|command| match command {
             Command::Create { id: created, props, .. } if *created == id => Some(props),
             _ => None,
@@ -1046,6 +1060,7 @@ impl Inner {
                     | WidgetKind::Checkbox
                     | WidgetKind::Switch
                     | WidgetKind::Select
+                    | WidgetKind::Slider
                     | WidgetKind::List
             ) {
                 out.push((node.tab_index, id));
@@ -1295,6 +1310,7 @@ impl Inner {
                     (WidgetKind::Checkbox | WidgetKind::Switch, EventValue::Bool(b)) => Prop::Checked(*b),
                     (WidgetKind::List, EventValue::Rows(rows)) => Prop::Selected(rows.clone()),
                     (WidgetKind::Select, EventValue::Index(index)) => Prop::SelectedIndex(Some(*index)),
+                    (WidgetKind::Slider, EventValue::Number(number)) => Prop::Number(*number),
                     _ => return,
                 };
                 node.props.retain(|p| p.key() != prop.key());
@@ -1455,6 +1471,8 @@ impl Inner {
             WidgetKind::Checkbox => Role::Checkbox,
             WidgetKind::Switch => Role::Switch,
             WidgetKind::Select => Role::ComboBox,
+            WidgetKind::Slider => Role::Slider,
+            WidgetKind::Progress => Role::ProgressBar,
             WidgetKind::Custom(_) | WidgetKind::Native => Role::Group,
         });
         if role == Role::None {
@@ -1465,9 +1483,12 @@ impl Inner {
             a11y.label.clone().or_else(|| a11y.labelled_by.and_then(|l| self.text_of(l))).or_else(|| match node.kind {
                 WidgetKind::Window => crate::find_prop!(props, Title),
                 WidgetKind::Text => crate::find_prop!(props, Text),
-                WidgetKind::Button | WidgetKind::Checkbox | WidgetKind::Switch | WidgetKind::Select => {
-                    crate::find_prop!(props, Label)
-                }
+                WidgetKind::Button
+                | WidgetKind::Checkbox
+                | WidgetKind::Switch
+                | WidgetKind::Select
+                | WidgetKind::Slider
+                | WidgetKind::Progress => crate::find_prop!(props, Label),
                 WidgetKind::TextInput => crate::find_prop!(props, Placeholder),
                 // Rows read as their text, as screen readers read native rows.
                 WidgetKind::Container if row.is_some() => {
@@ -1497,6 +1518,11 @@ impl Inner {
                     let options = crate::find_prop!(props, Options).unwrap_or_default();
                     let chosen = crate::find_prop!(props, SelectedIndex).flatten();
                     Some(chosen.and_then(|i| options.get(i).cloned()).unwrap_or_default())
+                }
+                WidgetKind::Slider => crate::find_prop!(props, Number).map(|n| n.to_string()),
+                // As screen readers read progress bars.
+                WidgetKind::Progress => {
+                    crate::find_prop!(props, Progress).flatten().map(|f| format!("{}%", (f * 100.0).round()))
                 }
                 _ => a11y.value,
             },

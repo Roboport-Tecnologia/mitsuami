@@ -38,7 +38,21 @@ fn toggles() -> impl View {
     ))
 }
 
-/// Sized for their widest option, whichever is chosen.
+/// Sliders and progress bars as wide as the story; without a step, and
+/// with one.
+#[mitsuami_test::story(sizes = [(240, fit)])]
+fn sliders() -> impl View {
+    Column::new().padding(16).gap(12).children((
+        Slider::new("Volume").value(30.0),
+        Slider::new("Rating").range(0.0, 5.0).step(1.0).value(4.0),
+        Slider::new("Disabled").value(70.0).enabled(false),
+        Progress::new("Upload").value(0.6),
+        Progress::new("Done").value(1.0),
+    ))
+}
+
+/// AppKit sizes pop-up buttons for their widest option, the others for the
+/// chosen one.
 #[mitsuami_test::story(sizes = [(240, fit)])]
 fn selects() -> impl View {
     let sizes = ["Small", "Medium", "Extra large"];
