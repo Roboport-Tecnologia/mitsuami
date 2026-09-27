@@ -16,7 +16,7 @@ use std::collections::{HashMap, HashSet};
 use std::ffi::c_void;
 use std::rc::{Rc, Weak};
 
-use gtk::glib::translate::ToGlibPtr;
+use gtk::glib::translate::{IntoGlib, ToGlibPtr};
 use gtk::prelude::*;
 use gtk::{gdk, glib, graphene};
 use mitsuami_core::{
@@ -447,19 +447,19 @@ impl AreaState {
         let keys = gtk::EventControllerKey::new();
         keys.set_propagation_phase(gtk::PropagationPhase::Capture);
         let s = Rc::downgrade(this);
-        keys.connect_key_pressed(move |_, _, keycode, modifiers| {
+        keys.connect_key_pressed(move |keys, _, keycode, modifiers| {
             let Some(s) = s.upgrade() else { return glib::Propagation::Proceed };
             let mut state = s.borrow_mut();
             if state.grab.is_none() || !state.area.upgrade().is_some_and(|a| a.has_focus()) {
                 return glib::Propagation::Proceed;
             }
-            state.key(keycode, true, modifiers);
+            state.key(key_code(keys, keycode), keycode, true, modifiers);
             glib::Propagation::Stop
         });
         let s = Rc::downgrade(this);
-        keys.connect_key_released(move |_, _, keycode, modifiers| {
+        keys.connect_key_released(move |keys, _, keycode, modifiers| {
             if let Some(s) = s.upgrade() {
-                s.borrow_mut().key(keycode, false, modifiers);
+                s.borrow_mut().key(key_code(keys, keycode), keycode, false, modifiers);
             }
         });
         window.add_controller(keys.clone());
@@ -497,7 +497,7 @@ impl AreaState {
 
     /// A key down or up: reported when down, and when up if its press
     /// was. Returns whether it was reported.
-    fn key(&mut self, keycode: u32, pressed: bool, state: gdk::ModifierType) -> bool {
+    fn key(&mut self, code: KeyCode, keycode: u32, pressed: bool, state: gdk::ModifierType) -> bool {
         let native = keycode.saturating_sub(8);
         let repeat = if pressed {
             !self.pressed.insert(native)
@@ -506,7 +506,6 @@ impl AreaState {
         } else {
             return false;
         };
-        let code = KeyCode::from_evdev(native);
         self.report(SurfaceInput::Key { code, native, pressed, repeat, modifiers: modifiers(state) });
         true
     }
@@ -514,6 +513,19 @@ impl AreaState {
     fn takes_input(&self) -> bool {
         self.takes_input == Some(true)
     }
+}
+
+/// Where a key is, or what the keymap made it: keys that type no
+/// character go by their keysym, so the keymap's remaps (Caps Lock and
+/// Control swapped) apply. The unshifted one, in the event's layout.
+fn key_code(keys: &gtk::EventControllerKey, keycode: u32) -> KeyCode {
+    let layout = keys.current_event().and_then(|e| e.downcast::<gdk::KeyEvent>().ok()).map_or(0, |e| e.layout() as i32);
+    let keysym = keys
+        .widget()
+        .and_then(|w| w.display().map_keycode(keycode))
+        .and_then(|keys| keys.into_iter().find(|(k, _)| k.group() == layout && k.level() == 0))
+        .map(|(_, keysym)| keysym.into_glib());
+    keysym.and_then(KeyCode::from_keysym).unwrap_or_else(|| KeyCode::from_evdev(keycode.saturating_sub(8)))
 }
 
 /// The widget's controllers: they report while it takes input.
@@ -538,13 +550,13 @@ fn input_controllers(area: &gtk::DrawingArea, state: &Rc<RefCell<AreaState>>) {
         {
             return glib::Propagation::Proceed;
         }
-        s.borrow_mut().key(keycode, true, modifiers);
+        s.borrow_mut().key(key_code(keys, keycode), keycode, true, modifiers);
         glib::Propagation::Stop
     });
     let s = Rc::downgrade(state);
-    keys.connect_key_released(move |_, _, keycode, modifiers| {
+    keys.connect_key_released(move |keys, _, keycode, modifiers| {
         if let Some(s) = s.upgrade() {
-            s.borrow_mut().key(keycode, false, modifiers);
+            s.borrow_mut().key(key_code(keys, keycode), keycode, false, modifiers);
         }
     });
     area.add_controller(keys);

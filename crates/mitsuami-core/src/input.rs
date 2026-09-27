@@ -167,6 +167,51 @@ impl KeyCode {
         }
     }
 
+    /// The key an XKB keysym names, for the keys that type no character
+    /// (modifiers, Caps Lock, Escape, arrows, function keys); `None` for
+    /// the others. A keymap's options move these (`ctrl:swapcaps`,
+    /// `caps:escape`) above the evdev code, as macOS and Windows remap
+    /// below theirs, so they're read from the keysym the key types. Meta
+    /// is left out: it's Shift+Alt's keysym on most layouts.
+    pub fn from_keysym(keysym: u32) -> Option<KeyCode> {
+        Some(match keysym {
+            0xff1b => Escape,
+            0xff09 | 0xfe20 => Tab,
+            0xff0d => Enter,
+            0xff08 => Backspace,
+            0xffff => Delete,
+            0xff63 => Insert,
+            0xff50 => Home,
+            0xff57 => End,
+            0xff55 => PageUp,
+            0xff56 => PageDown,
+            0xff51 => ArrowLeft,
+            0xff52 => ArrowUp,
+            0xff53 => ArrowRight,
+            0xff54 => ArrowDown,
+            0xff61 => PrintScreen,
+            0xff67 => ContextMenu,
+            0xff13 => Pause,
+            0xff14 => ScrollLock,
+            0xff7f => NumLock,
+            0xffe5 => CapsLock,
+            0xffe1 => ShiftLeft,
+            0xffe2 => ShiftRight,
+            0xffe3 => ControlLeft,
+            0xffe4 => ControlRight,
+            0xffe9 => AltLeft,
+            // AltGr.
+            0xffea | 0xfe03 => AltRight,
+            0xffeb => MetaLeft,
+            0xffec => MetaRight,
+            0xffbe..=0xffd5 => [
+                F1, F2, F3, F4, F5, F6, F7, F8, F9, F10, F11, F12, F13, F14, F15, F16, F17, F18, F19, F20, F21, F22,
+                F23, F24,
+            ][keysym as usize - 0xffbe],
+            _ => return None,
+        })
+    }
+
     /// The key a macOS virtual key code stands for.
     pub fn from_mac(code: u16) -> KeyCode {
         MAC.get(code as usize).copied().unwrap_or(Unidentified)

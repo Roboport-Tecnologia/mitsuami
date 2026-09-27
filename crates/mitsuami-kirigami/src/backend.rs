@@ -70,6 +70,8 @@ pub(crate) struct WindowRoot {
     pub(crate) menu: RefCell<MenuBarData>,
     /// Its toolbar items, in order.
     toolbar: RefCell<Vec<NodeId>>,
+    /// Whether its first control was given focus, which happens once.
+    focused_first: Cell<bool>,
 }
 
 impl WindowRoot {
@@ -838,6 +840,7 @@ impl State {
             drawer: Cell::new(None),
             menu: RefCell::new(menu),
             toolbar: RefCell::new(Vec::new()),
+            focused_first: Cell::new(false),
         });
         for signal in ["widthChanged()", "heightChanged()"] {
             let root = Rc::downgrade(&root);
@@ -1324,7 +1327,22 @@ impl State {
             }
             Command::SetFocusOrder { window, order } => {
                 let items: Vec<QmlObject> = order.iter().map(|id| self.widget(*id, command).item()).collect();
-                self.window_root(*window, command).window.set_tab_order(&items);
+                let root = self.window_root(*window, command);
+                root.window.set_tab_order(&items);
+                // Qt Quick focuses nothing in a new window, so keys went
+                // nowhere until a click or Tab. AppKit focuses its initial
+                // first responder and GTK its first control; so does this.
+                if !root.focused_first.get() {
+                    let first = order.iter().map(|id| self.widget(*id, command)).find(|w| {
+                        w.is_focusable() && (!w.is_control() || w.item().bool("enabled"))
+                    });
+                    if root.window.focus_item().and_then(|f| f.node()).is_some() {
+                        root.focused_first.set(true);
+                    } else if let Some(widget) = first {
+                        widget.input_item().force_focus();
+                        root.focused_first.set(true);
+                    }
+                }
             }
             Command::ScrollTo { id, offset } => match self.nodes.get(id).map(|n| &n.widget) {
                 Some(Widget::Scroll { flickable, .. }) => {

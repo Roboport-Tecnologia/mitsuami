@@ -16,7 +16,8 @@ typedef void (*mq_callback)(uint64_t key, int32_t kind, double x, double y);
 
 // Input on a GPU surface that takes it: a key's native scan code or a
 // button's number in `code`, modifier and repeat bits in `flags`, the
-// pointer's position (or a scroll's delta) in `x`, `y`.
+// pointer's position (or a scroll's delta) in `x`, `y`, a key's keysym
+// (its native virtual key) in `x`.
 typedef void (*mq_input_callback)(uint64_t key, int32_t kind, int32_t code, int32_t flags, double x, double y);
 
 // Input kinds.

@@ -497,10 +497,12 @@ fn surface_input(event: SurfaceEvent) -> Option<SurfaceInput> {
     let (x, y) = (event.x as f32, event.y as f32);
     Some(match event.kind {
         0 | 1 => {
-            // XKB key codes are evdev's plus 8, on X11 and Wayland.
+            // XKB key codes are evdev's plus 8, on X11 and Wayland. Keys
+            // that type no character go by their keysym, so the keymap's
+            // remaps (Caps Lock and Control swapped) apply.
             let native = (event.code as u32).saturating_sub(8);
             SurfaceInput::Key {
-                code: KeyCode::from_evdev(native),
+                code: KeyCode::from_keysym(event.x as u32).unwrap_or_else(|| KeyCode::from_evdev(native)),
                 native,
                 pressed: event.kind == 0,
                 repeat: event.flags & 16 != 0,

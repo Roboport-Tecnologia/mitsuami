@@ -184,7 +184,7 @@ void DrawnItem::mouseReleaseEvent(QMouseEvent* event) {
 // Takes a GPU surface's input, filling its item (a focus scope, so focus
 // given to the item comes here), and reports it. Its key events carry the
 // native scan code, which is the XKB key code (evdev + 8) on X11 and
-// Wayland. Without `takes` it takes nothing, so the pointer goes on to
+// Wayland, and the keysym as its native virtual key. Without `takes` it takes nothing, so the pointer goes on to
 // what's under it.
 class SurfaceInputItem : public QQuickItem {
 public:
@@ -269,7 +269,7 @@ private:
         // repeat is the presses.
         if (event->isAutoRepeat() && kind == MQ_KEY_UP) return;
         int32_t flags = modifiers(event->modifiers()) | (event->isAutoRepeat() ? MQ_REPEAT : 0);
-        if (g_input && !g_exiting) g_input(key, kind, int32_t(event->nativeScanCode()), flags, 0, 0);
+        if (g_input && !g_exiting) g_input(key, kind, int32_t(event->nativeScanCode()), flags, event->nativeVirtualKey(), 0);
     }
 
     void report(int32_t kind, int32_t code, Qt::KeyboardModifiers mods, QPointF at) {
