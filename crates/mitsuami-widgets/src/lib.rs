@@ -332,6 +332,15 @@ impl TextInput {
         self
     }
 
+    /// Raw platform settings: see [`Tweak`]. What the platforms offer past
+    /// the text and placeholder (a borderless field on AppKit, icons on GTK, a
+    /// length limit on GTK, Qt and WinUI, a header on WinUI) is each one's
+    /// own.
+    pub fn native(mut self, tweak: Tweak<TextInput>) -> TextInput {
+        tweak.apply(&mut self.0);
+        self
+    }
+
     /// Called when the user confirms (Return / Enter).
     pub fn on_submit(mut self, handler: impl Fn() + 'static) -> TextInput {
         self.0.on(move |event| {

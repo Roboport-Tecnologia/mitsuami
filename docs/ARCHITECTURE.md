@@ -398,7 +398,7 @@ Button::new("Continue").role(ButtonRole::Default).native(platform! {
 - `tweak_with(value, |b, v| …)` runs again when the value changes; only the tweak is sent again.
 - A tweak can make the native control disagree with the core's props (an icon for a label, say); the mirror check then fails in tests. Set what the semantic props don't.
 - `_ => Tweak::none()` leaves the other platforms alone. Headless tests keep the tweak but don't run it.
-- The widget's type names the native one (`Tweakable`): `Button` is `NSButton`, `gtk::Button`, a `QQC2.Button` item (`QmlObject`, set by property name) and XAML's `Button`, whose closure returns a `windows_core::Result`; `Checkbox` is `NSButton`, `gtk::CheckButton`, a `QQC2.CheckBox` item and XAML's `CheckBox`; `Switch` is `NSSwitch`, `gtk::Switch`, a `QQC2.Switch` item and XAML's `ToggleSwitch`; `Select` is `NSPopUpButton`, `gtk::DropDown`, a `QQC2.ComboBox` item and XAML's `ComboBox`; `Slider` is `NSSlider`, `gtk::Scale`, a `QQC2.Slider` item and XAML's `Slider`; `Progress` is `NSProgressIndicator`, `gtk::ProgressBar`, a `QQC2.ProgressBar` item and XAML's `ProgressBar`; `Spinner` is `NSProgressIndicator`, `gtk::Spinner`, a `QQC2.BusyIndicator` item and XAML's `ProgressRing`.
+- The widget's type names the native one (`Tweakable`): `Button` is `NSButton`, `gtk::Button`, a `QQC2.Button` item (`QmlObject`, set by property name) and XAML's `Button`, whose closure returns a `windows_core::Result`; `Checkbox` is `NSButton`, `gtk::CheckButton`, a `QQC2.CheckBox` item and XAML's `CheckBox`; `Switch` is `NSSwitch`, `gtk::Switch`, a `QQC2.Switch` item and XAML's `ToggleSwitch`; `Select` is `NSPopUpButton`, `gtk::DropDown`, a `QQC2.ComboBox` item and XAML's `ComboBox`; `Slider` is `NSSlider`, `gtk::Scale`, a `QQC2.Slider` item and XAML's `Slider`; `Progress` is `NSProgressIndicator`, `gtk::ProgressBar`, a `QQC2.ProgressBar` item and XAML's `ProgressBar`; `Spinner` is `NSProgressIndicator`, `gtk::Spinner`, a `QQC2.BusyIndicator` item and XAML's `ProgressRing`; `TextInput` is `NSTextField`, `gtk::Entry`, a `QQC2.TextField` item and XAML's `TextBox`.
 
 ## 7. Accessibility and i18n affordances (designed in now, implemented later)
 
@@ -869,6 +869,12 @@ Things the AppKit backend taught us, some of them now part of the contract:
 - **It reads as a progress bar without a value** (`Role::ProgressBar`), as ARIA has it and as GTK and WinUI report theirs; AppKit reports a busy indicator natively. Named by its label; takes no focus.
 - **Sized as the platform sizes it:** AppKit's regular spinner is 32 pt, GTK's 16 px, Breeze's two grid units, WinUI's 32; headless measures 16 × 16.
 - **The example's tweaks:** a small spinner on AppKit (captured), a 32 px size request on GTK, a larger implicit size on Qt, a determinate ring on WinUI (`IsIndeterminate`, `Value` added to the bindings), which only WinUI's spinner can show.
+- **Run on AppKit only:** GTK, Kirigami and WinUI are only type-checked, and CI hasn't run them.
+
+### TextInput: tweaks
+
+- **Tweaks for now.** A length limit is GTK's, Qt's and WinUI's (AppKit needs a formatter); icons in the field are GTK's; a header is WinUI's. Read-only is the one option all four share (`editable`, `editable`, `readOnly`, `IsReadOnly`), and would be a prop of its own; secure entry is another control on AppKit and WinUI (`NSSecureTextField`, `PasswordBox`), so it would be a widget of its own.
+- **The example's tweaks:** a borderless field on AppKit (captured; macOS 26 draws a rounded bezel as it draws the default one, so that tweak showed nothing), a search icon on GTK, `maximumLength` on Qt, a header on WinUI (`ITextBox.Header` added to the bindings).
 - **Run on AppKit only:** GTK, Kirigami and WinUI are only type-checked, and CI hasn't run them.
 
 ### M2 (GTK 4)

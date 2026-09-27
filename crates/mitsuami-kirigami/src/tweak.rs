@@ -4,7 +4,7 @@ use std::rc::Rc;
 
 use mitsuami_core::reactive::{IntoValue, Value};
 use mitsuami_core::{Opaque, Tweak};
-use mitsuami_widgets::{Button, Checkbox, Progress, Select, Slider, Spinner, Switch};
+use mitsuami_widgets::{Button, Checkbox, Progress, Select, Slider, Spinner, Switch, TextInput};
 
 use crate::ffi::QmlObject;
 
@@ -32,6 +32,9 @@ impl Tweakable for Progress {}
 
 /// A `QQC2.BusyIndicator`.
 impl Tweakable for Spinner {}
+
+/// A `QQC2.TextField`.
+impl Tweakable for TextInput {}
 
 /// Settings as the backend runs them, on the node's item.
 pub(crate) type TweakFn = Rc<dyn Fn(QmlObject)>;

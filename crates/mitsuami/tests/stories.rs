@@ -301,6 +301,32 @@ fn spinner_tweak() -> Tweak<Spinner> {
     }
 }
 
+/// A raw platform setting through `.native()`: no border on AppKit, a
+/// search icon on GTK, a header on WinUI. Qt's tweak limits the length,
+/// which a still capture doesn't show.
+#[mitsuami_test::story(sizes = [(240, fit)])]
+fn text_input_tweaked() -> impl View {
+    Column::new().padding(16).gap(8).children((
+        TextInput::new().a11y_label("Plain").value("Ada"),
+        TextInput::new().a11y_label("Tweaked").value("Ada").native(text_input_tweak()),
+    ))
+}
+
+fn text_input_tweak() -> Tweak<TextInput> {
+    platform! {
+        macos => mitsuami::appkit::tweak(|f: &mitsuami::appkit::objc2_app_kit::NSTextField| f.setBezeled(false)),
+        gtk => mitsuami::gtk::tweak(|e: &mitsuami::gtk::gtk::Entry| {
+            e.set_icon_from_icon_name(mitsuami::gtk::gtk::EntryIconPosition::Primary, Some("system-search-symbolic"))
+        }),
+        kde => mitsuami::kirigami::tweak(|f: &mitsuami::kirigami::QmlObject| f.set_int("maximumLength", 8)),
+        windows => mitsuami::winui::tweak(|f: &mitsuami::winui::bindings::TextBox| {
+            use mitsuami::winui::bindings::{ITextBox, PropertyValue};
+            use mitsuami::winui::windows_core::Interface;
+            f.cast::<ITextBox>()?.SetHeader(&PropertyValue::CreateString("Name")?)
+        }),
+    }
+}
+
 /// Sliders and progress bars as wide as the story; without a step, and
 /// with one.
 #[mitsuami_test::story(sizes = [(240, fit)])]

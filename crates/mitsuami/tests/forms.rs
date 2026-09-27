@@ -126,6 +126,46 @@ async fn programmatic_changes_reach_the_native_widget(app: TestApp) {
     assert!(app.get_by_label("Field").native_state().props.contains(&Prop::Value("second".into())));
 }
 
+/// Logs the text the native field shows, each time the tweak runs.
+fn log_text(log: Rc<RefCell<Vec<String>>>) -> Tweak<TextInput> {
+    platform! {
+        macos => mitsuami::appkit::tweak(move |f: &mitsuami::appkit::objc2_app_kit::NSTextField| {
+            log.borrow_mut().push(f.stringValue().to_string())
+        }),
+        gtk => mitsuami::gtk::tweak(move |e: &mitsuami::gtk::gtk::Entry| {
+            use mitsuami::gtk::gtk::prelude::*;
+            log.borrow_mut().push(e.text().to_string())
+        }),
+        kde => mitsuami::kirigami::tweak(move |f: &mitsuami::kirigami::QmlObject| log.borrow_mut().push(f.str("text"))),
+        windows => mitsuami::winui::tweak(move |f: &mitsuami::winui::bindings::TextBox| {
+            use mitsuami::winui::windows_core::Interface;
+            log.borrow_mut().push(f.cast::<mitsuami::winui::bindings::ITextBox>()?.Text()?);
+            Ok(())
+        }),
+    }
+}
+
+/// Given before the text, the tweak still runs after it, and again when it
+/// changes.
+#[mitsuami_test::test]
+async fn a_tweak_runs_on_the_native_field_after_its_props(app: TestApp) {
+    let log = Rc::new(RefCell::new(Vec::new()));
+    let value = signal("first".to_string());
+    let tweak = log_text(log.clone());
+    app.mount(move || TextInput::new().a11y_label("Field").native(tweak).value(value));
+
+    let props = app.get_by_label("Field").native_state().props;
+    assert!(props.iter().any(|p| matches!(p, Prop::Tweak(_))));
+    if app.is_headless() {
+        assert!(log.borrow().is_empty());
+        return;
+    }
+    assert_eq!(log.borrow().last().map(String::as_str), Some("first"));
+    value.set("second".into());
+    app.settle().await;
+    assert_eq!(log.borrow().last().map(String::as_str), Some("second"));
+}
+
 #[mitsuami_test::test]
 async fn form_a11y_snapshot(app: TestApp) {
     mount(&app);

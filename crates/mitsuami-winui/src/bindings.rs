@@ -5802,6 +5802,18 @@ impl ITextBox {
             (windows_core::Interface::vtable(self).SetSelectionStart)(windows_core::Interface::as_raw(self), value).ok()
         }
     }
+    pub fn SetHeader<P0>(&self, value: P0) -> windows_core::Result<()>
+    where
+        P0: windows_core::Param<windows_core::IInspectable>,
+    {
+        unsafe {
+            (windows_core::Interface::vtable(self).SetHeader)(
+                windows_core::Interface::as_raw(self),
+                value.param().abi(),
+            )
+            .ok()
+        }
+    }
     pub fn PlaceholderText(&self) -> windows_core::Result<String> {
         unsafe {
             let mut result__ = core::mem::zeroed();
@@ -5881,7 +5893,7 @@ pub struct ITextBox_Vtbl {
     InputScope: usize,
     SetInputScope: usize,
     Header: usize,
-    SetHeader: usize,
+    pub SetHeader: unsafe extern "system" fn(*mut core::ffi::c_void, *mut core::ffi::c_void) -> windows_core::HRESULT,
     HeaderTemplate: usize,
     SetHeaderTemplate: usize,
     pub PlaceholderText:

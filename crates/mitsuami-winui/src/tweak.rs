@@ -4,7 +4,7 @@ use std::rc::Rc;
 
 use mitsuami_core::reactive::{IntoValue, Value};
 use mitsuami_core::{Opaque, Tweak};
-use mitsuami_widgets::{Button, Checkbox, Progress, Select, Slider, Spinner, Switch};
+use mitsuami_widgets::{Button, Checkbox, Progress, Select, Slider, Spinner, Switch, TextInput};
 use windows_core::Interface;
 
 use crate::bindings as w;
@@ -40,6 +40,10 @@ impl Tweakable for Progress {
 
 impl Tweakable for Spinner {
     type Native = w::ProgressRing;
+}
+
+impl Tweakable for TextInput {
+    type Native = w::TextBox;
 }
 
 /// Settings as the backend runs them, on the node's element.
