@@ -11,21 +11,22 @@ use mitsuami_core::backend::{
 };
 use mitsuami_core::units::SpacingScale;
 use mitsuami_core::{
-    ButtonRole, ButtonStyle, Command, CustomProps, EventValue, NodeId, Opaque, Orientation, Point, Prop, Rect, RowKey,
-    ScrollAxes, SelectionMode, Size, TextStyle, UiEvent, WidgetKind, find_prop,
+    ButtonRole, ButtonStyle, Command, CustomProps, EventValue, ImageFit, ImageSource, NodeId, Opaque, Orientation,
+    Point, Prop, Rect, RowKey, ScrollAxes, SelectionMode, Size, TextStyle, UiEvent, WidgetKind, find_prop,
 };
 use objc2::rc::Retained;
 use objc2::runtime::{AnyObject, ProtocolObject};
-use objc2::{MainThreadMarker, MainThreadOnly, Message, msg_send, sel};
+use objc2::{AnyThread, MainThreadMarker, MainThreadOnly, Message, msg_send, sel};
 use objc2_app_kit::{
     NSAccessibility, NSAppearance, NSAppearanceCustomization, NSAppearanceNameAqua, NSAppearanceNameDarkAqua,
-    NSApplication, NSBackingStoreType, NSBitmapFormat, NSButton, NSControl, NSControlStateValueMixed,
-    NSControlStateValueOff, NSControlStateValueOn, NSEvent, NSEventModifierFlags, NSEventType, NSFont, NSFontTextStyle,
-    NSFontTextStyleBody, NSFontTextStyleCallout, NSFontTextStyleCaption1, NSFontTextStyleHeadline,
-    NSFontTextStyleLargeTitle, NSFontTextStyleTitle1, NSFontWeightRegular, NSMenuItem, NSPopUpButton,
-    NSProgressIndicator, NSProgressIndicatorStyle, NSScreen, NSScrollView, NSSecureTextField, NSSlider,
-    NSStandardKeyBindingResponding, NSSwitch, NSTextField, NSView, NSViewBoundsDidChangeNotification, NSWindow,
-    NSWindowOrderingMode, NSWindowStyleMask, NSWorkspace,
+    NSApplication, NSBackingStoreType, NSBitmapFormat, NSBitmapImageRep, NSButton, NSColorSpace, NSControl,
+    NSControlStateValueMixed, NSControlStateValueOff, NSControlStateValueOn, NSDeviceRGBColorSpace, NSEvent,
+    NSEventModifierFlags, NSEventType, NSFont, NSFontTextStyle, NSFontTextStyleBody, NSFontTextStyleCallout,
+    NSFontTextStyleCaption1, NSFontTextStyleHeadline, NSFontTextStyleLargeTitle, NSFontTextStyleTitle1,
+    NSFontWeightRegular, NSImage, NSImageScaling, NSImageView, NSMenuItem, NSPopUpButton, NSProgressIndicator,
+    NSProgressIndicatorStyle, NSScreen, NSScrollView, NSSecureTextField, NSSlider, NSStandardKeyBindingResponding,
+    NSSwitch, NSTextField, NSView, NSViewBoundsDidChangeNotification, NSWindow, NSWindowOrderingMode,
+    NSWindowStyleMask, NSWorkspace,
 };
 use objc2_foundation::{NSArray, NSDictionary, NSNotificationCenter, NSPoint, NSRange, NSRect, NSSize, NSString};
 
@@ -80,6 +81,7 @@ enum Widget {
         indicator: Retained<NSProgressIndicator>,
         running: bool,
     },
+    Image(Retained<NSImageView>),
     Scroll(Retained<NSScrollView>),
     List(crate::list::List),
     /// A custom widget with an AppKit render, and the props it last got.
@@ -116,6 +118,7 @@ impl Widget {
             Widget::NumberInput(v) => v,
             Widget::Progress(v) => v,
             Widget::Spinner { indicator, .. } => indicator,
+            Widget::Image(v) => v,
             Widget::Scroll(v) => v,
             Widget::List(list) => &list.scroll,
             Widget::Custom { view, .. } | Widget::Native { view, .. } => view,
@@ -135,6 +138,7 @@ impl Widget {
             Widget::Window { .. }
             | Widget::Progress(_)
             | Widget::Spinner { .. }
+            | Widget::Image(_)
             | Widget::Host(_)
             | Widget::Scroll(_)
             | Widget::List(_)
@@ -179,6 +183,10 @@ struct Node {
     /// bars. Without scrollers, AppKit can't tell which axes scroll.
     scroll_axes: ScrollAxes,
     scroll_bars: bool,
+    /// Images: what they show and how they fit, which AppKit can't give
+    /// back (the fit only if the app chose one).
+    image: Option<ImageSource>,
+    fit: Option<ImageFit>,
     /// The app's raw settings, run after every other prop.
     tweak: Option<Opaque>,
 }
@@ -510,6 +518,9 @@ impl State {
                 Widget::Slider { slider, step: None }
             }
             WidgetKind::NumberInput => Widget::NumberInput(NumberField::new(mtm, id, self.events.clone())),
+            // Not editable, framed or animated: what `NSImageView` is
+            // made as.
+            WidgetKind::Image => Widget::Image(NSImageView::new(mtm)),
             WidgetKind::Progress => {
                 let progress = NSProgressIndicator::new(mtm);
                 progress.setMinValue(0.0);
@@ -589,6 +600,8 @@ impl State {
                 orientation: None,
                 scroll_axes: ScrollAxes::default(),
                 scroll_bars: true,
+                image: None,
+                fit: None,
                 mixed: None,
                 checked: false,
                 tweak: None,
@@ -677,6 +690,18 @@ impl State {
                 n.show_number();
             }
             (Prop::Enabled(e), Widget::NumberInput(n)) => n.controls().iter().for_each(|c| c.setEnabled(*e)),
+            (Prop::Image(source), Widget::Image(view)) => {
+                view.setImage(ns_image(source).as_deref());
+                node.image = Some(source.clone());
+            }
+            (Prop::ImageFit(fit), Widget::Image(view)) => {
+                view.setImageScaling(match fit {
+                    ImageFit::Contain => NSImageScaling::ScaleProportionallyUpOrDown,
+                    ImageFit::Stretch => NSImageScaling::ScaleAxesIndependently,
+                });
+                node.fit = Some(*fit);
+            }
+            (Prop::Label(t), Widget::Image(view)) => view.setAccessibilityLabel(Some(&ns(t))),
             (Prop::Label(t), Widget::Progress(p) | Widget::Spinner { indicator: p, .. }) => {
                 p.setAccessibilityLabel(Some(&ns(t)))
             }
@@ -1063,6 +1088,47 @@ fn set_ticks(slider: &NSSlider, step: Option<f64>) {
     }
 }
 
+/// The image a source shows, or none for a file AppKit can't read.
+fn ns_image(source: &ImageSource) -> Option<Retained<NSImage>> {
+    match source {
+        ImageSource::File(path) => NSImage::initWithContentsOfFile(NSImage::alloc(), &ns(&path.to_string_lossy())),
+        ImageSource::Pixels(pixels) => {
+            let (width, height) = (pixels.width() as isize, pixels.height() as isize);
+            // AppKit allocates the buffer; the pixels are copied in.
+            let rep = unsafe {
+                NSBitmapImageRep::initWithBitmapDataPlanes_pixelsWide_pixelsHigh_bitsPerSample_samplesPerPixel_hasAlpha_isPlanar_colorSpaceName_bitmapFormat_bytesPerRow_bitsPerPixel(
+                    NSBitmapImageRep::alloc(),
+                    std::ptr::null_mut(),
+                    width,
+                    height,
+                    8,
+                    4,
+                    true,
+                    false,
+                    NSDeviceRGBColorSpace,
+                    NSBitmapFormat::AlphaNonpremultiplied,
+                    width * 4,
+                    32,
+                )
+            }?;
+            let data = rep.bitmapData();
+            if data.is_null() {
+                return None;
+            }
+            let rgba = pixels.rgba();
+            unsafe { std::ptr::copy_nonoverlapping(rgba.as_ptr(), data, rgba.len()) };
+            // The bytes are sRGB, as images on every platform are.
+            let rep = rep.bitmapImageRepByRetaggingWithColorSpace(&NSColorSpace::sRGBColorSpace())?;
+            let size = pixels.size();
+            let size = NSSize::new(size.width as f64, size.height as f64);
+            rep.setSize(size);
+            let image = NSImage::initWithSize(NSImage::alloc(), size);
+            image.addRepresentation(&rep);
+            Some(image)
+        }
+    }
+}
+
 fn intrinsic(view: &NSView) -> Size {
     let size = view.intrinsicContentSize();
     ceil_size(NSSize::new(size.width.max(0.0), size.height.max(0.0)))
@@ -1120,6 +1186,8 @@ impl Backend for AppKitBackend {
             // No natural width: they're as wide as the layout makes them.
             Widget::Slider { slider, .. } => intrinsic(slider),
             Widget::NumberInput(n) => n.natural_size(),
+            // The image's size in points; nothing shown, none.
+            Widget::Image(view) => view.image().map_or(Size::ZERO, |image| ceil_size(image.size())),
             Widget::Progress(p) => intrinsic(p),
             Widget::Spinner { indicator, .. } => intrinsic(indicator),
             Widget::Custom { view, render, props } => {
@@ -1474,6 +1542,18 @@ impl Backend for AppKitBackend {
                     props.push(Prop::Label(label.to_string()));
                 }
                 props.push(Prop::Running(*running));
+            }
+            Widget::Image(view) => {
+                if let Some(label) = view.accessibilityLabel() {
+                    props.push(Prop::Label(label.to_string()));
+                }
+                props.extend(node.image.clone().map(Prop::Image));
+                if node.fit.is_some() {
+                    props.push(Prop::ImageFit(match view.imageScaling() {
+                        NSImageScaling::ScaleAxesIndependently => ImageFit::Stretch,
+                        _ => ImageFit::Contain,
+                    }));
+                }
             }
             Widget::Scroll(scroll) => {
                 let shown = (scroll.hasHorizontalScroller(), scroll.hasVerticalScroller());

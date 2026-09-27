@@ -4,7 +4,7 @@ use std::fmt::Write;
 
 use mitsuami_core::draw::{DrawOp, PathElement};
 use mitsuami_core::geometry::Num;
-use mitsuami_core::{A11yNode, Color, Command, DisplayList, NodeInfo, Point, Prop, Shape, WidgetKind};
+use mitsuami_core::{A11yNode, Color, Command, DisplayList, ImageSource, NodeInfo, Point, Prop, Shape, WidgetKind};
 
 fn describe_props(props: &[Prop]) -> String {
     let mut quoted = None;
@@ -41,6 +41,9 @@ fn describe_props(props: &[Prop]) -> String {
             Prop::ScrollAxes(a) => extra.push(format!("scroll={a:?}")),
             Prop::ScrollBars(b) => extra.push(format!("scroll_bars={b}")),
             Prop::Orientation(o) => extra.push(format!("orientation={o:?}")),
+            Prop::Image(ImageSource::File(path)) => extra.push(format!("file={:?}", path.display().to_string())),
+            Prop::Image(ImageSource::Pixels(p)) => extra.push(format!("{p:?}")),
+            Prop::ImageFit(fit) => extra.push(format!("fit={fit:?}")),
             // A list's data can be long: its size is enough.
             Prop::Rows(rows) => extra.push(format!("rows={}", rows.len())),
             Prop::EstimatedRowHeight(h) => extra.push(format!("estimated_row_height={}", Num(*h))),
@@ -259,6 +262,7 @@ pub(crate) fn wireframe(root: &NodeInfo) -> String {
             | WidgetKind::NumberInput
             | WidgetKind::Progress
             | WidgetKind::Spinner => "#1f8a8a",
+            WidgetKind::Image => "#b8860b",
             WidgetKind::Custom(_) | WidgetKind::Native => "#c0392b",
         }
     }

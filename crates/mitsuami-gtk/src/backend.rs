@@ -15,8 +15,8 @@ use mitsuami_core::backend::{
 use mitsuami_core::services::Reply;
 use mitsuami_core::units::SpacingScale;
 use mitsuami_core::{
-    ButtonRole, ButtonStyle, Command, CustomProps, EventValue, NodeId, Opaque, Orientation, Point, Prop, Rect, RowKey,
-    ScrollAxes, SelectionMode, Size, TextStyle, UiEvent, WidgetKind, find_prop,
+    ButtonRole, ButtonStyle, Command, CustomProps, EventValue, ImageFit, ImageSource, NodeId, Opaque, Orientation,
+    Point, Prop, Rect, RowKey, ScrollAxes, SelectionMode, Size, TextStyle, UiEvent, WidgetKind, find_prop,
 };
 
 use crate::custom::{DrawnArea, Emitter, ErasedRender, GtkCx, NativePayload};
@@ -73,6 +73,13 @@ enum Widget {
         pulsing: Rc<Cell<bool>>,
     },
     Spinner(gtk::Spinner),
+    /// A picture, and what it was given: GTK can't give pixels back, and
+    /// reads its content fit back whether the app chose one or not.
+    Picture {
+        picture: gtk::Picture,
+        source: Option<ImageSource>,
+        fit: Option<ImageFit>,
+    },
     Scroll {
         scrolled: gtk::ScrolledWindow,
         viewport: gtk::Viewport,
@@ -115,6 +122,7 @@ impl Widget {
             Widget::SpinButton(w) => w.upcast_ref(),
             Widget::Progress { bar, .. } => bar.upcast_ref(),
             Widget::Spinner(w) => w.upcast_ref(),
+            Widget::Picture { picture, .. } => picture.upcast_ref(),
             Widget::Scroll { scrolled, .. } => scrolled.upcast_ref(),
             Widget::List(list) => list.scrolled.upcast_ref(),
             Widget::Custom { widget, .. } | Widget::Native { widget, .. } => widget,
@@ -680,6 +688,7 @@ impl State {
             }
             WidgetKind::Progress => Widget::Progress { bar: gtk::ProgressBar::new(), pulsing: Rc::default() },
             WidgetKind::Spinner => Widget::Spinner(gtk::Spinner::new()),
+            WidgetKind::Image => Widget::Picture { picture: gtk::Picture::new(), source: None, fit: None },
             WidgetKind::TextInput => {
                 let entry = gtk::Entry::new();
                 let e = events.clone();
@@ -881,6 +890,35 @@ impl State {
             (Prop::Label(t), Widget::Spinner(s)) => {
                 s.update_property(&[gtk::accessible::Property::Label(t)]);
                 node.a11y_label = Some(t.clone());
+            }
+            (Prop::Label(t), Widget::Picture { picture, .. }) => {
+                picture.set_alternative_text(Some(t));
+                node.a11y_label = Some(t.clone());
+            }
+            // GTK decodes files as it's given them; one it can't read
+            // shows nothing, and measures nothing.
+            (Prop::Image(new), Widget::Picture { picture, source, .. }) => {
+                match new {
+                    ImageSource::File(path) => picture.set_filename(Some(path)),
+                    ImageSource::Pixels(pixels) => {
+                        let texture = gdk::MemoryTexture::new(
+                            pixels.width() as i32,
+                            pixels.height() as i32,
+                            gdk::MemoryFormat::R8g8b8a8,
+                            &glib::Bytes::from(pixels.rgba()),
+                            pixels.width() as usize * 4,
+                        );
+                        picture.set_paintable(Some(&texture));
+                    }
+                }
+                *source = Some(new.clone());
+            }
+            (Prop::ImageFit(new), Widget::Picture { picture, fit, .. }) => {
+                picture.set_content_fit(match new {
+                    ImageFit::Contain => gtk::ContentFit::Contain,
+                    ImageFit::Stretch => gtk::ContentFit::Fill,
+                });
+                *fit = Some(*new);
             }
             // Stopped, a GTK spinner draws nothing.
             (Prop::Running(r), Widget::Spinner(s)) => s.set_spinning(*r),
@@ -1354,6 +1392,12 @@ impl Backend for GtkBackend {
                 }
                 measure_widget(scale.upcast_ref(), false, request)
             }
+            // A texture measures at its pixel count; pixels made at a scale
+            // take that many fewer points. Files measure as GTK reads them.
+            Widget::Picture { source: Some(ImageSource::Pixels(pixels)), .. } => {
+                let size = pixels.size();
+                Size::new(request.known_width.unwrap_or(size.width), request.known_height.unwrap_or(size.height))
+            }
             // Measured by the core.
             Widget::Drawn { .. } | Widget::Window(_) | Widget::Host(_) | Widget::Scroll { .. } | Widget::List(_) => {
                 Size::ZERO
@@ -1678,6 +1722,17 @@ impl Backend for GtkBackend {
             Widget::Spinner(s) => {
                 props.extend(node.a11y_label.clone().map(Prop::Label));
                 props.push(Prop::Running(s.is_spinning()));
+            }
+            Widget::Picture { picture, source, fit } => {
+                props.extend(node.a11y_label.clone().map(Prop::Label));
+                props.extend(source.clone().map(Prop::Image));
+                // Read back, but only if the app chose one.
+                if fit.is_some() {
+                    props.push(Prop::ImageFit(match picture.content_fit() {
+                        gtk::ContentFit::Fill => ImageFit::Stretch,
+                        _ => ImageFit::Contain,
+                    }));
+                }
             }
             Widget::Scroll { scrolled, .. } => {
                 props.push(Prop::ScrollAxes(scroll_axes(scrolled)));

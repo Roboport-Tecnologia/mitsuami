@@ -191,6 +191,23 @@ QQC2.SpinBox {{
     )
 }
 
+/// An image, from a file or from the pixels provider. Loaded as it's set,
+/// not in the background, so it's measured at its size; QML's cache is off,
+/// since every new set of pixels has a url of its own.
+pub(crate) fn image() -> String {
+    format!(
+        r#"
+Image {{
+    asynchronous: false
+    cache: false
+    Accessible.role: Accessible.Graphic
+    {}
+}}
+"#,
+        a11y("\"\"")
+    )
+}
+
 pub(crate) fn spinner() -> String {
     format!("QQC2.BusyIndicator {{ running: false; {} }}", a11y("\"\""))
 }

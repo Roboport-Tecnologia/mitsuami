@@ -242,3 +242,15 @@ Microsoft.UI.Xaml.DependencyProperty::{}
 Microsoft.UI.Xaml.Controls.RatingControl::ValueProperty
 Microsoft.UI.Xaml.Controls.PipsPager::SelectedPageIndexProperty
 Microsoft.UI.Xaml.Controls.Primitives.RangeBase::ValueProperty
+Microsoft.UI.Xaml.Controls.Image::CreateInstance
+Microsoft.UI.Xaml.Controls.IImage::{get_Source, put_Source, get_Stretch, put_Stretch, add_ImageOpened, remove_ImageOpened, add_ImageFailed, remove_ImageFailed}
+Microsoft.UI.Xaml.Media.Stretch
+Microsoft.UI.Xaml.Media.ImageSource::{}
+Microsoft.UI.Xaml.ExceptionRoutedEventHandler
+Microsoft.UI.Xaml.ExceptionRoutedEventArgs::{}
+Microsoft.UI.Xaml.Media.Imaging.BitmapImage::CreateInstanceWithUriSource
+Microsoft.UI.Xaml.Media.Imaging.IBitmapSource::{get_PixelWidth, get_PixelHeight}
+Microsoft.UI.Xaml.Media.Imaging.WriteableBitmap::CreateInstanceWithDimensions
+Microsoft.UI.Xaml.Media.Imaging.IWriteableBitmap::{get_PixelBuffer, Invalidate}
+Windows.Foundation.Uri::CreateUri
+Windows.Win32.IBufferByteAccess

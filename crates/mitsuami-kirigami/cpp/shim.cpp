@@ -16,6 +16,8 @@
 #include <QPointer>
 #include <QQmlComponent>
 #include <QQmlEngine>
+#include <QMutex>
+#include <QQuickImageProvider>
 #include <QQuickItem>
 #include <QQuickStyle>
 #include <QQuickWindow>
@@ -25,6 +27,43 @@
 
 static mq_callback g_callback = nullptr;
 static QQmlEngine* g_engine = nullptr;
+
+// Pixels the app has in memory, for QML `Image`s: `image://mitsuami/<key>`.
+// Qt may ask from its image loading thread, hence the lock; QImages are
+// implicitly shared, so handing one out copies nothing.
+class PixelsProvider : public QQuickImageProvider {
+public:
+    PixelsProvider() : QQuickImageProvider(QQuickImageProvider::Image) {}
+
+    QImage requestImage(const QString& id, QSize* size, const QSize& requested) override {
+        QImage image;
+        {
+            QMutexLocker lock(&mutex);
+            image = images.value(id.toULongLong());
+        }
+        if (size) *size = image.size();
+        if (requested.isValid() && !image.isNull() && requested != image.size())
+            image = image.scaled(requested, Qt::IgnoreAspectRatio, Qt::SmoothTransformation);
+        return image;
+    }
+
+    void set(quint64 key, QImage image) {
+        QMutexLocker lock(&mutex);
+        images.insert(key, image);
+    }
+
+    void remove(quint64 key) {
+        QMutexLocker lock(&mutex);
+        images.remove(key);
+    }
+
+private:
+    QMutex mutex;
+    QHash<quint64, QImage> images;
+};
+
+// Owned by the engine.
+static PixelsProvider* g_pixels = nullptr;
 static QThread* g_main_thread = nullptr;
 static QHash<QString, QQmlComponent*> g_components;
 
@@ -216,6 +255,8 @@ void mq_init(mq_callback callback) {
     if (qEnvironmentVariableIsEmpty("QT_QUICK_CONTROLS_STYLE")) QQuickStyle::setStyle("org.kde.desktop");
     g_main_thread = QThread::currentThread();
     g_engine = new QQmlEngine();
+    g_pixels = new PixelsProvider();
+    g_engine->addImageProvider(QStringLiteral("mitsuami"), g_pixels);
     (void)&g_exit_sentinel;
 }
 
@@ -519,6 +560,20 @@ int32_t mq_grab(QObject* window, double x, double y, double w, double h, uint8_t
 }
 
 void mq_free_pixels(uint8_t* rgba) { free(rgba); }
+
+void mq_pixels_set(uint64_t key, const uint8_t* rgba, int32_t width, int32_t height) {
+    // A deep copy: the QImage must not point into Rust's buffer.
+    QImage image(rgba, width, height, qsizetype(width) * 4, QImage::Format_RGBA8888);
+    g_pixels->set(key, image.copy());
+}
+
+void mq_pixels_remove(uint64_t key) {
+    if (g_pixels) g_pixels->remove(key);
+}
+
+void mq_set_url_str(QObject* o, const char* name, const char* url) {
+    o->setProperty(name, QUrl(QString::fromUtf8(url)));
+}
 
 // -------------------------------------------------------------- clipboard
 

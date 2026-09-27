@@ -88,6 +88,10 @@ name = "number_input"
 harness = false
 
 [[test]]
+name = "image"
+harness = false
+
+[[test]]
 name = "progress"
 harness = false
 

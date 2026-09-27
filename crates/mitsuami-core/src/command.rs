@@ -120,6 +120,9 @@ pub enum UiEvent {
     RowWidth(f32),
     /// A pointer event on a drawn custom widget, in its coordinates.
     Pointer(PointerEvent),
+    /// A widget's natural size changed on its own (an image finished
+    /// loading); the core measures it again.
+    Remeasure,
     /// An event of a custom widget or native view, of its own type.
     Custom(AnyValue),
 }

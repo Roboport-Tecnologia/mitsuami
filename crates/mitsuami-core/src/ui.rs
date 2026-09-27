@@ -1348,6 +1348,11 @@ impl Inner {
                     self.styles_dirty = true;
                 }
             }
+            UiEvent::Remeasure => {
+                if let Some(t) = self.nodes.get(&id).and_then(|n| n.taffy) {
+                    let _ = self.taffy.mark_dirty(t);
+                }
+            }
             UiEvent::MetricsChanged => {
                 self.metrics = self.backend.metrics();
                 self.styles_dirty = true;
@@ -1487,6 +1492,7 @@ impl Inner {
             WidgetKind::NumberInput => Role::SpinButton,
             // A spinner reads as a progress bar without a value, as in ARIA.
             WidgetKind::Progress | WidgetKind::Spinner => Role::ProgressBar,
+            WidgetKind::Image => Role::Image,
             WidgetKind::Custom(_) | WidgetKind::Native => Role::Group,
         });
         if role == Role::None {
@@ -1504,7 +1510,8 @@ impl Inner {
                 | WidgetKind::Slider
                 | WidgetKind::NumberInput
                 | WidgetKind::Progress
-                | WidgetKind::Spinner => crate::find_prop!(props, Label),
+                | WidgetKind::Spinner
+                | WidgetKind::Image => crate::find_prop!(props, Label),
                 WidgetKind::TextInput | WidgetKind::PasswordInput => crate::find_prop!(props, Placeholder),
                 // Rows read as their text, as screen readers read native rows.
                 WidgetKind::Container if row.is_some() => {

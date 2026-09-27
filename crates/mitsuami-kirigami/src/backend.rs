@@ -12,8 +12,9 @@ use mitsuami_core::backend::{
 };
 use mitsuami_core::services::Reply;
 use mitsuami_core::{
-    ButtonRole, ButtonStyle, Command, CustomProps, DisplayList, EventValue, NodeId, Opaque, Orientation, Point,
-    PointerEvent, Prop, Rect, RowKey, ScrollAxes, SelectionMode, Size, TextStyle, UiEvent, WidgetKind, find_prop,
+    ButtonRole, ButtonStyle, Command, CustomProps, DisplayList, EventValue, ImageFit, ImageSource, NodeId, Opaque,
+    Orientation, Point, PointerEvent, Prop, Rect, RowKey, ScrollAxes, SelectionMode, Size, TextStyle, UiEvent,
+    WidgetKind, find_prop,
 };
 
 use crate::custom::{Emitter, ErasedRender, KirigamiCx, NativePayload, flatten};
@@ -146,6 +147,14 @@ enum Widget {
     NumberInput(QmlObject),
     Progress(QmlObject),
     Spinner(QmlObject),
+    /// An image, what it shows (Qt can't give pixels or the source back as
+    /// given), and the pixels it hands QML's provider, if any.
+    Image {
+        item: QmlObject,
+        source: Option<ImageSource>,
+        fit: Option<ImageFit>,
+        pixels: Option<ffi::ProvidedPixels>,
+    },
     Scroll {
         view: QmlObject,
         flickable: QmlObject,
@@ -189,6 +198,7 @@ impl Widget {
             | Widget::NumberInput(i)
             | Widget::Progress(i)
             | Widget::Spinner(i)
+            | Widget::Image { item: i, .. }
             | Widget::Scroll { view: i, .. }
             | Widget::Custom { item: i, .. }
             | Widget::Drawn { item: i, .. }
@@ -251,6 +261,14 @@ impl Widget {
         !matches!(self, Widget::Window { .. } | Widget::Host(_) | Widget::Scroll { .. } | Widget::List(_))
     }
 }
+
+/// `Image.Status`: loaded, or failed.
+const IMAGE_READY: i32 = 1;
+const IMAGE_ERROR: i32 = 3;
+
+/// `Image.FillMode`.
+const FILL_STRETCH: i32 = 0;
+const FILL_PRESERVE_ASPECT_FIT: i32 = 1;
 
 /// `Qt::Orientation`, a `Slider`'s `orientation`.
 const QT_HORIZONTAL: i32 = 1;
@@ -655,6 +673,17 @@ impl State {
             }
             WidgetKind::Progress => Widget::Progress(QmlObject::load(&qml::progress())),
             WidgetKind::Spinner => Widget::Spinner(QmlObject::load(&qml::spinner())),
+            WidgetKind::Image => {
+                let item = QmlObject::load(&qml::image());
+                // Loading is synchronous, but should an image finish (or
+                // fail) later, its size changed.
+                item.connect("statusChanged()", move || {
+                    if matches!(item.int("status"), IMAGE_READY | IMAGE_ERROR) {
+                        events.emit(id, UiEvent::Remeasure);
+                    }
+                });
+                Widget::Image { item, source: None, fit: None, pixels: None }
+            }
             WidgetKind::TextInput | WidgetKind::PasswordInput => {
                 let qml = if kind == WidgetKind::TextInput { qml::text_field() } else { qml::password_field() };
                 let field = QmlObject::load(&qml);
@@ -790,7 +819,8 @@ impl State {
                 | Widget::Slider(s)
                 | Widget::NumberInput(s)
                 | Widget::Progress(s)
-                | Widget::Spinner(s),
+                | Widget::Spinner(s)
+                | Widget::Image { item: s, .. },
             ) => {
                 s.set_str("mitsuamiA11yName", t);
                 node.a11y_label = Some(t.clone());
@@ -832,6 +862,32 @@ impl State {
             }
             // Stopped, a busy indicator fades out.
             (Prop::Running(r), Widget::Spinner(s)) => s.set_bool("running", *r),
+            (Prop::Image(new), Widget::Image { item, source, pixels, .. }) => {
+                match new {
+                    ImageSource::File(path) => {
+                        item.set_url("source", path);
+                        *pixels = None;
+                    }
+                    ImageSource::Pixels(p) => {
+                        // The new pixels first, then the url that shows them;
+                        // the old ones go once nothing shows them.
+                        let provided = ffi::ProvidedPixels::new(p);
+                        item.set_url_str("source", &provided.url());
+                        *pixels = Some(provided);
+                    }
+                }
+                *source = Some(new.clone());
+            }
+            (Prop::ImageFit(new), Widget::Image { item, fit, .. }) => {
+                item.set_int(
+                    "fillMode",
+                    match new {
+                        ImageFit::Contain => FILL_PRESERVE_ASPECT_FIT,
+                        ImageFit::Stretch => FILL_STRETCH,
+                    },
+                );
+                *fit = Some(*new);
+            }
             (Prop::Progress(progress), Widget::Progress(p)) => {
                 p.set_bool("indeterminate", progress.is_none());
                 if let Some(fraction) = progress {
@@ -1059,6 +1115,7 @@ impl State {
                         | Widget::NumberInput(_)
                         | Widget::Progress(_)
                         | Widget::Spinner(_)
+                        | Widget::Image { .. }
                 );
                 if !named_by_label || label.is_some() {
                     item.set_str("mitsuamiA11yName", label.as_deref().unwrap_or_default());
@@ -1166,6 +1223,12 @@ impl Backend for KirigamiBackend {
                 render.measure(*item, props.props(), &request).unwrap_or_else(|| measure_item(*item, false, request))
             }
             Widget::Native { item, measure: Some(measure), .. } => measure(*item, &request),
+            // Pixels are as large as they say, over their scale; files as
+            // Qt reads them (nothing when missing or unreadable).
+            Widget::Image { source: Some(ImageSource::Pixels(pixels)), .. } => {
+                let natural = pixels.size();
+                Size::new(request.known_width.unwrap_or(natural.width), request.known_height.unwrap_or(natural.height))
+            }
             // Measured by the core.
             Widget::Drawn { .. }
             | Widget::Window { .. }
@@ -1451,6 +1514,11 @@ impl Backend for KirigamiBackend {
             Widget::Spinner(s) => {
                 props.extend(node.a11y_label.clone().map(Prop::Label));
                 props.push(Prop::Running(s.bool("running")));
+            }
+            Widget::Image { source, fit, .. } => {
+                props.extend(node.a11y_label.clone().map(Prop::Label));
+                props.extend(source.clone().map(Prop::Image));
+                props.extend(fit.map(Prop::ImageFit));
             }
             Widget::Select(s) => {
                 props.extend(node.a11y_label.clone().map(Prop::Label));

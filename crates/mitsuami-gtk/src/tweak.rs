@@ -6,7 +6,7 @@ use gtk::prelude::*;
 use mitsuami_core::reactive::{IntoValue, Value};
 use mitsuami_core::{List, Opaque, Tweak};
 use mitsuami_widgets::{
-    Button, Checkbox, NumberInput, PasswordInput, Progress, ScrollView, Select, Slider, Spinner, Switch, Text,
+    Button, Checkbox, Image, NumberInput, PasswordInput, Progress, ScrollView, Select, Slider, Spinner, Switch, Text,
     TextInput,
 };
 
@@ -39,6 +39,10 @@ impl Tweakable for Slider {
 
 impl Tweakable for NumberInput {
     type Native = gtk::SpinButton;
+}
+
+impl Tweakable for Image {
+    type Native = gtk::Picture;
 }
 
 impl Tweakable for Progress {

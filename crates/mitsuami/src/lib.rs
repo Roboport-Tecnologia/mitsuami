@@ -87,15 +87,16 @@ pub mod prelude {
     pub use mitsuami_core::{Action, Resource, Store, action, resource, resource_on, use_store};
     pub use mitsuami_core::{
         Align, ButtonRole, ButtonStyle, Callback, Children, Element, ElementBuilder, FlexDirection, For, GridPlacement,
-        Justify, Length, LengthExt, List, ListHandle, ListStyle, NodeId, Orientation, Point, Role, SelectionMode, Show,
-        Size, Slot, Spacing, TextDirection, TextStyle, Track, Tweak, Ui, View, WindowSize, repeat,
+        ImageFit, ImageSource, Justify, Length, LengthExt, List, ListHandle, ListStyle, NodeId, Orientation, Pixels,
+        Point, Role, SelectionMode, Show, Size, Slot, Spacing, TextDirection, TextStyle, Track, Tweak, Ui, View,
+        WindowSize, repeat,
     };
     pub use mitsuami_reactive::{
         Computed, IntoValue, Owner, Signal, Value, batch, computed, effect, inject, on_cleanup, provide, signal,
         untrack, watch,
     };
     pub use mitsuami_widgets::{
-        Button, Checkbox, Column, Container, Grid, NumberInput, PasswordInput, Progress, Row, ScrollView, Select,
-        Slider, Spinner, Switch, Text, TextInput,
+        Button, Checkbox, Column, Container, Grid, Image, NumberInput, PasswordInput, Progress, Row, ScrollView,
+        Select, Slider, Spinner, Switch, Text, TextInput,
     };
 }

@@ -448,6 +448,33 @@ fn sliders() -> impl View {
     ))
 }
 
+/// A checkerboard of 8-pixel squares, in two colours.
+fn checkerboard(width: u32, height: u32, a: [u8; 4], b: [u8; 4]) -> Pixels {
+    let mut rgba = Vec::with_capacity((width * height * 4) as usize);
+    for y in 0..height {
+        for x in 0..width {
+            rgba.extend_from_slice(if (x / 8 + y / 8).is_multiple_of(2) { &a } else { &b });
+        }
+    }
+    Pixels::new(width, height, rgba)
+}
+
+/// Images at their own size, and fitted to a frame of another shape
+/// (wide, so the difference shows): each platform's drawing, from pixels
+/// and from a file.
+#[mitsuami_test::story(sizes = [(320, fit)])]
+fn images() -> impl View {
+    let board = || checkerboard(48, 48, [40, 90, 200, 255], [240, 240, 240, 255]);
+    let file = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("tests/assets/blue-red-20x10.png");
+    Column::new().padding(16).gap(8).align(Align::Start).children((
+        Row::new().gap(8).children((Image::pixels(board()).label("Pixels"), Image::file(file).label("File"))),
+        Row::new().gap(8).children((
+            Image::pixels(board()).label("Contain").fit(ImageFit::Contain).width(120).height(48),
+            Image::pixels(board()).label("Stretch").fit(ImageFit::Stretch).width(120).height(48),
+        )),
+    ))
+}
+
 /// Spin boxes as each platform draws them: a field and a stepper on
 /// AppKit, buttons inside the field elsewhere. GTK sizes them for their
 /// range's widest number.

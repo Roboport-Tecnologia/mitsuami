@@ -502,14 +502,14 @@ which builds the same tree as `Column::new().gap(…).children((Text::new(…).t
 | Select | NSPopUpButton | ComboBox | gtk::DropDown | QQC2.ComboBox |
 | Progress | NSProgressIndicator (bar) | ProgressBar | gtk::ProgressBar | QQC2.ProgressBar |
 | Spinner | NSProgressIndicator (spinning) | ProgressRing | gtk::Spinner | QQC2.BusyIndicator |
-| Image | NSImageView | Image | gtk::Picture | Kirigami.Icon / Image |
+| Image | NSImageView | Image | gtk::Picture | QML Image |
 | ScrollView | NSScrollView | ScrollViewer | gtk::ScrolledWindow | QQC2.ScrollView |
 | List (virtualised) | NSTableView | ListView | gtk::ListView | ListView |
 
 **What comes next is driven by 2ksbox.** mitsuami was started to replace the Qt Quick launcher of 2ksbox (a Windows 98/XP emulator; `launcher-qt/qml` in that repo). Widgets are added as that launcher needs them, and only widgets every platform has a native control for: what one platform lacks is the app's to build, as a custom widget (§6.3). From the launcher so far:
 
-- Built: `NumberInput` (its `SpinBox`).
-- Next: `Image` (the shader preview), then tooltips (a prop on every widget, not a widget).
+- Built: `NumberInput` (its `SpinBox`), `Image` (its shader preview).
+- Next: tooltips (a prop on every widget, not a widget).
 - Not widgets, still needed: several windows open at once, Escape closing a window (its `Shortcut`s), a toolbar header (a shell component, below).
 - Left to the app: a separator line (WinUI has no separator control outside menus and app bars) and a disclosure header (Qt Quick has none; 2ksbox builds its own from a `ToolButton`).
 
@@ -935,6 +935,19 @@ Things the AppKit backend taught us, some of them now part of the contract:
 - **Not tested: typing keys into one.** `synthesize` has no `NumberInput` path yet on any backend (each would drive the field inside); the suite uses assistive technology's `SetValue`, `Increment` and `Decrement`.
 - **The example's tweaks:** `valueWraps` off on AppKit, `wrap` on GTK and Qt, `Compact` spin buttons on WinUI (`NumberBox` bindings added).
 - **Run on AppKit and headless;** GTK, Kirigami and WinUI are only type-checked, and CI hasn't run them.
+
+### Image
+
+- **A picture from a file or from pixels in memory,** in each platform's image view: `NSImageView`, `gtk::Picture`, XAML's `Image`, a QtQuick `Image` (`Kirigami.Icon` is for themed icons, which is another widget if it ever comes). 2ksbox's shader preview is pixels the app renders, so pixels aren't a detour through a file.
+- **Pixels are straight RGBA8, sRGB, with a scale** (pixels to a point), so an app can render at the window's scale factor and have each pixel shown as one. Each backend makes its own image from them: an `NSBitmapImageRep` retagged sRGB, a `gdk::MemoryTexture`, a `WriteableBitmap` (premultiplied BGRA, converted), and on Qt a `QImage` served by a `QQuickImageProvider` registered as `mitsuami`, Qt's way to give QML images from memory. Every set of pixels gets its own `image://` URL there, and `cache` is off, so QML never shows a stale one. `Pixels` holds an `Arc`, so props clone cheaply, and prints its size, not its bytes.
+- **A file is read when it's set.** AppKit, GTK and Qt (`asynchronous: false`) decode it right away; WinUI decodes in the background, so its `ImageOpened` and `ImageFailed` send the new `UiEvent::Remeasure` and the core measures it again. A file that changes under the same path isn't read again: set other pixels, or another path. A missing or unreadable file shows nothing and measures zero. Headless reads a PNG's size from its header, and gives other files no size.
+- **Its natural size is the image's in points:** pixels over their scale, or the file's size as the platform reads it (AppKit honours a PNG's resolution; the others count pixels).
+- **Only the fits every platform has:** `Contain` and `Stretch`. Aspect fill is missing from `NSImageView`, and "only shrink" from Qt and XAML, so those are tweaks. The fit is sent only if the app picks one, since the defaults differ: AppKit shrinks proportionally but never enlarges, GTK and XAML contain, Qt stretches.
+- **Smoothing isn't shared** (Qt's `smooth` is the only switch), so pixel-sharp scaling is a tweak on Qt; elsewhere, pixels made at the window's scale aren't scaled at all.
+- **An image to assistive technology** (`Role::Image`), named by its label (GTK's `alternative-text`, Qt's `Accessible.Graphic`); without one, decorative. It takes no focus. No platform gives an image's source back, so backends keep it on the node for the mirror check.
+- **`draws_what_it_is_given` checks the pixels on screen:** a capture of the window, blue and red where the fixture has them, so a mirrored or swapped-channel image fails.
+- **The example's tweaks:** a photo frame on AppKit (`imageFrameStyle`), `content-fit` cover on GTK, `smooth` off on Qt, `UniformToFill` on WinUI (`Image`, `Stretch`, `BitmapImage`, `WriteableBitmap`, `Uri` and `IBufferByteAccess` added to the bindings).
+- **Run on AppKit and headless;** GTK, Kirigami and WinUI are only type-checked, and the shim's image provider only compiled against Qt 6 headers on macOS (not linked). Unverified on WinUI: that unpackaged apps load a `BitmapImage` from an absolute `file:///` URI, and paths with spaces or `#`.
 
 ### M2 (GTK 4)
 

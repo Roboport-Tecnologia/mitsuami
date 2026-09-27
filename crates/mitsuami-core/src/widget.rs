@@ -1,6 +1,8 @@
 //! What the core tells backends to create, and the properties they carry.
 
 use std::fmt;
+use std::path::PathBuf;
+use std::sync::Arc;
 
 use crate::any_value::Opaque;
 use crate::custom::CustomProps;
@@ -66,6 +68,10 @@ pub enum WidgetKind {
     /// QQC2.BusyIndicator). It spins while [`Prop::Running`], and shows
     /// nothing otherwise.
     Spinner,
+    /// A native image view (NSImageView, Image, gtk::Picture, QML Image):
+    /// a picture from [`Prop::Image`], at its own size unless the layout
+    /// sizes it, fitted as [`Prop::ImageFit`] says.
+    Image,
     /// A native scroll container. It has exactly one native child, the
     /// content, which the core lays out and may be larger than the viewport.
     ScrollView,
@@ -116,6 +122,7 @@ impl WidgetKind {
             WidgetKind::NumberInput => "NumberInput",
             WidgetKind::Progress => "Progress",
             WidgetKind::Spinner => "Spinner",
+            WidgetKind::Image => "Image",
             WidgetKind::Custom(name) => name,
             WidgetKind::Native => "Native",
         }
@@ -165,6 +172,87 @@ pub enum ButtonStyle {
     /// No bezel or frame until hovered, where the platform does that: for
     /// toolbars, and buttons that sit among text.
     Borderless,
+}
+
+/// What an `Image` shows.
+#[derive(Clone, Debug, PartialEq)]
+pub enum ImageSource {
+    /// An image file, decoded by the platform: PNG and JPEG everywhere,
+    /// other formats where the platform reads them. It's read when the
+    /// source is set; a file that changes under the same path isn't read
+    /// again.
+    File(PathBuf),
+    /// Pixels the app has in memory.
+    Pixels(Pixels),
+}
+
+/// An image in memory: rows of straight (not premultiplied) RGBA8, top
+/// row first, drawn at `scale` pixels to a point, so an image made at the
+/// window's scale factor is shown pixel for pixel.
+#[derive(Clone, PartialEq)]
+pub struct Pixels {
+    width: u32,
+    height: u32,
+    scale: f32,
+    rgba: Arc<[u8]>,
+}
+
+/// Its size and scale, not its bytes.
+impl fmt::Debug for Pixels {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "Pixels({}×{} @{}x)", self.width, self.height, self.scale)
+    }
+}
+
+impl Pixels {
+    /// Panics unless `rgba` holds `width × height` pixels.
+    pub fn new(width: u32, height: u32, rgba: impl Into<Arc<[u8]>>) -> Pixels {
+        let rgba = rgba.into();
+        assert_eq!(rgba.len(), width as usize * height as usize * 4, "{width}×{height} RGBA8 pixels");
+        Pixels { width, height, scale: 1.0, rgba }
+    }
+
+    /// Pixels to a point; 1 by default.
+    pub fn scale(mut self, scale: f32) -> Pixels {
+        assert!(scale > 0.0, "a scale above 0");
+        self.scale = scale;
+        self
+    }
+
+    pub fn width(&self) -> u32 {
+        self.width
+    }
+
+    pub fn height(&self) -> u32 {
+        self.height
+    }
+
+    pub fn scale_factor(&self) -> f32 {
+        self.scale
+    }
+
+    pub fn rgba(&self) -> &[u8] {
+        &self.rgba
+    }
+
+    /// Its size in points.
+    pub fn size(&self) -> crate::Size {
+        crate::Size::new(self.width as f32 / self.scale, self.height as f32 / self.scale)
+    }
+}
+
+/// How an `Image` fills a frame the layout makes a different size from
+/// it. Only the fits every platform's image view has; without one, each
+/// fits as it does by default.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+pub enum ImageFit {
+    /// As large as fits, keeping its proportions (NSImageView
+    /// proportionally up or down, GTK `Contain`, Qt `PreserveAspectFit`,
+    /// XAML `Uniform`).
+    Contain,
+    /// The whole frame, proportions or not (axes independently, `Fill`,
+    /// `Stretch`, `Fill`).
+    Stretch,
 }
 
 /// Which way a `Slider` runs. Every platform has vertical sliders; larger
@@ -247,7 +335,7 @@ pub enum Prop {
     /// ellipsis, as the platform draws one. `None`: all of them.
     MaxLines(Option<u32>),
     /// Caption of a `Button`, `Checkbox` or `Switch`; accessible name of a
-    /// `Switch`, `Select`, `Slider`, `NumberInput` or `Progress`.
+    /// `Switch`, `Select`, `Slider`, `NumberInput`, `Progress` or `Image`.
     Label(String),
     /// Current text of a `TextInput` or `PasswordInput`.
     Value(String),
@@ -284,6 +372,10 @@ pub enum Prop {
     Step(Option<f64>),
     /// Which way a `Slider` runs.
     Orientation(Orientation),
+    /// What an `Image` shows.
+    Image(ImageSource),
+    /// How an `Image` fills its frame; sent only if the app chose.
+    ImageFit(ImageFit),
     /// Whether a `Spinner` spins. Stopped, it shows nothing but keeps its
     /// place.
     Running(bool),
@@ -346,6 +438,7 @@ impl Prop {
                 | Prop::ButtonRole(_)
                 | Prop::ButtonStyle(_)
                 | Prop::Orientation(_)
+                | Prop::Image(_)
                 | Prop::Custom(_)
                 | Prop::Native(_)
                 | Prop::Tweak(_)
@@ -374,4 +467,15 @@ macro_rules! static_value {
     )*};
 }
 
-static_value!(TextStyle, ButtonRole, ButtonStyle, Orientation, ScrollAxes, SelectionMode, ListStyle);
+static_value!(
+    TextStyle,
+    ButtonRole,
+    ButtonStyle,
+    Orientation,
+    ScrollAxes,
+    SelectionMode,
+    ListStyle,
+    ImageSource,
+    Pixels,
+    ImageFit
+);

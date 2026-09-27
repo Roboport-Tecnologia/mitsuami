@@ -5,13 +5,13 @@ use std::rc::Rc;
 use mitsuami_core::reactive::{IntoValue, Value};
 use mitsuami_core::{List, Opaque, Tweak};
 use mitsuami_widgets::{
-    Button, Checkbox, NumberInput, PasswordInput, Progress, ScrollView, Select, Slider, Spinner, Switch, Text,
+    Button, Checkbox, Image, NumberInput, PasswordInput, Progress, ScrollView, Select, Slider, Spinner, Switch, Text,
     TextInput,
 };
 use objc2::DowncastTarget;
 use objc2_app_kit::{
-    NSButton, NSPopUpButton, NSProgressIndicator, NSScrollView, NSSecureTextField, NSSlider, NSSwitch, NSTableView,
-    NSTextField, NSView,
+    NSButton, NSImageView, NSPopUpButton, NSProgressIndicator, NSScrollView, NSSecureTextField, NSSlider, NSSwitch,
+    NSTableView, NSTextField, NSView,
 };
 
 /// A built-in widget, and the AppKit control that shows it.
@@ -41,6 +41,10 @@ impl Tweakable for Slider {
 
 impl Tweakable for NumberInput {
     type Native = crate::NumberField;
+}
+
+impl Tweakable for Image {
+    type Native = NSImageView;
 }
 
 impl Tweakable for Progress {

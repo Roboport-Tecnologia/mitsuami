@@ -4,8 +4,9 @@
 use std::rc::Rc;
 
 use mitsuami_core::{
-    Align, ButtonRole, ButtonStyle, Children, Display, Element, ElementBuilder, EventValue, FlexDirection, Justify,
-    Length, NodeId, Orientation, Point, Prop, ScrollAxes, TextStyle, Track, Tweak, Ui, UiEvent, View, WidgetKind,
+    Align, ButtonRole, ButtonStyle, Children, Display, Element, ElementBuilder, EventValue, FlexDirection, ImageFit,
+    ImageSource, Justify, Length, NodeId, Orientation, Pixels, Point, Prop, ScrollAxes, TextStyle, Track, Tweak, Ui,
+    UiEvent, View, WidgetKind,
 };
 use mitsuami_reactive::{IntoValue, Signal, Value};
 
@@ -901,6 +902,60 @@ impl Progress {
     }
 }
 
+/// A picture, in the platform's image view: from a file, or from pixels
+/// in memory. It's as large as the image (in points: pixels over their
+/// scale) unless the layout sizes it; then `fit` says how it fills the
+/// frame, or the platform does as it does by default. Its label is its
+/// accessible name; without one it's decorative.
+///
+/// ```ignore
+/// Image::file("logo.png").label("2ksbox")
+/// Image::new(move || ImageSource::Pixels(frame.get())).label("Preview")
+/// ```
+pub struct Image(Element);
+
+widget!(Image);
+
+impl Image {
+    pub fn new(source: impl IntoValue<ImageSource>) -> Image {
+        let mut element = Element::new(WidgetKind::Image);
+        element.prop(source.into_value(), Prop::Image);
+        Image(element)
+    }
+
+    /// An image file, read by the platform.
+    pub fn file(path: impl Into<std::path::PathBuf>) -> Image {
+        Image::new(ImageSource::File(path.into()))
+    }
+
+    /// Pixels in memory.
+    pub fn pixels(pixels: impl IntoValue<Pixels>) -> Image {
+        let pixels = pixels.into_value();
+        Image::new(match pixels {
+            Value::Static(p) => Value::Static(ImageSource::Pixels(p)),
+            dynamic => Value::Dynamic(Rc::new(move || ImageSource::Pixels(dynamic.get()))),
+        })
+    }
+
+    /// Its accessible name: what the picture shows.
+    pub fn label(mut self, label: impl IntoValue<String>) -> Image {
+        self.0.prop(label.into_value(), Prop::Label);
+        self
+    }
+
+    /// How it fills a frame of another size than its own.
+    pub fn fit(mut self, fit: impl IntoValue<ImageFit>) -> Image {
+        self.0.prop(fit.into_value(), Prop::ImageFit);
+        self
+    }
+
+    /// Raw platform settings, past the semantic ones: see [`Tweak`].
+    pub fn native(mut self, tweak: Tweak<Image>) -> Image {
+        tweak.apply(&mut self.0);
+        self
+    }
+}
+
 /// A spinner, as the platform draws one, for work of unknown length: a
 /// spinning `NSProgressIndicator`, `gtk::Spinner`, `ProgressRing`,
 /// `QQC2.BusyIndicator`. It spins while running (from the start, unless
@@ -1057,6 +1112,20 @@ impl Slider {
             range: Value::Static((0.0, 100.0)),
             value: Value::Static(0.0),
         }
+    }
+}
+
+impl Image {
+    /// `<Image source=ImageSource::File("logo.png".into()) label="Logo"/>`
+    #[doc(hidden)]
+    pub fn __tag() -> Image {
+        Image(Element::new(WidgetKind::Image))
+    }
+
+    #[doc(hidden)]
+    pub fn source(mut self, source: impl IntoValue<ImageSource>) -> Image {
+        self.0.prop(source.into_value(), Prop::Image);
+        self
     }
 }
 

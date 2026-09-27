@@ -85,6 +85,9 @@ unsafe extern "C" {
         scale: *mut f64,
     ) -> i32;
     fn mq_free_pixels(rgba: *mut u8);
+    fn mq_pixels_set(key: u64, rgba: *const u8, width: i32, height: i32);
+    fn mq_pixels_remove(key: u64);
+    fn mq_set_url_str(o: Raw, name: *const c_char, url: *const c_char);
 
     fn mq_clipboard_text() -> *mut c_char;
     fn mq_set_clipboard_text(text: *const c_char);
@@ -373,6 +376,11 @@ impl QmlObject {
         unsafe { mq_set_url(self.raw(), c(name).as_ptr(), c(&path.to_string_lossy()).as_ptr()) }
     }
 
+    /// Sets a url property from a url, not a path.
+    pub(crate) fn set_url_str(self, name: &str, url: &str) {
+        unsafe { mq_set_url_str(self.raw(), c(name).as_ptr(), c(url).as_ptr()) }
+    }
+
     /// A `url` or `list<url>` property as local paths.
     pub(crate) fn paths(self, name: &str) -> Vec<std::path::PathBuf> {
         let joined = owned(unsafe { mq_get_paths(self.raw(), c(name).as_ptr()) });
@@ -515,4 +523,39 @@ pub(crate) fn js_string(s: &str) -> String {
     }
     out.push('"');
     out
+}
+
+// ---------------------------------------------------------------- pixels
+
+thread_local! {
+    static NEXT_PIXELS: Cell<u64> = const { Cell::new(1) };
+}
+
+/// Pixels handed to QML's image provider, shown by an `Image` whose source
+/// is [`url`](Self::url). Each is stored under a key of its own, so a new
+/// one is a new url, which QML loads afresh. Dropped with the handle.
+pub(crate) struct ProvidedPixels {
+    key: u64,
+}
+
+impl ProvidedPixels {
+    pub(crate) fn new(pixels: &mitsuami_core::Pixels) -> ProvidedPixels {
+        let key = NEXT_PIXELS.with(|k| k.replace(k.get() + 1));
+        let (width, height) = (pixels.width() as i32, pixels.height() as i32);
+        unsafe { mq_pixels_set(key, pixels.rgba().as_ptr(), width, height) };
+        ProvidedPixels { key }
+    }
+
+    pub(crate) fn url(&self) -> String {
+        format!("image://mitsuami/{}", self.key)
+    }
+}
+
+impl Drop for ProvidedPixels {
+    fn drop(&mut self) {
+        // Qt is gone at exit.
+        if !is_exiting() {
+            unsafe { mq_pixels_remove(self.key) }
+        }
+    }
 }

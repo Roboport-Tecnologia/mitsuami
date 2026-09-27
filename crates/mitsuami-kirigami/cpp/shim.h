@@ -123,6 +123,12 @@ int32_t mq_grab(QObject* window, double x, double y, double w, double h, uint8_t
                 int32_t* height, double* scale);
 void mq_free_pixels(uint8_t* rgba);
 
+// Images from memory: `image://mitsuami/<key>` shows the pixels stored
+// under the key (straight RGBA8, copied in).
+void mq_pixels_set(uint64_t key, const uint8_t* rgba, int32_t width, int32_t height);
+void mq_pixels_remove(uint64_t key);
+void mq_set_url_str(QObject* object, const char* name, const char* url);
+
 // Clipboard.
 char* mq_clipboard_text(void);
 void mq_set_clipboard_text(const char* text);

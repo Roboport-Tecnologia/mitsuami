@@ -13,8 +13,9 @@ use mitsuami_core::backend::{
 use mitsuami_core::services::{MenuBarData, MenuEntry, Reply};
 use mitsuami_core::units::SpacingScale;
 use mitsuami_core::{
-    AnyValue, ButtonRole, ButtonStyle, Command, CustomProps, EventValue, NodeId, Opaque, Orientation, Point, Prop,
-    Rect, RowKey, ScrollAxes, SelectionMode, Size, TextStyle, UiEvent, WidgetKind, find_prop,
+    AnyValue, ButtonRole, ButtonStyle, Command, CustomProps, EventValue, ImageFit, ImageSource, NodeId, Opaque,
+    Orientation, Pixels, Point, Prop, Rect, RowKey, ScrollAxes, SelectionMode, Size, TextStyle, UiEvent, WidgetKind,
+    find_prop,
 };
 use windows_core::{EventRevoker, HSTRING, IInspectable, IUnknown, Interface};
 
@@ -159,6 +160,17 @@ enum Widget {
     },
     Progress(w::ProgressBar),
     Spinner(w::ProgressRing),
+    /// An image view, and what it was given: XAML can't give back a
+    /// source's path or pixels, or say whether a fit was chosen.
+    Image {
+        image: w::Image,
+        source: Option<ImageSource>,
+        fit: Option<ImageFit>,
+        /// Files: the bitmap XAML decodes in the background, and whether
+        /// decoding failed.
+        bitmap: Option<w::BitmapImage>,
+        failed: Rc<Cell<bool>>,
+    },
     Scroll(w::ScrollViewer),
     List(crate::list::List),
     /// A custom widget with a native render, and the props it shows.
@@ -1095,6 +1107,26 @@ impl State {
                 let element = ring.cast()?;
                 (Widget::Spinner(ring), element)
             }
+            // XAML decodes files in the background: once it has, the image
+            // has a size, and the core measures it again. A file it can't
+            // read shows nothing.
+            WidgetKind::Image => {
+                let image = w::Image::new()?;
+                let failed = Rc::new(Cell::new(false));
+                revokers.push(image.ImageOpened({
+                    let emitter = emitter.clone();
+                    move |_, _| emitter.emit(id, UiEvent::Remeasure)
+                })?);
+                revokers.push(image.ImageFailed({
+                    let (emitter, failed) = (emitter.clone(), failed.clone());
+                    move |_, _| {
+                        failed.set(true);
+                        emitter.emit(id, UiEvent::Remeasure);
+                    }
+                })?);
+                let element = image.cast()?;
+                (Widget::Image { image, source: None, fit: None, bitmap: None, failed }, element)
+            }
             WidgetKind::TextInput => {
                 let field = w::TextBox::new()?;
                 let iface: w::ITextBox = field.cast()?;
@@ -1216,6 +1248,28 @@ impl State {
             (Prop::Custom(new), Widget::Drawn { props, .. }) => *props = new.clone(),
             (Prop::Drawing(drawing), Widget::Drawn { view, .. }) => view.set_drawing(drawing)?,
             (Prop::Step(new), Widget::Slider { step, .. } | Widget::Number { step, .. }) => *step = *new,
+            (Prop::Image(new), Widget::Image { image, source, bitmap, failed, .. }) => {
+                failed.set(false);
+                *bitmap = None;
+                match new {
+                    ImageSource::Pixels(pixels) => {
+                        image.SetSource(&writeable_bitmap(pixels)?.cast::<w::ImageSource>()?)?
+                    }
+                    ImageSource::File(path) => {
+                        let decoded = w::BitmapImage::CreateInstanceWithUriSource(&file_uri(path)?)?;
+                        image.SetSource(&decoded.cast::<w::ImageSource>()?)?;
+                        *bitmap = Some(decoded);
+                    }
+                }
+                *source = Some(new.clone());
+            }
+            (Prop::ImageFit(new), Widget::Image { image, fit, .. }) => {
+                image.SetStretch(match new {
+                    ImageFit::Contain => w::Stretch::Uniform,
+                    ImageFit::Stretch => w::Stretch::Fill,
+                })?;
+                *fit = Some(*new);
+            }
             (Prop::Native(opaque), Widget::Native { last, .. }) => {
                 // The creating payload was applied on creation.
                 if opaque != last
@@ -1256,7 +1310,8 @@ impl State {
                 | Widget::Slider { .. }
                 | Widget::Number { .. }
                 | Widget::Progress(_)
-                | Widget::Spinner(_),
+                | Widget::Spinner(_)
+                | Widget::Image { .. },
             ) => {
                 w::AutomationProperties::SetName(&node.element, t)?;
                 node.a11y_label = Some(t.clone());
@@ -1917,6 +1972,18 @@ impl Backend for WinUiBackend {
             | Widget::Number { .. }
             | Widget::Progress(_)
             | Widget::Spinner(_) => ceil(measure_element(&node.element, infinite)),
+            // Pixels over their scale. A file at its pixel count in
+            // effective pixels, as XAML shows it; nothing until it's
+            // decoded, or if it can't be.
+            Widget::Image { source: Some(ImageSource::Pixels(pixels)), .. } => pixels.size(),
+            Widget::Image { bitmap: Some(bitmap), failed, .. } if !failed.get() => {
+                let bitmap: w::IBitmapSource = ok(bitmap.cast(), "cast to BitmapSource");
+                Size::new(
+                    bitmap.PixelWidth().unwrap_or(0).max(0) as f32,
+                    bitmap.PixelHeight().unwrap_or(0).max(0) as f32,
+                )
+            }
+            Widget::Image { .. } => Size::ZERO,
             Widget::Custom { render, props } => render
                 .measure(node.control(), props.props(), &request)
                 .unwrap_or_else(|| ceil(measure_element(&node.element, infinite))),
@@ -2349,6 +2416,14 @@ impl Backend for WinUiBackend {
                 }
                 props.push(Prop::Running(ring.cast::<w::IProgressRing>().ok()?.IsActive().ok()?));
             }
+            Widget::Image { source, fit, .. } => {
+                let name = w::AutomationProperties::GetName(&node.element).unwrap_or_default();
+                if !name.is_empty() {
+                    props.push(Prop::Label(name));
+                }
+                props.extend(source.clone().map(Prop::Image));
+                props.extend(fit.map(Prop::ImageFit));
+            }
             Widget::Select(combo) => {
                 let name = w::AutomationProperties::GetName(&node.element).unwrap_or_default();
                 if !name.is_empty() {
@@ -2486,4 +2561,27 @@ impl WinUiBackend {
             window = node.parent;
         }
     }
+}
+
+/// A bitmap of the pixels, as XAML takes them: premultiplied BGRA.
+fn writeable_bitmap(pixels: &Pixels) -> R<w::WriteableBitmap> {
+    let bitmap = w::WriteableBitmap::CreateInstanceWithDimensions(pixels.width() as i32, pixels.height() as i32)?;
+    let buffer = bitmap.PixelBuffer()?;
+    let length = buffer.Length()? as usize;
+    let access: w::IBufferByteAccess = buffer.cast()?;
+    // SAFETY: the buffer holds `length` bytes and outlives the slice.
+    let bytes = unsafe { std::slice::from_raw_parts_mut(access.Buffer()?, length) };
+    let premultiply = |c: u8, a: u8| ((c as u16 * a as u16 + 127) / 255) as u8;
+    for (to, from) in bytes.chunks_exact_mut(4).zip(pixels.rgba().chunks_exact(4)) {
+        let [r, g, b, a] = [from[0], from[1], from[2], from[3]];
+        to.copy_from_slice(&[premultiply(b, a), premultiply(g, a), premultiply(r, a), a]);
+    }
+    bitmap.Invalidate()?;
+    Ok(bitmap)
+}
+
+/// A `file:///` URI for a path, made absolute.
+fn file_uri(path: &std::path::Path) -> R<w::Uri> {
+    let path = std::path::absolute(path).unwrap_or_else(|_| path.to_path_buf());
+    w::Uri::CreateUri(&format!("file:///{}", path.display().to_string().replace('\\', "/")))
 }

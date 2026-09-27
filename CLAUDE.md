@@ -103,7 +103,15 @@ MITSUAMI_SKIP_QT=1 DOCS_RS=1 CARGO_TARGET_DIR=target/linux-check cargo clippy \
 ```
 
 Needs the `x86_64-pc-windows-msvc` and `x86_64-unknown-linux-gnu` rustup
-targets. Say in `docs/ARCHITECTURE.md` when code was only type-checked.
+targets. `MITSUAMI_SKIP_QT=1` skips Kirigami's C++ shim; compile it (no
+linking) against Homebrew's Qt 6 (`brew install qt`):
+
+```sh
+cd crates/mitsuami-kirigami && Q=/opt/homebrew/lib && clang++ -std=c++17 -fsyntax-only \
+  -Icpp -F$Q -I/opt/homebrew/include $(for f in QtCore QtGui QtQml QtQuick \
+  QtQuickControls2 QtWidgets QtQmlIntegration; do echo -I$Q/$f.framework/Headers; done) cpp/shim.cpp
+```
+ Say in `docs/ARCHITECTURE.md` when code was only type-checked.
 
 WinUI bindings are generated: add types and members to
 `crates/mitsuami-winui/bindgen/filter.txt`, then

@@ -20,8 +20,8 @@ use mitsuami_core::backend::{
 };
 use mitsuami_core::units::SpacingScale;
 use mitsuami_core::{
-    Command, EventValue, NodeId, Orientation, Point, PointerEvent, PointerKind, Prop, Rect, RowKey, SelectionMode,
-    Size, TextStyle, UiEvent, WidgetKind, find_prop,
+    Command, EventValue, ImageSource, NodeId, Orientation, Point, PointerEvent, PointerKind, Prop, Rect, RowKey,
+    SelectionMode, Size, TextStyle, UiEvent, WidgetKind, find_prop,
 };
 
 /// Fixed metrics: 16px body text, 4/8/12/16/24 spacing, scale factor 1.
@@ -556,6 +556,13 @@ impl Backend for HeadlessBackend {
             WidgetKind::NumberInput => Size::new(96.0, line + 8.0),
             WidgetKind::Progress => Size::new(160.0, 8.0),
             WidgetKind::Spinner => Size::new(16.0, 16.0),
+            // Pixels over their scale; a PNG file by its header. Anything
+            // else is a file the headless backend can't read: no size.
+            WidgetKind::Image => match find_prop!(node.props, Image) {
+                Some(ImageSource::Pixels(pixels)) => pixels.size(),
+                Some(ImageSource::File(path)) => png_size(&path).unwrap_or(Size::ZERO),
+                None => Size::ZERO,
+            },
             // Sized for its chosen option, with room for the arrow.
             WidgetKind::Select => {
                 let options = find_prop!(node.props, Options).unwrap_or_default();
@@ -853,4 +860,16 @@ fn text_size(text: &str, font: f32, wrap_width: Option<f32>, max_lines: Option<u
     }
     let widest = lines.iter().copied().max().unwrap_or(0);
     Size::new(widest as f32 * char_width, lines.len().max(1) as f32 * line_height)
+}
+
+/// A PNG's size, from its header (the IHDR chunk comes first).
+fn png_size(path: &std::path::Path) -> Option<Size> {
+    use std::io::Read;
+    let mut header = [0u8; 24];
+    std::fs::File::open(path).ok()?.read_exact(&mut header).ok()?;
+    if header[..8] != *b"\x89PNG\r\n\x1a\n" || header[12..16] != *b"IHDR" {
+        return None;
+    }
+    let number = |at: usize| u32::from_be_bytes(header[at..at + 4].try_into().unwrap()) as f32;
+    Some(Size::new(number(16), number(20)))
 }
