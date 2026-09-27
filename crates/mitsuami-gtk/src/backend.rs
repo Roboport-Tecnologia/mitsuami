@@ -1103,12 +1103,13 @@ impl State {
             // for its children without one of their own.
             (Prop::ContextMenu(entries), widget) => {
                 let events = self.events.clone();
+                let focus = widget.focus_widget();
                 node.context_menu
                     .get_or_insert_with(|| {
                         let activate = move |item| events.emit(id, UiEvent::ContextMenuItem(item));
-                        ContextMenu::new(&widget.focus_widget(), Rc::new(activate))
+                        ContextMenu::new(&focus, Rc::new(activate))
                     })
-                    .set(entries);
+                    .set(&focus, entries);
             }
             (Prop::Rows(rows), Widget::List(list)) => list.set_rows(rows.clone()),
             (Prop::SelectionMode(mode), Widget::List(list)) => list.set_mode(*mode),

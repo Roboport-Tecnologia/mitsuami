@@ -381,7 +381,7 @@ impl ContextMenu {
 
     /// Takes the app's entries: states in place when only they changed,
     /// otherwise the model and actions filled again.
-    pub(crate) fn set(&mut self, entries: &[MenuEntry]) {
+    pub(crate) fn set(&mut self, widget: &gtk::Widget, entries: &[MenuEntry]) {
         let bar = |entries: &[MenuEntry]| MenuBarData {
             menus: vec![MenuData { title: String::new(), entries: entries.to_vec() }],
         };
@@ -400,12 +400,32 @@ impl ContextMenu {
                 activate: self.activate.clone(),
             };
             let sections = builder.sections(entries);
+            // Refilled in place, a shown popover adds the new submenus'
+            // pages before the old ones go, and GTK warns about their
+            // names. Given the model again, it starts over.
+            self.show_model(widget, None);
             self.model.remove_all();
             for section in &sections {
                 self.model.append_section(None, section);
             }
+            self.show_model(widget, Some(&self.model));
         }
         self.data = entries.to_vec();
+    }
+
+    /// Gives the model to what shows it: the popover, if it's there, or
+    /// the text widget's own menu.
+    fn show_model(&self, widget: &gtk::Widget, model: Option<&gio::Menu>) {
+        match text_widget(widget) {
+            Some(TextWidget::Entry(entry)) => entry.set_extra_menu(model),
+            Some(TextWidget::Password(entry)) => entry.set_extra_menu(model),
+            Some(TextWidget::Text(text)) => text.set_extra_menu(model),
+            None => {
+                if let Some(popover) = &*self.popover.borrow() {
+                    popover.set_menu_model(model);
+                }
+            }
+        }
     }
 
     /// The popover goes before the widget: GTK wants a widget's children
