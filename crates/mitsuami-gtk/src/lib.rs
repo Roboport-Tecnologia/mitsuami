@@ -39,7 +39,7 @@ pub use custom::{Emitter, GtkCx, NativeRender, NativeView, ad_hoc, native};
 #[cfg(target_os = "linux")]
 pub use services::GtkServices;
 #[cfg(target_os = "linux")]
-pub use tweak::{Tweakable, tweak, tweak_with};
+pub use tweak::{Tweakable, show_step_marks, tweak, tweak_with};
 
 // The bindings native renders and native views are written with, at the
 // version the backend uses.

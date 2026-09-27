@@ -1,8 +1,9 @@
 //! `Slider`: a number in a range, as the platform's slider shows it. It
 //! reports the user's moves, follows reactive values and ranges, and reads
 //! as a slider named by its label whose value is its number. How far a step
-//! moves it, and whether it snaps, is the platform's: tests only check that
-//! it moves the right way.
+//! moves it is the platform's: tests only check that it moves the right way.
+//! Whether it snaps to the step is the platform's too, except on GTK, which
+//! has no stepped scale.
 
 use std::cell::RefCell;
 use std::rc::Rc;
@@ -59,6 +60,27 @@ async fn reports_where_the_user_moves_it(app: TestApp) {
     let down = number(&app, by_role(Role::Slider, "Volume"));
     assert!(down < 80.0, "decrementing moved it to {down}");
     assert_eq!(seen.borrow().last(), Some(&down));
+}
+
+// GTK has no stepped scale, so mitsuami snaps its drags to the step; WinUI
+// snaps to its `StepFrequency`. Elsewhere it's the platform's: AppKit's knob
+// stops on tick marks while tracking, and Qt only snaps when asked.
+#[mitsuami_test::test]
+async fn stops_on_its_steps_where_the_platform_snaps(app: TestApp) {
+    let seen = Rc::new(RefCell::new(Vec::new()));
+    let log = seen.clone();
+    app.mount(move || {
+        Slider::new("Volume").range(0.0, 100.0).step(10.0).value(50.0).on_change(move |v| log.borrow_mut().push(v))
+    });
+
+    app.get_by_role(Role::Slider, "Volume").set_number(83.0).await;
+    let moved = number(&app, by_role(Role::Slider, "Volume"));
+    if matches!(app.backend_name(), "gtk" | "winui") {
+        assert_eq!(moved, 80.0);
+    } else {
+        assert!(moved == 80.0 || moved == 83.0, "moved to {moved}");
+    }
+    assert_eq!(seen.borrow().last(), Some(&moved));
 }
 
 #[mitsuami_test::test]
@@ -188,6 +210,41 @@ async fn a_tweak_runs_on_the_native_slider_after_its_props(app: TestApp) {
     volume.set(70.0);
     app.settle().await;
     assert_eq!(log.borrow().last(), Some(&70.0));
+}
+
+/// GTK draws a mark at each step, which makes the scale taller; a tweak
+/// turns them off, and back on. The other platforms' tick marks are theirs.
+#[mitsuami_test::test]
+async fn gtk_marks_its_steps_unless_told_not_to(app: TestApp) {
+    if app.backend_name() != "gtk" {
+        return;
+    }
+    let marks = signal(true);
+    app.mount(move || {
+        Column::new().children((
+            Slider::new("Plain").range(0.0, 10.0),
+            Slider::new("Stepped").range(0.0, 10.0).step(1.0).native(step_marks(marks)),
+        ))
+    });
+    let height = |name: &str| app.get(by_role(Role::Slider, name)).frame().height();
+
+    assert!(height("Stepped") > height("Plain"), "no marks: {} tall", height("Stepped"));
+    marks.set(false);
+    app.settle().await;
+    assert_eq!(height("Stepped"), height("Plain"));
+    marks.set(true);
+    app.settle().await;
+    assert!(height("Stepped") > height("Plain"));
+}
+
+fn step_marks(on: Signal<bool>) -> Tweak<Slider> {
+    platform! {
+        gtk => mitsuami::gtk::tweak_with(on, |s: &mitsuami::gtk::gtk::Scale, on| mitsuami::gtk::show_step_marks(s, *on)),
+        _ => {
+            let _ = on;
+            Tweak::none()
+        }
+    }
 }
 
 mitsuami_test::main!();

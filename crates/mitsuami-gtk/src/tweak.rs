@@ -7,6 +7,8 @@ use mitsuami_core::reactive::{IntoValue, Value};
 use mitsuami_core::{Opaque, Tweak};
 use mitsuami_widgets::{Button, Checkbox, Progress, Select, Slider, Spinner, Switch};
 
+use crate::backend::{STEPS, Steps, update_marks};
+
 /// A built-in widget, and the GTK widget that shows it.
 pub trait Tweakable {
     type Native: IsA<gtk::Widget>;
@@ -38,6 +40,20 @@ impl Tweakable for Progress {
 
 impl Tweakable for Spinner {
     type Native = gtk::Spinner;
+}
+
+/// Whether a slider's scale shows a mark at each step; it does by default,
+/// up to 50 of them. For a tweak:
+/// `gtk::tweak(|s: &gtk::Scale| gtk::show_step_marks(s, false))`.
+pub fn show_step_marks(scale: &gtk::Scale, show: bool) {
+    // SAFETY: the backend only ever keeps an `Rc<Steps>` under this key.
+    let Some(steps) = (unsafe { scale.data::<Rc<Steps>>(STEPS) }) else { return };
+    // SAFETY: the scale owns it, and it's only read here.
+    let steps = unsafe { steps.as_ref() }.clone();
+    // Tweaks run after every prop: only redraw when it changes.
+    if steps.marks.replace(show) != show {
+        update_marks(scale, &steps);
+    }
 }
 
 /// Settings as the backend runs them, on the node's widget.

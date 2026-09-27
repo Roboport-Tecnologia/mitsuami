@@ -13,6 +13,10 @@ bends to each platform's native controls, never the other way around:
 - Tests assert what every platform does (relative sizes, directions, events),
   not one uniform number. Where platforms differ, say so in a comment and in
   `docs/ARCHITECTURE.md`.
+- A backend may fill in a behaviour its platform lacks when the other
+  platforms share it and the platform's own apps build it the same way,
+  e.g. GTK scales snap to their step in `change-value`. Say so in
+  `docs/ARCHITECTURE.md`.
 - The core enforces a rule only when a platform makes the alternative
   impossible, e.g. a `Select` always has an option chosen because GTK's
   drop-down can't show none.

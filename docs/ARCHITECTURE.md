@@ -800,7 +800,7 @@ Things the AppKit backend taught us, some of them now part of the contract:
 
 ### Slider and Progress
 
-- **A step means what the platform's step means.** AppKit's is tick marks that the knob only stops at (`allowsTickMarkValuesOnly`); WinUI snaps to `StepFrequency` and steps by `SmallChange`; GTK's scales and Qt's sliders only move by it from the keyboard (GTK doesn't snap, and Qt leaves `snapMode` off unless asked). Without a step each keeps its default: WinUI's is 1, which it snaps to, and Qt's `increase()` moves by 0.1. GTK needs one to move at all, so it gets a tenth of the range. Tests only check which way a step moves.
+- **A step means what the platform's step means.** AppKit's is tick marks that the knob only stops at (`allowsTickMarkValuesOnly`); WinUI snaps to `StepFrequency` and steps by `SmallChange`; Qt's sliders only move by it from the keyboard (`snapMode` stays off unless asked). GTK's scales have no stepped mode at all, so the backend snaps the user's moves to the step in `change-value` (see below). Without a step each keeps its default: WinUI's is 1, which it snaps to, and Qt's `increase()` moves by 0.1. GTK needs one to move at all, so it gets a tenth of the range. Tests only check which way a step moves.
 - **The value follows the range.** The platforms clamp the value to the range, so a range sent after the value would lose it: the core queues the value again after every range change.
 - **Sliders and progress bars have no natural width on AppKit** (no intrinsic width): they're as wide as the layout makes them, stretched in a column. The others measure theirs.
 - **Indeterminate progress animates as the platform animates it:** `NSProgressIndicator` and XAML's and Qt's bars on their own, GTK's by `pulse()` calls, which a 100 ms timer makes while the bar is indeterminate, as GTK apps do.
@@ -846,6 +846,13 @@ Things the AppKit backend taught us, some of them now part of the contract:
 - **Length comes from the layout.** A vertical slider is as tall as its container makes it (AppKit's have no natural height, as its horizontal ones have no natural width); headless measures one 20 × 160.
 - **The example's tweaks:** a circular slider on AppKit (captured, sized at its natural size), `draw-value` on GTK, `snapMode` on Qt, tick marks on WinUI (`TickFrequency`, `TickPlacement` added to the bindings).
 - **Run on AppKit only:** GTK, Kirigami and WinUI are only type-checked, and CI hasn't run them.
+
+### Slider: steps on GTK
+
+- **A fair exception to "native always wins".** GTK's `gtk::Scale` has no stepped mode: the step is only a keyboard increment, and marks pull the knob in only within a few pixels. AppKit and WinUI stop on steps, so without this a `step(10.0)` slider on GTK reports whatever value the drag ends on. Where a platform lacks a behaviour the others share, and its apps build it themselves (GTK apps round in `change-value`), the backend does it the same way.
+- **Only the user's moves snap.** `change-value` carries drags, clicks, scrolls and keys; values the app sets pass through as given. `SetValue` emits `change-value` too, as a drag would, so it snaps.
+- **A mark at each step, by default,** as AppKit draws tick marks for a step: `gtk::Scale::add_mark` below (or beside) the trough, redrawn when the step or range changes. Past 50 steps they'd run together, so there are none. `mitsuami::gtk::show_step_marks(scale, false)` in a tweak turns them off; since tweaks run after every prop, the setting lives on the scale (its `Steps`, kept as object data) and marks are only redrawn when it changes. Marks make the scale taller, which it measures itself, and Adwaita draws the knob as a pin pointing at them rather than a circle (`slider-horz-scale-has-marks-below.png`), as in any GTK app with marks.
+- **Run on GTK and headless;** `stops_on_its_steps_where_the_platform_snaps` expects 80 for a move to 83 on GTK and WinUI (WinUI only type-checked); `gtk_marks_its_steps_unless_told_not_to` checks the marks by the scale's height, on GTK only.
 
 ### Progress: tweaks only
 

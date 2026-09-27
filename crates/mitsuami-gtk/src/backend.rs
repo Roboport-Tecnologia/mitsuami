@@ -58,10 +58,11 @@ enum Widget {
         dropdown: gtk::DropDown,
         options: gtk::StringList,
     },
-    /// A scale, and the step it was given (GTK needs one to move by).
+    /// A scale, and its step and marks, also kept on the scale for
+    /// [`crate::show_step_marks`].
     Slider {
         scale: gtk::Scale,
-        step: Option<f64>,
+        steps: Rc<Steps>,
     },
     /// A progress bar, and whether it pulses: GTK shows work of unknown
     /// length by `pulse()` calls, which a timer makes while it's set.
@@ -624,7 +625,20 @@ impl State {
             WidgetKind::Slider => {
                 let scale = gtk::Scale::new(gtk::Orientation::Horizontal, None::<&gtk::Adjustment>);
                 scale.connect_value_changed(move |s| events.emit(id, UiEvent::Changed(EventValue::Number(s.value()))));
-                Widget::Slider { scale, step: None }
+                let steps = Rc::new(Steps { step: Cell::new(None), marks: Cell::new(true) });
+                // SAFETY: the key only ever holds an `Rc<Steps>`.
+                unsafe { scale.set_data(STEPS, steps.clone()) };
+                // GTK's scales have no stepped mode: with a step, the user's
+                // moves stop only on steps, as on AppKit and WinUI.
+                let s = steps.clone();
+                scale.connect_change_value(move |scale, _, value| match s.step.get() {
+                    Some(step) if step > 0.0 => {
+                        scale.set_value(snap(&scale.adjustment(), value, step));
+                        glib::Propagation::Stop
+                    }
+                    _ => glib::Propagation::Proceed,
+                });
+                Widget::Slider { scale, steps }
             }
             WidgetKind::Progress => Widget::Progress { bar: gtk::ProgressBar::new(), pulsing: Rc::default() },
             WidgetKind::Spinner => Widget::Spinner(gtk::Spinner::new()),
@@ -772,13 +786,15 @@ impl State {
                 scale.update_property(&[gtk::accessible::Property::Label(t)]);
                 node.a11y_label = Some(t.clone());
             }
-            (Prop::Range { min, max }, Widget::Slider { scale, step }) => {
+            (Prop::Range { min, max }, Widget::Slider { scale, steps }) => {
                 scale.set_range(*min, *max);
-                set_increments(scale, *step);
+                set_increments(scale, steps.step.get());
+                update_marks(scale, steps);
             }
-            (Prop::Step(new), Widget::Slider { scale, step }) => {
-                *step = *new;
+            (Prop::Step(new), Widget::Slider { scale, steps }) => {
+                steps.step.set(*new);
                 set_increments(scale, *new);
+                update_marks(scale, steps);
             }
             (Prop::Number(n), Widget::Slider { scale, .. }) => scale.set_value(*n),
             (Prop::Orientation(o), Widget::Slider { scale, .. }) => {
@@ -1084,13 +1100,47 @@ impl State {
     }
 }
 
-/// GTK's scales move by their step from the keyboard and snap to nothing.
-/// Without a step they need one anyway: a tenth of the range, with pages
-/// of ten steps as `gtk::Scale::with_range` makes them.
+/// GTK's scales move by their step from the keyboard. Without a step they
+/// need one anyway: a tenth of the range, with pages of ten steps as
+/// `gtk::Scale::with_range` makes them.
 fn set_increments(scale: &gtk::Scale, step: Option<f64>) {
     let adjustment = scale.adjustment();
     let step = step.unwrap_or((adjustment.upper() - adjustment.lower()) / 10.0);
     scale.set_increments(step, step * 10.0);
+}
+
+/// A slider's step, and whether a mark shows at each one.
+pub(crate) struct Steps {
+    step: Cell<Option<f64>>,
+    pub(crate) marks: Cell<bool>,
+}
+
+/// Where a scale keeps its [`Steps`].
+pub(crate) const STEPS: &str = "mitsuami-steps";
+
+/// Past this many steps, marks run together into a bar.
+const MOST_MARKS: f64 = 50.0;
+
+/// A mark at every step, as AppKit draws its tick marks, unless the app
+/// turned them off or there are too many to tell apart.
+pub(crate) fn update_marks(scale: &gtk::Scale, steps: &Steps) {
+    scale.clear_marks();
+    let Some(step) = steps.step.get().filter(|s| *s > 0.0 && steps.marks.get()) else { return };
+    let adjustment = scale.adjustment();
+    let (min, max) = (adjustment.lower(), adjustment.upper());
+    let count = ((max - min) / step + 1e-9).floor();
+    if count > MOST_MARKS {
+        return;
+    }
+    for i in 0..=count as u32 {
+        scale.add_mark(min + i as f64 * step, gtk::PositionType::Bottom, None);
+    }
+}
+
+/// The step nearest `value`, counting from the minimum, within the range.
+fn snap(adjustment: &gtk::Adjustment, value: f64, step: f64) -> f64 {
+    let min = adjustment.lower();
+    (min + ((value - min) / step).round() * step).clamp(min, adjustment.upper())
 }
 
 /// A select's options, as it shows them.
@@ -1248,9 +1298,11 @@ impl Backend for GtkBackend {
                 let step = adjustment.step_increment();
                 adjustment.set_value(adjustment.value() + if *action == A11yAction::Increment { step } else { -step });
             }
+            // As if dragged there: `change-value`, which snaps to the step.
             (A11yAction::SetValue(text), WidgetKind::Slider) => {
                 let range = widget.downcast_ref::<gtk::Range>().ok_or(ActionError::Unsupported)?;
-                range.set_value(text.trim().parse().map_err(|_| ActionError::Unsupported)?);
+                let value: f64 = text.trim().parse().map_err(|_| ActionError::Unsupported)?;
+                range.emit_by_name::<bool>("change-value", &[&gtk::ScrollType::Jump, &value]);
             }
             // What choosing from the pop-up does.
             (A11yAction::SetValue(text), WidgetKind::Select) => {
@@ -1442,11 +1494,11 @@ impl Backend for GtkBackend {
                 let index = dropdown.selected();
                 props.push(Prop::SelectedIndex((index != gtk::INVALID_LIST_POSITION).then_some(index as usize)));
             }
-            Widget::Slider { scale, step } => {
+            Widget::Slider { scale, steps } => {
                 props.extend(node.a11y_label.clone().map(Prop::Label));
                 let adjustment = scale.adjustment();
                 props.push(Prop::Range { min: adjustment.lower(), max: adjustment.upper() });
-                props.push(Prop::Step(*step));
+                props.push(Prop::Step(steps.step.get()));
                 props.push(Prop::Number(adjustment.value()));
                 if node.orientation.is_some() {
                     props.push(Prop::Orientation(match scale.orientation() {
