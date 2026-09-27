@@ -5,13 +5,57 @@
 use mitsuami::prelude::*;
 use mitsuami_test::prelude::*;
 
-#[mitsuami_test::story(sizes = [(340, fit)])]
+/// Every role, bordered and borderless, and disabled. Default buttons are
+/// the accent colour on AppKit, GTK and WinUI, and highlighted on Qt;
+/// cancel buttons look normal; only GTK draws destructive buttons.
+#[mitsuami_test::story(sizes = [(420, fit)])]
 fn buttons() -> impl View {
-    Row::new().padding(16).gap(8).align(Align::Start).children((
-        Button::new("Default"),
-        Button::new("Primary").variant(ButtonVariant::Primary),
-        Button::new("Disabled").enabled(false),
+    let roles = [
+        ("Normal", ButtonRole::Normal),
+        ("Default", ButtonRole::Default),
+        ("Cancel", ButtonRole::Cancel),
+        ("Destructive", ButtonRole::Destructive),
+    ];
+    let row = |style: ButtonStyle, enabled: bool| {
+        Row::new().gap(8).children(Vec::from(
+            roles.map(|(name, role)| Button::new(name).role(role).button_style(style).enabled(enabled)),
+        ))
+    };
+    Column::new().padding(16).gap(8).align(Align::Start).children((
+        row(ButtonStyle::Bordered, true),
+        row(ButtonStyle::Borderless, true),
+        row(ButtonStyle::Bordered, false),
     ))
+}
+
+/// A raw platform setting through `.native()`: a large control on AppKit,
+/// round ends on GTK and WinUI, a checkable button, checked, on Qt.
+#[mitsuami_test::story(sizes = [(240, fit)])]
+fn button_tweaked() -> impl View {
+    let tweak: Tweak<Button> = platform! {
+        macos => mitsuami::appkit::tweak(|b: &mitsuami::appkit::objc2_app_kit::NSButton| {
+            b.setControlSize(mitsuami::appkit::objc2_app_kit::NSControlSize::Large)
+        }),
+        gtk => mitsuami::gtk::tweak(|b: &mitsuami::gtk::gtk::Button| {
+            use mitsuami::gtk::gtk::prelude::*;
+            b.add_css_class("circular")
+        }),
+        kde => mitsuami::kirigami::tweak(|b: &mitsuami::kirigami::QmlObject| {
+            b.set_bool("checkable", true);
+            b.set_bool("checked", true);
+        }),
+        windows => mitsuami::winui::tweak(|b: &mitsuami::winui::bindings::Button| {
+            use mitsuami::winui::bindings::{CornerRadius, IControl};
+            use mitsuami::winui::windows_core::Interface;
+            let round = CornerRadius { top_left: 16.0, top_right: 16.0, bottom_right: 16.0, bottom_left: 16.0 };
+            b.cast::<IControl>()?.SetCornerRadius(round)
+        }),
+    };
+    Row::new()
+        .padding(16)
+        .gap(8)
+        .align(Align::Start)
+        .children((Button::new("Plain"), Button::new("Tweaked").native(tweak)))
 }
 
 #[mitsuami_test::story(sizes = [(240, fit)])]
@@ -69,7 +113,7 @@ fn signup() -> impl View {
         TextInput::new().a11y_label("Name").placeholder("Your name"),
         TextInput::new().a11y_label("Email").value("ada@example.com"),
         Checkbox::new("I agree to the terms").bind(agreed),
-        Row::new().justify(Justify::End).child(Button::new("Sign up").variant(ButtonVariant::Primary).enabled(agreed)),
+        Row::new().justify(Justify::End).child(Button::new("Sign up").role(ButtonRole::Default).enabled(agreed)),
     ))
 }
 

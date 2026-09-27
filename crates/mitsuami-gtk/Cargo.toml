@@ -10,6 +10,7 @@ repository.workspace = true
 
 [dependencies]
 mitsuami-core.workspace = true
+mitsuami-widgets.workspace = true
 
 [target.'cfg(target_os = "linux")'.dependencies]
 gtk.workspace = true

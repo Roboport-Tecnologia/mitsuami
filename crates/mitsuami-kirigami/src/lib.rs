@@ -5,8 +5,9 @@
 //!   does no layout: children sit at the frames the core computed.
 //! - Leaves are Qt Quick Controls in the `org.kde.desktop` style (Breeze on
 //!   Plasma), created from QML and measured by their implicit sizes.
-//! - Escape hatches: [`NativeRender`] for custom widgets, [`NativeView`] for
-//!   any QML item, and a `QPainter` item for drawn custom widgets.
+//! - Escape hatches: [`tweak`] for raw settings of built-in controls,
+//!   [`NativeRender`] for custom widgets, [`NativeView`] for any QML item,
+//!   and a `QPainter` item for drawn custom widgets.
 //! - Signals become [`UiEvent`](mitsuami_core::UiEvent)s.
 //! - [`run`] drives the app: the UI ticks whenever Qt's event loop is about
 //!   to sleep.
@@ -36,6 +37,8 @@ mod qml;
 mod services;
 #[cfg(all(target_os = "linux", feature = "qt"))]
 mod theme;
+#[cfg(all(target_os = "linux", feature = "qt"))]
+mod tweak;
 
 #[cfg(all(target_os = "linux", feature = "qt"))]
 pub use app::{init_for_tests, run};
@@ -47,3 +50,5 @@ pub use custom::{Emitter, KirigamiCx, NativeRender, NativeView, ad_hoc, native};
 pub use ffi::{IMPORTS, QmlObject};
 #[cfg(all(target_os = "linux", feature = "qt"))]
 pub use services::KirigamiServices;
+#[cfg(all(target_os = "linux", feature = "qt"))]
+pub use tweak::{Tweakable, tweak, tweak_with};

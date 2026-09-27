@@ -4,8 +4,8 @@
 use std::rc::Rc;
 
 use mitsuami_core::{
-    Align, ButtonVariant, Children, Display, Element, ElementBuilder, EventValue, FlexDirection, Justify, Length,
-    NodeId, Point, Prop, ScrollAxes, TextStyle, Track, Ui, UiEvent, View, WidgetKind,
+    Align, ButtonRole, ButtonStyle, Children, Display, Element, ElementBuilder, EventValue, FlexDirection, Justify,
+    Length, NodeId, Point, Prop, ScrollAxes, TextStyle, Track, Tweak, Ui, UiEvent, View, WidgetKind,
 };
 use mitsuami_reactive::{IntoValue, Signal, Value};
 
@@ -254,8 +254,21 @@ impl Button {
         Button(element)
     }
 
-    pub fn variant(mut self, variant: impl IntoValue<ButtonVariant>) -> Button {
-        self.0.prop(variant.into_value(), Prop::Variant);
+    /// What the button does in its window: see [`ButtonRole`].
+    pub fn role(mut self, role: impl IntoValue<ButtonRole>) -> Button {
+        self.0.prop(role.into_value(), Prop::ButtonRole);
+        self
+    }
+
+    /// How the button is drawn: see [`ButtonStyle`].
+    pub fn button_style(mut self, style: impl IntoValue<ButtonStyle>) -> Button {
+        self.0.prop(style.into_value(), Prop::ButtonStyle);
+        self
+    }
+
+    /// Raw platform settings, past the semantic ones: see [`Tweak`].
+    pub fn native(mut self, tweak: Tweak<Button>) -> Button {
+        tweak.apply(&mut self.0);
         self
     }
 

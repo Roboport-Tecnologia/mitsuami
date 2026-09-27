@@ -36,6 +36,7 @@ Microsoft.UI.Xaml.VerticalAlignment
 Microsoft.UI.Xaml.FocusState
 Microsoft.UI.Xaml.TextWrapping
 Microsoft.UI.Xaml.Style
+Microsoft.UI.Xaml.CornerRadius
 Microsoft.UI.Xaml.IXamlRoot::get_RasterizationScale
 Microsoft.UI.Xaml.IResourceDictionary::get_MergedDictionaries
 Microsoft.UI.Xaml.Input.KeyboardNavigationMode
@@ -62,7 +63,7 @@ Microsoft.UI.Xaml.Controls.TextBlock::CreateInstance
 Microsoft.UI.Xaml.Controls.ITextBlock::{get_Text, put_Text, put_TextWrapping, put_FontSize, put_FontWeight, put_FontFamily}
 Microsoft.UI.Xaml.Media.FontFamily::CreateInstanceWithName
 Windows.UI.Text.FontWeight
-Microsoft.UI.Xaml.Controls.IControl::{get_IsEnabled, put_IsEnabled, put_FontSize, put_FontWeight, put_FontFamily, put_Background, put_BorderThickness}
+Microsoft.UI.Xaml.Controls.IControl::{get_IsEnabled, put_IsEnabled, put_FontSize, put_FontWeight, put_FontFamily, put_Background, put_BorderThickness, get_CornerRadius, put_CornerRadius}
 Microsoft.UI.Xaml.Thickness
 Microsoft.UI.Xaml.Controls.IContentControl::{get_Content, put_Content, get_ContentTemplateRoot}
 Microsoft.UI.Xaml.Controls.Button::CreateInstance

@@ -13,8 +13,8 @@ use mitsuami_core::backend::{
 use mitsuami_core::services::{MenuBarData, MenuEntry, Reply};
 use mitsuami_core::units::SpacingScale;
 use mitsuami_core::{
-    AnyValue, ButtonVariant, Command, CustomProps, EventValue, NodeId, Opaque, Point, Prop, Rect, RowKey, ScrollAxes,
-    SelectionMode, Size, TextStyle, UiEvent, WidgetKind, find_prop,
+    AnyValue, ButtonRole, ButtonStyle, Command, CustomProps, EventValue, NodeId, Opaque, Point, Prop, Rect, RowKey,
+    ScrollAxes, SelectionMode, Size, TextStyle, UiEvent, WidgetKind, find_prop,
 };
 use windows_core::{EventRevoker, HSTRING, IInspectable, IUnknown, Interface};
 
@@ -203,7 +203,10 @@ struct Node {
     offset: Rc<Cell<Point>>,
     /// Props XAML can't report back faithfully.
     text_style: Option<TextStyle>,
-    variant: Option<ButtonVariant>,
+    role: Option<ButtonRole>,
+    button_style: Option<ButtonStyle>,
+    /// The app's raw settings, run after every other prop.
+    tweak: Option<Opaque>,
     /// Switches, selects, sliders and progress bars: their label, which is
     /// only their accessible name.
     a11y_label: Option<String>,
@@ -300,6 +303,18 @@ fn resource<T: Interface>(name: &str) -> Option<T> {
 
 fn style(name: &str) -> w::Style {
     resource(name).unwrap_or_else(|| panic!("winui backend: missing XAML style {name}"))
+}
+
+/// A button's XAML style, from its role and style: one style has both.
+/// Borderless wins, since it's how the button is drawn. Fluent has no
+/// cancel or destructive style.
+fn set_button_style(button: &w::Button, role: Option<ButtonRole>, button_style: Option<ButtonStyle>) -> R<()> {
+    let name = match (role.unwrap_or_default(), button_style.unwrap_or_default()) {
+        (_, ButtonStyle::Borderless) => "SubtleButtonStyle",
+        (ButtonRole::Default, _) => "AccentButtonStyle",
+        _ => "DefaultButtonStyle",
+    };
+    button.cast::<w::IFrameworkElement>()?.SetStyle(&style(name))
 }
 
 const NAN_SIZE: f64 = f64::NAN;
@@ -1108,7 +1123,9 @@ impl State {
                 shown_number,
                 offset,
                 text_style: None,
-                variant: None,
+                role: None,
+                button_style: None,
+                tweak: None,
                 a11y_label: None,
             },
         );
@@ -1262,16 +1279,15 @@ impl State {
             (Prop::Selected(rows), Widget::List(list)) => list.set_selected(rows)?,
             (Prop::EstimatedRowHeight(height), Widget::List(list)) => list.set_estimate(*height),
             (Prop::Row(row), Widget::Host(_)) => node.row = Some(*row),
-            (Prop::Variant(variant), Widget::Button(b)) => {
-                let name = match variant {
-                    ButtonVariant::Primary => "AccentButtonStyle",
-                    ButtonVariant::Plain => "SubtleButtonStyle",
-                    // Fluent has no destructive button style.
-                    ButtonVariant::Default | ButtonVariant::Destructive => "DefaultButtonStyle",
-                };
-                b.cast::<w::IFrameworkElement>()?.SetStyle(&style(name))?;
-                node.variant = Some(*variant);
+            (Prop::ButtonRole(role), Widget::Button(b)) => {
+                node.role = Some(*role);
+                set_button_style(b, node.role, node.button_style)?;
             }
+            (Prop::ButtonStyle(button_style), Widget::Button(b)) => {
+                node.button_style = Some(*button_style);
+                set_button_style(b, node.role, node.button_style)?;
+            }
+            (Prop::Tweak(tweak), _) => node.tweak = Some(tweak.clone()),
             _ => {}
         }
         Ok(())
@@ -1281,6 +1297,16 @@ impl State {
         match self.nodes.get(&id) {
             Some(node) => node.element.clone(),
             None => violation(command, &format!("node {id} does not exist")),
+        }
+    }
+
+    /// Runs the node's raw settings, if the app gave any, after its props:
+    /// what they set wins.
+    fn run_tweak(&self, id: NodeId) -> R<()> {
+        let node = &self.nodes[&id];
+        match node.tweak.as_ref().and_then(|tweak| tweak.downcast_ref::<crate::tweak::TweakFn>()) {
+            Some(run) => run(&node.element),
+            None => Ok(()),
         }
     }
 
@@ -1294,8 +1320,12 @@ impl State {
                 for prop in props {
                     self.set_prop(*id, prop, command)?;
                 }
+                self.run_tweak(*id)?;
             }
-            Command::SetProp { id, prop } => self.set_prop(*id, prop, command)?,
+            Command::SetProp { id, prop } => {
+                self.set_prop(*id, prop, command)?;
+                self.run_tweak(*id)?;
+            }
             Command::Insert { parent, child, index } => {
                 let child_element = self.element(*child, command);
                 if self.nodes[child].parent.is_some() {
@@ -2033,7 +2063,9 @@ impl Backend for WinUiBackend {
             props.push(Prop::Enabled(node.element.cast::<w::IControl>().ok()?.IsEnabled().ok()?));
         }
         props.extend(node.text_style.map(Prop::TextStyle));
-        props.extend(node.variant.map(Prop::Variant));
+        props.extend(node.role.map(Prop::ButtonRole));
+        props.extend(node.button_style.map(Prop::ButtonStyle));
+        props.extend(node.tweak.clone().map(Prop::Tweak));
 
         let frame = match &node.widget {
             Widget::Window(_) => Rect::ZERO,

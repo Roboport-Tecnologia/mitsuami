@@ -32,7 +32,8 @@ fn describe_props(props: &[Prop]) -> String {
             Prop::Checked(b) => extra.push(format!("checked={b}")),
             Prop::Enabled(b) => extra.push(format!("enabled={b}")),
             Prop::TextStyle(s) => extra.push(format!("style={s:?}")),
-            Prop::Variant(v) => extra.push(format!("variant={v:?}")),
+            Prop::ButtonRole(r) => extra.push(format!("role={r:?}")),
+            Prop::ButtonStyle(s) => extra.push(format!("button_style={s:?}")),
             Prop::ScrollAxes(a) => extra.push(format!("scroll={a:?}")),
             // A list's data can be long: its size is enough.
             Prop::Rows(rows) => extra.push(format!("rows={}", rows.len())),
@@ -47,6 +48,7 @@ fn describe_props(props: &[Prop]) -> String {
             Prop::Custom(c) => extra.push(format!("{c:?}")),
             Prop::Drawing(d) => extra.push(format!("drawing={}ops", d.ops().len())),
             Prop::Native(n) => extra.push(format!("{n:?}")),
+            Prop::Tweak(_) => extra.push("tweak".to_owned()),
         }
     }
     let mut out = String::new();

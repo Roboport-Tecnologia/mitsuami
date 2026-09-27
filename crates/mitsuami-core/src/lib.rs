@@ -18,6 +18,7 @@ pub mod services;
 mod store;
 pub mod style;
 pub mod task;
+mod tweak;
 mod ui;
 pub mod units;
 mod view;
@@ -39,9 +40,12 @@ pub use list::{List, ListHandle, RowRender};
 pub use resource::{Action, Resource, action, resource, resource_on};
 pub use store::{Store, provide_stores, use_store};
 pub use style::{Align, Display, FlexDirection, GridPlacement, Justify, Style, TextDirection, Track, repeat};
+pub use tweak::Tweak;
 pub use ui::{NodeInfo, Ui, WeakUi};
 pub use units::{Length, LengthExt, Spacing};
 pub use view::{AnyView, Callback, Children, Slot, View};
-pub use widget::{ButtonVariant, ListStyle, NodeId, Prop, RowKey, ScrollAxes, SelectionMode, TextStyle, WidgetKind};
+pub use widget::{
+    ButtonRole, ButtonStyle, ListStyle, NodeId, Prop, RowKey, ScrollAxes, SelectionMode, TextStyle, WidgetKind,
+};
 
 pub use mitsuami_reactive as reactive;

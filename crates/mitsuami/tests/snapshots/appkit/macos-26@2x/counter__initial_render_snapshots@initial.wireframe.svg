@@ -6,7 +6,7 @@
   <text x="18" y="26" fill="#3f7f5f">Text &quot;Count: 5&quot;</text>
   <rect x="16" y="40" width="152" height="24" fill="none" stroke="#b5bac2" stroke-dasharray="4 3"/>
   <rect x="16" y="40" width="85" height="24" fill="none" stroke="#2f6fdf"/>
-  <text x="18" y="50" fill="#2f6fdf">Button &quot;Increment&quot; variant=Primary</text>
+  <text x="18" y="50" fill="#2f6fdf">Button &quot;Increment&quot; role=Default</text>
   <rect x="109" y="40" width="59" height="24" fill="none" stroke="#2f6fdf"/>
   <text x="111" y="50" fill="#2f6fdf">Button &quot;Reset&quot;</text>
   <rect x="16" y="72" width="126" height="16" fill="none" stroke="#3f7f5f"/>

@@ -68,6 +68,10 @@ Backend rules the tests enforce:
 - CI runs only by hand: `gh workflow run test.yml --ref <branch>`. Baselines
   for new stories on the other platforms come from a failed CI run:
   `.github/scripts/accept-snapshots.sh <run id>`.
+- Don't run CI for now, for the same reason as visual baselines below:
+  development moves too fast. Type-check the other platforms from macOS
+  (below) and say in `docs/ARCHITECTURE.md` what only type-checks; the
+  maintainer runs CI in a later pass.
 - Visual stories aren't validated yet: development moves too fast for
   baselines to keep up. Missing or failing visual baselines (stories, and
   the other platforms' captures) are expected; don't treat them as

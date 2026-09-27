@@ -4,8 +4,9 @@
 //!   it allocates every child at the frame the core computed.
 //! - Leaf widgets are stock GTK widgets, measured with `gtk_widget_measure`.
 //! - Lists are `gtk::ListView`s whose items hold the core's row hosts.
-//! - Escape hatches: [`NativeRender`] for custom widgets, [`NativeView`] for
-//!   any GTK widget, and a Cairo rasterizer for drawn custom widgets.
+//! - Escape hatches: [`tweak`] for raw settings of built-in widgets,
+//!   [`NativeRender`] for custom widgets, [`NativeView`] for any GTK widget,
+//!   and a Cairo rasterizer for drawn custom widgets.
 //! - Signals become [`UiEvent`](mitsuami_core::UiEvent)s.
 //! - [`run`] drives the app: a GLib idle source calls [`Ui::tick`](mitsuami_core::Ui::tick)
 //!   whenever there is work, ahead of GTK's own layout and drawing.
@@ -26,6 +27,8 @@ mod host;
 mod list;
 #[cfg(target_os = "linux")]
 mod services;
+#[cfg(target_os = "linux")]
+mod tweak;
 
 #[cfg(target_os = "linux")]
 pub use app::{init_for_tests, run};
@@ -35,6 +38,8 @@ pub use backend::{BackendOptions, GtkBackend, GtkHandle};
 pub use custom::{Emitter, GtkCx, NativeRender, NativeView, ad_hoc, native};
 #[cfg(target_os = "linux")]
 pub use services::GtkServices;
+#[cfg(target_os = "linux")]
+pub use tweak::{Tweakable, tweak, tweak_with};
 
 // The bindings native renders and native views are written with, at the
 // version the backend uses.

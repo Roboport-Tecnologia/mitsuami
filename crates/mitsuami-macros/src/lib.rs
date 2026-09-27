@@ -14,7 +14,7 @@ mod view;
 /// view! {
 ///     <Column gap=Spacing::Md padding=16>
 ///         <Text text_style=TextStyle::Title>{move || format!("Count: {}", count.get())}</Text>
-///         <Button variant=ButtonVariant::Primary @click=move || count.update(|c| *c += 1)>"Increment"</Button>
+///         <Button role=ButtonRole::Default @click=move || count.update(|c| *c += 1)>"Increment"</Button>
 ///         <Show when={move || count.get() > 10}>
 ///             <Text>"That's a big number"</Text>
 ///         </Show>

@@ -945,6 +945,21 @@ impl windows_core::RuntimeName for Control {
 }
 unsafe impl Send for Control {}
 unsafe impl Sync for Control {}
+#[repr(C)]
+#[derive(Clone, Copy, Debug, Default, PartialEq)]
+pub struct CornerRadius {
+    pub top_left: f64,
+    pub top_right: f64,
+    pub bottom_right: f64,
+    pub bottom_left: f64,
+}
+impl windows_core::imp::TypeKind for CornerRadius {
+    type TypeKind = windows_core::imp::CopyType;
+}
+impl windows_core::RuntimeType for CornerRadius {
+    const SIGNATURE: windows_core::imp::ConstBuffer =
+        windows_core::imp::ConstBuffer::from_slice(b"struct(Microsoft.UI.Xaml.CornerRadius;f8;f8;f8;f8)");
+}
 pub type CreatePackageDependencyOptions = u32;
 pub type DPI_AWARENESS_CONTEXT = *mut core::ffi::c_void;
 pub const DPI_AWARENESS_CONTEXT_PER_MONITOR_AWARE_V2: DPI_AWARENESS_CONTEXT = -4 as _;
@@ -2824,6 +2839,18 @@ impl IControl {
                 .ok()
         }
     }
+    pub fn CornerRadius(&self) -> windows_core::Result<CornerRadius> {
+        unsafe {
+            let mut result__ = core::mem::zeroed();
+            (windows_core::Interface::vtable(self).CornerRadius)(windows_core::Interface::as_raw(self), &mut result__)
+                .map(|| result__)
+        }
+    }
+    pub fn SetCornerRadius(&self, value: CornerRadius) -> windows_core::Result<()> {
+        unsafe {
+            (windows_core::Interface::vtable(self).SetCornerRadius)(windows_core::Interface::as_raw(self), value).ok()
+        }
+    }
 }
 #[repr(C)]
 pub struct IControl_Vtbl {
@@ -2870,6 +2897,14 @@ pub struct IControl_Vtbl {
     SetBackgroundSizing: usize,
     BorderThickness: usize,
     pub SetBorderThickness: unsafe extern "system" fn(*mut core::ffi::c_void, Thickness) -> windows_core::HRESULT,
+    BorderBrush: usize,
+    SetBorderBrush: usize,
+    DefaultStyleResourceUri: usize,
+    SetDefaultStyleResourceUri: usize,
+    ElementSoundMode: usize,
+    SetElementSoundMode: usize,
+    pub CornerRadius: unsafe extern "system" fn(*mut core::ffi::c_void, *mut CornerRadius) -> windows_core::HRESULT,
+    pub SetCornerRadius: unsafe extern "system" fn(*mut core::ffi::c_void, CornerRadius) -> windows_core::HRESULT,
 }
 windows_core::imp::define_interface!(IDataPackage, IDataPackage_Vtbl, 0x61ebf5c7_efea_4346_9554_981d7e198ffe);
 impl windows_core::RuntimeType for IDataPackage {

@@ -14,7 +14,7 @@ fn counter_with_builders(initial: i32) -> impl View {
     Column::new().padding(16).gap(8).align(Align::Start).children((
         Text::new(move || format!("Count: {}", count.get())).text_style(TextStyle::Title),
         Row::new().gap(8).children((
-            Button::new("Increment").variant(ButtonVariant::Primary).on_click(move || count.update(|c| *c += 1)),
+            Button::new("Increment").role(ButtonRole::Default).on_click(move || count.update(|c| *c += 1)),
             Button::new("Reset").on_click(move || count.set(0)),
         )),
         Show::new(move || count.get() >= 3, || Text::new("That's a lot of clicks")),
@@ -27,7 +27,7 @@ fn counter_with_view(initial: i32) -> impl View {
         <Column padding=16 gap=8 align=Align::Start>
             <Text text_style=TextStyle::Title>{move || format!("Count: {}", count.get())}</Text>
             <Row gap=8>
-                <Button variant=ButtonVariant::Primary @click=move || count.update(|c| *c += 1)>"Increment"</Button>
+                <Button role=ButtonRole::Default @click=move || count.update(|c| *c += 1)>"Increment"</Button>
                 <Button @click=move || count.set(0)>"Reset"</Button>
             </Row>
             <Show when={move || count.get() >= 3}>

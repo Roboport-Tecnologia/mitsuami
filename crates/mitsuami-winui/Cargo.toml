@@ -12,6 +12,7 @@ exclude = ["bindgen"]
 
 [dependencies]
 mitsuami-core.workspace = true
+mitsuami-widgets.workspace = true
 
 # MSVC only: windows-rs links through raw-dylib, which the windows-gnu
 # toolchain can't do out of the box. Other Windows toolchains get a

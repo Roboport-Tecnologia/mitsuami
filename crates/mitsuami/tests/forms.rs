@@ -22,7 +22,7 @@ fn signup(submitted: Rc<RefCell<Vec<String>>>) -> impl View {
         Checkbox::new("I agree to the terms").bind(agreed),
         Switch::new("Newsletter").bind(newsletter),
         Text::new(move || format!("newsletter: {}", newsletter.get())),
-        Button::new("Sign up").variant(ButtonVariant::Primary).enabled(agreed).on_click(submit),
+        Button::new("Sign up").role(ButtonRole::Default).enabled(agreed).on_click(submit),
     ))
 }
 

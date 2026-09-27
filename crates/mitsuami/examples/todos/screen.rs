@@ -140,7 +140,7 @@ fn Sync() -> impl View {
     view! {
         <Row gap=Spacing::Md align=Align::Center>
             <Button
-                variant=ButtonVariant::Primary
+                role=ButtonRole::Default
                 enabled=move || !sync.pending()
                 @click=move || sync.dispatch(todos.items.with(Vec::len))
             >"Sync now"</Button>

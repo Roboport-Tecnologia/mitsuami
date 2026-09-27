@@ -142,7 +142,7 @@ Cons: we give up native auto-layout behaviours, and we must handle RTL mirroring
 - **The core lays out each mounted row** on its own, at the width the list gives its rows (`RowWidth`), and sends its size; the platform makes the row that high and places it. Where rows are is the platform's: the core reads a row's position back (`native_state`) for frames, visibility and the a11y tree, and scrolls to a row with `ScrollToRow`, which works for rows that aren't mounted.
 - **Rows are keyed** like `For`'s: a data change keeps the mounted rows whose keys stay, with their state.
 - **Selection and activation are the platform's:** backends report `Changed(Rows)` and `RowActivated`; the app binds the selected keys (`List::selected`) and handles `on_activate`. Rows read as list items named by their text.
-- **How a list sits in its surroundings is a semantic choice** (`List::list_style`), like `ButtonVariant`: `Plain` (edge to edge: sidebars, main content) or `Framed` (a bordered box on the content background: a list in a form or dialog), each drawn the platform's way: Breeze's scroll view frame on Kirigami, `ScrolledWindow` `has-frame` on GTK, the bezel border on AppKit, a card's border on WinUI. `Automatic`, the default, is `Plain` everywhere. Where platforms' habits differ (KDE frames more lists than GTK or macOS), the app picks per platform with `platform!`: `.list_style(platform! { kde => ListStyle::Framed, _ => ListStyle::Plain })`. A frame takes room from the rows, which backends report with `RowWidth`. Run on GTK and Kirigami; on AppKit and WinUI only type-checked so far.
+- **How a list sits in its surroundings is a semantic choice** (`List::list_style`), like `ButtonStyle`: `Plain` (edge to edge: sidebars, main content) or `Framed` (a bordered box on the content background: a list in a form or dialog), each drawn the platform's way: Breeze's scroll view frame on Kirigami, `ScrolledWindow` `has-frame` on GTK, the bezel border on AppKit, a card's border on WinUI. `Automatic`, the default, is `Plain` everywhere. Where platforms' habits differ (KDE frames more lists than GTK or macOS), the app picks per platform with `platform!`: `.list_style(platform! { kde => ListStyle::Framed, _ => ListStyle::Plain })`. A frame takes room from the rows, which backends report with `RowWidth`. Run on GTK and Kirigami; on AppKit and WinUI only type-checked so far.
 
 ### Units
 
@@ -180,7 +180,8 @@ A style has two halves:
 1. **Layout:** the full flex and grid property set (`direction`, `gap`, `padding`, `margin`, `align_*`, `justify_*`, `grow`, `shrink`, `basis`, `grid_template_*`, `grid_area`, `position`, `inset`, `min/max/size`, `aspect_ratio`, `overflow`). It applies to every node.
 2. **Semantic visual:**
    - Text styles: `TextStyle::{LargeTitle, Title, Headline, Body, Callout, Caption, Monospace}`. These map to `NSFont.preferredFont(forTextStyle:)`, the WinUI type ramp, and GTK/libadwaita style classes.
-   - Control variants: `ButtonVariant::{Default, Primary, Destructive, Plain}`. These map to `keyEquivalent "\r"` or the bezel style on macOS, `AccentButtonStyle` on WinUI, and `suggested-action` / `destructive-action` on GTK.
+   - Button roles and styles: `ButtonRole::{Normal, Default, Cancel, Destructive}` (what the button does: Return clicks the default one, Escape the cancel one, where the platform does that) and `ButtonStyle::{Automatic, Bordered, Borderless}` (how it's drawn). Each platform maps them its own way (`keyEquivalent` and `bordered` on macOS, `suggested-action` / `destructive-action` and `has-frame` on GTK, `highlighted` and `flat` on Qt, `AccentButtonStyle` and `SubtleButtonStyle` on WinUI) and ignores what it has no equivalent for.
+   - Past the semantic props, a widget's `.native(tweak)` sets raw platform settings (§6.4).
    - Semantic colors (`Color::Label`, `Color::SecondaryLabel`, `Color::Accent`, `Color::Separator`, …) that follow dark mode and high contrast.
    - Containers (layout hosts) can also take a background, border, corner radius and opacity, because they are plain views.
 
@@ -380,6 +381,25 @@ impl Render for Rating {
 - **Headless** lays out natively rendered widgets with their drawn render (hence `.with_drawn()` above), or as empty boxes without one.
 - **Controlled:** a render emits an event when the user changes the view; the app answers with new props, and `update` shows them. If the app ignores the event, the view shows something the core doesn't know about, and the mirror check (via `read`) reports it.
 
+### 6.4 Raw settings of a built-in widget
+
+Semantic props cover what every platform has. For what only one platform has, a built-in widget takes a `Tweak`: a closure over the native control itself, made by the backend's `tweak`, picked per platform with `platform!`.
+
+```rust
+Button::new("Continue").role(ButtonRole::Default).native(platform! {
+    macos => appkit::tweak(|b: &NSButton| b.setControlSize(NSControlSize::Large)),
+    gtk => gtk::tweak(|b: &gtk::Button| b.add_css_class("circular")),
+    kde => kirigami::tweak(|b: &QmlObject| b.set_bool("checkable", true)),
+    windows => winui::tweak(|b: &Button| b.cast::<IControl>()?.SetCornerRadius(round)),
+})
+```
+
+- It travels as `Prop::Tweak` (an `Opaque`), and runs after the widget's other props, and again whenever one changes, so what it sets wins. Tweaks should be idempotent.
+- `tweak_with(value, |b, v| …)` runs again when the value changes; only the tweak is sent again.
+- A tweak can make the native control disagree with the core's props (an icon for a label, say); the mirror check then fails in tests. Set what the semantic props don't.
+- `_ => Tweak::none()` leaves the other platforms alone. Headless tests keep the tweak but don't run it.
+- The widget's type names the native one (`Tweakable`): `Button` is `NSButton`, `gtk::Button`, a `QQC2.Button` item (`QmlObject`, set by property name) and XAML's `Button`, whose closure returns a `windows_core::Result`.
+
 ## 7. Accessibility and i18n affordances (designed in now, implemented later)
 
 - Every node carries `A11yProps`: role, label, description, value/range, state flags (disabled, checked, expanded, selected, busy), `labelled_by`/`described_by` relations, live-region politeness, and supported actions.
@@ -434,7 +454,7 @@ fn Counter(initial: i32) -> impl View {
     view! {
         <Column gap=Spacing::Md padding=2.em() align=Align::Center>
             <Text text_style=TextStyle::Title>{move || format!("Count: {}", count.get())}</Text>
-            <Button variant=ButtonVariant::Primary @click=move || count.update(|c| *c += 1)>"Increment"</Button>
+            <Button role=ButtonRole::Default @click=move || count.update(|c| *c += 1)>"Increment"</Button>
             <Show when={move || doubled.get() > 10}>
                 <Text>"That's a big number"</Text>
             </Show>
@@ -448,7 +468,7 @@ The builder API is the real API. `view!` expands to it, one tag at a time: `<Tag
 ```rust
 Column::__tag().gap(Spacing::Md).padding(2.em()).align(Align::Center).__children(|| (
     Text::__tag().text_style(TextStyle::Title).__children(|| move || format!("Count: {}", count.get())),
-    Button::__tag().variant(ButtonVariant::Primary).on_click(move || count.update(|c| *c += 1)).__children(|| "Increment"),
+    Button::__tag().role(ButtonRole::Default).on_click(move || count.update(|c| *c += 1)).__children(|| "Increment"),
     Show::__tag().when(move || doubled.get() > 10).__children(move || Text::__tag().__children(|| "That's a big number")),
 ))
 ```
@@ -785,6 +805,15 @@ Things the AppKit backend taught us, some of them now part of the contract:
 - **Indeterminate progress animates as the platform animates it:** `NSProgressIndicator` and XAML's and Qt's bars on their own, GTK's by `pulse()` calls, which a 100 ms timer makes while the bar is indeterminate, as GTK apps do.
 - **Stepping and setting do what assistive technology or the keyboard does:** VoiceOver's increment, and the action as for a drag; GTK's step on the adjustment; UIA's RangeValue pattern; and on Qt the keys' `increase()` or `decrease()`, then `moved()`, the user's signal.
 - **Not run yet on GTK, WinUI and Kirigami:** written and type-checked on macOS; CI runs them.
+
+### Button roles, styles and tweaks
+
+- **`ButtonVariant` became a role and a style,** since what a button does and how it's drawn are separate choices (a borderless destructive button). Both are sent only if the app picks one, and backends keep them on the node: no toolkit reads every role back.
+- **Cancel is Escape on AppKit only.** GTK, Qt and WinUI have no cancel button outside their dialogs, so it's a normal button there. Default is Return only on AppKit so far; GTK's default widget isn't set yet.
+- **Default buttons draw their accent only in the key window** on AppKit, so test captures (never key) show them grey. A `bezelColor` tint didn't show in captures either, so the story's AppKit tweak is a large control size.
+- **Tweaks run inside `apply`,** with events muted where the backend mutes them. `Tweakable` lives in each backend, which now depends on `mitsuami-widgets`.
+- **Per-widget examples:** `examples/button.rs` shows every role in every style, a playground of the semantic props, and one tweak that differs per platform. Other widgets get one each as they're refactored.
+- **Run on AppKit only:** GTK, Kirigami and WinUI are only type-checked, and CI hasn't run them; `SubtleButtonStyle` on WinUI has never run.
 
 ### M2 (GTK 4)
 

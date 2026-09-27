@@ -68,7 +68,7 @@ pub fn Screen() -> impl View {
             <Row gap=Spacing::Md align=Align::Center>
                 <Text grow=1.0>{move || review.status()}</Text>
                 <Button
-                    variant=ButtonVariant::Primary
+                    role=ButtonRole::Default
                     enabled=move || review.can_submit()
                     @click=move || review.submit()
                 >"Submit"</Button>

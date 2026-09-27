@@ -36,7 +36,7 @@ fn counter(log_lines: Signal<Vec<u32>>) -> impl View {
     Column::new().gap(Spacing::Md).children((
         Text::new(move || format!("Count: {}", count.get())).text_style(TextStyle::Title),
         Row::new().gap(Spacing::Sm).children((
-            Button::new("Increment").variant(ButtonVariant::Primary).on_click(increment),
+            Button::new("Increment").role(ButtonRole::Default).on_click(increment),
             Button::new("Reset…").enabled(move || count.get() != 0).on_click(confirm_reset),
         )),
         Show::new(move || count.get() >= 5, || Text::new("That's a lot of clicks.").text_style(TextStyle::Caption)),
@@ -70,7 +70,7 @@ fn signup() -> impl View {
             )),
         Checkbox::new("I agree to the terms").bind(agreed),
         Row::new().gap(Spacing::Sm).align(Align::Center).children((
-            Button::new("Sign up").variant(ButtonVariant::Primary).enabled(agreed).on_click(submit),
+            Button::new("Sign up").role(ButtonRole::Default).enabled(agreed).on_click(submit),
             Text::new(move || match submitted.get() {
                 Some(who) if who.is_empty() => "Signed up anonymously".to_string(),
                 Some(who) => format!("Welcome, {who}!"),

@@ -15,7 +15,7 @@ use mitsuami_core::backend::{
 use mitsuami_core::services::Reply;
 use mitsuami_core::units::SpacingScale;
 use mitsuami_core::{
-    ButtonVariant, Command, CustomProps, EventValue, NodeId, Opaque, Point, Prop, Rect, RowKey, ScrollAxes,
+    ButtonRole, ButtonStyle, Command, CustomProps, EventValue, NodeId, Opaque, Point, Prop, Rect, RowKey, ScrollAxes,
     SelectionMode, Size, TextStyle, UiEvent, WidgetKind, find_prop,
 };
 
@@ -152,7 +152,10 @@ struct Node {
     row: Option<RowKey>,
     /// Props GTK can't report back faithfully.
     text_style: Option<TextStyle>,
-    variant: Option<ButtonVariant>,
+    role: Option<ButtonRole>,
+    button_style: Option<ButtonStyle>,
+    /// The app's raw settings, run after every other prop.
+    tweak: Option<Opaque>,
     /// Switches, selects, sliders and progress bars have no caption, only
     /// an accessible label, which GTK doesn't read back.
     a11y_label: Option<String>,
@@ -212,16 +215,16 @@ fn text_style_class(style: TextStyle) -> Option<&'static str> {
 
 const TEXT_STYLE_CLASSES: [&str; 5] = ["title-1", "title-2", "heading", "caption", "monospace"];
 
-fn variant_class(variant: ButtonVariant) -> Option<&'static str> {
-    match variant {
-        ButtonVariant::Default => None,
-        ButtonVariant::Primary => Some("suggested-action"),
-        ButtonVariant::Destructive => Some("destructive-action"),
-        ButtonVariant::Plain => Some("flat"),
+/// GNOME has no cancel style: cancel buttons are normal buttons.
+fn role_class(role: ButtonRole) -> Option<&'static str> {
+    match role {
+        ButtonRole::Normal | ButtonRole::Cancel => None,
+        ButtonRole::Default => Some("suggested-action"),
+        ButtonRole::Destructive => Some("destructive-action"),
     }
 }
 
-const VARIANT_CLASSES: [&str; 3] = ["suggested-action", "destructive-action", "flat"];
+const ROLE_CLASSES: [&str; 2] = ["suggested-action", "destructive-action"];
 
 /// The font size the theme gives a text style, in logical px.
 fn font_size(style: TextStyle) -> f32 {
@@ -647,7 +650,9 @@ impl State {
                 parent: None,
                 row: None,
                 text_style: None,
-                variant: None,
+                role: None,
+                button_style: None,
+                tweak: None,
                 a11y_label: None,
                 settings_handlers,
             },
@@ -804,15 +809,20 @@ impl State {
                 }
                 node.text_style = Some(*style);
             }
-            (Prop::Variant(variant), Widget::Button(b)) => {
-                for class in VARIANT_CLASSES {
+            (Prop::ButtonRole(role), Widget::Button(b)) => {
+                for class in ROLE_CLASSES {
                     b.remove_css_class(class);
                 }
-                if let Some(class) = variant_class(*variant) {
+                if let Some(class) = role_class(*role) {
                     b.add_css_class(class);
                 }
-                node.variant = Some(*variant);
+                node.role = Some(*role);
             }
+            (Prop::ButtonStyle(style), Widget::Button(b)) => {
+                b.set_has_frame(*style != ButtonStyle::Borderless);
+                node.button_style = Some(*style);
+            }
+            (Prop::Tweak(tweak), _) => node.tweak = Some(tweak.clone()),
             (Prop::Rows(rows), Widget::List(list)) => list.set_rows(rows.clone()),
             (Prop::SelectionMode(mode), Widget::List(list)) => list.set_mode(*mode),
             (Prop::ListStyle(style), Widget::List(list)) => list.set_style(*style),
@@ -884,6 +894,15 @@ impl State {
         }
     }
 
+    /// Runs the node's raw settings, if the app gave any, after its props:
+    /// what they set wins.
+    fn run_tweak(&self, id: NodeId) {
+        let node = &self.nodes[&id];
+        if let Some(run) = node.tweak.as_ref().and_then(|tweak| tweak.downcast_ref::<crate::tweak::TweakFn>()) {
+            run(node.widget.widget());
+        }
+    }
+
     fn apply(&mut self, command: &Command) {
         match command {
             Command::Create { id, kind, props } => {
@@ -894,8 +913,12 @@ impl State {
                 for prop in props {
                     self.set_prop(*id, prop, command);
                 }
+                self.run_tweak(*id);
             }
-            Command::SetProp { id, prop } => self.set_prop(*id, prop, command),
+            Command::SetProp { id, prop } => {
+                self.set_prop(*id, prop, command);
+                self.run_tweak(*id);
+            }
             Command::Insert { parent, child, index } => {
                 let child_widget = self.widget(*child, command);
                 if self.nodes[child].parent.is_some() {
@@ -1420,7 +1443,9 @@ impl Backend for GtkBackend {
             props.push(Prop::Enabled(widget.is_sensitive()));
         }
         props.extend(node.text_style.map(Prop::TextStyle));
-        props.extend(node.variant.map(Prop::Variant));
+        props.extend(node.role.map(Prop::ButtonRole));
+        props.extend(node.button_style.map(Prop::ButtonStyle));
+        props.extend(node.tweak.clone().map(Prop::Tweak));
         let frame = match &node.widget {
             Widget::Window(parts) => {
                 let size = parts.host.window_root().expect("window hosts have a root").size.get();

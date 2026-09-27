@@ -101,7 +101,9 @@ Validate as you go. Panic on protocol violations such as an unknown node, a doub
 | `SelectedIndex` | Select | The chosen option. `None` only without options. Setting it **must not** emit `Changed`. |
 | `Enabled` | controls | |
 | `TextStyle` | Text (and controls) | Map to the platform type ramp: GTK style classes (`title-1`, `heading`, `caption`, `monospace`); WinUI text styles (`TitleTextBlockStyle`, …); Kirigami's `Heading` sizes and its small and fixed-width fonts. |
-| `Variant` | Button | Primary = the default / suggested action (GTK `suggested-action`, WinUI `AccentButtonStyle`, Qt `highlighted`); Destructive (GTK `destructive-action`); Plain = borderless (GTK and Qt `flat`). |
+| `ButtonRole` | Button | Normal, Default, Cancel or Destructive; sent only if the app chose one. Default: Return clicks it and it shows as the default (AppKit `keyEquivalent` `"\r"`, GTK `suggested-action`, Qt `highlighted`, WinUI `AccentButtonStyle`). Cancel: Escape clicks it (AppKit `keyEquivalent` Escape); the others show a normal button. Destructive: GTK `destructive-action`, AppKit `hasDestructiveAction`; Qt and WinUI have no such style. Keep it on the node: no toolkit tells every role apart. |
+| `ButtonStyle` | Button | Automatic, Bordered or Borderless; sent only if the app chose one. Automatic draws as Bordered. Borderless: AppKit `bordered` off, GTK `has-frame` off, Qt `flat`, WinUI `SubtleButtonStyle`. On WinUI one XAML style carries both: Borderless wins over Default. Report back what was sent. |
+| `Tweak` | built-in widgets | The app's raw settings, a payload of your own (see §8a). Keep it on the node, report it back, and run it after the node's other props: on `Create` after all of them, and after every later `SetProp`, so what it sets wins. |
 | `ScrollAxes` | ScrollView | Which scrollbars / scroll directions exist. |
 | `Rows` | List | The rows' keys, in order (§8b). |
 | `EstimatedRowHeight` | List | How high rows are likely to be, for platforms that size rows before showing them. |
@@ -210,13 +212,14 @@ Implement `Services`. **Never block**: reply later, from the platform's completi
 - Keep the platform's standard menus (Quit, Edit with Cut/Copy/Paste/Undo) and leave their enabling to the platform. The app's own items follow its `enabled` state.
 - `Shortcut::primary` is Ctrl on GTK, Qt and WinUI.
 
-## 8a. Escape hatches: custom widgets and native views
+## 8a. Escape hatches: custom widgets, native views and tweaks
 
 The core does the shared work; a backend supplies three things. AppKit's are in `mitsuami-appkit/src/custom.rs`, GTK's in `mitsuami-gtk/src/custom.rs`, WinUI's in `mitsuami-winui/src/custom.rs`. If your controls may size themselves or skip change events for some sources, see ARCHITECTURE.md §16, "M4 on WinUI".
 
 1. **A `NativeRender` trait** for custom widgets, in your crate, shaped like AppKit's: `type View`, `create(props, cx)`, `update(view, old, new)`, and optional `measure`, `read` (read the props back from the widget, for the mirror check) and `perform`. Provide `native::<W>() -> Renderer<W>`: wrap a type-erased render in an `Opaque` and pass it to `Renderer::native`. On `Create` of `Custom(_)`, `find_prop!(props, Custom)`: if `custom.native()` is `Some`, downcast it to your render and create the view; otherwise the widget is drawn.
 2. **A drawn view** that rasterizes `DisplayList`s (fill and stroke of rects, rounded rects, ellipses and paths) with the platform's 2D API. Resolve the semantic `Color`s at draw time, so they follow the appearance. Report primary-button `Pointer` down/up in the widget's coordinates, and support `SyntheticInput::Click`. Don't measure drawn widgets (the core does); `native_state` reports `Custom` and `Drawing` as last received.
 3. **`NativeView::<platform>(factory)`** for app-supplied widgets, with a payload type of your own in `Prop::Native`. Run the factory on `Create`, and apply the updates on `Create` and on each `SetProp`.
+4. **`tweak` and `tweak_with`** for raw settings of built-in widgets: `tweak(|b: &NSButton| …)` returns a `Tweak<W>` (the core's), typed through a `Tweakable` trait that names your control for each widget (`Button` → `NSButton`, `gtk::Button`, the QML item, XAML's `Button`). Wrap a closure over the node's view in an `Opaque` and pass it to `Tweak::new`; `tweak_with` makes it again from a value, whenever that changes. The backend runs it as `Prop::Tweak` says (§3).
 
 Also:
 - A context (`AppKitCx`) for factories: the main-thread marker, an `Emitter` that queues `UiEvent::Custom(AnyValue::new(event))` for the node, and a way to hear a control's actions whose targets live as long as the node.

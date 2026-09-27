@@ -7,8 +7,9 @@
 //!   positions every child with `Canvas.Left/Top` and `Width/Height`.
 //! - Leaf widgets are stock WinUI controls, measured with `Measure` in the
 //!   live tree, with the frame size we imposed lifted for the call.
-//! - Escape hatches: [`NativeRender`] for custom widgets, [`NativeView`] for
-//!   any XAML element, and XAML shapes for drawn custom widgets.
+//! - Escape hatches: [`tweak`] for raw settings of built-in controls,
+//!   [`NativeRender`] for custom widgets, [`NativeView`] for any XAML
+//!   element, and XAML shapes for drawn custom widgets.
 //! - [`run`] owns the message loop: XAML runs without `Application::Start`,
 //!   and the loop ticks the UI before it sleeps.
 //!
@@ -53,6 +54,8 @@ mod list;
 mod runtime;
 #[cfg(all(windows, target_env = "msvc"))]
 mod services;
+#[cfg(all(windows, target_env = "msvc"))]
+mod tweak;
 
 #[cfg(all(windows, target_env = "msvc"))]
 pub use app::{init_for_tests, pump, run};
@@ -62,6 +65,8 @@ pub use backend::{BackendOptions, WinUiBackend, WinUiHandle};
 pub use custom::{Emitter, NativeRender, NativeView, WinUiCx, ad_hoc, native};
 #[cfg(all(windows, target_env = "msvc"))]
 pub use services::WinUiServices;
+#[cfg(all(windows, target_env = "msvc"))]
+pub use tweak::{Tweakable, tweak, tweak_with};
 
 // What native renders and native views are written with, at the version
 // the backend uses: `cast`, `Result`, event revokers.

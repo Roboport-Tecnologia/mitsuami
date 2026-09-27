@@ -15,6 +15,7 @@ qt = []
 
 [dependencies]
 mitsuami-core.workspace = true
+mitsuami-widgets.workspace = true
 
 [build-dependencies]
 cc.workspace = true

@@ -11,7 +11,7 @@ use mitsuami_core::backend::{
 };
 use mitsuami_core::units::SpacingScale;
 use mitsuami_core::{
-    ButtonVariant, Command, CustomProps, EventValue, NodeId, Opaque, Point, Prop, Rect, RowKey, ScrollAxes,
+    ButtonRole, ButtonStyle, Command, CustomProps, EventValue, NodeId, Opaque, Point, Prop, Rect, RowKey, ScrollAxes,
     SelectionMode, Size, TextStyle, UiEvent, WidgetKind, find_prop,
 };
 use objc2::rc::Retained;
@@ -153,7 +153,10 @@ struct Node {
     row: Option<RowKey>,
     /// Props AppKit can't report back faithfully.
     text_style: Option<TextStyle>,
-    variant: Option<ButtonVariant>,
+    role: Option<ButtonRole>,
+    button_style: Option<ButtonStyle>,
+    /// The app's raw settings, run after every other prop.
+    tweak: Option<Opaque>,
 }
 
 struct State {
@@ -530,7 +533,9 @@ impl State {
                 parent: None,
                 row: None,
                 text_style: None,
-                variant: None,
+                role: None,
+                button_style: None,
+                tweak: None,
             },
         );
     }
@@ -626,12 +631,21 @@ impl State {
                 scroll.setHasVerticalScroller(axes.vertical());
                 scroll.setHasHorizontalScroller(axes.horizontal());
             }
-            (Prop::Variant(variant), Widget::Button(b)) => {
-                b.setKeyEquivalent(&ns(if *variant == ButtonVariant::Primary { "\r" } else { "" }));
-                b.setHasDestructiveAction(*variant == ButtonVariant::Destructive);
-                b.setBordered(*variant != ButtonVariant::Plain);
-                node.variant = Some(*variant);
+            (Prop::ButtonRole(role), Widget::Button(b)) => {
+                // Return clicks the default button, Escape the cancel button.
+                b.setKeyEquivalent(&ns(match role {
+                    ButtonRole::Default => "\r",
+                    ButtonRole::Cancel => "\u{1b}",
+                    ButtonRole::Normal | ButtonRole::Destructive => "",
+                }));
+                b.setHasDestructiveAction(*role == ButtonRole::Destructive);
+                node.role = Some(*role);
             }
+            (Prop::ButtonStyle(style), Widget::Button(b)) => {
+                b.setBordered(*style != ButtonStyle::Borderless);
+                node.button_style = Some(*style);
+            }
+            (Prop::Tweak(tweak), _) => node.tweak = Some(tweak.clone()),
             (Prop::Custom(new), Widget::Custom { view, render, props }) => {
                 if props != new {
                     render.update(view, props.props(), new.props());
@@ -660,6 +674,15 @@ impl State {
         }
     }
 
+    /// Runs the node's raw settings, if the app gave any, after its props:
+    /// what they set wins.
+    fn run_tweak(&self, id: NodeId) {
+        let node = &self.nodes[&id];
+        if let Some(run) = node.tweak.as_ref().and_then(|tweak| tweak.downcast_ref::<crate::tweak::TweakFn>()) {
+            run(node.widget.view());
+        }
+    }
+
     fn apply(&mut self, command: &Command) {
         match command {
             Command::Create { id, kind, props } => {
@@ -670,8 +693,12 @@ impl State {
                 for prop in props {
                     self.set_prop(*id, prop, command);
                 }
+                self.run_tweak(*id);
             }
-            Command::SetProp { id, prop } => self.set_prop(*id, prop, command),
+            Command::SetProp { id, prop } => {
+                self.set_prop(*id, prop, command);
+                self.run_tweak(*id);
+            }
             Command::Insert { parent, child, index } => {
                 let parent_view = self.view(*parent, command);
                 let child_view = self.view(*child, command);
@@ -1279,7 +1306,9 @@ impl Backend for AppKitBackend {
             props.push(Prop::Enabled(control.isEnabled()));
         }
         props.extend(node.text_style.map(Prop::TextStyle));
-        props.extend(node.variant.map(Prop::Variant));
+        props.extend(node.role.map(Prop::ButtonRole));
+        props.extend(node.button_style.map(Prop::ButtonStyle));
+        props.extend(node.tweak.clone().map(Prop::Tweak));
         let view = node.widget.view();
         let f = view.alignmentRectForFrame(view.frame());
         let mut frame = Rect::new(f.origin.x as f32, f.origin.y as f32, f.size.width as f32, f.size.height as f32);

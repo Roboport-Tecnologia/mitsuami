@@ -565,6 +565,7 @@ dependencies = [
  "block2",
  "mitsuami-core",
  "mitsuami-reactive",
+ "mitsuami-widgets",
  "objc2",
  "objc2-app-kit",
  "objc2-core-foundation",
@@ -587,6 +588,7 @@ dependencies = [
  "gtk4",
  "libc",
  "mitsuami-core",
+ "mitsuami-widgets",
 ]
 
 [[package]]
@@ -602,6 +604,7 @@ version = "0.0.1"
 dependencies = [
  "cc",
  "mitsuami-core",
+ "mitsuami-widgets",
  "pkg-config",
 ]
 
@@ -662,6 +665,7 @@ version = "0.0.1"
 dependencies = [
  "mitsuami-core",
  "mitsuami-reactive",
+ "mitsuami-widgets",
  "windows-collections",
  "windows-core",
  "windows-future",

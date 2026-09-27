@@ -1,5 +1,0 @@
-Window "mitsuami test" [0,0 340×52]
-  Container [0,0 340×52]
-    Button "Default" [16,16 64×20]
-    Button "Primary" variant=Primary [88,16 67×20]
-    Button "Disabled" enabled=false [163,16 73×20]

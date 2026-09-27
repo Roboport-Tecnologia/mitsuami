@@ -116,14 +116,36 @@ pub enum TextStyle {
     Monospace,
 }
 
-/// Semantic button variants, mapped to each platform's native styles.
+/// What a button does in its window or dialog, which each platform shows
+/// and handles its own way. Platforms without an equivalent ignore it.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Hash)]
-pub enum ButtonVariant {
+pub enum ButtonRole {
+    /// An ordinary button.
     #[default]
+    Normal,
+    /// The action Return confirms: the default button on AppKit (Return
+    /// clicks it), the suggested action on GTK, highlighted on Qt, the
+    /// accent button on WinUI. One per window or dialog.
     Default,
-    Primary,
+    /// The action Escape takes: the cancel button on AppKit (Escape clicks
+    /// it). The others show it as a normal button.
+    Cancel,
+    /// An action that destroys data: GTK's destructive action; AppKit marks
+    /// it so the system can warn. Qt and WinUI have no such style.
     Destructive,
-    Plain,
+}
+
+/// How a button is drawn, mapped to each platform's native look.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Hash)]
+pub enum ButtonStyle {
+    /// The same as `Bordered`, on every platform.
+    #[default]
+    Automatic,
+    /// The platform's push button, with its bezel or frame.
+    Bordered,
+    /// No bezel or frame until hovered, where the platform does that: for
+    /// toolbars, and buttons that sit among text.
+    Borderless,
 }
 
 /// Scrolling directions of a `ScrollView`.
@@ -196,7 +218,8 @@ pub enum Prop {
     Checked(bool),
     Enabled(bool),
     TextStyle(TextStyle),
-    Variant(ButtonVariant),
+    ButtonRole(ButtonRole),
+    ButtonStyle(ButtonStyle),
     /// A `Select`'s options, in order.
     Options(Vec<String>),
     /// Which option of a `Select` is chosen: always one, unless it has no
@@ -238,6 +261,10 @@ pub enum Prop {
     /// A `Native` node's factory (on create), then its updates: payloads in
     /// the backend's own form.
     Native(Opaque),
+    /// Raw platform settings for a built-in widget (see
+    /// [`Tweak`](crate::Tweak)), in the backend's own form. Applied after
+    /// the widget's other props, and again whenever they change.
+    Tweak(Opaque),
 }
 
 impl Prop {
@@ -256,9 +283,11 @@ impl Prop {
                 | Prop::Options(_)
                 | Prop::SelectedIndex(_)
                 | Prop::TextStyle(_)
-                | Prop::Variant(_)
+                | Prop::ButtonRole(_)
+                | Prop::ButtonStyle(_)
                 | Prop::Custom(_)
                 | Prop::Native(_)
+                | Prop::Tweak(_)
         )
     }
 }
@@ -284,4 +313,4 @@ macro_rules! static_value {
     )*};
 }
 
-static_value!(TextStyle, ButtonVariant, ScrollAxes, SelectionMode, ListStyle);
+static_value!(TextStyle, ButtonRole, ButtonStyle, ScrollAxes, SelectionMode, ListStyle);

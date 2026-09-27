@@ -10,7 +10,7 @@ fn counter(initial: i32) -> impl View {
     Column::new().padding(16).gap(8).align(Align::Start).children((
         Text::new(move || format!("Count: {}", count.get())),
         Row::new().gap(8).children((
-            Button::new("Increment").variant(ButtonVariant::Primary).on_click(move || count.update(|c| *c += 1)),
+            Button::new("Increment").role(ButtonRole::Default).on_click(move || count.update(|c| *c += 1)),
             Button::new("Reset").on_click(move || count.set(0)),
         )),
         Show::new(move || count.get() >= 3, || Text::new("That's a lot of clicks")),

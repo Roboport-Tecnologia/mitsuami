@@ -12,8 +12,8 @@ use mitsuami_core::backend::{
 };
 use mitsuami_core::services::Reply;
 use mitsuami_core::{
-    ButtonVariant, Command, CustomProps, DisplayList, EventValue, NodeId, Opaque, Point, PointerEvent, Prop, Rect,
-    RowKey, ScrollAxes, SelectionMode, Size, TextStyle, UiEvent, WidgetKind, find_prop,
+    ButtonRole, ButtonStyle, Command, CustomProps, DisplayList, EventValue, NodeId, Opaque, Point, PointerEvent, Prop,
+    Rect, RowKey, ScrollAxes, SelectionMode, Size, TextStyle, UiEvent, WidgetKind, find_prop,
 };
 
 use crate::custom::{Emitter, ErasedRender, KirigamiCx, NativePayload, flatten};
@@ -250,7 +250,10 @@ struct Node {
     row: Option<RowKey>,
     /// Props Qt can't report back faithfully.
     text_style: Option<TextStyle>,
-    variant: Option<ButtonVariant>,
+    role: Option<ButtonRole>,
+    button_style: Option<ButtonStyle>,
+    /// The app's raw settings, run after every other prop.
+    tweak: Option<Opaque>,
     scroll_axes: Option<ScrollAxes>,
     /// Switches, selects, sliders and progress bars show no caption; the
     /// label is their accessible name.
@@ -652,7 +655,9 @@ impl State {
                 parent: None,
                 row: None,
                 text_style: None,
-                variant: None,
+                role: None,
+                button_style: None,
+                tweak: None,
                 scroll_axes: None,
                 a11y_label: None,
             },
@@ -778,13 +783,18 @@ impl State {
                 w.item().set_int("mitsuamiTextStyle", qml::text_style(*style));
                 node.text_style = Some(*style);
             }
-            (Prop::Variant(variant), Widget::Button(b)) => {
-                // Breeze highlights the default button; flat buttons have no
-                // frame until hovered. There is no destructive style.
-                b.set_bool("highlighted", *variant == ButtonVariant::Primary);
-                b.set_bool("flat", *variant == ButtonVariant::Plain);
-                node.variant = Some(*variant);
+            (Prop::ButtonRole(role), Widget::Button(b)) => {
+                // Breeze highlights the default button. There is no cancel
+                // or destructive style.
+                b.set_bool("highlighted", *role == ButtonRole::Default);
+                node.role = Some(*role);
             }
+            (Prop::ButtonStyle(style), Widget::Button(b)) => {
+                // Flat buttons have no frame until hovered.
+                b.set_bool("flat", *style == ButtonStyle::Borderless);
+                node.button_style = Some(*style);
+            }
+            (Prop::Tweak(tweak), _) => node.tweak = Some(tweak.clone()),
             (Prop::Rows(rows), Widget::List(list)) => list.set_rows(rows.clone()),
             (Prop::SelectionMode(mode), Widget::List(list)) => list.set_mode(*mode),
             (Prop::ListStyle(style), Widget::List(list)) => list.set_style(*style),
@@ -846,6 +856,15 @@ impl State {
         }
     }
 
+    /// Runs the node's raw settings, if the app gave any, after its props:
+    /// what they set wins.
+    fn run_tweak(&self, id: NodeId) {
+        let node = &self.nodes[&id];
+        if let Some(run) = node.tweak.as_ref().and_then(|tweak| tweak.downcast_ref::<crate::tweak::TweakFn>()) {
+            run(node.widget.item());
+        }
+    }
+
     fn apply(&mut self, command: &Command) {
         match command {
             Command::Create { id, kind, props } => {
@@ -856,8 +875,12 @@ impl State {
                 for prop in props {
                     self.set_prop(*id, prop, command);
                 }
+                self.run_tweak(*id);
             }
-            Command::SetProp { id, prop } => self.set_prop(*id, prop, command),
+            Command::SetProp { id, prop } => {
+                self.set_prop(*id, prop, command);
+                self.run_tweak(*id);
+            }
             Command::Insert { parent, child, index } => {
                 let item = self.widget(*child, command).item();
                 if self.nodes[child].parent.is_some() {
@@ -1323,7 +1346,9 @@ impl Backend for KirigamiBackend {
             props.push(Prop::Enabled(item.bool("enabled")));
         }
         props.extend(node.text_style.map(Prop::TextStyle));
-        props.extend(node.variant.map(Prop::Variant));
+        props.extend(node.role.map(Prop::ButtonRole));
+        props.extend(node.button_style.map(Prop::ButtonStyle));
+        props.extend(node.tweak.clone().map(Prop::Tweak));
         let frame = match &node.widget {
             Widget::Window { root } => {
                 let size = root.size.get();
