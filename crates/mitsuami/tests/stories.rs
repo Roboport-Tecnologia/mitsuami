@@ -264,6 +264,43 @@ fn progress_tweak() -> Tweak<Progress> {
     }
 }
 
+/// Spinners running beside text, and one stopped: it shows nothing but
+/// keeps its place. The tweaked one: small on AppKit, larger on GTK and
+/// Qt, a determinate ring on WinUI.
+#[mitsuami_test::story(sizes = [(240, fit)])]
+fn spinners() -> impl View {
+    let row = |spinner: Spinner, text: &str| {
+        Row::new().gap(8).align(Align::Center).children((spinner, Text::new(text.to_string())))
+    };
+    Column::new().padding(16).gap(12).children((
+        row(Spinner::new("Loading"), "Loading"),
+        row(Spinner::new("Stopped").running(false), "Stopped"),
+        row(Spinner::new("Tweaked").native(spinner_tweak()), "Tweaked"),
+    ))
+}
+
+fn spinner_tweak() -> Tweak<Spinner> {
+    platform! {
+        macos => mitsuami::appkit::tweak(|s: &mitsuami::appkit::objc2_app_kit::NSProgressIndicator| {
+            s.setControlSize(mitsuami::appkit::objc2_app_kit::NSControlSize::Small)
+        }),
+        gtk => mitsuami::gtk::tweak(|s: &mitsuami::gtk::gtk::Spinner| {
+            use mitsuami::gtk::gtk::prelude::*;
+            s.set_size_request(32, 32)
+        }),
+        kde => mitsuami::kirigami::tweak(|s: &mitsuami::kirigami::QmlObject| {
+            s.set_real("implicitWidth", 48.0);
+            s.set_real("implicitHeight", 48.0);
+        }),
+        windows => mitsuami::winui::tweak(|s: &mitsuami::winui::bindings::ProgressRing| {
+            use mitsuami::winui::windows_core::Interface;
+            let ring = s.cast::<mitsuami::winui::bindings::IProgressRing>()?;
+            ring.SetIsIndeterminate(false)?;
+            ring.SetValue(60.0)
+        }),
+    }
+}
+
 /// Sliders and progress bars as wide as the story; without a step, and
 /// with one.
 #[mitsuami_test::story(sizes = [(240, fit)])]

@@ -398,7 +398,7 @@ Button::new("Continue").role(ButtonRole::Default).native(platform! {
 - `tweak_with(value, |b, v| …)` runs again when the value changes; only the tweak is sent again.
 - A tweak can make the native control disagree with the core's props (an icon for a label, say); the mirror check then fails in tests. Set what the semantic props don't.
 - `_ => Tweak::none()` leaves the other platforms alone. Headless tests keep the tweak but don't run it.
-- The widget's type names the native one (`Tweakable`): `Button` is `NSButton`, `gtk::Button`, a `QQC2.Button` item (`QmlObject`, set by property name) and XAML's `Button`, whose closure returns a `windows_core::Result`; `Checkbox` is `NSButton`, `gtk::CheckButton`, a `QQC2.CheckBox` item and XAML's `CheckBox`; `Switch` is `NSSwitch`, `gtk::Switch`, a `QQC2.Switch` item and XAML's `ToggleSwitch`; `Select` is `NSPopUpButton`, `gtk::DropDown`, a `QQC2.ComboBox` item and XAML's `ComboBox`; `Slider` is `NSSlider`, `gtk::Scale`, a `QQC2.Slider` item and XAML's `Slider`; `Progress` is `NSProgressIndicator`, `gtk::ProgressBar`, a `QQC2.ProgressBar` item and XAML's `ProgressBar`.
+- The widget's type names the native one (`Tweakable`): `Button` is `NSButton`, `gtk::Button`, a `QQC2.Button` item (`QmlObject`, set by property name) and XAML's `Button`, whose closure returns a `windows_core::Result`; `Checkbox` is `NSButton`, `gtk::CheckButton`, a `QQC2.CheckBox` item and XAML's `CheckBox`; `Switch` is `NSSwitch`, `gtk::Switch`, a `QQC2.Switch` item and XAML's `ToggleSwitch`; `Select` is `NSPopUpButton`, `gtk::DropDown`, a `QQC2.ComboBox` item and XAML's `ComboBox`; `Slider` is `NSSlider`, `gtk::Scale`, a `QQC2.Slider` item and XAML's `Slider`; `Progress` is `NSProgressIndicator`, `gtk::ProgressBar`, a `QQC2.ProgressBar` item and XAML's `ProgressBar`; `Spinner` is `NSProgressIndicator`, `gtk::Spinner`, a `QQC2.BusyIndicator` item and XAML's `ProgressRing`.
 
 ## 7. Accessibility and i18n affordances (designed in now, implemented later)
 
@@ -498,7 +498,8 @@ which builds the same tree as `Column::new().gap(…).children((Text::new(…).t
 | Switch | NSSwitch | ToggleSwitch | gtk::Switch | QQC2.Switch |
 | Slider | NSSlider | Slider | gtk::Scale | QQC2.Slider |
 | Select | NSPopUpButton | ComboBox | gtk::DropDown | QQC2.ComboBox |
-| Progress | NSProgressIndicator | ProgressBar / ProgressRing | gtk::ProgressBar / Spinner | QQC2.ProgressBar / BusyIndicator |
+| Progress | NSProgressIndicator (bar) | ProgressBar | gtk::ProgressBar | QQC2.ProgressBar |
+| Spinner | NSProgressIndicator (spinning) | ProgressRing | gtk::Spinner | QQC2.BusyIndicator |
 | Image | NSImageView | Image | gtk::Picture | Kirigami.Icon / Image |
 | ScrollView | NSScrollView | ScrollViewer | gtk::ScrolledWindow | QQC2.ScrollView |
 | List (virtualised) | NSTableView | ListView | gtk::ListView | ListView |
@@ -850,6 +851,15 @@ Things the AppKit backend taught us, some of them now part of the contract:
 
 - **No semantic options past the value.** Orientation is GTK's only; paused and error states are WinUI's; a percentage label is GTK's. A circular style would be the one to share, but on GTK, Qt and WinUI a spinner is another control, and GTK and Qt have none that shows a value, so spinners get a widget of their own (`Spinner`, next) instead of a style.
 - **The example's tweaks:** a small bar on AppKit (captured, measured thinner), `show-text` on GTK, `palette.highlight` on Qt (Qt 6's palette is an object; whether Breeze draws the bar with it isn't checked), `ShowPaused` on WinUI (bindings added).
+- **Run on AppKit only:** GTK, Kirigami and WinUI are only type-checked, and CI hasn't run them.
+
+### Spinner
+
+- **A widget of its own, not a style of `Progress`:** every platform has a spinner for work of unknown length, but on GTK, Qt and WinUI it's another control than the bar, and GTK's and Qt's show no value.
+- **`running`, on by default.** Stopped, every platform's spinner shows nothing (AppKit's with `displayedWhenStopped` off, which the backend sets) and keeps its size, so nothing around it moves; apps hide it with `Show` to give the room back.
+- **It reads as a progress bar without a value** (`Role::ProgressBar`), as ARIA has it and as GTK and WinUI report theirs; AppKit reports a busy indicator natively. Named by its label; takes no focus.
+- **Sized as the platform sizes it:** AppKit's regular spinner is 32 pt, GTK's 16 px, Breeze's two grid units, WinUI's 32; headless measures 16 × 16.
+- **The example's tweaks:** a small spinner on AppKit (captured), a 32 px size request on GTK, a larger implicit size on Qt, a determinate ring on WinUI (`IsIndeterminate`, `Value` added to the bindings), which only WinUI's spinner can show.
 - **Run on AppKit only:** GTK, Kirigami and WinUI are only type-checked, and CI hasn't run them.
 
 ### M2 (GTK 4)

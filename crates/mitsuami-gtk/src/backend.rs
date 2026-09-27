@@ -69,6 +69,7 @@ enum Widget {
         bar: gtk::ProgressBar,
         pulsing: Rc<Cell<bool>>,
     },
+    Spinner(gtk::Spinner),
     Scroll {
         scrolled: gtk::ScrolledWindow,
         viewport: gtk::Viewport,
@@ -108,6 +109,7 @@ impl Widget {
             Widget::Select { dropdown, .. } => dropdown.upcast_ref(),
             Widget::Slider { scale, .. } => scale.upcast_ref(),
             Widget::Progress { bar, .. } => bar.upcast_ref(),
+            Widget::Spinner(w) => w.upcast_ref(),
             Widget::Scroll { scrolled, .. } => scrolled.upcast_ref(),
             Widget::List(list) => list.scrolled.upcast_ref(),
             Widget::Custom { widget, .. } | Widget::Native { widget, .. } => widget,
@@ -625,6 +627,7 @@ impl State {
                 Widget::Slider { scale, step: None }
             }
             WidgetKind::Progress => Widget::Progress { bar: gtk::ProgressBar::new(), pulsing: Rc::default() },
+            WidgetKind::Spinner => Widget::Spinner(gtk::Spinner::new()),
             WidgetKind::TextInput => {
                 let entry = gtk::Entry::new();
                 let e = events.clone();
@@ -793,6 +796,12 @@ impl State {
                 bar.update_property(&[gtk::accessible::Property::Label(t)]);
                 node.a11y_label = Some(t.clone());
             }
+            (Prop::Label(t), Widget::Spinner(s)) => {
+                s.update_property(&[gtk::accessible::Property::Label(t)]);
+                node.a11y_label = Some(t.clone());
+            }
+            // Stopped, a GTK spinner draws nothing.
+            (Prop::Running(r), Widget::Spinner(s)) => s.set_spinning(*r),
             (Prop::Progress(progress), Widget::Progress { bar, pulsing }) => match progress {
                 Some(fraction) => {
                     pulsing.set(false);
@@ -1449,6 +1458,10 @@ impl Backend for GtkBackend {
             Widget::Progress { bar, pulsing } => {
                 props.extend(node.a11y_label.clone().map(Prop::Label));
                 props.push(Prop::Progress((!pulsing.get()).then(|| bar.fraction())));
+            }
+            Widget::Spinner(s) => {
+                props.extend(node.a11y_label.clone().map(Prop::Label));
+                props.push(Prop::Running(s.is_spinning()));
             }
             Widget::Scroll { scrolled, .. } => {
                 let (h, v) = scrolled.policy();

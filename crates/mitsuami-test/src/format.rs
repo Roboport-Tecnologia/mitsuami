@@ -30,6 +30,7 @@ fn describe_props(props: &[Prop]) -> String {
                 progress.map_or("indeterminate".to_owned(), |p| Num(p as f32).to_string())
             )),
             Prop::Checked(b) => extra.push(format!("checked={b}")),
+            Prop::Running(b) => extra.push(format!("running={b}")),
             Prop::Mixed(b) => extra.push(format!("mixed={b}")),
             Prop::Enabled(b) => extra.push(format!("enabled={b}")),
             Prop::TextStyle(s) => extra.push(format!("style={s:?}")),
@@ -243,7 +244,7 @@ pub(crate) fn wireframe(root: &NodeInfo) -> String {
             WidgetKind::Button => "#2f6fdf",
             WidgetKind::TextInput => "#a0602a",
             WidgetKind::Checkbox | WidgetKind::Switch => "#8a4fbf",
-            WidgetKind::Select | WidgetKind::Slider | WidgetKind::Progress => "#1f8a8a",
+            WidgetKind::Select | WidgetKind::Slider | WidgetKind::Progress | WidgetKind::Spinner => "#1f8a8a",
             WidgetKind::Custom(_) | WidgetKind::Native => "#c0392b",
         }
     }

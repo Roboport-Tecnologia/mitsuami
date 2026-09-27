@@ -553,6 +553,7 @@ impl Backend for HeadlessBackend {
                 Orientation::Vertical => Size::new(20.0, 160.0),
             },
             WidgetKind::Progress => Size::new(160.0, 8.0),
+            WidgetKind::Spinner => Size::new(16.0, 16.0),
             // Sized for its chosen option, with room for the arrow.
             WidgetKind::Select => {
                 let options = find_prop!(node.props, Options).unwrap_or_default();

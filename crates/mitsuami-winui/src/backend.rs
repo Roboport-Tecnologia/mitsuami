@@ -151,6 +151,7 @@ enum Widget {
         step: Option<f64>,
     },
     Progress(w::ProgressBar),
+    Spinner(w::ProgressRing),
     Scroll(w::ScrollViewer),
     List(crate::list::List),
     /// A custom widget with a native render, and the props it shows.
@@ -1050,6 +1051,13 @@ impl State {
                 let element = progress.cast()?;
                 (Widget::Progress(progress), element)
             }
+            // Indeterminate by default; inactive, it shows nothing.
+            WidgetKind::Spinner => {
+                let ring = w::ProgressRing::new()?;
+                ring.cast::<w::IProgressRing>()?.SetIsActive(false)?;
+                let element = ring.cast()?;
+                (Widget::Spinner(ring), element)
+            }
             WidgetKind::TextInput => {
                 let field = w::TextBox::new()?;
                 let iface: w::ITextBox = field.cast()?;
@@ -1181,7 +1189,14 @@ impl State {
             (Prop::Label(t), Widget::Button(_) | Widget::Checkbox(_)) => {
                 node.element.cast::<w::IContentControl>()?.SetContent(&boxed(t))?
             }
-            (Prop::Label(t), Widget::Switch(_) | Widget::Select(_) | Widget::Slider { .. } | Widget::Progress(_)) => {
+            (
+                Prop::Label(t),
+                Widget::Switch(_)
+                | Widget::Select(_)
+                | Widget::Slider { .. }
+                | Widget::Progress(_)
+                | Widget::Spinner(_),
+            ) => {
                 w::AutomationProperties::SetName(&node.element, t)?;
                 node.a11y_label = Some(t.clone());
             }
@@ -1242,6 +1257,7 @@ impl State {
                 // XAML snaps what it's given to its step.
                 node.shown_number.set(slider.cast::<w::IRangeBase>()?.Value()?);
             }
+            (Prop::Running(r), Widget::Spinner(ring)) => ring.cast::<w::IProgressRing>()?.SetIsActive(*r)?,
             (Prop::Progress(progress), Widget::Progress(p)) => {
                 p.cast::<w::IProgressBar>()?.SetIsIndeterminate(progress.is_none())?;
                 if let Some(fraction) = progress {
@@ -1443,7 +1459,11 @@ impl State {
                 // An empty name means "derive it from the content".
                 let named_by_label = matches!(
                     self.nodes[id].widget,
-                    Widget::Switch(_) | Widget::Select(_) | Widget::Slider { .. } | Widget::Progress(_)
+                    Widget::Switch(_)
+                        | Widget::Select(_)
+                        | Widget::Slider { .. }
+                        | Widget::Progress(_)
+                        | Widget::Spinner(_)
                 );
                 if !named_by_label || label.is_some() {
                     w::AutomationProperties::SetName(&element, label.as_deref().unwrap_or(""))?;
@@ -1729,7 +1749,8 @@ impl Backend for WinUiBackend {
             | Widget::Switch(_)
             | Widget::Select(_)
             | Widget::Slider { .. }
-            | Widget::Progress(_) => ceil(measure_element(&node.element, infinite)),
+            | Widget::Progress(_)
+            | Widget::Spinner(_) => ceil(measure_element(&node.element, infinite)),
             Widget::Custom { render, props } => render
                 .measure(node.control(), props.props(), &request)
                 .unwrap_or_else(|| ceil(measure_element(&node.element, infinite))),
@@ -2063,6 +2084,13 @@ impl Backend for WinUiBackend {
                 let indeterminate = p.cast::<w::IProgressBar>().ok()?.IsIndeterminate().ok()?;
                 let value = p.cast::<w::IRangeBase>().ok()?.Value().ok()?;
                 props.push(Prop::Progress((!indeterminate).then_some(value)));
+            }
+            Widget::Spinner(ring) => {
+                let name = w::AutomationProperties::GetName(&node.element).unwrap_or_default();
+                if !name.is_empty() {
+                    props.push(Prop::Label(name));
+                }
+                props.push(Prop::Running(ring.cast::<w::IProgressRing>().ok()?.IsActive().ok()?));
             }
             Widget::Select(combo) => {
                 let name = w::AutomationProperties::GetName(&node.element).unwrap_or_default();

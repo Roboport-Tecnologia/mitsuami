@@ -678,6 +678,53 @@ impl Progress {
     }
 }
 
+/// A spinner, as the platform draws one, for work of unknown length: a
+/// spinning `NSProgressIndicator`, `gtk::Spinner`, `ProgressRing`,
+/// `QQC2.BusyIndicator`. It spins while running (from the start, unless
+/// told otherwise), and shows nothing while stopped, keeping its place. Its
+/// label is its accessible name.
+///
+/// ```ignore
+/// Spinner::new("Loading").running(move || loading.get())
+/// ```
+pub struct Spinner {
+    element: Element,
+    running: Value<bool>,
+}
+
+impl ElementBuilder for Spinner {
+    fn element(&mut self) -> &mut Element {
+        &mut self.element
+    }
+}
+
+impl View for Spinner {
+    fn build(mut self, ui: &Ui) -> NodeId {
+        self.element.prop(self.running, Prop::Running);
+        self.element.build(ui)
+    }
+}
+
+impl Spinner {
+    pub fn new(label: impl IntoValue<String>) -> Spinner {
+        let mut element = Element::new(WidgetKind::Spinner);
+        element.prop(label.into_value(), Prop::Label);
+        Spinner { element, running: Value::Static(true) }
+    }
+
+    /// Spins while true; shows nothing while false.
+    pub fn running(mut self, running: impl IntoValue<bool>) -> Spinner {
+        self.running = running.into_value();
+        self
+    }
+
+    /// Raw platform settings: see [`Tweak`].
+    pub fn native(mut self, tweak: Tweak<Spinner>) -> Spinner {
+        tweak.apply(&mut self.element);
+        self
+    }
+}
+
 // ----------------------------------------------------------- view! tags
 //
 // `view!` builds `<Tag …>children</Tag>` as
@@ -780,6 +827,14 @@ impl Slider {
             range: Value::Static((0.0, 100.0)),
             value: Value::Static(0.0),
         }
+    }
+}
+
+impl Spinner {
+    /// `<Spinner a11y_label="Loading" running=loading/>`
+    #[doc(hidden)]
+    pub fn __tag() -> Spinner {
+        Spinner { element: Element::new(WidgetKind::Spinner), running: Value::Static(true) }
     }
 }
 

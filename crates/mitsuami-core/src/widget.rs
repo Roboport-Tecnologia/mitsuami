@@ -50,6 +50,11 @@ pub enum WidgetKind {
     /// A native progress bar (NSProgressIndicator, ProgressBar,
     /// gtk::ProgressBar, QQC2.ProgressBar): a [`Prop::Progress`].
     Progress,
+    /// A native spinner for work of unknown length (a spinning
+    /// NSProgressIndicator, gtk::Spinner, ProgressRing,
+    /// QQC2.BusyIndicator). It spins while [`Prop::Running`], and shows
+    /// nothing otherwise.
+    Spinner,
     /// A native scroll container. It has exactly one native child, the
     /// content, which the core lays out and may be larger than the viewport.
     ScrollView,
@@ -97,6 +102,7 @@ impl WidgetKind {
             WidgetKind::Select => "Select",
             WidgetKind::Slider => "Slider",
             WidgetKind::Progress => "Progress",
+            WidgetKind::Spinner => "Spinner",
             WidgetKind::Custom(name) => name,
             WidgetKind::Native => "Native",
         }
@@ -258,6 +264,9 @@ pub enum Prop {
     Step(Option<f64>),
     /// Which way a `Slider` runs.
     Orientation(Orientation),
+    /// Whether a `Spinner` spins. Stopped, it shows nothing but keeps its
+    /// place.
+    Running(bool),
     /// How far along a `Progress` is, from 0 to 1. `None`: not known (an
     /// indeterminate, animated bar).
     Progress(Option<f64>),

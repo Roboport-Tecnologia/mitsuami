@@ -1478,7 +1478,8 @@ impl Inner {
             WidgetKind::Switch => Role::Switch,
             WidgetKind::Select => Role::ComboBox,
             WidgetKind::Slider => Role::Slider,
-            WidgetKind::Progress => Role::ProgressBar,
+            // A spinner reads as a progress bar without a value, as in ARIA.
+            WidgetKind::Progress | WidgetKind::Spinner => Role::ProgressBar,
             WidgetKind::Custom(_) | WidgetKind::Native => Role::Group,
         });
         if role == Role::None {
@@ -1494,7 +1495,8 @@ impl Inner {
                 | WidgetKind::Switch
                 | WidgetKind::Select
                 | WidgetKind::Slider
-                | WidgetKind::Progress => crate::find_prop!(props, Label),
+                | WidgetKind::Progress
+                | WidgetKind::Spinner => crate::find_prop!(props, Label),
                 WidgetKind::TextInput => crate::find_prop!(props, Placeholder),
                 // Rows read as their text, as screen readers read native rows.
                 WidgetKind::Container if row.is_some() => {

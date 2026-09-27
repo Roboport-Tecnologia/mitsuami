@@ -140,6 +140,7 @@ enum Widget {
     Select(QmlObject),
     Slider(QmlObject),
     Progress(QmlObject),
+    Spinner(QmlObject),
     Scroll {
         view: QmlObject,
         flickable: QmlObject,
@@ -181,6 +182,7 @@ impl Widget {
             | Widget::Select(i)
             | Widget::Slider(i)
             | Widget::Progress(i)
+            | Widget::Spinner(i)
             | Widget::Scroll { view: i, .. }
             | Widget::Custom { item: i, .. }
             | Widget::Drawn { item: i, .. }
@@ -634,6 +636,7 @@ impl State {
                 Widget::Slider(slider)
             }
             WidgetKind::Progress => Widget::Progress(QmlObject::load(&qml::progress())),
+            WidgetKind::Spinner => Widget::Spinner(QmlObject::load(&qml::spinner())),
             WidgetKind::TextInput => {
                 let field = QmlObject::load(&qml::text_field());
                 let e = events.clone();
@@ -756,7 +759,10 @@ impl State {
             }
             (Prop::Text(t), Widget::Label(l)) => l.set_str("text", t),
             (Prop::Label(t), Widget::Button(b) | Widget::Checkbox(b)) => b.set_str("text", t),
-            (Prop::Label(t), Widget::Switch(s) | Widget::Select(s) | Widget::Slider(s) | Widget::Progress(s)) => {
+            (
+                Prop::Label(t),
+                Widget::Switch(s) | Widget::Select(s) | Widget::Slider(s) | Widget::Progress(s) | Widget::Spinner(s),
+            ) => {
                 s.set_str("mitsuamiA11yName", t);
                 node.a11y_label = Some(t.clone());
             }
@@ -788,6 +794,8 @@ impl State {
                 s.set_int("orientation", if o.vertical() { QT_VERTICAL } else { QT_HORIZONTAL });
                 node.orientation = Some(*o);
             }
+            // Stopped, a busy indicator fades out.
+            (Prop::Running(r), Widget::Spinner(s)) => s.set_bool("running", *r),
             (Prop::Progress(progress), Widget::Progress(p)) => {
                 p.set_bool("indeterminate", progress.is_none());
                 if let Some(fraction) = progress {
@@ -1002,7 +1010,11 @@ impl State {
                 // A switch's or select's accessible name is its label prop.
                 let named_by_label = matches!(
                     node.widget,
-                    Widget::Switch(_) | Widget::Select(_) | Widget::Slider(_) | Widget::Progress(_)
+                    Widget::Switch(_)
+                        | Widget::Select(_)
+                        | Widget::Slider(_)
+                        | Widget::Progress(_)
+                        | Widget::Spinner(_)
                 );
                 if !named_by_label || label.is_some() {
                     item.set_str("mitsuamiA11yName", label.as_deref().unwrap_or_default());
@@ -1372,6 +1384,10 @@ impl Backend for KirigamiBackend {
             Widget::Progress(p) => {
                 props.extend(node.a11y_label.clone().map(Prop::Label));
                 props.push(Prop::Progress((!p.bool("indeterminate")).then(|| p.real("value"))));
+            }
+            Widget::Spinner(s) => {
+                props.extend(node.a11y_label.clone().map(Prop::Label));
+                props.push(Prop::Running(s.bool("running")));
             }
             Widget::Select(s) => {
                 props.extend(node.a11y_label.clone().map(Prop::Label));

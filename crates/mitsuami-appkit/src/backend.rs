@@ -23,8 +23,9 @@ use objc2_app_kit::{
     NSControlStateValueOff, NSControlStateValueOn, NSEvent, NSEventModifierFlags, NSEventType, NSFont, NSFontTextStyle,
     NSFontTextStyleBody, NSFontTextStyleCallout, NSFontTextStyleCaption1, NSFontTextStyleHeadline,
     NSFontTextStyleLargeTitle, NSFontTextStyleTitle1, NSFontWeightRegular, NSMenuItem, NSPopUpButton,
-    NSProgressIndicator, NSScreen, NSScrollView, NSSlider, NSStandardKeyBindingResponding, NSSwitch, NSTextField,
-    NSView, NSViewBoundsDidChangeNotification, NSWindow, NSWindowOrderingMode, NSWindowStyleMask, NSWorkspace,
+    NSProgressIndicator, NSProgressIndicatorStyle, NSScreen, NSScrollView, NSSlider, NSStandardKeyBindingResponding,
+    NSSwitch, NSTextField, NSView, NSViewBoundsDidChangeNotification, NSWindow, NSWindowOrderingMode,
+    NSWindowStyleMask, NSWorkspace,
 };
 use objc2_foundation::{NSArray, NSDictionary, NSNotificationCenter, NSPoint, NSRange, NSRect, NSSize, NSString};
 
@@ -72,6 +73,11 @@ enum Widget {
         step: Option<f64>,
     },
     Progress(Retained<NSProgressIndicator>),
+    /// A spinning indicator, and whether it's animating: AppKit can't say.
+    Spinner {
+        indicator: Retained<NSProgressIndicator>,
+        running: bool,
+    },
     Scroll(Retained<NSScrollView>),
     List(crate::list::List),
     /// A custom widget with an AppKit render, and the props it last got.
@@ -106,6 +112,7 @@ impl Widget {
             Widget::Select(v) => v,
             Widget::Slider { slider, .. } => slider,
             Widget::Progress(v) => v,
+            Widget::Spinner { indicator, .. } => indicator,
             Widget::Scroll(v) => v,
             Widget::List(list) => &list.scroll,
             Widget::Custom { view, .. } | Widget::Native { view, .. } => view,
@@ -122,6 +129,7 @@ impl Widget {
             Widget::Slider { slider, .. } => Some(slider),
             Widget::Window { .. }
             | Widget::Progress(_)
+            | Widget::Spinner { .. }
             | Widget::Host(_)
             | Widget::Scroll(_)
             | Widget::List(_)
@@ -496,6 +504,14 @@ impl State {
                 progress.setMaxValue(1.0);
                 Widget::Progress(progress)
             }
+            WidgetKind::Spinner => {
+                let indicator = NSProgressIndicator::new(mtm);
+                indicator.setStyle(NSProgressIndicatorStyle::Spinning);
+                indicator.setIndeterminate(true);
+                // Stopped, it shows nothing, as the other platforms' do.
+                indicator.setDisplayedWhenStopped(false);
+                Widget::Spinner { indicator, running: false }
+            }
             WidgetKind::TextInput => {
                 // No target-action: submit comes from the delegate (Return
                 // only), edits from `controlTextDidChange:`.
@@ -605,7 +621,17 @@ impl State {
                 slider.setVertical(o.vertical());
                 node.orientation = Some(*o);
             }
-            (Prop::Label(t), Widget::Progress(p)) => p.setAccessibilityLabel(Some(&ns(t))),
+            (Prop::Label(t), Widget::Progress(p) | Widget::Spinner { indicator: p, .. }) => {
+                p.setAccessibilityLabel(Some(&ns(t)))
+            }
+            (Prop::Running(r), Widget::Spinner { indicator, running }) => {
+                if *r {
+                    unsafe { indicator.startAnimation(None) };
+                } else {
+                    unsafe { indicator.stopAnimation(None) };
+                }
+                *running = *r;
+            }
             (Prop::Progress(progress), Widget::Progress(p)) => {
                 p.setIndeterminate(progress.is_none());
                 match progress {
@@ -1009,6 +1035,7 @@ impl Backend for AppKitBackend {
             // No natural width: they're as wide as the layout makes them.
             Widget::Slider { slider, .. } => intrinsic(slider),
             Widget::Progress(p) => intrinsic(p),
+            Widget::Spinner { indicator, .. } => intrinsic(indicator),
             Widget::Custom { view, render, props } => {
                 render.measure(view, props.props(), &request).unwrap_or_else(|| intrinsic(view))
             }
@@ -1315,6 +1342,12 @@ impl Backend for AppKitBackend {
                     props.push(Prop::Label(label.to_string()));
                 }
                 props.push(Prop::Progress((!p.isIndeterminate()).then(|| p.doubleValue())));
+            }
+            Widget::Spinner { indicator, running } => {
+                if let Some(label) = indicator.accessibilityLabel() {
+                    props.push(Prop::Label(label.to_string()));
+                }
+                props.push(Prop::Running(*running));
             }
             Widget::Scroll(scroll) => {
                 props.push(Prop::ScrollAxes(match (scroll.hasHorizontalScroller(), scroll.hasVerticalScroller()) {

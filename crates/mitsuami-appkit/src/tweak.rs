@@ -4,7 +4,7 @@ use std::rc::Rc;
 
 use mitsuami_core::reactive::{IntoValue, Value};
 use mitsuami_core::{Opaque, Tweak};
-use mitsuami_widgets::{Button, Checkbox, Progress, Select, Slider, Switch};
+use mitsuami_widgets::{Button, Checkbox, Progress, Select, Slider, Spinner, Switch};
 use objc2::DowncastTarget;
 use objc2_app_kit::{NSButton, NSPopUpButton, NSProgressIndicator, NSSlider, NSSwitch, NSView};
 
@@ -34,6 +34,10 @@ impl Tweakable for Slider {
 }
 
 impl Tweakable for Progress {
+    type Native = NSProgressIndicator;
+}
+
+impl Tweakable for Spinner {
     type Native = NSProgressIndicator;
 }
 

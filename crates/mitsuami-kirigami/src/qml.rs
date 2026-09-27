@@ -156,6 +156,10 @@ QQC2.Slider {{
     )
 }
 
+pub(crate) fn spinner() -> String {
+    format!("QQC2.BusyIndicator {{ running: false; {} }}", a11y("\"\""))
+}
+
 pub(crate) fn progress() -> String {
     format!("QQC2.ProgressBar {{ from: 0; to: 1; {} }}", a11y("\"\""))
 }

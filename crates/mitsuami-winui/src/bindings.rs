@@ -4619,6 +4619,62 @@ pub struct IProgressBarFactory_Vtbl {
         *mut *mut core::ffi::c_void,
     ) -> windows_core::HRESULT,
 }
+windows_core::imp::define_interface!(IProgressRing, IProgressRing_Vtbl, 0x2670d03f_e28c_5652_bee2_b5212ebdf7ff);
+impl windows_core::RuntimeType for IProgressRing {
+    const SIGNATURE: windows_core::imp::ConstBuffer = windows_core::imp::ConstBuffer::for_interface::<Self>();
+}
+impl IProgressRing {
+    pub fn IsActive(&self) -> windows_core::Result<bool> {
+        unsafe {
+            let mut result__ = core::mem::zeroed();
+            (windows_core::Interface::vtable(self).IsActive)(windows_core::Interface::as_raw(self), &mut result__)
+                .map(|| result__)
+        }
+    }
+    pub fn SetIsActive(&self, value: bool) -> windows_core::Result<()> {
+        unsafe {
+            (windows_core::Interface::vtable(self).SetIsActive)(windows_core::Interface::as_raw(self), value).ok()
+        }
+    }
+    pub fn SetIsIndeterminate(&self, value: bool) -> windows_core::Result<()> {
+        unsafe {
+            (windows_core::Interface::vtable(self).SetIsIndeterminate)(windows_core::Interface::as_raw(self), value)
+                .ok()
+        }
+    }
+    pub fn SetValue(&self, value: f64) -> windows_core::Result<()> {
+        unsafe { (windows_core::Interface::vtable(self).SetValue)(windows_core::Interface::as_raw(self), value).ok() }
+    }
+}
+#[repr(C)]
+pub struct IProgressRing_Vtbl {
+    pub base__: windows_core::IInspectable_Vtbl,
+    pub IsActive: unsafe extern "system" fn(*mut core::ffi::c_void, *mut bool) -> windows_core::HRESULT,
+    pub SetIsActive: unsafe extern "system" fn(*mut core::ffi::c_void, bool) -> windows_core::HRESULT,
+    IsIndeterminate: usize,
+    pub SetIsIndeterminate: unsafe extern "system" fn(*mut core::ffi::c_void, bool) -> windows_core::HRESULT,
+    TemplateSettings: usize,
+    Value: usize,
+    pub SetValue: unsafe extern "system" fn(*mut core::ffi::c_void, f64) -> windows_core::HRESULT,
+}
+windows_core::imp::define_interface!(
+    IProgressRingFactory,
+    IProgressRingFactory_Vtbl,
+    0x092fa98c_62a7_5dbc_9a85_3e556ba81f79
+);
+impl windows_core::RuntimeType for IProgressRingFactory {
+    const SIGNATURE: windows_core::imp::ConstBuffer = windows_core::imp::ConstBuffer::for_interface::<Self>();
+}
+#[repr(C)]
+pub struct IProgressRingFactory_Vtbl {
+    pub base__: windows_core::IInspectable_Vtbl,
+    pub CreateInstance: unsafe extern "system" fn(
+        *mut core::ffi::c_void,
+        *mut core::ffi::c_void,
+        *mut *mut core::ffi::c_void,
+        *mut *mut core::ffi::c_void,
+    ) -> windows_core::HRESULT,
+}
 windows_core::imp::define_interface!(IPropertyValue, IPropertyValue_Vtbl, 0x4bd682dd_7554_40e9_9a9b_82654ede7e62);
 impl windows_core::RuntimeType for IPropertyValue {
     const SIGNATURE: windows_core::imp::ConstBuffer = windows_core::imp::ConstBuffer::for_interface::<Self>();
@@ -8155,6 +8211,51 @@ impl windows_core::RuntimeName for ProgressBar {
 }
 unsafe impl Send for ProgressBar {}
 unsafe impl Sync for ProgressBar {}
+#[repr(transparent)]
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct ProgressRing(windows_core::IUnknown);
+windows_core::imp::interface_hierarchy!(ProgressRing, windows_core::IUnknown, windows_core::IInspectable);
+windows_core::imp::required_hierarchy!(ProgressRing, Control, FrameworkElement, UIElement, DependencyObject);
+impl ProgressRing {
+    pub fn new() -> windows_core::Result<Self> {
+        Self::IProgressRingFactory(|this| unsafe {
+            let mut result__ = core::mem::zeroed();
+            (windows_core::Interface::vtable(this).CreateInstance)(
+                windows_core::Interface::as_raw(this),
+                core::ptr::null_mut(),
+                core::ptr::null_mut(),
+                &mut result__,
+            )
+            .and_then(|| windows_core::imp::Type::from_abi(result__))
+        })
+    }
+    fn IProgressRingFactory<R, F: FnOnce(&IProgressRingFactory) -> windows_core::Result<R>>(
+        callback: F,
+    ) -> windows_core::Result<R> {
+        static SHARED: windows_core::imp::FactoryCache<ProgressRing, IProgressRingFactory> =
+            windows_core::imp::FactoryCache::new();
+        SHARED.call(callback)
+    }
+}
+impl windows_core::RuntimeType for ProgressRing {
+    const SIGNATURE: windows_core::imp::ConstBuffer =
+        windows_core::imp::ConstBuffer::for_class::<Self, IProgressRing>();
+}
+unsafe impl windows_core::Interface for ProgressRing {
+    type Vtable = <IProgressRing as windows_core::Interface>::Vtable;
+    const IID: windows_core::GUID = <IProgressRing as windows_core::Interface>::IID;
+}
+impl core::ops::Deref for ProgressRing {
+    type Target = IProgressRing;
+    fn deref(&self) -> &Self::Target {
+        unsafe { core::mem::transmute(self) }
+    }
+}
+impl windows_core::RuntimeName for ProgressRing {
+    const NAME: &'static str = "Microsoft.UI.Xaml.Controls.ProgressRing";
+}
+unsafe impl Send for ProgressRing {}
+unsafe impl Sync for ProgressRing {}
 pub struct PropertyValue;
 impl PropertyValue {
     pub fn CreateDouble(value: f64) -> windows_core::Result<windows_core::IInspectable> {
