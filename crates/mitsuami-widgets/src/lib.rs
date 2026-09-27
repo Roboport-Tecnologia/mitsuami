@@ -492,6 +492,15 @@ impl Select {
         self
     }
 
+    /// Raw platform settings: see [`Tweak`]. Selects have no semantic
+    /// options past their options and choice: what the platforms offer (a
+    /// borderless pop-up on AppKit and Qt, search on GTK, a header on
+    /// WinUI) is each one's own.
+    pub fn native(mut self, tweak: Tweak<Select>) -> Select {
+        tweak.apply(&mut self.element);
+        self
+    }
+
     /// Called with the option's index when the user chooses one.
     pub fn on_change(mut self, handler: impl Fn(usize) + 'static) -> Select {
         self.element.on(move |event| {

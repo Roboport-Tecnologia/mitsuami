@@ -166,6 +166,31 @@ fn switch_tweak() -> Tweak<Switch> {
     }
 }
 
+/// A raw platform setting through `.native()`: a borderless pop-up on
+/// AppKit, a flat combo box on Qt, a header on WinUI. GTK's tweak turns on
+/// search, which shows only in the open pop-up.
+#[mitsuami_test::story(sizes = [(240, fit)])]
+fn select_tweaked() -> impl View {
+    let sizes = ["Small", "Medium", "Large"];
+    Column::new().padding(16).gap(8).align(Align::Start).children((
+        Select::new("Plain").options(sizes).selected(1),
+        Select::new("Tweaked").options(sizes).selected(1).native(select_tweak()),
+    ))
+}
+
+fn select_tweak() -> Tweak<Select> {
+    platform! {
+        macos => mitsuami::appkit::tweak(|p: &mitsuami::appkit::objc2_app_kit::NSPopUpButton| p.setBordered(false)),
+        gtk => mitsuami::gtk::tweak(|d: &mitsuami::gtk::gtk::DropDown| d.set_enable_search(true)),
+        kde => mitsuami::kirigami::tweak(|c: &mitsuami::kirigami::QmlObject| c.set_bool("flat", true)),
+        windows => mitsuami::winui::tweak(|c: &mitsuami::winui::bindings::ComboBox| {
+            use mitsuami::winui::bindings::{IComboBox, PropertyValue};
+            use mitsuami::winui::windows_core::Interface;
+            c.cast::<IComboBox>()?.SetHeader(&PropertyValue::CreateString("Size")?)
+        }),
+    }
+}
+
 /// Sliders and progress bars as wide as the story; without a step, and
 /// with one.
 #[mitsuami_test::story(sizes = [(240, fit)])]

@@ -184,4 +184,47 @@ async fn works_in_view_macros(app: TestApp) {
     assert_eq!(chosen.get_untracked(), 0);
 }
 
+/// Logs how many options the native select shows, each time the tweak runs.
+fn log_options(log: Rc<RefCell<Vec<usize>>>) -> Tweak<Select> {
+    platform! {
+        macos => mitsuami::appkit::tweak(move |p: &mitsuami::appkit::objc2_app_kit::NSPopUpButton| {
+            log.borrow_mut().push(p.numberOfItems() as usize)
+        }),
+        gtk => mitsuami::gtk::tweak(move |d: &mitsuami::gtk::gtk::DropDown| {
+            use mitsuami::gtk::gtk::prelude::*;
+            log.borrow_mut().push(d.model().map_or(0, |m| m.n_items() as usize))
+        }),
+        kde => mitsuami::kirigami::tweak(move |c: &mitsuami::kirigami::QmlObject| {
+            log.borrow_mut().push(c.int("count") as usize)
+        }),
+        windows => mitsuami::winui::tweak(move |c: &mitsuami::winui::bindings::ComboBox| {
+            use mitsuami::winui::windows_core::Interface;
+            let items = c.cast::<mitsuami::winui::bindings::IItemsControl>()?.Items()?;
+            log.borrow_mut().push(items.Size()? as usize);
+            Ok(())
+        }),
+    }
+}
+
+/// Given before the options, the tweak still runs after them, and again
+/// when they change.
+#[mitsuami_test::test]
+async fn a_tweak_runs_on_the_native_select_after_its_props(app: TestApp) {
+    let log = Rc::new(RefCell::new(Vec::new()));
+    let options = signal(vec!["Red".to_string(), "Green".to_string()]);
+    let tweak = log_options(log.clone());
+    app.mount(move || Select::new("Color").native(tweak).options(options));
+
+    let props = app.get_by_role(Role::ComboBox, "Color").native_state().props;
+    assert!(props.iter().any(|p| matches!(p, Prop::Tweak(_))));
+    if app.is_headless() {
+        assert!(log.borrow().is_empty());
+        return;
+    }
+    assert_eq!(log.borrow().last(), Some(&2));
+    options.update(|o| o.push("Blue".to_string()));
+    app.settle().await;
+    assert_eq!(log.borrow().last(), Some(&3));
+}
+
 mitsuami_test::main!();

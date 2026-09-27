@@ -2511,9 +2511,35 @@ windows_core::imp::define_interface!(IComboBox, IComboBox_Vtbl, 0xc77da58b_4fd7_
 impl windows_core::RuntimeType for IComboBox {
     const SIGNATURE: windows_core::imp::ConstBuffer = windows_core::imp::ConstBuffer::for_interface::<Self>();
 }
+impl IComboBox {
+    pub fn SetHeader<P0>(&self, value: P0) -> windows_core::Result<()>
+    where
+        P0: windows_core::Param<windows_core::IInspectable>,
+    {
+        unsafe {
+            (windows_core::Interface::vtable(self).SetHeader)(
+                windows_core::Interface::as_raw(self),
+                value.param().abi(),
+            )
+            .ok()
+        }
+    }
+}
 #[repr(C)]
 pub struct IComboBox_Vtbl {
     pub base__: windows_core::IInspectable_Vtbl,
+    IsDropDownOpen: usize,
+    SetIsDropDownOpen: usize,
+    IsEditable: usize,
+    SetIsEditable: usize,
+    IsSelectionBoxHighlighted: usize,
+    MaxDropDownHeight: usize,
+    SetMaxDropDownHeight: usize,
+    SelectionBoxItem: usize,
+    SelectionBoxItemTemplate: usize,
+    TemplateSettings: usize,
+    Header: usize,
+    pub SetHeader: unsafe extern "system" fn(*mut core::ffi::c_void, *mut core::ffi::c_void) -> windows_core::HRESULT,
 }
 windows_core::imp::define_interface!(IComboBoxFactory, IComboBoxFactory_Vtbl, 0x71c1014b_acdf_5c03_b5ed_02871caaeb6b);
 impl windows_core::RuntimeType for IComboBoxFactory {
