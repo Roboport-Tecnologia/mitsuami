@@ -35,6 +35,12 @@ pub enum WidgetKind {
     Window,
     /// A layout host: a plain native view that we position children in.
     Container,
+    /// A host for one item of its window's toolbar, the bar across the top
+    /// that shows the window's title (the unified NSToolbar, GTK's header
+    /// bar, a CommandBar on WinUI, Kirigami's page toolbar). A native child
+    /// of the window, after its content. The core lays out what's in it at
+    /// its natural size; the platform places it, at the bar's trailing end.
+    ToolbarItem,
     /// Core-only grouping used by control flow (`Show`, `For`). Never sent to
     /// backends; its children are spliced into the nearest native ancestor.
     Fragment,
@@ -96,7 +102,7 @@ impl WidgetKind {
 
     /// Containers lay out children; everything else is measured by the backend.
     pub fn is_container(self) -> bool {
-        matches!(self, WidgetKind::Window | WidgetKind::Container | WidgetKind::ScrollView)
+        matches!(self, WidgetKind::Window | WidgetKind::Container | WidgetKind::ToolbarItem | WidgetKind::ScrollView)
     }
 
     /// Scrolls its content: `ScrollTo` and `Scrolled` apply.
@@ -108,6 +114,7 @@ impl WidgetKind {
         match self {
             WidgetKind::Window => "Window",
             WidgetKind::Container => "Container",
+            WidgetKind::ToolbarItem => "ToolbarItem",
             WidgetKind::ScrollView => "ScrollView",
             WidgetKind::List => "List",
             WidgetKind::Fragment => "Fragment",
@@ -270,7 +277,7 @@ pub enum Modality {
 
 /// The window whose content is being built: provided in each window's
 /// scope, so views can find the window they're in (a modal `Window`
-/// belongs to it).
+/// belongs to it, a `Toolbar`'s items go in its toolbar).
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct CurrentWindow(pub NodeId);
 

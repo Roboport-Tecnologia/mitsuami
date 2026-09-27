@@ -52,10 +52,10 @@ Validate as you go. Panic on protocol violations such as an unknown node, a doub
 |---|---|
 | `Create { id, kind, props }` | Create the native widget and apply `props`. **Give it a zero frame**: the core only sends frames that differ from the last one it sent, so a widget born with its own frame stays wrong (AppKit labels do this). |
 | `SetProp { id, prop }` | Apply the prop (tables below). For `Value`, skip the update if the widget already shows it, so the caret and IME composition survive. |
-| `Insert { parent, child, index }` | Attach at `index` among the parent's native children. **ScrollView**: its single child is the scrolled content (AppKit: `documentView`). **List**: the child is a row host, put in its row's cell (§8b). |
+| `Insert { parent, child, index }` | Attach at `index` among the parent's native children. **ScrollView**: its single child is the scrolled content (AppKit: `documentView`). **List**: the child is a row host, put in its row's cell (§8b). **Window**: a `ToolbarItem` goes in the window's toolbar, at the trailing end; items always come after the content, so its index among the items is `index` less the content's children. |
 | `Remove { parent, child }` | Detach only. |
 | `Destroy { id }` | Free the widget. It comes for every native node of a removed subtree, children first; the root has already been removed. Drop observers, signal handlers and targets. |
-| `SetFrame { id, frame }` | Place the widget, relative to its native parent's top-left. Never sent for windows. A ScrollView's content frame is in content coordinates. |
+| `SetFrame { id, frame }` | Place the widget, relative to its native parent's top-left. Never sent for windows. A ScrollView's content frame is in content coordinates. A `ToolbarItem`'s is only its size: the toolbar places it; hide it while its size is empty. |
 | `SetA11y { id, a11y }` | Set the accessible label, description and hidden state. |
 | `SetWindowSize { id, size }` | Set the window's **content area** size (excluding title bar and menu bar). |
 | `SetFocusOrder { window, order }` | Make Tab visit `order` in sequence, wrapping around. It is window-wide, across nested containers. The platform still decides *which* controls can take focus (disabled controls, macOS keyboard navigation settings). See §9. |
@@ -69,6 +69,7 @@ Validate as you go. Panic on protocol violations such as an unknown node, a doub
 |---|---|---|---|---|
 | `Window` | `NSWindow` + flipped content host | `gtk::Window` + `HeaderBar` + host as child (done) | `Window` + `Canvas` as `Content` | `Kirigami.ApplicationWindow` with one `Kirigami.Page`, a plain `Item` as its content |
 | `Container` (layout host) | flipped `NSView` subclass | `gtk::Widget` subclass that allocates children at given frames (or `gtk::Fixed`) | `Canvas` (`Canvas.Left/Top`, `Width/Height`) | `Item` (children at `x`/`y`/`width`/`height`) |
+| `ToolbarItem` (a window's toolbar) | its host as an `NSToolbarItem`'s view, sized by constraints, after a flexible space; out of the toolbar while empty | a host packed at the end of the window's `HeaderBar`, hidden while empty | a `Canvas` in an `AppBarElementContainer` among a `CommandBar`'s `PrimaryCommands`, collapsed while empty | a host `Item` in the `displayComponent` of a `Kirigami.Action` in the page's `actions` (`KeepVisible`), hidden while empty |
 | `Text` | `NSTextField` wrapping label | `gtk::Label` (wrap on, `xalign 0`) | `TextBlock` (`TextWrapping.Wrap`) | `QQC2.Label` (`WordWrap`) |
 | `Button` | `NSButton` push | `gtk::Button` | `Button` | `QQC2.Button` |
 | `TextInput` | `NSTextField` | `gtk::Entry` / `gtk::Text` | `TextBox` | `QQC2.TextField` |
@@ -202,7 +203,7 @@ These make one test suite run against every backend.
   - `Scroll { dx, dy }` scrolls a ScrollView or List like a scroll wheel would, clamped.
   - `Up`, `Down`, `Home`, `End` and `Enter` on a List go through the list's own key handling: they move the selection and scroll to it, or activate the selected row.
   - `Click(point)` on **drawn** custom widgets: a real down/up pair through your drawn view's event handlers. `Unsupported` elsewhere; native controls often track the mouse in a modal loop.
-- **`native_state(id)`**: **read back from the widget** what it actually shows: text, title, value, placeholder, checked, enabled, frame, children (in native order), focused, and scroll offset. Only cache what the platform can't report (AppKit caches the text style and variant). After every settle, the test harness compares this with the core and fails on any difference. This check has caught every serious backend bug so far.
+- **`native_state(id)`**: **read back from the widget** what it actually shows: text, title, value, placeholder, checked, enabled, frame, children (in native order), focused, and scroll offset. Only cache what the platform can't report (AppKit caches the text style and variant). After every settle, the test harness compares this with the core and fails on any difference. This check has caught every serious backend bug so far. A window's children include its toolbar items, after its content; a `ToolbarItem` reports the rect the toolbar gave it, in the coordinates of the window's content (above it, so at a negative y), and `Rect::ZERO` while it's hidden, whether it's empty or the toolbar put it in an overflow menu.
 - **`capture(id, reply)`**: offscreen RGBA8 at backing scale, rows top to bottom. Reply when the image is ready, right away if possible. Examples:
   - AppKit: `cacheDisplayInRect:toBitmapImageRep:`, which replies immediately. The test window is never key, so captures show the unfocused-window look (grey default buttons).
   - GTK: `gtk::WidgetPaintable` + snapshot + `render_texture` (Cairo renderer), then download. Replies from the frame clock's `after-paint`, once the widget is mapped and laid out.

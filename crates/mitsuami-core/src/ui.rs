@@ -763,19 +763,23 @@ impl Ui {
     }
 
     /// The part of a node that can be seen: its window frame, clipped by
-    /// every enclosing scroll view and by the window. `None` if nothing is.
+    /// every enclosing scroll view and by the window (or, in the toolbar,
+    /// by its toolbar item). `None` if nothing is.
     pub fn visible_rect(&self, id: NodeId) -> Option<Rect> {
         let window = self.window_of(id)?;
         let size = self.window_size(window)?;
-        let mut visible = self.window_frame(id)?.intersection(&Rect::new(0.0, 0.0, size.width, size.height))?;
-        let mut current = self.inner.borrow().nodes.get(&id)?.native_parent;
-        while let Some(ancestor) = current {
-            if self.kind(ancestor).is_some_and(WidgetKind::scrolls) {
-                visible = visible.intersection(&self.window_frame(ancestor)?)?;
+        let mut visible = self.window_frame(id)?;
+        let mut clip = Rect::new(0.0, 0.0, size.width, size.height);
+        let mut current = Some(id);
+        while let Some(node) = current {
+            match self.kind(node)? {
+                WidgetKind::ToolbarItem => clip = self.window_frame(node)?,
+                kind if kind.scrolls() && node != id => visible = visible.intersection(&self.window_frame(node)?)?,
+                _ => {}
             }
-            current = self.inner.borrow().nodes.get(&ancestor)?.native_parent;
+            current = self.inner.borrow().nodes.get(&node)?.native_parent;
         }
-        Some(visible)
+        visible.intersection(&clip)
     }
 
     /// Current scroll offset of a `ScrollView` or `List`.
@@ -972,10 +976,11 @@ impl Inner {
     fn detach_native(&mut self, child: NodeId) {
         let Some(parent) = self.nodes.get(&child).and_then(|n| n.native_parent) else { return };
         self.pending.push(Command::Remove { parent, child });
-        let child_taffy = self.nodes[&child].taffy;
+        // A list's rows and a window's toolbar items aren't in its layout
+        // box (`layout_list`, `layout_toolbar`).
+        let child_taffy = self.nodes[&child].taffy.filter(|_| self.nodes[&child].kind != WidgetKind::ToolbarItem);
         if let Some(node) = self.nodes.get_mut(&parent) {
             node.native_children.retain(|c| *c != child);
-            // A list's rows aren't in its layout box (`layout_list`).
             if let (Some(p), Some(c), false) = (node.taffy, child_taffy, node.kind == WidgetKind::List) {
                 let _ = self.taffy.remove_child(p, c);
             }
@@ -993,7 +998,10 @@ impl Inner {
     }
 
     fn flattened_children(&self, id: NodeId) -> Vec<NodeId> {
-        self.nodes[&id].children.iter().flat_map(|c| self.native_roots(*c)).collect()
+        let mut children: Vec<NodeId> = self.nodes[&id].children.iter().flat_map(|c| self.native_roots(*c)).collect();
+        // A window's toolbar items come after its content.
+        children.sort_by_key(|c| self.nodes[c].kind == WidgetKind::ToolbarItem);
+        children
     }
 
     fn collect_subtree(&self, id: NodeId, out: &mut Vec<NodeId>) {
@@ -1038,7 +1046,12 @@ impl Inner {
         for child in &desired {
             self.nodes.get_mut(child).unwrap().native_parent = Some(parent);
         }
-        let taffy_children: Vec<_> = desired.iter().filter_map(|c| self.nodes[c].taffy).collect();
+        // Toolbar items are laid out on their own (`layout_toolbar`).
+        let taffy_children: Vec<_> = desired
+            .iter()
+            .filter(|c| self.nodes[*c].kind != WidgetKind::ToolbarItem)
+            .filter_map(|c| self.nodes[c].taffy)
+            .collect();
         // A list's rows are laid out on their own (`layout_list`).
         if let Some(t) = self.nodes[&parent].taffy.filter(|_| self.nodes[&parent].kind != WidgetKind::List) {
             let _ = self.taffy.set_children(t, &taffy_children);
@@ -1050,7 +1063,8 @@ impl Inner {
     fn focus_order(&self, window: NodeId) -> Vec<NodeId> {
         fn walk(inner: &Inner, id: NodeId, out: &mut Vec<(Option<u32>, NodeId)>) {
             let node = &inner.nodes[&id];
-            if node.style.is_hidden() {
+            // Whether Tab reaches the toolbar is the platform's call.
+            if node.style.is_hidden() || node.kind == WidgetKind::ToolbarItem {
                 return;
             }
             if matches!(
@@ -1190,6 +1204,7 @@ impl Inner {
                 self.pending.push(Command::SetWindowSize { id: window, size });
             }
             self.nodes.get_mut(&window).unwrap().frame = Rect { origin: Point::ZERO, size };
+            self.layout_toolbar(window);
             self.collect_frames(window);
         }
         self.update_drawings();
@@ -1260,6 +1275,20 @@ impl Inner {
                 self.pending.push(Command::SetFrame { id: host, frame });
             }
             self.collect_frames(host);
+        }
+    }
+
+    /// Lays out a window's toolbar items, each on its own at its natural
+    /// size. Where they go is the platform's to decide.
+    fn layout_toolbar(&mut self, window: NodeId) {
+        for item in self.nodes[&window].native_children.clone() {
+            if self.nodes[&item].kind != WidgetKind::ToolbarItem {
+                continue;
+            }
+            let Some(t) = self.nodes[&item].taffy else { continue };
+            let available =
+                taffy::Size { width: taffy::AvailableSpace::MaxContent, height: taffy::AvailableSpace::MaxContent };
+            self.compute_layout(t, available);
         }
     }
 
@@ -1395,18 +1424,24 @@ impl Inner {
         Some(self.nodes.get(&id)?.native_parent.map_or(Point::ZERO, |p| self.content_origin(p)))
     }
 
-    /// A node's frame in its native parent. A list's rows are where the
-    /// platform placed them (as its `native_state` says), at the size the
-    /// core sent.
+    /// A node's frame in its native parent. A list's rows and a window's
+    /// toolbar items are where the platform placed them (as its
+    /// `native_state` says), at the size the core sent; toolbar items the
+    /// platform hides are empty.
     fn placed_frame(&self, id: NodeId) -> Rect {
         let node = &self.nodes[&id];
-        match node.native_parent.map(|p| self.nodes[&p].kind) {
-            Some(WidgetKind::List) => {
-                let origin = self.backend.native_state(id).map_or(node.frame.origin, |s| s.frame.origin);
-                Rect { origin, size: node.frame.size }
-            }
-            _ => node.frame,
+        let placed_natively = node.kind == WidgetKind::ToolbarItem
+            || node.native_parent.is_some_and(|p| self.nodes[&p].kind == WidgetKind::List);
+        if !placed_natively {
+            return node.frame;
         }
+        let native = self.backend.native_state(id).map(|s| s.frame);
+        // A toolbar may hide an item that doesn't fit (in an overflow
+        // menu, on AppKit and WinUI): it isn't shown at all.
+        if node.kind == WidgetKind::ToolbarItem && native.is_some_and(|f| f.size.is_empty()) {
+            return Rect::ZERO;
+        }
+        Rect { origin: native.map_or(node.frame.origin, |f| f.origin), size: node.frame.size }
     }
 
     fn clamp_scroll(&self, id: NodeId, offset: Point) -> Option<Point> {
@@ -1477,7 +1512,7 @@ impl Inner {
             WidgetKind::Window => Role::Window,
             WidgetKind::Container if row.is_some() => Role::ListItem,
             WidgetKind::Container if labelled => Role::Group,
-            WidgetKind::Container | WidgetKind::Fragment => Role::None,
+            WidgetKind::Container | WidgetKind::ToolbarItem | WidgetKind::Fragment => Role::None,
             WidgetKind::ScrollView => Role::ScrollArea,
             WidgetKind::List => Role::List,
             WidgetKind::Text => Role::StaticText,

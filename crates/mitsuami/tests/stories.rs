@@ -487,6 +487,25 @@ fn number_inputs() -> impl View {
     ))
 }
 
+/// 2ksbox's header: a download's progress and a status line, at the
+/// trailing end of the window's toolbar. Captures are of the content, so
+/// the toolbar shows only in the layout, above it. Wide enough for both
+/// items: narrower, AppKit and WinUI move what doesn't fit to an overflow
+/// menu.
+#[mitsuami_test::story(sizes = [(760, fit)])]
+fn toolbar() -> impl View {
+    Column::new().padding(16).children((
+        Toolbar::new().children((
+            Row::new()
+                .gap(6)
+                .align(Align::Center)
+                .children((Spinner::new("Downloading"), Text::new("Downloading presets… 12 MB").max_lines(1))),
+            Button::new("New machine"),
+        )),
+        Text::new("No machines yet."),
+    ))
+}
+
 /// AppKit sizes pop-up buttons for their widest option, the others for the
 /// chosen one.
 #[mitsuami_test::story(sizes = [(240, fit)])]

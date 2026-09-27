@@ -40,7 +40,11 @@ type WidgetMap = Rc<RefCell<HashMap<gtk::Widget, NodeId>>>;
 pub(crate) struct WindowParts {
     pub(crate) window: gtk::Window,
     host: Host,
+    header: gtk::HeaderBar,
+    /// Measured again when toolbar items change it.
     header_height: i32,
+    /// The toolbar items in the header bar, in order.
+    items: Vec<(NodeId, gtk::Widget)>,
     /// The app's menu, GNOME style: a menu button at the end of the header bar.
     pub(crate) menu_button: gtk::MenuButton,
     pub(crate) shortcuts: gtk::ShortcutController,
@@ -539,6 +543,33 @@ impl mitsuami_core::TestHooks for GtkHandle {
 /// Keeps a scroll view's adjustments in step with the frames the core sent,
 /// without waiting for GTK to allocate: `ScrollTo` in the same commit
 /// needs the new range.
+/// Packs a window's toolbar items at the end of its header bar, in order:
+/// `pack_end` packs from the end inwards, so the last item goes first. The
+/// main menu button, packed when the window was made, stays at the very
+/// end, as GNOME's primary menu is.
+fn pack_items(parts: &WindowParts) {
+    for (_, widget) in &parts.items {
+        if widget.parent().is_some() {
+            parts.header.remove(widget);
+        }
+    }
+    for (_, widget) in parts.items.iter().rev() {
+        parts.header.pack_end(widget);
+    }
+}
+
+/// An item taller than the header bar makes it taller; the window grows
+/// with it, so the content keeps the size the core asked for.
+fn keep_content_size(parts: &mut WindowParts) {
+    let height = parts.header.measure(gtk::Orientation::Vertical, -1).1;
+    if height == parts.header_height {
+        return;
+    }
+    parts.header_height = height;
+    let size = parts.host.window_root().expect("window hosts have a root").size.get();
+    parts.window.set_default_size(size.width as i32, size.height as i32 + height);
+}
+
 fn sync_scroll(frames: &Frames, scrolled: &gtk::ScrolledWindow, viewport: &gtk::Viewport) {
     let frames = frames.borrow();
     let view = frames.get(scrolled.upcast_ref::<gtk::Widget>()).map(|f| f.size).unwrap_or_default();
@@ -590,7 +621,7 @@ impl State {
         let mut settings_handlers = Vec::new();
         let widget = match kind {
             WidgetKind::Window => Widget::Window(self.create_window(id, &mut settings_handlers)),
-            WidgetKind::Container => Widget::Host(Host::new(self.frames.clone(), None)),
+            WidgetKind::Container | WidgetKind::ToolbarItem => Widget::Host(Host::new(self.frames.clone(), None)),
             WidgetKind::Custom(_) => {
                 let Command::Create { props, .. } = command else { unreachable!() };
                 let Some(custom) = find_prop!(props, Custom) else {
@@ -817,7 +848,7 @@ impl State {
             }
         }
         self.pending_show.push(id);
-        let parts = WindowParts { window, host, header_height, menu_button, shortcuts };
+        let parts = WindowParts { window, host, header, header_height, items: Vec::new(), menu_button, shortcuts };
         if let Some(menu) = &self.menu {
             menu.install(&parts);
         }
@@ -1131,6 +1162,26 @@ impl State {
                 if self.nodes[child].parent.is_some() {
                     violation(command, "child is still attached");
                 }
+                if self.nodes[child].kind == WidgetKind::ToolbarItem {
+                    // Items come after the window's content.
+                    let content = self
+                        .nodes
+                        .values()
+                        .filter(|n| n.parent == Some(*parent) && n.kind != WidgetKind::ToolbarItem)
+                        .count();
+                    let Some(Widget::Window(parts)) = self.nodes.get_mut(parent).map(|n| &mut n.widget) else {
+                        violation(command, "toolbar items go in windows")
+                    };
+                    let Some(index) = index.checked_sub(content) else {
+                        violation(command, "toolbar items go after the window's content")
+                    };
+                    // Hidden until it has a size.
+                    child_widget.set_visible(false);
+                    parts.items.insert(index.min(parts.items.len()), (*child, child_widget));
+                    pack_items(parts);
+                    self.nodes.get_mut(child).unwrap().parent = Some(*parent);
+                    return;
+                }
                 match &self.nodes.get(parent).map(|n| &n.widget) {
                     Some(Widget::Scroll { viewport, .. }) => {
                         if viewport.child().is_some() {
@@ -1160,6 +1211,14 @@ impl State {
                 if self.nodes.get(child).and_then(|n| n.parent) != Some(*parent) {
                     violation(command, "not a child of this parent");
                 }
+                if let Widget::Window(parts) = &mut self.nodes.get_mut(parent).unwrap().widget
+                    && let Some(at) = parts.items.iter().position(|(id, _)| id == child)
+                {
+                    let (_, widget) = parts.items.remove(at);
+                    parts.header.remove(&widget);
+                    self.nodes.get_mut(child).unwrap().parent = None;
+                    return;
+                }
                 match &self.nodes[parent].widget {
                     Widget::Scroll { viewport, .. } => viewport.set_child(None::<&gtk::Widget>),
                     Widget::List(list) => list.remove(self.nodes[child].row.expect("inserted with a row")),
@@ -1178,6 +1237,13 @@ impl State {
                         settings.disconnect(handler);
                     }
                 }
+                if let Some(Widget::Window(parts)) =
+                    node.parent.and_then(|p| self.nodes.get_mut(&p)).map(|n| &mut n.widget)
+                    && let Some(at) = parts.items.iter().position(|(item, _)| item == id)
+                {
+                    parts.items.remove(at);
+                    parts.header.remove(&widget);
+                }
                 match &node.widget {
                     Widget::Window(parts) => parts.window.destroy(),
                     _ => {
@@ -1192,6 +1258,17 @@ impl State {
             Command::SetFrame { id, frame } => {
                 let widget = self.widget(*id, command);
                 self.frames.borrow_mut().insert(widget.clone(), *frame);
+                // A toolbar item: the header bar places it, at this size.
+                if self.nodes[id].kind == WidgetKind::ToolbarItem {
+                    widget.set_visible(!frame.size.is_empty());
+                    widget.queue_resize();
+                    if let Some(window) = self.nodes[id].parent
+                        && let Some(Widget::Window(parts)) = self.nodes.get_mut(&window).map(|n| &mut n.widget)
+                    {
+                        keep_content_size(parts);
+                    }
+                    return;
+                }
                 self.update_child_visible(*id);
                 if let Widget::Slider { scale, steps } = &self.nodes[id].widget {
                     let vertical = scale.orientation() == gtk::Orientation::Vertical;
@@ -1816,6 +1893,16 @@ impl Backend for GtkBackend {
         // A row is where the list view put it.
         let frame = match (node.row, node.parent.and_then(|p| state.nodes.get(&p)).map(|p| &p.widget)) {
             (Some(row), Some(Widget::List(list))) => list.row_rect(row, &state.frames).unwrap_or(frame),
+            // A toolbar item is where the header bar put it, in the content
+            // host's coordinates (above it); a hidden one isn't shown.
+            (_, Some(Widget::Window(parts))) if node.kind == WidgetKind::ToolbarItem => {
+                match widget.compute_point(&parts.host, &gtk::graphene::Point::new(0.0, 0.0)) {
+                    Some(origin) if widget.is_visible() => {
+                        Rect::new(origin.x(), origin.y(), frame.width(), frame.height())
+                    }
+                    _ => Rect::ZERO,
+                }
+            }
             _ => frame,
         };
         let by_widget = state.by_widget.borrow();
@@ -1831,6 +1918,10 @@ impl Backend for GtkBackend {
                 while let Some(child) = next {
                     children.extend(by_widget.get(&child).copied());
                     next = child.next_sibling();
+                }
+                // Then its toolbar items, in the header bar.
+                if let Widget::Window(parts) = &node.widget {
+                    children.extend(parts.items.iter().map(|(id, _)| *id));
                 }
                 (children, None)
             }

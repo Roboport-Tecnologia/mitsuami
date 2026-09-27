@@ -97,6 +97,6 @@ pub mod prelude {
     };
     pub use mitsuami_widgets::{
         Button, Checkbox, Column, Container, Grid, Image, NumberInput, PasswordInput, Progress, Row, ScrollView,
-        Select, Slider, Spinner, Switch, Text, TextInput, Window,
+        Select, Slider, Spinner, Switch, Text, TextInput, Toolbar, Window,
     };
 }

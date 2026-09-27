@@ -255,7 +255,7 @@ pub(crate) fn wireframe(root: &NodeInfo) -> String {
     fn color(kind: WidgetKind) -> &'static str {
         match kind {
             WidgetKind::Window => "#8a8f98",
-            WidgetKind::Container | WidgetKind::Fragment => "#b5bac2",
+            WidgetKind::Container | WidgetKind::ToolbarItem | WidgetKind::Fragment => "#b5bac2",
             WidgetKind::ScrollView | WidgetKind::List => "#5f7fa0",
             WidgetKind::Text => "#3f7f5f",
             WidgetKind::Button => "#2f6fdf",
@@ -273,7 +273,8 @@ pub(crate) fn wireframe(root: &NodeInfo) -> String {
     }
     fn walk(node: &NodeInfo, out: &mut String) {
         let f = node.frame;
-        let dashed = if node.kind == WidgetKind::Container { r#" stroke-dasharray="4 3""# } else { "" };
+        let host = matches!(node.kind, WidgetKind::Container | WidgetKind::ToolbarItem);
+        let dashed = if host { r#" stroke-dasharray="4 3""# } else { "" };
         let _ = writeln!(
             out,
             r#"  <rect x="{}" y="{}" width="{}" height="{}" fill="none" stroke="{}"{dashed}/>"#,
@@ -283,7 +284,7 @@ pub(crate) fn wireframe(root: &NodeInfo) -> String {
             Num(f.height()),
             color(node.kind)
         );
-        if node.kind != WidgetKind::Container && node.kind != WidgetKind::Window {
+        if !host && node.kind != WidgetKind::Window {
             let label = format!("{}{}", node.kind.name(), describe_props(&node.props));
             let _ = writeln!(
                 out,
@@ -301,15 +302,20 @@ pub(crate) fn wireframe(root: &NodeInfo) -> String {
             walk(child, out);
         }
     }
+    // The toolbar is above the window's content.
+    let top =
+        root.children.iter().filter(|c| c.kind == WidgetKind::ToolbarItem).map(|c| c.frame.y()).fold(0.0, f32::min);
     let size = root.frame.size;
     let mut out = String::new();
     let _ = writeln!(
         out,
-        r#"<svg xmlns="http://www.w3.org/2000/svg" width="{w}" height="{h}" viewBox="0 0 {w} {h}" font-family="monospace" font-size="9">"#,
+        r#"<svg xmlns="http://www.w3.org/2000/svg" width="{w}" height="{h}" viewBox="0 {y} {w} {h}" font-family="monospace" font-size="9">"#,
         w = Num(size.width),
-        h = Num(size.height)
+        h = Num(size.height - top),
+        y = Num(top)
     );
-    let _ = writeln!(out, r#"  <rect width="100%" height="100%" fill="white"/>"#);
+    let y = if top < 0.0 { format!(r#" y="{}""#, Num(top)) } else { String::new() };
+    let _ = writeln!(out, r#"  <rect{y} width="100%" height="100%" fill="white"/>"#);
     walk(root, &mut out);
     out.push_str("</svg>\n");
     out

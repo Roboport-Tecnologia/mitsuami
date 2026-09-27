@@ -24,6 +24,11 @@ use mitsuami_core::{
     SelectionMode, Size, TextStyle, UiEvent, WidgetKind, find_prop,
 };
 
+/// A window's toolbar: this high, above its content, with its items this
+/// far apart and from its trailing edge.
+const TOOLBAR_HEIGHT: f32 = 40.0;
+const TOOLBAR_SPACING: f32 = 8.0;
+
 /// Fixed metrics: 16px body text, 4/8/12/16/24 spacing, scale factor 1.
 pub fn metrics() -> PlatformMetrics {
     PlatformMetrics {
@@ -255,6 +260,45 @@ impl State {
                 last = Some(index);
             }
         }
+    }
+
+    /// Checks that toolbar items are in windows, after their content.
+    fn check_toolbars(&self, command: &Command) {
+        for (id, node) in &self.nodes {
+            let items = node.children.iter().filter(|c| self.nodes[c].kind == WidgetKind::ToolbarItem).count();
+            if items > 0 && node.kind != WidgetKind::Window {
+                violation(command, &format!("{id} has toolbar items but isn't a window"));
+            }
+            let content = node.children.len() - items;
+            if node.children[content..].iter().any(|c| self.nodes[c].kind != WidgetKind::ToolbarItem) {
+                violation(command, &format!("window {id}'s toolbar items aren't after its content"));
+            }
+        }
+    }
+
+    /// Where a window's toolbar shows an item, in the window's content
+    /// coordinates: in the bar above the content, centred in its height,
+    /// the last item at the trailing edge. Empty items are hidden, and take
+    /// no room.
+    fn toolbar_item_frame(&self, item: NodeId) -> Rect {
+        let node = &self.nodes[&item];
+        let Some(window) = node.parent.map(|p| &self.nodes[&p]) else { return node.frame };
+        let size = node.frame.size;
+        if size.is_empty() {
+            return Rect::ZERO;
+        }
+        let after: f32 = window
+            .children
+            .iter()
+            .skip_while(|c| **c != item)
+            .skip(1)
+            .map(|c| self.nodes[c].frame.size)
+            .filter(|s| !s.is_empty())
+            .map(|s| s.width + TOOLBAR_SPACING)
+            .sum();
+        let x = window.frame.width() - TOOLBAR_SPACING - after - size.width;
+        let y = -TOOLBAR_HEIGHT + ((TOOLBAR_HEIGHT - size.height) / 2.0).round();
+        Rect::new(x, y, size.width, size.height)
     }
 
     fn focus(&mut self, id: NodeId) {
@@ -527,6 +571,7 @@ impl Backend for HeadlessBackend {
                 state.place_rows(*list);
             }
             state.check_lists(last);
+            state.check_toolbars(last);
             for list in lists {
                 let offset = state.nodes[&list].scroll_offset;
                 let y = state.clamp_list(list, offset.y);
@@ -842,6 +887,7 @@ impl Backend for HeadlessBackend {
             .and_then(|(key, list)| state.row(list, key));
         let frame = match row {
             Some(row) => Rect::new(0.0, row.top, node.frame.width(), node.frame.height()),
+            None if node.kind == WidgetKind::ToolbarItem => state.toolbar_item_frame(id),
             None => node.frame,
         };
         Some(NativeState {

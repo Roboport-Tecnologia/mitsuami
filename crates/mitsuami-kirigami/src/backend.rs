@@ -65,6 +65,8 @@ pub(crate) struct WindowRoot {
     header: Cell<Option<f64>>,
     /// The app's menu, a Kirigami global drawer.
     pub(crate) drawer: Cell<Option<QmlObject>>,
+    /// Its toolbar items, in order.
+    toolbar: RefCell<Vec<NodeId>>,
 }
 
 impl WindowRoot {
@@ -109,6 +111,21 @@ impl WindowRoot {
         self.host_resized();
     }
 
+    /// The host's height changed while the window's didn't: the toolbar
+    /// did (a toolbar item taller than it, or one gone). The content keeps
+    /// the size the core has; the window grows or shrinks instead. Only on
+    /// the host's height: its width changes first when both do, while its
+    /// height still lags the window's.
+    fn toolbar_resized(&self) {
+        let Some(header) = self.header.get() else { return };
+        let now = (self.window.real("height") - self.host.real("height")).max(0.0);
+        if (now - header).abs() < 0.5 {
+            return;
+        }
+        self.header.set(Some(now));
+        self.request(self.requested.get().unwrap_or(self.size.get()));
+    }
+
     /// The host changed size: report it, unless it's on its way to a size
     /// the core asked for.
     fn host_resized(&self) {
@@ -137,6 +154,11 @@ enum Widget {
         root: Rc<WindowRoot>,
     },
     Host(QmlObject),
+    /// A toolbar item's host, and the page action that shows it.
+    ToolbarItem {
+        host: QmlObject,
+        action: QmlObject,
+    },
     Label(QmlObject),
     Button(QmlObject),
     Field(QmlObject),
@@ -187,7 +209,8 @@ impl Widget {
     fn item(&self) -> QmlObject {
         match self {
             Widget::Window { root } => root.host,
-            Widget::Host(i)
+            Widget::ToolbarItem { host: i, .. }
+            | Widget::Host(i)
             | Widget::Label(i)
             | Widget::Button(i)
             | Widget::Field(i)
@@ -264,7 +287,14 @@ impl Widget {
 
     /// Measured, never laid out inside: controls and escape hatches.
     fn is_leaf(&self) -> bool {
-        !matches!(self, Widget::Window { .. } | Widget::Host(_) | Widget::Scroll { .. } | Widget::List(_))
+        !matches!(
+            self,
+            Widget::Window { .. }
+                | Widget::Host(_)
+                | Widget::ToolbarItem { .. }
+                | Widget::Scroll { .. }
+                | Widget::List(_)
+        )
     }
 }
 
@@ -614,6 +644,12 @@ impl State {
         let widget = match kind {
             WidgetKind::Window => self.create_window(id),
             WidgetKind::Container => Widget::Host(QmlObject::load(&qml::container())),
+            WidgetKind::ToolbarItem => {
+                let host = QmlObject::load(&qml::container());
+                let action = QmlObject::load(&qml::toolbar_action());
+                action.set_object("mitsuamiItem", Some(host));
+                Widget::ToolbarItem { host, action }
+            }
             WidgetKind::Custom(_) => {
                 let Command::Create { props, .. } = command else { unreachable!() };
                 let Some(custom) = find_prop!(props, Custom) else {
@@ -784,11 +820,16 @@ impl State {
             requested: Cell::new(None),
             header: Cell::new(None),
             drawer: Cell::new(None),
+            toolbar: RefCell::new(Vec::new()),
         });
         for signal in ["widthChanged()", "heightChanged()"] {
             let root = Rc::downgrade(&root);
+            let height = signal == "heightChanged()";
             host.connect(signal, move || {
                 if let Some(root) = root.upgrade() {
+                    if height {
+                        root.toolbar_resized();
+                    }
                     root.host_resized();
                 }
             });
@@ -1099,6 +1140,27 @@ impl State {
                 if self.nodes[child].parent.is_some() {
                     violation(command, "child is still attached");
                 }
+                if let Widget::ToolbarItem { action, .. } = self.nodes[child].widget {
+                    // Items come after the window's content.
+                    let content = self
+                        .nodes
+                        .values()
+                        .filter(|n| n.parent == Some(*parent) && n.kind != WidgetKind::ToolbarItem)
+                        .count();
+                    let Some(index) = index.checked_sub(content) else {
+                        violation(command, "toolbar items go after the window's content")
+                    };
+                    let Widget::Window { root } = &self.nodes[parent].widget else {
+                        violation(command, "toolbar items go in windows")
+                    };
+                    let page = root.window.child("mitsuamiPage").expect("windows have a page");
+                    page.set_object("mitsuamiAction", Some(action));
+                    page.set_int("mitsuamiIndex", index as i32);
+                    page.invoke("mitsuamiInsert");
+                    root.toolbar.borrow_mut().insert(index, *child);
+                    self.nodes.get_mut(child).unwrap().parent = Some(*parent);
+                    return;
+                }
                 if let Widget::List(list) = &self.nodes[parent].widget {
                     let Some(row) = self.nodes[child].row else {
                         violation(command, "a List's children are row hosts (Containers with a Prop::Row)")
@@ -1122,8 +1184,18 @@ impl State {
                 if self.nodes.get(child).and_then(|n| n.parent) != Some(*parent) {
                     violation(command, "not a child of this parent");
                 }
-                match &self.nodes[parent].widget {
-                    Widget::List(list) => list.remove(self.nodes[child].row.expect("inserted with a row")),
+                match (&self.nodes[parent].widget, &self.nodes[child].widget) {
+                    (Widget::List(list), _) => list.remove(self.nodes[child].row.expect("inserted with a row")),
+                    (Widget::Window { root }, Widget::ToolbarItem { host, action }) => {
+                        // Out of the toolbar's item first, which goes with
+                        // the action.
+                        host.set_parent_item(None, 0);
+                        let page = root.window.child("mitsuamiPage").expect("windows have a page");
+                        page.set_object("mitsuamiAction", Some(*action));
+                        page.invoke("mitsuamiRemove");
+                        page.set_object("mitsuamiAction", None);
+                        root.toolbar.borrow_mut().retain(|i| i != child);
+                    }
                     _ => self.widget(*child, command).item().set_parent_item(None, 0),
                 }
                 self.nodes.get_mut(child).unwrap().parent = None;
@@ -1140,10 +1212,21 @@ impl State {
                         }
                         root.window.destroy()
                     }
+                    Widget::ToolbarItem { host, action } => {
+                        host.destroy();
+                        action.destroy();
+                    }
                     widget => widget.item().destroy(),
                 }
             }
             Command::SetFrame { id, frame } => {
+                // A toolbar item: its size; the toolbar places it, and
+                // doesn't show it while it's empty.
+                if let Widget::ToolbarItem { host, action } = self.widget(*id, command) {
+                    host.set_geometry(0.0, 0.0, frame.width() as f64, frame.height() as f64);
+                    action.set_bool("visible", !frame.size.is_empty());
+                    return;
+                }
                 let widget = self.widget(*id, command);
                 let item = widget.item();
                 item.set_geometry(frame.x() as f64, frame.y() as f64, frame.width() as f64, frame.height() as f64);
@@ -1634,6 +1717,7 @@ impl Backend for KirigamiBackend {
                 props.push(Prop::Selected(list.selected()));
             }
             Widget::Host(_) => props.extend(node.row.map(Prop::Row)),
+            Widget::ToolbarItem { .. } => {}
         }
         if node.widget.is_control() {
             props.push(Prop::Enabled(item.bool("enabled")));
@@ -1654,23 +1738,36 @@ impl Backend for KirigamiBackend {
             }
             _ => frame_of(item),
         };
-        // A row is where the list view put it.
-        let frame = match node.parent.and_then(|p| state.nodes.get(&p)).map(|p| &p.widget) {
-            Some(Widget::List(list)) => list.row_rect(item, frame),
+        // A row is where the list view put it, a toolbar item where the
+        // toolbar did: above the content, in its coordinates.
+        let frame = match (node.parent.and_then(|p| state.nodes.get(&p)).map(|p| &p.widget), &node.widget) {
+            (Some(Widget::List(list)), _) => list.row_rect(item, frame),
+            (Some(Widget::Window { root }), Widget::ToolbarItem { host, action }) => {
+                if !action.bool("visible") || host.object("parent").is_none() {
+                    Rect::ZERO
+                } else {
+                    let (at, origin) = (host.map_to_scene(Point::ZERO), root.host.map_to_scene(Point::ZERO));
+                    Rect::new(at.x - origin.x, at.y - origin.y, frame.width(), frame.height())
+                }
+            }
             _ => frame,
         };
         let (children, scroll_offset) = match &node.widget {
             Widget::List(list) => (Vec::new(), Some(list.scroll_offset())),
             Widget::Scroll { flickable, .. } => (node.widget.content().child_items(), Some(scroll_offset(*flickable))),
-            Widget::Window { .. } | Widget::Host(_) => (item.child_items(), None),
+            Widget::Window { .. } | Widget::Host(_) | Widget::ToolbarItem { .. } => (item.child_items(), None),
             _ => (Vec::new(), None),
         };
         // Items that stand for nodes themselves: `node()` walks up the tree.
         let own = node_key(id);
-        let children = match &node.widget {
+        let mut children: Vec<NodeId> = match &node.widget {
             Widget::List(list) => list.children(),
             _ => children.iter().filter_map(|c| c.node()).filter(|key| *key != own).map(node_from_key).collect(),
         };
+        // A window's toolbar items come after its content.
+        if let Widget::Window { root } = &node.widget {
+            children.extend(root.toolbar.borrow().iter().copied());
+        }
         let window = {
             let mut top = id;
             while let Some(parent) = state.nodes.get(&top).and_then(|n| n.parent) {

@@ -74,6 +74,10 @@ pub(crate) struct WindowParts {
     disabled: Vec<w::HWND>,
     /// Dialogs (modal windows): the Escape accelerator's handler.
     escape: Option<EventRevoker>,
+    /// The toolbar, made when its first item arrives: a `CommandBar` whose
+    /// primary commands hold the items' hosts, in order.
+    toolbar: Option<w::CommandBar>,
+    toolbar_items: Vec<(NodeId, w::AppBarElementContainer)>,
 }
 
 impl WindowParts {
@@ -430,22 +434,28 @@ fn font_weight(style: TextStyle) -> u16 {
 const MONOSPACE: &str = "Cascadia Mono, Consolas";
 
 /// A window's content: the title bar (content extends into it, the Windows
-/// 11 way), a row for the menu bar, then the content host. The root and the
-/// host carry the window background (window captures render the host).
+/// 11 way), a row for the menu bar, one for the toolbar, then the content
+/// host. The root and the host carry the window background (window captures
+/// render the host).
 const WINDOW_ROOT: &str = r#"
 <Grid xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
       Background="{ThemeResource SolidBackgroundFillColorBaseBrush}">
   <Grid.RowDefinitions>
     <RowDefinition Height="Auto"/>
     <RowDefinition Height="Auto"/>
+    <RowDefinition Height="Auto"/>
     <RowDefinition Height="*"/>
   </Grid.RowDefinitions>
   <TitleBar Grid.Row="0"/>
-  <Canvas Grid.Row="2" Background="{ThemeResource SolidBackgroundFillColorBaseBrush}"/>
+  <Canvas Grid.Row="3" Background="{ThemeResource SolidBackgroundFillColorBaseBrush}"/>
 </Grid>"#;
 
 /// Where the menu bar goes in `WINDOW_ROOT`.
 const MENU_ROW: i32 = 1;
+
+/// Where the toolbar goes in `WINDOW_ROOT`: under the menu bar, as Windows
+/// apps put their command bars.
+const TOOLBAR_ROW: i32 = 2;
 
 fn violation(command: &Command, problem: &str) -> ! {
     panic!("winui backend: protocol violation in {command:?}: {problem}")
@@ -744,7 +754,84 @@ fn chrome_height(parts: &WindowParts) -> f64 {
         if actual > 0.0 { actual } else { measure_element(&element, infinite).height as f64 }
     };
     let title = height(ok(parts.title_bar.cast(), "title bar element"));
-    title + parts.menu_bar.as_ref().map_or(0.0, |m| height(ok(m.cast(), "menu bar element")))
+    let menu = parts.menu_bar.as_ref().map_or(0.0, |m| height(ok(m.cast(), "menu bar element")));
+    // A collapsed toolbar has no height, but may still have a desired one.
+    let shown = |bar: &&w::CommandBar| {
+        bar.cast::<w::IUIElement>().and_then(|e| e.Visibility()).is_ok_and(|v| v == w::Visibility::Visible)
+    };
+    let toolbar = parts.toolbar.as_ref().filter(shown).map_or(0.0, |t| height(ok(t.cast(), "toolbar element")));
+    title + menu + toolbar
+}
+
+/// Adds an item's host to the window's toolbar at `index` among its items,
+/// making the toolbar if it's the first.
+fn insert_toolbar_item(parts: &mut WindowParts, id: NodeId, host: &w::UIElement, index: usize) -> R<()> {
+    if parts.toolbar.is_none() {
+        let bar = w::CommandBar::new()?;
+        let element: w::UIElement = bar.cast()?;
+        w::Grid::SetRow(&element.cast::<w::FrameworkElement>()?, TOOLBAR_ROW)?;
+        // Hidden until an item has something to show.
+        element.cast::<w::IUIElement>()?.SetVisibility(w::Visibility::Collapsed)?;
+        parts.root.cast::<w::IPanel>()?.Children()?.Append(&element)?;
+        parts.toolbar = Some(bar);
+    }
+    let container = w::AppBarElementContainer::new()?;
+    container.cast::<w::IContentControl>()?.SetContent(host)?;
+    // Empty until its first frame.
+    container.cast::<w::IUIElement>()?.SetVisibility(w::Visibility::Collapsed)?;
+    let index = index.min(parts.toolbar_items.len());
+    let commands = parts.toolbar.as_ref().expect("made above").PrimaryCommands()?;
+    commands.InsertAt(index as u32, &container.cast::<w::ICommandBarElement>()?)?;
+    parts.toolbar_items.insert(index, (id, container));
+    Ok(())
+}
+
+fn remove_toolbar_item(parts: &mut WindowParts, id: NodeId) -> R<()> {
+    let Some(index) = parts.toolbar_items.iter().position(|(item, _)| *item == id) else { return Ok(()) };
+    let (_, container) = parts.toolbar_items.remove(index);
+    if let Some(bar) = &parts.toolbar {
+        bar.PrimaryCommands()?.RemoveAt(index as u32)?;
+    }
+    container.cast::<w::IContentControl>()?.SetContent(None::<&IInspectable>)?;
+    update_toolbar(parts)
+}
+
+/// Shows an item while it has a size (and the toolbar while any item
+/// does); the content keeps the size the app asked for, below it.
+fn update_toolbar(parts: &mut WindowParts) -> R<()> {
+    let Some(bar) = &parts.toolbar else { return Ok(()) };
+    let visible =
+        |element: R<w::IUIElement>| element.and_then(|e| e.Visibility()).is_ok_and(|v| v == w::Visibility::Visible);
+    let any = parts.toolbar_items.iter().any(|(_, c)| visible(c.cast()));
+    let wanted = if any { w::Visibility::Visible } else { w::Visibility::Collapsed };
+    let element: w::IUIElement = bar.cast()?;
+    let before = chrome_height(parts);
+    if element.Visibility()? != wanted {
+        element.SetVisibility(wanted)?;
+    }
+    parts.root.cast::<w::IUIElement>()?.UpdateLayout()?;
+    if chrome_height(parts) != before
+        && let Some(size) = parts.requested
+    {
+        resize_client(parts, size);
+    }
+    Ok(())
+}
+
+/// Where the toolbar shows an item's host, in the content host's
+/// coordinates (above it, so at negative y); zero while it's collapsed.
+fn toolbar_item_frame(parts: &WindowParts, id: NodeId, element: &w::UIElement) -> Option<Rect> {
+    let (_, container) = parts.toolbar_items.iter().find(|(item, _)| *item == id)?;
+    let shown = container.cast::<w::IUIElement>().ok()?.Visibility().ok()? == w::Visibility::Visible;
+    // An item that didn't fit is in the bar's overflow menu: not shown.
+    let overflowed = container.cast::<w::ICommandBarElement>().ok()?.IsInOverflow().ok()?;
+    if !shown || overflowed {
+        return Some(Rect::ZERO);
+    }
+    let transform = element.cast::<w::IUIElement>().ok()?.TransformToVisual(&parts.host).ok()?;
+    let origin = transform.cast::<w::IGeneralTransform>().ok()?.TransformPoint(w::Point { x: 0.0, y: 0.0 }).ok()?;
+    let fe: w::IFrameworkElement = element.cast().ok()?;
+    Some(Rect::new(origin.x, origin.y, fe.Width().ok()? as f32, fe.Height().ok()? as f32))
 }
 
 /// Sets the content area (the host, below the title and menu bars) to
@@ -1043,6 +1130,8 @@ impl State {
             modal: None,
             disabled: Vec::new(),
             escape: None,
+            toolbar: None,
+            toolbar_items: Vec::new(),
         };
         if let Some((menu, activate)) = &self.menu {
             install_menu(&mut parts, menu, activate);
@@ -1066,7 +1155,7 @@ impl State {
                 revokers = window_revokers;
                 (widget, element)
             }
-            WidgetKind::Container => {
+            WidgetKind::Container | WidgetKind::ToolbarItem => {
                 let canvas = w::Canvas::new()?;
                 let element = canvas.cast()?;
                 (Widget::Host(canvas), element)
@@ -1711,6 +1800,23 @@ impl State {
                 if self.nodes[child].parent.is_some() {
                     violation(command, "child is still attached");
                 }
+                if self.nodes[child].kind == WidgetKind::ToolbarItem {
+                    // Items come after the window's content.
+                    let content = self
+                        .nodes
+                        .values()
+                        .filter(|n| n.parent == Some(*parent) && n.kind != WidgetKind::ToolbarItem)
+                        .count();
+                    let Some(index) = index.checked_sub(content) else {
+                        violation(command, "toolbar items go after the window's content")
+                    };
+                    let Some(Widget::Window(parts)) = self.nodes.get_mut(parent).map(|n| &mut n.widget) else {
+                        violation(command, "toolbar items go in windows")
+                    };
+                    insert_toolbar_item(parts, *child, &child_element, index)?;
+                    self.nodes.get_mut(child).unwrap().parent = Some(*parent);
+                    return Ok(());
+                }
                 match &self.nodes.get(parent).map(|n| &n.widget) {
                     Some(Widget::List(list)) => {
                         let Some(row) = self.nodes[child].row else {
@@ -1749,6 +1855,13 @@ impl State {
                     violation(command, "not a child of this parent");
                 }
                 let child_element = self.element(*child, command);
+                if self.nodes[child].kind == WidgetKind::ToolbarItem
+                    && let Some(Widget::Window(parts)) = self.nodes.get_mut(parent).map(|n| &mut n.widget)
+                {
+                    remove_toolbar_item(parts, *child)?;
+                    self.nodes.get_mut(child).unwrap().parent = None;
+                    return Ok(());
+                }
                 match &self.nodes[parent].widget {
                     Widget::List(list) => list.remove(self.nodes[child].row.expect("inserted with a row")),
                     Widget::Scroll(scroll) => {
@@ -1796,6 +1909,23 @@ impl State {
             }
             Command::SetFrame { id, frame } => {
                 let element = self.element(*id, command);
+                // A toolbar item is where the toolbar puts it, at this size;
+                // an empty one is collapsed.
+                if self.nodes[id].kind == WidgetKind::ToolbarItem
+                    && let Some(window) = self.nodes[id].parent
+                    && let Some(Widget::Window(parts)) = self.nodes.get_mut(&window).map(|n| &mut n.widget)
+                {
+                    let fe: w::IFrameworkElement = element.cast()?;
+                    fe.SetWidth(frame.width() as f64)?;
+                    fe.SetHeight(frame.height() as f64)?;
+                    if let Some((_, container)) = parts.toolbar_items.iter().find(|(item, _)| item == id) {
+                        let empty = frame.size.is_empty();
+                        let visibility = if empty { w::Visibility::Collapsed } else { w::Visibility::Visible };
+                        container.cast::<w::IUIElement>()?.SetVisibility(visibility)?;
+                    }
+                    update_toolbar(parts)?;
+                    return Ok(());
+                }
                 w::Canvas::SetLeft(&element, frame.x() as f64)?;
                 w::Canvas::SetTop(&element, frame.y() as f64)?;
                 let fe: w::IFrameworkElement = element.cast()?;
@@ -2759,9 +2889,13 @@ impl Backend for WinUiBackend {
                 )
             }
         };
-        // A row is where the list view put it.
+        // A row is where the list view put it, a toolbar item where the
+        // toolbar did.
         let frame = match node.parent.and_then(|p| state.nodes.get(&p)).map(|p| &p.widget) {
             Some(Widget::List(list)) => list.row_rect(&node.element, frame),
+            Some(Widget::Window(parts)) if node.kind == WidgetKind::ToolbarItem => {
+                toolbar_item_frame(parts, id, &node.element).unwrap_or(frame)
+            }
             _ => frame,
         };
         let by_element = state.by_element.borrow();
@@ -2779,7 +2913,11 @@ impl Backend for WinUiBackend {
                     )),
                 )
             }
-            Widget::Window(parts) => (panel_children(&parts.host, &known), None),
+            Widget::Window(parts) => {
+                let mut children = panel_children(&parts.host, &known);
+                children.extend(parts.toolbar_items.iter().map(|(item, _)| *item));
+                (children, None)
+            }
             Widget::Host(canvas) => (panel_children(canvas, &known), None),
             _ => (Vec::new(), None),
         };

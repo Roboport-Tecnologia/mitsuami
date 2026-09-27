@@ -85,6 +85,81 @@ impl windows_core::RuntimeType for AccessibilityView {
 pub type AddPackageDependencyOptions = u32;
 #[repr(transparent)]
 #[derive(Clone, Debug, Eq, PartialEq)]
+pub struct AppBar(windows_core::IUnknown);
+windows_core::imp::interface_hierarchy!(AppBar, windows_core::IUnknown, windows_core::IInspectable);
+windows_core::imp::required_hierarchy!(AppBar, ContentControl, Control, FrameworkElement, UIElement, DependencyObject);
+impl windows_core::RuntimeType for AppBar {
+    const SIGNATURE: windows_core::imp::ConstBuffer = windows_core::imp::ConstBuffer::for_class::<Self, IAppBar>();
+}
+unsafe impl windows_core::Interface for AppBar {
+    type Vtable = <IAppBar as windows_core::Interface>::Vtable;
+    const IID: windows_core::GUID = <IAppBar as windows_core::Interface>::IID;
+}
+impl core::ops::Deref for AppBar {
+    type Target = IAppBar;
+    fn deref(&self) -> &Self::Target {
+        unsafe { core::mem::transmute(self) }
+    }
+}
+impl windows_core::RuntimeName for AppBar {
+    const NAME: &'static str = "Microsoft.UI.Xaml.Controls.AppBar";
+}
+unsafe impl Send for AppBar {}
+unsafe impl Sync for AppBar {}
+#[repr(transparent)]
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct AppBarElementContainer(windows_core::IUnknown);
+windows_core::imp::interface_hierarchy!(AppBarElementContainer, windows_core::IUnknown, windows_core::IInspectable);
+windows_core::imp::required_hierarchy!(
+    AppBarElementContainer,
+    ContentControl,
+    Control,
+    FrameworkElement,
+    UIElement,
+    DependencyObject
+);
+impl AppBarElementContainer {
+    pub fn new() -> windows_core::Result<Self> {
+        Self::IAppBarElementContainerFactory(|this| unsafe {
+            let mut result__ = core::mem::zeroed();
+            (windows_core::Interface::vtable(this).CreateInstance)(
+                windows_core::Interface::as_raw(this),
+                core::ptr::null_mut(),
+                core::ptr::null_mut(),
+                &mut result__,
+            )
+            .and_then(|| windows_core::imp::Type::from_abi(result__))
+        })
+    }
+    fn IAppBarElementContainerFactory<R, F: FnOnce(&IAppBarElementContainerFactory) -> windows_core::Result<R>>(
+        callback: F,
+    ) -> windows_core::Result<R> {
+        static SHARED: windows_core::imp::FactoryCache<AppBarElementContainer, IAppBarElementContainerFactory> =
+            windows_core::imp::FactoryCache::new();
+        SHARED.call(callback)
+    }
+}
+impl windows_core::RuntimeType for AppBarElementContainer {
+    const SIGNATURE: windows_core::imp::ConstBuffer =
+        windows_core::imp::ConstBuffer::for_class::<Self, IAppBarElementContainer>();
+}
+unsafe impl windows_core::Interface for AppBarElementContainer {
+    type Vtable = <IAppBarElementContainer as windows_core::Interface>::Vtable;
+    const IID: windows_core::GUID = <IAppBarElementContainer as windows_core::Interface>::IID;
+}
+impl core::ops::Deref for AppBarElementContainer {
+    type Target = IAppBarElementContainer;
+    fn deref(&self) -> &Self::Target {
+        unsafe { core::mem::transmute(self) }
+    }
+}
+impl windows_core::RuntimeName for AppBarElementContainer {
+    const NAME: &'static str = "Microsoft.UI.Xaml.Controls.AppBarElementContainer";
+}
+unsafe impl Send for AppBarElementContainer {}
+unsafe impl Sync for AppBarElementContainer {}
+#[repr(transparent)]
+#[derive(Clone, Debug, Eq, PartialEq)]
 pub struct AppWindow(windows_core::IUnknown);
 windows_core::imp::interface_hierarchy!(AppWindow, windows_core::IUnknown, windows_core::IInspectable);
 impl windows_core::RuntimeType for AppWindow {
@@ -888,6 +963,58 @@ impl windows_core::RuntimeName for ComboBoxItem {
 }
 unsafe impl Send for ComboBoxItem {}
 unsafe impl Sync for ComboBoxItem {}
+#[repr(transparent)]
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct CommandBar(windows_core::IUnknown);
+windows_core::imp::interface_hierarchy!(CommandBar, windows_core::IUnknown, windows_core::IInspectable);
+windows_core::imp::required_hierarchy!(
+    CommandBar,
+    AppBar,
+    ContentControl,
+    Control,
+    FrameworkElement,
+    UIElement,
+    DependencyObject
+);
+impl CommandBar {
+    pub fn new() -> windows_core::Result<Self> {
+        Self::ICommandBarFactory(|this| unsafe {
+            let mut result__ = core::mem::zeroed();
+            (windows_core::Interface::vtable(this).CreateInstance)(
+                windows_core::Interface::as_raw(this),
+                core::ptr::null_mut(),
+                core::ptr::null_mut(),
+                &mut result__,
+            )
+            .and_then(|| windows_core::imp::Type::from_abi(result__))
+        })
+    }
+    fn ICommandBarFactory<R, F: FnOnce(&ICommandBarFactory) -> windows_core::Result<R>>(
+        callback: F,
+    ) -> windows_core::Result<R> {
+        static SHARED: windows_core::imp::FactoryCache<CommandBar, ICommandBarFactory> =
+            windows_core::imp::FactoryCache::new();
+        SHARED.call(callback)
+    }
+}
+impl windows_core::RuntimeType for CommandBar {
+    const SIGNATURE: windows_core::imp::ConstBuffer = windows_core::imp::ConstBuffer::for_class::<Self, ICommandBar>();
+}
+unsafe impl windows_core::Interface for CommandBar {
+    type Vtable = <ICommandBar as windows_core::Interface>::Vtable;
+    const IID: windows_core::GUID = <ICommandBar as windows_core::Interface>::IID;
+}
+impl core::ops::Deref for CommandBar {
+    type Target = ICommandBar;
+    fn deref(&self) -> &Self::Target {
+        unsafe { core::mem::transmute(self) }
+    }
+}
+impl windows_core::RuntimeName for CommandBar {
+    const NAME: &'static str = "Microsoft.UI.Xaml.Controls.CommandBar";
+}
+unsafe impl Send for CommandBar {}
+unsafe impl Sync for CommandBar {}
 #[repr(transparent)]
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct ContainerContentChangingEventArgs(windows_core::IUnknown);
@@ -2112,6 +2239,44 @@ pub struct IAccessibilitySettings_Vtbl {
     pub base__: windows_core::IInspectable_Vtbl,
     pub HighContrast: unsafe extern "system" fn(*mut core::ffi::c_void, *mut bool) -> windows_core::HRESULT,
 }
+windows_core::imp::define_interface!(IAppBar, IAppBar_Vtbl, 0x3d8c2927_5ac5_51bb_8bec_13ff4c1bd6c8);
+impl windows_core::RuntimeType for IAppBar {
+    const SIGNATURE: windows_core::imp::ConstBuffer = windows_core::imp::ConstBuffer::for_interface::<Self>();
+}
+#[repr(C)]
+pub struct IAppBar_Vtbl {
+    pub base__: windows_core::IInspectable_Vtbl,
+}
+windows_core::imp::define_interface!(
+    IAppBarElementContainer,
+    IAppBarElementContainer_Vtbl,
+    0x55d90715_70bc_5b2b_bd12_a940297f935f
+);
+impl windows_core::RuntimeType for IAppBarElementContainer {
+    const SIGNATURE: windows_core::imp::ConstBuffer = windows_core::imp::ConstBuffer::for_interface::<Self>();
+}
+#[repr(C)]
+pub struct IAppBarElementContainer_Vtbl {
+    pub base__: windows_core::IInspectable_Vtbl,
+}
+windows_core::imp::define_interface!(
+    IAppBarElementContainerFactory,
+    IAppBarElementContainerFactory_Vtbl,
+    0x0664bf62_1fab_5873_9608_117c3b4483ff
+);
+impl windows_core::RuntimeType for IAppBarElementContainerFactory {
+    const SIGNATURE: windows_core::imp::ConstBuffer = windows_core::imp::ConstBuffer::for_interface::<Self>();
+}
+#[repr(C)]
+pub struct IAppBarElementContainerFactory_Vtbl {
+    pub base__: windows_core::IInspectable_Vtbl,
+    pub CreateInstance: unsafe extern "system" fn(
+        *mut core::ffi::c_void,
+        *mut core::ffi::c_void,
+        *mut *mut core::ffi::c_void,
+        *mut *mut core::ffi::c_void,
+    ) -> windows_core::HRESULT,
+}
 windows_core::imp::define_interface!(IAppWindow, IAppWindow_Vtbl, 0xcfa788b3_643b_5c5e_ad4e_321d48a82acd);
 impl windows_core::RuntimeType for IAppWindow {
     const SIGNATURE: windows_core::imp::ConstBuffer = windows_core::imp::ConstBuffer::for_interface::<Self>();
@@ -2889,6 +3054,71 @@ impl windows_core::RuntimeType for IComboBoxItemFactory {
 }
 #[repr(C)]
 pub struct IComboBoxItemFactory_Vtbl {
+    pub base__: windows_core::IInspectable_Vtbl,
+    pub CreateInstance: unsafe extern "system" fn(
+        *mut core::ffi::c_void,
+        *mut core::ffi::c_void,
+        *mut *mut core::ffi::c_void,
+        *mut *mut core::ffi::c_void,
+    ) -> windows_core::HRESULT,
+}
+windows_core::imp::define_interface!(ICommandBar, ICommandBar_Vtbl, 0xb7ca8ee3_a07a_5f69_8ab8_be4e3e4cf0c8);
+impl windows_core::RuntimeType for ICommandBar {
+    const SIGNATURE: windows_core::imp::ConstBuffer = windows_core::imp::ConstBuffer::for_interface::<Self>();
+}
+impl ICommandBar {
+    pub fn PrimaryCommands(&self) -> windows_core::Result<windows_collections::IObservableVector<ICommandBarElement>> {
+        unsafe {
+            let mut result__ = core::mem::zeroed();
+            (windows_core::Interface::vtable(self).PrimaryCommands)(
+                windows_core::Interface::as_raw(self),
+                &mut result__,
+            )
+            .and_then(|| windows_core::imp::Type::from_abi(result__))
+        }
+    }
+}
+#[repr(C)]
+pub struct ICommandBar_Vtbl {
+    pub base__: windows_core::IInspectable_Vtbl,
+    pub PrimaryCommands:
+        unsafe extern "system" fn(*mut core::ffi::c_void, *mut *mut core::ffi::c_void) -> windows_core::HRESULT,
+}
+windows_core::imp::define_interface!(
+    ICommandBarElement,
+    ICommandBarElement_Vtbl,
+    0xf8eb20b4_373e_5327_9942_66a1ea21f5f9
+);
+impl windows_core::RuntimeType for ICommandBarElement {
+    const SIGNATURE: windows_core::imp::ConstBuffer = windows_core::imp::ConstBuffer::for_interface::<Self>();
+}
+windows_core::imp::interface_hierarchy!(ICommandBarElement, windows_core::IUnknown, windows_core::IInspectable);
+impl ICommandBarElement {
+    pub fn IsInOverflow(&self) -> windows_core::Result<bool> {
+        unsafe {
+            let mut result__ = core::mem::zeroed();
+            (windows_core::Interface::vtable(self).IsInOverflow)(windows_core::Interface::as_raw(self), &mut result__)
+                .map(|| result__)
+        }
+    }
+}
+#[repr(C)]
+pub struct ICommandBarElement_Vtbl {
+    pub base__: windows_core::IInspectable_Vtbl,
+    IsCompact: usize,
+    SetIsCompact: usize,
+    pub IsInOverflow: unsafe extern "system" fn(*mut core::ffi::c_void, *mut bool) -> windows_core::HRESULT,
+}
+windows_core::imp::define_interface!(
+    ICommandBarFactory,
+    ICommandBarFactory_Vtbl,
+    0x8d4079c3_fa0a_5bb1_b45d_499c378761b4
+);
+impl windows_core::RuntimeType for ICommandBarFactory {
+    const SIGNATURE: windows_core::imp::ConstBuffer = windows_core::imp::ConstBuffer::for_interface::<Self>();
+}
+#[repr(C)]
+pub struct ICommandBarFactory_Vtbl {
     pub base__: windows_core::IInspectable_Vtbl,
     pub CreateInstance: unsafe extern "system" fn(
         *mut core::ffi::c_void,
@@ -7272,6 +7502,18 @@ impl IUIElement {
                 .ok()
         }
     }
+    pub fn Visibility(&self) -> windows_core::Result<Visibility> {
+        unsafe {
+            let mut result__ = core::mem::zeroed();
+            (windows_core::Interface::vtable(self).Visibility)(windows_core::Interface::as_raw(self), &mut result__)
+                .map(|| result__)
+        }
+    }
+    pub fn SetVisibility(&self, value: Visibility) -> windows_core::Result<()> {
+        unsafe {
+            (windows_core::Interface::vtable(self).SetVisibility)(windows_core::Interface::as_raw(self), value).ok()
+        }
+    }
     pub fn KeyboardAccelerators(&self) -> windows_core::Result<windows_collections::IVector<KeyboardAccelerator>> {
         unsafe {
             let mut result__ = core::mem::zeroed();
@@ -7578,8 +7820,8 @@ pub struct IUIElement_Vtbl {
     SetRenderTransformOrigin: usize,
     IsHitTestVisible: usize,
     SetIsHitTestVisible: usize,
-    Visibility: usize,
-    SetVisibility: usize,
+    pub Visibility: unsafe extern "system" fn(*mut core::ffi::c_void, *mut Visibility) -> windows_core::HRESULT,
+    pub SetVisibility: unsafe extern "system" fn(*mut core::ffi::c_void, Visibility) -> windows_core::HRESULT,
     RenderSize: usize,
     UseLayoutRounding: usize,
     SetUseLayoutRounding: usize,
@@ -11412,6 +11654,20 @@ impl core::ops::Not for VirtualKeyModifiers {
     fn not(self) -> Self {
         Self(self.0.not())
     }
+}
+#[repr(transparent)]
+#[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
+pub struct Visibility(pub i32);
+impl Visibility {
+    pub const Visible: Self = Self(0);
+    pub const Collapsed: Self = Self(1);
+}
+impl windows_core::imp::TypeKind for Visibility {
+    type TypeKind = windows_core::imp::CopyType;
+}
+impl windows_core::RuntimeType for Visibility {
+    const SIGNATURE: windows_core::imp::ConstBuffer =
+        windows_core::imp::ConstBuffer::from_slice(b"enum(Microsoft.UI.Xaml.Visibility;i4)");
 }
 #[repr(transparent)]
 #[derive(Clone, Debug, Eq, PartialEq)]

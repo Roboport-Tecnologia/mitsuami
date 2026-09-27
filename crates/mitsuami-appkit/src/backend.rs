@@ -35,6 +35,7 @@ use objc2_foundation::{NSArray, NSDictionary, NSNotificationCenter, NSPoint, NSR
 use crate::classes::{ActionTarget, ClosureTarget, DrawnView, HostView, ViewMap, WindowDelegate};
 use crate::custom::{AppKitCx, Emitter, ErasedRender, NativePayload};
 use crate::number_field::NumberField;
+use crate::toolbar::Toolbar;
 
 /// How the backend behaves; apps and tests want different things.
 #[derive(Clone, Debug)]
@@ -62,6 +63,8 @@ enum Widget {
         window: Retained<NSWindow>,
         host: Retained<HostView>,
         _delegate: Retained<WindowDelegate>,
+        /// Made when the first toolbar item arrives.
+        toolbar: Option<Toolbar>,
     },
     Host(Retained<HostView>),
     Label(Retained<NSTextField>),
@@ -413,13 +416,25 @@ impl mitsuami_core::TestHooks for AppKitHandle {
     }
 
     /// Offscreen windows get no display cycle, where tables add the rows
-    /// scrolling brought into view.
+    /// scrolling brought into view and toolbars place their items.
     fn settle(&self) {
-        self.state.borrow().layout_lists();
+        let state = self.state.borrow();
+        state.layout_lists();
+        state.layout_toolbars();
     }
 }
 
 impl State {
+    /// Lets toolbars place their items now: a window that was never shown
+    /// (as in tests) doesn't even make its toolbar's views before.
+    fn layout_toolbars(&self) {
+        for node in self.nodes.values() {
+            if let Widget::Window { window, toolbar: Some(_), .. } = &node.widget {
+                window.layoutIfNeeded();
+            }
+        }
+    }
+
     /// Lets tables lay out their rows now rather than at the next display:
     /// they report the rows they show, and the core builds those in the
     /// same run-loop turn, before anything is drawn. Their callbacks only
@@ -487,9 +502,9 @@ impl State {
                 if self.options.show_windows {
                     self.pending_show.push(id);
                 }
-                Widget::Window { window, host, _delegate: delegate }
+                Widget::Window { window, host, _delegate: delegate, toolbar: None }
             }
-            WidgetKind::Container => Widget::Host(HostView::new(mtm, false)),
+            WidgetKind::Container | WidgetKind::ToolbarItem => Widget::Host(HostView::new(mtm, false)),
             WidgetKind::Custom(_) => {
                 let Command::Create { props, .. } = command else { unreachable!() };
                 let Some(custom) = find_prop!(props, Custom) else {
@@ -934,6 +949,29 @@ impl State {
                     self.nodes.get_mut(child).unwrap().parent = Some(*parent);
                     return;
                 }
+                if self.nodes[child].kind == WidgetKind::ToolbarItem {
+                    // Items come after the window's content.
+                    let content = self
+                        .nodes
+                        .values()
+                        .filter(|n| n.parent == Some(*parent) && n.kind != WidgetKind::ToolbarItem)
+                        .count();
+                    let (mtm, animate) = (self.mtm, self.options.show_windows);
+                    let Widget::Window { window, toolbar, .. } = &mut self.nodes.get_mut(parent).unwrap().widget else {
+                        violation(command, "toolbar items go in windows")
+                    };
+                    let Some(index) = index.checked_sub(content) else {
+                        violation(command, "toolbar items go after the window's content")
+                    };
+                    toolbar.get_or_insert_with(|| Toolbar::new(mtm, window, *parent, animate)).insert(
+                        mtm,
+                        *child,
+                        &child_view,
+                        index,
+                    );
+                    self.nodes.get_mut(child).unwrap().parent = Some(*parent);
+                    return;
+                }
                 if let Widget::List(list) = &self.nodes[parent].widget {
                     let Some(row) = self.nodes[child].row else {
                         violation(command, "a List's children are row hosts (Containers with a Prop::Row)")
@@ -959,9 +997,11 @@ impl State {
                 if self.nodes.get(child).and_then(|n| n.parent) != Some(*parent) {
                     violation(command, "not a child of this parent");
                 }
-                match &self.nodes[parent].widget {
+                let row = self.nodes[child].row;
+                match &mut self.nodes.get_mut(parent).unwrap().widget {
+                    Widget::Window { toolbar: Some(toolbar), .. } if toolbar.contains(*child) => toolbar.remove(*child),
                     Widget::Scroll(scroll) => scroll.setDocumentView(None),
-                    Widget::List(list) => list.remove(self.nodes[child].row.expect("inserted with a row")),
+                    Widget::List(list) => list.remove(row.expect("inserted with a row")),
                     _ => self.view(*child, command).removeFromSuperview(),
                 }
                 self.nodes.get_mut(child).unwrap().parent = None;
@@ -1006,6 +1046,15 @@ impl State {
                 );
                 if let Some(Widget::List(list)) = self.nodes.get(id).map(|n| &n.widget) {
                     list.set_frame(rect);
+                    return;
+                }
+                // A toolbar item is where the toolbar puts it, at this size.
+                if let Some(window) =
+                    self.nodes.get(id).filter(|n| n.kind == WidgetKind::ToolbarItem).and_then(|n| n.parent)
+                    && let Some(Widget::Window { toolbar: Some(toolbar), .. }) =
+                        self.nodes.get_mut(&window).map(|n| &mut n.widget)
+                {
+                    toolbar.set_size(*id, rect.size.width, rect.size.height);
                     return;
                 }
                 // A row fills its cell, and the table makes the row as high.
@@ -1257,6 +1306,7 @@ impl Backend for AppKitBackend {
             state.apply(command);
         }
         state.layout_lists();
+        state.layout_toolbars();
     }
 
     fn measure(&mut self, id: NodeId, request: MeasureRequest) -> Size {
@@ -1710,6 +1760,16 @@ impl Backend for AppKitBackend {
         {
             frame = list.row_rect(row).unwrap_or(frame);
         }
+        // So is a toolbar item, by the toolbar; an empty one isn't shown.
+        if let Some(Widget::Window { host, toolbar: Some(toolbar), .. }) = node
+            .parent
+            .filter(|_| node.kind == WidgetKind::ToolbarItem)
+            .and_then(|p| state.nodes.get(&p))
+            .map(|p| &p.widget)
+        {
+            let f = toolbar.frame(id, host).unwrap_or(crate::classes::zero_rect());
+            frame = Rect::new(f.origin.x as f32, f.origin.y as f32, f.size.width as f32, f.size.height as f32);
+        }
         let by_view = state.by_view.borrow();
         let (children, scroll_offset) = match &node.widget {
             Widget::List(list) => {
@@ -1723,7 +1783,14 @@ impl Backend for AppKitBackend {
                     Some(Point::new(origin.x as f32, origin.y as f32)),
                 )
             }
-            _ => (view.subviews().iter().filter_map(|v| by_view.get(&key(&v)).copied()).collect(), None),
+            _ => {
+                let mut children: Vec<NodeId> =
+                    view.subviews().iter().filter_map(|v| by_view.get(&key(&v)).copied()).collect();
+                if let Widget::Window { toolbar: Some(toolbar), .. } = &node.widget {
+                    children.extend(toolbar.ids());
+                }
+                (children, None)
+            }
         };
         Some(NativeState {
             kind: node.kind,

@@ -100,6 +100,23 @@ Kirigami.ApplicationWindow {{
     pageStack.initialPage: Kirigami.Page {{
         objectName: "mitsuamiPage"
         padding: 0
+        // Toolbar items are actions of the page, which Kirigami's toolbar
+        // shows at its trailing end: the backend inserts and removes
+        // `mitsuamiAction` at `mitsuamiIndex`.
+        property QtObject mitsuamiAction: null
+        property int mitsuamiIndex: 0
+        function mitsuamiInsert() {{
+            const list = []
+            for (let i = 0; i < actions.length; i++) list.push(actions[i])
+            list.splice(mitsuamiIndex, 0, mitsuamiAction)
+            actions = list
+        }}
+        function mitsuamiRemove() {{
+            const list = []
+            for (let i = 0; i < actions.length; i++)
+                if (actions[i] !== mitsuamiAction) list.push(actions[i])
+            actions = list
+        }}
         Item {{
             objectName: "mitsuamiHost"
             anchors.fill: parent
@@ -108,6 +125,29 @@ Kirigami.ApplicationWindow {{
 }}
 "#
     )
+}
+
+/// A toolbar item: an action the page's toolbar shows as its own item,
+/// never folded into the overflow menu, which holds the node's host
+/// (`mitsuamiItem`) at the size the core gave it. Hidden while empty.
+pub(crate) fn toolbar_action() -> String {
+    r#"
+Kirigami.Action {
+    id: mitsuamiAction
+    property Item mitsuamiItem: null
+    visible: false
+    displayHint: Kirigami.DisplayHint.KeepVisible
+    displayComponent: Item {
+        id: mitsuamiHolder
+        readonly property Item held: mitsuamiAction.mitsuamiItem
+        implicitWidth: held ? held.width : 0
+        implicitHeight: held ? held.height : 0
+        onHeldChanged: if (held) held.parent = mitsuamiHolder
+        Component.onCompleted: if (held) held.parent = mitsuamiHolder
+    }
+}
+"#
+    .to_owned()
 }
 
 pub(crate) fn container() -> String {
