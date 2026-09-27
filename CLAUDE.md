@@ -76,6 +76,13 @@ Backend rules the tests enforce:
   development moves too fast. Type-check the other platforms from macOS
   (below) and say in `docs/ARCHITECTURE.md` what only type-checks; the
   maintainer runs CI in a later pass.
+- Some input can't be simulated here, e.g. holding a button down: AppKit's
+  tracking loops read the physical mouse button, and posting real events
+  (`CGEvent`) needs an Accessibility permission this terminal lacks. Build a
+  small `swiftc` app in the scratchpad with the variants side by side and
+  ask the maintainer to try it (run with `!`). That's how AppKit steppers
+  made in code were found not to repeat (`docs/ARCHITECTURE.md`,
+  NumberInput).
 - Visual stories aren't validated yet: development moves too fast for
   baselines to keep up. Missing or failing visual baselines (stories, and
   the other platforms' captures) are expected; don't treat them as

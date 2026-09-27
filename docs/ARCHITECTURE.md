@@ -506,6 +506,13 @@ which builds the same tree as `Column::new().gap(…).children((Text::new(…).t
 | ScrollView | NSScrollView | ScrollViewer | gtk::ScrolledWindow | QQC2.ScrollView |
 | List (virtualised) | NSTableView | ListView | gtk::ListView | ListView |
 
+**What comes next is driven by 2ksbox.** mitsuami was started to replace the Qt Quick launcher of 2ksbox (a Windows 98/XP emulator; `launcher-qt/qml` in that repo). Widgets are added as that launcher needs them, and only widgets every platform has a native control for: what one platform lacks is the app's to build, as a custom widget (§6.3). From the launcher so far:
+
+- Built: `NumberInput` (its `SpinBox`).
+- Next: `Image` (the shader preview), then tooltips (a prop on every widget, not a widget).
+- Not widgets, still needed: several windows open at once, Escape closing a window (its `Shortcut`s), a toolbar header (a shell component, below).
+- Left to the app: a separator line (WinUI has no separator control outside menus and app bars) and a disclosure header (Qt Quick has none; 2ksbox builds its own from a `ToolButton`).
+
 **Idiomatic shell components (post-MVP).** These are where most of the "feels native" effect comes from:
 
 - `AppShell`, `Sidebar` (source list / NavigationView / split view)
