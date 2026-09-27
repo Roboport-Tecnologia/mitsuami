@@ -208,9 +208,16 @@ impl List {
             data.rows = rows.clone();
         }
         let added: Vec<glib::Object> = rows[prefix..rows.len() - suffix].iter().map(|k| item(*k).upcast()).collect();
+        let focused = self.focused();
         self.muted.set(true);
         self.store.splice(prefix as u32, (old.len() - prefix - suffix) as u32, &added);
         self.muted.set(false);
+        // A removed row's item widget leaves the view, but the window
+        // keeps it as its focus, without saying so. Focus stays in the
+        // list, as when a mode change swaps the model.
+        if focused && !self.focused() {
+            self.view.grab_focus();
+        }
         let kept: Vec<RowKey> = {
             let data = self.data.borrow();
             selected.iter().copied().filter(|k| data.index.contains_key(k)).collect()
@@ -220,6 +227,11 @@ impl List {
         if kept != selected {
             self.report_selection();
         }
+    }
+
+    /// Whether the focus is in the view: on it or on a row.
+    fn focused(&self) -> bool {
+        self.view.root().and_then(|r| r.focus()).is_some_and(|f| f.is_ancestor(&self.view))
     }
 
     /// GTK has no mode to change, only selection models to swap: the new
@@ -249,7 +261,7 @@ impl List {
         // The swap takes the focused row out of the view, but the window
         // keeps it as its focus, so keys go nowhere. Focus stays in the
         // list, as in AppKit's tables.
-        let focused = self.view.root().and_then(|r| r.focus()).is_some_and(|f| f.is_ancestor(&self.view));
+        let focused = self.focused();
         self.view.set_model(Some(&model));
         if focused {
             self.view.grab_focus();
