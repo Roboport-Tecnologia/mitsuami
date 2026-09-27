@@ -13,7 +13,7 @@ use mitsuami_core::services::{
 };
 use objc2::rc::Retained;
 use objc2::runtime::{AnyObject, NSObject, NSObjectProtocol, Sel};
-use objc2::{DefinedClass, MainThreadMarker, MainThreadOnly, define_class, msg_send, sel};
+use objc2::{DefinedClass, MainThreadMarker, MainThreadOnly, Message, define_class, msg_send, sel};
 use objc2_app_kit::{
     NSAlert, NSAlertFirstButtonReturn, NSAlertStyle, NSApplication, NSControlStateValueOff, NSControlStateValueOn,
     NSEventModifierFlags, NSMenu, NSMenuItem, NSModalResponse, NSModalResponseOK, NSOpenPanel, NSPasteboard,
@@ -87,11 +87,18 @@ impl MenuTarget {
         unsafe { msg_send![super(this), init] }
     }
 
-    /// A window's menus are in the bar while it's main.
+    /// A window's menus are in the bar while it's main. AppKit posts
+    /// these while a window closes, which the backend does while it applies
+    /// commands, its state borrowed: look the window up once that's over.
     fn main_changed(&self, notification: &NSNotification, became: bool) {
+        let Some(window) = notification.object().and_then(|o| o.downcast::<NSWindow>().ok()) else { return };
+        let target = self.retain();
+        later(move || target.main_changed_now(&window, became));
+    }
+
+    fn main_changed_now(&self, window: &NSWindow, became: bool) {
         let Some(menus) = self.ivars().menus.upgrade() else { return };
-        let window = notification.object().and_then(|o| o.downcast::<NSWindow>().ok());
-        let node = window.and_then(|w| menus.borrow().backend.window_node(&w));
+        let node = menus.borrow().backend.window_node(window);
         let changed = {
             let mut menus = menus.borrow_mut();
             let before = menus.main;

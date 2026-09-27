@@ -9,9 +9,9 @@ mod checks {
     use std::cell::{Cell, RefCell};
     use std::rc::Rc;
 
-    use mitsuami_appkit::{AppKitBackend, AppKitHandle, BackendOptions};
+    use mitsuami_appkit::{AppKitBackend, AppKitHandle, BackendOptions, NativeView};
     use mitsuami_core::services::{Alert, Menu, MenuBar, MenuItem, MenuRole, OpenFile, Shortcut};
-    use mitsuami_core::{Size, Ui};
+    use mitsuami_core::{Size, Ui, View};
     use objc2::rc::Retained;
     use objc2::runtime::AnyObject;
     use objc2_app_kit::{
@@ -208,13 +208,24 @@ mod checks {
         f.ui.tick();
         assert_eq!(titles(&main_menu())[1..], ["File", "Edit"], "not main: only the app's menus");
 
+        // AppKit posts these while windows close, which the backend does
+        // while it applies commands: here, while a native view is created.
         let ns_window = f.handle.ns_window(window).unwrap();
-        let center = NSNotificationCenter::defaultCenter();
-        unsafe { center.postNotificationName_object(NSWindowDidBecomeMainNotification, Some(&ns_window)) };
+        let posted = ns_window.clone();
+        let view = NativeView::appkit(move |cx| {
+            let center = NSNotificationCenter::defaultCenter();
+            unsafe { center.postNotificationName_object(NSWindowDidBecomeMainNotification, Some(&posted)) };
+            NSView::new(cx.mtm())
+        })
+        .build(&f.ui);
+        f.ui.append_child(window, view);
+        pump(&f.ui);
         assert_eq!(titles(&main_menu())[1..], ["File", "Edit", "Format"]);
         assert_eq!(titles(&submenu(&main_menu(), "File")), ["New", "-", "Export…"], "its File joins the app's");
 
+        let center = NSNotificationCenter::defaultCenter();
         unsafe { center.postNotificationName_object(NSWindowDidResignMainNotification, Some(&ns_window)) };
+        pump(&f.ui);
         assert_eq!(titles(&main_menu())[1..], ["File", "Edit"]);
         f.ui.destroy(window);
         f.ui.set_menu(MenuBar::new());
