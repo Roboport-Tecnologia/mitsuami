@@ -593,6 +593,17 @@ impl mitsuami_core::TestHooks for WinUiHandle {
     /// call that caused them: dispatch them.
     fn settle(&self) {
         runtime::pump();
+        // Spinners have no size until XAML loads them, at its next frame:
+        // wait for it, so tests see the size the app gets.
+        let deadline = Instant::now() + Duration::from_secs(2);
+        while self.state.borrow().nodes.values().any(|n| {
+            matches!(&n.widget, Widget::Spinner(ring)
+                if !ring.cast::<w::IFrameworkElement>().and_then(|f| f.IsLoaded()).unwrap_or(true))
+        }) && Instant::now() < deadline
+        {
+            runtime::wait(Some(Duration::from_millis(5)));
+            runtime::pump();
+        }
         self.state.borrow().layout_lists();
         self.sync_focus();
         // MITSUAMI_SHOW_WINDOWS=1: tests have no run loop to show them.
@@ -1115,6 +1126,12 @@ impl State {
             WidgetKind::Spinner => {
                 let ring = w::ProgressRing::new()?;
                 ring.cast::<w::IProgressRing>()?.SetIsActive(false)?;
+                // It has no size until XAML loads it and applies its
+                // template: measure it again then.
+                revokers.push(ring.cast::<w::IFrameworkElement>()?.Loaded({
+                    let emitter = emitter.clone();
+                    move |_, _| emitter.emit(id, UiEvent::Remeasure)
+                })?);
                 let element = ring.cast()?;
                 (Widget::Spinner(ring), element)
             }
