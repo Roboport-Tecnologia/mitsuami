@@ -200,6 +200,10 @@ async fn a_window_has_its_own_menus_while_they_are_declared(app: TestApp) {
         })
         .collect();
     assert_eq!(file, ["New", "-", "Run"]);
+    // Where each window has its menus, a dialog shows only its own.
+    let app_menus = app.services().menu().unwrap();
+    assert_eq!(app_menus.for_window(Some(&own), true), own);
+    assert!(app_menus.for_window(None, true).menus.is_empty());
 
     assert!(app.services().choose_menu_item(&["File", "Run"]));
     app.expect(by_text("Running")).to_exist().await;

@@ -649,7 +649,15 @@ impl State {
         let events = self.events.clone();
         let mut settings_handlers = Vec::new();
         let widget = match kind {
-            WidgetKind::Window => Widget::Window(self.create_window(id, &mut settings_handlers)),
+            WidgetKind::Window => {
+                // A dialog's menu holds only its own menus.
+                if let Command::Create { props, .. } = command
+                    && props.iter().any(|p| matches!(p, Prop::Modal { .. }))
+                {
+                    self.menus.set_modal(id);
+                }
+                Widget::Window(self.create_window(id, &mut settings_handlers))
+            }
             WidgetKind::Container | WidgetKind::ToolbarItem => Widget::Host(Host::new(self.frames.clone(), None)),
             WidgetKind::Custom(_) => {
                 let Command::Create { props, .. } = command else { unreachable!() };
@@ -900,6 +908,9 @@ impl State {
                     parts.window.add_controller(escape_closes());
                 }
                 node.modal = Some((prop_owner(prop), *modality));
+                if self.menus.set_modal(id) {
+                    self.menus.show_in(id, parts);
+                }
             }
             return;
         }

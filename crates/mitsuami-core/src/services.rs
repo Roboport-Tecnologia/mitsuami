@@ -267,6 +267,19 @@ impl MenuBarData {
         merged
     }
 
+    /// What a window shows on platforms that put menus in each window
+    /// (GTK, WinUI, Kirigami): the app's with its own ([`merged`](Self::merged)).
+    /// A modal window is a dialog, and dialogs there have no app menus, so
+    /// it shows only its own.
+    pub fn for_window(&self, own: Option<&MenuBarData>, modal: bool) -> MenuBarData {
+        match (own, modal) {
+            (Some(own), false) => self.merged(own),
+            (None, false) => self.clone(),
+            (Some(own), true) => own.clone(),
+            (None, true) => MenuBarData::default(),
+        }
+    }
+
     /// Takes out the first item with this role, for a platform that puts
     /// it somewhere of its own. Separators it leaves at an edge or doubled
     /// go too, and so does a menu it leaves empty.

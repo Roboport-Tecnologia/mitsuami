@@ -1,8 +1,9 @@
 //! Menus: `cargo run -p mitsuami --example menus`.
 //!
-//! 2ksbox's launcher with a menu bar: the app's menus, and the machine
-//! window's own. Where they show is the platform's: macOS's menu bar,
-//! GNOME's primary menu, a menu bar in each window on Windows, and KDE's
+//! 2ksbox's launcher with a menu bar: the app's menus (File, Help), and
+//! each window's own (the Launcher's Machine and View, the Editor's
+//! Format). Where they show is the platform's: macOS's menu bar, GNOME's
+//! primary menu, a menu bar in each window on Windows, and KDE's
 //! hamburger menu.
 //!
 //! - Machine › Start becomes Pause while it runs, and Reset appears.
@@ -11,8 +12,11 @@
 //! - Settings… and About go where the platform puts them (the app menu
 //!   on macOS, the end of the menu on GNOME and KDE); on macOS, Quit is
 //!   the app's own, which asks first.
-//! - The Editor window has a Format menu of its own: on macOS it's in the
-//!   menu bar while the Editor is the main window.
+//! - File › Edit Notes… opens the Editor, which shows the app's menus and
+//!   its own Format menu; on macOS, Format is in the menu bar while the
+//!   Editor is the main window.
+//! - Settings… opens a dialog: on Windows, GNOME and KDE it has no menus,
+//!   as dialogs there don't; on macOS the menu bar stays the app's.
 
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
@@ -46,20 +50,30 @@ fn launcher() -> impl View {
             }
         });
     };
+    let settings = signal(false);
+    // The app's menus, in every window but dialogs.
+    set_menu(view! {
+        <MenuBar>
+            <Menu title="File">
+                <MenuItem shortcut=Shortcut::primary('e') @select=move || editing.set(true)>"Edit Notes…"</MenuItem>
+                <Menu
+                    title="Open Recent"
+                    visible=move || !recent.get().is_empty()
+                    children_with=move || recent.get().into_iter().map(MenuItem::new).collect::<Vec<_>>()
+                />
+                <MenuSeparator/>
+                <MenuItem role=MenuRole::Settings @select=move || settings.set(true)>"Settings…"</MenuItem>
+                <MenuItem role=MenuRole::Quit @select=quit>"Exit"</MenuItem>
+            </Menu>
+            <Menu title="Help">
+                <MenuItem role=MenuRole::About @select=say("About")>"About the Launcher"</MenuItem>
+            </Menu>
+        </MenuBar>
+    });
     view! {
         <Column padding=Spacing::Xl gap=Spacing::Md>
+            // The Launcher's own menus.
             <MenuBar>
-                <Menu title="File">
-                    <MenuItem shortcut=Shortcut::primary('e') @select=move || editing.set(true)>"Edit Notes…"</MenuItem>
-                    <Menu
-                        title="Open Recent"
-                        visible=move || !recent.get().is_empty()
-                        children_with=move || recent.get().into_iter().map(MenuItem::new).collect::<Vec<_>>()
-                    />
-                    <MenuSeparator/>
-                    <MenuItem role=MenuRole::Settings @select=say("Settings")>"Settings…"</MenuItem>
-                    <MenuItem role=MenuRole::Quit @select=quit>"Exit"</MenuItem>
-                </Menu>
                 <Menu title="Machine">
                     <MenuItem shortcut=Shortcut::primary('r') @select=start>
                         {move || if running.get() { "Pause" } else { "Start" }.to_owned()}
@@ -71,9 +85,6 @@ fn launcher() -> impl View {
                     <MenuSeparator/>
                     <MenuItem radio=(zoom, Zoom::Small)>"Small"</MenuItem>
                     <MenuItem radio=(zoom, Zoom::Large)>"Large"</MenuItem>
-                </Menu>
-                <Menu title="Help">
-                    <MenuItem role=MenuRole::About @select=say("About")>"About the Launcher"</MenuItem>
                 </Menu>
             </MenuBar>
             <Text>{move || if running.get() { "Running." } else { "Stopped." }.to_owned()}</Text>
@@ -87,6 +98,12 @@ fn launcher() -> impl View {
                         </Menu>
                     </MenuBar>
                     <TextInput a11y_label="Notes" placeholder="Notes"/>
+                </Column>
+            </Window>
+            <Window title="Settings" bind=settings modal=Modality::Application>
+                <Column padding=Spacing::Xl gap=Spacing::Md>
+                    <Text>"No menus here on Windows, GNOME and KDE."</Text>
+                    <Button role=ButtonRole::Cancel @click=move || settings.set(false)>"Close"</Button>
                 </Column>
             </Window>
         </Column>

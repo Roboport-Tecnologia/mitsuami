@@ -12,7 +12,7 @@ mod checks {
     use std::time::{Duration, Instant};
 
     use mitsuami_core::services::{Alert, Menu, MenuBar, MenuItem, MenuRole, OpenFile, Shortcut};
-    use mitsuami_core::{Size, Ui};
+    use mitsuami_core::{Modality, Prop, Size, Ui};
     use mitsuami_kirigami::{BackendOptions, KirigamiBackend, KirigamiHandle};
     use mitsuami_reactive::signal;
 
@@ -179,6 +179,25 @@ mod checks {
         f.ui.tick();
     }
 
+    /// Dialogs have no app menus on KDE, nor Quit: only their own.
+    pub fn dialogs_show_only_their_own_menus(f: &Fixture) {
+        let main = f.ui.create_window("main", Size::new(400.0, 300.0));
+        let dialog = f.ui.create_window("dialog", Size::new(300.0, 200.0));
+        // Set before its Create goes out, as a modal `Window` does.
+        f.ui.set_prop(dialog, Prop::Modal { owner: Some(main), modality: Modality::Window });
+        f.ui.set_menu(MenuBar::new().menu(Menu::new("File").item(MenuItem::new("New"))));
+        f.ui.set_window_menu(dialog, MenuBar::new().menu(Menu::new("Format").item(MenuItem::new("Bold"))));
+        f.ui.tick();
+        let drawer = f.handle.qml_window(dialog).unwrap().object("globalDrawer").expect("the dialog's own drawer");
+        assert!(drawer.find("text", "Format").is_some());
+        assert!(drawer.find("text", "File").is_none(), "no app menus");
+        assert!(drawer.find("text", "Quit").is_none(), "no Quit");
+        f.ui.destroy(dialog);
+        f.ui.destroy(main);
+        f.ui.set_menu(MenuBar::new());
+        f.ui.tick();
+    }
+
     pub fn alerts_are_answered_through_their_buttons(f: &Fixture) {
         let window = f.ui.create_window("alert host", Size::new(400.0, 300.0));
         f.ui.tick();
@@ -225,12 +244,13 @@ fn main() {
     use std::panic::{AssertUnwindSafe, catch_unwind};
 
     type Check = (&'static str, fn(&checks::Fixture));
-    let checks: [Check; 7] = [
+    let checks: [Check; 8] = [
         ("clipboard_round_trips", checks::clipboard_round_trips),
         ("menus_are_installed_and_activate", checks::menus_are_installed_and_activate),
         ("submenus_check_marks_and_radio_groups", checks::submenus_check_marks_and_radio_groups),
         ("role_items_end_the_drawer", checks::role_items_end_the_drawer),
         ("windows_have_their_own_menus", checks::windows_have_their_own_menus),
+        ("dialogs_show_only_their_own_menus", checks::dialogs_show_only_their_own_menus),
         ("alerts_are_answered_through_their_buttons", checks::alerts_are_answered_through_their_buttons),
         ("file_dialogs_report_cancellation", checks::file_dialogs_report_cancellation),
     ];

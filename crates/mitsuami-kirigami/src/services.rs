@@ -10,7 +10,7 @@
 //! Plasma replaces with its own through its platform theme.
 
 use std::cell::{Cell, RefCell};
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::fmt::Write;
 use std::path::PathBuf;
 use std::rc::Rc;
@@ -29,6 +29,8 @@ use crate::ffi::{self, QmlObject, js_string};
 pub(crate) struct Menus {
     app: MenuBarData,
     windows: HashMap<NodeId, MenuBarData>,
+    /// Dialogs, which show only their own menus.
+    pub(crate) modal: HashSet<NodeId>,
     /// Set with the first menus: a window gets a drawer only once there are.
     pub(crate) wiring: Option<Wiring>,
 }
@@ -36,15 +38,13 @@ pub(crate) struct Menus {
 impl Menus {
     /// What a window's drawer shows.
     pub(crate) fn of(&self, window: NodeId) -> MenuBarData {
-        match self.windows.get(&window) {
-            Some(own) => self.app.merged(own),
-            None => self.app.clone(),
-        }
+        self.app.for_window(self.windows.get(&window), self.modal.contains(&window))
     }
 
     /// Forgets a window's menus, when it's destroyed.
     pub(crate) fn forget(&mut self, window: NodeId) {
         self.windows.remove(&window);
+        self.modal.remove(&window);
     }
 }
 

@@ -631,7 +631,7 @@ impl State {
     fn create(&mut self, id: NodeId, kind: WidgetKind, command: &Command) {
         let events = self.events.clone();
         let widget = match kind {
-            WidgetKind::Window => self.create_window(id),
+            WidgetKind::Window => self.create_window(id, command),
             WidgetKind::Container => Widget::Host(QmlObject::load(&qml::container())),
             WidgetKind::ToolbarItem => {
                 let host = QmlObject::load(&qml::container());
@@ -796,8 +796,15 @@ impl State {
         );
     }
 
-    fn create_window(&mut self, id: NodeId) -> Widget {
+    fn create_window(&mut self, id: NodeId, command: &Command) -> Widget {
         let events = self.events.clone();
+        // A dialog's drawer holds only its own menus. Its modality comes
+        // with its Create, so the drawer can come with the window.
+        if let Command::Create { props, .. } = command
+            && props.iter().any(|p| matches!(p, Prop::Modal { .. }))
+        {
+            self.menus.modal.insert(id);
+        }
         let menu = self.menus.of(id);
         let drawer = drawer_qml(&menu);
         let window = QmlObject::load(&qml::window(drawer.as_deref()));

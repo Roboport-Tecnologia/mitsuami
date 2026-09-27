@@ -11,7 +11,7 @@ mod checks {
     use std::time::{Duration, Instant};
 
     use mitsuami_core::services::{Alert, Menu, MenuBar, MenuItem, OpenFile, Shortcut};
-    use mitsuami_core::{NodeId, Size, Ui};
+    use mitsuami_core::{Modality, NodeId, Prop, Size, Ui};
     use mitsuami_reactive::signal;
     use mitsuami_winui::bindings as w;
     use mitsuami_winui::{BackendOptions, WinUiBackend, WinUiHandle};
@@ -206,6 +206,28 @@ mod checks {
         f.ui.tick();
     }
 
+    /// Windows dialogs have no menu bar of the app's: only their own.
+    pub fn dialogs_show_only_their_own_menus(f: &Fixture) {
+        let main = f.ui.create_window("main", Size::new(400.0, 300.0));
+        let dialog = f.ui.create_window("dialog", Size::new(300.0, 200.0));
+        // Set before its Create goes out, as a modal `Window` does.
+        f.ui.set_prop(dialog, Prop::Modal { owner: Some(main), modality: Modality::Window });
+        f.ui.set_menu(MenuBar::new().menu(Menu::new("File").item(MenuItem::new("New"))));
+        f.ui.set_window_menu(dialog, MenuBar::new().menu(Menu::new("Format").item(MenuItem::new("Bold"))));
+        f.ui.tick();
+        let bar: w::MenuBar =
+            children(&root(f, dialog)).into_iter().find_map(|c| c.cast().ok()).expect("the dialog's own MenuBar");
+        let menus = bar.cast::<w::IMenuBar>().unwrap().Items().unwrap();
+        let titles: Vec<String> = (0..menus.Size().unwrap())
+            .map(|i| menus.GetAt(i).unwrap().cast::<w::IMenuBarItem>().unwrap().Title().unwrap().to_string())
+            .collect();
+        assert_eq!(titles, ["Format"]);
+        f.ui.destroy(dialog);
+        f.ui.destroy(main);
+        f.ui.set_menu(MenuBar::new());
+        f.ui.tick();
+    }
+
     pub fn alerts_are_answered_through_their_dialog(f: &Fixture) {
         let window = window(f, "alert host");
         let answer = Rc::new(RefCell::new(None));
@@ -278,10 +300,11 @@ fn main() {
     use std::panic::{AssertUnwindSafe, catch_unwind};
 
     type Check = (&'static str, fn(&checks::Fixture));
-    let checks: [Check; 5] = [
+    let checks: [Check; 6] = [
         ("clipboard_round_trips", checks::clipboard_round_trips),
         ("menus_are_installed_and_activate", checks::menus_are_installed_and_activate),
         ("window_menus_nest_and_check", checks::window_menus_nest_and_check),
+        ("dialogs_show_only_their_own_menus", checks::dialogs_show_only_their_own_menus),
         ("alerts_are_answered_through_their_dialog", checks::alerts_are_answered_through_their_dialog),
         ("open_pickers_report_cancellation", checks::open_pickers_report_cancellation),
     ];

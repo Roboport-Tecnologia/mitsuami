@@ -276,12 +276,10 @@ struct Menus {
 }
 
 impl Menus {
-    /// What a window's bar shows: the app's menus, and its own.
-    fn shown(&self, window: NodeId) -> MenuBarData {
-        match self.windows.get(&window) {
-            Some(own) => self.app.merged(own),
-            None => self.app.clone(),
-        }
+    /// What a window's bar shows: the app's menus, and its own. A dialog
+    /// shows only its own: Windows dialogs have no menu bar.
+    fn shown(&self, window: NodeId, modal: bool) -> MenuBarData {
+        self.app.for_window(self.windows.get(&window), modal)
     }
 }
 
@@ -933,7 +931,7 @@ fn resize_client(parts: &WindowParts, size: Size) {
 /// when only enabled and checked states changed, so an open menu stays
 /// open, and rebuilt otherwise.
 fn refresh_menu(parts: &mut WindowParts, menus: &Menus) {
-    let shown = menus.shown(parts.node);
+    let shown = menus.shown(parts.node, parts.modal.is_some());
     if parts.menu_bar.is_some() && shown.same_structure(&parts.menu_shown) {
         update_menu(parts, &shown);
     } else if shown != parts.menu_shown {
@@ -1129,7 +1127,11 @@ impl State {
         self.emitter.clone()
     }
 
-    fn create_window(&mut self, id: NodeId) -> R<(Widget, w::UIElement, Vec<EventRevoker>)> {
+    fn create_window(
+        &mut self,
+        id: NodeId,
+        modal: Option<(Option<NodeId>, Modality)>,
+    ) -> R<(Widget, w::UIElement, Vec<EventRevoker>)> {
         let window = w::Window::new()?;
         // Markup, for the theme resources: they follow the element's theme
         // (tests force light) and switch live with the system's.
@@ -1261,7 +1263,8 @@ impl State {
             size,
             focus,
             tab_order,
-            modal: None,
+            // Known from its Create, so a dialog never gets the app's bar.
+            modal,
             disabled: Vec::new(),
             escape: None,
             toolbar: None,
@@ -1283,7 +1286,14 @@ impl State {
         let mut inner = None;
         let (widget, element) = match kind {
             WidgetKind::Window => {
-                let (widget, element, window_revokers) = self.create_window(id)?;
+                let modal = match command {
+                    Command::Create { props, .. } => props.iter().find_map(|p| match p {
+                        Prop::Modal { owner, modality } => Some((*owner, *modality)),
+                        _ => None,
+                    }),
+                    _ => None,
+                };
+                let (widget, element, window_revokers) = self.create_window(id, modal)?;
                 revokers = window_revokers;
                 (widget, element)
             }
@@ -1628,9 +1638,12 @@ impl State {
             (Prop::Step(new), Widget::Slider { step, .. } | Widget::Number { step, .. }) => *step = *new,
             // Acted on when it's shown.
             (Prop::Modal { owner, modality }, Widget::Window(parts)) => {
-                parts.modal = Some((*owner, *modality));
+                let was_modal = parts.modal.replace((*owner, *modality)).is_some();
                 if parts.escape.is_none() {
                     parts.escape = Some(escape_closes(&parts.root, parts.hwnd)?);
+                }
+                if !was_modal {
+                    refresh_menu(parts, &self.menus);
                 }
             }
             (Prop::Image(new), Widget::Image { image, source, bitmap, failed, opened, .. }) => {

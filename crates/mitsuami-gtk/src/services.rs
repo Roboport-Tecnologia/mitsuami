@@ -8,7 +8,7 @@
 //! no Edit menu to add.
 
 use std::cell::{Cell, RefCell};
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::path::PathBuf;
 use std::rc::{Rc, Weak};
 
@@ -78,6 +78,8 @@ pub(crate) struct Menus {
     app: MenuBarData,
     /// Windows' own menus, which may come before the window does.
     windows: HashMap<NodeId, MenuBarData>,
+    /// Dialogs, which show only their own menus.
+    modal: HashSet<NodeId>,
     activate: Option<Rc<dyn Fn(u32)>>,
     /// Each window's primary menu.
     installed: HashMap<NodeId, MenuParts>,
@@ -100,17 +102,15 @@ impl Menus {
     /// Brings a window's primary menu up to date: in place when only
     /// states changed, otherwise built again.
     pub(crate) fn show_in(&mut self, id: NodeId, window: &WindowParts) {
-        let data = match self.windows.get(&id) {
-            Some(own) => self.app.merged(own),
-            None => self.app.clone(),
-        };
+        let modal = self.modal.contains(&id);
+        let data = self.app.for_window(self.windows.get(&id), modal);
         if let Some(parts) = self.installed.get_mut(&id)
             && parts.data.same_structure(&data)
         {
             parts.update(data);
             return;
         }
-        let parts = self.build(data);
+        let parts = self.build(data, modal);
         parts.install(window);
         self.installed.insert(id, parts);
     }
@@ -122,12 +122,19 @@ impl Menus {
     /// The window is gone. Its own menus stay until the app removes them.
     pub(crate) fn forget(&mut self, id: NodeId) {
         self.installed.remove(&id);
+        self.modal.remove(&id);
+    }
+
+    /// Marks a window as a dialog; returns whether it wasn't one already.
+    pub(crate) fn set_modal(&mut self, id: NodeId) -> bool {
+        self.modal.insert(id)
     }
 
     /// One section per menu, split at its separators and labelled with its
     /// title; submenus in their section. Items with a role go last, in
-    /// GNOME's order: Preferences, About, Quit.
-    fn build(&self, data: MenuBarData) -> MenuParts {
+    /// GNOME's order: Preferences, About, Quit. Dialogs have no Quit of
+    /// their own, as GNOME's don't.
+    fn build(&self, data: MenuBarData, modal: bool) -> MenuParts {
         let mut builder = Builder {
             actions: gio::SimpleActionGroup::new(),
             shortcuts: Vec::new(),
@@ -157,6 +164,7 @@ impl Menus {
         match &quit {
             // The app's own Quit, in place of ours.
             Some(quit) => last.append_item(&builder.item(quit, "Quit", Some(Shortcut::primary('q')))),
+            None if modal => {}
             None => {
                 let action = gio::SimpleAction::new("quit", None);
                 let backend = self.backend.clone();
@@ -172,7 +180,9 @@ impl Menus {
                 builder.shortcuts.push(("<Control>q".into(), format!("{GROUP}.quit"), None));
             }
         }
-        model.append_section(None, &last);
+        if last.n_items() > 0 {
+            model.append_section(None, &last);
+        }
         let has_menus = !data.menus.is_empty();
         MenuParts { data, model, actions: builder.actions, shortcuts: builder.shortcuts, has_menus }
     }
