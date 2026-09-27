@@ -6,7 +6,8 @@ use mitsuami::prelude::*;
 use mitsuami_test::prelude::*;
 
 /// Every role, bordered and borderless, and disabled. Default buttons are
-/// the accent colour on AppKit, GTK and WinUI, and highlighted on Qt;
+/// the accent colour on AppKit, GTK and WinUI, and tinted on Qt (not
+/// borderless ones);
 /// cancel buttons look normal; only GTK draws destructive buttons.
 #[mitsuami_test::story(sizes = [(420, fit)])]
 fn buttons() -> impl View {

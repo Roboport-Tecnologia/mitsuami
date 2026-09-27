@@ -124,7 +124,7 @@ pub enum ButtonRole {
     #[default]
     Normal,
     /// The action Return confirms: the default button on AppKit (Return
-    /// clicks it), the suggested action on GTK, highlighted on Qt, the
+    /// clicks it), the suggested action on GTK, the default button on Qt, the
     /// accent button on WinUI. One per window or dialog.
     Default,
     /// The action Escape takes: the cancel button on AppKit (Escape clicks

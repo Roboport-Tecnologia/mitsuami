@@ -82,8 +82,14 @@ pub(crate) fn label() -> String {
     format!("QQC2.Label {{ wrapMode: Text.WordWrap; verticalAlignment: Text.AlignTop {TEXT_STYLE} {} }}", a11y("text"))
 }
 
+/// A button. `mitsuamiDefault` marks it as the default button, which the
+/// desktop style draws from `Accessible.defaultButton` (`highlighted` only
+/// draws it as focused).
 pub(crate) fn button() -> String {
-    format!("QQC2.Button {{ {TEXT_STYLE} {} }}", a11y("text"))
+    format!(
+        "QQC2.Button {{ property bool mitsuamiDefault: false; Accessible.defaultButton: mitsuamiDefault {TEXT_STYLE} {} }}",
+        a11y("text")
+    )
 }
 
 pub(crate) fn text_field() -> String {

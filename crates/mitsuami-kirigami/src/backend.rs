@@ -816,9 +816,9 @@ impl State {
                 node.text_style = Some(*style);
             }
             (Prop::ButtonRole(role), Widget::Button(b)) => {
-                // Breeze highlights the default button. There is no cancel
-                // or destructive style.
-                b.set_bool("highlighted", *role == ButtonRole::Default);
+                // Breeze tints the default button. There is no cancel or
+                // destructive style.
+                b.set_bool("mitsuamiDefault", *role == ButtonRole::Default);
                 node.role = Some(*role);
             }
             (Prop::ButtonStyle(style), Widget::Button(b)) => {

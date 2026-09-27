@@ -180,7 +180,7 @@ A style has two halves:
 1. **Layout:** the full flex and grid property set (`direction`, `gap`, `padding`, `margin`, `align_*`, `justify_*`, `grow`, `shrink`, `basis`, `grid_template_*`, `grid_area`, `position`, `inset`, `min/max/size`, `aspect_ratio`, `overflow`). It applies to every node.
 2. **Semantic visual:**
    - Text styles: `TextStyle::{LargeTitle, Title, Headline, Body, Callout, Caption, Monospace}`. These map to `NSFont.preferredFont(forTextStyle:)`, the WinUI type ramp, and GTK/libadwaita style classes.
-   - Button roles and styles: `ButtonRole::{Normal, Default, Cancel, Destructive}` (what the button does: Return clicks the default one, Escape the cancel one, where the platform does that) and `ButtonStyle::{Automatic, Bordered, Borderless}` (how it's drawn). Each platform maps them its own way (`keyEquivalent` and `bordered` on macOS, `suggested-action` / `destructive-action` and `has-frame` on GTK, `highlighted` and `flat` on Qt, `AccentButtonStyle` and `SubtleButtonStyle` on WinUI) and ignores what it has no equivalent for.
+   - Button roles and styles: `ButtonRole::{Normal, Default, Cancel, Destructive}` (what the button does: Return clicks the default one, Escape the cancel one, where the platform does that) and `ButtonStyle::{Automatic, Bordered, Borderless}` (how it's drawn). Each platform maps them its own way (`keyEquivalent` and `bordered` on macOS, `suggested-action` / `destructive-action` and `has-frame` on GTK, `Accessible.defaultButton` and `flat` on Qt, `AccentButtonStyle` and `SubtleButtonStyle` on WinUI) and ignores what it has no equivalent for.
    - Past the semantic props, a widget's `.native(tweak)` sets raw platform settings (§6.4).
    - Semantic colors (`Color::Label`, `Color::SecondaryLabel`, `Color::Accent`, `Color::Separator`, …) that follow dark mode and high contrast.
    - Containers (layout hosts) can also take a background, border, corner radius and opacity, because they are plain views.
@@ -810,10 +810,11 @@ Things the AppKit backend taught us, some of them now part of the contract:
 
 - **`ButtonVariant` became a role and a style,** since what a button does and how it's drawn are separate choices (a borderless destructive button). Both are sent only if the app picks one, and backends keep them on the node: no toolkit reads every role back.
 - **Cancel is Escape on AppKit only.** GTK, Qt and WinUI have no cancel button outside their dialogs, so it's a normal button there. Default is Return only on AppKit so far; GTK's default widget isn't set yet.
+- **Qt's default button is `Accessible.defaultButton`,** which the desktop style turns into `QStyleOptionButton::DefaultButton`: Breeze tints it, except when flat. `highlighted` only draws the focus frame there, so it showed nothing. Screen readers hear the default button too. Qt Quick has no Return-clicks-default outside dialogs.
 - **Default buttons draw their accent only in the key window** on AppKit, so test captures (never key) show them grey. A `bezelColor` tint didn't show in captures either, so the story's AppKit tweak is a large control size.
 - **Tweaks run inside `apply`,** with events muted where the backend mutes them. `Tweakable` lives in each backend, which now depends on `mitsuami-widgets`.
 - **Per-widget examples:** `examples/button.rs` shows every role in every style, a playground of the semantic props, and one tweak that differs per platform. Other widgets get one each as they're refactored.
-- **Run on AppKit only:** GTK, Kirigami and WinUI are only type-checked, and CI hasn't run them; `SubtleButtonStyle` on WinUI has never run.
+- **Run on AppKit and Kirigami:** GTK and WinUI are only type-checked, and CI hasn't run them; `SubtleButtonStyle` on WinUI has never run.
 
 ### Checkbox: the mixed state and tweaks
 
@@ -886,7 +887,7 @@ The spike (`spikes/kirigami`) settled the route; the backend is `crates/mitsuami
 - **Qt logs to the systemd journal when stderr isn't a terminal,** so QML warnings vanish from piped or captured output (a warning-free run that wasn't): `QT_FORCE_STDERR_LOGGING=1` puts them back on stderr.
 - **Kirigami wants popups whole from the start.** A global drawer created without a parent reads the parent it doesn't have yet, and one attached to a finished window (or given its actions late) makes the hamburger button report a binding loop. Windows get their menu drawer in their own QML (menus are set before the commit that creates windows); a menu whose structure changes later still gets a drawer created in the window's overlay, and Kirigami's warning. A `PromptDialog` opened before its window's first frame loops over its position, so alerts wait for that frame.
 - **Qt's own controls in the example:** the lock is a `DelayButton` and the pager a `PageIndicator`, both native; the rating is built ad hoc from tool buttons with Breeze's star icons, as Discover does.
-- **Known gaps.** Plasma's look needs the Breeze widget style installed; without it the desktop style falls back to Fusion, which doesn't show Primary buttons (`highlighted`). Breeze has no destructive button style. The desktop style's scroll bars take room from the view, which the core doesn't know about, so a vertical bar covers the content's right edge. Windows show no menu button when the app has no menus of its own, so Quit (Ctrl+Q) needs one. `FolderDialog` picks one folder.
+- **Known gaps.** Plasma's look needs the Breeze widget style installed; without it the desktop style falls back to Fusion, which doesn't show default buttons. Breeze has no destructive button style. The desktop style's scroll bars take room from the view, which the core doesn't know about, so a vertical bar covers the content's right edge. Windows show no menu button when the app has no menus of its own, so Quit (Ctrl+Q) needs one. `FolderDialog` picks one folder.
 
 ## 17. Implementation notes (M0.5 WinUI spike)
 
