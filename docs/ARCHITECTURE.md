@@ -850,6 +850,7 @@ Things the AppKit backend taught us, some of them now part of the contract:
 ### Progress: tweaks only
 
 - **No semantic options past the value.** Orientation is GTK's only; paused and error states are WinUI's; a percentage label is GTK's. A circular style would be the one to share, but on GTK, Qt and WinUI a spinner is another control, and GTK and Qt have none that shows a value, so spinners get a widget of their own (`Spinner`, next) instead of a style.
+- **Leaving the indeterminate state rebuilds AppKit's bar.** On macOS 26, `startAnimation` gives the bar a layer (AppKit's Swift `ProgressIndicatorLayer`) that keeps drawing the indeterminate animation after `stopAnimation`, whatever the value or `indeterminate` say; removing its animations or redrawing doesn't help. Setting the style to spinning and back rebuilds the layer, so the backend does that when a bar gets a value after having none. A capture test (`shows_its_value_after_being_indeterminate`) goes there and back twice.
 - **The example's tweaks:** a small bar on AppKit (captured, measured thinner), `show-text` on GTK, `palette.highlight` on Qt (Qt 6's palette is an object; whether Breeze draws the bar with it isn't checked), `ShowPaused` on WinUI (bindings added).
 - **Run on AppKit only:** GTK, Kirigami and WinUI are only type-checked, and CI hasn't run them.
 

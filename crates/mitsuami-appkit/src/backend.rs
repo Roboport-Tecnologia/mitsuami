@@ -632,16 +632,24 @@ impl State {
                 }
                 *running = *r;
             }
-            (Prop::Progress(progress), Widget::Progress(p)) => {
-                p.setIndeterminate(progress.is_none());
-                match progress {
-                    Some(fraction) => {
+            (Prop::Progress(progress), Widget::Progress(p)) => match progress {
+                Some(fraction) => {
+                    if p.isIndeterminate() {
                         unsafe { p.stopAnimation(None) };
-                        p.setDoubleValue(*fraction);
+                        p.setIndeterminate(false);
+                        // Once animated, macOS 26's bar layer keeps drawing
+                        // the indeterminate animation after it stops, whatever
+                        // the value; setting the style again rebuilds it.
+                        p.setStyle(NSProgressIndicatorStyle::Spinning);
+                        p.setStyle(NSProgressIndicatorStyle::Bar);
                     }
-                    None => unsafe { p.startAnimation(None) },
+                    p.setDoubleValue(*fraction);
                 }
-            }
+                None => {
+                    p.setIndeterminate(true);
+                    unsafe { p.startAnimation(None) };
+                }
+            },
             (Prop::Value(t), Widget::Field(f)) => {
                 // Don't disturb the caret when the field already shows it.
                 if f.stringValue().to_string() != *t {

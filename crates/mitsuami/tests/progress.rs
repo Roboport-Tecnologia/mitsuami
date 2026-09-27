@@ -107,4 +107,31 @@ async fn a_tweak_runs_on_the_native_bar_after_its_props(app: TestApp) {
     assert_eq!(log.borrow().last(), Some(&false));
 }
 
+/// A bar that was indeterminate shows its value once it has one, however
+/// often it goes back and forth. (On macOS 26, a bar that had animated kept
+/// drawing the animation: the captures show it.)
+#[mitsuami_test::test]
+async fn shows_its_value_after_being_indeterminate(app: TestApp) {
+    let connecting = signal(true);
+    let done = signal(0.5);
+    app.mount(move || {
+        Column::new().padding(16).width(240).child(Progress::new("Upload").value(done).indeterminate(connecting))
+    });
+    let upload = by_role(Role::ProgressBar, "Upload");
+
+    connecting.set(false);
+    app.settle().await;
+    assert!(has(&app, upload.clone(), Prop::Progress(Some(0.5))));
+    app.assert_visual_snapshot("half").await;
+
+    connecting.set(true);
+    app.settle().await;
+    assert!(has(&app, upload.clone(), Prop::Progress(None)));
+    connecting.set(false);
+    done.set(0.8);
+    app.settle().await;
+    assert!(has(&app, upload, Prop::Progress(Some(0.8))));
+    app.assert_visual_snapshot("most").await;
+}
+
 mitsuami_test::main!();
