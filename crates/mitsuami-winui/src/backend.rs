@@ -68,6 +68,9 @@ pub(crate) struct WindowParts {
     emitter: Events,
     /// The content size, as last reported.
     size: Rc<Cell<Option<Size>>>,
+    /// A content size `resize_client` aimed for, and the size before it,
+    /// until XAML lays the content out at the window's new size.
+    aimed: Rc<Cell<Option<(Size, Size)>>>,
     /// The node that has keyboard focus, as last reported.
     focus: Rc<Cell<Option<NodeId>>>,
     /// The Tab order sent by the core.
@@ -729,10 +732,18 @@ impl mitsuami_core::TestHooks for WinUiHandle {
         // Spinners have no size until XAML loads them, at its next frame,
         // and images from files until XAML has decoded them, in the
         // background: wait for both, so tests see the size the app gets.
+        // A window's content too is laid out at its new size only at
+        // XAML's next frame (a new window's at the size it opened at, wider
+        // than the one set), and the toolbar places items from its edge.
         let deadline = Instant::now() + Duration::from_secs(2);
         while self.state.borrow().nodes.values().any(|n| match &n.widget {
             Widget::Spinner(ring) => !ring.cast::<w::IFrameworkElement>().and_then(|f| f.IsLoaded()).unwrap_or(true),
             Widget::Image { bitmap: Some(_), failed, opened, .. } => !failed.get() && !opened.get(),
+            Widget::Window(parts) => parts.size.get().is_some_and(|size| {
+                let Ok(host) = parts.host.cast::<w::IFrameworkElement>() else { return false };
+                let (width, height) = (host.ActualWidth().unwrap_or(0.0), host.ActualHeight().unwrap_or(0.0));
+                (width - size.width as f64).abs() > 1.0 || (height - size.height as f64).abs() > 1.0
+            }),
             _ => false,
         }) && Instant::now() < deadline
         {
@@ -907,6 +918,9 @@ fn resize_client(parts: &WindowParts, size: Size) {
         width: (size.width as f64 * scale).round() as i32 + inset_w,
         height: ((size.height as f64 + chrome) * scale).round() as i32 + inset_h,
     };
+    if let Some(before) = parts.size.get() {
+        parts.aimed.set(Some((size, before)));
+    }
     let mut ask = want;
     for _ in 0..2 {
         if app_window.ResizeClient(ask).is_err() {
@@ -924,6 +938,24 @@ fn resize_client(parts: &WindowParts, size: Size) {
         let width = ((got.width - inset_w) as f64 / scale) as f32;
         let height = ((got.height - inset_h) as f64 / scale - chrome).max(0.0) as f32;
         parts.report_size(Size::new(width, height));
+    }
+}
+
+/// Corrects a window once XAML has laid its content out at the size
+/// `resize_client` gave it: that aimed with the title bar's height and the
+/// resize border as XAML last laid them out, at the window's old size, and
+/// they differ by a pixel at the new one. Only small misses: a window that
+/// refused the size keeps what it got.
+fn correct_client(app_window: &w::AppWindow, host: Option<&w::IUIElement>, want: Size, got: Size) {
+    let Ok(app_window) = app_window.cast::<w::IAppWindow2>() else { return };
+    let scale = host.and_then(|h| h.XamlRoot().ok()).and_then(|r| r.RasterizationScale().ok()).unwrap_or(1.0);
+    let miss = |want: f32, got: f32| ((want - got) as f64 * scale).round() as i32;
+    let (width, height) = (miss(want.width, got.width), miss(want.height, got.height));
+    if (width, height) == (0, 0) || width.abs() > 2 || height.abs() > 2 {
+        return;
+    }
+    if let Ok(client) = app_window.ClientSize() {
+        _ = app_window.ResizeClient(w::SizeInt32 { width: client.width + width, height: client.height + height });
     }
 }
 
@@ -1203,17 +1235,26 @@ impl State {
             }
         })?);
         let size = Rc::new(Cell::new(None::<Size>));
+        let aimed = Rc::new(Cell::new(None::<(Size, Size)>));
         revokers.push(host.cast::<w::IFrameworkElement>()?.SizeChanged({
-            let (emitter, last) = (emitter.clone(), size.clone());
+            let (emitter, last, aimed, app_window) = (emitter.clone(), size.clone(), aimed.clone(), app_window.clone());
             move |sender, args| {
                 let Some(new) = args.as_ref().and_then(|a| a.cast::<w::ISizeChangedEventArgs>().ok()?.NewSize().ok())
                 else {
                     return;
                 };
-                if let Some(host) = sender.as_ref().and_then(|s| s.cast::<w::IUIElement>().ok()) {
-                    _ = clip_to_size(&host, new);
+                let host = sender.as_ref().and_then(|s| s.cast::<w::IUIElement>().ok());
+                if let Some(host) = &host {
+                    _ = clip_to_size(host, new);
                 }
-                report_size(&emitter, id, &last, Size::new(new.width, new.height));
+                let new = Size::new(new.width, new.height);
+                if let Some((want, before)) = aimed.get()
+                    && new != before
+                {
+                    aimed.set(None);
+                    correct_client(&app_window, host.as_ref(), want, new);
+                }
+                report_size(&emitter, id, &last, new);
             }
         })?);
         let focus = Rc::new(Cell::new(None));
@@ -1261,6 +1302,7 @@ impl State {
             node: id,
             emitter,
             size,
+            aimed,
             focus,
             tab_order,
             // Known from its Create, so a dialog never gets the app's bar.
