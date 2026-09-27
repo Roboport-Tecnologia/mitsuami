@@ -65,6 +65,7 @@ enum Widget {
         scale: gtk::Scale,
         steps: Rc<Steps>,
     },
+    SpinButton(gtk::SpinButton),
     /// A progress bar, and whether it pulses: GTK shows work of unknown
     /// length by `pulse()` calls, which a timer makes while it's set.
     Progress {
@@ -111,6 +112,7 @@ impl Widget {
             Widget::Switch(w) => w.upcast_ref(),
             Widget::Select { dropdown, .. } => dropdown.upcast_ref(),
             Widget::Slider { scale, .. } => scale.upcast_ref(),
+            Widget::SpinButton(w) => w.upcast_ref(),
             Widget::Progress { bar, .. } => bar.upcast_ref(),
             Widget::Spinner(w) => w.upcast_ref(),
             Widget::Scroll { scrolled, .. } => scrolled.upcast_ref(),
@@ -132,6 +134,7 @@ impl Widget {
                 | Widget::Switch(_)
                 | Widget::Select { .. }
                 | Widget::Slider { .. }
+                | Widget::SpinButton(_)
         )
     }
 
@@ -664,6 +667,17 @@ impl State {
                 });
                 Widget::Slider { scale, steps }
             }
+            WidgetKind::NumberInput => {
+                // Steps of 1 and pages of 10, as `gtk_spin_button_new_with_range`
+                // makes them, until the app gives a step.
+                let spin = gtk::SpinButton::with_range(0.0, 100.0, 1.0);
+                spin.set_digits(0);
+                spin.set_numeric(true);
+                // Typing is reported when GTK commits it: on Return or
+                // when the field loses focus.
+                spin.connect_value_changed(move |s| events.emit(id, UiEvent::Changed(EventValue::Number(s.value()))));
+                Widget::SpinButton(spin)
+            }
             WidgetKind::Progress => Widget::Progress { bar: gtk::ProgressBar::new(), pulsing: Rc::default() },
             WidgetKind::Spinner => Widget::Spinner(gtk::Spinner::new()),
             WidgetKind::TextInput => {
@@ -849,6 +863,17 @@ impl State {
                 scale.set_inverted(o.vertical());
                 node.orientation = Some(*o);
             }
+            (Prop::Label(t), Widget::SpinButton(spin)) => {
+                spin.update_property(&[gtk::accessible::Property::Label(t)]);
+                node.a11y_label = Some(t.clone());
+            }
+            // May clamp the value; the core sends the value after the range.
+            (Prop::Range { min, max }, Widget::SpinButton(spin)) => spin.set_range(*min, *max),
+            (Prop::Step(step), Widget::SpinButton(spin)) => {
+                let step = step.unwrap_or(1.0);
+                spin.set_increments(step, step * 10.0);
+            }
+            (Prop::Number(n), Widget::SpinButton(spin)) => spin.set_value(*n),
             (Prop::Label(t), Widget::Progress { bar, .. }) => {
                 bar.update_property(&[gtk::accessible::Property::Label(t)]);
                 node.a11y_label = Some(t.clone());
@@ -1395,6 +1420,19 @@ impl Backend for GtkBackend {
                 let step = adjustment.step_increment();
                 adjustment.set_value(adjustment.value() + if *action == A11yAction::Increment { step } else { -step });
             }
+            // What GTK's accessible increment and decrement do on a spin
+            // button: a step, stopping at the ends.
+            (A11yAction::Increment | A11yAction::Decrement, WidgetKind::NumberInput) => {
+                let spin = widget.downcast_ref::<gtk::SpinButton>().ok_or(ActionError::Unsupported)?;
+                let up = *action == A11yAction::Increment;
+                spin.spin(if up { gtk::SpinType::StepForward } else { gtk::SpinType::StepBackward }, 0.0);
+            }
+            // As if typed and committed: whole numbers, clamped to the range.
+            (A11yAction::SetValue(text), WidgetKind::NumberInput) => {
+                let spin = widget.downcast_ref::<gtk::SpinButton>().ok_or(ActionError::Unsupported)?;
+                let value: f64 = text.trim().parse().map_err(|_| ActionError::Unsupported)?;
+                spin.set_value(value.round());
+            }
             // As if dragged there: `change-value`, which snaps to the step.
             (A11yAction::SetValue(text), WidgetKind::Slider) => {
                 let range = widget.downcast_ref::<gtk::Range>().ok_or(ActionError::Unsupported)?;
@@ -1625,6 +1663,13 @@ impl Backend for GtkBackend {
                         _ => Orientation::Horizontal,
                     }));
                 }
+            }
+            Widget::SpinButton(spin) => {
+                props.extend(node.a11y_label.clone().map(Prop::Label));
+                let adjustment = spin.adjustment();
+                props.push(Prop::Range { min: adjustment.lower(), max: adjustment.upper() });
+                props.push(Prop::Step(Some(adjustment.step_increment())));
+                props.push(Prop::Number(spin.value()));
             }
             Widget::Progress { bar, pulsing } => {
                 props.extend(node.a11y_label.clone().map(Prop::Label));

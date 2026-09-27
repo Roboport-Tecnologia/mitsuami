@@ -412,7 +412,7 @@ impl Ui {
             }
             node.props.retain(|p| p.key() != prop.key());
             node.props.push(prop.clone());
-            if prop.affects_measure()
+            if prop.affects_measure(node.kind)
                 && let Some(t) = node.taffy
             {
                 let _ = inner.taffy.mark_dirty(t);
@@ -1062,6 +1062,7 @@ impl Inner {
                     | WidgetKind::Switch
                     | WidgetKind::Select
                     | WidgetKind::Slider
+                    | WidgetKind::NumberInput
                     | WidgetKind::List
             ) {
                 out.push((node.tab_index, id));
@@ -1313,7 +1314,7 @@ impl Inner {
                     (WidgetKind::Checkbox | WidgetKind::Switch, EventValue::Bool(b)) => Prop::Checked(*b),
                     (WidgetKind::List, EventValue::Rows(rows)) => Prop::Selected(rows.clone()),
                     (WidgetKind::Select, EventValue::Index(index)) => Prop::SelectedIndex(Some(*index)),
-                    (WidgetKind::Slider, EventValue::Number(number)) => Prop::Number(*number),
+                    (WidgetKind::Slider | WidgetKind::NumberInput, EventValue::Number(number)) => Prop::Number(*number),
                     _ => return,
                 };
                 // A click takes a checkbox out of the mixed state, on every
@@ -1483,6 +1484,7 @@ impl Inner {
             WidgetKind::Switch => Role::Switch,
             WidgetKind::Select => Role::ComboBox,
             WidgetKind::Slider => Role::Slider,
+            WidgetKind::NumberInput => Role::SpinButton,
             // A spinner reads as a progress bar without a value, as in ARIA.
             WidgetKind::Progress | WidgetKind::Spinner => Role::ProgressBar,
             WidgetKind::Custom(_) | WidgetKind::Native => Role::Group,
@@ -1500,6 +1502,7 @@ impl Inner {
                 | WidgetKind::Switch
                 | WidgetKind::Select
                 | WidgetKind::Slider
+                | WidgetKind::NumberInput
                 | WidgetKind::Progress
                 | WidgetKind::Spinner => crate::find_prop!(props, Label),
                 WidgetKind::TextInput | WidgetKind::PasswordInput => crate::find_prop!(props, Placeholder),
@@ -1534,7 +1537,7 @@ impl Inner {
                     let chosen = crate::find_prop!(props, SelectedIndex).flatten();
                     Some(chosen.and_then(|i| options.get(i).cloned()).unwrap_or_default())
                 }
-                WidgetKind::Slider => crate::find_prop!(props, Number).map(|n| n.to_string()),
+                WidgetKind::Slider | WidgetKind::NumberInput => crate::find_prop!(props, Number).map(|n| n.to_string()),
                 // As screen readers read progress bars.
                 WidgetKind::Progress => {
                     crate::find_prop!(props, Progress).flatten().map(|f| format!("{}%", (f * 100.0).round()))

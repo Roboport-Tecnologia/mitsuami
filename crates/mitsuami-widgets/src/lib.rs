@@ -738,6 +738,107 @@ impl Slider {
     }
 }
 
+/// A field for a whole number, with buttons that step it up and down, as
+/// the platform's spin box shows it. Its label is its accessible name; show
+/// one beside it with a `Text`. Typing reports the number when the edit is
+/// done (Return, or leaving the field), as each platform commits one.
+/// Whole numbers in an `i32`, because Qt's spin box holds an `int`.
+///
+/// ```ignore
+/// let memory = signal(64);
+/// NumberInput::new("Memory (MB)").range(16, 512).step(16).bind(memory)
+/// ```
+pub struct NumberInput {
+    element: Element,
+    range: Value<(i32, i32)>,
+    value: Value<i32>,
+}
+
+impl ElementBuilder for NumberInput {
+    fn element(&mut self) -> &mut Element {
+        &mut self.element
+    }
+}
+
+impl View for NumberInput {
+    fn build(mut self, ui: &Ui) -> NodeId {
+        // Clamped as the native spin box clamps it.
+        let clamp = |v: i32, (min, max): (i32, i32)| v.max(min).min(max);
+        let value = match (self.value, self.range.clone()) {
+            (Value::Static(v), Value::Static(range)) => Value::Static(clamp(v, range)),
+            (value, range) => Value::Dynamic(Rc::new(move || clamp(value.get(), range.get()))),
+        };
+        self.element.prop(self.range, |(min, max)| Prop::Range { min: min.into(), max: max.into() });
+        self.element.prop(value, |v| Prop::Number(v.into()));
+        self.element.build(ui)
+    }
+}
+
+impl NumberInput {
+    /// From 0 to 100, at 0.
+    pub fn new(label: impl IntoValue<String>) -> NumberInput {
+        let mut element = Element::new(WidgetKind::NumberInput);
+        element.prop(label.into_value(), Prop::Label);
+        NumberInput { element, range: Value::Static((0, 100)), value: Value::Static(0) }
+    }
+
+    pub fn range(mut self, min: i32, max: i32) -> NumberInput {
+        self.range = Value::Static((min, max));
+        self
+    }
+
+    /// A range that changes: `(min, max)`.
+    pub fn range_with(mut self, range: impl IntoValue<(i32, i32)>) -> NumberInput {
+        self.range = range.into_value();
+        self
+    }
+
+    /// What the buttons and arrow keys add or take away. Without one, the
+    /// platform's default (1 on every platform).
+    pub fn step(mut self, step: impl IntoValue<i32>) -> NumberInput {
+        let step = step.into_value();
+        let step = match step {
+            Value::Static(s) => Value::Static(Some(s.into())),
+            dynamic => Value::Dynamic(Rc::new(move || Some(dynamic.get().into()))),
+        };
+        self.element.prop(step, Prop::Step);
+        self
+    }
+
+    pub fn value(mut self, value: impl IntoValue<i32>) -> NumberInput {
+        self.value = value.into_value();
+        self
+    }
+
+    /// Two-way binding, Vue's `v-model`.
+    pub fn bind(self, signal: Signal<i32>) -> NumberInput {
+        self.value(signal).on_change(move |value| signal.set(value))
+    }
+
+    pub fn enabled(mut self, enabled: impl IntoValue<bool>) -> NumberInput {
+        self.element.prop(enabled.into_value(), Prop::Enabled);
+        self
+    }
+
+    /// Raw platform settings, past the semantic ones: see [`Tweak`].
+    pub fn native(mut self, tweak: Tweak<NumberInput>) -> NumberInput {
+        tweak.apply(&mut self.element);
+        self
+    }
+
+    /// Called with the new number when the user steps it or finishes
+    /// typing one.
+    pub fn on_change(mut self, handler: impl Fn(i32) + 'static) -> NumberInput {
+        self.element.on(move |event| {
+            if let UiEvent::Changed(EventValue::Number(value)) = event {
+                // Backends report whole numbers in range; `as` saturates.
+                handler(value.round() as i32);
+            }
+        });
+        self
+    }
+}
+
 /// A progress bar, as the platform draws one: how far along a task is, from
 /// 0 to 1, or, until a value is given (or while `indeterminate`), an
 /// animated bar for work of unknown length. Its label is its accessible
@@ -955,6 +1056,18 @@ impl Slider {
             element: Element::new(WidgetKind::Slider),
             range: Value::Static((0.0, 100.0)),
             value: Value::Static(0.0),
+        }
+    }
+}
+
+impl NumberInput {
+    /// `<NumberInput a11y_label="Copies" bind=copies/>`
+    #[doc(hidden)]
+    pub fn __tag() -> NumberInput {
+        NumberInput {
+            element: Element::new(WidgetKind::NumberInput),
+            range: Value::Static((0, 100)),
+            value: Value::Static(0),
         }
     }
 }

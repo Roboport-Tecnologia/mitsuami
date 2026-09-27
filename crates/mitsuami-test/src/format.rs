@@ -254,7 +254,11 @@ pub(crate) fn wireframe(root: &NodeInfo) -> String {
             WidgetKind::TextInput => "#a0602a",
             WidgetKind::PasswordInput => "#8a4f1f",
             WidgetKind::Checkbox | WidgetKind::Switch => "#8a4fbf",
-            WidgetKind::Select | WidgetKind::Slider | WidgetKind::Progress | WidgetKind::Spinner => "#1f8a8a",
+            WidgetKind::Select
+            | WidgetKind::Slider
+            | WidgetKind::NumberInput
+            | WidgetKind::Progress
+            | WidgetKind::Spinner => "#1f8a8a",
             WidgetKind::Custom(_) | WidgetKind::Native => "#c0392b",
         }
     }

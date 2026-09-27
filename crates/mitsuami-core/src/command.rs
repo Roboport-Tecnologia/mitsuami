@@ -83,7 +83,7 @@ pub enum Command {
 pub enum EventValue {
     Text(String),
     Bool(bool),
-    /// A `Slider`'s new value.
+    /// A `Slider`'s or `NumberInput`'s new value.
     Number(f64),
     /// A `List`'s selected rows.
     Rows(Vec<RowKey>),

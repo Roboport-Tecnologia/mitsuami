@@ -498,6 +498,7 @@ which builds the same tree as `Column::new().gap(…).children((Text::new(…).t
 | Checkbox | NSButton (checkbox) | CheckBox | gtk::CheckButton | QQC2.CheckBox |
 | Switch | NSSwitch | ToggleSwitch | gtk::Switch | QQC2.Switch |
 | Slider | NSSlider | Slider | gtk::Scale | QQC2.Slider |
+| NumberInput | NSTextField + NSStepper | NumberBox | gtk::SpinButton | QQC2.SpinBox |
 | Select | NSPopUpButton | ComboBox | gtk::DropDown | QQC2.ComboBox |
 | Progress | NSProgressIndicator (bar) | ProgressBar | gtk::ProgressBar | QQC2.ProgressBar |
 | Spinner | NSProgressIndicator (spinning) | ProgressRing | gtk::Spinner | QQC2.BusyIndicator |
@@ -913,6 +914,20 @@ Things the AppKit backend taught us, some of them now part of the contract:
 - **Tweaks for the rest.** Colours, style classes, rich text and letter spacing are each platform's own.
 - **The example's tweaks:** the secondary label colour on AppKit (captured), `dim-label` on GTK, Markdown (`textFormat`) on Qt, `CharacterSpacing` on WinUI (bindings added, with `MaxLines` and `TextTrimming`).
 - **Run on AppKit only:** GTK, Kirigami and WinUI are only type-checked, and CI hasn't run them.
+
+### NumberInput
+
+- **A spin box for a whole number, where every platform has one:** `NumberBox`, `gtk::SpinButton`, `QQC2.SpinBox`. AppKit has no single control, and its apps put an `NSStepper` beside a text field, so the backend does that (`mitsuami::appkit::NumberField`, a flipped view with both; the stepper holds the number, range and increment, and the field shows it). It came from 2ksbox's launcher (memory in MB, disk size in GB), and Separator and Disclosure, which it also uses, didn't qualify: WinUI has no standalone separator and Qt Quick no disclosure.
+- **Whole numbers in an `i32`, because Qt's `SpinBox` holds an `int`:** a rule the core enforces since one platform makes the alternative impossible. Decimals typed or set are rounded: GTK with `digits` 0, Qt by its validator, WinUI in `ValueChanged` (`NumberBox` takes decimals; an emptied box, NaN, gets the last number back), AppKit when the field commits.
+- **Typing reports when the edit is committed,** as every platform commits one: Return, or leaving the field (AppKit's cell `sendsActionOnEndEditing`). Buttons and arrow keys report at once. Text that isn't a number puts the number back.
+- **What happens past an end is the platform's.** AppKit's stepper wraps round (`valueWraps` is on by default); GTK, Qt and WinUI stop. Numbers typed past an end are clamped everywhere. `stops_or_wraps_at_its_ends_as_the_platform_does` expects each.
+- **Held buttons repeat, as every platform's do** (`NSStepper.autorepeat`, GTK's and Qt's buttons, WinUI's `RepeatButton`s), reporting each step. On AppKit a stepper made in code steps once and stops (seen on macOS 26, and in a bare AppKit app too), unless its cell also sends its action on periodic events, so `NumberField` sets `sendActionOn` to mouse down, dragged and periodic. Not tested: the test kit can't hold a native button down.
+- **Inline spin buttons on WinUI.** `NumberBox` hides them by default; `Inline` is its documented spin-box mode, and a tweak can pick `Compact` or `Hidden`.
+- **Sized as the platform sizes it:** GTK for its range's widest number, Qt for its text, WinUI by `Measure`, AppKit for the range's longest number in the field plus the stepper; so `Range` and `Number` re-measure a `NumberInput` (`Prop::affects_measure` now takes the kind). Headless measures one 96 wide.
+- **A spin button to assistive technology** (`Role::SpinButton`), named by its label, with the number as its value. On AppKit the field and the stepper both get the label, as VoiceOver finds them separately.
+- **Not tested: typing keys into one.** `synthesize` has no `NumberInput` path yet on any backend (each would drive the field inside); the suite uses assistive technology's `SetValue`, `Increment` and `Decrement`.
+- **The example's tweaks:** `valueWraps` off on AppKit, `wrap` on GTK and Qt, `Compact` spin buttons on WinUI (`NumberBox` bindings added).
+- **Run on AppKit and headless;** GTK, Kirigami and WinUI are only type-checked, and CI hasn't run them.
 
 ### M2 (GTK 4)
 

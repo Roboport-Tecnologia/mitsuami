@@ -22,6 +22,8 @@ mod custom;
 #[cfg(target_os = "macos")]
 mod list;
 #[cfg(target_os = "macos")]
+mod number_field;
+#[cfg(target_os = "macos")]
 mod services;
 #[cfg(target_os = "macos")]
 mod tweak;
@@ -32,6 +34,8 @@ pub use app::{init_for_tests, run};
 pub use backend::{AppKitBackend, AppKitHandle, BackendOptions};
 #[cfg(target_os = "macos")]
 pub use custom::{AppKitCx, Emitter, NativeRender, NativeView, ad_hoc, native};
+#[cfg(target_os = "macos")]
+pub use number_field::NumberField;
 #[cfg(target_os = "macos")]
 pub use services::AppKitServices;
 #[cfg(target_os = "macos")]

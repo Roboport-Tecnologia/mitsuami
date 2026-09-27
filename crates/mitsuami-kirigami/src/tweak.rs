@@ -5,7 +5,8 @@ use std::rc::Rc;
 use mitsuami_core::reactive::{IntoValue, Value};
 use mitsuami_core::{List, Opaque, Tweak};
 use mitsuami_widgets::{
-    Button, Checkbox, PasswordInput, Progress, ScrollView, Select, Slider, Spinner, Switch, Text, TextInput,
+    Button, Checkbox, NumberInput, PasswordInput, Progress, ScrollView, Select, Slider, Spinner, Switch, Text,
+    TextInput,
 };
 
 use crate::ffi::QmlObject;
@@ -28,6 +29,9 @@ impl Tweakable for Select {}
 
 /// A `QQC2.Slider`.
 impl Tweakable for Slider {}
+
+/// A `QQC2.SpinBox`.
+impl Tweakable for NumberInput {}
 
 /// A `QQC2.ProgressBar`.
 impl Tweakable for Progress {}

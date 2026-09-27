@@ -5,7 +5,8 @@ use std::rc::Rc;
 use mitsuami_core::reactive::{IntoValue, Value};
 use mitsuami_core::{List, Opaque, Tweak};
 use mitsuami_widgets::{
-    Button, Checkbox, PasswordInput, Progress, ScrollView, Select, Slider, Spinner, Switch, Text, TextInput,
+    Button, Checkbox, NumberInput, PasswordInput, Progress, ScrollView, Select, Slider, Spinner, Switch, Text,
+    TextInput,
 };
 use objc2::DowncastTarget;
 use objc2_app_kit::{
@@ -36,6 +37,10 @@ impl Tweakable for Select {
 
 impl Tweakable for Slider {
     type Native = NSSlider;
+}
+
+impl Tweakable for NumberInput {
+    type Native = crate::NumberField;
 }
 
 impl Tweakable for Progress {

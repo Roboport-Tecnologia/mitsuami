@@ -448,6 +448,18 @@ fn sliders() -> impl View {
     ))
 }
 
+/// Spin boxes as each platform draws them: a field and a stepper on
+/// AppKit, buttons inside the field elsewhere. GTK sizes them for their
+/// range's widest number.
+#[mitsuami_test::story(sizes = [(240, fit)])]
+fn number_inputs() -> impl View {
+    Column::new().padding(16).gap(8).align(Align::Start).children((
+        NumberInput::new("Copies").range(1, 99).value(2),
+        NumberInput::new("Memory").range(16, 4096).step(16).value(512),
+        NumberInput::new("Disabled").value(7).enabled(false),
+    ))
+}
+
 /// AppKit sizes pop-up buttons for their widest option, the others for the
 /// chosen one.
 #[mitsuami_test::story(sizes = [(240, fit)])]

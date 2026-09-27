@@ -143,6 +143,7 @@ enum Widget {
     Switch(QmlObject),
     Select(QmlObject),
     Slider(QmlObject),
+    NumberInput(QmlObject),
     Progress(QmlObject),
     Spinner(QmlObject),
     Scroll {
@@ -185,6 +186,7 @@ impl Widget {
             | Widget::Switch(i)
             | Widget::Select(i)
             | Widget::Slider(i)
+            | Widget::NumberInput(i)
             | Widget::Progress(i)
             | Widget::Spinner(i)
             | Widget::Scroll { view: i, .. }
@@ -223,6 +225,7 @@ impl Widget {
                 | Widget::Switch(_)
                 | Widget::Select(_)
                 | Widget::Slider(_)
+                | Widget::NumberInput(_)
         )
     }
 
@@ -236,6 +239,7 @@ impl Widget {
                 | Widget::Switch(_)
                 | Widget::Select(_)
                 | Widget::Slider(_)
+                | Widget::NumberInput(_)
                 | Widget::Custom { .. }
                 | Widget::Native { .. }
                 | Widget::List(_)
@@ -639,6 +643,16 @@ impl State {
                 });
                 Widget::Slider(slider)
             }
+            WidgetKind::NumberInput => {
+                let spin = QmlObject::load(&qml::number_input());
+                // `valueModified` is the user's (buttons, arrow keys, a typed
+                // number once it's committed); `valueChanged` fires for ours
+                // too.
+                spin.connect("valueModified()", move || {
+                    events.emit(id, UiEvent::Changed(EventValue::Number(spin.int("value").into())))
+                });
+                Widget::NumberInput(spin)
+            }
             WidgetKind::Progress => Widget::Progress(QmlObject::load(&qml::progress())),
             WidgetKind::Spinner => Widget::Spinner(QmlObject::load(&qml::spinner())),
             WidgetKind::TextInput | WidgetKind::PasswordInput => {
@@ -771,7 +785,12 @@ impl State {
             (Prop::Label(t), Widget::Button(b) | Widget::Checkbox(b)) => b.set_str("text", t),
             (
                 Prop::Label(t),
-                Widget::Switch(s) | Widget::Select(s) | Widget::Slider(s) | Widget::Progress(s) | Widget::Spinner(s),
+                Widget::Switch(s)
+                | Widget::Select(s)
+                | Widget::Slider(s)
+                | Widget::NumberInput(s)
+                | Widget::Progress(s)
+                | Widget::Spinner(s),
             ) => {
                 s.set_str("mitsuamiA11yName", t);
                 node.a11y_label = Some(t.clone());
@@ -800,6 +819,13 @@ impl State {
             }
             (Prop::Step(step), Widget::Slider(s)) => s.set_real("stepSize", step.unwrap_or(0.0)),
             (Prop::Number(n), Widget::Slider(s)) => s.set_real("value", *n),
+            // Whole numbers: the core only sends those.
+            (Prop::Range { min, max }, Widget::NumberInput(s)) => {
+                s.set_int("from", *min as i32);
+                s.set_int("to", *max as i32);
+            }
+            (Prop::Step(step), Widget::NumberInput(s)) => s.set_int("stepSize", step.map_or(1, |s| s as i32)),
+            (Prop::Number(n), Widget::NumberInput(s)) => s.set_int("value", *n as i32),
             (Prop::Orientation(o), Widget::Slider(s)) => {
                 s.set_int("orientation", if o.vertical() { QT_VERTICAL } else { QT_HORIZONTAL });
                 node.orientation = Some(*o);
@@ -1030,6 +1056,7 @@ impl State {
                     Widget::Switch(_)
                         | Widget::Select(_)
                         | Widget::Slider(_)
+                        | Widget::NumberInput(_)
                         | Widget::Progress(_)
                         | Widget::Spinner(_)
                 );
@@ -1199,10 +1226,10 @@ impl Backend for KirigamiBackend {
                 }
             }
             // What the arrow keys do.
-            (A11yAction::Increment | A11yAction::Decrement, WidgetKind::Slider) => {
+            (A11yAction::Increment | A11yAction::Decrement, WidgetKind::Slider | WidgetKind::NumberInput) => {
                 item.set_int("mitsuamiStepBy", if *action == A11yAction::Increment { 1 } else { -1 });
             }
-            (A11yAction::SetValue(text), WidgetKind::Slider) => {
+            (A11yAction::SetValue(text), WidgetKind::Slider | WidgetKind::NumberInput) => {
                 item.set_real("mitsuamiMoveTo", text.trim().parse().map_err(|_| ActionError::Unsupported)?);
             }
             // As if the option were picked from the pop-up.
@@ -1410,6 +1437,12 @@ impl Backend for KirigamiBackend {
                         Orientation::Horizontal
                     }));
                 }
+            }
+            Widget::NumberInput(s) => {
+                props.extend(node.a11y_label.clone().map(Prop::Label));
+                props.push(Prop::Range { min: s.int("from").into(), max: s.int("to").into() });
+                props.push(Prop::Step(Some(s.int("stepSize").into())));
+                props.push(Prop::Number(s.int("value").into()));
             }
             Widget::Progress(p) => {
                 props.extend(node.a11y_label.clone().map(Prop::Label));

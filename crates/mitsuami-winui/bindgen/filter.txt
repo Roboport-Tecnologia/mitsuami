@@ -229,6 +229,10 @@ Microsoft.UI.Xaml.Controls.ProgressBar::CreateInstance
 Microsoft.UI.Xaml.Controls.ProgressRing::CreateInstance
 Microsoft.UI.Xaml.Controls.IProgressRing::{get_IsActive, put_IsActive, put_IsIndeterminate, put_Value}
 Microsoft.UI.Xaml.Controls.IProgressBar::{get_IsIndeterminate, put_IsIndeterminate, put_ShowPaused}
+Microsoft.UI.Xaml.Controls.NumberBox::CreateInstance
+Microsoft.UI.Xaml.Controls.INumberBox::{get_Value, put_Value, get_Minimum, put_Minimum, get_Maximum, put_Maximum, get_SmallChange, put_SmallChange, get_SpinButtonPlacementMode, put_SpinButtonPlacementMode, add_ValueChanged, remove_ValueChanged}
+Microsoft.UI.Xaml.Controls.NumberBoxSpinButtonPlacementMode
+Microsoft.UI.Xaml.Controls.NumberBoxValueChangedEventArgs::{}
 Microsoft.UI.Xaml.Controls.Primitives.IRangeBase::{get_Value, put_Value, get_Minimum, put_Minimum, get_Maximum, put_Maximum, get_SmallChange, put_SmallChange, add_ValueChanged, remove_ValueChanged}
 Microsoft.UI.Xaml.Controls.Border::CreateInstance
 Microsoft.UI.Xaml.Controls.IBorder::{get_Child, put_Child}

@@ -24,6 +24,9 @@ pub enum Role {
     ProgressBar,
     Image,
     Slider,
+    /// A field for a number with buttons that step it (a `NumberInput`).
+    /// Its value is the number.
+    SpinButton,
     List,
     ListItem,
     ScrollArea,
@@ -86,9 +89,9 @@ pub enum A11yAction {
     Activate,
     Focus,
     /// Replace a text field's text, choose the `Select` option with this
-    /// text, or move a `Slider` to this number.
+    /// text, or move a `Slider` or `NumberInput` to this number.
     SetValue(String),
-    /// Step an adjustable control (a slider) up or down.
+    /// Step an adjustable control (a slider, a spin button) up or down.
     Increment,
     Decrement,
     ScrollIntoView,

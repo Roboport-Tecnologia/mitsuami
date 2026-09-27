@@ -151,6 +151,12 @@ enum Widget {
         slider: w::Slider,
         step: Option<f64>,
     },
+    /// A number box, and the step it was given (XAML reads back its own
+    /// default without one).
+    Number {
+        number: w::NumberBox,
+        step: Option<f64>,
+    },
     Progress(w::ProgressBar),
     Spinner(w::ProgressRing),
     Scroll(w::ScrollViewer),
@@ -202,7 +208,7 @@ struct Node {
     shown_mixed: Rc<Cell<bool>>,
     /// Selects: the chosen index, or -1.
     shown_index: Rc<Cell<i32>>,
-    /// Sliders: the value.
+    /// Sliders and number boxes: the value.
     shown_number: Rc<Cell<f64>>,
     /// ScrollViews: the offset last reported.
     offset: Rc<Cell<Point>>,
@@ -1044,6 +1050,36 @@ impl State {
                 let element = slider.cast()?;
                 (Widget::Slider { slider, step: None }, element)
             }
+            WidgetKind::NumberInput => {
+                let number = w::NumberBox::new()?;
+                let iface: w::INumberBox = number.cast()?;
+                // XAML's default hides the spin buttons; `Inline` is its
+                // spin box. A tweak can pick `Compact` or `Hidden`.
+                iface.SetSpinButtonPlacementMode(w::NumberBoxSpinButtonPlacementMode::Inline)?;
+                // Typing commits on Return or leaving the field, the buttons
+                // and arrow keys at once; setting the value or the range
+                // reports it too, so only a value the core doesn't know
+                // about is the user's. NumberBox takes decimals and shows an
+                // emptied field as NaN: keep whole numbers, and put back the
+                // last one for NaN. It ignores sets from inside its own
+                // `ValueChanged`, so those wait until the handler returns;
+                // `shown` already holds what they set, so they report
+                // nothing.
+                let (emitter, shown) = (emitter.clone(), shown_number.clone());
+                revokers.push(iface.ValueChanged(move |sender, _| {
+                    let Some(number) = sender.as_ref().and_then(|s| s.cast::<w::INumberBox>().ok()) else { return };
+                    let Ok(value) = number.Value() else { return };
+                    let whole = if value.is_nan() { shown.get() } else { value.round() };
+                    if whole.to_bits() != value.to_bits() {
+                        set_later(&number, value, whole);
+                    }
+                    if !value.is_nan() && shown.replace(whole) != whole {
+                        emitter.emit(id, UiEvent::Changed(EventValue::Number(whole)));
+                    }
+                })?);
+                let element = number.cast()?;
+                (Widget::Number { number, step: None }, element)
+            }
             WidgetKind::Progress => {
                 let progress = w::ProgressBar::new()?;
                 let range: w::IRangeBase = progress.cast()?;
@@ -1179,7 +1215,7 @@ impl State {
             }
             (Prop::Custom(new), Widget::Drawn { props, .. }) => *props = new.clone(),
             (Prop::Drawing(drawing), Widget::Drawn { view, .. }) => view.set_drawing(drawing)?,
-            (Prop::Step(new), Widget::Slider { step, .. }) => *step = *new,
+            (Prop::Step(new), Widget::Slider { step, .. } | Widget::Number { step, .. }) => *step = *new,
             (Prop::Native(opaque), Widget::Native { last, .. }) => {
                 // The creating payload was applied on creation.
                 if opaque != last
@@ -1218,6 +1254,7 @@ impl State {
                 Widget::Switch(_)
                 | Widget::Select(_)
                 | Widget::Slider { .. }
+                | Widget::Number { .. }
                 | Widget::Progress(_)
                 | Widget::Spinner(_),
             ) => {
@@ -1280,6 +1317,31 @@ impl State {
                 slider.cast::<w::IRangeBase>()?.SetValue(*n)?;
                 // XAML snaps what it's given to its step.
                 node.shown_number.set(slider.cast::<w::IRangeBase>()?.Value()?);
+            }
+            (Prop::Range { min, max }, Widget::Number { number, .. }) => {
+                let iface: w::INumberBox = number.cast()?;
+                // Widen first, so the value isn't clamped on the way.
+                if *min < iface.Maximum()? {
+                    iface.SetMinimum(*min)?;
+                    iface.SetMaximum(*max)?;
+                } else {
+                    iface.SetMaximum(*max)?;
+                    iface.SetMinimum(*min)?;
+                }
+                // A value the new range clamped isn't the user's; the core
+                // sends it next.
+                node.shown_number.set(iface.Value()?);
+            }
+            // What the spin buttons and arrow keys add; 1 unless set.
+            (Prop::Step(new), Widget::Number { number, .. }) => {
+                number.cast::<w::INumberBox>()?.SetSmallChange(new.unwrap_or(1.0))?
+            }
+            (Prop::Number(n), Widget::Number { number, .. }) => {
+                let iface: w::INumberBox = number.cast()?;
+                node.shown_number.set(*n);
+                iface.SetValue(*n)?;
+                // It clamps what it's given to its range.
+                node.shown_number.set(iface.Value()?);
             }
             (Prop::Running(r), Widget::Spinner(ring)) => ring.cast::<w::IProgressRing>()?.SetIsActive(*r)?,
             (Prop::Progress(progress), Widget::Progress(p)) => {
@@ -1503,6 +1565,7 @@ impl State {
                     Widget::Switch(_)
                         | Widget::Select(_)
                         | Widget::Slider { .. }
+                        | Widget::Number { .. }
                         | Widget::Progress(_)
                         | Widget::Spinner(_)
                 );
@@ -1598,6 +1661,12 @@ impl State {
                 .and_then(|r| r.Value())
                 .ok()
                 .and_then(|v| (node.shown_number.replace(v) != v).then_some(EventValue::Number(v))),
+            Widget::Number { number, .. } => number
+                .cast::<w::INumberBox>()
+                .and_then(|n| n.Value())
+                .ok()
+                .filter(|v| !v.is_nan())
+                .and_then(|v| (node.shown_number.replace(v) != v).then_some(EventValue::Number(v))),
             Widget::Select(combo) => combo
                 .cast::<w::ISelector>()
                 .and_then(|s| s.SelectedIndex())
@@ -1649,6 +1718,20 @@ fn wrap(control: &w::UIElement) -> R<w::UIElement> {
     border.cast()
 }
 
+/// Sets a number box to `to` once its `ValueChanged` handler has returned,
+/// unless something else has changed it from `from` by then.
+fn set_later(number: &w::INumberBox, from: f64, to: f64) {
+    let Ok(queue) = w::DispatcherQueue::GetForCurrentThread() else { return };
+    let ticket = crate::later::park(number.clone());
+    crate::later::on_ui(&queue, move || {
+        if let Some(number) = crate::later::take::<w::INumberBox>(ticket)
+            && number.Value().is_ok_and(|v| v.to_bits() == from.to_bits())
+        {
+            let _ = number.SetValue(to);
+        }
+    });
+}
+
 /// Return submits a text or password box; leaving it doesn't.
 fn submit_on_enter(field: &w::IUIElement, emitter: &Events, id: NodeId) -> R<EventRevoker> {
     let emitter = emitter.clone();
@@ -1673,6 +1756,7 @@ fn is_control(widget: &Widget) -> bool {
             | Widget::Switch(_)
             | Widget::Select(_)
             | Widget::Slider { .. }
+            | Widget::Number { .. }
             | Widget::Scroll(_)
             | Widget::List(_)
     )
@@ -1830,6 +1914,7 @@ impl Backend for WinUiBackend {
             | Widget::Switch(_)
             | Widget::Select(_)
             | Widget::Slider { .. }
+            | Widget::Number { .. }
             | Widget::Progress(_)
             | Widget::Spinner(_) => ceil(measure_element(&node.element, infinite)),
             Widget::Custom { render, props } => render
@@ -1918,6 +2003,27 @@ impl Backend for WinUiBackend {
                     }
                 };
                 range.SetValue(value).map_err(|_| ActionError::Unsupported)?;
+                self.state.borrow().report_value(id);
+            }
+            // What a screen reader does: NumberBox's RangeValue pattern. Its
+            // steps stop at the ends, as its own spin buttons' do.
+            (A11yAction::Increment | A11yAction::Decrement | A11yAction::SetValue(_), WidgetKind::NumberInput) => {
+                let range: w::IRangeValueProvider = peer()?
+                    .GetPattern(w::PatternInterface::RangeValue)
+                    .and_then(|p| p.cast())
+                    .map_err(|_| ActionError::Unsupported)?;
+                let (min, max) = (range.Minimum().unwrap_or(f64::MIN), range.Maximum().unwrap_or(f64::MAX));
+                let value = match action {
+                    A11yAction::SetValue(text) => {
+                        text.trim().parse::<f64>().map_err(|_| ActionError::Unsupported)?.round()
+                    }
+                    _ => {
+                        let step = range.SmallChange().unwrap_or(1.0);
+                        let step = if *action == A11yAction::Increment { step } else { -step };
+                        range.Value().unwrap_or(0.0) + step
+                    }
+                };
+                range.SetValue(value.clamp(min, max)).map_err(|_| ActionError::Unsupported)?;
                 self.state.borrow().report_value(id);
             }
             (A11yAction::SetValue(text), WidgetKind::Select) => {
@@ -2216,6 +2322,16 @@ impl Backend for WinUiBackend {
                         Orientation::Horizontal
                     }));
                 }
+            }
+            Widget::Number { number, step } => {
+                let name = w::AutomationProperties::GetName(&node.element).unwrap_or_default();
+                if !name.is_empty() {
+                    props.push(Prop::Label(name));
+                }
+                let iface: w::INumberBox = number.cast().ok()?;
+                props.push(Prop::Range { min: iface.Minimum().ok()?, max: iface.Maximum().ok()? });
+                props.push(Prop::Step(*step));
+                props.push(Prop::Number(iface.Value().ok()?));
             }
             Widget::Progress(p) => {
                 let name = w::AutomationProperties::GetName(&node.element).unwrap_or_default();

@@ -552,6 +552,8 @@ impl Backend for HeadlessBackend {
                 Orientation::Horizontal => Size::new(160.0, 20.0),
                 Orientation::Vertical => Size::new(20.0, 160.0),
             },
+            // A field for a few digits, and its buttons.
+            WidgetKind::NumberInput => Size::new(96.0, line + 8.0),
             WidgetKind::Progress => Size::new(160.0, 8.0),
             WidgetKind::Spinner => Size::new(16.0, 16.0),
             // Sized for its chosen option, with room for the arrow.
@@ -622,6 +624,30 @@ impl Backend for HeadlessBackend {
                 state.set_prop(id, Prop::Number(value));
                 state.emit(id, UiEvent::Changed(EventValue::Number(value)));
             }
+            (A11yAction::SetValue(_) | A11yAction::Increment | A11yAction::Decrement, WidgetKind::NumberInput) => {
+                let props = &state.nodes[&id].props;
+                let (min, max) = props
+                    .iter()
+                    .find_map(|p| match p {
+                        Prop::Range { min, max } => Some((*min, *max)),
+                        _ => None,
+                    })
+                    .unwrap_or((0.0, 100.0));
+                let value = find_prop!(props, Number).unwrap_or(min);
+                let step = find_prop!(props, Step).flatten().unwrap_or(1.0);
+                // Whole numbers, clamped at the ends, as GTK, Qt and WinUI
+                // do it.
+                let value = match action {
+                    A11yAction::SetValue(text) => {
+                        text.trim().parse::<f64>().map_err(|_| ActionError::Unsupported)?.round()
+                    }
+                    A11yAction::Increment => value + step,
+                    _ => value - step,
+                };
+                let value = value.clamp(min, max);
+                state.set_prop(id, Prop::Number(value));
+                state.emit(id, UiEvent::Changed(EventValue::Number(value)));
+            }
             (A11yAction::SetValue(text), WidgetKind::Select) => {
                 let options = find_prop!(state.nodes[&id].props, Options).unwrap_or_default();
                 let index = options.iter().position(|o| o == text).ok_or(ActionError::Unsupported)?;
@@ -637,6 +663,7 @@ impl Backend for HeadlessBackend {
                 | WidgetKind::Switch
                 | WidgetKind::Select
                 | WidgetKind::Slider
+                | WidgetKind::NumberInput
                 | WidgetKind::List,
             ) => state.focus(id),
             (A11yAction::Select | A11yAction::Activate, WidgetKind::Container) => {

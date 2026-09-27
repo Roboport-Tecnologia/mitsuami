@@ -162,6 +162,35 @@ QQC2.Slider {{
     )
 }
 
+/// A spin box for whole numbers (Qt's holds an `int`). Rust sets `from`,
+/// `to`, `stepSize` and `value`, and changes it as assistive technology
+/// does, reporting it with `valueModified`, which Qt only emits for the
+/// user: `mitsuamiStepBy` (1 or -1) steps it with Qt's own `increase()` and
+/// `decrease()`, which stop at the ends; `mitsuamiMoveTo` sets it, clamped.
+pub(crate) fn number_input() -> String {
+    format!(
+        r#"
+QQC2.SpinBox {{
+    editable: true
+    property int mitsuamiStepBy: 0
+    property real mitsuamiMoveTo: NaN
+    onMitsuamiStepByChanged: if (mitsuamiStepBy !== 0) {{
+        if (mitsuamiStepBy > 0) increase(); else decrease()
+        mitsuamiStepBy = 0
+        valueModified()
+    }}
+    onMitsuamiMoveToChanged: if (!isNaN(mitsuamiMoveTo)) {{
+        value = Math.round(mitsuamiMoveTo)
+        mitsuamiMoveTo = NaN
+        valueModified()
+    }}
+    {}
+}}
+"#,
+        a11y("\"\"")
+    )
+}
+
 pub(crate) fn spinner() -> String {
     format!("QQC2.BusyIndicator {{ running: false; {} }}", a11y("\"\""))
 }

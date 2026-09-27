@@ -51,6 +51,13 @@ pub enum WidgetKind {
     /// A native slider (NSSlider, Slider, gtk::Scale, QQC2.Slider): a
     /// [`Prop::Number`] in a [`Prop::Range`], in [`Prop::Step`]s.
     Slider,
+    /// A native field for a whole number, with buttons that step it up and
+    /// down (NumberBox, gtk::SpinButton, QQC2.SpinBox; on AppKit an
+    /// NSTextField with an NSStepper beside it, as AppKit apps pair them):
+    /// a [`Prop::Number`] in a [`Prop::Range`], stepped by [`Prop::Step`].
+    /// Whole numbers that fit an `i32`, because Qt's spin box holds an
+    /// `int`.
+    NumberInput,
     /// A native progress bar (NSProgressIndicator, ProgressBar,
     /// gtk::ProgressBar, QQC2.ProgressBar): a [`Prop::Progress`].
     Progress,
@@ -106,6 +113,7 @@ impl WidgetKind {
             WidgetKind::Switch => "Switch",
             WidgetKind::Select => "Select",
             WidgetKind::Slider => "Slider",
+            WidgetKind::NumberInput => "NumberInput",
             WidgetKind::Progress => "Progress",
             WidgetKind::Spinner => "Spinner",
             WidgetKind::Custom(name) => name,
@@ -239,7 +247,7 @@ pub enum Prop {
     /// ellipsis, as the platform draws one. `None`: all of them.
     MaxLines(Option<u32>),
     /// Caption of a `Button`, `Checkbox` or `Switch`; accessible name of a
-    /// `Switch`, `Select`, `Slider` or `Progress`.
+    /// `Switch`, `Select`, `Slider`, `NumberInput` or `Progress`.
     Label(String),
     /// Current text of a `TextInput` or `PasswordInput`.
     Value(String),
@@ -261,16 +269,17 @@ pub enum Prop {
     /// Which option of a `Select` is chosen: always one, unless it has no
     /// options.
     SelectedIndex(Option<usize>),
-    /// A `Slider`'s value, within its range. The core sends it after the
-    /// range, which may have clamped it.
+    /// A `Slider`'s or `NumberInput`'s value, within its range. The core
+    /// sends it after the range, which may have clamped it.
     Number(f64),
-    /// The values a `Slider` can take.
+    /// The values a `Slider` or `NumberInput` can take.
     Range {
         min: f64,
         max: f64,
     },
     /// A `Slider`'s step, used as the platform uses one: to snap to, where
-    /// its sliders snap, and to move by from the keyboard. `None`: the
+    /// its sliders snap, and to move by from the keyboard. What a
+    /// `NumberInput`'s buttons and arrow keys add or take away. `None`: the
     /// platform's default.
     Step(Option<f64>),
     /// Which way a `Slider` runs.
@@ -317,8 +326,14 @@ impl Prop {
         std::mem::discriminant(self)
     }
 
-    /// Whether changing this prop can change the widget's intrinsic size.
-    pub fn affects_measure(&self) -> bool {
+    /// Whether changing this prop can change the intrinsic size of a widget
+    /// of this kind.
+    pub fn affects_measure(&self, kind: WidgetKind) -> bool {
+        // A spin box can be as wide as its range's longest number (GTK) or
+        // its text (Qt).
+        if kind == WidgetKind::NumberInput && matches!(self, Prop::Range { .. } | Prop::Number(_)) {
+            return true;
+        }
         matches!(
             self,
             Prop::Text(_)

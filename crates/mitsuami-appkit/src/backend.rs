@@ -31,6 +31,7 @@ use objc2_foundation::{NSArray, NSDictionary, NSNotificationCenter, NSPoint, NSR
 
 use crate::classes::{ActionTarget, ClosureTarget, DrawnView, HostView, ViewMap, WindowDelegate};
 use crate::custom::{AppKitCx, Emitter, ErasedRender, NativePayload};
+use crate::number_field::NumberField;
 
 /// How the backend behaves; apps and tests want different things.
 #[derive(Clone, Debug)]
@@ -72,6 +73,7 @@ enum Widget {
         slider: Retained<NSSlider>,
         step: Option<f64>,
     },
+    NumberInput(Retained<NumberField>),
     Progress(Retained<NSProgressIndicator>),
     /// A spinning indicator, and whether it's animating: AppKit can't say.
     Spinner {
@@ -111,6 +113,7 @@ impl Widget {
             Widget::Switch(v) => v,
             Widget::Select(v) => v,
             Widget::Slider { slider, .. } => slider,
+            Widget::NumberInput(v) => v,
             Widget::Progress(v) => v,
             Widget::Spinner { indicator, .. } => indicator,
             Widget::Scroll(v) => v,
@@ -127,6 +130,8 @@ impl Widget {
             Widget::Switch(v) => Some(v),
             Widget::Select(v) => Some(v),
             Widget::Slider { slider, .. } => Some(slider),
+            // Its field: what's focused, and what text styles apply to.
+            Widget::NumberInput(n) => Some(n.field()),
             Widget::Window { .. }
             | Widget::Progress(_)
             | Widget::Spinner { .. }
@@ -144,6 +149,7 @@ impl Widget {
     fn key_view(&self) -> Retained<NSView> {
         match self {
             Widget::List(list) => Retained::into_super(Retained::into_super(Retained::into_super(list.table.clone()))),
+            Widget::NumberInput(n) => Retained::into_super(Retained::into_super(n.field().retain())),
             widget => widget.view().retain(),
         }
     }
@@ -503,6 +509,7 @@ impl State {
                 }
                 Widget::Slider { slider, step: None }
             }
+            WidgetKind::NumberInput => Widget::NumberInput(NumberField::new(mtm, id, self.events.clone())),
             WidgetKind::Progress => {
                 let progress = NSProgressIndicator::new(mtm);
                 progress.setMinValue(0.0);
@@ -653,6 +660,23 @@ impl State {
                 slider.setVertical(o.vertical());
                 node.orientation = Some(*o);
             }
+            (Prop::Label(t), Widget::NumberInput(n)) => {
+                n.field().setAccessibilityLabel(Some(&ns(t)));
+                n.stepper().setAccessibilityLabel(Some(&ns(t)));
+            }
+            // The stepper holds the number; the field shows it. A new range
+            // may clamp the number, which the core sends again after it.
+            (Prop::Range { min, max }, Widget::NumberInput(n)) => {
+                n.stepper().setMinValue(*min);
+                n.stepper().setMaxValue(*max);
+                n.show_number();
+            }
+            (Prop::Step(step), Widget::NumberInput(n)) => n.stepper().setIncrement(step.unwrap_or(1.0)),
+            (Prop::Number(v), Widget::NumberInput(n)) => {
+                n.stepper().setDoubleValue(*v);
+                n.show_number();
+            }
+            (Prop::Enabled(e), Widget::NumberInput(n)) => n.controls().iter().for_each(|c| c.setEnabled(*e)),
             (Prop::Label(t), Widget::Progress(p) | Widget::Spinner { indicator: p, .. }) => {
                 p.setAccessibilityLabel(Some(&ns(t)))
             }
@@ -999,6 +1023,7 @@ fn focused(widget: &Widget) -> bool {
     match widget {
         // While editing, the window's field editor is first responder.
         Widget::Field(field) => field.currentEditor().is_some(),
+        Widget::NumberInput(n) => n.field().currentEditor().is_some(),
         _ => std::ptr::eq(&*responder as *const _ as *const NSView, &*view as *const NSView),
     }
 }
@@ -1094,6 +1119,7 @@ impl Backend for AppKitBackend {
             Widget::Select(v) => ceil_size(v.intrinsicContentSize()),
             // No natural width: they're as wide as the layout makes them.
             Widget::Slider { slider, .. } => intrinsic(slider),
+            Widget::NumberInput(n) => n.natural_size(),
             Widget::Progress(p) => intrinsic(p),
             Widget::Spinner { indicator, .. } => intrinsic(indicator),
             Widget::Custom { view, render, props } => {
@@ -1180,6 +1206,22 @@ impl Backend for AppKitBackend {
                 // As if dragged there: the slider sends its action.
                 slider.setDoubleValue(value);
                 unsafe { slider.sendAction_to(slider.action(), slider.target().as_deref()) };
+            }
+            // What VoiceOver does to the stepper; it sends the stepper's action.
+            (A11yAction::Increment | A11yAction::Decrement, WidgetKind::NumberInput) => {
+                let field: &NumberField = widget_view.downcast_ref().ok_or(ActionError::Unsupported)?;
+                let stepper = a11y_element(field.stepper());
+                let _: bool = if *action == A11yAction::Increment {
+                    unsafe { msg_send![&*stepper, accessibilityPerformIncrement] }
+                } else {
+                    unsafe { msg_send![&*stepper, accessibilityPerformDecrement] }
+                };
+            }
+            // As if typed into the field and committed.
+            (A11yAction::SetValue(text), WidgetKind::NumberInput) => {
+                let field: &NumberField = widget_view.downcast_ref().ok_or(ActionError::Unsupported)?;
+                field.field().setStringValue(&ns(text));
+                unsafe { field.field().sendAction_to(field.field().action(), field.field().target().as_deref()) };
             }
             (A11yAction::SetValue(text), WidgetKind::Select) => {
                 // As if the item were picked from the open menu: the pop-up
@@ -1410,6 +1452,16 @@ impl Backend for AppKitBackend {
                         Orientation::Horizontal
                     }));
                 }
+            }
+            Widget::NumberInput(n) => {
+                if let Some(label) = n.field().accessibilityLabel() {
+                    props.push(Prop::Label(label.to_string()));
+                }
+                let stepper = n.stepper();
+                props.push(Prop::Range { min: stepper.minValue(), max: stepper.maxValue() });
+                props.push(Prop::Step(Some(stepper.increment())));
+                // What the field shows, which is the stepper's number.
+                props.extend(n.field().stringValue().to_string().parse().ok().map(Prop::Number));
             }
             Widget::Progress(p) => {
                 if let Some(label) = p.accessibilityLabel() {
