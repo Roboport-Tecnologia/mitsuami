@@ -1,5 +1,5 @@
-Window "mitsuami test" [0,0 240×128]
-  Container [0,0 240×128]
+Window "mitsuami test" [0,0 240×112]
+  Container [0,0 240×112]
     Text "Widgets behave, size, animate and respond as the platform's own controls do, and text wraps as the platform wraps it." max_lines=2 [16,16 208×32]
     Text "Widgets behave, size, animate and respond as the platform's own controls do, and text wraps as the platform wraps it." max_lines=1 [16,56 208×16]
-    Text "Tweaked, with **some** of it _marked up_" tweak [16,80 208×32]
+    Text "Tweaked" tweak [16,80 208×16]

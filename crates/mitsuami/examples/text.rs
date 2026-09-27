@@ -89,10 +89,15 @@ fn platform_option() -> impl View {
             "WinUI: CharacterSpacing spreads the letters, in thousandths of an em.",
         ),
     };
+    // Markup only where the tweak renders it; elsewhere it would show as is.
+    let sample = platform! {
+        kde => "text, with **some** of it _marked up_",
+        _ => "text, as the tweak shows it",
+    };
     Column::new().gap(Spacing::Md).children((
         heading("A platform option"),
-        Text::new("Plain text, with **some** of it _marked up_"),
-        Text::new("Tweaked text, with **some** of it _marked up_").native(tweak),
+        Text::new(format!("Plain {sample}")),
+        Text::new(format!("Tweaked {sample}")).native(tweak),
         Text::new(about).text_style(TextStyle::Caption),
     ))
 }

@@ -82,7 +82,8 @@ fn text_tweaked() -> impl View {
     Column::new().padding(16).gap(8).children((
         Text::new(paragraph).max_lines(2),
         Text::new(paragraph).max_lines(1),
-        Text::new("Tweaked, with **some** of it _marked up_").native(text_tweak()),
+        // Markup only where the tweak renders it.
+        Text::new(platform! { kde => "Tweaked, with **some** of it _marked up_", _ => "Tweaked" }).native(text_tweak()),
     ))
 }
 
