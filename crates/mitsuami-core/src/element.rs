@@ -203,6 +203,13 @@ pub trait ElementBuilder: Sized {
         self.style(|s| s.position = Position::Absolute)
     }
 
+    /// A tooltip: text the platform shows, its own way, when the pointer
+    /// rests on the widget, and assistive technology reads as its
+    /// description. Empty: none.
+    fn tooltip(mut self, text: impl IntoValue<String>) -> Self {
+        self.element().prop(text.into_value(), Prop::Tooltip);
+        self
+    }
     fn a11y_label(mut self, label: impl Into<String>) -> Self {
         self.element().a11y.label = Some(label.into());
         self

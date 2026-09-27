@@ -35,14 +35,32 @@ const TEXT_STYLE: &str = r#"
 "#;
 
 fn a11y(default_name: &str) -> String {
+    a11y_with(default_name, "hovered")
+}
+
+/// For items that aren't controls (labels, images, container hosts), which
+/// have no `hovered`: a `HoverHandler` says when the pointer is on them.
+fn a11y_hover(default_name: &str) -> String {
+    format!("{}\n    HoverHandler {{ id: mitsuamiHover }}\n", a11y_with(default_name, "mitsuamiHover.hovered"))
+}
+
+/// The accessible name, description and hiding, and the tooltip: Qt
+/// Quick's attached `ToolTip`, drawn by the desktop style, shown while
+/// `hovered` after the press-and-hold delay, as Kirigami apps show theirs.
+/// Read as the description unless the app gave one.
+fn a11y_with(default_name: &str, hovered: &str) -> String {
     format!(
         r#"
     property string mitsuamiA11yName: ""
     property string mitsuamiA11yDescription: ""
     property bool mitsuamiA11yHidden: false
+    property string mitsuamiTooltip: ""
     Accessible.name: mitsuamiA11yName !== "" ? mitsuamiA11yName : {default_name}
-    Accessible.description: mitsuamiA11yDescription
+    Accessible.description: mitsuamiA11yDescription !== "" ? mitsuamiA11yDescription : mitsuamiTooltip
     Accessible.ignored: mitsuamiA11yHidden
+    QQC2.ToolTip.text: mitsuamiTooltip
+    QQC2.ToolTip.visible: mitsuamiTooltip !== "" && {hovered}
+    QQC2.ToolTip.delay: Qt.styleHints.mousePressAndHoldInterval
 "#
     )
 }
@@ -73,13 +91,16 @@ Kirigami.ApplicationWindow {{
 }
 
 pub(crate) fn container() -> String {
-    format!("Item {{ {} }}", a11y("\"\""))
+    format!("Item {{ {} }}", a11y_hover("\"\""))
 }
 
 pub(crate) fn label() -> String {
     // Word wrapping: a word longer than the line overflows rather than
     // breaking, so the longest word is the min-content width.
-    format!("QQC2.Label {{ wrapMode: Text.WordWrap; verticalAlignment: Text.AlignTop {TEXT_STYLE} {} }}", a11y("text"))
+    format!(
+        "QQC2.Label {{ wrapMode: Text.WordWrap; verticalAlignment: Text.AlignTop {TEXT_STYLE} {} }}",
+        a11y_hover("text")
+    )
 }
 
 /// A button. `mitsuamiDefault` marks it as the default button, which the
@@ -204,7 +225,7 @@ Image {{
     {}
 }}
 "#,
-        a11y("\"\"")
+        a11y_hover("\"\"")
     )
 }
 

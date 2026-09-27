@@ -103,6 +103,7 @@ Microsoft.UI.Xaml.Input.DoubleTappedEventHandler
 Microsoft.UI.Xaml.Input.DoubleTappedRoutedEventArgs::{}
 
 Microsoft.UI.Xaml.Automation.AutomationProperties::{SetName, SetHelpText, SetAccessibilityView}
+Microsoft.UI.Xaml.Controls.ToolTipService::{SetToolTip, GetToolTip}
 Microsoft.UI.Xaml.Automation.Peers.AccessibilityView
 Microsoft.UI.Xaml.Automation.Peers.FrameworkElementAutomationPeer::CreatePeerForElement
 Microsoft.UI.Xaml.Automation.Peers.IAutomationPeer::GetPattern

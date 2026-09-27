@@ -372,6 +372,10 @@ pub enum Prop {
     Step(Option<f64>),
     /// Which way a `Slider` runs.
     Orientation(Orientation),
+    /// Text the platform shows when the pointer rests on the widget, as
+    /// its tooltip, and assistive technology reads as its description.
+    /// Any widget or container can have one; empty: none.
+    Tooltip(String),
     /// What an `Image` shows.
     Image(ImageSource),
     /// How an `Image` fills its frame; sent only if the app chose.

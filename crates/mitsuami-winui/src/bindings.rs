@@ -6899,6 +6899,43 @@ pub struct IToggleSwitch_Vtbl {
         unsafe extern "system" fn(*mut core::ffi::c_void, *mut core::ffi::c_void, *mut i64) -> windows_core::HRESULT,
     pub RemoveToggled: unsafe extern "system" fn(*mut core::ffi::c_void, i64) -> windows_core::HRESULT,
 }
+windows_core::imp::define_interface!(IToolTipService, IToolTipService_Vtbl, 0x01140768_2727_5f89_80e0_5210326a3431);
+impl windows_core::RuntimeType for IToolTipService {
+    const SIGNATURE: windows_core::imp::ConstBuffer = windows_core::imp::ConstBuffer::for_interface::<Self>();
+}
+#[repr(C)]
+pub struct IToolTipService_Vtbl {
+    pub base__: windows_core::IInspectable_Vtbl,
+}
+windows_core::imp::define_interface!(
+    IToolTipServiceStatics,
+    IToolTipServiceStatics_Vtbl,
+    0x5aa38adc_9874_5e0a_8d8e_1574efc0b88f
+);
+impl windows_core::RuntimeType for IToolTipServiceStatics {
+    const SIGNATURE: windows_core::imp::ConstBuffer = windows_core::imp::ConstBuffer::for_interface::<Self>();
+}
+#[repr(C)]
+pub struct IToolTipServiceStatics_Vtbl {
+    pub base__: windows_core::IInspectable_Vtbl,
+    PlacementProperty: usize,
+    GetPlacement: usize,
+    SetPlacement: usize,
+    PlacementTargetProperty: usize,
+    GetPlacementTarget: usize,
+    SetPlacementTarget: usize,
+    ToolTipProperty: usize,
+    pub GetToolTip: unsafe extern "system" fn(
+        *mut core::ffi::c_void,
+        *mut core::ffi::c_void,
+        *mut *mut core::ffi::c_void,
+    ) -> windows_core::HRESULT,
+    pub SetToolTip: unsafe extern "system" fn(
+        *mut core::ffi::c_void,
+        *mut core::ffi::c_void,
+        *mut core::ffi::c_void,
+    ) -> windows_core::HRESULT,
+}
 windows_core::imp::define_interface!(IUIElement, IUIElement_Vtbl, 0xc3c01020_320c_5cf6_9d24_d396bbfa4d8b);
 impl windows_core::RuntimeType for IUIElement {
     const SIGNATURE: windows_core::imp::ConstBuffer = windows_core::imp::ConstBuffer::for_interface::<Self>();
@@ -10404,6 +10441,66 @@ impl windows_core::RuntimeName for ToggleSwitch {
 }
 unsafe impl Send for ToggleSwitch {}
 unsafe impl Sync for ToggleSwitch {}
+#[repr(transparent)]
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct ToolTipService(windows_core::IUnknown);
+windows_core::imp::interface_hierarchy!(ToolTipService, windows_core::IUnknown, windows_core::IInspectable);
+impl ToolTipService {
+    pub fn GetToolTip<P0>(element: P0) -> windows_core::Result<windows_core::IInspectable>
+    where
+        P0: windows_core::Param<DependencyObject>,
+    {
+        Self::IToolTipServiceStatics(|this| unsafe {
+            let mut result__ = core::mem::zeroed();
+            (windows_core::Interface::vtable(this).GetToolTip)(
+                windows_core::Interface::as_raw(this),
+                element.param().abi(),
+                &mut result__,
+            )
+            .and_then(|| windows_core::imp::Type::from_abi(result__))
+        })
+    }
+    pub fn SetToolTip<P0, P1>(element: P0, value: P1) -> windows_core::Result<()>
+    where
+        P0: windows_core::Param<DependencyObject>,
+        P1: windows_core::Param<windows_core::IInspectable>,
+    {
+        Self::IToolTipServiceStatics(|this| unsafe {
+            (windows_core::Interface::vtable(this).SetToolTip)(
+                windows_core::Interface::as_raw(this),
+                element.param().abi(),
+                value.param().abi(),
+            )
+            .ok()
+        })
+    }
+    fn IToolTipServiceStatics<R, F: FnOnce(&IToolTipServiceStatics) -> windows_core::Result<R>>(
+        callback: F,
+    ) -> windows_core::Result<R> {
+        static SHARED: windows_core::imp::FactoryCache<ToolTipService, IToolTipServiceStatics> =
+            windows_core::imp::FactoryCache::new();
+        SHARED.call(callback)
+    }
+}
+impl windows_core::RuntimeType for ToolTipService {
+    const SIGNATURE: windows_core::imp::ConstBuffer =
+        windows_core::imp::ConstBuffer::for_class::<Self, IToolTipService>();
+}
+unsafe impl windows_core::Interface for ToolTipService {
+    type Vtable = <IToolTipService as windows_core::Interface>::Vtable;
+    const IID: windows_core::GUID = <IToolTipService as windows_core::Interface>::IID;
+}
+impl core::ops::Deref for ToolTipService {
+    type Target = IToolTipService;
+    fn deref(&self) -> &Self::Target {
+        unsafe { core::mem::transmute(self) }
+    }
+}
+impl windows_core::RuntimeName for ToolTipService {
+    const NAME: &'static str = "Microsoft.UI.Xaml.Controls.ToolTipService";
+}
+unsafe impl Send for ToolTipService {}
+unsafe impl Sync for ToolTipService {}
 #[repr(transparent)]
 #[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
 pub struct TypeKind(pub i32);

@@ -16,6 +16,7 @@ fn describe_props(props: &[Prop]) -> String {
             Prop::Title(s) | Prop::Text(s) | Prop::Label(s) => quoted = Some(format!("{s:?}")),
             Prop::Value(s) => extra.push(format!("value={s:?}")),
             Prop::Placeholder(s) => extra.push(format!("placeholder={s:?}")),
+            Prop::Tooltip(s) => extra.push(format!("tooltip={s:?}")),
             Prop::Options(options) => extra.push(format!("options={options:?}")),
             Prop::SelectedIndex(index) => {
                 extra.push(format!("selected={}", index.map_or("none".to_owned(), |i| i.to_string())))

@@ -508,8 +508,8 @@ which builds the same tree as `Column::new().gap(…).children((Text::new(…).t
 
 **What comes next is driven by 2ksbox.** mitsuami was started to replace the Qt Quick launcher of 2ksbox (a Windows 98/XP emulator; `launcher-qt/qml` in that repo). Widgets are added as that launcher needs them, and only widgets every platform has a native control for: what one platform lacks is the app's to build, as a custom widget (§6.3). From the launcher so far:
 
-- Built: `NumberInput` (its `SpinBox`), `Image` (its shader preview).
-- Next: tooltips (a prop on every widget, not a widget).
+- Built: `NumberInput` (its `SpinBox`), `Image` (its shader preview), tooltips (`.tooltip(text)` on any widget, for its elided status line).
+- Next: the needs below that aren't widgets.
 - Not widgets, still needed: several windows open at once, Escape closing a window (its `Shortcut`s), a toolbar header (a shell component, below).
 - Left to the app: a separator line (WinUI has no separator control outside menus and app bars) and a disclosure header (Qt Quick has none; 2ksbox builds its own from a `ToolButton`).
 
@@ -949,6 +949,17 @@ Things the AppKit backend taught us, some of them now part of the contract:
 - **`draws_what_it_is_given` checks the pixels on screen:** a capture of the window, blue and red where the fixture has them, so a mirrored or swapped-channel image fails.
 - **The example's tweaks:** a photo frame on AppKit (`imageFrameStyle`), `content-fit` cover on GTK, `smooth` off on Qt, `UniformToFill` on WinUI (`Image`, `Stretch`, `BitmapImage`, `WriteableBitmap`, `Uri` and `IBufferByteAccess` added to the bindings).
 - **Run on AppKit and headless;** GTK, Kirigami and WinUI are only type-checked, and the shim's image provider only compiled against Qt 6 headers on macOS (not linked). Unverified on WinUI: that unpackaged apps load a `BitmapImage` from an absolute `file:///` URI, and paths with spaces or `#`.
+
+### Tooltips
+
+- **A prop, not a widget:** `.tooltip(text)` on any widget or container (`ElementBuilder`), sent as `Prop::Tooltip`; empty removes it. 2ksbox puts one on a status line cut off at one line, holding the whole text.
+- **Shown as each platform shows them,** with its delay, placement and look: `NSView.toolTip`; `set_tooltip_text`; `ToolTipService` on WinUI; on Qt the attached `QQC2.ToolTip` (Breeze draws it), visible while hovered after `Qt.styleHints.mousePressAndHoldInterval`, as Kirigami apps do it. Qt Quick has no tooltip without that binding: controls use their own `hovered`, labels, images and container hosts a `HoverHandler`.
+- **On the view under the pointer:** a list's table or list view rather than the scroll view around it, and on AppKit a `NumberInput`'s field and stepper as well as their host.
+- **Containers:** a WinUI host is a Canvas with no background, which never gets the pointer, so it gets a clear background while it has a tooltip (and takes the pointer over its empty areas meanwhile). A box's tooltip also shows over children without one of their own: on AppKit (tried by hand), on Qt (hover is passive), and GTK looks for a tooltip up the widget tree.
+- **Read as the description** unless the app gave one: the core's tree does that, AppKit reads a tooltip as the view's help and GTK as its description on their own, Qt gets `Accessible.description`, WinUI `AutomationProperties.HelpText`.
+- **Custom renders, drawn and native items on Kirigami** keep the tooltip on the node but don't show it: their QML is the app's.
+- **Not tested: showing on hover,** since nothing here can rest a pointer on a native widget. The suite checks that each backend's native widgets and containers carry it, and the description; `examples/tooltip.rs` is for trying it by hand.
+- **Run on AppKit (hover tried by hand) and headless;** GTK, Kirigami and WinUI are only type-checked, and CI hasn't run them.
 
 ### M2 (GTK 4)
 

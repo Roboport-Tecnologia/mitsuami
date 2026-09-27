@@ -92,6 +92,10 @@ name = "image"
 harness = false
 
 [[test]]
+name = "tooltip"
+harness = false
+
+[[test]]
 name = "progress"
 harness = false
 
