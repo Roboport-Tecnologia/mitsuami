@@ -280,6 +280,9 @@ pub enum Prop {
     Progress(Option<f64>),
     /// Which axes a `ScrollView` scrolls.
     ScrollAxes(ScrollAxes),
+    /// Whether a `ScrollView` shows scroll bars, as the platform shows them.
+    /// Without, it still scrolls, by wheel, trackpad and touch.
+    ScrollBars(bool),
     /// A `List`'s rows, in order.
     Rows(Vec<RowKey>),
     /// How high a `List`'s rows are likely to be, for platforms that must

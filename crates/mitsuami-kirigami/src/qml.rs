@@ -178,8 +178,10 @@ pub(crate) fn scroll_view() -> String {
 QQC2.ScrollView {{
     id: scroll
     property int mitsuamiAxes: 2
-    QQC2.ScrollBar.horizontal.policy: (mitsuamiAxes & 1) ? QQC2.ScrollBar.AsNeeded : QQC2.ScrollBar.AlwaysOff
-    QQC2.ScrollBar.vertical.policy: (mitsuamiAxes & 2) ? QQC2.ScrollBar.AsNeeded : QQC2.ScrollBar.AlwaysOff
+    // Without scroll bars, the flickable still scrolls by wheel and touch.
+    property bool mitsuamiBars: true
+    QQC2.ScrollBar.horizontal.policy: mitsuamiBars && (mitsuamiAxes & 1) ? QQC2.ScrollBar.AsNeeded : QQC2.ScrollBar.AlwaysOff
+    QQC2.ScrollBar.vertical.policy: mitsuamiBars && (mitsuamiAxes & 2) ? QQC2.ScrollBar.AsNeeded : QQC2.ScrollBar.AlwaysOff
     Flickable {{
         objectName: "mitsuamiFlickable"
         boundsBehavior: Flickable.StopAtBounds

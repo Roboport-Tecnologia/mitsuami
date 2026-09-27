@@ -369,6 +369,39 @@ fn password_input_tweak() -> Tweak<PasswordInput> {
     }
 }
 
+/// Scroll views over more rows than fit: as the platform shows them,
+/// without scroll bars, and tweaked: a bezel border on AppKit, classic
+/// scroll bars on GTK. Qt's and WinUI's tweaks change how it scrolls, which
+/// a still capture doesn't show. Overlay scroll bars (macOS, GTK, WinUI)
+/// show only while scrolling.
+#[mitsuami_test::story(sizes = [(360, fit)])]
+fn scroll_views() -> impl View {
+    let rows = || Column::new().gap(4).children((1..=12).map(|i| Text::new(format!("Row {i}"))).collect::<Vec<_>>());
+    Row::new().padding(16).gap(12).children((
+        ScrollView::new().height(96).grow(1.0).child(rows()),
+        ScrollView::new().scroll_bars(false).height(96).grow(1.0).child(rows()),
+        ScrollView::new().native(scroll_view_tweak()).height(96).grow(1.0).child(rows()),
+    ))
+}
+
+fn scroll_view_tweak() -> Tweak<ScrollView> {
+    platform! {
+        macos => mitsuami::appkit::tweak(|s: &mitsuami::appkit::objc2_app_kit::NSScrollView| {
+            s.setBorderType(mitsuami::appkit::objc2_app_kit::NSBorderType::BezelBorder)
+        }),
+        gtk => mitsuami::gtk::tweak(|s: &mitsuami::gtk::gtk::ScrolledWindow| s.set_overlay_scrolling(false)),
+        kde => mitsuami::kirigami::tweak(|s: &mitsuami::kirigami::QmlObject| {
+            if let Some(flickable) = s.object("contentItem") {
+                flickable.set_int("boundsBehavior", 3);
+            }
+        }),
+        windows => mitsuami::winui::tweak(|s: &mitsuami::winui::bindings::ScrollViewer| {
+            use mitsuami::winui::windows_core::Interface;
+            s.cast::<mitsuami::winui::bindings::IScrollViewer>()?.SetIsScrollInertiaEnabled(false)
+        }),
+    }
+}
+
 /// Sliders and progress bars as wide as the story; without a step, and
 /// with one.
 #[mitsuami_test::story(sizes = [(240, fit)])]

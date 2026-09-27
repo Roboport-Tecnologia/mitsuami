@@ -4,7 +4,9 @@ use std::rc::Rc;
 
 use mitsuami_core::reactive::{IntoValue, Value};
 use mitsuami_core::{Opaque, Tweak};
-use mitsuami_widgets::{Button, Checkbox, PasswordInput, Progress, Select, Slider, Spinner, Switch, TextInput};
+use mitsuami_widgets::{
+    Button, Checkbox, PasswordInput, Progress, ScrollView, Select, Slider, Spinner, Switch, TextInput,
+};
 
 use crate::ffi::QmlObject;
 
@@ -38,6 +40,10 @@ impl Tweakable for TextInput {}
 
 /// A `Kirigami.PasswordField`, a `QQC2.TextField`.
 impl Tweakable for PasswordInput {}
+
+/// A `QQC2.ScrollView`, whose `contentItem` is the `Flickable` that
+/// scrolls.
+impl Tweakable for ScrollView {}
 
 /// Settings as the backend runs them, on the node's item.
 pub(crate) type TweakFn = Rc<dyn Fn(QmlObject)>;

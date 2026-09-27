@@ -543,6 +543,27 @@ fn scroll_offset(scrolled: &gtk::ScrolledWindow) -> Point {
     Point::new(scrolled.hadjustment().value() as f32, scrolled.vadjustment().value() as f32)
 }
 
+/// Scroll bars (as the theme draws them) on the axes that scroll; without,
+/// `External` still scrolls them by wheel, touchpad and touch.
+fn set_scroll_policy(scrolled: &gtk::ScrolledWindow, axes: ScrollAxes, show: bool) {
+    let on = if show { gtk::PolicyType::Automatic } else { gtk::PolicyType::External };
+    let policy = |scrolls: bool| if scrolls { on } else { gtk::PolicyType::Never };
+    scrolled.set_policy(policy(axes.horizontal()), policy(axes.vertical()));
+}
+
+fn scroll_axes(scrolled: &gtk::ScrolledWindow) -> ScrollAxes {
+    match scrolled.policy() {
+        (gtk::PolicyType::Never, _) => ScrollAxes::Vertical,
+        (_, gtk::PolicyType::Never) => ScrollAxes::Horizontal,
+        _ => ScrollAxes::Both,
+    }
+}
+
+fn scroll_bars(scrolled: &gtk::ScrolledWindow) -> bool {
+    let (h, v) = scrolled.policy();
+    h != gtk::PolicyType::External && v != gtk::PolicyType::External
+}
+
 impl State {
     fn create(&mut self, id: NodeId, kind: WidgetKind, command: &Command) {
         let events = self.events.clone();
@@ -906,8 +927,10 @@ impl State {
             (Prop::EstimatedRowHeight(height), Widget::List(list)) => list.set_estimate(*height),
             (Prop::Row(row), Widget::Host(_)) => node.row = Some(*row),
             (Prop::ScrollAxes(axes), Widget::Scroll { scrolled, .. }) => {
-                let policy = |on: bool| if on { gtk::PolicyType::Automatic } else { gtk::PolicyType::Never };
-                scrolled.set_policy(policy(axes.horizontal()), policy(axes.vertical()));
+                set_scroll_policy(scrolled, *axes, scroll_bars(scrolled))
+            }
+            (Prop::ScrollBars(show), Widget::Scroll { scrolled, .. }) => {
+                set_scroll_policy(scrolled, scroll_axes(scrolled), *show)
             }
             (Prop::Custom(new), Widget::Custom { widget, render, props }) => {
                 if props != new {
@@ -1599,12 +1622,8 @@ impl Backend for GtkBackend {
                 props.push(Prop::Running(s.is_spinning()));
             }
             Widget::Scroll { scrolled, .. } => {
-                let (h, v) = scrolled.policy();
-                props.push(Prop::ScrollAxes(match (h != gtk::PolicyType::Never, v != gtk::PolicyType::Never) {
-                    (true, true) => ScrollAxes::Both,
-                    (true, false) => ScrollAxes::Horizontal,
-                    _ => ScrollAxes::Vertical,
-                }));
+                props.push(Prop::ScrollAxes(scroll_axes(scrolled)));
+                props.push(Prop::ScrollBars(scroll_bars(scrolled)));
             }
             Widget::Custom { widget, render, props: last } => {
                 props.push(Prop::Custom(last.with_props(render.read(widget, last.props()))))

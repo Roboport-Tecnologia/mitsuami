@@ -38,6 +38,7 @@ fn describe_props(props: &[Prop]) -> String {
             Prop::ButtonRole(r) => extra.push(format!("role={r:?}")),
             Prop::ButtonStyle(s) => extra.push(format!("button_style={s:?}")),
             Prop::ScrollAxes(a) => extra.push(format!("scroll={a:?}")),
+            Prop::ScrollBars(b) => extra.push(format!("scroll_bars={b}")),
             Prop::Orientation(o) => extra.push(format!("orientation={o:?}")),
             // A list's data can be long: its size is enough.
             Prop::Rows(rows) => extra.push(format!("rows={}", rows.len())),

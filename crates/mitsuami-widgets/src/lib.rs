@@ -214,6 +214,24 @@ impl ScrollView {
         self.children(child)
     }
 
+    /// Whether it shows scroll bars, on by default. They're the platform's,
+    /// shown as it shows them (overlay bars, say, as the user set on
+    /// macOS). Without, it still scrolls by wheel, trackpad and touch, as a
+    /// strip of photos or a carousel does.
+    pub fn scroll_bars(mut self, show: impl IntoValue<bool>) -> ScrollView {
+        self.outer.prop(show.into_value(), Prop::ScrollBars);
+        self
+    }
+
+    /// Raw platform settings, past the semantic ones: see [`Tweak`]. What
+    /// the platforms offer (elasticity and a border on AppKit, classic
+    /// scroll bars on GTK, overshoot on Qt, always-expanded scroll bars and
+    /// zoom on WinUI) is each one's own.
+    pub fn native(mut self, tweak: Tweak<ScrollView>) -> ScrollView {
+        tweak.apply(&mut self.outer);
+        self
+    }
+
     /// Called with the new offset whenever the content scrolls.
     pub fn on_scroll(mut self, handler: impl Fn(Point) + 'static) -> ScrollView {
         self.outer.on(move |event| {

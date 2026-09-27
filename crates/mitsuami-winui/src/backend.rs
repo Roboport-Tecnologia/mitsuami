@@ -1106,7 +1106,7 @@ impl State {
             WidgetKind::ScrollView => {
                 let scroll = w::ScrollViewer::new()?;
                 let iface: w::IScrollViewer = scroll.cast()?;
-                set_scroll_axes(&iface, ScrollAxes::default())?;
+                set_scrolling(&iface, ScrollAxes::default(), true)?;
                 revokers.push(iface.ViewChanged({
                     let (emitter, last) = (emitter.clone(), offset.clone());
                     move |sender, _| {
@@ -1337,7 +1337,14 @@ impl State {
                 }
                 node.text_style = Some(*text_style);
             }
-            (Prop::ScrollAxes(axes), Widget::Scroll(s)) => set_scroll_axes(&s.cast()?, *axes)?,
+            (Prop::ScrollAxes(axes), Widget::Scroll(s)) => {
+                let scroll = s.cast()?;
+                set_scrolling(&scroll, *axes, scroll_bars(&scroll)?)?
+            }
+            (Prop::ScrollBars(show), Widget::Scroll(s)) => {
+                let scroll = s.cast()?;
+                set_scrolling(&scroll, scroll_axes(&scroll)?, *show)?
+            }
             (Prop::Rows(rows), Widget::List(list)) => list.set_rows(rows.clone())?,
             (Prop::SelectionMode(mode), Widget::List(list)) => list.set_mode(*mode)?,
             (Prop::ListStyle(style), Widget::List(list)) => list.set_style(*style)?,
@@ -1660,13 +1667,31 @@ fn is_control(widget: &Widget) -> bool {
     )
 }
 
-fn set_scroll_axes(scroll: &w::IScrollViewer, axes: ScrollAxes) -> R<()> {
-    let (visible, hidden) = (w::ScrollBarVisibility::Auto, w::ScrollBarVisibility::Disabled);
+/// Scrolling on the given axes, with scroll bars (`Auto`: XAML's, which
+/// collapse to thin indicators) or without (`Hidden`: it still scrolls, by
+/// wheel, touchpad and touch). `Disabled` is for axes that don't scroll.
+fn set_scrolling(scroll: &w::IScrollViewer, axes: ScrollAxes, show: bool) -> R<()> {
+    let visible = if show { w::ScrollBarVisibility::Auto } else { w::ScrollBarVisibility::Hidden };
+    let hidden = w::ScrollBarVisibility::Disabled;
     let (on, off) = (w::ScrollMode::Enabled, w::ScrollMode::Disabled);
     scroll.SetHorizontalScrollBarVisibility(if axes.horizontal() { visible } else { hidden })?;
     scroll.SetVerticalScrollBarVisibility(if axes.vertical() { visible } else { hidden })?;
     scroll.SetHorizontalScrollMode(if axes.horizontal() { on } else { off })?;
     scroll.SetVerticalScrollMode(if axes.vertical() { on } else { off })
+}
+
+fn scroll_axes(scroll: &w::IScrollViewer) -> R<ScrollAxes> {
+    let shows = |v: w::ScrollBarVisibility| v != w::ScrollBarVisibility::Disabled;
+    Ok(match (shows(scroll.HorizontalScrollBarVisibility()?), shows(scroll.VerticalScrollBarVisibility()?)) {
+        (true, true) => ScrollAxes::Both,
+        (true, false) => ScrollAxes::Horizontal,
+        _ => ScrollAxes::Vertical,
+    })
+}
+
+fn scroll_bars(scroll: &w::IScrollViewer) -> R<bool> {
+    let hidden = w::ScrollBarVisibility::Hidden;
+    Ok(scroll.HorizontalScrollBarVisibility()? != hidden && scroll.VerticalScrollBarVisibility()? != hidden)
 }
 
 /// Moves focus along the core's Tab order, skipping controls that can't
@@ -2203,14 +2228,8 @@ impl Backend for WinUiBackend {
             }
             Widget::Scroll(s) => {
                 let scroll: w::IScrollViewer = s.cast().ok()?;
-                let shows = |v: w::ScrollBarVisibility| v != w::ScrollBarVisibility::Disabled;
-                let h = scroll.HorizontalScrollBarVisibility().is_ok_and(shows);
-                let v = scroll.VerticalScrollBarVisibility().is_ok_and(shows);
-                props.push(Prop::ScrollAxes(match (h, v) {
-                    (true, true) => ScrollAxes::Both,
-                    (true, false) => ScrollAxes::Horizontal,
-                    _ => ScrollAxes::Vertical,
-                }));
+                props.push(Prop::ScrollAxes(scroll_axes(&scroll).ok()?));
+                props.push(Prop::ScrollBars(scroll_bars(&scroll).ok()?));
             }
             Widget::Custom { render, props: last } => {
                 props.push(Prop::Custom(last.with_props(render.read(node.control(), last.props()))))

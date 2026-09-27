@@ -4,7 +4,9 @@ use std::rc::Rc;
 
 use mitsuami_core::reactive::{IntoValue, Value};
 use mitsuami_core::{Opaque, Tweak};
-use mitsuami_widgets::{Button, Checkbox, PasswordInput, Progress, Select, Slider, Spinner, Switch, TextInput};
+use mitsuami_widgets::{
+    Button, Checkbox, PasswordInput, Progress, ScrollView, Select, Slider, Spinner, Switch, TextInput,
+};
 use windows_core::Interface;
 
 use crate::bindings as w;
@@ -48,6 +50,10 @@ impl Tweakable for TextInput {
 
 impl Tweakable for PasswordInput {
     type Native = w::PasswordBox;
+}
+
+impl Tweakable for ScrollView {
+    type Native = w::ScrollViewer;
 }
 
 /// Settings as the backend runs them, on the node's element.

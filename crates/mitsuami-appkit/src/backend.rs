@@ -169,6 +169,10 @@ struct Node {
     /// shows when it isn't mixed.
     mixed: Option<bool>,
     checked: bool,
+    /// Scroll views: the axes they scroll, and whether they show scroll
+    /// bars. Without scrollers, AppKit can't tell which axes scroll.
+    scroll_axes: ScrollAxes,
+    scroll_bars: bool,
     /// The app's raw settings, run after every other prop.
     tweak: Option<Opaque>,
 }
@@ -576,6 +580,8 @@ impl State {
                 role: None,
                 button_style: None,
                 orientation: None,
+                scroll_axes: ScrollAxes::default(),
+                scroll_bars: true,
                 mixed: None,
                 checked: false,
                 tweak: None,
@@ -711,8 +717,14 @@ impl State {
             (Prop::Selected(rows), Widget::List(list)) => list.set_selected(rows),
             (Prop::Row(row), Widget::Host(_)) => node.row = Some(*row),
             (Prop::ScrollAxes(axes), Widget::Scroll(scroll)) => {
-                scroll.setHasVerticalScroller(axes.vertical());
-                scroll.setHasHorizontalScroller(axes.horizontal());
+                node.scroll_axes = *axes;
+                set_scrollers(scroll, node.scroll_axes, node.scroll_bars);
+            }
+            // A scroll view without scrollers still scrolls by wheel and
+            // trackpad.
+            (Prop::ScrollBars(show), Widget::Scroll(scroll)) => {
+                node.scroll_bars = *show;
+                set_scrollers(scroll, node.scroll_axes, node.scroll_bars);
             }
             (Prop::ButtonRole(role), Widget::Button(b)) => {
                 // Return clicks the default button, Escape the cancel button.
@@ -961,6 +973,12 @@ fn scroll_to(scroll: &NSScrollView, origin: NSPoint) {
     let clip = scroll.contentView();
     clip.scrollToPoint(origin);
     scroll.reflectScrolledClipView(&clip);
+}
+
+/// Scrollers for the axes that scroll, if the scroll view shows any.
+fn set_scrollers(scroll: &NSScrollView, axes: ScrollAxes, show: bool) {
+    scroll.setHasVerticalScroller(show && axes.vertical());
+    scroll.setHasHorizontalScroller(show && axes.horizontal());
 }
 
 fn focused(widget: &Widget) -> bool {
@@ -1212,9 +1230,9 @@ impl Backend for AppKitBackend {
             return Ok(());
         }
         if let SyntheticInput::Scroll { dx, dy } = input {
-            let scroll = match self.state.borrow().nodes.get(&id).map(|n| &n.widget) {
-                Some(Widget::Scroll(scroll)) => scroll.clone(),
-                Some(Widget::List(list)) => list.scroll.clone(),
+            let (scroll, axes) = match self.state.borrow().nodes.get(&id).map(|n| (&n.widget, n.scroll_axes)) {
+                Some((Widget::Scroll(scroll), axes)) => (scroll.clone(), axes),
+                Some((Widget::List(list), _)) => (list.scroll.clone(), ScrollAxes::Vertical),
                 Some(_) => return Err(ActionError::Unsupported),
                 None => return Err(ActionError::UnknownNode),
             };
@@ -1225,8 +1243,8 @@ impl Backend for AppKitBackend {
                 if on { v.clamp(0.0, (content - visible).max(0.0)) } else { 0.0 }
             };
             let origin = NSPoint::new(
-                clamp(visible.origin.x + *dx as f64, content.width, visible.size.width, scroll.hasHorizontalScroller()),
-                clamp(visible.origin.y + *dy as f64, content.height, visible.size.height, scroll.hasVerticalScroller()),
+                clamp(visible.origin.x + *dx as f64, content.width, visible.size.width, axes.horizontal()),
+                clamp(visible.origin.y + *dy as f64, content.height, visible.size.height, axes.vertical()),
             );
             scroll_to(&scroll, origin);
             return Ok(());
@@ -1390,11 +1408,15 @@ impl Backend for AppKitBackend {
                 props.push(Prop::Running(*running));
             }
             Widget::Scroll(scroll) => {
-                props.push(Prop::ScrollAxes(match (scroll.hasHorizontalScroller(), scroll.hasVerticalScroller()) {
+                let shown = (scroll.hasHorizontalScroller(), scroll.hasVerticalScroller());
+                // Hidden scrollers leave only the node to say which axes scroll.
+                props.push(Prop::ScrollAxes(match shown {
                     (true, true) => ScrollAxes::Both,
                     (true, false) => ScrollAxes::Horizontal,
-                    _ => ScrollAxes::Vertical,
-                }))
+                    (false, true) => ScrollAxes::Vertical,
+                    (false, false) => node.scroll_axes,
+                }));
+                props.push(Prop::ScrollBars(shown != (false, false)));
             }
             Widget::Custom { view, render, props: last } => {
                 props.push(Prop::Custom(last.with_props(render.read(view, last.props()))))

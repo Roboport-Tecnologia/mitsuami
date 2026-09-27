@@ -5357,6 +5357,25 @@ impl IScrollViewer {
             .ok()
         }
     }
+    pub fn IsScrollInertiaEnabled(&self) -> windows_core::Result<bool> {
+        unsafe {
+            let mut result__ = core::mem::zeroed();
+            (windows_core::Interface::vtable(self).IsScrollInertiaEnabled)(
+                windows_core::Interface::as_raw(self),
+                &mut result__,
+            )
+            .map(|| result__)
+        }
+    }
+    pub fn SetIsScrollInertiaEnabled(&self, value: bool) -> windows_core::Result<()> {
+        unsafe {
+            (windows_core::Interface::vtable(self).SetIsScrollInertiaEnabled)(
+                windows_core::Interface::as_raw(self),
+                value,
+            )
+            .ok()
+        }
+    }
     pub fn SetHorizontalScrollMode(&self, value: ScrollMode) -> windows_core::Result<()> {
         unsafe {
             (windows_core::Interface::vtable(self).SetHorizontalScrollMode)(
@@ -5481,8 +5500,8 @@ pub struct IScrollViewer_Vtbl {
     SetIsVerticalScrollChainingEnabled: usize,
     IsZoomChainingEnabled: usize,
     SetIsZoomChainingEnabled: usize,
-    IsScrollInertiaEnabled: usize,
-    SetIsScrollInertiaEnabled: usize,
+    pub IsScrollInertiaEnabled: unsafe extern "system" fn(*mut core::ffi::c_void, *mut bool) -> windows_core::HRESULT,
+    pub SetIsScrollInertiaEnabled: unsafe extern "system" fn(*mut core::ffi::c_void, bool) -> windows_core::HRESULT,
     IsZoomInertiaEnabled: usize,
     SetIsZoomInertiaEnabled: usize,
     HorizontalScrollMode: usize,

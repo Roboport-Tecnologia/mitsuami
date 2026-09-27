@@ -864,6 +864,7 @@ impl State {
                 view.set_int("mitsuamiAxes", bits);
                 node.scroll_axes = Some(*axes);
             }
+            (Prop::ScrollBars(show), Widget::Scroll { view, .. }) => view.set_bool("mitsuamiBars", *show),
             (Prop::Custom(new), Widget::Custom { item, render, props }) => {
                 if props != new {
                     render.update(*item, props.props(), new.props());
@@ -1406,7 +1407,10 @@ impl Backend for KirigamiBackend {
                 props.push(Prop::Options(option_texts(*s)));
                 props.push(Prop::SelectedIndex(usize::try_from(s.int("currentIndex")).ok()));
             }
-            Widget::Scroll { .. } => props.extend(node.scroll_axes.map(Prop::ScrollAxes)),
+            Widget::Scroll { view, .. } => {
+                props.extend(node.scroll_axes.map(Prop::ScrollAxes));
+                props.push(Prop::ScrollBars(view.bool("mitsuamiBars")));
+            }
             Widget::Custom { item, render, props: last } => {
                 props.push(Prop::Custom(last.with_props(render.read(*item, last.props()))))
             }
