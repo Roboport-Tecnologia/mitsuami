@@ -362,9 +362,10 @@ Image {{
 }
 
 /// What keeps a GPU surface's space; the surface is over it, and takes
-/// no input.
+/// no input. A focus scope: the input item in it (`mq_surface_input_new`)
+/// takes the focus it's given.
 pub(crate) fn gpu_surface() -> String {
-    format!("Item {{ Accessible.role: Accessible.Graphic; {} }}", a11y_hover("\"\""))
+    format!("FocusScope {{ Accessible.role: Accessible.Graphic; {} }}", a11y_hover("\"\""))
 }
 
 pub(crate) fn spinner() -> String {

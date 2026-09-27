@@ -30,7 +30,8 @@ bends to each platform's native controls, never the other way around:
   validates the protocol and stands in for a platform in tests.
 - Backends: `mitsuami-appkit`, `mitsuami-gtk` (Linux only),
   `mitsuami-winui` (Windows only), `mitsuami-kirigami` (Linux, `qt` feature).
-  `mitsuami-wayland` is GTK's and Kirigami's `GpuSurface` on Wayland.
+  `mitsuami-linux` is GTK's and Kirigami's `GpuSurface` (Wayland subsurface,
+  X11 child window, pointer locks).
 - `crates/mitsuami-test`: the test kit (queries, actions, snapshots, stories).
 - `docs/BACKENDS.md` is the backend contract; `docs/ARCHITECTURE.md` has the
   design, the MVP plan (§14) and implementation notes per milestone (§16).

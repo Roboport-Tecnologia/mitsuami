@@ -23,7 +23,7 @@ mitsuami-appkit = { path = "crates/mitsuami-appkit", version = "=0.0.1" }
 mitsuami-gtk = { path = "crates/mitsuami-gtk", version = "=0.0.1" }
 mitsuami-winui = { path = "crates/mitsuami-winui", version = "=0.0.1" }
 mitsuami-kirigami = { path = "crates/mitsuami-kirigami", version = "=0.0.1" }
-mitsuami-wayland = { path = "crates/mitsuami-wayland", version = "=0.0.1" }
+mitsuami-linux = { path = "crates/mitsuami-linux", version = "=0.0.1" }
 
 slotmap = "1.1"
 taffy = "0.14"
@@ -48,12 +48,16 @@ dispatch2 = "0.3"
 # GTK 4.10 is the floor (docs/ARCHITECTURE.md §11).
 gtk = { package = "gtk4", version = "0.11", features = ["v4_10"] }
 libc = "0.2"
-# GpuSurface's own subsurface on Wayland, through the toolkit's
+# GpuSurface's own subsurface, pointer lock and shortcuts inhibitor on Wayland, through the toolkit's
 # connection; libwayland-client is loaded at run time, as the toolkit has
 # loaded it.
 wayland-client = "0.31"
 wayland-backend = { version = "0.3", features = ["client_system", "dlopen"] }
-wayland-protocols = { version = "0.32", features = ["client"] }
+wayland-protocols = { version = "0.32", features = ["client", "unstable"] }
+# GpuSurface's child window on X11, on a connection of its own (xcb is
+# thread-safe, so the app presents from any thread); libxcb is loaded at
+# run time too.
+x11rb = { version = "0.13", features = ["allow-unsafe-code", "dl-libxcb", "shape"] }
 
 windows-core = "0.100"
 windows-link = "0.100"

@@ -2,12 +2,13 @@
 //! It's reported once it exists, then its size in pixels whenever that or
 //! its scale changes; its handle keeps the native surface after the widget
 //! is gone. It has no natural size, and reads as an image named by its
-//! label.
+//! label. With `on_input` it takes focus, keys and the pointer; its
+//! pointer lock and keyboard grab end as the platform ends them.
 
 use std::cell::RefCell;
 use std::rc::Rc;
 
-use mitsuami::core::WidgetKind;
+use mitsuami::core::{Prop, WidgetKind};
 use mitsuami::prelude::*;
 use mitsuami::raw_window_handle::{HandleError, HasDisplayHandle, HasWindowHandle};
 use mitsuami_test::prelude::*;
@@ -183,6 +184,213 @@ async fn follows_the_scale_factor(app: TestApp) {
     app.settle().await;
 
     assert_eq!(last_size(&seen), Some(SurfaceSize { width: 200, height: 100, scale: 2.0 }));
+}
+
+/// What an input handler got.
+fn input_log() -> (Rc<RefCell<Vec<SurfaceInput>>>, impl Fn(SurfaceInput) + 'static) {
+    let log = Rc::new(RefCell::new(Vec::new()));
+    let l = log.clone();
+    (log, move |input| l.borrow_mut().push(input))
+}
+
+fn taking_input(on_input: impl Fn(SurfaceInput) + 'static) -> GpuSurface {
+    GpuSurface::new().label("Screen").size(200.px(), 100.px()).on_input(on_input)
+}
+
+/// Keys, without the moves and modifiers a platform reports around them.
+fn keys(log: &Rc<RefCell<Vec<SurfaceInput>>>) -> Vec<(KeyCode, bool)> {
+    log.borrow()
+        .iter()
+        .filter_map(|input| match input {
+            SurfaceInput::Key { code, pressed, .. } => Some((*code, *pressed)),
+            _ => None,
+        })
+        .collect()
+}
+
+/// A click focuses it and reports the button where it went down and up.
+#[mitsuami_test::test]
+async fn takes_clicks_and_focus(app: TestApp) {
+    let (log, on_input) = input_log();
+    app.mount(move || Column::new().child(taking_input(on_input)));
+    app.settle().await;
+
+    app.get(screen()).click_at(30.0, 40.0).await;
+
+    app.expect(screen()).to_be_focused().await;
+    let buttons: Vec<(MouseButton, bool, Point)> = log
+        .borrow()
+        .iter()
+        .filter_map(|input| match input {
+            SurfaceInput::Button { button, pressed, position, .. } => Some((*button, *pressed, *position)),
+            _ => None,
+        })
+        .collect();
+    let at = Point::new(30.0, 40.0);
+    assert_eq!(buttons, [(MouseButton::Primary, true, at), (MouseButton::Primary, false, at)], "{log:?}");
+}
+
+/// Keys go down and up by where they are on the keyboard, Tab too: it
+/// doesn't move focus on.
+#[mitsuami_test::test]
+async fn takes_keys_while_focused(app: TestApp) {
+    let (log, on_input) = input_log();
+    app.mount(move || Column::new().children((taking_input(on_input), TextInput::new().a11y_label("After"))));
+    app.settle().await;
+    app.get(screen()).click_at(10.0, 10.0).await;
+
+    app.get(screen()).press(Key::Char('a')).await;
+    app.get(screen()).press(Key::Tab).await;
+
+    let expected = [(KeyCode::KeyA, true), (KeyCode::KeyA, false), (KeyCode::Tab, true), (KeyCode::Tab, false)];
+    assert_eq!(keys(&log), expected, "{log:?}");
+    app.expect(screen()).to_be_focused().await;
+}
+
+/// Modifier keys go down and up too. AppKit reports them as flag
+/// changes, which aren't key events: asking one whether it repeats raised
+/// an exception, and the keys were lost.
+#[cfg(target_os = "macos")]
+#[mitsuami_test::test]
+async fn takes_modifier_keys(app: TestApp) {
+    use mitsuami::appkit::objc2::rc::Retained;
+    use mitsuami::appkit::objc2::runtime::AnyObject;
+    use mitsuami::appkit::objc2::{Encoding, RefEncode, class, msg_send};
+    use mitsuami::raw_window_handle::RawWindowHandle;
+
+    #[repr(C)]
+    struct CGEvent([u8; 0]);
+    // SAFETY: Quartz's opaque event type, as AppKit encodes it.
+    unsafe impl RefEncode for CGEvent {
+        const ENCODING_REF: Encoding = Encoding::Pointer(&Encoding::Struct("__CGEvent", &[]));
+    }
+    unsafe extern "C" {
+        fn CGEventCreateKeyboardEvent(source: *const std::ffi::c_void, key: u16, down: bool) -> *mut CGEvent;
+        fn CGEventSetFlags(event: *mut CGEvent, flags: u64);
+        fn CFRelease(cf: *const std::ffi::c_void);
+    }
+
+    let seen = Rc::new(RefCell::new(Vec::new()));
+    let (log, on_input) = input_log();
+    let s = seen.clone();
+    app.mount(move || Column::new().child(surface(&s).size(200.px(), 100.px()).on_input(on_input)));
+    app.settle().await;
+    if app.is_headless() {
+        return;
+    }
+    let RawWindowHandle::AppKit(appkit) = handle(&seen).window_handle().unwrap().as_raw() else { panic!() };
+    // SAFETY: the handle keeps the view alive.
+    let view: &AnyObject = unsafe { appkit.ns_view.cast().as_ref() };
+    // Left Control down (its device flag and Control), then up.
+    for (flags, down) in [(0x40001, true), (0x100, false)] {
+        unsafe {
+            let cg = CGEventCreateKeyboardEvent(std::ptr::null(), 0x3B, down);
+            CGEventSetFlags(cg, flags);
+            let event: Retained<AnyObject> = msg_send![class!(NSEvent), eventWithCGEvent: cg];
+            let _: () = msg_send![view, flagsChanged: &*event];
+            CFRelease(cg.cast());
+        }
+    }
+    app.settle().await;
+
+    assert_eq!(keys(&log), [(KeyCode::ControlLeft, true), (KeyCode::ControlLeft, false)], "{log:?}");
+}
+
+/// Tab reaches it, as it reaches the window's controls.
+#[mitsuami_test::test]
+async fn is_in_the_tab_order(app: TestApp) {
+    let (_log, on_input) = input_log();
+    app.mount(move || Column::new().children((TextInput::new().a11y_label("Before"), taking_input(on_input))));
+    app.settle().await;
+    let order = app.ui().focus_order(app.window());
+    assert_eq!(order, [app.get_by_label("Before").id(), app.get(screen()).id()]);
+
+    app.get_by_label("Before").press(Key::Tab).await;
+    app.expect(screen()).to_be_focused().await;
+}
+
+/// Without `on_input` it takes no focus.
+#[mitsuami_test::test]
+async fn takes_no_focus_without_input(app: TestApp) {
+    app.mount(|| Column::new().children((TextInput::new().a11y_label("Before"), surface_only())));
+    app.settle().await;
+    assert_eq!(app.ui().focus_order(app.window()), [app.get_by_label("Before").id()]);
+}
+
+fn surface_only() -> GpuSurface {
+    GpuSurface::new().label("Screen").size(64.px(), 64.px())
+}
+
+/// The wheel or a trackpad over it scrolls towards the end.
+#[mitsuami_test::test]
+async fn takes_scrolls(app: TestApp) {
+    let (log, on_input) = input_log();
+    app.mount(move || Column::new().child(taking_input(on_input)));
+    app.settle().await;
+
+    app.get(screen()).scroll_by(0.0, 30.0).await;
+
+    let scrolled: Vec<(f32, f32)> = log
+        .borrow()
+        .iter()
+        .filter_map(|input| match input {
+            SurfaceInput::Scroll { delta: ScrollDelta::Points { x, y } | ScrollDelta::Lines { x, y }, .. } => {
+                Some((*x, *y))
+            }
+            _ => None,
+        })
+        .collect();
+    assert!(!scrolled.is_empty() && scrolled.iter().all(|(x, y)| *x == 0.0 && *y > 0.0), "{log:?}");
+}
+
+/// The lock and the grab hold until the platform ends them, which sets
+/// their signals back; a grab focuses the surface, and ends when it
+/// loses focus.
+#[mitsuami_test::test(headless)]
+async fn ends_the_lock_and_grab_as_the_platform_does(app: TestApp) {
+    let (locked, grabbed) = (signal(false), signal(false));
+    let (_log, on_input) = input_log();
+    app.mount(move || {
+        Column::new().children((
+            taking_input(on_input).pointer_lock(locked).keyboard_grab(grabbed),
+            TextInput::new().a11y_label("After"),
+        ))
+    });
+    app.settle().await;
+
+    locked.set(true);
+    grabbed.set(true);
+    app.settle().await;
+    app.expect(screen()).to_be_focused().await;
+    let props = app.get(screen()).native_state().props;
+    assert!(props.contains(&Prop::PointerLock(true)) && props.contains(&Prop::KeyboardGrab(true)), "{props:?}");
+
+    app.get_by_label("After").focus().await;
+    assert!(!grabbed.get_untracked(), "focus left the surface");
+    assert!(locked.get_untracked());
+
+    app.headless().deactivate(app.window());
+    app.settle().await;
+    assert!(!locked.get_untracked(), "the window stopped being the active one");
+    assert!(app.get(screen()).native_state().props.contains(&Prop::PointerLock(false)));
+}
+
+/// On a native backend the lock and grab hold only while the window is
+/// the active one, which a test run may not have: either way the signals
+/// say what the platform did (and the mirror check compares).
+#[mitsuami_test::test]
+async fn reports_the_lock_and_grab_it_has(app: TestApp) {
+    let (locked, grabbed) = (signal(true), signal(true));
+    let (_log, on_input) = input_log();
+    app.mount(move || Column::new().child(taking_input(on_input).pointer_lock(locked).keyboard_grab(grabbed)));
+    app.settle().await;
+
+    let props = app.get(screen()).native_state().props;
+    assert!(props.contains(&Prop::PointerLock(locked.get_untracked())), "{props:?}");
+    assert!(props.contains(&Prop::KeyboardGrab(grabbed.get_untracked())), "{props:?}");
+    locked.set(false);
+    grabbed.set(false);
+    app.settle().await;
 }
 
 #[mitsuami_test::test]

@@ -12,9 +12,9 @@ use mitsuami_core::backend::{
 };
 use mitsuami_core::services::{MenuBarData, Reply};
 use mitsuami_core::{
-    ButtonRole, ButtonStyle, Command, CustomProps, DisplayList, EventValue, ImageFit, ImageSource, Modality, NodeId,
-    Opaque, Orientation, Point, PointerEvent, Prop, Rect, RowKey, ScrollAxes, SelectionMode, Size, TextStyle, UiEvent,
-    WidgetKind, find_prop,
+    ButtonRole, ButtonStyle, Command, CustomProps, DisplayList, EventValue, ImageFit, ImageSource, KeyCode, Modality,
+    Modifiers, NodeId, Opaque, Orientation, Point, PointerEvent, Prop, Rect, RowKey, ScrollAxes, ScrollDelta,
+    SelectionMode, Size, SurfaceInput, TextStyle, UiEvent, WidgetKind, find_prop,
 };
 
 use crate::custom::{Emitter, ErasedRender, KirigamiCx, NativePayload, flatten};
@@ -253,6 +253,7 @@ impl Widget {
         match self {
             Widget::Scroll { flickable, .. } => *flickable,
             Widget::List(list) => list.view,
+            Widget::GpuSurface(surface) => surface.input,
             widget => widget.item(),
         }
     }
@@ -294,7 +295,7 @@ impl Widget {
                 | Widget::Custom { .. }
                 | Widget::Native { .. }
                 | Widget::List(_)
-        )
+        ) || matches!(self, Widget::GpuSurface(surface) if surface.takes_input())
     }
 
     /// Measured, never laid out inside: controls and escape hatches.
@@ -946,6 +947,9 @@ impl State {
                 surface.item.set_str("mitsuamiA11yName", t);
                 node.a11y_label = Some(t.clone());
             }
+            (Prop::TakesInput(takes), Widget::GpuSurface(surface)) => surface.set_takes_input(*takes),
+            (Prop::PointerLock(on), Widget::GpuSurface(surface)) => surface.set_pointer_lock(*on),
+            (Prop::KeyboardGrab(on), Widget::GpuSurface(surface)) => surface.set_keyboard_grab(*on),
             (Prop::Options(options), Widget::Select(s)) => {
                 // A new model resets the chosen index; it stays if it can,
                 // else the first option is chosen, as the core does. It
@@ -1552,6 +1556,9 @@ impl Backend for KirigamiBackend {
             }
             (node.widget.input_item(), node.kind, window)
         };
+        if kind == WidgetKind::GpuSurface {
+            return self.surface_input(id, widget_item, window, input);
+        }
         match input {
             SyntheticInput::Click(point) => {
                 // Drawn widgets only: their pointer handling is ours.
@@ -1742,7 +1749,13 @@ impl Backend for KirigamiBackend {
                 props.extend(source.clone().map(Prop::Image));
                 props.extend(fit.map(Prop::ImageFit));
             }
-            Widget::GpuSurface(_) => props.extend(node.a11y_label.clone().map(Prop::Label)),
+            Widget::GpuSurface(surface) => {
+                props.extend(node.a11y_label.clone().map(Prop::Label));
+                let (takes, locked, grabbed) = surface.props();
+                props.extend(takes.map(Prop::TakesInput));
+                props.extend(locked.map(Prop::PointerLock));
+                props.extend(grabbed.map(Prop::KeyboardGrab));
+            }
             Widget::Select(s) => {
                 props.extend(node.a11y_label.clone().map(Prop::Label));
                 props.push(Prop::Options(option_texts(*s)));
@@ -1869,6 +1882,61 @@ impl Backend for KirigamiBackend {
 }
 
 impl KirigamiBackend {
+    /// Input on a GPU surface that takes it, through Qt's own event path:
+    /// a click (which focuses it) and keys with their native scan codes
+    /// go to the window. A scroll is reported as it would be, in points.
+    fn surface_input(
+        &self,
+        id: NodeId,
+        input_item: QmlObject,
+        window: Option<QmlObject>,
+        input: &SyntheticInput,
+    ) -> Result<(), ActionError> {
+        let events = {
+            let state = self.state.borrow();
+            let node = state.nodes.get(&id).ok_or(ActionError::UnknownNode)?;
+            match &node.widget {
+                Widget::GpuSurface(surface) if surface.takes_input() => state.events.clone(),
+                _ => return Err(ActionError::Unsupported),
+            }
+        };
+        let window = window.ok_or(ActionError::Unsupported)?;
+        match input {
+            SyntheticInput::Click(point) => window.click(input_item.map_to_scene(*point)),
+            SyntheticInput::Key(key) => {
+                if window.focus_item().and_then(|f| f.node()) != Some(node_key(id)) {
+                    return Err(ActionError::Unsupported);
+                }
+                let (qt_key, code, text) = match key {
+                    Key::Char(c) => {
+                        let qt_key = if c.is_ascii_alphanumeric() || *c == ' ' {
+                            c.to_ascii_uppercase() as i32
+                        } else {
+                            KEY_UNKNOWN
+                        };
+                        (qt_key, KeyCode::from_us_char(*c), c.to_string())
+                    }
+                    Key::Enter => (KEY_RETURN, KeyCode::Enter, "\r".to_owned()),
+                    Key::Escape => (KEY_ESCAPE, KeyCode::Escape, String::new()),
+                    Key::Tab => (KEY_TAB, KeyCode::Tab, "\t".to_owned()),
+                    Key::Backspace => (KEY_BACKSPACE, KeyCode::Backspace, String::new()),
+                    Key::Up => (KEY_UP, KeyCode::ArrowUp, String::new()),
+                    Key::Down => (KEY_DOWN, KeyCode::ArrowDown, String::new()),
+                    Key::Home => (KEY_HOME, KeyCode::Home, String::new()),
+                    Key::End => (KEY_END, KeyCode::End, String::new()),
+                };
+                // XKB key codes: evdev's plus 8.
+                window.surface_key(qt_key, crate::surface::evdev_code(code) + 8, &text);
+            }
+            SyntheticInput::Scroll { dx, dy } => {
+                let delta = ScrollDelta::Points { x: *dx, y: *dy };
+                let modifiers = Modifiers::default();
+                events.emit(id, UiEvent::SurfaceInput(SurfaceInput::Scroll { delta, modifiers }));
+            }
+        }
+        Ok(())
+    }
+
     /// What assistive technology does once it has shown the menu: trigger
     /// the item's action, as clicking it does. A disabled item (or one in
     /// a disabled container) gets no input, so it shows no menu.

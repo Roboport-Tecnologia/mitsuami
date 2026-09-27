@@ -22,8 +22,9 @@ use mitsuami_core::raw_window_handle::{HandleError, RawDisplayHandle, RawWindowH
 use mitsuami_core::services::menu_item_by_id;
 use mitsuami_core::units::SpacingScale;
 use mitsuami_core::{
-    Command, EventValue, ImageSource, NativeSurface, NodeId, Orientation, Point, PointerEvent, PointerKind, Prop, Rect,
-    RowKey, SelectionMode, Size, SurfaceHandle, SurfaceSize, TextStyle, UiEvent, WidgetKind, find_prop,
+    Command, EventValue, ImageSource, KeyCode, Modifiers, MouseButton, NativeSurface, NodeId, Orientation, Point,
+    PointerEvent, PointerKind, Prop, Rect, RowKey, ScrollDelta, SelectionMode, Size, SurfaceHandle, SurfaceInput,
+    SurfaceSize, TextStyle, UiEvent, WidgetKind, find_prop,
 };
 
 /// A window's toolbar: this high, above its content, with its items this
@@ -341,8 +342,79 @@ impl State {
         }
         if let Some(previous) = self.focused.replace(id) {
             self.emit(previous, UiEvent::FocusOut);
+            // A keyboard grab lasts while its surface has focus.
+            self.end_lock(previous, Prop::KeyboardGrab(false));
         }
         self.emit(id, UiEvent::FocusIn);
+    }
+
+    /// Ends a GPU surface's pointer lock or keyboard grab (`off` says
+    /// which), if it has it, as platforms end them.
+    fn end_lock(&mut self, id: NodeId, off: Prop) {
+        let Some(node) = self.nodes.get(&id) else { return };
+        if !node.props.iter().any(|p| p.key() == off.key() && *p != off) {
+            return;
+        }
+        let event =
+            if matches!(off, Prop::PointerLock(_)) { UiEvent::PointerLockEnded } else { UiEvent::KeyboardGrabEnded };
+        self.set_prop(id, off);
+        self.emit(id, event);
+    }
+
+    /// The window a node is in (or is).
+    fn window_of(&self, mut id: NodeId) -> Option<NodeId> {
+        loop {
+            let node = self.nodes.get(&id)?;
+            if node.kind == WidgetKind::Window {
+                return Some(id);
+            }
+            id = node.parent?;
+        }
+    }
+
+    /// Input on a GPU surface that takes it: a click focuses it and
+    /// reports the primary button, keys (Tab too) go down and up, scrolls
+    /// are in points.
+    fn surface_input(&mut self, id: NodeId, input: &SyntheticInput) -> Result<(), ActionError> {
+        if find_prop!(self.nodes[&id].props, TakesInput) != Some(true) {
+            return Err(ActionError::Unsupported);
+        }
+        let modifiers = Modifiers::default();
+        match input {
+            SyntheticInput::Click(position) => {
+                self.focus(id);
+                for pressed in [true, false] {
+                    let button = MouseButton::Primary;
+                    let position = *position;
+                    self.emit(id, UiEvent::SurfaceInput(SurfaceInput::Button { button, pressed, position, modifiers }));
+                }
+            }
+            SyntheticInput::Key(key) => {
+                let code = match key {
+                    Key::Char(c) => KeyCode::from_us_char(*c),
+                    Key::Enter => KeyCode::Enter,
+                    Key::Escape => KeyCode::Escape,
+                    Key::Tab => KeyCode::Tab,
+                    Key::Backspace => KeyCode::Backspace,
+                    Key::Up => KeyCode::ArrowUp,
+                    Key::Down => KeyCode::ArrowDown,
+                    Key::Home => KeyCode::Home,
+                    Key::End => KeyCode::End,
+                };
+                if self.focused != Some(id) {
+                    return Err(ActionError::Unsupported);
+                }
+                for pressed in [true, false] {
+                    let key = SurfaceInput::Key { code, native: 0, pressed, repeat: false, modifiers };
+                    self.emit(id, UiEvent::SurfaceInput(key));
+                }
+            }
+            SyntheticInput::Scroll { dx, dy } => {
+                let delta = ScrollDelta::Points { x: *dx, y: *dy };
+                self.emit(id, UiEvent::SurfaceInput(SurfaceInput::Scroll { delta, modifiers }));
+            }
+        }
+        Ok(())
     }
 }
 
@@ -426,6 +498,23 @@ impl HeadlessHandle {
         self.state.borrow().focused
     }
 
+    /// Simulates the user switching to another app: the window's GPU
+    /// surfaces lose their pointer lock and keyboard grab, as every
+    /// platform ends them.
+    pub fn deactivate(&self, window: NodeId) {
+        let mut state = self.state.borrow_mut();
+        let surfaces: Vec<NodeId> = state
+            .nodes
+            .iter()
+            .filter(|(id, n)| n.kind == WidgetKind::GpuSurface && state.window_of(**id) == Some(window))
+            .map(|(id, _)| *id)
+            .collect();
+        for surface in surfaces {
+            state.end_lock(surface, Prop::PointerLock(false));
+            state.end_lock(surface, Prop::KeyboardGrab(false));
+        }
+    }
+
     pub fn a11y(&self, id: NodeId) -> Option<A11yProps> {
         self.state.borrow().nodes.get(&id).map(|n| n.a11y.clone())
     }
@@ -506,11 +595,18 @@ impl Backend for HeadlessBackend {
                         let surface = SurfaceHandle::new(HeadlessSurface);
                         state.nodes.get_mut(id).unwrap().surface = Some(surface.clone());
                         state.emit(*id, UiEvent::SurfaceReady(surface));
+                        if find_prop!(props, KeyboardGrab) == Some(true) {
+                            state.focus(*id);
+                        }
                     }
                 }
                 Command::SetProp { id, prop } => {
                     state.node(*id, command);
                     state.set_prop(*id, prop.clone());
+                    // A grab focuses its surface.
+                    if *prop == Prop::KeyboardGrab(true) {
+                        state.focus(*id);
+                    }
                     // Like native lists, removing rows deselects them.
                     if let Prop::Rows(rows) = prop {
                         let selected = find_prop!(state.nodes[id].props, Selected).unwrap_or_default();
@@ -818,6 +914,9 @@ impl Backend for HeadlessBackend {
             return Err(ActionError::Disabled);
         }
         let kind = node.kind;
+        if kind == WidgetKind::GpuSurface {
+            return state.surface_input(id, input);
+        }
         let key = match input {
             SyntheticInput::Key(key) => key,
             SyntheticInput::Click(position) => {

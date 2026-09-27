@@ -15,7 +15,7 @@ mitsuami-widgets.workspace = true
 [target.'cfg(target_os = "linux")'.dependencies]
 gtk.workspace = true
 libc.workspace = true
-mitsuami-wayland.workspace = true
+mitsuami-linux.workspace = true
 
 [target.'cfg(target_os = "linux")'.dev-dependencies]
 mitsuami-reactive.workspace = true

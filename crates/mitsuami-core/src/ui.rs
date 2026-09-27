@@ -1136,7 +1136,8 @@ impl Inner {
                     | WidgetKind::Slider
                     | WidgetKind::NumberInput
                     | WidgetKind::List
-            ) {
+            ) || (node.kind == WidgetKind::GpuSurface && crate::find_prop!(node.props, TakesInput) == Some(true))
+            {
                 out.push((node.tab_index, id));
             }
             for child in &node.native_children {
@@ -1410,6 +1411,16 @@ impl Inner {
                     node.props.retain(|p| !matches!(p, Prop::Mixed(_)));
                     node.props.push(Prop::Mixed(false));
                 }
+                node.props.retain(|p| p.key() != prop.key());
+                node.props.push(prop);
+            }
+            UiEvent::PointerLockEnded | UiEvent::KeyboardGrabEnded => {
+                let Some(node) = self.nodes.get_mut(&id) else { return };
+                let prop = if *event == UiEvent::PointerLockEnded {
+                    Prop::PointerLock(false)
+                } else {
+                    Prop::KeyboardGrab(false)
+                };
                 node.props.retain(|p| p.key() != prop.key());
                 node.props.push(prop);
             }

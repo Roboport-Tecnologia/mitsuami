@@ -97,6 +97,14 @@ unsafe extern "C" {
     fn mq_item_window(item: Raw) -> Raw;
     fn mq_window_dpr(window: Raw) -> f64;
     fn mq_window_margins(window: Raw, left: *mut i32, top: *mut i32);
+    fn mq_window_xid(window: Raw) -> u64;
+    fn mq_window_keyboard_grab(window: Raw, on: i32) -> i32;
+    fn mq_window_active(window: Raw) -> i32;
+
+    fn mq_set_input_callback(callback: extern "C" fn(u64, i32, i32, i32, f64, f64));
+    fn mq_surface_input_new(parent: Raw, key: u64) -> Raw;
+    fn mq_surface_input_configure(item: Raw, takes: i32, grabbed: i32, locked: i32);
+    fn mq_surface_key(window: Raw, key: i32, scan_code: u32, text: *const c_char);
 }
 
 // ------------------------------------------------------------- callbacks
@@ -109,6 +117,18 @@ pub(crate) enum Callback {
     Close,
     BeforeWait,
     Timer,
+    /// Input on a GPU surface's input item (`MQ_KEY_DOWN`…).
+    Input(SurfaceEvent),
+}
+
+/// What a GPU surface's input item reports: see `mq_input_callback`.
+#[derive(Clone, Copy, Debug)]
+pub(crate) struct SurfaceEvent {
+    pub kind: i32,
+    pub code: i32,
+    pub flags: i32,
+    pub x: f64,
+    pub y: f64,
 }
 
 type Handler = Rc<dyn Fn(Callback)>;
@@ -146,10 +166,18 @@ extern "C" fn dispatch(key: u64, kind: i32, x: f64, y: f64) {
     handler(callback);
 }
 
+extern "C" fn dispatch_input(key: u64, kind: i32, code: i32, flags: i32, x: f64, y: f64) {
+    let Ok(Some(handler)) = HANDLERS.try_with(|h| h.borrow().get(&key).cloned()) else { return };
+    handler(Callback::Input(SurfaceEvent { kind, code, flags, x, y }));
+}
+
 // ------------------------------------------------------------ application
 
 pub(crate) fn init() {
-    unsafe { mq_init(dispatch) }
+    unsafe {
+        mq_init(dispatch);
+        mq_set_input_callback(dispatch_input);
+    }
 }
 
 pub(crate) fn is_initialized() -> bool {
@@ -455,6 +483,41 @@ impl QmlObject {
         let (mut left, mut top) = (0, 0);
         unsafe { mq_window_margins(self.raw(), &mut left, &mut top) };
         (left, top)
+    }
+
+    /// A window's XID, on X11.
+    pub(crate) fn xid(self) -> Option<u32> {
+        match unsafe { mq_window_xid(self.raw()) } {
+            0 => None,
+            xid => u32::try_from(xid).ok(),
+        }
+    }
+
+    /// Grabs (or lets go of) the keyboard for a window, on X11; whether it
+    /// took.
+    pub(crate) fn set_keyboard_grab(self, on: bool) -> bool {
+        unsafe { mq_window_keyboard_grab(self.raw(), on as i32) != 0 }
+    }
+
+    /// Whether a window is the active one.
+    pub(crate) fn is_active(self) -> bool {
+        unsafe { mq_window_active(self.raw()) != 0 }
+    }
+
+    /// A GPU surface's input item, filling `self` (a focus scope), which
+    /// reports to `key`'s closure as [`Callback::Input`].
+    pub(crate) fn surface_input(self, key: u64) -> QmlObject {
+        QmlObject::from_raw(unsafe { mq_surface_input_new(self.raw(), key) }).expect("an input item")
+    }
+
+    pub(crate) fn configure_surface_input(self, takes: bool, grabbed: bool, locked: bool) {
+        unsafe { mq_surface_input_configure(self.raw(), takes as i32, grabbed as i32, locked as i32) }
+    }
+
+    /// A real key press and release with a native scan code, delivered to
+    /// the focused item.
+    pub(crate) fn surface_key(self, key: i32, scan_code: u32, text: &str) {
+        unsafe { mq_surface_key(self.raw(), key, scan_code, c(text).as_ptr()) }
     }
 
     pub(crate) fn map_to_scene(self, point: Point) -> Point {

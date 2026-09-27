@@ -10,7 +10,15 @@
 //!   oval.
 //! - A slider sets how fast the bands move; the status line shows the
 //!   size `on_resize` reports. `GPU_SURFACE_LOG=1` prints the frame rate.
+//! - It takes input: the circle follows the pointer, and the status line
+//!   shows the last key or button. A click captures the pointer and the
+//!   keyboard, as a virtual machine's window does: the pointer's moves
+//!   then move the circle, and Command-Tab (Alt+Tab, Super) come as keys.
+//!   Control+Option (Control+Alt) lets go.
 
+use std::cell::{Cell, RefCell};
+use std::collections::HashSet;
+use std::rc::Rc;
 use std::sync::atomic::{AtomicU32, Ordering};
 use std::sync::{Arc, mpsc};
 use std::time::{Duration, Instant};
@@ -21,7 +29,7 @@ use mitsuami::prelude::*;
 const FRAME: Duration = Duration::from_millis(16);
 
 const SHADER: &str = r#"
-struct Params { time: f32, width: f32, height: f32, scale: f32 };
+struct Params { time: f32, width: f32, height: f32, scale: f32, x: f32, y: f32, pad0: f32, pad1: f32 };
 @group(0) @binding(0) var<uniform> params: Params;
 
 @vertex
@@ -33,7 +41,7 @@ fn vs(@builtin(vertex_index) i: u32) -> @builtin(position) vec4<f32> {
 
 // In points, not fractions of the surface: bands 24 points apart and a
 // circle 80 across stay that size whatever the window's, so a stretched
-// frame shows as an oval.
+// frame shows as an oval. The circle is where the pointer is.
 @fragment
 fn fs(@builtin(position) p: vec4<f32>) -> @location(0) vec4<f32> {
     let pt = p.xy / params.scale;
@@ -41,7 +49,7 @@ fn fs(@builtin(position) p: vec4<f32>) -> @location(0) vec4<f32> {
     let band = 0.5 + 0.5 * sin(6.2832 * (pt.x + pt.y * 0.25) / 24.0 - params.time * 4.0);
     let base = vec3<f32>(0.10 + 0.5 * pt.x / size.x, 0.25 + 0.4 * pt.y / size.y, 0.6);
     let color = mix(base, vec3<f32>(1.0), band * 0.35);
-    let circle = 1.0 - smoothstep(39.0, 40.0, distance(pt, size * 0.5));
+    let circle = 1.0 - smoothstep(39.0, 40.0, distance(pt, vec2<f32>(params.x, params.y)));
     return vec4<f32>(mix(color, vec3<f32>(1.0, 0.8, 0.2), circle), 1.0);
 }
 "#;
@@ -52,7 +60,10 @@ struct Target {
     handle: SurfaceHandle,
 }
 
-fn render(instance: wgpu::Instance, targets: mpsc::Receiver<Target>, speed: Arc<AtomicU32>) {
+/// Where the circle is, in points, as `f32` bits.
+type Spot = Arc<[AtomicU32; 2]>;
+
+fn render(instance: wgpu::Instance, targets: mpsc::Receiver<Target>, speed: Arc<AtomicU32>, spot: Spot) {
     let Ok(Target { surface, handle }) = targets.recv() else { return };
     let adapter =
         pollster::block_on(instance.request_adapter(&wgpu::RequestAdapterOptions {
@@ -90,7 +101,7 @@ fn render(instance: wgpu::Instance, targets: mpsc::Receiver<Target>, speed: Arc<
     });
     let params = device.create_buffer(&wgpu::BufferDescriptor {
         label: None,
-        size: 16,
+        size: 32,
         usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
         mapped_at_creation: false,
     });
@@ -130,7 +141,8 @@ fn render(instance: wgpu::Instance, targets: mpsc::Receiver<Target>, speed: Arc<
         let now = Instant::now();
         time += now.duration_since(last).as_secs_f32() * f32::from_bits(speed.load(Ordering::Relaxed));
         last = now;
-        let values = [time, size.width as f32, size.height as f32, size.scale];
+        let [x, y] = [0, 1].map(|i| f32::from_bits(spot[i].load(Ordering::Relaxed)));
+        let values = [time, size.width as f32, size.height as f32, size.scale, x, y, 0.0, 0.0];
         queue.write_buffer(&params, 0, &values.iter().flat_map(|v| v.to_ne_bytes()).collect::<Vec<u8>>());
         let view = frame.texture.create_view(&Default::default());
         let mut encoder = device.create_command_encoder(&Default::default());
@@ -168,9 +180,10 @@ fn main() {
             let instance = wgpu::Instance::new(wgpu::InstanceDescriptor::new_without_display_handle_from_env());
             let (send, targets) = mpsc::channel();
             let shared_speed = Arc::new(AtomicU32::new(1.0f32.to_bits()));
+            let spot: Spot = Arc::new([AtomicU32::new(120f32.to_bits()), AtomicU32::new(120f32.to_bits())]);
             {
-                let (instance, speed) = (instance.clone(), shared_speed.clone());
-                std::thread::spawn(move || render(instance, targets, speed));
+                let (instance, speed, spot) = (instance.clone(), shared_speed.clone(), spot.clone());
+                std::thread::spawn(move || render(instance, targets, speed, spot));
             }
             let speed = signal(1.0);
             effect(move || shared_speed.store((speed.get() as f32).to_bits(), Ordering::Relaxed));
@@ -180,14 +193,67 @@ fn main() {
                 let surface = instance.create_surface(handle.clone()).expect("a wgpu surface");
                 let _ = send.send(Target { surface, handle });
             };
+            let bounds = Rc::new(Cell::new((0.0f32, 0.0f32)));
+            let b = bounds.clone();
             let resized = move |size: SurfaceSize| {
+                b.set((size.width as f32 / size.scale, size.height as f32 / size.scale));
                 status.set(format!("{} × {} pixels at {}x", size.width, size.height, size.scale));
+            };
+            let captured = signal(false);
+            let held = Rc::new(RefCell::new(HashSet::new()));
+            let input = move |input: SurfaceInput| {
+                let set = |x: f32, y: f32| {
+                    let (width, height) = bounds.get();
+                    spot[0].store(x.clamp(0.0, width).to_bits(), Ordering::Relaxed);
+                    spot[1].store(y.clamp(0.0, height).to_bits(), Ordering::Relaxed);
+                };
+                let get = |i: usize| f32::from_bits(spot[i].load(Ordering::Relaxed));
+                match input {
+                    SurfaceInput::PointerMoved { position, .. } => set(position.x, position.y),
+                    SurfaceInput::Motion { dx, dy } => set(get(0) + dx, get(1) + dy),
+                    SurfaceInput::Button { button, pressed, .. } => {
+                        status.set(format!("{button:?} {}", if pressed { "down" } else { "up" }));
+                        if pressed && !captured.get_untracked() {
+                            captured.set(true);
+                        }
+                    }
+                    SurfaceInput::Key { code, pressed, repeat, .. } => {
+                        let mut held = held.borrow_mut();
+                        if pressed {
+                            held.insert(code)
+                        } else {
+                            held.remove(&code)
+                        };
+                        let side = |a, b| held.contains(&a) || held.contains(&b);
+                        let control = side(KeyCode::ControlLeft, KeyCode::ControlRight);
+                        if control && side(KeyCode::AltLeft, KeyCode::AltRight) && captured.get_untracked() {
+                            captured.set(false);
+                        }
+                        let what = if repeat {
+                            "repeats"
+                        } else if pressed {
+                            "down"
+                        } else {
+                            "up"
+                        };
+                        status.set(format!("{} {what}", code.name()));
+                    }
+                    SurfaceInput::Scroll { delta, .. } => status.set(format!("{delta:?}")),
+                    SurfaceInput::PointerLeft => {}
+                }
+            };
+            let hint = move || {
+                let hint =
+                    if captured.get() { "Captured: Control+Option lets go" } else { "Click the surface to capture" };
+                hint.to_owned()
             };
             view! {
                 <Column grow=1.0>
-                    <GpuSurface label="Moving bands" grow=1.0 @ready=ready @resize=resized/>
+                    <GpuSurface label="Moving bands" grow=1.0 @ready=ready @resize=resized @input=input
+                        pointer_lock=captured keyboard_grab=captured/>
                     <Row padding=Spacing::Md gap=Spacing::Md align=Align::Center>
                         <Text>{move || status.get()}</Text>
+                        <Text>{hint}</Text>
                         <Slider label="Speed" range_with=(0.0, 4.0) bind=speed grow=1.0/>
                     </Row>
                 </Column>

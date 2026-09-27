@@ -1004,6 +1004,9 @@ impl State {
                 surface.area.update_property(&[gtk::accessible::Property::Label(t)]);
                 node.a11y_label = Some(t.clone());
             }
+            (Prop::TakesInput(_) | Prop::PointerLock(_) | Prop::KeyboardGrab(_), Widget::GpuSurface(surface)) => {
+                surface.set_prop(prop)
+            }
             (Prop::Label(t), Widget::Picture { picture, .. }) => {
                 picture.set_alternative_text(Some(t));
                 node.a11y_label = Some(t.clone());
@@ -1738,6 +1741,10 @@ impl Backend for GtkBackend {
     }
 
     fn synthesize(&mut self, id: NodeId, input: &SyntheticInput) -> Result<(), ActionError> {
+        // Its controllers report what it takes.
+        if let Some(Widget::GpuSurface(surface)) = self.state.borrow().nodes.get(&id).map(|n| &n.widget) {
+            return surface.synthesize(input);
+        }
         if let SyntheticInput::Click(point) = input {
             // Drawn widgets only: their pointer handling is ours.
             let state = self.state.borrow();
@@ -1944,7 +1951,10 @@ impl Backend for GtkBackend {
                     }));
                 }
             }
-            Widget::GpuSurface(_) => props.extend(node.a11y_label.clone().map(Prop::Label)),
+            Widget::GpuSurface(surface) => {
+                props.extend(node.a11y_label.clone().map(Prop::Label));
+                props.extend(surface.props());
+            }
             Widget::Scroll { scrolled, .. } => {
                 props.push(Prop::ScrollAxes(scroll_axes(scrolled)));
                 props.push(Prop::ScrollBars(scroll_bars(scrolled)));

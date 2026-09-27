@@ -1,6 +1,6 @@
 [package]
-name = "mitsuami-wayland"
-description = "GpuSurface on Wayland for mitsuami's Linux backends: a desync subsurface of a window's surface"
+name = "mitsuami-linux"
+description = "GpuSurface on Linux for mitsuami's GTK and Kirigami backends: a Wayland subsurface or an X11 child window, pointer locks and a shortcuts inhibitor"
 version.workspace = true
 edition.workspace = true
 rust-version.workspace = true
@@ -15,6 +15,7 @@ mitsuami-core.workspace = true
 wayland-client.workspace = true
 wayland-backend.workspace = true
 wayland-protocols.workspace = true
+x11rb.workspace = true
 
 [lints]
 workspace = true

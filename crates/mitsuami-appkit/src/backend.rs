@@ -795,6 +795,9 @@ impl State {
             }
             (Prop::Label(t), Widget::Image(view)) => view.setAccessibilityLabel(Some(&ns(t))),
             (Prop::Label(t), Widget::GpuSurface(view)) => view.setAccessibilityLabel(Some(&ns(t))),
+            (Prop::TakesInput(takes), Widget::GpuSurface(view)) => view.set_takes_input(*takes),
+            (Prop::PointerLock(on), Widget::GpuSurface(view)) => view.set_pointer_lock(*on),
+            (Prop::KeyboardGrab(on), Widget::GpuSurface(view)) => view.set_keyboard_grab(*on),
             (Prop::Label(t), Widget::Progress(p) | Widget::Spinner { indicator: p, .. }) => {
                 p.setAccessibilityLabel(Some(&ns(t)))
             }
@@ -1548,6 +1551,13 @@ impl Backend for AppKitBackend {
     }
 
     fn synthesize(&mut self, id: NodeId, input: &SyntheticInput) -> Result<(), ActionError> {
+        let surface = match self.state.borrow().nodes.get(&id).map(|n| &n.widget) {
+            Some(Widget::GpuSurface(view)) => Some(view.clone()),
+            _ => None,
+        };
+        if let Some(view) = surface {
+            return crate::surface::synthesize(&view, input);
+        }
         if let SyntheticInput::Click(point) = input {
             // Drawn widgets only: native controls track the mouse in a
             // loop of their own, waiting for real events.
@@ -1789,6 +1799,9 @@ impl Backend for AppKitBackend {
                 if let Some(label) = view.accessibilityLabel() {
                     props.push(Prop::Label(label.to_string()));
                 }
+                props.push(Prop::TakesInput(view.takes_input()));
+                props.push(Prop::PointerLock(view.pointer_locked()));
+                props.push(Prop::KeyboardGrab(view.keyboard_grabbed()));
             }
             Widget::Scroll(scroll) => {
                 let shown = (scroll.hasHorizontalScroller(), scroll.hasVerticalScroller());

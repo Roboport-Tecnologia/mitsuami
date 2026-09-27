@@ -14,6 +14,32 @@
 
 typedef void (*mq_callback)(uint64_t key, int32_t kind, double x, double y);
 
+// Input on a GPU surface that takes it: a key's native scan code or a
+// button's number in `code`, modifier and repeat bits in `flags`, the
+// pointer's position (or a scroll's delta) in `x`, `y`.
+typedef void (*mq_input_callback)(uint64_t key, int32_t kind, int32_t code, int32_t flags, double x, double y);
+
+// Input kinds.
+enum {
+    MQ_KEY_DOWN = 0,
+    MQ_KEY_UP = 1,
+    MQ_MOVE = 2,
+    MQ_LEAVE = 3,
+    MQ_BUTTON_DOWN = 4, // code: 0 left, 1 right, 2 middle, 3 back, 4 forward, 5+ the n-th other
+    MQ_BUTTON_UP = 5,
+    MQ_SCROLL_LINES = 6, // positive towards the end
+    MQ_SCROLL_POINTS = 7,
+};
+
+// Input flags.
+enum {
+    MQ_SHIFT = 1,
+    MQ_CONTROL = 2,
+    MQ_ALT = 4,
+    MQ_META = 8,
+    MQ_REPEAT = 16,
+};
+
 // Callback kinds.
 enum {
     MQ_SIGNAL = 0,       // a connected signal fired
@@ -129,16 +155,29 @@ void mq_pixels_set(uint64_t key, const uint8_t* rgba, int32_t width, int32_t hei
 void mq_pixels_remove(uint64_t key);
 void mq_set_url_str(QObject* object, const char* name, const char* url);
 
+// GPU surfaces' input: the item that takes it, over the surface's item,
+// and real key events with native scan codes, as tests type them.
+void mq_set_input_callback(mq_input_callback callback);
+QObject* mq_surface_input_new(QObject* parent, uint64_t key);
+void mq_surface_input_configure(QObject* item, int32_t takes, int32_t grabbed, int32_t locked);
+void mq_surface_key(QObject* window, int32_t key, uint32_t scan_code, const char* text);
+
 // Clipboard.
 char* mq_clipboard_text(void);
 void mq_set_clipboard_text(const char* text);
 
-// GPU surfaces, on Wayland: Qt's wl_display, a window's wl_surface (both
-// null on other platforms, or before the window has one), an item's
-// window, and a window's scale and decoration margins.
+// GPU surfaces: on Wayland Qt's wl_display, a window's wl_surface (both
+// null on other platforms, or before the window has one); an item's
+// window, and a window's scale, decoration margins and whether it's the
+// active one.
 void* mq_wayland_display(void);
 void* mq_window_wl_surface(QObject* window);
 QObject* mq_item_window(QObject* item);
 double mq_window_dpr(QObject* window);
 void mq_window_margins(QObject* window, int32_t* left, int32_t* top);
+// On X11: a window's XID (0 elsewhere, or before it has one), and a grab of
+// the keyboard for it (whether it took).
+uint64_t mq_window_xid(QObject* window);
+int32_t mq_window_keyboard_grab(QObject* window, int32_t on);
+int32_t mq_window_active(QObject* window);
 }

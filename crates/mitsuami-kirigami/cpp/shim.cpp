@@ -22,11 +22,13 @@
 #include <QQuickStyle>
 #include <QQuickWindow>
 #include <QThread>
+#include <QWheelEvent>
 #include <qpa/qplatformnativeinterface.h>
 #include <QUrl>
 #include <cstring>
 
 static mq_callback g_callback = nullptr;
+static mq_input_callback g_input = nullptr;
 static QQmlEngine* g_engine = nullptr;
 
 // Pixels the app has in memory, for QML `Image`s: `image://mitsuami/<key>`.
@@ -177,6 +179,125 @@ void DrawnItem::mouseReleaseEvent(QMouseEvent* event) {
     event->accept();
 }
 
+// ------------------------------------------------------ GPU surface input
+
+// Takes a GPU surface's input, filling its item (a focus scope, so focus
+// given to the item comes here), and reports it. Its key events carry the
+// native scan code, which is the XKB key code (evdev + 8) on X11 and
+// Wayland. Without `takes` it takes nothing, so the pointer goes on to
+// what's under it.
+class SurfaceInputItem : public QQuickItem {
+public:
+    SurfaceInputItem(QQuickItem* parent, uint64_t key) : QQuickItem(parent), key(key) {
+        setParent(parent);
+        setFocus(true);
+        auto fill = [this]() { setSize(parentItem()->size()); };
+        connect(parent, &QQuickItem::widthChanged, this, fill);
+        connect(parent, &QQuickItem::heightChanged, this, fill);
+        fill();
+    }
+    ~SurfaceInputItem() override { call(key, MQ_DROPPED); }
+
+    void configure(bool takes_, bool grabbed_, bool locked_) {
+        takes = takes_;
+        grabbed = grabbed_;
+        locked = locked_;
+        setAcceptedMouseButtons(takes ? Qt::AllButtons : Qt::NoButton);
+        setAcceptHoverEvents(takes);
+        setActiveFocusOnTab(takes);
+        if (locked) setCursor(Qt::BlankCursor); else unsetCursor();
+    }
+
+    bool takes = false, grabbed = false, locked = false;
+
+protected:
+    bool event(QEvent* event) override {
+        // Taken before the window's shortcuts, while grabbed: Qt then
+        // delivers it as a key press.
+        if (event->type() == QEvent::ShortcutOverride && takes && grabbed) {
+            event->accept();
+            return true;
+        }
+        return QQuickItem::event(event);
+    }
+
+    void keyPressEvent(QKeyEvent* event) override { onKey(event, MQ_KEY_DOWN); }
+    void keyReleaseEvent(QKeyEvent* event) override { onKey(event, MQ_KEY_UP); }
+
+    void mousePressEvent(QMouseEvent* event) override {
+        if (!takes) return event->ignore();
+        forceActiveFocus(Qt::MouseFocusReason);
+        report(MQ_BUTTON_DOWN, button(event->button()), event->modifiers(), event->position());
+        event->accept();
+    }
+    void mouseReleaseEvent(QMouseEvent* event) override {
+        report(MQ_BUTTON_UP, button(event->button()), event->modifiers(), event->position());
+        event->accept();
+    }
+    // While a button is held, the pointer's moves come here wherever it is.
+    void mouseMoveEvent(QMouseEvent* event) override {
+        if (!locked) report(MQ_MOVE, 0, event->modifiers(), event->position());
+        event->accept();
+    }
+    void hoverMoveEvent(QHoverEvent* event) override {
+        if (!locked) report(MQ_MOVE, 0, event->modifiers(), event->position());
+    }
+    void hoverLeaveEvent(QHoverEvent* event) override {
+        report(MQ_LEAVE, 0, event->modifiers(), QPointF());
+    }
+    // Qt's deltas are positive up and left; ours towards the end.
+    void wheelEvent(QWheelEvent* event) override {
+        if (!takes) return event->ignore();
+        QPoint pixels = event->pixelDelta();
+        if (!pixels.isNull())
+            report(MQ_SCROLL_POINTS, 0, event->modifiers(), QPointF(-pixels.x(), -pixels.y()));
+        else
+            report(MQ_SCROLL_LINES, 0, event->modifiers(),
+                   QPointF(-event->angleDelta().x() / 120.0, -event->angleDelta().y() / 120.0));
+        event->accept();
+    }
+
+private:
+    void onKey(QKeyEvent* event, int32_t kind) {
+        if (!takes) return event->ignore();
+        // Control+Tab leaves the surface, as it leaves a text view (the
+        // window's Tab order moves on); a grab takes it too.
+        bool tab = event->key() == Qt::Key_Tab || event->key() == Qt::Key_Backtab;
+        if (tab && (event->modifiers() & Qt::ControlModifier) && !grabbed) return event->ignore();
+        event->accept();
+        // Qt repeats a held key as releases and presses; the platform's
+        // repeat is the presses.
+        if (event->isAutoRepeat() && kind == MQ_KEY_UP) return;
+        int32_t flags = modifiers(event->modifiers()) | (event->isAutoRepeat() ? MQ_REPEAT : 0);
+        if (g_input && !g_exiting) g_input(key, kind, int32_t(event->nativeScanCode()), flags, 0, 0);
+    }
+
+    void report(int32_t kind, int32_t code, Qt::KeyboardModifiers mods, QPointF at) {
+        if (g_input && !g_exiting) g_input(key, kind, code, modifiers(mods), at.x(), at.y());
+    }
+
+    static int32_t modifiers(Qt::KeyboardModifiers mods) {
+        return (mods & Qt::ShiftModifier ? MQ_SHIFT : 0) | (mods & Qt::ControlModifier ? MQ_CONTROL : 0) |
+               (mods & Qt::AltModifier ? MQ_ALT : 0) | (mods & Qt::MetaModifier ? MQ_META : 0);
+    }
+
+    static int32_t button(Qt::MouseButton button) {
+        switch (button) {
+        case Qt::LeftButton: return 0;
+        case Qt::RightButton: return 1;
+        case Qt::MiddleButton: return 2;
+        case Qt::BackButton: return 3;
+        case Qt::ForwardButton: return 4;
+        default:
+            for (int i = 0; i < 32; i++)
+                if (uint(button) == (1u << i)) return 5 + i;
+            return 5;
+        }
+    }
+
+    uint64_t key;
+};
+
 // --------------------------------------------------------- window filters
 
 // Refuses the user's requests to close a window, and passes them on: the
@@ -212,6 +333,11 @@ protected:
         if (!forward && !backward) return false;
         // Popups (dialogs, menus) keep Qt's own chain.
         if (!window->activeFocusItem() || isInPopup(window->activeFocusItem())) return false;
+        // A GPU surface that takes input takes Tab too; Control+Tab leaves
+        // it, unless it's grabbed.
+        if (auto* surface = dynamic_cast<SurfaceInputItem*>(window->activeFocusItem());
+            surface && surface->takes && (surface->grabbed || !(key->modifiers() & Qt::ControlModifier)))
+            return false;
         int n = order.size(), at = -1;
         for (QQuickItem* f = window->activeFocusItem(); f && at < 0; f = f->parentItem())
             for (int i = 0; i < n; i++)
@@ -641,4 +767,46 @@ void mq_window_margins(QObject* window, int32_t* left, int32_t* top) {
     QMargins m = w ? w->frameMargins() : QMargins();
     *left = m.left();
     *top = m.top();
+}
+
+// ----------------------------------------------------- GPU surface input
+
+extern "C" {
+void mq_set_input_callback(mq_input_callback callback) { g_input = callback; }
+
+QObject* mq_surface_input_new(QObject* parent, uint64_t key) {
+    return new SurfaceInputItem(qobject_cast<QQuickItem*>(parent), key);
+}
+
+void mq_surface_input_configure(QObject* item, int32_t takes, int32_t grabbed, int32_t locked) {
+    static_cast<SurfaceInputItem*>(item)->configure(takes, grabbed, locked);
+}
+
+// A real key press and release with a native scan code, through the
+// window's shortcuts first, as the platform delivers it.
+void mq_surface_key(QObject* window, int32_t key, uint32_t scan_code, const char* text) {
+    auto* quick = qobject_cast<QQuickWindow*>(window);
+    QString t = QString::fromUtf8(text);
+    if (qt_sendShortcutOverrideEvent(quick, 0, key, Qt::NoModifier, t, false, 1)) return;
+    QKeyEvent press(QEvent::KeyPress, key, Qt::NoModifier, scan_code, 0, 0, t);
+    QKeyEvent release(QEvent::KeyRelease, key, Qt::NoModifier, scan_code, 0, 0, t);
+    QCoreApplication::sendEvent(quick, &press);
+    QCoreApplication::sendEvent(quick, &release);
+}
+
+uint64_t mq_window_xid(QObject* window) {
+    auto* w = qobject_cast<QWindow*>(window);
+    if (!w || !w->handle() || QGuiApplication::platformName() != QLatin1String("xcb")) return 0;
+    return w->winId();
+}
+
+int32_t mq_window_keyboard_grab(QObject* window, int32_t on) {
+    auto* w = qobject_cast<QWindow*>(window);
+    return w && w->setKeyboardGrabEnabled(on);
+}
+
+int32_t mq_window_active(QObject* window) {
+    auto* w = qobject_cast<QWindow*>(window);
+    return w && w->isActive();
+}
 }

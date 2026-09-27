@@ -6,7 +6,8 @@ use std::rc::Rc;
 use mitsuami_core::{
     Align, AnyView, ButtonRole, ButtonStyle, Children, CurrentWindow, Display, Element, ElementBuilder, EventValue,
     FlexDirection, ImageFit, ImageSource, Justify, Length, Modality, NodeId, Orientation, Pixels, Point, Prop,
-    ScrollAxes, SurfaceHandle, SurfaceSize, TextStyle, Track, Tweak, Ui, UiEvent, View, WidgetKind, WindowSize,
+    ScrollAxes, SurfaceHandle, SurfaceInput, SurfaceSize, TextStyle, Track, Tweak, Ui, UiEvent, View, WidgetKind,
+    WindowSize,
 };
 use mitsuami_reactive::{IntoValue, Signal, Value, computed, effect, inject, on_cleanup, provide, untrack};
 
@@ -1226,11 +1227,24 @@ impl Image {
 /// The surface sits above the window's own content, as the platform
 /// layers it. Its label is its accessible name.
 ///
+/// With `on_input` it takes keys and the pointer: a click or Tab focuses
+/// it, and it gets every key the window doesn't take first for its menus'
+/// shortcuts, Tab too (Control+Tab leaves it on AppKit and GTK, as it
+/// leaves a text view). `pointer_lock` hides and holds the cursor and
+/// reports its moves; `keyboard_grab` takes the system's shortcuts and
+/// the app's own as well. The platform ends both when the window stops
+/// being the active one (the grab also when the surface loses focus), and
+/// sets their signals back to `false`: the app locks again, say, on the
+/// next click.
+///
 /// ```ignore
 /// GpuSurface::new()
 ///     .label("Machine")
 ///     .on_ready(move |surface| renderer.send(Message::Surface(surface)))
 ///     .on_resize(move |size| renderer.send(Message::Resize(size)))
+///     .on_input(move |input| machine.send(Message::Input(input)))
+///     .pointer_lock(captured)
+///     .keyboard_grab(captured)
 /// ```
 pub struct GpuSurface(Element);
 
@@ -1269,6 +1283,47 @@ impl GpuSurface {
         self.0.on(move |event| {
             if let UiEvent::SurfaceResized(size) = event {
                 handler(*size);
+            }
+        });
+        self
+    }
+
+    /// Takes keys and the pointer, and reports them: a key down or up, the
+    /// pointer's moves, buttons and scrolling over it, and while it's
+    /// locked, how far it moved. Use `on_blur` to let go of keys held when
+    /// it loses focus.
+    pub fn on_input(mut self, handler: impl Fn(SurfaceInput) + 'static) -> GpuSurface {
+        self.0.prop(Value::Static(true), Prop::TakesInput);
+        self.0.on(move |event| {
+            if let UiEvent::SurfaceInput(input) = event {
+                handler(*input);
+            }
+        });
+        self
+    }
+
+    /// Hides and holds the cursor while `locked` is true, reporting its
+    /// moves as `SurfaceInput::Motion`. The platform ends it when the
+    /// window stops being the active one, and `locked` goes back to false.
+    pub fn pointer_lock(mut self, locked: Signal<bool>) -> GpuSurface {
+        self.0.prop(locked.into_value(), Prop::PointerLock);
+        self.0.on(move |event| {
+            if *event == UiEvent::PointerLockEnded {
+                locked.set(false);
+            }
+        });
+        self
+    }
+
+    /// Takes every key while `grabbed` is true, the system's shortcuts
+    /// (as far as the platform lets an app) and the window's own too, and
+    /// focuses the surface. The platform ends it when the surface or its
+    /// window loses focus, and `grabbed` goes back to false.
+    pub fn keyboard_grab(mut self, grabbed: Signal<bool>) -> GpuSurface {
+        self.0.prop(grabbed.into_value(), Prop::KeyboardGrab);
+        self.0.on(move |event| {
+            if *event == UiEvent::KeyboardGrabEnded {
+                grabbed.set(false);
             }
         });
         self
@@ -1491,7 +1546,7 @@ impl Image {
 }
 
 impl GpuSurface {
-    /// `<GpuSurface label="Machine" @ready=… @resize=…/>`
+    /// `<GpuSurface label="Machine" @ready=… @resize=… @input=… pointer_lock=captured/>`
     #[doc(hidden)]
     pub fn __tag() -> GpuSurface {
         GpuSurface::new()

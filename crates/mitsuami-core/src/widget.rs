@@ -82,7 +82,8 @@ pub enum WidgetKind {
     /// A native surface the app presents to with its own GPU API, off the
     /// UI thread (an `NSView` backed by a `CAMetalLayer`, a Wayland
     /// subsurface, a child window). The backend reports it as
-    /// `SurfaceReady`, then its size in pixels as `SurfaceResized`.
+    /// `SurfaceReady`, then its size in pixels as `SurfaceResized`; with
+    /// [`Prop::TakesInput`], its keys and pointer as `SurfaceInput`.
     GpuSurface,
     /// A native scroll container. It has exactly one native child, the
     /// content, which the core lays out and may be larger than the viewport.
@@ -455,6 +456,20 @@ pub enum Prop {
     /// A `Native` node's factory (on create), then its updates: payloads in
     /// the backend's own form.
     Native(Opaque),
+    /// A `GpuSurface` takes keys and the pointer, and reports them as
+    /// `SurfaceInput`: it takes focus from a click and from Tab.
+    TakesInput(bool),
+    /// A `GpuSurface` holds the pointer: the cursor is hidden and stays
+    /// put, and its moves are reported as `SurfaceInput::Motion`. Only
+    /// while its window is the active one; the backend reports
+    /// `PointerLockEnded` when that stops, or it can't lock.
+    PointerLock(bool),
+    /// A `GpuSurface` takes every key while it has focus, the system's
+    /// shortcuts and the app's own too, as far as the platform lets an
+    /// app. Setting it focuses the surface; the backend reports
+    /// `KeyboardGrabEnded` when the surface or its window loses focus, or
+    /// it can't grab.
+    KeyboardGrab(bool),
     /// Raw platform settings for a built-in widget (see
     /// [`Tweak`](crate::Tweak)), in the backend's own form. Applied after
     /// the widget's other props, and again whenever they change.

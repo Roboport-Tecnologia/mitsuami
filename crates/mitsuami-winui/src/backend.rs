@@ -1386,6 +1386,15 @@ impl State {
                 report_focus(&emitter, &focus, resolve(&by_element, source));
             }
         })?);
+        // GPU surfaces' pointer locks and keyboard grabs end when the
+        // window stops being the active one.
+        revokers.push(iwindow.Activated(move |_, args| {
+            let state =
+                args.as_ref().and_then(|a| a.cast::<w::IWindowActivatedEventArgs>().ok()?.WindowActivationState().ok());
+            if state == Some(w::WindowActivationState::Deactivated) {
+                crate::surface::window_deactivated(hwnd);
+            }
+        })?);
         let tab_order = Rc::new(RefCell::new(Vec::new()));
         revokers.push(root_element.PreviewKeyDown({
             let (emitter, by_element, focus, tab_order, root) =
@@ -1393,6 +1402,11 @@ impl State {
             move |_, args| {
                 let Some(args) = args.as_ref().and_then(|a| a.cast::<w::IKeyRoutedEventArgs>().ok()) else { return };
                 if args.Key().ok() != Some(w::VirtualKey::Tab) {
+                    return;
+                }
+                // A GPU surface that takes input takes Tab; Control+Tab
+                // still moves on.
+                if crate::surface::takes_tab(focus.get()) && unsafe { w::GetKeyState(w::VK_CONTROL) } >= 0 {
                     return;
                 }
                 let backwards = unsafe { w::GetKeyState(w::VK_SHIFT) } < 0;
@@ -2061,6 +2075,9 @@ impl State {
                 node.button_style = Some(*button_style);
                 set_button_style(b, node.role, node.button_style)?;
             }
+            (Prop::TakesInput(on), Widget::GpuSurface(surface)) => surface.set_takes_input(*on)?,
+            (Prop::PointerLock(on), Widget::GpuSurface(surface)) => surface.set_pointer_lock(*on),
+            (Prop::KeyboardGrab(on), Widget::GpuSurface(surface)) => surface.set_keyboard_grab(*on),
             (Prop::Tweak(tweak), _) => node.tweak = Some(tweak.clone()),
             (Prop::Tooltip(text), _) => {
                 // On the control itself, not the Border a native render sits in.
@@ -2948,6 +2965,20 @@ impl Backend for WinUiBackend {
     }
 
     fn synthesize(&mut self, id: NodeId, input: &SyntheticInput) -> Result<(), ActionError> {
+        {
+            // What XAML's events would report; a click focuses it.
+            let state = self.state.borrow();
+            if let Some(Widget::GpuSurface(surface)) = state.nodes.get(&id).map(|n| &n.widget) {
+                if !surface.takes_input() {
+                    return Err(ActionError::Unsupported);
+                }
+                if let SyntheticInput::Click(_) = input {
+                    state.focus(id, w::FocusState::Pointer);
+                }
+                surface.synthesize(input);
+                return Ok(());
+            }
+        }
         if let SyntheticInput::Click(point) = input {
             // Drawn widgets only: their pointer handling is ours.
             let state = self.state.borrow();
@@ -3210,11 +3241,12 @@ impl Backend for WinUiBackend {
                 }
                 props.push(Prop::Running(ring.cast::<w::IProgressRing>().ok()?.IsActive().ok()?));
             }
-            Widget::GpuSurface(_) => {
+            Widget::GpuSurface(surface) => {
                 let name = w::AutomationProperties::GetName(&node.element).unwrap_or_default();
                 if !name.is_empty() {
                     props.push(Prop::Label(name));
                 }
+                props.extend(surface.props());
             }
             Widget::Image { source, fit, .. } => {
                 let name = w::AutomationProperties::GetName(&node.element).unwrap_or_default();

@@ -81,7 +81,7 @@ Validate as you go. Panic on protocol violations such as an unknown node, a doub
 | `Progress` | `NSProgressIndicator` bar | `gtk::ProgressBar` (pulsed by a timer while indeterminate) | `ProgressBar` | `QQC2.ProgressBar` |
 | `Spinner` | spinning `NSProgressIndicator` (`displayedWhenStopped` off) | `gtk::Spinner` | `ProgressRing` | `QQC2.BusyIndicator` |
 | `Image` | `NSImageView` | `gtk::Picture` | `Image` (a `BitmapImage`, or a `WriteableBitmap` for pixels) | QML `Image` (an image provider for pixels) |
-| `GpuSurface` (§8c) | `NSView` whose backing layer is a `CAMetalLayer` | `gtk::DrawingArea` keeping the space, under a Wayland subsurface of our own (`mitsuami-wayland`) | `Canvas` keeping the space, under a child HWND | `Item` keeping the space, under a Wayland subsurface of our own |
+| `GpuSurface` (§8c) | `NSView` whose backing layer is a `CAMetalLayer` | `gtk::DrawingArea` keeping the space, under a Wayland subsurface or an X11 child window of our own (`mitsuami-linux`) | a focusable element keeping the space, under a child HWND | `Item` keeping the space, under a Wayland subsurface or an X11 child window of our own |
 | `Select` | `NSPopUpButton` (items added to its menu) | `gtk::DropDown` over a `gtk::StringList` | `ComboBox` of `ComboBoxItem`s | `QQC2.ComboBox` |
 | `ScrollView` | `NSScrollView` | `gtk::ScrolledWindow` | `ScrollViewer` | `QQC2.ScrollView` around a `Flickable` |
 | `List` (§8b) | view-based `NSTableView` in an `NSScrollView` | `gtk::ListView` over a `gio::ListStore` of keys | `ListView` over the keys (boxed strings), with `Canvas` cells | QML `ListView` over the keys, with `QQC2.ItemDelegate`s |
@@ -131,6 +131,9 @@ Validate as you go. Panic on protocol violations such as an unknown node, a doub
 | `Custom` | Custom | The widget's props and definition. Native render: call its `update` when they differ. Drawn: just keep them for `native_state`. See §8a. |
 | `Drawing` | Custom (drawn) | The display list to rasterize. Redraw. |
 | `Native` | Native | Your own payload type: on `Create`, the factory; later, re-apply its updates. |
+| `TakesInput` | GpuSurface | It takes focus (a click, Tab) and reports its keys and pointer as `SurfaceInput` (§8c). Report it back. |
+| `PointerLock` | GpuSurface | Hide and hold the cursor, reporting its moves (§8c). Report what's in effect: `false` after the platform ended it. |
+| `KeyboardGrab` | GpuSurface | Focus the surface and give it every key, the system's shortcuts too as far as the platform lets an app (§8c). Report what's in effect. |
 
 ## 4. Events
 
@@ -158,6 +161,9 @@ Native callbacks **only** call `events.emit(id, event)` on the `EventSink` given
 | `Pointer(event)` | primary button down / up on a **drawn** custom widget, in its coordinates | |
 | `Custom(value)` | a native render or native view emits (through your `Emitter`) | |
 | `SurfaceReady(handle)` | a `GpuSurface`'s native surface exists (§8c): once, before any `SurfaceResized` | |
+| `SurfaceInput(input)` | a key, a pointer move, a button or a scroll on a `GpuSurface` that takes input; while locked, the pointer's moves (§8c) | it doesn't take input |
+| `PointerLockEnded` | the platform ended a `GpuSurface`'s pointer lock (its window stopped being the active one, the compositor let go), or couldn't lock | the app turned it off, or the node went |
+| `KeyboardGrabEnded` | the platform ended a `GpuSurface`'s keyboard grab (the surface or its window lost focus, the compositor let go), or couldn't grab | the app turned it off, or the node went |
 | `SurfaceResized(size)` | a `GpuSurface`'s size in pixels or its scale changes; set it on the handle too (`set_size` says whether it changed) | its size is empty |
 | `ContextMenuItem(id)` | the user (or assistive technology) chooses an item of the node's context menu | the core set `ContextMenu`. XAML and Qt toggle a check item themselves when it's clicked: put back the app's state before reporting it. |
 
@@ -279,9 +285,13 @@ A `GpuSurface` is a native surface the app presents to with its own GPU API, fro
 
 - **Hand it out as a `SurfaceHandle`:** implement `NativeSurface` (the `raw-window-handle` window and display handles) for your native surface and wrap it with `SurfaceHandle::new`, then report `SurfaceReady(handle)`. Make it when the platform can: AppKit on `Create`, Wayland once the window has a surface (when the widget is mapped), WinUI once the node is in a window.
 - **The handle owns the surface:** it lives until the app's last handle is dropped, after the node is destroyed too, since a GPU surface made on it must not outlive it. `Destroy` only stops it showing and reporting, and must keep the window from taking it down (WinUI moves its child window under `HWND_MESSAGE`). The last handle may be dropped on any thread: free what must be freed on the UI thread there (AppKit's main queue, WinUI's `WM_CLOSE`). Don't let the widget hold a handle to itself past its node, or it never goes.
-- **Follow the widget:** where the surface is a window of its own (a subsurface, a child window), place it after each of the window's frames, so layout, scrolling and resizes all move it, and hide it while the widget has no size or isn't shown. It takes no input, so the toolkit keeps the pointer.
+- **Follow the widget:** where the surface is a window of its own (a subsurface, a child window), place it after each of the window's frames, so layout, scrolling and resizes all move it, and hide it while the widget has no size or isn't shown. It takes no input (an empty input region or shape, `HTTRANSPARENT`), so the pointer goes to the widget under it.
 - **Report its size in pixels and its scale** as `SurfaceResized`, and set it on the handle first (`SurfaceHandle::set_size`), so a render thread that reads it sees it as soon as the app does.
-- **Measure it as nothing:** it's as large as the layout makes it. `native_state` reports its `Label`.
+- **Measure it as nothing:** it's as large as the layout makes it. `native_state` reports its `Label`, `TakesInput`, `PointerLock` and `KeyboardGrab`.
+- **Input (`TakesInput`) comes through the widget under the surface,** the toolkit's own events: a click focuses it, and it's in the Tab order. Report keys by where they are on the keyboard (`KeyCode::from_mac`, `from_evdev`, `from_windows_scancode`, with the platform's code as `native`), down and up, `repeat` for the platform's own repeats, and each key's release only after its press. It gets every key the window doesn't take first as a shortcut of its menus, in the platform's own order, and Tab too; Control+Tab is left to the toolkit where it moves focus out of a view that takes Tab. Report the pointer in points from its top left, every button, and scrolling towards the end (down, right) as positive, in lines for a wheel's notches and points for a trackpad.
+- **The pointer lock** hides the cursor, holds it, and reports how far the mouse moved as `SurfaceInput::Motion`, in points, accelerated as the cursor would be (no `PointerMoved` meanwhile). Only in the active window: if it isn't, report `PointerLockEnded` at once. A lock asked for before the node is in a window waits for one. End it (`PointerLockEnded`) when the window stops being the active one or the platform lets go; the app turning it off, hiding or destroying the node release it silently.
+- **The keyboard grab** focuses the surface, then gives it every key, the window's shortcuts and as many of the system's as the platform lets an app take (AppKit: Command-Tab with the app's presentation options; GTK: `inhibit_system_shortcuts`; Qt: the Wayland shortcuts inhibitor or an X11 keyboard grab; Windows: a low-level keyboard hook). It ends (`KeyboardGrabEnded`) when the surface or its window loses focus, or the platform lets go.
+- **Synthesized input** (`synthesize` on a surface that takes input): `Click` focuses it and reports the primary button down and up there, `Key` the key down and up (the surface has focus), `Scroll` one scroll in points. Through the platform's own event methods where it has them.
 
 ## 9. Tab order
 

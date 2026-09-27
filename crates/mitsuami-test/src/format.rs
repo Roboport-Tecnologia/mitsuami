@@ -65,6 +65,9 @@ fn describe_props(props: &[Prop]) -> String {
             Prop::Drawing(d) => extra.push(format!("drawing={}ops", d.ops().len())),
             Prop::Native(n) => extra.push(format!("{n:?}")),
             Prop::Tweak(_) => extra.push("tweak".to_owned()),
+            Prop::TakesInput(b) => extra.push(format!("takes_input={b}")),
+            Prop::PointerLock(b) => extra.push(format!("pointer_lock={b}")),
+            Prop::KeyboardGrab(b) => extra.push(format!("keyboard_grab={b}")),
         }
     }
     let mut out = String::new();

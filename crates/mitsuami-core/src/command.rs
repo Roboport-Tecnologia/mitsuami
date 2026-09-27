@@ -3,6 +3,7 @@
 use crate::a11y::A11yProps;
 use crate::any_value::AnyValue;
 use crate::geometry::{Point, Rect, Size};
+use crate::input::SurfaceInput;
 use crate::surface::{SurfaceHandle, SurfaceSize};
 use crate::widget::{NodeId, Prop, RowKey, WidgetKind};
 
@@ -134,6 +135,16 @@ pub enum UiEvent {
     SurfaceReady(SurfaceHandle),
     /// A `GpuSurface`'s size in pixels, or its scale, changed.
     SurfaceResized(SurfaceSize),
+    /// Keys or the pointer on a `GpuSurface` that takes input.
+    SurfaceInput(SurfaceInput),
+    /// The platform ended a `GpuSurface`'s pointer lock, or couldn't make
+    /// it: its window stopped being the active one. The core absorbs it
+    /// as `PointerLock(false)`.
+    PointerLockEnded,
+    /// The platform ended a `GpuSurface`'s keyboard grab, or couldn't make
+    /// it: the surface lost focus, or its window stopped being the active
+    /// one. The core absorbs it as `KeyboardGrab(false)`.
+    KeyboardGrabEnded,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
