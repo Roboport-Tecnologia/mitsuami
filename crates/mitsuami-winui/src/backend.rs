@@ -172,9 +172,10 @@ enum Widget {
         source: Option<ImageSource>,
         fit: Option<ImageFit>,
         /// Files: the bitmap XAML decodes in the background, and whether
-        /// decoding failed.
+        /// decoding failed, or is done.
         bitmap: Option<w::BitmapImage>,
         failed: Rc<Cell<bool>>,
+        opened: Rc<Cell<bool>>,
     },
     Scroll(w::ScrollViewer),
     List(crate::list::List),
@@ -675,12 +676,14 @@ impl mitsuami_core::TestHooks for WinUiHandle {
     /// call that caused them: dispatch them.
     fn settle(&self) {
         runtime::pump();
-        // Spinners have no size until XAML loads them, at its next frame:
-        // wait for it, so tests see the size the app gets.
+        // Spinners have no size until XAML loads them, at its next frame,
+        // and images from files until XAML has decoded them, in the
+        // background: wait for both, so tests see the size the app gets.
         let deadline = Instant::now() + Duration::from_secs(2);
-        while self.state.borrow().nodes.values().any(|n| {
-            matches!(&n.widget, Widget::Spinner(ring)
-                if !ring.cast::<w::IFrameworkElement>().and_then(|f| f.IsLoaded()).unwrap_or(true))
+        while self.state.borrow().nodes.values().any(|n| match &n.widget {
+            Widget::Spinner(ring) => !ring.cast::<w::IFrameworkElement>().and_then(|f| f.IsLoaded()).unwrap_or(true),
+            Widget::Image { bitmap: Some(_), failed, opened, .. } => !failed.get() && !opened.get(),
+            _ => false,
         }) && Instant::now() < deadline
         {
             runtime::wait(Some(Duration::from_millis(5)));
@@ -1224,10 +1227,13 @@ impl State {
             // read shows nothing.
             WidgetKind::Image => {
                 let image = w::Image::new()?;
-                let failed = Rc::new(Cell::new(false));
+                let (failed, opened) = (Rc::new(Cell::new(false)), Rc::new(Cell::new(false)));
                 revokers.push(image.ImageOpened({
-                    let emitter = emitter.clone();
-                    move |_, _| emitter.emit(id, UiEvent::Remeasure)
+                    let (emitter, opened) = (emitter.clone(), opened.clone());
+                    move |_, _| {
+                        opened.set(true);
+                        emitter.emit(id, UiEvent::Remeasure);
+                    }
                 })?);
                 revokers.push(image.ImageFailed({
                     let (emitter, failed) = (emitter.clone(), failed.clone());
@@ -1237,7 +1243,7 @@ impl State {
                     }
                 })?);
                 let element = image.cast()?;
-                (Widget::Image { image, source: None, fit: None, bitmap: None, failed }, element)
+                (Widget::Image { image, source: None, fit: None, bitmap: None, failed, opened }, element)
             }
             WidgetKind::TextInput => {
                 let field = w::TextBox::new()?;
@@ -1366,8 +1372,9 @@ impl State {
             (Prop::Step(new), Widget::Slider { step, .. } | Widget::Number { step, .. }) => *step = *new,
             // Acted on when it's shown.
             (Prop::Modal { owner, modality }, Widget::Window(parts)) => parts.modal = Some((*owner, *modality)),
-            (Prop::Image(new), Widget::Image { image, source, bitmap, failed, .. }) => {
+            (Prop::Image(new), Widget::Image { image, source, bitmap, failed, opened, .. }) => {
                 failed.set(false);
+                opened.set(false);
                 *bitmap = None;
                 match new {
                     ImageSource::Pixels(pixels) => {

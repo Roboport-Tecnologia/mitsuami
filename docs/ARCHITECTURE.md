@@ -956,7 +956,7 @@ Things the AppKit backend taught us, some of them now part of the contract:
 - **An image to assistive technology** (`Role::Image`), named by its label (GTK's `alternative-text`, Qt's `Accessible.Graphic`); without one, decorative. It takes no focus. No platform gives an image's source back, so backends keep it on the node for the mirror check.
 - **`draws_what_it_is_given` checks the pixels on screen:** a capture of the window, blue and red where the fixture has them, so a mirrored or swapped-channel image fails.
 - **The example's tweaks:** a photo frame on AppKit (`imageFrameStyle`), `content-fit` cover on GTK, `smooth` off on Qt, `UniformToFill` on WinUI (`Image`, `Stretch`, `BitmapImage`, `WriteableBitmap`, `Uri` and `IBufferByteAccess` added to the bindings).
-- **Run on AppKit and headless;** GTK, Kirigami and WinUI are only type-checked, and the shim's image provider only compiled against Qt 6 headers on macOS (not linked). Unverified on WinUI: that unpackaged apps load a `BitmapImage` from an absolute `file:///` URI, and paths with spaces or `#`.
+- **Run on AppKit, WinUI and headless;** GTK and Kirigami are only type-checked, and the shim's image provider only compiled against Qt 6 headers on macOS (not linked). An unpackaged WinUI app loads a `BitmapImage` from an absolute `file:///` URI; paths with spaces or `#` are unverified. WinUI's `settle` waits for files being decoded (`ImageOpened` or `ImageFailed`), as it waits for spinners to load: `expect` only retries while the app has tasks, and XAML's decoding isn't one.
 
 ### Tooltips
 
