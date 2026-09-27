@@ -86,12 +86,13 @@ fn platform_option() -> impl View {
         ),
         kde => (
             mitsuami::kirigami::tweak(|s: &mitsuami::kirigami::QmlObject| {
-                // Flickable.DragAndOvershootBounds.
-                if let Some(flickable) = s.object("contentItem") {
-                    flickable.set_int("boundsBehavior", 3);
+                // The desktop style's Kirigami.WheelHandler, the one object
+                // with this property.
+                if let Some(wheel) = s.find("scrollFlickableTarget", "true") {
+                    wheel.set_real("verticalStepSize", 20.0);
                 }
             }),
-            "Qt Quick: boundsBehavior lets the content be dragged past its ends and spring back.",
+            "Kirigami: WheelHandler's verticalStepSize sets how far a wheel notch scrolls: one line here, instead of the system's three.",
         ),
         windows => (
             mitsuami::winui::tweak(|s: &mitsuami::winui::bindings::ScrollViewer| {

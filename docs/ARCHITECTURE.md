@@ -894,8 +894,8 @@ Things the AppKit backend taught us, some of them now part of the contract:
 
 - **`ScrollView::scroll_bars`** is the one semantic option every platform's scroll view has: hide the bars and keep scrolling, by wheel, trackpad and touch, as a strip of photos does. AppKit turns its scrollers off, GTK's policy is `External`, Qt's scroll bar policy `AlwaysOff`, XAML's visibility `Hidden`. Shown, they're the platform's own, overlay or not. "Always shown" isn't shared: on macOS it's the user's setting.
 - **AppKit keeps the axes on the node.** It read them back from its scrollers, which hidden bars turn off; synthesized scrolls use the node's axes too.
-- **Tweaks for the rest.** Elasticity and borders are AppKit's, classic (non-overlay) scroll bars GTK's, overshoot Qt's `Flickable`'s, inertia and zoom WinUI's. A border narrows the visible area, which the core doesn't know about: content can lose a point or two at its edges.
-- **The example's tweaks:** a bezel border on AppKit (captured), `overlay-scrolling` off on GTK, `boundsBehavior` overshoot on Qt, `IsScrollInertiaEnabled` off on WinUI (bindings added).
+- **Tweaks for the rest.** Elasticity and borders are AppKit's, classic (non-overlay) scroll bars GTK's, the wheel's step Kirigami's, inertia and zoom WinUI's. A border narrows the visible area, which the core doesn't know about: content can lose a point or two at its edges.
+- **The example's tweaks:** a bezel border on AppKit (captured), `overlay-scrolling` off on GTK, one line per wheel notch on Qt (`WheelHandler.verticalStepSize`; run on Kirigami), `IsScrollInertiaEnabled` off on WinUI (bindings added).
 - **Run on AppKit only:** GTK, Kirigami and WinUI are only type-checked, and CI hasn't run them.
 
 ### List: tweaks only

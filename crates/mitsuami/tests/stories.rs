@@ -424,8 +424,8 @@ fn scroll_view_tweak() -> Tweak<ScrollView> {
         }),
         gtk => mitsuami::gtk::tweak(|s: &mitsuami::gtk::gtk::ScrolledWindow| s.set_overlay_scrolling(false)),
         kde => mitsuami::kirigami::tweak(|s: &mitsuami::kirigami::QmlObject| {
-            if let Some(flickable) = s.object("contentItem") {
-                flickable.set_int("boundsBehavior", 3);
+            if let Some(wheel) = s.find("scrollFlickableTarget", "true") {
+                wheel.set_real("verticalStepSize", 20.0);
             }
         }),
         windows => mitsuami::winui::tweak(|s: &mitsuami::winui::bindings::ScrollViewer| {
