@@ -22,9 +22,9 @@ use objc2_app_kit::{
     NSApplication, NSBackingStoreType, NSBitmapFormat, NSButton, NSControl, NSControlStateValueOff,
     NSControlStateValueOn, NSEvent, NSEventModifierFlags, NSEventType, NSFont, NSFontTextStyle, NSFontTextStyleBody,
     NSFontTextStyleCallout, NSFontTextStyleCaption1, NSFontTextStyleHeadline, NSFontTextStyleLargeTitle,
-    NSFontTextStyleTitle1, NSFontWeightRegular, NSScreen, NSScrollView, NSStandardKeyBindingResponding, NSSwitch,
-    NSTextField, NSView, NSViewBoundsDidChangeNotification, NSWindow, NSWindowOrderingMode, NSWindowStyleMask,
-    NSWorkspace,
+    NSFontTextStyleTitle1, NSFontWeightRegular, NSMenuItem, NSPopUpButton, NSScreen, NSScrollView,
+    NSStandardKeyBindingResponding, NSSwitch, NSTextField, NSView, NSViewBoundsDidChangeNotification, NSWindow,
+    NSWindowOrderingMode, NSWindowStyleMask, NSWorkspace,
 };
 use objc2_foundation::{NSArray, NSDictionary, NSNotificationCenter, NSPoint, NSRange, NSRect, NSSize, NSString};
 
@@ -64,6 +64,7 @@ enum Widget {
     Button(Retained<NSButton>),
     Checkbox(Retained<NSButton>),
     Switch(Retained<NSSwitch>),
+    Select(Retained<NSPopUpButton>),
     Scroll(Retained<NSScrollView>),
     List(crate::list::List),
     /// A custom widget with an AppKit render, and the props it last got.
@@ -95,6 +96,7 @@ impl Widget {
             Widget::Label(v) | Widget::Field(v) => v,
             Widget::Button(v) | Widget::Checkbox(v) => v,
             Widget::Switch(v) => v,
+            Widget::Select(v) => v,
             Widget::Scroll(v) => v,
             Widget::List(list) => &list.scroll,
             Widget::Custom { view, .. } | Widget::Native { view, .. } => view,
@@ -107,6 +109,7 @@ impl Widget {
             Widget::Label(v) | Widget::Field(v) => Some(v),
             Widget::Button(v) | Widget::Checkbox(v) => Some(v),
             Widget::Switch(v) => Some(v),
+            Widget::Select(v) => Some(v),
             Widget::Window { .. }
             | Widget::Host(_)
             | Widget::Scroll(_)
@@ -347,6 +350,7 @@ impl State {
             WidgetKind::Button
                 | WidgetKind::Checkbox
                 | WidgetKind::Switch
+                | WidgetKind::Select
                 | WidgetKind::TextInput
                 | WidgetKind::ScrollView
                 | WidgetKind::List
@@ -445,6 +449,18 @@ impl State {
                 }
                 Widget::Switch(switch)
             }
+            WidgetKind::Select => {
+                let popup = NSPopUpButton::initWithFrame_pullsDown(
+                    NSPopUpButton::alloc(mtm),
+                    crate::classes::zero_rect(),
+                    false,
+                );
+                unsafe {
+                    popup.setTarget(target_obj);
+                    popup.setAction(action);
+                }
+                Widget::Select(popup)
+            }
             WidgetKind::TextInput => {
                 // No target-action: submit comes from the delegate (Return
                 // only), edits from `controlTextDidChange:`.
@@ -494,12 +510,46 @@ impl State {
     }
 
     fn set_prop(&mut self, id: NodeId, prop: &Prop, command: &Command) {
+        let mtm = self.mtm;
         let Some(node) = self.nodes.get_mut(&id) else { violation(command, "node does not exist") };
         match (prop, &mut node.widget) {
             (Prop::Title(t), Widget::Window { window, .. }) => window.setTitle(&ns(t)),
             (Prop::Text(t), Widget::Label(l)) => l.setStringValue(&ns(t)),
             (Prop::Label(t), Widget::Button(b) | Widget::Checkbox(b)) => b.setTitle(&ns(t)),
             (Prop::Label(t), Widget::Switch(s)) => s.setAccessibilityLabel(Some(&ns(t))),
+            (Prop::Label(t), Widget::Select(p)) => p.setAccessibilityLabel(Some(&ns(t))),
+            (Prop::Options(options), Widget::Select(p)) => {
+                // Items go straight into the menu: `addItemWithTitle:`
+                // drops earlier items with the same title. The chosen index
+                // stays if it can, else the first option is chosen, as the
+                // core does; it sends the index when that changes it.
+                let chosen = p.indexOfSelectedItem();
+                p.removeAllItems();
+                if let Some(menu) = p.menu() {
+                    for option in options {
+                        let item = unsafe {
+                            NSMenuItem::initWithTitle_action_keyEquivalent(
+                                NSMenuItem::alloc(mtm),
+                                &ns(option),
+                                None,
+                                &ns(""),
+                            )
+                        };
+                        menu.addItem(&item);
+                    }
+                }
+                let count = p.numberOfItems();
+                p.selectItemAtIndex(if (0..count).contains(&chosen) {
+                    chosen
+                } else if count > 0 {
+                    0
+                } else {
+                    -1
+                });
+            }
+            (Prop::SelectedIndex(index), Widget::Select(p)) => {
+                p.selectItemAtIndex(index.map_or(-1, |i| i as isize));
+            }
             (Prop::Value(t), Widget::Field(f)) => {
                 // Don't disturb the caret when the field already shows it.
                 if f.stringValue().to_string() != *t {
@@ -836,6 +886,8 @@ impl Backend for AppKitBackend {
             }
             Widget::Button(v) | Widget::Checkbox(v) => ceil_size(v.intrinsicContentSize()),
             Widget::Switch(v) => ceil_size(v.intrinsicContentSize()),
+            // Sized for its widest item.
+            Widget::Select(v) => ceil_size(v.intrinsicContentSize()),
             Widget::Custom { view, render, props } => {
                 render.measure(view, props.props(), &request).unwrap_or_else(|| intrinsic(view))
             }
@@ -906,6 +958,14 @@ impl Backend for AppKitBackend {
             }
             (A11yAction::Decrement, WidgetKind::Native) => {
                 let _: bool = unsafe { msg_send![&*a11y_element(&widget_view), accessibilityPerformDecrement] };
+            }
+            (A11yAction::SetValue(text), WidgetKind::Select) => {
+                // As if the item were picked from the open menu: the pop-up
+                // button chooses it and sends its action.
+                let popup: &NSPopUpButton = widget_view.downcast_ref().ok_or(ActionError::Unsupported)?;
+                let index = popup.itemTitles().iter().position(|t| t.to_string() == *text);
+                let (Some(index), Some(menu)) = (index, popup.menu()) else { return Err(ActionError::Unsupported) };
+                menu.performActionForItemAtIndex(index as isize);
             }
             (A11yAction::SetValue(text), WidgetKind::TextInput) => {
                 let field: &NSTextField = widget_view.downcast_ref().ok_or(ActionError::Unsupported)?;
@@ -1087,6 +1147,14 @@ impl Backend for AppKitBackend {
                     props.push(Prop::Label(label.to_string()));
                 }
                 props.push(checked(s.state()));
+            }
+            Widget::Select(p) => {
+                if let Some(label) = p.accessibilityLabel() {
+                    props.push(Prop::Label(label.to_string()));
+                }
+                props.push(Prop::Options(p.itemTitles().iter().map(|t| t.to_string()).collect()));
+                let index = p.indexOfSelectedItem();
+                props.push(Prop::SelectedIndex((index >= 0).then_some(index as usize)));
             }
             Widget::Scroll(scroll) => {
                 props.push(Prop::ScrollAxes(match (scroll.hasHorizontalScroller(), scroll.hasVerticalScroller()) {

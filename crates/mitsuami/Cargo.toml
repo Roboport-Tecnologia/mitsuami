@@ -64,6 +64,10 @@ name = "conformance"
 harness = false
 
 [[test]]
+name = "select"
+harness = false
+
+[[test]]
 name = "tasks"
 harness = false
 

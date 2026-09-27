@@ -685,6 +685,111 @@ impl windows_core::RuntimeType for Color {
 }
 #[repr(transparent)]
 #[derive(Clone, Debug, Eq, PartialEq)]
+pub struct ComboBox(windows_core::IUnknown);
+windows_core::imp::interface_hierarchy!(ComboBox, windows_core::IUnknown, windows_core::IInspectable);
+windows_core::imp::required_hierarchy!(
+    ComboBox,
+    Selector,
+    ItemsControl,
+    Control,
+    FrameworkElement,
+    UIElement,
+    DependencyObject
+);
+impl ComboBox {
+    pub fn new() -> windows_core::Result<Self> {
+        Self::IComboBoxFactory(|this| unsafe {
+            let mut result__ = core::mem::zeroed();
+            (windows_core::Interface::vtable(this).CreateInstance)(
+                windows_core::Interface::as_raw(this),
+                core::ptr::null_mut(),
+                core::ptr::null_mut(),
+                &mut result__,
+            )
+            .and_then(|| windows_core::imp::Type::from_abi(result__))
+        })
+    }
+    fn IComboBoxFactory<R, F: FnOnce(&IComboBoxFactory) -> windows_core::Result<R>>(
+        callback: F,
+    ) -> windows_core::Result<R> {
+        static SHARED: windows_core::imp::FactoryCache<ComboBox, IComboBoxFactory> =
+            windows_core::imp::FactoryCache::new();
+        SHARED.call(callback)
+    }
+}
+impl windows_core::RuntimeType for ComboBox {
+    const SIGNATURE: windows_core::imp::ConstBuffer = windows_core::imp::ConstBuffer::for_class::<Self, IComboBox>();
+}
+unsafe impl windows_core::Interface for ComboBox {
+    type Vtable = <IComboBox as windows_core::Interface>::Vtable;
+    const IID: windows_core::GUID = <IComboBox as windows_core::Interface>::IID;
+}
+impl core::ops::Deref for ComboBox {
+    type Target = IComboBox;
+    fn deref(&self) -> &Self::Target {
+        unsafe { core::mem::transmute(self) }
+    }
+}
+impl windows_core::RuntimeName for ComboBox {
+    const NAME: &'static str = "Microsoft.UI.Xaml.Controls.ComboBox";
+}
+unsafe impl Send for ComboBox {}
+unsafe impl Sync for ComboBox {}
+#[repr(transparent)]
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct ComboBoxItem(windows_core::IUnknown);
+windows_core::imp::interface_hierarchy!(ComboBoxItem, windows_core::IUnknown, windows_core::IInspectable);
+windows_core::imp::required_hierarchy!(
+    ComboBoxItem,
+    SelectorItem,
+    ContentControl,
+    Control,
+    FrameworkElement,
+    UIElement,
+    DependencyObject
+);
+impl ComboBoxItem {
+    pub fn new() -> windows_core::Result<Self> {
+        Self::IComboBoxItemFactory(|this| unsafe {
+            let mut result__ = core::mem::zeroed();
+            (windows_core::Interface::vtable(this).CreateInstance)(
+                windows_core::Interface::as_raw(this),
+                core::ptr::null_mut(),
+                core::ptr::null_mut(),
+                &mut result__,
+            )
+            .and_then(|| windows_core::imp::Type::from_abi(result__))
+        })
+    }
+    fn IComboBoxItemFactory<R, F: FnOnce(&IComboBoxItemFactory) -> windows_core::Result<R>>(
+        callback: F,
+    ) -> windows_core::Result<R> {
+        static SHARED: windows_core::imp::FactoryCache<ComboBoxItem, IComboBoxItemFactory> =
+            windows_core::imp::FactoryCache::new();
+        SHARED.call(callback)
+    }
+}
+impl windows_core::RuntimeType for ComboBoxItem {
+    const SIGNATURE: windows_core::imp::ConstBuffer =
+        windows_core::imp::ConstBuffer::for_class::<Self, IComboBoxItem>();
+}
+unsafe impl windows_core::Interface for ComboBoxItem {
+    type Vtable = <IComboBoxItem as windows_core::Interface>::Vtable;
+    const IID: windows_core::GUID = <IComboBoxItem as windows_core::Interface>::IID;
+}
+impl core::ops::Deref for ComboBoxItem {
+    type Target = IComboBoxItem;
+    fn deref(&self) -> &Self::Target {
+        unsafe { core::mem::transmute(self) }
+    }
+}
+impl windows_core::RuntimeName for ComboBoxItem {
+    const NAME: &'static str = "Microsoft.UI.Xaml.Controls.ComboBoxItem";
+}
+unsafe impl Send for ComboBoxItem {}
+unsafe impl Sync for ComboBoxItem {}
+#[repr(transparent)]
+#[derive(Clone, Debug, Eq, PartialEq)]
 pub struct ContainerContentChangingEventArgs(windows_core::IUnknown);
 windows_core::imp::interface_hierarchy!(
     ContainerContentChangingEventArgs,
@@ -2386,6 +2491,54 @@ pub struct IClipboardStatics_Vtbl {
         unsafe extern "system" fn(*mut core::ffi::c_void, *mut *mut core::ffi::c_void) -> windows_core::HRESULT,
     pub SetContent: unsafe extern "system" fn(*mut core::ffi::c_void, *mut core::ffi::c_void) -> windows_core::HRESULT,
     pub Flush: unsafe extern "system" fn(*mut core::ffi::c_void) -> windows_core::HRESULT,
+}
+windows_core::imp::define_interface!(IComboBox, IComboBox_Vtbl, 0xc77da58b_4fd7_51e0_a431_f84658a83e9e);
+impl windows_core::RuntimeType for IComboBox {
+    const SIGNATURE: windows_core::imp::ConstBuffer = windows_core::imp::ConstBuffer::for_interface::<Self>();
+}
+#[repr(C)]
+pub struct IComboBox_Vtbl {
+    pub base__: windows_core::IInspectable_Vtbl,
+}
+windows_core::imp::define_interface!(IComboBoxFactory, IComboBoxFactory_Vtbl, 0x71c1014b_acdf_5c03_b5ed_02871caaeb6b);
+impl windows_core::RuntimeType for IComboBoxFactory {
+    const SIGNATURE: windows_core::imp::ConstBuffer = windows_core::imp::ConstBuffer::for_interface::<Self>();
+}
+#[repr(C)]
+pub struct IComboBoxFactory_Vtbl {
+    pub base__: windows_core::IInspectable_Vtbl,
+    pub CreateInstance: unsafe extern "system" fn(
+        *mut core::ffi::c_void,
+        *mut core::ffi::c_void,
+        *mut *mut core::ffi::c_void,
+        *mut *mut core::ffi::c_void,
+    ) -> windows_core::HRESULT,
+}
+windows_core::imp::define_interface!(IComboBoxItem, IComboBoxItem_Vtbl, 0xdf65f6f4_863f_558d_bc4e_82c12f28062f);
+impl windows_core::RuntimeType for IComboBoxItem {
+    const SIGNATURE: windows_core::imp::ConstBuffer = windows_core::imp::ConstBuffer::for_interface::<Self>();
+}
+#[repr(C)]
+pub struct IComboBoxItem_Vtbl {
+    pub base__: windows_core::IInspectable_Vtbl,
+}
+windows_core::imp::define_interface!(
+    IComboBoxItemFactory,
+    IComboBoxItemFactory_Vtbl,
+    0x8540b906_c96b_592d_88d7_0c23a3386d93
+);
+impl windows_core::RuntimeType for IComboBoxItemFactory {
+    const SIGNATURE: windows_core::imp::ConstBuffer = windows_core::imp::ConstBuffer::for_interface::<Self>();
+}
+#[repr(C)]
+pub struct IComboBoxItemFactory_Vtbl {
+    pub base__: windows_core::IInspectable_Vtbl,
+    pub CreateInstance: unsafe extern "system" fn(
+        *mut core::ffi::c_void,
+        *mut core::ffi::c_void,
+        *mut *mut core::ffi::c_void,
+        *mut *mut core::ffi::c_void,
+    ) -> windows_core::HRESULT,
 }
 windows_core::imp::define_interface!(
     IContainerContentChangingEventArgs,

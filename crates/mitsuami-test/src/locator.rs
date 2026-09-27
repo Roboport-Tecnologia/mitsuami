@@ -165,6 +165,12 @@ impl<'a> Locator<'a> {
         self.act(A11yAction::SetValue(text.to_owned())).await;
     }
 
+    /// Chooses the option with this text in a `Select`, as assistive
+    /// technology would.
+    pub async fn select_option(&self, option: &str) {
+        self.act(A11yAction::SetValue(option.to_owned())).await;
+    }
+
     /// Types text one key at a time, like a user would.
     pub async fn type_text(&self, text: &str) {
         self.app.settle().await;

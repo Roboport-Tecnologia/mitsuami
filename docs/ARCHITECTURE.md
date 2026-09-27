@@ -766,6 +766,16 @@ Things the AppKit backend taught us, some of them now part of the contract:
 - **List views place delegates when they polish,** before a frame: `settle` polishes the windows, so rows are where the view says when tests look.
 - Qt keeps the heights of rows it has laid out; the estimate is the app's, or the first row measured.
 
+### Select
+
+- **One option is always chosen, as with HTML's `<select>`,** the first unless the app says otherwise; an index past the options chooses the first too. Only a `Select` without options has none. GTK forced this: `gtk::DropDown`'s selection autoselects and can't be cleared. `Prop::SelectedIndex` is `None` only when there are no options.
+- **Sized for the widest option, whichever is chosen,** so choosing doesn't move the layout. `NSPopUpButton` does that already, and Qt does with `implicitContentWidthPolicy: WidestText`. GTK and XAML size for the chosen option, so their backends add the difference between the widest option's text and the chosen one's (Pango layouts, or a scratch `TextBlock` in the control's font).
+- **Replacing the options keeps the chosen index** where it can, else chooses the first, as the core does; the core only sends the index when that changes it. Every backend replaces its items in one step and puts the index back itself: `NSPopUpButton`'s `removeAllItems`, a `StringList` splice, `ItemCollection.Clear` and a new QML model all lose the selection.
+- **Options with the same text stay apart.** AppKit adds `NSMenuItem`s to the menu (`addItemWithTitle:` drops earlier items with the same title); XAML's items are `ComboBoxItem`s rather than boxed strings.
+- **Choosing is what the pop-up does** (`select_option`, `A11yAction::SetValue`): AppKit performs the menu item's action (`performActionForItemAtIndex:`), GTK and XAML set the index and report it, and Qt sets it and emits `activated`, the user's signal. Opening the pop-up would start a modal loop, so tests never do.
+- **Tab reaches it where the platform says:** macOS skips pop-up buttons unless Full Keyboard Access is on, as it skips buttons. The core puts selects in the focus order.
+- **Not run yet on GTK, WinUI and Kirigami:** written and type-checked on macOS; CI runs them.
+
 ### M2 (GTK 4)
 
 What the GTK 4 backend taught us:

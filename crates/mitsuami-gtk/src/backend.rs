@@ -54,6 +54,10 @@ enum Widget {
     Button(gtk::Button),
     Checkbox(gtk::CheckButton),
     Switch(gtk::Switch),
+    Select {
+        dropdown: gtk::DropDown,
+        options: gtk::StringList,
+    },
     Scroll {
         scrolled: gtk::ScrolledWindow,
         viewport: gtk::Viewport,
@@ -90,6 +94,7 @@ impl Widget {
             Widget::Button(w) => w.upcast_ref(),
             Widget::Checkbox(w) => w.upcast_ref(),
             Widget::Switch(w) => w.upcast_ref(),
+            Widget::Select { dropdown, .. } => dropdown.upcast_ref(),
             Widget::Scroll { scrolled, .. } => scrolled.upcast_ref(),
             Widget::List(list) => list.scrolled.upcast_ref(),
             Widget::Custom { widget, .. } | Widget::Native { widget, .. } => widget,
@@ -101,7 +106,12 @@ impl Widget {
     fn is_control(&self) -> bool {
         matches!(
             self,
-            Widget::Label(_) | Widget::Entry(_) | Widget::Button(_) | Widget::Checkbox(_) | Widget::Switch(_)
+            Widget::Label(_)
+                | Widget::Entry(_)
+                | Widget::Button(_)
+                | Widget::Checkbox(_)
+                | Widget::Switch(_)
+                | Widget::Select { .. }
         )
     }
 
@@ -129,9 +139,9 @@ struct Node {
     /// Props GTK can't report back faithfully.
     text_style: Option<TextStyle>,
     variant: Option<ButtonVariant>,
-    /// A switch has no caption, only an accessible label, which GTK
-    /// doesn't read back.
-    switch_label: Option<String>,
+    /// Switches and selects have no caption, only an accessible label,
+    /// which GTK doesn't read back.
+    a11y_label: Option<String>,
     /// Signal handlers on objects that outlive the node.
     settings_handlers: Vec<glib::SignalHandlerId>,
 }
@@ -571,6 +581,16 @@ impl State {
                     .connect_active_notify(move |s| events.emit(id, UiEvent::Changed(EventValue::Bool(s.is_active()))));
                 Widget::Switch(switch)
             }
+            WidgetKind::Select => {
+                let options = gtk::StringList::new(&[]);
+                let dropdown = gtk::DropDown::new(Some(options.clone()), None::<gtk::Expression>);
+                dropdown.connect_selected_notify(move |d| {
+                    if d.selected() != gtk::INVALID_LIST_POSITION {
+                        events.emit(id, UiEvent::Changed(EventValue::Index(d.selected() as usize)))
+                    }
+                });
+                Widget::Select { dropdown, options }
+            }
             WidgetKind::TextInput => {
                 let entry = gtk::Entry::new();
                 let e = events.clone();
@@ -608,7 +628,7 @@ impl State {
                 row: None,
                 text_style: None,
                 variant: None,
-                switch_label: None,
+                a11y_label: None,
                 settings_handlers,
             },
         );
@@ -689,8 +709,27 @@ impl State {
             (Prop::Label(t), Widget::Checkbox(c)) => c.set_label(Some(t)),
             (Prop::Label(t), Widget::Switch(s)) => {
                 s.update_property(&[gtk::accessible::Property::Label(t)]);
-                node.switch_label = Some(t.clone());
+                node.a11y_label = Some(t.clone());
             }
+            (Prop::Label(t), Widget::Select { dropdown, .. }) => {
+                dropdown.update_property(&[gtk::accessible::Property::Label(t)]);
+                node.a11y_label = Some(t.clone());
+            }
+            (Prop::Options(new), Widget::Select { dropdown, options }) => {
+                // Replacing the items moves the selection; the chosen index
+                // stays if it can, else the first option is chosen, as the
+                // core does. It sends the index when that changes it.
+                let chosen = dropdown.selected();
+                let new: Vec<&str> = new.iter().map(String::as_str).collect();
+                options.splice(0, options.n_items(), &new);
+                let count = options.n_items();
+                if count > 0 {
+                    dropdown.set_selected(if chosen < count { chosen } else { 0 });
+                }
+            }
+            // With options, GTK always has one chosen (its selection
+            // autoselects), and so does the core.
+            (Prop::SelectedIndex(Some(index)), Widget::Select { dropdown, .. }) => dropdown.set_selected(*index as u32),
             (Prop::Value(t), Widget::Entry(e)) => {
                 // Don't disturb the caret when the field already shows it.
                 if e.text() != t.as_str() {
@@ -930,6 +969,11 @@ impl State {
     }
 }
 
+/// A select's options, as it shows them.
+fn option_texts(options: &gtk::StringList) -> Vec<String> {
+    (0..options.n_items()).filter_map(|i| options.string(i)).map(|s| s.to_string()).collect()
+}
+
 /// Natural sizes, except text: it wraps to the space it's offered, down to
 /// its longest word.
 fn measure_widget(widget: &gtk::Widget, wraps: bool, request: MeasureRequest) -> Size {
@@ -1018,6 +1062,18 @@ impl Backend for GtkBackend {
             Widget::Drawn { .. } | Widget::Window(_) | Widget::Host(_) | Widget::Scroll { .. } | Widget::List(_) => {
                 Size::ZERO
             }
+            // GTK sizes a drop-down for the chosen option; the other
+            // platforms, and so the contract, for the widest.
+            Widget::Select { dropdown, options } => {
+                let size = measure_widget(dropdown.upcast_ref(), false, request);
+                if request.known_width.is_some() {
+                    return size;
+                }
+                let width = |text: &str| dropdown.create_pango_layout(Some(text)).pixel_size().0 as f32;
+                let chosen = options.string(dropdown.selected()).map_or(0.0, |s| width(&s));
+                let widest = option_texts(options).iter().map(|s| width(s)).fold(0.0, f32::max);
+                Size::new(size.width - chosen + widest, size.height)
+            }
             widget => measure_widget(widget.widget(), matches!(widget, Widget::Label(_)), request),
         }
     }
@@ -1073,6 +1129,13 @@ impl Backend for GtkBackend {
             (A11yAction::Activate, WidgetKind::Switch) => {
                 let switch = widget.downcast_ref::<gtk::Switch>().ok_or(ActionError::Unsupported)?;
                 switch.set_active(!switch.is_active());
+            }
+            // What choosing from the pop-up does.
+            (A11yAction::SetValue(text), WidgetKind::Select) => {
+                let dropdown = widget.downcast_ref::<gtk::DropDown>().ok_or(ActionError::Unsupported)?;
+                let options = dropdown.model().and_downcast::<gtk::StringList>().ok_or(ActionError::Unsupported)?;
+                let index = option_texts(&options).iter().position(|o| o == text).ok_or(ActionError::Unsupported)?;
+                dropdown.set_selected(index as u32);
             }
             (A11yAction::SetValue(text), WidgetKind::TextInput) => {
                 let entry = widget.downcast_ref::<gtk::Entry>().ok_or(ActionError::Unsupported)?;
@@ -1245,8 +1308,14 @@ impl Backend for GtkBackend {
                 props.push(Prop::Checked(c.is_active()));
             }
             Widget::Switch(s) => {
-                props.extend(node.switch_label.clone().map(Prop::Label));
+                props.extend(node.a11y_label.clone().map(Prop::Label));
                 props.push(Prop::Checked(s.is_active()));
+            }
+            Widget::Select { dropdown, options } => {
+                props.extend(node.a11y_label.clone().map(Prop::Label));
+                props.push(Prop::Options(option_texts(options)));
+                let index = dropdown.selected();
+                props.push(Prop::SelectedIndex((index != gtk::INVALID_LIST_POSITION).then_some(index as usize)));
             }
             Widget::Scroll { scrolled, .. } => {
                 let (h, v) = scrolled.policy();

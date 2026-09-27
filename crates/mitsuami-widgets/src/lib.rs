@@ -1,11 +1,13 @@
 //! Built-in widgets. Platform-free: each is an [`Element`] with typed props,
 //! events and accessibility defaults. Backends decide how they look.
 
+use std::rc::Rc;
+
 use mitsuami_core::{
     Align, ButtonVariant, Children, Display, Element, ElementBuilder, EventValue, FlexDirection, Justify, Length,
     NodeId, Point, Prop, ScrollAxes, TextStyle, Track, Ui, UiEvent, View, WidgetKind,
 };
-use mitsuami_reactive::{IntoValue, Signal};
+use mitsuami_reactive::{IntoValue, Signal, Value};
 
 macro_rules! widget {
     ($t:ty) => {
@@ -384,6 +386,86 @@ impl Switch {
     }
 }
 
+/// A pop-up menu of text options to choose one from: `NSPopUpButton`,
+/// `ComboBox`, `gtk::DropDown`, `QQC2.ComboBox`. Its label is its
+/// accessible name; like a text field's, it isn't drawn, so put a `Text`
+/// next to it.
+///
+/// As with HTML's `<select>`, one option is always chosen (GTK can't show
+/// none): the first, unless `selected` says otherwise. An index past the
+/// options chooses the first too. Only a `Select` without options has
+/// nothing chosen.
+///
+/// ```ignore
+/// let color = signal(0);
+/// Select::new("Color").options(["Red", "Green", "Blue"]).bind(color)
+/// ```
+pub struct Select {
+    element: Element,
+    options: Value<Vec<String>>,
+    selected: Value<usize>,
+}
+
+impl ElementBuilder for Select {
+    fn element(&mut self) -> &mut Element {
+        &mut self.element
+    }
+}
+
+impl View for Select {
+    fn build(mut self, ui: &Ui) -> NodeId {
+        let chosen = |index: usize, count: usize| (count > 0).then_some(if index < count { index } else { 0 });
+        let selected = match (self.selected, self.options.clone()) {
+            (Value::Static(index), Value::Static(options)) => Value::Static(chosen(index, options.len())),
+            (index, options) => Value::Dynamic(Rc::new(move || chosen(index.get(), options.get().len()))),
+        };
+        self.element.prop(self.options, Prop::Options);
+        self.element.prop(selected, Prop::SelectedIndex);
+        self.element.build(ui)
+    }
+}
+
+impl Select {
+    pub fn new(label: impl IntoValue<String>) -> Select {
+        let mut element = Element::new(WidgetKind::Select);
+        element.prop(label.into_value(), Prop::Label);
+        Select { element, options: Value::Static(Vec::new()), selected: Value::Static(0) }
+    }
+
+    /// The options, in order: a list of strings, or a signal or closure
+    /// giving one.
+    pub fn options(mut self, options: impl IntoValue<Vec<String>>) -> Select {
+        self.options = options.into_value();
+        self
+    }
+
+    /// The index of the chosen option.
+    pub fn selected(mut self, index: impl IntoValue<usize>) -> Select {
+        self.selected = index.into_value();
+        self
+    }
+
+    /// Two-way binding, Vue's `v-model`.
+    pub fn bind(self, signal: Signal<usize>) -> Select {
+        self.selected(signal).on_change(move |index| signal.set(index))
+    }
+
+    pub fn enabled(mut self, enabled: impl IntoValue<bool>) -> Select {
+        self.element.prop(enabled.into_value(), Prop::Enabled);
+        self
+    }
+
+    /// Called with the option's index when the user chooses one.
+    pub fn on_change(mut self, handler: impl Fn(usize) + 'static) -> Select {
+        self.element.on(move |event| {
+            if let UiEvent::Changed(EventValue::Index(index)) = event {
+                handler(*index);
+            }
+        });
+        self
+    }
+}
+
 // ----------------------------------------------------------- view! tags
 //
 // `view!` builds `<Tag …>children</Tag>` as
@@ -462,5 +544,17 @@ impl TextInput {
     #[doc(hidden)]
     pub fn __tag() -> TextInput {
         TextInput::new()
+    }
+}
+
+impl Select {
+    /// `<Select a11y_label="Color" options=["Red", "Green"] bind=color/>`
+    #[doc(hidden)]
+    pub fn __tag() -> Select {
+        Select {
+            element: Element::new(WidgetKind::Select),
+            options: Value::Static(Vec::new()),
+            selected: Value::Static(0),
+        }
     }
 }

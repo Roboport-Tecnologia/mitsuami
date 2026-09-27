@@ -137,6 +137,7 @@ enum Widget {
     Field(QmlObject),
     Checkbox(QmlObject),
     Switch(QmlObject),
+    Select(QmlObject),
     Scroll {
         view: QmlObject,
         flickable: QmlObject,
@@ -175,6 +176,7 @@ impl Widget {
             | Widget::Field(i)
             | Widget::Checkbox(i)
             | Widget::Switch(i)
+            | Widget::Select(i)
             | Widget::Scroll { view: i, .. }
             | Widget::Custom { item: i, .. }
             | Widget::Drawn { item: i, .. }
@@ -195,7 +197,12 @@ impl Widget {
     fn is_control(&self) -> bool {
         matches!(
             self,
-            Widget::Label(_) | Widget::Button(_) | Widget::Field(_) | Widget::Checkbox(_) | Widget::Switch(_)
+            Widget::Label(_)
+                | Widget::Button(_)
+                | Widget::Field(_)
+                | Widget::Checkbox(_)
+                | Widget::Switch(_)
+                | Widget::Select(_)
         )
     }
 
@@ -207,6 +214,7 @@ impl Widget {
                 | Widget::Field(_)
                 | Widget::Checkbox(_)
                 | Widget::Switch(_)
+                | Widget::Select(_)
                 | Widget::Custom { .. }
                 | Widget::Native { .. }
                 | Widget::List(_)
@@ -229,8 +237,9 @@ struct Node {
     text_style: Option<TextStyle>,
     variant: Option<ButtonVariant>,
     scroll_axes: Option<ScrollAxes>,
-    /// A switch shows no caption; the label is its accessible name.
-    switch_label: Option<String>,
+    /// Switches and selects show no caption; the label is their
+    /// accessible name.
+    a11y_label: Option<String>,
 }
 
 pub(crate) struct State {
@@ -567,6 +576,17 @@ impl State {
                 });
                 if switch { Widget::Switch(toggle) } else { Widget::Checkbox(toggle) }
             }
+            WidgetKind::Select => {
+                let select = QmlObject::load(&qml::select());
+                // `activated` is the user's; `currentIndexChanged` fires for
+                // ours too.
+                select.connect("activated(int)", move || {
+                    if let Ok(index) = usize::try_from(select.int("currentIndex")) {
+                        events.emit(id, UiEvent::Changed(EventValue::Index(index)))
+                    }
+                });
+                Widget::Select(select)
+            }
             WidgetKind::TextInput => {
                 let field = QmlObject::load(&qml::text_field());
                 let e = events.clone();
@@ -610,7 +630,7 @@ impl State {
                 text_style: None,
                 variant: None,
                 scroll_axes: None,
-                switch_label: None,
+                a11y_label: None,
             },
         );
     }
@@ -684,9 +704,30 @@ impl State {
             }
             (Prop::Text(t), Widget::Label(l)) => l.set_str("text", t),
             (Prop::Label(t), Widget::Button(b) | Widget::Checkbox(b)) => b.set_str("text", t),
-            (Prop::Label(t), Widget::Switch(s)) => {
+            (Prop::Label(t), Widget::Switch(s) | Widget::Select(s)) => {
                 s.set_str("mitsuamiA11yName", t);
-                node.switch_label = Some(t.clone());
+                node.a11y_label = Some(t.clone());
+            }
+            (Prop::Options(options), Widget::Select(s)) => {
+                // A new model resets the chosen index; it stays if it can,
+                // else the first option is chosen, as the core does. It
+                // sends the index when that changes it.
+                let chosen = s.int("currentIndex");
+                s.set_str_list("mitsuamiOptions", options);
+                let count = options.len() as i32;
+                s.set_int(
+                    "currentIndex",
+                    if (0..count).contains(&chosen) {
+                        chosen
+                    } else if count > 0 {
+                        0
+                    } else {
+                        -1
+                    },
+                );
+            }
+            (Prop::SelectedIndex(index), Widget::Select(s)) => {
+                s.set_int("currentIndex", index.map_or(-1, |i| i as i32))
             }
             (Prop::Value(t), Widget::Field(f)) => {
                 // Don't disturb the caret when the field already shows it.
@@ -855,8 +896,8 @@ impl State {
                 let item = self.widget(*id, command).item();
                 let A11yProps { label, description, hidden, .. } = a11y;
                 let node = &self.nodes[id];
-                // A switch's accessible name is its label prop.
-                if !matches!(node.widget, Widget::Switch(_)) || label.is_some() {
+                // A switch's or select's accessible name is its label prop.
+                if !matches!(node.widget, Widget::Switch(_) | Widget::Select(_)) || label.is_some() {
                     item.set_str("mitsuamiA11yName", label.as_deref().unwrap_or_default());
                 }
                 item.set_str("mitsuamiA11yDescription", description.as_deref().unwrap_or_default());
@@ -891,6 +932,14 @@ impl State {
             },
         }
     }
+}
+
+/// A select's options, as it shows them.
+fn option_texts(select: QmlObject) -> Vec<String> {
+    if select.int("count") == 0 {
+        return Vec::new();
+    }
+    select.str("mitsuamiOptionTexts").split('\u{1f}').map(str::to_owned).collect()
 }
 
 /// Implicit sizes, except text: it wraps to the space it's offered, down to
@@ -1012,6 +1061,11 @@ impl Backend for KirigamiBackend {
                 if !item.accessible_action("Toggle") {
                     return Err(ActionError::Unsupported);
                 }
+            }
+            // As if the option were picked from the pop-up.
+            (A11yAction::SetValue(text), WidgetKind::Select) => {
+                let index = option_texts(item).iter().position(|o| o == text).ok_or(ActionError::Unsupported)?;
+                item.set_int("mitsuamiChoice", index as i32);
             }
             (A11yAction::SetValue(text), WidgetKind::TextInput) => {
                 item.set_str("text", text);
@@ -1184,8 +1238,13 @@ impl Backend for KirigamiBackend {
                 props.push(Prop::Checked(c.bool("checked")));
             }
             Widget::Switch(s) => {
-                props.extend(node.switch_label.clone().map(Prop::Label));
+                props.extend(node.a11y_label.clone().map(Prop::Label));
                 props.push(Prop::Checked(s.bool("checked")));
+            }
+            Widget::Select(s) => {
+                props.extend(node.a11y_label.clone().map(Prop::Label));
+                props.push(Prop::Options(option_texts(*s)));
+                props.push(Prop::SelectedIndex(usize::try_from(s.int("currentIndex")).ok()));
             }
             Widget::Scroll { .. } => props.extend(node.scroll_axes.map(Prop::ScrollAxes)),
             Widget::Custom { item, render, props: last } => {

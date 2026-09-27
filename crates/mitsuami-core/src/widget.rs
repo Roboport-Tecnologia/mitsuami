@@ -41,6 +41,9 @@ pub enum WidgetKind {
     TextInput,
     Checkbox,
     Switch,
+    /// A native pop-up menu of text options (NSPopUpButton, ComboBox,
+    /// gtk::DropDown, QQC2.ComboBox). Its options are [`Prop::Options`].
+    Select,
     /// A native scroll container. It has exactly one native child, the
     /// content, which the core lays out and may be larger than the viewport.
     ScrollView,
@@ -85,6 +88,7 @@ impl WidgetKind {
             WidgetKind::TextInput => "TextInput",
             WidgetKind::Checkbox => "Checkbox",
             WidgetKind::Switch => "Switch",
+            WidgetKind::Select => "Select",
             WidgetKind::Custom(name) => name,
             WidgetKind::Native => "Native",
         }
@@ -154,7 +158,8 @@ pub enum Prop {
     Title(String),
     /// Text content of a `Text`.
     Text(String),
-    /// Caption of a `Button`, `Checkbox` or `Switch`.
+    /// Caption of a `Button`, `Checkbox` or `Switch`; accessible name of a
+    /// `Switch` or `Select`.
     Label(String),
     /// Current text of a `TextInput`.
     Value(String),
@@ -163,6 +168,11 @@ pub enum Prop {
     Enabled(bool),
     TextStyle(TextStyle),
     Variant(ButtonVariant),
+    /// A `Select`'s options, in order.
+    Options(Vec<String>),
+    /// Which option of a `Select` is chosen: always one, unless it has no
+    /// options.
+    SelectedIndex(Option<usize>),
     /// Which axes a `ScrollView` scrolls.
     ScrollAxes(ScrollAxes),
     /// A `List`'s rows, in order.
@@ -198,6 +208,8 @@ impl Prop {
             Prop::Text(_)
                 | Prop::Label(_)
                 | Prop::Placeholder(_)
+                | Prop::Options(_)
+                | Prop::SelectedIndex(_)
                 | Prop::TextStyle(_)
                 | Prop::Variant(_)
                 | Prop::Custom(_)

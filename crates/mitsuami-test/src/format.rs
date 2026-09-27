@@ -16,6 +16,10 @@ fn describe_props(props: &[Prop]) -> String {
             Prop::Title(s) | Prop::Text(s) | Prop::Label(s) => quoted = Some(format!("{s:?}")),
             Prop::Value(s) => extra.push(format!("value={s:?}")),
             Prop::Placeholder(s) => extra.push(format!("placeholder={s:?}")),
+            Prop::Options(options) => extra.push(format!("options={options:?}")),
+            Prop::SelectedIndex(index) => {
+                extra.push(format!("selected={}", index.map_or("none".to_owned(), |i| i.to_string())))
+            }
             Prop::Checked(b) => extra.push(format!("checked={b}")),
             Prop::Enabled(b) => extra.push(format!("enabled={b}")),
             Prop::TextStyle(s) => extra.push(format!("style={s:?}")),
@@ -222,6 +226,7 @@ pub(crate) fn wireframe(root: &NodeInfo) -> String {
             WidgetKind::Button => "#2f6fdf",
             WidgetKind::TextInput => "#a0602a",
             WidgetKind::Checkbox | WidgetKind::Switch => "#8a4fbf",
+            WidgetKind::Select => "#1f8a8a",
             WidgetKind::Custom(_) | WidgetKind::Native => "#c0392b",
         }
     }

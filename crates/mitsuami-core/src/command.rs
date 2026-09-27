@@ -86,6 +86,8 @@ pub enum EventValue {
     Number(f64),
     /// A `List`'s selected rows.
     Rows(Vec<RowKey>),
+    /// The option chosen in a `Select`.
+    Index(usize),
 }
 
 /// Something that happened in the native UI.

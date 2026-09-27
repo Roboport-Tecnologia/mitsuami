@@ -143,6 +143,7 @@ enum Widget {
     Button(w::Button),
     Checkbox(w::CheckBox),
     Switch(w::ToggleSwitch),
+    Select(w::ComboBox),
     Scroll(w::ScrollViewer),
     List(crate::list::List),
     /// A custom widget with a native render, and the props it shows.
@@ -187,12 +188,16 @@ struct Node {
     /// reported to it. Change events that match it are programmatic.
     shown_text: Rc<RefCell<String>>,
     shown_checked: Rc<Cell<bool>>,
+    /// Selects: the chosen index, or -1.
+    shown_index: Rc<Cell<i32>>,
     /// ScrollViews: the offset last reported.
     offset: Rc<Cell<Point>>,
     /// Props XAML can't report back faithfully.
     text_style: Option<TextStyle>,
     variant: Option<ButtonVariant>,
-    switch_label: Option<String>,
+    /// Switches and selects: their label, which is only their accessible
+    /// name.
+    a11y_label: Option<String>,
 }
 
 type Callback = Rc<dyn Fn()>;
@@ -289,6 +294,30 @@ fn style(name: &str) -> w::Style {
 }
 
 const NAN_SIZE: f64 = f64::NAN;
+
+/// The texts of a combo box's items.
+fn option_texts(combo: &w::ComboBox) -> Vec<String> {
+    let Ok(items) = combo.cast::<w::IItemsControl>().and_then(|c| c.Items()) else { return Vec::new() };
+    (0..items.Size().unwrap_or(0))
+        .filter_map(|i| unboxed(items.GetAt(i).ok()?.cast::<w::IContentControl>().ok()?.Content()))
+        .collect()
+}
+
+/// How wide `text` is in a control's font for `style`.
+fn text_width(text: &str, style: TextStyle) -> f32 {
+    let measure = || -> R<f32> {
+        let block = w::TextBlock::new()?;
+        let iface: w::ITextBlock = block.cast()?;
+        iface.SetText(text)?;
+        iface.SetFontSize(font_size(style))?;
+        iface.SetFontWeight(w::FontWeight { weight: font_weight(style) })?;
+        if style == TextStyle::Monospace {
+            iface.SetFontFamily(&w::FontFamily::CreateInstanceWithName(MONOSPACE)?)?;
+        }
+        Ok(measure_element(&block.cast()?, w::Size { width: f32::INFINITY, height: f32::INFINITY }).width)
+    };
+    measure().unwrap_or(0.0)
+}
 
 /// Measures with the frame size we imposed lifted: XAML's `Measure` honours
 /// an explicit `Width`/`Height`, which would hide the content's own size.
@@ -846,6 +875,7 @@ impl State {
         let emitter = self.emitter();
         let shown_text = Rc::new(RefCell::new(String::new()));
         let shown_checked = Rc::new(Cell::new(false));
+        let shown_index = Rc::new(Cell::new(-1));
         let offset = Rc::new(Cell::new(Point::ZERO));
         let mut revokers = Vec::new();
         let mut inner = None;
@@ -961,6 +991,23 @@ impl State {
                 let element = switch.cast()?;
                 (Widget::Switch(switch), element)
             }
+            WidgetKind::Select => {
+                let combo = w::ComboBox::new()?;
+                // Setting the index or the items reports it too: only an
+                // index the core doesn't know about is the user's choice.
+                let (emitter, shown) = (emitter.clone(), shown_index.clone());
+                revokers.push(combo.cast::<w::ISelector>()?.SelectionChanged(move |sender, _| {
+                    let Some(index) = sender.as_ref().and_then(|s| s.cast::<w::ISelector>().ok()?.SelectedIndex().ok())
+                    else {
+                        return;
+                    };
+                    if index >= 0 && shown.replace(index) != index {
+                        emitter.emit(id, UiEvent::Changed(EventValue::Index(index as usize)));
+                    }
+                })?);
+                let element = combo.cast()?;
+                (Widget::Select(combo), element)
+            }
             WidgetKind::TextInput => {
                 let field = w::TextBox::new()?;
                 let iface: w::ITextBox = field.cast()?;
@@ -1039,10 +1086,11 @@ impl State {
                 revokers,
                 shown_text,
                 shown_checked,
+                shown_index,
                 offset,
                 text_style: None,
                 variant: None,
-                switch_label: None,
+                a11y_label: None,
             },
         );
         Ok(())
@@ -1084,9 +1132,39 @@ impl State {
             (Prop::Label(t), Widget::Button(_) | Widget::Checkbox(_)) => {
                 node.element.cast::<w::IContentControl>()?.SetContent(&boxed(t))?
             }
-            (Prop::Label(t), Widget::Switch(_)) => {
+            (Prop::Label(t), Widget::Switch(_) | Widget::Select(_)) => {
                 w::AutomationProperties::SetName(&node.element, t)?;
-                node.switch_label = Some(t.clone());
+                node.a11y_label = Some(t.clone());
+            }
+            (Prop::Options(options), Widget::Select(combo)) => {
+                // Items are `ComboBoxItem`s, so options with the same text
+                // stay apart. Replacing them moves the selection; the chosen
+                // index stays if it can, else the first option is chosen,
+                // as the core does. It sends the index when that changes it.
+                let selector: w::ISelector = combo.cast()?;
+                let chosen = selector.SelectedIndex()?;
+                let count = options.len() as i32;
+                let index = if (0..count).contains(&chosen) {
+                    chosen
+                } else if count > 0 {
+                    0
+                } else {
+                    -1
+                };
+                node.shown_index.set(index);
+                let items = combo.cast::<w::IItemsControl>()?.Items()?;
+                items.Clear()?;
+                for option in options {
+                    let item = w::ComboBoxItem::new()?;
+                    item.cast::<w::IContentControl>()?.SetContent(&boxed(option))?;
+                    items.Append(&item.cast::<IInspectable>()?)?;
+                }
+                selector.SetSelectedIndex(index)?;
+            }
+            (Prop::SelectedIndex(index), Widget::Select(combo)) => {
+                let index = index.map_or(-1, |i| i as i32);
+                node.shown_index.set(index);
+                combo.cast::<w::ISelector>()?.SetSelectedIndex(index)?;
             }
             (Prop::Value(t), Widget::Field(f)) => {
                 let field: w::ITextBox = f.cast()?;
@@ -1250,7 +1328,7 @@ impl State {
                 let element = self.nodes[id].control().clone();
                 let A11yProps { label, description, hidden, .. } = a11y;
                 // An empty name means "derive it from the content".
-                if !matches!(self.nodes[id].widget, Widget::Switch(_)) || label.is_some() {
+                if !matches!(self.nodes[id].widget, Widget::Switch(_) | Widget::Select(_)) || label.is_some() {
                     w::AutomationProperties::SetName(&element, label.as_deref().unwrap_or(""))?;
                 }
                 w::AutomationProperties::SetHelpText(&element, description.as_deref().unwrap_or(""))?;
@@ -1330,6 +1408,11 @@ impl State {
                     EventValue::Text(text)
                 })
             }),
+            Widget::Select(combo) => combo
+                .cast::<w::ISelector>()
+                .and_then(|s| s.SelectedIndex())
+                .ok()
+                .and_then(|i| (i >= 0 && node.shown_index.replace(i) != i).then_some(EventValue::Index(i as usize))),
             Widget::Checkbox(_) | Widget::Switch(_) => {
                 let value = match &node.widget {
                     Widget::Checkbox(b) => b.cast::<w::IToggleButton>().and_then(|b| b.IsChecked()).ok(),
@@ -1380,6 +1463,7 @@ fn is_control(widget: &Widget) -> bool {
             | Widget::Button(_)
             | Widget::Checkbox(_)
             | Widget::Switch(_)
+            | Widget::Select(_)
             | Widget::Scroll(_)
             | Widget::List(_)
     )
@@ -1517,6 +1601,18 @@ impl Backend for WinUiBackend {
             Widget::Button(_) | Widget::Checkbox(_) | Widget::Switch(_) => {
                 ceil(measure_element(&node.element, infinite))
             }
+            // XAML sizes a combo box for the chosen option; the other
+            // platforms, and so the contract, for the widest.
+            Widget::Select(combo) => {
+                let size = ceil(measure_element(&node.element, infinite));
+                let texts = option_texts(combo);
+                let chosen = combo.cast::<w::ISelector>().and_then(|s| s.SelectedIndex()).unwrap_or(-1);
+                let style = node.text_style.unwrap_or_default();
+                let width = |text: &str| text_width(text, style);
+                let current = usize::try_from(chosen).ok().and_then(|i| texts.get(i)).map_or(0.0, |t| width(t));
+                let widest = texts.iter().map(|t| width(t)).fold(0.0, f32::max);
+                Size::new((size.width - current + widest).ceil(), size.height)
+            }
             Widget::Custom { render, props } => render
                 .measure(node.control(), props.props(), &request)
                 .unwrap_or_else(|| ceil(measure_element(&node.element, infinite))),
@@ -1585,6 +1681,16 @@ impl Backend for WinUiBackend {
                     .and_then(|p| p.cast())
                     .map_err(|_| ActionError::Unsupported)?;
                 toggle.Toggle().map_err(|_| ActionError::Unsupported)?;
+                self.state.borrow().report_value(id);
+            }
+            (A11yAction::SetValue(text), WidgetKind::Select) => {
+                // As if the option were picked from the open drop-down.
+                let combo: w::ComboBox = element.cast().map_err(|_| ActionError::Unsupported)?;
+                let index = option_texts(&combo).iter().position(|o| o == text).ok_or(ActionError::Unsupported)?;
+                combo
+                    .cast::<w::ISelector>()
+                    .and_then(|s| s.SetSelectedIndex(index as i32))
+                    .map_err(|_| ActionError::Unsupported)?;
                 self.state.borrow().report_value(id);
             }
             (A11yAction::SetValue(text), WidgetKind::TextInput) => {
@@ -1790,6 +1896,15 @@ impl Backend for WinUiBackend {
                     props.push(Prop::Label(name));
                 }
                 props.push(Prop::Checked(s.cast::<w::IToggleSwitch>().ok()?.IsOn().ok()?));
+            }
+            Widget::Select(combo) => {
+                let name = w::AutomationProperties::GetName(&node.element).unwrap_or_default();
+                if !name.is_empty() {
+                    props.push(Prop::Label(name));
+                }
+                props.push(Prop::Options(option_texts(combo)));
+                let index = combo.cast::<w::ISelector>().ok()?.SelectedIndex().ok()?;
+                props.push(Prop::SelectedIndex(usize::try_from(index).ok()));
             }
             Widget::Scroll(s) => {
                 let scroll: w::IScrollViewer = s.cast().ok()?;

@@ -94,5 +94,7 @@ pub mod prelude {
         Computed, IntoValue, Owner, Signal, Value, batch, computed, effect, inject, on_cleanup, provide, signal,
         untrack, watch,
     };
-    pub use mitsuami_widgets::{Button, Checkbox, Column, Container, Grid, Row, ScrollView, Switch, Text, TextInput};
+    pub use mitsuami_widgets::{
+        Button, Checkbox, Column, Container, Grid, Row, ScrollView, Select, Switch, Text, TextInput,
+    };
 }

@@ -72,6 +72,8 @@ Microsoft.UI.Xaml.Controls.Primitives.IToggleButton::{get_IsChecked, put_IsCheck
 Microsoft.UI.Xaml.Controls.ToggleSwitch::CreateInstance
 Microsoft.UI.Xaml.Controls.IToggleSwitch::{get_IsOn, put_IsOn, put_OnContent, put_OffContent, add_Toggled, remove_Toggled}
 Microsoft.UI.Xaml.Controls.TextBox::CreateInstance
+Microsoft.UI.Xaml.Controls.ComboBox::CreateInstance
+Microsoft.UI.Xaml.Controls.ComboBoxItem::CreateInstance
 Microsoft.UI.Xaml.Controls.ITextBox::{get_Text, put_Text, get_PlaceholderText, put_PlaceholderText, get_SelectionStart, put_SelectionStart, get_SelectionLength, put_SelectionLength, get_SelectedText, put_SelectedText, add_TextChanged, remove_TextChanged}
 Microsoft.UI.Xaml.Controls.TextChangedEventHandler
 Microsoft.UI.Xaml.Controls.ScrollViewer::CreateInstance

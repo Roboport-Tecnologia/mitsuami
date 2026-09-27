@@ -99,6 +99,32 @@ pub(crate) fn switch() -> String {
     format!("QQC2.Switch {{ text: \"\"; {TEXT_STYLE} {} }}", a11y("\"\""))
 }
 
+/// A select. Rust sets `mitsuamiOptions` and `currentIndex`, and reads the
+/// options back from `mitsuamiOptionTexts` (joined with U+001F). Setting
+/// `mitsuamiChoice` chooses an option as the user does: it reports it with
+/// `activated`. Sized for the widest option, as on the other platforms.
+pub(crate) fn select() -> String {
+    format!(
+        r#"
+QQC2.ComboBox {{
+    property var mitsuamiOptions: []
+    readonly property string mitsuamiOptionTexts: mitsuamiOptions.join("\u001f")
+    property int mitsuamiChoice: -1
+    model: mitsuamiOptions
+    implicitContentWidthPolicy: QQC2.ComboBox.WidestText
+    onMitsuamiChoiceChanged: if (mitsuamiChoice >= 0) {{
+        currentIndex = mitsuamiChoice
+        mitsuamiChoice = -1
+        activated(currentIndex)
+    }}
+    {TEXT_STYLE}
+    {}
+}}
+"#,
+        a11y("\"\"")
+    )
+}
+
 /// Our content goes in the flickable's content item; the scroll bars follow
 /// `mitsuamiAxes` (1 horizontal, 2 vertical, 3 both).
 pub(crate) fn scroll_view() -> String {

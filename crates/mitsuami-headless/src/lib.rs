@@ -548,6 +548,12 @@ impl Backend for HeadlessBackend {
                 Size::new(16.0 + 6.0 + text.width, line.max(16.0))
             }
             WidgetKind::Switch => Size::new(40.0, 24.0),
+            // Sized for its widest option, with room for the arrow.
+            WidgetKind::Select => {
+                let options = find_prop!(node.props, Options).unwrap_or_default();
+                let widest = options.iter().map(|o| text_size(o, font, None).width).fold(0.0, f32::max);
+                Size::new(widest + 32.0, (line + 8.0).max(28.0))
+            }
             // Native renders are stood in for by the drawn one, if any.
             // Native views have no stand-in: size them with styles.
             WidgetKind::Custom(_) => find_prop!(node.props, Custom)
@@ -580,12 +586,19 @@ impl Backend for HeadlessBackend {
                 state.set_prop(id, Prop::Value(text.clone()));
                 state.emit(id, UiEvent::Changed(EventValue::Text(text.clone())));
             }
+            (A11yAction::SetValue(text), WidgetKind::Select) => {
+                let options = find_prop!(state.nodes[&id].props, Options).unwrap_or_default();
+                let index = options.iter().position(|o| o == text).ok_or(ActionError::Unsupported)?;
+                state.set_prop(id, Prop::SelectedIndex(Some(index)));
+                state.emit(id, UiEvent::Changed(EventValue::Index(index)));
+            }
             (
                 A11yAction::Focus,
                 WidgetKind::Button
                 | WidgetKind::TextInput
                 | WidgetKind::Checkbox
                 | WidgetKind::Switch
+                | WidgetKind::Select
                 | WidgetKind::List,
             ) => state.focus(id),
             (A11yAction::Select | A11yAction::Activate, WidgetKind::Container) => {

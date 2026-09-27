@@ -16,6 +16,9 @@ pub enum Role {
     TextField,
     Checkbox,
     Switch,
+    /// A button that pops up a list of options to choose one from (a
+    /// `Select`). Its value is the chosen option.
+    ComboBox,
     Image,
     Slider,
     List,
@@ -79,6 +82,8 @@ pub enum A11yAction {
     /// Press / click / toggle, whatever the control's primary action is.
     Activate,
     Focus,
+    /// Replace a text field's text, or choose the `Select` option with this
+    /// text.
     SetValue(String),
     Increment,
     Decrement,

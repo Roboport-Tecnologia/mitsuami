@@ -74,6 +74,7 @@ Validate as you go. Panic on protocol violations such as an unknown node, a doub
 | `TextInput` | `NSTextField` | `gtk::Entry` / `gtk::Text` | `TextBox` | `QQC2.TextField` |
 | `Checkbox` | `NSButton` checkbox | `gtk::CheckButton` | `CheckBox` | `QQC2.CheckBox` |
 | `Switch` | `NSSwitch` | `gtk::Switch` | `ToggleSwitch` | `QQC2.Switch` |
+| `Select` | `NSPopUpButton` (items added to its menu) | `gtk::DropDown` over a `gtk::StringList` | `ComboBox` of `ComboBoxItem`s | `QQC2.ComboBox` (`WidestText`) |
 | `ScrollView` | `NSScrollView` | `gtk::ScrolledWindow` | `ScrollViewer` | `QQC2.ScrollView` around a `Flickable` |
 | `List` (§8b) | view-based `NSTableView` in an `NSScrollView` | `gtk::ListView` over a `gio::ListStore` of keys | `ListView` over the keys (boxed strings), with `Canvas` cells | QML `ListView` over the keys, with `QQC2.ItemDelegate`s |
 | `Custom` (native render) | the render's view (`NativeRender`) | the render's widget (`mitsuami_gtk::NativeRender`) | the render's element | the render's item |
@@ -86,10 +87,12 @@ Validate as you go. Panic on protocol violations such as an unknown node, a doub
 |---|---|---|
 | `Title` | Window | |
 | `Text` | Text | |
-| `Label` | Button, Checkbox, Switch | Switches usually show no caption; use it as the accessible name. |
+| `Label` | Button, Checkbox, Switch, Select | Switches usually show no caption, and selects show their chosen option; for them it's the accessible name. |
 | `Value` | TextInput | Don't re-set a value the widget already shows. |
 | `Placeholder` | TextInput | |
 | `Checked` | Checkbox, Switch | Setting it programmatically **must not** emit `Changed` (§4). |
+| `Options` | Select | The options' texts, in order; texts may repeat. Replacing them keeps the chosen index if it's still an option, else chooses the first (none without options), as the core does: it sends `SelectedIndex` only when that changes it. **Size the select for its widest option**, not the chosen one. |
+| `SelectedIndex` | Select | The chosen option. `None` only without options. Setting it **must not** emit `Changed`. |
 | `Enabled` | controls | |
 | `TextStyle` | Text (and controls) | Map to the platform type ramp: GTK style classes (`title-1`, `heading`, `caption`, `monospace`); WinUI text styles (`TitleTextBlockStyle`, …); Kirigami's `Heading` sizes and its small and fixed-width fonts. |
 | `Variant` | Button | Primary = the default / suggested action (GTK `suggested-action`, WinUI `AccentButtonStyle`, Qt `highlighted`); Destructive (GTK `destructive-action`); Plain = borderless (GTK and Qt `flat`). |
@@ -112,6 +115,7 @@ Native callbacks **only** call `events.emit(id, event)` on the `EventSink` given
 | `Click` | a button is pressed (mouse, keyboard or accessibility) | |
 | `Changed(Text)` | the user (or assistive technology) edits a text field | the core set the value. **GTK `changed` and WinUI `TextChanged` fire on programmatic sets**, so block or ignore them during `SetProp`. Qt's `textEdited` is the user's only. |
 | `Changed(Bool)` | the user toggles a checkbox or switch | the core set `Checked`. **GTK `toggled`/`notify::active` and WinUI `Checked`/`Unchecked`/`Toggled` fire on programmatic sets**, so guard them. Qt's `toggled` is the user's only (`checkedChanged` is anyone's). |
+| `Changed(Index)` | the user (or assistive technology) chooses a select's option | the core set `SelectedIndex` or `Options`. **GTK `notify::selected` and WinUI `SelectionChanged` fire on programmatic sets**, so guard them. Qt's `activated` is the user's only (`currentIndexChanged` is anyone's). |
 | `Submit` | **Return/Enter** in a text field (GTK `activate`; WinUI `KeyDown` with `Enter`) | editing ends in other ways: Tab, a click elsewhere, focus loss. AppKit's field action does fire then; that was a real bug. |
 | `FocusIn` / `FocusOut` | keyboard focus moves, **from any source** (click, Tab, code): out for the old control first, then in for the new | |
 | `Scrolled(offset)` | a ScrollView's or List's offset changes, by the user **or** by `ScrollTo` | |
@@ -159,7 +163,7 @@ These make one test suite run against every backend.
 
 - **`perform(id, action)`**: do what assistive technology would.
   - `Activate`: press the button or toggle the control. Prefer the platform's accessibility press (AppKit `accessibilityPerformPress`; its return value lies for offscreen windows, so the result is ignored).
-  - `SetValue(text)`: set the field's text, then emit `Changed(Text)` yourself, because an assistive technology edit is a user edit.
+  - `SetValue(text)`: set the field's text, then emit `Changed(Text)` yourself, because an assistive technology edit is a user edit. On a select, choose the first option with that text, as picking it from the pop-up would, and report `Changed(Index)` (`Unsupported` if there's none). Don't open the pop-up: that starts a modal loop.
   - `Focus`: move keyboard focus to the control.
   - `Select` on a List's row host: select that row (the only selected one), as a screen reader's select does, and report `Changed(Rows)` on the List. `Unsupported` if the list's `SelectionMode` is None.
   - `Activate` on a row host: report `RowActivated` on the List.

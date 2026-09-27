@@ -93,3 +93,21 @@ macro_rules! static_values {
 }
 
 static_values!(String, bool, char, f32, f64, i8, i16, i32, i64, u8, u16, u32, u64, usize, isize);
+
+impl<T: 'static> IntoValue<Vec<T>> for Vec<T> {
+    fn into_value(self) -> Value<Vec<T>> {
+        Value::Static(self)
+    }
+}
+
+impl<const N: usize> IntoValue<Vec<String>> for [&str; N] {
+    fn into_value(self) -> Value<Vec<String>> {
+        Value::Static(self.iter().map(|s| (*s).to_owned()).collect())
+    }
+}
+
+impl IntoValue<Vec<String>> for &[&str] {
+    fn into_value(self) -> Value<Vec<String>> {
+        Value::Static(self.iter().map(|s| (*s).to_owned()).collect())
+    }
+}

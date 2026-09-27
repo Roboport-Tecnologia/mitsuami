@@ -1045,6 +1045,7 @@ impl Inner {
                     | WidgetKind::TextInput
                     | WidgetKind::Checkbox
                     | WidgetKind::Switch
+                    | WidgetKind::Select
                     | WidgetKind::List
             ) {
                 out.push((node.tab_index, id));
@@ -1293,6 +1294,7 @@ impl Inner {
                     (WidgetKind::TextInput, EventValue::Text(text)) => Prop::Value(text.clone()),
                     (WidgetKind::Checkbox | WidgetKind::Switch, EventValue::Bool(b)) => Prop::Checked(*b),
                     (WidgetKind::List, EventValue::Rows(rows)) => Prop::Selected(rows.clone()),
+                    (WidgetKind::Select, EventValue::Index(index)) => Prop::SelectedIndex(Some(*index)),
                     _ => return,
                 };
                 node.props.retain(|p| p.key() != prop.key());
@@ -1452,6 +1454,7 @@ impl Inner {
             WidgetKind::TextInput => Role::TextField,
             WidgetKind::Checkbox => Role::Checkbox,
             WidgetKind::Switch => Role::Switch,
+            WidgetKind::Select => Role::ComboBox,
             WidgetKind::Custom(_) | WidgetKind::Native => Role::Group,
         });
         if role == Role::None {
@@ -1462,7 +1465,9 @@ impl Inner {
             a11y.label.clone().or_else(|| a11y.labelled_by.and_then(|l| self.text_of(l))).or_else(|| match node.kind {
                 WidgetKind::Window => crate::find_prop!(props, Title),
                 WidgetKind::Text => crate::find_prop!(props, Text),
-                WidgetKind::Button | WidgetKind::Checkbox | WidgetKind::Switch => crate::find_prop!(props, Label),
+                WidgetKind::Button | WidgetKind::Checkbox | WidgetKind::Switch | WidgetKind::Select => {
+                    crate::find_prop!(props, Label)
+                }
                 WidgetKind::TextInput => crate::find_prop!(props, Placeholder),
                 // Rows read as their text, as screen readers read native rows.
                 WidgetKind::Container if row.is_some() => {
@@ -1487,6 +1492,12 @@ impl Inner {
             description: a11y.description,
             value: match node.kind {
                 WidgetKind::TextInput => Some(crate::find_prop!(props, Value).unwrap_or_default()),
+                // The chosen option; empty without options.
+                WidgetKind::Select => {
+                    let options = crate::find_prop!(props, Options).unwrap_or_default();
+                    let chosen = crate::find_prop!(props, SelectedIndex).flatten();
+                    Some(chosen.and_then(|i| options.get(i).cloned()).unwrap_or_default())
+                }
                 _ => a11y.value,
             },
             checked: match node.kind {
