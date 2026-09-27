@@ -92,6 +92,7 @@ fn platform_option() -> impl View {
         ),
         gtk => (
             mitsuami::gtk::tweak(|e: &mitsuami::gtk::gtk::Entry| {
+                use mitsuami::gtk::gtk::prelude::*;
                 e.set_icon_from_icon_name(mitsuami::gtk::gtk::EntryIconPosition::Primary, Some("system-search-symbolic"))
             }),
             "GTK: an entry can show icons at either end; this one a search icon.",
