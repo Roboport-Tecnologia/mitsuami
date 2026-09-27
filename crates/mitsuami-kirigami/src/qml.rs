@@ -384,12 +384,10 @@ QQC2.ScrollView {{
             property Item mitsuamiHost: null
             width: view.width
             height: mitsuamiHost ? mitsuamiHost.height : view.mitsuamiEstimate
-            padding: 0
+            // The sides' padding and insets stay the style's: Breeze draws
+            // the highlight from both, and rows don't use the padding.
             topInset: 0
             bottomInset: 0
-            // The style's inset for its own padding, which rows don't have.
-            leftInset: Kirigami.Units.mediumSpacing
-            rightInset: Kirigami.Units.mediumSpacing
             focusPolicy: Qt.NoFocus
             highlighted: view.mitsuamiSelected.indexOf(modelData) >= 0
             contentItem: Item {{ }}
