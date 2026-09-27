@@ -3,14 +3,14 @@
 use std::rc::Rc;
 
 use mitsuami_core::reactive::{IntoValue, Value};
-use mitsuami_core::{Opaque, Tweak};
+use mitsuami_core::{List, Opaque, Tweak};
 use mitsuami_widgets::{
     Button, Checkbox, PasswordInput, Progress, ScrollView, Select, Slider, Spinner, Switch, TextInput,
 };
 use objc2::DowncastTarget;
 use objc2_app_kit::{
-    NSButton, NSPopUpButton, NSProgressIndicator, NSScrollView, NSSecureTextField, NSSlider, NSSwitch, NSTextField,
-    NSView,
+    NSButton, NSPopUpButton, NSProgressIndicator, NSScrollView, NSSecureTextField, NSSlider, NSSwitch, NSTableView,
+    NSTextField, NSView,
 };
 
 /// A built-in widget, and the AppKit control that shows it.
@@ -56,6 +56,10 @@ impl Tweakable for PasswordInput {
 
 impl Tweakable for ScrollView {
     type Native = NSScrollView;
+}
+
+impl Tweakable for List {
+    type Native = NSTableView;
 }
 
 /// Settings as the backend runs them, on the node's view.

@@ -3961,6 +3961,25 @@ impl IListViewBase {
             (windows_core::Interface::vtable(self).SetSelectionMode)(windows_core::Interface::as_raw(self), value).ok()
         }
     }
+    pub fn SingleSelectionFollowsFocus(&self) -> windows_core::Result<bool> {
+        unsafe {
+            let mut result__ = core::mem::zeroed();
+            (windows_core::Interface::vtable(self).SingleSelectionFollowsFocus)(
+                windows_core::Interface::as_raw(self),
+                &mut result__,
+            )
+            .map(|| result__)
+        }
+    }
+    pub fn SetSingleSelectionFollowsFocus(&self, value: bool) -> windows_core::Result<()> {
+        unsafe {
+            (windows_core::Interface::vtable(self).SetSingleSelectionFollowsFocus)(
+                windows_core::Interface::as_raw(self),
+                value,
+            )
+            .ok()
+        }
+    }
     pub fn ContainerContentChanging<F>(&self, handler: F) -> windows_core::Result<windows_core::EventRevoker>
     where
         F: Fn(windows_core::Ref<ListViewBase>, windows_core::Ref<ContainerContentChangingEventArgs>) + 'static,
@@ -4032,8 +4051,10 @@ pub struct IListViewBase_Vtbl {
     SelectedRanges: usize,
     IsMultiSelectCheckBoxEnabled: usize,
     SetIsMultiSelectCheckBoxEnabled: usize,
-    SingleSelectionFollowsFocus: usize,
-    SetSingleSelectionFollowsFocus: usize,
+    pub SingleSelectionFollowsFocus:
+        unsafe extern "system" fn(*mut core::ffi::c_void, *mut bool) -> windows_core::HRESULT,
+    pub SetSingleSelectionFollowsFocus:
+        unsafe extern "system" fn(*mut core::ffi::c_void, bool) -> windows_core::HRESULT,
     ItemClick: usize,
     RemoveItemClick: usize,
     DragItemsStarting: usize,

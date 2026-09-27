@@ -291,8 +291,6 @@ async fn the_a11y_tree_shows_a_list_of_rows(app: TestApp) {
     app.assert_a11y_snapshot("list");
 }
 
-mitsuami_test::main!();
-
 /// A frame takes room from the rows (on platforms that draw one), and rows
 /// are laid out at what's left.
 #[mitsuami_test::test]
@@ -305,3 +303,46 @@ async fn a_framed_lists_rows_fit_inside_it(app: TestApp) {
     let row = app.get_by_role(Role::ListItem, "Item 0").frame();
     assert!(row.width() <= list.width(), "a {}px row in a {}px list", row.width(), list.width());
 }
+
+/// Logs how many rows the native list view has, each time the tweak runs.
+fn log_rows(log: Rc<RefCell<Vec<usize>>>) -> Tweak<List> {
+    platform! {
+        macos => mitsuami::appkit::tweak(move |t: &mitsuami::appkit::objc2_app_kit::NSTableView| {
+            log.borrow_mut().push(t.numberOfRows() as usize)
+        }),
+        gtk => mitsuami::gtk::tweak(move |v: &mitsuami::gtk::gtk::ListView| {
+            use mitsuami::gtk::gtk::prelude::*;
+            log.borrow_mut().push(v.model().map_or(0, |m| m.n_items() as usize))
+        }),
+        kde => mitsuami::kirigami::tweak(move |v: &mitsuami::kirigami::QmlObject| log.borrow_mut().push(v.int("count") as usize)),
+        windows => mitsuami::winui::tweak(move |v: &mitsuami::winui::bindings::ListView| {
+            use mitsuami::winui::windows_core::Interface;
+            let items = v.cast::<mitsuami::winui::bindings::IItemsControl>()?.Items()?;
+            log.borrow_mut().push(items.Size()? as usize);
+            Ok(())
+        }),
+    }
+}
+
+/// The tweak runs on the list view (not the scroll view around it), after
+/// the rows, and again when they change.
+#[mitsuami_test::test]
+async fn a_tweak_runs_on_the_native_list_view_after_its_rows(app: TestApp) {
+    let log = Rc::new(RefCell::new(Vec::new()));
+    let data = signal(items(3));
+    let tweak = log_rows(log.clone());
+    app.mount(move || simple_list(data).native(tweak));
+
+    let props = app.get_by_test_id("list").native_state().props;
+    assert!(props.iter().any(|p| matches!(p, mitsuami::core::Prop::Tweak(_))));
+    if app.is_headless() {
+        assert!(log.borrow().is_empty());
+        return;
+    }
+    assert_eq!(log.borrow().last(), Some(&3));
+    data.update(|d| d.push(Item { id: 3, name: "Item 3".into() }));
+    app.settle().await;
+    assert_eq!(log.borrow().last(), Some(&4));
+}
+
+mitsuami_test::main!();

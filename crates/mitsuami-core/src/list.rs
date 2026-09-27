@@ -16,6 +16,7 @@ use mitsuami_reactive::{IntoValue, Owner, Signal, Value, effect, untrack};
 
 use crate::command::{EventValue, UiEvent};
 use crate::element::{Element, ElementBuilder};
+use crate::tweak::Tweak;
 use crate::ui::{Ui, WeakUi};
 use crate::units::Length;
 use crate::view::{AnyView, View};
@@ -43,7 +44,10 @@ pub struct RowRender<T>(Rc<dyn Fn(T) -> AnyView>);
 ///
 /// Rows are read by screen readers (and found by tests) as list items named
 /// by their text.
-pub struct List<T: 'static, K: 'static, R = RowRender<T>> {
+///
+/// The type's defaults make `List` alone name the widget, for
+/// [`Tweak<List>`](Tweak).
+pub struct List<T: 'static = (), K: 'static = (), R = RowRender<T>> {
     element: Element,
     each: Value<Vec<T>>,
     key: KeyFn<T, K>,
@@ -130,6 +134,16 @@ impl<T: 'static, K: 'static, R> List<T, K, R> {
     /// Connects a [`ListHandle`], to scroll the list from code.
     pub fn handle(mut self, handle: ListHandle<K>) -> Self {
         self.handle = Some(handle);
+        self
+    }
+
+    /// Raw platform settings: see [`Tweak`]. They run on the list view,
+    /// not the scroll view around it. Lists have no semantic options past
+    /// their rows, selection and style: what the platforms offer
+    /// (alternating rows on AppKit, separators on GTK, key navigation on Qt
+    /// and WinUI) is each one's own.
+    pub fn native(mut self, tweak: Tweak<List>) -> Self {
+        tweak.apply(&mut self.element);
         self
     }
 }

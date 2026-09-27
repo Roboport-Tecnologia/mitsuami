@@ -492,4 +492,41 @@ async fn select_grace(app: &TestApp) {
     app.get_by_role(Role::ListItem, "Grace Hopper grace@example.com").select().await;
 }
 
+/// A raw platform setting through `.native()`, on the list view: striped
+/// rows on AppKit, separators on GTK. Qt's and WinUI's tweaks change key
+/// navigation, which a still capture doesn't show.
+#[mitsuami_test::story(sizes = [(280, fit)], play = select_grace)]
+fn list_tweaked() -> impl View {
+    let selected = signal(Vec::<u32>::new());
+    Column::new().child(
+        List::new(
+            || CONTACTS.to_vec(),
+            |c: &Contact| c.id,
+            |c| {
+                Column::new()
+                    .padding_x(12)
+                    .padding_y(6)
+                    .children((Text::new(c.name), Text::new(c.email).text_style(TextStyle::Caption)))
+            },
+        )
+        .selected(selected)
+        .native(list_tweak())
+        .height(180),
+    )
+}
+
+fn list_tweak() -> Tweak<List> {
+    platform! {
+        macos => mitsuami::appkit::tweak(|t: &mitsuami::appkit::objc2_app_kit::NSTableView| {
+            t.setUsesAlternatingRowBackgroundColors(true)
+        }),
+        gtk => mitsuami::gtk::tweak(|v: &mitsuami::gtk::gtk::ListView| v.set_show_separators(true)),
+        kde => mitsuami::kirigami::tweak(|v: &mitsuami::kirigami::QmlObject| v.set_bool("keyNavigationWraps", true)),
+        windows => mitsuami::winui::tweak(|v: &mitsuami::winui::bindings::ListView| {
+            use mitsuami::winui::windows_core::Interface;
+            v.cast::<mitsuami::winui::bindings::IListViewBase>()?.SetSingleSelectionFollowsFocus(false)
+        }),
+    }
+}
+
 mitsuami_test::main!();

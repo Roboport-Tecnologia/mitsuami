@@ -998,7 +998,11 @@ impl State {
     fn run_tweak(&self, id: NodeId) {
         let node = &self.nodes[&id];
         if let Some(run) = node.tweak.as_ref().and_then(|tweak| tweak.downcast_ref::<crate::tweak::TweakFn>()) {
-            run(node.widget.widget());
+            match &node.widget {
+                // The list view, not the scrolled window around it.
+                Widget::List(list) => run(list.view.upcast_ref()),
+                widget => run(widget.widget()),
+            }
         }
     }
 

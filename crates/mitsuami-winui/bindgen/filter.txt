@@ -85,7 +85,7 @@ Microsoft.UI.Xaml.Controls.IScrollViewer::{get_HorizontalOffset, get_IsScrollIne
 Microsoft.UI.Xaml.Controls.ScrollBarVisibility
 Microsoft.UI.Xaml.Controls.ScrollMode
 Microsoft.UI.Xaml.Controls.ListView::CreateInstance
-Microsoft.UI.Xaml.Controls.IListViewBase::{get_SelectionMode, put_SelectionMode, get_SelectedItems, ScrollIntoView, add_ContainerContentChanging, remove_ContainerContentChanging}
+Microsoft.UI.Xaml.Controls.IListViewBase::{get_SelectionMode, get_SingleSelectionFollowsFocus, put_SingleSelectionFollowsFocus, put_SelectionMode, get_SelectedItems, ScrollIntoView, add_ContainerContentChanging, remove_ContainerContentChanging}
 Microsoft.UI.Xaml.Controls.ListViewSelectionMode
 Microsoft.UI.Xaml.Controls.IContainerContentChangingEventArgs::{get_ItemContainer, get_InRecycleQueue, get_Item, put_Handled}
 Microsoft.UI.Xaml.Controls.ListViewItem::{}
