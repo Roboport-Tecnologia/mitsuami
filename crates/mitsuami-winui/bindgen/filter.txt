@@ -28,7 +28,7 @@ Microsoft.UI.WindowId
 
 Microsoft.UI.Xaml.UIElement::{}
 Microsoft.UI.Xaml.IUIElement::{UpdateLayout, put_Clip, get_FocusState, put_TabIndex, put_IsTabStop, Measure, get_DesiredSize, get_XamlRoot, put_XamlRoot, Focus, put_TabFocusNavigation, get_KeyboardAccelerators, add_GotFocus, remove_GotFocus, add_LostFocus, remove_LostFocus, add_KeyDown, remove_KeyDown, add_PreviewKeyDown, remove_PreviewKeyDown, add_PointerPressed, remove_PointerPressed, add_PointerReleased, remove_PointerReleased, add_PointerWheelChanged, remove_PointerWheelChanged, add_DoubleTapped, remove_DoubleTapped, TransformToVisual, get_Visibility, put_Visibility}
-Microsoft.UI.Xaml.IFrameworkElement::{get_Width, put_Width, get_Height, put_Height, put_HorizontalAlignment, put_VerticalAlignment, put_RequestedTheme, put_Style, get_ActualWidth, get_ActualHeight, put_MinWidth, add_SizeChanged, remove_SizeChanged, add_Loaded, remove_Loaded, get_IsLoaded}
+Microsoft.UI.Xaml.IFrameworkElement::{get_Width, put_Width, get_Height, put_Height, put_HorizontalAlignment, put_VerticalAlignment, put_RequestedTheme, put_Style, get_ActualWidth, get_ActualHeight, put_MinWidth, add_SizeChanged, remove_SizeChanged, add_Loaded, remove_Loaded, get_IsLoaded, put_Margin}
 Microsoft.UI.Xaml.ISizeChangedEventArgs::get_NewSize
 Microsoft.UI.Xaml.IRoutedEventArgs::get_OriginalSource
 Microsoft.UI.Xaml.RoutedEventHandler
@@ -70,7 +70,7 @@ Microsoft.UI.Xaml.Controls.TextBlock::CreateInstance
 Microsoft.UI.Xaml.Controls.ITextBlock::{get_Text, put_Text, put_TextWrapping, get_MaxLines, put_MaxLines, put_TextTrimming, put_CharacterSpacing, put_FontSize, put_FontWeight, put_FontFamily}
 Microsoft.UI.Xaml.Media.FontFamily::CreateInstanceWithName
 Windows.UI.Text.FontWeight
-Microsoft.UI.Xaml.Controls.IControl::{get_IsEnabled, put_IsEnabled, put_FontSize, put_FontWeight, put_FontFamily, put_Background, put_BorderThickness, get_CornerRadius, put_CornerRadius}
+Microsoft.UI.Xaml.Controls.IControl::{get_IsEnabled, put_IsEnabled, put_FontSize, put_FontWeight, put_FontFamily, put_Background, put_BorderThickness, get_CornerRadius, put_CornerRadius, put_VerticalContentAlignment}
 Microsoft.UI.Xaml.Thickness
 Microsoft.UI.Xaml.Controls.IContentControl::{get_Content, put_Content, get_ContentTemplateRoot}
 Microsoft.UI.Xaml.Controls.Button::CreateInstance

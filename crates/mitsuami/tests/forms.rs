@@ -169,8 +169,12 @@ async fn read_only_follows_its_signal(app: TestApp) {
     read_only.set(false);
     app.expect(by_label("Field")).to_be_editable().await;
     assert!(app.get_by_label("Field").native_state().props.contains(&Prop::ReadOnly(false)));
+    // The field has had focus since the window opened, so the text goes
+    // where the app's set left the caret: GTK leaves it at the start,
+    // AppKit at the end.
     app.get_by_label("Field").type_text("!").await;
-    assert_eq!(value.get_untracked(), "second!");
+    let typed = value.get_untracked();
+    assert!(typed == "second!" || typed == "!second", "{typed}");
 }
 
 /// Logs the text the native field shows, each time the tweak runs.

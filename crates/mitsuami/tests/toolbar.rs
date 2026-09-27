@@ -51,6 +51,17 @@ async fn its_items_are_at_the_trailing_end_in_order(app: TestApp) {
     assert!(second.x() > width / 2.0, "{second:?} in {width}");
 }
 
+/// Every platform's bar centres its items, whatever their heights.
+#[mitsuami_test::test]
+async fn its_items_are_centred_in_it(app: TestApp) {
+    app.mount(|| Toolbar::new().children((Text::new("Ready"), Button::new("Add"))));
+
+    let (text, button) = (app.get_by_text("Ready").frame(), app.get_by_role(Role::Button, "Add").frame());
+    assert!(text.height() < button.height(), "{text:?} {button:?}");
+    let centre = |r: Rect| r.y() + r.height() / 2.0;
+    assert!((centre(text) - centre(button)).abs() <= 1.0, "{text:?} {button:?}");
+}
+
 /// Each item is as big as what's in it, and follows it.
 #[mitsuami_test::test]
 async fn its_items_are_as_big_as_their_content(app: TestApp) {
@@ -108,6 +119,7 @@ async fn its_controls_work(app: TestApp) {
             Text::new(move || format!("{} machines", count.get())),
         ))
     });
+    app.expect(by_role(Role::Button, "Add")).to_be_visible().await;
 
     app.get_by_role(Role::Button, "Add").click().await;
     app.get_by_role(Role::Button, "Add").click().await;

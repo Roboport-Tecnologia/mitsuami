@@ -246,7 +246,14 @@ impl List {
                 events.emit(id, UiEvent::Changed(EventValue::Rows(keys)));
             }
         });
+        // The swap takes the focused row out of the view, but the window
+        // keeps it as its focus, so keys go nowhere. Focus stays in the
+        // list, as in AppKit's tables.
+        let focused = self.view.root().and_then(|r| r.focus()).is_some_and(|f| f.is_ancestor(&self.view));
         self.view.set_model(Some(&model));
+        if focused {
+            self.view.grab_focus();
+        }
         let kept: Vec<RowKey> = match mode {
             SelectionMode::None => Vec::new(),
             SelectionMode::Single => selected.iter().take(1).copied().collect(),
