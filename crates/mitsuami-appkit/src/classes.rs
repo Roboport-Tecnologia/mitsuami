@@ -81,7 +81,12 @@ define_class!(
             let event = match kind {
                 WidgetKind::Button => UiEvent::Click,
                 WidgetKind::Checkbox => match sender.downcast_ref::<NSButton>() {
-                    Some(b) => UiEvent::Changed(EventValue::Bool(b.state() == NSControlStateValueOn)),
+                    Some(b) => {
+                        // A click leaves the mixed state; later clicks
+                        // mustn't cycle back into it.
+                        b.setAllowsMixedState(false);
+                        UiEvent::Changed(EventValue::Bool(b.state() == NSControlStateValueOn))
+                    }
                     None => return,
                 },
                 WidgetKind::Switch => match sender.downcast_ref::<NSSwitch>() {

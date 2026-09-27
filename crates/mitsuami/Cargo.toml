@@ -68,6 +68,10 @@ name = "buttons"
 harness = false
 
 [[test]]
+name = "checkbox"
+harness = false
+
+[[test]]
 name = "select"
 harness = false
 

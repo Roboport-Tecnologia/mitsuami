@@ -398,7 +398,7 @@ Button::new("Continue").role(ButtonRole::Default).native(platform! {
 - `tweak_with(value, |b, v| …)` runs again when the value changes; only the tweak is sent again.
 - A tweak can make the native control disagree with the core's props (an icon for a label, say); the mirror check then fails in tests. Set what the semantic props don't.
 - `_ => Tweak::none()` leaves the other platforms alone. Headless tests keep the tweak but don't run it.
-- The widget's type names the native one (`Tweakable`): `Button` is `NSButton`, `gtk::Button`, a `QQC2.Button` item (`QmlObject`, set by property name) and XAML's `Button`, whose closure returns a `windows_core::Result`.
+- The widget's type names the native one (`Tweakable`): `Button` is `NSButton`, `gtk::Button`, a `QQC2.Button` item (`QmlObject`, set by property name) and XAML's `Button`, whose closure returns a `windows_core::Result`; `Checkbox` is `NSButton`, `gtk::CheckButton`, a `QQC2.CheckBox` item and XAML's `CheckBox`.
 
 ## 7. Accessibility and i18n affordances (designed in now, implemented later)
 
@@ -814,6 +814,15 @@ Things the AppKit backend taught us, some of them now part of the contract:
 - **Tweaks run inside `apply`,** with events muted where the backend mutes them. `Tweakable` lives in each backend, which now depends on `mitsuami-widgets`.
 - **Per-widget examples:** `examples/button.rs` shows every role in every style, a playground of the semantic props, and one tweak that differs per platform. Other widgets get one each as they're refactored.
 - **Run on AppKit only:** GTK, Kirigami and WinUI are only type-checked, and CI hasn't run them; `SubtleButtonStyle` on WinUI has never run.
+
+### Checkbox: the mixed state and tweaks
+
+- **`Checkbox::mixed`** shows the mixed state over `checked` (some of what the box stands for is checked, as in "Select all"). Every platform has it: `NSControlStateValueMixed`, GTK's `inconsistent`, Qt's partly checked `checkState`, XAML's null `IsChecked`. The a11y tree has `mixed` beside `checked`.
+- **A click leaves the mixed state, and lands where the platform lands:** AppKit checks the box (run); Qt's cycle from partly checked goes to checked; XAML's toggle from null goes to unchecked, as far as its toggle rule goes; GTK flips `active` underneath. The box reports what it landed on, the core absorbs `Mixed(false)`, and the app works out `mixed` again. Headless checks the box. Tests only check that the box leaves the mixed state and reports where it went.
+- **Clicks never go back into it.** AppKit only allows the mixed state while it's shown, and Qt's `tristate` (which a partly checked `checkState` turns on) goes off after a click, so user clicks can't cycle into it. GTK leaves `inconsistent` to the app, so the backend clears it on a user toggle, as GTK apps do.
+- **`Checked` is kept underneath while mixed:** AppKit and Qt keep it on the node (the control has one state), GTK's `active` holds it, and WinUI keeps it in `shown_checked`; leaving the mixed state always emits, whatever it lands on.
+- **Tweaks as for buttons.** The example and story tweaks: the box after its label on AppKit (`imagePosition` trailing, captured), GTK's `selection-mode` class (a round check where the theme has one), Qt's `spacing`, a round box on WinUI (`CornerRadius`).
+- **Run on AppKit only:** GTK, Kirigami and WinUI are only type-checked, and CI hasn't run them; where Qt and WinUI land from the mixed state is from their documented toggle rules, not seen.
 
 ### M2 (GTK 4)
 

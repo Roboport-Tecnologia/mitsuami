@@ -39,6 +39,7 @@ impl<'a> Locator<'a> {
                             description: None,
                             value: None,
                             checked: None,
+                            mixed: false,
                             selected: None,
                             enabled: true,
                             test_id: node.test_id.clone(),

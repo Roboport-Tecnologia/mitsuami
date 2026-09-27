@@ -579,7 +579,13 @@ impl Backend for HeadlessBackend {
                 state.emit(id, UiEvent::Click);
             }
             (A11yAction::Activate, WidgetKind::Checkbox | WidgetKind::Switch) => {
-                let checked = !find_prop!(state.nodes[&id].props, Checked).unwrap_or(false);
+                // Out of the mixed state, a click checks the box, as on
+                // AppKit and Qt.
+                let props = &state.nodes[&id].props;
+                let checked = find_prop!(props, Mixed) == Some(true) || !find_prop!(props, Checked).unwrap_or(false);
+                if find_prop!(props, Mixed) == Some(true) {
+                    state.set_prop(id, Prop::Mixed(false));
+                }
                 state.set_prop(id, Prop::Checked(checked));
                 state.focus(id);
                 state.emit(id, UiEvent::Changed(EventValue::Bool(checked)));

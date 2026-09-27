@@ -216,6 +216,10 @@ pub enum Prop {
     Value(String),
     Placeholder(String),
     Checked(bool),
+    /// A `Checkbox` shows the mixed state (some of what it stands for is
+    /// checked), whatever `Checked` says. A click leaves it: where it lands
+    /// is the platform's call, and the core absorbs it as `Mixed(false)`.
+    Mixed(bool),
     Enabled(bool),
     TextStyle(TextStyle),
     ButtonRole(ButtonRole),

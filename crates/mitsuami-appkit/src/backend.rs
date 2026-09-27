@@ -19,12 +19,12 @@ use objc2::runtime::{AnyObject, ProtocolObject};
 use objc2::{MainThreadMarker, MainThreadOnly, Message, msg_send, sel};
 use objc2_app_kit::{
     NSAccessibility, NSAppearance, NSAppearanceCustomization, NSAppearanceNameAqua, NSAppearanceNameDarkAqua,
-    NSApplication, NSBackingStoreType, NSBitmapFormat, NSButton, NSControl, NSControlStateValueOff,
-    NSControlStateValueOn, NSEvent, NSEventModifierFlags, NSEventType, NSFont, NSFontTextStyle, NSFontTextStyleBody,
-    NSFontTextStyleCallout, NSFontTextStyleCaption1, NSFontTextStyleHeadline, NSFontTextStyleLargeTitle,
-    NSFontTextStyleTitle1, NSFontWeightRegular, NSMenuItem, NSPopUpButton, NSProgressIndicator, NSScreen, NSScrollView,
-    NSSlider, NSStandardKeyBindingResponding, NSSwitch, NSTextField, NSView, NSViewBoundsDidChangeNotification,
-    NSWindow, NSWindowOrderingMode, NSWindowStyleMask, NSWorkspace,
+    NSApplication, NSBackingStoreType, NSBitmapFormat, NSButton, NSControl, NSControlStateValueMixed,
+    NSControlStateValueOff, NSControlStateValueOn, NSEvent, NSEventModifierFlags, NSEventType, NSFont, NSFontTextStyle,
+    NSFontTextStyleBody, NSFontTextStyleCallout, NSFontTextStyleCaption1, NSFontTextStyleHeadline,
+    NSFontTextStyleLargeTitle, NSFontTextStyleTitle1, NSFontWeightRegular, NSMenuItem, NSPopUpButton,
+    NSProgressIndicator, NSScreen, NSScrollView, NSSlider, NSStandardKeyBindingResponding, NSSwitch, NSTextField,
+    NSView, NSViewBoundsDidChangeNotification, NSWindow, NSWindowOrderingMode, NSWindowStyleMask, NSWorkspace,
 };
 use objc2_foundation::{NSArray, NSDictionary, NSNotificationCenter, NSPoint, NSRange, NSRect, NSSize, NSString};
 
@@ -155,6 +155,10 @@ struct Node {
     text_style: Option<TextStyle>,
     role: Option<ButtonRole>,
     button_style: Option<ButtonStyle>,
+    /// Checkboxes: whether the app gave `Mixed`, and the `Checked` the box
+    /// shows when it isn't mixed.
+    mixed: Option<bool>,
+    checked: bool,
     /// The app's raw settings, run after every other prop.
     tweak: Option<Opaque>,
 }
@@ -535,6 +539,8 @@ impl State {
                 text_style: None,
                 role: None,
                 button_style: None,
+                mixed: None,
+                checked: false,
                 tweak: None,
             },
         );
@@ -611,7 +617,21 @@ impl State {
             }
             (Prop::Placeholder(t), Widget::Field(f)) => f.setPlaceholderString(Some(&ns(t))),
             (Prop::Checked(c), Widget::Checkbox(b)) => {
-                b.setState(if *c { NSControlStateValueOn } else { NSControlStateValueOff })
+                node.checked = *c;
+                // The mixed state shows over it.
+                if b.state() != NSControlStateValueMixed {
+                    b.setState(if *c { NSControlStateValueOn } else { NSControlStateValueOff })
+                }
+            }
+            (Prop::Mixed(m), Widget::Checkbox(b)) => {
+                node.mixed = Some(*m);
+                // Allowed only while shown: clicks would cycle through it.
+                b.setAllowsMixedState(*m);
+                b.setState(match (*m, node.checked) {
+                    (true, _) => NSControlStateValueMixed,
+                    (false, true) => NSControlStateValueOn,
+                    (false, false) => NSControlStateValueOff,
+                });
             }
             (Prop::Checked(c), Widget::Switch(s)) => {
                 s.setState(if *c { NSControlStateValueOn } else { NSControlStateValueOff })
@@ -1248,7 +1268,11 @@ impl Backend for AppKitBackend {
             Widget::Button(b) => props.push(Prop::Label(b.title().to_string())),
             Widget::Checkbox(b) => {
                 props.push(Prop::Label(b.title().to_string()));
-                props.push(checked(b.state()));
+                let mixed = b.state() == NSControlStateValueMixed;
+                props.push(if mixed { Prop::Checked(node.checked) } else { checked(b.state()) });
+                if node.mixed.is_some() {
+                    props.push(Prop::Mixed(mixed));
+                }
             }
             Widget::Switch(s) => {
                 if let Some(label) = s.accessibilityLabel() {

@@ -242,6 +242,11 @@ impl Widget {
     }
 }
 
+/// `Qt::CheckState`, a `CheckBox`'s `checkState`.
+const UNCHECKED: i32 = 0;
+const PARTIALLY_CHECKED: i32 = 1;
+const CHECKED: i32 = 2;
+
 struct Node {
     kind: WidgetKind,
     widget: Widget,
@@ -252,6 +257,10 @@ struct Node {
     text_style: Option<TextStyle>,
     role: Option<ButtonRole>,
     button_style: Option<ButtonStyle>,
+    /// Checkboxes: whether the app gave `Mixed`, and the `Checked` the box
+    /// shows when it isn't mixed.
+    mixed: Option<bool>,
+    checked: bool,
     /// The app's raw settings, run after every other prop.
     tweak: Option<Opaque>,
     scroll_axes: Option<ScrollAxes>,
@@ -590,6 +599,11 @@ impl State {
                 let toggle = QmlObject::load(&if switch { qml::switch() } else { qml::checkbox() });
                 // `toggled` is the user's; `checkedChanged` fires for ours too.
                 toggle.connect("toggled()", move || {
+                    // Setting `checkState` to partly checked makes a box
+                    // tristate; after a click, clicks mustn't cycle back.
+                    if !switch {
+                        toggle.set_bool("tristate", false);
+                    }
                     events.emit(id, UiEvent::Changed(EventValue::Bool(toggle.bool("checked"))))
                 });
                 if switch { Widget::Switch(toggle) } else { Widget::Checkbox(toggle) }
@@ -657,6 +671,8 @@ impl State {
                 text_style: None,
                 role: None,
                 button_style: None,
+                mixed: None,
+                checked: false,
                 tweak: None,
                 scroll_axes: None,
                 a11y_label: None,
@@ -777,7 +793,23 @@ impl State {
                 }
             }
             (Prop::Placeholder(t), Widget::Field(f)) => f.set_str("placeholderText", t),
-            (Prop::Checked(c), Widget::Checkbox(b) | Widget::Switch(b)) => b.set_bool("checked", *c),
+            (Prop::Checked(c), Widget::Checkbox(b)) => {
+                node.checked = *c;
+                // The mixed state shows over it.
+                if b.int("checkState") != PARTIALLY_CHECKED {
+                    b.set_bool("checked", *c);
+                }
+            }
+            (Prop::Checked(c), Widget::Switch(b)) => b.set_bool("checked", *c),
+            (Prop::Mixed(m), Widget::Checkbox(b)) => {
+                node.mixed = Some(*m);
+                if *m {
+                    b.set_int("checkState", PARTIALLY_CHECKED);
+                } else {
+                    b.set_bool("tristate", false);
+                    b.set_int("checkState", if node.checked { CHECKED } else { UNCHECKED });
+                }
+            }
             (Prop::Enabled(e), w) if w.is_control() => w.item().set_bool("enabled", *e),
             (Prop::TextStyle(style), w) if w.is_control() => {
                 w.item().set_int("mitsuamiTextStyle", qml::text_style(*style));
@@ -1302,7 +1334,11 @@ impl Backend for KirigamiBackend {
             Widget::Button(b) => props.push(Prop::Label(b.str("text"))),
             Widget::Checkbox(c) => {
                 props.push(Prop::Label(c.str("text")));
-                props.push(Prop::Checked(c.bool("checked")));
+                let mixed = c.int("checkState") == PARTIALLY_CHECKED;
+                props.push(Prop::Checked(if mixed { node.checked } else { c.bool("checked") }));
+                if node.mixed.is_some() {
+                    props.push(Prop::Mixed(mixed));
+                }
             }
             Widget::Switch(s) => {
                 props.extend(node.a11y_label.clone().map(Prop::Label));

@@ -4,7 +4,7 @@ use std::rc::Rc;
 
 use mitsuami_core::reactive::{IntoValue, Value};
 use mitsuami_core::{Opaque, Tweak};
-use mitsuami_widgets::Button;
+use mitsuami_widgets::{Button, Checkbox};
 use windows_core::Interface;
 
 use crate::bindings as w;
@@ -16,6 +16,10 @@ pub trait Tweakable {
 
 impl Tweakable for Button {
     type Native = w::Button;
+}
+
+impl Tweakable for Checkbox {
+    type Native = w::CheckBox;
 }
 
 /// Settings as the backend runs them, on the node's element.

@@ -5,7 +5,7 @@ use std::rc::Rc;
 use gtk::prelude::*;
 use mitsuami_core::reactive::{IntoValue, Value};
 use mitsuami_core::{Opaque, Tweak};
-use mitsuami_widgets::Button;
+use mitsuami_widgets::{Button, Checkbox};
 
 /// A built-in widget, and the GTK widget that shows it.
 pub trait Tweakable {
@@ -14,6 +14,10 @@ pub trait Tweakable {
 
 impl Tweakable for Button {
     type Native = gtk::Button;
+}
+
+impl Tweakable for Checkbox {
+    type Native = gtk::CheckButton;
 }
 
 /// Settings as the backend runs them, on the node's widget.

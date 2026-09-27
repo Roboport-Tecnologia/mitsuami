@@ -52,6 +52,12 @@ impl Events {
         self.0.muted.set(was);
     }
 
+    /// Whether the backend is applying commands: signals are ours, not the
+    /// user's.
+    pub(crate) fn is_muted(&self) -> bool {
+        self.0.muted.get()
+    }
+
     pub(crate) fn muted<R>(&self, f: impl FnOnce() -> R) -> R {
         let was = self.0.muted.replace(true);
         let result = f();

@@ -154,6 +154,8 @@ struct Node {
     text_style: Option<TextStyle>,
     role: Option<ButtonRole>,
     button_style: Option<ButtonStyle>,
+    /// Checkboxes: whether the app gave `Mixed`.
+    mixed: Option<bool>,
     /// The app's raw settings, run after every other prop.
     tweak: Option<Opaque>,
     /// Switches, selects, sliders and progress bars have no caption, only
@@ -589,7 +591,14 @@ impl State {
             }
             WidgetKind::Checkbox => {
                 let check = gtk::CheckButton::new();
-                check.connect_toggled(move |c| events.emit(id, UiEvent::Changed(EventValue::Bool(c.is_active()))));
+                check.connect_toggled(move |c| {
+                    // GTK leaves `inconsistent` to the app, and apps clear it
+                    // when the user toggles the box.
+                    if !events.is_muted() {
+                        c.set_inconsistent(false);
+                    }
+                    events.emit(id, UiEvent::Changed(EventValue::Bool(c.is_active())))
+                });
                 Widget::Checkbox(check)
             }
             WidgetKind::Switch => {
@@ -652,6 +661,7 @@ impl State {
                 text_style: None,
                 role: None,
                 button_style: None,
+                mixed: None,
                 tweak: None,
                 a11y_label: None,
                 settings_handlers,
@@ -797,6 +807,10 @@ impl State {
             }
             (Prop::Placeholder(t), Widget::Entry(e)) => e.set_placeholder_text(Some(t)),
             (Prop::Checked(c), Widget::Checkbox(b)) => b.set_active(*c),
+            (Prop::Mixed(m), Widget::Checkbox(b)) => {
+                b.set_inconsistent(*m);
+                node.mixed = Some(*m);
+            }
             (Prop::Checked(c), Widget::Switch(s)) => s.set_active(*c),
             (Prop::Enabled(e), w) if w.is_control() => w.widget().set_sensitive(*e),
             (Prop::TextStyle(style), w) if w.is_control() => {
@@ -1391,6 +1405,9 @@ impl Backend for GtkBackend {
             Widget::Checkbox(c) => {
                 props.push(Prop::Label(text(c.label())));
                 props.push(Prop::Checked(c.is_active()));
+                if node.mixed.is_some() {
+                    props.push(Prop::Mixed(c.is_inconsistent()));
+                }
             }
             Widget::Switch(s) => {
                 props.extend(node.a11y_label.clone().map(Prop::Label));

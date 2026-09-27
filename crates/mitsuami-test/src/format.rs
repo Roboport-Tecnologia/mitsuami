@@ -30,6 +30,7 @@ fn describe_props(props: &[Prop]) -> String {
                 progress.map_or("indeterminate".to_owned(), |p| Num(p as f32).to_string())
             )),
             Prop::Checked(b) => extra.push(format!("checked={b}")),
+            Prop::Mixed(b) => extra.push(format!("mixed={b}")),
             Prop::Enabled(b) => extra.push(format!("enabled={b}")),
             Prop::TextStyle(s) => extra.push(format!("style={s:?}")),
             Prop::ButtonRole(r) => extra.push(format!("role={r:?}")),
@@ -100,6 +101,9 @@ pub(crate) fn a11y(root: &A11yNode) -> String {
         }
         if let Some(checked) = node.checked {
             let _ = write!(out, " checked={checked}");
+        }
+        if node.mixed {
+            out.push_str(" mixed");
         }
         if node.selected == Some(true) {
             out.push_str(" selected");

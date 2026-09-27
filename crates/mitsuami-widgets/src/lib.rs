@@ -383,6 +383,22 @@ impl Checkbox {
         element.prop(label.into_value(), Prop::Label);
         Checkbox(element)
     }
+
+    /// Shows the mixed state, whatever `checked` says: some of what the box
+    /// stands for is checked, as in a "Select all" box. A click leaves it,
+    /// checked or not as the platform decides (AppKit checks it, GTK flips
+    /// `checked`), and reports that with `on_change`: work out `mixed`
+    /// again from there.
+    pub fn mixed(mut self, mixed: impl IntoValue<bool>) -> Checkbox {
+        self.0.prop(mixed.into_value(), Prop::Mixed);
+        self
+    }
+
+    /// Raw platform settings, past the semantic ones: see [`Tweak`].
+    pub fn native(mut self, tweak: Tweak<Checkbox>) -> Checkbox {
+        tweak.apply(&mut self.0);
+        self
+    }
 }
 
 /// On/off switch. Most platforms draw no caption; the label is its

@@ -1313,6 +1313,12 @@ impl Inner {
                     (WidgetKind::Slider, EventValue::Number(number)) => Prop::Number(*number),
                     _ => return,
                 };
+                // A click takes a checkbox out of the mixed state, on every
+                // platform.
+                if node.kind == WidgetKind::Checkbox && crate::find_prop!(node.props, Mixed) == Some(true) {
+                    node.props.retain(|p| !matches!(p, Prop::Mixed(_)));
+                    node.props.push(Prop::Mixed(false));
+                }
                 node.props.retain(|p| p.key() != prop.key());
                 node.props.push(prop);
             }
@@ -1530,6 +1536,7 @@ impl Inner {
                 WidgetKind::Checkbox | WidgetKind::Switch => Some(crate::find_prop!(props, Checked).unwrap_or(false)),
                 _ => None,
             },
+            mixed: node.kind == WidgetKind::Checkbox && crate::find_prop!(props, Mixed) == Some(true),
             selected,
             enabled: crate::find_prop!(props, Enabled).unwrap_or(true),
             test_id: node.test_id.clone(),

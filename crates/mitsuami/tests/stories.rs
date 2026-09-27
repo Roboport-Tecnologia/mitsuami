@@ -82,6 +82,49 @@ fn toggles() -> impl View {
     ))
 }
 
+/// Every state of a checkbox, enabled and disabled.
+#[mitsuami_test::story(sizes = [(360, fit)])]
+fn checkboxes() -> impl View {
+    let row = |enabled: bool| {
+        Row::new().gap(16).children((
+            Checkbox::new("Unchecked").enabled(enabled),
+            Checkbox::new("Checked").checked(true).enabled(enabled),
+            Checkbox::new("Mixed").mixed(true).enabled(enabled),
+        ))
+    };
+    Column::new().padding(16).gap(8).align(Align::Start).children((row(true), row(false)))
+}
+
+/// A raw platform setting through `.native()`: the box after its label on
+/// AppKit, a round check on GTK and WinUI, more room before the label on
+/// Qt.
+#[mitsuami_test::story(sizes = [(240, fit)])]
+fn checkbox_tweaked() -> impl View {
+    Column::new().padding(16).gap(8).align(Align::Start).children((
+        Checkbox::new("Plain").checked(true),
+        Checkbox::new("Tweaked").checked(true).native(checkbox_tweak()),
+    ))
+}
+
+fn checkbox_tweak() -> Tweak<Checkbox> {
+    platform! {
+        macos => mitsuami::appkit::tweak(|b: &mitsuami::appkit::objc2_app_kit::NSButton| {
+            b.setImagePosition(mitsuami::appkit::objc2_app_kit::NSCellImagePosition::ImageTrailing)
+        }),
+        gtk => mitsuami::gtk::tweak(|b: &mitsuami::gtk::gtk::CheckButton| {
+            use mitsuami::gtk::gtk::prelude::*;
+            b.add_css_class("selection-mode")
+        }),
+        kde => mitsuami::kirigami::tweak(|b: &mitsuami::kirigami::QmlObject| b.set_real("spacing", 24.0)),
+        windows => mitsuami::winui::tweak(|b: &mitsuami::winui::bindings::CheckBox| {
+            use mitsuami::winui::bindings::{CornerRadius, IControl};
+            use mitsuami::winui::windows_core::Interface;
+            let round = CornerRadius { top_left: 10.0, top_right: 10.0, bottom_right: 10.0, bottom_left: 10.0 };
+            b.cast::<IControl>()?.SetCornerRadius(round)
+        }),
+    }
+}
+
 /// Sliders and progress bars as wide as the story; without a step, and
 /// with one.
 #[mitsuami_test::story(sizes = [(240, fit)])]

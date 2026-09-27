@@ -195,6 +195,9 @@ struct Node {
     /// reported to it. Change events that match it are programmatic.
     shown_text: Rc<RefCell<String>>,
     shown_checked: Rc<Cell<bool>>,
+    /// Checkboxes: whether they show the mixed state (`IsChecked` null).
+    /// Leaving it is a change, whatever the value lands on.
+    shown_mixed: Rc<Cell<bool>>,
     /// Selects: the chosen index, or -1.
     shown_index: Rc<Cell<i32>>,
     /// Sliders: the value.
@@ -205,6 +208,8 @@ struct Node {
     text_style: Option<TextStyle>,
     role: Option<ButtonRole>,
     button_style: Option<ButtonStyle>,
+    /// Checkboxes: whether the app gave `Mixed`.
+    mixed: Option<bool>,
     /// The app's raw settings, run after every other prop.
     tweak: Option<Opaque>,
     /// Switches, selects, sliders and progress bars: their label, which is
@@ -883,6 +888,7 @@ impl State {
         let emitter = self.emitter();
         let shown_text = Rc::new(RefCell::new(String::new()));
         let shown_checked = Rc::new(Cell::new(false));
+        let shown_mixed = Rc::new(Cell::new(false));
         let shown_index = Rc::new(Cell::new(-1));
         let shown_number = Rc::new(Cell::new(0.0));
         let offset = Rc::new(Cell::new(Point::ZERO));
@@ -962,7 +968,7 @@ impl State {
                 let checkbox = w::CheckBox::new()?;
                 let toggle: w::IToggleButton = checkbox.cast()?;
                 for checked in [true, false] {
-                    let (emitter, shown) = (emitter.clone(), shown_checked.clone());
+                    let (emitter, shown, mixed) = (emitter.clone(), shown_checked.clone(), shown_mixed.clone());
                     let handler = move |sender: windows_core::Ref<IInspectable>,
                                         _: windows_core::Ref<w::RoutedEventArgs>| {
                         let Some(value) =
@@ -970,7 +976,8 @@ impl State {
                         else {
                             return;
                         };
-                        if shown.replace(value) != value {
+                        let was_mixed = mixed.replace(false);
+                        if shown.replace(value) != value || was_mixed {
                             emitter.emit(id, UiEvent::Changed(EventValue::Bool(value)));
                         }
                     };
@@ -1119,12 +1126,14 @@ impl State {
                 revokers,
                 shown_text,
                 shown_checked,
+                shown_mixed,
                 shown_index,
                 shown_number,
                 offset,
                 text_style: None,
                 role: None,
                 button_style: None,
+                mixed: None,
                 tweak: None,
                 a11y_label: None,
             },
@@ -1247,7 +1256,16 @@ impl State {
             (Prop::Placeholder(t), Widget::Field(f)) => f.cast::<w::ITextBox>()?.SetPlaceholderText(t)?,
             (Prop::Checked(c), Widget::Checkbox(b)) => {
                 node.shown_checked.set(*c);
-                b.cast::<w::IToggleButton>()?.SetIsChecked(Some(*c))?;
+                // The mixed state shows over it.
+                if !node.shown_mixed.get() {
+                    b.cast::<w::IToggleButton>()?.SetIsChecked(Some(*c))?;
+                }
+            }
+            (Prop::Mixed(m), Widget::Checkbox(b)) => {
+                node.mixed = Some(*m);
+                node.shown_mixed.set(*m);
+                let checked = node.shown_checked.get();
+                b.cast::<w::IToggleButton>()?.SetIsChecked(if *m { None } else { Some(checked) })?;
             }
             (Prop::Checked(c), Widget::Switch(s)) => {
                 node.shown_checked.set(*c);
@@ -1515,7 +1533,10 @@ impl State {
                     Widget::Switch(s) => s.cast::<w::IToggleSwitch>().and_then(|s| s.IsOn()).ok(),
                     _ => None,
                 };
-                value.and_then(|v| (node.shown_checked.replace(v) != v).then_some(EventValue::Bool(v)))
+                value.and_then(|v| {
+                    let was_mixed = node.shown_mixed.replace(false);
+                    (node.shown_checked.replace(v) != v || was_mixed).then_some(EventValue::Bool(v))
+                })
             }
             _ => None,
         };
@@ -1994,7 +2015,12 @@ impl Backend for WinUiBackend {
             }
             Widget::Checkbox(b) => {
                 props.extend(unboxed(node.element.cast::<w::IContentControl>().ok()?.Content()).map(Prop::Label));
-                props.push(Prop::Checked(b.cast::<w::IToggleButton>().ok()?.IsChecked().unwrap_or(false)));
+                // `IsChecked` is null while mixed.
+                let shown = b.cast::<w::IToggleButton>().ok()?.IsChecked().ok();
+                props.push(Prop::Checked(shown.unwrap_or(node.shown_checked.get())));
+                if node.mixed.is_some() {
+                    props.push(Prop::Mixed(shown.is_none()));
+                }
             }
             Widget::Switch(s) => {
                 let name = w::AutomationProperties::GetName(&node.element).unwrap_or_default();

@@ -4,7 +4,7 @@ use std::rc::Rc;
 
 use mitsuami_core::reactive::{IntoValue, Value};
 use mitsuami_core::{Opaque, Tweak};
-use mitsuami_widgets::Button;
+use mitsuami_widgets::{Button, Checkbox};
 use objc2::DowncastTarget;
 use objc2_app_kit::{NSButton, NSView};
 
@@ -14,6 +14,10 @@ pub trait Tweakable {
 }
 
 impl Tweakable for Button {
+    type Native = NSButton;
+}
+
+impl Tweakable for Checkbox {
     type Native = NSButton;
 }
 

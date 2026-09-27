@@ -4,7 +4,7 @@ use std::rc::Rc;
 
 use mitsuami_core::reactive::{IntoValue, Value};
 use mitsuami_core::{Opaque, Tweak};
-use mitsuami_widgets::Button;
+use mitsuami_widgets::{Button, Checkbox};
 
 use crate::ffi::QmlObject;
 
@@ -14,6 +14,9 @@ pub trait Tweakable {}
 
 /// A `QQC2.Button`.
 impl Tweakable for Button {}
+
+/// A `QQC2.CheckBox`.
+impl Tweakable for Checkbox {}
 
 /// Settings as the backend runs them, on the node's item.
 pub(crate) type TweakFn = Rc<dyn Fn(QmlObject)>;

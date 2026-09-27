@@ -123,6 +123,8 @@ pub struct A11yNode {
     pub description: Option<String>,
     pub value: Option<String>,
     pub checked: Option<bool>,
+    /// Checkboxes: in the mixed state, whatever `checked` says.
+    pub mixed: bool,
     /// List rows: whether the row is selected.
     pub selected: Option<bool>,
     pub enabled: bool,
