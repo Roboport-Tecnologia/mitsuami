@@ -845,6 +845,8 @@ impl State {
                 }
             }
             (Prop::Placeholder(t), Widget::Entry(e)) => e.set_placeholder_text(Some(t)),
+            // Still focusable and selectable, so its text can be copied.
+            (Prop::ReadOnly(r), Widget::Entry(e)) => e.set_editable(!r),
             (Prop::Checked(c), Widget::Checkbox(b)) => b.set_active(*c),
             (Prop::Mixed(m), Widget::Checkbox(b)) => {
                 b.set_inconsistent(*m);
@@ -1355,6 +1357,9 @@ impl Backend for GtkBackend {
             }
             (A11yAction::SetValue(text), WidgetKind::TextInput) => {
                 let entry = widget.downcast_ref::<gtk::Entry>().ok_or(ActionError::Unsupported)?;
+                if !entry.is_editable() {
+                    return Err(ActionError::ReadOnly);
+                }
                 // One edit, one event (`set_text` may report the deletion
                 // and the insertion separately).
                 events.muted(|| entry.set_text(text));
@@ -1479,6 +1484,11 @@ impl Backend for GtkBackend {
                 // the keys map to instead, on the widgets that handle them:
                 // the entry's inner text widget, and the window for Tab.
                 let entry = widget.downcast_ref::<gtk::Entry>().ok_or(ActionError::Unsupported)?;
+                // It would take the keys and ignore them; nothing can be
+                // typed into it on any platform.
+                if !entry.is_editable() {
+                    return Err(ActionError::ReadOnly);
+                }
                 let focus = widget.root().and_then(|r| r.focus());
                 if owning_node(&map, focus) != Some(id) {
                     entry.grab_focus();
@@ -1517,6 +1527,7 @@ impl Backend for GtkBackend {
                 if let Some(p) = e.placeholder_text() {
                     props.push(Prop::Placeholder(p.to_string()));
                 }
+                props.push(Prop::ReadOnly(!e.is_editable()));
             }
             Widget::Button(b) => props.push(Prop::Label(text(b.label()))),
             Widget::Checkbox(c) => {

@@ -322,6 +322,13 @@ impl TextInput {
         self
     }
 
+    /// Shows the text, which can still be selected, copied and focused, but
+    /// not edited. Unlike a disabled field, it looks and reads as usual.
+    pub fn read_only(mut self, read_only: impl IntoValue<bool>) -> TextInput {
+        self.0.prop(read_only.into_value(), Prop::ReadOnly);
+        self
+    }
+
     /// Called on every edit with the new text.
     pub fn on_input(mut self, handler: impl Fn(String) + 'static) -> TextInput {
         self.0.on(move |event| {
@@ -332,8 +339,8 @@ impl TextInput {
         self
     }
 
-    /// Raw platform settings: see [`Tweak`]. What the platforms offer past
-    /// the text and placeholder (a borderless field on AppKit, icons on GTK, a
+    /// Raw platform settings, past the semantic ones: see [`Tweak`]. What
+    /// the platforms offer (a borderless field on AppKit, icons on GTK, a
     /// length limit on GTK, Qt and WinUI, a header on WinUI) is each one's
     /// own.
     pub fn native(mut self, tweak: Tweak<TextInput>) -> TextInput {

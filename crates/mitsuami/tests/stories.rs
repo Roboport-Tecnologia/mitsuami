@@ -301,6 +301,18 @@ fn spinner_tweak() -> Tweak<Spinner> {
     }
 }
 
+/// Every state of a text field: empty with a placeholder, with text,
+/// read-only (drawn as usual on every platform), disabled.
+#[mitsuami_test::story(sizes = [(240, fit)])]
+fn text_inputs() -> impl View {
+    Column::new().padding(16).gap(8).children((
+        TextInput::new().a11y_label("Empty").placeholder("Your name"),
+        TextInput::new().a11y_label("With text").value("Ada Lovelace"),
+        TextInput::new().a11y_label("Read-only").value("ABCD-1234").read_only(true),
+        TextInput::new().a11y_label("Disabled").value("Ada Lovelace").enabled(false),
+    ))
+}
+
 /// A raw platform setting through `.native()`: no border on AppKit, a
 /// search icon on GTK, a header on WinUI. Qt's tweak limits the length,
 /// which a still capture doesn't show.

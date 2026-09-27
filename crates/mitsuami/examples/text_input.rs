@@ -1,12 +1,11 @@
 //! Text input: `cargo run -p mitsuami --example text_input`.
 //!
-//! - A few fields: empty with a placeholder, with text, disabled, and one
-//!   with more text than fits.
-//! - A playground: type, change the placeholder, turn it off, press Return
-//!   to submit.
-//! - A raw platform setting, through `.native()`. Text fields have no
-//!   semantic options past their text and placeholder that every platform
-//!   shares: what platforms offer is each one's own.
+//! - A few fields: empty with a placeholder, with text, read-only,
+//!   disabled, and one with more text than fits.
+//! - A playground: type, change the placeholder, make it read-only or turn
+//!   it off, press Return to submit.
+//! - A raw platform setting, through `.native()`. Read-only is the one
+//!   option every platform's text field has: the rest is each one's own.
 
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
@@ -29,6 +28,9 @@ fn gallery() -> impl View {
                 TextInput::new().a11y_label("Empty").placeholder("A placeholder"),
                 Text::new("With text"),
                 TextInput::new().a11y_label("With text").value("Ada Lovelace"),
+                // Selectable and copyable, and read as usual.
+                Text::new("Read-only"),
+                TextInput::new().a11y_label("Read-only").value("ABCD-1234-EFGH").read_only(true),
                 Text::new("Disabled"),
                 TextInput::new().a11y_label("Disabled").value("Can't edit this").enabled(false),
                 // Scrolls as the platform scrolls it.
@@ -44,6 +46,7 @@ fn gallery() -> impl View {
 fn playground() -> impl View {
     let text = signal(String::new());
     let placeholder = signal("Your name".to_string());
+    let read_only = signal(false);
     let enabled = signal(true);
     let submitted = signal(None::<String>);
     Column::new().gap(Spacing::Md).children((
@@ -56,6 +59,8 @@ fn playground() -> impl View {
             .children((
                 Text::new("Placeholder"),
                 TextInput::new().a11y_label("Placeholder").bind(placeholder),
+                Text::new("Read-only"),
+                Switch::new("Read-only").bind(read_only),
                 Text::new("Enabled"),
                 Switch::new("Enabled").bind(enabled),
                 Text::new("Name"),
@@ -63,6 +68,7 @@ fn playground() -> impl View {
                     .a11y_label("Name")
                     .placeholder(placeholder)
                     .bind(text)
+                    .read_only(read_only)
                     .enabled(enabled)
                     .on_submit(move || submitted.set(Some(text.get_untracked()))),
             )),

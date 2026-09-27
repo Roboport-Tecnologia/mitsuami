@@ -812,6 +812,8 @@ impl State {
                 }
             }
             (Prop::Placeholder(t), Widget::Field(f)) => f.set_str("placeholderText", t),
+            // Still focusable and selectable, so its text can be copied.
+            (Prop::ReadOnly(r), Widget::Field(f)) => f.set_bool("readOnly", *r),
             (Prop::Checked(c), Widget::Checkbox(b)) => {
                 node.checked = *c;
                 // The mixed state shows over it.
@@ -1194,6 +1196,9 @@ impl Backend for KirigamiBackend {
                 item.set_int("mitsuamiChoice", index as i32);
             }
             (A11yAction::SetValue(text), WidgetKind::TextInput) => {
+                if item.bool("readOnly") {
+                    return Err(ActionError::ReadOnly);
+                }
                 item.set_str("text", text);
                 // The caret ends up after the new text, as if it was typed.
                 item.set_int("cursorPosition", text.chars().count() as i32);
@@ -1305,6 +1310,11 @@ impl Backend for KirigamiBackend {
                     Ok(())
                 }
                 (WidgetKind::TextInput, _) => {
+                    // It would take the keys and ignore them; nothing can be
+                    // typed into it on any platform.
+                    if widget_item.bool("readOnly") {
+                        return Err(ActionError::ReadOnly);
+                    }
                     // Real key events, through Qt's text editing.
                     let window = window.ok_or(ActionError::Unsupported)?;
                     if window.focus_item().and_then(|f| f.node()) != Some(node_key(id)) {
@@ -1353,6 +1363,7 @@ impl Backend for KirigamiBackend {
             Widget::Field(f) => {
                 props.push(Prop::Value(f.str("text")));
                 props.push(Prop::Placeholder(f.str("placeholderText")));
+                props.push(Prop::ReadOnly(f.bool("readOnly")));
             }
             Widget::Button(b) => props.push(Prop::Label(b.str("text"))),
             Widget::Checkbox(c) => {

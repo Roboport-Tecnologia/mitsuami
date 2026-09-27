@@ -1278,6 +1278,8 @@ impl State {
                 }
             }
             (Prop::Placeholder(t), Widget::Field(f)) => f.cast::<w::ITextBox>()?.SetPlaceholderText(t)?,
+            // Still focusable and selectable, so its text can be copied.
+            (Prop::ReadOnly(r), Widget::Field(f)) => f.cast::<w::ITextBox>()?.SetIsReadOnly(*r)?,
             (Prop::Checked(c), Widget::Checkbox(b)) => {
                 node.shown_checked.set(*c);
                 // The mixed state shows over it.
@@ -1850,6 +1852,9 @@ impl Backend for WinUiBackend {
                 self.state.borrow().report_value(id);
             }
             (A11yAction::SetValue(text), WidgetKind::TextInput) => {
+                if element.cast::<w::ITextBox>().and_then(|f| f.IsReadOnly()).unwrap_or(false) {
+                    return Err(ActionError::ReadOnly);
+                }
                 // The Value pattern where XAML offers it, else the property.
                 let value = peer()?.GetPattern(w::PatternInterface::Value).and_then(|p| p.cast::<w::IValueProvider>());
                 let set = match value {
@@ -1976,6 +1981,11 @@ impl Backend for WinUiBackend {
         match (widget_kind, key) {
             (WidgetKind::TextInput, Key::Char(_) | Key::Backspace | Key::Enter | Key::Tab) => {
                 let field: w::ITextBox = element.cast().map_err(|_| ActionError::Unsupported)?;
+                // It would take the keys and ignore them (our edits go
+                // around that); nothing can be typed into it on any platform.
+                if field.IsReadOnly().unwrap_or(false) {
+                    return Err(ActionError::ReadOnly);
+                }
                 let ui: w::IUIElement = element.cast().map_err(|_| ActionError::Unsupported)?;
                 if ui.FocusState().unwrap_or(w::FocusState::Unfocused) == w::FocusState::Unfocused {
                     self.state.borrow().focus(id, w::FocusState::Keyboard);
@@ -2034,6 +2044,7 @@ impl Backend for WinUiBackend {
             Widget::Field(f) => {
                 let field: w::ITextBox = f.cast().ok()?;
                 props.push(Prop::Value(field.Text().ok()?));
+                props.push(Prop::ReadOnly(field.IsReadOnly().ok()?));
                 let placeholder = field.PlaceholderText().ok()?;
                 if !placeholder.is_empty() {
                     props.push(Prop::Placeholder(placeholder));

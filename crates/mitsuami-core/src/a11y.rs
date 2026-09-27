@@ -101,6 +101,8 @@ pub enum A11yAction {
 pub enum ActionError {
     UnknownNode,
     Disabled,
+    /// A read-only text field can't be edited.
+    ReadOnly,
     Unsupported,
 }
 
@@ -109,6 +111,7 @@ impl std::fmt::Display for ActionError {
         f.write_str(match self {
             ActionError::UnknownNode => "the node does not exist",
             ActionError::Disabled => "the control is disabled",
+            ActionError::ReadOnly => "the control is read-only",
             ActionError::Unsupported => "the control does not support this action",
         })
     }
@@ -125,6 +128,8 @@ pub struct A11yNode {
     pub checked: Option<bool>,
     /// Checkboxes: in the mixed state, whatever `checked` says.
     pub mixed: bool,
+    /// Text fields: shown, but not editable.
+    pub read_only: bool,
     /// List rows: whether the row is selected.
     pub selected: Option<bool>,
     pub enabled: bool,

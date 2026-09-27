@@ -40,6 +40,7 @@ impl<'a> Locator<'a> {
                             value: None,
                             checked: None,
                             mixed: false,
+                            read_only: false,
                             selected: None,
                             enabled: true,
                             test_id: node.test_id.clone(),
@@ -112,6 +113,10 @@ impl<'a> Locator<'a> {
 
     pub fn is_enabled(&self) -> bool {
         self.node().enabled
+    }
+
+    pub fn is_read_only(&self) -> bool {
+        self.node().read_only
     }
 
     /// Some part of it can be seen: not hidden, not zero-sized, and not
@@ -348,6 +353,14 @@ impl<'a> Expectation<'a> {
 
     pub async fn to_be_disabled(&self) {
         self.check(|l| if l.try_node()?.enabled { Err("to be disabled".into()) } else { Ok(()) }).await;
+    }
+
+    pub async fn to_be_read_only(&self) {
+        self.check(|l| if l.try_node()?.read_only { Ok(()) } else { Err("to be read-only".into()) }).await;
+    }
+
+    pub async fn to_be_editable(&self) {
+        self.check(|l| if l.try_node()?.read_only { Err("to be editable".into()) } else { Ok(()) }).await;
     }
 
     /// Frame in window coordinates.

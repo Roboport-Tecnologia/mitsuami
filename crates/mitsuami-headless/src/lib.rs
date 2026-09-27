@@ -595,6 +595,9 @@ impl Backend for HeadlessBackend {
                 state.emit(id, UiEvent::Changed(EventValue::Bool(checked)));
             }
             (A11yAction::SetValue(text), WidgetKind::TextInput) => {
+                if find_prop!(state.nodes[&id].props, ReadOnly) == Some(true) {
+                    return Err(ActionError::ReadOnly);
+                }
                 state.set_prop(id, Prop::Value(text.clone()));
                 state.emit(id, UiEvent::Changed(EventValue::Text(text.clone())));
             }
@@ -701,6 +704,11 @@ impl Backend for HeadlessBackend {
                 return Ok(());
             }
         };
+        // Nothing can be typed into a read-only field (AppKit's can't even
+        // take focus from the keyboard).
+        if kind == WidgetKind::TextInput && find_prop!(node.props, ReadOnly) == Some(true) {
+            return Err(ActionError::ReadOnly);
+        }
         match (kind, key) {
             (WidgetKind::TextInput, Key::Char(_) | Key::Backspace) => {
                 state.focus(id);

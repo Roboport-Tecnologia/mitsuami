@@ -93,6 +93,7 @@ Validate as you go. Panic on protocol violations such as an unknown node, a doub
 | `Label` | Button, Checkbox, Switch, Select, Slider, Progress | Only buttons and checkboxes show it; for the others it's the accessible name. |
 | `Value` | TextInput | Don't re-set a value the widget already shows. |
 | `Placeholder` | TextInput | |
+| `ReadOnly` | TextInput | Shows the text, still selectable, but not editable: AppKit `editable` off (`selectable` stays on), GTK and XAML `editable` / `IsReadOnly`, Qt `readOnly`. Keyboard focus is the platform's: AppKit's read-only fields take it from a click, and from Tab only with Full Keyboard Access. The app can still set `Value`. Report it as the field shows it. |
 | `Checked` | Checkbox, Switch | Setting it programmatically **must not** emit `Changed` (§4). While a checkbox is mixed, keep it for when it isn't, and report it back. |
 | `Mixed` | Checkbox | Sent only if the app gave one. Shows the mixed state over `Checked` (AppKit `NSControlStateValueMixed`, GTK `inconsistent`, Qt `checkState` partly checked, WinUI `IsChecked` null). A user click leaves it, landing where the platform lands, and emits `Changed(Bool)`; the core absorbs that as `Mixed(false)`. Don't let later clicks cycle back into it: turn off AppKit's `allowsMixedState` and Qt's `tristate` after a click; clear GTK's `inconsistent` on a user toggle, as GTK apps do. Setting it **must not** emit `Changed`. Report it as the native control shows it. |
 | `Options` | Select | The options' texts, in order; texts may repeat. Replacing them keeps the chosen index if it's still an option, else chooses the first (none without options), as the core does: it sends `SelectedIndex` only when that changes it. Measure the select as the platform sizes it (widest or chosen option). |
@@ -182,10 +183,11 @@ These make one test suite run against every backend.
   - `Focus`: move keyboard focus to the control.
   - `Select` on a List's row host: select that row (the only selected one), as a screen reader's select does, and report `Changed(Rows)` on the List. `Unsupported` if the list's `SelectionMode` is None.
   - `Activate` on a row host: report `RowActivated` on the List.
-  - Return `ActionError::Disabled` for disabled controls and `Unsupported` for actions that don't apply.
+  - Return `ActionError::Disabled` for disabled controls, `ReadOnly` for `SetValue` on a read-only field, and `Unsupported` for actions that don't apply.
 - **`synthesize(id, input)`**: behave as close to real input as the platform allows.
   - `Key(Char | Backspace | Enter | Tab)` on text fields must go through the platform's text-editing path, so the real signals fire. AppKit drives the field editor (`insertText:`, `doCommandBySelector:`).
   - If the field wasn't focused, focus it and **put the caret at the end**: focusing selects all, and the first keystroke would replace everything.
+  - Any key on a read-only field: `ActionError::ReadOnly`, before focusing it. Nothing can be typed into one anywhere, and AppKit's can't take keyboard focus, so no platform delivers the keys.
   - Enter or Space on buttons, Space on toggles.
   - `Scroll { dx, dy }` scrolls a ScrollView or List like a scroll wheel would, clamped.
   - `Up`, `Down`, `Home`, `End` and `Enter` on a List go through the list's own key handling: they move the selection and scroll to it, or activate the selected row.

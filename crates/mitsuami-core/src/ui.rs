@@ -1539,6 +1539,7 @@ impl Inner {
                 _ => None,
             },
             mixed: node.kind == WidgetKind::Checkbox && crate::find_prop!(props, Mixed) == Some(true),
+            read_only: crate::find_prop!(props, ReadOnly) == Some(true),
             selected,
             enabled: crate::find_prop!(props, Enabled).unwrap_or(true),
             test_id: node.test_id.clone(),

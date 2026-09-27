@@ -236,6 +236,9 @@ pub enum Prop {
     /// Current text of a `TextInput`.
     Value(String),
     Placeholder(String),
+    /// A `TextInput` shows its text, which can be selected and copied, but
+    /// not edited: by typing, or by assistive technology.
+    ReadOnly(bool),
     Checked(bool),
     /// A `Checkbox` shows the mixed state (some of what it stands for is
     /// checked), whatever `Checked` says. A click leaves it: where it lands

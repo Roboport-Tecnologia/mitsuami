@@ -1,9 +1,10 @@
-//! Text input, checkboxes, switches, two-way binding and enabled state.
+//! Text input, checkboxes, switches, two-way binding, and enabled and
+//! read-only state.
 
 use std::cell::RefCell;
 use std::rc::Rc;
 
-use mitsuami::core::{Command, Prop};
+use mitsuami::core::{A11yAction, ActionError, Command, Prop, SyntheticInput};
 use mitsuami::prelude::*;
 use mitsuami_test::prelude::*;
 
@@ -124,6 +125,52 @@ async fn programmatic_changes_reach_the_native_widget(app: TestApp) {
     app.settle().await;
 
     assert!(app.get_by_label("Field").native_state().props.contains(&Prop::Value("second".into())));
+}
+
+/// A read-only field keeps its text: nothing can be typed into it, and
+/// assistive technology can't set it. (Whether it takes keyboard focus is
+/// the platform's: AppKit's don't, unless Full Keyboard Access is on.)
+#[mitsuami_test::test]
+async fn a_read_only_field_takes_no_edits(app: TestApp) {
+    let edits = Rc::new(RefCell::new(Vec::new()));
+    let log = edits.clone();
+    app.mount(move || {
+        TextInput::new()
+            .a11y_label("Key")
+            .value("ABCD-1234")
+            .read_only(true)
+            .on_input(move |text| log.borrow_mut().push(text))
+    });
+
+    let field = app.get_by_label("Key");
+    app.expect(by_label("Key")).to_be_read_only().await;
+    for key in [Key::Char('x'), Key::Backspace] {
+        assert_eq!(app.ui().synthesize(field.id(), &SyntheticInput::Key(key)), Err(ActionError::ReadOnly));
+    }
+    assert_eq!(app.ui().perform(field.id(), &A11yAction::SetValue("y".into())), Err(ActionError::ReadOnly));
+    app.settle().await;
+    assert_eq!(field.value().as_deref(), Some("ABCD-1234"));
+    assert!(field.native_state().props.contains(&Prop::Value("ABCD-1234".into())));
+    assert!(edits.borrow().is_empty());
+}
+
+/// Read-only can change, and the app can still set the text of a read-only
+/// field.
+#[mitsuami_test::test]
+async fn read_only_follows_its_signal(app: TestApp) {
+    let read_only = signal(true);
+    let value = signal("first".to_string());
+    app.mount(move || TextInput::new().a11y_label("Field").bind(value).read_only(read_only));
+
+    value.set("second".into());
+    app.settle().await;
+    assert!(app.get_by_label("Field").native_state().props.contains(&Prop::Value("second".into())));
+
+    read_only.set(false);
+    app.expect(by_label("Field")).to_be_editable().await;
+    assert!(app.get_by_label("Field").native_state().props.contains(&Prop::ReadOnly(false)));
+    app.get_by_label("Field").type_text("!").await;
+    assert_eq!(value.get_untracked(), "second!");
 }
 
 /// Logs the text the native field shows, each time the tweak runs.

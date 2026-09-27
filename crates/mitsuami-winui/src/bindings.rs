@@ -5802,6 +5802,18 @@ impl ITextBox {
             (windows_core::Interface::vtable(self).SetSelectionStart)(windows_core::Interface::as_raw(self), value).ok()
         }
     }
+    pub fn IsReadOnly(&self) -> windows_core::Result<bool> {
+        unsafe {
+            let mut result__ = core::mem::zeroed();
+            (windows_core::Interface::vtable(self).IsReadOnly)(windows_core::Interface::as_raw(self), &mut result__)
+                .map(|| result__)
+        }
+    }
+    pub fn SetIsReadOnly(&self, value: bool) -> windows_core::Result<()> {
+        unsafe {
+            (windows_core::Interface::vtable(self).SetIsReadOnly)(windows_core::Interface::as_raw(self), value).ok()
+        }
+    }
     pub fn SetHeader<P0>(&self, value: P0) -> windows_core::Result<()>
     where
         P0: windows_core::Param<windows_core::IInspectable>,
@@ -5878,8 +5890,8 @@ pub struct ITextBox_Vtbl {
     pub SetSelectionStart: unsafe extern "system" fn(*mut core::ffi::c_void, i32) -> windows_core::HRESULT,
     MaxLength: usize,
     SetMaxLength: usize,
-    IsReadOnly: usize,
-    SetIsReadOnly: usize,
+    pub IsReadOnly: unsafe extern "system" fn(*mut core::ffi::c_void, *mut bool) -> windows_core::HRESULT,
+    pub SetIsReadOnly: unsafe extern "system" fn(*mut core::ffi::c_void, bool) -> windows_core::HRESULT,
     AcceptsReturn: usize,
     SetAcceptsReturn: usize,
     TextAlignment: usize,

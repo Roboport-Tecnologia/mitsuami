@@ -657,6 +657,10 @@ impl State {
                 }
             }
             (Prop::Placeholder(t), Widget::Field(f)) => f.setPlaceholderString(Some(&ns(t))),
+            // Still selectable, so its text can be copied; it takes focus
+            // from a click, and from the keyboard only with Full Keyboard
+            // Access.
+            (Prop::ReadOnly(r), Widget::Field(f)) => f.setEditable(!r),
             (Prop::Checked(c), Widget::Checkbox(b)) => {
                 node.checked = *c;
                 // The mixed state shows over it.
@@ -1139,6 +1143,9 @@ impl Backend for AppKitBackend {
             }
             (A11yAction::SetValue(text), WidgetKind::TextInput) => {
                 let field: &NSTextField = widget_view.downcast_ref().ok_or(ActionError::Unsupported)?;
+                if !field.isEditable() {
+                    return Err(ActionError::ReadOnly);
+                }
                 field.setStringValue(&ns(text));
                 // Programmatic edits don't notify the delegate; assistive
                 // technology edits are user edits, so report one.
@@ -1263,6 +1270,9 @@ impl Backend for AppKitBackend {
                 // `interpretKeyEvents:` does, delegate hooks included.
                 let window = view.window().ok_or(ActionError::Unsupported)?;
                 let field: &NSTextField = view.downcast_ref().ok_or(ActionError::Unsupported)?;
+                if !field.isEditable() {
+                    return Err(ActionError::ReadOnly);
+                }
                 let just_focused = field.currentEditor().is_none();
                 if just_focused {
                     window.makeFirstResponder(Some(&view));
@@ -1306,6 +1316,7 @@ impl Backend for AppKitBackend {
                 if let Some(p) = f.placeholderString() {
                     props.push(Prop::Placeholder(p.to_string()));
                 }
+                props.push(Prop::ReadOnly(!f.isEditable()));
             }
             Widget::Button(b) => props.push(Prop::Label(b.title().to_string())),
             Widget::Checkbox(b) => {

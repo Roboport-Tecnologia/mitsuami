@@ -32,6 +32,7 @@ fn describe_props(props: &[Prop]) -> String {
             Prop::Checked(b) => extra.push(format!("checked={b}")),
             Prop::Running(b) => extra.push(format!("running={b}")),
             Prop::Mixed(b) => extra.push(format!("mixed={b}")),
+            Prop::ReadOnly(b) => extra.push(format!("read_only={b}")),
             Prop::Enabled(b) => extra.push(format!("enabled={b}")),
             Prop::TextStyle(s) => extra.push(format!("style={s:?}")),
             Prop::ButtonRole(r) => extra.push(format!("role={r:?}")),
@@ -106,6 +107,9 @@ pub(crate) fn a11y(root: &A11yNode) -> String {
         }
         if node.mixed {
             out.push_str(" mixed");
+        }
+        if node.read_only {
+            out.push_str(" read_only");
         }
         if node.selected == Some(true) {
             out.push_str(" selected");
