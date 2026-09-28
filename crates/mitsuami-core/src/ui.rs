@@ -65,6 +65,9 @@ struct Node {
     /// Tabs and groups only: the size of their tab strip, or heading, and
     /// border, with no content.
     strip: Size,
+    /// Groups only: where the backend puts their content, if not where
+    /// the metrics say.
+    insets: Option<crate::Insets>,
 }
 
 /// How a window's height follows its content (`WindowSize`).
@@ -516,6 +519,7 @@ impl Ui {
                     scroll_offset: Point::ZERO,
                     row_width: None,
                     strip: Size::ZERO,
+                    insets: None,
                 },
             );
             inner.styles_dirty = true;
@@ -1440,7 +1444,11 @@ impl Inner {
             // padding of the app's, and it's at least as wide as its heading.
             if node.kind == WidgetKind::Group {
                 let titled = crate::find_prop!(node.props, Title).is_some_and(|t| !t.is_empty());
-                let insets = if titled { self.metrics.titled_group_insets } else { self.metrics.group_insets };
+                let insets = node.insets.unwrap_or(if titled {
+                    self.metrics.titled_group_insets
+                } else {
+                    self.metrics.group_insets
+                });
                 let add = |side: &mut taffy::LengthPercentage, inset: f32| {
                     let own = side.into_raw();
                     *side = match own.tag() {
@@ -1593,9 +1601,11 @@ impl Inner {
                 available_height: AvailableSpace::MaxContent,
             };
             let strip = self.backend.measure(id, request);
+            let insets = self.backend.group_insets(id);
             let node = self.nodes.get_mut(&id).unwrap();
-            changed |= node.strip != strip;
+            changed |= node.strip != strip || node.insets != insets;
             node.strip = strip;
+            node.insets = insets;
         }
         // Their styles take the new minimums.
         if changed {

@@ -213,7 +213,7 @@ Known gap on AppKit: min-content falls back to max-content. If your platform giv
 - the spacing tokens `xs…xl` in the platform's design language (AppKit: 4/6/8/12/20; pick yours from the GNOME HIG or Fluent);
 - the scale factor, dark mode, high contrast and reduced motion;
 - `tab_insets`: how far in from a `Tabs`' edges its page area is (the tab strip on top, the border elsewhere), as the platform's tab view lays out its pages. The core sizes pages with it; measure it from a real tab view once, if the platform doesn't say.
-- `group_insets` and `titled_group_insets`: where a `Group` puts its content, without and with a heading: its border and the margins the platform gives content in a group, and the heading's room, inside the box or above it. The core adds them to the group's padding. Measure them from a probe, as for tabs. A group's `measure` is its size empty: the insets, and at least as wide as its heading.
+- `group_insets` and `titled_group_insets`: where a `Group` puts its content, without and with a heading: its border and the margins the platform gives content in a group, and the heading's room, inside the box or above it. The core adds them to the group's padding. Measure them from a probe, as for tabs. A group's `measure` is its size empty: the insets, and at least as wide as its heading. Where a tweak changed a group's box (its heading's place, its border), return that group's own insets from `group_insets(id)`, which the core asks after measuring it; `None` keeps the metrics'.
 
 Emit `MetricsChanged` when any of these change.
 

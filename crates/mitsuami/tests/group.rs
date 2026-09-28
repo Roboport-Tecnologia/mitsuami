@@ -154,6 +154,29 @@ async fn a_tweak_gets_the_box_after_its_props(app: TestApp) {
     assert!(*runs.borrow() > before);
 }
 
+/// A tweak that moves AppKit's title to the bottom moves the room it
+/// takes there: the core asks the backend where this box puts its content
+/// (`Backend::group_insets`), and the text stays inside the border.
+#[cfg(target_os = "macos")]
+#[mitsuami_test::test]
+async fn a_tweak_that_moves_the_heading_moves_its_room(app: TestApp) {
+    use mitsuami::appkit::objc2_app_kit::{NSBox, NSTitlePosition};
+    let at_bottom = mitsuami::appkit::tweak(|b: &NSBox| b.setTitlePosition(NSTitlePosition::AtBottom));
+    app.mount(move || {
+        Column::new().align(Align::Start).child(Group::new().title("Drive").native(at_bottom).child(Text::new("Disc")))
+    });
+    app.expect(by_text("Disc")).to_be_visible().await;
+    if app.is_headless() {
+        return;
+    }
+
+    let metrics = app.ui().metrics();
+    let (g, text) = (app.get(group("Drive")).frame(), app.get(by_text("Disc")).frame());
+    // Nearer the top than under a heading, and the heading's room below.
+    assert!(text.y() - g.y() < metrics.titled_group_insets.top, "{text:?} in {g:?}");
+    assert!(g.y() + g.height() - (text.y() + text.height()) > metrics.group_insets.bottom, "{text:?} in {g:?}");
+}
+
 #[mitsuami_test::test]
 async fn works_in_view_macros(app: TestApp) {
     app.mount(|| view! { <Group title="CD drive" gap=Spacing::Sm><Text>"Disc"</Text></Group> });

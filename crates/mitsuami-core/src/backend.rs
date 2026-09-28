@@ -197,6 +197,13 @@ pub trait Backend {
 
     fn metrics(&self) -> PlatformMetrics;
 
+    /// Where this `Group` puts its content, if not where the metrics'
+    /// `group_insets` or `titled_group_insets` say: a tweak can move its
+    /// heading or change its border. Asked when the group is measured.
+    fn group_insets(&self, _id: NodeId) -> Option<Insets> {
+        None
+    }
+
     /// Applies a batch of commands to the native tree.
     fn apply(&mut self, batch: &[Command]);
 

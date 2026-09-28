@@ -1698,8 +1698,27 @@ fn group_insets(mtm: MainThreadMarker, title: &str) -> mitsuami_core::Insets {
 fn group_probe(mtm: MainThreadMarker, title: &str) -> (mitsuami_core::Insets, f32) {
     let frame = group_box(mtm, NSSize::new(10000.0, 300.0));
     set_group_title(&frame, title);
+    probe_insets(&frame)
+}
+
+/// A group's own box, as its tweaks left it: a probe set up as it is
+/// (where the title goes, its font, the border and margins), since the box
+/// itself may be too small to say.
+fn group_probe_like(shown: &NSBox) -> (mitsuami_core::Insets, f32) {
+    let frame = group_box(MainThreadMarker::from(shown), NSSize::new(10000.0, 300.0));
+    frame.setBoxType(shown.boxType());
+    frame.setTitle(&shown.title());
+    frame.setTitleFont(&shown.titleFont());
+    frame.setTitlePosition(shown.titlePosition());
+    frame.setBorderWidth(shown.borderWidth());
+    frame.setContentViewMargins(shown.contentViewMargins());
+    probe_insets(&frame)
+}
+
+fn probe_insets(frame: &NSBox) -> (mitsuami_core::Insets, f32) {
     let heading = frame.titleRect();
-    let heading = if title.is_empty() { 0.0 } else { (heading.origin.x * 2.0 + heading.size.width) as f32 };
+    let titled = frame.titlePosition() != NSTitlePosition::NoTitle && !frame.title().is_empty();
+    let heading = if titled { (heading.origin.x * 2.0 + heading.size.width) as f32 } else { 0.0 };
     let (bounds, content) = (frame.bounds(), frame.contentView().map_or(frame.bounds(), |v| v.frame()));
     let insets = mitsuami_core::Insets::new(
         (bounds.size.height - content.origin.y - content.size.height) as f32,
@@ -1713,9 +1732,7 @@ fn group_probe(mtm: MainThreadMarker, title: &str) -> (mitsuami_core::Insets, f3
 /// A box's size with nothing in it: its border, and as wide as its title
 /// needs.
 fn group_natural_size(frame: &NSBox) -> Size {
-    let titled = frame.titlePosition() != NSTitlePosition::NoTitle;
-    let title = if titled { frame.title().to_string() } else { String::new() };
-    let (insets, heading) = group_probe(MainThreadMarker::from(frame), &title);
+    let (insets, heading) = group_probe_like(frame);
     Size::new(heading.max(insets.left + insets.right).ceil(), insets.top + insets.bottom)
 }
 
@@ -1798,6 +1815,14 @@ fn intrinsic(view: &NSView) -> Size {
 impl Backend for AppKitBackend {
     fn init(&mut self, events: EventSink) {
         self.state.borrow_mut().events = events;
+    }
+
+    /// The box's own, which a tweak may have changed (a title at the
+    /// bottom, other margins).
+    fn group_insets(&self, id: NodeId) -> Option<mitsuami_core::Insets> {
+        let state = self.state.borrow();
+        let Widget::Group { frame, .. } = &state.nodes.get(&id)?.widget else { return None };
+        Some(group_probe_like(frame).0)
     }
 
     fn metrics(&self) -> PlatformMetrics {
