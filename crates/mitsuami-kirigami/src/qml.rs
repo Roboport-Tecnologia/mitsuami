@@ -276,6 +276,9 @@ QQC2.ComboBox {{
     readonly property string mitsuamiOptionTexts: mitsuamiOptions.join("\u001f")
     property int mitsuamiChoice: -1
     model: mitsuamiOptions
+    // A window of its own (a Wayland popup), as GTK's is: drawn in the
+    // window, it went under a GPU surface's subsurface.
+    popup.popupType: QQC2.Popup.Window
     onMitsuamiChoiceChanged: if (mitsuamiChoice >= 0) {{
         currentIndex = mitsuamiChoice
         mitsuamiChoice = -1
