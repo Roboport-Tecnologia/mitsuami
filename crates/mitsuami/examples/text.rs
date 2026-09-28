@@ -1,9 +1,10 @@
 //! Text: `cargo run -p mitsuami --example text`.
 //!
 //! - Every text style, from the platform's type ramp.
-//! - A playground: a paragraph at a width and a line limit to change.
-//! - A raw platform setting, through `.native()`. A line limit is the one
-//!   option every platform's label shares: the rest is each one's own.
+//! - A playground: a paragraph at a width and a line limit, in a colour,
+//!   a weight, italics and an alignment, left to right or right to left.
+//! - A raw platform setting, through `.native()`. Those are the options
+//!   every platform's label shares: the rest is each one's own.
 
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
@@ -39,10 +40,35 @@ fn gallery() -> impl View {
     }
 }
 
-/// A paragraph, its width and its line limit.
+const COLORS: [(&str, Color); 7] = [
+    ("Label", Color::Label),
+    ("Secondary label", Color::SecondaryLabel),
+    ("Accent", Color::Accent),
+    ("Error", Color::Error),
+    ("Warning", Color::Warning),
+    ("Success", Color::Success),
+    ("Fixed purple", Color::rgb(0x80, 0x40, 0xc0)),
+];
+
+const WEIGHTS: [(&str, FontWeight); 4] = [
+    ("Regular", FontWeight::Regular),
+    ("Medium", FontWeight::Medium),
+    ("Semibold", FontWeight::Semibold),
+    ("Bold", FontWeight::Bold),
+];
+
+const ALIGNMENTS: [(&str, TextAlign); 3] =
+    [("Start", TextAlign::Start), ("Center", TextAlign::Center), ("End", TextAlign::End)];
+
+/// A paragraph and every option it takes.
 fn playground() -> impl View {
     let lines = signal(2.0_f64);
     let width = signal(320.0_f64);
+    let color = signal(0_usize);
+    let weight = signal(0_usize);
+    let align = signal(0_usize);
+    let italic = signal(false);
+    let rtl = signal(false);
     view! {
         <Column gap=Spacing::Md>
             {heading("Try it")}
@@ -61,8 +87,28 @@ fn playground() -> impl View {
                 <Slider label="Lines" range_with=(0.0, 6.0) step=1.0 bind=lines/>
                 <Text>{move || format!("Width ({:.0})", width.get())}</Text>
                 <Slider label="Width" range_with=(120.0, 480.0) bind=width/>
+                <Text>"Colour"</Text>
+                <Row><Select label="Colour" options=COLORS.map(|(name, _)| name) bind=color/></Row>
+                <Text>"Weight"</Text>
+                <Row><Select label="Weight" options=WEIGHTS.map(|(name, _)| name) bind=weight/></Row>
+                <Text>"Alignment"</Text>
+                <Row><Select label="Alignment" options=ALIGNMENTS.map(|(name, _)| name) bind=align/></Row>
+                <Text>"Italic"</Text>
+                <Row><Switch bind=italic>"Italic"</Switch></Row>
+                <Text>"Right to left"</Text>
+                <Row><Switch bind=rtl>"Right to left"</Switch></Row>
             </Grid>
-            <Text max_lines=move || lines.get() as u32 width=move || Length::Px(width.get() as f32)>{PARAGRAPH}</Text>
+            <Text
+                max_lines=move || lines.get() as u32
+                width=move || Length::Px(width.get() as f32)
+                color=move || COLORS[color.get()].1
+                weight=move || WEIGHTS[weight.get()].1
+                italic=italic
+                text_align=move || ALIGNMENTS[align.get()].1
+                direction=move || if rtl.get() { TextDirection::Rtl } else { TextDirection::Ltr }
+            >
+                {PARAGRAPH}
+            </Text>
         </Column>
     }
 }
@@ -71,17 +117,12 @@ fn playground() -> impl View {
 fn platform_option() -> impl View {
     let (tweak, about): (Tweak<Text>, &str) = platform! {
         macos => (
-            mitsuami::appkit::tweak(|t: &mitsuami::appkit::objc2_app_kit::NSTextField| {
-                t.setTextColor(Some(&mitsuami::appkit::objc2_app_kit::NSColor::secondaryLabelColor()))
-            }),
-            "AppKit: textColor secondaryLabelColor, AppKit's colour for less important text.",
+            mitsuami::appkit::tweak(|t: &mitsuami::appkit::objc2_app_kit::NSTextField| t.setSelectable(true)),
+            "AppKit: selectable, so the text can be selected and copied.",
         ),
         gtk => (
-            mitsuami::gtk::tweak(|l: &mitsuami::gtk::gtk::Label| {
-                use mitsuami::gtk::gtk::prelude::*;
-                l.add_css_class("dim-label")
-            }),
-            "GTK: the dim-label style class, GNOME's dimmed text.",
+            mitsuami::gtk::tweak(|l: &mitsuami::gtk::gtk::Label| l.set_selectable(true)),
+            "GTK: selectable, so the text can be selected and copied.",
         ),
         kde => (
             // Text.MarkdownText.

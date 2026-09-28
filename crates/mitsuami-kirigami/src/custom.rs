@@ -300,6 +300,10 @@ fn resolve(color: Color, colors: &theme::Colors) -> Rgba {
         Color::Separator => colors.separator,
         Color::ControlBackground => colors.view_background,
         Color::WindowBackground => colors.background,
+        // KDE's status colours (Breeze's red, orange and green).
+        Color::Error => colors.negative_text,
+        Color::Warning => colors.neutral_text,
+        Color::Success => colors.positive_text,
         Color::Rgba(r, g, b, a) => [r, g, b, a].map(|c| c as f32 / 255.0),
     }
 }

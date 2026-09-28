@@ -23,7 +23,7 @@ use crate::services::{
 use crate::style::{Align, Display, FlexDirection, Style, TextDirection};
 use crate::task::{Clock, Executor, Sleep, TaskHandle};
 use crate::units::ResolveContext;
-use crate::widget::{NodeId, Prop, RowKey, WidgetKind};
+use crate::widget::{HorizontalAlign, NodeId, Prop, RowKey, TextAlign, WidgetKind};
 
 pub(crate) type Handler = Rc<dyn Fn(&UiEvent)>;
 type Handler0 = Rc<dyn Fn()>;
@@ -64,7 +64,9 @@ enum Fit {
     None,
     /// At the first layout.
     Once,
-    Follow { until_resized: bool },
+    Follow {
+        until_resized: bool,
+    },
 }
 
 impl Node {
@@ -119,6 +121,16 @@ struct Inner {
     focused: BTreeMap<NodeId, NodeId>,
     commit_scheduler: Option<Rc<dyn Fn()>>,
     commit_scheduled: bool,
+    /// Sizes views watch (`use_size`, `use_viewport`).
+    observers: BTreeMap<u64, Observer>,
+    next_observer: u64,
+}
+
+/// A size a view watches: the node's it targets now, and the last reported.
+struct Observer {
+    target: Box<dyn Fn() -> Option<NodeId>>,
+    size: mitsuami_reactive::Signal<Size>,
+    last: Size,
 }
 
 /// Handle to a UI instance: one backend, its windows and their node trees.
@@ -193,6 +205,8 @@ impl Ui {
                 quit_items: BTreeMap::new(),
                 commit_scheduler: None,
                 commit_scheduled: false,
+                observers: BTreeMap::new(),
+                next_observer: 1,
             })),
         }
     }
@@ -516,9 +530,7 @@ impl Ui {
             WindowSize::Fixed(size) => (size, Fit::None),
             WindowSize::FitHeight(width) => (Size::new(width, 0.0), Fit::Once),
             WindowSize::FollowHeight(width) => (Size::new(width, 0.0), Fit::Follow { until_resized: false }),
-            WindowSize::FollowHeightUntilResized(width) => {
-                (Size::new(width, 0.0), Fit::Follow { until_resized: true })
-            }
+            WindowSize::FollowHeightUntilResized(width) => (Size::new(width, 0.0), Fit::Follow { until_resized: true }),
         };
         node.window_size = size;
         node.fit = fit;
@@ -820,14 +832,25 @@ impl Ui {
     }
 
     /// One run-loop turn: dispatch events and commit, repeating while the
-    /// commit itself produced new events (e.g. a window resize), until idle.
-    /// Backends call this from their run loop, before it goes to sleep.
+    /// commit itself produced new events (e.g. a window resize) or new sizes
+    /// views watch, until idle. Backends call this from their run loop,
+    /// before it goes to sleep.
     pub fn tick(&self) {
         const MAX_TURNS: usize = 64;
+        // Views that change with their size can change it again. Past this,
+        // sizes wait for the next turn, as browsers' `ResizeObserver` does,
+        // so a view that never settles doesn't hold the run loop.
+        const MAX_SIZE_REPORTS: usize = 8;
+        let mut reports = 0;
         for _ in 0..MAX_TURNS {
             self.executor.run_ready(self);
             self.process_events();
             self.commit();
+            // Views change with their sizes before anything is shown.
+            if reports < MAX_SIZE_REPORTS && self.report_sizes() {
+                reports += 1;
+                continue;
+            }
             let idle = {
                 let inner = self.inner.borrow();
                 inner.events.is_empty() && inner.menu_queue.is_empty()
@@ -836,6 +859,65 @@ impl Ui {
                 return;
             }
         }
+    }
+
+    // --------------------------------------------------------- measurements
+
+    /// A node's laid-out size; zero for none.
+    pub(crate) fn measured_size(&self, id: Option<NodeId>) -> Size {
+        let inner = self.inner.borrow();
+        id.and_then(|id| inner.nodes.get(&id)).map_or(Size::ZERO, |n| n.frame.size)
+    }
+
+    /// Keeps `size` up to date with the size of the node `target` gives,
+    /// after each layout, until [`Ui::unobserve_size`].
+    pub(crate) fn observe_size(
+        &self,
+        target: Box<dyn Fn() -> Option<NodeId>>,
+        size: mitsuami_reactive::Signal<Size>,
+    ) -> u64 {
+        let mut inner = self.inner.borrow_mut();
+        let id = inner.next_observer;
+        inner.next_observer += 1;
+        let last = size.get_untracked();
+        inner.observers.insert(id, Observer { target, size, last });
+        id
+    }
+
+    pub(crate) fn unobserve_size(&self, id: u64) {
+        self.inner.borrow_mut().observers.remove(&id);
+    }
+
+    /// Sets the watched sizes that changed since they were last reported.
+    /// Whether any did.
+    fn report_sizes(&self) -> bool {
+        let changed: Vec<_> = {
+            let mut inner = self.inner.borrow_mut();
+            let Inner { observers, nodes, .. } = &mut *inner;
+            observers
+                .values_mut()
+                .filter_map(|o| {
+                    let size = (o.target)().and_then(|id| nodes.get(&id)).map_or(Size::ZERO, |n| n.frame.size);
+                    (size != o.last).then(|| {
+                        o.last = size;
+                        (o.size, size)
+                    })
+                })
+                .collect()
+        };
+        if changed.is_empty() {
+            return false;
+        }
+        crate::task::with_current(self, || {
+            mitsuami_reactive::batch(|| {
+                for (signal, size) in changed {
+                    if signal.is_alive() {
+                        signal.set(size);
+                    }
+                }
+            })
+        });
+        true
     }
 
     /// Asks the backend to perform an accessibility action, then dispatches
@@ -1320,6 +1402,10 @@ impl Inner {
                 let _ = self.taffy.set_style(t, style);
             }
         }
+        if node.kind == WidgetKind::Text {
+            self.resolve_text_align(id, rtl);
+        }
+        let node = &self.nodes[&id];
         // Nodes without a layout box pass their parent's context through.
         let in_stretching_column = match node.taffy {
             Some(_) => {
@@ -1332,6 +1418,26 @@ impl Inner {
         };
         for child in self.nodes[&id].children.clone() {
             self.resolve_node(child, font_size, rtl, viewport, in_stretching_column);
+        }
+    }
+
+    /// Sends a `Text`'s alignment as left or right for its direction, once
+    /// the app has set one.
+    fn resolve_text_align(&mut self, id: NodeId, rtl: bool) {
+        let node = &self.nodes[&id];
+        let had = crate::find_prop!(node.props, TextAlign).is_some();
+        let Some(align) = node.style.text_align.or(had.then_some(TextAlign::Start)) else { return };
+        let align = match (align, rtl) {
+            (TextAlign::Center, _) => HorizontalAlign::Center,
+            (TextAlign::Start, false) | (TextAlign::End, true) => HorizontalAlign::Left,
+            (TextAlign::Start, true) | (TextAlign::End, false) => HorizontalAlign::Right,
+        };
+        let prop = Prop::TextAlign(align);
+        if node.prop(&prop) != Some(&prop) {
+            let node = self.nodes.get_mut(&id).unwrap();
+            node.props.retain(|p| p.key() != prop.key());
+            node.props.push(prop.clone());
+            self.queue_prop(id, prop);
         }
     }
 

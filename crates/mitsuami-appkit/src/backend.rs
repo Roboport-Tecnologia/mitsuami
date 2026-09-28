@@ -13,28 +13,29 @@ use mitsuami_core::backend::{
 use mitsuami_core::services::MenuEntry;
 use mitsuami_core::units::SpacingScale;
 use mitsuami_core::{
-    AppIcon, AppInfo, ButtonRole, ButtonStyle, Command, CustomProps, EventValue, ImageFit, ImageSource, Modality,
-    NativeAppInfo, NativeIcon, NodeId, Opaque, Orientation, Point, Prop, Rect, RowKey, ScrollAxes, SelectionMode, Size,
-    TextStyle, UiEvent, WidgetKind, find_prop,
+    AppIcon, AppInfo, ButtonRole, ButtonStyle, Color, Command, CustomProps, EventValue, FontWeight, HorizontalAlign,
+    ImageFit, ImageSource, Modality, NativeAppInfo, NativeIcon, NodeId, Opaque, Orientation, Point, Prop, Rect, RowKey,
+    ScrollAxes, SelectionMode, Size, TextStyle, UiEvent, WidgetKind, find_prop,
 };
 use objc2::rc::Retained;
 use objc2::runtime::{AnyObject, ProtocolObject};
 use objc2::{AnyThread, MainThreadMarker, MainThreadOnly, Message, msg_send, sel};
 use objc2_app_kit::{
     NSAccessibility, NSAppearance, NSAppearanceCustomization, NSAppearanceNameAqua, NSAppearanceNameDarkAqua,
-    NSApplication, NSBackingStoreType, NSBitmapFormat, NSBitmapImageRep, NSButton, NSColorSpace, NSControl,
+    NSApplication, NSBackingStoreType, NSBitmapFormat, NSBitmapImageRep, NSButton, NSColor, NSColorSpace, NSControl,
     NSControlStateValueMixed, NSControlStateValueOff, NSControlStateValueOn, NSDeviceRGBColorSpace, NSEvent,
-    NSEventModifierFlags, NSEventType, NSFont, NSFontTextStyle, NSFontTextStyleBody, NSFontTextStyleCallout,
-    NSFontTextStyleCaption1, NSFontTextStyleHeadline, NSFontTextStyleLargeTitle, NSFontTextStyleTitle1,
-    NSFontWeightRegular, NSImage, NSImageScaling, NSImageView, NSMenuItem, NSPopUpButton, NSProgressIndicator,
-    NSProgressIndicatorStyle, NSScreen, NSScrollView, NSSecureTextField, NSSlider, NSStandardKeyBindingResponding,
-    NSSwitch, NSTextField, NSView, NSViewBoundsDidChangeNotification, NSWindow, NSWindowOrderingMode,
-    NSWindowStyleMask, NSWorkspace,
+    NSEventModifierFlags, NSEventType, NSFont, NSFontDescriptorSymbolicTraits, NSFontTextStyle, NSFontTextStyleBody,
+    NSFontTextStyleCallout, NSFontTextStyleCaption1, NSFontTextStyleHeadline, NSFontTextStyleLargeTitle,
+    NSFontTextStyleTitle1, NSFontTraitsAttribute, NSFontWeightBold, NSFontWeightMedium, NSFontWeightRegular,
+    NSFontWeightSemibold, NSFontWeightTrait, NSImage, NSImageScaling, NSImageView, NSMenuItem, NSPopUpButton,
+    NSProgressIndicator, NSProgressIndicatorStyle, NSScreen, NSScrollView, NSSecureTextField, NSSlider,
+    NSStandardKeyBindingResponding, NSSwitch, NSTextAlignment, NSTextField, NSView, NSViewBoundsDidChangeNotification,
+    NSWindow, NSWindowOrderingMode, NSWindowStyleMask, NSWorkspace,
 };
 use objc2_core_foundation::{CFRunLoop, kCFRunLoopDefaultMode};
 use objc2_foundation::{
-    NSArray, NSBundle, NSData, NSDictionary, NSNotificationCenter, NSPoint, NSProcessInfo, NSRange, NSRect, NSSize,
-    NSString,
+    NSArray, NSBundle, NSData, NSDictionary, NSNotificationCenter, NSObjectProtocol, NSPoint, NSProcessInfo, NSRange,
+    NSRect, NSSize, NSString,
 };
 
 use crate::classes::{ActionTarget, ClosureTarget, DrawnView, HostView, ViewMap, WindowDelegate};
@@ -186,6 +187,12 @@ struct Node {
     row: Option<RowKey>,
     /// Props AppKit can't report back faithfully.
     text_style: Option<TextStyle>,
+    /// Labels: what the app gave, which the font and colour are made of
+    /// (read back from the label, but only once given).
+    weight: Option<FontWeight>,
+    italic: Option<bool>,
+    text_color: Option<Color>,
+    align: bool,
     role: Option<ButtonRole>,
     button_style: Option<ButtonStyle>,
     /// Sliders: whether the app gave an `Orientation`.
@@ -262,6 +269,58 @@ fn font(style: TextStyle) -> Retained<NSFont> {
         }
     };
     unsafe { NSFont::preferredFontForTextStyle_options(text_style, &NSDictionary::new()) }
+}
+
+/// A label's font: its text style's, with the app's weight and italics.
+fn label_font(style: Option<TextStyle>, weight: Option<FontWeight>, italic: Option<bool>) -> Retained<NSFont> {
+    let style = style.unwrap_or(TextStyle::Body);
+    let mut font = font(style);
+    if let Some(weight) = weight {
+        let weight = unsafe {
+            match weight {
+                FontWeight::Regular => NSFontWeightRegular,
+                FontWeight::Medium => NSFontWeightMedium,
+                FontWeight::Semibold => NSFontWeightSemibold,
+                FontWeight::Bold => NSFontWeightBold,
+            }
+        };
+        let size = font.pointSize();
+        font = match style {
+            TextStyle::Monospace => NSFont::monospacedSystemFontOfSize_weight(size, weight),
+            _ => NSFont::systemFontOfSize_weight(size, weight),
+        };
+    }
+    if italic == Some(true) {
+        let descriptor = font.fontDescriptor();
+        let italic = descriptor.fontDescriptorWithSymbolicTraits(
+            descriptor.symbolicTraits() | NSFontDescriptorSymbolicTraits::TraitItalic,
+        );
+        if let Some(slanted) = NSFont::fontWithDescriptor_size(&italic, font.pointSize()) {
+            font = slanted;
+        }
+    }
+    font
+}
+
+/// The nearest `FontWeight` to a font's weight trait (-1 to 1).
+fn font_weight(font: &NSFont) -> FontWeight {
+    let descriptor = font.fontDescriptor();
+    let weight = unsafe { descriptor.objectForKey(NSFontTraitsAttribute) }
+        .and_then(|traits| {
+            let traits: Retained<NSDictionary> = traits.downcast().ok()?;
+            let weight: Retained<AnyObject> = unsafe { msg_send![&*traits, objectForKey: NSFontWeightTrait] };
+            Some(unsafe { msg_send![&*weight, doubleValue] })
+        })
+        .unwrap_or(0.0_f64);
+    let weights = unsafe {
+        [
+            (FontWeight::Regular, NSFontWeightRegular),
+            (FontWeight::Medium, NSFontWeightMedium),
+            (FontWeight::Semibold, NSFontWeightSemibold),
+            (FontWeight::Bold, NSFontWeightBold),
+        ]
+    };
+    weights.into_iter().min_by(|a, b| (a.1 - weight).abs().total_cmp(&(b.1 - weight).abs())).unwrap().0
 }
 
 fn metrics(mtm: MainThreadMarker, forced: Option<Appearance>) -> PlatformMetrics {
@@ -715,6 +774,10 @@ impl State {
                 parent: None,
                 row: None,
                 text_style: None,
+                weight: None,
+                italic: None,
+                text_color: None,
+                align: false,
                 role: None,
                 button_style: None,
                 orientation: None,
@@ -901,9 +964,35 @@ impl State {
                 s.setState(if *c { NSControlStateValueOn } else { NSControlStateValueOff })
             }
             (Prop::Enabled(e), w) if w.control().is_some() => w.control().unwrap().setEnabled(*e),
+            (Prop::TextStyle(style), Widget::Label(l)) => {
+                node.text_style = Some(*style);
+                l.setFont(Some(&label_font(node.text_style, node.weight, node.italic)));
+            }
             (Prop::TextStyle(style), w) if w.control().is_some() => {
                 w.control().unwrap().setFont(Some(&font(*style)));
                 node.text_style = Some(*style);
+            }
+            // Weight and italics go on the text style's font.
+            (Prop::FontWeight(weight), Widget::Label(l)) => {
+                node.weight = Some(*weight);
+                l.setFont(Some(&label_font(node.text_style, node.weight, node.italic)));
+            }
+            (Prop::Italic(italic), Widget::Label(l)) => {
+                node.italic = Some(*italic);
+                l.setFont(Some(&label_font(node.text_style, node.weight, node.italic)));
+            }
+            // Semantic colours are dynamic: they follow the appearance.
+            (Prop::TextColor(color), Widget::Label(l)) => {
+                node.text_color = Some(*color);
+                l.setTextColor(Some(&crate::custom::ns_color(*color)));
+            }
+            (Prop::TextAlign(align), Widget::Label(l)) => {
+                node.align = true;
+                l.setAlignment(match align {
+                    HorizontalAlign::Left => NSTextAlignment::Left,
+                    HorizontalAlign::Center => NSTextAlignment::Center,
+                    HorizontalAlign::Right => NSTextAlignment::Right,
+                });
             }
             (Prop::Rows(rows), Widget::List(list)) => list.set_rows(rows.clone()),
             (Prop::SelectionMode(mode), Widget::List(list)) => list.set_mode(*mode),
@@ -1319,6 +1408,15 @@ fn focused(widget: &Widget) -> bool {
         Widget::NumberInput(n) => n.field().currentEditor().is_some(),
         _ => std::ptr::eq(&*responder as *const _ as *const NSView, &*view as *const NSView),
     }
+}
+
+/// A colour as sRGB components, for reporting one that isn't the given one.
+fn rgba(color: &NSColor) -> Color {
+    let Some(color) = color.colorUsingColorSpace(&NSColorSpace::sRGBColorSpace()) else {
+        return Color::Rgba(0, 0, 0, 0);
+    };
+    let c = |v: f64| (v * 255.0).round().clamp(0.0, 255.0) as u8;
+    Color::Rgba(c(color.redComponent()), c(color.greenComponent()), c(color.blueComponent()), c(color.alphaComponent()))
 }
 
 fn ceil_size(size: NSSize) -> Size {
@@ -1770,6 +1868,30 @@ impl Backend for AppKitBackend {
                 props.push(Prop::Text(l.stringValue().to_string()));
                 let lines = l.maximumNumberOfLines();
                 props.push(Prop::MaxLines((lines > 0).then_some(lines as u32)));
+                if let Some(font) = l.font() {
+                    if node.weight.is_some() {
+                        props.push(Prop::FontWeight(font_weight(&font)));
+                    }
+                    if node.italic.is_some() {
+                        let italic = font.fontDescriptor().symbolicTraits();
+                        props.push(Prop::Italic(italic.contains(NSFontDescriptorSymbolicTraits::TraitItalic)));
+                    }
+                }
+                // The colour it shows, if it's the one given; else what it is.
+                if let (Some(sent), Some(shown)) = (node.text_color, l.textColor()) {
+                    let given = crate::custom::ns_color(sent);
+                    props.push(Prop::TextColor(if shown.isEqual(Some(&given)) { sent } else { rgba(&shown) }));
+                }
+                if node.align {
+                    let align = l.alignment();
+                    props.push(Prop::TextAlign(if align == NSTextAlignment::Center {
+                        HorizontalAlign::Center
+                    } else if align == NSTextAlignment::Right {
+                        HorizontalAlign::Right
+                    } else {
+                        HorizontalAlign::Left
+                    }));
+                }
             }
             Widget::Field(f) => {
                 props.push(Prop::Value(f.stringValue().to_string()));

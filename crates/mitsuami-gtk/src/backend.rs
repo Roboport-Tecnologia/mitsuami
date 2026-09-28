@@ -15,9 +15,9 @@ use mitsuami_core::backend::{
 use mitsuami_core::services::{MenuBarData, Reply};
 use mitsuami_core::units::SpacingScale;
 use mitsuami_core::{
-    AppInfo, ButtonRole, ButtonStyle, Command, CustomProps, EventValue, ImageFit, ImageSource, Modality, NativeAppInfo,
-    NativeIcon, NodeId, Opaque, Orientation, Point, Prop, Rect, RowKey, ScrollAxes, SelectionMode, Size, TextStyle,
-    UiEvent, WidgetKind, find_prop,
+    AppInfo, ButtonRole, ButtonStyle, Color, Command, CustomProps, EventValue, FontWeight, HorizontalAlign, ImageFit,
+    ImageSource, Modality, NativeAppInfo, NativeIcon, NodeId, Opaque, Orientation, Point, Prop, Rect, RowKey,
+    ScrollAxes, SelectionMode, Size, TextStyle, UiEvent, WidgetKind, find_prop,
 };
 
 use crate::custom::{DrawnArea, Emitter, ErasedRender, GtkCx, NativePayload};
@@ -287,6 +287,9 @@ struct Node {
     row: Option<RowKey>,
     /// Props GTK can't report back faithfully.
     text_style: Option<TextStyle>,
+    /// Labels: the colour the app gave, for the theme colours GTK has no
+    /// class for.
+    text_color: Option<Color>,
     role: Option<ButtonRole>,
     button_style: Option<ButtonStyle>,
     /// Sliders: whether the app gave an `Orientation`.
@@ -360,6 +363,83 @@ fn text_style_class(style: TextStyle) -> Option<&'static str> {
 }
 
 const TEXT_STYLE_CLASSES: [&str; 5] = ["title-1", "title-2", "heading", "caption", "monospace"];
+
+/// Text colours the theme has a class for, so they follow it (light, dark,
+/// high contrast, the accent). The rest are Pango attributes.
+fn color_class(color: Color) -> Option<&'static str> {
+    match color {
+        Color::SecondaryLabel => Some("dim-label"),
+        Color::Accent => Some("accent"),
+        Color::Error => Some("error"),
+        Color::Warning => Some("warning"),
+        Color::Success => Some("success"),
+        _ => None,
+    }
+}
+
+const COLOR_CLASSES: [(&str, Color); 5] = [
+    ("dim-label", Color::SecondaryLabel),
+    ("accent", Color::Accent),
+    ("error", Color::Error),
+    ("warning", Color::Warning),
+    ("success", Color::Success),
+];
+
+/// Replaces a label's Pango attributes of these types with `new`, keeping
+/// the others: colour, weight and slant are set one at a time.
+fn replace_attrs(label: &gtk::Label, types: &[pango::AttrType], new: Vec<pango::Attribute>) {
+    let list = pango::AttrList::new();
+    for attr in label.attributes().map(|l| l.attributes()).unwrap_or_default() {
+        if !types.contains(&attr.type_()) {
+            list.insert(attr);
+        }
+    }
+    for attr in new {
+        list.insert(attr);
+    }
+    label.set_attributes(Some(&list));
+}
+
+fn find_attr(label: &gtk::Label, type_: pango::AttrType) -> Option<pango::Attribute> {
+    label.attributes()?.attributes().into_iter().find(|a| a.type_() == type_)
+}
+
+fn pango_weight(weight: FontWeight) -> pango::Weight {
+    match weight {
+        FontWeight::Regular => pango::Weight::Normal,
+        FontWeight::Medium => pango::Weight::Medium,
+        FontWeight::Semibold => pango::Weight::Semibold,
+        FontWeight::Bold => pango::Weight::Bold,
+    }
+}
+
+fn font_weight(weight: i32) -> FontWeight {
+    match weight {
+        ..450 => FontWeight::Regular,
+        450..550 => FontWeight::Medium,
+        550..650 => FontWeight::Semibold,
+        _ => FontWeight::Bold,
+    }
+}
+
+/// A label's colour as its classes and attributes show it. Theme colours
+/// without a class are attributes that can't be told from `Rgba`, so
+/// those come from what the app set.
+fn label_color(label: &gtk::Label, set: Option<Color>) -> Option<Color> {
+    if let Some((_, color)) = COLOR_CLASSES.iter().find(|(class, _)| label.has_css_class(class)) {
+        return Some(*color);
+    }
+    let Some(fg) = find_attr(label, pango::AttrType::Foreground) else { return set.map(|_| Color::Label) };
+    if let Some(c @ (Color::Separator | Color::ControlBackground | Color::WindowBackground)) = set {
+        return Some(c);
+    }
+    let fg = fg.downcast_ref::<pango::AttrColor>()?.color();
+    let alpha = find_attr(label, pango::AttrType::ForegroundAlpha)
+        .and_then(|a| a.downcast_ref::<pango::AttrInt>().map(|a| a.value()))
+        .unwrap_or(65535);
+    let byte = |v: u16| (v / 257) as u8;
+    Some(Color::Rgba(byte(fg.red()), byte(fg.green()), byte(fg.blue()), byte(alpha as u16)))
+}
 
 /// GNOME has no cancel style: cancel buttons are normal buttons.
 fn role_class(role: ButtonRole) -> Option<&'static str> {
@@ -994,6 +1074,7 @@ impl State {
                 parent: None,
                 row: None,
                 text_style: None,
+                text_color: None,
                 role: None,
                 button_style: None,
                 orientation: None,
@@ -1144,6 +1225,56 @@ impl State {
             (Prop::MaxLines(lines), Widget::Label(l)) => {
                 l.set_lines(lines.map_or(-1, |n| n as i32));
                 l.set_ellipsize(if lines.is_some() { pango::EllipsizeMode::End } else { pango::EllipsizeMode::None });
+            }
+            (Prop::TextColor(color), Widget::Label(l)) => {
+                for (class, _) in COLOR_CLASSES {
+                    l.remove_css_class(class);
+                }
+                let mut attrs = Vec::new();
+                match color_class(*color) {
+                    Some(class) => l.add_css_class(class),
+                    // The theme's foreground, as the label has without.
+                    None if *color == Color::Label => {}
+                    None => {
+                        let rgba = crate::custom::rgba(l.upcast_ref(), *color);
+                        let channel = |v: f32| (v.clamp(0.0, 1.0) * 65535.0).round() as u16;
+                        attrs.push(
+                            pango::AttrColor::new_foreground(
+                                channel(rgba.red()),
+                                channel(rgba.green()),
+                                channel(rgba.blue()),
+                            )
+                            .into(),
+                        );
+                        attrs.push(pango::AttrInt::new_foreground_alpha(channel(rgba.alpha())).into());
+                    }
+                }
+                replace_attrs(l, &[pango::AttrType::Foreground, pango::AttrType::ForegroundAlpha], attrs);
+                node.text_color = Some(*color);
+            }
+            // Over the text style's class, whose weight it replaces.
+            (Prop::FontWeight(weight), Widget::Label(l)) => {
+                replace_attrs(
+                    l,
+                    &[pango::AttrType::Weight],
+                    vec![pango::AttrInt::new_weight(pango_weight(*weight)).into()],
+                );
+            }
+            (Prop::Italic(italic), Widget::Label(l)) => {
+                let style = if *italic { pango::Style::Italic } else { pango::Style::Normal };
+                replace_attrs(l, &[pango::AttrType::Style], vec![pango::AttrInt::new_style(style).into()]);
+            }
+            // The core resolved the direction, so left is left: GTK mirrors
+            // `xalign` and `justify` in right-to-left widgets.
+            (Prop::TextAlign(align), Widget::Label(l)) => {
+                l.set_direction(gtk::TextDirection::Ltr);
+                let (xalign, justify) = match align {
+                    HorizontalAlign::Left => (0.0, gtk::Justification::Left),
+                    HorizontalAlign::Center => (0.5, gtk::Justification::Center),
+                    HorizontalAlign::Right => (1.0, gtk::Justification::Right),
+                };
+                l.set_xalign(xalign);
+                l.set_justify(justify);
             }
             (Prop::Label(t), Widget::Button(b)) => b.set_label(t),
             (Prop::Label(t), Widget::Checkbox(c)) => c.set_label(Some(t)),
@@ -2111,6 +2242,20 @@ impl Backend for GtkBackend {
                 props.push(Prop::Text(l.text().to_string()));
                 let limited = l.ellipsize() != pango::EllipsizeMode::None && l.lines() > 0;
                 props.push(Prop::MaxLines(limited.then(|| l.lines() as u32)));
+                props.extend(label_color(l, node.text_color).map(Prop::TextColor));
+                let int =
+                    |type_| find_attr(l, type_).and_then(|a| a.downcast_ref::<pango::AttrInt>().map(|a| a.value()));
+                props.extend(int(pango::AttrType::Weight).map(|w| Prop::FontWeight(font_weight(w))));
+                // `PANGO_STYLE_NORMAL` is 0; oblique shows as italics too.
+                props.extend(int(pango::AttrType::Style).map(|s| Prop::Italic(s != 0)));
+                // Where the text shows: GTK mirrors `xalign` in right-to-left
+                // widgets (labels the app hasn't aligned, in such a locale).
+                let x = if l.direction() == gtk::TextDirection::Rtl { 1.0 - l.xalign() } else { l.xalign() };
+                props.push(Prop::TextAlign(match x {
+                    x if x < 0.25 => HorizontalAlign::Left,
+                    x if x > 0.75 => HorizontalAlign::Right,
+                    _ => HorizontalAlign::Center,
+                }));
             }
             Widget::Entry(e) => {
                 props.push(Prop::Value(e.text().to_string()));

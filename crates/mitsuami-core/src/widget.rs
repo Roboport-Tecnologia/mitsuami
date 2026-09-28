@@ -6,7 +6,7 @@ use std::sync::Arc;
 
 use crate::any_value::Opaque;
 use crate::custom::CustomProps;
-use crate::draw::DisplayList;
+use crate::draw::{Color, DisplayList};
 use crate::geometry::{Point, Size};
 use crate::services::MenuEntry;
 
@@ -156,6 +156,37 @@ pub enum TextStyle {
     Callout,
     Caption,
     Monospace,
+}
+
+/// How heavy a `Text`'s font is, in place of its text style's weight.
+/// A platform whose font lacks one uses the nearest it has.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Hash)]
+pub enum FontWeight {
+    #[default]
+    Regular,
+    Medium,
+    Semibold,
+    Bold,
+}
+
+/// Where a `Text`'s lines go across its frame, in its reading direction:
+/// `Start` is the left in left-to-right text, the right in right-to-left.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Hash)]
+pub enum TextAlign {
+    #[default]
+    Start,
+    Center,
+    End,
+}
+
+/// A [`TextAlign`] the core has resolved against the text's direction, as
+/// backends get it.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Hash)]
+pub enum HorizontalAlign {
+    #[default]
+    Left,
+    Center,
+    Right,
 }
 
 /// What a button does in its window or dialog, which each platform shows
@@ -395,6 +426,17 @@ pub enum Prop {
     /// How many lines a `Text` shows at most, the last one cut off with an
     /// ellipsis, as the platform draws one. `None`: all of them.
     MaxLines(Option<u32>),
+    /// A `Text`'s colour. Semantic colours follow the appearance (dark
+    /// mode, high contrast, the accent colour); `Rgba` is fixed.
+    TextColor(Color),
+    /// A `Text`'s weight, in place of its text style's.
+    FontWeight(FontWeight),
+    /// A `Text` in italics.
+    Italic(bool),
+    /// Where a `Text`'s lines go across its frame. The core resolves the
+    /// app's `TextAlign` against the text's direction, so it's left or
+    /// right here.
+    TextAlign(HorizontalAlign),
     /// Caption of a `Button`, `Checkbox` or `Switch`; accessible name of a
     /// `Switch`, `Select`, `Slider`, `NumberInput`, `Progress`, `Image` or
     /// `GpuSurface`.
@@ -523,6 +565,8 @@ impl Prop {
             self,
             Prop::Text(_)
                 | Prop::MaxLines(_)
+                | Prop::FontWeight(_)
+                | Prop::Italic(_)
                 | Prop::Label(_)
                 | Prop::Placeholder(_)
                 | Prop::Options(_)
@@ -562,6 +606,9 @@ macro_rules! static_value {
 
 static_value!(
     TextStyle,
+    FontWeight,
+    TextAlign,
+    crate::draw::Color,
     ButtonRole,
     ButtonStyle,
     Orientation,

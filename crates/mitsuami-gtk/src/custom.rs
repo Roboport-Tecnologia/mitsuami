@@ -355,7 +355,7 @@ fn theme_color(widget: &gtk::Widget, names: &[&str], fallback: (f32, f32, f32)) 
 
 /// Resolved at draw time against the widget's style, so drawn widgets
 /// follow the theme and dark mode.
-fn rgba(widget: &gtk::Widget, color: Color) -> gdk::RGBA {
+pub(crate) fn rgba(widget: &gtk::Widget, color: Color) -> gdk::RGBA {
     let fg = widget.color();
     let faded = |alpha: f32| gdk::RGBA::new(fg.red(), fg.green(), fg.blue(), fg.alpha() * alpha);
     match color {
@@ -367,6 +367,10 @@ fn rgba(widget: &gtk::Widget, color: Color) -> gdk::RGBA {
         Color::Separator => theme_color(widget, &["borders"], (0.80, 0.78, 0.76)),
         Color::ControlBackground => theme_color(widget, &["view_bg_color", "theme_base_color"], (1.0, 1.0, 1.0)),
         Color::WindowBackground => theme_color(widget, &["window_bg_color", "theme_bg_color"], (0.98, 0.98, 0.98)),
+        // libadwaita's names, which GTK's own theme shares.
+        Color::Error => theme_color(widget, &["error_color"], (0.75, 0.11, 0.16)),
+        Color::Warning => theme_color(widget, &["warning_color"], (0.61, 0.43, 0.01)),
+        Color::Success => theme_color(widget, &["success_color"], (0.11, 0.52, 0.33)),
         Color::Rgba(r, g, b, a) => {
             let c = |v: u8| v as f32 / 255.0;
             gdk::RGBA::new(c(r), c(g), c(b), c(a))

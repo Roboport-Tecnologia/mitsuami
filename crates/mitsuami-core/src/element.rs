@@ -6,6 +6,7 @@ use mitsuami_reactive::{IntoValue, Value, effect};
 
 use crate::a11y::{A11yProps, Role};
 use crate::command::UiEvent;
+use crate::measure::NodeRef;
 use crate::services::{Menu, MenuEntries, install_context_menu};
 use crate::style::{Align, Edges, GridPlacement, Position, Style, TextDirection};
 use crate::ui::{Handler, Ui};
@@ -271,6 +272,12 @@ pub trait ElementBuilder: Sized {
     /// arranging the tree in the order users should visit it.
     fn tab_index(mut self, index: u32) -> Self {
         self.element().tab_index = Some(index);
+        self
+    }
+
+    /// Points `node` at this widget's node, for [`use_size`](crate::use_size).
+    fn node_ref(mut self, node: NodeRef) -> Self {
+        self.element().after_build(move |_, id| node.attach(id));
         self
     }
 

@@ -1,11 +1,11 @@
 //! Text options: a line limit, the last line cut off with the platform's
-//! ellipsis, and raw platform settings. How text wraps and is measured is
+//! ellipsis, colour, weight, italics, alignment, and raw platform settings. How text wraps and is measured is
 //! in the conformance and layout suites.
 
 use std::cell::RefCell;
 use std::rc::Rc;
 
-use mitsuami::core::Prop;
+use mitsuami::core::{HorizontalAlign, Prop};
 use mitsuami::prelude::*;
 use mitsuami_test::prelude::*;
 
@@ -98,6 +98,103 @@ async fn a_tweak_runs_on_the_native_label_after_its_props(app: TestApp) {
     text.set("second".into());
     app.settle().await;
     assert_eq!(log.borrow().last().map(String::as_str), Some("second"));
+}
+
+fn has(app: &TestApp, id: &str, prop: Prop) -> bool {
+    app.get_by_test_id(id).native_state().props.contains(&prop)
+}
+
+/// Each option reaches the native label, which the mirror check then reads
+/// back after every settle.
+#[mitsuami_test::test]
+async fn colour_weight_italics_and_alignment_reach_the_label(app: TestApp) {
+    app.mount(|| {
+        Column::new().children((
+            Text::new("Failed").color(Color::Error).test_id("error"),
+            Text::new("Fixed").color(Color::rgb(0x33, 0x66, 0x99)).test_id("rgb"),
+            Text::new("Bold").weight(FontWeight::Bold).test_id("bold"),
+            Text::new("Slanted").italic(true).test_id("italic"),
+            Text::new("Centred").text_align(TextAlign::Center).test_id("centred"),
+        ))
+    });
+    assert!(has(&app, "error", Prop::TextColor(Color::Error)));
+    assert!(has(&app, "rgb", Prop::TextColor(Color::rgb(0x33, 0x66, 0x99))));
+    assert!(has(&app, "bold", Prop::FontWeight(FontWeight::Bold)));
+    assert!(has(&app, "italic", Prop::Italic(true)));
+    assert!(has(&app, "centred", Prop::TextAlign(HorizontalAlign::Center)));
+}
+
+/// A heavier font is no narrower, on every platform; how much wider is the
+/// platform's font's.
+#[mitsuami_test::test]
+async fn bold_text_is_at_least_as_wide(app: TestApp) {
+    app.mount(|| {
+        Column::new().align(Align::Start).children((
+            Text::new("Weighty words").test_id("regular"),
+            Text::new("Weighty words").weight(FontWeight::Bold).test_id("bold"),
+        ))
+    });
+    let regular = app.get_by_test_id("regular").frame().width();
+    let bold = app.get_by_test_id("bold").frame().width();
+    assert!(bold >= regular, "bold {bold} is narrower than regular {regular}");
+}
+
+/// Start and end are the text's direction's: left and right in
+/// left-to-right text, the other way round in right-to-left.
+#[mitsuami_test::test]
+async fn alignment_follows_the_direction(app: TestApp) {
+    let rtl = signal(false);
+    app.mount(move || {
+        Column::new().direction(move || if rtl.get() { TextDirection::Rtl } else { TextDirection::Ltr }).children((
+            Text::new("Start").text_align(TextAlign::Start).test_id("start"),
+            Text::new("End").text_align(TextAlign::End).test_id("end"),
+        ))
+    });
+    assert!(has(&app, "start", Prop::TextAlign(HorizontalAlign::Left)));
+    assert!(has(&app, "end", Prop::TextAlign(HorizontalAlign::Right)));
+
+    rtl.set(true);
+    app.settle().await;
+    assert!(has(&app, "start", Prop::TextAlign(HorizontalAlign::Right)));
+    assert!(has(&app, "end", Prop::TextAlign(HorizontalAlign::Left)));
+}
+
+/// The options follow their signals, and a new text style keeps the
+/// weight and italics set over it.
+#[mitsuami_test::test]
+async fn the_options_follow_their_signals(app: TestApp) {
+    let color = signal(Color::SecondaryLabel);
+    let weight = signal(FontWeight::Semibold);
+    let italic = signal(true);
+    let style = signal(TextStyle::Body);
+    let align = signal(TextAlign::Center);
+    app.mount(move || {
+        Column::new().child(
+            Text::new("Changing")
+                .color(color)
+                .weight(weight)
+                .italic(italic)
+                .text_style(style)
+                .text_align(align)
+                .test_id("text"),
+        )
+    });
+    assert!(has(&app, "text", Prop::FontWeight(FontWeight::Semibold)));
+
+    style.set(TextStyle::Title);
+    app.settle().await;
+    assert!(has(&app, "text", Prop::FontWeight(FontWeight::Semibold)), "the style dropped the weight");
+    assert!(has(&app, "text", Prop::Italic(true)), "the style dropped italics");
+
+    color.set(Color::Accent);
+    weight.set(FontWeight::Regular);
+    italic.set(false);
+    align.set(TextAlign::End);
+    app.settle().await;
+    assert!(has(&app, "text", Prop::TextColor(Color::Accent)));
+    assert!(has(&app, "text", Prop::FontWeight(FontWeight::Regular)));
+    assert!(has(&app, "text", Prop::Italic(false)));
+    assert!(has(&app, "text", Prop::TextAlign(HorizontalAlign::Right)));
 }
 
 mitsuami_test::main!();

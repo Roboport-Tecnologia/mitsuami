@@ -18,6 +18,12 @@ pub enum Color {
     Separator,
     ControlBackground,
     WindowBackground,
+    /// Something went wrong, or is destructive: the platform's red.
+    Error,
+    /// Something needs attention: the platform's orange or yellow.
+    Warning,
+    /// Something went well: the platform's green.
+    Success,
     Rgba(u8, u8, u8, u8),
 }
 

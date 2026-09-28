@@ -72,6 +72,30 @@ fn text_styles() -> impl View {
     ))
 }
 
+/// Colours, weights, italics and alignment, each the platform's own.
+#[mitsuami_test::story(sizes = [(240, fit)])]
+fn text_options() -> impl View {
+    let colors = Column::new().gap(4).children((
+        Text::new("Label"),
+        Text::new("Secondary label").color(Color::SecondaryLabel),
+        Text::new("Accent").color(Color::Accent),
+        Text::new("Error").color(Color::Error),
+        Text::new("Warning").color(Color::Warning),
+        Text::new("Success").color(Color::Success),
+        Text::new("Fixed purple").color(Color::rgb(0x80, 0x40, 0xc0)),
+    ));
+    let fonts = Column::new().gap(4).children((
+        Text::new("Medium").weight(FontWeight::Medium),
+        Text::new("Semibold").weight(FontWeight::Semibold),
+        Text::new("Bold").weight(FontWeight::Bold),
+        Text::new("Italic").italic(true),
+        Text::new("Bold italic").weight(FontWeight::Bold).italic(true),
+        Text::new("Centred").text_align(TextAlign::Center),
+        Text::new("End").text_align(TextAlign::End),
+    ));
+    Column::new().padding(16).gap(4).children((colors, fonts))
+}
+
 /// A paragraph cut off at two lines and at one, with the platform's
 /// ellipsis, and a tweaked label: the secondary colour on AppKit, dimmed on
 /// GTK, Markdown on Qt, spread letters on WinUI.

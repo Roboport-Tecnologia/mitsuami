@@ -40,6 +40,9 @@ pub(crate) struct Colors {
     pub(crate) background: Rgba,
     pub(crate) view_background: Rgba,
     pub(crate) separator: Rgba,
+    pub(crate) negative_text: Rgba,
+    pub(crate) neutral_text: Rgba,
+    pub(crate) positive_text: Rgba,
 }
 
 pub(crate) fn colors() -> Colors {
@@ -52,6 +55,9 @@ pub(crate) fn colors() -> Colors {
         background: color("backgroundColor"),
         view_background: color("viewBackgroundColor"),
         separator: color("separatorColor"),
+        negative_text: color("negativeTextColor"),
+        neutral_text: color("neutralTextColor"),
+        positive_text: color("positiveTextColor"),
     }
 }
 

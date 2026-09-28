@@ -2240,6 +2240,21 @@ impl windows_core::RuntimeName for FontFamily {
 }
 unsafe impl Send for FontFamily {}
 unsafe impl Sync for FontFamily {}
+#[repr(transparent)]
+#[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
+pub struct FontStyle(pub i32);
+impl FontStyle {
+    pub const Normal: Self = Self(0);
+    pub const Oblique: Self = Self(1);
+    pub const Italic: Self = Self(2);
+}
+impl windows_core::imp::TypeKind for FontStyle {
+    type TypeKind = windows_core::imp::CopyType;
+}
+impl windows_core::RuntimeType for FontStyle {
+    const SIGNATURE: windows_core::imp::ConstBuffer =
+        windows_core::imp::ConstBuffer::from_slice(b"enum(Windows.UI.Text.FontStyle;i4)");
+}
 #[repr(C)]
 #[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
 pub struct FontWeight {
@@ -7706,9 +7721,29 @@ windows_core::imp::define_interface!(IStyle, IStyle_Vtbl, 0x65e1d164_572f_5b0e_a
 impl windows_core::RuntimeType for IStyle {
     const SIGNATURE: windows_core::imp::ConstBuffer = windows_core::imp::ConstBuffer::for_interface::<Self>();
 }
+impl IStyle {
+    pub fn SetBasedOn<P0>(&self, value: P0) -> windows_core::Result<()>
+    where
+        P0: windows_core::Param<Style>,
+    {
+        unsafe {
+            (windows_core::Interface::vtable(self).SetBasedOn)(
+                windows_core::Interface::as_raw(self),
+                value.param().abi(),
+            )
+            .ok()
+        }
+    }
+}
 #[repr(C)]
 pub struct IStyle_Vtbl {
     pub base__: windows_core::IInspectable_Vtbl,
+    IsSealed: usize,
+    Setters: usize,
+    TargetType: usize,
+    SetTargetType: usize,
+    BasedOn: usize,
+    pub SetBasedOn: unsafe extern "system" fn(*mut core::ffi::c_void, *mut core::ffi::c_void) -> windows_core::HRESULT,
 }
 windows_core::imp::define_interface!(ITextBlock, ITextBlock_Vtbl, 0x1ac8d84f_392c_5c7e_83f5_a53e3bf0abb0);
 impl windows_core::RuntimeType for ITextBlock {
@@ -7732,9 +7767,28 @@ impl ITextBlock {
             .ok()
         }
     }
+    pub fn FontWeight(&self) -> windows_core::Result<FontWeight> {
+        unsafe {
+            let mut result__ = core::mem::zeroed();
+            (windows_core::Interface::vtable(self).FontWeight)(windows_core::Interface::as_raw(self), &mut result__)
+                .map(|| result__)
+        }
+    }
     pub fn SetFontWeight(&self, value: FontWeight) -> windows_core::Result<()> {
         unsafe {
             (windows_core::Interface::vtable(self).SetFontWeight)(windows_core::Interface::as_raw(self), value).ok()
+        }
+    }
+    pub fn FontStyle(&self) -> windows_core::Result<FontStyle> {
+        unsafe {
+            let mut result__ = core::mem::zeroed();
+            (windows_core::Interface::vtable(self).FontStyle)(windows_core::Interface::as_raw(self), &mut result__)
+                .map(|| result__)
+        }
+    }
+    pub fn SetFontStyle(&self, value: FontStyle) -> windows_core::Result<()> {
+        unsafe {
+            (windows_core::Interface::vtable(self).SetFontStyle)(windows_core::Interface::as_raw(self), value).ok()
         }
     }
     pub fn SetCharacterSpacing(&self, value: i32) -> windows_core::Result<()> {
@@ -7751,6 +7805,18 @@ impl ITextBlock {
     pub fn SetTextTrimming(&self, value: TextTrimming) -> windows_core::Result<()> {
         unsafe {
             (windows_core::Interface::vtable(self).SetTextTrimming)(windows_core::Interface::as_raw(self), value).ok()
+        }
+    }
+    pub fn TextAlignment(&self) -> windows_core::Result<TextAlignment> {
+        unsafe {
+            let mut result__ = core::mem::zeroed();
+            (windows_core::Interface::vtable(self).TextAlignment)(windows_core::Interface::as_raw(self), &mut result__)
+                .map(|| result__)
+        }
+    }
+    pub fn SetTextAlignment(&self, value: TextAlignment) -> windows_core::Result<()> {
+        unsafe {
+            (windows_core::Interface::vtable(self).SetTextAlignment)(windows_core::Interface::as_raw(self), value).ok()
         }
     }
     pub fn Text(&self) -> windows_core::Result<String> {
@@ -7794,10 +7860,10 @@ pub struct ITextBlock_Vtbl {
     FontFamily: usize,
     pub SetFontFamily:
         unsafe extern "system" fn(*mut core::ffi::c_void, *mut core::ffi::c_void) -> windows_core::HRESULT,
-    FontWeight: usize,
+    pub FontWeight: unsafe extern "system" fn(*mut core::ffi::c_void, *mut FontWeight) -> windows_core::HRESULT,
     pub SetFontWeight: unsafe extern "system" fn(*mut core::ffi::c_void, FontWeight) -> windows_core::HRESULT,
-    FontStyle: usize,
-    SetFontStyle: usize,
+    pub FontStyle: unsafe extern "system" fn(*mut core::ffi::c_void, *mut FontStyle) -> windows_core::HRESULT,
+    pub SetFontStyle: unsafe extern "system" fn(*mut core::ffi::c_void, FontStyle) -> windows_core::HRESULT,
     FontStretch: usize,
     SetFontStretch: usize,
     CharacterSpacing: usize,
@@ -7808,8 +7874,8 @@ pub struct ITextBlock_Vtbl {
     pub SetTextWrapping: unsafe extern "system" fn(*mut core::ffi::c_void, TextWrapping) -> windows_core::HRESULT,
     TextTrimming: usize,
     pub SetTextTrimming: unsafe extern "system" fn(*mut core::ffi::c_void, TextTrimming) -> windows_core::HRESULT,
-    TextAlignment: usize,
-    SetTextAlignment: usize,
+    pub TextAlignment: unsafe extern "system" fn(*mut core::ffi::c_void, *mut TextAlignment) -> windows_core::HRESULT,
+    pub SetTextAlignment: unsafe extern "system" fn(*mut core::ffi::c_void, TextAlignment) -> windows_core::HRESULT,
     pub Text: unsafe extern "system" fn(*mut core::ffi::c_void, *mut *mut core::ffi::c_void) -> windows_core::HRESULT,
     pub SetText: unsafe extern "system" fn(*mut core::ffi::c_void, *mut core::ffi::c_void) -> windows_core::HRESULT,
     Inlines: usize,
@@ -12283,6 +12349,25 @@ pub struct TRACKMOUSEEVENT {
     pub dwFlags: u32,
     pub hwndTrack: HWND,
     pub dwHoverTime: u32,
+}
+#[repr(transparent)]
+#[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
+pub struct TextAlignment(pub i32);
+impl TextAlignment {
+    pub const Center: Self = Self(0);
+    pub const Left: Self = Self(1);
+    pub const Start: Self = Self(1);
+    pub const Right: Self = Self(2);
+    pub const End: Self = Self(2);
+    pub const Justify: Self = Self(3);
+    pub const DetectFromContent: Self = Self(4);
+}
+impl windows_core::imp::TypeKind for TextAlignment {
+    type TypeKind = windows_core::imp::CopyType;
+}
+impl windows_core::RuntimeType for TextAlignment {
+    const SIGNATURE: windows_core::imp::ConstBuffer =
+        windows_core::imp::ConstBuffer::from_slice(b"enum(Microsoft.UI.Xaml.TextAlignment;i4)");
 }
 #[repr(transparent)]
 #[derive(Clone, Debug, Eq, PartialEq)]

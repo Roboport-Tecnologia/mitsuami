@@ -410,9 +410,22 @@ fn brush(color: Color) -> String {
         Color::Separator => "DividerStrokeColorDefaultBrush",
         Color::ControlBackground => "ControlFillColorDefaultBrush",
         Color::WindowBackground => "SolidBackgroundFillColorBaseBrush",
+        // Fluent's status colours, as InfoBar and validation use them.
+        Color::Error => "SystemFillColorCriticalBrush",
+        Color::Warning => "SystemFillColorCautionBrush",
+        Color::Success => "SystemFillColorSuccessBrush",
         Color::Rgba(r, g, b, a) => return format!("#{a:02X}{r:02X}{g:02X}{b:02X}"),
     };
     format!("{{ThemeResource {resource}}}")
+}
+
+/// A brush for text in a semantic color, as markup: the accent has a
+/// brush of its own for text, which keeps its contrast.
+pub(crate) fn text_brush(color: Color) -> String {
+    match color {
+        Color::Accent => "{ThemeResource AccentTextFillColorPrimaryBrush}".to_owned(),
+        _ => brush(color),
+    }
 }
 
 /// Path markup for a shape. Everything is a path, so strokes are centred on

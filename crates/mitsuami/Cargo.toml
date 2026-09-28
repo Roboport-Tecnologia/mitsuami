@@ -44,6 +44,10 @@ name = "layout"
 harness = false
 
 [[test]]
+name = "measurements"
+harness = false
+
+[[test]]
 name = "forms"
 harness = false
 

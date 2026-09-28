@@ -17,6 +17,7 @@ use mitsuami_core::{
     Modality, NativeAppInfo, NativeIcon, NodeId, Opaque, Orientation, Pixels, Point, Prop, Rect, RowKey, ScrollAxes,
     SelectionMode, Size, TextStyle, UiEvent, WidgetKind, find_prop,
 };
+use mitsuami_core::{Color, FontWeight, HorizontalAlign};
 use windows_core::{EventRevoker, HSTRING, IInspectable, IUnknown, Interface};
 
 use crate::bindings as w;
@@ -268,6 +269,8 @@ struct Node {
     scroll_content: bool,
     /// Props XAML can't report back faithfully.
     text_style: Option<TextStyle>,
+    /// Labels: their colour, a theme brush in their style.
+    text_color: Option<Color>,
     role: Option<ButtonRole>,
     button_style: Option<ButtonStyle>,
     /// Sliders: whether the app gave an `Orientation`.
@@ -508,6 +511,49 @@ fn font_sizes() -> FontSizes {
 
 fn font_size(style: TextStyle) -> f64 {
     font_sizes().get(style) as f64
+}
+
+/// A label's style: its text style's, with its colour on top. The colour
+/// is a setter, so a theme brush follows the theme live, as
+/// `{ThemeResource}` does in a style.
+fn set_label_style(label: &w::TextBlock, text_style: Option<TextStyle>, color: Option<Color>) -> R<()> {
+    let base = text_style.map(|s| style(text_style_resource(s)));
+    let style = match (color, base) {
+        (None, Some(base)) => base,
+        (None, None) => return Ok(()),
+        (Some(color), base) => {
+            let markup = format!(
+                r#"<Style xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation" TargetType="TextBlock"><Setter Property="Foreground" Value="{}"/></Style>"#,
+                crate::custom::text_brush(color)
+            );
+            let colored: w::Style = w::XamlReader::Load(&markup)?.cast()?;
+            if let Some(base) = base {
+                colored.cast::<w::IStyle>()?.SetBasedOn(&base)?;
+            }
+            colored
+        }
+    };
+    label.cast::<w::IFrameworkElement>()?.SetStyle(&style)
+}
+
+/// Fluent's weights (Segoe UI Variable has each of them).
+fn weight_value(weight: FontWeight) -> u16 {
+    match weight {
+        FontWeight::Regular => 400,
+        FontWeight::Medium => 500,
+        FontWeight::Semibold => 600,
+        FontWeight::Bold => 700,
+    }
+}
+
+/// The nearest of our weights to a font's.
+fn weight_of(weight: u16) -> FontWeight {
+    match weight {
+        0..450 => FontWeight::Regular,
+        450..550 => FontWeight::Medium,
+        550..650 => FontWeight::Semibold,
+        _ => FontWeight::Bold,
+    }
 }
 
 fn font_weight(style: TextStyle) -> u16 {
@@ -2153,6 +2199,7 @@ impl State {
                 shift_wheel: None,
                 scroll_content: false,
                 text_style: None,
+                text_color: None,
                 role: None,
                 button_style: None,
                 orientation: None,
@@ -2421,12 +2468,30 @@ impl State {
                 node.element.cast::<w::IControl>()?.SetIsEnabled(*e)?
             }
             (Prop::TextStyle(text_style), Widget::Label(l)) => {
-                l.cast::<w::IFrameworkElement>()?.SetStyle(&style(text_style_resource(*text_style)))?;
+                node.text_style = Some(*text_style);
+                set_label_style(l, node.text_style, node.text_color)?;
                 if *text_style == TextStyle::Monospace {
                     l.cast::<w::ITextBlock>()?.SetFontFamily(&w::FontFamily::CreateInstanceWithName(MONOSPACE)?)?;
                 }
-                node.text_style = Some(*text_style);
             }
+            (Prop::TextColor(color), Widget::Label(l)) => {
+                node.text_color = Some(*color);
+                set_label_style(l, node.text_style, node.text_color)?;
+            }
+            // Local values, so they win over the text style's setters.
+            (Prop::FontWeight(weight), Widget::Label(l)) => {
+                l.cast::<w::ITextBlock>()?.SetFontWeight(w::FontWeight { weight: weight_value(*weight) })?
+            }
+            (Prop::Italic(italic), Widget::Label(l)) => l.cast::<w::ITextBlock>()?.SetFontStyle(if *italic {
+                w::FontStyle::Italic
+            } else {
+                w::FontStyle::Normal
+            })?,
+            (Prop::TextAlign(align), Widget::Label(l)) => l.cast::<w::ITextBlock>()?.SetTextAlignment(match align {
+                HorizontalAlign::Left => w::TextAlignment::Left,
+                HorizontalAlign::Center => w::TextAlignment::Center,
+                HorizontalAlign::Right => w::TextAlignment::Right,
+            })?,
             (Prop::TextStyle(text_style), _) if is_control(&node.widget) => {
                 let control: w::IControl = node.element.cast()?;
                 control.SetFontSize(font_size(*text_style))?;
@@ -3616,6 +3681,16 @@ impl Backend for WinUiBackend {
                 props.push(Prop::Text(text.Text().ok()?));
                 let lines = text.MaxLines().ok()?;
                 props.push(Prop::MaxLines((lines > 0).then_some(lines as u32)));
+                props.push(Prop::FontWeight(weight_of(text.FontWeight().ok()?.weight)));
+                props.push(Prop::Italic(text.FontStyle().ok()? == w::FontStyle::Italic));
+                props.push(Prop::TextAlign(match text.TextAlignment().ok()? {
+                    w::TextAlignment::Center => HorizontalAlign::Center,
+                    w::TextAlignment::Right => HorizontalAlign::Right,
+                    _ => HorizontalAlign::Left,
+                }));
+                // Its brush is a theme resource in its style, which can't
+                // be told apart from another once resolved.
+                props.extend(node.text_color.map(Prop::TextColor));
             }
             Widget::Field(f) => {
                 let field: w::ITextBox = f.cast().ok()?;

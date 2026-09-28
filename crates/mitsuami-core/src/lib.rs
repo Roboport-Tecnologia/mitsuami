@@ -15,6 +15,7 @@ mod flow;
 pub mod geometry;
 mod input;
 mod list;
+mod measure;
 mod resource;
 pub mod services;
 mod store;
@@ -42,6 +43,7 @@ pub use flow::{For, Show};
 pub use geometry::{Point, Rect, Size, WindowSize};
 pub use input::{KeyCode, Modifiers, MouseButton, ScrollDelta, SurfaceInput};
 pub use list::{List, ListHandle, RowRender};
+pub use measure::{NodeRef, node_ref, use_size, use_viewport};
 pub use resource::{Action, Resource, action, resource, resource_on};
 pub use store::{Store, provide_stores, use_store};
 pub use style::{Align, Display, FlexDirection, GridPlacement, Justify, Style, TextDirection, Track, repeat};
@@ -51,8 +53,8 @@ pub use ui::{NodeInfo, Ui, WeakUi};
 pub use units::{Length, LengthExt, Spacing};
 pub use view::{AnyView, Callback, Children, Slot, View};
 pub use widget::{
-    ButtonRole, ButtonStyle, CurrentWindow, Cursor, ImageFit, ImageSource, ListStyle, Modality, NodeId, Orientation,
-    Pixels, Prop, RowKey, ScrollAxes, SelectionMode, TextStyle, WidgetKind,
+    ButtonRole, ButtonStyle, CurrentWindow, Cursor, FontWeight, HorizontalAlign, ImageFit, ImageSource, ListStyle,
+    Modality, NodeId, Orientation, Pixels, Prop, RowKey, ScrollAxes, SelectionMode, TextAlign, TextStyle, WidgetKind,
 };
 
 pub use mitsuami_reactive as reactive;

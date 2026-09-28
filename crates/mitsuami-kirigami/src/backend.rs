@@ -12,9 +12,10 @@ use mitsuami_core::backend::{
 };
 use mitsuami_core::services::{MenuBarData, Reply};
 use mitsuami_core::{
-    AppInfo, ButtonRole, ButtonStyle, Command, CustomProps, DisplayList, EventValue, ImageFit, ImageSource, KeyCode,
-    Modality, Modifiers, NativeAppInfo, NativeIcon, NodeId, Opaque, Orientation, Point, PointerEvent, Prop, Rect,
-    RowKey, ScrollAxes, ScrollDelta, SelectionMode, Size, SurfaceInput, TextStyle, UiEvent, WidgetKind, find_prop,
+    AppInfo, ButtonRole, ButtonStyle, Color, Command, CustomProps, DisplayList, EventValue, HorizontalAlign, ImageFit,
+    ImageSource, KeyCode, Modality, Modifiers, NativeAppInfo, NativeIcon, NodeId, Opaque, Orientation, Point,
+    PointerEvent, Prop, Rect, RowKey, ScrollAxes, ScrollDelta, SelectionMode, Size, SurfaceInput, TextStyle, UiEvent,
+    WidgetKind, find_prop,
 };
 
 use crate::custom::{Emitter, ErasedRender, KirigamiCx, NativePayload, flatten};
@@ -50,6 +51,10 @@ const KEY_UNKNOWN: i32 = 0x01ff_ffff;
 // `Text.elide` values (`Qt::TextElideMode`).
 const ELIDE_RIGHT: i32 = 1;
 const ELIDE_NONE: i32 = 3;
+/// `Qt::AlignLeft`, `Qt::AlignRight` and `Qt::AlignHCenter`.
+const ALIGN_LEFT: i32 = 1;
+const ALIGN_RIGHT: i32 = 2;
+const ALIGN_H_CENTER: i32 = 4;
 
 /// A window's content host and what it reports.
 pub(crate) struct WindowRoot {
@@ -195,9 +200,7 @@ impl WindowRoot {
         let (width, height) = (self.window.int("minimumWidth"), self.window.int("minimumHeight"));
         let locked = self.height_locked();
         match self.min.get() {
-            Some(min)
-                if self.min_window_size(min).0 == width && (locked || self.min_window_size(min).1 == height) =>
-            {
+            Some(min) if self.min_window_size(min).0 == width && (locked || self.min_window_size(min).1 == height) => {
                 min
             }
             _ => Size::new(width as f32, (height as f64 - self.header()).max(0.0) as f32),
@@ -1114,6 +1117,25 @@ impl State {
                 l.set_int("maximumLineCount", lines.map_or(i32::MAX, |n| n as i32));
                 l.set_int("elide", if lines.is_some() { ELIDE_RIGHT } else { ELIDE_NONE });
             }
+            (Prop::TextColor(color), Widget::Label(l)) => {
+                if let Color::Rgba(r, g, b, a) = *color {
+                    l.set_int("mitsuamiRgba", u32::from_be_bytes([r, g, b, a]) as i32);
+                }
+                l.set_int("mitsuamiColor", qml::color(*color));
+            }
+            (Prop::FontWeight(weight), Widget::Label(l)) => l.set_int("mitsuamiWeight", qml::font_weight(*weight)),
+            (Prop::Italic(italic), Widget::Label(l)) => l.set_bool("mitsuamiItalic", *italic),
+            // Set, it's what shows: Qt mirrors it only under
+            // `LayoutMirroring`, which nothing enables, and aligns by the
+            // text's own direction only while it's unset.
+            (Prop::TextAlign(align), Widget::Label(l)) => l.set_int(
+                "horizontalAlignment",
+                match align {
+                    HorizontalAlign::Left => ALIGN_LEFT,
+                    HorizontalAlign::Center => ALIGN_H_CENTER,
+                    HorizontalAlign::Right => ALIGN_RIGHT,
+                },
+            ),
             (Prop::Label(t), Widget::Button(b) | Widget::Checkbox(b)) => b.set_str("text", t),
             (
                 Prop::Label(t),
@@ -1905,6 +1927,16 @@ impl Backend for KirigamiBackend {
                 props.push(Prop::Text(l.str("text")));
                 let lines = l.int("maximumLineCount");
                 props.push(Prop::MaxLines((lines != i32::MAX).then_some(lines as u32)));
+                props
+                    .extend(qml::color_from(l.int("mitsuamiColor"), l.int("mitsuamiRgba") as u32).map(Prop::TextColor));
+                props.push(Prop::FontWeight(qml::font_weight_from(l.int("mitsuamiShownWeight"))));
+                props.push(Prop::Italic(l.bool("mitsuamiShownItalic")));
+                let align = l.int("effectiveHorizontalAlignment");
+                props.push(Prop::TextAlign(match align {
+                    ALIGN_RIGHT => HorizontalAlign::Right,
+                    ALIGN_H_CENTER => HorizontalAlign::Center,
+                    _ => HorizontalAlign::Left,
+                }));
             }
             Widget::Field(f) => {
                 props.push(Prop::Value(f.str("text")));

@@ -343,7 +343,7 @@ fn ns_point(p: mitsuami_core::Point) -> NSPoint {
     NSPoint::new(p.x as f64, p.y as f64)
 }
 
-fn ns_color(color: Color) -> Retained<NSColor> {
+pub(crate) fn ns_color(color: Color) -> Retained<NSColor> {
     match color {
         Color::Label => NSColor::labelColor(),
         Color::SecondaryLabel => NSColor::secondaryLabelColor(),
@@ -351,6 +351,9 @@ fn ns_color(color: Color) -> Retained<NSColor> {
         Color::Separator => NSColor::separatorColor(),
         Color::ControlBackground => NSColor::controlBackgroundColor(),
         Color::WindowBackground => NSColor::windowBackgroundColor(),
+        Color::Error => NSColor::systemRedColor(),
+        Color::Warning => NSColor::systemOrangeColor(),
+        Color::Success => NSColor::systemGreenColor(),
         Color::Rgba(r, g, b, a) => {
             let c = |v: u8| v as f64 / 255.0;
             NSColor::colorWithSRGBRed_green_blue_alpha(c(r), c(g), c(b), c(a))

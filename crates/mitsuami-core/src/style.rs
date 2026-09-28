@@ -3,6 +3,7 @@
 use taffy::style_helpers::{TaffyGridLine, TaffyGridSpan};
 
 use crate::units::{Length, ResolveContext, Resolved};
+use crate::widget::TextAlign;
 
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub enum Display {
@@ -130,6 +131,8 @@ pub struct Style {
     pub hidden: bool,
     pub position: Position,
     pub direction: TextDirection,
+    /// `Text` only: where its lines go, resolved against `direction`.
+    pub text_align: Option<TextAlign>,
     /// Content may overflow along these axes and is scrolled natively.
     /// Set by `ScrollView`; also lets it shrink below its content size.
     pub scroll_x: bool,
@@ -175,6 +178,7 @@ impl Default for Style {
             hidden: false,
             position: Position::Relative,
             direction: TextDirection::Inherit,
+            text_align: None,
             scroll_x: false,
             scroll_y: false,
             inset: Edges::default(),
