@@ -24,6 +24,7 @@ windows_core::link!("kernel32.dll" "system" fn GetCurrentThreadId() -> u32);
 windows_core::link!("user32.dll" "system" fn GetCursorPos(lppoint : *mut POINT) -> windows_core::BOOL);
 windows_core::link!("user32.dll" "system" fn GetDpiForSystem() -> u32);
 windows_core::link!("user32.dll" "system" fn GetDpiForWindow(hwnd : HWND) -> u32);
+windows_core::link!("user32.dll" "system" fn GetFocus() -> HWND);
 windows_core::link!("user32.dll" "system" fn GetForegroundWindow() -> HWND);
 windows_core::link!("user32.dll" "system" fn GetKeyState(nvirtkey : i32) -> i16);
 windows_core::link!("kernel32.dll" "system" fn GetModuleHandleW(lpmodulename : windows_core::PCWSTR) -> HMODULE);
@@ -35,6 +36,7 @@ windows_core::link!("user32.dll" "system" fn GetWindowThreadProcessId(hwnd : HWN
 windows_core::link!("kernel32.dll" "system" fn HeapFree(hheap : HANDLE, dwflags : u32, lpmem : *mut core::ffi::c_void) -> windows_core::BOOL);
 windows_core::link!("user32.dll" "system" fn IsWindowEnabled(hwnd : HWND) -> windows_core::BOOL);
 windows_core::link!("user32.dll" "system" fn IsWindowVisible(hwnd : HWND) -> windows_core::BOOL);
+windows_core::link!("user32.dll" "system" fn LoadCursorW(hinstance : HINSTANCE, lpcursorname : windows_core::PCWSTR) -> HCURSOR);
 windows_core::link!("user32.dll" "system" fn MessageBoxW(hwnd : HWND, lptext : windows_core::PCWSTR, lpcaption : windows_core::PCWSTR, utype : u32) -> i32);
 windows_core::link!("user32.dll" "system" fn MsgWaitForMultipleObjectsEx(ncount : u32, phandles : *const HANDLE, dwmilliseconds : u32, dwwakemask : u32, dwflags : u32) -> u32);
 windows_core::link!("user32.dll" "system" fn PeekMessageW(lpmsg : *mut MSG, hwnd : HWND, wmsgfiltermin : u32, wmsgfiltermax : u32, wremovemsg : u32) -> windows_core::BOOL);
@@ -42,7 +44,9 @@ windows_core::link!("user32.dll" "system" fn PostMessageW(hwnd : HWND, msg : u32
 windows_core::link!("user32.dll" "system" fn PostThreadMessageW(idthread : u32, msg : u32, wparam : WPARAM, lparam : LPARAM) -> windows_core::BOOL);
 windows_core::link!("user32.dll" "system" fn RegisterClassExW(param0 : *const WNDCLASSEXW) -> ATOM);
 windows_core::link!("user32.dll" "system" fn RegisterRawInputDevices(prawinputdevices : *const RAWINPUTDEVICE, uinumdevices : u32, cbsize : u32) -> windows_core::BOOL);
+windows_core::link!("user32.dll" "system" fn ReleaseCapture() -> windows_core::BOOL);
 windows_core::link!("comctl32.dll" "system" fn RemoveWindowSubclass(hwnd : HWND, pfnsubclass : SUBCLASSPROC, uidsubclass : usize) -> windows_core::BOOL);
+windows_core::link!("user32.dll" "system" fn SetCapture(hwnd : HWND) -> HWND);
 windows_core::link!("user32.dll" "system" fn SetCursor(hcursor : HCURSOR) -> HCURSOR);
 windows_core::link!("user32.dll" "system" fn SetCursorPos(x : i32, y : i32) -> windows_core::BOOL);
 windows_core::link!("user32.dll" "system" fn SetForegroundWindow(hwnd : HWND) -> windows_core::BOOL);
@@ -58,6 +62,7 @@ windows_core::link!("user32.dll" "system" fn SetWindowPos(hwnd : HWND, hwndinser
 windows_core::link!("comctl32.dll" "system" fn SetWindowSubclass(hwnd : HWND, pfnsubclass : SUBCLASSPROC, uidsubclass : usize, dwrefdata : usize) -> windows_core::BOOL);
 windows_core::link!("user32.dll" "system" fn SetWindowsHookExW(idhook : i32, lpfn : HOOKPROC, hmod : HINSTANCE, dwthreadid : u32) -> HHOOK);
 windows_core::link!("user32.dll" "system" fn ShowCursor(bshow : windows_core::BOOL) -> i32);
+windows_core::link!("user32.dll" "system" fn TrackMouseEvent(lpeventtrack : *mut TRACKMOUSEEVENT) -> windows_core::BOOL);
 windows_core::link!("user32.dll" "system" fn TranslateMessage(lpmsg : *const MSG) -> windows_core::BOOL);
 windows_core::link!("api-ms-win-appmodel-runtime-l1-1-5.dll" "system" fn TryCreatePackageDependency(user : PSID, packagefamilyname : windows_core::PCWSTR, minversion : PACKAGE_VERSION, packagedependencyprocessorarchitectures : PackageDependencyProcessorArchitectures, lifetimekind : PackageDependencyLifetimeKind, lifetimeartifact : windows_core::PCWSTR, options : CreatePackageDependencyOptions, packagedependencyid : *mut windows_core::PWSTR) -> windows_core::HRESULT);
 windows_core::link!("user32.dll" "system" fn UnhookWindowsHookEx(hhk : HHOOK) -> windows_core::BOOL);
@@ -1304,6 +1309,29 @@ impl windows_core::RuntimeType for ContentDialogResult {
     const SIGNATURE: windows_core::imp::ConstBuffer =
         windows_core::imp::ConstBuffer::from_slice(b"enum(Microsoft.UI.Xaml.Controls.ContentDialogResult;i4)");
 }
+#[repr(transparent)]
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct ContentIsland(windows_core::IUnknown);
+windows_core::imp::interface_hierarchy!(ContentIsland, windows_core::IUnknown, windows_core::IInspectable);
+impl windows_core::RuntimeType for ContentIsland {
+    const SIGNATURE: windows_core::imp::ConstBuffer =
+        windows_core::imp::ConstBuffer::for_class::<Self, IContentIsland>();
+}
+unsafe impl windows_core::Interface for ContentIsland {
+    type Vtable = <IContentIsland as windows_core::Interface>::Vtable;
+    const IID: windows_core::GUID = <IContentIsland as windows_core::Interface>::IID;
+}
+impl core::ops::Deref for ContentIsland {
+    type Target = IContentIsland;
+    fn deref(&self) -> &Self::Target {
+        unsafe { core::mem::transmute(self) }
+    }
+}
+impl windows_core::RuntimeName for ContentIsland {
+    const NAME: &'static str = "Microsoft.UI.Content.ContentIsland";
+}
+unsafe impl Send for ContentIsland {}
+unsafe impl Sync for ContentIsland {}
 #[repr(transparent)]
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct Control(windows_core::IUnknown);
@@ -3689,6 +3717,14 @@ pub struct IContentDialogFactory_Vtbl {
         *mut *mut core::ffi::c_void,
     ) -> windows_core::HRESULT,
 }
+windows_core::imp::define_interface!(IContentIsland, IContentIsland_Vtbl, 0x5b2504ba_361c_50aa_bd6e_4122c6d93889);
+impl windows_core::RuntimeType for IContentIsland {
+    const SIGNATURE: windows_core::imp::ConstBuffer = windows_core::imp::ConstBuffer::for_interface::<Self>();
+}
+#[repr(C)]
+pub struct IContentIsland_Vtbl {
+    pub base__: windows_core::IInspectable_Vtbl,
+}
 windows_core::imp::define_interface!(IControl, IControl_Vtbl, 0x857d6e8a_d45a_5c69_a99c_bf6a5c54fb38);
 impl windows_core::RuntimeType for IControl {
     const SIGNATURE: windows_core::imp::ConstBuffer = windows_core::imp::ConstBuffer::for_interface::<Self>();
@@ -3823,6 +3859,7 @@ pub struct IControl_Vtbl {
     pub CornerRadius: unsafe extern "system" fn(*mut core::ffi::c_void, *mut CornerRadius) -> windows_core::HRESULT,
     pub SetCornerRadius: unsafe extern "system" fn(*mut core::ffi::c_void, CornerRadius) -> windows_core::HRESULT,
 }
+pub const IDC_ARROW: windows_core::PCWSTR = windows_core::PCWSTR(32512 as _);
 windows_core::imp::define_interface!(IDataPackage, IDataPackage_Vtbl, 0x61ebf5c7_efea_4346_9554_981d7e198ffe);
 impl windows_core::RuntimeType for IDataPackage {
     const SIGNATURE: windows_core::imp::ConstBuffer = windows_core::imp::ConstBuffer::for_interface::<Self>();
@@ -4766,6 +4803,61 @@ impl windows_core::RuntimeType for IImageSource {
 }
 #[repr(C)]
 pub struct IImageSource_Vtbl {
+    pub base__: windows_core::IInspectable_Vtbl,
+}
+windows_core::imp::define_interface!(
+    IInputFocusController,
+    IInputFocusController_Vtbl,
+    0x8dfdc26c_8b8d_515d_8ddd_4685b3a540e9
+);
+impl windows_core::RuntimeType for IInputFocusController {
+    const SIGNATURE: windows_core::imp::ConstBuffer = windows_core::imp::ConstBuffer::for_interface::<Self>();
+}
+impl IInputFocusController {
+    pub fn HasFocus(&self) -> windows_core::Result<bool> {
+        unsafe {
+            let mut result__ = core::mem::zeroed();
+            (windows_core::Interface::vtable(self).HasFocus)(windows_core::Interface::as_raw(self), &mut result__)
+                .map(|| result__)
+        }
+    }
+    pub fn TrySetFocus(&self) -> windows_core::Result<bool> {
+        unsafe {
+            let mut result__ = core::mem::zeroed();
+            (windows_core::Interface::vtable(self).TrySetFocus)(windows_core::Interface::as_raw(self), &mut result__)
+                .map(|| result__)
+        }
+    }
+}
+#[repr(C)]
+pub struct IInputFocusController_Vtbl {
+    pub base__: windows_core::IInspectable_Vtbl,
+    pub HasFocus: unsafe extern "system" fn(*mut core::ffi::c_void, *mut bool) -> windows_core::HRESULT,
+    pub TrySetFocus: unsafe extern "system" fn(*mut core::ffi::c_void, *mut bool) -> windows_core::HRESULT,
+}
+windows_core::imp::define_interface!(
+    IInputFocusControllerStatics,
+    IInputFocusControllerStatics_Vtbl,
+    0xaeb311da_da9b_5a1b_92f4_83ddde933e00
+);
+impl windows_core::RuntimeType for IInputFocusControllerStatics {
+    const SIGNATURE: windows_core::imp::ConstBuffer = windows_core::imp::ConstBuffer::for_interface::<Self>();
+}
+#[repr(C)]
+pub struct IInputFocusControllerStatics_Vtbl {
+    pub base__: windows_core::IInspectable_Vtbl,
+    pub GetForIsland: unsafe extern "system" fn(
+        *mut core::ffi::c_void,
+        *mut core::ffi::c_void,
+        *mut *mut core::ffi::c_void,
+    ) -> windows_core::HRESULT,
+}
+windows_core::imp::define_interface!(IInputObject, IInputObject_Vtbl, 0x42edbc88_d386_544d_b1b8_68617fe68282);
+impl windows_core::RuntimeType for IInputObject {
+    const SIGNATURE: windows_core::imp::ConstBuffer = windows_core::imp::ConstBuffer::for_interface::<Self>();
+}
+#[repr(C)]
+pub struct IInputObject_Vtbl {
     pub base__: windows_core::IInspectable_Vtbl,
 }
 windows_core::imp::define_interface!(IInvokeProvider, IInvokeProvider_Vtbl, 0x02481105_3378_544d_b4e1_a1b368afbc02);
@@ -9401,6 +9493,25 @@ pub struct IXamlRoot_Vtbl {
     Size: usize,
     pub RasterizationScale: unsafe extern "system" fn(*mut core::ffi::c_void, *mut f64) -> windows_core::HRESULT,
 }
+windows_core::imp::define_interface!(IXamlRoot4, IXamlRoot4_Vtbl, 0x377bec22_632b_52be_b26f_5edf7838e5ca);
+impl windows_core::RuntimeType for IXamlRoot4 {
+    const SIGNATURE: windows_core::imp::ConstBuffer = windows_core::imp::ConstBuffer::for_interface::<Self>();
+}
+impl IXamlRoot4 {
+    pub fn ContentIsland(&self) -> windows_core::Result<ContentIsland> {
+        unsafe {
+            let mut result__ = core::mem::zeroed();
+            (windows_core::Interface::vtable(self).ContentIsland)(windows_core::Interface::as_raw(self), &mut result__)
+                .and_then(|| windows_core::imp::Type::from_abi(result__))
+        }
+    }
+}
+#[repr(C)]
+pub struct IXamlRoot4_Vtbl {
+    pub base__: windows_core::IInspectable_Vtbl,
+    pub ContentIsland:
+        unsafe extern "system" fn(*mut core::ffi::c_void, *mut *mut core::ffi::c_void) -> windows_core::HRESULT,
+}
 windows_core::imp::define_interface!(IXamlType, IXamlType_Vtbl, 0xd24219df_7ec9_57f1_a27b_6af251d9c5bc);
 impl windows_core::RuntimeType for IXamlType {
     const SIGNATURE: windows_core::imp::ConstBuffer = windows_core::imp::ConstBuffer::for_interface::<Self>();
@@ -9468,6 +9579,75 @@ impl windows_core::RuntimeName for ImageSource {
 }
 unsafe impl Send for ImageSource {}
 unsafe impl Sync for ImageSource {}
+#[repr(transparent)]
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct InputFocusController(windows_core::IUnknown);
+windows_core::imp::interface_hierarchy!(InputFocusController, windows_core::IUnknown, windows_core::IInspectable);
+windows_core::imp::required_hierarchy!(InputFocusController, InputObject);
+impl InputFocusController {
+    pub fn GetForIsland<P0>(island: P0) -> windows_core::Result<Self>
+    where
+        P0: windows_core::Param<ContentIsland>,
+    {
+        Self::IInputFocusControllerStatics(|this| unsafe {
+            let mut result__ = core::mem::zeroed();
+            (windows_core::Interface::vtable(this).GetForIsland)(
+                windows_core::Interface::as_raw(this),
+                island.param().abi(),
+                &mut result__,
+            )
+            .and_then(|| windows_core::imp::Type::from_abi(result__))
+        })
+    }
+    fn IInputFocusControllerStatics<R, F: FnOnce(&IInputFocusControllerStatics) -> windows_core::Result<R>>(
+        callback: F,
+    ) -> windows_core::Result<R> {
+        static SHARED: windows_core::imp::FactoryCache<InputFocusController, IInputFocusControllerStatics> =
+            windows_core::imp::FactoryCache::new();
+        SHARED.call(callback)
+    }
+}
+impl windows_core::RuntimeType for InputFocusController {
+    const SIGNATURE: windows_core::imp::ConstBuffer =
+        windows_core::imp::ConstBuffer::for_class::<Self, IInputFocusController>();
+}
+unsafe impl windows_core::Interface for InputFocusController {
+    type Vtable = <IInputFocusController as windows_core::Interface>::Vtable;
+    const IID: windows_core::GUID = <IInputFocusController as windows_core::Interface>::IID;
+}
+impl core::ops::Deref for InputFocusController {
+    type Target = IInputFocusController;
+    fn deref(&self) -> &Self::Target {
+        unsafe { core::mem::transmute(self) }
+    }
+}
+impl windows_core::RuntimeName for InputFocusController {
+    const NAME: &'static str = "Microsoft.UI.Input.InputFocusController";
+}
+unsafe impl Send for InputFocusController {}
+unsafe impl Sync for InputFocusController {}
+#[repr(transparent)]
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct InputObject(windows_core::IUnknown);
+windows_core::imp::interface_hierarchy!(InputObject, windows_core::IUnknown, windows_core::IInspectable);
+impl windows_core::RuntimeType for InputObject {
+    const SIGNATURE: windows_core::imp::ConstBuffer = windows_core::imp::ConstBuffer::for_class::<Self, IInputObject>();
+}
+unsafe impl windows_core::Interface for InputObject {
+    type Vtable = <IInputObject as windows_core::Interface>::Vtable;
+    const IID: windows_core::GUID = <IInputObject as windows_core::Interface>::IID;
+}
+impl core::ops::Deref for InputObject {
+    type Target = IInputObject;
+    fn deref(&self) -> &Self::Target {
+        unsafe { core::mem::transmute(self) }
+    }
+}
+impl windows_core::RuntimeName for InputObject {
+    const NAME: &'static str = "Microsoft.UI.Input.InputObject";
+}
+unsafe impl Send for InputObject {}
+unsafe impl Sync for InputObject {}
 #[repr(transparent)]
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct ItemCollection(windows_core::IUnknown);
@@ -9846,6 +10026,11 @@ impl windows_core::RuntimeType for ListViewSelectionMode {
         windows_core::imp::ConstBuffer::from_slice(b"enum(Microsoft.UI.Xaml.Controls.ListViewSelectionMode;i4)");
 }
 pub const MB_ICONERROR: i32 = 16;
+pub const MK_LBUTTON: i32 = 1;
+pub const MK_MBUTTON: i32 = 16;
+pub const MK_RBUTTON: i32 = 2;
+pub const MK_XBUTTON1: i32 = 32;
+pub const MK_XBUTTON2: i32 = 64;
 pub const MOUSE_MOVE_ABSOLUTE: i32 = 1;
 #[repr(C)]
 #[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
@@ -11910,6 +12095,15 @@ impl windows_core::RuntimeName for Style {
 }
 unsafe impl Send for Style {}
 unsafe impl Sync for Style {}
+pub const TME_LEAVE: i32 = 2;
+#[repr(C)]
+#[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
+pub struct TRACKMOUSEEVENT {
+    pub cbSize: u32,
+    pub dwFlags: u32,
+    pub hwndTrack: HWND,
+    pub dwHoverTime: u32,
+}
 #[repr(transparent)]
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct TextBlock(windows_core::IUnknown);
@@ -12961,10 +13155,22 @@ unsafe impl Sync for VisualTreeHelper {}
 pub const WH_KEYBOARD_LL: i32 = 13;
 pub const WM_CLOSE: i32 = 16;
 pub const WM_INPUT: i32 = 255;
+pub const WM_LBUTTONDOWN: i32 = 513;
+pub const WM_LBUTTONUP: i32 = 514;
+pub const WM_MBUTTONDOWN: i32 = 519;
+pub const WM_MBUTTONUP: i32 = 520;
+pub const WM_MOUSEHWHEEL: i32 = 526;
+pub const WM_MOUSELEAVE: i32 = 675;
+pub const WM_MOUSEMOVE: i32 = 512;
+pub const WM_MOUSEWHEEL: i32 = 522;
 pub const WM_NCDESTROY: i32 = 130;
 pub const WM_NCHITTEST: i32 = 132;
 pub const WM_NULL: i32 = 0;
+pub const WM_RBUTTONDOWN: i32 = 516;
+pub const WM_RBUTTONUP: i32 = 517;
 pub const WM_SETCURSOR: i32 = 32;
+pub const WM_XBUTTONDOWN: i32 = 523;
+pub const WM_XBUTTONUP: i32 = 524;
 #[repr(C)]
 #[derive(Clone, Copy, Debug, Default)]
 pub struct WNDCLASSEXW {
@@ -13168,6 +13374,7 @@ impl windows_core::RuntimeName for WriteableBitmap {
 }
 unsafe impl Send for WriteableBitmap {}
 unsafe impl Sync for WriteableBitmap {}
+pub const XBUTTON1: i32 = 1;
 #[repr(transparent)]
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct XamlControlsResources(windows_core::IUnknown);

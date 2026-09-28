@@ -1,14 +1,17 @@
 //! `GpuSurface`: a child window (HWND) of the XAML window, over a `Canvas`
 //! that keeps the space, which the app presents to (Direct3D, Vulkan).
-//! Nothing of XAML draws over a child window. It takes no input
-//! (`HTTRANSPARENT`), so XAML keeps the pointer. It's placed before each of
+//! Nothing of XAML draws over a child window. It's placed before each of
 //! XAML's frames (`CompositionTarget.Rendering`), so it follows the canvas
 //! wherever layout or scrolling moves it.
 //!
-//! Input goes through XAML, on the canvas under the child window: with
-//! `TakesInput` it's a tab stop with a clear background (hit-testable), a
-//! click focuses it, and its key and pointer events are reported. The
-//! pointer lock hides the cursor (`ShowCursor`), clips it to the canvas
+//! The pointer over it goes to the child window: `HTTRANSPARENT` would pass
+//! it to windows under it, but XAML's content window never gets it. With
+//! `TakesInput` the child window reports the pointer's moves, buttons and
+//! wheel, and holds the pointer while a button is down (`SetCapture`); a
+//! click focuses the canvas, a tab stop, and XAML reports its keys. The
+//! wheel goes to the focused window when Windows doesn't scroll what's
+//! under the pointer; XAML then finds the canvas, with a clear background.
+//! The pointer lock hides the cursor (`ShowCursor`), clips it to the canvas
 //! (`ClipCursor`) and puts it back in the middle after each move
 //! (`SetCursorPos`), reporting the move. Meanwhile the mouse is also
 //! registered for Raw Input, to the child window, whose `WM_INPUT` gives
@@ -17,14 +20,15 @@
 //! take Alt+Tab and the Windows key: while the window is the foreground
 //! one and the canvas has focus it swallows every key and reports it.
 //!
-//! The app's cursor is set where XAML sets its own, on `WM_SETCURSOR`: the
-//! XAML window, and the windows in it, are subclassed, and over a surface
-//! with a cursor of the app's they set that one (none: no cursor) instead
+//! The app's cursor (none: no cursor) is set on `WM_SETCURSOR`: by the
+//! child window over a surface that takes input, and otherwise where XAML
+//! sets its own: the XAML window, and the windows in it, are subclassed,
+//! and over a surface with a cursor of the app's they set that one instead
 //! of letting XAML set its arrow. An `InputCursor` can't be made from
 //! pixels, and `UIElement.ProtectedCursor` is only a subclass's.
 
 use std::cell::RefCell;
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet};
 use std::num::NonZeroIsize;
 use std::rc::{Rc, Weak};
 use std::sync::Once;
@@ -48,6 +52,8 @@ const CLASS: PCWSTR = wide!("MitsuamiGpuSurface");
 thread_local! {
     /// Live surfaces, for their windows' deactivation.
     static HOSTS: RefCell<Vec<Weak<RefCell<HostState>>>> = const { RefCell::new(Vec::new()) };
+    /// Surfaces by their child windows, for the pointer's messages.
+    static CHILDREN: RefCell<HashMap<isize, Weak<RefCell<HostState>>>> = RefCell::new(HashMap::new());
     /// Surfaces that take input: Tab is theirs while they have focus.
     static TAKES_TAB: RefCell<HashSet<NodeId>> = RefCell::new(HashSet::new());
     /// The surface holding the keyboard grab, and its hook.
@@ -114,6 +120,8 @@ struct HostState {
     pending_lock: bool,
     pending_grab: bool,
     focused: bool,
+    /// Whether the child window asked to hear when the pointer leaves.
+    tracking: bool,
     /// Keys down, by scan code: for the grab's repeats and modifiers, and
     /// to let go of them when focus goes.
     keys_down: HashSet<u32>,
@@ -148,6 +156,7 @@ impl SurfaceHost {
                 pending_lock: false,
                 pending_grab: false,
                 focused: false,
+                tracking: false,
                 keys_down: HashSet::new(),
                 cursor: None,
                 made: None,
@@ -170,6 +179,7 @@ impl SurfaceHost {
         let handle = SurfaceHandle::new(ChildWindow(hwnd as isize));
         state.hwnd = hwnd;
         state.window = window;
+        CHILDREN.with(|c| c.borrow_mut().insert(hwnd as isize, Rc::downgrade(&self.state)));
         state.child = Some(handle.clone());
         let s = Rc::downgrade(&self.state);
         state.rendering = Some(w::CompositionTarget::Rendering(move |_, _| HostState::place(&s))?);
@@ -191,6 +201,7 @@ impl SurfaceHost {
         state.rendering = None;
         state.input.clear();
         TAKES_TAB.with(|t| t.borrow_mut().remove(&state.id));
+        CHILDREN.with(|c| c.borrow_mut().remove(&(state.hwnd as isize)));
         if state.child.take().is_some() {
             unsafe {
                 _ = w::SetWindowPos(state.hwnd, w::HWND_TOP, 0, 0, 0, 0, w::SWP_HIDEWINDOW as u32);
@@ -325,35 +336,7 @@ fn listen(element: &w::IUIElement, state: &Rc<RefCell<HostState>>) -> R<Vec<Even
         let Ok(mut state) = s.try_borrow_mut() else { return false };
         state.takes_input == Some(true) && f(&mut state)
     }
-    let s = weak();
-    revokers.push(element.PointerMoved(move |_, args| {
-        let Some(args) = args.as_ref() else { return };
-        let handled = with(&s, |state| state.pointer_moved(args).is_ok());
-        if handled {
-            _ = args.cast::<w::IPointerRoutedEventArgs>().and_then(|a| a.SetHandled(true));
-        }
-    })?);
-    let s = weak();
-    revokers.push(element.PointerExited(move |_, _| {
-        with(&s, |state| {
-            if !state.locked {
-                state.report(SurfaceInput::PointerLeft);
-            }
-            true
-        });
-    })?);
-    for pressed in [true, false] {
-        let s = weak();
-        let handler = move |_: windows_core::Ref<windows_core::IInspectable>,
-                            args: windows_core::Ref<w::PointerRoutedEventArgs>| {
-            let Some(args) = args.as_ref() else { return };
-            let handled = with(&s, |state| state.button(args, pressed).is_ok());
-            if handled {
-                _ = args.cast::<w::IPointerRoutedEventArgs>().and_then(|a| a.SetHandled(true));
-            }
-        };
-        revokers.push(if pressed { element.PointerPressed(handler)? } else { element.PointerReleased(handler)? });
-    }
+    // The pointer's other events go to the child window over the canvas.
     let s = weak();
     revokers.push(element.PointerWheelChanged(move |_, args| {
         let Some(args) = args.as_ref() else { return };
@@ -399,6 +382,11 @@ fn listen(element: &w::IUIElement, state: &Rc<RefCell<HostState>>) -> R<Vec<Even
     revokers.push(element.LostFocus(move |_, _| {
         if let Some(s) = s.upgrade()
             && let Ok(mut state) = s.try_borrow_mut()
+            // XAML raises it too when its island loses Win32 focus (to
+            // the window itself, where NVIDIA's overlay puts it), while
+            // the canvas stays XAML's focused element; `place` gives the
+            // island focus back.
+            && !state.is_xaml_focus()
         {
             state.focused = false;
             // A grab lasts while the surface has focus.
@@ -419,62 +407,83 @@ impl HostState {
         self.element.XamlRoot().and_then(|r| r.RasterizationScale()).unwrap_or(1.0)
     }
 
-    fn pointer_moved(&mut self, args: &w::PointerRoutedEventArgs) -> R<()> {
-        let args: w::IPointerRoutedEventArgs = args.cast()?;
-        // The window under the pointer may have come after the surface.
-        if self.cursor.as_ref().is_some_and(|c| *c != Cursor::Default) {
-            let at = cursor_pos();
-            subclass(unsafe { w::WindowFromPoint(at) });
-            if let Some(shown) = self.cursor_at(at) {
-                unsafe { w::SetCursor(shown) };
+    /// A pointer message to the child window, reported; `false` if it
+    /// isn't one.
+    fn mouse(&mut self, message: u32, wparam: w::WPARAM, lparam: w::LPARAM) -> bool {
+        // In the child window's pixels; the wheel's are on screen.
+        let (x, y) = (lparam as i16 as i32, (lparam >> 16) as i16 as i32);
+        let scale = self.scale();
+        let position = Point::new((x as f64 / scale) as f32, (y as f64 / scale) as f32);
+        let modifiers = key_modifiers();
+        let (button, pressed) = match message as i32 {
+            w::WM_MOUSEMOVE => {
+                if !self.tracking {
+                    let mut track = w::TRACKMOUSEEVENT {
+                        cbSize: size_of::<w::TRACKMOUSEEVENT>() as u32,
+                        dwFlags: w::TME_LEAVE as u32,
+                        hwndTrack: self.hwnd,
+                        dwHoverTime: 0,
+                    };
+                    self.tracking = unsafe { w::TrackMouseEvent(&mut track) }.as_bool();
+                }
+                if self.locked {
+                    // How far from the middle; the warp back to it comes as
+                    // a move too, of nothing.
+                    let Some((_, _, width, height)) = self.placed else { return true };
+                    let (dx, dy) = (x - width / 2, y - height / 2);
+                    if dx != 0 || dy != 0 {
+                        let (dx, dy) = ((dx as f64 / scale) as f32, (dy as f64 / scale) as f32);
+                        self.report(SurfaceInput::Motion { dx, dy });
+                        self.warp_to_middle();
+                    }
+                } else {
+                    self.report(SurfaceInput::PointerMoved { position, modifiers });
+                }
+                return true;
             }
-        }
-        let position = args.GetCurrentPoint(&self.element)?.cast::<w::IPointerPoint>()?.Position()?;
-        if self.locked {
-            // How far from the middle, in pixels; the warp back to it
-            // comes as a move too, of nothing.
-            let Some((_, _, width, height)) = self.placed else { return Ok(()) };
-            let scale = self.scale();
-            let dx = (position.x as f64 * scale).round() as i32 - width / 2;
-            let dy = (position.y as f64 * scale).round() as i32 - height / 2;
-            if dx != 0 || dy != 0 {
-                self.report(SurfaceInput::Motion { dx: (dx as f64 / scale) as f32, dy: (dy as f64 / scale) as f32 });
-                self.warp_to_middle();
+            w::WM_MOUSELEAVE => {
+                self.tracking = false;
+                if !self.locked {
+                    self.report(SurfaceInput::PointerLeft);
+                }
+                return true;
             }
-        } else {
-            let position = Point::new(position.x, position.y);
-            self.report(SurfaceInput::PointerMoved { position, modifiers: pointer_modifiers(&args) });
-        }
-        Ok(())
-    }
-
-    fn button(&mut self, args: &w::PointerRoutedEventArgs, pressed: bool) -> R<()> {
-        let args: w::IPointerRoutedEventArgs = args.cast()?;
-        let point = args.GetCurrentPoint(&self.element)?.cast::<w::IPointerPoint>()?;
-        let kind = point.Properties()?.cast::<w::IPointerPointProperties>()?.PointerUpdateKind()?;
-        let button = match kind {
-            w::PointerUpdateKind::LeftButtonPressed | w::PointerUpdateKind::LeftButtonReleased => MouseButton::Primary,
-            w::PointerUpdateKind::RightButtonPressed | w::PointerUpdateKind::RightButtonReleased => {
-                MouseButton::Secondary
+            w::WM_MOUSEWHEEL | w::WM_MOUSEHWHEEL => {
+                // A notch is 120; up (away) is positive, and right is.
+                let notches = (wparam >> 16) as i16 as f32 / 120.0;
+                let delta = if message as i32 == w::WM_MOUSEHWHEEL {
+                    ScrollDelta::Lines { x: notches, y: 0.0 }
+                } else {
+                    ScrollDelta::Lines { x: 0.0, y: -notches }
+                };
+                self.report(SurfaceInput::Scroll { delta, modifiers });
+                return true;
             }
-            w::PointerUpdateKind::MiddleButtonPressed | w::PointerUpdateKind::MiddleButtonReleased => {
-                MouseButton::Middle
+            w::WM_LBUTTONDOWN => (MouseButton::Primary, true),
+            w::WM_LBUTTONUP => (MouseButton::Primary, false),
+            w::WM_RBUTTONDOWN => (MouseButton::Secondary, true),
+            w::WM_RBUTTONUP => (MouseButton::Secondary, false),
+            w::WM_MBUTTONDOWN => (MouseButton::Middle, true),
+            w::WM_MBUTTONUP => (MouseButton::Middle, false),
+            w::WM_XBUTTONDOWN | w::WM_XBUTTONUP => {
+                let back = (wparam >> 16) as u16 as i32 == w::XBUTTON1;
+                (if back { MouseButton::Back } else { MouseButton::Forward }, message as i32 == w::WM_XBUTTONDOWN)
             }
-            w::PointerUpdateKind::XButton1Pressed | w::PointerUpdateKind::XButton1Released => MouseButton::Back,
-            w::PointerUpdateKind::XButton2Pressed | w::PointerUpdateKind::XButton2Released => MouseButton::Forward,
-            _ => MouseButton::Other(kind.0 as u16),
+            _ => return false,
         };
+        let held = w::MK_LBUTTON | w::MK_RBUTTON | w::MK_MBUTTON | w::MK_XBUTTON1 | w::MK_XBUTTON2;
         if pressed {
-            let element: w::IUIElement = self.element.cast()?;
-            _ = element.Focus(w::FocusState::Pointer);
+            if let Ok(element) = self.element.cast::<w::IUIElement>() {
+                _ = element.Focus(w::FocusState::Pointer);
+            }
             // Its moves keep coming while a button is held, wherever the
-            // pointer goes; XAML lets go when the button is released.
-            _ = element.CapturePointer(&args.Pointer()?);
+            // pointer goes.
+            unsafe { w::SetCapture(self.hwnd) };
+        } else if wparam as i32 & held == 0 {
+            unsafe { _ = w::ReleaseCapture() };
         }
-        let position = Point::new(point.Position()?.x, point.Position()?.y);
-        let modifiers = pointer_modifiers(&args);
         self.report(SurfaceInput::Button { button, pressed, position, modifiers });
-        Ok(())
+        true
     }
 
     fn wheel(&mut self, args: &w::PointerRoutedEventArgs) -> R<()> {
@@ -554,6 +563,14 @@ impl HostState {
         if state.locked && unsafe { w::GetForegroundWindow() } != state.window {
             state.end_lock();
         }
+        // Keys go to the window with Win32 focus, which XAML keeps on its
+        // content island. NVIDIA's overlay, which loads into apps that
+        // present, leaves it on the XAML window itself, where keys reach
+        // nothing, until the window is activated again and XAML moves it
+        // back: move it back now.
+        if unsafe { w::GetFocus() } == state.window {
+            _ = state.focus_island();
+        }
         let at = state.rect().ok().flatten();
         if at != state.placed {
             state.placed = at;
@@ -575,6 +592,21 @@ impl HostState {
             }
         }
         state.try_pending();
+    }
+
+    /// Whether the canvas is XAML's focused element.
+    fn is_xaml_focus(&self) -> bool {
+        let focused = self.element.XamlRoot().and_then(|r| w::FocusManager::GetFocusedElementWithRoot(&r));
+        let Ok(focused) = focused.and_then(|f| f.cast::<windows_core::IUnknown>()) else { return false };
+        // COM identity: the same object answers the same `IUnknown`.
+        self.element.cast::<windows_core::IUnknown>().is_ok_and(|e| e.as_raw() == focused.as_raw())
+    }
+
+    /// Gives Win32 focus to XAML's content island, which gives it back to
+    /// its focused element.
+    fn focus_island(&self) -> R<bool> {
+        let island = self.element.XamlRoot()?.cast::<w::IXamlRoot4>()?.ContentIsland()?;
+        w::InputFocusController::GetForIsland(&island)?.cast::<w::IInputFocusController>()?.TrySetFocus()
     }
 
     /// Makes the lock and grab wanted once the canvas is laid out in a
@@ -954,12 +986,28 @@ fn register_class() {
     });
 }
 
-/// Clicks and the pointer go to XAML's window under it. The locked
-/// mouse's Raw Input comes here, and goes on to `DefWindowProc`, which
-/// frees it.
+/// The pointer over a surface that takes input is reported, under the
+/// app's cursor; over one that doesn't, it goes to the windows under it.
+/// The locked mouse's Raw Input comes here, and goes on to
+/// `DefWindowProc`, which frees it.
 unsafe extern "system" fn window_proc(hwnd: w::HWND, message: u32, wparam: w::WPARAM, lparam: w::LPARAM) -> w::LRESULT {
-    if message == w::WM_NCHITTEST as u32 {
-        return w::HTTRANSPARENT as w::LRESULT;
+    let host = CHILDREN.with(|c| c.borrow().get(&(hwnd as isize)).and_then(Weak::upgrade));
+    let takes_input = host.as_ref().is_some_and(|h| h.try_borrow().is_ok_and(|s| s.takes_input == Some(true)));
+    if !takes_input {
+        if message == w::WM_NCHITTEST as u32 {
+            return w::HTTRANSPARENT as w::LRESULT;
+        }
+    } else if message == w::WM_SETCURSOR as u32 && lparam as u16 as i32 == w::HTCLIENT {
+        let app = host.as_ref().and_then(|h| h.try_borrow_mut().ok()?.cursor_at(cursor_pos()));
+        let cursor = app.unwrap_or_else(|| unsafe { w::LoadCursorW(std::ptr::null_mut(), w::IDC_ARROW) });
+        unsafe { w::SetCursor(cursor) };
+        return 1;
+    } else if let Some(host) = host
+        && let Ok(mut state) = host.try_borrow_mut()
+        && state.mouse(message, wparam, lparam)
+    {
+        // The X buttons' messages answer `TRUE`.
+        return (message == w::WM_XBUTTONDOWN as u32 || message == w::WM_XBUTTONUP as u32) as w::LRESULT;
     }
     if message == w::WM_INPUT as u32 {
         let host = HOSTS.with(|h| {

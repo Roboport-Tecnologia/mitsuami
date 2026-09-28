@@ -509,7 +509,7 @@ const WINDOW_ROOT: &str = r#"
     <RowDefinition Height="Auto"/>
     <RowDefinition Height="*"/>
   </Grid.RowDefinitions>
-  <TitleBar Grid.Row="0"/>
+  <TitleBar Grid.Row="0" IsTabStop="False"/>
   <Canvas Grid.Row="3" Background="{ThemeResource SolidBackgroundFillColorBaseBrush}"/>
 </Grid>"#;
 
@@ -598,12 +598,16 @@ impl WinUiHandle {
         for id in pending {
             self.make_modal(id);
             let mut state = self.state.borrow_mut();
+            let (by_element, emitter) = (state.by_element.clone(), state.emitter.clone());
             if let Some(Widget::Window(parts)) = state.nodes.get_mut(&id).map(|n| &mut n.widget) {
                 set_transparent(parts.hwnd, false);
                 unsafe { _ = w::SetForegroundWindow(parts.hwnd) };
                 parts.shown = true;
                 // Full screen asked for before it was shown.
                 apply_full_screen(parts);
+                // It was activated when made, before its content: its
+                // controls can take focus now.
+                restore_focus(&parts.root, &by_element, &parts.focus, &parts.tab_order.borrow(), &emitter);
             }
         }
     }
@@ -1495,13 +1499,12 @@ impl State {
                 report_focus(&emitter, &focus, resolve(&by_element, source));
             }
         })?);
-        // GPU surfaces' pointer locks and keyboard grabs end when the
-        // window stops being the active one.
-        revokers.push(iwindow.Activated(move |_, args| {
-            let state =
-                args.as_ref().and_then(|a| a.cast::<w::IWindowActivatedEventArgs>().ok()?.WindowActivationState().ok());
-            if state == Some(w::WindowActivationState::Deactivated) {
-                crate::surface::window_deactivated(hwnd);
+        // A press on the title bar would reach XAML's root ScrollViewer,
+        // which takes focus from the focused control; Windows' own title
+        // bars leave focus where it is.
+        revokers.push(title_bar.cast::<w::IUIElement>()?.PointerPressed(|_, args| {
+            if let Some(args) = args.as_ref() {
+                _ = args.cast::<w::IPointerRoutedEventArgs>().and_then(|a| a.SetHandled(true));
             }
         })?);
         // Full screen changed elsewhere (another part of the process): the
@@ -1523,6 +1526,34 @@ impl State {
             }
         })?);
         let tab_order = Rc::new(RefCell::new(Vec::new()));
+        revokers.push(iwindow.Activated({
+            let (emitter, by_element, focus, tab_order, root) =
+                (emitter.clone(), self.by_element.clone(), focus.clone(), tab_order.clone(), root.clone());
+            move |_, args| {
+                let state = args
+                    .as_ref()
+                    .and_then(|a| a.cast::<w::IWindowActivatedEventArgs>().ok()?.WindowActivationState().ok());
+                if state == Some(w::WindowActivationState::Deactivated) {
+                    // GPU surfaces' pointer locks and keyboard grabs end
+                    // when the window stops being the active one.
+                    crate::surface::window_deactivated(hwnd);
+                } else {
+                    let (emitter, by_element, focus, tab_order, root) =
+                        (emitter.clone(), by_element.clone(), focus.clone(), tab_order.clone(), root.clone());
+                    let restore: Box<dyn FnOnce()> =
+                        Box::new(move || restore_focus(&root, &by_element, &focus, &tab_order.borrow(), &emitter));
+                    // After XAML's own restore, which follows `Activated`.
+                    let ticket = crate::later::park(restore);
+                    if let Ok(queue) = w::DispatcherQueue::GetForCurrentThread() {
+                        crate::later::on_ui(&queue, move || {
+                            if let Some(restore) = crate::later::take::<Box<dyn FnOnce()>>(ticket) {
+                                restore();
+                            }
+                        });
+                    }
+                }
+            }
+        })?);
         revokers.push(root_element.PreviewKeyDown({
             let (emitter, by_element, focus, tab_order, root) =
                 (emitter.clone(), self.by_element.clone(), focus.clone(), tab_order.clone(), root.clone());
@@ -1537,7 +1568,9 @@ impl State {
                     return;
                 }
                 let backwards = unsafe { w::GetKeyState(w::VK_SHIFT) } < 0;
-                if let Some(next) = tab(&root, &by_element, focus.get(), &tab_order.borrow(), backwards) {
+                if let Some(next) =
+                    tab(&root, &by_element, focus.get(), &tab_order.borrow(), backwards, w::FocusState::Keyboard)
+                {
                     report_focus(&emitter, &focus, Some(next));
                     _ = args.SetHandled(true);
                 }
@@ -2772,14 +2805,45 @@ fn scroll_bars(scroll: &w::IScrollViewer) -> R<bool> {
     Ok(scroll.HorizontalScrollBarVisibility()? != hidden && scroll.VerticalScrollBarVisibility()? != hidden)
 }
 
+/// A window became the active one: focus goes back to the control that had
+/// it, or to the first in the Tab order, when XAML's focus isn't on one.
+/// XAML focuses the first focusable element when a Page loads with nothing
+/// focused, but the content isn't a Page; and it restores focus on
+/// activation itself, but can leave it on its root `ScrollViewer`, as after
+/// another app's window (NVIDIA's overlay) took activation for a moment.
+fn restore_focus(
+    root: &w::Grid,
+    by_element: &ElementMap,
+    focus: &Cell<Option<NodeId>>,
+    order: &[NodeId],
+    emitter: &Events,
+) {
+    let focused = root
+        .cast::<w::IUIElement>()
+        .and_then(|r| r.XamlRoot())
+        .and_then(|r| w::FocusManager::GetFocusedElementWithRoot(&r))
+        .ok()
+        .filter(|e| !e.as_raw().is_null());
+    if resolve(by_element, focused).is_some() {
+        return;
+    }
+    let how = w::FocusState::Programmatic;
+    let last = focus.get().filter(|id| order.contains(id));
+    let now = last
+        .and_then(|id| tab(root, by_element, None, &[id], false, how))
+        .or_else(|| tab(root, by_element, None, order, false, how));
+    report_focus(emitter, focus, now);
+}
+
 /// Moves focus along the core's Tab order, skipping controls that can't
-/// take focus now. Returns the node that took it.
+/// take focus now, focusing it `how`. Returns the node that took it.
 fn tab(
     root: &w::Grid,
     by_element: &ElementMap,
     from: Option<NodeId>,
     order: &[NodeId],
     backwards: bool,
+    how: w::FocusState,
 ) -> Option<NodeId> {
     if order.is_empty() {
         return None;
@@ -2795,7 +2859,7 @@ fn tab(
             (None, true) => n - step,
         };
         let Some(element) = elements.get(&order[i]).and_then(|k| find_element(root, *k)) else { continue };
-        if element.Focus(w::FocusState::Keyboard).unwrap_or(false) {
+        if element.Focus(how).unwrap_or(false) {
             return Some(order[i]);
         }
     }
@@ -3598,7 +3662,9 @@ impl WinUiBackend {
             let node = &state.nodes[&current];
             if let Widget::Window(parts) = &node.widget {
                 let order = parts.tab_order.borrow().clone();
-                if let Some(next) = tab(&parts.root, &state.by_element, Some(id), &order, false) {
+                if let Some(next) =
+                    tab(&parts.root, &state.by_element, Some(id), &order, false, w::FocusState::Keyboard)
+                {
                     report_focus(&state.emitter, &parts.focus, Some(next));
                 }
                 return;
