@@ -168,11 +168,13 @@ impl<'a> Locator<'a> {
     /// Clicking a row ([`click`](Self::click)) activates it instead.
     ///
     /// A sidebar's item is chosen by its title (the first with it), as its
-    /// items are the sidebar's data, not nodes of their own.
+    /// items are the sidebar's data, not nodes of their own; so is a tab
+    /// view's tab, which shows its page.
     pub async fn select(&self) {
         let node = self.node();
         match (self.app.ui().kind(node.id), node.role, node.name) {
             (Some(WidgetKind::Sidebar), Role::ListItem, Some(title)) => self.act(A11yAction::SetValue(title)).await,
+            (Some(WidgetKind::Tabs), Role::Tab, Some(title)) => self.act(A11yAction::SetValue(title)).await,
             _ => self.act(A11yAction::Select).await,
         }
     }

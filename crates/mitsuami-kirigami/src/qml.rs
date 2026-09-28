@@ -302,6 +302,93 @@ Kirigami.ScrollablePage {
     .to_owned()
 }
 
+/// A tab view: a `QQC2.TabBar` of `TabButton`s over the page hosts, as KDE's
+/// settings pages pair a tab bar with the pages it picks. The pages are in
+/// `mitsuamiPages`, below the bar, each at its top-left at the size the core
+/// gave it; the one shown is visible, the others hidden, as a `StackLayout`
+/// hides them (one would size them itself). Rust sets `mitsuamiTitles` and
+/// `mitsuamiSelected`, calls `mitsuamiShow` once pages or titles come or
+/// go, and reads the titles back from `mitsuamiShownTitles` (joined with
+/// U+001F). The user's choice (a click, the arrow keys) is reported with
+/// `mitsuamiChosen`; setting `mitsuamiChoice` chooses as the user does.
+pub(crate) fn tabs() -> String {
+    format!(
+        r#"
+Item {{
+    id: mitsuamiTabs
+    property var mitsuamiTitles: []
+    property int mitsuamiSelected: -1
+    property int mitsuamiChoice: -1
+    readonly property int mitsuamiCount: mitsuamiBar.count
+    readonly property string mitsuamiShownTitles: {{
+        const titles = []
+        for (let i = 0; i < mitsuamiBar.count; i++) titles.push(mitsuamiBar.itemAt(i).text)
+        return titles.join("\u001f")
+    }}
+    signal mitsuamiChosen()
+    function mitsuamiChoose(index) {{
+        if (index !== mitsuamiSelected) {{
+            mitsuamiSelected = index
+            mitsuamiChosen()
+        }}
+        mitsuamiShow()
+    }}
+    // The bar and the pages follow the page chosen: the bar resets its
+    // current tab when its buttons are made again.
+    function mitsuamiShow() {{
+        mitsuamiBar.currentIndex = mitsuamiSelected
+        const pages = mitsuamiPages.children
+        for (let i = 0; i < pages.length; i++) pages[i].visible = i === mitsuamiSelected
+    }}
+    // The arrow keys pick the tab beside, as KDE's widget tab bars and
+    // every other platform's tab views do; Qt Quick's bar has no keys.
+    function mitsuamiStep(by) {{
+        const index = mitsuamiSelected + by
+        if (index < 0 || index >= mitsuamiBar.count) return
+        mitsuamiChoose(index)
+        mitsuamiBar.itemAt(index).forceActiveFocus(Qt.TabFocusReason)
+    }}
+    onMitsuamiSelectedChanged: mitsuamiShow()
+    onMitsuamiChoiceChanged: if (mitsuamiChoice >= 0) {{
+        mitsuamiChoose(mitsuamiChoice)
+        mitsuamiChoice = -1
+    }}
+    QQC2.TabBar {{
+        id: mitsuamiBar
+        objectName: "mitsuamiTabBar"
+        width: parent.width
+        position: QQC2.TabBar.Header
+        // Focused, the bar's selected tab takes it, as Tab focuses it.
+        onActiveFocusChanged: if (activeFocus && currentItem) currentItem.forceActiveFocus(focusReason)
+        Repeater {{
+            model: mitsuamiTabs.mitsuamiTitles
+            QQC2.TabButton {{
+                required property string modelData
+                required property int index
+                text: modelData
+                // `clicked` is the user's (and assistive technology's
+                // Press); the bar's `currentIndexChanged` is anyone's.
+                onClicked: mitsuamiTabs.mitsuamiChoose(index)
+                Keys.onLeftPressed: mitsuamiTabs.mitsuamiStep(mirrored ? 1 : -1)
+                Keys.onRightPressed: mitsuamiTabs.mitsuamiStep(mirrored ? -1 : 1)
+            }}
+        }}
+    }}
+    Item {{
+        id: mitsuamiPages
+        objectName: "mitsuamiPages"
+        anchors.top: mitsuamiBar.bottom
+        anchors.left: parent.left
+        anchors.right: parent.right
+        anchors.bottom: parent.bottom
+    }}
+    {}
+}}
+"#,
+        a11y_hover("\"\"")
+    )
+}
+
 /// A toolbar item: an action the page's toolbar shows as its own item,
 /// never folded into the overflow menu, which holds the node's host
 /// (`mitsuamiItem`) at the size the core gave it. Hidden while empty.
@@ -772,6 +859,12 @@ QtObject {
     property Item viewProbe: Item {
         Kirigami.Theme.colorSet: Kirigami.Theme.View
         Kirigami.Theme.inherit: false
+    }
+    // A tab bar with a tab, for how far below its top a tab view's pages
+    // are (`qml::tabs`).
+    property Item tabProbe: QQC2.TabBar {
+        position: QQC2.TabBar.Header
+        QQC2.TabButton { text: "Tab" }
     }
 }
 "#

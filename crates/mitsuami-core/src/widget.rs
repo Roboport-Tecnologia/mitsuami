@@ -104,6 +104,16 @@ pub enum WidgetKind {
     /// the rows the core mounted for those (`Container`s with a
     /// [`Prop::Row`]), in row order. It scrolls like a `ScrollView`.
     List,
+    /// A native tab view: pages, one shown at a time, and a strip of their
+    /// titles to pick one (NSTabView, gtk::Notebook, a SelectorBar over
+    /// its pages on WinUI, QQC2.TabBar over a StackLayout). Its native
+    /// children are its pages' hosts (`Container`s), in order, titled by
+    /// [`Prop::TabTitles`]; the shown one is [`Prop::SelectedIndex`].
+    /// Every page stays mounted. The core lays out each page at the size
+    /// inside the tab strip and border ([`PlatformMetrics::tab_insets`](crate::PlatformMetrics)),
+    /// all in the same place, so the view is as big as its biggest page;
+    /// the platform places them and shows the chosen one.
+    Tabs,
     /// A custom widget (see [`CustomWidget`](crate::CustomWidget)), named
     /// after it. Its props travel as [`Prop::Custom`].
     Custom(&'static str),
@@ -119,7 +129,14 @@ impl WidgetKind {
 
     /// Containers lay out children; everything else is measured by the backend.
     pub fn is_container(self) -> bool {
-        matches!(self, WidgetKind::Window | WidgetKind::Container | WidgetKind::ToolbarItem | WidgetKind::ScrollView)
+        matches!(
+            self,
+            WidgetKind::Window
+                | WidgetKind::Container
+                | WidgetKind::ToolbarItem
+                | WidgetKind::ScrollView
+                | WidgetKind::Tabs
+        )
     }
 
     /// Scrolls its content: `ScrollTo` and `Scrolled` apply.
@@ -135,6 +152,7 @@ impl WidgetKind {
             WidgetKind::Sidebar => "Sidebar",
             WidgetKind::ScrollView => "ScrollView",
             WidgetKind::List => "List",
+            WidgetKind::Tabs => "Tabs",
             WidgetKind::Fragment => "Fragment",
             WidgetKind::Text => "Text",
             WidgetKind::Button => "Button",
@@ -486,7 +504,8 @@ pub enum Prop {
     Options(Vec<String>),
     /// Which option of a `Select` is chosen: always one, unless it has no
     /// options. Which item of a `Sidebar` is, counting across its sections:
-    /// `None` for none.
+    /// `None` for none. Which page of a `Tabs` is shown: always one, unless
+    /// it has no pages.
     SelectedIndex(Option<usize>),
     /// A `Slider`'s or `NumberInput`'s value, within its range. The core
     /// sends it after the range, which may have clamped it.
@@ -533,6 +552,8 @@ pub enum Prop {
     /// Whether a `ScrollView` shows scroll bars, as the platform shows them.
     /// Without, it still scrolls, by wheel, trackpad and touch.
     ScrollBars(bool),
+    /// A `Tabs`' page titles, in page order.
+    TabTitles(Vec<String>),
     /// A `Sidebar`'s items, in sections, in order.
     Sections(Vec<SidebarSectionData>),
     /// A `List`'s rows, in order.

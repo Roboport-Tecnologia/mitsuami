@@ -52,10 +52,10 @@ Validate as you go. Panic on protocol violations such as an unknown node, a doub
 |---|---|
 | `Create { id, kind, props }` | Create the native widget and apply `props`. **Give it a zero frame**: the core only sends frames that differ from the last one it sent, so a widget born with its own frame stays wrong (AppKit labels do this). |
 | `SetProp { id, prop }` | Apply the prop (tables below). For `Value`, skip the update if the widget already shows it, so the caret and IME composition survive. |
-| `Insert { parent, child, index }` | Attach at `index` among the parent's native children. **ScrollView**: its single child is the scrolled content (AppKit: `documentView`). **List**: the child is a row host, put in its row's cell (§8b). **Window**: a `ToolbarItem` goes in the window's toolbar, at the trailing end; items always come after the content, so its index among the items is `index` less the content's children. A `Sidebar` comes last, at most one per window: put the window's content beside it (§8e). |
+| `Insert { parent, child, index }` | Attach at `index` among the parent's native children. **ScrollView**: its single child is the scrolled content (AppKit: `documentView`). **List**: the child is a row host, put in its row's cell (§8b). **Window**: a `ToolbarItem` goes in the window's toolbar, at the trailing end; items always come after the content, so its index among the items is `index` less the content's children. A `Sidebar` comes last, at most one per window: put the window's content beside it (§8e). **Tabs**: the child is a page host, the tab view's page at `index` (§8f). |
 | `Remove { parent, child }` | Detach only. |
 | `Destroy { id }` | Free the widget. It comes for every native node of a removed subtree, children first; the root has already been removed. Drop observers, signal handlers and targets. |
-| `SetFrame { id, frame }` | Place the widget, relative to its native parent's top-left. Never sent for windows or sidebars. A ScrollView's content frame is in content coordinates. A `ToolbarItem`'s is only its size: the toolbar places it; hide it while its size is empty. |
+| `SetFrame { id, frame }` | Place the widget, relative to its native parent's top-left. Never sent for windows or sidebars. A ScrollView's content frame is in content coordinates. A `ToolbarItem`'s is only its size: the toolbar places it; hide it while its size is empty. So is a `Tabs` page's: the tab view places it, in its page area. |
 | `SetA11y { id, a11y }` | Set the accessible label, description and hidden state. |
 | `SetWindowSize { id, size }` | Set the window's **content area** size (excluding title bar and menu bar, and a sidebar beside it), no smaller than its `MinSize`. Ignore it while the window is in full screen, which keeps the screen's size. The platform reports what it gives as `WindowResized`. |
 | `SetFocusOrder { window, order }` | Make Tab visit `order` in sequence, wrapping around. It is window-wide, across nested containers. The platform still decides *which* controls can take focus (disabled controls, macOS keyboard navigation settings). See §9. |
@@ -70,6 +70,7 @@ Validate as you go. Panic on protocol violations such as an unknown node, a doub
 | `Window` | `NSWindow` + flipped content host | `gtk::Window` + `HeaderBar` + host as child (done) | `Window` + `Canvas` as `Content` | `Kirigami.ApplicationWindow` with one `Kirigami.Page`, a plain `Item` as its content |
 | `Container` (layout host) | flipped `NSView` subclass | `gtk::Widget` subclass that allocates children at given frames (or `gtk::Fixed`) | `Canvas` (`Canvas.Left/Top`, `Width/Height`) | `Item` (children at `x`/`y`/`width`/`height`) |
 | `Sidebar` (§8e) | a source-list `NSTableView` in the sidebar item of an `NSSplitViewController`, the window's content in the other | a `gtk::ListBox` (`navigation-sidebar`) in the sidebar page of an `adw::NavigationSplitView` | a `NavigationView`, the content host its `Content` | a `Kirigami.ScrollablePage` of `ItemDelegate`s, a first page in the window's page row |
+| `Tabs` (§8f) | `NSTabView` (top tabs), each page host in a plain view as its `NSTabViewItem`'s | `gtk::Notebook`, each page host a page, titled by a `gtk::Label` | a `SelectorBar` over a `Grid` of the page hosts, all in one cell, the shown one `Visible` | a `QQC2.TabBar` of `TabButton`s over a `StackLayout` of the page hosts |
 | `ToolbarItem` (a window's toolbar) | its host as an `NSToolbarItem`'s view, sized by constraints, after a flexible space; out of the toolbar while empty | a host packed at the end of the window's `HeaderBar`, hidden while empty | a `Canvas` in an `AppBarElementContainer` among a `CommandBar`'s `PrimaryCommands`, collapsed while empty | a host `Item` in the `displayComponent` of a `Kirigami.Action` in the page's `actions` (`KeepVisible`), hidden while empty |
 | `Text` | `NSTextField` wrapping label | `gtk::Label` (wrap on, `xalign 0`) | `TextBlock` (`TextWrapping.Wrap`) | `QQC2.Label` (`WordWrap`) |
 | `Button` | `NSButton` push | `gtk::Button` | `Button` | `QQC2.Button` |
@@ -122,7 +123,8 @@ Validate as you go. Panic on protocol violations such as an unknown node, a doub
 | `Image` | Image | A file (the platform decodes it; unreadable: show nothing, measure zero) or `Pixels`: straight RGBA8, sRGB, at `scale` pixels to a point. Measure it at its size in points (`Pixels::size`), not its pixel count. Keep it on the node: no platform gives the pixels back. |
 | `ImageFit` | Image | `Contain` or `Stretch`, sent only if the app chose; otherwise the platform's default fit. |
 | `Running` | Spinner | Spins while true (`startAnimation`, `spinning`, `IsActive`, `running`). Stopped, it shows nothing but keeps its size. Report it back (AppKit can't read it: keep it on the node). |
-| `SelectedIndex` | Select, Sidebar | The chosen option. `None` only without options. A sidebar's chosen item, counting across its sections; `None` for none. Setting it **must not** emit `Changed`. |
+| `SelectedIndex` | Select, Sidebar, Tabs | The chosen option. `None` only without options. A sidebar's chosen item, counting across its sections; `None` for none. A tab view's page shown; `None` only without pages. Setting it **must not** emit `Changed`. |
+| `TabTitles` | Tabs | Its pages' titles, in page order: one per page once a batch is in (pages and titles may come in either order within it). Comes before `SelectedIndex`. |
 | `Sections` | Sidebar | Its items (a title, an icon's name in the platform's own set), in sections with an optional title. Comes before `SelectedIndex`. Replacing them keeps the selected item if it's still there. Keep them on the node for `native_state`. |
 | `Enabled` | controls | |
 | `TextStyle` | Text (and controls) | Map to the platform type ramp: GTK style classes (`title-1`, `heading`, `caption`, `monospace`); WinUI text styles (`TitleTextBlockStyle`, …); Kirigami's `Heading` sizes and its small and fixed-width fonts. |
@@ -155,7 +157,7 @@ Native callbacks **only** call `events.emit(id, event)` on the `EventSink` given
 | `Changed(Text)` | the user (or assistive technology) edits a text or password field | the core set the value. **GTK `changed` and WinUI `TextChanged` and `PasswordChanged` fire on programmatic sets**, so block or ignore them during `SetProp`. Qt's `textEdited` is the user's only. |
 | `Changed(Bool)` | the user toggles a checkbox or switch | the core set `Checked`. **GTK `toggled`/`notify::active` and WinUI `Checked`/`Unchecked`/`Toggled` fire on programmatic sets**, so guard them. Qt's `toggled` is the user's only (`checkedChanged` is anyone's). |
 | `Changed(Number)` | the user (or assistive technology) moves a slider, or steps a spin box or commits a number typed into it (Return, or leaving the field: not every keystroke), rounded to a whole number and kept in its range | the core set `Number` or `Range`. **GTK `value-changed` and WinUI `ValueChanged` fire on programmatic sets and clamps**, so guard them. Qt's `moved` is the user's only. |
-| `Changed(Index)` | the user (or assistive technology) chooses a select's option, or a sidebar's item | the core set `SelectedIndex` or `Options`. **GTK `notify::selected` and WinUI `SelectionChanged` fire on programmatic sets**, so guard them. Qt's `activated` is the user's only (`currentIndexChanged` is anyone's). |
+| `Changed(Index)` | the user (or assistive technology) chooses a select's option, a sidebar's item, or a tab | the core set `SelectedIndex`, `Options` or `TabTitles`, or pages came or went. **GTK `notify::selected` and `switch-page` and WinUI `SelectionChanged` fire on programmatic sets**, so guard them. Qt's `activated` is the user's only (`currentIndexChanged` is anyone's). |
 | `Submit` | **Return/Enter** in a text or password field (GTK `activate`; WinUI `KeyDown` with `Enter`) | editing ends in other ways: Tab, a click elsewhere, focus loss. AppKit's field action does fire then; that was a real bug. |
 | `FocusIn` / `FocusOut` | keyboard focus moves, **from any source** (click, Tab, code): out for the old control first, then in for the new | |
 | `Scrolled(offset)` | a ScrollView's or List's offset changes, by the user **or** by `ScrollTo` | |
@@ -182,7 +184,7 @@ Focus tracking needs one global observer, not per-widget guesses. Examples: AppK
 
 ## 5. Measuring
 
-`measure(id, request) -> Size` is called **synchronously during layout**, after the current batch's structure and props have been applied. It's only called for leaves; containers are never measured.
+`measure(id, request) -> Size` is called **synchronously during layout**, after the current batch's structure and props have been applied. It's only called for leaves; containers are never measured, except a `Tabs`: measured with nothing known and max-content space, it gives its size with no page, its strip of tabs and its border, which the core keeps it at least as big as.
 
 - `known_width` / `known_height`: already fixed. Measure the other axis given them, and return the known value unchanged.
 - `available_width` / `available_height`: `Definite(w)` (wrap text to `w`), `MinContent` (the narrowest sensible width, e.g. the longest word) or `MaxContent` (no wrapping).
@@ -201,7 +203,8 @@ Known gap on AppKit: min-content falls back to max-content. If your platform giv
 `metrics()` returns:
 - font sizes for each `TextStyle` from the platform type ramp (body 13pt on macOS, around 14–15 on WinUI and GNOME);
 - the spacing tokens `xs…xl` in the platform's design language (AppKit: 4/6/8/12/20; pick yours from the GNOME HIG or Fluent);
-- the scale factor, dark mode, high contrast and reduced motion.
+- the scale factor, dark mode, high contrast and reduced motion;
+- `tab_insets`: how far in from a `Tabs`' edges its page area is (the tab strip on top, the border elsewhere), as the platform's tab view lays out its pages. The core sizes pages with it; measure it from a real tab view once, if the platform doesn't say.
 
 Emit `MetricsChanged` when any of these change.
 
@@ -215,6 +218,7 @@ These make one test suite run against every backend.
   - `Increment` / `Decrement` on a slider: step it as the platform's accessibility or keyboard does (VoiceOver's increment, a GTK step, UIA RangeValue by `SmallChange`, Qt's `increase()` and `moved`), which reports `Changed(Number)`. `SetValue(text)` on a slider moves it to that number, as a drag would. On a `NumberInput`, `Increment` / `Decrement` do what its buttons do (VoiceOver's increment on the stepper, GTK's `spin`, UIA RangeValue by `SmallChange`, Qt's `increase()` and `valueModified`), and `SetValue(text)` commits that number as if typed, rounded.
   - `Focus`: move keyboard focus to the control; on a sidebar, to its list (its selected item, where items take focus).
   - `SetValue(title)` on a sidebar: select its first item with that title, as a click does, and report `Changed(Index)`; `Unsupported` if there's none.
+  - `SetValue(title)` on a tab view: show the page of its first tab with that title, as a click on the tab does, and report `Changed(Index)` if it wasn't shown; `Unsupported` if there's none. `Focus` focuses its tab strip (its selected tab).
   - `Select` on a List's row host: select that row (the only selected one), as a screen reader's select does, and report `Changed(Rows)` on the List. `Unsupported` if the list's `SelectionMode` is None.
   - `Activate` on a row host: report `RowActivated` on the List.
   - `ContextMenuItem(id)`: choose that item of the node's context menu, as a screen reader does once it has shown the menu, through the item's own path (AppKit's `performActionForItemAtIndex:`), which reports `ContextMenuItem(id)`. Never open the menu. `Disabled` for a disabled item or control (disabled controls show no menu), `Unsupported` if there's no such item. The test kit finds the node the way a right-click would: the nearest one up the tree with a menu.
@@ -227,7 +231,7 @@ These make one test suite run against every backend.
   - `Scroll { dx, dy }` scrolls a ScrollView or List like a scroll wheel would, clamped.
   - `Up`, `Down`, `Home`, `End` and `Enter` on a List go through the list's own key handling: they move the selection and scroll to it, or activate the selected row.
   - `Click(point)` on **drawn** custom widgets: a real down/up pair through your drawn view's event handlers. `Unsupported` elsewhere; native controls often track the mouse in a modal loop.
-- **`native_state(id)`**: **read back from the widget** what it actually shows: text, title, value, placeholder, checked, enabled, frame, children (in native order), focused, and scroll offset. Only cache what the platform can't report (AppKit caches the text style and variant). After every settle, the test harness compares this with the core and fails on any difference. This check has caught every serious backend bug so far. A window's children include its toolbar items, after its content, then its sidebar; a `Sidebar` reports the rect its pane has in the content's coordinates (beside it, so at negative x), `Rect::ZERO` while it isn't shown (collapsed); a `ToolbarItem` reports the rect the toolbar gave it, in the coordinates of the window's content (above it, so at a negative y), and `Rect::ZERO` while it's hidden, whether it's empty or the toolbar put it in an overflow menu.
+- **`native_state(id)`**: **read back from the widget** what it actually shows: text, title, value, placeholder, checked, enabled, frame, children (in native order), focused, and scroll offset. Only cache what the platform can't report (AppKit caches the text style and variant). After every settle, the test harness compares this with the core and fails on any difference. This check has caught every serious backend bug so far. A window's children include its toolbar items, after its content, then its sidebar; a `Sidebar` reports the rect its pane has in the content's coordinates (beside it, so at negative x), `Rect::ZERO` while it isn't shown (collapsed); a `Tabs` page reports where the tab view put it, at the size the core gave it, and `Rect::ZERO` while another page is shown; a `ToolbarItem` reports the rect the toolbar gave it, in the coordinates of the window's content (above it, so at a negative y), and `Rect::ZERO` while it's hidden, whether it's empty or the toolbar put it in an overflow menu.
 - **`capture(id, reply)`**: offscreen RGBA8 at backing scale, rows top to bottom. Reply when the image is ready, right away if possible. Examples:
   - AppKit: `cacheDisplayInRect:toBitmapImageRep:`, which replies immediately. The test window is never key, so captures show the unfocused-window look (grey default buttons).
   - GTK: `gtk::WidgetPaintable` + snapshot + `render_texture` (Cairo renderer), then download. Replies from the frame clock's `after-paint`, once the widget is mapped and laid out.
@@ -330,6 +334,15 @@ A `Sidebar` is the list down a window's leading side that picks what the window 
 - **Collapse it the platform's way** in a narrow window: none of it is the core's.
 - **Report the user's choice only** as `Changed(Index)`; the app's `SelectedIndex` never. A sidebar keeps its selection where the platform lets the user take it away (a click on empty space, Ctrl+click).
 - **It's in the Tab order,** first: the core sends it in `SetFocusOrder`. Report its focus as the sidebar's.
+
+## 8f. Tab views
+
+A `Tabs` is the platform's tab view: pages, one shown at a time, and a strip of tabs to pick one (a settings window's panes, not documents). Its native children are page hosts (`Container`s), each a page, titled by `Prop::TabTitles` at the same index; `Prop::SelectedIndex` is the page shown.
+
+- **Every page stays alive.** Hide the others the platform's way (`NSTabView` takes their views out, a notebook unmaps them); never destroy a host until `Destroy`.
+- **The core sizes the pages, the platform places them.** Each host gets its size from `SetFrame`; put it at the top-left of the page area (inside the strip and border), wrapped in a view of your own if the platform sizes its pages itself. `metrics().tab_insets` says where that area is, so the core's sizes fit it; the `Tabs`' own `measure` is its strip and border.
+- **Report the user's choice only** as `Changed(Index)`: a click on a tab, the arrow keys, a mnemonic. Changing the page from `SelectedIndex`, or when pages come and go, is the app's.
+- **It's in the Tab order,** before its page's controls, which follow it; the hidden pages' controls aren't in the order the core sends. Report its focus as the tab view's.
 
 ## 9. Tab order
 

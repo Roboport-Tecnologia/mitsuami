@@ -5119,6 +5119,14 @@ pub struct IInvokeProvider_Vtbl {
     pub base__: windows_core::IInspectable_Vtbl,
     pub Invoke: unsafe extern "system" fn(*mut core::ffi::c_void) -> windows_core::HRESULT,
 }
+windows_core::imp::define_interface!(IItemContainer, IItemContainer_Vtbl, 0x6332a67f_7fd9_53c7_afd8_cfa1237cf6d1);
+impl windows_core::RuntimeType for IItemContainer {
+    const SIGNATURE: windows_core::imp::ConstBuffer = windows_core::imp::ConstBuffer::for_interface::<Self>();
+}
+#[repr(C)]
+pub struct IItemContainer_Vtbl {
+    pub base__: windows_core::IInspectable_Vtbl,
+}
 windows_core::imp::define_interface!(
     IItemContainerMapping,
     IItemContainerMapping_Vtbl,
@@ -8009,6 +8017,158 @@ pub struct ISelector_Vtbl {
         unsafe extern "system" fn(*mut core::ffi::c_void, *mut core::ffi::c_void, *mut i64) -> windows_core::HRESULT,
     pub RemoveSelectionChanged: unsafe extern "system" fn(*mut core::ffi::c_void, i64) -> windows_core::HRESULT,
 }
+windows_core::imp::define_interface!(ISelectorBar, ISelectorBar_Vtbl, 0x7f4ad191_55ea_508e_bf47_7047d8677370);
+impl windows_core::RuntimeType for ISelectorBar {
+    const SIGNATURE: windows_core::imp::ConstBuffer = windows_core::imp::ConstBuffer::for_interface::<Self>();
+}
+impl ISelectorBar {
+    pub fn Items(&self) -> windows_core::Result<windows_collections::IVector<SelectorBarItem>> {
+        unsafe {
+            let mut result__ = core::mem::zeroed();
+            (windows_core::Interface::vtable(self).Items)(windows_core::Interface::as_raw(self), &mut result__)
+                .and_then(|| windows_core::imp::Type::from_abi(result__))
+        }
+    }
+    pub fn SelectedItem(&self) -> windows_core::Result<SelectorBarItem> {
+        unsafe {
+            let mut result__ = core::mem::zeroed();
+            (windows_core::Interface::vtable(self).SelectedItem)(windows_core::Interface::as_raw(self), &mut result__)
+                .and_then(|| windows_core::imp::Type::from_abi(result__))
+        }
+    }
+    pub fn SetSelectedItem<P0>(&self, value: P0) -> windows_core::Result<()>
+    where
+        P0: windows_core::Param<SelectorBarItem>,
+    {
+        unsafe {
+            (windows_core::Interface::vtable(self).SetSelectedItem)(
+                windows_core::Interface::as_raw(self),
+                value.param().abi(),
+            )
+            .ok()
+        }
+    }
+    pub fn SelectionChanged<F>(&self, handler: F) -> windows_core::Result<windows_core::EventRevoker>
+    where
+        F: Fn(windows_core::Ref<SelectorBar>, windows_core::Ref<SelectorBarSelectionChangedEventArgs>) + 'static,
+    {
+        let handler: TypedEventHandler<SelectorBar, SelectorBarSelectionChangedEventArgs> = {
+            let com = windows_core::imp::DelegateBox::<
+                TypedEventHandler<SelectorBar, SelectorBarSelectionChangedEventArgs>,
+                F,
+            >::new(
+                &TypedEventHandlerBox::<SelectorBar, SelectorBarSelectionChangedEventArgs, F>::VTABLE, handler
+            );
+            unsafe { core::mem::transmute(windows_core::imp::box_new(com)) }
+        };
+        unsafe {
+            let mut result__ = core::mem::zeroed();
+            let token__ = (windows_core::Interface::vtable(self).SelectionChanged)(
+                windows_core::Interface::as_raw(self),
+                windows_core::Interface::as_raw(&handler),
+                &mut result__,
+            )
+            .map(|| result__)?;
+            Ok(windows_core::EventRevoker::new(
+                self.clone(),
+                token__,
+                windows_core::Interface::vtable(self).RemoveSelectionChanged,
+            ))
+        }
+    }
+}
+#[repr(C)]
+pub struct ISelectorBar_Vtbl {
+    pub base__: windows_core::IInspectable_Vtbl,
+    pub Items: unsafe extern "system" fn(*mut core::ffi::c_void, *mut *mut core::ffi::c_void) -> windows_core::HRESULT,
+    pub SelectedItem:
+        unsafe extern "system" fn(*mut core::ffi::c_void, *mut *mut core::ffi::c_void) -> windows_core::HRESULT,
+    pub SetSelectedItem:
+        unsafe extern "system" fn(*mut core::ffi::c_void, *mut core::ffi::c_void) -> windows_core::HRESULT,
+    pub SelectionChanged:
+        unsafe extern "system" fn(*mut core::ffi::c_void, *mut core::ffi::c_void, *mut i64) -> windows_core::HRESULT,
+    pub RemoveSelectionChanged: unsafe extern "system" fn(*mut core::ffi::c_void, i64) -> windows_core::HRESULT,
+}
+windows_core::imp::define_interface!(
+    ISelectorBarFactory,
+    ISelectorBarFactory_Vtbl,
+    0x71243dc7_b46c_5a04_9894_e420e462703f
+);
+impl windows_core::RuntimeType for ISelectorBarFactory {
+    const SIGNATURE: windows_core::imp::ConstBuffer = windows_core::imp::ConstBuffer::for_interface::<Self>();
+}
+#[repr(C)]
+pub struct ISelectorBarFactory_Vtbl {
+    pub base__: windows_core::IInspectable_Vtbl,
+    pub CreateInstance: unsafe extern "system" fn(
+        *mut core::ffi::c_void,
+        *mut core::ffi::c_void,
+        *mut *mut core::ffi::c_void,
+        *mut *mut core::ffi::c_void,
+    ) -> windows_core::HRESULT,
+}
+windows_core::imp::define_interface!(ISelectorBarItem, ISelectorBarItem_Vtbl, 0x3cdba1f9_a13a_56a2_b9a9_f954998d3658);
+impl windows_core::RuntimeType for ISelectorBarItem {
+    const SIGNATURE: windows_core::imp::ConstBuffer = windows_core::imp::ConstBuffer::for_interface::<Self>();
+}
+impl ISelectorBarItem {
+    pub fn Text(&self) -> windows_core::Result<String> {
+        unsafe {
+            let mut result__ = core::mem::zeroed();
+            (windows_core::Interface::vtable(self).Text)(windows_core::Interface::as_raw(self), &mut result__).map(
+                || {
+                    let hstring: windows_core::HSTRING = core::mem::transmute(result__);
+                    hstring.to_string_lossy()
+                },
+            )
+        }
+    }
+    pub fn SetText(&self, value: &str) -> windows_core::Result<()> {
+        unsafe {
+            (windows_core::Interface::vtable(self).SetText)(
+                windows_core::Interface::as_raw(self),
+                core::mem::transmute_copy(&windows_core::HSTRING::from(value)),
+            )
+            .ok()
+        }
+    }
+}
+#[repr(C)]
+pub struct ISelectorBarItem_Vtbl {
+    pub base__: windows_core::IInspectable_Vtbl,
+    pub Text: unsafe extern "system" fn(*mut core::ffi::c_void, *mut *mut core::ffi::c_void) -> windows_core::HRESULT,
+    pub SetText: unsafe extern "system" fn(*mut core::ffi::c_void, *mut core::ffi::c_void) -> windows_core::HRESULT,
+}
+windows_core::imp::define_interface!(
+    ISelectorBarItemFactory,
+    ISelectorBarItemFactory_Vtbl,
+    0xe46b62ea_e60d_5989_bea7_5470da326816
+);
+impl windows_core::RuntimeType for ISelectorBarItemFactory {
+    const SIGNATURE: windows_core::imp::ConstBuffer = windows_core::imp::ConstBuffer::for_interface::<Self>();
+}
+#[repr(C)]
+pub struct ISelectorBarItemFactory_Vtbl {
+    pub base__: windows_core::IInspectable_Vtbl,
+    pub CreateInstance: unsafe extern "system" fn(
+        *mut core::ffi::c_void,
+        *mut core::ffi::c_void,
+        *mut *mut core::ffi::c_void,
+        *mut *mut core::ffi::c_void,
+    ) -> windows_core::HRESULT,
+}
+windows_core::imp::define_interface!(
+    ISelectorBarSelectionChangedEventArgs,
+    ISelectorBarSelectionChangedEventArgs_Vtbl,
+    0x73b3f6c5_5050_5c5a_899c_4e6e0474cb63
+);
+impl windows_core::RuntimeType for ISelectorBarSelectionChangedEventArgs {
+    const SIGNATURE: windows_core::imp::ConstBuffer = windows_core::imp::ConstBuffer::for_interface::<Self>();
+}
+#[repr(C)]
+pub struct ISelectorBarSelectionChangedEventArgs_Vtbl {
+    pub base__: windows_core::IInspectable_Vtbl,
+}
 windows_core::imp::define_interface!(ISelectorItem, ISelectorItem_Vtbl, 0x5772c4de_60ea_5492_8c5e_b3323d5a3ca6);
 impl windows_core::RuntimeType for ISelectorItem {
     const SIGNATURE: windows_core::imp::ConstBuffer = windows_core::imp::ConstBuffer::for_interface::<Self>();
@@ -10367,6 +10527,30 @@ impl windows_core::RuntimeName for ItemCollection {
 }
 unsafe impl Send for ItemCollection {}
 unsafe impl Sync for ItemCollection {}
+#[repr(transparent)]
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct ItemContainer(windows_core::IUnknown);
+windows_core::imp::interface_hierarchy!(ItemContainer, windows_core::IUnknown, windows_core::IInspectable);
+windows_core::imp::required_hierarchy!(ItemContainer, Control, FrameworkElement, UIElement, DependencyObject);
+impl windows_core::RuntimeType for ItemContainer {
+    const SIGNATURE: windows_core::imp::ConstBuffer =
+        windows_core::imp::ConstBuffer::for_class::<Self, IItemContainer>();
+}
+unsafe impl windows_core::Interface for ItemContainer {
+    type Vtable = <IItemContainer as windows_core::Interface>::Vtable;
+    const IID: windows_core::GUID = <IItemContainer as windows_core::Interface>::IID;
+}
+impl core::ops::Deref for ItemContainer {
+    type Target = IItemContainer;
+    fn deref(&self) -> &Self::Target {
+        unsafe { core::mem::transmute(self) }
+    }
+}
+impl windows_core::RuntimeName for ItemContainer {
+    const NAME: &'static str = "Microsoft.UI.Xaml.Controls.ItemContainer";
+}
+unsafe impl Send for ItemContainer {}
+unsafe impl Sync for ItemContainer {}
 #[repr(transparent)]
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct ItemsControl(windows_core::IUnknown);
@@ -12826,6 +13010,129 @@ impl windows_core::RuntimeName for Selector {
 }
 unsafe impl Send for Selector {}
 unsafe impl Sync for Selector {}
+#[repr(transparent)]
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct SelectorBar(windows_core::IUnknown);
+windows_core::imp::interface_hierarchy!(SelectorBar, windows_core::IUnknown, windows_core::IInspectable);
+windows_core::imp::required_hierarchy!(SelectorBar, Control, FrameworkElement, UIElement, DependencyObject);
+impl SelectorBar {
+    pub fn new() -> windows_core::Result<Self> {
+        Self::ISelectorBarFactory(|this| unsafe {
+            let mut result__ = core::mem::zeroed();
+            (windows_core::Interface::vtable(this).CreateInstance)(
+                windows_core::Interface::as_raw(this),
+                core::ptr::null_mut(),
+                core::ptr::null_mut(),
+                &mut result__,
+            )
+            .and_then(|| windows_core::imp::Type::from_abi(result__))
+        })
+    }
+    fn ISelectorBarFactory<R, F: FnOnce(&ISelectorBarFactory) -> windows_core::Result<R>>(
+        callback: F,
+    ) -> windows_core::Result<R> {
+        static SHARED: windows_core::imp::FactoryCache<SelectorBar, ISelectorBarFactory> =
+            windows_core::imp::FactoryCache::new();
+        SHARED.call(callback)
+    }
+}
+impl windows_core::RuntimeType for SelectorBar {
+    const SIGNATURE: windows_core::imp::ConstBuffer = windows_core::imp::ConstBuffer::for_class::<Self, ISelectorBar>();
+}
+unsafe impl windows_core::Interface for SelectorBar {
+    type Vtable = <ISelectorBar as windows_core::Interface>::Vtable;
+    const IID: windows_core::GUID = <ISelectorBar as windows_core::Interface>::IID;
+}
+impl core::ops::Deref for SelectorBar {
+    type Target = ISelectorBar;
+    fn deref(&self) -> &Self::Target {
+        unsafe { core::mem::transmute(self) }
+    }
+}
+impl windows_core::RuntimeName for SelectorBar {
+    const NAME: &'static str = "Microsoft.UI.Xaml.Controls.SelectorBar";
+}
+unsafe impl Send for SelectorBar {}
+unsafe impl Sync for SelectorBar {}
+#[repr(transparent)]
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct SelectorBarItem(windows_core::IUnknown);
+windows_core::imp::interface_hierarchy!(SelectorBarItem, windows_core::IUnknown, windows_core::IInspectable);
+windows_core::imp::required_hierarchy!(
+    SelectorBarItem,
+    ItemContainer,
+    Control,
+    FrameworkElement,
+    UIElement,
+    DependencyObject
+);
+impl SelectorBarItem {
+    pub fn new() -> windows_core::Result<Self> {
+        Self::ISelectorBarItemFactory(|this| unsafe {
+            let mut result__ = core::mem::zeroed();
+            (windows_core::Interface::vtable(this).CreateInstance)(
+                windows_core::Interface::as_raw(this),
+                core::ptr::null_mut(),
+                core::ptr::null_mut(),
+                &mut result__,
+            )
+            .and_then(|| windows_core::imp::Type::from_abi(result__))
+        })
+    }
+    fn ISelectorBarItemFactory<R, F: FnOnce(&ISelectorBarItemFactory) -> windows_core::Result<R>>(
+        callback: F,
+    ) -> windows_core::Result<R> {
+        static SHARED: windows_core::imp::FactoryCache<SelectorBarItem, ISelectorBarItemFactory> =
+            windows_core::imp::FactoryCache::new();
+        SHARED.call(callback)
+    }
+}
+impl windows_core::RuntimeType for SelectorBarItem {
+    const SIGNATURE: windows_core::imp::ConstBuffer =
+        windows_core::imp::ConstBuffer::for_class::<Self, ISelectorBarItem>();
+}
+unsafe impl windows_core::Interface for SelectorBarItem {
+    type Vtable = <ISelectorBarItem as windows_core::Interface>::Vtable;
+    const IID: windows_core::GUID = <ISelectorBarItem as windows_core::Interface>::IID;
+}
+impl core::ops::Deref for SelectorBarItem {
+    type Target = ISelectorBarItem;
+    fn deref(&self) -> &Self::Target {
+        unsafe { core::mem::transmute(self) }
+    }
+}
+impl windows_core::RuntimeName for SelectorBarItem {
+    const NAME: &'static str = "Microsoft.UI.Xaml.Controls.SelectorBarItem";
+}
+unsafe impl Send for SelectorBarItem {}
+unsafe impl Sync for SelectorBarItem {}
+#[repr(transparent)]
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct SelectorBarSelectionChangedEventArgs(windows_core::IUnknown);
+windows_core::imp::interface_hierarchy!(
+    SelectorBarSelectionChangedEventArgs,
+    windows_core::IUnknown,
+    windows_core::IInspectable
+);
+impl windows_core::RuntimeType for SelectorBarSelectionChangedEventArgs {
+    const SIGNATURE: windows_core::imp::ConstBuffer =
+        windows_core::imp::ConstBuffer::for_class::<Self, ISelectorBarSelectionChangedEventArgs>();
+}
+unsafe impl windows_core::Interface for SelectorBarSelectionChangedEventArgs {
+    type Vtable = <ISelectorBarSelectionChangedEventArgs as windows_core::Interface>::Vtable;
+    const IID: windows_core::GUID = <ISelectorBarSelectionChangedEventArgs as windows_core::Interface>::IID;
+}
+impl core::ops::Deref for SelectorBarSelectionChangedEventArgs {
+    type Target = ISelectorBarSelectionChangedEventArgs;
+    fn deref(&self) -> &Self::Target {
+        unsafe { core::mem::transmute(self) }
+    }
+}
+impl windows_core::RuntimeName for SelectorBarSelectionChangedEventArgs {
+    const NAME: &'static str = "Microsoft.UI.Xaml.Controls.SelectorBarSelectionChangedEventArgs";
+}
+unsafe impl Send for SelectorBarSelectionChangedEventArgs {}
+unsafe impl Sync for SelectorBarSelectionChangedEventArgs {}
 #[repr(transparent)]
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct SelectorItem(windows_core::IUnknown);

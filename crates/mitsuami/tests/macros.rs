@@ -471,4 +471,33 @@ async fn tags_build_what_their_constructors_build(app: TestApp) {
     assert_eq!(state(&app), built);
 }
 
+/// `<Tabs selection=…>` takes `<Tab title=… value=…>`s, whose children are
+/// their pages' content.
+#[mitsuami_test::test]
+async fn tabs_are_tags(app: TestApp) {
+    let page = signal(1);
+    app.mount(move || {
+        Tabs::new(page).children((
+            Tab::new("General", 0).padding(8).child(Text::new("Name")),
+            Tab::new("Advanced", 1).padding(8).gap(4).children((Text::new("Logs"), Text::new("Cache"))),
+        ))
+    });
+    let built = outline(&app.a11y_tree());
+    app.unmount();
+
+    app.mount(move || {
+        view! {
+            <Tabs selection=page>
+                <Tab title="General" value=0 padding=8><Text>"Name"</Text></Tab>
+                <Tab title="Advanced" value=1 padding=8 gap=4>
+                    <Text>"Logs"</Text>
+                    <Text>"Cache"</Text>
+                </Tab>
+            </Tabs>
+        }
+    });
+    assert_eq!(outline(&app.a11y_tree()), built);
+    app.expect(by_text("Cache")).to_be_visible().await;
+}
+
 mitsuami_test::main!();

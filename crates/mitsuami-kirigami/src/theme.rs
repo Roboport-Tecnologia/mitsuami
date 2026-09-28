@@ -4,6 +4,7 @@
 use std::path::PathBuf;
 use std::sync::OnceLock;
 
+use mitsuami_core::Insets;
 use mitsuami_core::backend::{Appearance, FontSizes, PlatformMetrics};
 use mitsuami_core::units::SpacingScale;
 
@@ -97,7 +98,18 @@ pub(crate) fn metrics() -> PlatformMetrics {
         high_contrast: false,
         // Kirigami's durations drop to zero when animations are off.
         reduced_motion: theme.real("longDuration") <= 0.0,
+        tab_insets: tab_insets(theme),
     }
+}
+
+/// A tab view's pages are below its tab bar, with no border around them:
+/// as high as a bar with a tab. Qt lays a bar out (and sizes it) when it
+/// polishes it, which it does only for items in a window, so this one is
+/// polished now.
+fn tab_insets(theme: QmlObject) -> Insets {
+    let Some(bar) = theme.object("tabProbe") else { return Insets::ZERO };
+    bar.invoke("ensurePolished");
+    Insets::new(bar.real("implicitHeight") as f32, 0.0, 0.0, 0.0)
 }
 
 /// Plasma's defaults, so tests don't depend on the desktop's fonts.

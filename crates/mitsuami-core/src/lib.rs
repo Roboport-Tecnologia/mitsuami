@@ -40,7 +40,7 @@ pub use custom::{Composed, Custom, CustomProps, CustomView, CustomWidget, Drawn,
 pub use draw::{Canvas, Color, DisplayList, Path, Shape};
 pub use element::{Element, ElementBuilder};
 pub use flow::{For, Show};
-pub use geometry::{Point, Rect, Size, WindowSize};
+pub use geometry::{Insets, Point, Rect, Size, WindowSize};
 pub use input::{KeyCode, Modifiers, MouseButton, ScrollDelta, SurfaceInput};
 pub use list::{List, ListHandle, RowRender};
 pub use measure::{NodeRef, node_ref, use_size, use_viewport};

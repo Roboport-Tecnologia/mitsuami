@@ -30,6 +30,12 @@ pub enum Role {
     List,
     ListItem,
     ScrollArea,
+    /// Pages with a tab each, one shown (a `Tabs`): its tabs, then the
+    /// shown page's content.
+    TabGroup,
+    /// A tab of a `TabGroup`, named by its title, selected while its page
+    /// shows.
+    Tab,
 }
 
 /// Overrides and additions to the semantics a widget derives on its own.

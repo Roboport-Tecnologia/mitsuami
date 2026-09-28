@@ -25,6 +25,7 @@ use crate::host::{Events, Frames, Host, WindowRoot};
 use crate::services::{ContextMenu, GtkServices, Menus, choose_context_item};
 use crate::sidebar::{Sidebar, Split};
 use crate::surface::SurfaceArea;
+use crate::tabs::Tabs;
 
 /// How the backend behaves; apps and tests want different things.
 #[derive(Clone, Debug, Default)]
@@ -217,6 +218,7 @@ enum Widget {
     },
     List(crate::list::List),
     Sidebar(Sidebar),
+    Tabs(Tabs),
     /// A custom widget with a GTK render, and the props it last got.
     Custom {
         widget: gtk::Widget,
@@ -259,6 +261,7 @@ impl Widget {
             Widget::Scroll { scrolled, .. } => scrolled.upcast_ref(),
             Widget::List(list) => list.scrolled.upcast_ref(),
             Widget::Sidebar(sidebar) => sidebar.scrolled.upcast_ref(),
+            Widget::Tabs(tabs) => tabs.notebook.upcast_ref(),
             Widget::Custom { widget, .. } | Widget::Native { widget, .. } => widget,
             Widget::Drawn { drawn, .. } => drawn.area.upcast_ref(),
         }
@@ -284,7 +287,12 @@ impl Widget {
     fn is_leaf(&self) -> bool {
         !matches!(
             self,
-            Widget::Window(_) | Widget::Host(_) | Widget::Scroll { .. } | Widget::List(_) | Widget::Sidebar(_)
+            Widget::Window(_)
+                | Widget::Host(_)
+                | Widget::Scroll { .. }
+                | Widget::List(_)
+                | Widget::Sidebar(_)
+                | Widget::Tabs(_)
         )
     }
 
@@ -508,6 +516,7 @@ fn metrics() -> PlatformMetrics {
             || theme.contains("dark"),
         high_contrast: theme.contains("highcontrast"),
         reduced_motion: settings.as_ref().is_some_and(|s| !s.is_gtk_enable_animations()),
+        tab_insets: crate::tabs::insets(),
     }
 }
 
@@ -726,6 +735,31 @@ impl GtkHandle {
         self.pump();
     }
 
+    /// Lets notebooks that switched pages, or got new ones, place them now,
+    /// rather than at the next frame, as header bars do.
+    fn layout_tabs(&self) {
+        let notebooks: Vec<gtk::Notebook> = {
+            let state = self.state.borrow();
+            state
+                .nodes
+                .values()
+                .filter_map(|n| match &n.widget {
+                    Widget::Tabs(tabs) if tabs.notebook.is_mapped() && tabs.notebook.should_layout() => {
+                        Some(tabs.notebook.clone())
+                    }
+                    _ => None,
+                })
+                .collect()
+        };
+        for notebook in notebooks {
+            let Some(bounds) = notebook.parent().and_then(|p| notebook.compute_bounds(&p)) else { continue };
+            notebook.measure(gtk::Orientation::Horizontal, -1);
+            let transform = gsk::Transform::new().translate(&graphene::Point::new(bounds.x(), bounds.y()));
+            notebook.allocate(bounds.width().round() as i32, bounds.height().round() as i32, -1, Some(transform));
+        }
+        self.pump();
+    }
+
     /// Dispatches whatever the GTK main context has ready, without waiting.
     pub fn pump(&self) {
         let context = glib::MainContext::default();
@@ -850,6 +884,7 @@ impl mitsuami_core::TestHooks for GtkHandle {
         self.pump();
         self.layout_lists();
         self.layout_headers();
+        self.layout_tabs();
         self.layout_surfaces();
         self.wait_for_resizes();
     }
@@ -949,6 +984,7 @@ impl State {
             }
             WidgetKind::Container | WidgetKind::ToolbarItem => Widget::Host(Host::new(self.frames.clone(), None)),
             WidgetKind::Sidebar => Widget::Sidebar(Sidebar::new(id, events.clone())),
+            WidgetKind::Tabs => Widget::Tabs(Tabs::new(id, events.clone(), self.frames.clone())),
             WidgetKind::Custom(_) => {
                 let Command::Create { props, .. } = command else { unreachable!() };
                 let Some(custom) = find_prop!(props, Custom) else {
@@ -1251,6 +1287,8 @@ impl State {
             }
             (Prop::Sections(sections), Widget::Sidebar(sidebar)) => sidebar.set_sections(sections.clone()),
             (Prop::SelectedIndex(index), Widget::Sidebar(sidebar)) => sidebar.set_selected(*index),
+            (Prop::TabTitles(titles), Widget::Tabs(tabs)) => tabs.set_titles(titles.clone()),
+            (Prop::SelectedIndex(index), Widget::Tabs(tabs)) => tabs.set_selected(*index),
             (Prop::FullScreen(on), Widget::Window(parts)) => parts.full_screen.set(&parts.window, *on),
             (Prop::MinSize(min), Widget::Window(parts)) => {
                 parts.min_size.app.set(Some(*min));
@@ -1541,10 +1579,11 @@ impl State {
 
     /// Leaves with an empty frame (hidden ones, or not laid out yet) are
     /// kept out of GTK's allocation: controls can't be allocated smaller
-    /// than their padding. Containers stay, since content may overflow them.
+    /// than their padding. Containers stay, since content may overflow them,
+    /// except tab views, which can't be smaller than their tabs either.
     fn update_child_visible(&self, id: NodeId) {
         let Some(node) = self.nodes.get(&id) else { return };
-        if node.widget.is_leaf() {
+        if node.widget.is_leaf() || matches!(node.widget, Widget::Tabs(_)) {
             let widget = node.widget.widget();
             let empty = self.frames.borrow().get(widget).is_none_or(|f| f.size.is_empty());
             widget.set_child_visible(!empty);
@@ -1671,6 +1710,12 @@ impl State {
                         };
                         list.insert(row, *child, child_widget);
                     }
+                    Some(Widget::Tabs(tabs)) => {
+                        if self.nodes[child].kind != WidgetKind::Container {
+                            violation(command, "a Tabs' children are page hosts (Containers)");
+                        }
+                        tabs.insert(*index, &child_widget);
+                    }
                     _ => {
                         let parent_widget = self.widget(*parent, command);
                         let mut before = parent_widget.first_child();
@@ -1709,6 +1754,7 @@ impl State {
                 match &self.nodes[parent].widget {
                     Widget::Scroll { viewport, .. } => viewport.set_child(None::<&gtk::Widget>),
                     Widget::List(list) => list.remove(self.nodes[child].row.expect("inserted with a row")),
+                    Widget::Tabs(tabs) => tabs.remove(&self.widget(*child, command)),
                     _ => self.widget(*child, command).unparent(),
                 }
                 self.nodes.get_mut(child).unwrap().parent = None;
@@ -1742,6 +1788,10 @@ impl State {
                 {
                     parts.split.take().unwrap().remove(&parts.window, &parts.header, &parts.host);
                 }
+                // A page destroyed without being removed: out of its notebook.
+                if let Some(Widget::Tabs(tabs)) = node.parent.and_then(|p| self.nodes.get(&p)).map(|n| &n.widget) {
+                    tabs.remove(&widget);
+                }
                 // The app's handle may keep its surface: it just stops showing.
                 if let Widget::GpuSurface(surface) = &node.widget {
                     surface.detach();
@@ -1773,6 +1823,12 @@ impl State {
                         keep_content_size(parts);
                     }
                     return;
+                }
+                // A page: the notebook places it.
+                if let Some(Widget::Tabs(tabs)) =
+                    self.nodes[id].parent.and_then(|p| self.nodes.get(&p)).map(|p| &p.widget)
+                {
+                    tabs.place(&widget);
                 }
                 self.update_child_visible(*id);
                 if let Widget::Slider { scale, steps } = &self.nodes[id].widget {
@@ -2084,6 +2140,16 @@ impl Backend for GtkBackend {
                 return match action {
                     A11yAction::SetValue(title) if sidebar.choose(title) => Ok(()),
                     A11yAction::Focus if sidebar.list.grab_focus() => Ok(()),
+                    A11yAction::ScrollIntoView => Ok(()),
+                    _ => Err(ActionError::Unsupported),
+                };
+            }
+            // A tab, as the user clicks it: the notebook reports it. Its
+            // tabs take focus, the notebook itself.
+            if let Widget::Tabs(tabs) = &node.widget {
+                return match action {
+                    A11yAction::SetValue(title) if tabs.choose(title) => Ok(()),
+                    A11yAction::Focus if tabs.notebook.grab_focus() => Ok(()),
                     A11yAction::ScrollIntoView => Ok(()),
                     _ => Err(ActionError::Unsupported),
                 };
@@ -2450,6 +2516,10 @@ impl Backend for GtkBackend {
                 props.push(Prop::Sections(sidebar.sections()));
                 props.push(Prop::SelectedIndex(sidebar.selected()));
             }
+            Widget::Tabs(tabs) => {
+                props.push(Prop::TabTitles(tabs.titles()));
+                props.push(Prop::SelectedIndex(tabs.selected()));
+            }
         }
         let widget = node.widget.widget();
         if node.widget.is_control() {
@@ -2492,6 +2562,8 @@ impl Backend for GtkBackend {
                     _ => Rect::ZERO,
                 }
             }
+            // A page is where the notebook put it; the others aren't shown.
+            (_, Some(Widget::Tabs(tabs))) => tabs.page_frame(widget, frame.size),
             _ => frame,
         };
         let by_widget = state.by_widget.borrow();
@@ -2501,6 +2573,7 @@ impl Backend for GtkBackend {
                 viewport.child().and_then(|c| by_widget.get(&c).copied()).into_iter().collect(),
                 Some(scroll_offset(scrolled)),
             ),
+            Widget::Tabs(tabs) => (tabs.pages().iter().filter_map(|p| by_widget.get(p).copied()).collect(), None),
             _ => {
                 let mut children = Vec::new();
                 let mut next = widget.first_child();

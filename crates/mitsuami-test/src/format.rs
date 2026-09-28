@@ -22,6 +22,7 @@ fn describe_props(props: &[Prop]) -> String {
             Prop::Tooltip(s) => extra.push(format!("tooltip={s:?}")),
             Prop::ContextMenu(entries) => extra.push(format!("context_menu=[{}]", menu_entries(entries))),
             Prop::Options(options) => extra.push(format!("options={options:?}")),
+            Prop::TabTitles(titles) => extra.push(format!("tabs={titles:?}")),
             Prop::SelectedIndex(index) => {
                 extra.push(format!("selected={}", index.map_or("none".to_owned(), |i| i.to_string())))
             }
@@ -306,7 +307,7 @@ pub(crate) fn wireframe(root: &NodeInfo) -> String {
         match kind {
             WidgetKind::Window => "#8a8f98",
             WidgetKind::Container | WidgetKind::ToolbarItem | WidgetKind::Fragment => "#b5bac2",
-            WidgetKind::ScrollView | WidgetKind::List | WidgetKind::Sidebar => "#5f7fa0",
+            WidgetKind::ScrollView | WidgetKind::List | WidgetKind::Sidebar | WidgetKind::Tabs => "#5f7fa0",
             WidgetKind::Text => "#3f7f5f",
             WidgetKind::Button => "#2f6fdf",
             WidgetKind::TextInput => "#a0602a",
@@ -350,6 +351,10 @@ pub(crate) fn wireframe(root: &NodeInfo) -> String {
             draw(&drawing, f.origin, out);
         }
         for child in &node.children {
+            // A tab view shows one page: the others have no frame.
+            if node.kind == WidgetKind::Tabs && child.frame.size.is_empty() {
+                continue;
+            }
             walk(child, out);
         }
     }

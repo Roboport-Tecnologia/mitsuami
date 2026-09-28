@@ -20,9 +20,9 @@ use crate::geometry::{Point, Rect, Size, WindowSize};
 use crate::services::{
     Alert, MenuBar, MenuBarData, MenuRole, OpenFile, SaveFile, ServiceError, Services, reply_future,
 };
-use crate::style::{Align, Display, FlexDirection, Style, TextDirection};
+use crate::style::{Align, Display, FlexDirection, GridPlacement, Style, TextDirection, Track};
 use crate::task::{Clock, Executor, Sleep, TaskHandle};
-use crate::units::ResolveContext;
+use crate::units::{Length, ResolveContext};
 use crate::widget::{HorizontalAlign, NodeId, Prop, RowKey, TextAlign, WidgetKind};
 
 /// A window's toolbar items and sidebar are the platform's to place, around
@@ -62,6 +62,8 @@ struct Node {
     scroll_offset: Point,
     /// Lists only: the width the platform gives their rows, if not their own.
     row_width: Option<f32>,
+    /// Tabs only: the size of their tab strip and border, with no page.
+    strip: Size,
 }
 
 /// How a window's height follows its content (`WindowSize`).
@@ -512,6 +514,7 @@ impl Ui {
                     heights: Vec::new(),
                     scroll_offset: Point::ZERO,
                     row_width: None,
+                    strip: Size::ZERO,
                 },
             );
             inner.styles_dirty = true;
@@ -592,6 +595,12 @@ impl Ui {
             }
             if matches!(prop, Prop::TextStyle(_)) {
                 inner.styles_dirty = true;
+            }
+            // New titles may make the tab strip wider (`size_tab_strips`).
+            if matches!(prop, Prop::TabTitles(_))
+                && let Some(t) = node.taffy
+            {
+                let _ = inner.taffy.mark_dirty(t);
             }
             if node.kind.is_native() {
                 inner.queue_prop(id, prop);
@@ -1310,7 +1319,7 @@ impl Inner {
         fn walk(inner: &Inner, id: NodeId, out: &mut Vec<(Option<u32>, NodeId)>) {
             let node = &inner.nodes[&id];
             // Whether Tab reaches the toolbar is the platform's call.
-            if node.style.is_hidden() || node.kind == WidgetKind::ToolbarItem {
+            if node.style.is_hidden() || node.kind == WidgetKind::ToolbarItem || inner.is_hidden_page(id) {
                 return;
             }
             if matches!(
@@ -1325,6 +1334,7 @@ impl Inner {
                     | WidgetKind::NumberInput
                     | WidgetKind::List
                     | WidgetKind::Sidebar
+                    | WidgetKind::Tabs
             ) || (node.kind == WidgetKind::GpuSurface && crate::find_prop!(node.props, TakesInput) == Some(true))
             {
                 out.push((node.tab_index, id));
@@ -1392,7 +1402,35 @@ impl Inner {
                 viewport,
                 spacing: &self.metrics.spacing,
             };
-            let mut style = node.style.to_taffy(&cx, rtl);
+            let mut style = match node.kind {
+                // Its pages share one cell, which fills it.
+                WidgetKind::Tabs => {
+                    let mut own = node.style.clone();
+                    own.display = Display::Grid;
+                    own.grid_template_columns = vec![Track::Size(Length::Fr(1.0))];
+                    own.grid_template_rows = vec![Track::Size(Length::Fr(1.0))];
+                    own.to_taffy(&cx, rtl)
+                }
+                _ if self.is_page(id) => {
+                    let mut own = node.style.clone();
+                    own.grid_column = GridPlacement::at(1);
+                    own.grid_row = GridPlacement::at(1);
+                    own.to_taffy(&cx, rtl)
+                }
+                _ => node.style.to_taffy(&cx, rtl),
+            };
+            // Its pages are inside its tab strip and border, and it's at
+            // least as big as they are.
+            if node.kind == WidgetKind::Tabs {
+                let insets = self.metrics.tab_insets;
+                style.padding = taffy::Rect {
+                    left: taffy::LengthPercentage::length(insets.left),
+                    right: taffy::LengthPercentage::length(insets.right),
+                    top: taffy::LengthPercentage::length(insets.top),
+                    bottom: taffy::LengthPercentage::length(insets.bottom),
+                };
+                tab_strip_minimum(&mut style, node.strip);
+            }
             // Toggles have a fixed natural size, like CSS replaced elements:
             // stretched, some platforms draw them centered in the extra
             // space (`NSSwitch`) and all of them take clicks there.
@@ -1456,6 +1494,7 @@ impl Inner {
     }
 
     fn layout(&mut self) {
+        self.size_tab_strips();
         for window in self.windows.clone() {
             let node = &self.nodes[&window];
             let Some(root) = node.taffy else { continue };
@@ -1507,6 +1546,53 @@ impl Inner {
             self.collect_frames(window);
         }
         self.update_drawings();
+    }
+
+    /// Measures the tab strips of the tab views whose titles or metrics
+    /// changed (their layout is dirty), which they're at least as big as.
+    /// Done here, not with the styles: the platform can only measure a
+    /// strip it has created.
+    fn size_tab_strips(&mut self) {
+        let tabs: Vec<(NodeId, taffy::NodeId)> = self
+            .nodes
+            .iter()
+            .filter(|(_, n)| n.kind == WidgetKind::Tabs)
+            .filter_map(|(id, n)| Some((*id, n.taffy?)))
+            .filter(|(_, t)| self.taffy.dirty(*t).unwrap_or(true))
+            .collect();
+        let mut changed = false;
+        for (id, _) in tabs {
+            let request = MeasureRequest {
+                known_width: None,
+                known_height: None,
+                available_width: AvailableSpace::MaxContent,
+                available_height: AvailableSpace::MaxContent,
+            };
+            let strip = self.backend.measure(id, request);
+            let node = self.nodes.get_mut(&id).unwrap();
+            changed |= node.strip != strip;
+            node.strip = strip;
+        }
+        // Their styles take the new minimums.
+        if changed {
+            self.resolve_styles();
+        }
+    }
+
+    /// Whether a node is a page of a `Tabs`.
+    fn is_page(&self, id: NodeId) -> bool {
+        self.nodes[&id].parent.is_some_and(|p| self.nodes[&p].kind == WidgetKind::Tabs)
+    }
+
+    /// Whether a node is a page of a `Tabs` that isn't shown: every other
+    /// page than the chosen one.
+    fn is_hidden_page(&self, id: NodeId) -> bool {
+        let Some(tabs) = self.nodes[&id].parent.filter(|p| self.nodes[p].kind == WidgetKind::Tabs) else {
+            return false;
+        };
+        let tabs = &self.nodes[&tabs];
+        let shown = crate::find_prop!(tabs.props, SelectedIndex).flatten();
+        shown.and_then(|i| tabs.children.get(i)) != Some(&id)
     }
 
     /// Sets a window's layout height: its own, or `None` for its content's.
@@ -1648,7 +1734,7 @@ impl Inner {
                     }
                     (WidgetKind::Checkbox | WidgetKind::Switch, EventValue::Bool(b)) => Prop::Checked(*b),
                     (WidgetKind::List, EventValue::Rows(rows)) => Prop::Selected(rows.clone()),
-                    (WidgetKind::Select | WidgetKind::Sidebar, EventValue::Index(index)) => {
+                    (WidgetKind::Select | WidgetKind::Sidebar | WidgetKind::Tabs, EventValue::Index(index)) => {
                         Prop::SelectedIndex(Some(*index))
                     }
                     (WidgetKind::Slider | WidgetKind::NumberInput, EventValue::Number(number)) => Prop::Number(*number),
@@ -1764,13 +1850,17 @@ impl Inner {
     /// toolbar items are where the platform placed them (as its
     /// `native_state` says), at the size the core sent; toolbar items the
     /// platform hides are empty. A window's sidebar is where the platform
-    /// placed it, at the size it gave it.
+    /// placed it, at the size it gave it. So is a tab view's page, at the
+    /// size the core gave it; the pages it doesn't show are empty.
     fn placed_frame(&self, id: NodeId) -> Rect {
         let node = &self.nodes[&id];
-        let placed_natively =
-            in_chrome(node.kind) || node.native_parent.is_some_and(|p| self.nodes[&p].kind == WidgetKind::List);
+        let placed_natively = in_chrome(node.kind)
+            || node.native_parent.is_some_and(|p| matches!(self.nodes[&p].kind, WidgetKind::List | WidgetKind::Tabs));
         if !placed_natively {
             return node.frame;
+        }
+        if self.is_hidden_page(id) {
+            return Rect::ZERO;
         }
         let native = self.backend.native_state(id).map(|s| s.frame);
         // A toolbar may hide an item that doesn't fit (in an overflow
@@ -1839,7 +1929,7 @@ impl Inner {
             Some(custom) => custom.a11y().overridden_by(&node.a11y),
             None => node.a11y.clone(),
         };
-        if a11y.hidden || node.style.is_hidden() {
+        if a11y.hidden || node.style.is_hidden() || self.is_hidden_page(id) {
             return Vec::new();
         }
         let frame =
@@ -1852,6 +1942,10 @@ impl Inner {
         if node.kind == WidgetKind::Sidebar {
             children = self.sidebar_items(id, frame);
         }
+        // A tab view's tabs come before the page shown.
+        if node.kind == WidgetKind::Tabs {
+            children.splice(0..0, self.tabs(id, frame));
+        }
 
         let labelled = a11y.label.is_some() || a11y.labelled_by.is_some();
         let row = crate::find_prop!(node.props, Row);
@@ -1862,6 +1956,7 @@ impl Inner {
             WidgetKind::Container | WidgetKind::ToolbarItem | WidgetKind::Fragment => Role::None,
             WidgetKind::ScrollView => Role::ScrollArea,
             WidgetKind::List | WidgetKind::Sidebar => Role::List,
+            WidgetKind::Tabs => Role::TabGroup,
             WidgetKind::Text => Role::StaticText,
             WidgetKind::Button => Role::Button,
             // A text field that hides its text, as every platform exposes
@@ -1890,6 +1985,7 @@ impl Inner {
                 | WidgetKind::Checkbox
                 | WidgetKind::Switch
                 | WidgetKind::Select
+                | WidgetKind::Tabs
                 | WidgetKind::Slider
                 | WidgetKind::NumberInput
                 | WidgetKind::Progress
@@ -1954,6 +2050,35 @@ impl Inner {
 }
 
 impl Inner {
+    /// A tab view's tabs, which are its data, not nodes: named by their
+    /// titles, the shown page's selected. They stand for the tab view,
+    /// where assistive technology acts on them.
+    fn tabs(&self, id: NodeId, frame: Rect) -> Vec<A11yNode> {
+        let props = &self.nodes[&id].props;
+        let shown = crate::find_prop!(props, SelectedIndex).flatten();
+        let titles = crate::find_prop!(props, TabTitles).unwrap_or_default();
+        titles
+            .into_iter()
+            .enumerate()
+            .map(|(index, title)| A11yNode {
+                id,
+                role: Role::Tab,
+                name: Some(title),
+                description: None,
+                value: None,
+                checked: None,
+                mixed: false,
+                read_only: false,
+                password: false,
+                selected: Some(shown == Some(index)),
+                enabled: true,
+                test_id: None,
+                frame,
+                children: Vec::new(),
+            })
+            .collect()
+    }
+
     /// A sidebar's items, which are its data, not nodes: list items named
     /// by their titles, under a heading for each titled section. They
     /// stand for the sidebar, where assistive technology acts on them.
@@ -1987,6 +2112,19 @@ impl Inner {
         }
         out
     }
+}
+
+/// Makes a tab view at least as big as its tab strip (and border), unless
+/// its style gives it a minimum of its own.
+fn tab_strip_minimum(style: &mut taffy::Style, strip: Size) {
+    let auto = taffy::LengthPercentageAuto::auto();
+    let at_least = |min: &mut taffy::LengthPercentageAuto, v: f32| {
+        if *min == auto || *min == taffy::LengthPercentageAuto::length(0.0) {
+            *min = if v > 0.0 { taffy::LengthPercentageAuto::length(v) } else { auto };
+        }
+    };
+    at_least(&mut style.min_size.width, strip.width);
+    at_least(&mut style.min_size.height, strip.height);
 }
 
 /// Where to scroll along one axis so `len` at `start` shows, moving as

@@ -14,8 +14,8 @@ use mitsuami_core::services::{MenuBarData, MenuCheck, MenuData, MenuEntry, MenuI
 use mitsuami_core::units::SpacingScale;
 use mitsuami_core::{
     AnyValue, AppIcon, AppInfo, ButtonRole, ButtonStyle, Command, CustomProps, EventValue, ImageFit, ImageSource,
-    Modality, NativeAppInfo, NativeIcon, NodeId, Opaque, Orientation, Pixels, Point, Prop, Rect, RowKey, ScrollAxes,
-    SelectionMode, Size, TextStyle, UiEvent, WidgetKind, find_prop,
+    Insets, Modality, NativeAppInfo, NativeIcon, NodeId, Opaque, Orientation, Pixels, Point, Prop, Rect, RowKey,
+    ScrollAxes, SelectionMode, Size, TextStyle, UiEvent, WidgetKind, find_prop,
 };
 use mitsuami_core::{Color, FontWeight, HorizontalAlign};
 use windows_core::{EventRevoker, HSTRING, IInspectable, IUnknown, Interface};
@@ -216,6 +216,7 @@ enum Widget {
     Scroll(w::ScrollViewer),
     List(crate::list::List),
     Sidebar(crate::sidebar::Sidebar),
+    Tabs(crate::tabs::Tabs),
     /// A custom widget with a native render, and the props it shows.
     Custom {
         render: Rc<dyn ErasedRender>,
@@ -239,11 +240,12 @@ impl Node {
         self.inner.as_ref().unwrap_or(&self.element)
     }
 
-    /// What takes keyboard focus: a sidebar's selected item (or first), as
-    /// Tab reaches a navigation view.
+    /// What takes keyboard focus: a sidebar's or tab view's selected item
+    /// (or first), as Tab reaches a navigation view or selector bar.
     fn focus_target(&self) -> Option<w::IUIElement> {
         match &self.widget {
             Widget::Sidebar(sidebar) => crate::sidebar::Sidebar::focus_target(&sidebar.view),
+            Widget::Tabs(tabs) => crate::tabs::Tabs::focus_target(&tabs.bar),
             _ => self.control().cast().ok(),
         }
     }
@@ -404,6 +406,8 @@ pub(crate) struct State {
     menus: Menus,
     /// The app's icon, which every window gets.
     icon: Option<WindowIcon>,
+    /// A tab view's bar height, once one is measured (`tab_insets`).
+    tab_bar: crate::tabs::BarHeight,
 }
 
 /// The app's icon, as windows take it.
@@ -624,6 +628,7 @@ impl WinUiBackend {
                 pending_show: Vec::new(),
                 menus: Menus::default(),
                 icon: None,
+                tab_bar: Rc::default(),
             })),
         }
     }
@@ -2219,6 +2224,11 @@ impl State {
                 let element = sidebar.view.cast()?;
                 (Widget::Sidebar(sidebar), element)
             }
+            WidgetKind::Tabs => {
+                let tabs = crate::tabs::Tabs::new(id, emitter.clone(), self.tab_bar.clone())?;
+                let element = tabs.canvas.cast()?;
+                (Widget::Tabs(tabs), element)
+            }
             WidgetKind::List => {
                 let list = crate::list::List::new(id, emitter.clone())?;
                 let element = list.view.cast()?;
@@ -2487,6 +2497,10 @@ impl State {
             }
             (Prop::Sections(sections), Widget::Sidebar(sidebar)) => sidebar.set_sections(sections.clone())?,
             (Prop::SelectedIndex(index), Widget::Sidebar(sidebar)) => sidebar.set_selected(*index)?,
+            (Prop::TabTitles(titles), Widget::Tabs(tabs)) => tabs.set_titles(titles)?,
+            (Prop::SelectedIndex(index), Widget::Tabs(tabs)) => tabs.set_selected(*index)?,
+            // Its tabs; its pages are the app's.
+            (Prop::Enabled(e), Widget::Tabs(tabs)) => tabs.bar.cast::<w::IControl>()?.SetIsEnabled(*e)?,
             (Prop::Value(t), Widget::Field(f)) => {
                 let field: w::ITextBox = f.cast()?;
                 // Don't disturb the caret when the field already shows it.
@@ -2732,6 +2746,12 @@ impl State {
                     return Ok(());
                 }
                 match &self.nodes.get(parent).map(|n| &n.widget) {
+                    Some(Widget::Tabs(tabs)) => {
+                        if self.nodes[child].kind != WidgetKind::Container {
+                            violation(command, "a Tabs' children are page hosts (Containers)");
+                        }
+                        tabs.insert(*index, &child_element)?;
+                    }
                     Some(Widget::List(list)) => {
                         let Some(row) = self.nodes[child].row else {
                             violation(command, "a List's children are row hosts (Containers with a Prop::Row)")
@@ -2784,6 +2804,7 @@ impl State {
                     return Ok(());
                 }
                 match &self.nodes[parent].widget {
+                    Widget::Tabs(tabs) => tabs.remove(&child_element)?,
                     Widget::List(list) => list.remove(self.nodes[child].row.expect("inserted with a row")),
                     Widget::Scroll(scroll) => {
                         scroll.cast::<w::IContentControl>()?.SetContent(None::<&IInspectable>)?;
@@ -2853,8 +2874,13 @@ impl State {
                     update_toolbar(parts)?;
                     return Ok(());
                 }
-                w::Canvas::SetLeft(&element, frame.x() as f64)?;
-                w::Canvas::SetTop(&element, frame.y() as f64)?;
+                // A page goes where its tab view shows pages, at this size.
+                let (x, y) = match self.nodes[id].parent.and_then(|p| self.nodes.get(&p)).map(|p| &p.widget) {
+                    Some(Widget::Tabs(tabs)) => tabs.page_origin(),
+                    _ => (frame.x() as f64, frame.y() as f64),
+                };
+                w::Canvas::SetLeft(&element, x)?;
+                w::Canvas::SetTop(&element, y)?;
                 let fe: w::IFrameworkElement = element.cast()?;
                 fe.SetWidth(frame.width() as f64)?;
                 fe.SetHeight(frame.height() as f64)?;
@@ -3259,13 +3285,18 @@ fn tab(
             (None, true) => n - step,
         };
         let Some(element) = elements.get(&order[i]).and_then(|k| find_element(root, *k)) else { continue };
-        // A navigation view takes focus on its selected item.
-        let element = match element.cast::<w::NavigationView>() {
-            Ok(view) => match crate::sidebar::Sidebar::focus_target(&view) {
+        // A navigation view and a selector bar take focus on their
+        // selected item.
+        let element = match (element.cast::<w::NavigationView>(), crate::tabs::Tabs::bar_in(&element)) {
+            (Ok(view), _) => match crate::sidebar::Sidebar::focus_target(&view) {
                 Some(item) => item,
                 None => continue,
             },
-            Err(_) => element,
+            (_, Some(bar)) => match crate::tabs::Tabs::focus_target(&bar) {
+                Some(item) => item,
+                None => continue,
+            },
+            _ => element,
         };
         if element.Focus(how).unwrap_or(false) {
             return Some(order[i]);
@@ -3317,6 +3348,8 @@ impl Backend for WinUiBackend {
                 .is_ok_and(|t| t == w::ApplicationTheme::Dark),
         };
         let settings = w::UISettings::new().ok();
+        // A selector bar over the pages, with no border around them.
+        let bar = self.state.borrow().tab_bar.get().unwrap_or(crate::tabs::BAR_HEIGHT);
         PlatformMetrics {
             scale_factor: unsafe { w::GetDpiForSystem() } as f32 / 96.0,
             // Fluent's spacing ramp: 4, 8, 12, 16, 24 epx.
@@ -3329,6 +3362,7 @@ impl Backend for WinUiBackend {
             reduced_motion: settings
                 .and_then(|s| s.cast::<w::IUISettings>().ok()?.AnimationsEnabled().ok())
                 .is_some_and(|enabled| !enabled),
+            tab_insets: Insets::new(bar, 0.0, 0.0, 0.0),
         }
     }
 
@@ -3393,6 +3427,8 @@ impl Backend for WinUiBackend {
                 .unwrap_or_else(|| ceil(measure_element(&node.element, infinite))),
             Widget::Native { measure: Some(measure), .. } => measure(node.control(), &request),
             Widget::Native { measure: None, .. } => ceil(measure_element(&node.element, infinite)),
+            // Its bar: the core adds the pages.
+            Widget::Tabs(tabs) => ceil(tabs.strip()),
             // Measured by the core, or never (the sidebar is the window's).
             Widget::Drawn { .. }
             | Widget::Window(_)
@@ -3417,6 +3453,16 @@ impl Backend for WinUiBackend {
             // to a handler that holds its own data, never our state.
             if let (A11yAction::SetValue(title), Widget::Sidebar(sidebar)) = (action, &node.widget) {
                 return match sidebar.choose(title) {
+                    Ok(true) => Ok(()),
+                    _ => Err(ActionError::Unsupported),
+                };
+            }
+            // A tab, as a click picks it; the same way.
+            if let (A11yAction::SetValue(title), Widget::Tabs(tabs)) = (action, &node.widget) {
+                if tabs.bar.cast::<w::IControl>().and_then(|c| c.IsEnabled()).is_ok_and(|on| !on) {
+                    return Err(ActionError::Disabled);
+                }
+                return match tabs.choose(title) {
                     Ok(true) => Ok(()),
                     _ => Err(ActionError::Unsupported),
                 };
@@ -3917,6 +3963,11 @@ impl Backend for WinUiBackend {
                 props.push(Prop::Sections(sidebar.sections()));
                 props.push(Prop::SelectedIndex(sidebar.selected()));
             }
+            Widget::Tabs(tabs) => {
+                props.push(Prop::TabTitles(tabs.titles()));
+                props.push(Prop::SelectedIndex(tabs.selected()));
+                props.push(Prop::Enabled(tabs.bar.cast::<w::IControl>().ok()?.IsEnabled().ok()?));
+            }
             Widget::Scroll(s) => {
                 let scroll: w::IScrollViewer = s.cast().ok()?;
                 props.push(Prop::ScrollAxes(scroll_axes(&scroll).ok()?));
@@ -3981,6 +4032,8 @@ impl Backend for WinUiBackend {
             Some(Widget::Window(parts)) if node.kind == WidgetKind::Sidebar => {
                 sidebar_frame(parts).unwrap_or(Rect::ZERO)
             }
+            // A page its tab view doesn't show is collapsed: nowhere.
+            Some(Widget::Tabs(_)) if !crate::tabs::Tabs::shows(&node.element) => Rect::ZERO,
             _ => frame,
         };
         let by_element = state.by_element.borrow();
@@ -4005,6 +4058,8 @@ impl Backend for WinUiBackend {
                 (children, None)
             }
             Widget::Host(canvas) => (panel_children(canvas, &known), None),
+            // Its pages; the bar isn't a node.
+            Widget::Tabs(tabs) => (panel_children(&tabs.canvas, &known), None),
             _ => (Vec::new(), None),
         };
         // Composite controls give focus to a part (a list's row container,

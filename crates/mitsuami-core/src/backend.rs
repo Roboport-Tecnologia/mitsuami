@@ -7,7 +7,7 @@ use std::rc::Rc;
 use crate::a11y::{A11yAction, ActionError};
 use crate::app_info::{AppInfo, NativeAppInfo};
 use crate::command::{Command, UiEvent};
-use crate::geometry::{Point, Rect, Size};
+use crate::geometry::{Insets, Point, Rect, Size};
 use crate::units::SpacingScale;
 use crate::widget::{NodeId, Prop, TextStyle, WidgetKind};
 
@@ -38,6 +38,9 @@ pub struct PlatformMetrics {
     pub dark_mode: bool,
     pub high_contrast: bool,
     pub reduced_motion: bool,
+    /// Where a `Tabs` shows its pages: this far in from its edges, past
+    /// its tab strip and border.
+    pub tab_insets: Insets,
 }
 
 /// Light or dark. Backends can force one (tests do, so captures don't

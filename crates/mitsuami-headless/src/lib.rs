@@ -22,7 +22,7 @@ use mitsuami_core::raw_window_handle::{HandleError, RawDisplayHandle, RawWindowH
 use mitsuami_core::services::menu_item_by_id;
 use mitsuami_core::units::SpacingScale;
 use mitsuami_core::{
-    AppInfo, Command, EventValue, ImageSource, KeyCode, Modifiers, MouseButton, NativeAppInfo, NativeIcon,
+    AppInfo, Command, EventValue, ImageSource, Insets, KeyCode, Modifiers, MouseButton, NativeAppInfo, NativeIcon,
     NativeSurface, NodeId, Orientation, Point, PointerEvent, PointerKind, Prop, Rect, RowKey, ScrollDelta,
     SelectionMode, Size, SurfaceHandle, SurfaceInput, SurfaceSize, TextStyle, UiEvent, WidgetKind, find_prop,
 };
@@ -35,6 +35,11 @@ const TOOLBAR_SPACING: f32 = 8.0;
 /// A window's sidebar: this wide, on the leading side of its content, as
 /// high as it.
 const SIDEBAR_WIDTH: f32 = 200.0;
+
+/// A tab view: its pages this far in from its edges, below its tab strip,
+/// and each tab this much wider than its title.
+const TAB_INSETS: Insets = Insets::new(32.0, 8.0, 8.0, 8.0);
+const TAB_PADDING: f32 = 24.0;
 
 /// The screen a window in full screen fills.
 const SCREEN: Size = Size::new(1280.0, 800.0);
@@ -56,6 +61,7 @@ pub fn metrics() -> PlatformMetrics {
         dark_mode: false,
         high_contrast: false,
         reduced_motion: false,
+        tab_insets: TAB_INSETS,
     }
 }
 
@@ -370,6 +376,40 @@ impl State {
                 }
             }
         }
+    }
+
+    /// Checks that a tab view's children are page hosts, one per title,
+    /// and that it shows one of them (none only without pages).
+    fn check_tabs(&self, command: &Command) {
+        for (id, node) in &self.nodes {
+            if node.kind != WidgetKind::Tabs {
+                continue;
+            }
+            if node.children.iter().any(|c| self.nodes[c].kind != WidgetKind::Container) {
+                violation(command, &format!("tabs {id} has a child that isn't a page host (a Container)"));
+            }
+            let pages = node.children.len();
+            let titles = find_prop!(node.props, TabTitles).unwrap_or_default().len();
+            if titles != pages {
+                violation(command, &format!("tabs {id} has {pages} pages but {titles} titles"));
+            }
+            let shown = find_prop!(node.props, SelectedIndex).flatten();
+            if shown.is_none_or(|i| i >= pages) != (pages == 0) {
+                violation(command, &format!("tabs {id} shows {shown:?} of its {pages} pages"));
+            }
+        }
+    }
+
+    /// Where a tab view shows a page: inside its strip and border, if it's
+    /// the one shown; nowhere otherwise.
+    fn page_frame(&self, page: NodeId, tabs: NodeId) -> Rect {
+        let tabs = &self.nodes[&tabs];
+        let shown = find_prop!(tabs.props, SelectedIndex).flatten().and_then(|i| tabs.children.get(i));
+        if shown != Some(&page) {
+            return Rect::ZERO;
+        }
+        let size = self.nodes[&page].frame.size;
+        Rect::new(TAB_INSETS.left, TAB_INSETS.top, size.width, size.height)
     }
 
     /// Where a window shows its sidebar, in the window's content
@@ -856,6 +896,7 @@ impl Backend for HeadlessBackend {
             }
             state.check_lists(last);
             state.check_toolbars(last);
+            state.check_tabs(last);
             for list in lists {
                 let offset = state.nodes[&list].scroll_offset;
                 let y = state.clamp_list(list, offset.y);
@@ -914,6 +955,12 @@ impl Backend for HeadlessBackend {
                 let options = find_prop!(node.props, Options).unwrap_or_default();
                 let chosen = find_prop!(node.props, SelectedIndex).flatten().and_then(|i| options.get(i).cloned());
                 Size::new(text_size(&chosen.unwrap_or_default(), font, None, None).width + 32.0, (line + 8.0).max(28.0))
+            }
+            // Its strip: a tab for each title, side by side, and its border.
+            WidgetKind::Tabs => {
+                let titles = find_prop!(node.props, TabTitles).unwrap_or_default();
+                let tabs: f32 = titles.iter().map(|t| text_size(t, font, None, None).width + TAB_PADDING).sum();
+                Size::new(tabs + TAB_INSETS.left + TAB_INSETS.right, TAB_INSETS.top + TAB_INSETS.bottom)
             }
             // Native renders are stood in for by the drawn one, if any.
             // Native views have no stand-in: size them with styles.
@@ -1028,6 +1075,15 @@ impl Backend for HeadlessBackend {
                     state.emit(id, UiEvent::Changed(EventValue::Index(index)));
                 }
             }
+            // A tab, by its title, as a screen reader picks one.
+            (A11yAction::SetValue(title), WidgetKind::Tabs) => {
+                let titles = find_prop!(state.nodes[&id].props, TabTitles).unwrap_or_default();
+                let index = titles.iter().position(|t| t == title).ok_or(ActionError::Unsupported)?;
+                if find_prop!(state.nodes[&id].props, SelectedIndex).flatten() != Some(index) {
+                    state.set_prop(id, Prop::SelectedIndex(Some(index)));
+                    state.emit(id, UiEvent::Changed(EventValue::Index(index)));
+                }
+            }
             (
                 A11yAction::Focus,
                 WidgetKind::Button
@@ -1039,7 +1095,8 @@ impl Backend for HeadlessBackend {
                 | WidgetKind::Slider
                 | WidgetKind::NumberInput
                 | WidgetKind::List
-                | WidgetKind::Sidebar,
+                | WidgetKind::Sidebar
+                | WidgetKind::Tabs,
             ) => state.focus(id),
             (A11yAction::Select | A11yAction::Activate, WidgetKind::Container) => {
                 let row = find_prop!(state.nodes[&id].props, Row);
@@ -1198,6 +1255,10 @@ impl Backend for HeadlessBackend {
             Some(row) => Rect::new(0.0, row.top, node.frame.width(), node.frame.height()),
             None if node.kind == WidgetKind::ToolbarItem => state.toolbar_item_frame(id),
             None if node.kind == WidgetKind::Sidebar => state.sidebar_frame(id),
+            // A tab view places its pages itself, and shows one.
+            None if let Some(tabs) = node.parent.filter(|p| state.nodes[p].kind == WidgetKind::Tabs) => {
+                state.page_frame(id, tabs)
+            }
             None => node.frame,
         };
         Some(NativeState {

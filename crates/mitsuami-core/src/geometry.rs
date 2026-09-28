@@ -57,6 +57,23 @@ impl Point {
     }
 }
 
+/// Distances in from a rectangle's edges, in logical units.
+#[derive(Clone, Copy, Debug, Default, PartialEq)]
+pub struct Insets {
+    pub top: f32,
+    pub right: f32,
+    pub bottom: f32,
+    pub left: f32,
+}
+
+impl Insets {
+    pub const ZERO: Insets = Insets { top: 0.0, right: 0.0, bottom: 0.0, left: 0.0 };
+
+    pub const fn new(top: f32, right: f32, bottom: f32, left: f32) -> Insets {
+        Insets { top, right, bottom, left }
+    }
+}
+
 /// A rectangle in logical units.
 #[derive(Clone, Copy, Debug, Default, PartialEq)]
 pub struct Rect {

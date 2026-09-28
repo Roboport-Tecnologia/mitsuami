@@ -34,6 +34,8 @@ mod sidebar;
 #[cfg(target_os = "linux")]
 mod surface;
 #[cfg(target_os = "linux")]
+mod tabs;
+#[cfg(target_os = "linux")]
 mod tweak;
 
 #[cfg(target_os = "linux")]

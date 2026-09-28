@@ -44,6 +44,7 @@ use crate::number_field::NumberField;
 use crate::services::ItemTarget;
 use crate::sidebar::{Sidebar, Split};
 use crate::surface::SurfaceView;
+use crate::tabs::Tabs;
 use crate::toolbar::Toolbar;
 
 /// How the backend behaves; apps and tests want different things.
@@ -79,6 +80,7 @@ enum Widget {
     },
     Host(Retained<HostView>),
     Sidebar(Sidebar),
+    Tabs(Tabs),
     Label(Retained<NSTextField>),
     Field(Retained<NSTextField>),
     Button(Retained<NSButton>),
@@ -141,6 +143,7 @@ impl Widget {
             Widget::Scroll(v) => v,
             Widget::List(list) => &list.scroll,
             Widget::Sidebar(sidebar) => &sidebar.scroll,
+            Widget::Tabs(tabs) => &tabs.view,
             Widget::Custom { view, .. } | Widget::Native { view, .. } => view,
             Widget::Drawn { view, .. } => view,
         }
@@ -164,6 +167,7 @@ impl Widget {
             | Widget::Scroll(_)
             | Widget::List(_)
             | Widget::Sidebar(_)
+            | Widget::Tabs(_)
             | Widget::Custom { .. }
             | Widget::Drawn { .. }
             | Widget::Native { .. } => None,
@@ -360,6 +364,7 @@ fn metrics(mtm: MainThreadMarker, forced: Option<Appearance>) -> PlatformMetrics
         dark_mode: dark,
         high_contrast: workspace.accessibilityDisplayShouldIncreaseContrast(),
         reduced_motion: workspace.accessibilityDisplayShouldReduceMotion(),
+        tab_insets: crate::tabs::insets(mtm),
     }
 }
 
@@ -632,6 +637,7 @@ impl State {
             }
             WidgetKind::Sidebar => Widget::Sidebar(Sidebar::new(mtm, id, self.events.clone())),
             WidgetKind::Container | WidgetKind::ToolbarItem => Widget::Host(HostView::new(mtm, false)),
+            WidgetKind::Tabs => Widget::Tabs(Tabs::new(mtm, id, self.events.clone())),
             WidgetKind::Custom(_) => {
                 let Command::Create { props, .. } = command else { unreachable!() };
                 let Some(custom) = find_prop!(props, Custom) else {
@@ -870,6 +876,8 @@ impl State {
             }
             (Prop::Sections(sections), Widget::Sidebar(sidebar)) => sidebar.set_sections(sections.clone()),
             (Prop::SelectedIndex(index), Widget::Sidebar(sidebar)) => sidebar.set_selected(*index),
+            (Prop::TabTitles(titles), Widget::Tabs(tabs)) => tabs.set_titles(titles.clone()),
+            (Prop::SelectedIndex(index), Widget::Tabs(tabs)) => tabs.set_shown(*index),
             (Prop::Label(t), Widget::Slider { slider, .. }) => slider.setAccessibilityLabel(Some(&ns(t))),
             (Prop::Range { min, max }, Widget::Slider { slider, step }) => {
                 slider.setMinValue(*min);
@@ -1207,6 +1215,11 @@ impl State {
                     self.nodes.get_mut(child).unwrap().parent = Some(*parent);
                     return;
                 }
+                if let Widget::Tabs(tabs) = &self.nodes[parent].widget {
+                    tabs.insert(self.mtm, *child, child_view, *index);
+                    self.nodes.get_mut(child).unwrap().parent = Some(*parent);
+                    return;
+                }
                 if let Widget::List(list) = &self.nodes[parent].widget {
                     let Some(row) = self.nodes[child].row else {
                         violation(command, "a List's children are row hosts (Containers with a Prop::Row)")
@@ -1259,6 +1272,7 @@ impl State {
                     Widget::Window { toolbar: Some(toolbar), .. } if toolbar.contains(*child) => toolbar.remove(*child),
                     Widget::Scroll(scroll) => scroll.setDocumentView(None),
                     Widget::List(list) => list.remove(row.expect("inserted with a row")),
+                    Widget::Tabs(tabs) => tabs.remove(*child),
                     _ => self.view(*child, command).removeFromSuperview(),
                 }
                 self.nodes.get_mut(child).unwrap().parent = None;
@@ -1321,6 +1335,11 @@ impl State {
                 }
                 // A row fills its cell, and the table makes the row as high.
                 let parent = self.nodes.get(id).and_then(|n| n.parent).map(|p| &self.nodes[&p].widget);
+                // A page is where its tab view puts it, at this size.
+                if let Some(Widget::Tabs(tabs)) = parent {
+                    tabs.set_page_size(*id, rect.size);
+                    return;
+                }
                 if let Some(Widget::List(list)) = parent {
                     self.view(*id, command).setFrame(rect);
                     if let Some(row) = self.nodes[id].row {
@@ -1634,6 +1653,7 @@ impl Backend for AppKitBackend {
                 Some(measure) => measure(view, &request),
                 None => intrinsic(view),
             },
+            Widget::Tabs(tabs) => tabs.natural_size(crate::tabs::insets(state.mtm)),
             // Measured by the core, or never (the sidebar is the window's).
             Widget::Drawn { .. }
             | Widget::Window { .. }
@@ -1742,6 +1762,16 @@ impl Backend for AppKitBackend {
                     return Err(ActionError::Unsupported);
                 };
                 if !sidebar.choose(title) {
+                    return Err(ActionError::Unsupported);
+                }
+            }
+            // As if the user clicked the tab: the delegate reports it.
+            (A11yAction::SetValue(title), WidgetKind::Tabs) => {
+                let state = self.state.borrow();
+                let Some(Widget::Tabs(tabs)) = state.nodes.get(&id).map(|n| &n.widget) else {
+                    return Err(ActionError::Unsupported);
+                };
+                if !tabs.choose(title) {
                     return Err(ActionError::Unsupported);
                 }
             }
@@ -2089,6 +2119,10 @@ impl Backend for AppKitBackend {
                 props.push(Prop::Sections(sidebar.sections()));
                 props.push(Prop::SelectedIndex(sidebar.selected()));
             }
+            Widget::Tabs(tabs) => {
+                props.push(Prop::TabTitles(tabs.titles()));
+                props.push(Prop::SelectedIndex(tabs.selected()));
+            }
         }
         if let Some(control) = node.widget.control() {
             props.push(Prop::Enabled(control.isEnabled()));
@@ -2113,6 +2147,10 @@ impl Backend for AppKitBackend {
             (node.row, node.parent.and_then(|p| state.nodes.get(&p)).map(|p| &p.widget))
         {
             frame = list.row_rect(row).unwrap_or(frame);
+        }
+        // So is a page, by its tab view; one not shown isn't anywhere.
+        if let Some(Widget::Tabs(tabs)) = node.parent.and_then(|p| state.nodes.get(&p)).map(|p| &p.widget) {
+            frame = tabs.page_frame(id).unwrap_or(frame);
         }
         // So is a toolbar item, by the toolbar; an empty one isn't shown.
         if let Some(Widget::Window { host, toolbar: Some(toolbar), .. }) = node
@@ -2145,6 +2183,7 @@ impl Backend for AppKitBackend {
                 let origin = list.scroll.contentView().bounds().origin;
                 (list.children(), Some(Point::new(origin.x as f32, origin.y as f32)))
             }
+            Widget::Tabs(tabs) => (tabs.ids(), None),
             Widget::Scroll(scroll) => {
                 let origin = scroll.contentView().bounds().origin;
                 (

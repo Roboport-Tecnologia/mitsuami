@@ -64,6 +64,10 @@ name = "sidebar"
 harness = false
 
 [[test]]
+name = "tabs"
+harness = false
+
+[[test]]
 name = "contacts"
 harness = false
 

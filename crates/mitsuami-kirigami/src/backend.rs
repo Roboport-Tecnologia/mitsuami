@@ -335,6 +335,12 @@ enum Widget {
         flickable: QmlObject,
     },
     List(crate::list::List),
+    /// A tab view, its tab bar, and the item its page hosts are in.
+    Tabs {
+        root: QmlObject,
+        bar: QmlObject,
+        pages: QmlObject,
+    },
     /// A window's sidebar page, and the sections it was given.
     Sidebar {
         page: QmlObject,
@@ -384,6 +390,7 @@ impl Widget {
             | Widget::Custom { item: i, .. }
             | Widget::Drawn { item: i, .. }
             | Widget::Native { item: i, .. }
+            | Widget::Tabs { root: i, .. }
             | Widget::Sidebar { page: i, .. } => *i,
             Widget::GpuSurface(surface) => surface.item,
             Widget::List(list) => list.root,
@@ -417,14 +424,18 @@ impl Widget {
             Widget::List(list) => list.view,
             Widget::GpuSurface(surface) => surface.input,
             Widget::Sidebar { page, .. } => page.child("mitsuamiSidebarList").unwrap_or(*page),
+            // Its bar, which hands focus to its selected tab.
+            Widget::Tabs { bar, .. } => *bar,
             widget => widget.item(),
         }
     }
 
-    /// Where children go: the host, or the scrolled content.
+    /// Where children go: the host, the scrolled content, or a tab view's
+    /// page area.
     fn content(&self) -> QmlObject {
         match self {
             Widget::Scroll { flickable, .. } => flickable.object("contentItem").expect("flickables have content"),
+            Widget::Tabs { pages, .. } => *pages,
             widget => widget.item(),
         }
     }
@@ -459,6 +470,7 @@ impl Widget {
                 | Widget::Native { .. }
                 | Widget::List(_)
                 | Widget::Sidebar { .. }
+                | Widget::Tabs { .. }
         ) || matches!(self, Widget::GpuSurface(surface) if surface.takes_input())
     }
 
@@ -472,6 +484,7 @@ impl Widget {
                 | Widget::Scroll { .. }
                 | Widget::List(_)
                 | Widget::Sidebar { .. }
+                | Widget::Tabs { .. }
         )
     }
 }
@@ -856,6 +869,18 @@ impl State {
                 });
                 Widget::Sidebar { page, sections: Vec::new() }
             }
+            WidgetKind::Tabs => {
+                let root = QmlObject::load(&qml::tabs());
+                let bar = root.child("mitsuamiTabBar").expect("tab views have a tab bar");
+                let pages = root.child("mitsuamiPages").expect("tab views have a page area");
+                // The user's choice only: the app's doesn't emit it.
+                root.connect("mitsuamiChosen()", move || {
+                    if let Ok(index) = usize::try_from(root.int("mitsuamiSelected")) {
+                        events.emit(id, UiEvent::Changed(EventValue::Index(index)));
+                    }
+                });
+                Widget::Tabs { root, bar, pages }
+            }
             WidgetKind::Custom(_) => {
                 let Command::Create { props, .. } = command else { unreachable!() };
                 let Some(custom) = find_prop!(props, Custom) else {
@@ -1154,6 +1179,15 @@ impl State {
             }
             (Prop::SelectedIndex(index), Widget::Sidebar { page, .. }) => {
                 page.set_int("mitsuamiSelected", index.map_or(-1, |i| i as i32));
+            }
+            // Titles and pages come in either order: each shows again.
+            (Prop::TabTitles(titles), Widget::Tabs { root, .. }) => {
+                root.set_str_list("mitsuamiTitles", titles);
+                root.invoke("mitsuamiShow");
+            }
+            (Prop::SelectedIndex(index), Widget::Tabs { root, .. }) => {
+                root.set_int("mitsuamiSelected", index.map_or(-1, |i| i as i32));
+                root.invoke("mitsuamiShow");
             }
             (Prop::FullScreen(on), Widget::Window { root }) => root.set_full_screen(*on),
             (Prop::HeightFollowsContent(on), Widget::Window { root }) => root.set_height_locked(*on),
@@ -1497,10 +1531,19 @@ impl State {
                 if matches!(parent_widget, Widget::Scroll { .. }) && !content.child_items().is_empty() {
                     violation(command, "a ScrollView has a single native child (its content)");
                 }
+                if matches!(parent_widget, Widget::Tabs { .. }) && !matches!(self.nodes[child].widget, Widget::Host(_))
+                {
+                    violation(command, "a Tabs' children are page hosts (Containers)");
+                }
                 item.set_parent_item(Some(content), *index);
                 self.nodes.get_mut(child).unwrap().parent = Some(*parent);
-                if let Widget::Scroll { flickable, .. } = &self.nodes[parent].widget {
-                    sync_scroll(*flickable);
+                match &self.nodes[parent].widget {
+                    Widget::Scroll { flickable, .. } => sync_scroll(*flickable),
+                    // Shown if it's the page chosen, hidden if not.
+                    Widget::Tabs { root, .. } => {
+                        root.invoke("mitsuamiShow");
+                    }
+                    _ => {}
                 }
             }
             Command::Remove { parent, child } => {
@@ -1510,6 +1553,13 @@ impl State {
                 match (&self.nodes[parent].widget, &self.nodes[child].widget) {
                     (Widget::List(list), _) => list.remove(self.nodes[child].row.expect("inserted with a row")),
                     (Widget::Window { root }, Widget::Sidebar { .. }) => hide_sidebar(root),
+                    // Out of the page area, shown again wherever it goes.
+                    (Widget::Tabs { root, .. }, child) => {
+                        let item = child.item();
+                        item.set_parent_item(None, 0);
+                        item.set_bool("visible", true);
+                        root.invoke("mitsuamiShow");
+                    }
                     (Widget::Window { root }, Widget::ToolbarItem { host, action }) => {
                         // Out of the toolbar's item first, which goes with
                         // the action.
@@ -1574,15 +1624,20 @@ impl State {
                 }
                 let widget = self.widget(*id, command);
                 let item = widget.item();
-                item.set_geometry(frame.x() as f64, frame.y() as f64, frame.width() as f64, frame.height() as f64);
+                let parent = self.nodes[id].parent.and_then(|p| self.nodes.get(&p)).map(|p| &p.widget);
+                // A tab view's page: its size; it's at the top-left of the
+                // page area.
+                let at = match parent {
+                    Some(Widget::Tabs { .. }) => Point::ZERO,
+                    _ => frame.origin,
+                };
+                item.set_geometry(at.x as f64, at.y as f64, frame.width() as f64, frame.height() as f64);
                 // Leaves with an empty frame (hidden, or not laid out yet)
                 // aren't shown: controls draw their frames regardless of size.
                 if widget.is_leaf() {
                     item.set_bool("visible", !frame.size.is_empty());
                 }
-                if let Some(Widget::List(list)) =
-                    self.nodes[id].parent.and_then(|p| self.nodes.get(&p)).map(|p| &p.widget)
-                {
+                if let Some(Widget::List(list)) = parent {
                     list.row_measured(frame.height());
                 }
                 let flickable = match widget {
@@ -1623,7 +1678,14 @@ impl State {
                 }
             }
             Command::SetFocusOrder { window, order } => {
-                let items: Vec<QmlObject> = order.iter().map(|id| self.widget(*id, command).item()).collect();
+                // A tab view's bar, not its pages, whose controls follow it.
+                let items: Vec<QmlObject> = order
+                    .iter()
+                    .map(|id| match self.widget(*id, command) {
+                        widget @ Widget::Tabs { .. } => widget.input_item(),
+                        widget => widget.item(),
+                    })
+                    .collect();
                 let root = self.window_root(*window, command);
                 root.window.set_tab_order(&items);
                 // Qt Quick focuses nothing in a new window, so keys went
@@ -1710,6 +1772,14 @@ fn sections_json(sections: &[SidebarSectionData]) -> String {
     format!("[{}]", sections.join(","))
 }
 
+/// A tab view's titles, as its tabs show them.
+fn tab_titles(tabs: QmlObject) -> Vec<String> {
+    if tabs.int("mitsuamiCount") == 0 {
+        return Vec::new();
+    }
+    tabs.str("mitsuamiShownTitles").split('\u{1f}').map(str::to_owned).collect()
+}
+
 /// A select's options, as it shows them.
 fn option_texts(select: QmlObject) -> Vec<String> {
     if select.int("count") == 0 {
@@ -1792,6 +1862,15 @@ impl Backend for KirigamiBackend {
             }
             // As large as the layout makes it.
             Widget::GpuSurface(_) => Size::new(request.known_width.unwrap_or(0.0), request.known_height.unwrap_or(0.0)),
+            // With no page: its bar's size. Qt sizes a bar's tabs when it
+            // polishes it, before a frame.
+            Widget::Tabs { bar, .. } => {
+                bar.invoke("ensurePolished");
+                Size::new(
+                    request.known_width.unwrap_or(bar.real("implicitWidth").ceil() as f32),
+                    request.known_height.unwrap_or(bar.real("implicitHeight").ceil() as f32),
+                )
+            }
             // Measured by the core, or never (the sidebar is the window's).
             Widget::Drawn { .. }
             | Widget::Window { .. }
@@ -1874,6 +1953,11 @@ impl Backend for KirigamiBackend {
                     }
                 };
                 item.set_int("mitsuamiChoice", index.ok_or(ActionError::Unsupported)? as i32);
+            }
+            // As if its tab were clicked.
+            (A11yAction::SetValue(title), WidgetKind::Tabs) => {
+                let index = tab_titles(item).iter().position(|t| t == title).ok_or(ActionError::Unsupported)?;
+                item.set_int("mitsuamiChoice", index as i32);
             }
             // As if the option were picked from the pop-up.
             (A11yAction::SetValue(text), WidgetKind::Select) => {
@@ -2175,6 +2259,10 @@ impl Backend for KirigamiBackend {
                 props.push(Prop::Sections(sections.clone()));
                 props.push(Prop::SelectedIndex(usize::try_from(page.int("mitsuamiSelected")).ok()));
             }
+            Widget::Tabs { root, bar, .. } => {
+                props.push(Prop::TabTitles(tab_titles(*root)));
+                props.push(Prop::SelectedIndex(usize::try_from(bar.int("currentIndex")).ok()));
+            }
         }
         if node.widget.is_control() {
             props.push(Prop::Enabled(item.bool("enabled")));
@@ -2218,12 +2306,23 @@ impl Backend for KirigamiBackend {
                     Rect::new(at.x - origin.x, at.y - origin.y, frame.width(), frame.height())
                 }
             }
+            // A tab view's page is in its page area, below the bar, while
+            // it's the one shown.
+            (Some(Widget::Tabs { root, .. }), _) => {
+                if !item.bool("visible") {
+                    Rect::ZERO
+                } else {
+                    let (at, origin) = (item.map_to_scene(Point::ZERO), root.map_to_scene(Point::ZERO));
+                    Rect::new(at.x - origin.x, at.y - origin.y, frame.width(), frame.height())
+                }
+            }
             _ => frame,
         };
         let (children, scroll_offset) = match &node.widget {
             Widget::List(list) => (Vec::new(), Some(list.scroll_offset())),
             Widget::Scroll { flickable, .. } => (node.widget.content().child_items(), Some(scroll_offset(*flickable))),
             Widget::Window { .. } | Widget::Host(_) | Widget::ToolbarItem { .. } => (item.child_items(), None),
+            Widget::Tabs { pages, .. } => (pages.child_items(), None),
             _ => (Vec::new(), None),
         };
         // Items that stand for nodes themselves: `node()` walks up the tree.

@@ -571,6 +571,26 @@ fn sidebar() -> impl View {
     ))
 }
 
+/// A settings pane's tabs, the second shown. Each platform draws its own
+/// strip of tabs and border; the pages are inside, as big as the biggest.
+#[mitsuami_test::story(sizes = [(420, fit)])]
+fn tabs() -> impl View {
+    let page = signal(1);
+    Column::new().padding(16).child(
+        Tabs::new(page).children((
+            Tab::new("General", 0)
+                .padding(12)
+                .gap(8)
+                .children((Text::new("Name"), TextInput::new().placeholder("Untitled"))),
+            Tab::new("Appearance", 1)
+                .padding(12)
+                .gap(8)
+                .children((Checkbox::new("Show icons"), Checkbox::new("Show the status bar"))),
+            Tab::new("Advanced", 2).padding(12).child(Text::new("Nothing here yet.")),
+        )),
+    )
+}
+
 /// AppKit sizes pop-up buttons for their widest option, the others for the
 /// chosen one.
 #[mitsuami_test::story(sizes = [(240, fit)])]
