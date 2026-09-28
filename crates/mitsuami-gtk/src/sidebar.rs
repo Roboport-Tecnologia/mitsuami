@@ -30,16 +30,24 @@ struct Data {
     /// The item shown selected: the list box can't be told "no change".
     selected: Option<usize>,
     /// The window's split view, once the sidebar is in one.
-    split: Option<(adw::NavigationSplitView, adw::NavigationPage)>,
+    split: Option<SplitParts>,
+}
+
+/// What the list's handlers change in the window's split view.
+struct SplitParts {
+    view: adw::NavigationSplitView,
+    content: adw::NavigationPage,
+    header: adw::HeaderBar,
+    window_title: String,
 }
 
 impl Data {
     /// The content page is titled after the item chosen, as GNOME
-    /// Settings' pages are.
+    /// Settings' pages are, or the window without one.
     fn title_content(&self) {
-        if let Some((_, content)) = &self.split {
-            let title = self.selected.and_then(|i| self.items.get(i)).map_or("", |i| i.title.as_str());
-            content.set_title(title);
+        if let Some(split) = &self.split {
+            let item = self.selected.and_then(|i| self.items.get(i)).map(|i| i.title.as_str());
+            set_title(&split.content, &split.header, item.unwrap_or(&split.window_title));
         }
     }
 
@@ -118,8 +126,8 @@ impl Sidebar {
         // Chosen in a collapsed split view, the content shows.
         let (d, e) = (data.clone(), events);
         list.connect_row_activated(move |_, _| {
-            if let (false, Some((view, _))) = (e.is_muted(), &d.borrow().split) {
-                view.set_show_content(true);
+            if let (false, Some(split)) = (e.is_muted(), &d.borrow().split) {
+                split.view.set_show_content(true);
             }
         });
         let scrolled = gtk::ScrolledWindow::new();
@@ -200,6 +208,19 @@ fn row(item: &SidebarItemData) -> gtk::ListBoxRow {
     row
 }
 
+/// Titles a page and shows the title in its header bar. libadwaita wants
+/// every page titled, so an untitled one takes the app's name, which its
+/// header bar doesn't show.
+fn set_title(page: &adw::NavigationPage, header: &adw::HeaderBar, title: &str) {
+    header.set_show_title(!title.is_empty());
+    if title.is_empty() {
+        let name = gtk::glib::application_name().or_else(gtk::glib::prgname).unwrap_or_default();
+        page.set_title(&name);
+    } else {
+        page.set_title(title);
+    }
+}
+
 /// A window split in two: the sidebar's page, titled after the window, and
 /// the content's, which takes the window's header bar with its toolbar
 /// items and menu button.
@@ -208,6 +229,7 @@ pub(crate) struct Split {
     bin: adw::BreakpointBin,
     pub view: adw::NavigationSplitView,
     sidebar_page: adw::NavigationPage,
+    sidebar_header: adw::HeaderBar,
     sidebar_view: adw::ToolbarView,
     content: adw::ToolbarView,
     data: Rc<RefCell<Data>>,
@@ -224,10 +246,12 @@ impl Split {
         sidebar: &Sidebar,
     ) -> Split {
         let sidebar_view = adw::ToolbarView::new();
-        sidebar_view.add_top_bar(&adw::HeaderBar::new());
+        let sidebar_header = adw::HeaderBar::new();
+        sidebar_view.add_top_bar(&sidebar_header);
         sidebar_view.set_content(Some(&sidebar.scrolled));
         let title = window.title().map(|t| t.to_string()).unwrap_or_default();
-        let sidebar_page = adw::NavigationPage::new(&sidebar_view, &title);
+        let sidebar_page = adw::NavigationPage::new(&sidebar_view, "");
+        set_title(&sidebar_page, &sidebar_header, &title);
         window.set_child(None::<&gtk::Widget>);
         // As `AdwWindow` does: a title bar that isn't shown, so GTK adds
         // none of its own.
@@ -239,6 +263,14 @@ impl Split {
         content.set_content(Some(host));
         let content_page = adw::NavigationPage::new(&content, "");
         let view = adw::NavigationSplitView::new();
+        // Titled before a shown window realizes it, which libadwaita checks.
+        sidebar.data.borrow_mut().split = Some(SplitParts {
+            view: view.clone(),
+            content: content_page.clone(),
+            header: header.clone(),
+            window_title: title,
+        });
+        sidebar.data.borrow().title_content();
         view.set_sidebar(Some(&sidebar_page));
         view.set_content(Some(&content_page));
         let bin = adw::BreakpointBin::new();
@@ -252,9 +284,7 @@ impl Split {
             bin.add_breakpoint(breakpoint);
         }
         window.set_child(Some(&bin));
-        sidebar.data.borrow_mut().split = Some((view.clone(), content_page));
-        sidebar.data.borrow().title_content();
-        Split { sidebar: id, bin, view, sidebar_page, sidebar_view, content, data: sidebar.data.clone() }
+        Split { sidebar: id, bin, view, sidebar_page, sidebar_header, sidebar_view, content, data: sidebar.data.clone() }
     }
 
     /// Gives the window its content and title bar back.
@@ -265,12 +295,17 @@ impl Split {
         self.content.set_content(None::<&gtk::Widget>);
         self.sidebar_view.set_content(None::<&gtk::Widget>);
         self.content.remove(header);
+        header.set_show_title(true);
         window.set_titlebar(Some(header));
         window.set_child(Some(host));
     }
 
     pub(crate) fn set_title(&self, title: &str) {
-        self.sidebar_page.set_title(title);
+        set_title(&self.sidebar_page, &self.sidebar_header, title);
+        if let Some(split) = &mut self.data.borrow_mut().split {
+            split.window_title = title.to_owned();
+        }
+        self.data.borrow().title_content();
     }
 
     /// The sidebar page, where it's shown.

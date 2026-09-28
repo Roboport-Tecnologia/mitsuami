@@ -176,7 +176,11 @@ Kirigami.ApplicationWindow {{
     readonly property real mitsuamiSidebarWidth:
         mitsuamiSidebar && pageStack.wideMode ? mitsuamiSidebar.width : 0
     function mitsuamiShowSidebar() {{
-        pageStack.insertPage(0, mitsuamiSidebar)
+        mitsuamiSidebar.mitsuamiStack = pageStack
+        // `insertPage` pops the pages from its position on first, which
+        // would take the content's: pushed after it, then moved ahead.
+        pageStack.push(mitsuamiSidebar)
+        pageStack.movePage(pageStack.depth - 1, 0)
         pageStack.currentIndex = pageStack.wideMode ? 1 : 0
     }}
     function mitsuamiHideSidebar() {{
@@ -228,6 +232,9 @@ Kirigami.ScrollablePage {
     id: mitsuamiSidebar
     padding: 0
     property Item mitsuamiContent: null
+    // The window's page row, set by the window: the page is made apart
+    // from it, where Kirigami's `applicationWindow()` isn't defined.
+    property QtObject mitsuamiStack: null
     property string mitsuamiSections: "[]"
     property int mitsuamiSelected: -1
     property int mitsuamiChoice: -1
@@ -238,8 +245,8 @@ Kirigami.ScrollablePage {
         if (index === mitsuamiSelected) return
         mitsuamiSelected = index
         mitsuamiChosen()
-        const stack = applicationWindow().pageStack
-        if (!stack.wideMode) stack.currentIndex = stack.depth - 1
+        const stack = mitsuamiStack
+        if (stack && !stack.wideMode) stack.currentIndex = stack.depth - 1
     }
     function mitsuamiShow() {
         mitsuamiFollowing = true
@@ -276,15 +283,21 @@ Kirigami.ScrollablePage {
         activeFocusOnTab: true
         onCurrentIndexChanged: if (!mitsuamiSidebar.mitsuamiFollowing && currentIndex >= 0)
             mitsuamiSidebar.mitsuamiChoose(currentIndex)
-        // Consecutive items of a section share its index and title; one
-        // without a title has no heading.
+        // Consecutive items of a section share its index and title. One
+        // without a title is set apart by the header's line alone, and the
+        // first has none. The list shows every section delegate, so it's
+        // the header inside that's hidden.
         section.property: "section"
-        section.delegate: Kirigami.ListSectionHeader {
+        section.delegate: Item {
             required property string section
             width: ListView.view.width
-            text: section.slice(section.indexOf("") + 1)
-            visible: text !== ""
-            height: visible ? implicitHeight : 0
+            height: header.visible ? header.implicitHeight : 0
+            Kirigami.ListSectionHeader {
+                id: header
+                width: parent.width
+                text: parent.section.slice(parent.section.indexOf("") + 1)
+                visible: text !== "" || !parent.section.startsWith("0")
+            }
         }
         delegate: QQC2.ItemDelegate {
             required property int index

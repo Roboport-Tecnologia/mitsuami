@@ -89,7 +89,8 @@ pub fn run(info: AppInfo, setup: impl FnOnce(&Ui)) {
 
 /// Initializes Qt for tests, once per process. Unless
 /// `MITSUAMI_SHOW_WINDOWS=1`, windows go to Qt's offscreen platform: they
-/// get exactly the size they ask for, and nothing else competes for focus.
+/// get exactly the size they ask for, on a 1920×1080 screen, and nothing
+/// else competes for focus.
 /// The desktop's settings don't leak into tests: its platform theme is off,
 /// and KDE's settings (`kdeglobals`) are a private file with animations off,
 /// so captures never catch a control mid-animation. Plasma's default font
@@ -101,10 +102,17 @@ pub fn init_for_tests() {
     let config = std::env::temp_dir().join(format!("mitsuami-kirigami-config-{}", std::process::id()));
     let _ = std::fs::create_dir_all(&config);
     let _ = std::fs::write(config.join("kdeglobals"), "[KDE]\nAnimationDurationFactor=0\n");
+    // The offscreen screen is 800×600 unless told otherwise, too small for
+    // a sidebar beside a content's minimum: a common desktop's instead.
+    let screens = config.join("offscreen.json");
+    let _ = std::fs::write(
+        &screens,
+        r#"{"screens": [{"name": "Offscreen", "x": 0, "y": 0, "width": 1920, "height": 1080, "logicalDpi": 96}]}"#,
+    );
     // SAFETY: before Qt starts, while the test runner is single-threaded.
     unsafe {
         if !std::env::var("MITSUAMI_SHOW_WINDOWS").is_ok_and(|v| v == "1") {
-            std::env::set_var("QT_QPA_PLATFORM", "offscreen");
+            std::env::set_var("QT_QPA_PLATFORM", format!("offscreen:configfile={}", screens.display()));
         }
         std::env::remove_var("QT_QPA_PLATFORMTHEME");
         std::env::remove_var("QT_QUICK_CONTROLS_STYLE");

@@ -332,7 +332,7 @@ struct Node {
     /// Windows: modal, and the window they belong to.
     modal: Option<(Option<NodeId>, Modality)>,
     /// Signal handlers on objects that outlive the node.
-    settings_handlers: Vec<glib::SignalHandlerId>,
+    settings_handlers: Vec<(glib::Object, glib::SignalHandlerId)>,
     /// The context menu, once the app gave one.
     context_menu: Option<ContextMenu>,
 }
@@ -512,8 +512,12 @@ fn metrics() -> PlatformMetrics {
             caption: font_size(TextStyle::Caption),
             monospace: font_size(TextStyle::Monospace),
         },
-        dark_mode: settings.as_ref().is_some_and(|s| s.is_gtk_application_prefer_dark_theme())
-            || theme.contains("dark"),
+        // libadwaita's style manager knows the system's preference too.
+        dark_mode: if adw::is_initialized() {
+            adw::StyleManager::default().is_dark()
+        } else {
+            settings.as_ref().is_some_and(|s| s.is_gtk_application_prefer_dark_theme())
+        } || theme.contains("dark"),
         high_contrast: theme.contains("highcontrast"),
         reduced_motion: settings.as_ref().is_some_and(|s| !s.is_gtk_enable_animations()),
         tab_insets: crate::tabs::insets(),
@@ -562,7 +566,16 @@ impl GtkBackend {
         if let Some(appearance) = options.appearance
             && let Some(settings) = gtk::Settings::default()
         {
-            settings.set_gtk_application_prefer_dark_theme(appearance == Appearance::Dark);
+            // libadwaita takes the scheme from its style manager, and warns
+            // about GTK's setting.
+            if adw::is_initialized() {
+                adw::StyleManager::default().set_color_scheme(match appearance {
+                    Appearance::Dark => adw::ColorScheme::ForceDark,
+                    Appearance::Light => adw::ColorScheme::ForceLight,
+                });
+            } else {
+                settings.set_gtk_application_prefer_dark_theme(appearance == Appearance::Dark);
+            }
             settings.set_gtk_theme_name(Some("Adwaita"));
         }
         let state = Rc::new(RefCell::new(State {
@@ -1155,7 +1168,7 @@ impl State {
         );
     }
 
-    fn create_window(&mut self, id: NodeId, settings_handlers: &mut Vec<glib::SignalHandlerId>) -> WindowParts {
+    fn create_window(&mut self, id: NodeId, settings_handlers: &mut Vec<(glib::Object, glib::SignalHandlerId)>) -> WindowParts {
         let events = self.events.clone();
         let window = gtk::Window::new();
         // An explicit header bar has a known height, so the content gets
@@ -1221,10 +1234,15 @@ impl State {
         if let Some(settings) = gtk::Settings::default() {
             for property in ["gtk-font-name", "gtk-theme-name", "gtk-application-prefer-dark-theme"] {
                 let e = events.clone();
-                settings_handlers.push(
-                    settings.connect_notify_local(Some(property), move |_, _| e.emit(id, UiEvent::MetricsChanged)),
-                );
+                let handler =
+                    settings.connect_notify_local(Some(property), move |_, _| e.emit(id, UiEvent::MetricsChanged));
+                settings_handlers.push((settings.clone().upcast(), handler));
             }
+        }
+        if adw::is_initialized() {
+            let (manager, e) = (adw::StyleManager::default(), events.clone());
+            let handler = manager.connect_dark_notify(move |_| e.emit(id, UiEvent::MetricsChanged));
+            settings_handlers.push((manager.upcast(), handler));
         }
         let min_size = MinSize::default();
         min_size.header_height.set(header_height);
@@ -1768,10 +1786,8 @@ impl State {
                 self.by_widget.borrow_mut().remove(&widget);
                 self.frames.borrow_mut().remove(&widget);
                 self.pending_show.retain(|w| w != id);
-                if let Some(settings) = gtk::Settings::default() {
-                    for handler in node.settings_handlers {
-                        settings.disconnect(handler);
-                    }
+                for (object, handler) in node.settings_handlers {
+                    object.disconnect(handler);
                 }
                 if let Some(Widget::Window(parts)) =
                     node.parent.and_then(|p| self.nodes.get_mut(&p)).map(|n| &mut n.widget)
