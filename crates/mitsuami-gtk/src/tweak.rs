@@ -6,7 +6,7 @@ use gtk::prelude::*;
 use mitsuami_core::reactive::{IntoValue, Value};
 use mitsuami_core::{List, Opaque, Tweak};
 use mitsuami_widgets::{
-    Button, Checkbox, Icon, Image, MenuButton, NumberInput, PasswordInput, Progress, ScrollView, Select, Slider,
+    Button, Checkbox, Group, Icon, Image, MenuButton, NumberInput, PasswordInput, Progress, ScrollView, Select, Slider,
     Spinner, Switch, Text, TextInput,
 };
 
@@ -43,6 +43,11 @@ impl Tweakable for NumberInput {
 
 impl Tweakable for Image {
     type Native = gtk::Picture;
+}
+
+/// The card: the `gtk::Box` with libadwaita's `card` class.
+impl Tweakable for Group {
+    type Native = gtk::Box;
 }
 
 impl Tweakable for Icon {

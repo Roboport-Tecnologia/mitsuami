@@ -561,6 +561,23 @@ fn menu_buttons() -> impl View {
     ))
 }
 
+/// Groups as each platform draws them: a box with its heading inside on
+/// AppKit and Qt, a card under a heading on GNOME and Windows; one
+/// without a heading; content laid out inside each platform's margins.
+#[mitsuami_test::story(sizes = [(360, fit)])]
+fn groups() -> impl View {
+    Column::new().padding(16).gap(16).children((
+        Group::new().title("CD drive").child(Row::new().gap(8).align(Align::Center).children((
+            Column::new().grow(1.0).children((
+                Text::new("Total Annihilation (1997)").weight(FontWeight::Semibold),
+                Text::new("ISO image").color(Color::SecondaryLabel),
+            )),
+            Button::new("Eject"),
+        ))),
+        Group::new().gap(8).children((Checkbox::new("Mount at start"), Checkbox::new("Read only"))),
+    ))
+}
+
 /// A GPU surface nothing has presented to yet, between two lines: where
 /// it sits and how large it is. Captures show what the platform draws
 /// before the app presents (captures don't read GPU surfaces' content).

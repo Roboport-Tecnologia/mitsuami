@@ -1019,6 +1019,24 @@ Every platform's label has these, so they're semantic props (§4). Semantic colo
   - that WinUI's borderless style keeps the chevron;
   - the arrow's room in each measure.
 
+### Group
+
+- **A box around related content, under an optional heading,** as each platform groups settings: an `NSBox` on AppKit (the title inside at its top), a `heading` label over a libadwaita `card` on GTK (as `AdwPreferencesGroup` lays out a group), a `BodyStrongTextBlockStyle` heading over a card on WinUI (Windows 11's Settings; WinUI has no group box), and a `QQC2.GroupBox` on Qt (Breeze draws the title inside its top). Where the heading goes is each platform's.
+- **The core lays out the content,** as a column's (`gap`, and any style), inside the platform's insets: `PlatformMetrics::group_insets`, or `titled_group_insets` with a heading, added to the app's padding. Backends measure them from a probe, as tab views' insets. The group is at least as wide as its heading, which backends measure as they measure a tab strip (`size_tab_strips` now does groups too).
+- **The box is drawn behind the content,** in the same host: every backend's group is a layout host with the platform's box (and heading) as its first children, sized with it, so the core's children are placed as in any container.
+  - AppKit: the `NSBox` follows the host with an autoresizing mask, and inserts count past it. A box made empty and grown keeps its content view's first frame, so the probe is made at its size. Its content margins are `NSBox`'s own, 5 points (17 at the top with a title on macOS 26), tight beside the others': an app that wants more adds `padding`.
+  - GTK: content is 12 inside the card, as GNOME apps put it, and the heading is 12 above; its height comes from a throwaway label.
+  - WinUI: the card is the Community Toolkit's `SettingsCard` (the card brushes, a 1 epx border, `ControlCornerRadius`, 16 of padding) and the heading 6 above it, as the WinUI Gallery's settings page spaces them. The heading's height starts from its line height (20), and the first one that loads is measured, sending `MetricsChanged` if it differs, as tab views do for their bar.
+  - Kirigami: the insets are a probe `GroupBox`'s paddings (`topPadding` grows with a title), and its implicit size is the empty group's measure.
+- **A group to assistive technology** (`Role::Group`), named by its heading, around its content; it takes no focus. The platforms' own heading labels and boxes are hidden from assistive technology, so there's one group, not two.
+- **Tweaks get the box:** the `NSBox`, GTK's card, WinUI's card `Border`, the `QQC2.GroupBox`.
+- **Tweaks get the box, after the group's props and again when they change** (`a_tweak_gets_the_box_after_its_props`): AppKit's tweak ran on the layout host at first, so a tweak typed for `NSBox` never ran. A tweak that moves the heading leaves the insets as they were: the core still keeps the heading's room at the top.
+- **The example's tweaks:** the title at the bottom on AppKit (`titlePosition`), GTK's `activatable` class on the card, `flat` on Qt, square corners on WinUI (`IBorder`'s `CornerRadius` added to the bindings).
+- **Run on AppKit and headless** (`tests/group.rs`, the `groups` story). `examples/group.rs` is for trying it by hand. GTK, Kirigami and WinUI are only type-checked. Unverified until they run:
+  - each platform's insets (the probes outside a window, WinUI's estimate and its re-layout);
+  - that the boxes stay behind the content and don't take its clicks;
+  - how they look.
+
 ### Tooltips
 
 - **A prop, not a widget:** `.tooltip(text)` on any widget or container (`ElementBuilder`), sent as `Prop::Tooltip`; empty removes it. 2ksbox puts one on a status line cut off at one line, holding the whole text.

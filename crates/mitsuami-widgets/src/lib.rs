@@ -873,6 +873,68 @@ impl Grid {
     }
 }
 
+/// A box around related content, as the platform groups it: an `NSBox`
+/// (its heading inside, at the top), libadwaita's card under a heading,
+/// a Fluent card under a heading on Windows, a `QQC2.GroupBox`. The
+/// heading is optional; it names the group to assistive technology.
+///
+/// Its children are laid out as a column's (`gap`, and any style), inside
+/// the platform's border and margins; `padding` adds to those. Put a `Row`
+/// or `Grid` in it for other layouts.
+///
+/// ```ignore
+/// Group::new().title("CD drive").child(
+///     Row::new().gap(Spacing::Md).children((Icon::new(disc), Text::new(title), eject)),
+/// )
+/// ```
+pub struct Group(Element);
+widget!(Group);
+
+impl Default for Group {
+    fn default() -> Group {
+        Group::new()
+    }
+}
+
+impl Group {
+    pub fn new() -> Group {
+        Group(Element::new(WidgetKind::Group)).style(|s| {
+            s.display = Display::Flex;
+            s.flex_direction = FlexDirection::Column;
+        })
+    }
+
+    /// Its heading; empty: none.
+    pub fn title(mut self, title: impl IntoValue<String>) -> Group {
+        self.0.prop(title.into_value(), Prop::Title);
+        self
+    }
+
+    pub fn children(mut self, children: impl Children) -> Group {
+        self.0.add_children(children);
+        self
+    }
+
+    pub fn child(self, child: impl View) -> Group {
+        self.children(child)
+    }
+
+    /// Space between its children.
+    pub fn gap(mut self, gap: impl IntoValue<Length>) -> Group {
+        self.0.style_prop(gap.into_value(), |s, v| {
+            s.row_gap = v;
+            s.column_gap = v;
+        });
+        self
+    }
+
+    /// Raw platform settings, past the semantic ones: see [`Tweak`].
+    pub fn native(mut self, tweak: Tweak<Group>) -> Group {
+        tweak.apply(&mut self.0);
+        self
+    }
+}
+
 /// A native scroll container. Its children go into a content box that
 /// keeps its natural size, so it can be larger than the scroll view.
 ///
@@ -2067,6 +2129,19 @@ impl Spinner {
 // `view!` builds `<Tag …>children</Tag>` as
 // `Tag::__tag().….__children(move || children)`: containers take their
 // children, text and buttons their text.
+
+impl Group {
+    /// `<Group title="CD drive">…</Group>`
+    #[doc(hidden)]
+    pub fn __tag() -> Group {
+        Group::new()
+    }
+
+    #[doc(hidden)]
+    pub fn __children<C: Children>(self, children: impl FnOnce() -> C) -> Group {
+        self.children(children())
+    }
+}
 
 impl Container {
     #[doc(hidden)]

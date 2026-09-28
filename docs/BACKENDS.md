@@ -89,6 +89,7 @@ Validate as you go. Panic on protocol violations such as an unknown node, a doub
 | `Select` | `NSPopUpButton` (items added to its menu) | `gtk::DropDown` over a `gtk::StringList` | `ComboBox` of `ComboBoxItem`s | `QQC2.ComboBox` |
 | `ScrollView` | `NSScrollView` | `gtk::ScrolledWindow` | `ScrollViewer` | `QQC2.ScrollView` around a `Flickable` |
 | `List` (§8b) | view-based `NSTableView` in an `NSScrollView` | `gtk::ListView` over a `gio::ListStore` of keys | `ListView` over the keys (boxed strings), with `Canvas` cells | QML `ListView` over the keys, with `QQC2.ItemDelegate`s |
+| `Group` | a layout host with an `NSBox` behind its children (the title inside at the top) | a layout host with a `heading` label and a libadwaita `card` under it behind its children | a `Canvas` with a `BodyStrongTextBlockStyle` heading and a card `Border` under it behind its children | a host with a `QQC2.GroupBox` behind the item its children go in |
 | `Custom` (native render) | the render's view (`NativeRender`) | the render's widget (`mitsuami_gtk::NativeRender`) | the render's element | the render's item |
 | `Custom` (drawn) | `DrawnView`: flipped `NSView` that rasterizes the display list | a `gtk::DrawingArea` rasterized with Cairo | a `Canvas` with Win2D, or `Microsoft.UI.Composition` shapes | a `QQuickPaintedItem` painted with `QPainter` |
 | `Native` | the app's `NSView` (`NativeView::appkit`) | the app's `gtk::Widget` (`NativeView::gtk`) | the app's `FrameworkElement` | the app's QML item (`NativeView::qml`) |
@@ -97,7 +98,7 @@ Validate as you go. Panic on protocol violations such as an unknown node, a doub
 
 | Prop | Applies to | Notes |
 |---|---|---|
-| `Title` | Window | |
+| `Title` | Window, Group | A group's heading; empty: none, and the group takes `group_insets` instead of `titled_group_insets`. Report it back, `""` when none. |
 | `FullScreen` | Window | Full screen the platform's own way (AppKit's own Space, `gtk::Window::fullscreen`, Qt's `WindowFullScreen` state, WinUI's full-screen presenter), and back to the window as it was. A window not shown yet takes it when it's shown. Don't report `FullScreenChanged` for it, even where it's applied later (Wayland, AppKit's animation); if the platform refuses, report the state the window kept. Report what the window shows, or while it's hidden or in a transition, what it's going to. |
 | `MinSize` | Window | The smallest **content** size the user can make it, with the window's chrome added where the platform's minimum is the whole window's (AppKit `contentMinSize`, a size request on GTK's content host, Qt's `minimumWidth` and `minimumHeight`, WinUI's `PreferredMinimumWidth` and `PreferredMinimumHeight`). A window smaller when it's set grows to it: not every platform does that itself. Cap it at what a window filling its screen's visible area would have as content, and again when the window moves to another screen. Report the app's value back while the platform holds the capped one. |
 | `HeightFollowsContent` | Window | The user can't change the window's height, which the core sets from the content with `SetWindowSize`; they still resize its width. A minimum and maximum height at the height it has, moved with every `SetWindowSize` (AppKit `contentMinSize` and `contentMaxSize`, Qt `minimumHeight` and `maximumHeight`, WinUI `PreferredMinimumHeight` and `PreferredMaximumHeight`); GTK 4 has no maximum, so there the window isn't resizable at all. `SetWindowSize` still changes the height. Report it back, and the app's `MinSize` while the lock holds the platform's minimum. |
@@ -212,6 +213,7 @@ Known gap on AppKit: min-content falls back to max-content. If your platform giv
 - the spacing tokens `xs…xl` in the platform's design language (AppKit: 4/6/8/12/20; pick yours from the GNOME HIG or Fluent);
 - the scale factor, dark mode, high contrast and reduced motion;
 - `tab_insets`: how far in from a `Tabs`' edges its page area is (the tab strip on top, the border elsewhere), as the platform's tab view lays out its pages. The core sizes pages with it; measure it from a real tab view once, if the platform doesn't say.
+- `group_insets` and `titled_group_insets`: where a `Group` puts its content, without and with a heading: its border and the margins the platform gives content in a group, and the heading's room, inside the box or above it. The core adds them to the group's padding. Measure them from a probe, as for tabs. A group's `measure` is its size empty: the insets, and at least as wide as its heading.
 
 Emit `MetricsChanged` when any of these change.
 

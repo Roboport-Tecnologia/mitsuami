@@ -99,8 +99,8 @@ pub mod prelude {
         untrack, watch,
     };
     pub use mitsuami_widgets::{
-        Button, Checkbox, Column, Container, GpuSurface, Grid, Icon, Image, MenuButton, NumberInput, PasswordInput,
-        Progress, Row, ScrollView, Select, Sidebar, SidebarItem, SidebarSection, Slider, Spinner, Switch, Tab, Tabs,
-        Text, TextInput, Toolbar, Window,
+        Button, Checkbox, Column, Container, GpuSurface, Grid, Group, Icon, Image, MenuButton, NumberInput,
+        PasswordInput, Progress, Row, ScrollView, Select, Sidebar, SidebarItem, SidebarSection, Slider, Spinner,
+        Switch, Tab, Tabs, Text, TextInput, Toolbar, Window,
     };
 }

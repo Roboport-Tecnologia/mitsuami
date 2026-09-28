@@ -3257,6 +3257,18 @@ impl windows_core::RuntimeType for IBorder {
     const SIGNATURE: windows_core::imp::ConstBuffer = windows_core::imp::ConstBuffer::for_interface::<Self>();
 }
 impl IBorder {
+    pub fn CornerRadius(&self) -> windows_core::Result<CornerRadius> {
+        unsafe {
+            let mut result__ = core::mem::zeroed();
+            (windows_core::Interface::vtable(self).CornerRadius)(windows_core::Interface::as_raw(self), &mut result__)
+                .map(|| result__)
+        }
+    }
+    pub fn SetCornerRadius(&self, value: CornerRadius) -> windows_core::Result<()> {
+        unsafe {
+            (windows_core::Interface::vtable(self).SetCornerRadius)(windows_core::Interface::as_raw(self), value).ok()
+        }
+    }
     pub fn Child(&self) -> windows_core::Result<UIElement> {
         unsafe {
             let mut result__ = core::mem::zeroed();
@@ -3285,8 +3297,8 @@ pub struct IBorder_Vtbl {
     SetBackground: usize,
     BackgroundSizing: usize,
     SetBackgroundSizing: usize,
-    CornerRadius: usize,
-    SetCornerRadius: usize,
+    pub CornerRadius: unsafe extern "system" fn(*mut core::ffi::c_void, *mut CornerRadius) -> windows_core::HRESULT,
+    pub SetCornerRadius: unsafe extern "system" fn(*mut core::ffi::c_void, CornerRadius) -> windows_core::HRESULT,
     Padding: usize,
     SetPadding: usize,
     pub Child: unsafe extern "system" fn(*mut core::ffi::c_void, *mut *mut core::ffi::c_void) -> windows_core::HRESULT,

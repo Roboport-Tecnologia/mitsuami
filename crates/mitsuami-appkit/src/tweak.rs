@@ -5,13 +5,13 @@ use std::rc::Rc;
 use mitsuami_core::reactive::{IntoValue, Value};
 use mitsuami_core::{List, Opaque, Tweak};
 use mitsuami_widgets::{
-    Button, Checkbox, Icon, Image, MenuButton, NumberInput, PasswordInput, Progress, ScrollView, Select, Slider,
+    Button, Checkbox, Group, Icon, Image, MenuButton, NumberInput, PasswordInput, Progress, ScrollView, Select, Slider,
     Spinner, Switch, Text, TextInput,
 };
 use objc2::DowncastTarget;
 use objc2_app_kit::{
-    NSButton, NSImageView, NSPopUpButton, NSProgressIndicator, NSScrollView, NSSecureTextField, NSSlider, NSSwitch,
-    NSTableView, NSTextField, NSView,
+    NSBox, NSButton, NSImageView, NSPopUpButton, NSProgressIndicator, NSScrollView, NSSecureTextField, NSSlider,
+    NSSwitch, NSTableView, NSTextField, NSView,
 };
 
 /// A built-in widget, and the AppKit control that shows it.
@@ -45,6 +45,11 @@ impl Tweakable for NumberInput {
 
 impl Tweakable for Image {
     type Native = NSImageView;
+}
+
+/// The box behind its children (the node's own view is a layout host).
+impl Tweakable for Group {
+    type Native = NSBox;
 }
 
 /// The pull-down pop-up button.

@@ -126,6 +126,15 @@ pub enum WidgetKind {
     /// all in the same place, so the view is as big as its biggest page;
     /// the platform places them and shows the chosen one.
     Tabs,
+    /// A native box around related content, under an optional heading
+    /// ([`Prop::Title`]): an NSBox, libadwaita's card under a heading, a
+    /// Fluent card under a heading on WinUI, a QQC2.GroupBox. The core lays
+    /// out its children as a container's, inside
+    /// [`PlatformMetrics::group_insets`](crate::PlatformMetrics) (or the
+    /// titled ones), and it's at least as wide as its heading, which
+    /// backends measure. Backends draw the box behind the children, which
+    /// are its native children.
+    Group,
     /// A custom widget (see [`CustomWidget`](crate::CustomWidget)), named
     /// after it. Its props travel as [`Prop::Custom`].
     Custom(&'static str),
@@ -148,6 +157,7 @@ impl WidgetKind {
                 | WidgetKind::ToolbarItem
                 | WidgetKind::ScrollView
                 | WidgetKind::Tabs
+                | WidgetKind::Group
         )
     }
 
@@ -165,6 +175,7 @@ impl WidgetKind {
             WidgetKind::ScrollView => "ScrollView",
             WidgetKind::List => "List",
             WidgetKind::Tabs => "Tabs",
+            WidgetKind::Group => "Group",
             WidgetKind::Fragment => "Fragment",
             WidgetKind::Text => "Text",
             WidgetKind::Button => "Button",
@@ -465,7 +476,7 @@ pub struct SidebarItemData {
 /// A property of a native widget. Which ones apply depends on the kind.
 #[derive(Clone, Debug, PartialEq)]
 pub enum Prop {
-    /// Window title.
+    /// A window's title, or a `Group`'s heading (empty: none).
     Title(String),
     /// A window fills its screen, the platform's own way (a Space of its
     /// own on macOS). The user can change it too (the title bar's button,

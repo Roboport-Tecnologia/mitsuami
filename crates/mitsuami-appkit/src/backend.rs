@@ -22,14 +22,15 @@ use objc2::runtime::{AnyObject, ProtocolObject};
 use objc2::{AnyThread, MainThreadMarker, MainThreadOnly, Message, msg_send, sel};
 use objc2_app_kit::{
     NSAccessibility, NSAppearance, NSAppearanceCustomization, NSAppearanceNameAqua, NSAppearanceNameDarkAqua,
-    NSApplication, NSBackingStoreType, NSBitmapFormat, NSBitmapImageRep, NSButton, NSCellImagePosition, NSColor,
-    NSColorSpace, NSControl, NSControlStateValueMixed, NSControlStateValueOff, NSControlStateValueOn,
-    NSDeviceRGBColorSpace, NSEvent, NSEventModifierFlags, NSEventType, NSFont, NSFontDescriptorSymbolicTraits,
-    NSFontTextStyle, NSFontTextStyleBody, NSFontTextStyleCallout, NSFontTextStyleCaption1, NSFontTextStyleHeadline,
-    NSFontTextStyleLargeTitle, NSFontTextStyleTitle1, NSFontTraitsAttribute, NSFontWeightBold, NSFontWeightMedium,
-    NSFontWeightRegular, NSFontWeightSemibold, NSFontWeightTrait, NSImage, NSImageScaling, NSImageSymbolConfiguration,
-    NSImageView, NSMenuItem, NSPopUpButton, NSProgressIndicator, NSProgressIndicatorStyle, NSScreen, NSScrollView,
-    NSSecureTextField, NSSlider, NSStandardKeyBindingResponding, NSSwitch, NSTextAlignment, NSTextField, NSView,
+    NSApplication, NSAutoresizingMaskOptions, NSBackingStoreType, NSBitmapFormat, NSBitmapImageRep, NSBox, NSBoxType,
+    NSButton, NSCellImagePosition, NSColor, NSColorSpace, NSControl, NSControlStateValueMixed, NSControlStateValueOff,
+    NSControlStateValueOn, NSDeviceRGBColorSpace, NSEvent, NSEventModifierFlags, NSEventType, NSFont,
+    NSFontDescriptorSymbolicTraits, NSFontTextStyle, NSFontTextStyleBody, NSFontTextStyleCallout,
+    NSFontTextStyleCaption1, NSFontTextStyleHeadline, NSFontTextStyleLargeTitle, NSFontTextStyleTitle1,
+    NSFontTraitsAttribute, NSFontWeightBold, NSFontWeightMedium, NSFontWeightRegular, NSFontWeightSemibold,
+    NSFontWeightTrait, NSImage, NSImageScaling, NSImageSymbolConfiguration, NSImageView, NSMenuItem, NSPopUpButton,
+    NSProgressIndicator, NSProgressIndicatorStyle, NSScreen, NSScrollView, NSSecureTextField, NSSlider,
+    NSStandardKeyBindingResponding, NSSwitch, NSTextAlignment, NSTextField, NSTitlePosition, NSView,
     NSViewBoundsDidChangeNotification, NSWindow, NSWindowOrderingMode, NSWindowStyleMask, NSWorkspace,
 };
 use objc2_core_foundation::{CFRunLoop, kCFRunLoopDefaultMode};
@@ -79,6 +80,11 @@ enum Widget {
         split: Option<Split>,
     },
     Host(Retained<HostView>),
+    /// A layout host with an `NSBox` behind its children, the box's size.
+    Group {
+        host: Retained<HostView>,
+        frame: Retained<NSBox>,
+    },
     Sidebar(Sidebar),
     Tabs(Tabs),
     Label(Retained<NSTextField>),
@@ -137,7 +143,7 @@ impl Widget {
     fn view(&self) -> &NSView {
         match self {
             Widget::Window { host, .. } => host,
-            Widget::Host(v) => v,
+            Widget::Host(v) | Widget::Group { host: v, .. } => v,
             Widget::Label(v) | Widget::Field(v) => v,
             Widget::Button(v) | Widget::Checkbox(v) => v,
             Widget::Switch(v) => v,
@@ -173,6 +179,7 @@ impl Widget {
             | Widget::Icon(_)
             | Widget::GpuSurface(_)
             | Widget::Host(_)
+            | Widget::Group { .. }
             | Widget::Scroll(_)
             | Widget::List(_)
             | Widget::Sidebar(_)
@@ -380,6 +387,8 @@ fn metrics(mtm: MainThreadMarker, forced: Option<Appearance>) -> PlatformMetrics
         high_contrast: workspace.accessibilityDisplayShouldIncreaseContrast(),
         reduced_motion: workspace.accessibilityDisplayShouldReduceMotion(),
         tab_insets: crate::tabs::insets(mtm),
+        group_insets: group_insets(mtm, ""),
+        titled_group_insets: group_insets(mtm, "Title"),
     }
 }
 
@@ -652,6 +661,15 @@ impl State {
             }
             WidgetKind::Sidebar => Widget::Sidebar(Sidebar::new(mtm, id, self.events.clone())),
             WidgetKind::Container | WidgetKind::ToolbarItem => Widget::Host(HostView::new(mtm, false)),
+            WidgetKind::Group => {
+                let host = HostView::new(mtm, false);
+                let frame = group_box(mtm, NSSize::new(0.0, 0.0));
+                frame.setAutoresizingMask(
+                    NSAutoresizingMaskOptions::ViewWidthSizable | NSAutoresizingMaskOptions::ViewHeightSizable,
+                );
+                host.addSubview(&frame);
+                Widget::Group { host, frame }
+            }
             WidgetKind::Tabs => Widget::Tabs(Tabs::new(mtm, id, self.events.clone())),
             WidgetKind::Custom(_) => {
                 let Command::Create { props, .. } = command else { unreachable!() };
@@ -860,6 +878,7 @@ impl State {
         let Some(node) = self.nodes.get_mut(&id) else { violation(command, "node does not exist") };
         match (prop, &mut node.widget) {
             (Prop::Title(t), Widget::Window { window, .. }) => window.setTitle(&ns(t)),
+            (Prop::Title(t), Widget::Group { frame, .. }) => set_group_title(frame, t),
             (Prop::FullScreen(on), Widget::Window { window, _delegate, .. }) => _delegate.set_full_screen(window, *on),
             (Prop::MinSize(min), Widget::Window { window, _delegate, .. }) => _delegate.set_min_size(window, *min),
             (Prop::HeightFollowsContent(on), Widget::Window { window, _delegate, .. }) => {
@@ -1218,6 +1237,8 @@ impl State {
             match &node.widget {
                 // The table, not the scroll view around it.
                 Widget::List(list) => run(&list.table),
+                // The box, not the layout host its children are in.
+                Widget::Group { frame, .. } => run(frame),
                 widget => run(widget.view()),
             }
         }
@@ -1315,6 +1336,8 @@ impl State {
                     return;
                 }
                 let siblings = parent_view.subviews();
+                // A group's box is behind its children.
+                let index = &(index + usize::from(matches!(self.nodes[parent].widget, Widget::Group { .. })));
                 if *index >= siblings.len() {
                     parent_view.addSubview(&child_view);
                 } else {
@@ -1647,6 +1670,55 @@ fn symbol(name: &str, points: Option<f32>) -> Option<Retained<NSImage>> {
     }
 }
 
+/// An `NSBox` as Interface Builder makes one: the primary style, its
+/// title (if any) at the top.
+fn group_box(mtm: MainThreadMarker, size: NSSize) -> Retained<NSBox> {
+    // Made at its size: a box made empty and grown keeps its content
+    // view's first frame.
+    let frame = NSBox::initWithFrame(NSBox::alloc(mtm), NSRect::new(NSPoint::new(0.0, 0.0), size));
+    frame.setBoxType(NSBoxType::Primary);
+    frame.setTitlePosition(NSTitlePosition::NoTitle);
+    frame
+}
+
+fn set_group_title(frame: &NSBox, title: &str) {
+    frame.setTitle(&ns(title));
+    frame.setTitlePosition(if title.is_empty() { NSTitlePosition::NoTitle } else { NSTitlePosition::AtTop });
+}
+
+/// Where a box puts its content: its content view's place, with or
+/// without a title. A box isn't flipped: y grows up.
+fn group_insets(mtm: MainThreadMarker, title: &str) -> mitsuami_core::Insets {
+    group_probe(mtm, title).0
+}
+
+/// A box with this title, big enough for it: where it puts its content,
+/// and how wide its title needs it to be (the title inset from both
+/// edges as from the leading one).
+fn group_probe(mtm: MainThreadMarker, title: &str) -> (mitsuami_core::Insets, f32) {
+    let frame = group_box(mtm, NSSize::new(10000.0, 300.0));
+    set_group_title(&frame, title);
+    let heading = frame.titleRect();
+    let heading = if title.is_empty() { 0.0 } else { (heading.origin.x * 2.0 + heading.size.width) as f32 };
+    let (bounds, content) = (frame.bounds(), frame.contentView().map_or(frame.bounds(), |v| v.frame()));
+    let insets = mitsuami_core::Insets::new(
+        (bounds.size.height - content.origin.y - content.size.height) as f32,
+        (bounds.size.width - content.origin.x - content.size.width) as f32,
+        content.origin.y as f32,
+        content.origin.x as f32,
+    );
+    (insets, heading)
+}
+
+/// A box's size with nothing in it: its border, and as wide as its title
+/// needs.
+fn group_natural_size(frame: &NSBox) -> Size {
+    let titled = frame.titlePosition() != NSTitlePosition::NoTitle;
+    let title = if titled { frame.title().to_string() } else { String::new() };
+    let (insets, heading) = group_probe(MainThreadMarker::from(frame), &title);
+    Size::new(heading.max(insets.left + insets.right).ceil(), insets.top + insets.bottom)
+}
+
 /// Shows a menu button's title, icon and menu: a pull-down shows its
 /// first item as its title, so the menu is made again with that first.
 fn show_pull_down(widget: &Widget, title: &str, icon: Option<&str>, icon_only: Option<bool>) {
@@ -1805,6 +1877,8 @@ impl Backend for AppKitBackend {
                 None => intrinsic(view),
             },
             Widget::Tabs(tabs) => tabs.natural_size(crate::tabs::insets(state.mtm)),
+            // Its title and border, empty.
+            Widget::Group { frame, .. } => group_natural_size(frame),
             // Measured by the core, or never (the sidebar is the window's).
             Widget::Drawn { .. }
             | Widget::Window { .. }
@@ -2175,6 +2249,10 @@ impl Backend for AppKitBackend {
                     }
                     props.push(Prop::Menu(entries));
                 }
+            }
+            Widget::Group { frame, .. } => {
+                let titled = frame.titlePosition() != NSTitlePosition::NoTitle;
+                props.push(Prop::Title(if titled { frame.title().to_string() } else { String::new() }));
             }
             Widget::Button(b) => {
                 props.push(Prop::Label(b.title().to_string()));

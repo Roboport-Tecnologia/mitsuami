@@ -229,6 +229,7 @@ enum Widget {
     List(crate::list::List),
     Sidebar(Sidebar),
     Tabs(Tabs),
+    Group(crate::group::Group),
     /// A custom widget with a GTK render, and the props it last got.
     Custom {
         widget: gtk::Widget,
@@ -274,6 +275,7 @@ impl Widget {
             Widget::List(list) => list.scrolled.upcast_ref(),
             Widget::Sidebar(sidebar) => sidebar.scrolled.upcast_ref(),
             Widget::Tabs(tabs) => tabs.notebook.upcast_ref(),
+            Widget::Group(group) => group.host.upcast_ref(),
             Widget::Custom { widget, .. } | Widget::Native { widget, .. } => widget,
             Widget::Drawn { drawn, .. } => drawn.area.upcast_ref(),
         }
@@ -306,6 +308,7 @@ impl Widget {
                 | Widget::List(_)
                 | Widget::Sidebar(_)
                 | Widget::Tabs(_)
+                | Widget::Group(_)
         )
     }
 
@@ -605,6 +608,8 @@ fn metrics() -> PlatformMetrics {
         high_contrast: theme.contains("highcontrast"),
         reduced_motion: settings.as_ref().is_some_and(|s| !s.is_gtk_enable_animations()),
         tab_insets: crate::tabs::insets(),
+        group_insets: crate::group::insets(false),
+        titled_group_insets: crate::group::insets(true),
     }
 }
 
@@ -1080,6 +1085,7 @@ impl State {
                 Widget::Window(self.create_window(id, &mut settings_handlers))
             }
             WidgetKind::Container | WidgetKind::ToolbarItem => Widget::Host(Host::new(self.frames.clone(), None)),
+            WidgetKind::Group => Widget::Group(crate::group::Group::new(self.frames.clone())),
             WidgetKind::Sidebar => Widget::Sidebar(Sidebar::new(id, events.clone())),
             WidgetKind::Tabs => Widget::Tabs(Tabs::new(id, events.clone(), self.frames.clone())),
             WidgetKind::Custom(_) => {
@@ -1404,6 +1410,7 @@ impl State {
             (Prop::Sections(sections), Widget::Sidebar(sidebar)) => sidebar.set_sections(sections.clone()),
             (Prop::SelectedIndex(index), Widget::Sidebar(sidebar)) => sidebar.set_selected(*index),
             (Prop::TabTitles(titles), Widget::Tabs(tabs)) => tabs.set_titles(titles.clone()),
+            (Prop::Title(title), Widget::Group(group)) => group.set_title(title),
             (Prop::SelectedIndex(index), Widget::Tabs(tabs)) => tabs.set_selected(*index),
             (Prop::FullScreen(on), Widget::Window(parts)) => parts.full_screen.set(&parts.window, *on),
             (Prop::MinSize(min), Widget::Window(parts)) => {
@@ -1786,6 +1793,8 @@ impl State {
             match &node.widget {
                 // The list view, not the scrolled window around it.
                 Widget::List(list) => run(list.view.upcast_ref()),
+                // The card, not the host the children are in.
+                Widget::Group(group) => run(group.card.upcast_ref()),
                 widget => run(widget.widget()),
             }
         }
@@ -1876,10 +1885,16 @@ impl State {
                         }
                         tabs.insert(*index, &child_widget);
                     }
-                    _ => {
+                    parent_kind => {
+                        // After a group's heading and card.
+                        let own = if matches!(parent_kind, Some(Widget::Group(_))) {
+                            crate::group::Group::OWN_CHILDREN
+                        } else {
+                            0
+                        };
                         let parent_widget = self.widget(*parent, command);
                         let mut before = parent_widget.first_child();
-                        for _ in 0..*index {
+                        for _ in 0..*index + own {
                             before = before.and_then(|w| w.next_sibling());
                         }
                         child_widget.insert_before(&parent_widget, before.as_ref());
@@ -1989,6 +2004,9 @@ impl State {
                     tabs.place(&widget);
                 }
                 self.update_child_visible(*id);
+                if let Widget::Group(group) = &self.nodes[id].widget {
+                    group.place();
+                }
                 if let Widget::Slider { scale, steps } = &self.nodes[id].widget {
                     let vertical = scale.orientation() == gtk::Orientation::Vertical;
                     set_travel(scale, steps, if vertical { frame.height() } else { frame.width() });
@@ -2245,6 +2263,17 @@ impl Backend for GtkBackend {
             Widget::Picture { source: Some(ImageSource::Pixels(pixels)), .. } => {
                 let size = pixels.size();
                 Size::new(request.known_width.unwrap_or(size.width), request.known_height.unwrap_or(size.height))
+            }
+            // Its heading and the card's margins, empty.
+            Widget::Group(group) => {
+                let title = group.title();
+                let insets = crate::group::insets(!title.is_empty());
+                let heading = if title.is_empty() {
+                    0.0
+                } else {
+                    group.heading.measure(gtk::Orientation::Horizontal, -1).1 as f32
+                };
+                Size::new(heading + insets.left + insets.right, insets.top + insets.bottom)
             }
             // As large as the layout makes it.
             Widget::GpuSurface(_) => Size::new(request.known_width.unwrap_or(0.0), request.known_height.unwrap_or(0.0)),
@@ -2701,6 +2730,7 @@ impl Backend for GtkBackend {
                 props.push(Prop::Sections(sidebar.sections()));
                 props.push(Prop::SelectedIndex(sidebar.selected()));
             }
+            Widget::Group(group) => props.push(Prop::Title(group.title())),
             Widget::Tabs(tabs) => {
                 props.push(Prop::TabTitles(tabs.titles()));
                 props.push(Prop::SelectedIndex(tabs.selected()));

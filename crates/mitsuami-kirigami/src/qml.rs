@@ -402,6 +402,34 @@ Item {{
     )
 }
 
+/// A group: a `QQC2.GroupBox` (Breeze draws its frame and title) behind
+/// the content item the core's children go in, both filling the host.
+/// The box has no content of its own; the core lays the children out
+/// inside its paddings (`theme.rs`, `group_insets`). One group to
+/// assistive technology, the host, named by the heading.
+pub(crate) fn group() -> String {
+    format!(
+        r#"
+Item {{
+    property string mitsuamiTitle: ""
+    Accessible.role: Accessible.Grouping
+    QQC2.GroupBox {{
+        objectName: "mitsuamiGroupBox"
+        anchors.fill: parent
+        title: parent.mitsuamiTitle
+        Accessible.ignored: true
+    }}
+    Item {{
+        objectName: "mitsuamiGroupContent"
+        anchors.fill: parent
+    }}
+    {}
+}}
+"#,
+        a11y_hover("mitsuamiTitle")
+    )
+}
+
 /// A toolbar item: an action the page's toolbar shows as its own item,
 /// never folded into the overflow menu, which holds the node's host
 /// (`mitsuamiItem`) at the size the core gave it. Hidden while empty.
@@ -974,6 +1002,10 @@ QtObject {
         position: QQC2.TabBar.Header
         QQC2.TabButton { text: "Tab" }
     }
+    // Group boxes without and with a title, for where a group's content
+    // goes (`qml::group`).
+    property Item groupProbe: QQC2.GroupBox {}
+    property Item titledGroupProbe: QQC2.GroupBox { title: "Title" }
 }
 "#
     .into()

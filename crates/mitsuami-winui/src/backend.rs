@@ -223,6 +223,7 @@ enum Widget {
     List(crate::list::List),
     Sidebar(crate::sidebar::Sidebar),
     Tabs(crate::tabs::Tabs),
+    Group(crate::group::Group),
     /// A custom widget with a native render, and the props it shows.
     Custom {
         render: Rc<dyn ErasedRender>,
@@ -452,6 +453,8 @@ pub(crate) struct State {
     icon: Option<WindowIcon>,
     /// A tab view's bar height, once one is measured (`tab_insets`).
     tab_bar: crate::tabs::BarHeight,
+    /// A group's heading height, once one is measured (`titled_group_insets`).
+    group_heading: crate::group::HeadingHeight,
 }
 
 /// The app's icon, as windows take it.
@@ -565,7 +568,7 @@ fn resource<T: Interface>(name: &str) -> Option<T> {
     map.Lookup(&windows_reference::IReference::from(HSTRING::from(name))).ok()?.cast().ok()
 }
 
-fn style(name: &str) -> w::Style {
+pub(crate) fn style(name: &str) -> w::Style {
     resource(name).unwrap_or_else(|| panic!("winui backend: missing XAML style {name}"))
 }
 
@@ -608,7 +611,7 @@ fn option_texts(combo: &w::ComboBox) -> Vec<String> {
 
 /// Measures with the frame size we imposed lifted: XAML's `Measure` honours
 /// an explicit `Width`/`Height`, which would hide the content's own size.
-fn measure_element(element: &w::UIElement, available: w::Size) -> w::Size {
+pub(crate) fn measure_element(element: &w::UIElement, available: w::Size) -> w::Size {
     let fe: w::IFrameworkElement = ok(element.cast(), "cast to FrameworkElement");
     let (width, height) = (fe.Width().unwrap_or(NAN_SIZE), fe.Height().unwrap_or(NAN_SIZE));
     _ = fe.SetWidth(NAN_SIZE);
@@ -754,6 +757,7 @@ impl WinUiBackend {
                 menus: Menus::default(),
                 icon: None,
                 tab_bar: Rc::default(),
+                group_heading: Rc::default(),
             })),
         }
     }
@@ -2363,6 +2367,11 @@ impl State {
                 let element = sidebar.view.cast()?;
                 (Widget::Sidebar(sidebar), element)
             }
+            WidgetKind::Group => {
+                let group = crate::group::Group::new(id, emitter.clone(), self.group_heading.clone())?;
+                let element = group.canvas.cast()?;
+                (Widget::Group(group), element)
+            }
             WidgetKind::Tabs => {
                 let tabs = crate::tabs::Tabs::new(id, emitter.clone(), self.tab_bar.clone())?;
                 let element = tabs.canvas.cast()?;
@@ -2666,6 +2675,7 @@ impl State {
             (Prop::Sections(sections), Widget::Sidebar(sidebar)) => sidebar.set_sections(sections.clone())?,
             (Prop::SelectedIndex(index), Widget::Sidebar(sidebar)) => sidebar.set_selected(*index)?,
             (Prop::TabTitles(titles), Widget::Tabs(tabs)) => tabs.set_titles(titles)?,
+            (Prop::Title(title), Widget::Group(group)) => group.set_title(title)?,
             (Prop::SelectedIndex(index), Widget::Tabs(tabs)) => tabs.set_selected(*index)?,
             // Its tabs; its pages are the app's.
             (Prop::Enabled(e), Widget::Tabs(tabs)) => tabs.bar.cast::<w::IControl>()?.SetIsEnabled(*e)?,
@@ -2836,6 +2846,8 @@ impl State {
     fn run_tweak(&self, id: NodeId) -> R<()> {
         let node = &self.nodes[&id];
         match node.tweak.as_ref().and_then(|tweak| tweak.downcast_ref::<crate::tweak::TweakFn>()) {
+            // A group's is its card's.
+            Some(run) if let Widget::Group(group) = &node.widget => run(&group.card.cast()?),
             Some(run) => run(&node.element),
             None => Ok(()),
         }
@@ -2918,6 +2930,12 @@ impl State {
                             violation(command, "a Tabs' children are page hosts (Containers)");
                         }
                         tabs.insert(*index, &child_element)?;
+                    }
+                    // After its heading and card, which are behind it.
+                    Some(Widget::Group(group)) => {
+                        let children = group.canvas.cast::<w::IPanel>()?.Children()?;
+                        let index = (*index as u32 + crate::group::PARTS).min(children.Size()?);
+                        children.InsertAt(index, &child_element)?;
                     }
                     Some(Widget::List(list)) => {
                         let Some(row) = self.nodes[child].row else {
@@ -3053,6 +3071,9 @@ impl State {
                 fe.SetHeight(frame.height() as f64)?;
                 if let Widget::List(list) = &self.nodes[id].widget {
                     list.set_width(frame.width());
+                }
+                if let Widget::Group(group) = &self.nodes[id].widget {
+                    group.place(frame.width() as f64, frame.height() as f64)?;
                 }
                 if let (Some(row), Some(Widget::List(list))) =
                     (self.nodes[id].row, self.nodes[id].parent.and_then(|p| self.nodes.get(&p)).map(|p| &p.widget))
@@ -3260,6 +3281,7 @@ impl State {
         match &self.nodes.get(&parent).map(|n| &n.widget) {
             Some(Widget::Window(parts)) => parts.host.cast::<w::IPanel>()?.Children(),
             Some(Widget::Host(canvas)) => canvas.cast::<w::IPanel>()?.Children(),
+            Some(Widget::Group(group)) => group.canvas.cast::<w::IPanel>()?.Children(),
             Some(_) => violation(command, "not a container"),
             None => violation(command, "node does not exist"),
         }
@@ -3518,6 +3540,9 @@ impl Backend for WinUiBackend {
         let settings = w::UISettings::new().ok();
         // A selector bar over the pages, with no border around them.
         let bar = self.state.borrow().tab_bar.get().unwrap_or(crate::tabs::BAR_HEIGHT);
+        // A card under a heading, as Settings groups settings.
+        let heading = self.state.borrow().group_heading.get().unwrap_or(crate::group::HEADING_HEIGHT);
+        let (group_insets, titled_group_insets) = crate::group::insets(heading);
         PlatformMetrics {
             scale_factor: unsafe { w::GetDpiForSystem() } as f32 / 96.0,
             // Fluent's spacing ramp: 4, 8, 12, 16, 24 epx.
@@ -3531,6 +3556,8 @@ impl Backend for WinUiBackend {
                 .and_then(|s| s.cast::<w::IUISettings>().ok()?.AnimationsEnabled().ok())
                 .is_some_and(|enabled| !enabled),
             tab_insets: Insets::new(bar, 0.0, 0.0, 0.0),
+            group_insets,
+            titled_group_insets,
         }
     }
 
@@ -3599,6 +3626,8 @@ impl Backend for WinUiBackend {
             Widget::Native { measure: None, .. } => ceil(measure_element(&node.element, infinite)),
             // Its bar: the core adds the pages.
             Widget::Tabs(tabs) => ceil(tabs.strip()),
+            // Its heading and card: the core adds the content.
+            Widget::Group(group) => ceil(group.strip()),
             // Measured by the core, or never (the sidebar is the window's).
             Widget::Drawn { .. }
             | Widget::Window(_)
@@ -4158,6 +4187,7 @@ impl Backend for WinUiBackend {
                 props.push(Prop::Sections(sidebar.sections()));
                 props.push(Prop::SelectedIndex(sidebar.selected()));
             }
+            Widget::Group(group) => props.push(Prop::Title(group.title())),
             Widget::Tabs(tabs) => {
                 props.push(Prop::TabTitles(tabs.titles()));
                 props.push(Prop::SelectedIndex(tabs.selected()));
@@ -4255,6 +4285,8 @@ impl Backend for WinUiBackend {
             Widget::Host(canvas) => (panel_children(canvas, &known), None),
             // Its pages; the bar isn't a node.
             Widget::Tabs(tabs) => (panel_children(&tabs.canvas, &known), None),
+            // Its content; the heading and card aren't nodes.
+            Widget::Group(group) => (panel_children(&group.canvas, &known), None),
             _ => (Vec::new(), None),
         };
         // Composite controls give focus to a part (a list's row container,

@@ -41,6 +41,12 @@ pub struct PlatformMetrics {
     /// Where a `Tabs` shows its pages: this far in from its edges, past
     /// its tab strip and border.
     pub tab_insets: Insets,
+    /// Where a `Group` shows its content: this far in from its edges,
+    /// past its border and the platform's margins; `titled_group_insets`
+    /// with a heading, which is inside the box on some platforms and above
+    /// it on others.
+    pub group_insets: Insets,
+    pub titled_group_insets: Insets,
 }
 
 /// Light or dark. Backends can force one (tests do, so captures don't

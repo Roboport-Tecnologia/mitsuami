@@ -40,6 +40,9 @@ const SIDEBAR_WIDTH: f32 = 200.0;
 /// and each tab this much wider than its title.
 const TAB_INSETS: Insets = Insets::new(32.0, 8.0, 8.0, 8.0);
 const TAB_PADDING: f32 = 24.0;
+/// A group's border and margins, and room for a heading at the top.
+const GROUP_INSETS: Insets = Insets::new(8.0, 8.0, 8.0, 8.0);
+const TITLED_GROUP_INSETS: Insets = Insets::new(32.0, 8.0, 8.0, 8.0);
 
 /// The screen a window in full screen fills.
 const SCREEN: Size = Size::new(1280.0, 800.0);
@@ -62,6 +65,8 @@ pub fn metrics() -> PlatformMetrics {
         high_contrast: false,
         reduced_motion: false,
         tab_insets: TAB_INSETS,
+        group_insets: GROUP_INSETS,
+        titled_group_insets: TITLED_GROUP_INSETS,
     }
 }
 
@@ -978,6 +983,13 @@ impl Backend for HeadlessBackend {
                 let titles = find_prop!(node.props, TabTitles).unwrap_or_default();
                 let tabs: f32 = titles.iter().map(|t| text_size(t, font, None, None).width + TAB_PADDING).sum();
                 Size::new(tabs + TAB_INSETS.left + TAB_INSETS.right, TAB_INSETS.top + TAB_INSETS.bottom)
+            }
+            // Its heading and border, empty.
+            WidgetKind::Group => {
+                let title = find_prop!(node.props, Title).unwrap_or_default();
+                let insets = if title.is_empty() { GROUP_INSETS } else { TITLED_GROUP_INSETS };
+                let heading = text_size(&title, font, None, None).width;
+                Size::new(heading + insets.left + insets.right, insets.top + insets.bottom)
             }
             // Native renders are stood in for by the drawn one, if any.
             // Native views have no stand-in: size them with styles.

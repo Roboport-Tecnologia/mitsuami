@@ -343,6 +343,13 @@ enum Widget {
         bar: QmlObject,
         pages: QmlObject,
     },
+    /// A group: its host, the `QQC2.GroupBox` drawn behind its content,
+    /// and the item its children are in.
+    Group {
+        root: QmlObject,
+        group: QmlObject,
+        content: QmlObject,
+    },
     /// A window's sidebar page, and the sections it was given.
     Sidebar {
         page: QmlObject,
@@ -395,6 +402,7 @@ impl Widget {
             | Widget::Drawn { item: i, .. }
             | Widget::Native { item: i, .. }
             | Widget::Tabs { root: i, .. }
+            | Widget::Group { root: i, .. }
             | Widget::Sidebar { page: i, .. } => *i,
             Widget::GpuSurface(surface) => surface.item,
             Widget::List(list) => list.root,
@@ -440,6 +448,7 @@ impl Widget {
         match self {
             Widget::Scroll { flickable, .. } => flickable.object("contentItem").expect("flickables have content"),
             Widget::Tabs { pages, .. } => *pages,
+            Widget::Group { content, .. } => *content,
             widget => widget.item(),
         }
     }
@@ -491,6 +500,7 @@ impl Widget {
                 | Widget::List(_)
                 | Widget::Sidebar { .. }
                 | Widget::Tabs { .. }
+                | Widget::Group { .. }
         )
     }
 }
@@ -896,6 +906,12 @@ impl State {
                 });
                 Widget::Tabs { root, bar, pages }
             }
+            WidgetKind::Group => {
+                let root = QmlObject::load(&qml::group());
+                let group = root.child("mitsuamiGroupBox").expect("groups have a group box");
+                let content = root.child("mitsuamiGroupContent").expect("groups have a content item");
+                Widget::Group { root, group, content }
+            }
             WidgetKind::Custom(_) => {
                 let Command::Create { props, .. } = command else { unreachable!() };
                 let Some(custom) = find_prop!(props, Custom) else {
@@ -1202,6 +1218,7 @@ impl State {
                 page.set_int("mitsuamiSelected", index.map_or(-1, |i| i as i32));
             }
             // Titles and pages come in either order: each shows again.
+            (Prop::Title(title), Widget::Group { root, .. }) => root.set_str("mitsuamiTitle", title),
             (Prop::TabTitles(titles), Widget::Tabs { root, .. }) => {
                 root.set_str_list("mitsuamiTitles", titles);
                 root.invoke("mitsuamiShow");
@@ -1489,6 +1506,7 @@ impl State {
             match &node.widget {
                 // The list view, not the scroll view around it.
                 Widget::List(list) => run(list.view),
+                Widget::Group { group, .. } => run(*group),
                 widget => run(widget.item()),
             }
         }
@@ -1915,6 +1933,15 @@ impl Backend for KirigamiBackend {
                     request.known_height.unwrap_or(bar.real("implicitHeight").ceil() as f32),
                 )
             }
+            // Empty, with its title: the box's own implicit size, which is
+            // at least its title's width and its paddings.
+            Widget::Group { group, .. } => {
+                group.invoke("ensurePolished");
+                Size::new(
+                    request.known_width.unwrap_or(group.real("implicitWidth").ceil() as f32),
+                    request.known_height.unwrap_or(group.real("implicitHeight").ceil() as f32),
+                )
+            }
             // Measured by the core, or never (the sidebar is the window's).
             Widget::Drawn { .. }
             | Widget::Window { .. }
@@ -2326,6 +2353,7 @@ impl Backend for KirigamiBackend {
                 props.push(Prop::Sections(sections.clone()));
                 props.push(Prop::SelectedIndex(usize::try_from(page.int("mitsuamiSelected")).ok()));
             }
+            Widget::Group { group, .. } => props.push(Prop::Title(group.str("title"))),
             Widget::Tabs { root, bar, .. } => {
                 props.push(Prop::TabTitles(tab_titles(*root)));
                 props.push(Prop::SelectedIndex(usize::try_from(bar.int("currentIndex")).ok()));
@@ -2390,6 +2418,7 @@ impl Backend for KirigamiBackend {
             Widget::Scroll { flickable, .. } => (node.widget.content().child_items(), Some(scroll_offset(*flickable))),
             Widget::Window { .. } | Widget::Host(_) | Widget::ToolbarItem { .. } => (item.child_items(), None),
             Widget::Tabs { pages, .. } => (pages.child_items(), None),
+            Widget::Group { content, .. } => (content.child_items(), None),
             _ => (Vec::new(), None),
         };
         // Items that stand for nodes themselves: `node()` walks up the tree.

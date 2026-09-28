@@ -262,7 +262,7 @@ Microsoft.UI.Xaml.Controls.NumberBoxSpinButtonPlacementMode
 Microsoft.UI.Xaml.Controls.NumberBoxValueChangedEventArgs::{}
 Microsoft.UI.Xaml.Controls.Primitives.IRangeBase::{get_Value, put_Value, get_Minimum, put_Minimum, get_Maximum, put_Maximum, get_SmallChange, put_SmallChange, add_ValueChanged, remove_ValueChanged}
 Microsoft.UI.Xaml.Controls.Border::CreateInstance
-Microsoft.UI.Xaml.Controls.IBorder::{get_Child, put_Child}
+Microsoft.UI.Xaml.Controls.IBorder::{get_Child, put_Child, get_CornerRadius, put_CornerRadius}
 Microsoft.UI.Xaml.IDependencyObject::RegisterPropertyChangedCallback
 Microsoft.UI.Xaml.DependencyPropertyChangedCallback
 Microsoft.UI.Xaml.DependencyProperty::{}

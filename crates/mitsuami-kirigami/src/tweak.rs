@@ -5,7 +5,7 @@ use std::rc::Rc;
 use mitsuami_core::reactive::{IntoValue, Value};
 use mitsuami_core::{List, Opaque, Tweak};
 use mitsuami_widgets::{
-    Button, Checkbox, Icon, Image, MenuButton, NumberInput, PasswordInput, Progress, ScrollView, Select, Slider,
+    Button, Checkbox, Group, Icon, Image, MenuButton, NumberInput, PasswordInput, Progress, ScrollView, Select, Slider,
     Spinner, Switch, Text, TextInput,
 };
 
@@ -20,6 +20,9 @@ impl Tweakable for Button {}
 
 /// A `QQC2.Button` that opens a `QQC2.Menu` (its `mitsuamiButtonMenu`).
 impl Tweakable for MenuButton {}
+
+/// A `QQC2.GroupBox`, drawn behind the group's content.
+impl Tweakable for Group {}
 
 /// A `QQC2.CheckBox`.
 impl Tweakable for Checkbox {}

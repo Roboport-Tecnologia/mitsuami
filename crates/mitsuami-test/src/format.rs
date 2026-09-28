@@ -311,7 +311,9 @@ pub(crate) fn wireframe(root: &NodeInfo) -> String {
         match kind {
             WidgetKind::Window => "#8a8f98",
             WidgetKind::Container | WidgetKind::ToolbarItem | WidgetKind::Fragment => "#b5bac2",
-            WidgetKind::ScrollView | WidgetKind::List | WidgetKind::Sidebar | WidgetKind::Tabs => "#5f7fa0",
+            WidgetKind::ScrollView | WidgetKind::List | WidgetKind::Sidebar | WidgetKind::Tabs | WidgetKind::Group => {
+                "#5f7fa0"
+            }
             WidgetKind::Text => "#3f7f5f",
             WidgetKind::Button | WidgetKind::MenuButton => "#2f6fdf",
             WidgetKind::TextInput => "#a0602a",

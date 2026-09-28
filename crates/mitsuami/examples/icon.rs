@@ -6,6 +6,8 @@
 //!
 //! - The icons are each platform's own: SF Symbols on macOS, the icon
 //!   theme's on Linux, Segoe Fluent Icons on Windows.
+//! - The drive is in a group, the platform's box around related content,
+//!   under its heading.
 //! - Move the slider: the drive's icon grows, as the platform sizes icons.
 //! - The drive's icon is the accent colour and the rows' the secondary
 //!   one: the platform's own, so they follow dark mode, high contrast and
@@ -64,6 +66,16 @@ fn trash() -> &'static str {
         gtk => "user-trash-symbolic",
         kde => "edit-delete",
         windows => "\u{E74D}",
+    }
+}
+
+/// Segoe Fluent Icons has no eject glyph: the button shows its caption.
+fn eject() -> &'static str {
+    platform! {
+        macos => "eject",
+        gtk => "media-eject-symbolic",
+        kde => "media-eject",
+        windows => "",
     }
 }
 
@@ -129,13 +141,16 @@ fn library() -> impl View {
     };
     view! {
         <Column padding=Spacing::Xl gap=Spacing::Lg>
-            <Row gap=Spacing::Lg align=Align::Center>
-                <Icon name=icon(Kind::Iso) label="CD drive" color=Color::Accent icon_size=move || size.get() as f32/>
-                <Column grow=1.0>
-                    <Text text_style=TextStyle::Headline>"Total Annihilation (1997)"</Text>
-                    <Text color=Color::Accent>"In the drive"</Text>
-                </Column>
-            </Row>
+            <Group title="CD drive">
+                <Row gap=Spacing::Lg align=Align::Center>
+                    <Icon name=icon(Kind::Iso) label="Disc" color=Color::Accent icon_size=move || size.get() as f32/>
+                    <Column grow=1.0>
+                        <Text text_style=TextStyle::Headline>"Total Annihilation (1997)"</Text>
+                        <Text color=Color::Accent>"In the drive"</Text>
+                    </Column>
+                    <Button icon=eject()>"Eject"</Button>
+                </Row>
+            </Group>
             <Row gap=Spacing::Md align=Align::Center>
                 <Text>"Drive icon size"</Text>
                 <Slider label="Drive icon size" range_with=(16.0, 64.0) step=4.0 bind=size grow=1.0/>

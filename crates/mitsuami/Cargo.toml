@@ -112,6 +112,10 @@ name = "menu_button"
 harness = false
 
 [[test]]
+name = "group"
+harness = false
+
+[[test]]
 name = "tooltip"
 harness = false
 

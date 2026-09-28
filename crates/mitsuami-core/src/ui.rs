@@ -62,7 +62,8 @@ struct Node {
     scroll_offset: Point,
     /// Lists only: the width the platform gives their rows, if not their own.
     row_width: Option<f32>,
-    /// Tabs only: the size of their tab strip and border, with no page.
+    /// Tabs and groups only: the size of their tab strip, or heading, and
+    /// border, with no content.
     strip: Size,
 }
 
@@ -596,11 +597,14 @@ impl Ui {
             if matches!(prop, Prop::TextStyle(_)) {
                 inner.styles_dirty = true;
             }
-            // New titles may make the tab strip wider (`size_tab_strips`).
-            if matches!(prop, Prop::TabTitles(_))
+            // New titles may make the tab strip wider (`size_tab_strips`),
+            // and a group's heading wider, or give it the titled insets.
+            if (matches!(prop, Prop::TabTitles(_))
+                || (node.kind == WidgetKind::Group && matches!(prop, Prop::Title(_))))
                 && let Some(t) = node.taffy
             {
                 let _ = inner.taffy.mark_dirty(t);
+                inner.styles_dirty |= node.kind == WidgetKind::Group;
             }
             if node.kind.is_native() {
                 inner.queue_prop(id, prop);
@@ -1432,6 +1436,24 @@ impl Inner {
                 };
                 tab_strip_minimum(&mut style, node.strip);
             }
+            // Its content is inside its border and heading, past any
+            // padding of the app's, and it's at least as wide as its heading.
+            if node.kind == WidgetKind::Group {
+                let titled = crate::find_prop!(node.props, Title).is_some_and(|t| !t.is_empty());
+                let insets = if titled { self.metrics.titled_group_insets } else { self.metrics.group_insets };
+                let add = |side: &mut taffy::LengthPercentage, inset: f32| {
+                    let own = side.into_raw();
+                    *side = match own.tag() {
+                        taffy::CompactLength::LENGTH_TAG => taffy::LengthPercentage::length(own.value() + inset),
+                        _ => taffy::LengthPercentage::length(inset),
+                    };
+                };
+                add(&mut style.padding.left, insets.left);
+                add(&mut style.padding.right, insets.right);
+                add(&mut style.padding.top, insets.top);
+                add(&mut style.padding.bottom, insets.bottom);
+                tab_strip_minimum(&mut style, node.strip);
+            }
             // Toggles have a fixed natural size, like CSS replaced elements:
             // stretched, some platforms draw them centered in the extra
             // space (`NSSwitch`) and all of them take clicks there.
@@ -1549,15 +1571,16 @@ impl Inner {
         self.update_drawings();
     }
 
-    /// Measures the tab strips of the tab views whose titles or metrics
-    /// changed (their layout is dirty), which they're at least as big as.
+    /// Measures the tab strips of the tab views, and the headings of the
+    /// groups, whose titles or metrics changed (their layout is dirty),
+    /// which they're at least as big as.
     /// Done here, not with the styles: the platform can only measure a
     /// strip it has created.
     fn size_tab_strips(&mut self) {
         let tabs: Vec<(NodeId, taffy::NodeId)> = self
             .nodes
             .iter()
-            .filter(|(_, n)| n.kind == WidgetKind::Tabs)
+            .filter(|(_, n)| matches!(n.kind, WidgetKind::Tabs | WidgetKind::Group))
             .filter_map(|(id, n)| Some((*id, n.taffy?)))
             .filter(|(_, t)| self.taffy.dirty(*t).unwrap_or(true))
             .collect();
@@ -1958,6 +1981,8 @@ impl Inner {
             WidgetKind::ScrollView => Role::ScrollArea,
             WidgetKind::List | WidgetKind::Sidebar => Role::List,
             WidgetKind::Tabs => Role::TabGroup,
+            // Named by its heading, as a fieldset by its legend.
+            WidgetKind::Group => Role::Group,
             WidgetKind::Text => Role::StaticText,
             WidgetKind::Button => Role::Button,
             WidgetKind::MenuButton => Role::MenuButton,
@@ -1982,6 +2007,7 @@ impl Inner {
         let name =
             a11y.label.clone().or_else(|| a11y.labelled_by.and_then(|l| self.text_of(l))).or_else(|| match node.kind {
                 WidgetKind::Window => crate::find_prop!(props, Title),
+                WidgetKind::Group => crate::find_prop!(props, Title).filter(|t| !t.is_empty()),
                 WidgetKind::Text => crate::find_prop!(props, Text),
                 WidgetKind::Button
                 | WidgetKind::MenuButton
@@ -2118,8 +2144,8 @@ impl Inner {
     }
 }
 
-/// Makes a tab view at least as big as its tab strip (and border), unless
-/// its style gives it a minimum of its own.
+/// Makes a tab view at least as big as its tab strip (and border), or a
+/// group as its heading, unless its style gives it a minimum of its own.
 fn tab_strip_minimum(style: &mut taffy::Style, strip: Size) {
     let auto = taffy::LengthPercentageAuto::auto();
     let at_least = |min: &mut taffy::LengthPercentageAuto, v: f32| {

@@ -99,6 +99,8 @@ pub(crate) fn metrics() -> PlatformMetrics {
         // Kirigami's durations drop to zero when animations are off.
         reduced_motion: theme.real("longDuration") <= 0.0,
         tab_insets: tab_insets(theme),
+        group_insets: group_insets(theme, "groupProbe"),
+        titled_group_insets: group_insets(theme, "titledGroupProbe"),
     }
 }
 
@@ -110,6 +112,16 @@ fn tab_insets(theme: QmlObject) -> Insets {
     let Some(bar) = theme.object("tabProbe") else { return Insets::ZERO };
     bar.invoke("ensurePolished");
     Insets::new(bar.real("implicitHeight") as f32, 0.0, 0.0, 0.0)
+}
+
+/// A group's content is inside its box's paddings, the frame's margins
+/// and, at the top, the title (the desktop style's `topPadding` grows
+/// with one).
+fn group_insets(theme: QmlObject, probe: &str) -> Insets {
+    let Some(group) = theme.object(probe) else { return Insets::ZERO };
+    group.invoke("ensurePolished");
+    let side = |name: &str| group.real(name).max(0.0).ceil() as f32;
+    Insets::new(side("topPadding"), side("rightPadding"), side("bottomPadding"), side("leftPadding"))
 }
 
 /// Plasma's defaults, so tests don't depend on the desktop's fonts.
