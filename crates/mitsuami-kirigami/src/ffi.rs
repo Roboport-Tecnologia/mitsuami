@@ -60,6 +60,7 @@ unsafe extern "C" {
     fn mq_set_object(o: Raw, name: *const c_char, value: Raw);
     fn mq_get_object(o: Raw, name: *const c_char) -> Raw;
     fn mq_set_str_list(o: Raw, name: *const c_char, items: *const *const c_char, count: i32);
+    fn mq_get_str_list(o: Raw, name: *const c_char) -> *mut c_char;
     fn mq_set_url(o: Raw, name: *const c_char, path: *const c_char);
     fn mq_get_paths(o: Raw, name: *const c_char) -> *mut c_char;
     fn mq_font_px(o: Raw, name: *const c_char) -> f64;
@@ -472,6 +473,11 @@ impl QmlObject {
         let items: Vec<CString> = items.iter().map(|s| c(s)).collect();
         let pointers: Vec<*const c_char> = items.iter().map(|s| s.as_ptr()).collect();
         unsafe { mq_set_str_list(self.raw(), c(name).as_ptr(), pointers.as_ptr(), pointers.len() as i32) }
+    }
+
+    pub fn str_list(self, name: &str) -> Vec<String> {
+        let joined = owned(unsafe { mq_get_str_list(self.raw(), c(name).as_ptr()) });
+        joined.lines().map(Into::into).collect()
     }
 
     pub(crate) fn set_url(self, name: &str, path: &std::path::Path) {

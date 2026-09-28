@@ -11,7 +11,7 @@ mod checks {
     use std::rc::Rc;
     use std::time::{Duration, Instant};
 
-    use mitsuami_core::services::{Alert, Menu, MenuBar, MenuItem, MenuRole, OpenFile, Shortcut};
+    use mitsuami_core::services::{Alert, FileFilter, Menu, MenuBar, MenuItem, MenuRole, OpenFile, Shortcut};
     use mitsuami_core::{Modality, Prop, Size, Ui};
     use mitsuami_kirigami::{BackendOptions, KirigamiBackend, KirigamiHandle};
     use mitsuami_reactive::signal;
@@ -237,6 +237,30 @@ mod checks {
         f.ui.destroy(window);
         f.ui.tick();
     }
+
+    pub fn file_dialogs_start_in_their_folder_and_offer_every_file(f: &Fixture) {
+        let window = f.ui.create_window("dialog host", Size::new(600.0, 400.0));
+        f.ui.tick();
+        let folder = std::env::temp_dir().canonicalize().unwrap();
+        let request = OpenFile::new()
+            .filter(FileFilter::new("Text", ["txt"]))
+            .filter(FileFilter::all("All files"))
+            .start_folder(&folder);
+        let answer = Rc::new(RefCell::new(None));
+        let a = answer.clone();
+        let reply = f.ui.open_file(Some(window), request);
+        f.ui.spawn_local(async move { *a.borrow_mut() = Some(reply.await) });
+        pump_until(f, "the file dialog", || !f.handle.open_dialogs().is_empty());
+
+        let dialog = f.handle.open_dialogs()[0];
+        assert_eq!(dialog.str("currentFolder"), format!("file://{}", folder.display()));
+        assert_eq!(dialog.str_list("nameFilters"), ["Text (*.txt)", "All files (*)"]);
+
+        dialog.invoke("reject");
+        pump_until(f, "the answer", || *answer.borrow() == Some(None));
+        f.ui.destroy(window);
+        f.ui.tick();
+    }
 }
 
 #[cfg(target_os = "linux")]
@@ -244,7 +268,7 @@ fn main() {
     use std::panic::{AssertUnwindSafe, catch_unwind};
 
     type Check = (&'static str, fn(&checks::Fixture));
-    let checks: [Check; 8] = [
+    let checks: [Check; 9] = [
         ("clipboard_round_trips", checks::clipboard_round_trips),
         ("menus_are_installed_and_activate", checks::menus_are_installed_and_activate),
         ("submenus_check_marks_and_radio_groups", checks::submenus_check_marks_and_radio_groups),
@@ -253,6 +277,10 @@ fn main() {
         ("dialogs_show_only_their_own_menus", checks::dialogs_show_only_their_own_menus),
         ("alerts_are_answered_through_their_buttons", checks::alerts_are_answered_through_their_buttons),
         ("file_dialogs_report_cancellation", checks::file_dialogs_report_cancellation),
+        (
+            "file_dialogs_start_in_their_folder_and_offer_every_file",
+            checks::file_dialogs_start_in_their_folder_and_offer_every_file,
+        ),
     ];
     let filter: Vec<String> = std::env::args().skip(1).filter(|a| !a.starts_with('-')).collect();
     let fixture = checks::fixture();

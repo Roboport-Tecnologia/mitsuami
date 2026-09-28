@@ -2353,6 +2353,9 @@ pub(crate) fn file_filters(filters: &[mitsuami_core::services::FileFilter]) -> O
         for extension in &filter.extensions {
             gtk_filter.add_suffix(extension.trim_start_matches('.'));
         }
+        if filter.is_all() {
+            gtk_filter.add_pattern("*");
+        }
         store.append(&gtk_filter);
     }
     Some(store)

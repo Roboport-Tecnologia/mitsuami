@@ -618,6 +618,8 @@ void mq_set_str_list(QObject* o, const char* name, const char* const* items, int
     o->setProperty(name, list);
 }
 
+char* mq_get_str_list(QObject* o, const char* name) { return dup(o->property(name).toStringList().join('\n')); }
+
 void mq_set_url(QObject* o, const char* name, const char* path) {
     o->setProperty(name, QUrl::fromLocalFile(QString::fromUtf8(path)));
 }

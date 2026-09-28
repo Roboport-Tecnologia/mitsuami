@@ -6,7 +6,9 @@ use std::path::PathBuf;
 use std::rc::Rc;
 
 use mitsuami_core::NodeId;
-use mitsuami_core::services::{Alert, FileFilter, MenuBarData, OpenFile, Reply, SaveFile, ServiceError, Services};
+use mitsuami_core::services::{
+    Alert, FileFilter, MenuBarData, OpenFile, Reply, SaveFile, ServiceError, Services, existing_folder,
+};
 use windows_core::{HSTRING, Interface};
 
 use crate::backend::{WinUiHandle, boxed};
@@ -52,7 +54,13 @@ fn failed(error: windows_core::Error) -> ServiceError {
     ServiceError::Failed(error.message())
 }
 
-/// `.png`-style patterns for the pickers; `*` when nothing is filtered.
+/// The pickers take their start folder as a path string.
+fn folder_path(folder: &Option<PathBuf>) -> Option<String> {
+    existing_folder(folder).map(|f| f.to_string_lossy().into_owned())
+}
+
+/// `.png`-style patterns for the pickers; `*` when nothing is filtered, or
+/// for a filter that lets every file through.
 fn patterns(filters: &[FileFilter]) -> Vec<HSTRING> {
     let patterns: Vec<HSTRING> =
         filters.iter().flat_map(|f| &f.extensions).map(|e| format!(".{}", e.trim_start_matches('.')).into()).collect();
@@ -129,14 +137,30 @@ impl Services for WinUiServices {
         let started: R<()> = (|| {
             if request.directories {
                 let picker = w::FolderPicker::CreateInstance(window)?;
+                if let Some(folder) = folder_path(&request.start_folder) {
+                    picker.cast::<w::IFolderPicker2>()?.SetSuggestedFolder(&folder)?;
+                }
                 picker.PickSingleFolderAsync()?.when(move |folder| {
                     finish(folder.ok().and_then(|f| f.Path().ok()).map(|p| vec![PathBuf::from(p)]));
                 })
             } else {
                 let picker = w::FileOpenPicker::CreateInstance(window)?;
-                let filter = picker.FileTypeFilter()?;
-                for pattern in patterns(&request.filters) {
-                    filter.Append(&pattern)?;
+                let picker2 = picker.cast::<w::IFileOpenPicker2>()?;
+                if let Some(folder) = folder_path(&request.start_folder) {
+                    picker2.SetSuggestedFolder(&folder)?;
+                }
+                if request.filters.is_empty() {
+                    picker.FileTypeFilter()?.Append(&HSTRING::from("*"))?;
+                } else {
+                    // Named choices, as the save picker has, so an "every
+                    // file" filter is one the user can pick; the flat
+                    // FileTypeFilter would merge them into one list.
+                    let choices = picker2.FileTypeChoices()?;
+                    for filter in &request.filters {
+                        let extensions: Vec<HSTRING> = patterns(std::slice::from_ref(filter));
+                        choices
+                            .Insert(&HSTRING::from(&filter.name), &windows_collections::IVector::from(extensions))?;
+                    }
                 }
                 if request.multiple {
                     picker.PickMultipleFilesAsync()?.when(move |files| {
@@ -166,8 +190,13 @@ impl Services for WinUiServices {
             if let Some(name) = &request.default_name {
                 picker.SetSuggestedFileName(name)?;
             }
+            if let Some(folder) = folder_path(&request.start_folder) {
+                picker.SetSuggestedFolder(&folder)?;
+            }
             let choices = picker.FileTypeChoices()?;
-            for filter in &request.filters {
+            // A save choice is the extension the name is given, which
+            // "every file" isn't.
+            for filter in request.filters.iter().filter(|f| !f.is_all()) {
                 let extensions: Vec<HSTRING> = patterns(std::slice::from_ref(filter));
                 choices.Insert(&HSTRING::from(&filter.name), &windows_collections::IVector::from(extensions))?;
             }

@@ -11,7 +11,7 @@
 use std::cell::RefCell;
 use std::collections::HashMap;
 use std::future::Future;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::rc::Rc;
 use std::task::{Poll, Waker};
 
@@ -90,15 +90,29 @@ impl Alert {
 }
 
 /// Files to offer in a file dialog, e.g. `FileFilter::new("Images", ["png", "jpg"])`.
+/// Where the platform lets the user choose between filters, they're offered
+/// in order, the first one chosen.
 #[derive(Clone, Debug, PartialEq)]
 pub struct FileFilter {
     pub name: String,
+    /// Empty: every file ([`FileFilter::all`]).
     pub extensions: Vec<String>,
 }
 
 impl FileFilter {
     pub fn new<S: Into<String>>(name: impl Into<String>, extensions: impl IntoIterator<Item = S>) -> FileFilter {
         FileFilter { name: name.into(), extensions: extensions.into_iter().map(Into::into).collect() }
+    }
+
+    /// Every file, e.g. `FileFilter::all("All files")` after a filter by
+    /// type, so a file the types miss can still be chosen.
+    pub fn all(name: impl Into<String>) -> FileFilter {
+        FileFilter { name: name.into(), extensions: Vec::new() }
+    }
+
+    /// Whether this filter lets every file through.
+    pub fn is_all(&self) -> bool {
+        self.extensions.is_empty()
     }
 }
 
@@ -109,6 +123,9 @@ pub struct OpenFile {
     /// Choose folders instead of files.
     pub directories: bool,
     pub filters: Vec<FileFilter>,
+    /// The folder the dialog opens in. `None`, or one that isn't there,
+    /// leaves it to the platform (often the last folder used).
+    pub start_folder: Option<PathBuf>,
 }
 
 impl OpenFile {
@@ -135,6 +152,13 @@ impl OpenFile {
         self.filters.push(filter);
         self
     }
+
+    /// Opens the dialog in `folder`, e.g. the folder of the file a field
+    /// names.
+    pub fn start_folder(mut self, folder: impl Into<PathBuf>) -> OpenFile {
+        self.start_folder = Some(folder.into());
+        self
+    }
 }
 
 #[derive(Clone, Debug, Default, PartialEq)]
@@ -142,6 +166,8 @@ pub struct SaveFile {
     pub title: Option<String>,
     pub default_name: Option<String>,
     pub filters: Vec<FileFilter>,
+    /// The folder the dialog opens in, as for [`OpenFile::start_folder`].
+    pub start_folder: Option<PathBuf>,
 }
 
 impl SaveFile {
@@ -163,6 +189,19 @@ impl SaveFile {
         self.filters.push(filter);
         self
     }
+
+    /// Opens the dialog in `folder`.
+    pub fn start_folder(mut self, folder: impl Into<PathBuf>) -> SaveFile {
+        self.start_folder = Some(folder.into());
+        self
+    }
+}
+
+/// For backends: a dialog's start folder, if it's there, so a missing one
+/// leaves the choice to the platform everywhere, whatever each dialog
+/// would make of it.
+pub fn existing_folder(folder: &Option<PathBuf>) -> Option<&Path> {
+    folder.as_deref().filter(|f| f.is_dir())
 }
 
 /// A keyboard shortcut. `primary` is ⌘ on macOS and Ctrl elsewhere.

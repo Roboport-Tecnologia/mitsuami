@@ -258,6 +258,7 @@ Implement `Services`. **Never block**: reply later, from the platform's completi
 - **Items with a role** go where the platform puts them: `MenuBarData::take_role` takes them out of the app's menus, tidying separators. A Quit item replaces your own Quit. Where the platform has no place for them, leave them.
 - **Check and radio items** are drawn by the platform. If it toggles an item itself on a click, put the app's state back: the core sends the new state when the app changes it, and only the user's choice may call `activate`.
 - `Shortcut::primary` is Ctrl on GTK, Qt and WinUI.
+- **A file dialog's `start_folder`** is where it opens: take `services::existing_folder(&request.start_folder)`, which is `None` for a folder that isn't there, and leave the choice to the platform then. **A `FileFilter` with no extensions** (`FileFilter::all`, `is_all`) lets every file through: a filter of its own where the platform offers a choice of filters, and no restriction at all where it only has one list of allowed types (AppKit).
 
 ## 8a. Escape hatches: custom widgets, native views and tweaks
 

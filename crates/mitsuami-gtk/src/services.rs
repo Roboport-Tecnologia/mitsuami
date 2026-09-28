@@ -19,7 +19,7 @@ use gtk::prelude::*;
 use gtk::{gdk, gio, glib};
 use mitsuami_core::services::{
     Alert, MenuBarData, MenuCheck, MenuData, MenuEntry, MenuItemData, MenuRole, OpenFile, Reply, SaveFile,
-    ServiceError, Services, Shortcut, menu_item_by_id,
+    ServiceError, Services, Shortcut, existing_folder, menu_item_by_id,
 };
 use mitsuami_core::{ActionError, NodeId};
 
@@ -668,6 +668,9 @@ impl Services for GtkServices {
         if let Some(filters) = file_filters(&request.filters) {
             dialog.set_filters(Some(&filters));
         }
+        if let Some(folder) = existing_folder(&request.start_folder) {
+            dialog.set_initial_folder(Some(&gio::File::for_path(folder)));
+        }
         let window = dialog_parent(&self.backend, parent);
         let reply = Rc::new(once(reply));
         let many =
@@ -700,6 +703,9 @@ impl Services for GtkServices {
         }
         if let Some(filters) = file_filters(&request.filters) {
             dialog.set_filters(Some(&filters));
+        }
+        if let Some(folder) = existing_folder(&request.start_folder) {
+            dialog.set_initial_folder(Some(&gio::File::for_path(folder)));
         }
         let window = dialog_parent(&self.backend, parent);
         dialog

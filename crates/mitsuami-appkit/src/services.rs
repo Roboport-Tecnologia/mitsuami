@@ -9,7 +9,7 @@ use block2::RcBlock;
 use mitsuami_core::NodeId;
 use mitsuami_core::services::{
     Alert, AlertStyle, FileFilter, MenuBarData, MenuCheck, MenuData, MenuEntry, MenuItemData, MenuRole, OpenFile,
-    Reply, SaveFile, ServiceError, Services, Shortcut, menu_item_by_id,
+    Reply, SaveFile, ServiceError, Services, Shortcut, existing_folder, menu_item_by_id,
 };
 use objc2::rc::Retained;
 use objc2::runtime::{AnyObject, NSObject, NSObjectProtocol, Sel};
@@ -140,11 +140,25 @@ fn ns(s: &str) -> Retained<NSString> {
     NSString::from_str(s)
 }
 
+/// The panel's start folder: its `directoryURL`, if the folder is there.
+fn start_in(panel: &NSSavePanel, folder: &Option<PathBuf>) {
+    if let Some(folder) = existing_folder(folder) {
+        panel.setDirectoryURL(Some(&NSURL::fileURLWithPath_isDirectory(&ns(&folder.to_string_lossy()), true)));
+    }
+}
+
 fn path(url: &NSURL) -> Option<PathBuf> {
     url.path().map(|p| PathBuf::from(p.to_string()))
 }
 
+/// The types a panel allows: every filter's at once, since AppKit's panels
+/// have no filter menu. Every file when a filter lets every file through,
+/// so a file the types miss can still be chosen, as on the platforms where
+/// the user picks that filter.
 fn content_types(filters: &[FileFilter]) -> Option<Retained<NSArray<UTType>>> {
+    if filters.iter().any(FileFilter::is_all) {
+        return None;
+    }
     let types: Vec<Retained<UTType>> = filters
         .iter()
         .flat_map(|f| &f.extensions)
@@ -264,6 +278,7 @@ impl Services for AppKitServices {
         if let Some(types) = content_types(&request.filters) {
             panel.setAllowedContentTypes(&types);
         }
+        start_in(&panel, &request.start_folder);
         let reply = once(reply);
         let chosen = panel.clone();
         let done = RcBlock::new(move |response: NSModalResponse| {
@@ -286,6 +301,7 @@ impl Services for AppKitServices {
         if let Some(types) = content_types(&request.filters) {
             panel.setAllowedContentTypes(&types);
         }
+        start_in(&panel, &request.start_folder);
         let reply = once(reply);
         let chosen = panel.clone();
         let done = RcBlock::new(move |response: NSModalResponse| {

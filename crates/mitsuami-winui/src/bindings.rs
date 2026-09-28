@@ -4225,6 +4225,50 @@ pub struct IFileOpenPicker_Vtbl {
     pub PickMultipleFilesAsync:
         unsafe extern "system" fn(*mut core::ffi::c_void, *mut *mut core::ffi::c_void) -> windows_core::HRESULT,
 }
+windows_core::imp::define_interface!(IFileOpenPicker2, IFileOpenPicker2_Vtbl, 0xb77a4106_895b_5af9_91c3_93e5b058706c);
+impl windows_core::RuntimeType for IFileOpenPicker2 {
+    const SIGNATURE: windows_core::imp::ConstBuffer = windows_core::imp::ConstBuffer::for_interface::<Self>();
+}
+impl IFileOpenPicker2 {
+    pub fn FileTypeChoices(
+        &self,
+    ) -> windows_core::Result<
+        windows_collections::IMap<windows_core::HSTRING, windows_collections::IVector<windows_core::HSTRING>>,
+    > {
+        unsafe {
+            let mut result__ = core::mem::zeroed();
+            (windows_core::Interface::vtable(self).FileTypeChoices)(
+                windows_core::Interface::as_raw(self),
+                &mut result__,
+            )
+            .and_then(|| windows_core::imp::Type::from_abi(result__))
+        }
+    }
+    pub fn SetSuggestedFolder(&self, value: &str) -> windows_core::Result<()> {
+        unsafe {
+            (windows_core::Interface::vtable(self).SetSuggestedFolder)(
+                windows_core::Interface::as_raw(self),
+                core::mem::transmute_copy(&windows_core::HSTRING::from(value)),
+            )
+            .ok()
+        }
+    }
+}
+#[repr(C)]
+pub struct IFileOpenPicker2_Vtbl {
+    pub base__: windows_core::IInspectable_Vtbl,
+    Title: usize,
+    SetTitle: usize,
+    SettingsIdentifier: usize,
+    SetSettingsIdentifier: usize,
+    pub FileTypeChoices:
+        unsafe extern "system" fn(*mut core::ffi::c_void, *mut *mut core::ffi::c_void) -> windows_core::HRESULT,
+    InitialFileTypeIndex: usize,
+    SetInitialFileTypeIndex: usize,
+    SuggestedFolder: usize,
+    pub SetSuggestedFolder:
+        unsafe extern "system" fn(*mut core::ffi::c_void, *mut core::ffi::c_void) -> windows_core::HRESULT,
+}
 windows_core::imp::define_interface!(
     IFileOpenPickerFactory,
     IFileOpenPickerFactory_Vtbl,
@@ -4270,6 +4314,15 @@ impl IFileSavePicker {
             .ok()
         }
     }
+    pub fn SetSuggestedFolder(&self, value: &str) -> windows_core::Result<()> {
+        unsafe {
+            (windows_core::Interface::vtable(self).SetSuggestedFolder)(
+                windows_core::Interface::as_raw(self),
+                core::mem::transmute_copy(&windows_core::HSTRING::from(value)),
+            )
+            .ok()
+        }
+    }
     pub fn PickSaveFileAsync(&self) -> windows_core::Result<windows_future::IAsyncOperation<PickFileResult>> {
         unsafe {
             let mut result__ = core::mem::zeroed();
@@ -4296,7 +4349,8 @@ pub struct IFileSavePicker_Vtbl {
     pub SetSuggestedFileName:
         unsafe extern "system" fn(*mut core::ffi::c_void, *mut core::ffi::c_void) -> windows_core::HRESULT,
     SuggestedFolder: usize,
-    SetSuggestedFolder: usize,
+    pub SetSuggestedFolder:
+        unsafe extern "system" fn(*mut core::ffi::c_void, *mut core::ffi::c_void) -> windows_core::HRESULT,
     pub PickSaveFileAsync:
         unsafe extern "system" fn(*mut core::ffi::c_void, *mut *mut core::ffi::c_void) -> windows_core::HRESULT,
 }
@@ -4397,6 +4451,32 @@ pub struct IFolderPicker_Vtbl {
     SetCommitButtonText: usize,
     pub PickSingleFolderAsync:
         unsafe extern "system" fn(*mut core::ffi::c_void, *mut *mut core::ffi::c_void) -> windows_core::HRESULT,
+}
+windows_core::imp::define_interface!(IFolderPicker2, IFolderPicker2_Vtbl, 0x12647ff3_8cca_5d1f_9ee4_ee4195ee155d);
+impl windows_core::RuntimeType for IFolderPicker2 {
+    const SIGNATURE: windows_core::imp::ConstBuffer = windows_core::imp::ConstBuffer::for_interface::<Self>();
+}
+impl IFolderPicker2 {
+    pub fn SetSuggestedFolder(&self, value: &str) -> windows_core::Result<()> {
+        unsafe {
+            (windows_core::Interface::vtable(self).SetSuggestedFolder)(
+                windows_core::Interface::as_raw(self),
+                core::mem::transmute_copy(&windows_core::HSTRING::from(value)),
+            )
+            .ok()
+        }
+    }
+}
+#[repr(C)]
+pub struct IFolderPicker2_Vtbl {
+    pub base__: windows_core::IInspectable_Vtbl,
+    Title: usize,
+    SetTitle: usize,
+    SettingsIdentifier: usize,
+    SetSettingsIdentifier: usize,
+    SuggestedFolder: usize,
+    pub SetSuggestedFolder:
+        unsafe extern "system" fn(*mut core::ffi::c_void, *mut core::ffi::c_void) -> windows_core::HRESULT,
 }
 windows_core::imp::define_interface!(
     IFolderPickerFactory,

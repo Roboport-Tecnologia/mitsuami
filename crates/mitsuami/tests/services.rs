@@ -57,7 +57,13 @@ fn editor() -> impl View {
             }),
             Button::new("Import…").on_click(move || {
                 spawn_local(async move {
-                    let files = open_file(OpenFile::new().multiple().filter(FileFilter::new("Text", ["txt", "md"])));
+                    let files = open_file(
+                        OpenFile::new()
+                            .multiple()
+                            .filter(FileFilter::new("Text", ["txt", "md"]))
+                            .filter(FileFilter::all("All files"))
+                            .start_folder("/tmp/notes"),
+                    );
                     if let Some(paths) = files.await {
                         status.set(format!("importing {} file(s)", paths.len()));
                     }
@@ -107,6 +113,8 @@ async fn file_dialogs_return_paths_or_nothing(app: TestApp) {
     let open = app.services().take_open_file().expect("an open panel is showing");
     assert!(open.request.multiple);
     assert_eq!(open.request.filters[0].extensions, ["txt", "md"]);
+    assert!(open.request.filters[1].is_all());
+    assert_eq!(open.request.start_folder, Some(PathBuf::from("/tmp/notes")));
     open.respond(Some(vec![PathBuf::from("/tmp/a.txt"), PathBuf::from("/tmp/b.md")]));
     app.expect(by_text("importing 2 file(s)")).to_exist().await;
 }

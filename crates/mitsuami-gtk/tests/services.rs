@@ -14,7 +14,7 @@ mod checks {
     use gtk::glib;
     use gtk::prelude::*;
     use mitsuami_core::NodeId;
-    use mitsuami_core::services::{Alert, Menu, MenuBar, MenuItem, MenuRole, OpenFile, Shortcut};
+    use mitsuami_core::services::{Alert, FileFilter, Menu, MenuBar, MenuItem, MenuRole, OpenFile, Shortcut};
     use mitsuami_core::{Modality, Prop, Size, Ui};
     use mitsuami_gtk::{BackendOptions, GtkBackend, GtkHandle};
     use mitsuami_reactive::signal;
@@ -300,6 +300,36 @@ mod checks {
         f.ui.destroy(window);
         f.ui.tick();
     }
+
+    #[allow(deprecated)] // GtkFileChooser: what GtkFileDialog shows without a portal
+    pub fn file_dialogs_start_in_their_folder_and_offer_every_file(f: &Fixture) {
+        let window = f.ui.create_window("dialog host", Size::new(600.0, 400.0));
+        f.ui.tick();
+        let folder = std::env::temp_dir().canonicalize().unwrap();
+        let request = OpenFile::new()
+            .filter(FileFilter::new("Text", ["txt"]))
+            .filter(FileFilter::all("All files"))
+            .start_folder(&folder);
+        let answer = Rc::new(RefCell::new(None));
+        let a = answer.clone();
+        let reply = f.ui.open_file(Some(window), request);
+        f.ui.spawn_local(async move { *a.borrow_mut() = Some(reply.await) });
+        pump_until(f, "the file dialog", || dialog_window(f).is_some());
+
+        let dialog = dialog_window(f).unwrap();
+        let chooser = dialog.dynamic_cast_ref::<gtk::FileChooser>().expect("a file chooser");
+        pump_until(f, "the start folder", || chooser.current_folder().and_then(|d| d.path()).as_ref() == Some(&folder));
+        let filters: Vec<gtk::FileFilter> =
+            chooser.filters().iter::<gtk::FileFilter>().filter_map(Result::ok).collect();
+        let names: Vec<_> = filters.iter().map(|f| f.name().unwrap_or_default().to_string()).collect();
+        assert_eq!(names, ["Text", "All files"]);
+        assert!(filters[1].to_gvariant().print(false).contains("'*'"), "every file: {}", filters[1].to_gvariant());
+
+        dialog.close();
+        pump_until(f, "the answer", || *answer.borrow() == Some(None));
+        f.ui.destroy(window);
+        f.ui.tick();
+    }
 }
 
 #[cfg(target_os = "linux")]
@@ -307,7 +337,7 @@ fn main() {
     use std::panic::{AssertUnwindSafe, catch_unwind};
 
     type Check = (&'static str, fn(&checks::Fixture));
-    let checks: [Check; 7] = [
+    let checks: [Check; 8] = [
         ("clipboard_round_trips", checks::clipboard_round_trips),
         ("menus_are_installed_and_activate", checks::menus_are_installed_and_activate),
         ("items_check_nest_and_take_roles", checks::items_check_nest_and_take_roles),
@@ -315,6 +345,10 @@ fn main() {
         ("dialogs_show_only_their_own_menus", checks::dialogs_show_only_their_own_menus),
         ("alerts_are_answered_through_their_buttons", checks::alerts_are_answered_through_their_buttons),
         ("file_dialogs_report_cancellation", checks::file_dialogs_report_cancellation),
+        (
+            "file_dialogs_start_in_their_folder_and_offer_every_file",
+            checks::file_dialogs_start_in_their_folder_and_offer_every_file,
+        ),
     ];
     let filter: Vec<String> = std::env::args().skip(1).filter(|a| !a.starts_with('-')).collect();
     let fixture = checks::fixture();

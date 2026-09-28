@@ -18,7 +18,7 @@ use std::rc::Rc;
 use mitsuami_core::NodeId;
 use mitsuami_core::services::{
     Alert, AlertStyle, FileFilter, MenuBarData, MenuCheck, MenuData, MenuEntry, MenuItemData, MenuRole, OpenFile,
-    Reply, SaveFile, ServiceError, Services, Shortcut,
+    Reply, SaveFile, ServiceError, Services, Shortcut, existing_folder,
 };
 
 use crate::backend::{KirigamiHandle, WindowRoot, dialog_parent};
@@ -421,13 +421,17 @@ fn answer_once<T: 'static>(dialog: QmlObject, backend: &KirigamiHandle, reply: R
     })
 }
 
-/// `Images (*.png *.jpg)`, as Qt's name filters read.
+/// `Images (*.png *.jpg)`, as Qt's name filters read; `All files (*)`
+/// for every file.
 fn name_filters(filters: &[FileFilter]) -> Vec<String> {
     filters
         .iter()
         .map(|f| {
-            let patterns: Vec<String> =
+            let mut patterns: Vec<String> =
                 f.extensions.iter().map(|e| format!("*.{}", e.trim_start_matches('.'))).collect();
+            if f.is_all() {
+                patterns.push("*".into());
+            }
             format!("{} ({})", f.name, patterns.join(" "))
         })
         .collect()
@@ -535,6 +539,9 @@ impl Services for KirigamiServices {
         if !request.directories && !request.filters.is_empty() {
             dialog.set_str_list("nameFilters", &name_filters(&request.filters));
         }
+        if let Some(folder) = existing_folder(&request.start_folder) {
+            dialog.set_url("currentFolder", folder);
+        }
         let answer = answer_once(dialog, &self.backend, reply);
         let accepted = answer.clone();
         let property = if request.directories { "selectedFolder" } else { "selectedFiles" };
@@ -551,9 +558,14 @@ impl Services for KirigamiServices {
         if !request.filters.is_empty() {
             dialog.set_str_list("nameFilters", &name_filters(&request.filters));
         }
+        let folder = existing_folder(&request.start_folder);
         if let Some(name) = &request.default_name {
-            let folder = std::env::var_os("HOME").map(PathBuf::from).unwrap_or_default();
-            dialog.set_url("selectedFile", &folder.join(name));
+            // The name goes in as a file in the folder; with no folder
+            // asked for, the home folder, as Qt's own dialogs start there.
+            let home = std::env::var_os("HOME").map(PathBuf::from).unwrap_or_default();
+            dialog.set_url("selectedFile", &folder.unwrap_or(&home).join(name));
+        } else if let Some(folder) = folder {
+            dialog.set_url("currentFolder", folder);
         }
         let answer = answer_once(dialog, &self.backend, reply);
         let accepted = answer.clone();

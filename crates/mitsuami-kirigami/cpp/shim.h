@@ -133,6 +133,8 @@ int32_t mq_get_int(QObject* object, const char* name);
 void mq_set_object(QObject* object, const char* name, QObject* value);
 QObject* mq_get_object(QObject* object, const char* name);
 void mq_set_str_list(QObject* object, const char* name, const char* const* items, int32_t count);
+// One item per line.
+char* mq_get_str_list(QObject* object, const char* name);
 void mq_set_url(QObject* object, const char* name, const char* path);
 char* mq_get_paths(QObject* object, const char* name);
 double mq_font_px(QObject* object, const char* name);

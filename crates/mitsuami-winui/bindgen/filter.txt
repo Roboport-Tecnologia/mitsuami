@@ -160,10 +160,12 @@ Windows.ApplicationModel.DataTransfer.IDataPackageView::{Contains, GetTextAsync}
 Windows.ApplicationModel.DataTransfer.StandardDataFormats::get_Text
 Microsoft.Windows.Storage.Pickers.IFileOpenPickerFactory::CreateInstance
 Microsoft.Windows.Storage.Pickers.IFileOpenPicker::{get_FileTypeFilter, PickSingleFileAsync, PickMultipleFilesAsync}
+Microsoft.Windows.Storage.Pickers.IFileOpenPicker2::{get_FileTypeChoices, put_SuggestedFolder}
 Microsoft.Windows.Storage.Pickers.IFileSavePickerFactory::CreateInstance
-Microsoft.Windows.Storage.Pickers.IFileSavePicker::{get_FileTypeChoices, put_SuggestedFileName, PickSaveFileAsync}
+Microsoft.Windows.Storage.Pickers.IFileSavePicker::{get_FileTypeChoices, put_SuggestedFileName, put_SuggestedFolder, PickSaveFileAsync}
 Microsoft.Windows.Storage.Pickers.IFolderPickerFactory::CreateInstance
 Microsoft.Windows.Storage.Pickers.IFolderPicker::PickSingleFolderAsync
+Microsoft.Windows.Storage.Pickers.IFolderPicker2::put_SuggestedFolder
 Microsoft.Windows.Storage.Pickers.IPickFileResult::get_Path
 Microsoft.Windows.Storage.Pickers.IPickFolderResult::get_Path
 Windows.UI.ViewManagement.UISettings::CreateInstance
