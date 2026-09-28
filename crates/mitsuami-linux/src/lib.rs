@@ -18,7 +18,8 @@
 //! Both take no input (an empty input region, an empty input shape), so
 //! the toolkit keeps the pointer, and the backend places them over their
 //! widget after each of the window's frames. Each lives as long as the
-//! app's handle, so a GPU surface made on it never outlives it.
+//! app's handle, so a GPU surface made on it never outlives it. Other
+//! displays (GTK's Broadway, Qt's offscreen platform) get a [`NoSurface`].
 //!
 //! Pointer locks report on a thread of their own ([`LockEvent`]); the
 //! backend sends what they report to its UI thread.
@@ -28,7 +29,29 @@ pub mod wayland;
 #[cfg(target_os = "linux")]
 pub mod x11;
 
-use mitsuami_core::SurfaceInput;
+use mitsuami_core::raw_window_handle::{HandleError, RawDisplayHandle, RawWindowHandle};
+use mitsuami_core::{NativeSurface, SurfaceHandle, SurfaceInput};
+
+/// A surface on a display that has none to give (GTK's Broadway, Qt's
+/// offscreen platform, which tests run on): the app is told of it and its
+/// size, as headless tells it, but it has no handles to present to.
+pub struct NoSurface;
+
+impl NoSurface {
+    pub fn handle() -> SurfaceHandle {
+        SurfaceHandle::new(NoSurface)
+    }
+}
+
+impl NativeSurface for NoSurface {
+    fn window_handle(&self) -> Result<RawWindowHandle, HandleError> {
+        Err(HandleError::NotSupported)
+    }
+
+    fn display_handle(&self) -> Result<RawDisplayHandle, HandleError> {
+        Err(HandleError::NotSupported)
+    }
+}
 
 /// What a pointer lock or a shortcuts inhibitor reports, from a thread of
 /// its own.

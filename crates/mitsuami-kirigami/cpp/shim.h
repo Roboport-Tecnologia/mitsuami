@@ -178,6 +178,9 @@ void mq_set_clipboard_text(const char* text);
 // null on other platforms, or before the window has one); an item's
 // window, and a window's scale, decoration margins and whether it's the
 // active one.
+// Whether windows have surfaces of ours to go over: Wayland or X11, not
+// the offscreen platform.
+int32_t mq_platform_has_surfaces(void);
 void* mq_wayland_display(void);
 void* mq_window_wl_surface(QObject* window);
 QObject* mq_item_window(QObject* item);

@@ -24,7 +24,7 @@ use mitsuami_core::{
     SurfaceInput, SurfaceSize, SyntheticInput, UiEvent,
 };
 use mitsuami_linux::wayland::{self, Subsurface};
-use mitsuami_linux::{LockEvent, x11};
+use mitsuami_linux::{LockEvent, NoSurface, x11};
 
 use crate::host::Events;
 
@@ -44,6 +44,8 @@ pub(crate) struct SurfaceArea {
 enum Native {
     Wayland(Subsurface),
     X11(x11::ChildWindow),
+    /// Another display (Broadway), which has none.
+    Other,
 }
 
 /// The window's own surface, which ours goes over.
@@ -51,6 +53,7 @@ enum Native {
 enum Parent {
     Wayland(*mut c_void),
     X11(u32),
+    Other,
 }
 
 /// A pointer lock in effect (`mitsuami-linux`'s), kept for its `Drop`,
@@ -131,6 +134,14 @@ impl SurfaceArea {
         area.connect_map(move |area| AreaState::mapped(&s, area));
         let s = state.clone();
         area.connect_unmap(move |_| s.borrow_mut().unmapped());
+        // Its new size as soon as it's allocated, not after the frame's
+        // paint: the app draws the next frame at it.
+        let s = Rc::downgrade(&state);
+        area.connect_resize(move |area, _, _| {
+            if let Some(s) = s.upgrade() {
+                s.borrow().place(area);
+            }
+        });
         input_controllers(&area, &state);
         SurfaceArea { area, state }
     }
@@ -208,7 +219,9 @@ impl SurfaceArea {
                 }
             }
             SyntheticInput::Key(key) => {
-                if !self.area.has_focus() {
+                // Focused in its window: a test's window may not be the
+                // active one, which `has_focus` also asks.
+                if !self.area.is_focus() {
                     return Err(ActionError::Unsupported);
                 }
                 let code = match key {
@@ -251,6 +264,7 @@ impl AreaState {
                         let handle = match &native {
                             Native::Wayland(subsurface) => subsurface.handle(),
                             Native::X11(child) => child.handle(),
+                            Native::Other => NoSurface::handle(),
                         };
                         state.native = Some(native);
                         state.handle = Some(handle.clone());
@@ -314,7 +328,7 @@ impl AreaState {
         match &self.native {
             Some(Native::Wayland(subsurface)) => subsurface.detach(),
             Some(Native::X11(child)) => child.detach(),
-            None => {}
+            Some(Native::Other) | None => {}
         }
     }
 
@@ -343,6 +357,7 @@ impl AreaState {
                 let s = scale as f64;
                 child.place((x * s).round() as i32, (y * s).round() as i32, width * scale, height * scale);
             }
+            Native::Other => {}
         }
     }
 
@@ -403,6 +418,7 @@ impl AreaState {
                 lock.map(|lock| Box::new(lock) as Lock)
             }
             Native::X11(child) => Ok(Box::new(child.lock_pointer(area.scale_factor() as f32, sink))),
+            Native::Other => Err("the display has no pointer lock".into()),
         }
     }
 
@@ -770,6 +786,7 @@ fn make_native(area: &gtk::DrawingArea, parent: Parent) -> Result<Native, String
             made.map(Native::Wayland)
         }
         Parent::X11(xid) => x11::ChildWindow::new(Some(display.name().as_str()), xid).map(Native::X11),
+        Parent::Other => Ok(Native::Other),
     }
 }
 
@@ -788,6 +805,6 @@ fn window_surface(widget: &impl IsA<gtk::Widget>) -> Option<Parent> {
             let xid = unsafe { gdk_x11_surface_get_xid(surface.to_glib_none().0) };
             (xid != 0).then_some(Parent::X11(xid as u32))
         }
-        _ => None,
+        _ => Some(Parent::Other),
     }
 }

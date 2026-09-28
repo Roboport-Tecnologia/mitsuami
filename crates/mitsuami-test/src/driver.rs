@@ -77,7 +77,7 @@ impl Drop for Driver {
     }
 }
 
-fn show_windows() -> bool {
+pub(crate) fn show_windows() -> bool {
     std::env::var("MITSUAMI_SHOW_WINDOWS").is_ok_and(|v| v == "1")
 }
 

@@ -488,6 +488,35 @@ impl GtkHandle {
         self.pump();
     }
 
+    /// Lets GPU surfaces whose frame changed take it now, rather than at
+    /// the next frame, as lists do: each reports its new size when
+    /// allocated, and the app draws at it.
+    fn layout_surfaces(&self) {
+        let surfaces: Vec<(gtk::DrawingArea, Rect)> = {
+            let state = self.state.borrow();
+            let frames = state.frames.borrow();
+            state
+                .nodes
+                .values()
+                .filter_map(|n| match &n.widget {
+                    Widget::GpuSurface(surface) if surface.area.is_mapped() => {
+                        let frame = frames.get(surface.area.upcast_ref::<gtk::Widget>()).copied()?;
+                        let size = (frame.width().round() as i32, frame.height().round() as i32);
+                        let allocated = (WidgetExt::width(&surface.area), WidgetExt::height(&surface.area));
+                        (size != allocated).then(|| (surface.area.clone(), frame))
+                    }
+                    _ => None,
+                })
+                .collect()
+        };
+        for (area, frame) in surfaces {
+            area.measure(gtk::Orientation::Horizontal, -1);
+            let transform = gsk::Transform::new().translate(&graphene::Point::new(frame.x(), frame.y()));
+            area.allocate(frame.width().round() as i32, frame.height().round() as i32, -1, Some(transform));
+        }
+        self.pump();
+    }
+
     /// Lets header bars whose items changed place them now, rather than at
     /// the next frame, as lists do: each is allocated again where it is.
     fn layout_headers(&self) {
@@ -617,6 +646,7 @@ impl mitsuami_core::TestHooks for GtkHandle {
         self.pump();
         self.layout_lists();
         self.layout_headers();
+        self.layout_surfaces();
     }
 }
 

@@ -892,7 +892,7 @@ impl State {
             self.menus.modal.insert(id);
         }
         let menu = self.menus.of(id);
-        let drawer = drawer_qml(&menu);
+        let drawer = drawer_qml(&menu, self.menus.modal.contains(&id));
         let window = QmlObject::load(&qml::window(drawer.as_deref()));
         let host = window.child("mitsuamiHost").expect("windows have a content host");
         let root = Rc::new(WindowRoot {

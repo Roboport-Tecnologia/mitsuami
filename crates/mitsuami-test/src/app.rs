@@ -152,6 +152,13 @@ impl TestApp {
         self.driver.headless().is_some()
     }
 
+    /// Whether a `GpuSurface`'s handle has window and display handles:
+    /// not headless, nor on the private displays Linux tests run on
+    /// (Broadway, Qt's offscreen platform), which have no surfaces to give.
+    pub fn has_surface_handles(&self) -> bool {
+        !self.is_headless() && (!cfg!(target_os = "linux") || crate::driver::show_windows())
+    }
+
     /// The headless backend, for simulating system changes. Tests using it
     /// must be marked `#[mitsuami_test::test(headless)]`.
     pub fn headless(&self) -> &HeadlessHandle {

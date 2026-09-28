@@ -27,7 +27,7 @@ use mitsuami_core::{
 };
 use mitsuami_linux::wayland::{self, Subsurface};
 use mitsuami_linux::x11::ChildWindow;
-use mitsuami_linux::{LockEvent, LockSink};
+use mitsuami_linux::{LockEvent, LockSink, NoSurface};
 
 use crate::events::Events;
 use crate::ffi::{self, Callback, QmlObject, SurfaceEvent};
@@ -56,6 +56,8 @@ struct Keys {
 enum Native {
     Wayland(Subsurface),
     X11(ChildWindow),
+    /// Another platform (offscreen), which has none.
+    Other,
 }
 
 /// The window surface it's over.
@@ -63,6 +65,7 @@ enum Native {
 enum Parent {
     Wayland(NonNull<c_void>),
     X11(u32),
+    Other,
 }
 
 /// A pointer lock or keyboard grab of `mitsuami-linux`'s, which lets go
@@ -168,7 +171,9 @@ impl SurfaceItem {
             generation: 0,
         }));
         SURFACES.with(|s| s.borrow_mut().insert(number, Rc::downgrade(&state)));
-        for signal in ["windowChanged(QQuickWindow*)", "visibleChanged()"] {
+        // Its size as soon as it changes, not after the window's next
+        // frame: the app draws the next one at it.
+        for signal in ["windowChanged(QQuickWindow*)", "visibleChanged()", "widthChanged()", "heightChanged()"] {
             let s = Rc::downgrade(&state);
             item.connect(signal, move || ItemState::sync(&s));
         }
@@ -297,6 +302,7 @@ impl ItemState {
             });
         }
         let parent = match window.wl_surface() {
+            _ if !ffi::platform_has_surfaces() => Some(Parent::Other),
             Some(surface) => Some(Parent::Wayland(surface)),
             None => window.xid().map(Parent::X11),
         };
@@ -314,12 +320,14 @@ impl ItemState {
                 },
                 // On Qt's display, which it found as xcb does ($DISPLAY).
                 Parent::X11(xid) => ChildWindow::new(None, xid).map(Native::X11),
+                Parent::Other => Ok(Native::Other),
             };
             match made {
                 Ok(native) => {
                     let handle = match &native {
                         Native::Wayland(subsurface) => subsurface.handle(),
                         Native::X11(child) => child.handle(),
+                        Native::Other => NoSurface::handle(),
                     };
                     state.native = Some(native);
                     state.handle = Some(handle.clone());
@@ -364,7 +372,7 @@ impl ItemState {
         match &self.native {
             Some(Native::Wayland(subsurface)) => subsurface.detach(),
             Some(Native::X11(child)) => child.detach(),
-            None => {}
+            Some(Native::Other) | None => {}
         }
     }
 
@@ -398,6 +406,7 @@ impl ItemState {
                 let px = |v: f64| (v * scale).round() as i32;
                 child.place(px(origin.x as f64), px(origin.y as f64), size.width as i32, size.height as i32);
             }
+            Native::Other => {}
         }
     }
 
@@ -492,6 +501,7 @@ impl ItemState {
                 None => None,
             },
             Parent::X11(_) => window.set_keyboard_grab(true).then_some(KeyboardGrab::X11(window)),
+            Parent::Other => None,
         };
         match grab {
             Some(grab) => {

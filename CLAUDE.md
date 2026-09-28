@@ -66,7 +66,10 @@ Backend rules the tests enforce:
   `harness = false` in `crates/mitsuami/Cargo.toml` and ends with
   `mitsuami_test::main!();`.
 - `cargo test --workspace` runs headless; `MITSUAMI_NATIVE=1 cargo test
-  --workspace` runs on this machine's native backend (AppKit on macOS).
+  --workspace` runs on this machine's native backend (AppKit on macOS, GTK
+  on Linux). Kirigami needs CI's features: `-p mitsuami -p mitsuami-kirigami
+  --features mitsuami/kde,mitsuami-test/kde,mitsuami-kirigami/qt`; without
+  `mitsuami-test/kde` the tests still run on GTK.
 - Native snapshots and visual baselines are per machine image
   (`tests/{snapshots,visual}/<backend>/<image>/`). Only CI's images are
   committed; this machine's (`macos-26@2x`) is recorded on first run and

@@ -108,8 +108,8 @@ async fn has_no_natural_size(app: TestApp) {
     assert!(last_size(&seen).is_none_or(|size| size.is_empty()), "{seen:?}");
 }
 
-/// A native backend hands out its platform's handles; headless has none
-/// to give.
+/// A native backend hands out its platform's handles; headless, and the
+/// private displays Linux tests run on, have none to give.
 #[mitsuami_test::test]
 async fn hands_out_raw_window_handles(app: TestApp) {
     let seen = Rc::new(RefCell::new(Vec::new()));
@@ -118,7 +118,7 @@ async fn hands_out_raw_window_handles(app: TestApp) {
     app.settle().await;
 
     let handle = handle(&seen);
-    if app.is_headless() {
+    if !app.has_surface_handles() {
         assert!(matches!(handle.window_handle(), Err(HandleError::NotSupported)));
         return;
     }
@@ -161,7 +161,7 @@ async fn keeps_the_surface_for_the_app(app: TestApp) {
 
     app.expect(screen()).not_to_exist().await;
     assert!(app.native_node_count() < nodes);
-    if !app.is_headless() {
+    if app.has_surface_handles() {
         assert!(handle.window_handle().is_ok(), "still there for the app");
     }
     seen.borrow_mut().clear();

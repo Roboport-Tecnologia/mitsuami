@@ -92,6 +92,7 @@ unsafe extern "C" {
     fn mq_clipboard_text() -> *mut c_char;
     fn mq_set_clipboard_text(text: *const c_char);
 
+    fn mq_platform_has_surfaces() -> i32;
     fn mq_wayland_display() -> Raw;
     fn mq_window_wl_surface(window: Raw) -> Raw;
     fn mq_item_window(item: Raw) -> Raw;
@@ -263,6 +264,12 @@ pub(crate) fn set_color_scheme(path: &std::path::Path) {
 
 pub(crate) fn device_pixel_ratio() -> f64 {
     unsafe { mq_device_pixel_ratio() }
+}
+
+/// Whether Qt's platform is Wayland or X11, whose windows GPU surfaces go
+/// over (not the offscreen platform).
+pub(crate) fn platform_has_surfaces() -> bool {
+    unsafe { mq_platform_has_surfaces() != 0 }
 }
 
 /// Qt's `wl_display`, on Wayland.

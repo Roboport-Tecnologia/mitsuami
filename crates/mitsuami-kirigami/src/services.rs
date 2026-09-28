@@ -58,7 +58,7 @@ pub(crate) struct Wiring {
 impl Wiring {
     /// Shows `menu` in a window: in place when only enabled and checked
     /// states changed, as rebuilding the drawer would close it if open.
-    fn update(&self, root: &Rc<WindowRoot>, menu: MenuBarData) {
+    fn update(&self, root: &Rc<WindowRoot>, menu: MenuBarData, dialog: bool) {
         let drawer = root.drawer.get();
         let same = drawer.is_some() && root.menu.borrow().same_structure(&menu);
         let empty = drawer.is_none() && menu.menus.is_empty();
@@ -66,7 +66,7 @@ impl Wiring {
         match drawer {
             Some(drawer) if same => apply_states(drawer, &root.menu.borrow()),
             _ if empty => {}
-            _ => self.install(root),
+            _ => self.install(root, dialog),
         }
     }
 
@@ -76,12 +76,12 @@ impl Wiring {
     /// windows get their drawer inline when they're created (see
     /// [`drawer_qml`]); this is only for menus whose structure changes
     /// later.
-    fn install(&self, root: &Rc<WindowRoot>) {
+    fn install(&self, root: &Rc<WindowRoot>, dialog: bool) {
         if let Some(old) = root.drawer.take() {
             root.window.set_object("globalDrawer", None);
             old.destroy();
         }
-        let Some(qml) = drawer_qml(&root.menu.borrow()) else { return };
+        let Some(qml) = drawer_qml(&root.menu.borrow(), dialog) else { return };
         let Some(overlay) = root.window.object("overlay") else { return };
         let drawer = QmlObject::load_in(&qml, overlay);
         root.window.set_object("globalDrawer", Some(drawer));
@@ -227,8 +227,9 @@ fn menu_qml(menu: &MenuData, groups: &mut Vec<String>, form: Form) -> String {
 /// The global drawer's QML for a window's menus, or none without menus.
 /// Items with a role end the drawer, as in KDE apps: Settings (with KDE's
 /// Ctrl+Shift+, unless it has a shortcut), About, then Quit. The app's
-/// Quit item replaces ours, with our title and shortcut.
-pub(crate) fn drawer_qml(menu: &MenuBarData) -> Option<String> {
+/// Quit item replaces ours, with our title and shortcut; a dialog has none
+/// of ours, only its own menus.
+pub(crate) fn drawer_qml(menu: &MenuBarData, dialog: bool) -> Option<String> {
     if menu.menus.is_empty() {
         return None;
     }
@@ -247,15 +248,18 @@ pub(crate) fn drawer_qml(menu: &MenuBarData) -> Option<String> {
     }
     // Plasma's binding; `StandardKey.Quit` maps to several, which Qt's
     // shortcuts warn about.
-    actions.push(match quit {
+    match quit {
         Some(item) => {
             let item = MenuItemData { title: "Quit".into(), ..item };
-            item_qml(&item, Some(Shortcut::primary('q')), Some("application-exit"), None, Form::Drawer)
+            actions.push(item_qml(&item, Some(Shortcut::primary('q')), Some("application-exit"), None, Form::Drawer));
         }
-        None => "Kirigami.Action { objectName: \"mitsuamiQuit\"; text: \"Quit\"; icon.name: \"application-exit\"; \
-                 shortcut: \"Ctrl+Q\" }"
-            .into(),
-    });
+        None if dialog => {}
+        None => actions.push(
+            "Kirigami.Action { objectName: \"mitsuamiQuit\"; text: \"Quit\"; icon.name: \"application-exit\"; \
+             shortcut: \"Ctrl+Q\" }"
+                .into(),
+        ),
+    }
     Some(format!(
         "Kirigami.GlobalDrawer {{ isMenu: true\n{}\nactions: [\n{}\n] }}",
         groups.join("\n"),
@@ -577,8 +581,8 @@ impl Services for KirigamiServices {
         // A window not created yet gets its drawer with it.
         for (id, root) in self.backend.windows() {
             if window.is_none_or(|w| w == id) {
-                let shown = self.backend.with_menus(|menus| menus.of(id));
-                wiring.update(&root, shown);
+                let (shown, dialog) = self.backend.with_menus(|menus| (menus.of(id), menus.modal.contains(&id)));
+                wiring.update(&root, shown, dialog);
             }
         }
     }

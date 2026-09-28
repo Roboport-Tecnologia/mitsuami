@@ -756,6 +756,10 @@ void mq_set_clipboard_text(const char* text) { QGuiApplication::clipboard()->set
 
 static bool on_wayland() { return QGuiApplication::platformName().startsWith(QLatin1String("wayland")); }
 
+int32_t mq_platform_has_surfaces(void) {
+    return on_wayland() || QGuiApplication::platformName() == QLatin1String("xcb");
+}
+
 void* mq_wayland_display(void) {
     if (!on_wayland()) return nullptr;
     return QGuiApplication::platformNativeInterface()->nativeResourceForIntegration("wl_display");
