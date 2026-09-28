@@ -500,6 +500,10 @@ impl GtkHandle {
     /// it; the content host reports it as `WindowResized`.
     pub fn resize_window(&self, window: NodeId, size: Size) {
         let Some((gtk_window, host, header_height)) = self.window_parts(window) else { return };
+        // The user can't resize it.
+        if !gtk_window.is_resizable() {
+            return;
+        }
         let (min_width, min_height) = host.size_request();
         let size = Size::new(size.width.max(requested(min_width)), size.height.max(requested(min_height)));
         resize(&gtk_window, size.width as i32, size.height as i32 + header_height);
@@ -1131,6 +1135,10 @@ impl State {
                 parts.min_size.app.set(Some(*min));
                 parts.min_size.apply(&parts.window, &parts.host);
             }
+            // GTK 4 can't hold one side of a window: the content sets its
+            // size, which the user can't change, as GNOME's dialogs that
+            // fit their content.
+            (Prop::HeightFollowsContent(on), Widget::Window(parts)) => parts.window.set_resizable(!*on),
             (Prop::Text(t), Widget::Label(l)) => l.set_text(t),
             // GTK limits the lines of wrapping labels that ellipsize.
             (Prop::MaxLines(lines), Widget::Label(l)) => {
@@ -2096,6 +2104,7 @@ impl Backend for GtkBackend {
                 props.push(Prop::Title(text(parts.window.title())));
                 props.push(Prop::FullScreen(parts.full_screen.shown(&parts.window)));
                 props.push(Prop::MinSize(parts.min_size.shown(&parts.window, &parts.host)));
+                props.push(Prop::HeightFollowsContent(!parts.window.is_resizable()));
                 props.extend(node.modal.map(|(owner, modality)| Prop::Modal { owner, modality }));
             }
             Widget::Label(l) => {

@@ -344,15 +344,17 @@ impl AppKitHandle {
         self.state.borrow().nodes.len()
     }
 
-    /// Resizes a window's content like the user would, no smaller than its
-    /// minimum, as a drag goes (`setContentSize:` alone would); the window
-    /// delegate reports it back as a `WindowResized` event.
+    /// Resizes a window's content like the user would, between its minimum
+    /// and maximum, as a drag goes (`setContentSize:` alone would go past
+    /// them); the window delegate reports it back as a `WindowResized` event.
     pub fn resize_window(&self, window: NodeId, size: Size) {
         let window = self.ns_window(window);
         if let Some(window) = window {
-            let min = window.contentMinSize();
-            window
-                .setContentSize(NSSize::new((size.width as f64).max(min.width), (size.height as f64).max(min.height)));
+            let (min, max) = (window.contentMinSize(), window.contentMaxSize());
+            window.setContentSize(NSSize::new(
+                (size.width as f64).clamp(min.width, max.width),
+                (size.height as f64).clamp(min.height, max.height),
+            ));
         }
     }
 
@@ -737,6 +739,9 @@ impl State {
             (Prop::Title(t), Widget::Window { window, .. }) => window.setTitle(&ns(t)),
             (Prop::FullScreen(on), Widget::Window { window, _delegate, .. }) => _delegate.set_full_screen(window, *on),
             (Prop::MinSize(min), Widget::Window { window, _delegate, .. }) => _delegate.set_min_size(window, *min),
+            (Prop::HeightFollowsContent(on), Widget::Window { window, _delegate, .. }) => {
+                _delegate.set_height_locked(window, *on)
+            }
             // Acted on when the window is shown.
             (Prop::Modal { owner, modality }, Widget::Window { _delegate, .. }) => {
                 _delegate.set_modal(true);
@@ -1190,14 +1195,12 @@ impl State {
                 }
             }
             // AppKit would resize a window in full screen, and below its
-            // minimum: it keeps the screen's size, and its minimum.
+            // minimum: it keeps the screen's size, and its minimum. A
+            // locked height is the user's limit, not the app's.
             Command::SetWindowSize { id, size } => match self.nodes.get(id).map(|n| &n.widget) {
-                Some(Widget::Window { window, .. }) => {
+                Some(Widget::Window { window, _delegate, .. }) => {
                     if !in_full_screen(window) {
-                        let min = window.contentMinSize();
-                        let size =
-                            NSSize::new((size.width as f64).max(min.width), (size.height as f64).max(min.height));
-                        window.setContentSize(size);
+                        window.setContentSize(_delegate.at_least_min(window, *size));
                     }
                 }
                 _ => violation(command, "not a window"),
@@ -1760,6 +1763,7 @@ impl Backend for AppKitBackend {
                 props.push(Prop::Title(window.title().to_string()));
                 props.push(Prop::FullScreen(_delegate.full_screen(window)));
                 props.push(Prop::MinSize(_delegate.min_size(window)));
+                props.push(Prop::HeightFollowsContent(_delegate.height_locked(window)));
                 props.extend(node.modal.map(|(owner, modality)| Prop::Modal { owner, modality }));
             }
             Widget::Label(l) => {

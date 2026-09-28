@@ -98,6 +98,8 @@ pub(crate) struct WindowParts {
     overlapped: Option<w::AppWindowPresenter>,
     /// The content's minimum size, as the core set it.
     min_size: Option<Size>,
+    /// The content sets the height, not the user.
+    height_locked: bool,
     /// It moved to another display: its minimum is capped by the
     /// display's work area, so it's applied again.
     moved: Rc<Cell<bool>>,
@@ -604,12 +606,13 @@ impl WinUiHandle {
         *self.state.borrow().emitter.wake.borrow_mut() = Some(Rc::new(wake));
     }
 
-    /// Resizes a window's content like the user would; the platform reports
-    /// it back as `WindowResized`.
+    /// Resizes a window's content like the user would, keeping a locked
+    /// height; the platform reports it back as `WindowResized`.
     pub fn resize_window(&self, window: NodeId, size: Size) {
         let state = self.state.borrow();
         if let Some(Widget::Window(parts)) = state.nodes.get(&window).map(|n| &n.widget) {
-            resize_client(parts, size);
+            let height = parts.size.get().filter(|_| parts.height_locked).map_or(size.height, |s| s.height);
+            resize_client(parts, Size::new(size.width, height));
         }
     }
 
@@ -1148,9 +1151,11 @@ fn content_min(parts: &WindowParts) -> Option<Size> {
 /// The content's minimum size as the window's: the presenter's preferred
 /// minimum is the whole window's, in pixels, so it takes the title bar,
 /// the menu bar, the toolbar and the frame. A window already smaller
-/// grows to it. Applied again whenever what's above the content changes.
+/// grows to it. Applied again whenever what's above the content changes,
+/// and when the app or the content sets a locked height: a minimum and a
+/// maximum at the height asked for, so the user resizes only the width.
 fn apply_min_size(parts: &WindowParts) {
-    let Some(min) = content_min(parts) else { return };
+    let min = content_min(parts);
     if in_full_screen(&parts.app_window) {
         return;
     }
@@ -1160,23 +1165,41 @@ fn apply_min_size(parts: &WindowParts) {
         .and_then(|a| a.Presenter())
         .and_then(|p| p.cast::<w::IOverlappedPresenter3>());
     let Ok(presenter) = presenter else { return };
+    let locked = parts.height_locked.then(|| {
+        let height = parts.requested.or(parts.size.get()).map_or(0.0, |s| s.height);
+        height.max(min.map_or(0.0, |m| m.height))
+    });
+    // Nothing to set, or to take back.
+    if min.is_none() && locked.is_none() && presenter.PreferredMaximumHeight().is_err() {
+        return;
+    }
     let scale = scale_of(parts);
     // Measured before Windows grows the window: the resize that follows
     // uses them (see `resize_client_with`).
     let insets = client_insets(parts, scale);
     let (frame_w, frame_h) = frame_pixels(parts, scale);
     let chrome = chrome_height(parts);
-    let width = (min.width as f64 * scale).round() as i32 + frame_w;
-    let height = ((min.height as f64 + chrome) * scale).round() as i32 + frame_h;
-    _ = presenter.SetPreferredMinimumWidth(Some(width));
-    _ = presenter.SetPreferredMinimumHeight(Some(height));
+    let outer_height = |height: f32| ((height as f64 + chrome) * scale).round() as i32 + frame_h;
+    _ = presenter.SetPreferredMinimumWidth(min.map(|m| (m.width as f64 * scale).round() as i32 + frame_w));
+    _ = presenter.SetPreferredMinimumHeight(locked.or(min.map(|m| m.height)).map(outer_height));
+    _ = presenter.SetPreferredMaximumHeight(locked.map(outer_height));
     // Windows grows a smaller window to the new minimum itself, before
     // XAML lays it out again.
-    if let Some(size) = parts.size.get()
+    if let (Some(min), Some(size)) = (min, parts.size.get())
         && (size.width < min.width || size.height < min.height)
     {
         resize_client_with(parts, size, insets);
     }
+}
+
+/// Whether the user can't resize the height, as the presenter has it.
+fn height_locked(parts: &WindowParts) -> bool {
+    let presenter = parts
+        .app_window
+        .cast::<w::IAppWindow>()
+        .and_then(|a| a.Presenter())
+        .and_then(|p| p.cast::<w::IOverlappedPresenter3>());
+    presenter.and_then(|p| p.PreferredMaximumHeight()).is_ok()
 }
 
 /// Corrects a window once XAML has laid its content out at the size
@@ -1784,6 +1807,7 @@ impl State {
             shown: false,
             overlapped: None,
             min_size: None,
+            height_locked: false,
             moved,
         };
         refresh_menu(&mut parts, &self.menus);
@@ -2171,6 +2195,10 @@ impl State {
             }
             (Prop::MinSize(min), Widget::Window(parts)) => {
                 parts.min_size = Some(*min);
+                apply_min_size(parts);
+            }
+            (Prop::HeightFollowsContent(on), Widget::Window(parts)) => {
+                parts.height_locked = *on;
                 apply_min_size(parts);
             }
             // Acted on when it's shown.
@@ -2706,7 +2734,14 @@ impl State {
                 Some(Widget::Window(parts)) => {
                     if !in_full_screen(&parts.app_window) {
                         parts.requested = Some(*size);
-                        resize_client(parts, *size);
+                        // A locked height moves first, which Windows may
+                        // apply itself: the resize uses the insets from
+                        // before (see `apply_min_size`).
+                        let insets = client_insets(parts, scale_of(parts));
+                        if parts.height_locked {
+                            apply_min_size(parts);
+                        }
+                        resize_client_with(parts, *size, insets);
                     }
                 }
                 _ => violation(command, "not a window"),
@@ -3574,6 +3609,7 @@ impl Backend for WinUiBackend {
                 let full = if parts.shown { in_full_screen(&parts.app_window) } else { parts.full_screen.get() };
                 props.push(Prop::FullScreen(full));
                 props.extend(parts.min_size.map(Prop::MinSize));
+                props.push(Prop::HeightFollowsContent(height_locked(parts)));
             }
             Widget::Label(l) => {
                 let text: w::ITextBlock = l.cast().ok()?;

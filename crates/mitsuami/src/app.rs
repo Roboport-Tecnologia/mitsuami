@@ -60,8 +60,9 @@ impl App {
     }
 
     /// Adds a window, opened at startup. `size` is the content size: a
-    /// [`Size`](mitsuami_core::Size), or [`WindowSize::FitHeight`] to fit
-    /// the height to the content.
+    /// [`Size`](mitsuami_core::Size), [`WindowSize::FitHeight`] to fit
+    /// the height to the content, or [`WindowSize::FollowHeight`] to follow
+    /// it as it changes.
     pub fn window<V: View>(
         mut self,
         title: impl Into<String>,

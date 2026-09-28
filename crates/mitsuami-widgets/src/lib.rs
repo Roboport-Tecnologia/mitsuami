@@ -80,7 +80,8 @@ impl Window {
 
 impl<T> Window<T> {
     /// Its content size when it opens: a [`Size`](mitsuami_core::Size),
-    /// or [`WindowSize::FitHeight`] to fit the height to the content.
+    /// [`WindowSize::FitHeight`] to fit the height to the content, or
+    /// [`WindowSize::FollowHeight`] to follow it as it changes.
     pub fn size(mut self, size: impl Into<WindowSize>) -> Window<T> {
         self.size = size.into();
         self

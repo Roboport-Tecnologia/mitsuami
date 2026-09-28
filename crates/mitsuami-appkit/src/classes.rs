@@ -185,6 +185,8 @@ pub(crate) struct WindowIvars {
     full_screen_ours: Cell<bool>,
     /// The app's minimum content size, if it set one.
     min_size: Cell<Option<Size>>,
+    /// The content sets the height, not the user.
+    height_locked: Cell<bool>,
 }
 
 define_class!(
@@ -247,6 +249,10 @@ define_class!(
             let Some(window) = object.downcast_ref::<NSWindow>() else { return };
             let content = window.contentRectForFrameRect(window.frame()).size;
             let size = Size::new(content.width as f32, content.height as f32);
+            // A locked height is locked at the new one.
+            if self.ivars().height_locked.get() && !window.styleMask().contains(NSWindowStyleMask::FullScreen) {
+                self.apply_min_size(window);
+            }
             self.ivars().events.emit(self.ivars().id, UiEvent::WindowResized(size));
         }
 
@@ -319,6 +325,7 @@ impl WindowDelegate {
             full_screen_moving: Cell::new(false),
             full_screen_ours: Cell::new(false),
             min_size: Cell::new(None),
+            height_locked: Cell::new(false),
         });
         unsafe { msg_send![super(this), init] }
     }
@@ -335,17 +342,44 @@ impl WindowDelegate {
         self.apply_min_size(window);
     }
 
+    /// The content sets the height: a minimum and a maximum at the height
+    /// it has, so the user resizes only the width, and AppKit's resize
+    /// cursors say so.
+    pub(crate) fn set_height_locked(&self, window: &NSWindow, locked: bool) {
+        self.ivars().height_locked.set(locked);
+        self.apply_min_size(window);
+    }
+
+    pub(crate) fn height_locked(&self, window: &NSWindow) -> bool {
+        window.contentMaxSize().height < f32::MAX as f64
+    }
+
     /// The minimum, no larger than the content of a window filling its
     /// screen's visible area (a machine's mode can be larger than a laptop's
-    /// screen; AppKit would make a window as large as asked).
+    /// screen; AppKit would make a window as large as asked), and a locked
+    /// height.
     fn apply_min_size(&self, window: &NSWindow) {
-        let Some(min) = self.min_size_on_screen(window) else { return };
-        window.setContentMinSize(min);
+        let min = self.min_size_on_screen(window);
         let content = window.contentRectForFrameRect(window.frame()).size;
+        let (mut least, mut most) = (min.unwrap_or(NSSize::ZERO), NSSize::new(f32::MAX as f64, f32::MAX as f64));
+        if self.ivars().height_locked.get() {
+            least.height = content.height;
+            most.height = content.height;
+        }
+        window.setContentMinSize(least);
+        window.setContentMaxSize(most);
+        let Some(min) = min else { return };
         let grown = NSSize::new(content.width.max(min.width), content.height.max(min.height));
         if grown != content && !window.styleMask().contains(NSWindowStyleMask::FullScreen) {
             window.setContentSize(grown);
         }
+    }
+
+    /// A size the app asks for, no smaller than its minimum: AppKit's
+    /// `setContentSize:` would go below it.
+    pub(crate) fn at_least_min(&self, window: &NSWindow, size: Size) -> NSSize {
+        let min = self.min_size_on_screen(window).unwrap_or(NSSize::ZERO);
+        NSSize::new((size.width as f64).max(min.width), (size.height as f64).max(min.height))
     }
 
     fn min_size_on_screen(&self, window: &NSWindow) -> Option<NSSize> {
@@ -357,11 +391,12 @@ impl WindowDelegate {
     }
 
     /// The minimum as AppKit has it: the app's, if AppKit holds it as
-    /// capped by the screen.
+    /// capped by the screen. A locked height hides the minimum's.
     pub(crate) fn min_size(&self, window: &NSWindow) -> Size {
         let now = window.contentMinSize();
+        let locked = self.height_locked(window);
         match (self.ivars().min_size.get(), self.min_size_on_screen(window)) {
-            (Some(min), Some(capped)) if capped == now => min,
+            (Some(min), Some(capped)) if capped.width == now.width && (locked || capped.height == now.height) => min,
             _ => Size::new(now.width as f32, now.height as f32),
         }
     }

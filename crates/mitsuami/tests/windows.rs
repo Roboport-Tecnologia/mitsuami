@@ -146,6 +146,114 @@ async fn fits_its_height_to_its_content(app: TestApp) {
     assert!((140.0..141.0).contains(&size.height), "{size:?}");
 }
 
+/// Up to a pixel of slack: platforms size windows in physical pixels.
+fn height_of(app: &TestApp, window: NodeId) -> f32 {
+    app.ui().window_size(window).expect("sized").height
+}
+
+fn about(height: f32, expected: f32) -> bool {
+    (expected..expected + 1.0).contains(&height)
+}
+
+/// 20 points of padding around a 100-point row, and another while `more`.
+fn growing(more: Signal<bool>) -> impl View {
+    Column::new().padding(20).children((Row::new().height(100), Show::new(more, || Row::new().height(100))))
+}
+
+/// A `FollowHeight` window grows and shrinks with its content, and the
+/// user resizes only its width.
+#[mitsuami_test::test]
+async fn follows_its_content_height(app: TestApp) {
+    let more = signal(false);
+    app.mount(move || Window::new("Machine").size(WindowSize::FollowHeight(360.0)).content(move || growing(more)));
+    let window = machine(&app).expect("open");
+    assert!(native_props(&app, window).contains(&Prop::HeightFollowsContent(true)));
+    assert!(about(height_of(&app, window), 140.0), "{:?}", app.ui().window_size(window));
+
+    more.set(true);
+    app.settle().await;
+    assert!(about(height_of(&app, window), 240.0), "grew: {:?}", app.ui().window_size(window));
+
+    more.set(false);
+    app.settle().await;
+    assert!(about(height_of(&app, window), 140.0), "shrank: {:?}", app.ui().window_size(window));
+
+    // GTK can't hold only the height, so there the window isn't
+    // resizable at all.
+    app.resize_window(window, Size::new(480.0, 400.0)).await;
+    let size = app.ui().window_size(window).expect("sized");
+    assert!(about(size.height, 140.0), "the user keeps its height: {size:?}");
+    if app.backend_name() != "gtk" {
+        assert_eq!(size.width, 480.0);
+    }
+}
+
+/// The app sets its width; the content keeps setting its height.
+#[mitsuami_test::test]
+async fn the_app_sets_the_width_of_a_window_that_follows(app: TestApp) {
+    let more = signal(false);
+    app.mount(move || Window::new("Machine").size(WindowSize::FollowHeight(360.0)).content(move || growing(more)));
+    let window = machine(&app).expect("open");
+
+    app.ui().set_window_size(window, Size::new(500.0, 600.0));
+    app.settle().await;
+    let size = app.ui().window_size(window).expect("sized");
+    assert_eq!(size.width, 500.0);
+    assert!(about(size.height, 140.0), "{size:?}");
+
+    more.set(true);
+    app.settle().await;
+    assert!(about(height_of(&app, window), 240.0), "still follows: {:?}", app.ui().window_size(window));
+}
+
+/// No shorter than its minimum: the content is laid out at the height the
+/// window has, and it follows again once the content is taller.
+#[mitsuami_test::test]
+async fn a_window_that_follows_keeps_its_minimum(app: TestApp) {
+    let more = signal(false);
+    app.mount(move || {
+        Window::new("Machine")
+            .size(WindowSize::FollowHeight(360.0))
+            .min_size(Size::new(200.0, 200.0))
+            .content(move || growing(more))
+    });
+    let window = machine(&app).expect("open");
+    app.settle().await;
+    assert!(about(height_of(&app, window), 200.0), "{:?}", app.ui().window_size(window));
+
+    more.set(true);
+    app.settle().await;
+    assert!(about(height_of(&app, window), 240.0), "{:?}", app.ui().window_size(window));
+
+    more.set(false);
+    app.settle().await;
+    assert!(about(height_of(&app, window), 200.0), "{:?}", app.ui().window_size(window));
+}
+
+/// `FollowHeightUntilResized` follows until the user changes its height,
+/// and keeps following while they change only its width.
+#[mitsuami_test::test]
+async fn follows_its_content_height_until_the_user_resizes_it(app: TestApp) {
+    let more = signal(false);
+    app.mount(move || {
+        Window::new("Machine").size(WindowSize::FollowHeightUntilResized(360.0)).content(move || growing(more))
+    });
+    let window = machine(&app).expect("open");
+    assert!(!native_props(&app, window).contains(&Prop::HeightFollowsContent(true)));
+    let height = height_of(&app, window);
+    assert!(about(height, 140.0), "{:?}", app.ui().window_size(window));
+
+    app.resize_window(window, Size::new(480.0, height)).await;
+    more.set(true);
+    app.settle().await;
+    assert!(about(height_of(&app, window), 240.0), "still follows: {:?}", app.ui().window_size(window));
+
+    app.resize_window(window, Size::new(480.0, 400.0)).await;
+    more.set(false);
+    app.settle().await;
+    assert_eq!(app.ui().window_size(window), Some(Size::new(480.0, 400.0)), "the user's size stays");
+}
+
 /// Its controls work, and share the app's state with the other windows.
 #[mitsuami_test::test]
 async fn shares_state_with_the_other_windows(app: TestApp) {

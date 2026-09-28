@@ -515,10 +515,16 @@ impl HeadlessHandle {
     }
 
     /// Simulates the user resizing a window, which goes no smaller than
-    /// its minimum size.
+    /// its minimum size, and keeps its height if its content sets it.
     pub fn resize_window(&self, window: NodeId, size: Size) {
         let mut state = self.state.borrow_mut();
-        let size = state.nodes.get(&window).map_or(size, |node| at_least_min(node, size));
+        let size = state.nodes.get(&window).map_or(size, |node| {
+            let size = at_least_min(node, size);
+            match find_prop!(node.props, HeightFollowsContent) {
+                Some(true) => Size::new(size.width, node.frame.size.height),
+                _ => size,
+            }
+        });
         if let Some(node) = state.nodes.get_mut(&window) {
             node.frame.size = size;
         }

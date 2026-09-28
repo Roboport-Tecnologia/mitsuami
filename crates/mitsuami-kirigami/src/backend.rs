@@ -76,10 +76,15 @@ pub(crate) struct WindowRoot {
     full_screen: Cell<bool>,
     /// The smallest content size, if the app set one.
     min: Cell<Option<Size>>,
+    /// The content sets the height, not the user.
+    height_locked: Cell<bool>,
 }
 
 /// `Qt::WindowFullScreen`.
 const FULL_SCREEN: i32 = 0x4;
+
+/// `QWINDOWSIZE_MAX`, a window's largest side and its default maximum.
+const WINDOW_SIZE_MAX: i32 = 16_777_215;
 
 impl WindowRoot {
     fn host_size(&self) -> Size {
@@ -101,8 +106,26 @@ impl WindowRoot {
     /// whole pixels.
     fn place(&self, size: Size) {
         let header = self.header();
+        let height = (size.height as f64 + header).round();
+        // A locked height moves with it.
+        if self.height_locked.get() {
+            self.window.set_int("minimumHeight", height as i32);
+            self.window.set_int("maximumHeight", height as i32);
+        }
         self.window.set_real("width", size.width.round() as f64);
-        self.window.set_real("height", (size.height as f64 + header).round());
+        self.window.set_real("height", height);
+    }
+
+    /// The content sets the height: a minimum and a maximum at the height
+    /// it has, so the user resizes only the width, as 2ksbox's launcher
+    /// holds its content-sized dialogs.
+    fn set_height_locked(&self, locked: bool) {
+        self.height_locked.set(locked);
+        self.apply_min();
+    }
+
+    fn height_locked(&self) -> bool {
+        self.window.int("maximumHeight") < WINDOW_SIZE_MAX
     }
 
     /// Full screen as Qt has it: what it asked the platform for, until the
@@ -154,18 +177,29 @@ impl WindowRoot {
     }
 
     fn apply_min(&self) {
-        let Some(min) = self.min.get() else { return };
-        let (width, height) = self.min_window_size(min);
+        let min = self.min.get().map(|min| self.min_window_size(min));
+        let locked = self.height_locked.get().then(|| self.window.real("height").round() as i32);
+        // Nothing to set, or to take back.
+        if min.is_none() && locked.is_none() && !self.height_locked() {
+            return;
+        }
+        let (width, height) = min.unwrap_or((0, 0));
         self.window.set_int("minimumWidth", width);
-        self.window.set_int("minimumHeight", height);
+        self.window.set_int("minimumHeight", locked.unwrap_or(height));
+        self.window.set_int("maximumHeight", locked.unwrap_or(WINDOW_SIZE_MAX));
     }
 
     /// The minimum as Qt has it: the app's, if Qt has what it was given
-    /// (capped by the screen).
+    /// (capped by the screen). A locked height hides the minimum's.
     fn min_size(&self) -> Size {
         let (width, height) = (self.window.int("minimumWidth"), self.window.int("minimumHeight"));
+        let locked = self.height_locked();
         match self.min.get() {
-            Some(min) if self.min_window_size(min) == (width, height) => min,
+            Some(min)
+                if self.min_window_size(min).0 == width && (locked || self.min_window_size(min).1 == height) =>
+            {
+                min
+            }
             _ => Size::new(width as f32, (height as f64 - self.header()).max(0.0) as f32),
         }
     }
@@ -599,8 +633,11 @@ impl KirigamiHandle {
     /// has laid it out; the content host reports it as `WindowResized`.
     pub fn resize_window(&self, window: NodeId, size: Size) {
         let Some(root) = self.window_root(window) else { return };
-        // A drag goes no smaller than the minimum.
-        let size = root.at_least_min(size);
+        // A drag goes no smaller than the minimum, and keeps a locked height.
+        let mut size = root.at_least_min(size);
+        if root.height_locked() {
+            size.height = root.size.get().height;
+        }
         root.place(size);
         pump_until(Duration::from_secs(2), || root.host_size() == size);
     }
@@ -961,6 +998,7 @@ impl State {
             focused_first: Cell::new(false),
             full_screen: Cell::new(false),
             min: Cell::new(None),
+            height_locked: Cell::new(false),
         });
         let weak = Rc::downgrade(&root);
         window.connect("windowStateChanged(Qt::WindowState)", move || {
@@ -1059,6 +1097,7 @@ impl State {
                 }
             }
             (Prop::FullScreen(on), Widget::Window { root }) => root.set_full_screen(*on),
+            (Prop::HeightFollowsContent(on), Widget::Window { root }) => root.set_height_locked(*on),
             // Qt keeps the user from making it smaller; a window smaller
             // already grows, as on the other platforms.
             (Prop::MinSize(min), Widget::Window { root }) => {
@@ -1851,6 +1890,7 @@ impl Backend for KirigamiBackend {
                 props.push(Prop::Title(root.window.str("title")));
                 props.push(Prop::FullScreen(root.in_full_screen()));
                 props.push(Prop::MinSize(root.min_size()));
+                props.push(Prop::HeightFollowsContent(root.height_locked()));
                 // The modality as Qt has it; the owner as the node has it.
                 if let Some((owner, modality)) = node.modal {
                     let modality = match root.window.int("modality") {

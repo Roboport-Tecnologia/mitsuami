@@ -106,7 +106,8 @@ fn machine_window(name: &'static str, editing: Signal<bool>, saved: Settings, op
     view! {
         <Window
             title=move || if unsaved() { format!("{name} (edited)") } else { name.to_owned() }
-            size=WindowSize::FitHeight(360.0)
+            // As tall as what it shows: it grows for the note below.
+            size=WindowSize::FollowHeight(360.0)
             modality=move || MODALITIES[open_as.get()]
             open=editing
             // Each opening starts from what's saved.
@@ -122,6 +123,9 @@ fn machine_window(name: &'static str, editing: Signal<bool>, saved: Settings, op
                     <Text grow=1.0>{move || format!("Processors: {}", form.cpus.get())}</Text>
                     <Button @click=move || advanced.set(true)>"Advanced…"</Button>
                 </Row>
+                <Show when=unsaved>
+                    <Text>"Changes take effect the next time the machine starts."</Text>
+                </Show>
                 <Row gap=Spacing::Sm justify=Justify::End>
                     <Button role=ButtonRole::Cancel @click=ask_to_close>"Cancel"</Button>
                     <Button role=ButtonRole::Default enabled=unsaved @click=move || {

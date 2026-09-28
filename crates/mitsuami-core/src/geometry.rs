@@ -27,6 +27,14 @@ pub enum WindowSize {
     /// the window fits what each platform's controls add up to. After that
     /// it's an ordinary window: it doesn't follow later content changes.
     FitHeight(f32),
+    /// This width, and the height of the content as it changes: the window
+    /// grows and shrinks with it. The user resizes only its width (GTK has
+    /// no such window: there it isn't resizable). `Ui::set_window_size`
+    /// sets its width.
+    FollowHeight(f32),
+    /// Like `FollowHeight` until the user, or `Ui::set_window_size`,
+    /// changes its height: then it's an ordinary window.
+    FollowHeightUntilResized(f32),
 }
 
 impl From<Size> for WindowSize {

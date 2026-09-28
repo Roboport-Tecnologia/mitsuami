@@ -386,6 +386,10 @@ pub enum Prop {
     /// The smallest content size the user can make a window, in points.
     /// A window smaller when it's set grows to it.
     MinSize(Size),
+    /// The content sets a window's height, not the user, who resizes only
+    /// its width; where the platform can't hold one side (GTK), neither.
+    /// The core sets it for a `WindowSize::FollowHeight` window.
+    HeightFollowsContent(bool),
     /// Text content of a `Text`.
     Text(String),
     /// How many lines a `Text` shows at most, the last one cut off with an

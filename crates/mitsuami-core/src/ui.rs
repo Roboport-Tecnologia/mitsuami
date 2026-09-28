@@ -46,15 +46,32 @@ struct Node {
     frame: Rect,
     /// Windows only: content size.
     window_size: Size,
-    /// Windows only: the height is still to be fitted to the content.
-    fit_height: bool,
+    /// Windows only: how the height follows the content.
+    fit: Fit,
+    /// Windows following their content only: the heights the core gave the
+    /// window, oldest first: the last the platform reported, and the ones
+    /// since that it hasn't yet.
+    heights: Vec<f32>,
     /// ScrollViews and Lists only: how far the content is scrolled.
     scroll_offset: Point,
     /// Lists only: the width the platform gives their rows, if not their own.
     row_width: Option<f32>,
 }
 
+/// How a window's height follows its content (`WindowSize`).
+#[derive(Clone, Copy, Debug, PartialEq)]
+enum Fit {
+    None,
+    /// At the first layout.
+    Once,
+    Follow { until_resized: bool },
+}
+
 impl Node {
+    fn in_full_screen(&self) -> bool {
+        crate::find_prop!(self.props, FullScreen).unwrap_or(false)
+    }
+
     fn prop(&self, key: &Prop) -> Option<&Prop> {
         self.props.iter().find(|p| p.key() == key.key())
     }
@@ -471,7 +488,8 @@ impl Ui {
                     taffy,
                     frame: Rect::ZERO,
                     window_size: Size::ZERO,
-                    fit_height: false,
+                    fit: Fit::None,
+                    heights: Vec::new(),
                     scroll_offset: Point::ZERO,
                     row_width: None,
                 },
@@ -486,19 +504,28 @@ impl Ui {
     /// A window fitting its height is sized at its first layout, so give it
     /// its content before the next commit.
     pub fn create_window(&self, title: impl Into<String>, size: impl Into<WindowSize>) -> NodeId {
-        let id = self.create(WidgetKind::Window, vec![Prop::Title(title.into())]);
+        let size = size.into();
+        let mut props = vec![Prop::Title(title.into())];
+        if let WindowSize::FollowHeight(_) = size {
+            props.push(Prop::HeightFollowsContent(true));
+        }
+        let id = self.create(WidgetKind::Window, props);
         let mut inner = self.inner.borrow_mut();
         let node = inner.nodes.get_mut(&id).expect("just created");
-        let (size, fit_height) = match size.into() {
-            WindowSize::Fixed(size) => (size, false),
-            WindowSize::FitHeight(width) => (Size::new(width, 0.0), true),
+        let (size, fit) = match size {
+            WindowSize::Fixed(size) => (size, Fit::None),
+            WindowSize::FitHeight(width) => (Size::new(width, 0.0), Fit::Once),
+            WindowSize::FollowHeight(width) => (Size::new(width, 0.0), Fit::Follow { until_resized: false }),
+            WindowSize::FollowHeightUntilResized(width) => {
+                (Size::new(width, 0.0), Fit::Follow { until_resized: true })
+            }
         };
         node.window_size = size;
-        node.fit_height = fit_height;
+        node.fit = fit;
         node.frame = Rect { origin: Point::ZERO, size };
         inner.windows.push(id);
         // A fitted size is sent with the first frames.
-        if !fit_height {
+        if fit == Fit::None {
             inner.pending.push(Command::SetWindowSize { id, size });
         }
         id
@@ -507,12 +534,23 @@ impl Ui {
     /// Asks for a window's content size, in points, as the app would resize
     /// it. The platform may refuse it (a window in full screen keeps the
     /// screen's), and gives it no smaller than the window's `MinSize`; the
-    /// content is laid out at the size it reports (`WindowResized`).
+    /// content is laid out at the size it reports (`WindowResized`). A
+    /// `WindowSize::FollowHeight` window takes only the width: its content
+    /// sets its height. Other windows stop fitting their height.
     pub fn set_window_size(&self, window: NodeId, size: Size) {
         {
             let mut inner = self.inner.borrow_mut();
             let Some(node) = inner.nodes.get_mut(&window).filter(|n| n.kind == WidgetKind::Window) else { return };
-            node.fit_height = false;
+            let size = match node.fit {
+                Fit::Follow { until_resized: false } => {
+                    Size::new(size.width, node.heights.last().copied().unwrap_or(node.window_size.height))
+                }
+                _ => {
+                    node.fit = Fit::None;
+                    node.heights.clear();
+                    size
+                }
+            };
             inner.pending.push(Command::SetWindowSize { id: window, size });
         }
         self.changed();
@@ -1271,7 +1309,7 @@ impl Inner {
             if node.kind == WidgetKind::Window {
                 style.size = taffy::Size {
                     width: taffy::Dimension::length(node.window_size.width),
-                    height: if node.fit_height {
+                    height: if node.fit == Fit::Once {
                         taffy::Dimension::auto()
                     } else {
                         taffy::Dimension::length(node.window_size.height)
@@ -1301,31 +1339,61 @@ impl Inner {
         for window in self.windows.clone() {
             let node = &self.nodes[&window];
             let Some(root) = node.taffy else { continue };
-            let (mut size, fit_height) = (node.window_size, node.fit_height);
-            let available = taffy::Size {
-                width: taffy::AvailableSpace::Definite(size.width),
-                height: if fit_height {
-                    taffy::AvailableSpace::MaxContent
-                } else {
-                    taffy::AvailableSpace::Definite(size.height)
-                },
+            let (mut size, fit) = (node.window_size, node.fit);
+            // A following window fits again when its content or its width
+            // changed; one in full screen keeps the screen's size.
+            let refit = match fit {
+                Fit::None => false,
+                Fit::Once => true,
+                Fit::Follow { .. } => !node.in_full_screen() && self.taffy.dirty(root).unwrap_or(true),
             };
-            self.compute_layout(root, available);
-            if fit_height {
-                size.height = self.taffy.layout(root).map_or(0.0, |l| l.size.height).ceil();
+            if refit {
+                self.set_root_height(root, None);
+                let available = taffy::Size {
+                    width: taffy::AvailableSpace::Definite(size.width),
+                    height: taffy::AvailableSpace::MaxContent,
+                };
+                self.compute_layout(root, available);
+                let height = self.taffy.layout(root).map_or(0.0, |l| l.size.height).ceil();
                 let node = self.nodes.get_mut(&window).unwrap();
-                node.window_size = size;
-                node.fit_height = false;
-                // The window's style takes the fitted height, and `vh`
-                // re-resolves against it.
-                self.styles_dirty = true;
-                self.pending.push(Command::SetWindowSize { id: window, size });
+                if fit == Fit::Once {
+                    node.fit = Fit::None;
+                }
+                if fit == Fit::Once || node.heights.last() != Some(&height) {
+                    size.height = height;
+                    node.window_size = size;
+                    node.heights.push(height);
+                    // The window's style takes the fitted height, and `vh`
+                    // re-resolves against it.
+                    self.styles_dirty = true;
+                    self.pending.push(Command::SetWindowSize { id: window, size });
+                }
+            }
+            // Fitted once, it keeps the layout it was measured with; a
+            // following window is laid out at the height it asked for, or
+            // the one the platform gave (its minimum, the user's).
+            if fit != Fit::Once {
+                if refit {
+                    self.set_root_height(root, Some(size.height));
+                }
+                let available = taffy::Size {
+                    width: taffy::AvailableSpace::Definite(size.width),
+                    height: taffy::AvailableSpace::Definite(size.height),
+                };
+                self.compute_layout(root, available);
             }
             self.nodes.get_mut(&window).unwrap().frame = Rect { origin: Point::ZERO, size };
             self.layout_toolbar(window);
             self.collect_frames(window);
         }
         self.update_drawings();
+    }
+
+    /// Sets a window's layout height: its own, or `None` for its content's.
+    fn set_root_height(&mut self, root: taffy::NodeId, height: Option<f32>) {
+        let Ok(mut style) = self.taffy.style(root).cloned() else { return };
+        style.size.height = height.map_or(taffy::Dimension::auto(), taffy::Dimension::length);
+        let _ = self.taffy.set_style(root, style);
     }
 
     /// Lays out the tree under `root`, measuring leaves natively (or, for
@@ -1502,6 +1570,23 @@ impl Inner {
             }
             UiEvent::WindowResized(size) => {
                 if let Some(node) = self.nodes.get_mut(&id) {
+                    // A following window's height is one the core asked for
+                    // (grown to the minimum, as platforms grow it), or the
+                    // user's, which ends following if it's to end.
+                    if let Fit::Follow { until_resized } = node.fit
+                        && !node.in_full_screen()
+                        && !node.heights.is_empty()
+                    {
+                        let min = crate::find_prop!(node.props, MinSize).map_or(0.0, |m| m.height);
+                        match node.heights.iter().rposition(|h| (h.max(min) - size.height).abs() < 1.0) {
+                            Some(reported) => drop(node.heights.drain(..reported)),
+                            None if until_resized => {
+                                node.fit = Fit::None;
+                                node.heights.clear();
+                            }
+                            None => {}
+                        }
+                    }
                     node.window_size = *size;
                     self.styles_dirty = true;
                 }

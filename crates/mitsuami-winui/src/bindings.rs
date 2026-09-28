@@ -5904,6 +5904,27 @@ impl IOverlappedPresenter3 {
             .ok()
         }
     }
+    pub fn PreferredMaximumHeight(&self) -> windows_core::Result<i32> {
+        unsafe {
+            let mut result__ = core::mem::zeroed();
+            (windows_core::Interface::vtable(self).PreferredMaximumHeight)(
+                windows_core::Interface::as_raw(self),
+                &mut result__,
+            )
+            .and_then(|| windows_core::imp::Type::from_abi(result__))
+            .and_then(|r__: windows_reference::IReference<i32>| r__.Value())
+        }
+    }
+    pub fn SetPreferredMaximumHeight(&self, value: Option<i32>) -> windows_core::Result<()> {
+        let value__ = value.map(<windows_reference::IReference<i32> as From<_>>::from);
+        unsafe {
+            (windows_core::Interface::vtable(self).SetPreferredMaximumHeight)(
+                windows_core::Interface::as_raw(self),
+                windows_core::Param::param(value__.as_ref()).abi(),
+            )
+            .ok()
+        }
+    }
 }
 #[repr(C)]
 pub struct IOverlappedPresenter3_Vtbl {
@@ -5913,6 +5934,12 @@ pub struct IOverlappedPresenter3_Vtbl {
         unsafe extern "system" fn(*mut core::ffi::c_void, *mut core::ffi::c_void) -> windows_core::HRESULT,
     PreferredMinimumWidth: usize,
     pub SetPreferredMinimumWidth:
+        unsafe extern "system" fn(*mut core::ffi::c_void, *mut core::ffi::c_void) -> windows_core::HRESULT,
+    PreferredMaximumWidth: usize,
+    SetPreferredMaximumWidth: usize,
+    pub PreferredMaximumHeight:
+        unsafe extern "system" fn(*mut core::ffi::c_void, *mut *mut core::ffi::c_void) -> windows_core::HRESULT,
+    pub SetPreferredMaximumHeight:
         unsafe extern "system" fn(*mut core::ffi::c_void, *mut core::ffi::c_void) -> windows_core::HRESULT,
 }
 windows_core::imp::define_interface!(IPanel, IPanel_Vtbl, 0x27a1b418_56f3_525e_b883_cefed905eed3);

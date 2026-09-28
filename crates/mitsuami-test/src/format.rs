@@ -72,6 +72,7 @@ fn describe_props(props: &[Prop]) -> String {
             Prop::KeyboardGrab(b) => extra.push(format!("keyboard_grab={b}")),
             Prop::FullScreen(b) => extra.push(format!("full_screen={b}")),
             Prop::MinSize(size) => extra.push(format!("min_size={}x{}", Num(size.width), Num(size.height))),
+            Prop::HeightFollowsContent(b) => extra.push(format!("height_follows_content={b}")),
             Prop::Cursor(Cursor::Default) => extra.push("cursor=default".to_owned()),
             Prop::Cursor(Cursor::Hidden) => extra.push("cursor=hidden".to_owned()),
             Prop::Cursor(Cursor::Image { pixels, hotspot }) => {

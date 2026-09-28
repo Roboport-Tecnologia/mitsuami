@@ -23,7 +23,7 @@ Microsoft.UI.Windowing.IAppWindowPresenter::get_Kind
 Microsoft.UI.Windowing.AppWindowPresenterKind
 Microsoft.UI.Windowing.AppWindowChangedEventArgs::{}
 Microsoft.UI.Windowing.IAppWindowChangedEventArgs::{get_DidPresenterChange, get_DidPositionChange}
-Microsoft.UI.Windowing.IOverlappedPresenter3::{put_PreferredMinimumWidth, put_PreferredMinimumHeight}
+Microsoft.UI.Windowing.IOverlappedPresenter3::{put_PreferredMinimumWidth, put_PreferredMinimumHeight, get_PreferredMaximumHeight, put_PreferredMaximumHeight}
 Microsoft.UI.Windowing.AppWindowPresenter::{}
 Microsoft.UI.Windowing.OverlappedPresenter::{}
 Microsoft.UI.Windowing.IOverlappedPresenter::{put_IsModal, get_IsModal, put_IsMinimizable, put_IsMaximizable}
