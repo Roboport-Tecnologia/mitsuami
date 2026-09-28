@@ -1,8 +1,8 @@
 //! Running an app: NSApplication, the menu bar and the run-loop hook.
 
 use block2::RcBlock;
-use mitsuami_core::Ui;
 use mitsuami_core::services::MenuBar;
+use mitsuami_core::{AppInfo, Ui};
 use objc2::rc::Retained;
 use objc2::runtime::{NSObject, NSObjectProtocol, ProtocolObject};
 use objc2::{DefinedClass, MainThreadMarker, MainThreadOnly, define_class, msg_send};
@@ -95,7 +95,7 @@ fn main_thread() -> MainThreadMarker {
 
 /// Starts the app: `setup` creates the windows, then AppKit's run loop takes
 /// over. Returns when the last window closes.
-pub fn run(setup: impl FnOnce(&Ui)) {
+pub fn run(info: AppInfo, setup: impl FnOnce(&Ui)) {
     let mtm = main_thread();
     let app = NSApplication::sharedApplication(mtm);
     app.setActivationPolicy(NSApplicationActivationPolicy::Regular);
@@ -103,6 +103,8 @@ pub fn run(setup: impl FnOnce(&Ui)) {
     let backend = AppKitBackend::new(mtm, BackendOptions::default());
     let handle = backend.handle();
     let ui = Ui::new(backend);
+    // Before the menus, which show the name.
+    ui.set_app_info(info);
     // The standard app and Edit menus, until the app installs its own.
     ui.set_menu(MenuBar::new());
     ui.set_commit_scheduler(wake_main_run_loop);

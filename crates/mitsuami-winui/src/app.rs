@@ -4,8 +4,8 @@ use std::cell::Cell;
 use std::rc::Rc;
 use std::sync::Arc;
 
-use mitsuami_core::Ui;
 use mitsuami_core::services::MenuBar;
+use mitsuami_core::{AppInfo, Ui};
 use windows_core::Interface;
 
 use crate::backend::{BackendOptions, WinUiBackend, WinUiHandle};
@@ -19,10 +19,13 @@ use crate::runtime;
 /// run-loop observer, and sleeps until a message arrives or the next timer is
 /// due. Ticks are also scheduled on the dispatcher queue, which keeps working
 /// inside modal loops (window moves and live resizing) that bypass ours.
-pub fn run(setup: impl FnOnce(&Ui)) {
+pub fn run(info: AppInfo, setup: impl FnOnce(&Ui)) {
     let backend = WinUiBackend::new(BackendOptions::default());
     let handle = backend.handle();
     let ui = Ui::new(backend);
+    // Before any window: the AppUserModelID must be set before the app
+    // shows anything.
+    ui.set_app_info(info);
     ui.set_menu(MenuBar::new());
 
     let schedule = scheduler(&ui, &handle);

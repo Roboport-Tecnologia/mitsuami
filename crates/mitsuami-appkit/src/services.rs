@@ -21,7 +21,7 @@ use objc2_app_kit::{
     NSWindowDidResignMainNotification,
 };
 use objc2_core_foundation::{CFRunLoop, kCFRunLoopCommonModes};
-use objc2_foundation::{NSArray, NSNotification, NSNotificationCenter, NSProcessInfo, NSString, NSURL};
+use objc2_foundation::{NSArray, NSNotification, NSNotificationCenter, NSString, NSURL};
 use objc2_uniform_type_identifiers::UTType;
 
 use crate::backend::AppKitHandle;
@@ -116,7 +116,7 @@ impl MenuTarget {
     }
 
     fn install(&self, menus: &Menus) {
-        let bar = menu_bar(menus.mtm, menus.shown(), self);
+        let bar = menu_bar(menus.mtm, menus.shown(), &menus.backend.app_name(), self);
         NSApplication::sharedApplication(menus.mtm).setMainMenu(Some(&bar));
     }
 }
@@ -470,9 +470,8 @@ pub(crate) fn find_tagged(menu: &NSMenu, id: u32) -> Option<(Retained<NSMenuItem
 /// The app menu, the app's File menu (if any), Edit (what makes ⌘C/⌘V/⌘Z
 /// work in text fields), then the app's other menus. Items with a role go
 /// to the app menu, with AppKit's titles and shortcuts, as Qt puts them.
-fn menu_bar(mtm: MainThreadMarker, mut menus: MenuBarData, target: &MenuTarget) -> Retained<NSMenu> {
+fn menu_bar(mtm: MainThreadMarker, mut menus: MenuBarData, name: &str, target: &MenuTarget) -> Retained<NSMenu> {
     let target = ItemTarget::from(target);
-    let name = NSProcessInfo::processInfo().processName().to_string();
     let bar = NSMenu::new(mtm);
     let command = |key| Some(Shortcut::primary(key));
     let mut app_menu = Vec::new();
@@ -490,7 +489,7 @@ fn menu_bar(mtm: MainThreadMarker, mut menus: MenuBarData, target: &MenuTarget) 
         Some(quit) => app_item(mtm, &quit, &format!("Quit {name}"), command('q'), target),
         None => item(mtm, &format!("Quit {name}"), Some(sel!(terminate:)), "q"),
     });
-    bar.addItem(&menu_of(mtm, &name, app_menu, true));
+    bar.addItem(&menu_of(mtm, name, app_menu, true));
     let (file, others): (Vec<_>, Vec<_>) = menus.menus.iter().partition(|m| m.title == "File");
     for menu in file {
         bar.addItem(&menu_of(mtm, &menu.title, app_items(mtm, &menu.entries, target), false));

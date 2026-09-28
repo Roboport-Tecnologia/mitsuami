@@ -2,7 +2,7 @@
 
 use std::rc::Rc;
 
-use mitsuami_core::{Appearance, Command, NodeId, Size, TestHooks, Ui};
+use mitsuami_core::{Appearance, Command, NativeAppInfo, NodeId, Size, TestHooks, Ui};
 use mitsuami_headless::{HeadlessBackend, HeadlessHandle};
 
 /// Which backend runs the test.
@@ -63,6 +63,10 @@ impl Driver {
 
     pub(crate) fn node_count(&self) -> usize {
         self.hooks.node_count()
+    }
+
+    pub(crate) fn app_info(&self, window: NodeId) -> NativeAppInfo {
+        self.hooks.app_info(window)
     }
 
     pub(crate) fn settle(&self) {

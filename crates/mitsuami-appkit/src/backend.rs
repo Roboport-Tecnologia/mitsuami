@@ -13,8 +13,9 @@ use mitsuami_core::backend::{
 use mitsuami_core::services::MenuEntry;
 use mitsuami_core::units::SpacingScale;
 use mitsuami_core::{
-    ButtonRole, ButtonStyle, Command, CustomProps, EventValue, ImageFit, ImageSource, Modality, NodeId, Opaque,
-    Orientation, Point, Prop, Rect, RowKey, ScrollAxes, SelectionMode, Size, TextStyle, UiEvent, WidgetKind, find_prop,
+    AppIcon, AppInfo, ButtonRole, ButtonStyle, Command, CustomProps, EventValue, ImageFit, ImageSource, Modality,
+    NativeAppInfo, NativeIcon, NodeId, Opaque, Orientation, Point, Prop, Rect, RowKey, ScrollAxes, SelectionMode, Size,
+    TextStyle, UiEvent, WidgetKind, find_prop,
 };
 use objc2::rc::Retained;
 use objc2::runtime::{AnyObject, ProtocolObject};
@@ -31,7 +32,10 @@ use objc2_app_kit::{
     NSWindowStyleMask, NSWorkspace,
 };
 use objc2_core_foundation::{CFRunLoop, kCFRunLoopDefaultMode};
-use objc2_foundation::{NSArray, NSDictionary, NSNotificationCenter, NSPoint, NSRange, NSRect, NSSize, NSString};
+use objc2_foundation::{
+    NSArray, NSBundle, NSData, NSDictionary, NSNotificationCenter, NSPoint, NSProcessInfo, NSRange, NSRect, NSSize,
+    NSString,
+};
 
 use crate::classes::{ActionTarget, ClosureTarget, DrawnView, HostView, ViewMap, WindowDelegate};
 use crate::custom::{AppKitCx, Emitter, ErasedRender, NativePayload};
@@ -220,6 +224,8 @@ struct State {
     pending_show: Vec<NodeId>,
     /// The key view chain last built for each window.
     focus_orders: HashMap<NodeId, Vec<NodeId>>,
+    /// The app's name, for the app menu.
+    app_name: Option<String>,
 }
 
 pub struct AppKitBackend {
@@ -307,6 +313,7 @@ impl AppKitBackend {
                 log: Vec::new(),
                 pending_show: Vec::new(),
                 focus_orders: HashMap::new(),
+                app_name: None,
             })),
         }
     }
@@ -317,6 +324,13 @@ impl AppKitBackend {
 }
 
 impl AppKitHandle {
+    /// The app's name as its menu shows it: the app's, or else the
+    /// process's (a bundled app's executable).
+    pub(crate) fn app_name(&self) -> String {
+        let name = self.state.borrow().app_name.clone();
+        name.unwrap_or_else(|| NSProcessInfo::processInfo().processName().to_string())
+    }
+
     pub fn command_log(&self) -> Vec<Command> {
         self.state.borrow().log.clone()
     }
@@ -438,6 +452,19 @@ impl mitsuami_core::TestHooks for AppKitHandle {
 
     fn node_count(&self) -> usize {
         AppKitHandle::node_count(self)
+    }
+
+    /// The id is the bundle's; the name is kept, as only the menus show
+    /// it; the icon is the Dock's, in points.
+    fn app_info(&self, _window: NodeId) -> NativeAppInfo {
+        let mtm = self.state.borrow().mtm;
+        let id = NSBundle::mainBundle().bundleIdentifier().map(|id| id.to_string());
+        // In points: AppKit keeps a snapshot at the screen's scale.
+        let icon = NSApplication::sharedApplication(mtm).applicationIconImage().map(|image| {
+            let size = image.size();
+            NativeIcon::Image { width: size.width.round() as u32, height: size.height.round() as u32 }
+        });
+        NativeAppInfo { id, name: self.state.borrow().app_name.clone(), icon }
     }
 
     /// Offscreen windows get no display cycle, where tables add the rows
@@ -1921,6 +1948,26 @@ impl Backend for AppKitBackend {
             focused: focused(&node.widget),
             scroll_offset,
         })
+    }
+
+    /// The id is the bundle's, and so is the icon if the bundle has one: a
+    /// bundle's icon has the sizes and variants (dark, tinted) that one
+    /// image doesn't. The name goes in the app menu; the menu bar's title
+    /// is the bundle's or the process's, which AppKit alone sets.
+    fn set_app_info(&mut self, info: &AppInfo) {
+        let mut state = self.state.borrow_mut();
+        state.app_name = info.name.clone();
+        let bundle = NSBundle::mainBundle();
+        let has_icon = ["CFBundleIconFile", "CFBundleIconName"]
+            .iter()
+            .any(|key| bundle.objectForInfoDictionaryKey(&ns(key)).is_some());
+        let image = info.icon.as_ref().filter(|_| !has_icon).and_then(|icon| match icon {
+            AppIcon::File(path) => NSImage::initWithContentsOfFile(NSImage::alloc(), &ns(&path.to_string_lossy())),
+            AppIcon::Bytes(bytes) => NSImage::initWithData(NSImage::alloc(), &NSData::with_bytes(bytes)),
+        });
+        if let Some(image) = image {
+            unsafe { NSApplication::sharedApplication(state.mtm).setApplicationIconImage(Some(&image)) };
+        }
     }
 
     fn services(&self) -> Box<dyn mitsuami_core::services::Services> {

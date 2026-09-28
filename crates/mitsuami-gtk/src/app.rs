@@ -5,8 +5,8 @@ use std::rc::Rc;
 use std::sync::Arc;
 
 use gtk::glib;
-use mitsuami_core::Ui;
 use mitsuami_core::services::MenuBar;
+use mitsuami_core::{AppInfo, Ui};
 
 use crate::backend::{BackendOptions, GtkBackend};
 
@@ -22,11 +22,16 @@ fn init() {
 
 /// Starts the app: `setup` creates the windows, then GLib's main loop takes
 /// over. Returns when the last window closes.
-pub fn run(setup: impl FnOnce(&Ui)) {
+pub fn run(info: AppInfo, setup: impl FnOnce(&Ui)) {
+    // GDK's X11 backend takes the windows' class from it as it starts.
+    if let Some(id) = &info.id {
+        glib::set_prgname(Some(id.as_str()));
+    }
     init();
     let backend = GtkBackend::new(BackendOptions::default());
     let handle = backend.handle();
     let ui = Ui::new(backend);
+    ui.set_app_info(info);
     // The standard menu (Quit), until the app installs its own.
     ui.set_menu(MenuBar::new());
     let main_loop = glib::MainLoop::new(None, false);

@@ -1,6 +1,6 @@
 //! Starting an app on the native backend of the target platform.
 
-use mitsuami_core::{AnyView, CurrentWindow, Ui, UiEvent, View, WindowSize, provide_stores};
+use mitsuami_core::{AnyView, AppIcon, AppInfo, CurrentWindow, Ui, UiEvent, View, WindowSize, provide_stores};
 use mitsuami_reactive::{Owner, provide};
 use mitsuami_widgets::Window;
 
@@ -16,19 +16,47 @@ enum Startup {
     View(Window),
 }
 
-/// An application: its windows and how to start it.
+/// An application: who it is, its windows and how to start it.
 ///
 /// ```ignore
-/// App::new().window("Counter", Size::new(360.0, 200.0), || counter(0)).run();
+/// App::new()
+///     .id("org.example.Counter")
+///     .name("Counter")
+///     .icon(AppIcon::bytes(include_bytes!("../icon.png")))
+///     .window("Counter", Size::new(360.0, 200.0), || counter(0))
+///     .run();
 /// ```
 #[derive(Default)]
 pub struct App {
+    info: AppInfo,
     windows: Vec<Startup>,
 }
 
 impl App {
     pub fn new() -> App {
         App::default()
+    }
+
+    /// Its id, in reverse DNS (`org.example.Player`): what Linux desktops
+    /// match its windows to its `.desktop` file and icon by, and an
+    /// unpackaged Windows app's AppUserModelID. A macOS app's id is its
+    /// bundle's. See [`AppInfo::id`].
+    pub fn id(mut self, id: impl Into<String>) -> App {
+        self.info.id = Some(id.into());
+        self
+    }
+
+    /// The name people know it by. See [`AppInfo::name`].
+    pub fn name(mut self, name: impl Into<String>) -> App {
+        self.info.name = Some(name.into());
+        self
+    }
+
+    /// Its icon, for platforms that take one at run time. See
+    /// [`AppInfo::icon`].
+    pub fn icon(mut self, icon: AppIcon) -> App {
+        self.info.icon = Some(icon);
+        self
     }
 
     /// Adds a window, opened at startup. `size` is the content size: a
@@ -57,7 +85,7 @@ impl App {
 
     /// Runs until the last window closes.
     pub fn run(self) {
-        let windows = self.windows;
+        let (info, windows) = (self.info, self.windows);
         let setup = move |ui: &Ui| {
             // The app scope makes the Ui available to every component
             // (`inject::<Ui>()`, `spawn_local`, `sleep`) and holds the
@@ -78,18 +106,18 @@ impl App {
             }
         };
         #[cfg(target_os = "macos")]
-        mitsuami_appkit::run(setup);
+        mitsuami_appkit::run(info, setup);
         #[cfg(all(target_os = "linux", feature = "kde"))]
-        mitsuami_kirigami::run(setup);
+        mitsuami_kirigami::run(info, setup);
         #[cfg(all(target_os = "linux", feature = "gtk", not(feature = "kde")))]
-        mitsuami_gtk::run(setup);
+        mitsuami_gtk::run(info, setup);
         #[cfg(all(target_os = "linux", not(any(feature = "gtk", feature = "kde"))))]
-        let _ = setup;
+        let _ = (info, setup);
         #[cfg(windows)]
-        mitsuami_winui::run(setup);
+        mitsuami_winui::run(info, setup);
         #[cfg(not(any(target_os = "macos", target_os = "linux", windows)))]
         {
-            let _ = setup;
+            let _ = (info, setup);
             panic!("mitsuami: no native backend for this platform");
         }
     }

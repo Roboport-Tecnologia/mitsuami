@@ -22,9 +22,9 @@ use mitsuami_core::raw_window_handle::{HandleError, RawDisplayHandle, RawWindowH
 use mitsuami_core::services::menu_item_by_id;
 use mitsuami_core::units::SpacingScale;
 use mitsuami_core::{
-    Command, EventValue, ImageSource, KeyCode, Modifiers, MouseButton, NativeSurface, NodeId, Orientation, Point,
-    PointerEvent, PointerKind, Prop, Rect, RowKey, ScrollDelta, SelectionMode, Size, SurfaceHandle, SurfaceInput,
-    SurfaceSize, TextStyle, UiEvent, WidgetKind, find_prop,
+    AppInfo, Command, EventValue, ImageSource, KeyCode, Modifiers, MouseButton, NativeAppInfo, NativeIcon,
+    NativeSurface, NodeId, Orientation, Point, PointerEvent, PointerKind, Prop, Rect, RowKey, ScrollDelta,
+    SelectionMode, Size, SurfaceHandle, SurfaceInput, SurfaceSize, TextStyle, UiEvent, WidgetKind, find_prop,
 };
 
 /// A window's toolbar: this high, above its content, with its items this
@@ -106,6 +106,7 @@ struct State {
     log: Vec<Command>,
     focused: Option<NodeId>,
     focus_orders: BTreeMap<NodeId, Vec<NodeId>>,
+    app: AppInfo,
 }
 
 impl State {
@@ -493,6 +494,7 @@ impl HeadlessBackend {
                 log: Vec::new(),
                 focused: None,
                 focus_orders: BTreeMap::new(),
+                app: AppInfo::default(),
             })),
         }
     }
@@ -618,6 +620,18 @@ impl mitsuami_core::TestHooks for HeadlessHandle {
 
     fn node_count(&self) -> usize {
         HeadlessHandle::node_count(self)
+    }
+
+    /// All of it, as every platform has a place for some of it; the icon's
+    /// size from its PNG header.
+    fn app_info(&self, _window: NodeId) -> NativeAppInfo {
+        let app = self.state.borrow().app.clone();
+        let icon = app.icon.and_then(|icon| icon.read()).and_then(|bytes| png_size(&bytes));
+        NativeAppInfo {
+            id: app.id,
+            name: app.name,
+            icon: icon.map(|size| NativeIcon::Image { width: size.width as u32, height: size.height as u32 }),
+        }
     }
 }
 
@@ -850,7 +864,7 @@ impl Backend for HeadlessBackend {
             // else is a file the headless backend can't read: no size.
             WidgetKind::Image => match find_prop!(node.props, Image) {
                 Some(ImageSource::Pixels(pixels)) => pixels.size(),
-                Some(ImageSource::File(path)) => png_size(&path).unwrap_or(Size::ZERO),
+                Some(ImageSource::File(path)) => png_file_size(&path).unwrap_or(Size::ZERO),
                 None => Size::ZERO,
             },
             // Sized for its chosen option, with room for the arrow.
@@ -1150,6 +1164,10 @@ impl Backend for HeadlessBackend {
     fn services(&self) -> Box<dyn mitsuami_core::services::Services> {
         Box::new(FakeServices::default())
     }
+
+    fn set_app_info(&mut self, info: &AppInfo) {
+        self.state.borrow_mut().app = info.clone();
+    }
 }
 
 /// Greedy word wrap with fixed-width characters.
@@ -1180,12 +1198,16 @@ fn text_size(text: &str, font: f32, wrap_width: Option<f32>, max_lines: Option<u
     Size::new(widest as f32 * char_width, lines.len().max(1) as f32 * line_height)
 }
 
-/// A PNG's size, from its header (the IHDR chunk comes first).
-fn png_size(path: &std::path::Path) -> Option<Size> {
+fn png_file_size(path: &std::path::Path) -> Option<Size> {
     use std::io::Read;
     let mut header = [0u8; 24];
     std::fs::File::open(path).ok()?.read_exact(&mut header).ok()?;
-    if header[..8] != *b"\x89PNG\r\n\x1a\n" || header[12..16] != *b"IHDR" {
+    png_size(&header)
+}
+
+/// A PNG's size, from its header (the IHDR chunk comes first).
+fn png_size(header: &[u8]) -> Option<Size> {
+    if header.len() < 24 || header[..8] != *b"\x89PNG\r\n\x1a\n" || header[12..16] != *b"IHDR" {
         return None;
     }
     let number = |at: usize| u32::from_be_bytes(header[at..at + 4].try_into().unwrap()) as f32;

@@ -12,6 +12,7 @@ use std::rc::{Rc, Weak};
 use taffy::TaffyTree;
 
 use crate::a11y::{A11yAction, A11yNode, A11yProps, ActionError, Role};
+use crate::app_info::AppInfo;
 use crate::backend::{AvailableSpace, Backend, EventSink, MeasureRequest, NativeState, PlatformMetrics};
 use crate::command::{Command, EventValue, UiEvent};
 use crate::custom::CustomProps;
@@ -231,6 +232,12 @@ impl Ui {
     pub fn time_to_next_timer(&self) -> Option<std::time::Duration> {
         let now = self.executor.now();
         self.executor.next_deadline().map(|deadline| deadline.saturating_sub(now))
+    }
+
+    /// The app's id, name and icon, for the platform to show. Set it
+    /// before the app's first window; `App` does.
+    pub fn set_app_info(&self, info: AppInfo) {
+        self.inner.borrow_mut().backend.set_app_info(&info);
     }
 
     // ------------------------------------------------------------- services

@@ -83,8 +83,8 @@ pub mod prelude {
     };
     pub use mitsuami_core::task::{TaskHandle, sleep, spawn_blocking, spawn_local};
     pub use mitsuami_core::{
-        A11yAction, A11yProps, Canvas, Color, Composed, Custom, CustomView, CustomWidget, Drawn, MeasureRequest, Path,
-        PlatformMetrics, PointerEvent, PointerKind, Rect, Render, Renderer, Shape,
+        A11yAction, A11yProps, AppIcon, AppInfo, Canvas, Color, Composed, Custom, CustomView, CustomWidget, Drawn,
+        MeasureRequest, Path, PlatformMetrics, PointerEvent, PointerKind, Rect, Render, Renderer, Shape,
     };
     pub use mitsuami_core::{Action, Resource, Store, action, resource, resource_on, use_store};
     pub use mitsuami_core::{

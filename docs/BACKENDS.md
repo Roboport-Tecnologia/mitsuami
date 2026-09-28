@@ -23,7 +23,7 @@ The backend **never lays anything out** and **never calls back into the `Ui`** f
 | `Backend` | `mitsuami_core::Backend` | `mitsuami-appkit/src/backend.rs` |
 | `Services` (clipboard, dialogs, menus) | `mitsuami_core::services::Services` | `mitsuami-appkit/src/services.rs` |
 | `TestHooks` on your shareable handle | `mitsuami_core::TestHooks` | `impl TestHooks for AppKitHandle` (`settle` is only needed where the platform works asynchronously: see `GtkHandle`) |
-| `run(setup)`: the app's run loop | your crate | `mitsuami-appkit/src/app.rs` |
+| `run(info, setup)`: the app's run loop | your crate | `mitsuami-appkit/src/app.rs` |
 | `init_for_tests()` | your crate | same file |
 
 You also touch three places outside your crate, each behind a `cfg(target_os = …)`:
@@ -230,6 +230,8 @@ These make one test suite run against every backend.
 
 **`TestHooks::resize_window`** resizes a window's content the way the user would, so the platform reports `WindowResized`: no smaller than its `MinSize`, as a drag goes, even where the platform's call alone (AppKit's `setContentSize:`) would.
 
+**`TestHooks::app_info(window)`** reads back what the window shows of the app's id, name and icon (§8d): `None` for what the platform has no place for, the icon as an image's size or a theme name.
+
 **`TestHooks::settle`** runs after every settle and while a test awaits something the platform completes (a capture). Use it to let the platform catch up without blocking: GTK presents windows there and dispatches what its main context has ready (allocations, adjustments, focus). AppKit does everything synchronously and leaves it empty.
 
 ## 8. Services
@@ -300,6 +302,16 @@ A `GpuSurface` is a native surface the app presents to with its own GPU API, fro
 - **The keyboard grab** focuses the surface, then gives it every key, the window's shortcuts and as many of the system's as the platform lets an app take (AppKit: Command-Tab with the app's presentation options; GTK: `inhibit_system_shortcuts`; Qt: the Wayland shortcuts inhibitor or an X11 keyboard grab; Windows: a low-level keyboard hook). It ends (`KeyboardGrabEnded`) when the surface or its window loses focus, or the platform lets go.
 - **Synthesized input** (`synthesize` on a surface that takes input): `Click` focuses it and reports the primary button down and up there, `Key` the key down and up (the surface has focus), `Scroll` one scroll in points. Through the platform's own event methods where it has them.
 
+## 8d. The app's id, name and icon
+
+`Backend::set_app_info(&AppInfo)` comes before the app's first window (`run` calls `Ui::set_app_info` right after `Ui::new`), and perhaps again later (tests). Take what the platform has a place for, for the windows there are and those to come; a packaged app's own (a bundle's, an MSIX package's) wins.
+
+| | AppKit | GTK 4 | WinUI 3 | Kirigami |
+|---|---|---|---|---|
+| id | the bundle's; ignored | `glib::set_prgname` (Wayland app id, X11 class), also in `run` before `gtk::init` | `SetCurrentProcessExplicitAppUserModelID`, unless packaged | `QGuiApplication::setDesktopFileName` |
+| name | the app menu's About, Hide and Quit | `glib::set_application_name` | ignored (the executable's or its shortcut's) | `setApplicationDisplayName` (Qt adds it to window titles) |
+| icon | `applicationIconImage`, unless the bundle has an icon | the theme's icon named after the id (`set_default_icon_name`); the image is ignored | `AppWindow.SetIcon` on each window: an `.ico` file's path, or else an `HICON` from the PNG | `setWindowIcon(QIcon::fromTheme(id, image))` |
+
 ## 9. Tab order
 
 `SetFocusOrder` gives the window-wide order. Platforms differ in how to impose it:
@@ -315,7 +327,7 @@ The conformance tests use three controls arranged so that reading order and posi
 
 `run(setup)` owns the platform's main loop (see `mitsuami-appkit/src/app.rs`):
 
-1. Create the platform app, your backend and `Ui::new(backend)`. Install the standard menus with `ui.set_menu(MenuBar::new())`.
+1. Create the platform app, your backend and `Ui::new(backend)`. Give it the app's id, name and icon with `ui.set_app_info(info)` (§8d), then install the standard menus with `ui.set_menu(MenuBar::new())`.
 2. `ui.set_commit_scheduler(wake)`: called when something changed; make the loop turn soon.
 3. `ui.set_waker(Arc<dyn Fn() + Send + Sync>)`: **thread-safe** wake-up, called when background work completes a task.
 4. `setup(&ui)` (the app creates its windows), then `ui.tick()`, **then** show the windows, so nobody sees an unlaid-out frame.

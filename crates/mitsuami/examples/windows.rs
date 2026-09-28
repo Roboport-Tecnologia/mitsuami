@@ -14,6 +14,10 @@
 //!   whole app (`Modality::Application`). It applies from the next opening.
 //!   Escape closes a modal one, as it closes dialogs (asking first, with
 //!   unsaved changes); a plain one ignores it.
+//! - The app's id, name and icon (`App::id`, `name`, `icon`): the Dock's
+//!   icon and "Quit Machines" on macOS, the windows' icon on Windows,
+//!   " — Machines" after each title on KDE. GTK looks for the icon named
+//!   after the id in the theme, which an installed app puts there.
 
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
@@ -147,6 +151,9 @@ fn machine_row(name: &'static str, saved: Settings, open_as: Signal<usize>) -> i
 
 fn main() {
     App::new()
+        .id("org.mitsuami.Machines")
+        .name("Machines")
+        .icon(AppIcon::bytes(include_bytes!("../tests/assets/blue-red-20x10.png").as_slice()))
         .window("Machines", WindowSize::FitHeight(420.0), || {
             let about = signal(false);
             let open_as = signal(1);

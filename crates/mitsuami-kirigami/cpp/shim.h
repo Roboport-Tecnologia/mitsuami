@@ -177,6 +177,17 @@ void mq_window_set_states(QObject* window, int32_t states);
 // available area less the window's frame. Returns 0 without a screen.
 int32_t mq_window_available_size(QObject* window, double* width, double* height);
 
+// The app's id (its desktop file's name: the Wayland app id), its display
+// name (which Qt adds to window titles) and icon: the theme's icon named
+// after the id, else the image (encoded, as PNG; null for none). Null
+// strings leave them as they are.
+void mq_set_app_info(const char* id, const char* name, const uint8_t* icon, int32_t icon_len);
+char* mq_app_id(void);
+char* mq_app_name(void);
+// A window's icon (the app's unless it has its own): its theme name, or
+// null and its largest size. Returns 0 without an icon.
+int32_t mq_window_icon(QObject* window, char** name, int32_t* width, int32_t* height);
+
 // Clipboard.
 char* mq_clipboard_text(void);
 void mq_set_clipboard_text(const char* text);

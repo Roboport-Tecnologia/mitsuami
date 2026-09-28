@@ -4,8 +4,8 @@ use std::cell::{Cell, RefCell};
 use std::rc::Rc;
 use std::sync::Arc;
 
-use mitsuami_core::Ui;
 use mitsuami_core::services::MenuBar;
+use mitsuami_core::{AppInfo, Ui};
 
 use crate::backend::{BackendOptions, KirigamiBackend};
 use crate::ffi;
@@ -18,11 +18,12 @@ fn init() {
 
 /// Starts the app: `setup` creates the windows, then Qt's event loop takes
 /// over. Returns when the last window closes.
-pub fn run(setup: impl FnOnce(&Ui)) {
+pub fn run(info: AppInfo, setup: impl FnOnce(&Ui)) {
     init();
     let backend = KirigamiBackend::new(BackendOptions::default());
     let handle = backend.handle();
     let ui = Ui::new(backend);
+    ui.set_app_info(info);
     // The standard menu (Quit), until the app installs its own.
     ui.set_menu(MenuBar::new());
 

@@ -15,8 +15,9 @@ use mitsuami_core::backend::{
 use mitsuami_core::services::{MenuBarData, Reply};
 use mitsuami_core::units::SpacingScale;
 use mitsuami_core::{
-    ButtonRole, ButtonStyle, Command, CustomProps, EventValue, ImageFit, ImageSource, Modality, NodeId, Opaque,
-    Orientation, Point, Prop, Rect, RowKey, ScrollAxes, SelectionMode, Size, TextStyle, UiEvent, WidgetKind, find_prop,
+    AppInfo, ButtonRole, ButtonStyle, Command, CustomProps, EventValue, ImageFit, ImageSource, Modality, NativeAppInfo,
+    NativeIcon, NodeId, Opaque, Orientation, Point, Prop, Rect, RowKey, ScrollAxes, SelectionMode, Size, TextStyle,
+    UiEvent, WidgetKind, find_prop,
 };
 
 use crate::custom::{DrawnArea, Emitter, ErasedRender, GtkCx, NativePayload};
@@ -715,6 +716,18 @@ impl mitsuami_core::TestHooks for GtkHandle {
 
     fn node_count(&self) -> usize {
         GtkHandle::node_count(self)
+    }
+
+    fn app_info(&self, window: NodeId) -> NativeAppInfo {
+        let icon = self
+            .window_parts(window)
+            .and_then(|(window, _, _)| window.icon_name())
+            .or_else(gtk::Window::default_icon_name);
+        NativeAppInfo {
+            id: glib::prgname().map(Into::into),
+            name: glib::application_name().map(Into::into),
+            icon: icon.map(|name| NativeIcon::Named(name.into())),
+        }
     }
 
     /// Windows are shown once laid out, and GTK delivers what it queued
@@ -2248,6 +2261,21 @@ impl Backend for GtkBackend {
 
     fn services(&self) -> Box<dyn mitsuami_core::services::Services> {
         Box::new(GtkServices::new(self.handle()))
+    }
+
+    /// Without a `GtkApplication`, GTK takes the Wayland app id and the X11
+    /// class from the program name, which `run` also sets before GTK
+    /// starts (X11 reads it then). GTK 4 windows show only themed icons,
+    /// and GNOME apps install theirs named after their id, so windows show
+    /// the icon of that name; the app's image is for the other platforms.
+    fn set_app_info(&mut self, info: &AppInfo) {
+        if let Some(id) = &info.id {
+            glib::set_prgname(Some(id.as_str()));
+            gtk::Window::set_default_icon_name(id);
+        }
+        if let Some(name) = &info.name {
+            glib::set_application_name(name);
+        }
     }
 
     /// Only what GTK has drawn can be captured: this replies from the frame

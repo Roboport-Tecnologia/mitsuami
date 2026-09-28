@@ -12,9 +12,9 @@ use mitsuami_core::backend::{
 };
 use mitsuami_core::services::{MenuBarData, Reply};
 use mitsuami_core::{
-    ButtonRole, ButtonStyle, Command, CustomProps, DisplayList, EventValue, ImageFit, ImageSource, KeyCode, Modality,
-    Modifiers, NodeId, Opaque, Orientation, Point, PointerEvent, Prop, Rect, RowKey, ScrollAxes, ScrollDelta,
-    SelectionMode, Size, SurfaceInput, TextStyle, UiEvent, WidgetKind, find_prop,
+    AppInfo, ButtonRole, ButtonStyle, Command, CustomProps, DisplayList, EventValue, ImageFit, ImageSource, KeyCode,
+    Modality, Modifiers, NativeAppInfo, NativeIcon, NodeId, Opaque, Orientation, Point, PointerEvent, Prop, Rect,
+    RowKey, ScrollAxes, ScrollDelta, SelectionMode, Size, SurfaceInput, TextStyle, UiEvent, WidgetKind, find_prop,
 };
 
 use crate::custom::{Emitter, ErasedRender, KirigamiCx, NativePayload, flatten};
@@ -704,6 +704,19 @@ impl mitsuami_core::TestHooks for KirigamiHandle {
 
     fn node_count(&self) -> usize {
         KirigamiHandle::node_count(self)
+    }
+
+    fn app_info(&self, window: NodeId) -> NativeAppInfo {
+        let (id, name) = ffi::app_id_and_name();
+        let icon = self.window_root(window).and_then(|root| root.window.window_icon());
+        NativeAppInfo {
+            id: (!id.is_empty()).then_some(id),
+            name: (!name.is_empty()).then_some(name),
+            icon: icon.map(|icon| match icon {
+                ffi::WindowIcon::Named(name) => NativeIcon::Named(name),
+                ffi::WindowIcon::Image { width, height } => NativeIcon::Image { width, height },
+            }),
+        }
     }
 
     /// Windows are shown once laid out, and Qt delivers what it queued
@@ -2006,6 +2019,13 @@ impl Backend for KirigamiBackend {
 
     fn services(&self) -> Box<dyn mitsuami_core::services::Services> {
         Box::new(KirigamiServices::new(self.handle()))
+    }
+
+    /// Qt's own: the desktop file name, the display name (after each
+    /// window's title, as KDE apps show theirs) and the window icon.
+    fn set_app_info(&mut self, info: &AppInfo) {
+        let icon = info.icon.as_ref().and_then(|icon| icon.read());
+        ffi::set_app_info(info.id.as_deref(), info.name.as_deref(), icon.as_deref());
     }
 
     /// Renders the window's scene right away, and crops it to the node.

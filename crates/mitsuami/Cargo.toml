@@ -156,6 +156,10 @@ name = "stores"
 harness = false
 
 [[test]]
+name = "app_info"
+harness = false
+
+[[test]]
 name = "todos"
 harness = false
 

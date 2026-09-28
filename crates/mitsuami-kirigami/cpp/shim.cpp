@@ -7,6 +7,7 @@
 #include <QCursor>
 #include <QFontInfo>
 #include <QHash>
+#include <QIcon>
 #include <QImage>
 #include <QKeyEvent>
 #include <QMimeData>
@@ -763,6 +764,40 @@ void mq_set_url_str(QObject* o, const char* name, const char* url) {
 }
 
 // -------------------------------------------------------------- clipboard
+
+// ------------------------------------------------------------ app info
+
+// As KDE apps do (KAboutData): the desktop file name is the id, and the
+// icon the theme's of that name, which the app's package installs.
+void mq_set_app_info(const char* id, const char* name, const uint8_t* icon, int32_t icon_len) {
+    if (id) QGuiApplication::setDesktopFileName(QString::fromUtf8(id));
+    if (name) QGuiApplication::setApplicationDisplayName(QString::fromUtf8(name));
+    QIcon image;
+    QPixmap pixmap;
+    if (icon && pixmap.loadFromData(icon, uint(icon_len))) image = QIcon(pixmap);
+    if (id) {
+        QGuiApplication::setWindowIcon(QIcon::fromTheme(QString::fromUtf8(id), image));
+    } else if (!image.isNull()) {
+        QGuiApplication::setWindowIcon(image);
+    }
+}
+
+char* mq_app_id(void) { return dup(QGuiApplication::desktopFileName()); }
+
+char* mq_app_name(void) { return dup(QGuiApplication::applicationDisplayName()); }
+
+int32_t mq_window_icon(QObject* window, char** name, int32_t* width, int32_t* height) {
+    auto* w = qobject_cast<QWindow*>(window);
+    const QIcon icon = w ? w->icon() : QGuiApplication::windowIcon();
+    if (icon.isNull()) return 0;
+    *name = icon.name().isEmpty() ? nullptr : dup(icon.name());
+    QSize largest;
+    for (const QSize& size : icon.availableSizes())
+        if (size.width() * size.height() > largest.width() * largest.height()) largest = size;
+    *width = largest.width();
+    *height = largest.height();
+    return 1;
+}
 
 char* mq_clipboard_text(void) {
     const QMimeData* data = QGuiApplication::clipboard()->mimeData();

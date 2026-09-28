@@ -5,7 +5,9 @@ use std::time::{Duration, Instant};
 
 use mitsuami_core::task::ManualClock;
 
-use mitsuami_core::{A11yNode, Appearance, Command, CurrentWindow, NodeId, NodeInfo, Role, Size, Ui, View, WindowSize};
+use mitsuami_core::{
+    A11yNode, Appearance, Command, CurrentWindow, NativeAppInfo, NodeId, NodeInfo, Role, Size, Ui, View, WindowSize,
+};
 use mitsuami_headless::{FakeServices, FakeServicesHandle, HeadlessHandle};
 use mitsuami_reactive::{Owner, provide};
 
@@ -173,6 +175,12 @@ impl TestApp {
     /// Number of live native widgets: a leak detector.
     pub fn native_node_count(&self) -> usize {
         self.driver.node_count()
+    }
+
+    /// What a window shows of the app's id, name and icon, read from the
+    /// platform: what it took of [`Ui::set_app_info`]'s.
+    pub fn native_app_info(&self, window: NodeId) -> NativeAppInfo {
+        self.driver.app_info(window)
     }
 
     /// Name of the running test.

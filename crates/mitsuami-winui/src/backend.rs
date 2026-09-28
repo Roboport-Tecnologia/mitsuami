@@ -13,9 +13,9 @@ use mitsuami_core::backend::{
 use mitsuami_core::services::{MenuBarData, MenuCheck, MenuData, MenuEntry, MenuItemData, Reply, Shortcut};
 use mitsuami_core::units::SpacingScale;
 use mitsuami_core::{
-    AnyValue, ButtonRole, ButtonStyle, Command, CustomProps, EventValue, ImageFit, ImageSource, Modality, NodeId,
-    Opaque, Orientation, Pixels, Point, Prop, Rect, RowKey, ScrollAxes, SelectionMode, Size, TextStyle, UiEvent,
-    WidgetKind, find_prop,
+    AnyValue, AppIcon, AppInfo, ButtonRole, ButtonStyle, Command, CustomProps, EventValue, ImageFit, ImageSource,
+    Modality, NativeAppInfo, NativeIcon, NodeId, Opaque, Orientation, Pixels, Point, Prop, Rect, RowKey, ScrollAxes,
+    SelectionMode, Size, TextStyle, UiEvent, WidgetKind, find_prop,
 };
 use windows_core::{EventRevoker, HSTRING, IInspectable, IUnknown, Interface};
 
@@ -384,6 +384,16 @@ pub(crate) struct State {
     log: Vec<Command>,
     pending_show: Vec<NodeId>,
     menus: Menus,
+    /// The app's icon, which every window gets.
+    icon: Option<WindowIcon>,
+}
+
+/// The app's icon, as windows take it.
+enum WindowIcon {
+    /// An `.ico` file, with its sizes.
+    File(String),
+    /// Kept for as long as windows show it.
+    Handle(w::HICON),
 }
 
 pub struct WinUiBackend {
@@ -548,6 +558,7 @@ impl WinUiBackend {
                 log: Vec::new(),
                 pending_show: Vec::new(),
                 menus: Menus::default(),
+                icon: None,
             })),
         }
     }
@@ -790,6 +801,30 @@ impl mitsuami_core::TestHooks for WinUiHandle {
 
     fn node_count(&self) -> usize {
         WinUiHandle::node_count(self)
+    }
+
+    /// The process's AppUserModelID and the icon the window's title bar
+    /// and taskbar button show. Windows keeps no name for the app.
+    fn app_info(&self, window: NodeId) -> NativeAppInfo {
+        let mut id = windows_core::PWSTR::null();
+        let id = unsafe { w::GetCurrentProcessExplicitAppUserModelID(&mut id) }.is_ok().then(|| unsafe {
+            let text = id.to_string().ok();
+            w::CoTaskMemFree(id.0.cast());
+            text
+        });
+        let hwnd = match self.state.borrow().nodes.get(&window).map(|n| &n.widget) {
+            Some(Widget::Window(parts)) => Some(parts.hwnd),
+            _ => None,
+        };
+        let icon = hwnd
+            .map(|hwnd| unsafe { w::SendMessageW(hwnd, w::WM_GETICON as u32, w::ICON_BIG as usize, 0) })
+            .filter(|icon| *icon != 0)
+            .and_then(|icon| icon_size(icon as w::HICON));
+        NativeAppInfo {
+            id: id.flatten(),
+            name: None,
+            icon: icon.map(|(width, height)| NativeIcon::Image { width, height }),
+        }
     }
 
     /// XAML reports some changes (text edits, scrolling, focus) after the
@@ -1233,6 +1268,69 @@ fn install_menu(parts: &mut WindowParts, menu: &MenuBarData, activate: &Rc<dyn F
 
 /// `WM_CLOSE`, which the close button and Alt+F4 end in: the app window
 /// raises `Closing`, which asks the app.
+/// Whether the app runs from a package (MSIX), which has its own id and
+/// icon.
+fn packaged() -> bool {
+    let mut length = 0u32;
+    unsafe { w::GetCurrentPackageFullName(&mut length, windows_core::PWSTR::null()) != w::APPMODEL_ERROR_NO_PACKAGE }
+}
+
+/// An `.ico` file as it is, or else the image (PNG, which icons may hold)
+/// as one icon of its own size.
+fn window_icon(icon: &AppIcon) -> Option<WindowIcon> {
+    if let AppIcon::File(path) = icon
+        && path.extension().is_some_and(|e| e.eq_ignore_ascii_case("ico"))
+    {
+        return Some(WindowIcon::File(path.to_string_lossy().into_owned()));
+    }
+    let bytes = icon.read()?;
+    let icon = unsafe {
+        w::CreateIconFromResourceEx(
+            bytes.as_ptr(),
+            bytes.len() as u32,
+            true.into(),
+            0x0003_0000,
+            0,
+            0,
+            w::LR_DEFAULTCOLOR as u32,
+        )
+    };
+    (!icon.is_null()).then_some(WindowIcon::Handle(icon))
+}
+
+fn set_icon(app_window: &w::AppWindow, icon: &WindowIcon) -> R<()> {
+    let app_window = app_window.cast::<w::IAppWindow>()?;
+    match icon {
+        WindowIcon::File(path) => app_window.SetIcon(path),
+        // An `IconId` is the icon's handle, as a `WindowId` is a window's.
+        WindowIcon::Handle(icon) => app_window.SetIconWithIconId(w::IconId { value: *icon as u64 }),
+    }
+}
+
+/// An icon's size in pixels. A monochrome icon's mask holds its image
+/// and its mask, one above the other.
+fn icon_size(icon: w::HICON) -> Option<(u32, u32)> {
+    let mut info = w::ICONINFO::default();
+    if !unsafe { w::GetIconInfo(icon, &mut info) }.as_bool() {
+        return None;
+    }
+    let colour = !info.hbmColor.is_null();
+    let mut bitmap = w::BITMAP::default();
+    let read = unsafe {
+        w::GetObjectW(
+            if colour { info.hbmColor } else { info.hbmMask },
+            size_of::<w::BITMAP>() as i32,
+            (&raw mut bitmap).cast(),
+        )
+    };
+    unsafe {
+        _ = w::DeleteObject(info.hbmColor);
+        _ = w::DeleteObject(info.hbmMask);
+    }
+    let height = if colour { bitmap.bmHeight } else { bitmap.bmHeight / 2 };
+    (read != 0).then_some((bitmap.bmWidth.max(0) as u32, height.max(0) as u32))
+}
+
 fn request_close(hwnd: w::HWND) {
     unsafe { _ = w::PostMessageW(hwnd, w::WM_CLOSE as u32, 0, 0) };
 }
@@ -1490,6 +1588,9 @@ impl State {
             Some(Appearance::Dark) => w::TitleBarTheme::Dark,
             None => w::TitleBarTheme::UseDefaultAppMode,
         })?;
+        if let Some(icon) = &self.icon {
+            _ = set_icon(&app_window, icon);
+        }
         let window_id = app_window.cast::<w::IAppWindow>()?.Id()?;
         let hwnd = window_id.value as usize as w::HWND;
         crate::session::watch(hwnd);
@@ -3656,6 +3757,29 @@ impl Backend for WinUiBackend {
                     .and_then(|e| e.FocusState())
                     .is_ok_and(|f| f != w::FocusState::Unfocused);
         Some(NativeState { kind: node.kind, props, frame, parent: node.parent, children, focused, scroll_offset })
+    }
+
+    /// The AppUserModelID groups the app's windows on the taskbar; only an
+    /// unpackaged app sets it, as a package has its own. The name is the
+    /// executable's (its version resource) or its shortcut's, so it's left.
+    /// Each window gets the icon, as a Win32 app's get its class's.
+    fn set_app_info(&mut self, info: &AppInfo) {
+        if let Some(id) = &info.id
+            && !packaged()
+        {
+            let id = HSTRING::from(id.as_str());
+            _ = unsafe { w::SetCurrentProcessExplicitAppUserModelID(windows_core::PCWSTR(id.as_ptr())) };
+        }
+        let Some(icon) = info.icon.as_ref().and_then(window_icon) else { return };
+        let mut state = self.state.borrow_mut();
+        for node in state.nodes.values() {
+            if let Widget::Window(parts) = &node.widget {
+                _ = set_icon(&parts.app_window, &icon);
+            }
+        }
+        if let Some(WindowIcon::Handle(old)) = state.icon.replace(icon) {
+            unsafe { _ = w::DestroyIcon(old) };
+        }
     }
 
     fn services(&self) -> Box<dyn mitsuami_core::services::Services> {

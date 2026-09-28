@@ -5,6 +5,7 @@ use std::collections::VecDeque;
 use std::rc::Rc;
 
 use crate::a11y::{A11yAction, ActionError};
+use crate::app_info::{AppInfo, NativeAppInfo};
 use crate::command::{Command, UiEvent};
 use crate::geometry::{Point, Rect, Size};
 use crate::units::SpacingScale;
@@ -171,6 +172,9 @@ pub trait TestHooks {
     fn take_command_log(&self) -> Vec<Command>;
     /// Live native nodes, as a leak detector.
     fn node_count(&self) -> usize;
+    /// What this window shows of the app's id, name and icon (see
+    /// [`AppInfo`]), read from the platform.
+    fn app_info(&self, window: NodeId) -> NativeAppInfo;
     /// Called after every settle: lets the platform catch up on work it
     /// does asynchronously (showing windows, allocating, delivering queued
     /// notifications) without waiting. Platforms that do it all
@@ -209,4 +213,9 @@ pub trait Backend {
     /// The platform's clipboard, dialogs and menus. Called once, when the
     /// backend is attached; tests may replace the result.
     fn services(&self) -> Box<dyn crate::services::Services>;
+
+    /// The app's id, name and icon, set before the app's first window, and
+    /// perhaps again later (tests). Apply what the platform has a place
+    /// for, to the windows there are and those to come.
+    fn set_app_info(&mut self, info: &AppInfo);
 }

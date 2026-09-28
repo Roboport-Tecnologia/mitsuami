@@ -119,6 +119,10 @@ unsafe extern "C" {
         hot_x: i32,
         hot_y: i32,
     );
+    fn mq_set_app_info(id: *const c_char, name: *const c_char, icon: *const u8, icon_len: i32);
+    fn mq_app_id() -> *mut c_char;
+    fn mq_app_name() -> *mut c_char;
+    fn mq_window_icon(window: Raw, name: *mut *mut c_char, width: *mut i32, height: *mut i32) -> i32;
     fn mq_window_states(window: Raw) -> i32;
     fn mq_window_set_states(window: Raw, states: i32);
     fn mq_window_available_size(window: Raw, width: *mut f64, height: *mut f64) -> i32;
@@ -289,6 +293,31 @@ pub(crate) fn platform_has_surfaces() -> bool {
 /// Qt's `wl_display`, on Wayland.
 pub(crate) fn wayland_display() -> Option<NonNull<c_void>> {
     NonNull::new(unsafe { mq_wayland_display() })
+}
+
+/// The app's id, display name and icon (encoded); `None` leaves each.
+pub(crate) fn set_app_info(id: Option<&str>, name: Option<&str>, icon: Option<&[u8]>) {
+    let (id, name) = (id.map(c), name.map(c));
+    let icon = icon.unwrap_or_default();
+    unsafe {
+        mq_set_app_info(
+            id.as_ref().map_or(std::ptr::null(), |id| id.as_ptr()),
+            name.as_ref().map_or(std::ptr::null(), |name| name.as_ptr()),
+            if icon.is_empty() { std::ptr::null() } else { icon.as_ptr() },
+            icon.len().min(i32::MAX as usize) as i32,
+        )
+    }
+}
+
+/// The app's desktop file name and display name, empty when unset.
+pub(crate) fn app_id_and_name() -> (String, String) {
+    unsafe { (owned(mq_app_id()), owned(mq_app_name())) }
+}
+
+/// What a window's icon is.
+pub(crate) enum WindowIcon {
+    Named(String),
+    Image { width: u32, height: u32 },
 }
 
 pub(crate) fn clipboard_text() -> Option<String> {
@@ -567,6 +596,18 @@ impl QmlObject {
                 ),
             }
         }
+    }
+
+    /// A window's icon, the app's unless it has its own.
+    pub(crate) fn window_icon(self) -> Option<WindowIcon> {
+        let (mut name, mut width, mut height) = (std::ptr::null_mut(), 0, 0);
+        if unsafe { mq_window_icon(self.raw(), &mut name, &mut width, &mut height) } == 0 {
+            return None;
+        }
+        Some(match name.is_null() {
+            false => WindowIcon::Named(owned(name)),
+            true => WindowIcon::Image { width: width.max(0) as u32, height: height.max(0) as u32 },
+        })
     }
 
     /// A window's `Qt::WindowStates`.
