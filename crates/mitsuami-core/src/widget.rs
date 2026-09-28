@@ -89,6 +89,12 @@ pub enum WidgetKind {
     /// a picture from [`Prop::Image`], at its own size unless the layout
     /// sizes it, fitted as [`Prop::ImageFit`] says.
     Image,
+    /// An icon from the platform's own set, by its name there: an SF
+    /// Symbol in an NSImageView, a themed icon in a gtk::Image or a
+    /// Kirigami.Icon, a Segoe Fluent Icons glyph in a FontIcon on WinUI.
+    /// [`Prop::Icon`] names it, at the platform's own size unless
+    /// [`Prop::IconSize`] says otherwise.
+    Icon,
     /// A native surface the app presents to with its own GPU API, off the
     /// UI thread (an `NSView` backed by a `CAMetalLayer`, a Wayland
     /// subsurface, a child window). The backend reports it as
@@ -166,6 +172,7 @@ impl WidgetKind {
             WidgetKind::Progress => "Progress",
             WidgetKind::Spinner => "Spinner",
             WidgetKind::Image => "Image",
+            WidgetKind::Icon => "Icon",
             WidgetKind::GpuSurface => "GpuSurface",
             WidgetKind::Custom(name) => name,
             WidgetKind::Native => "Native",
@@ -470,8 +477,10 @@ pub enum Prop {
     /// How many lines a `Text` shows at most, the last one cut off with an
     /// ellipsis, as the platform draws one. `None`: all of them.
     MaxLines(Option<u32>),
-    /// A `Text`'s colour. Semantic colours follow the appearance (dark
-    /// mode, high contrast, the accent colour); `Rgba` is fixed.
+    /// A `Text`'s or `Icon`'s colour. Semantic colours follow the
+    /// appearance (dark mode, high contrast, the accent colour); `Rgba` is
+    /// fixed. Icons in full colour keep their own; symbolic ones take it.
+    /// Sent only if the app chose.
     TextColor(Color),
     /// A `Text`'s weight, in place of its text style's.
     FontWeight(FontWeight),
@@ -482,8 +491,8 @@ pub enum Prop {
     /// right here.
     TextAlign(HorizontalAlign),
     /// Caption of a `Button`, `Checkbox` or `Switch`; accessible name of a
-    /// `Switch`, `Select`, `Slider`, `NumberInput`, `Progress`, `Image` or
-    /// `GpuSurface`.
+    /// `Switch`, `Select`, `Slider`, `NumberInput`, `Progress`, `Image`,
+    /// `Icon` or `GpuSurface`, and of a `Button` that shows only its icon.
     Label(String),
     /// Current text of a `TextInput` or `PasswordInput`.
     Value(String),
@@ -541,6 +550,19 @@ pub enum Prop {
     Image(ImageSource),
     /// How an `Image` fills its frame; sent only if the app chose.
     ImageFit(ImageFit),
+    /// What an `Icon` shows, or the icon a `Button` shows before its
+    /// caption: a name in the platform's own set (an SF Symbol, a themed
+    /// icon's name, a Segoe Fluent Icons glyph). Empty: none. A name the
+    /// set doesn't have shows as the platform shows one: nothing, or its
+    /// missing-icon icon.
+    Icon(String),
+    /// How big an `Icon` is, in points, used as the platform sizes icons:
+    /// an SF Symbol's point size (as a font's), the side of a square
+    /// elsewhere. Sent only if the app chose.
+    IconSize(f32),
+    /// A `Button` shows its icon without its caption, which stays its
+    /// accessible name. Without an icon it shows its caption.
+    IconOnly(bool),
     /// Whether a `Spinner` spins. Stopped, it shows nothing but keeps its
     /// place.
     Running(bool),
@@ -626,6 +648,9 @@ impl Prop {
                 | Prop::ButtonStyle(_)
                 | Prop::Orientation(_)
                 | Prop::Image(_)
+                | Prop::Icon(_)
+                | Prop::IconSize(_)
+                | Prop::IconOnly(_)
                 | Prop::Custom(_)
                 | Prop::Native(_)
                 | Prop::Tweak(_)

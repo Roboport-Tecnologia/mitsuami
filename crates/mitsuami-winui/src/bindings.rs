@@ -4606,12 +4606,26 @@ impl IFontIcon {
             .ok()
         }
     }
+    pub fn FontSize(&self) -> windows_core::Result<f64> {
+        unsafe {
+            let mut result__ = core::mem::zeroed();
+            (windows_core::Interface::vtable(self).FontSize)(windows_core::Interface::as_raw(self), &mut result__)
+                .map(|| result__)
+        }
+    }
+    pub fn SetFontSize(&self, value: f64) -> windows_core::Result<()> {
+        unsafe {
+            (windows_core::Interface::vtable(self).SetFontSize)(windows_core::Interface::as_raw(self), value).ok()
+        }
+    }
 }
 #[repr(C)]
 pub struct IFontIcon_Vtbl {
     pub base__: windows_core::IInspectable_Vtbl,
     pub Glyph: unsafe extern "system" fn(*mut core::ffi::c_void, *mut *mut core::ffi::c_void) -> windows_core::HRESULT,
     pub SetGlyph: unsafe extern "system" fn(*mut core::ffi::c_void, *mut core::ffi::c_void) -> windows_core::HRESULT,
+    pub FontSize: unsafe extern "system" fn(*mut core::ffi::c_void, *mut f64) -> windows_core::HRESULT,
+    pub SetFontSize: unsafe extern "system" fn(*mut core::ffi::c_void, f64) -> windows_core::HRESULT,
 }
 windows_core::imp::define_interface!(IFontIconFactory, IFontIconFactory_Vtbl, 0xaa9a24fe_bef8_564a_b200_694cd6f6ba4e);
 impl windows_core::RuntimeType for IFontIconFactory {
@@ -8352,6 +8366,58 @@ pub struct ISolidColorBrushFactory_Vtbl {
     pub base__: windows_core::IInspectable_Vtbl,
     pub CreateInstanceWithColor:
         unsafe extern "system" fn(*mut core::ffi::c_void, Color, *mut *mut core::ffi::c_void) -> windows_core::HRESULT,
+}
+windows_core::imp::define_interface!(IStackPanel, IStackPanel_Vtbl, 0x493ab00b_3a6a_5e4a_9452_407cd5197406);
+impl windows_core::RuntimeType for IStackPanel {
+    const SIGNATURE: windows_core::imp::ConstBuffer = windows_core::imp::ConstBuffer::for_interface::<Self>();
+}
+impl IStackPanel {
+    pub fn SetOrientation(&self, value: Orientation) -> windows_core::Result<()> {
+        unsafe {
+            (windows_core::Interface::vtable(self).SetOrientation)(windows_core::Interface::as_raw(self), value).ok()
+        }
+    }
+    pub fn SetSpacing(&self, value: f64) -> windows_core::Result<()> {
+        unsafe { (windows_core::Interface::vtable(self).SetSpacing)(windows_core::Interface::as_raw(self), value).ok() }
+    }
+}
+#[repr(C)]
+pub struct IStackPanel_Vtbl {
+    pub base__: windows_core::IInspectable_Vtbl,
+    AreScrollSnapPointsRegular: usize,
+    SetAreScrollSnapPointsRegular: usize,
+    Orientation: usize,
+    pub SetOrientation: unsafe extern "system" fn(*mut core::ffi::c_void, Orientation) -> windows_core::HRESULT,
+    BackgroundSizing: usize,
+    SetBackgroundSizing: usize,
+    BorderBrush: usize,
+    SetBorderBrush: usize,
+    BorderThickness: usize,
+    SetBorderThickness: usize,
+    CornerRadius: usize,
+    SetCornerRadius: usize,
+    Padding: usize,
+    SetPadding: usize,
+    Spacing: usize,
+    pub SetSpacing: unsafe extern "system" fn(*mut core::ffi::c_void, f64) -> windows_core::HRESULT,
+}
+windows_core::imp::define_interface!(
+    IStackPanelFactory,
+    IStackPanelFactory_Vtbl,
+    0x64c1d388_47a2_5a74_a75b_559d151ee5ac
+);
+impl windows_core::RuntimeType for IStackPanelFactory {
+    const SIGNATURE: windows_core::imp::ConstBuffer = windows_core::imp::ConstBuffer::for_interface::<Self>();
+}
+#[repr(C)]
+pub struct IStackPanelFactory_Vtbl {
+    pub base__: windows_core::IInspectable_Vtbl,
+    pub CreateInstance: unsafe extern "system" fn(
+        *mut core::ffi::c_void,
+        *mut core::ffi::c_void,
+        *mut *mut core::ffi::c_void,
+        *mut *mut core::ffi::c_void,
+    ) -> windows_core::HRESULT,
 }
 windows_core::imp::define_interface!(
     IStandardDataFormatsStatics,
@@ -13490,6 +13556,50 @@ impl windows_core::RuntimeName for SolidColorBrush {
 }
 unsafe impl Send for SolidColorBrush {}
 unsafe impl Sync for SolidColorBrush {}
+#[repr(transparent)]
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct StackPanel(windows_core::IUnknown);
+windows_core::imp::interface_hierarchy!(StackPanel, windows_core::IUnknown, windows_core::IInspectable);
+windows_core::imp::required_hierarchy!(StackPanel, Panel, FrameworkElement, UIElement, DependencyObject);
+impl StackPanel {
+    pub fn new() -> windows_core::Result<Self> {
+        Self::IStackPanelFactory(|this| unsafe {
+            let mut result__ = core::mem::zeroed();
+            (windows_core::Interface::vtable(this).CreateInstance)(
+                windows_core::Interface::as_raw(this),
+                core::ptr::null_mut(),
+                core::ptr::null_mut(),
+                &mut result__,
+            )
+            .and_then(|| windows_core::imp::Type::from_abi(result__))
+        })
+    }
+    fn IStackPanelFactory<R, F: FnOnce(&IStackPanelFactory) -> windows_core::Result<R>>(
+        callback: F,
+    ) -> windows_core::Result<R> {
+        static SHARED: windows_core::imp::FactoryCache<StackPanel, IStackPanelFactory> =
+            windows_core::imp::FactoryCache::new();
+        SHARED.call(callback)
+    }
+}
+impl windows_core::RuntimeType for StackPanel {
+    const SIGNATURE: windows_core::imp::ConstBuffer = windows_core::imp::ConstBuffer::for_class::<Self, IStackPanel>();
+}
+unsafe impl windows_core::Interface for StackPanel {
+    type Vtable = <IStackPanel as windows_core::Interface>::Vtable;
+    const IID: windows_core::GUID = <IStackPanel as windows_core::Interface>::IID;
+}
+impl core::ops::Deref for StackPanel {
+    type Target = IStackPanel;
+    fn deref(&self) -> &Self::Target {
+        unsafe { core::mem::transmute(self) }
+    }
+}
+impl windows_core::RuntimeName for StackPanel {
+    const NAME: &'static str = "Microsoft.UI.Xaml.Controls.StackPanel";
+}
+unsafe impl Send for StackPanel {}
+unsafe impl Sync for StackPanel {}
 pub struct StandardDataFormats;
 impl StandardDataFormats {
     pub fn Text() -> windows_core::Result<String> {

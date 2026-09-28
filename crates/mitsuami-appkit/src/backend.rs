@@ -22,15 +22,15 @@ use objc2::runtime::{AnyObject, ProtocolObject};
 use objc2::{AnyThread, MainThreadMarker, MainThreadOnly, Message, msg_send, sel};
 use objc2_app_kit::{
     NSAccessibility, NSAppearance, NSAppearanceCustomization, NSAppearanceNameAqua, NSAppearanceNameDarkAqua,
-    NSApplication, NSBackingStoreType, NSBitmapFormat, NSBitmapImageRep, NSButton, NSColor, NSColorSpace, NSControl,
-    NSControlStateValueMixed, NSControlStateValueOff, NSControlStateValueOn, NSDeviceRGBColorSpace, NSEvent,
-    NSEventModifierFlags, NSEventType, NSFont, NSFontDescriptorSymbolicTraits, NSFontTextStyle, NSFontTextStyleBody,
-    NSFontTextStyleCallout, NSFontTextStyleCaption1, NSFontTextStyleHeadline, NSFontTextStyleLargeTitle,
-    NSFontTextStyleTitle1, NSFontTraitsAttribute, NSFontWeightBold, NSFontWeightMedium, NSFontWeightRegular,
-    NSFontWeightSemibold, NSFontWeightTrait, NSImage, NSImageScaling, NSImageView, NSMenuItem, NSPopUpButton,
-    NSProgressIndicator, NSProgressIndicatorStyle, NSScreen, NSScrollView, NSSecureTextField, NSSlider,
-    NSStandardKeyBindingResponding, NSSwitch, NSTextAlignment, NSTextField, NSView, NSViewBoundsDidChangeNotification,
-    NSWindow, NSWindowOrderingMode, NSWindowStyleMask, NSWorkspace,
+    NSApplication, NSBackingStoreType, NSBitmapFormat, NSBitmapImageRep, NSButton, NSCellImagePosition, NSColor,
+    NSColorSpace, NSControl, NSControlStateValueMixed, NSControlStateValueOff, NSControlStateValueOn,
+    NSDeviceRGBColorSpace, NSEvent, NSEventModifierFlags, NSEventType, NSFont, NSFontDescriptorSymbolicTraits,
+    NSFontTextStyle, NSFontTextStyleBody, NSFontTextStyleCallout, NSFontTextStyleCaption1, NSFontTextStyleHeadline,
+    NSFontTextStyleLargeTitle, NSFontTextStyleTitle1, NSFontTraitsAttribute, NSFontWeightBold, NSFontWeightMedium,
+    NSFontWeightRegular, NSFontWeightSemibold, NSFontWeightTrait, NSImage, NSImageScaling, NSImageSymbolConfiguration,
+    NSImageView, NSMenuItem, NSPopUpButton, NSProgressIndicator, NSProgressIndicatorStyle, NSScreen, NSScrollView,
+    NSSecureTextField, NSSlider, NSStandardKeyBindingResponding, NSSwitch, NSTextAlignment, NSTextField, NSView,
+    NSViewBoundsDidChangeNotification, NSWindow, NSWindowOrderingMode, NSWindowStyleMask, NSWorkspace,
 };
 use objc2_core_foundation::{CFRunLoop, kCFRunLoopDefaultMode};
 use objc2_foundation::{
@@ -101,6 +101,7 @@ enum Widget {
         running: bool,
     },
     Image(Retained<NSImageView>),
+    Icon(Retained<NSImageView>),
     GpuSurface(Retained<SurfaceView>),
     Scroll(Retained<NSScrollView>),
     List(crate::list::List),
@@ -138,7 +139,7 @@ impl Widget {
             Widget::NumberInput(v) => v,
             Widget::Progress(v) => v,
             Widget::Spinner { indicator, .. } => indicator,
-            Widget::Image(v) => v,
+            Widget::Image(v) | Widget::Icon(v) => v,
             Widget::GpuSurface(v) => v,
             Widget::Scroll(v) => v,
             Widget::List(list) => &list.scroll,
@@ -162,6 +163,7 @@ impl Widget {
             | Widget::Progress(_)
             | Widget::Spinner { .. }
             | Widget::Image(_)
+            | Widget::Icon(_)
             | Widget::GpuSurface(_)
             | Widget::Host(_)
             | Widget::Scroll(_)
@@ -220,6 +222,12 @@ struct Node {
     /// back (the fit only if the app chose one).
     image: Option<ImageSource>,
     fit: Option<ImageFit>,
+    /// Icons and buttons: the icon's name and size, which AppKit can't
+    /// give back (a symbol image has no name), and whether the app gave
+    /// `IconOnly`.
+    icon: Option<String>,
+    icon_size: Option<f32>,
+    icon_only: Option<bool>,
     /// Windows: modal, and the window they belong to.
     modal: Option<(Option<NodeId>, Modality)>,
     /// The app's raw settings, run after every other prop.
@@ -715,6 +723,12 @@ impl State {
             // Not editable, framed or animated: what `NSImageView` is
             // made as.
             WidgetKind::Image => Widget::Image(NSImageView::new(mtm)),
+            // At the symbol's own size, which its configuration sets.
+            WidgetKind::Icon => {
+                let view = NSImageView::new(mtm);
+                view.setImageScaling(NSImageScaling::ScaleNone);
+                Widget::Icon(view)
+            }
             WidgetKind::GpuSurface => {
                 let (view, handle) = SurfaceView::new(mtm, id, self.events.clone());
                 self.events.emit(id, UiEvent::SurfaceReady(handle));
@@ -805,6 +819,9 @@ impl State {
                 scroll_bars: true,
                 image: None,
                 fit: None,
+                icon: None,
+                icon_size: None,
+                icon_only: None,
                 modal: None,
                 mixed: None,
                 checked: false,
@@ -921,7 +938,32 @@ impl State {
                 });
                 node.fit = Some(*fit);
             }
-            (Prop::Label(t), Widget::Image(view)) => view.setAccessibilityLabel(Some(&ns(t))),
+            (Prop::Label(t), Widget::Image(view) | Widget::Icon(view)) => view.setAccessibilityLabel(Some(&ns(t))),
+            (Prop::Icon(name), Widget::Icon(view)) => {
+                node.icon = Some(name.clone());
+                view.setImage(symbol(name, node.icon_size).as_deref());
+            }
+            // Tints the symbol, as a template image; images in colour keep
+            // theirs.
+            (Prop::TextColor(color), Widget::Icon(view)) => {
+                node.text_color = Some(*color);
+                view.setContentTintColor(Some(&crate::custom::ns_color(*color)));
+            }
+            (Prop::IconSize(points), Widget::Icon(view)) => {
+                node.icon_size = Some(*points);
+                view.setImage(node.icon.as_deref().and_then(|name| symbol(name, node.icon_size)).as_deref());
+            }
+            // The button sizes the symbol for its bezel and font, before
+            // its title unless it shows only the image.
+            (Prop::Icon(name), Widget::Button(b)) => {
+                node.icon = Some(name.clone());
+                b.setImage(symbol(name, None).as_deref());
+                b.setImagePosition(image_position(node.icon_only));
+            }
+            (Prop::IconOnly(only), Widget::Button(b)) => {
+                node.icon_only = Some(*only);
+                b.setImagePosition(image_position(node.icon_only));
+            }
             (Prop::Label(t), Widget::GpuSurface(view)) => view.setAccessibilityLabel(Some(&ns(t))),
             (Prop::TakesInput(takes), Widget::GpuSurface(view)) => view.set_takes_input(*takes),
             (Prop::PointerLock(on), Widget::GpuSurface(view)) => view.set_pointer_lock(*on),
@@ -1542,6 +1584,34 @@ fn in_full_screen(window: &NSWindow) -> bool {
 }
 
 /// The image a source shows, or none for a file AppKit can't read.
+/// An SF Symbol, or else an image AppKit has by that name (its named
+/// images, the app bundle's); at `points` as a font's size, if given.
+fn symbol(name: &str, points: Option<f32>) -> Option<Retained<NSImage>> {
+    if name.is_empty() {
+        return None;
+    }
+    let image = NSImage::imageWithSystemSymbolName_accessibilityDescription(&ns(name), None)
+        .or_else(|| NSImage::imageNamed(&ns(name)))?;
+    match points {
+        Some(points) => {
+            let config = NSImageSymbolConfiguration::configurationWithPointSize_weight(points as f64, unsafe {
+                NSFontWeightRegular
+            });
+            image.imageWithSymbolConfiguration(&config).or(Some(image))
+        }
+        None => Some(image),
+    }
+}
+
+/// Where a button's image goes: before the title, which reads leading in
+/// right-to-left layouts too, or alone.
+fn image_position(icon_only: Option<bool>) -> NSCellImagePosition {
+    match icon_only {
+        Some(true) => NSCellImagePosition::ImageOnly,
+        _ => NSCellImagePosition::ImageLeading,
+    }
+}
+
 pub(crate) fn ns_image(source: &ImageSource) -> Option<Retained<NSImage>> {
     match source {
         ImageSource::File(path) => NSImage::initWithContentsOfFile(NSImage::alloc(), &ns(&path.to_string_lossy())),
@@ -1633,7 +1703,19 @@ impl Backend for AppKitBackend {
                     intrinsic.height.ceil() as f32,
                 )
             }
-            Widget::Button(v) | Widget::Checkbox(v) => ceil_size(v.intrinsicContentSize()),
+            // A borderless button's intrinsic size leaves out part of its
+            // image (a trash symbol measured 15 × 9); it's at least that big.
+            Widget::Button(v) => {
+                let size = ceil_size(v.intrinsicContentSize());
+                match v.image() {
+                    Some(image) if !v.isBordered() => {
+                        let image = ceil_size(image.size());
+                        Size::new(size.width.max(image.width), size.height.max(image.height))
+                    }
+                    _ => size,
+                }
+            }
+            Widget::Checkbox(v) => ceil_size(v.intrinsicContentSize()),
             Widget::Switch(v) => ceil_size(v.intrinsicContentSize()),
             // AppKit sizes pop-up buttons for their widest item.
             Widget::Select(v) => ceil_size(v.intrinsicContentSize()),
@@ -1641,7 +1723,9 @@ impl Backend for AppKitBackend {
             Widget::Slider { slider, .. } => intrinsic(slider),
             Widget::NumberInput(n) => n.natural_size(),
             // The image's size in points; nothing shown, none.
-            Widget::Image(view) => view.image().map_or(Size::ZERO, |image| ceil_size(image.size())),
+            Widget::Image(view) | Widget::Icon(view) => {
+                view.image().map_or(Size::ZERO, |image| ceil_size(image.size()))
+            }
             Widget::Progress(p) => intrinsic(p),
             Widget::Spinner { indicator, .. } => intrinsic(indicator),
             // As large as the layout makes it.
@@ -2007,7 +2091,24 @@ impl Backend for AppKitBackend {
                 }
                 props.push(Prop::ReadOnly(!f.isEditable()));
             }
-            Widget::Button(b) => props.push(Prop::Label(b.title().to_string())),
+            Widget::Button(b) => {
+                props.push(Prop::Label(b.title().to_string()));
+                props.extend(node.icon.clone().map(Prop::Icon));
+                if node.icon_only.is_some() {
+                    props.push(Prop::IconOnly(b.imagePosition() == NSCellImagePosition::ImageOnly));
+                }
+            }
+            Widget::Icon(view) => {
+                if let Some(label) = view.accessibilityLabel() {
+                    props.push(Prop::Label(label.to_string()));
+                }
+                props.extend(node.icon.clone().map(Prop::Icon));
+                props.extend(node.icon_size.map(Prop::IconSize));
+                if let (Some(sent), Some(shown)) = (node.text_color, view.contentTintColor()) {
+                    let given = crate::custom::ns_color(sent);
+                    props.push(Prop::TextColor(if shown.isEqual(Some(&given)) { sent } else { rgba(&shown) }));
+                }
+            }
             Widget::Checkbox(b) => {
                 props.push(Prop::Label(b.title().to_string()));
                 let mixed = b.state() == NSControlStateValueMixed;

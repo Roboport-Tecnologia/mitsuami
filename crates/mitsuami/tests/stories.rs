@@ -499,6 +499,42 @@ fn images() -> impl View {
     ))
 }
 
+/// Icons from each platform's own set, at its own size and larger, in the
+/// platform's colours, and buttons with an icon before their caption or
+/// alone. The names differ
+/// per platform; the shapes are each set's.
+#[mitsuami_test::story(sizes = [(320, fit)])]
+fn icons() -> impl View {
+    let (disc, folder, trash) = platform! {
+        macos => ("opticaldisc", "folder", "trash"),
+        gtk => ("media-optical-symbolic", "folder-symbolic", "user-trash-symbolic"),
+        kde => ("media-optical", "folder", "edit-delete"),
+        windows => ("\u{E958}", "\u{E8B7}", "\u{E74D}"),
+        _ => ("disc", "folder", "trash"),
+    };
+    Column::new().padding(16).gap(12).align(Align::Start).children((
+        Row::new().gap(12).align(Align::Center).children((
+            Icon::new(disc).label("Disc"),
+            Icon::new(folder).label("Folder"),
+            Icon::new(trash).label("Trash"),
+            Icon::new(disc).label("Large disc").icon_size(32.0),
+        )),
+        Row::new().gap(12).align(Align::Center).children((
+            Icon::new(disc).label("Accent").color(Color::Accent),
+            Icon::new(disc).label("Secondary").color(Color::SecondaryLabel),
+            Icon::new(disc).label("Error").color(Color::Error),
+            Icon::new(disc).label("Warning").color(Color::Warning),
+            Icon::new(disc).label("Success").color(Color::Success),
+            Icon::new(disc).label("Rgba").color(Color::rgb(0x8e, 0x44, 0xad)),
+        )),
+        Row::new().gap(8).align(Align::Center).children((
+            Button::new("Add folder").icon(folder),
+            Button::new("Delete").icon(trash).icon_only(true),
+            Button::new("Remove").icon(trash).icon_only(true).button_style(ButtonStyle::Borderless),
+        )),
+    ))
+}
+
 /// A GPU surface nothing has presented to yet, between two lines: where
 /// it sits and how large it is. Captures show what the platform draws
 /// before the app presents (captures don't read GPU surfaces' content).

@@ -1069,6 +1069,20 @@ impl Button {
         self
     }
 
+    /// An icon before its caption, named in the platform's own set as for
+    /// [`Icon`]; empty: none. Each platform places and sizes it its own way.
+    pub fn icon(mut self, name: impl IntoValue<String>) -> Button {
+        self.0.prop(name.into_value(), Prop::Icon);
+        self
+    }
+
+    /// Shows only its icon. The caption stays its accessible name; a
+    /// tooltip saying it too is up to the app, as platforms leave it.
+    pub fn icon_only(mut self, only: impl IntoValue<bool>) -> Button {
+        self.0.prop(only.into_value(), Prop::IconOnly);
+        self
+    }
+
     /// Raw platform settings, past the semantic ones: see [`Tweak`].
     pub fn native(mut self, tweak: Tweak<Button>) -> Button {
         tweak.apply(&mut self.0);
@@ -1747,6 +1761,64 @@ impl Image {
     }
 }
 
+/// An icon from the platform's own set, by its name there: an SF Symbol
+/// on macOS, a themed icon's name on Linux (Adwaita's symbolic ones on
+/// GNOME, Breeze's on KDE), a Segoe Fluent Icons glyph on Windows. Names
+/// differ, so pick one per platform with `platform!`. Symbolic icons are
+/// drawn in the colour the platform gives icons, which follows dark mode.
+/// It's as large as the platform makes icons unless
+/// `icon_size` says otherwise. Its label is its accessible name; without
+/// one it's decorative.
+///
+/// ```ignore
+/// Icon::new(platform! {
+///     macos => "trash",
+///     gtk => "user-trash-symbolic",
+///     kde => "edit-delete",
+///     windows => "\u{E74D}",
+/// })
+/// ```
+pub struct Icon(Element);
+
+widget!(Icon);
+
+impl Icon {
+    pub fn new(name: impl IntoValue<String>) -> Icon {
+        let mut element = Element::new(WidgetKind::Icon);
+        element.prop(name.into_value(), Prop::Icon);
+        Icon(element)
+    }
+
+    /// Its accessible name: what the icon stands for.
+    pub fn label(mut self, label: impl IntoValue<String>) -> Icon {
+        self.0.prop(label.into_value(), Prop::Label);
+        self
+    }
+
+    /// Its colour, in place of the one the platform gives icons: a
+    /// semantic one (`Accent`, `SecondaryLabel`, `Error`, …) follows the
+    /// appearance; `Rgba` is fixed. Symbolic icons take it (SF Symbols,
+    /// Adwaita's and Breeze's `-symbolic` icons, Segoe Fluent glyphs);
+    /// icons in full colour keep theirs.
+    pub fn color(mut self, color: impl IntoValue<Color>) -> Icon {
+        self.0.prop(color.into_value(), Prop::TextColor);
+        self
+    }
+
+    /// How big it is, in points: an SF Symbol's point size, as a font's
+    /// (the symbol's own shape sets its frame), a square's side elsewhere.
+    pub fn icon_size(mut self, points: impl IntoValue<f32>) -> Icon {
+        self.0.prop(points.into_value(), Prop::IconSize);
+        self
+    }
+
+    /// Raw platform settings, past the semantic ones: see [`Tweak`].
+    pub fn native(mut self, tweak: Tweak<Icon>) -> Icon {
+        tweak.apply(&mut self.0);
+        self
+    }
+}
+
 /// A surface the app draws on with its own GPU API (wgpu, Vulkan, Metal,
 /// Direct3D), at its own pace and on its own thread, as it would draw on a
 /// window of its own: an `NSView` backed by a `CAMetalLayer` on AppKit.
@@ -2189,6 +2261,20 @@ impl Image {
     #[doc(hidden)]
     pub fn source(mut self, source: impl IntoValue<ImageSource>) -> Image {
         self.0.prop(source.into_value(), Prop::Image);
+        self
+    }
+}
+
+impl Icon {
+    /// `<Icon name="trash" label="Delete"/>`
+    #[doc(hidden)]
+    pub fn __tag() -> Icon {
+        Icon(Element::new(WidgetKind::Icon))
+    }
+
+    #[doc(hidden)]
+    pub fn name(mut self, name: impl IntoValue<String>) -> Icon {
+        self.0.prop(name.into_value(), Prop::Icon);
         self
     }
 }

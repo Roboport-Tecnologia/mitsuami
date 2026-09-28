@@ -5,8 +5,8 @@ use std::rc::Rc;
 use mitsuami_core::reactive::{IntoValue, Value};
 use mitsuami_core::{List, Opaque, Tweak};
 use mitsuami_widgets::{
-    Button, Checkbox, Image, NumberInput, PasswordInput, Progress, ScrollView, Select, Slider, Spinner, Switch, Text,
-    TextInput,
+    Button, Checkbox, Icon, Image, NumberInput, PasswordInput, Progress, ScrollView, Select, Slider, Spinner, Switch,
+    Text, TextInput,
 };
 
 use crate::ffi::QmlObject;
@@ -41,6 +41,9 @@ impl Tweakable for Spinner {}
 
 /// A QtQuick `Image`.
 impl Tweakable for Image {}
+
+/// A `Kirigami.Icon`.
+impl Tweakable for Icon {}
 
 /// A `QQC2.TextField`.
 impl Tweakable for TextInput {}

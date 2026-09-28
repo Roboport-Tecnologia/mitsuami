@@ -211,6 +211,11 @@ enum Widget {
         source: Option<ImageSource>,
         fit: Option<ImageFit>,
     },
+    /// A themed icon, and the size the app gave: GTK holds whole pixels.
+    Icon {
+        image: gtk::Image,
+        size: Option<f32>,
+    },
     GpuSurface(SurfaceArea),
     Scroll {
         scrolled: gtk::ScrolledWindow,
@@ -257,6 +262,7 @@ impl Widget {
             Widget::Progress { bar, .. } => bar.upcast_ref(),
             Widget::Spinner(w) => w.upcast_ref(),
             Widget::Picture { picture, .. } => picture.upcast_ref(),
+            Widget::Icon { image, .. } => image.upcast_ref(),
             Widget::GpuSurface(surface) => surface.area.upcast_ref(),
             Widget::Scroll { scrolled, .. } => scrolled.upcast_ref(),
             Widget::List(list) => list.scrolled.upcast_ref(),
@@ -324,6 +330,9 @@ struct Node {
     orientation: Option<Orientation>,
     /// Checkboxes: whether the app gave `Mixed`.
     mixed: Option<bool>,
+    /// Buttons: what they show, which is remade from all three when one
+    /// changes (a label, a `ButtonContent`, or an icon alone).
+    button: ButtonFace,
     /// The app's raw settings, run after every other prop.
     tweak: Option<Opaque>,
     /// Switches, selects, sliders and progress bars have no caption, only
@@ -467,6 +476,74 @@ fn label_color(label: &gtk::Label, set: Option<Color>) -> Option<Color> {
         .unwrap_or(65535);
     let byte = |v: u16| (v / 257) as u8;
     Some(Color::Rgba(byte(fg.red()), byte(fg.green()), byte(fg.blue()), byte(alpha as u16)))
+}
+
+/// The prefix of the classes that give an icon a colour of its own:
+/// `mitsuami-color-rrggbbaa`.
+const ICON_COLOR_CLASS: &str = "mitsuami-color-";
+
+/// Colours an icon, as symbolic icons take CSS `color`: a semantic colour
+/// by the label's style class, which follows the theme; `Label` by none;
+/// others (fixed, or theme colours without a class, resolved now) by a
+/// class of their own, whose rule goes in a style sheet for the display.
+fn set_icon_color(image: &gtk::Image, color: Color) {
+    for class in image.css_classes() {
+        if class.starts_with(ICON_COLOR_CLASS) || COLOR_CLASSES.iter().any(|(c, _)| *c == class.as_str()) {
+            image.remove_css_class(&class);
+        }
+    }
+    match color_class(color) {
+        Some(class) => image.add_css_class(class),
+        None if color == Color::Label => {}
+        None => {
+            let rgba = crate::custom::rgba(image.upcast_ref(), color);
+            let byte = |v: f32| (v.clamp(0.0, 1.0) * 255.0).round() as u8;
+            let [r, g, b, a] = [rgba.red(), rgba.green(), rgba.blue(), rgba.alpha()].map(byte);
+            let class = format!("{ICON_COLOR_CLASS}{r:02x}{g:02x}{b:02x}{a:02x}");
+            install_icon_color(&class, (r, g, b, a));
+            image.add_css_class(&class);
+        }
+    }
+}
+
+/// Adds a colour class's rule to the display's style sheet, once.
+fn install_icon_color(class: &str, (r, g, b, a): (u8, u8, u8, u8)) {
+    thread_local!(static SHEET: RefCell<(Option<gtk::CssProvider>, String)> = RefCell::default());
+    SHEET.with_borrow_mut(|(provider, css)| {
+        if css.contains(&format!(".{class} ")) {
+            return;
+        }
+        css.push_str(&format!("image.{class} {{ color: rgba({r}, {g}, {b}, {}); }}\n", a as f32 / 255.0));
+        let provider = provider.get_or_insert_with(|| {
+            let provider = gtk::CssProvider::new();
+            if let Some(display) = gtk::gdk::Display::default() {
+                gtk::style_context_add_provider_for_display(
+                    &display,
+                    &provider,
+                    gtk::STYLE_PROVIDER_PRIORITY_APPLICATION,
+                );
+            }
+            provider
+        });
+        provider.load_from_data(css);
+    });
+}
+
+/// An icon's colour as its classes show it. Theme colours without a class
+/// can't be told from `Rgba`, so those come from what the app set.
+fn icon_color(image: &gtk::Image, set: Option<Color>) -> Option<Color> {
+    if let Some((_, color)) = COLOR_CLASSES.iter().find(|(class, _)| image.has_css_class(class)) {
+        return Some(*color);
+    }
+    let classes = image.css_classes();
+    let Some(hex) = classes.iter().find_map(|c| c.strip_prefix(ICON_COLOR_CLASS)) else {
+        return set.map(|_| Color::Label);
+    };
+    if let Some(c @ (Color::Separator | Color::ControlBackground | Color::WindowBackground)) = set {
+        return Some(c);
+    }
+    let byte = |at: usize| hex.get(at..at + 2).and_then(|h| u8::from_str_radix(h, 16).ok());
+    Some(Color::Rgba(byte(0)?, byte(2)?, byte(4)?, byte(6)?))
 }
 
 /// GNOME has no cancel style: cancel buttons are normal buttons.
@@ -1104,6 +1181,7 @@ impl State {
             }
             WidgetKind::Progress => Widget::Progress { bar: gtk::ProgressBar::new(), pulsing: Rc::default() },
             WidgetKind::Spinner => Widget::Spinner(gtk::Spinner::new()),
+            WidgetKind::Icon => Widget::Icon { image: gtk::Image::new(), size: None },
             WidgetKind::Image => Widget::Picture { picture: gtk::Picture::new(), source: None, fit: None },
             WidgetKind::GpuSurface => Widget::GpuSurface(SurfaceArea::new(id, events.clone())),
             WidgetKind::TextInput => {
@@ -1159,6 +1237,7 @@ impl State {
                 button_style: None,
                 orientation: None,
                 mixed: None,
+                button: ButtonFace::default(),
                 tweak: None,
                 a11y_label: None,
                 modal: None,
@@ -1372,7 +1451,18 @@ impl State {
                 l.set_xalign(xalign);
                 l.set_justify(justify);
             }
-            (Prop::Label(t), Widget::Button(b)) => b.set_label(t),
+            (Prop::Label(t), Widget::Button(b)) => {
+                node.button.label = t.clone();
+                node.button.show(b);
+            }
+            (Prop::Icon(name), Widget::Button(b)) => {
+                node.button.icon = Some(name.clone());
+                node.button.show(b);
+            }
+            (Prop::IconOnly(only), Widget::Button(b)) => {
+                node.button.icon_only = Some(*only);
+                node.button.show(b);
+            }
             (Prop::Label(t), Widget::Checkbox(c)) => c.set_label(Some(t)),
             (Prop::Label(t), Widget::Switch(s)) => {
                 s.update_property(&[gtk::accessible::Property::Label(t)]);
@@ -1447,6 +1537,22 @@ impl State {
                 Prop::TakesInput(_) | Prop::PointerLock(_) | Prop::KeyboardGrab(_) | Prop::Cursor(_),
                 Widget::GpuSurface(surface),
             ) => surface.set_prop(prop),
+            (Prop::Icon(name), Widget::Icon { image, .. }) => {
+                image.set_icon_name(Some(name.as_str()).filter(|n| !n.is_empty()))
+            }
+            // Unsized, GTK's normal icon size (16 px in Adwaita and Breeze).
+            (Prop::TextColor(color), Widget::Icon { image, .. }) => {
+                set_icon_color(image, *color);
+                node.text_color = Some(*color);
+            }
+            (Prop::IconSize(points), Widget::Icon { image, size }) => {
+                image.set_pixel_size(points.round() as i32);
+                *size = Some(*points);
+            }
+            (Prop::Label(t), Widget::Icon { image, .. }) => {
+                image.update_property(&[gtk::accessible::Property::Label(t)]);
+                node.a11y_label = Some(t.clone());
+            }
             (Prop::Label(t), Widget::Picture { picture, .. }) => {
                 picture.set_alternative_text(Some(t));
                 node.a11y_label = Some(t.clone());
@@ -2447,7 +2553,7 @@ impl Backend for GtkBackend {
                     props.push(Prop::Placeholder(p.to_string()));
                 }
             }
-            Widget::Button(b) => props.push(Prop::Label(text(b.label()))),
+            Widget::Button(b) => props.extend(node.button.read(b)),
             Widget::Checkbox(c) => {
                 props.push(Prop::Label(text(c.label())));
                 props.push(Prop::Checked(c.is_active()));
@@ -2502,6 +2608,16 @@ impl Backend for GtkBackend {
                         gtk::ContentFit::Fill => ImageFit::Stretch,
                         _ => ImageFit::Contain,
                     }));
+                }
+            }
+            Widget::Icon { image, size } => {
+                props.extend(node.a11y_label.clone().map(Prop::Label));
+                props.extend(icon_color(image, node.text_color).map(Prop::TextColor));
+                props.push(Prop::Icon(image.icon_name().map(|n| n.to_string()).unwrap_or_default()));
+                // What GTK shows, as the size given when it rounds to it.
+                if let Some(size) = size {
+                    let shown = image.pixel_size() as f32;
+                    props.push(Prop::IconSize(if shown == size.round() { *size } else { shown }));
                 }
             }
             Widget::GpuSurface(surface) => {
@@ -2758,5 +2874,59 @@ impl GtkBackend {
             action.activate(gtk::ShortcutActionFlags::empty(), &window, None);
         }
         Ok(())
+    }
+}
+
+/// What a button shows: its label, an icon before it in libadwaita's
+/// `ButtonContent` (as GNOME apps put one there), or the icon alone, GTK's
+/// own icon button, with the label as its accessible name.
+#[derive(Default)]
+struct ButtonFace {
+    label: String,
+    /// The icon, once the app gave one (empty: none).
+    icon: Option<String>,
+    /// Whether the app gave `IconOnly`.
+    icon_only: Option<bool>,
+}
+
+impl ButtonFace {
+    fn show(&self, button: &gtk::Button) {
+        let icon = self.icon.as_deref().unwrap_or_default();
+        if icon.is_empty() {
+            button.set_label(&self.label);
+            button.reset_property(gtk::AccessibleProperty::Label);
+        } else if self.icon_only == Some(true) {
+            button.set_icon_name(icon);
+            button.update_property(&[gtk::accessible::Property::Label(&self.label)]);
+        } else {
+            let content = adw::ButtonContent::new();
+            content.set_icon_name(icon);
+            content.set_label(&self.label);
+            button.set_child(Some(&content));
+            button.reset_property(gtk::AccessibleProperty::Label);
+        }
+    }
+
+    /// Read from what the button shows; an icon button's label is only its
+    /// accessible name, which GTK doesn't read back.
+    fn read(&self, button: &gtk::Button) -> Vec<Prop> {
+        let child = button.child();
+        let content = child.as_ref().and_then(|c| c.downcast_ref::<adw::ButtonContent>());
+        let (label, icon, only) = match (button.label(), content, button.icon_name()) {
+            (Some(label), _, _) => (label.to_string(), String::new(), false),
+            (None, Some(content), _) => (content.label().to_string(), content.icon_name().to_string(), false),
+            (None, None, Some(icon)) => (self.label.clone(), icon.to_string(), true),
+            (None, None, None) => (String::new(), String::new(), false),
+        };
+        let mut props = vec![Prop::Label(label)];
+        let given = self.icon.as_deref().unwrap_or_default();
+        if self.icon.is_some() || !icon.is_empty() {
+            props.push(Prop::Icon(icon));
+        }
+        if let Some(asked) = self.icon_only {
+            // Without an icon a button shows its caption, as asked or not.
+            props.push(Prop::IconOnly(if given.is_empty() { asked } else { only }));
+        }
+        props
     }
 }

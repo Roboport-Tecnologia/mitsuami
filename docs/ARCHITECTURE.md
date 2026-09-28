@@ -969,7 +969,7 @@ Every platform's label has these, so they're semantic props (§4). Semantic colo
 
 ### Image
 
-- **A picture from a file or from pixels in memory,** in each platform's image view: `NSImageView`, `gtk::Picture`, XAML's `Image`, a QtQuick `Image` (`Kirigami.Icon` is for themed icons, which is another widget if it ever comes). 2ksbox's shader preview is pixels the app renders, so pixels aren't a detour through a file.
+- **A picture from a file or from pixels in memory,** in each platform's image view: `NSImageView`, `gtk::Picture`, XAML's `Image`, a QtQuick `Image` (`Kirigami.Icon` is for themed icons: `Icon`). 2ksbox's shader preview is pixels the app renders, so pixels aren't a detour through a file.
 - **Pixels are straight RGBA8, sRGB, with a scale** (pixels to a point), so an app can render at the window's scale factor and have each pixel shown as one. Each backend makes its own image from them: an `NSBitmapImageRep` retagged sRGB, a `gdk::MemoryTexture`, a `WriteableBitmap` (premultiplied BGRA, converted), and on Qt a `QImage` served by a `QQuickImageProvider` registered as `mitsuami`, Qt's way to give QML images from memory. Every set of pixels gets its own `image://` URL there, and `cache` is off, so QML never shows a stale one. `Pixels` holds an `Arc`, so props clone cheaply, and prints its size, not its bytes.
 - **A file is read when it's set.** AppKit, GTK and Qt (`asynchronous: false`) decode it right away; WinUI decodes in the background, so its `ImageOpened` and `ImageFailed` send the new `UiEvent::Remeasure` and the core measures it again. A file that changes under the same path isn't read again: set other pixels, or another path. A missing or unreadable file shows nothing and measures zero. Headless reads a PNG's size from its header, and gives other files no size.
 - **Its natural size is the image's in points:** pixels over their scale, or the file's size as the platform reads it (AppKit honours a PNG's resolution; the others count pixels).
@@ -979,6 +979,32 @@ Every platform's label has these, so they're semantic props (§4). Semantic colo
 - **`draws_what_it_is_given` checks the pixels on screen:** a capture of the window, blue and red where the fixture has them, so a mirrored or swapped-channel image fails.
 - **The example's tweaks:** a photo frame on AppKit (`imageFrameStyle`), `content-fit` cover on GTK, `smooth` off on Qt, `UniformToFill` on WinUI (`Image`, `Stretch`, `BitmapImage`, `WriteableBitmap`, `Uri` and `IBufferByteAccess` added to the bindings).
 - **Run on every backend and headless,** and checked by eye on each. An unpackaged WinUI app loads a `BitmapImage` from an absolute `file:///` URI; paths with spaces or `#` are unverified. WinUI's `settle` waits for files being decoded (`ImageOpened` or `ImageFailed`), as it waits for spinners to load: `expect` only retries while the app has tasks, and XAML's decoding isn't one.
+
+### Icon
+
+- **An icon from the platform's own set, by its name there,** as the sidebar's icons are: an SF Symbol in an `NSImageView` (or else an image AppKit has by that name), a themed icon in a `gtk::Image` or a `Kirigami.Icon`, a Segoe Fluent Icons glyph in a `FontIcon`, as WinUI's `NavigationView` items show them. Names differ per platform, so the app picks them with `platform!`. A shared set of names mapped per platform could come later; the names stay each set's own, so an app can use any icon its platform has. An empty name shows nothing. A name the set lacks shows the way the platform shows one: nothing on AppKit, GTK's missing-image icon, Kirigami's fallback icon, the font's fallback glyph on WinUI.
+- **Each platform's own size** unless the app gives `icon_size` in points. On AppKit that's the symbol's point size, as a font's: a symbol's shape sets its frame (at the default size, a disc is 15 × 15 and a trash can 15 × 17). Elsewhere it's the side of a square: GTK's 16 (`pixel_size`, whole pixels), Kirigami's `iconSizes.small`, 16 at the default scale (what KDE's buttons and menus show inline), and XAML's `FontIcon` `FontSize`, 20 by default. Tests compare sizes, never a number.
+- **Drawn in the colour the platform gives icons,** which follows dark mode: AppKit's image view draws a lone symbol in a secondary grey, while GTK, Kirigami and XAML give symbolic icons the text colour.
+- **`Icon::color` takes the colours `Text` takes** (`Prop::TextColor`): a semantic one is the platform's own, so it follows dark mode, high contrast and the accent without the core sending it again; `Rgba` is fixed. Symbolic icons take it (SF Symbols, `-symbolic` theme icons, Fluent glyphs), and icons in full colour keep theirs.
+  - AppKit: the image view's `contentTintColor`.
+  - GTK: CSS `color`, which symbolic icons are drawn in. Semantic colours use the labels' classes (`dim-label`, `accent`, `error`, …). A fixed colour gets a class of its own, with its rule in one style sheet for the display, since an image has no Pango attributes.
+  - Kirigami: `color`, bound as a label's is, to `Kirigami.Theme`'s colours. Without one it's `transparent`, Kirigami's default, which leaves the icon to the theme.
+  - WinUI: a style whose `Foreground` setter is the colour's theme resource, as for text. It's kept on the node, since a resolved brush can't be told from another.
+  - `draws_in_its_colour` checks the pixels in a capture: red where a red icon is, none where an icon has its own colour.
+- **Symbol weights and rendering modes** (hierarchical, palette, multicolour) are AppKit's alone, so they're tweaks.
+- **Buttons show one before their caption,** as each platform places a button's icon:
+  - AppKit: the button's image, `imagePosition` leading, sized for the bezel.
+  - GTK: libadwaita's `ButtonContent`, as GNOME apps do it.
+  - Qt: `icon.name`.
+  - WinUI: a horizontal `StackPanel` of a `FontIcon` and the caption, 8 apart as in WinUI's gallery.
+- **`icon_only` hides the caption,** which stays the accessible name: AppKit's image-only position, GTK's own icon button with the caption as its accessible label, Qt's `display: IconOnly`, and on WinUI the glyph alone with the caption as its automation name (UIA reads nothing from a glyph or a panel). A tooltip saying the same is up to the app. Without an icon the caption shows.
+- **AppKit measures a borderless image-only button smaller than its symbol** (15 × 9 for the trash can's 15 × 17), so the backend makes it at least the image's size.
+- **An icon to assistive technology** (`Role::Image`), named by its label; without one it's decorative. It takes no focus. AppKit's symbol images have no name to read back, so its backend keeps the name and size on the node. GTK, Kirigami and WinUI read them from the widget.
+- **Run on AppKit and headless.** GTK, Kirigami and WinUI are only type-checked. Unverified until they run:
+  - whether `Kirigami.Icon` gives its `source` back as a string;
+  - whether Breeze's and GTK's buttons measure an icon and caption without clipping;
+  - the widths WinUI's `StackPanel` content gives a button;
+  - that GTK, Kirigami and WinUI draw icons in the colour given (the pixel test).
 
 ### Tooltips
 

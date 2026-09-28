@@ -925,9 +925,16 @@ impl Backend for HeadlessBackend {
                 });
                 text_size(&text, font, wrap, find_prop!(node.props, MaxLines).flatten())
             }
+            // An icon takes a 16-point square and a 6-point gap before
+            // the caption, or the caption's place when it's shown alone.
             WidgetKind::Button => {
-                let text = text_size(&label(), font, None, None);
-                Size::new(text.width + 24.0, (line + 8.0).max(28.0))
+                let icon = find_prop!(node.props, Icon).is_some_and(|name| !name.is_empty());
+                let content = match (icon, find_prop!(node.props, IconOnly) == Some(true)) {
+                    (true, true) => 16.0,
+                    (true, false) => 16.0 + 6.0 + text_size(&label(), font, None, None).width,
+                    (false, _) => text_size(&label(), font, None, None).width,
+                };
+                Size::new(content + 24.0, (line + 8.0).max(28.0))
             }
             WidgetKind::TextInput | WidgetKind::PasswordInput => Size::new(200.0, line + 8.0),
             WidgetKind::Checkbox => {
@@ -943,6 +950,14 @@ impl Backend for HeadlessBackend {
             WidgetKind::NumberInput => Size::new(96.0, line + 8.0),
             WidgetKind::Progress => Size::new(160.0, 8.0),
             WidgetKind::Spinner => Size::new(16.0, 16.0),
+            // A square, 16 points unless sized; no name shows nothing.
+            WidgetKind::Icon => match find_prop!(node.props, Icon) {
+                Some(name) if !name.is_empty() => {
+                    let side = find_prop!(node.props, IconSize).unwrap_or(16.0);
+                    Size::new(side, side)
+                }
+                _ => Size::ZERO,
+            },
             // Pixels over their scale; a PNG file by its header. Anything
             // else is a file the headless backend can't read: no size.
             WidgetKind::Image => match find_prop!(node.props, Image) {

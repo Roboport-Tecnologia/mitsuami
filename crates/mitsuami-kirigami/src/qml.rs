@@ -495,6 +495,21 @@ pub(crate) fn font_weight_from(weight: i32) -> FontWeight {
     }
 }
 
+/// The colour `mitsuamiColor` names (`mitsuamiRgba` for `RGBA_COLOR`), or
+/// `undefined` without one, for the item to fall back on its own: a
+/// label's colour, or an icon's.
+macro_rules! color_binding {
+    () => {
+        r#"mitsuamiColor === 9
+        ? Qt.rgba(((mitsuamiRgba >>> 24) & 255) / 255, ((mitsuamiRgba >>> 16) & 255) / 255,
+            ((mitsuamiRgba >>> 8) & 255) / 255, (mitsuamiRgba & 255) / 255)
+        : [Kirigami.Theme.textColor, Kirigami.Theme.disabledTextColor, Kirigami.Theme.highlightColor,
+            Kirigami.Theme.separatorColor, Kirigami.Theme.viewBackgroundColor, Kirigami.Theme.backgroundColor,
+            Kirigami.Theme.negativeTextColor, Kirigami.Theme.neutralTextColor,
+            Kirigami.Theme.positiveTextColor][mitsuamiColor]"#
+    };
+}
+
 /// A label's colour, weight and italics. The colours are Kirigami's, bound
 /// so they follow the colour scheme (and the set the label is in, such as
 /// a selected row's): secondary text is `disabledTextColor`, as Kirigami's
@@ -504,31 +519,46 @@ pub(crate) fn font_weight_from(weight: i32) -> FontWeight {
 /// and italics are the font's own sub-properties, so the text style's
 /// family and size bindings stay; without a weight, it's the theme's.
 /// `mitsuamiShownWeight` and `mitsuamiShownItalic` read the font back.
-const LABEL_OPTIONS: &str = r#"
+const LABEL_OPTIONS: &str = concat!(
+    r#"
     property int mitsuamiColor: -1
     property int mitsuamiRgba: 0
+    color: "#,
+    color_binding!(),
+    r#"
+        ?? (enabled ? Kirigami.Theme.textColor : Kirigami.Theme.disabledTextColor)
     property int mitsuamiWeight: -1
     property bool mitsuamiItalic: false
     readonly property int mitsuamiShownWeight: font.weight
     readonly property bool mitsuamiShownItalic: font.italic
-    color: mitsuamiColor === 9
-        ? Qt.rgba(((mitsuamiRgba >>> 24) & 255) / 255, ((mitsuamiRgba >>> 16) & 255) / 255,
-            ((mitsuamiRgba >>> 8) & 255) / 255, (mitsuamiRgba & 255) / 255)
-        : [Kirigami.Theme.textColor, Kirigami.Theme.disabledTextColor, Kirigami.Theme.highlightColor,
-            Kirigami.Theme.separatorColor, Kirigami.Theme.viewBackgroundColor, Kirigami.Theme.backgroundColor,
-            Kirigami.Theme.negativeTextColor, Kirigami.Theme.neutralTextColor,
-            Kirigami.Theme.positiveTextColor][mitsuamiColor]
-        ?? (enabled ? Kirigami.Theme.textColor : Kirigami.Theme.disabledTextColor)
     font.weight: mitsuamiWeight >= 0 ? mitsuamiWeight : Kirigami.Theme.defaultFont.weight
     font.italic: mitsuamiItalic
-"#;
+"#
+);
 
 /// A button. `mitsuamiDefault` marks it as the default button, which the
 /// desktop style draws from `Accessible.defaultButton` (`highlighted` only
 /// draws it as focused).
+/// Its icon is a themed icon's name (`mitsuamiIcon`, empty for none),
+/// beside the text unless `mitsuamiIconOnly`, which keeps the text as its
+/// accessible name, as Qt's `IconOnly` buttons do. `mitsuamiShown*` read
+/// back what the button shows.
 pub(crate) fn button() -> String {
     format!(
-        "QQC2.Button {{ property bool mitsuamiDefault: false; Accessible.defaultButton: mitsuamiDefault {TEXT_STYLE} {} }}",
+        r#"
+QQC2.Button {{
+    property bool mitsuamiDefault: false
+    property string mitsuamiIcon: ""
+    property bool mitsuamiIconOnly: false
+    readonly property string mitsuamiShownIcon: icon.name
+    readonly property bool mitsuamiShownIconOnly: display === QQC2.AbstractButton.IconOnly
+    Accessible.defaultButton: mitsuamiDefault
+    icon.name: mitsuamiIcon
+    display: mitsuamiIconOnly && mitsuamiIcon !== "" ? QQC2.AbstractButton.IconOnly : QQC2.AbstractButton.TextBesideIcon
+    {TEXT_STYLE}
+    {}
+}}
+"#,
         a11y("text")
     )
 }
@@ -648,6 +678,36 @@ Image {{
     {}
 }}
 "#,
+        a11y_hover("\"\"")
+    )
+}
+
+/// A themed icon, `mitsuamiName`, at `mitsuamiSize` (Kirigami's small
+/// size, 16 at the default scale, the one KDE's buttons and menus show
+/// inline, unless the app gave one). No name shows nothing and takes no
+/// room; a name the theme lacks shows Kirigami's fallback icon.
+/// Symbolic icons take the theme's text colour, as Kirigami colours them,
+/// or the colour the app gave, bound as a label's (`LABEL_OPTIONS`):
+/// `transparent`, Kirigami's default, leaves them to the theme. Icons in
+/// full colour keep theirs.
+pub(crate) fn icon() -> String {
+    format!(
+        r#"
+Kirigami.Icon {{
+    property int mitsuamiColor: -1
+    property int mitsuamiRgba: 0
+    color: {} ?? "transparent"
+    property string mitsuamiName: ""
+    property real mitsuamiSize: Kirigami.Units.iconSizes.small
+    readonly property string mitsuamiShownName: typeof source === "string" ? source : ""
+    source: mitsuamiName
+    implicitWidth: mitsuamiName === "" ? 0 : mitsuamiSize
+    implicitHeight: mitsuamiName === "" ? 0 : mitsuamiSize
+    Accessible.role: Accessible.Graphic
+    {}
+}}
+"#,
+        color_binding!(),
         a11y_hover("\"\"")
     )
 }

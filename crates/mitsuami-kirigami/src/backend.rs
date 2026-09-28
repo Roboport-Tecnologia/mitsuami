@@ -321,6 +321,7 @@ enum Widget {
     NumberInput(QmlObject),
     Progress(QmlObject),
     Spinner(QmlObject),
+    Icon(QmlObject),
     /// An image, what it shows (Qt can't give pixels or the source back as
     /// given), and the pixels it hands QML's provider, if any.
     Image {
@@ -385,6 +386,7 @@ impl Widget {
             | Widget::NumberInput(i)
             | Widget::Progress(i)
             | Widget::Spinner(i)
+            | Widget::Icon(i)
             | Widget::Image { item: i, .. }
             | Widget::Scroll { view: i, .. }
             | Widget::Custom { item: i, .. }
@@ -522,6 +524,10 @@ struct Node {
     /// shows when it isn't mixed.
     mixed: Option<bool>,
     checked: bool,
+    /// Icons and buttons: whether the app gave a size, or said a button
+    /// shows only its icon.
+    icon_size: bool,
+    icon_only: bool,
     /// The app's raw settings, run after every other prop.
     tweak: Option<Opaque>,
     scroll_axes: Option<ScrollAxes>,
@@ -971,6 +977,7 @@ impl State {
             }
             WidgetKind::Progress => Widget::Progress(QmlObject::load(&qml::progress())),
             WidgetKind::Spinner => Widget::Spinner(QmlObject::load(&qml::spinner())),
+            WidgetKind::Icon => Widget::Icon(QmlObject::load(&qml::icon())),
             WidgetKind::GpuSurface => Widget::GpuSurface(SurfaceItem::new(id, events.clone())),
             WidgetKind::Image => {
                 let item = QmlObject::load(&qml::image());
@@ -1030,6 +1037,8 @@ impl State {
                 orientation: None,
                 mixed: None,
                 checked: false,
+                icon_size: false,
+                icon_only: false,
                 tweak: None,
                 tooltip: String::new(),
                 modal: None,
@@ -1207,7 +1216,7 @@ impl State {
                 l.set_int("maximumLineCount", lines.map_or(i32::MAX, |n| n as i32));
                 l.set_int("elide", if lines.is_some() { ELIDE_RIGHT } else { ELIDE_NONE });
             }
-            (Prop::TextColor(color), Widget::Label(l)) => {
+            (Prop::TextColor(color), Widget::Label(l) | Widget::Icon(l)) => {
                 if let Color::Rgba(r, g, b, a) = *color {
                     l.set_int("mitsuamiRgba", u32::from_be_bytes([r, g, b, a]) as i32);
                 }
@@ -1235,6 +1244,7 @@ impl State {
                 | Widget::NumberInput(s)
                 | Widget::Progress(s)
                 | Widget::Spinner(s)
+                | Widget::Icon(s)
                 | Widget::Image { item: s, .. },
             ) => {
                 s.set_str("mitsuamiA11yName", t);
@@ -1356,6 +1366,16 @@ impl State {
                 // destructive style.
                 b.set_bool("mitsuamiDefault", *role == ButtonRole::Default);
                 node.role = Some(*role);
+            }
+            (Prop::Icon(name), Widget::Button(b)) => b.set_str("mitsuamiIcon", name),
+            (Prop::IconOnly(only), Widget::Button(b)) => {
+                b.set_bool("mitsuamiIconOnly", *only);
+                node.icon_only = true;
+            }
+            (Prop::Icon(name), Widget::Icon(i)) => i.set_str("mitsuamiName", name),
+            (Prop::IconSize(points), Widget::Icon(i)) => {
+                i.set_real("mitsuamiSize", *points as f64);
+                node.icon_size = true;
             }
             (Prop::ButtonStyle(style), Widget::Button(b)) => {
                 // Flat buttons have no frame until hovered.
@@ -1661,6 +1681,7 @@ impl State {
                         | Widget::NumberInput(_)
                         | Widget::Progress(_)
                         | Widget::Spinner(_)
+                        | Widget::Icon(_)
                         | Widget::Image { .. }
                         | Widget::GpuSurface(_)
                 );
@@ -2175,7 +2196,16 @@ impl Backend for KirigamiBackend {
                 props.push(Prop::Placeholder(f.str("placeholderText")));
                 props.push(Prop::ReadOnly(f.bool("readOnly")));
             }
-            Widget::Button(b) => props.push(Prop::Label(b.str("text"))),
+            Widget::Button(b) => {
+                props.push(Prop::Label(b.str("text")));
+                props.push(Prop::Icon(b.str("mitsuamiShownIcon")));
+                if node.icon_only {
+                    // Only with an icon: without, it shows its text.
+                    let icon = !b.str("mitsuamiShownIcon").is_empty();
+                    props
+                        .push(Prop::IconOnly(b.bool("mitsuamiShownIconOnly") || (!icon && b.bool("mitsuamiIconOnly"))));
+                }
+            }
             Widget::Checkbox(c) => {
                 props.push(Prop::Label(c.str("text")));
                 let mixed = c.int("checkState") == PARTIALLY_CHECKED;
@@ -2215,6 +2245,17 @@ impl Backend for KirigamiBackend {
             Widget::Spinner(s) => {
                 props.extend(node.a11y_label.clone().map(Prop::Label));
                 props.push(Prop::Running(s.bool("running")));
+            }
+            Widget::Icon(i) => {
+                props.extend(node.a11y_label.clone().map(Prop::Label));
+                props.push(Prop::Icon(i.str("mitsuamiShownName")));
+                props
+                    .extend(qml::color_from(i.int("mitsuamiColor"), i.int("mitsuamiRgba") as u32).map(Prop::TextColor));
+                // Its size, which it takes no room at without a name.
+                if node.icon_size {
+                    let shown = if i.str("mitsuamiName").is_empty() { "mitsuamiSize" } else { "implicitWidth" };
+                    props.push(Prop::IconSize(i.real(shown) as f32));
+                }
             }
             Widget::Image { source, fit, .. } => {
                 props.extend(node.a11y_label.clone().map(Prop::Label));

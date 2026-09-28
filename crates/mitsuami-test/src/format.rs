@@ -54,6 +54,9 @@ fn describe_props(props: &[Prop]) -> String {
             Prop::Image(ImageSource::File(path)) => extra.push(format!("file={:?}", path.display().to_string())),
             Prop::Image(ImageSource::Pixels(p)) => extra.push(format!("{p:?}")),
             Prop::ImageFit(fit) => extra.push(format!("fit={fit:?}")),
+            Prop::Icon(name) => extra.push(format!("icon={name:?}")),
+            Prop::IconSize(points) => extra.push(format!("icon_size={}", Num(*points))),
+            Prop::IconOnly(only) => extra.push(format!("icon_only={only}")),
             Prop::Modal { owner, modality } => {
                 extra.push(format!("modal={modality:?}"));
                 extra.extend(owner.map(|o| format!("owner={o}")));
@@ -318,7 +321,7 @@ pub(crate) fn wireframe(root: &NodeInfo) -> String {
             | WidgetKind::NumberInput
             | WidgetKind::Progress
             | WidgetKind::Spinner => "#1f8a8a",
-            WidgetKind::Image => "#b8860b",
+            WidgetKind::Image | WidgetKind::Icon => "#b8860b",
             WidgetKind::GpuSurface => "#2b2b2b",
             WidgetKind::Custom(_) | WidgetKind::Native => "#c0392b",
         }

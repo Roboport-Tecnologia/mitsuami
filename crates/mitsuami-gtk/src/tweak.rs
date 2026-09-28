@@ -6,8 +6,8 @@ use gtk::prelude::*;
 use mitsuami_core::reactive::{IntoValue, Value};
 use mitsuami_core::{List, Opaque, Tweak};
 use mitsuami_widgets::{
-    Button, Checkbox, Image, NumberInput, PasswordInput, Progress, ScrollView, Select, Slider, Spinner, Switch, Text,
-    TextInput,
+    Button, Checkbox, Icon, Image, NumberInput, PasswordInput, Progress, ScrollView, Select, Slider, Spinner, Switch,
+    Text, TextInput,
 };
 
 use crate::backend::{STEPS, Steps, update_marks};
@@ -43,6 +43,10 @@ impl Tweakable for NumberInput {
 
 impl Tweakable for Image {
     type Native = gtk::Picture;
+}
+
+impl Tweakable for Icon {
+    type Native = gtk::Image;
 }
 
 impl Tweakable for Progress {

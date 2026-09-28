@@ -419,10 +419,12 @@ Microsoft.UI.Xaml.Controls.NavigationViewItemHeader::CreateInstance
 Microsoft.UI.Xaml.Controls.NavigationViewItemSeparator::CreateInstance
 Microsoft.UI.Xaml.Controls.NavigationViewItemBase::{}
 Microsoft.UI.Xaml.Controls.FontIcon::CreateInstance
-Microsoft.UI.Xaml.Controls.IFontIcon::{get_Glyph, put_Glyph}
+Microsoft.UI.Xaml.Controls.IFontIcon::{get_Glyph, put_Glyph, get_FontSize, put_FontSize}
 Microsoft.UI.Xaml.Controls.IconElement::{}
 Microsoft.UI.Xaml.Controls.SelectorBar::CreateInstance
 Microsoft.UI.Xaml.Controls.ISelectorBar::{get_Items, get_SelectedItem, put_SelectedItem, add_SelectionChanged, remove_SelectionChanged}
 Microsoft.UI.Xaml.Controls.SelectorBarSelectionChangedEventArgs::{}
 Microsoft.UI.Xaml.Controls.SelectorBarItem::CreateInstance
 Microsoft.UI.Xaml.Controls.ISelectorBarItem::{get_Text, put_Text}
+Microsoft.UI.Xaml.Controls.StackPanel::CreateInstance
+Microsoft.UI.Xaml.Controls.IStackPanel::{put_Orientation, put_Spacing}

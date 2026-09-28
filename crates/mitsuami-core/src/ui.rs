@@ -1970,7 +1970,7 @@ impl Inner {
             // A spinner reads as a progress bar without a value, as in ARIA.
             WidgetKind::Progress | WidgetKind::Spinner => Role::ProgressBar,
             // What the app draws there is a picture to assistive technology.
-            WidgetKind::Image | WidgetKind::GpuSurface => Role::Image,
+            WidgetKind::Image | WidgetKind::Icon | WidgetKind::GpuSurface => Role::Image,
             WidgetKind::Custom(_) | WidgetKind::Native => Role::Group,
         });
         if role == Role::None {
@@ -1991,6 +1991,7 @@ impl Inner {
                 | WidgetKind::Progress
                 | WidgetKind::Spinner
                 | WidgetKind::Image
+                | WidgetKind::Icon
                 | WidgetKind::GpuSurface => crate::find_prop!(props, Label),
                 WidgetKind::TextInput | WidgetKind::PasswordInput => crate::find_prop!(props, Placeholder),
                 // Rows read as their text, as screen readers read native rows.

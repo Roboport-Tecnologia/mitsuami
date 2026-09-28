@@ -214,6 +214,8 @@ enum Widget {
         failed: Rc<Cell<bool>>,
         opened: Rc<Cell<bool>>,
     },
+    /// A glyph of Segoe Fluent Icons (the theme's symbol font).
+    Icon(w::FontIcon),
     GpuSurface(SurfaceHost),
     Scroll(w::ScrollViewer),
     List(crate::list::List),
@@ -303,6 +305,13 @@ struct Node {
     /// place of the tooltip.
     description: Option<String>,
     tooltip: String,
+    /// Buttons: their caption, icon (empty: none) and whether the icon
+    /// shows alone, which their content is made of.
+    caption: String,
+    icon: String,
+    icon_only: Option<bool>,
+    /// Icons: whether the app gave a size (XAML reads back its default).
+    icon_size: bool,
     /// Set once the core gave a context menu.
     context_menu: Option<ContextMenu>,
 }
@@ -456,6 +465,66 @@ fn unboxed(value: R<IInspectable>) -> Option<String> {
     value.ok()?.cast::<w::IPropertyValue>().ok()?.GetString().ok()
 }
 
+/// A button's content: its caption; with an icon, a `FontIcon` before it
+/// at Fluent's spacing (8), as WinUI's gallery lays them out; icon only,
+/// the `FontIcon`, named by the caption.
+fn set_button_content(node: &Node) -> R<()> {
+    let control = node.element.cast::<w::IContentControl>()?;
+    if node.icon.is_empty() {
+        w::AutomationProperties::SetName(&node.element, "")?;
+        return control.SetContent(&boxed(&node.caption));
+    }
+    let icon = w::FontIcon::new()?;
+    icon.cast::<w::IFontIcon>()?.SetGlyph(&node.icon)?;
+    // UIA reads a panel's or icon's content as nothing: the caption names
+    // the button either way.
+    w::AutomationProperties::SetName(&node.element, &node.caption)?;
+    if node.icon_only == Some(true) {
+        return control.SetContent(&icon.cast::<IInspectable>()?);
+    }
+    let panel = w::StackPanel::new()?;
+    let stack = panel.cast::<w::IStackPanel>()?;
+    stack.SetOrientation(w::Orientation::Horizontal)?;
+    stack.SetSpacing(8.0)?;
+    let caption = w::TextBlock::new()?;
+    caption.cast::<w::ITextBlock>()?.SetText(&node.caption)?;
+    let children = panel.cast::<w::IPanel>()?.Children()?;
+    children.Append(&icon.cast::<w::UIElement>()?)?;
+    children.Append(&caption.cast::<w::UIElement>()?)?;
+    control.SetContent(&panel.cast::<IInspectable>()?)
+}
+
+/// What a button's content shows: its caption (the panel's text, or the
+/// name of an icon shown alone), its icon, and whether that's alone.
+fn button_content(node: &Node) -> Vec<Prop> {
+    let Some(content) = node.element.cast::<w::IContentControl>().ok().and_then(|c| c.Content().ok()) else {
+        return Vec::new();
+    };
+    let glyph = |icon: &w::FontIcon| icon.cast::<w::IFontIcon>().ok().and_then(|i| i.Glyph().ok());
+    let mut props = Vec::new();
+    if let Ok(icon) = content.cast::<w::FontIcon>() {
+        props.extend(w::AutomationProperties::GetName(&node.element).ok().map(Prop::Label));
+        props.extend(glyph(&icon).map(Prop::Icon));
+        props.push(Prop::IconOnly(true));
+    } else if let Ok(panel) = content.cast::<w::StackPanel>() {
+        let children = panel.cast::<w::IPanel>().ok().and_then(|p| p.Children().ok());
+        let children = children.map(|c| elements(&c)).unwrap_or_default();
+        let icon = children.first().and_then(|c| c.cast::<w::FontIcon>().ok());
+        let caption = children.get(1).and_then(|c| c.cast::<w::ITextBlock>().ok());
+        props.extend(caption.and_then(|c| c.Text().ok()).map(Prop::Label));
+        props.extend(icon.as_ref().and_then(glyph).map(Prop::Icon));
+        if node.icon_only.is_some() {
+            props.push(Prop::IconOnly(false));
+        }
+    } else {
+        props.extend(unboxed(Ok(content)).map(Prop::Label));
+        // No icon: shown as its caption, whether or not it's icon only.
+        props.push(Prop::Icon(String::new()));
+        props.extend(node.icon_only.map(Prop::IconOnly));
+    }
+    props
+}
+
 /// A resource of the app's merged dictionaries (Fluent styles and brushes).
 fn resource<T: Interface>(name: &str) -> Option<T> {
     let resources = w::Application::Current().ok()?.cast::<w::IApplication>().ok()?.Resources().ok()?;
@@ -541,11 +610,7 @@ fn set_label_style(label: &w::TextBlock, text_style: Option<TextStyle>, color: O
         (None, Some(base)) => base,
         (None, None) => return Ok(()),
         (Some(color), base) => {
-            let markup = format!(
-                r#"<Style xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation" TargetType="TextBlock"><Setter Property="Foreground" Value="{}"/></Style>"#,
-                crate::custom::text_brush(color)
-            );
-            let colored: w::Style = w::XamlReader::Load(&markup)?.cast()?;
+            let colored = foreground_style("TextBlock", color)?;
             if let Some(base) = base {
                 colored.cast::<w::IStyle>()?.SetBasedOn(&base)?;
             }
@@ -553,6 +618,16 @@ fn set_label_style(label: &w::TextBlock, text_style: Option<TextStyle>, color: O
         }
     };
     label.cast::<w::IFrameworkElement>()?.SetStyle(&style)
+}
+
+/// A style that sets a `target`'s foreground to a colour, as markup, so a
+/// theme resource keeps following the theme once set.
+fn foreground_style(target: &str, color: Color) -> R<w::Style> {
+    let markup = format!(
+        r#"<Style xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation" TargetType="{target}"><Setter Property="Foreground" Value="{}"/></Style>"#,
+        crate::custom::text_brush(color)
+    );
+    w::XamlReader::Load(&markup)?.cast()
 }
 
 /// Fluent's weights (Segoe UI Variable has each of them).
@@ -2014,6 +2089,11 @@ impl State {
                 let element = button.cast()?;
                 (Widget::Button(button), element)
             }
+            WidgetKind::Icon => {
+                let icon = w::FontIcon::new()?;
+                let element = icon.cast()?;
+                (Widget::Icon(icon), element)
+            }
             WidgetKind::Checkbox => {
                 let checkbox = w::CheckBox::new()?;
                 let toggle: w::IToggleButton = checkbox.cast()?;
@@ -2281,6 +2361,10 @@ impl State {
                 description: None,
                 tooltip: String::new(),
                 context_menu: None,
+                caption: String::new(),
+                icon: String::new(),
+                icon_only: None,
+                icon_size: false,
             },
         );
         Ok(())
@@ -2383,8 +2467,31 @@ impl State {
                     w::TextTrimming::None
                 })?;
             }
-            (Prop::Label(t), Widget::Button(_) | Widget::Checkbox(_)) => {
+            (Prop::Label(t), Widget::Button(_)) => {
+                node.caption = t.clone();
+                set_button_content(node)?;
+            }
+            (Prop::Icon(name), Widget::Button(_)) => {
+                node.icon = name.clone();
+                set_button_content(node)?;
+            }
+            (Prop::IconOnly(only), Widget::Button(_)) => {
+                node.icon_only = Some(*only);
+                set_button_content(node)?;
+            }
+            (Prop::Label(t), Widget::Checkbox(_)) => {
                 node.element.cast::<w::IContentControl>()?.SetContent(&boxed(t))?
+            }
+            (Prop::Icon(name), Widget::Icon(icon)) => icon.cast::<w::IFontIcon>()?.SetGlyph(name)?,
+            // A glyph is text: the brushes text takes, the accent's own
+            // for text included.
+            (Prop::TextColor(color), Widget::Icon(icon)) => {
+                node.text_color = Some(*color);
+                icon.cast::<w::IFrameworkElement>()?.SetStyle(&foreground_style("FontIcon", *color)?)?;
+            }
+            (Prop::IconSize(points), Widget::Icon(icon)) => {
+                icon.cast::<w::IFontIcon>()?.SetFontSize(f64::from(*points))?;
+                node.icon_size = true;
             }
             (
                 Prop::Label(t),
@@ -2395,6 +2502,7 @@ impl State {
                 | Widget::Progress(_)
                 | Widget::Spinner(_)
                 | Widget::Image { .. }
+                | Widget::Icon(_)
                 | Widget::GpuSurface(_),
             ) => {
                 w::AutomationProperties::SetName(&node.element, t)?;
@@ -3413,7 +3521,8 @@ impl Backend for WinUiBackend {
             | Widget::Slider { .. }
             | Widget::Number { .. }
             | Widget::Progress(_)
-            | Widget::Spinner(_) => ceil(measure_element(&node.element, infinite)),
+            | Widget::Spinner(_)
+            | Widget::Icon(_) => ceil(measure_element(&node.element, infinite)),
             // Pixels over their scale. A file at its pixel count in
             // effective pixels, as XAML shows it; nothing until it's
             // decoded, or if it can't be.
@@ -3878,8 +3987,19 @@ impl Backend for WinUiBackend {
                     props.push(Prop::Placeholder(placeholder));
                 }
             }
-            Widget::Button(_) => {
-                props.extend(unboxed(node.element.cast::<w::IContentControl>().ok()?.Content()).map(Prop::Label))
+            Widget::Button(_) => props.extend(button_content(node)),
+            Widget::Icon(icon) => {
+                let name = w::AutomationProperties::GetName(&node.element).unwrap_or_default();
+                if !name.is_empty() {
+                    props.push(Prop::Label(name));
+                }
+                let icon = icon.cast::<w::IFontIcon>().ok()?;
+                props.push(Prop::Icon(icon.Glyph().ok()?));
+                if node.icon_size {
+                    props.push(Prop::IconSize(icon.FontSize().ok()? as f32));
+                }
+                // A theme resource in its style, as for text.
+                props.extend(node.text_color.map(Prop::TextColor));
             }
             Widget::Checkbox(b) => {
                 props.extend(unboxed(node.element.cast::<w::IContentControl>().ok()?.Content()).map(Prop::Label));
