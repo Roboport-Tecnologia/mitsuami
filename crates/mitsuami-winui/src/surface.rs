@@ -187,6 +187,16 @@ impl SurfaceHost {
         Ok(())
     }
 
+    /// Lays out and places the child window now, as XAML's next frame
+    /// would.
+    pub(crate) fn place_now(&self) {
+        let element = self.state.borrow().element.cast::<w::IUIElement>();
+        if let Ok(element) = element {
+            _ = element.UpdateLayout();
+        }
+        HostState::place(&Rc::downgrade(&self.state));
+    }
+
     pub(crate) fn is_attached(&self) -> bool {
         self.state.borrow().child.is_some()
     }

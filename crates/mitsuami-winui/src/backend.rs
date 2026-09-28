@@ -798,6 +798,13 @@ impl mitsuami_core::TestHooks for WinUiHandle {
             runtime::pump();
         }
         self.state.borrow().layout_lists();
+        // GPU surfaces follow their frames at XAML's next frame, which a
+        // settle doesn't wait for: place them now, so the app has the size.
+        for node in self.state.borrow().nodes.values() {
+            if let Widget::GpuSurface(surface) = &node.widget {
+                surface.place_now();
+            }
+        }
         self.sync_focus();
         // MITSUAMI_SHOW_WINDOWS=1: tests have no run loop to show them.
         self.show_pending_windows();
@@ -949,6 +956,13 @@ fn toolbar_item_frame(parts: &WindowParts, id: NodeId, element: &w::UIElement) -
 /// area below the caption strip while `ClientSize` (and XAML's root) include
 /// it, so aim, look at what we got, and correct once.
 fn resize_client(parts: &WindowParts, size: Size) {
+    resize_client_with(parts, size, client_insets(parts, scale_of(parts)));
+}
+
+/// `resize_client` with the client insets measured before: they're
+/// measured off the root as XAML last laid it out, which lags a window
+/// Windows has just resized itself.
+fn resize_client_with(parts: &WindowParts, size: Size, (inset_w, inset_h): (i32, i32)) {
     // A window in full screen keeps the screen's size.
     if in_full_screen(&parts.app_window) {
         return;
@@ -959,7 +973,6 @@ fn resize_client(parts: &WindowParts, size: Size) {
     let size = Size::new(size.width.max(min.width), size.height.max(min.height));
     let scale = scale_of(parts);
     let chrome = chrome_height(parts);
-    let (inset_w, inset_h) = client_insets(parts, scale);
     let want = w::SizeInt32 {
         width: (size.width as f64 * scale).round() as i32 + inset_w,
         height: ((size.height as f64 + chrome) * scale).round() as i32 + inset_h,
@@ -1075,10 +1088,12 @@ fn apply_min_size(parts: &WindowParts) {
     let height = ((min.height as f64 + chrome) * scale).round() as i32 + inset_h + frame_h;
     _ = presenter.SetPreferredMinimumWidth(Some(width));
     _ = presenter.SetPreferredMinimumHeight(Some(height));
+    // Windows grows a smaller window to the new minimum itself, before
+    // XAML lays it out again.
     if let Some(size) = parts.size.get()
         && (size.width < min.width || size.height < min.height)
     {
-        resize_client(parts, size);
+        resize_client_with(parts, size, (inset_w, inset_h));
     }
 }
 
