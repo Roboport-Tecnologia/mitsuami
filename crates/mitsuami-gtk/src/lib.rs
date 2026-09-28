@@ -30,6 +30,8 @@ mod services;
 #[cfg(target_os = "linux")]
 mod session;
 #[cfg(target_os = "linux")]
+mod sidebar;
+#[cfg(target_os = "linux")]
 mod surface;
 #[cfg(target_os = "linux")]
 mod tweak;

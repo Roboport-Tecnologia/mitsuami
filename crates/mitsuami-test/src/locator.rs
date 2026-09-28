@@ -1,5 +1,7 @@
 use mitsuami_core::services::{MenuEntry, find_menu_item};
-use mitsuami_core::{A11yAction, A11yNode, Key, NativeState, NodeId, Point, Rect, Role, SyntheticInput, find_prop};
+use mitsuami_core::{
+    A11yAction, A11yNode, Key, NativeState, NodeId, Point, Rect, Role, SyntheticInput, WidgetKind, find_prop,
+};
 
 use crate::app::TestApp;
 use crate::format;
@@ -164,8 +166,15 @@ impl<'a> Locator<'a> {
     /// Selects a list row, as assistive technology would: in place of the
     /// selected row, or of every selected row in a multiple-selection list.
     /// Clicking a row ([`click`](Self::click)) activates it instead.
+    ///
+    /// A sidebar's item is chosen by its title (the first with it), as its
+    /// items are the sidebar's data, not nodes of their own.
     pub async fn select(&self) {
-        self.act(A11yAction::Select).await;
+        let node = self.node();
+        match (self.app.ui().kind(node.id), node.role, node.name) {
+            (Some(WidgetKind::Sidebar), Role::ListItem, Some(title)) => self.act(A11yAction::SetValue(title)).await,
+            _ => self.act(A11yAction::Select).await,
+        }
     }
 
     /// Replaces a text field's content in one step.

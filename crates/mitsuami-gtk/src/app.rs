@@ -18,6 +18,8 @@ thread_local! {
 
 fn init() {
     gtk::init().expect("mitsuami: cannot initialize GTK (is there a display?)");
+    // libadwaita's widgets (the sidebar's split view), and its style.
+    adw::init().expect("mitsuami: cannot initialize libadwaita");
 }
 
 /// Starts the app: `setup` creates the windows, then GLib's main loop takes

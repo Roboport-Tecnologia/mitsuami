@@ -1,9 +1,12 @@
 //! A window's toolbar: an `NSToolbar` in its title bar, which shows the
 //! window's title, with one `NSToolbarItem` per toolbar item node. Each
 //! item's view holds the node's host, as big as the core sized it; a
-//! flexible space ahead of them puts them at the trailing end.
+//! flexible space ahead of them puts them at the trailing end. Beside a
+//! sidebar, the sidebar's tracking separator comes first, so the items and
+//! the title are over the content.
 
-use std::cell::RefCell;
+use std::cell::{Cell, RefCell};
+use std::sync::atomic::{AtomicU32, Ordering};
 
 use mitsuami_core::NodeId;
 use objc2::rc::Retained;
@@ -11,13 +14,16 @@ use objc2::runtime::{NSObject, NSObjectProtocol, ProtocolObject};
 use objc2::{DefinedClass, MainThreadMarker, MainThreadOnly, Message, define_class, msg_send};
 use objc2_app_kit::{
     NSAnimationContext, NSLayoutConstraint, NSToolbar, NSToolbarDelegate, NSToolbarDisplayMode,
-    NSToolbarFlexibleSpaceItemIdentifier, NSToolbarItem, NSToolbarItemIdentifier, NSView, NSWindow,
+    NSToolbarFlexibleSpaceItemIdentifier, NSToolbarItem, NSToolbarItemIdentifier,
+    NSToolbarSidebarTrackingSeparatorItemIdentifier, NSView, NSWindow,
 };
 use objc2_foundation::{NSArray, NSOperatingSystemVersion, NSProcessInfo, NSRect, NSString};
 
 pub(crate) struct DelegateIvars {
     /// The items the toolbar shows after its flexible space, in order.
     shown: RefCell<Vec<Retained<NSToolbarItem>>>,
+    /// The window has a sidebar.
+    sidebar: Cell<bool>,
 }
 
 define_class!(
@@ -53,12 +59,24 @@ define_class!(
 
 impl ToolbarDelegate {
     fn new(mtm: MainThreadMarker) -> Retained<ToolbarDelegate> {
-        let this = ToolbarDelegate::alloc(mtm).set_ivars(DelegateIvars { shown: RefCell::new(Vec::new()) });
+        let this = ToolbarDelegate::alloc(mtm)
+            .set_ivars(DelegateIvars { shown: RefCell::new(Vec::new()), sidebar: Cell::new(false) });
         unsafe { msg_send![super(this), init] }
     }
 
+    /// The system's items ahead of ours: the sidebar's tracking separator,
+    /// if there's a sidebar, then the flexible space.
+    fn system_items(&self) -> Vec<Retained<NSToolbarItemIdentifier>> {
+        let mut identifiers = Vec::new();
+        if self.ivars().sidebar.get() {
+            identifiers.push(unsafe { NSToolbarSidebarTrackingSeparatorItemIdentifier }.retain());
+        }
+        identifiers.push(unsafe { NSToolbarFlexibleSpaceItemIdentifier }.retain());
+        identifiers
+    }
+
     fn identifiers(&self) -> Retained<NSArray<NSToolbarItemIdentifier>> {
-        let mut identifiers = vec![unsafe { NSToolbarFlexibleSpaceItemIdentifier }.retain()];
+        let mut identifiers = self.system_items();
         identifiers.extend(self.ivars().shown.borrow().iter().map(|item| item.itemIdentifier()));
         NSArray::from_retained_slice(&identifiers)
     }
@@ -100,8 +118,11 @@ pub(crate) struct Toolbar {
 
 impl Toolbar {
     pub(crate) fn new(mtm: MainThreadMarker, window: &NSWindow, id: NodeId, animate: bool) -> Toolbar {
-        // Toolbars with the same identifier keep each other in sync.
-        let identifier = NSString::from_str(&format!("mitsuami.window.{}", id.raw()));
+        // Toolbars with the same identifier keep each other in sync, even
+        // one a window let go of that isn't freed yet: one of its own.
+        static MADE: AtomicU32 = AtomicU32::new(0);
+        let made = MADE.fetch_add(1, Ordering::Relaxed);
+        let identifier = NSString::from_str(&format!("mitsuami.window.{}.{made}", id.raw()));
         let toolbar = NSToolbar::initWithIdentifier(NSToolbar::alloc(mtm), &identifier);
         let delegate = ToolbarDelegate::new(mtm);
         toolbar.setDelegate(Some(ProtocolObject::from_ref(&*delegate)));
@@ -172,6 +193,16 @@ impl Toolbar {
         self.items.iter().map(|i| i.id)
     }
 
+    pub(crate) fn is_empty(&self) -> bool {
+        self.items.is_empty()
+    }
+
+    /// The window has a sidebar, or no longer has.
+    pub(crate) fn set_sidebar(&self, sidebar: bool) {
+        self.delegate.ivars().sidebar.set(sidebar);
+        self.sync();
+    }
+
     /// Where the toolbar shows an item, in the coordinates of the window's
     /// content view (above it, so at negative y); `None` while it's empty.
     pub(crate) fn frame(&self, id: NodeId, content: &NSView) -> Option<NSRect> {
@@ -181,13 +212,15 @@ impl Toolbar {
     }
 
     /// Makes the toolbar show the non-empty items, in order: after the
-    /// flexible space, which is always first.
+    /// system's items, which are always first.
     fn sync(&self) {
         let wanted: Vec<Retained<NSToolbarItem>> =
             self.items.iter().filter(|i| !i.empty).map(|i| i.item.clone()).collect();
         let shown = self.toolbar.items();
-        let same =
-            shown.len() == wanted.len() + 1 && shown.iter().skip(1).zip(&wanted).all(|(a, b)| std::ptr::eq(&*a, &**b));
+        let system = self.delegate.system_items();
+        let same = shown.len() == wanted.len() + system.len()
+            && shown.iter().zip(&system).all(|(a, b)| a.itemIdentifier().isEqualToString(b))
+            && shown.iter().skip(system.len()).zip(&wanted).all(|(a, b)| std::ptr::eq(&*a, &**b));
         if same {
             return;
         }

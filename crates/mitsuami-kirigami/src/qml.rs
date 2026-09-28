@@ -168,6 +168,21 @@ Kirigami.ApplicationWindow {{
         enabled: mitsuamiWindow.mitsuamiModal && mitsuamiWindow.mitsuamiFocused
         onActivated: mitsuamiWindow.close()
     }}
+    // The window's sidebar: a page ahead of the content's, as KDE's System
+    // Settings has its categories. Side by side in a wide window, one at a
+    // time in a narrow one, the sidebar first.
+    property Item mitsuamiSidebar: null
+    // How much wider the window is than its content.
+    readonly property real mitsuamiSidebarWidth:
+        mitsuamiSidebar && pageStack.wideMode ? mitsuamiSidebar.width : 0
+    function mitsuamiShowSidebar() {{
+        pageStack.insertPage(0, mitsuamiSidebar)
+        pageStack.currentIndex = pageStack.wideMode ? 1 : 0
+    }}
+    function mitsuamiHideSidebar() {{
+        pageStack.removePage(mitsuamiSidebar)
+        mitsuamiSidebar = null
+    }}
     {drawer}
     pageStack.initialPage: Kirigami.Page {{
         objectName: "mitsuamiPage"
@@ -197,6 +212,94 @@ Kirigami.ApplicationWindow {{
 }}
 "#
     )
+}
+
+/// A window's sidebar: a page of `ItemDelegate`s, its sections under
+/// `ListSectionHeader`s, as KDE's settings list their categories. Rust sets
+/// `mitsuamiSections` (JSON: `[{"title": "…" or null, "items": [{"title":
+/// "…", "icon": "…" or null}]}]`), `mitsuamiSelected` (-1: none) and
+/// `mitsuamiContent`, the content's page, which is titled after the item
+/// chosen. The user's choice (a click, the arrow keys) is reported with
+/// `mitsuamiChosen`; setting `mitsuamiChoice` chooses as the user does.
+/// In a narrow window, a choice shows the content's page.
+pub(crate) fn sidebar() -> String {
+    r#"
+Kirigami.ScrollablePage {
+    id: mitsuamiSidebar
+    padding: 0
+    property Item mitsuamiContent: null
+    property string mitsuamiSections: "[]"
+    property int mitsuamiSelected: -1
+    property int mitsuamiChoice: -1
+    // Set while the list follows the app, not the user.
+    property bool mitsuamiFollowing: false
+    signal mitsuamiChosen()
+    function mitsuamiChoose(index) {
+        if (index === mitsuamiSelected) return
+        mitsuamiSelected = index
+        mitsuamiChosen()
+        const stack = applicationWindow().pageStack
+        if (!stack.wideMode) stack.currentIndex = stack.depth - 1
+    }
+    function mitsuamiShow() {
+        mitsuamiFollowing = true
+        mitsuamiList.currentIndex = mitsuamiSelected
+        mitsuamiFollowing = false
+        if (mitsuamiContent)
+            mitsuamiContent.title = mitsuamiSelected >= 0 && mitsuamiSelected < mitsuamiModel.count
+                ? mitsuamiModel.get(mitsuamiSelected).title : ""
+    }
+    onMitsuamiChoiceChanged: if (mitsuamiChoice >= 0) {
+        mitsuamiChoose(mitsuamiChoice)
+        mitsuamiChoice = -1
+    }
+    onMitsuamiSelectedChanged: mitsuamiShow()
+    onMitsuamiContentChanged: mitsuamiShow()
+    onMitsuamiSectionsChanged: {
+        mitsuamiFollowing = true
+        mitsuamiModel.clear()
+        JSON.parse(mitsuamiSections).forEach((section, index) => section.items.forEach(item =>
+            mitsuamiModel.append({
+                title: item.title,
+                iconName: item.icon ?? "",
+                section: index + "" + (section.title ?? "")
+            })))
+        mitsuamiFollowing = false
+        mitsuamiShow()
+    }
+    ListModel { id: mitsuamiModel }
+    ListView {
+        id: mitsuamiList
+        objectName: "mitsuamiSidebarList"
+        model: mitsuamiModel
+        keyNavigationEnabled: true
+        activeFocusOnTab: true
+        onCurrentIndexChanged: if (!mitsuamiSidebar.mitsuamiFollowing && currentIndex >= 0)
+            mitsuamiSidebar.mitsuamiChoose(currentIndex)
+        // Consecutive items of a section share its index and title; one
+        // without a title has no heading.
+        section.property: "section"
+        section.delegate: Kirigami.ListSectionHeader {
+            required property string section
+            width: ListView.view.width
+            text: section.slice(section.indexOf("") + 1)
+            visible: text !== ""
+            height: visible ? implicitHeight : 0
+        }
+        delegate: QQC2.ItemDelegate {
+            required property int index
+            required property string title
+            required property string iconName
+            width: ListView.view.width
+            text: title
+            icon.name: iconName
+            highlighted: ListView.isCurrentItem
+            onClicked: mitsuamiSidebar.mitsuamiChoose(index)
+        }
+    }
+}
+"#
+    .to_owned()
 }
 
 /// A toolbar item: an action the page's toolbar shows as its own item,

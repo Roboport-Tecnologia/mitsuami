@@ -57,6 +57,8 @@ mod services;
 #[cfg(all(windows, target_env = "msvc"))]
 mod session;
 #[cfg(all(windows, target_env = "msvc"))]
+mod sidebar;
+#[cfg(all(windows, target_env = "msvc"))]
 mod surface;
 #[cfg(all(windows, target_env = "msvc"))]
 mod tweak;

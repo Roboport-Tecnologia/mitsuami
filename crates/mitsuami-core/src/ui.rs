@@ -25,6 +25,12 @@ use crate::task::{Clock, Executor, Sleep, TaskHandle};
 use crate::units::ResolveContext;
 use crate::widget::{HorizontalAlign, NodeId, Prop, RowKey, TextAlign, WidgetKind};
 
+/// A window's toolbar items and sidebar are the platform's to place, around
+/// its content: they aren't in the window's layout box.
+fn in_chrome(kind: WidgetKind) -> bool {
+    matches!(kind, WidgetKind::ToolbarItem | WidgetKind::Sidebar)
+}
+
 pub(crate) type Handler = Rc<dyn Fn(&UiEvent)>;
 type Handler0 = Rc<dyn Fn()>;
 
@@ -1001,7 +1007,7 @@ impl Ui {
 
     /// The part of a node that can be seen: its window frame, clipped by
     /// every enclosing scroll view and by the window (or, in the toolbar,
-    /// by its toolbar item). `None` if nothing is.
+    /// by its toolbar item; the sidebar, by itself). `None` if nothing is.
     pub fn visible_rect(&self, id: NodeId) -> Option<Rect> {
         let window = self.window_of(id)?;
         let size = self.window_size(window)?;
@@ -1010,7 +1016,7 @@ impl Ui {
         let mut current = Some(id);
         while let Some(node) = current {
             match self.kind(node)? {
-                WidgetKind::ToolbarItem => clip = self.window_frame(node)?,
+                kind if in_chrome(kind) => clip = self.window_frame(node)?,
                 kind if kind.scrolls() && node != id => visible = visible.intersection(&self.window_frame(node)?)?,
                 _ => {}
             }
@@ -1213,9 +1219,9 @@ impl Inner {
     fn detach_native(&mut self, child: NodeId) {
         let Some(parent) = self.nodes.get(&child).and_then(|n| n.native_parent) else { return };
         self.pending.push(Command::Remove { parent, child });
-        // A list's rows and a window's toolbar items aren't in its layout
-        // box (`layout_list`, `layout_toolbar`).
-        let child_taffy = self.nodes[&child].taffy.filter(|_| self.nodes[&child].kind != WidgetKind::ToolbarItem);
+        // A list's rows and a window's toolbar items and sidebar aren't in
+        // its layout box (`layout_list`, `layout_toolbar`).
+        let child_taffy = self.nodes[&child].taffy.filter(|_| !in_chrome(self.nodes[&child].kind));
         if let Some(node) = self.nodes.get_mut(&parent) {
             node.native_children.retain(|c| *c != child);
             if let (Some(p), Some(c), false) = (node.taffy, child_taffy, node.kind == WidgetKind::List) {
@@ -1236,8 +1242,13 @@ impl Inner {
 
     fn flattened_children(&self, id: NodeId) -> Vec<NodeId> {
         let mut children: Vec<NodeId> = self.nodes[&id].children.iter().flat_map(|c| self.native_roots(*c)).collect();
-        // A window's toolbar items come after its content.
-        children.sort_by_key(|c| self.nodes[c].kind == WidgetKind::ToolbarItem);
+        // A window's toolbar items come after its content, and its sidebar
+        // after them.
+        children.sort_by_key(|c| match self.nodes[c].kind {
+            WidgetKind::ToolbarItem => 1,
+            WidgetKind::Sidebar => 2,
+            _ => 0,
+        });
         children
     }
 
@@ -1283,12 +1294,10 @@ impl Inner {
         for child in &desired {
             self.nodes.get_mut(child).unwrap().native_parent = Some(parent);
         }
-        // Toolbar items are laid out on their own (`layout_toolbar`).
-        let taffy_children: Vec<_> = desired
-            .iter()
-            .filter(|c| self.nodes[*c].kind != WidgetKind::ToolbarItem)
-            .filter_map(|c| self.nodes[c].taffy)
-            .collect();
+        // Toolbar items are laid out on their own (`layout_toolbar`); the
+        // sidebar is the platform's.
+        let taffy_children: Vec<_> =
+            desired.iter().filter(|c| !in_chrome(self.nodes[*c].kind)).filter_map(|c| self.nodes[c].taffy).collect();
         // A list's rows are laid out on their own (`layout_list`).
         if let Some(t) = self.nodes[&parent].taffy.filter(|_| self.nodes[&parent].kind != WidgetKind::List) {
             let _ = self.taffy.set_children(t, &taffy_children);
@@ -1315,12 +1324,17 @@ impl Inner {
                     | WidgetKind::Slider
                     | WidgetKind::NumberInput
                     | WidgetKind::List
+                    | WidgetKind::Sidebar
             ) || (node.kind == WidgetKind::GpuSurface && crate::find_prop!(node.props, TakesInput) == Some(true))
             {
                 out.push((node.tab_index, id));
             }
-            for child in &node.native_children {
-                walk(inner, *child, out);
+            // A window's sidebar comes first: it's on the leading side, and
+            // picks what the content shows.
+            let mut children = node.native_children.clone();
+            children.sort_by_key(|c| inner.nodes[c].kind != WidgetKind::Sidebar);
+            for child in children {
+                walk(inner, child, out);
             }
         }
         let mut entries = Vec::new();
@@ -1634,7 +1648,9 @@ impl Inner {
                     }
                     (WidgetKind::Checkbox | WidgetKind::Switch, EventValue::Bool(b)) => Prop::Checked(*b),
                     (WidgetKind::List, EventValue::Rows(rows)) => Prop::Selected(rows.clone()),
-                    (WidgetKind::Select, EventValue::Index(index)) => Prop::SelectedIndex(Some(*index)),
+                    (WidgetKind::Select | WidgetKind::Sidebar, EventValue::Index(index)) => {
+                        Prop::SelectedIndex(Some(*index))
+                    }
                     (WidgetKind::Slider | WidgetKind::NumberInput, EventValue::Number(number)) => Prop::Number(*number),
                     _ => return,
                 };
@@ -1747,19 +1763,24 @@ impl Inner {
     /// A node's frame in its native parent. A list's rows and a window's
     /// toolbar items are where the platform placed them (as its
     /// `native_state` says), at the size the core sent; toolbar items the
-    /// platform hides are empty.
+    /// platform hides are empty. A window's sidebar is where the platform
+    /// placed it, at the size it gave it.
     fn placed_frame(&self, id: NodeId) -> Rect {
         let node = &self.nodes[&id];
-        let placed_natively = node.kind == WidgetKind::ToolbarItem
-            || node.native_parent.is_some_and(|p| self.nodes[&p].kind == WidgetKind::List);
+        let placed_natively =
+            in_chrome(node.kind) || node.native_parent.is_some_and(|p| self.nodes[&p].kind == WidgetKind::List);
         if !placed_natively {
             return node.frame;
         }
         let native = self.backend.native_state(id).map(|s| s.frame);
         // A toolbar may hide an item that doesn't fit (in an overflow
-        // menu, on AppKit and WinUI): it isn't shown at all.
-        if node.kind == WidgetKind::ToolbarItem && native.is_some_and(|f| f.size.is_empty()) {
+        // menu, on AppKit and WinUI), and a window its sidebar (collapsed,
+        // or a page of its own in a narrow window): it isn't shown at all.
+        if in_chrome(node.kind) && native.is_some_and(|f| f.size.is_empty()) {
             return Rect::ZERO;
+        }
+        if node.kind == WidgetKind::Sidebar {
+            return native.unwrap_or(Rect::ZERO);
         }
         Rect { origin: native.map_or(node.frame.origin, |f| f.origin), size: node.frame.size }
     }
@@ -1824,7 +1845,13 @@ impl Inner {
         let frame =
             if node.kind == WidgetKind::Window { node.frame } else { self.placed_frame(id).offset(parent_origin) };
         let origin = Inner::child_origin(node, frame);
-        let children: Vec<A11yNode> = node.native_children.iter().flat_map(|c| self.a11y(*c, origin)).collect();
+        // A window's sidebar reads first, as it's on the leading side.
+        let mut native_children = node.native_children.clone();
+        native_children.sort_by_key(|c| self.nodes[c].kind != WidgetKind::Sidebar);
+        let mut children: Vec<A11yNode> = native_children.iter().flat_map(|c| self.a11y(*c, origin)).collect();
+        if node.kind == WidgetKind::Sidebar {
+            children = self.sidebar_items(id, frame);
+        }
 
         let labelled = a11y.label.is_some() || a11y.labelled_by.is_some();
         let row = crate::find_prop!(node.props, Row);
@@ -1834,7 +1861,7 @@ impl Inner {
             WidgetKind::Container if labelled => Role::Group,
             WidgetKind::Container | WidgetKind::ToolbarItem | WidgetKind::Fragment => Role::None,
             WidgetKind::ScrollView => Role::ScrollArea,
-            WidgetKind::List => Role::List,
+            WidgetKind::List | WidgetKind::Sidebar => Role::List,
             WidgetKind::Text => Role::StaticText,
             WidgetKind::Button => Role::Button,
             // A text field that hides its text, as every platform exposes
@@ -1923,6 +1950,42 @@ impl Inner {
             frame,
             children,
         }]
+    }
+}
+
+impl Inner {
+    /// A sidebar's items, which are its data, not nodes: list items named
+    /// by their titles, under a heading for each titled section. They
+    /// stand for the sidebar, where assistive technology acts on them.
+    fn sidebar_items(&self, id: NodeId, frame: Rect) -> Vec<A11yNode> {
+        let props = &self.nodes[&id].props;
+        let selected = crate::find_prop!(props, SelectedIndex).flatten();
+        let node = |role, name: &str, selected| A11yNode {
+            id,
+            role,
+            name: Some(name.to_owned()),
+            description: None,
+            value: None,
+            checked: None,
+            mixed: false,
+            read_only: false,
+            password: false,
+            selected,
+            enabled: true,
+            test_id: None,
+            frame,
+            children: Vec::new(),
+        };
+        let mut out = Vec::new();
+        let mut index = 0;
+        for section in crate::find_prop!(props, Sections).unwrap_or_default() {
+            out.extend(section.title.as_deref().map(|title| node(Role::Heading, title, None)));
+            for item in &section.items {
+                out.push(node(Role::ListItem, &item.title, Some(selected == Some(index))));
+                index += 1;
+            }
+        }
+        out
     }
 }
 

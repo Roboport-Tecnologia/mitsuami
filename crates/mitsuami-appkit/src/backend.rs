@@ -42,6 +42,7 @@ use crate::classes::{ActionTarget, ClosureTarget, DrawnView, HostView, ViewMap, 
 use crate::custom::{AppKitCx, Emitter, ErasedRender, NativePayload};
 use crate::number_field::NumberField;
 use crate::services::ItemTarget;
+use crate::sidebar::{Sidebar, Split};
 use crate::surface::SurfaceView;
 use crate::toolbar::Toolbar;
 
@@ -71,10 +72,13 @@ enum Widget {
         window: Retained<NSWindow>,
         host: Retained<HostView>,
         _delegate: Retained<WindowDelegate>,
-        /// Made when the first toolbar item arrives.
+        /// Made when the first toolbar item arrives, or the sidebar.
         toolbar: Option<Toolbar>,
+        /// The window's content beside its sidebar, while it has one.
+        split: Option<Split>,
     },
     Host(Retained<HostView>),
+    Sidebar(Sidebar),
     Label(Retained<NSTextField>),
     Field(Retained<NSTextField>),
     Button(Retained<NSButton>),
@@ -136,6 +140,7 @@ impl Widget {
             Widget::GpuSurface(v) => v,
             Widget::Scroll(v) => v,
             Widget::List(list) => &list.scroll,
+            Widget::Sidebar(sidebar) => &sidebar.scroll,
             Widget::Custom { view, .. } | Widget::Native { view, .. } => view,
             Widget::Drawn { view, .. } => view,
         }
@@ -158,6 +163,7 @@ impl Widget {
             | Widget::Host(_)
             | Widget::Scroll(_)
             | Widget::List(_)
+            | Widget::Sidebar(_)
             | Widget::Custom { .. }
             | Widget::Drawn { .. }
             | Widget::Native { .. } => None,
@@ -169,6 +175,7 @@ impl Widget {
     fn key_view(&self) -> Retained<NSView> {
         match self {
             Widget::List(list) => Retained::into_super(Retained::into_super(Retained::into_super(list.table.clone()))),
+            Widget::Sidebar(sidebar) => Retained::into_super(Retained::into_super(sidebar.table.clone())),
             Widget::NumberInput(n) => Retained::into_super(Retained::into_super(n.field().retain())),
             widget => widget.view().retain(),
         }
@@ -407,14 +414,17 @@ impl AppKitHandle {
     /// and maximum, as a drag goes (`setContentSize:` alone would go past
     /// them); the window delegate reports it back as a `WindowResized` event.
     pub fn resize_window(&self, window: NodeId, size: Size) {
-        let window = self.ns_window(window);
-        if let Some(window) = window {
-            let (min, max) = (window.contentMinSize(), window.contentMaxSize());
-            window.setContentSize(NSSize::new(
-                (size.width as f64).clamp(min.width, max.width),
-                (size.height as f64).clamp(min.height, max.height),
-            ));
-        }
+        let state = self.state.borrow();
+        let Some(Widget::Window { window, _delegate, .. }) = state.nodes.get(&window).map(|n| &n.widget) else {
+            return;
+        };
+        let (window, extra) = (window.clone(), _delegate.extra(window));
+        drop(state);
+        let (min, max) = (window.contentMinSize(), window.contentMaxSize());
+        window.setContentSize(NSSize::new(
+            (size.width as f64 + extra.width).clamp(min.width, max.width),
+            (size.height as f64 + extra.height).clamp(min.height, max.height),
+        ));
     }
 
     /// Orders front windows whose first layout has been applied: a sheet
@@ -538,11 +548,14 @@ impl mitsuami_core::TestHooks for AppKitHandle {
 }
 
 impl State {
-    /// Lets toolbars place their items now: a window that was never shown
-    /// (as in tests) doesn't even make its toolbar's views before.
+    /// Lets toolbars place their items now, and split windows their
+    /// content: a window that was never shown (as in tests) doesn't even
+    /// make its toolbar's views before.
     fn layout_toolbars(&self) {
         for node in self.nodes.values() {
-            if let Widget::Window { window, toolbar: Some(_), .. } = &node.widget {
+            if let Widget::Window { window, toolbar, split, .. } = &node.widget
+                && (toolbar.is_some() || split.is_some())
+            {
                 window.layoutIfNeeded();
             }
         }
@@ -615,8 +628,9 @@ impl State {
                 if self.options.show_windows {
                     self.pending_show.push(id);
                 }
-                Widget::Window { window, host, _delegate: delegate, toolbar: None }
+                Widget::Window { window, host, _delegate: delegate, toolbar: None, split: None }
             }
+            WidgetKind::Sidebar => Widget::Sidebar(Sidebar::new(mtm, id, self.events.clone())),
             WidgetKind::Container | WidgetKind::ToolbarItem => Widget::Host(HostView::new(mtm, false)),
             WidgetKind::Custom(_) => {
                 let Command::Create { props, .. } = command else { unreachable!() };
@@ -854,6 +868,8 @@ impl State {
             (Prop::SelectedIndex(index), Widget::Select(p)) => {
                 p.selectItemAtIndex(index.map_or(-1, |i| i as isize));
             }
+            (Prop::Sections(sections), Widget::Sidebar(sidebar)) => sidebar.set_sections(sections.clone()),
+            (Prop::SelectedIndex(index), Widget::Sidebar(sidebar)) => sidebar.set_selected(*index),
             (Prop::Label(t), Widget::Slider { slider, .. }) => slider.setAccessibilityLabel(Some(&ns(t))),
             (Prop::Range { min, max }, Widget::Slider { slider, step }) => {
                 slider.setMinValue(*min);
@@ -1143,6 +1159,31 @@ impl State {
                     self.nodes.get_mut(child).unwrap().parent = Some(*parent);
                     return;
                 }
+                if self.nodes[child].kind == WidgetKind::Sidebar {
+                    let (mtm, animate) = (self.mtm, self.options.show_windows);
+                    let Widget::Sidebar(sidebar) = &self.nodes[child].widget else { unreachable!() };
+                    let scroll = sidebar.scroll.clone();
+                    let Widget::Window { window, host, _delegate, toolbar, split } =
+                        &mut self.nodes.get_mut(parent).unwrap().widget
+                    else {
+                        violation(command, "a sidebar goes in a window")
+                    };
+                    if split.is_some() {
+                        violation(command, "a window has one sidebar");
+                    }
+                    // The content keeps its size: the window grows by the
+                    // sidebar. The title and toolbar items go over the
+                    // content, as a unified toolbar puts them.
+                    let size = host.frame().size;
+                    toolbar.get_or_insert_with(|| Toolbar::new(mtm, window, *parent, animate)).set_sidebar(true);
+                    *split = Some(Split::new(mtm, window, host, *child, &scroll));
+                    _delegate.set_detail(Some(host));
+                    window.setContentSize(
+                        _delegate.at_least_min(window, Size::new(size.width as f32, size.height as f32)),
+                    );
+                    self.nodes.get_mut(child).unwrap().parent = Some(*parent);
+                    return;
+                }
                 if self.nodes[child].kind == WidgetKind::ToolbarItem {
                     // Items come after the window's content.
                     let content = self
@@ -1192,6 +1233,28 @@ impl State {
                     violation(command, "not a child of this parent");
                 }
                 let row = self.nodes[child].row;
+                if let Widget::Window { window, host, _delegate, toolbar, split } =
+                    &mut self.nodes.get_mut(parent).unwrap().widget
+                    && split.as_ref().is_some_and(|s| s.sidebar == *child)
+                {
+                    // The window loses the sidebar, and the content keeps
+                    // its size.
+                    let size = host.frame().size;
+                    split.take().unwrap().remove(window, host);
+                    _delegate.set_detail(None);
+                    if let Some(bar) = toolbar {
+                        bar.set_sidebar(false);
+                        if bar.is_empty() {
+                            window.setToolbar(None);
+                            *toolbar = None;
+                        }
+                    }
+                    window.setContentSize(
+                        _delegate.at_least_min(window, Size::new(size.width as f32, size.height as f32)),
+                    );
+                    self.nodes.get_mut(child).unwrap().parent = None;
+                    return;
+                }
                 match &mut self.nodes.get_mut(parent).unwrap().widget {
                     Widget::Window { toolbar: Some(toolbar), .. } if toolbar.contains(*child) => toolbar.remove(*child),
                     Widget::Scroll(scroll) => scroll.setDocumentView(None),
@@ -1571,10 +1634,13 @@ impl Backend for AppKitBackend {
                 Some(measure) => measure(view, &request),
                 None => intrinsic(view),
             },
-            // Measured by the core.
-            Widget::Drawn { .. } | Widget::Window { .. } | Widget::Host(_) | Widget::Scroll(_) | Widget::List(_) => {
-                Size::ZERO
-            }
+            // Measured by the core, or never (the sidebar is the window's).
+            Widget::Drawn { .. }
+            | Widget::Window { .. }
+            | Widget::Host(_)
+            | Widget::Scroll(_)
+            | Widget::List(_)
+            | Widget::Sidebar(_) => Size::ZERO,
         };
         Size::new(request.known_width.unwrap_or(natural.width), request.known_height.unwrap_or(natural.height))
     }
@@ -1667,6 +1733,17 @@ impl Backend for AppKitBackend {
                 let field: &NumberField = widget_view.downcast_ref().ok_or(ActionError::Unsupported)?;
                 field.field().setStringValue(&ns(text));
                 unsafe { field.field().sendAction_to(field.field().action(), field.field().target().as_deref()) };
+            }
+            // As if the user clicked the item: the table reports it, from
+            // the sidebar's own data, never our state.
+            (A11yAction::SetValue(title), WidgetKind::Sidebar) => {
+                let state = self.state.borrow();
+                let Some(Widget::Sidebar(sidebar)) = state.nodes.get(&id).map(|n| &n.widget) else {
+                    return Err(ActionError::Unsupported);
+                };
+                if !sidebar.choose(title) {
+                    return Err(ActionError::Unsupported);
+                }
             }
             (A11yAction::SetValue(text), WidgetKind::Select) => {
                 // As if the item were picked from the open menu: the pop-up
@@ -2008,6 +2085,10 @@ impl Backend for AppKitBackend {
                 props.push(Prop::Selected(list.selected()));
             }
             Widget::Host(_) => props.extend(node.row.map(Prop::Row)),
+            Widget::Sidebar(sidebar) => {
+                props.push(Prop::Sections(sidebar.sections()));
+                props.push(Prop::SelectedIndex(sidebar.selected()));
+            }
         }
         if let Some(control) = node.widget.control() {
             props.push(Prop::Enabled(control.isEnabled()));
@@ -2043,6 +2124,21 @@ impl Backend for AppKitBackend {
             let f = toolbar.frame(id, host).unwrap_or(crate::classes::zero_rect());
             frame = Rect::new(f.origin.x as f32, f.origin.y as f32, f.size.width as f32, f.size.height as f32);
         }
+        // A sidebar is where the split put it, beside the content (so at
+        // negative x), and full height; collapsed, it isn't shown.
+        if let Some(Widget::Window { host, split: Some(split), .. }) = node
+            .parent
+            .filter(|_| node.kind == WidgetKind::Sidebar)
+            .and_then(|p| state.nodes.get(&p))
+            .map(|p| &p.widget)
+        {
+            let f = if split.collapsed() {
+                crate::classes::zero_rect()
+            } else {
+                view.convertRect_toView(view.bounds(), Some(host))
+            };
+            frame = Rect::new(f.origin.x as f32, f.origin.y as f32, f.size.width as f32, f.size.height as f32);
+        }
         let by_view = state.by_view.borrow();
         let (children, scroll_offset) = match &node.widget {
             Widget::List(list) => {
@@ -2061,6 +2157,9 @@ impl Backend for AppKitBackend {
                     view.subviews().iter().filter_map(|v| by_view.get(&key(&v)).copied()).collect();
                 if let Widget::Window { toolbar: Some(toolbar), .. } = &node.widget {
                     children.extend(toolbar.ids());
+                }
+                if let Widget::Window { split: Some(split), .. } = &node.widget {
+                    children.push(split.sidebar);
                 }
                 (children, None)
             }

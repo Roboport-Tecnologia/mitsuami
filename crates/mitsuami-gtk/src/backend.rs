@@ -23,6 +23,7 @@ use mitsuami_core::{
 use crate::custom::{DrawnArea, Emitter, ErasedRender, GtkCx, NativePayload};
 use crate::host::{Events, Frames, Host, WindowRoot};
 use crate::services::{ContextMenu, GtkServices, Menus, choose_context_item};
+use crate::sidebar::{Sidebar, Split};
 use crate::surface::SurfaceArea;
 
 /// How the backend behaves; apps and tests want different things.
@@ -42,7 +43,9 @@ type WidgetMap = Rc<RefCell<HashMap<gtk::Widget, NodeId>>>;
 pub(crate) struct WindowParts {
     pub(crate) window: gtk::Window,
     host: Host,
-    header: gtk::HeaderBar,
+    /// libadwaita's, which a split view's content page can take: it shows
+    /// the page's title and back button there.
+    header: adw::HeaderBar,
     /// Measured again when toolbar items change it.
     header_height: i32,
     /// The toolbar items in the header bar, in order.
@@ -52,6 +55,17 @@ pub(crate) struct WindowParts {
     pub(crate) shortcuts: gtk::ShortcutController,
     full_screen: FullScreen,
     min_size: MinSize,
+    /// The window's content beside its sidebar, while it has one.
+    split: Option<Split>,
+}
+
+impl WindowParts {
+    /// How much larger the window is than its content: by the header bar,
+    /// and beside a sidebar, by it.
+    fn extra(&self, content: Size) -> (i32, i32) {
+        let width = self.split.as_ref().map_or(0.0, |s| s.extra_width(content.width));
+        (width.round() as i32, self.header_height)
+    }
 }
 
 /// The app's minimum content size, no larger than the window's monitor less
@@ -202,6 +216,7 @@ enum Widget {
         viewport: gtk::Viewport,
     },
     List(crate::list::List),
+    Sidebar(Sidebar),
     /// A custom widget with a GTK render, and the props it last got.
     Custom {
         widget: gtk::Widget,
@@ -243,6 +258,7 @@ impl Widget {
             Widget::GpuSurface(surface) => surface.area.upcast_ref(),
             Widget::Scroll { scrolled, .. } => scrolled.upcast_ref(),
             Widget::List(list) => list.scrolled.upcast_ref(),
+            Widget::Sidebar(sidebar) => sidebar.scrolled.upcast_ref(),
             Widget::Custom { widget, .. } | Widget::Native { widget, .. } => widget,
             Widget::Drawn { drawn, .. } => drawn.area.upcast_ref(),
         }
@@ -266,7 +282,10 @@ impl Widget {
 
     /// Measured, never laid out inside: controls and escape hatches.
     fn is_leaf(&self) -> bool {
-        !matches!(self, Widget::Window(_) | Widget::Host(_) | Widget::Scroll { .. } | Widget::List(_))
+        !matches!(
+            self,
+            Widget::Window(_) | Widget::Host(_) | Widget::Scroll { .. } | Widget::List(_) | Widget::Sidebar(_)
+        )
     }
 
     /// The widget that takes keyboard focus: a list's view, not its
@@ -274,6 +293,7 @@ impl Widget {
     fn focus_widget(&self) -> gtk::Widget {
         match self {
             Widget::List(list) => list.view.clone().upcast(),
+            Widget::Sidebar(sidebar) => sidebar.list.clone().upcast(),
             widget => widget.widget().clone(),
         }
     }
@@ -579,14 +599,15 @@ impl GtkHandle {
     /// minimum (GTK allocates no less), and waits until GTK has allocated
     /// it; the content host reports it as `WindowResized`.
     pub fn resize_window(&self, window: NodeId, size: Size) {
-        let Some((gtk_window, host, header_height)) = self.window_parts(window) else { return };
+        let Some((gtk_window, host, _)) = self.window_parts(window) else { return };
         // The user can't resize it.
         if !gtk_window.is_resizable() {
             return;
         }
         let (min_width, min_height) = host.size_request();
         let size = Size::new(size.width.max(requested(min_width)), size.height.max(requested(min_height)));
-        resize(&gtk_window, size.width as i32, size.height as i32 + header_height);
+        let (extra_width, extra_height) = self.window_extra(window, size);
+        resize(&gtk_window, size.width as i32 + extra_width, size.height as i32 + extra_height);
         let target = (size.width as i32, size.height as i32);
         pump_until(Duration::from_secs(2), || (WidgetExt::width(&host), WidgetExt::height(&host)) == target);
     }
@@ -683,7 +704,7 @@ impl GtkHandle {
     /// Lets header bars whose items changed place them now, rather than at
     /// the next frame, as lists do: each is allocated again where it is.
     fn layout_headers(&self) {
-        let headers: Vec<gtk::HeaderBar> = {
+        let headers: Vec<adw::HeaderBar> = {
             let state = self.state.borrow();
             state
                 .nodes
@@ -732,6 +753,14 @@ impl GtkHandle {
         match &self.state.borrow().nodes.get(&id)?.widget {
             Widget::Window(parts) => Some((parts.window.clone(), parts.host.clone(), parts.header_height)),
             _ => None,
+        }
+    }
+
+    /// How much larger than a content of this size a window is.
+    fn window_extra(&self, id: NodeId, content: Size) -> (i32, i32) {
+        match self.state.borrow().nodes.get(&id).map(|n| &n.widget) {
+            Some(Widget::Window(parts)) => parts.extra(content),
+            _ => (0, 0),
         }
     }
 
@@ -855,7 +884,8 @@ fn keep_content_size(parts: &mut WindowParts) {
     parts.min_size.header_height.set(height);
     parts.min_size.apply(&parts.window, &parts.host);
     let size = parts.host.window_root().expect("window hosts have a root").size.get();
-    parts.window.set_default_size(size.width as i32, size.height as i32 + height);
+    let (width, height) = parts.extra(size);
+    parts.window.set_default_size(size.width as i32 + width, size.height as i32 + height);
 }
 
 fn sync_scroll(frames: &Frames, scrolled: &gtk::ScrolledWindow, viewport: &gtk::Viewport) {
@@ -918,6 +948,7 @@ impl State {
                 Widget::Window(self.create_window(id, &mut settings_handlers))
             }
             WidgetKind::Container | WidgetKind::ToolbarItem => Widget::Host(Host::new(self.frames.clone(), None)),
+            WidgetKind::Sidebar => Widget::Sidebar(Sidebar::new(id, events.clone())),
             WidgetKind::Custom(_) => {
                 let Command::Create { props, .. } = command else { unreachable!() };
                 let Some(custom) = find_prop!(props, Custom) else {
@@ -1093,7 +1124,7 @@ impl State {
         let window = gtk::Window::new();
         // An explicit header bar has a known height, so the content gets
         // exactly the size the core asks for.
-        let header = gtk::HeaderBar::new();
+        let header = adw::HeaderBar::new();
         let menu_button = gtk::MenuButton::new();
         menu_button.set_icon_name("open-menu-symbolic");
         menu_button.set_tooltip_text(Some("Main Menu"));
@@ -1179,6 +1210,7 @@ impl State {
             shortcuts,
             full_screen,
             min_size,
+            split: None,
         };
         self.menus.show_in(id, &parts);
         parts
@@ -1210,7 +1242,15 @@ impl State {
         }
         let Some(node) = self.nodes.get_mut(&id) else { violation(command, "node does not exist") };
         match (prop, &mut node.widget) {
-            (Prop::Title(t), Widget::Window(parts)) => parts.window.set_title(Some(t)),
+            (Prop::Title(t), Widget::Window(parts)) => {
+                parts.window.set_title(Some(t));
+                // Beside a sidebar, its page is titled after the window.
+                if let Some(split) = &parts.split {
+                    split.set_title(t);
+                }
+            }
+            (Prop::Sections(sections), Widget::Sidebar(sidebar)) => sidebar.set_sections(sections.clone()),
+            (Prop::SelectedIndex(index), Widget::Sidebar(sidebar)) => sidebar.set_selected(*index),
             (Prop::FullScreen(on), Widget::Window(parts)) => parts.full_screen.set(&parts.window, *on),
             (Prop::MinSize(min), Widget::Window(parts)) => {
                 parts.min_size.app.set(Some(*min));
@@ -1573,6 +1613,28 @@ impl State {
                 if self.nodes[child].parent.is_some() {
                     violation(command, "child is still attached");
                 }
+                if self.nodes[child].kind == WidgetKind::Sidebar {
+                    let sidebar = match self.nodes.remove(child) {
+                        Some(node) => node,
+                        None => violation(command, "node does not exist"),
+                    };
+                    let Some(Widget::Window(parts)) = self.nodes.get_mut(parent).map(|n| &mut n.widget) else {
+                        violation(command, "a sidebar goes in a window")
+                    };
+                    if parts.split.is_some() {
+                        violation(command, "a window has one sidebar");
+                    }
+                    let Widget::Sidebar(list) = &sidebar.widget else { unreachable!() };
+                    parts.split = Some(Split::new(&parts.window, &parts.header, &parts.host, *child, list));
+                    // The content keeps its size: the window grows by the
+                    // sidebar.
+                    let size = parts.host.window_root().expect("window hosts have a root").size.get();
+                    let (width, height) = parts.extra(size);
+                    resize(&parts.window, size.width as i32 + width, size.height as i32 + height);
+                    self.nodes.insert(*child, sidebar);
+                    self.nodes.get_mut(child).unwrap().parent = Some(*parent);
+                    return;
+                }
                 if self.nodes[child].kind == WidgetKind::ToolbarItem {
                     // Items come after the window's content.
                     let content = self
@@ -1626,6 +1688,17 @@ impl State {
                     violation(command, "not a child of this parent");
                 }
                 if let Widget::Window(parts) = &mut self.nodes.get_mut(parent).unwrap().widget
+                    && parts.split.as_ref().is_some_and(|s| s.sidebar == *child)
+                {
+                    // The content keeps its size: the window loses the
+                    // sidebar's.
+                    let size = parts.host.window_root().expect("window hosts have a root").size.get();
+                    parts.split.take().unwrap().remove(&parts.window, &parts.header, &parts.host);
+                    resize(&parts.window, size.width as i32, size.height as i32 + parts.header_height);
+                    self.nodes.get_mut(child).unwrap().parent = None;
+                    return;
+                }
+                if let Widget::Window(parts) = &mut self.nodes.get_mut(parent).unwrap().widget
                     && let Some(at) = parts.items.iter().position(|(id, _)| id == child)
                 {
                     let (_, widget) = parts.items.remove(at);
@@ -1660,6 +1733,14 @@ impl State {
                 {
                     parts.items.remove(at);
                     parts.header.remove(&widget);
+                }
+                // A sidebar destroyed with its window: out of the split
+                // view, which owns its list.
+                if let Some(Widget::Window(parts)) =
+                    node.parent.and_then(|p| self.nodes.get_mut(&p)).map(|n| &mut n.widget)
+                    && parts.split.as_ref().is_some_and(|s| s.sidebar == *id)
+                {
+                    parts.split.take().unwrap().remove(&parts.window, &parts.header, &parts.host);
                 }
                 // The app's handle may keep its surface: it just stops showing.
                 if let Widget::GpuSurface(surface) = &node.widget {
@@ -1742,7 +1823,8 @@ impl State {
                     root.size.set(asked);
                 }
                 root.resizing.set((root.size.get() != size).then_some(size));
-                resize(&parts.window, size.width as i32, size.height as i32 + parts.header_height);
+                let (width, height) = parts.extra(size);
+                resize(&parts.window, size.width as i32 + width, size.height as i32 + height);
             }
             Command::SetFocusOrder { window, order } => {
                 let widgets: Vec<gtk::Widget> = order
@@ -1952,10 +2034,13 @@ impl Backend for GtkBackend {
             }
             // As large as the layout makes it.
             Widget::GpuSurface(_) => Size::new(request.known_width.unwrap_or(0.0), request.known_height.unwrap_or(0.0)),
-            // Measured by the core.
-            Widget::Drawn { .. } | Widget::Window(_) | Widget::Host(_) | Widget::Scroll { .. } | Widget::List(_) => {
-                Size::ZERO
-            }
+            // Measured by the core, or never (the sidebar is the window's).
+            Widget::Drawn { .. }
+            | Widget::Window(_)
+            | Widget::Host(_)
+            | Widget::Scroll { .. }
+            | Widget::List(_)
+            | Widget::Sidebar(_) => Size::ZERO,
             widget => measure_widget(widget.widget(), matches!(widget, Widget::Label(_)), request),
         }
     }
@@ -1992,6 +2077,16 @@ impl Backend for GtkBackend {
             }
             if let (A11yAction::Focus, Widget::List(list)) = (action, &node.widget) {
                 return if list.view.grab_focus() { Ok(()) } else { Err(ActionError::Unsupported) };
+            }
+            // A sidebar's item, as the user clicks it: the list reports it,
+            // from its own data, never our state.
+            if let Widget::Sidebar(sidebar) = &node.widget {
+                return match action {
+                    A11yAction::SetValue(title) if sidebar.choose(title) => Ok(()),
+                    A11yAction::Focus if sidebar.list.grab_focus() => Ok(()),
+                    A11yAction::ScrollIntoView => Ok(()),
+                    _ => Err(ActionError::Unsupported),
+                };
             }
         }
         let (widget, kind, events, custom) = {
@@ -2351,6 +2446,10 @@ impl Backend for GtkBackend {
                 props.push(Prop::Selected(list.selected()));
             }
             Widget::Host(_) => props.extend(node.row.map(Prop::Row)),
+            Widget::Sidebar(sidebar) => {
+                props.push(Prop::Sections(sidebar.sections()));
+                props.push(Prop::SelectedIndex(sidebar.selected()));
+            }
         }
         let widget = node.widget.widget();
         if node.widget.is_control() {
@@ -2382,6 +2481,17 @@ impl Backend for GtkBackend {
                     _ => Rect::ZERO,
                 }
             }
+            // A sidebar is its page, beside the content (at negative x); in
+            // a collapsed split view, one of the two isn't shown.
+            (_, Some(Widget::Window(WindowParts { host, split: Some(split), .. })))
+                if node.kind == WidgetKind::Sidebar =>
+            {
+                let page = split.sidebar_page();
+                match page.compute_bounds(host) {
+                    Some(b) if page.is_mapped() && host.is_mapped() => Rect::new(b.x(), b.y(), b.width(), b.height()),
+                    _ => Rect::ZERO,
+                }
+            }
             _ => frame,
         };
         let by_widget = state.by_widget.borrow();
@@ -2398,9 +2508,10 @@ impl Backend for GtkBackend {
                     children.extend(by_widget.get(&child).copied());
                     next = child.next_sibling();
                 }
-                // Then its toolbar items, in the header bar.
+                // Then its toolbar items, in the header bar, and its sidebar.
                 if let Widget::Window(parts) = &node.widget {
                     children.extend(parts.items.iter().map(|(id, _)| *id));
+                    children.extend(parts.split.as_ref().map(|s| s.sidebar));
                 }
                 (children, None)
             }

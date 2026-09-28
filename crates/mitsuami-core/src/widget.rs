@@ -43,6 +43,15 @@ pub enum WidgetKind {
     /// of the window, after its content. The core lays out what's in it at
     /// its natural size; the platform places it, at the bar's trailing end.
     ToolbarItem,
+    /// A window's sidebar: the list down its leading side that picks what
+    /// the window shows (a source list in an NSSplitViewController, a
+    /// libadwaita navigation split view, NavigationView's pane on WinUI, a
+    /// first column in Kirigami's page row). A native child of the window,
+    /// after its content and toolbar items. Its items are data
+    /// ([`Prop::Sections`]), the chosen one [`Prop::SelectedIndex`]; the
+    /// platform draws, places and sizes it, and the window's content is
+    /// what's beside it.
+    Sidebar,
     /// Core-only grouping used by control flow (`Show`, `For`). Never sent to
     /// backends; its children are spliced into the nearest native ancestor.
     Fragment,
@@ -123,6 +132,7 @@ impl WidgetKind {
             WidgetKind::Window => "Window",
             WidgetKind::Container => "Container",
             WidgetKind::ToolbarItem => "ToolbarItem",
+            WidgetKind::Sidebar => "Sidebar",
             WidgetKind::ScrollView => "ScrollView",
             WidgetKind::List => "List",
             WidgetKind::Fragment => "Fragment",
@@ -404,6 +414,22 @@ impl ListStyle {
     }
 }
 
+/// A group of a `Sidebar`'s items, under a heading if it has a title.
+#[derive(Clone, Debug, Default, PartialEq)]
+pub struct SidebarSectionData {
+    pub title: Option<String>,
+    pub items: Vec<SidebarItemData>,
+}
+
+/// One item of a `Sidebar`: its title, and the name of its icon in the
+/// platform's own set (an SF Symbol, a symbolic theme icon, a Segoe
+/// Fluent Icons glyph), which platforms without it ignore.
+#[derive(Clone, Debug, Default, PartialEq)]
+pub struct SidebarItemData {
+    pub title: String,
+    pub icon: Option<String>,
+}
+
 /// A property of a native widget. Which ones apply depends on the kind.
 #[derive(Clone, Debug, PartialEq)]
 pub enum Prop {
@@ -459,7 +485,8 @@ pub enum Prop {
     /// A `Select`'s options, in order.
     Options(Vec<String>),
     /// Which option of a `Select` is chosen: always one, unless it has no
-    /// options.
+    /// options. Which item of a `Sidebar` is, counting across its sections:
+    /// `None` for none.
     SelectedIndex(Option<usize>),
     /// A `Slider`'s or `NumberInput`'s value, within its range. The core
     /// sends it after the range, which may have clamped it.
@@ -506,6 +533,8 @@ pub enum Prop {
     /// Whether a `ScrollView` shows scroll bars, as the platform shows them.
     /// Without, it still scrolls, by wheel, trackpad and touch.
     ScrollBars(bool),
+    /// A `Sidebar`'s items, in sections, in order.
+    Sections(Vec<SidebarSectionData>),
     /// A `List`'s rows, in order.
     Rows(Vec<RowKey>),
     /// How high a `List`'s rows are likely to be, for platforms that must

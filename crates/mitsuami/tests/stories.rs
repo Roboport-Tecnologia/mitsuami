@@ -542,6 +542,35 @@ fn toolbar() -> impl View {
     ))
 }
 
+/// A settings window's sidebar: items with icons, in sections, the second
+/// chosen. Captures are of the content, so the sidebar shows only in the
+/// layout, beside it.
+#[mitsuami_test::story(sizes = [(420, 280)])]
+fn sidebar() -> impl View {
+    let page = signal(1);
+    // SF Symbols, symbolic theme icons, Segoe Fluent Icons glyphs.
+    let [general, appearance, wifi, bluetooth] = platform! {
+        macos => ["gearshape", "paintbrush", "wifi", "dot.radiowaves.left.and.right"],
+        linux => [
+            "preferences-system-symbolic",
+            "applications-graphics-symbolic",
+            "network-wireless-symbolic",
+            "bluetooth-symbolic",
+        ],
+        windows => ["\u{E713}", "\u{E790}", "\u{E701}", "\u{E702}"],
+    };
+    Column::new().padding(16).gap(8).children((
+        Sidebar::new(page).children((
+            SidebarItem::new("General", 0).icon(general),
+            SidebarItem::new("Appearance", 1).icon(appearance),
+            SidebarSection::new("Network")
+                .children((SidebarItem::new("Wi-Fi", 2).icon(wifi), SidebarItem::new("Bluetooth", 3).icon(bluetooth))),
+        )),
+        Text::new("Appearance").text_style(TextStyle::Title),
+        Text::new("Light, dark, or following the time of day."),
+    ))
+}
+
 /// AppKit sizes pop-up buttons for their widest option, the others for the
 /// chosen one.
 #[mitsuami_test::story(sizes = [(240, fit)])]

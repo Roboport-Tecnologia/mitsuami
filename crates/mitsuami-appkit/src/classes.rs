@@ -10,15 +10,15 @@ use mitsuami_core::{
 };
 use objc2::rc::Retained;
 use objc2::runtime::{AnyObject, NSObject, NSObjectProtocol, Sel};
-use objc2::{DefinedClass, MainThreadMarker, MainThreadOnly, define_class, msg_send, sel};
+use objc2::{DefinedClass, MainThreadMarker, MainThreadOnly, Message, define_class, msg_send, sel};
 use objc2_app_kit::{
     NSButton, NSColor, NSControl, NSControlStateValueOn, NSControlTextEditingDelegate, NSEvent, NSPopUpButton,
-    NSRectFill, NSScreen, NSSlider, NSSwitch, NSTextField, NSTextFieldDelegate, NSTextView, NSView, NSWindow,
-    NSWindowDelegate, NSWindowStyleMask,
+    NSRectFill, NSScreen, NSSlider, NSSwitch, NSTextField, NSTextFieldDelegate, NSTextView, NSView,
+    NSViewFrameDidChangeNotification, NSWindow, NSWindowDelegate, NSWindowStyleMask,
 };
 use objc2_foundation::{
-    NSKeyValueObservingOptions, NSNotification, NSObjectNSKeyValueObserverRegistration, NSPoint, NSRect, NSSize,
-    NSString,
+    NSKeyValueObservingOptions, NSNotification, NSNotificationCenter, NSObjectNSKeyValueObserverRegistration, NSPoint,
+    NSRect, NSSize, NSString,
 };
 
 pub(crate) fn zero_rect() -> NSRect {
@@ -187,6 +187,9 @@ pub(crate) struct WindowIvars {
     min_size: Cell<Option<Size>>,
     /// The content sets the height, not the user.
     height_locked: Cell<bool>,
+    /// The window's content (its host), when it's beside a sidebar: the
+    /// window's content area is larger by the sidebar and the title bar.
+    detail: RefCell<Option<Retained<NSView>>>,
 }
 
 define_class!(
@@ -222,6 +225,18 @@ define_class!(
     }
 
     impl WindowDelegate {
+        /// The content beside a sidebar changed size: the window's did, or
+        /// the user moved the divider (`NSViewFrameDidChangeNotification`).
+        #[unsafe(method(detailDidResize:))]
+        fn detail_did_resize(&self, notification: &NSNotification) {
+            let Some(view) = notification.object().and_then(|o| o.downcast::<NSView>().ok()) else { return };
+            let size = view.frame().size;
+            let size = Size::new(size.width as f32, size.height as f32);
+            self.ivars().events.emit(self.ivars().id, UiEvent::WindowResized(size));
+        }
+    }
+
+    impl WindowDelegate {
         /// Escape, from whatever has the focus and didn't use it: the
         /// window hands action messages nobody took to its delegate.
         #[unsafe(method(cancelOperation:))]
@@ -253,7 +268,11 @@ define_class!(
             if self.ivars().height_locked.get() && !window.styleMask().contains(NSWindowStyleMask::FullScreen) {
                 self.apply_min_size(window);
             }
-            self.ivars().events.emit(self.ivars().id, UiEvent::WindowResized(size));
+            // Beside a sidebar, the content's own size is reported, once
+            // the split lays it out (`detailDidResize:`).
+            if self.ivars().detail.borrow().is_none() {
+                self.ivars().events.emit(self.ivars().id, UiEvent::WindowResized(size));
+            }
         }
 
         /// Another screen, another cap on the minimum.
@@ -326,6 +345,7 @@ impl WindowDelegate {
             full_screen_ours: Cell::new(false),
             min_size: Cell::new(None),
             height_locked: Cell::new(false),
+            detail: RefCell::new(None),
         });
         unsafe { msg_send![super(this), init] }
     }
@@ -354,12 +374,43 @@ impl WindowDelegate {
         window.contentMaxSize().height < f32::MAX as f64
     }
 
+    /// Puts the window's content beside a sidebar (`Some`), or back as
+    /// the window's whole content area. Its size is reported from then on.
+    pub(crate) fn set_detail(&self, detail: Option<&NSView>) {
+        let center = NSNotificationCenter::defaultCenter();
+        if let Some(old) = self.ivars().detail.replace(detail.map(|d| d.retain())) {
+            unsafe { center.removeObserver_name_object(self, Some(NSViewFrameDidChangeNotification), Some(&old)) };
+        }
+        if let Some(detail) = detail {
+            detail.setPostsFrameChangedNotifications(true);
+            unsafe {
+                center.addObserver_selector_name_object(
+                    self,
+                    sel!(detailDidResize:),
+                    Some(NSViewFrameDidChangeNotification),
+                    Some(detail),
+                )
+            };
+        }
+    }
+
+    /// How much larger the window's content area is than its content: by
+    /// the sidebar and the title bar, beside a sidebar; else not at all.
+    pub(crate) fn extra(&self, window: &NSWindow) -> NSSize {
+        let Some(detail) = self.ivars().detail.borrow().clone() else { return NSSize::ZERO };
+        window.layoutIfNeeded();
+        let area = window.contentRectForFrameRect(window.frame()).size;
+        let content = detail.frame().size;
+        NSSize::new((area.width - content.width).max(0.0), (area.height - content.height).max(0.0))
+    }
+
     /// The minimum, no larger than the content of a window filling its
     /// screen's visible area (a machine's mode can be larger than a laptop's
     /// screen; AppKit would make a window as large as asked), and a locked
     /// height.
     fn apply_min_size(&self, window: &NSWindow) {
-        let min = self.min_size_on_screen(window);
+        let extra = self.extra(window);
+        let min = self.min_size_on_screen(window).map(|m| NSSize::new(m.width + extra.width, m.height + extra.height));
         let content = window.contentRectForFrameRect(window.frame()).size;
         let (mut least, mut most) = (min.unwrap_or(NSSize::ZERO), NSSize::new(f32::MAX as f64, f32::MAX as f64));
         if self.ivars().height_locked.get() {
@@ -375,25 +426,36 @@ impl WindowDelegate {
         }
     }
 
-    /// A size the app asks for, no smaller than its minimum: AppKit's
-    /// `setContentSize:` would go below it.
+    /// The content area for a content size the app asks for, no smaller
+    /// than its minimum: AppKit's `setContentSize:` would go below it.
     pub(crate) fn at_least_min(&self, window: &NSWindow, size: Size) -> NSSize {
         let min = self.min_size_on_screen(window).unwrap_or(NSSize::ZERO);
-        NSSize::new((size.width as f64).max(min.width), (size.height as f64).max(min.height))
+        let extra = self.extra(window);
+        NSSize::new(
+            (size.width as f64).max(min.width) + extra.width,
+            (size.height as f64).max(min.height) + extra.height,
+        )
     }
 
+    /// The app's minimum content size, no larger than a window filling its
+    /// screen could give its content.
     fn min_size_on_screen(&self, window: &NSWindow) -> Option<NSSize> {
         let min = self.ivars().min_size.get()?;
         let screen = window.screen().or_else(|| NSScreen::mainScreen(MainThreadMarker::from(self)));
-        let most =
-            screen.map_or(NSSize::new(f64::MAX, f64::MAX), |s| window.contentRectForFrameRect(s.visibleFrame()).size);
+        let extra = self.extra(window);
+        let most = screen.map_or(NSSize::new(f64::MAX, f64::MAX), |s| {
+            let area = window.contentRectForFrameRect(s.visibleFrame()).size;
+            NSSize::new(area.width - extra.width, area.height - extra.height)
+        });
         Some(NSSize::new((min.width as f64).min(most.width), (min.height as f64).min(most.height)))
     }
 
     /// The minimum as AppKit has it: the app's, if AppKit holds it as
     /// capped by the screen. A locked height hides the minimum's.
     pub(crate) fn min_size(&self, window: &NSWindow) -> Size {
+        let extra = self.extra(window);
         let now = window.contentMinSize();
+        let now = NSSize::new((now.width - extra.width).max(0.0), (now.height - extra.height).max(0.0));
         let locked = self.height_locked(window);
         match (self.ivars().min_size.get(), self.min_size_on_screen(window)) {
             (Some(min), Some(capped)) if capped.width == now.width && (locked || capped.height == now.height) => min,
@@ -478,6 +540,7 @@ impl WindowDelegate {
 
     pub(crate) fn stop_observing_focus(&self, window: &NSWindow) {
         unsafe { window.removeObserver_forKeyPath(self, &NSString::from_str(FIRST_RESPONDER)) };
+        self.set_detail(None);
     }
 
     /// The node owning the first responder: the nearest known view among

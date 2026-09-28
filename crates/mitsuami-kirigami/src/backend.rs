@@ -14,8 +14,8 @@ use mitsuami_core::services::{MenuBarData, Reply};
 use mitsuami_core::{
     AppInfo, ButtonRole, ButtonStyle, Color, Command, CustomProps, DisplayList, EventValue, HorizontalAlign, ImageFit,
     ImageSource, KeyCode, Modality, Modifiers, NativeAppInfo, NativeIcon, NodeId, Opaque, Orientation, Point,
-    PointerEvent, Prop, Rect, RowKey, ScrollAxes, ScrollDelta, SelectionMode, Size, SurfaceInput, TextStyle, UiEvent,
-    WidgetKind, find_prop,
+    PointerEvent, Prop, Rect, RowKey, ScrollAxes, ScrollDelta, SelectionMode, SidebarSectionData, Size, SurfaceInput,
+    TextStyle, UiEvent, WidgetKind, find_prop,
 };
 
 use crate::custom::{Emitter, ErasedRender, KirigamiCx, NativePayload, flatten};
@@ -83,6 +83,8 @@ pub(crate) struct WindowRoot {
     min: Cell<Option<Size>>,
     /// The content sets the height, not the user.
     height_locked: Cell<bool>,
+    /// Its sidebar's node and page, while it has one.
+    sidebar: Cell<Option<(NodeId, QmlObject)>>,
 }
 
 /// `Qt::WindowFullScreen`.
@@ -107,6 +109,16 @@ impl WindowRoot {
         header.max(0.0)
     }
 
+    /// How much wider the window is than its content: by the sidebar's
+    /// column, where the page row shows it beside the content.
+    fn side(&self) -> f64 {
+        if self.sidebar.get().is_none() {
+            return 0.0;
+        }
+        self.window.polish_items();
+        self.window.real("mitsuamiSidebarWidth").max(0.0)
+    }
+
     /// Sizes the window so its content area is `size`. Qt sizes windows in
     /// whole pixels.
     fn place(&self, size: Size) {
@@ -117,7 +129,7 @@ impl WindowRoot {
             self.window.set_int("minimumHeight", height as i32);
             self.window.set_int("maximumHeight", height as i32);
         }
-        self.window.set_real("width", size.width.round() as f64);
+        self.window.set_real("width", (size.width as f64 + self.side()).round());
         self.window.set_real("height", height);
     }
 
@@ -164,7 +176,7 @@ impl WindowRoot {
     /// it, in whole points, no larger than its screen takes.
     fn min_window_size(&self, min: Size) -> (i32, i32) {
         let min = self.capped(min);
-        (min.width.ceil() as i32, (min.height as f64 + self.header()).ceil() as i32)
+        ((min.width as f64 + self.side()).ceil() as i32, (min.height as f64 + self.header()).ceil() as i32)
     }
 
     /// A minimum no larger than the content of a window filling its
@@ -172,7 +184,8 @@ impl WindowRoot {
     /// laptop's screen), in whole points.
     fn capped(&self, min: Size) -> Size {
         let Some((width, height)) = self.window.available_size() else { return min };
-        let most = Size::new(width.floor().max(0.0) as f32, (height - self.header()).floor().max(0.0) as f32);
+        let most =
+            Size::new((width - self.side()).floor().max(0.0) as f32, (height - self.header()).floor().max(0.0) as f32);
         Size::new(min.width.min(most.width), min.height.min(most.height))
     }
 
@@ -203,7 +216,9 @@ impl WindowRoot {
             Some(min) if self.min_window_size(min).0 == width && (locked || self.min_window_size(min).1 == height) => {
                 min
             }
-            _ => Size::new(width as f32, (height as f64 - self.header()).max(0.0) as f32),
+            _ => {
+                Size::new((width as f64 - self.side()).max(0.0) as f32, (height as f64 - self.header()).max(0.0) as f32)
+            }
         }
     }
 
@@ -320,6 +335,11 @@ enum Widget {
         flickable: QmlObject,
     },
     List(crate::list::List),
+    /// A window's sidebar page, and the sections it was given.
+    Sidebar {
+        page: QmlObject,
+        sections: Vec<SidebarSectionData>,
+    },
     /// A custom widget with a KDE render, and the props it last got.
     Custom {
         item: QmlObject,
@@ -363,7 +383,8 @@ impl Widget {
             | Widget::Scroll { view: i, .. }
             | Widget::Custom { item: i, .. }
             | Widget::Drawn { item: i, .. }
-            | Widget::Native { item: i, .. } => *i,
+            | Widget::Native { item: i, .. }
+            | Widget::Sidebar { page: i, .. } => *i,
             Widget::GpuSurface(surface) => surface.item,
             Widget::List(list) => list.root,
         }
@@ -372,7 +393,14 @@ impl Widget {
     /// Made from our templates, which show a tooltip (`qml::a11y`). A
     /// window's host isn't: a window takes no tooltip.
     fn has_tooltip(&self) -> bool {
-        !matches!(self, Widget::Window { .. } | Widget::Custom { .. } | Widget::Drawn { .. } | Widget::Native { .. })
+        !matches!(
+            self,
+            Widget::Window { .. }
+                | Widget::Custom { .. }
+                | Widget::Drawn { .. }
+                | Widget::Native { .. }
+                | Widget::Sidebar { .. }
+        )
     }
 
     /// Made from our templates, which show a context menu
@@ -388,6 +416,7 @@ impl Widget {
             Widget::Scroll { flickable, .. } => *flickable,
             Widget::List(list) => list.view,
             Widget::GpuSurface(surface) => surface.input,
+            Widget::Sidebar { page, .. } => page.child("mitsuamiSidebarList").unwrap_or(*page),
             widget => widget.item(),
         }
     }
@@ -429,6 +458,7 @@ impl Widget {
                 | Widget::Custom { .. }
                 | Widget::Native { .. }
                 | Widget::List(_)
+                | Widget::Sidebar { .. }
         ) || matches!(self, Widget::GpuSurface(surface) if surface.takes_input())
     }
 
@@ -441,6 +471,7 @@ impl Widget {
                 | Widget::ToolbarItem { .. }
                 | Widget::Scroll { .. }
                 | Widget::List(_)
+                | Widget::Sidebar { .. }
         )
     }
 }
@@ -815,6 +846,16 @@ impl State {
                 action.set_object("mitsuamiItem", Some(host));
                 Widget::ToolbarItem { host, action }
             }
+            WidgetKind::Sidebar => {
+                let page = QmlObject::load(&qml::sidebar());
+                // The user's choice only: the app's doesn't emit it.
+                page.connect("mitsuamiChosen()", move || {
+                    if let Ok(index) = usize::try_from(page.int("mitsuamiSelected")) {
+                        events.emit(id, UiEvent::Changed(EventValue::Index(index)));
+                    }
+                });
+                Widget::Sidebar { page, sections: Vec::new() }
+            }
             WidgetKind::Custom(_) => {
                 let Command::Create { props, .. } = command else { unreachable!() };
                 let Some(custom) = find_prop!(props, Custom) else {
@@ -1002,6 +1043,7 @@ impl State {
             full_screen: Cell::new(false),
             min: Cell::new(None),
             height_locked: Cell::new(false),
+            sidebar: Cell::new(None),
         });
         let weak = Rc::downgrade(&root);
         window.connect("windowStateChanged(Qt::WindowState)", move || {
@@ -1095,9 +1137,23 @@ impl State {
             (Prop::Title(t), Widget::Window { root }) => {
                 root.window.set_str("title", t);
                 // The page's title is what Kirigami shows in its toolbar.
-                if let Some(page) = root.window.child("mitsuamiPage") {
-                    page.set_str("title", t);
+                // Beside a sidebar, the sidebar's page has it, and the
+                // content's is the item chosen's.
+                match root.sidebar.get() {
+                    Some((_, sidebar)) => sidebar.set_str("title", t),
+                    None => {
+                        if let Some(page) = root.window.child("mitsuamiPage") {
+                            page.set_str("title", t);
+                        }
+                    }
                 }
+            }
+            (Prop::Sections(new), Widget::Sidebar { page, sections }) => {
+                page.set_str("mitsuamiSections", &sections_json(new));
+                *sections = new.clone();
+            }
+            (Prop::SelectedIndex(index), Widget::Sidebar { page, .. }) => {
+                page.set_int("mitsuamiSelected", index.map_or(-1, |i| i as i32));
             }
             (Prop::FullScreen(on), Widget::Window { root }) => root.set_full_screen(*on),
             (Prop::HeightFollowsContent(on), Widget::Window { root }) => root.set_height_locked(*on),
@@ -1385,6 +1441,28 @@ impl State {
                 if self.nodes[child].parent.is_some() {
                     violation(command, "child is still attached");
                 }
+                if let Widget::Sidebar { page, .. } = self.nodes[child].widget {
+                    let Widget::Window { root } = &self.nodes[parent].widget else {
+                        violation(command, "a sidebar goes in a window")
+                    };
+                    if root.sidebar.get().is_some() {
+                        violation(command, "a window has one sidebar");
+                    }
+                    let content = root.window.child("mitsuamiPage").expect("windows have a page");
+                    page.set_str("title", &root.window.str("title"));
+                    page.set_object("mitsuamiContent", Some(content));
+                    root.window.set_object("mitsuamiSidebar", Some(page));
+                    root.window.invoke("mitsuamiShowSidebar");
+                    root.sidebar.set(Some((*child, page)));
+                    // The content keeps its size: the window grows by the
+                    // sidebar's column.
+                    let size = root.size.get();
+                    if !size.is_empty() {
+                        root.resize_to(size);
+                    }
+                    self.nodes.get_mut(child).unwrap().parent = Some(*parent);
+                    return;
+                }
                 if let Widget::ToolbarItem { action, .. } = self.nodes[child].widget {
                     // Items come after the window's content.
                     let content = self
@@ -1431,6 +1509,7 @@ impl State {
                 }
                 match (&self.nodes[parent].widget, &self.nodes[child].widget) {
                     (Widget::List(list), _) => list.remove(self.nodes[child].row.expect("inserted with a row")),
+                    (Widget::Window { root }, Widget::Sidebar { .. }) => hide_sidebar(root),
                     (Widget::Window { root }, Widget::ToolbarItem { host, action }) => {
                         // Out of the toolbar's item first, which goes with
                         // the action.
@@ -1465,6 +1544,16 @@ impl State {
                     Widget::ToolbarItem { host, action } => {
                         host.destroy();
                         action.destroy();
+                    }
+                    // Out of its window's page row first, if it's still in
+                    // it (the window goes too).
+                    Widget::Sidebar { page, .. } => {
+                        if let Some(Widget::Window { root }) =
+                            node.parent.and_then(|p| self.nodes.get(&p)).map(|n| &n.widget)
+                        {
+                            hide_sidebar(root);
+                        }
+                        page.destroy();
                     }
                     // The app's handle may keep its surface: it just stops
                     // showing.
@@ -1576,6 +1665,51 @@ impl State {
     }
 }
 
+/// Takes a window's sidebar out of its page row: the content's page is
+/// titled after the window again, and the content keeps its size.
+fn hide_sidebar(root: &WindowRoot) {
+    let Some((_, page)) = root.sidebar.take() else { return };
+    page.set_object("mitsuamiContent", None);
+    root.window.invoke("mitsuamiHideSidebar");
+    if let Some(content) = root.window.child("mitsuamiPage") {
+        content.set_str("title", &root.window.str("title"));
+    }
+    let size = root.size.get();
+    if !size.is_empty() {
+        root.resize_to(size);
+    }
+}
+
+/// A sidebar's sections as the JSON its page reads (`qml::sidebar`).
+fn sections_json(sections: &[SidebarSectionData]) -> String {
+    fn string(s: &str) -> String {
+        let mut out = String::from("\"");
+        for c in s.chars() {
+            match c {
+                '"' => out.push_str("\\\""),
+                '\\' => out.push_str("\\\\"),
+                c if (c as u32) < 0x20 => out.push_str(&format!("\\u{:04x}", c as u32)),
+                c => out.push(c),
+            }
+        }
+        out.push('"');
+        out
+    }
+    let optional = |s: &Option<String>| s.as_deref().map_or("null".to_owned(), string);
+    let sections: Vec<String> = sections
+        .iter()
+        .map(|section| {
+            let items: Vec<String> = section
+                .items
+                .iter()
+                .map(|item| format!(r#"{{"title":{},"icon":{}}}"#, string(&item.title), optional(&item.icon)))
+                .collect();
+            format!(r#"{{"title":{},"items":[{}]}}"#, optional(&section.title), items.join(","))
+        })
+        .collect();
+    format!("[{}]", sections.join(","))
+}
+
 /// A select's options, as it shows them.
 fn option_texts(select: QmlObject) -> Vec<String> {
     if select.int("count") == 0 {
@@ -1658,12 +1792,13 @@ impl Backend for KirigamiBackend {
             }
             // As large as the layout makes it.
             Widget::GpuSurface(_) => Size::new(request.known_width.unwrap_or(0.0), request.known_height.unwrap_or(0.0)),
-            // Measured by the core.
+            // Measured by the core, or never (the sidebar is the window's).
             Widget::Drawn { .. }
             | Widget::Window { .. }
             | Widget::Host(_)
             | Widget::Scroll { .. }
-            | Widget::List(_) => Size::ZERO,
+            | Widget::List(_)
+            | Widget::Sidebar { .. } => Size::ZERO,
             widget => measure_item(widget.item(), matches!(widget, Widget::Label(_)), request),
         }
     }
@@ -1726,6 +1861,19 @@ impl Backend for KirigamiBackend {
             }
             (A11yAction::SetValue(text), WidgetKind::Slider | WidgetKind::NumberInput) => {
                 item.set_real("mitsuamiMoveTo", text.trim().parse().map_err(|_| ActionError::Unsupported)?);
+            }
+            // As if the item were clicked.
+            (A11yAction::SetValue(title), WidgetKind::Sidebar) => {
+                let index = {
+                    let state = self.state.borrow();
+                    match state.nodes.get(&id).map(|n| &n.widget) {
+                        Some(Widget::Sidebar { sections, .. }) => {
+                            sections.iter().flat_map(|s| &s.items).position(|i| i.title == *title)
+                        }
+                        _ => None,
+                    }
+                };
+                item.set_int("mitsuamiChoice", index.ok_or(ActionError::Unsupported)? as i32);
             }
             // As if the option were picked from the pop-up.
             (A11yAction::SetValue(text), WidgetKind::Select) => {
@@ -2023,6 +2171,10 @@ impl Backend for KirigamiBackend {
             }
             Widget::Host(_) => props.extend(node.row.map(Prop::Row)),
             Widget::ToolbarItem { .. } => {}
+            Widget::Sidebar { page, sections } => {
+                props.push(Prop::Sections(sections.clone()));
+                props.push(Prop::SelectedIndex(usize::try_from(page.int("mitsuamiSelected")).ok()));
+            }
         }
         if node.widget.is_control() {
             props.push(Prop::Enabled(item.bool("enabled")));
@@ -2056,6 +2208,16 @@ impl Backend for KirigamiBackend {
                     Rect::new(at.x - origin.x, at.y - origin.y, frame.width(), frame.height())
                 }
             }
+            // A sidebar's page is beside the content (at negative x), where
+            // the page row shows it.
+            (Some(Widget::Window { root }), Widget::Sidebar { page, .. }) => {
+                if !page.bool("visible") || page.real("width") <= 0.0 {
+                    Rect::ZERO
+                } else {
+                    let (at, origin) = (page.map_to_scene(Point::ZERO), root.host.map_to_scene(Point::ZERO));
+                    Rect::new(at.x - origin.x, at.y - origin.y, frame.width(), frame.height())
+                }
+            }
             _ => frame,
         };
         let (children, scroll_offset) = match &node.widget {
@@ -2070,9 +2232,11 @@ impl Backend for KirigamiBackend {
             Widget::List(list) => list.children(),
             _ => children.iter().filter_map(|c| c.node()).filter(|key| *key != own).map(node_from_key).collect(),
         };
-        // A window's toolbar items come after its content.
+        // A window's toolbar items come after its content, and its sidebar
+        // after them.
         if let Widget::Window { root } = &node.widget {
             children.extend(root.toolbar.borrow().iter().copied());
+            children.extend(root.sidebar.get().map(|(id, _)| id));
         }
         let window = {
             let mut top = id;

@@ -406,3 +406,18 @@ Windows.Win32.ICON_BIG
 Windows.Win32.GetIconInfo
 Windows.Win32.GetObjectW
 Windows.Win32.BITMAP
+Microsoft.UI.Xaml.Controls.NavigationView::CreateInstance
+Microsoft.UI.Xaml.Controls.INavigationView::{get_MenuItems, get_SelectedItem, put_SelectedItem, put_IsSettingsVisible, get_DisplayMode, get_OpenPaneLength, get_CompactPaneLength, get_IsPaneOpen, add_SelectionChanged, remove_SelectionChanged}
+Microsoft.UI.Xaml.Controls.INavigationView2::put_IsBackButtonVisible
+Microsoft.UI.Xaml.Controls.NavigationViewBackButtonVisible
+Microsoft.UI.Xaml.Controls.NavigationViewDisplayMode
+Microsoft.UI.Xaml.Controls.NavigationViewSelectionChangedEventArgs::{}
+Microsoft.UI.Xaml.Controls.INavigationViewSelectionChangedEventArgs::get_SelectedItem
+Microsoft.UI.Xaml.Controls.NavigationViewItem::CreateInstance
+Microsoft.UI.Xaml.Controls.INavigationViewItem::put_Icon
+Microsoft.UI.Xaml.Controls.NavigationViewItemHeader::CreateInstance
+Microsoft.UI.Xaml.Controls.NavigationViewItemSeparator::CreateInstance
+Microsoft.UI.Xaml.Controls.NavigationViewItemBase::{}
+Microsoft.UI.Xaml.Controls.FontIcon::CreateInstance
+Microsoft.UI.Xaml.Controls.IFontIcon::{get_Glyph, put_Glyph}
+Microsoft.UI.Xaml.Controls.IconElement::{}

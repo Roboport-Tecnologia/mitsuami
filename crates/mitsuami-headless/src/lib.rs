@@ -32,6 +32,10 @@ use mitsuami_core::{
 const TOOLBAR_HEIGHT: f32 = 40.0;
 const TOOLBAR_SPACING: f32 = 8.0;
 
+/// A window's sidebar: this wide, on the leading side of its content, as
+/// high as it.
+const SIDEBAR_WIDTH: f32 = 200.0;
+
 /// The screen a window in full screen fills.
 const SCREEN: Size = Size::new(1280.0, 800.0);
 
@@ -333,18 +337,47 @@ impl State {
         }
     }
 
-    /// Checks that toolbar items are in windows, after their content.
+    /// Checks that toolbar items are in windows, after their content, and
+    /// that a window has at most one sidebar, after them, whose selection
+    /// is one of its items.
     fn check_toolbars(&self, command: &Command) {
         for (id, node) in &self.nodes {
-            let items = node.children.iter().filter(|c| self.nodes[c].kind == WidgetKind::ToolbarItem).count();
+            let kind = |c: &NodeId| self.nodes[c].kind;
+            let sidebars = node.children.iter().filter(|c| kind(c) == WidgetKind::Sidebar).count();
+            if sidebars > 0 && node.kind != WidgetKind::Window {
+                violation(command, &format!("{id} has a sidebar but isn't a window"));
+            }
+            if sidebars > 1 {
+                violation(command, &format!("window {id} has {sidebars} sidebars"));
+            }
+            if sidebars == 1 && node.children.last().map(kind) != Some(WidgetKind::Sidebar) {
+                violation(command, &format!("window {id}'s sidebar isn't after its content and toolbar items"));
+            }
+            let children = &node.children[..node.children.len() - sidebars];
+            let items = children.iter().filter(|c| kind(c) == WidgetKind::ToolbarItem).count();
             if items > 0 && node.kind != WidgetKind::Window {
                 violation(command, &format!("{id} has toolbar items but isn't a window"));
             }
-            let content = node.children.len() - items;
-            if node.children[content..].iter().any(|c| self.nodes[c].kind != WidgetKind::ToolbarItem) {
+            let content = children.len() - items;
+            if children[content..].iter().any(|c| kind(c) != WidgetKind::ToolbarItem) {
                 violation(command, &format!("window {id}'s toolbar items aren't after its content"));
             }
+            if node.kind == WidgetKind::Sidebar {
+                let count: usize =
+                    find_prop!(node.props, Sections).unwrap_or_default().iter().map(|s| s.items.len()).sum();
+                if find_prop!(node.props, SelectedIndex).flatten().is_some_and(|i| i >= count) {
+                    violation(command, &format!("sidebar {id}'s selection isn't one of its {count} items"));
+                }
+            }
         }
+    }
+
+    /// Where a window shows its sidebar, in the window's content
+    /// coordinates: beside the content, on its leading side, as high.
+    fn sidebar_frame(&self, sidebar: NodeId) -> Rect {
+        let node = &self.nodes[&sidebar];
+        let Some(window) = node.parent.map(|p| &self.nodes[&p]) else { return Rect::ZERO };
+        Rect::new(-SIDEBAR_WIDTH, 0.0, SIDEBAR_WIDTH, window.frame.height())
     }
 
     /// Where a window's toolbar shows an item, in the window's content
@@ -775,6 +808,9 @@ impl Backend for HeadlessBackend {
                     if node.kind == WidgetKind::Window {
                         violation(command, "window frames belong to the platform");
                     }
+                    if node.kind == WidgetKind::Sidebar {
+                        violation(command, "a sidebar's frame belongs to the platform");
+                    }
                     node.frame = *frame;
                     state.size_surface(*id);
                 }
@@ -982,6 +1018,16 @@ impl Backend for HeadlessBackend {
                 state.set_prop(id, Prop::SelectedIndex(Some(index)));
                 state.emit(id, UiEvent::Changed(EventValue::Index(index)));
             }
+            // An item, by its title, as a screen reader selects one.
+            (A11yAction::SetValue(title), WidgetKind::Sidebar) => {
+                let sections = find_prop!(state.nodes[&id].props, Sections).unwrap_or_default();
+                let mut titles = sections.iter().flat_map(|s| s.items.iter().map(|i| &i.title));
+                let index = titles.position(|t| t == title).ok_or(ActionError::Unsupported)?;
+                if find_prop!(state.nodes[&id].props, SelectedIndex).flatten() != Some(index) {
+                    state.set_prop(id, Prop::SelectedIndex(Some(index)));
+                    state.emit(id, UiEvent::Changed(EventValue::Index(index)));
+                }
+            }
             (
                 A11yAction::Focus,
                 WidgetKind::Button
@@ -992,7 +1038,8 @@ impl Backend for HeadlessBackend {
                 | WidgetKind::Select
                 | WidgetKind::Slider
                 | WidgetKind::NumberInput
-                | WidgetKind::List,
+                | WidgetKind::List
+                | WidgetKind::Sidebar,
             ) => state.focus(id),
             (A11yAction::Select | A11yAction::Activate, WidgetKind::Container) => {
                 let row = find_prop!(state.nodes[&id].props, Row);
@@ -1150,6 +1197,7 @@ impl Backend for HeadlessBackend {
         let frame = match row {
             Some(row) => Rect::new(0.0, row.top, node.frame.width(), node.frame.height()),
             None if node.kind == WidgetKind::ToolbarItem => state.toolbar_item_frame(id),
+            None if node.kind == WidgetKind::Sidebar => state.sidebar_frame(id),
             None => node.frame,
         };
         Some(NativeState {

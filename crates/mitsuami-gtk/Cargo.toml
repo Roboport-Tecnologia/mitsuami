@@ -13,6 +13,7 @@ mitsuami-core.workspace = true
 mitsuami-widgets.workspace = true
 
 [target.'cfg(target_os = "linux")'.dependencies]
+adw.workspace = true
 gtk.workspace = true
 libc.workspace = true
 mitsuami-linux.workspace = true

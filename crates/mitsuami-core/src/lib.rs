@@ -54,7 +54,8 @@ pub use units::{Length, LengthExt, Spacing};
 pub use view::{AnyView, Callback, Children, Slot, View};
 pub use widget::{
     ButtonRole, ButtonStyle, CurrentWindow, Cursor, FontWeight, HorizontalAlign, ImageFit, ImageSource, ListStyle,
-    Modality, NodeId, Orientation, Pixels, Prop, RowKey, ScrollAxes, SelectionMode, TextAlign, TextStyle, WidgetKind,
+    Modality, NodeId, Orientation, Pixels, Prop, RowKey, ScrollAxes, SelectionMode, SidebarItemData,
+    SidebarSectionData, TextAlign, TextStyle, WidgetKind,
 };
 
 pub use mitsuami_reactive as reactive;

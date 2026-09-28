@@ -88,6 +88,9 @@ pub(crate) struct WindowParts {
     /// primary commands hold the items' hosts, in order.
     toolbar: Option<w::CommandBar>,
     toolbar_items: Vec<(NodeId, w::AppBarElementContainer)>,
+    /// Its sidebar's node and navigation view, while it has one: the
+    /// view's content is the host.
+    sidebar: Option<(NodeId, w::NavigationView)>,
     /// Full screen as the app wants it, and the user (who changes it
     /// too): what the presenter is compared with when it changes.
     full_screen: Rc<Cell<bool>>,
@@ -212,6 +215,7 @@ enum Widget {
     GpuSurface(SurfaceHost),
     Scroll(w::ScrollViewer),
     List(crate::list::List),
+    Sidebar(crate::sidebar::Sidebar),
     /// A custom widget with a native render, and the props it shows.
     Custom {
         render: Rc<dyn ErasedRender>,
@@ -233,6 +237,15 @@ impl Node {
     /// What takes focus, UI Automation and a render's calls.
     fn control(&self) -> &w::UIElement {
         self.inner.as_ref().unwrap_or(&self.element)
+    }
+
+    /// What takes keyboard focus: a sidebar's selected item (or first), as
+    /// Tab reaches a navigation view.
+    fn focus_target(&self) -> Option<w::IUIElement> {
+        match &self.widget {
+            Widget::Sidebar(sidebar) => crate::sidebar::Sidebar::focus_target(&sidebar.view),
+            _ => self.control().cast().ok(),
+        }
     }
 }
 
@@ -584,6 +597,10 @@ const WINDOW_ROOT: &str = r#"
 
 /// Where the menu bar goes in `WINDOW_ROOT`.
 const MENU_ROW: i32 = 1;
+
+/// Where the content host goes in `WINDOW_ROOT`, or the sidebar's
+/// navigation view holding it.
+const CONTENT_ROW: i32 = 3;
 
 /// Where the toolbar goes in `WINDOW_ROOT`: under the menu bar, as Windows
 /// apps put their command bars.
@@ -1003,6 +1020,38 @@ fn insert_toolbar_item(parts: &mut WindowParts, id: NodeId, host: &w::UIElement,
     Ok(())
 }
 
+/// Takes the window's sidebar away: the host goes back in the view's
+/// place, and keeps its size.
+fn remove_sidebar(parts: &mut WindowParts) -> R<()> {
+    let Some((_, view)) = parts.sidebar.take() else { return Ok(()) };
+    let children = parts.root.cast::<w::IPanel>()?.Children()?;
+    let mut at = 0;
+    if children.IndexOf(&view.cast::<w::UIElement>()?, &mut at)? {
+        children.RemoveAt(at)?;
+    }
+    view.cast::<w::IContentControl>()?.SetContent(None::<&IInspectable>)?;
+    children.Append(&parts.host.cast::<w::UIElement>()?)?;
+    parts.root.cast::<w::IUIElement>()?.UpdateLayout()?;
+    if let Some(size) = parts.requested.or(parts.size.get()) {
+        resize_client(parts, size);
+    }
+    Ok(())
+}
+
+/// Where the sidebar's pane is, in the content host's coordinates (beside
+/// it, so at negative x): open, icons only, or closed (none).
+fn sidebar_frame(parts: &WindowParts) -> Option<Rect> {
+    let (_, view) = parts.sidebar.as_ref()?;
+    let width = crate::sidebar::Sidebar::pane_width(view);
+    if width <= 0.0 {
+        return Some(Rect::ZERO);
+    }
+    let transform = view.cast::<w::IUIElement>().ok()?.TransformToVisual(&parts.host).ok()?;
+    let origin = transform.cast::<w::IGeneralTransform>().ok()?.TransformPoint(w::Point { x: 0.0, y: 0.0 }).ok()?;
+    let height = view.cast::<w::IFrameworkElement>().ok()?.ActualHeight().ok()? as f32;
+    Some(Rect::new(origin.x, origin.y, width, height))
+}
+
 fn remove_toolbar_item(parts: &mut WindowParts, id: NodeId) -> R<()> {
     let Some(index) = parts.toolbar_items.iter().position(|(item, _)| *item == id) else { return Ok(()) };
     let (_, container) = parts.toolbar_items.remove(index);
@@ -1077,8 +1126,10 @@ fn resize_client_with(parts: &WindowParts, size: Size, (inset_w, inset_h): (i32,
     let size = Size::new(size.width.max(min.width), size.height.max(min.height));
     let scale = scale_of(parts);
     let chrome = chrome_height(parts);
+    // Beside a sidebar, the window is wider by its pane.
+    let side = parts.sidebar.as_ref().map_or(0.0, |(_, view)| crate::sidebar::Sidebar::extra_width(view, size.width));
     let want = w::SizeInt32 {
-        width: (size.width as f64 * scale).round() as i32 + inset_w,
+        width: ((size.width + side) as f64 * scale).round() as i32 + inset_w,
         height: ((size.height as f64 + chrome) * scale).round() as i32 + inset_h,
     };
     if let Some(before) = parts.size.get() {
@@ -1098,7 +1149,7 @@ fn resize_client_with(parts: &WindowParts, size: Size, (inset_w, inset_h): (i32,
     }
     // What the window actually got (it may refuse), in logical units.
     if let Ok(got) = app_window.ClientSize() {
-        let width = ((got.width - inset_w) as f64 / scale) as f32;
+        let width = ((got.width - inset_w) as f64 / scale) as f32 - side;
         let height = ((got.height - inset_h) as f64 / scale - chrome).max(0.0) as f32;
         parts.report_size(Size::new(width, height));
     }
@@ -1849,6 +1900,7 @@ impl State {
             escape: None,
             toolbar: None,
             toolbar_items: Vec::new(),
+            sidebar: None,
             full_screen,
             shown: false,
             overlapped: None,
@@ -2162,6 +2214,11 @@ impl State {
                 (Widget::Scroll(scroll), element)
             }
             WidgetKind::Fragment => violation(command, "fragments are core-only"),
+            WidgetKind::Sidebar => {
+                let sidebar = crate::sidebar::Sidebar::new(id, emitter.clone())?;
+                let element = sidebar.view.cast()?;
+                (Widget::Sidebar(sidebar), element)
+            }
             WidgetKind::List => {
                 let list = crate::list::List::new(id, emitter.clone())?;
                 let element = list.view.cast()?;
@@ -2428,6 +2485,8 @@ impl State {
                 node.shown_index.set(index);
                 combo.cast::<w::ISelector>()?.SetSelectedIndex(index)?;
             }
+            (Prop::Sections(sections), Widget::Sidebar(sidebar)) => sidebar.set_sections(sections.clone())?,
+            (Prop::SelectedIndex(index), Widget::Sidebar(sidebar)) => sidebar.set_selected(*index)?,
             (Prop::Value(t), Widget::Field(f)) => {
                 let field: w::ITextBox = f.cast()?;
                 // Don't disturb the caret when the field already shows it.
@@ -2623,6 +2682,38 @@ impl State {
                 if self.nodes[child].parent.is_some() {
                     violation(command, "child is still attached");
                 }
+                if let Widget::Sidebar(sidebar) = &self.nodes[child].widget {
+                    let view = sidebar.view.clone();
+                    let Some(Widget::Window(parts)) = self.nodes.get_mut(parent).map(|n| &mut n.widget) else {
+                        violation(command, "a sidebar goes in a window")
+                    };
+                    if parts.sidebar.is_some() {
+                        violation(command, "a window has one sidebar");
+                    }
+                    // The view takes the host's place, with the host as
+                    // its content, and fills it (not our zero frame).
+                    let children = parts.root.cast::<w::IPanel>()?.Children()?;
+                    let host: w::UIElement = parts.host.cast()?;
+                    let mut at = 0;
+                    if children.IndexOf(&host, &mut at)? {
+                        children.RemoveAt(at)?;
+                    }
+                    let fe: w::IFrameworkElement = view.cast()?;
+                    fe.SetWidth(f64::NAN)?;
+                    fe.SetHeight(f64::NAN)?;
+                    w::Grid::SetRow(&view.cast::<w::FrameworkElement>()?, CONTENT_ROW)?;
+                    view.cast::<w::IContentControl>()?.SetContent(&host)?;
+                    children.Append(&view.cast::<w::UIElement>()?)?;
+                    parts.sidebar = Some((*child, view));
+                    parts.root.cast::<w::IUIElement>()?.UpdateLayout()?;
+                    // The content keeps its size: the window grows by the
+                    // pane.
+                    if let Some(size) = parts.requested.or(parts.size.get()) {
+                        resize_client(parts, size);
+                    }
+                    self.nodes.get_mut(child).unwrap().parent = Some(*parent);
+                    return Ok(());
+                }
                 if self.nodes[child].kind == WidgetKind::ToolbarItem {
                     // Items come after the window's content.
                     let content = self
@@ -2682,6 +2773,13 @@ impl State {
                     && let Some(Widget::Window(parts)) = self.nodes.get_mut(parent).map(|n| &mut n.widget)
                 {
                     remove_toolbar_item(parts, *child)?;
+                    self.nodes.get_mut(child).unwrap().parent = None;
+                    return Ok(());
+                }
+                if self.nodes[child].kind == WidgetKind::Sidebar
+                    && let Some(Widget::Window(parts)) = self.nodes.get_mut(parent).map(|n| &mut n.widget)
+                {
+                    remove_sidebar(parts)?;
                     self.nodes.get_mut(child).unwrap().parent = None;
                     return Ok(());
                 }
@@ -2958,7 +3056,7 @@ impl State {
     /// Focuses a control and reports it right away.
     fn focus(&self, id: NodeId, how: w::FocusState) -> bool {
         let Some(node) = self.nodes.get(&id) else { return false };
-        let focused = node.control().cast::<w::IUIElement>().and_then(|e| e.Focus(how)).unwrap_or(false);
+        let focused = node.focus_target().is_some_and(|e| e.Focus(how).unwrap_or(false));
         if focused && let Some(parts) = self.window_of(id) {
             report_focus(&self.emitter, &parts.focus, Some(id));
         }
@@ -3161,6 +3259,14 @@ fn tab(
             (None, true) => n - step,
         };
         let Some(element) = elements.get(&order[i]).and_then(|k| find_element(root, *k)) else { continue };
+        // A navigation view takes focus on its selected item.
+        let element = match element.cast::<w::NavigationView>() {
+            Ok(view) => match crate::sidebar::Sidebar::focus_target(&view) {
+                Some(item) => item,
+                None => continue,
+            },
+            Err(_) => element,
+        };
         if element.Focus(how).unwrap_or(false) {
             return Some(order[i]);
         }
@@ -3287,10 +3393,13 @@ impl Backend for WinUiBackend {
                 .unwrap_or_else(|| ceil(measure_element(&node.element, infinite))),
             Widget::Native { measure: Some(measure), .. } => measure(node.control(), &request),
             Widget::Native { measure: None, .. } => ceil(measure_element(&node.element, infinite)),
-            // Measured by the core.
-            Widget::Drawn { .. } | Widget::Window(_) | Widget::Host(_) | Widget::Scroll(_) | Widget::List(_) => {
-                Size::ZERO
-            }
+            // Measured by the core, or never (the sidebar is the window's).
+            Widget::Drawn { .. }
+            | Widget::Window(_)
+            | Widget::Host(_)
+            | Widget::Scroll(_)
+            | Widget::List(_)
+            | Widget::Sidebar(_) => Size::ZERO,
         };
         Size::new(request.known_width.unwrap_or(natural.width), request.known_height.unwrap_or(natural.height))
     }
@@ -3304,6 +3413,14 @@ impl Backend for WinUiBackend {
         {
             let state = self.state.borrow();
             let node = state.nodes.get(&id).ok_or(ActionError::UnknownNode)?;
+            // A sidebar's item, as a click chooses it: the view reports it
+            // to a handler that holds its own data, never our state.
+            if let (A11yAction::SetValue(title), Widget::Sidebar(sidebar)) = (action, &node.widget) {
+                return match sidebar.choose(title) {
+                    Ok(true) => Ok(()),
+                    _ => Err(ActionError::Unsupported),
+                };
+            }
             if let (Some(row), Some(Widget::List(list))) =
                 (node.row, node.parent.and_then(|p| state.nodes.get(&p)).map(|p| &p.widget))
             {
@@ -3796,6 +3913,10 @@ impl Backend for WinUiBackend {
                 let index = combo.cast::<w::ISelector>().ok()?.SelectedIndex().ok()?;
                 props.push(Prop::SelectedIndex(usize::try_from(index).ok()));
             }
+            Widget::Sidebar(sidebar) => {
+                props.push(Prop::Sections(sidebar.sections()));
+                props.push(Prop::SelectedIndex(sidebar.selected()));
+            }
             Widget::Scroll(s) => {
                 let scroll: w::IScrollViewer = s.cast().ok()?;
                 props.push(Prop::ScrollAxes(scroll_axes(&scroll).ok()?));
@@ -3857,6 +3978,9 @@ impl Backend for WinUiBackend {
             Some(Widget::Window(parts)) if node.kind == WidgetKind::ToolbarItem => {
                 toolbar_item_frame(parts, id, &node.element).unwrap_or(frame)
             }
+            Some(Widget::Window(parts)) if node.kind == WidgetKind::Sidebar => {
+                sidebar_frame(parts).unwrap_or(Rect::ZERO)
+            }
             _ => frame,
         };
         let by_element = state.by_element.borrow();
@@ -3877,6 +4001,7 @@ impl Backend for WinUiBackend {
             Widget::Window(parts) => {
                 let mut children = panel_children(&parts.host, &known);
                 children.extend(parts.toolbar_items.iter().map(|(item, _)| *item));
+                children.extend(parts.sidebar.as_ref().map(|(sidebar, _)| *sidebar));
                 (children, None)
             }
             Widget::Host(canvas) => (panel_children(canvas, &known), None),

@@ -2241,6 +2241,50 @@ impl windows_core::RuntimeName for FontFamily {
 unsafe impl Send for FontFamily {}
 unsafe impl Sync for FontFamily {}
 #[repr(transparent)]
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct FontIcon(windows_core::IUnknown);
+windows_core::imp::interface_hierarchy!(FontIcon, windows_core::IUnknown, windows_core::IInspectable);
+windows_core::imp::required_hierarchy!(FontIcon, IconElement, FrameworkElement, UIElement, DependencyObject);
+impl FontIcon {
+    pub fn new() -> windows_core::Result<Self> {
+        Self::IFontIconFactory(|this| unsafe {
+            let mut result__ = core::mem::zeroed();
+            (windows_core::Interface::vtable(this).CreateInstance)(
+                windows_core::Interface::as_raw(this),
+                core::ptr::null_mut(),
+                core::ptr::null_mut(),
+                &mut result__,
+            )
+            .and_then(|| windows_core::imp::Type::from_abi(result__))
+        })
+    }
+    fn IFontIconFactory<R, F: FnOnce(&IFontIconFactory) -> windows_core::Result<R>>(
+        callback: F,
+    ) -> windows_core::Result<R> {
+        static SHARED: windows_core::imp::FactoryCache<FontIcon, IFontIconFactory> =
+            windows_core::imp::FactoryCache::new();
+        SHARED.call(callback)
+    }
+}
+impl windows_core::RuntimeType for FontIcon {
+    const SIGNATURE: windows_core::imp::ConstBuffer = windows_core::imp::ConstBuffer::for_class::<Self, IFontIcon>();
+}
+unsafe impl windows_core::Interface for FontIcon {
+    type Vtable = <IFontIcon as windows_core::Interface>::Vtable;
+    const IID: windows_core::GUID = <IFontIcon as windows_core::Interface>::IID;
+}
+impl core::ops::Deref for FontIcon {
+    type Target = IFontIcon;
+    fn deref(&self) -> &Self::Target {
+        unsafe { core::mem::transmute(self) }
+    }
+}
+impl windows_core::RuntimeName for FontIcon {
+    const NAME: &'static str = "Microsoft.UI.Xaml.Controls.FontIcon";
+}
+unsafe impl Send for FontIcon {}
+unsafe impl Sync for FontIcon {}
+#[repr(transparent)]
 #[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
 pub struct FontStyle(pub i32);
 impl FontStyle {
@@ -4537,6 +4581,52 @@ pub struct IFontFamilyFactory_Vtbl {
         *mut *mut core::ffi::c_void,
     ) -> windows_core::HRESULT,
 }
+windows_core::imp::define_interface!(IFontIcon, IFontIcon_Vtbl, 0x6eba5ed9_d233_5f5e_91a8_f5134292658a);
+impl windows_core::RuntimeType for IFontIcon {
+    const SIGNATURE: windows_core::imp::ConstBuffer = windows_core::imp::ConstBuffer::for_interface::<Self>();
+}
+impl IFontIcon {
+    pub fn Glyph(&self) -> windows_core::Result<String> {
+        unsafe {
+            let mut result__ = core::mem::zeroed();
+            (windows_core::Interface::vtable(self).Glyph)(windows_core::Interface::as_raw(self), &mut result__).map(
+                || {
+                    let hstring: windows_core::HSTRING = core::mem::transmute(result__);
+                    hstring.to_string_lossy()
+                },
+            )
+        }
+    }
+    pub fn SetGlyph(&self, value: &str) -> windows_core::Result<()> {
+        unsafe {
+            (windows_core::Interface::vtable(self).SetGlyph)(
+                windows_core::Interface::as_raw(self),
+                core::mem::transmute_copy(&windows_core::HSTRING::from(value)),
+            )
+            .ok()
+        }
+    }
+}
+#[repr(C)]
+pub struct IFontIcon_Vtbl {
+    pub base__: windows_core::IInspectable_Vtbl,
+    pub Glyph: unsafe extern "system" fn(*mut core::ffi::c_void, *mut *mut core::ffi::c_void) -> windows_core::HRESULT,
+    pub SetGlyph: unsafe extern "system" fn(*mut core::ffi::c_void, *mut core::ffi::c_void) -> windows_core::HRESULT,
+}
+windows_core::imp::define_interface!(IFontIconFactory, IFontIconFactory_Vtbl, 0xaa9a24fe_bef8_564a_b200_694cd6f6ba4e);
+impl windows_core::RuntimeType for IFontIconFactory {
+    const SIGNATURE: windows_core::imp::ConstBuffer = windows_core::imp::ConstBuffer::for_interface::<Self>();
+}
+#[repr(C)]
+pub struct IFontIconFactory_Vtbl {
+    pub base__: windows_core::IInspectable_Vtbl,
+    pub CreateInstance: unsafe extern "system" fn(
+        *mut core::ffi::c_void,
+        *mut core::ffi::c_void,
+        *mut *mut core::ffi::c_void,
+        *mut *mut core::ffi::c_void,
+    ) -> windows_core::HRESULT,
+}
 windows_core::imp::define_interface!(IFrameworkElement, IFrameworkElement_Vtbl, 0xfe08f13d_dc6a_5495_ad44_c2d8d21863b0);
 impl windows_core::RuntimeType for IFrameworkElement {
     const SIGNATURE: windows_core::imp::ConstBuffer = windows_core::imp::ConstBuffer::for_interface::<Self>();
@@ -4839,6 +4929,14 @@ pub struct IGridStatics_Vtbl {
     RowProperty: usize,
     GetRow: usize,
     pub SetRow: unsafe extern "system" fn(*mut core::ffi::c_void, *mut core::ffi::c_void, i32) -> windows_core::HRESULT,
+}
+windows_core::imp::define_interface!(IIconElement, IIconElement_Vtbl, 0x18f69350_279e_50ea_8d23_138e717ed939);
+impl windows_core::RuntimeType for IIconElement {
+    const SIGNATURE: windows_core::imp::ConstBuffer = windows_core::imp::ConstBuffer::for_interface::<Self>();
+}
+#[repr(C)]
+pub struct IIconElement_Vtbl {
+    pub base__: windows_core::IInspectable_Vtbl,
 }
 windows_core::imp::define_interface!(IImage, IImage_Vtbl, 0x220d3d8d_66de_53a1_a215_ba9c165565ab);
 impl windows_core::RuntimeType for IImage {
@@ -5757,6 +5855,336 @@ pub struct IMenuFlyoutSubItem_Vtbl {
     pub SetText: unsafe extern "system" fn(*mut core::ffi::c_void, *mut core::ffi::c_void) -> windows_core::HRESULT,
 }
 pub const INFINITE: u32 = 4294967295;
+windows_core::imp::define_interface!(INavigationView, INavigationView_Vtbl, 0xe77a4b36_3dd1_53d9_9f97_65dccaa74a5c);
+impl windows_core::RuntimeType for INavigationView {
+    const SIGNATURE: windows_core::imp::ConstBuffer = windows_core::imp::ConstBuffer::for_interface::<Self>();
+}
+impl INavigationView {
+    pub fn IsPaneOpen(&self) -> windows_core::Result<bool> {
+        unsafe {
+            let mut result__ = core::mem::zeroed();
+            (windows_core::Interface::vtable(self).IsPaneOpen)(windows_core::Interface::as_raw(self), &mut result__)
+                .map(|| result__)
+        }
+    }
+    pub fn DisplayMode(&self) -> windows_core::Result<NavigationViewDisplayMode> {
+        unsafe {
+            let mut result__ = core::mem::zeroed();
+            (windows_core::Interface::vtable(self).DisplayMode)(windows_core::Interface::as_raw(self), &mut result__)
+                .map(|| result__)
+        }
+    }
+    pub fn SetIsSettingsVisible(&self, value: bool) -> windows_core::Result<()> {
+        unsafe {
+            (windows_core::Interface::vtable(self).SetIsSettingsVisible)(windows_core::Interface::as_raw(self), value)
+                .ok()
+        }
+    }
+    pub fn CompactPaneLength(&self) -> windows_core::Result<f64> {
+        unsafe {
+            let mut result__ = core::mem::zeroed();
+            (windows_core::Interface::vtable(self).CompactPaneLength)(
+                windows_core::Interface::as_raw(self),
+                &mut result__,
+            )
+            .map(|| result__)
+        }
+    }
+    pub fn OpenPaneLength(&self) -> windows_core::Result<f64> {
+        unsafe {
+            let mut result__ = core::mem::zeroed();
+            (windows_core::Interface::vtable(self).OpenPaneLength)(windows_core::Interface::as_raw(self), &mut result__)
+                .map(|| result__)
+        }
+    }
+    pub fn SelectedItem(&self) -> windows_core::Result<windows_core::IInspectable> {
+        unsafe {
+            let mut result__ = core::mem::zeroed();
+            (windows_core::Interface::vtable(self).SelectedItem)(windows_core::Interface::as_raw(self), &mut result__)
+                .and_then(|| windows_core::imp::Type::from_abi(result__))
+        }
+    }
+    pub fn SetSelectedItem<P0>(&self, value: P0) -> windows_core::Result<()>
+    where
+        P0: windows_core::Param<windows_core::IInspectable>,
+    {
+        unsafe {
+            (windows_core::Interface::vtable(self).SetSelectedItem)(
+                windows_core::Interface::as_raw(self),
+                value.param().abi(),
+            )
+            .ok()
+        }
+    }
+    pub fn MenuItems(&self) -> windows_core::Result<windows_collections::IVector<windows_core::IInspectable>> {
+        unsafe {
+            let mut result__ = core::mem::zeroed();
+            (windows_core::Interface::vtable(self).MenuItems)(windows_core::Interface::as_raw(self), &mut result__)
+                .and_then(|| windows_core::imp::Type::from_abi(result__))
+        }
+    }
+    pub fn SelectionChanged<F>(&self, handler: F) -> windows_core::Result<windows_core::EventRevoker>
+    where
+        F: Fn(windows_core::Ref<NavigationView>, windows_core::Ref<NavigationViewSelectionChangedEventArgs>) + 'static,
+    {
+        let handler: TypedEventHandler<NavigationView, NavigationViewSelectionChangedEventArgs> = {
+            let com = windows_core::imp::DelegateBox::<
+                TypedEventHandler<NavigationView, NavigationViewSelectionChangedEventArgs>,
+                F,
+            >::new(
+                &TypedEventHandlerBox::<NavigationView, NavigationViewSelectionChangedEventArgs, F>::VTABLE,
+                handler,
+            );
+            unsafe { core::mem::transmute(windows_core::imp::box_new(com)) }
+        };
+        unsafe {
+            let mut result__ = core::mem::zeroed();
+            let token__ = (windows_core::Interface::vtable(self).SelectionChanged)(
+                windows_core::Interface::as_raw(self),
+                windows_core::Interface::as_raw(&handler),
+                &mut result__,
+            )
+            .map(|| result__)?;
+            Ok(windows_core::EventRevoker::new(
+                self.clone(),
+                token__,
+                windows_core::Interface::vtable(self).RemoveSelectionChanged,
+            ))
+        }
+    }
+}
+#[repr(C)]
+pub struct INavigationView_Vtbl {
+    pub base__: windows_core::IInspectable_Vtbl,
+    pub IsPaneOpen: unsafe extern "system" fn(*mut core::ffi::c_void, *mut bool) -> windows_core::HRESULT,
+    SetIsPaneOpen: usize,
+    CompactModeThresholdWidth: usize,
+    SetCompactModeThresholdWidth: usize,
+    ExpandedModeThresholdWidth: usize,
+    SetExpandedModeThresholdWidth: usize,
+    FooterMenuItems: usize,
+    FooterMenuItemsSource: usize,
+    SetFooterMenuItemsSource: usize,
+    PaneFooter: usize,
+    SetPaneFooter: usize,
+    Header: usize,
+    SetHeader: usize,
+    HeaderTemplate: usize,
+    SetHeaderTemplate: usize,
+    pub DisplayMode:
+        unsafe extern "system" fn(*mut core::ffi::c_void, *mut NavigationViewDisplayMode) -> windows_core::HRESULT,
+    IsSettingsVisible: usize,
+    pub SetIsSettingsVisible: unsafe extern "system" fn(*mut core::ffi::c_void, bool) -> windows_core::HRESULT,
+    IsPaneToggleButtonVisible: usize,
+    SetIsPaneToggleButtonVisible: usize,
+    AlwaysShowHeader: usize,
+    SetAlwaysShowHeader: usize,
+    pub CompactPaneLength: unsafe extern "system" fn(*mut core::ffi::c_void, *mut f64) -> windows_core::HRESULT,
+    SetCompactPaneLength: usize,
+    pub OpenPaneLength: unsafe extern "system" fn(*mut core::ffi::c_void, *mut f64) -> windows_core::HRESULT,
+    SetOpenPaneLength: usize,
+    PaneToggleButtonStyle: usize,
+    SetPaneToggleButtonStyle: usize,
+    pub SelectedItem:
+        unsafe extern "system" fn(*mut core::ffi::c_void, *mut *mut core::ffi::c_void) -> windows_core::HRESULT,
+    pub SetSelectedItem:
+        unsafe extern "system" fn(*mut core::ffi::c_void, *mut core::ffi::c_void) -> windows_core::HRESULT,
+    pub MenuItems:
+        unsafe extern "system" fn(*mut core::ffi::c_void, *mut *mut core::ffi::c_void) -> windows_core::HRESULT,
+    MenuItemsSource: usize,
+    SetMenuItemsSource: usize,
+    SettingsItem: usize,
+    AutoSuggestBox: usize,
+    SetAutoSuggestBox: usize,
+    MenuItemTemplate: usize,
+    SetMenuItemTemplate: usize,
+    MenuItemTemplateSelector: usize,
+    SetMenuItemTemplateSelector: usize,
+    MenuItemContainerStyle: usize,
+    SetMenuItemContainerStyle: usize,
+    MenuItemContainerStyleSelector: usize,
+    SetMenuItemContainerStyleSelector: usize,
+    MenuItemFromContainer: usize,
+    ContainerFromMenuItem: usize,
+    pub SelectionChanged:
+        unsafe extern "system" fn(*mut core::ffi::c_void, *mut core::ffi::c_void, *mut i64) -> windows_core::HRESULT,
+    pub RemoveSelectionChanged: unsafe extern "system" fn(*mut core::ffi::c_void, i64) -> windows_core::HRESULT,
+}
+windows_core::imp::define_interface!(INavigationView2, INavigationView2_Vtbl, 0x05b428cf_014c_56dd_896a_a3e7089d73b5);
+impl windows_core::RuntimeType for INavigationView2 {
+    const SIGNATURE: windows_core::imp::ConstBuffer = windows_core::imp::ConstBuffer::for_interface::<Self>();
+}
+impl INavigationView2 {
+    pub fn SetIsBackButtonVisible(&self, value: NavigationViewBackButtonVisible) -> windows_core::Result<()> {
+        unsafe {
+            (windows_core::Interface::vtable(self).SetIsBackButtonVisible)(windows_core::Interface::as_raw(self), value)
+                .ok()
+        }
+    }
+}
+#[repr(C)]
+pub struct INavigationView2_Vtbl {
+    pub base__: windows_core::IInspectable_Vtbl,
+    IsBackButtonVisible: usize,
+    pub SetIsBackButtonVisible:
+        unsafe extern "system" fn(*mut core::ffi::c_void, NavigationViewBackButtonVisible) -> windows_core::HRESULT,
+}
+windows_core::imp::define_interface!(
+    INavigationViewFactory,
+    INavigationViewFactory_Vtbl,
+    0xffea1ada_9232_5507_a320_ed2fadbe6127
+);
+impl windows_core::RuntimeType for INavigationViewFactory {
+    const SIGNATURE: windows_core::imp::ConstBuffer = windows_core::imp::ConstBuffer::for_interface::<Self>();
+}
+#[repr(C)]
+pub struct INavigationViewFactory_Vtbl {
+    pub base__: windows_core::IInspectable_Vtbl,
+    pub CreateInstance: unsafe extern "system" fn(
+        *mut core::ffi::c_void,
+        *mut core::ffi::c_void,
+        *mut *mut core::ffi::c_void,
+        *mut *mut core::ffi::c_void,
+    ) -> windows_core::HRESULT,
+}
+windows_core::imp::define_interface!(
+    INavigationViewItem,
+    INavigationViewItem_Vtbl,
+    0x3ab3d503_a37c_5836_8adb_2882062e73a1
+);
+impl windows_core::RuntimeType for INavigationViewItem {
+    const SIGNATURE: windows_core::imp::ConstBuffer = windows_core::imp::ConstBuffer::for_interface::<Self>();
+}
+impl INavigationViewItem {
+    pub fn SetIcon<P0>(&self, value: P0) -> windows_core::Result<()>
+    where
+        P0: windows_core::Param<IconElement>,
+    {
+        unsafe {
+            (windows_core::Interface::vtable(self).SetIcon)(windows_core::Interface::as_raw(self), value.param().abi())
+                .ok()
+        }
+    }
+}
+#[repr(C)]
+pub struct INavigationViewItem_Vtbl {
+    pub base__: windows_core::IInspectable_Vtbl,
+    Icon: usize,
+    pub SetIcon: unsafe extern "system" fn(*mut core::ffi::c_void, *mut core::ffi::c_void) -> windows_core::HRESULT,
+}
+windows_core::imp::define_interface!(
+    INavigationViewItemBase,
+    INavigationViewItemBase_Vtbl,
+    0x33586494_af48_513f_be4d_f645e8c89005
+);
+impl windows_core::RuntimeType for INavigationViewItemBase {
+    const SIGNATURE: windows_core::imp::ConstBuffer = windows_core::imp::ConstBuffer::for_interface::<Self>();
+}
+#[repr(C)]
+pub struct INavigationViewItemBase_Vtbl {
+    pub base__: windows_core::IInspectable_Vtbl,
+}
+windows_core::imp::define_interface!(
+    INavigationViewItemFactory,
+    INavigationViewItemFactory_Vtbl,
+    0xde60a001_9385_5535_80e1_2b68f4bfde26
+);
+impl windows_core::RuntimeType for INavigationViewItemFactory {
+    const SIGNATURE: windows_core::imp::ConstBuffer = windows_core::imp::ConstBuffer::for_interface::<Self>();
+}
+#[repr(C)]
+pub struct INavigationViewItemFactory_Vtbl {
+    pub base__: windows_core::IInspectable_Vtbl,
+    pub CreateInstance: unsafe extern "system" fn(
+        *mut core::ffi::c_void,
+        *mut core::ffi::c_void,
+        *mut *mut core::ffi::c_void,
+        *mut *mut core::ffi::c_void,
+    ) -> windows_core::HRESULT,
+}
+windows_core::imp::define_interface!(
+    INavigationViewItemHeader,
+    INavigationViewItemHeader_Vtbl,
+    0x432bc062_45bc_57ef_a2d3_11851a56a882
+);
+impl windows_core::RuntimeType for INavigationViewItemHeader {
+    const SIGNATURE: windows_core::imp::ConstBuffer = windows_core::imp::ConstBuffer::for_interface::<Self>();
+}
+#[repr(C)]
+pub struct INavigationViewItemHeader_Vtbl {
+    pub base__: windows_core::IInspectable_Vtbl,
+}
+windows_core::imp::define_interface!(
+    INavigationViewItemHeaderFactory,
+    INavigationViewItemHeaderFactory_Vtbl,
+    0x6a5447cd_2918_5fe3_899b_93d6961285e6
+);
+impl windows_core::RuntimeType for INavigationViewItemHeaderFactory {
+    const SIGNATURE: windows_core::imp::ConstBuffer = windows_core::imp::ConstBuffer::for_interface::<Self>();
+}
+#[repr(C)]
+pub struct INavigationViewItemHeaderFactory_Vtbl {
+    pub base__: windows_core::IInspectable_Vtbl,
+    pub CreateInstance: unsafe extern "system" fn(
+        *mut core::ffi::c_void,
+        *mut core::ffi::c_void,
+        *mut *mut core::ffi::c_void,
+        *mut *mut core::ffi::c_void,
+    ) -> windows_core::HRESULT,
+}
+windows_core::imp::define_interface!(
+    INavigationViewItemSeparator,
+    INavigationViewItemSeparator_Vtbl,
+    0xe3c35630_1d5f_5689_a0cb_8794485caacf
+);
+impl windows_core::RuntimeType for INavigationViewItemSeparator {
+    const SIGNATURE: windows_core::imp::ConstBuffer = windows_core::imp::ConstBuffer::for_interface::<Self>();
+}
+#[repr(C)]
+pub struct INavigationViewItemSeparator_Vtbl {
+    pub base__: windows_core::IInspectable_Vtbl,
+}
+windows_core::imp::define_interface!(
+    INavigationViewItemSeparatorFactory,
+    INavigationViewItemSeparatorFactory_Vtbl,
+    0x181266a1_d4f8_5af7_810b_aee8a1d452ed
+);
+impl windows_core::RuntimeType for INavigationViewItemSeparatorFactory {
+    const SIGNATURE: windows_core::imp::ConstBuffer = windows_core::imp::ConstBuffer::for_interface::<Self>();
+}
+#[repr(C)]
+pub struct INavigationViewItemSeparatorFactory_Vtbl {
+    pub base__: windows_core::IInspectable_Vtbl,
+    pub CreateInstance: unsafe extern "system" fn(
+        *mut core::ffi::c_void,
+        *mut core::ffi::c_void,
+        *mut *mut core::ffi::c_void,
+        *mut *mut core::ffi::c_void,
+    ) -> windows_core::HRESULT,
+}
+windows_core::imp::define_interface!(
+    INavigationViewSelectionChangedEventArgs,
+    INavigationViewSelectionChangedEventArgs_Vtbl,
+    0x14a064a5_c79d_5f63_ac6e_1c313fe63566
+);
+impl windows_core::RuntimeType for INavigationViewSelectionChangedEventArgs {
+    const SIGNATURE: windows_core::imp::ConstBuffer = windows_core::imp::ConstBuffer::for_interface::<Self>();
+}
+impl INavigationViewSelectionChangedEventArgs {
+    pub fn SelectedItem(&self) -> windows_core::Result<windows_core::IInspectable> {
+        unsafe {
+            let mut result__ = core::mem::zeroed();
+            (windows_core::Interface::vtable(self).SelectedItem)(windows_core::Interface::as_raw(self), &mut result__)
+                .and_then(|| windows_core::imp::Type::from_abi(result__))
+        }
+    }
+}
+#[repr(C)]
+pub struct INavigationViewSelectionChangedEventArgs_Vtbl {
+    pub base__: windows_core::IInspectable_Vtbl,
+    pub SelectedItem:
+        unsafe extern "system" fn(*mut core::ffi::c_void, *mut *mut core::ffi::c_void) -> windows_core::HRESULT,
+}
 windows_core::imp::define_interface!(INumberBox, INumberBox_Vtbl, 0xc18eb0e9_29fb_525d_abbc_d6b2110f542e);
 impl windows_core::RuntimeType for INumberBox {
     const SIGNATURE: windows_core::imp::ConstBuffer = windows_core::imp::ConstBuffer::for_interface::<Self>();
@@ -9745,6 +10173,29 @@ windows_core::imp::interface_hierarchy!(IXamlType, windows_core::IUnknown, windo
 pub struct IXamlType_Vtbl {
     pub base__: windows_core::IInspectable_Vtbl,
 }
+#[repr(transparent)]
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct IconElement(windows_core::IUnknown);
+windows_core::imp::interface_hierarchy!(IconElement, windows_core::IUnknown, windows_core::IInspectable);
+windows_core::imp::required_hierarchy!(IconElement, FrameworkElement, UIElement, DependencyObject);
+impl windows_core::RuntimeType for IconElement {
+    const SIGNATURE: windows_core::imp::ConstBuffer = windows_core::imp::ConstBuffer::for_class::<Self, IIconElement>();
+}
+unsafe impl windows_core::Interface for IconElement {
+    type Vtable = <IIconElement as windows_core::Interface>::Vtable;
+    const IID: windows_core::GUID = <IIconElement as windows_core::Interface>::IID;
+}
+impl core::ops::Deref for IconElement {
+    type Target = IIconElement;
+    fn deref(&self) -> &Self::Target {
+        unsafe { core::mem::transmute(self) }
+    }
+}
+impl windows_core::RuntimeName for IconElement {
+    const NAME: &'static str = "Microsoft.UI.Xaml.Controls.IconElement";
+}
+unsafe impl Send for IconElement {}
+unsafe impl Sync for IconElement {}
 #[repr(C)]
 #[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
 pub struct IconId {
@@ -10592,6 +11043,315 @@ impl windows_core::RuntimeName for MenuFlyoutSubItem {
 }
 unsafe impl Send for MenuFlyoutSubItem {}
 unsafe impl Sync for MenuFlyoutSubItem {}
+#[repr(transparent)]
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct NavigationView(windows_core::IUnknown);
+windows_core::imp::interface_hierarchy!(NavigationView, windows_core::IUnknown, windows_core::IInspectable);
+windows_core::imp::required_hierarchy!(
+    NavigationView,
+    ContentControl,
+    Control,
+    FrameworkElement,
+    UIElement,
+    DependencyObject
+);
+impl NavigationView {
+    pub fn new() -> windows_core::Result<Self> {
+        Self::INavigationViewFactory(|this| unsafe {
+            let mut result__ = core::mem::zeroed();
+            (windows_core::Interface::vtable(this).CreateInstance)(
+                windows_core::Interface::as_raw(this),
+                core::ptr::null_mut(),
+                core::ptr::null_mut(),
+                &mut result__,
+            )
+            .and_then(|| windows_core::imp::Type::from_abi(result__))
+        })
+    }
+    fn INavigationViewFactory<R, F: FnOnce(&INavigationViewFactory) -> windows_core::Result<R>>(
+        callback: F,
+    ) -> windows_core::Result<R> {
+        static SHARED: windows_core::imp::FactoryCache<NavigationView, INavigationViewFactory> =
+            windows_core::imp::FactoryCache::new();
+        SHARED.call(callback)
+    }
+}
+impl windows_core::RuntimeType for NavigationView {
+    const SIGNATURE: windows_core::imp::ConstBuffer =
+        windows_core::imp::ConstBuffer::for_class::<Self, INavigationView>();
+}
+unsafe impl windows_core::Interface for NavigationView {
+    type Vtable = <INavigationView as windows_core::Interface>::Vtable;
+    const IID: windows_core::GUID = <INavigationView as windows_core::Interface>::IID;
+}
+impl core::ops::Deref for NavigationView {
+    type Target = INavigationView;
+    fn deref(&self) -> &Self::Target {
+        unsafe { core::mem::transmute(self) }
+    }
+}
+impl windows_core::RuntimeName for NavigationView {
+    const NAME: &'static str = "Microsoft.UI.Xaml.Controls.NavigationView";
+}
+unsafe impl Send for NavigationView {}
+unsafe impl Sync for NavigationView {}
+#[repr(transparent)]
+#[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
+pub struct NavigationViewBackButtonVisible(pub i32);
+impl NavigationViewBackButtonVisible {
+    pub const Collapsed: Self = Self(0);
+    pub const Visible: Self = Self(1);
+    pub const Auto: Self = Self(2);
+}
+impl windows_core::imp::TypeKind for NavigationViewBackButtonVisible {
+    type TypeKind = windows_core::imp::CopyType;
+}
+impl windows_core::RuntimeType for NavigationViewBackButtonVisible {
+    const SIGNATURE: windows_core::imp::ConstBuffer = windows_core::imp::ConstBuffer::from_slice(
+        b"enum(Microsoft.UI.Xaml.Controls.NavigationViewBackButtonVisible;i4)",
+    );
+}
+#[repr(transparent)]
+#[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
+pub struct NavigationViewDisplayMode(pub i32);
+impl NavigationViewDisplayMode {
+    pub const Minimal: Self = Self(0);
+    pub const Compact: Self = Self(1);
+    pub const Expanded: Self = Self(2);
+}
+impl windows_core::imp::TypeKind for NavigationViewDisplayMode {
+    type TypeKind = windows_core::imp::CopyType;
+}
+impl windows_core::RuntimeType for NavigationViewDisplayMode {
+    const SIGNATURE: windows_core::imp::ConstBuffer =
+        windows_core::imp::ConstBuffer::from_slice(b"enum(Microsoft.UI.Xaml.Controls.NavigationViewDisplayMode;i4)");
+}
+#[repr(transparent)]
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct NavigationViewItem(windows_core::IUnknown);
+windows_core::imp::interface_hierarchy!(NavigationViewItem, windows_core::IUnknown, windows_core::IInspectable);
+windows_core::imp::required_hierarchy!(
+    NavigationViewItem,
+    NavigationViewItemBase,
+    ContentControl,
+    Control,
+    FrameworkElement,
+    UIElement,
+    DependencyObject
+);
+impl NavigationViewItem {
+    pub fn new() -> windows_core::Result<Self> {
+        Self::INavigationViewItemFactory(|this| unsafe {
+            let mut result__ = core::mem::zeroed();
+            (windows_core::Interface::vtable(this).CreateInstance)(
+                windows_core::Interface::as_raw(this),
+                core::ptr::null_mut(),
+                core::ptr::null_mut(),
+                &mut result__,
+            )
+            .and_then(|| windows_core::imp::Type::from_abi(result__))
+        })
+    }
+    fn INavigationViewItemFactory<R, F: FnOnce(&INavigationViewItemFactory) -> windows_core::Result<R>>(
+        callback: F,
+    ) -> windows_core::Result<R> {
+        static SHARED: windows_core::imp::FactoryCache<NavigationViewItem, INavigationViewItemFactory> =
+            windows_core::imp::FactoryCache::new();
+        SHARED.call(callback)
+    }
+}
+impl windows_core::RuntimeType for NavigationViewItem {
+    const SIGNATURE: windows_core::imp::ConstBuffer =
+        windows_core::imp::ConstBuffer::for_class::<Self, INavigationViewItem>();
+}
+unsafe impl windows_core::Interface for NavigationViewItem {
+    type Vtable = <INavigationViewItem as windows_core::Interface>::Vtable;
+    const IID: windows_core::GUID = <INavigationViewItem as windows_core::Interface>::IID;
+}
+impl core::ops::Deref for NavigationViewItem {
+    type Target = INavigationViewItem;
+    fn deref(&self) -> &Self::Target {
+        unsafe { core::mem::transmute(self) }
+    }
+}
+impl windows_core::RuntimeName for NavigationViewItem {
+    const NAME: &'static str = "Microsoft.UI.Xaml.Controls.NavigationViewItem";
+}
+unsafe impl Send for NavigationViewItem {}
+unsafe impl Sync for NavigationViewItem {}
+#[repr(transparent)]
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct NavigationViewItemBase(windows_core::IUnknown);
+windows_core::imp::interface_hierarchy!(NavigationViewItemBase, windows_core::IUnknown, windows_core::IInspectable);
+windows_core::imp::required_hierarchy!(
+    NavigationViewItemBase,
+    ContentControl,
+    Control,
+    FrameworkElement,
+    UIElement,
+    DependencyObject
+);
+impl windows_core::RuntimeType for NavigationViewItemBase {
+    const SIGNATURE: windows_core::imp::ConstBuffer =
+        windows_core::imp::ConstBuffer::for_class::<Self, INavigationViewItemBase>();
+}
+unsafe impl windows_core::Interface for NavigationViewItemBase {
+    type Vtable = <INavigationViewItemBase as windows_core::Interface>::Vtable;
+    const IID: windows_core::GUID = <INavigationViewItemBase as windows_core::Interface>::IID;
+}
+impl core::ops::Deref for NavigationViewItemBase {
+    type Target = INavigationViewItemBase;
+    fn deref(&self) -> &Self::Target {
+        unsafe { core::mem::transmute(self) }
+    }
+}
+impl windows_core::RuntimeName for NavigationViewItemBase {
+    const NAME: &'static str = "Microsoft.UI.Xaml.Controls.NavigationViewItemBase";
+}
+unsafe impl Send for NavigationViewItemBase {}
+unsafe impl Sync for NavigationViewItemBase {}
+#[repr(transparent)]
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct NavigationViewItemHeader(windows_core::IUnknown);
+windows_core::imp::interface_hierarchy!(NavigationViewItemHeader, windows_core::IUnknown, windows_core::IInspectable);
+windows_core::imp::required_hierarchy!(
+    NavigationViewItemHeader,
+    NavigationViewItemBase,
+    ContentControl,
+    Control,
+    FrameworkElement,
+    UIElement,
+    DependencyObject
+);
+impl NavigationViewItemHeader {
+    pub fn new() -> windows_core::Result<Self> {
+        Self::INavigationViewItemHeaderFactory(|this| unsafe {
+            let mut result__ = core::mem::zeroed();
+            (windows_core::Interface::vtable(this).CreateInstance)(
+                windows_core::Interface::as_raw(this),
+                core::ptr::null_mut(),
+                core::ptr::null_mut(),
+                &mut result__,
+            )
+            .and_then(|| windows_core::imp::Type::from_abi(result__))
+        })
+    }
+    fn INavigationViewItemHeaderFactory<R, F: FnOnce(&INavigationViewItemHeaderFactory) -> windows_core::Result<R>>(
+        callback: F,
+    ) -> windows_core::Result<R> {
+        static SHARED: windows_core::imp::FactoryCache<NavigationViewItemHeader, INavigationViewItemHeaderFactory> =
+            windows_core::imp::FactoryCache::new();
+        SHARED.call(callback)
+    }
+}
+impl windows_core::RuntimeType for NavigationViewItemHeader {
+    const SIGNATURE: windows_core::imp::ConstBuffer =
+        windows_core::imp::ConstBuffer::for_class::<Self, INavigationViewItemHeader>();
+}
+unsafe impl windows_core::Interface for NavigationViewItemHeader {
+    type Vtable = <INavigationViewItemHeader as windows_core::Interface>::Vtable;
+    const IID: windows_core::GUID = <INavigationViewItemHeader as windows_core::Interface>::IID;
+}
+impl core::ops::Deref for NavigationViewItemHeader {
+    type Target = INavigationViewItemHeader;
+    fn deref(&self) -> &Self::Target {
+        unsafe { core::mem::transmute(self) }
+    }
+}
+impl windows_core::RuntimeName for NavigationViewItemHeader {
+    const NAME: &'static str = "Microsoft.UI.Xaml.Controls.NavigationViewItemHeader";
+}
+unsafe impl Send for NavigationViewItemHeader {}
+unsafe impl Sync for NavigationViewItemHeader {}
+#[repr(transparent)]
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct NavigationViewItemSeparator(windows_core::IUnknown);
+windows_core::imp::interface_hierarchy!(
+    NavigationViewItemSeparator,
+    windows_core::IUnknown,
+    windows_core::IInspectable
+);
+windows_core::imp::required_hierarchy!(
+    NavigationViewItemSeparator,
+    NavigationViewItemBase,
+    ContentControl,
+    Control,
+    FrameworkElement,
+    UIElement,
+    DependencyObject
+);
+impl NavigationViewItemSeparator {
+    pub fn new() -> windows_core::Result<Self> {
+        Self::INavigationViewItemSeparatorFactory(|this| unsafe {
+            let mut result__ = core::mem::zeroed();
+            (windows_core::Interface::vtable(this).CreateInstance)(
+                windows_core::Interface::as_raw(this),
+                core::ptr::null_mut(),
+                core::ptr::null_mut(),
+                &mut result__,
+            )
+            .and_then(|| windows_core::imp::Type::from_abi(result__))
+        })
+    }
+    fn INavigationViewItemSeparatorFactory<
+        R,
+        F: FnOnce(&INavigationViewItemSeparatorFactory) -> windows_core::Result<R>,
+    >(
+        callback: F,
+    ) -> windows_core::Result<R> {
+        static SHARED: windows_core::imp::FactoryCache<
+            NavigationViewItemSeparator,
+            INavigationViewItemSeparatorFactory,
+        > = windows_core::imp::FactoryCache::new();
+        SHARED.call(callback)
+    }
+}
+impl windows_core::RuntimeType for NavigationViewItemSeparator {
+    const SIGNATURE: windows_core::imp::ConstBuffer =
+        windows_core::imp::ConstBuffer::for_class::<Self, INavigationViewItemSeparator>();
+}
+unsafe impl windows_core::Interface for NavigationViewItemSeparator {
+    type Vtable = <INavigationViewItemSeparator as windows_core::Interface>::Vtable;
+    const IID: windows_core::GUID = <INavigationViewItemSeparator as windows_core::Interface>::IID;
+}
+impl core::ops::Deref for NavigationViewItemSeparator {
+    type Target = INavigationViewItemSeparator;
+    fn deref(&self) -> &Self::Target {
+        unsafe { core::mem::transmute(self) }
+    }
+}
+impl windows_core::RuntimeName for NavigationViewItemSeparator {
+    const NAME: &'static str = "Microsoft.UI.Xaml.Controls.NavigationViewItemSeparator";
+}
+unsafe impl Send for NavigationViewItemSeparator {}
+unsafe impl Sync for NavigationViewItemSeparator {}
+#[repr(transparent)]
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct NavigationViewSelectionChangedEventArgs(windows_core::IUnknown);
+windows_core::imp::interface_hierarchy!(
+    NavigationViewSelectionChangedEventArgs,
+    windows_core::IUnknown,
+    windows_core::IInspectable
+);
+impl windows_core::RuntimeType for NavigationViewSelectionChangedEventArgs {
+    const SIGNATURE: windows_core::imp::ConstBuffer =
+        windows_core::imp::ConstBuffer::for_class::<Self, INavigationViewSelectionChangedEventArgs>();
+}
+unsafe impl windows_core::Interface for NavigationViewSelectionChangedEventArgs {
+    type Vtable = <INavigationViewSelectionChangedEventArgs as windows_core::Interface>::Vtable;
+    const IID: windows_core::GUID = <INavigationViewSelectionChangedEventArgs as windows_core::Interface>::IID;
+}
+impl core::ops::Deref for NavigationViewSelectionChangedEventArgs {
+    type Target = INavigationViewSelectionChangedEventArgs;
+    fn deref(&self) -> &Self::Target {
+        unsafe { core::mem::transmute(self) }
+    }
+}
+impl windows_core::RuntimeName for NavigationViewSelectionChangedEventArgs {
+    const NAME: &'static str = "Microsoft.UI.Xaml.Controls.NavigationViewSelectionChangedEventArgs";
+}
+unsafe impl Send for NavigationViewSelectionChangedEventArgs {}
+unsafe impl Sync for NavigationViewSelectionChangedEventArgs {}
 #[repr(transparent)]
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct NumberBox(windows_core::IUnknown);

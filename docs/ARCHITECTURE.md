@@ -510,6 +510,7 @@ which builds the same tree as `Column::new().gap(…).children((Text::new(…).t
 | GpuSurface | NSView backed by a CAMetalLayer | child HWND | Wayland subsurface or X11 child window | Wayland subsurface or X11 child window |
 | ScrollView | NSScrollView | ScrollViewer | gtk::ScrolledWindow | QQC2.ScrollView |
 | List (virtualised) | NSTableView | ListView | gtk::ListView | ListView |
+| Sidebar | source-list NSTableView in an NSSplitViewController | NavigationView | gtk::ListBox in an adw::NavigationSplitView | Kirigami.ScrollablePage in the page row |
 
 **What comes next is driven by 2ksbox.** mitsuami was started to replace the Qt Quick launcher of 2ksbox (a Windows 98/XP emulator; `launcher-qt/qml` in that repo). Widgets are added as that launcher needs them, and only widgets every platform has a native control for: what one platform lacks is the app's to build, as a custom widget (§6.3). From the launcher so far:
 
@@ -522,7 +523,7 @@ which builds the same tree as `Column::new().gap(…).children((Text::new(…).t
 
 **Idiomatic shell components (post-MVP).** These are where most of the "feels native" effect comes from:
 
-- `AppShell`, `Sidebar` (source list / NavigationView / split view)
+- `AppShell`; `Sidebar` (source list / NavigationView / split view): built (§16)
 - `Toolbar` (NSToolbar / CommandBar / HeaderBar): items at its trailing end are built (§16)
 - `MenuBar` (the global menu on macOS; an in-window menu or hamburger elsewhere): built (§16)
 - `Preferences`
@@ -542,7 +543,7 @@ We don't pick one fixed OS version per platform. Instead:
 |---|---|---|
 | Windows | Whatever Windows App SDK 2.4 / WinUI 3 supports (historically 10 1809, build 17763; to be confirmed for 2.4) | Pinned to the SDK version that `windows-reactor` targets. |
 | macOS | macOS 11 | The practical floor for arm64 and current Rust targets. Everything newer is a capability. |
-| Linux | GTK 4.10, or GTK 4.8 in reduced mode | Chosen at build time through a cargo feature (`gtk_v4_8`, `gtk_v4_10`, `gtk_v4_12`, …). libadwaita versions work the same way under the `adwaita` feature. |
+| Linux | GTK 4.10, or GTK 4.8 in reduced mode | Chosen at build time through a cargo feature (`gtk_v4_8`, `gtk_v4_10`, `gtk_v4_12`, …). libadwaita 1.4 is required (the sidebar's navigation split view). |
 | Linux (KDE Plasma) | Qt 6.5 and Kirigami 6 | The backend's build asks for Qt 6.5 (the first Qt 6 LTS with what it uses); a given Kirigami release may need a newer Qt. Developed on Qt 6.11 and Kirigami 6.30. Kirigami's features are resolved in QML at run time, not at build time. |
 
 ### Capability model
@@ -730,7 +731,7 @@ Out of scope for the MVP: menus beyond a basic app menu, dialogs beyond an alert
 | Decision | Choice |
 |---|---|
 | Name | **mitsuami** (三つ編み, "three-strand braid": three native backends woven into one) |
-| GTK flavour | Plain gtk4 core, with an optional `adwaita` feature for shell components and style classes |
+| GTK flavour | gtk4, with libadwaita (1.4) for shell components: the sidebar's split view, and the header bar. `adw::init` gives the app libadwaita's style |
 | Reactivity | Our own single-threaded runtime (`mitsuami-reactive`), not a reused one |
 | `view!` syntax | JSX-like; the builder API remains the real API |
 | OS support | Backend floors plus capabilities (§11); Windows floor = whatever Windows App SDK 2.4 supports |
@@ -1087,6 +1088,19 @@ Every platform's label has these, so they're semantic props (§4). Semantic colo
 - **Updated in place when only enabled and checked states change** (`MenuBarData::same_structure`, the entries as one menu), so an open menu stays open; GTK refills the same model otherwise, WinUI and Qt rebuild. GTK's popover (or text widget) lets go of the model while it's refilled: refilled under it, a `PopoverMenu` adds the new submenus' pages to its stack before the old ones go, and warns about their duplicate names (a title that changes, e.g. Start/Stop, rebuilds). A one-item GTK popover has extra space under its item; a bare GTK 4.22 `PopoverMenu` has it too, so it's left as GTK draws it. XAML's radio group names are shared across the thread, so groups are named by their window or node as well as their first id: two windows' bars, or a bar and a context menu, could uncheck each other's items.
 - **Run on every backend and headless** (`tests/context_menu.rs`; right-clicks tried by hand in `examples/context_menu.rs` on each, on GTK also through Xwayland with `xdotool`), and checked by eye on each. Finder outlines the row a right-click is on (a table's `clickedRow`), and Files and Dolphin select it; here neither happens yet.
 
+### Sidebar
+
+- **What every platform shares:** a list down the window's leading side that picks what the window shows, as the system's own settings apps have: items with an icon and a title, in sections with an optional heading, one of them chosen, and the window's content beside it. How it collapses in a narrow window differs too much to share, so it's each platform's: AppKit's split view collapses the sidebar item as it does (dragging its divider away), libadwaita's split view becomes a stack of the two pages below 400sp (a choice shows the content, whose header bar has a back button), Kirigami's page row shows one page at a time, and WinUI's `NavigationView` in `Auto` shows only icons, then a menu button.
+- **`Sidebar` is a view declared anywhere in a window's content,** like `Toolbar`: it finds its window through `CurrentWindow`, and goes with the scope that declared it. `Sidebar::new(selection)` takes a signal of the app's own type; each `SidebarItem::new(title, value)` gives it a value, and choosing an item sets it. A value no item has chooses none. Titles are reactive; icons are names in the platform's own set, picked with `platform!` (an SF Symbol, a symbolic theme icon, a Segoe Fluent Icons glyph), as there's no icon type yet. Items outside a `SidebarSection` next to each other are a section without a heading.
+- **One node, its items as data.** The node (`WidgetKind::Sidebar`) is a native child of the window after its toolbar items, with `Prop::Sections` and `Prop::SelectedIndex` (the index across sections), and reports `Changed(Index)`. Items aren't nodes: every platform builds them from data, as menus are, and a native list needs no layout from the core. The a11y tree still shows them, as list items under headings; they stand for the sidebar node, and the test kit selects one by its title (`A11yAction::SetValue`), as a `Select`'s option is chosen.
+- **The window's content is what's beside it,** so the core's window is the content: its size is the content's, and the window is larger by the sidebar, as with the toolbar. The sidebar's frame is the platform's, read back like a toolbar item's, beside the content (at negative x); a collapsed one is empty and hidden. It's first in the Tab order.
+- **The content's page is titled after the item chosen** on GTK and Kirigami, whose panes have header bars of their own (as GNOME and KDE settings do); the sidebar's page takes the window's title. AppKit and WinUI leave the window's title as it is.
+- **AppKit:** the window's content view becomes an `NSSplitViewController`'s (`contentViewController`), with the full-size content view the sidebar needs to reach under the title bar, as on macOS 11 and later; the host is in the content item, under the title bar and toolbar (its safe area). The window gets a toolbar with the sidebar's tracking separator first, so the title and toolbar items are over the content. The table is in the source-list style at AppKit's own row size (the user's sidebar icon size), with a fixed slot for icons so titles line up. Its width is AppKit's default (a fraction of the window's, within limits: 140 at 800 wide), and macOS 26 floats it, inset 8pt from the window's edges. A toolbar's identifier is now unique per toolbar: a window that got a new one while the old one wasn't freed yet (a sidebar shown again) had AppKit keep the two in sync, and assert. Offscreen captures can't draw the glass the sidebar sits in (nor, then, its rows), so window captures stay the content's.
+- **GTK:** `adw::NavigationSplitView` in an `adw::BreakpointBin` (360×294, GNOME's smallest window) with the collapsing breakpoint; the window's header bar, now libadwaita's, moves to the content page, and the window's title bar gives way to the pages' (a hidden one, as `AdwWindow` has). The list is a `gtk::ListBox` in GTK's `navigation-sidebar` style with headings for titled sections and lines between untitled ones, as GNOME Settings had before libadwaita 1.9's `AdwSidebar`, which needs a newer floor than Ubuntu 24.04's 1.5. The window's extra width follows libadwaita's sidebar width (a quarter of the window, 180 to 280, taken as points).
+- **WinUI:** a `NavigationView` takes the content host's row, with the host as its content, no Settings item and no back button. The window's extra width is the pane's as `Auto` shows it at that width (open from 1008, icons only from 641). A navigation view takes focus on its selected item.
+- **Kirigami:** a `Kirigami.ScrollablePage` inserted ahead of the content's page in the window's page row, as System Settings has its categories, at the row's default column width; `ItemDelegate`s, with `ListSectionHeader`s for titled sections. The user's choice (a click, the arrow keys) is a signal of the page's; the app's isn't reported.
+- **Run on AppKit and headless** (`tests/sidebar.rs`, the `sidebar` story; `examples/sidebar.rs` for trying by hand). GTK, Kirigami and WinUI are only type-checked, and Kirigami's QML only parsed (`qmlformat`). Unverified until they run: GTK's header bar in the content page (libadwaita's hiding of the window buttons there), the breakpoint, and the extra width (sp taken as points); Kirigami's `insertPage` and `removePage`, the column's width read back, and the list's `currentIndex` following the app without reporting; WinUI's pane width and thresholds, `SelectionChanged` for the app's `SelectedItem`, and focus on a `NavigationViewItem` from our Tab handling. How the sidebar looks everywhere, and AppKit's collapse, divider and toolbar with it, are for the eye.
+
 ### GpuSurface
 
 - **A surface the app presents to itself,** from its own thread, as it would present to a window of its own: `GpuSurface::new().on_ready(…).on_resize(…)`. `on_ready` gets a `SurfaceHandle`, which implements `raw-window-handle`'s traits (so `wgpu::Instance::create_surface(handle.clone())` takes it) and is `Send + Sync`; `on_resize` gets its `SurfaceSize` (pixels and scale), which `handle.size()` also has for a render thread. The backend reports `UiEvent::SurfaceReady` once the native surface exists, then `SurfaceResized` whenever its pixel size or scale changes. `examples/gpu-surface` (a crate of its own, so the workspace's tests don't build wgpu) draws moving bands from a render thread with `Fifo`.
@@ -1154,7 +1168,7 @@ What the GTK 4 backend taught us:
 - **The test display has portals off** (`GDK_DEBUG=no-portals`): otherwise file dialogs open on the real desktop, and its dark mode and fonts leak into tests.
 - **Menus go in the header bar** (GNOME's primary menu button): one labelled section per app menu, then Quit (Ctrl+Q, which asks every window to close). Menus are covered in § Menus. Shortcuts are installed in every window. GTK's text widgets have their own Cut/Copy/Paste context menus, so there's no Edit menu.
 - **Alerts** use `gtk::AlertDialog`: Escape chooses the last button. GTK has no alert styles, so `AlertStyle` is ignored.
-- Not done yet: the `adwaita` feature, a reduced GTK 4.8 mode, and `gtk::Application` integration (single instance, app ID). `run` drives a plain GLib main loop.
+- Not done yet: a reduced GTK 4.8 mode, and `gtk::Application` integration (single instance, app ID). `run` drives a plain GLib main loop.
 
 ### M4 on GTK
 
