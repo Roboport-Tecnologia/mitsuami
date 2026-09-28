@@ -76,6 +76,20 @@ pub fn run(setup: impl FnOnce(&Ui)) {
     setup(&ui);
     ui.tick();
     handle.show_pending_windows();
+    // The session ending asks the app as its Quit does; the answer is due
+    // now, so its handlers run in this turn.
+    let _session = {
+        let (ui, handle, main_loop) = (ui.clone(), handle.clone(), main_loop.clone());
+        crate::session::watch(
+            Rc::new(move || {
+                ui.request_quit();
+                ui.tick();
+                handle.show_pending_windows();
+                ui.windows().is_empty()
+            }),
+            Rc::new(move || main_loop.quit()),
+        )
+    };
     schedule_tick();
     if !ui.windows().is_empty() {
         main_loop.run();

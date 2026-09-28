@@ -95,7 +95,7 @@ Validate as you go. Panic on protocol violations such as an unknown node, a doub
 |---|---|---|
 | `Title` | Window | |
 | `FullScreen` | Window | Full screen the platform's own way (AppKit's own Space, `gtk::Window::fullscreen`, Qt's `WindowFullScreen` state, WinUI's full-screen presenter), and back to the window as it was. A window not shown yet takes it when it's shown. Don't report `FullScreenChanged` for it, even where it's applied later (Wayland, AppKit's animation); if the platform refuses, report the state the window kept. Report what the window shows, or while it's hidden or in a transition, what it's going to. |
-| `MinSize` | Window | The smallest **content** size the user can make it, with the window's chrome added where the platform's minimum is the whole window's (AppKit `contentMinSize`, a size request on GTK's content host, Qt's `minimumWidth` and `minimumHeight`, WinUI's `PreferredMinimumWidth` and `PreferredMinimumHeight`). A window smaller when it's set grows to it: not every platform does that itself. Report it back. |
+| `MinSize` | Window | The smallest **content** size the user can make it, with the window's chrome added where the platform's minimum is the whole window's (AppKit `contentMinSize`, a size request on GTK's content host, Qt's `minimumWidth` and `minimumHeight`, WinUI's `PreferredMinimumWidth` and `PreferredMinimumHeight`). A window smaller when it's set grows to it: not every platform does that itself. Cap it at what a window filling its screen's visible area would have as content, and again when the window moves to another screen. Report the app's value back while the platform holds the capped one. |
 | `Text` | Text | |
 | `MaxLines` | Text | At most this many lines, the last cut off with the platform's ellipsis; `None`: all. AppKit `maximumNumberOfLines` (the cell truncating its last visible line), GTK `lines` with `ellipsize` end (GTK only limits ellipsizing labels), Qt `maximumLineCount` with `elide` right, XAML `MaxLines` with `TextTrimming` `CharacterEllipsis`. Measure the label as limited. Report it back. |
 | `Label` | Button, Checkbox, Switch, Select, Slider, NumberInput, Progress, Image, GpuSurface | Only buttons and checkboxes show it; for the others it's the accessible name. |
@@ -321,6 +321,7 @@ The conformance tests use three controls arranged so that reading order and posi
 4. `setup(&ui)` (the app creates its windows), then `ui.tick()`, **then** show the windows, so nobody sees an unlaid-out frame.
 5. Call `ui.tick()` whenever the loop is about to sleep, and again after each wake-up. After each tick, re-arm **one** timer for `ui.time_to_next_timer()`.
 6. Stop when `ui.windows()` is empty.
+7. **The platform's own quit** (macOS's `terminate:`, from the Dock, the app menu's default Quit or logging out; the session ending elsewhere) goes to the app: call `ui.request_quit()` (the app's Quit item, or a close request to every window), tick, and if windows are left, refuse it the platform's way. Never let it end the process while the app has windows open: it may have work to lose.
 
 Platform hints:
 

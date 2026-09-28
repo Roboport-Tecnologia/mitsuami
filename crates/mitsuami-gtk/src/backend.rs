@@ -50,6 +50,66 @@ pub(crate) struct WindowParts {
     pub(crate) menu_button: gtk::MenuButton,
     pub(crate) shortcuts: gtk::ShortcutController,
     full_screen: FullScreen,
+    min_size: MinSize,
+}
+
+/// The app's minimum content size, no larger than the window's monitor less
+/// the header bar: a machine's mode can be larger than a laptop's screen,
+/// and GTK would make the window as large as asked. GTK 4 has no work area
+/// (the panels' room) on Wayland, so it's the monitor's whole geometry.
+/// Applied again when the window goes to another monitor, or the header
+/// bar's height changes.
+#[derive(Clone, Default)]
+struct MinSize {
+    app: Rc<Cell<Option<Size>>>,
+    header_height: Rc<Cell<i32>>,
+}
+
+impl MinSize {
+    /// The minimum GTK is given, in whole points.
+    fn capped(&self, window: &gtk::Window) -> Option<(i32, i32)> {
+        let min = self.app.get()?;
+        let (mut width, mut height) = (min.width.ceil() as i32, min.height.ceil() as i32);
+        if let Some(monitor) = monitor_of(window) {
+            let area = monitor.geometry();
+            width = width.min(area.width());
+            height = height.min((area.height() - self.header_height.get()).max(0));
+        }
+        Some((width, height))
+    }
+
+    /// Asked by the content, which the window's minimum follows (the header
+    /// bar's above it); a window smaller grows to it, as GTK allocates no
+    /// less.
+    fn apply(&self, window: &gtk::Window, host: &Host) {
+        let Some((width, height)) = self.capped(window) else { return };
+        host.set_size_request(width, height);
+        if let Some(root) = host.window_root() {
+            let size = root.resizing.get().unwrap_or(root.size.get());
+            let grown = Size::new(size.width.max(width as f32), size.height.max(height as f32));
+            if grown != size {
+                root.resizing.set(Some(grown));
+            }
+        }
+    }
+
+    /// The minimum as GTK has it: the app's, if GTK holds it as capped.
+    fn shown(&self, window: &gtk::Window, host: &Host) -> Size {
+        let (width, height) = host.size_request();
+        match self.app.get() {
+            Some(min) if self.capped(window) == Some((width, height)) => min,
+            _ => Size::new(requested(width), requested(height)),
+        }
+    }
+}
+
+/// The monitor the window is on, or before it has a surface, the first.
+fn monitor_of(window: &gtk::Window) -> Option<gdk::Monitor> {
+    let display = WidgetExt::display(window);
+    match window.surface() {
+        Some(surface) => display.monitor_at_surface(&surface),
+        None => display.monitors().item(0).and_downcast(),
+    }
 }
 
 /// Full screen as the app wants it. GTK reports its own changes
@@ -695,6 +755,8 @@ fn keep_content_size(parts: &mut WindowParts) {
         return;
     }
     parts.header_height = height;
+    parts.min_size.header_height.set(height);
+    parts.min_size.apply(&parts.window, &parts.host);
     let size = parts.host.window_root().expect("window hosts have a root").size.get();
     parts.window.set_default_size(size.width as i32, size.height as i32 + height);
 }
@@ -999,9 +1061,27 @@ impl State {
                 );
             }
         }
+        let min_size = MinSize::default();
+        min_size.header_height.set(header_height);
+        // Another monitor, another cap on the minimum.
+        let (min, h) = (min_size.clone(), host.clone());
+        window.connect_realize(move |window| {
+            let Some(surface) = window.surface() else { return };
+            let (min, host, window) = (min.clone(), h.clone(), window.clone());
+            surface.connect_enter_monitor(move |_, _| min.apply(&window, &host));
+        });
         self.pending_show.push(id);
-        let parts =
-            WindowParts { window, host, header, header_height, items: Vec::new(), menu_button, shortcuts, full_screen };
+        let parts = WindowParts {
+            window,
+            host,
+            header,
+            header_height,
+            items: Vec::new(),
+            menu_button,
+            shortcuts,
+            full_screen,
+            min_size,
+        };
         self.menus.show_in(id, &parts);
         parts
     }
@@ -1034,19 +1114,9 @@ impl State {
         match (prop, &mut node.widget) {
             (Prop::Title(t), Widget::Window(parts)) => parts.window.set_title(Some(t)),
             (Prop::FullScreen(on), Widget::Window(parts)) => parts.full_screen.set(&parts.window, *on),
-            // Asked by the content, which the window's minimum follows
-            // (the header bar's above it); a window smaller grows to it,
-            // as GTK allocates no less.
             (Prop::MinSize(min), Widget::Window(parts)) => {
-                let (width, height) = (min.width.ceil() as i32, min.height.ceil() as i32);
-                parts.host.set_size_request(width, height);
-                if let Some(root) = parts.host.window_root() {
-                    let size = root.resizing.get().unwrap_or(root.size.get());
-                    let grown = Size::new(size.width.max(width as f32), size.height.max(height as f32));
-                    if grown != size {
-                        root.resizing.set(Some(grown));
-                    }
-                }
+                parts.min_size.app.set(Some(*min));
+                parts.min_size.apply(&parts.window, &parts.host);
             }
             (Prop::Text(t), Widget::Label(l)) => l.set_text(t),
             // GTK limits the lines of wrapping labels that ellipsize.
@@ -2012,8 +2082,7 @@ impl Backend for GtkBackend {
             Widget::Window(parts) => {
                 props.push(Prop::Title(text(parts.window.title())));
                 props.push(Prop::FullScreen(parts.full_screen.shown(&parts.window)));
-                let (width, height) = parts.host.size_request();
-                props.push(Prop::MinSize(Size::new(requested(width), requested(height))));
+                props.push(Prop::MinSize(parts.min_size.shown(&parts.window, &parts.host)));
                 props.extend(node.modal.map(|(owner, modality)| Prop::Modal { owner, modality }));
             }
             Widget::Label(l) => {

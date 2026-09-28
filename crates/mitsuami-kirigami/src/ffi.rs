@@ -23,6 +23,8 @@ unsafe extern "C" {
     fn mq_exec();
     fn mq_quit();
     fn mq_watch_loop(key: u64);
+    fn mq_watch_session_end(key: u64);
+    fn mq_keep_session();
     fn mq_wake();
     fn mq_timer_new(key: u64) -> Raw;
     fn mq_timer_start(timer: Raw, ms: i32);
@@ -119,6 +121,7 @@ unsafe extern "C" {
     );
     fn mq_window_states(window: Raw) -> i32;
     fn mq_window_set_states(window: Raw, states: i32);
+    fn mq_window_available_size(window: Raw, width: *mut f64, height: *mut f64) -> i32;
 }
 
 // ------------------------------------------------------------- callbacks
@@ -219,6 +222,17 @@ pub(crate) fn quit() {
 pub(crate) fn watch_loop(f: impl Fn() + 'static) {
     let key = register(move |_| f());
     unsafe { mq_watch_loop(key) }
+}
+
+/// Calls `keep` when the session ends (logging out); it returns whether
+/// the app stays, which cancels the end.
+pub(crate) fn watch_session_end(keep: impl Fn() -> bool + 'static) {
+    let key = register(move |_| {
+        if keep() {
+            unsafe { mq_keep_session() }
+        }
+    });
+    unsafe { mq_watch_session_end(key) }
 }
 
 /// Makes the event loop turn. Callable from any thread.
@@ -562,6 +576,13 @@ impl QmlObject {
 
     pub(crate) fn set_window_states(self, states: i32) {
         unsafe { mq_window_set_states(self.raw(), states) }
+    }
+
+    /// The most a window's client area can be on its screen, in points.
+    pub(crate) fn available_size(self) -> Option<(f64, f64)> {
+        let (mut width, mut height) = (0.0, 0.0);
+        let found = unsafe { mq_window_available_size(self.raw(), &mut width, &mut height) };
+        (found != 0).then_some((width, height))
     }
 
     /// A real key press and release with a native scan code, delivered to

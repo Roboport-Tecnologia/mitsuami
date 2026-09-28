@@ -3,8 +3,13 @@
 use block2::RcBlock;
 use mitsuami_core::Ui;
 use mitsuami_core::services::MenuBar;
-use objc2::MainThreadMarker;
-use objc2_app_kit::{NSApplication, NSApplicationActivationPolicy, NSEvent, NSEventModifierFlags, NSEventType};
+use objc2::rc::Retained;
+use objc2::runtime::{NSObject, NSObjectProtocol, ProtocolObject};
+use objc2::{DefinedClass, MainThreadMarker, MainThreadOnly, define_class, msg_send};
+use objc2_app_kit::{
+    NSApplication, NSApplicationActivationPolicy, NSApplicationDelegate, NSApplicationTerminateReply, NSEvent,
+    NSEventModifierFlags, NSEventType,
+};
 use std::sync::Arc;
 
 use objc2_core_foundation::{
@@ -32,6 +37,45 @@ fn stop(app: &NSApplication) {
     );
     if let Some(event) = event {
         app.postEvent_atStart(&event, true);
+    }
+}
+
+pub(crate) struct AppIvars {
+    /// Asks the app to quit, as its Quit item or its windows' close
+    /// buttons would; returns whether it did (no window is left).
+    quit: Box<dyn Fn() -> bool>,
+}
+
+define_class!(
+    /// The app's delegate, for the system's Quit.
+    #[unsafe(super(NSObject))]
+    #[thread_kind = MainThreadOnly]
+    #[ivars = AppIvars]
+    struct AppDelegate;
+
+    unsafe impl NSObjectProtocol for AppDelegate {}
+
+    unsafe impl NSApplicationDelegate for AppDelegate {
+        /// `terminate:` from anywhere: the app menu's own Quit, the Dock's,
+        /// logging out or restarting. The app decides, as for its own
+        /// Quit, and a quit it doesn't go through with is cancelled (macOS
+        /// says the app cancelled the log out, as for TextEdit with unsaved
+        /// documents). If it closed every window, the process ends here.
+        #[unsafe(method(applicationShouldTerminate:))]
+        fn application_should_terminate(&self, _sender: &NSApplication) -> NSApplicationTerminateReply {
+            if (self.ivars().quit)() {
+                NSApplicationTerminateReply::TerminateNow
+            } else {
+                NSApplicationTerminateReply::TerminateCancel
+            }
+        }
+    }
+);
+
+impl AppDelegate {
+    fn new(mtm: MainThreadMarker, quit: impl Fn() -> bool + 'static) -> Retained<AppDelegate> {
+        let this = AppDelegate::alloc(mtm).set_ivars(AppIvars { quit: Box::new(quit) });
+        unsafe { msg_send![super(this), init] }
     }
 }
 
@@ -69,6 +113,19 @@ pub fn run(setup: impl FnOnce(&Ui)) {
     setup(&ui);
     ui.tick();
     handle.show_pending_windows();
+
+    // The app's own handlers run now, in this turn: the answer is due
+    // before `applicationShouldTerminate:` returns.
+    let delegate = {
+        let (ui, handle) = (ui.clone(), handle.clone());
+        AppDelegate::new(mtm, move || {
+            ui.request_quit();
+            ui.tick();
+            handle.show_pending_windows();
+            ui.windows().is_empty()
+        })
+    };
+    app.setDelegate(Some(ProtocolObject::from_ref(&*delegate)));
 
     let run_loop = CFRunLoop::main().expect("main run loop");
     // Common modes include event tracking, so live resizing relayouts too.

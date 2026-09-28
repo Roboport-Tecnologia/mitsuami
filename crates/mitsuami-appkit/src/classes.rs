@@ -13,7 +13,8 @@ use objc2::runtime::{AnyObject, NSObject, NSObjectProtocol, Sel};
 use objc2::{DefinedClass, MainThreadMarker, MainThreadOnly, define_class, msg_send, sel};
 use objc2_app_kit::{
     NSButton, NSColor, NSControl, NSControlStateValueOn, NSControlTextEditingDelegate, NSEvent, NSPopUpButton,
-    NSRectFill, NSSlider, NSSwitch, NSTextField, NSTextFieldDelegate, NSTextView, NSView, NSWindow, NSWindowDelegate,
+    NSRectFill, NSScreen, NSSlider, NSSwitch, NSTextField, NSTextFieldDelegate, NSTextView, NSView, NSWindow,
+    NSWindowDelegate, NSWindowStyleMask,
 };
 use objc2_foundation::{
     NSKeyValueObservingOptions, NSNotification, NSObjectNSKeyValueObserverRegistration, NSPoint, NSRect, NSSize,
@@ -182,6 +183,8 @@ pub(crate) struct WindowIvars {
     full_screen_moving: Cell<bool>,
     /// The transition starting is the app's own, so it isn't reported.
     full_screen_ours: Cell<bool>,
+    /// The app's minimum content size, if it set one.
+    min_size: Cell<Option<Size>>,
 }
 
 define_class!(
@@ -247,6 +250,14 @@ define_class!(
             self.ivars().events.emit(self.ivars().id, UiEvent::WindowResized(size));
         }
 
+        /// Another screen, another cap on the minimum.
+        #[unsafe(method(windowDidChangeScreen:))]
+        fn window_did_change_screen(&self, notification: &NSNotification) {
+            if let Some(window) = notification.object().and_then(|o| o.downcast::<NSWindow>().ok()) {
+                self.apply_min_size(&window);
+            }
+        }
+
         #[unsafe(method(windowDidChangeBackingProperties:))]
         fn window_did_change_backing_properties(&self, _notification: &NSNotification) {
             self.ivars().events.emit(self.ivars().id, UiEvent::MetricsChanged);
@@ -307,12 +318,52 @@ impl WindowDelegate {
             full_screen_wanted: Cell::new(false),
             full_screen_moving: Cell::new(false),
             full_screen_ours: Cell::new(false),
+            min_size: Cell::new(None),
         });
         unsafe { msg_send![super(this), init] }
     }
 
     pub(crate) fn set_modal(&self, modal: bool) {
         self.ivars().modal.set(modal);
+    }
+
+    /// The app's minimum content size. AppKit keeps the user from resizing
+    /// below it, but a window already smaller stays so: it grows here, as
+    /// on the other platforms.
+    pub(crate) fn set_min_size(&self, window: &NSWindow, min: Size) {
+        self.ivars().min_size.set(Some(min));
+        self.apply_min_size(window);
+    }
+
+    /// The minimum, no larger than the content of a window filling its
+    /// screen's visible area (a machine's mode can be larger than a laptop's
+    /// screen; AppKit would make a window as large as asked).
+    fn apply_min_size(&self, window: &NSWindow) {
+        let Some(min) = self.min_size_on_screen(window) else { return };
+        window.setContentMinSize(min);
+        let content = window.contentRectForFrameRect(window.frame()).size;
+        let grown = NSSize::new(content.width.max(min.width), content.height.max(min.height));
+        if grown != content && !window.styleMask().contains(NSWindowStyleMask::FullScreen) {
+            window.setContentSize(grown);
+        }
+    }
+
+    fn min_size_on_screen(&self, window: &NSWindow) -> Option<NSSize> {
+        let min = self.ivars().min_size.get()?;
+        let screen = window.screen().or_else(|| NSScreen::mainScreen(MainThreadMarker::from(self)));
+        let most =
+            screen.map_or(NSSize::new(f64::MAX, f64::MAX), |s| window.contentRectForFrameRect(s.visibleFrame()).size);
+        Some(NSSize::new((min.width as f64).min(most.width), (min.height as f64).min(most.height)))
+    }
+
+    /// The minimum as AppKit has it: the app's, if AppKit holds it as
+    /// capped by the screen.
+    pub(crate) fn min_size(&self, window: &NSWindow) -> Size {
+        let now = window.contentMinSize();
+        match (self.ivars().min_size.get(), self.min_size_on_screen(window)) {
+            (Some(min), Some(capped)) if capped == now => min,
+            _ => Size::new(now.width as f32, now.height as f32),
+        }
     }
 
     /// Full screen as the app wants it: applied once the window is shown

@@ -238,4 +238,46 @@ async fn app_menus_are_replaced(app: TestApp) {
     assert_eq!(menus, ["New"]);
 }
 
+/// The platform's Quit from outside the app (the Dock, logging out) is the
+/// app's Quit item, as if chosen: it decides, here by asking first.
+#[mitsuami_test::test]
+async fn the_platform_s_quit_is_the_app_s_quit_item(app: TestApp) {
+    let asked = signal(0);
+    let open = signal(true);
+    app.mount(move || {
+        set_menu(
+            MenuBar::new().menu(
+                Menu::new("File")
+                    .item(MenuItem::new("Quit").role(MenuRole::Quit).on_select(move || asked.update(|n| *n += 1))),
+            ),
+        );
+        Window::new("Machine").bind(open).content(|| Text::new("Running"))
+    });
+
+    app.ui().request_quit();
+    app.settle().await;
+    assert_eq!(asked.get_untracked(), 1);
+    assert!(open.get_untracked(), "the app decides; the windows aren't asked");
+}
+
+/// Without a Quit item of the app's, every window is asked to close, as by
+/// its close button: those that close go, those whose app keeps them stay.
+#[mitsuami_test::test]
+async fn without_a_quit_item_every_window_is_asked_to_close(app: TestApp) {
+    let (closes, kept) = (signal(true), signal(0));
+    app.mount(move || {
+        Column::new().children((
+            Window::new("Closes").bind(closes).content(|| Text::new("One")),
+            Window::new("Asks").on_close_request(move || kept.update(|n| *n += 1)).content(|| Text::new("Two")),
+        ))
+    });
+
+    app.ui().request_quit();
+    app.settle().await;
+    assert!(!closes.get_untracked());
+    assert_eq!(app.window_titled("Closes"), None);
+    assert_eq!(kept.get_untracked(), 1);
+    assert!(app.window_titled("Asks").is_some());
+}
+
 mitsuami_test::main!();

@@ -474,4 +474,25 @@ async fn full_screen_and_minimum_size_in_view_macros(app: TestApp) {
     assert!(native_props(&app, window).contains(&Prop::MinSize(Size::new(320.0, 240.0))));
 }
 
+/// A minimum larger than the screen goes no larger than the screen: a
+/// window grows to fit it at most (headless's screen is 1280 × 800).
+#[mitsuami_test::test]
+async fn its_minimum_goes_no_larger_than_the_screen(app: TestApp) {
+    app.mount(|| {
+        Window::new("Machine")
+            .size(Size::new(400.0, 300.0))
+            .min_size(Size::new(10_000.0, 10_000.0))
+            .content(|| Text::new("Screen"))
+    });
+    let window = machine(&app).expect("open");
+    app.settle().await;
+
+    let size = app.ui().window_size(window).expect("sized");
+    assert!(size.width > 400.0 && size.height > 300.0, "it grew: {size:?}");
+    assert!(size.width < 10_000.0 && size.height < 10_000.0, "to the screen at most: {size:?}");
+    if app.is_headless() {
+        assert_eq!(size, app.headless().screen());
+    }
+}
+
 mitsuami_test::main!();

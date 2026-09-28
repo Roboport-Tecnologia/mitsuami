@@ -98,6 +98,9 @@ pub(crate) struct WindowParts {
     overlapped: Option<w::AppWindowPresenter>,
     /// The content's minimum size, as the core set it.
     min_size: Option<Size>,
+    /// It moved to another display: its minimum is capped by the
+    /// display's work area, so it's applied again.
+    moved: Rc<Cell<bool>>,
 }
 
 impl WindowParts {
@@ -343,6 +346,14 @@ pub(crate) struct Events {
 impl Events {
     pub(crate) fn emit(&self, id: NodeId, event: UiEvent) {
         self.sink.emit(id, event);
+        let wake = self.wake.borrow().clone();
+        if let Some(wake) = wake {
+            wake();
+        }
+    }
+
+    /// Makes the run loop turn, with nothing to report.
+    pub(crate) fn wake(&self) {
         let wake = self.wake.borrow().clone();
         if let Some(wake) = wake {
             wake();
@@ -608,6 +619,15 @@ impl WinUiHandle {
                 // It was activated when made, before its content: its
                 // controls can take focus now.
                 restore_focus(&parts.root, &by_element, &parts.focus, &parts.tab_order.borrow(), &emitter);
+            }
+        }
+        // Windows moved to another display since.
+        let state = self.state.borrow();
+        for node in state.nodes.values() {
+            if let Widget::Window(parts) = &node.widget
+                && parts.moved.replace(false)
+            {
+                apply_min_size(parts);
             }
         }
     }
@@ -969,7 +989,7 @@ fn resize_client_with(parts: &WindowParts, size: Size, (inset_w, inset_h): (i32,
     }
     let Ok(app_window) = parts.app_window.cast::<w::IAppWindow2>() else { return };
     // No smaller than its minimum, as a drag goes.
-    let min = parts.min_size.unwrap_or(Size::ZERO);
+    let min = content_min(parts).unwrap_or(Size::ZERO);
     let size = Size::new(size.width.max(min.width), size.height.max(min.height));
     let scale = scale_of(parts);
     let chrome = chrome_height(parts);
@@ -1060,12 +1080,42 @@ fn show_title_bar(parts: &WindowParts, shown: bool) {
     _ = parts.title_bar.cast::<w::IUIElement>().and_then(|e| e.SetVisibility(visibility));
 }
 
+/// Pixels the window adds around its content: the frame (`Size` less
+/// `ClientSize`) and the resize border inside the client area.
+fn frame_pixels(parts: &WindowParts, scale: f64) -> (i32, i32) {
+    let (inset_w, inset_h) = client_insets(parts, scale);
+    let app = parts.app_window.cast::<w::IAppWindow>();
+    let client = parts.app_window.cast::<w::IAppWindow2>().and_then(|a| a.ClientSize());
+    match (app.and_then(|a| a.Size()), client) {
+        (Ok(outer), Ok(client)) => (outer.width - client.width + inset_w, outer.height - client.height + inset_h),
+        _ => (inset_w, inset_h),
+    }
+}
+
+/// The app's minimum, no larger than the content of a window filling its
+/// display's work area: a machine's mode can be larger than a laptop's
+/// screen, and Windows would make a window as large as its minimum.
+fn content_min(parts: &WindowParts) -> Option<Size> {
+    let min = parts.min_size?;
+    let monitor = unsafe { w::MonitorFromWindow(parts.hwnd, w::MONITOR_DEFAULTTONEAREST as u32) };
+    let mut info = w::MONITORINFO { cbSize: std::mem::size_of::<w::MONITORINFO>() as u32, ..Default::default() };
+    if monitor.is_null() || !unsafe { w::GetMonitorInfoW(monitor, &mut info) }.as_bool() {
+        return Some(min);
+    }
+    let scale = scale_of(parts);
+    let (frame_w, frame_h) = frame_pixels(parts, scale);
+    let work = info.rcWork;
+    let most_w = ((work.right - work.left - frame_w).max(0) as f64 / scale) as f32;
+    let most_h = (((work.bottom - work.top - frame_h).max(0) as f64 / scale) - chrome_height(parts)).max(0.0) as f32;
+    Some(Size::new(min.width.min(most_w), min.height.min(most_h)))
+}
+
 /// The content's minimum size as the window's: the presenter's preferred
 /// minimum is the whole window's, in pixels, so it takes the title bar,
 /// the menu bar, the toolbar and the frame. A window already smaller
 /// grows to it. Applied again whenever what's above the content changes.
 fn apply_min_size(parts: &WindowParts) {
-    let Some(min) = parts.min_size else { return };
+    let Some(min) = content_min(parts) else { return };
     if in_full_screen(&parts.app_window) {
         return;
     }
@@ -1076,16 +1126,13 @@ fn apply_min_size(parts: &WindowParts) {
         .and_then(|p| p.cast::<w::IOverlappedPresenter3>());
     let Ok(presenter) = presenter else { return };
     let scale = scale_of(parts);
-    let (inset_w, inset_h) = client_insets(parts, scale);
-    let app = parts.app_window.cast::<w::IAppWindow>();
-    let client = parts.app_window.cast::<w::IAppWindow2>().and_then(|a| a.ClientSize());
-    let (frame_w, frame_h) = match (app.and_then(|a| a.Size()), client) {
-        (Ok(outer), Ok(client)) => (outer.width - client.width, outer.height - client.height),
-        _ => (0, 0),
-    };
+    // Measured before Windows grows the window: the resize that follows
+    // uses them (see `resize_client_with`).
+    let insets = client_insets(parts, scale);
+    let (frame_w, frame_h) = frame_pixels(parts, scale);
     let chrome = chrome_height(parts);
-    let width = (min.width as f64 * scale).round() as i32 + inset_w + frame_w;
-    let height = ((min.height as f64 + chrome) * scale).round() as i32 + inset_h + frame_h;
+    let width = (min.width as f64 * scale).round() as i32 + frame_w;
+    let height = ((min.height as f64 + chrome) * scale).round() as i32 + frame_h;
     _ = presenter.SetPreferredMinimumWidth(Some(width));
     _ = presenter.SetPreferredMinimumHeight(Some(height));
     // Windows grows a smaller window to the new minimum itself, before
@@ -1093,7 +1140,7 @@ fn apply_min_size(parts: &WindowParts) {
     if let Some(size) = parts.size.get()
         && (size.width < min.width || size.height < min.height)
     {
-        resize_client_with(parts, size, (inset_w, inset_h));
+        resize_client_with(parts, size, insets);
     }
 }
 
@@ -1445,6 +1492,7 @@ impl State {
         })?;
         let window_id = app_window.cast::<w::IAppWindow>()?.Id()?;
         let hwnd = window_id.value as usize as w::HWND;
+        crate::session::watch(hwnd);
         // Invisible until the first layout is applied (or for good, in
         // tests). XAML only measures elements in a live tree, so the window
         // must be activated before anything is measured.
@@ -1525,12 +1573,23 @@ impl State {
         // Full screen changed elsewhere (another part of the process): the
         // app hears of it. Our own changes match what it asked for.
         let full_screen = Rc::new(Cell::new(false));
+        let monitor = unsafe { w::MonitorFromWindow(hwnd, w::MONITOR_DEFAULTTONEAREST as u32) } as isize;
+        let (monitor, moved) = (Rc::new(Cell::new(monitor)), Rc::new(Cell::new(false)));
         revokers.push(app_window.cast::<w::IAppWindow>()?.Changed({
             let (emitter, full_screen, title_bar) = (emitter.clone(), full_screen.clone(), title_bar.clone());
+            let (monitor, moved) = (monitor.clone(), moved.clone());
             move |sender, args| {
-                let changed = args
-                    .as_ref()
-                    .and_then(|a| a.cast::<w::IAppWindowChangedEventArgs>().ok()?.DidPresenterChange().ok());
+                let args = args.as_ref().and_then(|a| a.cast::<w::IAppWindowChangedEventArgs>().ok());
+                // Onto another display: its minimum is applied again after
+                // the next tick, where the backend's state is at hand.
+                if args.as_ref().and_then(|a| a.DidPositionChange().ok()) == Some(true) {
+                    let now = unsafe { w::MonitorFromWindow(hwnd, w::MONITOR_DEFAULTTONEAREST as u32) } as isize;
+                    if monitor.replace(now) != now {
+                        moved.set(true);
+                        emitter.wake();
+                    }
+                }
+                let changed = args.and_then(|a| a.DidPresenterChange().ok());
                 let Some(app_window) = sender.as_ref().filter(|_| changed == Some(true)) else { return };
                 let on = in_full_screen(app_window);
                 let visibility = if on { w::Visibility::Collapsed } else { w::Visibility::Visible };
@@ -1624,6 +1683,7 @@ impl State {
             shown: false,
             overlapped: None,
             min_size: None,
+            moved,
         };
         refresh_menu(&mut parts, &self.menus);
         Ok((Widget::Window(Box::new(parts)), host_element, revokers))

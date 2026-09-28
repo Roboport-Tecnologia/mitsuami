@@ -91,6 +91,10 @@ void mq_process_events(void);
 void mq_exec(void);
 void mq_quit(void);
 void mq_watch_loop(uint64_t key);
+// The session is ending (logging out): calls back, and cancels the end if
+// the callback called `mq_keep_session`.
+void mq_watch_session_end(uint64_t key);
+void mq_keep_session(void);
 void mq_wake(void);
 QObject* mq_timer_new(uint64_t key);
 void mq_timer_start(QObject* timer, int32_t ms);
@@ -169,6 +173,9 @@ void mq_surface_input_cursor(QObject* item, int32_t kind, const uint8_t* rgba, i
 // them, and the app's.
 int32_t mq_window_states(QObject* window);
 void mq_window_set_states(QObject* window, int32_t states);
+// The most a window's client area can be on its screen: the screen's
+// available area less the window's frame. Returns 0 without a screen.
+int32_t mq_window_available_size(QObject* window, double* width, double* height);
 
 // Clipboard.
 char* mq_clipboard_text(void);

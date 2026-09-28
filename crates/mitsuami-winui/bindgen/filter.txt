@@ -22,7 +22,7 @@ Microsoft.UI.Windowing.IAppWindow::{get_TitleBar, get_Id, Move, Show, add_Closin
 Microsoft.UI.Windowing.IAppWindowPresenter::get_Kind
 Microsoft.UI.Windowing.AppWindowPresenterKind
 Microsoft.UI.Windowing.AppWindowChangedEventArgs::{}
-Microsoft.UI.Windowing.IAppWindowChangedEventArgs::get_DidPresenterChange
+Microsoft.UI.Windowing.IAppWindowChangedEventArgs::{get_DidPresenterChange, get_DidPositionChange}
 Microsoft.UI.Windowing.IOverlappedPresenter3::{put_PreferredMinimumWidth, put_PreferredMinimumHeight}
 Microsoft.UI.Windowing.AppWindowPresenter::{}
 Microsoft.UI.Windowing.OverlappedPresenter::{}
@@ -379,3 +379,11 @@ Microsoft.UI.Xaml.IXamlRoot4::get_ContentIsland
 Microsoft.UI.Content.ContentIsland::{}
 Microsoft.UI.Input.InputFocusController::GetForIsland
 Microsoft.UI.Input.IInputFocusController::{TrySetFocus, get_HasFocus}
+Windows.Win32.WM_QUERYENDSESSION
+Windows.Win32.WM_ENDSESSION
+Windows.Win32.ShutdownBlockReasonCreate
+Windows.Win32.ShutdownBlockReasonDestroy
+Windows.Win32.MonitorFromWindow
+Windows.Win32.MONITOR_DEFAULTTONEAREST
+Windows.Win32.GetMonitorInfoW
+Windows.Win32.MONITORINFO

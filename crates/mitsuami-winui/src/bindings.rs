@@ -28,6 +28,7 @@ windows_core::link!("user32.dll" "system" fn GetFocus() -> HWND);
 windows_core::link!("user32.dll" "system" fn GetForegroundWindow() -> HWND);
 windows_core::link!("user32.dll" "system" fn GetKeyState(nvirtkey : i32) -> i16);
 windows_core::link!("kernel32.dll" "system" fn GetModuleHandleW(lpmodulename : windows_core::PCWSTR) -> HMODULE);
+windows_core::link!("user32.dll" "system" fn GetMonitorInfoW(hmonitor : HMONITOR, lpmi : *mut MONITORINFO) -> windows_core::BOOL);
 windows_core::link!("kernel32.dll" "system" fn GetProcessHeap() -> HANDLE);
 windows_core::link!("user32.dll" "system" fn GetRawInputData(hrawinput : HRAWINPUT, uicommand : u32, pdata : *mut core::ffi::c_void, pcbsize : *mut u32, cbsizeheader : u32) -> u32);
 windows_core::link!("user32.dll" "system" fn GetWindowLongW(hwnd : HWND, nindex : i32) -> i32);
@@ -38,6 +39,7 @@ windows_core::link!("user32.dll" "system" fn IsWindowEnabled(hwnd : HWND) -> win
 windows_core::link!("user32.dll" "system" fn IsWindowVisible(hwnd : HWND) -> windows_core::BOOL);
 windows_core::link!("user32.dll" "system" fn LoadCursorW(hinstance : HINSTANCE, lpcursorname : windows_core::PCWSTR) -> HCURSOR);
 windows_core::link!("user32.dll" "system" fn MessageBoxW(hwnd : HWND, lptext : windows_core::PCWSTR, lpcaption : windows_core::PCWSTR, utype : u32) -> i32);
+windows_core::link!("user32.dll" "system" fn MonitorFromWindow(hwnd : HWND, dwflags : u32) -> HMONITOR);
 windows_core::link!("user32.dll" "system" fn MsgWaitForMultipleObjectsEx(ncount : u32, phandles : *const HANDLE, dwmilliseconds : u32, dwwakemask : u32, dwflags : u32) -> u32);
 windows_core::link!("user32.dll" "system" fn PeekMessageW(lpmsg : *mut MSG, hwnd : HWND, wmsgfiltermin : u32, wmsgfiltermax : u32, wremovemsg : u32) -> windows_core::BOOL);
 windows_core::link!("user32.dll" "system" fn PostMessageW(hwnd : HWND, msg : u32, wparam : WPARAM, lparam : LPARAM) -> windows_core::BOOL);
@@ -62,6 +64,8 @@ windows_core::link!("user32.dll" "system" fn SetWindowPos(hwnd : HWND, hwndinser
 windows_core::link!("comctl32.dll" "system" fn SetWindowSubclass(hwnd : HWND, pfnsubclass : SUBCLASSPROC, uidsubclass : usize, dwrefdata : usize) -> windows_core::BOOL);
 windows_core::link!("user32.dll" "system" fn SetWindowsHookExW(idhook : i32, lpfn : HOOKPROC, hmod : HINSTANCE, dwthreadid : u32) -> HHOOK);
 windows_core::link!("user32.dll" "system" fn ShowCursor(bshow : windows_core::BOOL) -> i32);
+windows_core::link!("user32.dll" "system" fn ShutdownBlockReasonCreate(hwnd : HWND, pwszreason : windows_core::PCWSTR) -> windows_core::BOOL);
+windows_core::link!("user32.dll" "system" fn ShutdownBlockReasonDestroy(hwnd : HWND) -> windows_core::BOOL);
 windows_core::link!("user32.dll" "system" fn TrackMouseEvent(lpeventtrack : *mut TRACKMOUSEEVENT) -> windows_core::BOOL);
 windows_core::link!("user32.dll" "system" fn TranslateMessage(lpmsg : *const MSG) -> windows_core::BOOL);
 windows_core::link!("api-ms-win-appmodel-runtime-l1-1-5.dll" "system" fn TryCreatePackageDependency(user : PSID, packagefamilyname : windows_core::PCWSTR, minversion : PACKAGE_VERSION, packagedependencyprocessorarchitectures : PackageDependencyProcessorArchitectures, lifetimekind : PackageDependencyLifetimeKind, lifetimeartifact : windows_core::PCWSTR, options : CreatePackageDependencyOptions, packagedependencyid : *mut windows_core::PWSTR) -> windows_core::HRESULT);
@@ -2435,6 +2439,7 @@ pub type HICON = *mut core::ffi::c_void;
 pub type HINSTANCE = *mut core::ffi::c_void;
 pub type HMENU = *mut core::ffi::c_void;
 pub type HMODULE = HINSTANCE;
+pub type HMONITOR = *mut core::ffi::c_void;
 pub type HOOKPROC = Option<unsafe extern "system" fn(code: i32, wparam: WPARAM, lparam: LPARAM) -> LRESULT>;
 pub type HRAWINPUT = *mut core::ffi::c_void;
 pub const HTCLIENT: i32 = 1;
@@ -2717,6 +2722,16 @@ impl windows_core::RuntimeType for IAppWindowChangedEventArgs {
     const SIGNATURE: windows_core::imp::ConstBuffer = windows_core::imp::ConstBuffer::for_interface::<Self>();
 }
 impl IAppWindowChangedEventArgs {
+    pub fn DidPositionChange(&self) -> windows_core::Result<bool> {
+        unsafe {
+            let mut result__ = core::mem::zeroed();
+            (windows_core::Interface::vtable(self).DidPositionChange)(
+                windows_core::Interface::as_raw(self),
+                &mut result__,
+            )
+            .map(|| result__)
+        }
+    }
     pub fn DidPresenterChange(&self) -> windows_core::Result<bool> {
         unsafe {
             let mut result__ = core::mem::zeroed();
@@ -2731,7 +2746,7 @@ impl IAppWindowChangedEventArgs {
 #[repr(C)]
 pub struct IAppWindowChangedEventArgs_Vtbl {
     pub base__: windows_core::IInspectable_Vtbl,
-    DidPositionChange: usize,
+    pub DidPositionChange: unsafe extern "system" fn(*mut core::ffi::c_void, *mut bool) -> windows_core::HRESULT,
     pub DidPresenterChange: unsafe extern "system" fn(*mut core::ffi::c_void, *mut bool) -> windows_core::HRESULT,
 }
 windows_core::imp::define_interface!(
@@ -10031,6 +10046,15 @@ pub const MK_MBUTTON: i32 = 16;
 pub const MK_RBUTTON: i32 = 2;
 pub const MK_XBUTTON1: i32 = 32;
 pub const MK_XBUTTON2: i32 = 64;
+#[repr(C)]
+#[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
+pub struct MONITORINFO {
+    pub cbSize: u32,
+    pub rcMonitor: RECT,
+    pub rcWork: RECT,
+    pub dwFlags: u32,
+}
+pub const MONITOR_DEFAULTTONEAREST: i32 = 2;
 pub const MOUSE_MOVE_ABSOLUTE: i32 = 1;
 #[repr(C)]
 #[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
@@ -13154,6 +13178,7 @@ unsafe impl Send for VisualTreeHelper {}
 unsafe impl Sync for VisualTreeHelper {}
 pub const WH_KEYBOARD_LL: i32 = 13;
 pub const WM_CLOSE: i32 = 16;
+pub const WM_ENDSESSION: i32 = 22;
 pub const WM_INPUT: i32 = 255;
 pub const WM_LBUTTONDOWN: i32 = 513;
 pub const WM_LBUTTONUP: i32 = 514;
@@ -13166,6 +13191,7 @@ pub const WM_MOUSEWHEEL: i32 = 522;
 pub const WM_NCDESTROY: i32 = 130;
 pub const WM_NCHITTEST: i32 = 132;
 pub const WM_NULL: i32 = 0;
+pub const WM_QUERYENDSESSION: i32 = 17;
 pub const WM_RBUTTONDOWN: i32 = 516;
 pub const WM_RBUTTONUP: i32 = 517;
 pub const WM_SETCURSOR: i32 = 32;

@@ -709,17 +709,7 @@ impl State {
         match (prop, &mut node.widget) {
             (Prop::Title(t), Widget::Window { window, .. }) => window.setTitle(&ns(t)),
             (Prop::FullScreen(on), Widget::Window { window, _delegate, .. }) => _delegate.set_full_screen(window, *on),
-            // AppKit keeps the user from resizing below it, but a window
-            // already smaller stays so: it grows here, as on the other
-            // platforms.
-            (Prop::MinSize(min), Widget::Window { window, _delegate, .. }) => {
-                window.setContentMinSize(NSSize::new(min.width as f64, min.height as f64));
-                let content = window.contentRectForFrameRect(window.frame()).size;
-                let grown = NSSize::new(content.width.max(min.width as f64), content.height.max(min.height as f64));
-                if grown != content && !in_full_screen(window) {
-                    window.setContentSize(grown);
-                }
-            }
+            (Prop::MinSize(min), Widget::Window { window, _delegate, .. }) => _delegate.set_min_size(window, *min),
             // Acted on when the window is shown.
             (Prop::Modal { owner, modality }, Widget::Window { _delegate, .. }) => {
                 _delegate.set_modal(true);
@@ -1742,8 +1732,7 @@ impl Backend for AppKitBackend {
             Widget::Window { window, _delegate, .. } => {
                 props.push(Prop::Title(window.title().to_string()));
                 props.push(Prop::FullScreen(_delegate.full_screen(window)));
-                let min = window.contentMinSize();
-                props.push(Prop::MinSize(Size::new(min.width as f32, min.height as f32)));
+                props.push(Prop::MinSize(_delegate.min_size(window)));
                 props.extend(node.modal.map(|(owner, modality)| Prop::Modal { owner, modality }));
             }
             Widget::Label(l) => {

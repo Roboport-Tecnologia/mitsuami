@@ -23,6 +23,8 @@
 #include <QQuickItem>
 #include <QQuickStyle>
 #include <QQuickWindow>
+#include <QScreen>
+#include <QSessionManager>
 #include <QThread>
 #include <QWheelEvent>
 #include <qpa/qplatformnativeinterface.h>
@@ -434,6 +436,25 @@ void mq_watch_loop(uint64_t key) {
                      [key]() { call(key, MQ_BEFORE_WAIT); });
 }
 
+static bool g_keep_session = false;
+
+void mq_keep_session(void) { g_keep_session = true; }
+
+// Qt 6 closes no windows when the session ends: the app's Quit runs in
+// the callback, and a window left open cancels the logout, as KDE apps with
+// unsaved work cancel it. Cancelling needs the session manager's leave to
+// interact.
+void mq_watch_session_end(uint64_t key) {
+    QObject::connect(qGuiApp, &QGuiApplication::commitDataRequest, qGuiApp, [key](QSessionManager& manager) {
+        g_keep_session = false;
+        call(key, MQ_SIGNAL);
+        if (g_keep_session && manager.allowsInteraction()) {
+            manager.cancel();
+            manager.release();
+        }
+    }, Qt::DirectConnection);
+}
+
 // Thread-safe: the loop turns, and says so before it sleeps again.
 void mq_wake(void) {
     if (auto* dispatcher = QAbstractEventDispatcher::instance(g_main_thread)) dispatcher->wakeUp();
@@ -824,6 +845,17 @@ int32_t mq_window_states(QObject* window) {
 
 void mq_window_set_states(QObject* window, int32_t states) {
     if (auto* w = qobject_cast<QWindow*>(window)) w->setWindowStates(Qt::WindowStates(states));
+}
+
+int32_t mq_window_available_size(QObject* window, double* width, double* height) {
+    auto* w = qobject_cast<QWindow*>(window);
+    QScreen* screen = w && w->screen() ? w->screen() : QGuiApplication::primaryScreen();
+    if (!screen) return 0;
+    QSize available = screen->availableGeometry().size();
+    QMargins frame = w ? w->frameMargins() : QMargins();
+    *width = available.width() - frame.left() - frame.right();
+    *height = available.height() - frame.top() - frame.bottom();
+    return 1;
 }
 
 // A real key press and release with a native scan code, through the

@@ -40,6 +40,18 @@ pub fn run(setup: impl FnOnce(&Ui)) {
     setup(&ui);
     ui.tick();
     handle.show_pending_windows();
+    // The session ending asks the app as its own Quit does; its handlers
+    // run now, as the answer is due before the query returns.
+    crate::session::set_quit({
+        let (weak, handle) = (ui.downgrade(), handle.clone());
+        move || {
+            let Some(ui) = weak.upgrade() else { return true };
+            ui.request_quit();
+            ui.tick();
+            handle.show_pending_windows();
+            ui.windows().is_empty()
+        }
+    });
     loop {
         runtime::pump();
         ui.tick();

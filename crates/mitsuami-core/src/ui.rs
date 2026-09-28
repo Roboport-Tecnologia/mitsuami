@@ -16,7 +16,9 @@ use crate::backend::{AvailableSpace, Backend, EventSink, MeasureRequest, NativeS
 use crate::command::{Command, EventValue, UiEvent};
 use crate::custom::CustomProps;
 use crate::geometry::{Point, Rect, Size, WindowSize};
-use crate::services::{Alert, MenuBar, MenuBarData, OpenFile, SaveFile, ServiceError, Services, reply_future};
+use crate::services::{
+    Alert, MenuBar, MenuBarData, MenuRole, OpenFile, SaveFile, ServiceError, Services, reply_future,
+};
 use crate::style::{Align, Display, FlexDirection, Style, TextDirection};
 use crate::task::{Clock, Executor, Sleep, TaskHandle};
 use crate::units::ResolveContext;
@@ -90,6 +92,9 @@ struct Inner {
     /// Menu item ids are unique across every bar.
     next_menu_id: u32,
     menu_queue: std::collections::VecDeque<u32>,
+    /// The app's Quit item in each menu bar (the app's, `None`, or a
+    /// window's), if it has one that's enabled.
+    quit_items: BTreeMap<Option<NodeId>, u32>,
     /// Last focus order sent, per window.
     focus_orders: BTreeMap<NodeId, Vec<NodeId>>,
     /// The focused control of each window, as reported by the backend.
@@ -167,6 +172,7 @@ impl Ui {
                 menu_effects: BTreeMap::new(),
                 next_menu_id: 1,
                 menu_queue: Default::default(),
+                quit_items: BTreeMap::new(),
                 commit_scheduler: None,
                 commit_scheduled: false,
             })),
@@ -323,7 +329,14 @@ impl Ui {
                     (id, handler)
                 })
                 .collect();
-            ui.inner.borrow_mut().menu_handlers.insert(target, handlers);
+            let quit = data.clone().take_role(MenuRole::Quit).filter(|item| item.enabled).map(|item| item.id);
+            let mut inner = ui.inner.borrow_mut();
+            inner.menu_handlers.insert(target, handlers);
+            match quit {
+                Some(id) => _ = inner.quit_items.insert(target, id),
+                None => _ = inner.quit_items.remove(&target),
+            }
+            drop(inner);
             services.borrow_mut().set_menu(target, &data, activate.clone());
         });
         if let Some(replaced) = self.inner.borrow_mut().menu_effects.insert(target, effect) {
@@ -336,12 +349,37 @@ impl Ui {
         let effect = {
             let mut inner = self.inner.borrow_mut();
             inner.menu_handlers.remove(&target);
+            inner.quit_items.remove(&target);
             inner.menu_effects.remove(&target)
         };
         if let Some(effect) = effect {
             effect.dispose();
             self.services.borrow_mut().set_menu(target, &MenuBarData::default(), self.menu_activate());
         }
+    }
+
+    /// Quitting as the platform asks for it from outside the app's menus
+    /// (macOS's Dock, logging out, the session ending): the app's Quit item,
+    /// as if chosen, if it has one; otherwise every window is asked to
+    /// close, as by its close button. Either way the app decides, and it
+    /// ends when its last window closes. Backends call it, then see
+    /// whether windows are left.
+    pub fn request_quit(&self) {
+        let (quit, events, windows) = {
+            let inner = self.inner.borrow();
+            // The app's own item first, else a window's.
+            let quit = inner.quit_items.get(&None).or_else(|| inner.quit_items.values().next()).copied();
+            (quit, inner.events.clone(), inner.windows.clone())
+        };
+        match quit {
+            Some(id) => self.inner.borrow_mut().menu_queue.push_back(id),
+            None => {
+                for window in windows {
+                    events.emit(window, UiEvent::WindowCloseRequested);
+                }
+            }
+        }
+        self.changed();
     }
 
     /// What platforms call with the id of the item chosen.

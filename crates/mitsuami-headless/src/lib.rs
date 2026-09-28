@@ -453,9 +453,11 @@ impl State {
     }
 }
 
-/// A window's size, grown to its minimum.
+/// A window's size, grown to its minimum, which goes no larger than the
+/// screen.
 fn at_least_min(node: &HeadlessNode, size: Size) -> Size {
     let min = find_prop!(node.props, MinSize).unwrap_or(Size::ZERO);
+    let min = Size::new(min.width.min(SCREEN.width), min.height.min(SCREEN.height));
     Size::new(size.width.max(min.width), size.height.max(min.height))
 }
 

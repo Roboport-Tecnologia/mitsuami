@@ -33,7 +33,8 @@ pub fn run(setup: impl FnOnce(&Ui)) {
     let ticking = Rc::new(Cell::new(false));
     let running = Rc::new(RefCell::new(true));
     {
-        let (weak, handle, timer, running) = (ui.downgrade(), handle.clone(), timer.clone(), running.clone());
+        let (weak, handle, timer, running, ticking) =
+            (ui.downgrade(), handle.clone(), timer.clone(), running.clone(), ticking.clone());
         ffi::watch_loop(move || {
             if ticking.replace(true) || !*running.borrow() {
                 return;
@@ -51,6 +52,24 @@ pub fn run(setup: impl FnOnce(&Ui)) {
                 }
             }
             ticking.set(false);
+        });
+    }
+    // The session ending (logging out) is the app's Quit, as the drawer's
+    // is, and runs now: the answer is due before the signal returns. A
+    // window left open keeps the session. Inside a tick (Qt's loop turned
+    // from within one) the Ui can't run, and the app keeps the session.
+    {
+        let (weak, handle, ticking) = (ui.downgrade(), handle.clone(), ticking.clone());
+        ffi::watch_session_end(move || {
+            let Some(ui) = weak.upgrade() else { return false };
+            if ticking.replace(true) {
+                return true;
+            }
+            ui.request_quit();
+            ui.tick();
+            handle.show_pending_windows();
+            ticking.set(false);
+            !ui.windows().is_empty()
         });
     }
     ui.set_commit_scheduler(ffi::wake);

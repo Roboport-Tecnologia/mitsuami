@@ -28,6 +28,8 @@ mod list;
 #[cfg(target_os = "linux")]
 mod services;
 #[cfg(target_os = "linux")]
+mod session;
+#[cfg(target_os = "linux")]
 mod surface;
 #[cfg(target_os = "linux")]
 mod tweak;

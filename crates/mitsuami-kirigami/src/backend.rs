@@ -133,9 +133,24 @@ impl WindowRoot {
     }
 
     /// The window's minimum is the content's and Kirigami's toolbar above
-    /// it, in whole points.
+    /// it, in whole points, no larger than its screen takes.
     fn min_window_size(&self, min: Size) -> (i32, i32) {
+        let min = self.capped(min);
         (min.width.ceil() as i32, (min.height as f64 + self.header()).ceil() as i32)
+    }
+
+    /// A minimum no larger than the content of a window filling its
+    /// screen's available area (a machine's mode can be larger than a
+    /// laptop's screen), in whole points.
+    fn capped(&self, min: Size) -> Size {
+        let Some((width, height)) = self.window.available_size() else { return min };
+        let most = Size::new(width.floor().max(0.0) as f32, (height - self.header()).floor().max(0.0) as f32);
+        Size::new(min.width.min(most.width), min.height.min(most.height))
+    }
+
+    /// Another screen, another cap on the minimum.
+    fn screen_changed(&self) {
+        self.apply_min();
     }
 
     fn apply_min(&self) {
@@ -145,7 +160,8 @@ impl WindowRoot {
         self.window.set_int("minimumHeight", height);
     }
 
-    /// The minimum as Qt has it: the app's, if Qt has what it was given.
+    /// The minimum as Qt has it: the app's, if Qt has what it was given
+    /// (capped by the screen).
     fn min_size(&self) -> Size {
         let (width, height) = (self.window.int("minimumWidth"), self.window.int("minimumHeight"));
         match self.min.get() {
@@ -156,7 +172,7 @@ impl WindowRoot {
 
     /// A size no smaller than the minimum.
     fn at_least_min(&self, size: Size) -> Size {
-        let min = self.min.get().unwrap_or(Size::ZERO);
+        let min = self.min.get().map_or(Size::ZERO, |min| self.capped(min));
         Size::new(size.width.max(min.width), size.height.max(min.height))
     }
 
@@ -937,6 +953,12 @@ impl State {
         window.connect("windowStateChanged(Qt::WindowState)", move || {
             if let Some(root) = weak.upgrade() {
                 root.states_changed();
+            }
+        });
+        let weak = Rc::downgrade(&root);
+        window.connect("screenChanged(QScreen*)", move || {
+            if let Some(root) = weak.upgrade() {
+                root.screen_changed();
             }
         });
         for signal in ["widthChanged()", "heightChanged()"] {
