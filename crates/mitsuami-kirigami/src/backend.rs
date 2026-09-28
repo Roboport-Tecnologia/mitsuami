@@ -558,6 +558,10 @@ struct Node {
     context_menu: Option<ContextMenu>,
     /// Menu buttons: their menu, once the app gave one.
     button_menu: Option<ContextMenu>,
+    /// Hosts: the drop area over them while they take files, and whether
+    /// the app gave `FileDrop` at all.
+    file_drop: Option<crate::file_drop::FileDropArea>,
+    file_drop_given: bool,
 }
 
 pub(crate) struct State {
@@ -1073,6 +1077,8 @@ impl State {
                 a11y_label: None,
                 context_menu: None,
                 button_menu: None,
+                file_drop: None,
+                file_drop_given: false,
             },
         );
     }
@@ -1405,6 +1411,21 @@ impl State {
             (Prop::IconSize(points), Widget::Icon(i)) => {
                 i.set_real("mitsuamiSize", *points as f64);
                 node.icon_size = true;
+            }
+            (Prop::FileDrop(drop), Widget::Host(_) | Widget::Group { .. }) => {
+                node.file_drop_given = true;
+                match (drop, &node.file_drop) {
+                    (Some(drop), Some(area)) => area.set(drop.clone()),
+                    (Some(drop), None) => {
+                        let host = node.widget.item();
+                        node.file_drop = Some(crate::file_drop::FileDropArea::new(host, id, events, drop.clone()));
+                    }
+                    (None, _) => {
+                        if let Some(area) = node.file_drop.take() {
+                            area.remove();
+                        }
+                    }
+                }
             }
             (Prop::Menu(entries), Widget::MenuButton(b)) => {
                 let b = *b;
@@ -2091,7 +2112,25 @@ impl Backend for KirigamiBackend {
         if kind == WidgetKind::GpuSurface {
             return self.surface_input(id, widget_item, window, input);
         }
+        // The drop area's own handling, with the state let go: its reports
+        // may wake the run loop.
+        if let SyntheticInput::DragFiles(_) | SyntheticInput::DragLeave | SyntheticInput::DropFiles(_) = input {
+            let drop = {
+                let state = self.state.borrow();
+                let node = state.nodes.get(&id).ok_or(ActionError::UnknownNode)?;
+                node.file_drop.as_ref().map(|area| area.input()).ok_or(ActionError::Unsupported)?
+            };
+            match input {
+                SyntheticInput::DragFiles(paths) => drop.enter(paths),
+                SyntheticInput::DragLeave => drop.leave(),
+                SyntheticInput::DropFiles(paths) => drop.dropped(paths),
+                _ => unreachable!(),
+            }
+            return Ok(());
+        }
         match input {
+            // Handled above.
+            SyntheticInput::DragFiles(_) | SyntheticInput::DragLeave | SyntheticInput::DropFiles(_) => unreachable!(),
             SyntheticInput::Click(point) => {
                 // Drawn widgets only: their pointer handling is ours.
                 let drawn = matches!(self.state.borrow().nodes.get(&id).map(|n| &n.widget), Some(Widget::Drawn { .. }));
@@ -2366,6 +2405,9 @@ impl Backend for KirigamiBackend {
         props.extend(node.role.map(Prop::ButtonRole));
         props.extend(node.button_style.map(Prop::ButtonStyle));
         props.extend(node.tweak.clone().map(Prop::Tweak));
+        if node.file_drop_given {
+            props.push(Prop::FileDrop(node.file_drop.as_ref().map(|area| area.drop_value())));
+        }
         props.push(Prop::Tooltip(if node.widget.has_tooltip() {
             node.widget.item().str("mitsuamiTooltip")
         } else {
@@ -2539,6 +2581,9 @@ impl KirigamiBackend {
                 let delta = ScrollDelta::Points { x: *dx, y: *dy };
                 let modifiers = Modifiers::default();
                 events.emit(id, UiEvent::SurfaceInput(SurfaceInput::Scroll { delta, modifiers }));
+            }
+            SyntheticInput::DragFiles(_) | SyntheticInput::DragLeave | SyntheticInput::DropFiles(_) => {
+                return Err(ActionError::Unsupported);
             }
         }
         Ok(())

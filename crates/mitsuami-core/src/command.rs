@@ -139,6 +139,12 @@ pub enum UiEvent {
     ContextMenuItem(u32),
     /// The item of a `MenuButton`'s menu with this id was chosen.
     MenuItem(u32),
+    /// Files a node takes (`Prop::FileDrop`) are being dragged over it
+    /// (`true`), or no longer are: they left, or were dropped.
+    DropHover(bool),
+    /// Files and folders were dropped on a node: the ones it takes, in
+    /// the order the platform gave them.
+    FilesDropped(Vec<std::path::PathBuf>),
     /// A `GpuSurface`'s native surface exists: the app can make its GPU
     /// surface on it. Reported once, before any `SurfaceResized`; its size
     /// may still be empty.

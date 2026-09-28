@@ -924,6 +924,9 @@ pub(crate) fn synthesize(view: &SurfaceView, input: &SyntheticInput) -> Result<(
             let delta = ScrollDelta::Points { x: *dx, y: *dy };
             view.emit(SurfaceInput::Scroll { delta, modifiers: Modifiers::default() });
         }
+        SyntheticInput::DragFiles(_) | SyntheticInput::DragLeave | SyntheticInput::DropFiles(_) => {
+            return Err(ActionError::Unsupported);
+        }
     }
     Ok(())
 }

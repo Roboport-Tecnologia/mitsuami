@@ -230,6 +230,36 @@ impl<'a> Locator<'a> {
         self.app.settle().await;
     }
 
+    /// Drags these files and folders from the file manager over the node,
+    /// through the platform's own drag handling, without dropping them.
+    pub async fn drag_files<P: AsRef<std::path::Path>>(&self, paths: &[P]) {
+        self.drag(
+            SyntheticInput::DragFiles(paths.iter().map(|p| p.as_ref().to_path_buf()).collect()),
+            "drag files over",
+        )
+        .await;
+    }
+
+    /// Drags the files being dragged over the node away from it.
+    pub async fn drag_leave(&self) {
+        self.drag(SyntheticInput::DragLeave, "drag files away from").await;
+    }
+
+    /// Drags these files and folders over the node and drops them there.
+    pub async fn drop_files<P: AsRef<std::path::Path>>(&self, paths: &[P]) {
+        self.drag(SyntheticInput::DropFiles(paths.iter().map(|p| p.as_ref().to_path_buf()).collect()), "drop files on")
+            .await;
+    }
+
+    async fn drag(&self, input: SyntheticInput, what: &str) {
+        self.app.settle().await;
+        let node = self.node();
+        if let Err(e) = self.app.ui().synthesize(node.id, &input) {
+            self.fail(&format!("cannot {what} {}: {e}", self.query));
+        }
+        self.app.settle().await;
+    }
+
     pub async fn check(&self) {
         if !self.is_checked() {
             self.click().await;

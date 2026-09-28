@@ -4,11 +4,13 @@
 use std::rc::Rc;
 
 use mitsuami_core::services::{MenuEntries, install_button_menu};
+use std::path::PathBuf;
+
 use mitsuami_core::{
     Align, AnyView, ButtonRole, ButtonStyle, Children, Color, CurrentWindow, Cursor, Display, Element, ElementBuilder,
-    EventValue, FlexDirection, FontWeight, ImageFit, ImageSource, Justify, Length, Modality, NodeId, Orientation,
-    Pixels, Point, Prop, ScrollAxes, SidebarItemData, SidebarSectionData, Size, SurfaceHandle, SurfaceInput,
-    SurfaceSize, TextAlign, TextStyle, Track, Tweak, Ui, UiEvent, View, WidgetKind, WindowSize,
+    EventValue, FileDrop, FlexDirection, FontWeight, ImageFit, ImageSource, Justify, Length, Modality, NodeId,
+    Orientation, Pixels, Point, Prop, ScrollAxes, SidebarItemData, SidebarSectionData, Size, SurfaceHandle,
+    SurfaceInput, SurfaceSize, TextAlign, TextStyle, Track, Tweak, Ui, UiEvent, View, WidgetKind, WindowSize,
 };
 use mitsuami_reactive::{IntoValue, Signal, Value, computed, effect, inject, on_cleanup, provide, untrack};
 
@@ -784,6 +786,41 @@ impl Container {
         self.children(child)
     }
 
+    /// Takes the files and folders `drop` says when they're dropped on it
+    /// from the platform's file manager, and gives them to `on_drop`. The
+    /// platform shows it'll copy them while they're over it; `on_drop_hover`
+    /// says when, for the app's own highlight. Dragging isn't reachable
+    /// from the keyboard or assistive technology: offer another way (an
+    /// open dialog) too.
+    pub fn file_drop(mut self, drop: impl IntoValue<FileDrop>) -> Container {
+        let drop = match drop.into_value() {
+            Value::Static(d) => Value::Static(Some(d)),
+            dynamic => Value::Dynamic(Rc::new(move || Some(dynamic.get()))),
+        };
+        self.0.prop(drop, Prop::FileDrop);
+        self
+    }
+
+    /// The files and folders dropped on it that it takes (`file_drop`).
+    pub fn on_drop(mut self, handler: impl Fn(Vec<PathBuf>) + 'static) -> Container {
+        self.0.on(move |event| {
+            if let UiEvent::FilesDropped(paths) = event {
+                handler(paths.clone());
+            }
+        });
+        self
+    }
+
+    /// Whether files it takes are over it (`file_drop`).
+    pub fn on_drop_hover(mut self, handler: impl Fn(bool) + 'static) -> Container {
+        self.0.on(move |event| {
+            if let UiEvent::DropHover(over) = event {
+                handler(*over);
+            }
+        });
+        self
+    }
+
     pub fn flex_direction(mut self, direction: impl IntoValue<FlexDirection>) -> Container {
         self.0.style_prop(direction.into_value(), |s, v| s.flex_direction = v);
         self
@@ -917,6 +954,41 @@ impl Group {
 
     pub fn child(self, child: impl View) -> Group {
         self.children(child)
+    }
+
+    /// Takes the files and folders `drop` says when they're dropped on it
+    /// from the platform's file manager, and gives them to `on_drop`. The
+    /// platform shows it'll copy them while they're over it; `on_drop_hover`
+    /// says when, for the app's own highlight. Dragging isn't reachable
+    /// from the keyboard or assistive technology: offer another way (an
+    /// open dialog) too.
+    pub fn file_drop(mut self, drop: impl IntoValue<FileDrop>) -> Group {
+        let drop = match drop.into_value() {
+            Value::Static(d) => Value::Static(Some(d)),
+            dynamic => Value::Dynamic(Rc::new(move || Some(dynamic.get()))),
+        };
+        self.0.prop(drop, Prop::FileDrop);
+        self
+    }
+
+    /// The files and folders dropped on it that it takes (`file_drop`).
+    pub fn on_drop(mut self, handler: impl Fn(Vec<PathBuf>) + 'static) -> Group {
+        self.0.on(move |event| {
+            if let UiEvent::FilesDropped(paths) = event {
+                handler(paths.clone());
+            }
+        });
+        self
+    }
+
+    /// Whether files it takes are over it (`file_drop`).
+    pub fn on_drop_hover(mut self, handler: impl Fn(bool) + 'static) -> Group {
+        self.0.on(move |event| {
+            if let UiEvent::DropHover(over) = event {
+                handler(*over);
+            }
+        });
+        self
     }
 
     /// Space between its children.

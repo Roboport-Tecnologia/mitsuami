@@ -3,22 +3,24 @@
 use std::cell::{Cell, RefCell};
 use std::collections::HashMap;
 use std::ffi::c_void;
+use std::path::PathBuf;
 use std::rc::Rc;
 
 use mitsuami_core::{
-    DisplayList, EventSink, EventValue, NodeId, Point, PointerEvent, PointerKind, Size, UiEvent, WidgetKind,
+    DisplayList, EventSink, EventValue, FileDrop, NodeId, Point, PointerEvent, PointerKind, Size, UiEvent, WidgetKind,
 };
 use objc2::rc::Retained;
-use objc2::runtime::{AnyObject, NSObject, NSObjectProtocol, Sel};
-use objc2::{DefinedClass, MainThreadMarker, MainThreadOnly, Message, define_class, msg_send, sel};
+use objc2::runtime::{AnyObject, NSObject, NSObjectProtocol, ProtocolObject, Sel};
+use objc2::{ClassType, DefinedClass, MainThreadMarker, MainThreadOnly, Message, define_class, msg_send, sel};
 use objc2_app_kit::{
-    NSButton, NSColor, NSControl, NSControlStateValueOn, NSControlTextEditingDelegate, NSEvent, NSPopUpButton,
-    NSRectFill, NSScreen, NSSlider, NSSwitch, NSTextField, NSTextFieldDelegate, NSTextView, NSView,
-    NSViewFrameDidChangeNotification, NSWindow, NSWindowDelegate, NSWindowStyleMask,
+    NSButton, NSColor, NSControl, NSControlStateValueOn, NSControlTextEditingDelegate, NSDragOperation, NSDraggingInfo,
+    NSEvent, NSPasteboardTypeFileURL, NSPopUpButton, NSRectFill, NSScreen, NSSlider, NSSwitch, NSTextField,
+    NSTextFieldDelegate, NSTextView, NSView, NSViewFrameDidChangeNotification, NSWindow, NSWindowDelegate,
+    NSWindowStyleMask,
 };
 use objc2_foundation::{
-    NSKeyValueObservingOptions, NSNotification, NSNotificationCenter, NSObjectNSKeyValueObserverRegistration, NSPoint,
-    NSRect, NSSize, NSString,
+    NSArray, NSKeyValueObservingOptions, NSNotification, NSNotificationCenter, NSObjectNSKeyValueObserverRegistration,
+    NSPoint, NSRect, NSSize, NSString, NSURL,
 };
 
 pub(crate) fn zero_rect() -> NSRect {
@@ -29,6 +31,17 @@ pub(crate) struct HostIvars {
     /// Paint the window background (window content views only), so
     /// offscreen captures look like the real window.
     fill: Cell<bool>,
+    /// The files it takes when they're dropped on it, if any.
+    drop: RefCell<Option<Drop>>,
+}
+
+/// A host's file drop: what it takes, where it reports, and whether
+/// files it takes are over it.
+pub(crate) struct Drop {
+    pub(crate) id: NodeId,
+    pub(crate) files: FileDrop,
+    pub(crate) events: EventSink,
+    pub(crate) hover: Cell<bool>,
 }
 
 define_class!(
@@ -52,14 +65,98 @@ define_class!(
                 NSRectFill(dirty);
             }
         }
+
+        // `NSDraggingDestination`: copy the files it takes, refuse others.
+        #[unsafe(method(draggingEntered:))]
+        fn dragging_entered(&self, info: &ProtocolObject<dyn NSDraggingInfo>) -> NSDragOperation {
+            self.drag_files(&dragged_paths(info))
+        }
+
+        #[unsafe(method(draggingUpdated:))]
+        fn dragging_updated(&self, info: &ProtocolObject<dyn NSDraggingInfo>) -> NSDragOperation {
+            self.drag_files(&dragged_paths(info))
+        }
+
+        #[unsafe(method(draggingExited:))]
+        fn dragging_exited(&self, _info: Option<&ProtocolObject<dyn NSDraggingInfo>>) {
+            self.drag_leave();
+        }
+
+        #[unsafe(method(performDragOperation:))]
+        fn perform_drag_operation(&self, info: &ProtocolObject<dyn NSDraggingInfo>) -> bool {
+            self.drop_files(&dragged_paths(info))
+        }
     }
 );
 
 impl HostView {
     pub(crate) fn new(mtm: MainThreadMarker, fill: bool) -> Retained<HostView> {
-        let this = HostView::alloc(mtm).set_ivars(HostIvars { fill: Cell::new(fill) });
+        let this = HostView::alloc(mtm).set_ivars(HostIvars { fill: Cell::new(fill), drop: RefCell::new(None) });
         unsafe { msg_send![super(this), initWithFrame: zero_rect()] }
     }
+
+    /// Takes these files when they're dropped on it, or none.
+    pub(crate) fn set_file_drop(&self, drop: Option<Drop>) {
+        match &drop {
+            Some(_) => self.registerForDraggedTypes(&NSArray::from_slice(&[unsafe { NSPasteboardTypeFileURL }])),
+            None => self.unregisterDraggedTypes(),
+        }
+        *self.ivars().drop.borrow_mut() = drop;
+    }
+
+    pub(crate) fn file_drop(&self) -> Option<FileDrop> {
+        self.ivars().drop.borrow().as_ref().map(|d| d.files.clone())
+    }
+
+    /// Files are over it: it copies them if it takes any, and says so
+    /// once.
+    pub(crate) fn drag_files(&self, paths: &[PathBuf]) -> NSDragOperation {
+        let drop = self.ivars().drop.borrow();
+        let Some(drop) = drop.as_ref() else { return NSDragOperation::None };
+        if drop.files.accepted(paths).is_empty() {
+            return NSDragOperation::None;
+        }
+        if !drop.hover.replace(true) {
+            drop.events.emit(drop.id, UiEvent::DropHover(true));
+        }
+        NSDragOperation::Copy
+    }
+
+    pub(crate) fn drag_leave(&self) {
+        let drop = self.ivars().drop.borrow();
+        if let Some(drop) = drop.as_ref()
+            && drop.hover.replace(false)
+        {
+            drop.events.emit(drop.id, UiEvent::DropHover(false));
+        }
+    }
+
+    /// Files are dropped on it: it reports the ones it takes.
+    pub(crate) fn drop_files(&self, paths: &[PathBuf]) -> bool {
+        self.drag_files(paths);
+        let accepted = self.ivars().drop.borrow().as_ref().map(|d| d.files.accepted(paths)).unwrap_or_default();
+        if !accepted.is_empty()
+            && let Some(drop) = self.ivars().drop.borrow().as_ref()
+        {
+            drop.events.emit(drop.id, UiEvent::FilesDropped(accepted.clone()));
+        }
+        self.drag_leave();
+        !accepted.is_empty()
+    }
+}
+
+/// The files and folders being dragged: the pasteboard's file URLs.
+fn dragged_paths(info: &ProtocolObject<dyn NSDraggingInfo>) -> Vec<PathBuf> {
+    let pasteboard = info.draggingPasteboard();
+    let classes = NSArray::from_slice(&[NSURL::class()]);
+    let Some(urls) = (unsafe { pasteboard.readObjectsForClasses_options(&classes, None) }) else {
+        return Vec::new();
+    };
+    urls.iter()
+        .filter_map(|url| url.downcast::<NSURL>().ok())
+        .filter(|url| url.isFileURL())
+        .filter_map(|url| url.path().map(|p| PathBuf::from(p.to_string())))
+        .collect()
 }
 
 pub(crate) struct TargetIvars {

@@ -388,6 +388,57 @@ pub enum Modality {
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct CurrentWindow(pub NodeId);
 
+/// Which files a node takes when they're dropped on it: files with these
+/// extensions (any file without a list), and folders if `folders`.
+#[derive(Clone, Debug, Default, PartialEq, Eq, Hash)]
+pub struct FileDrop {
+    /// Without the dot, compared ignoring case. `None`: any file.
+    pub extensions: Option<Vec<String>>,
+    pub folders: bool,
+}
+
+impl FileDrop {
+    /// Any file, no folders.
+    pub fn files() -> FileDrop {
+        FileDrop { extensions: None, folders: false }
+    }
+
+    /// Files with these extensions (`"iso"`, not `".iso"`), no folders.
+    pub fn extensions<S: Into<String>>(extensions: impl IntoIterator<Item = S>) -> FileDrop {
+        FileDrop { extensions: Some(extensions.into_iter().map(Into::into).collect()), folders: false }
+    }
+
+    /// Folders only.
+    pub fn folders() -> FileDrop {
+        FileDrop { extensions: Some(Vec::new()), folders: true }
+    }
+
+    /// Folders too.
+    pub fn and_folders(mut self) -> FileDrop {
+        self.folders = true;
+        self
+    }
+
+    /// Whether it takes this file or folder, as it is on disk.
+    pub fn accepts(&self, path: &std::path::Path) -> bool {
+        if path.is_dir() {
+            return self.folders;
+        }
+        match &self.extensions {
+            None => true,
+            Some(extensions) => path
+                .extension()
+                .and_then(|e| e.to_str())
+                .is_some_and(|e| extensions.iter().any(|x| x.eq_ignore_ascii_case(e))),
+        }
+    }
+
+    /// What it takes of these, in order.
+    pub fn accepted(&self, paths: &[PathBuf]) -> Vec<PathBuf> {
+        paths.iter().filter(|p| self.accepts(p)).cloned().collect()
+    }
+}
+
 /// Which way a `Slider` runs. Every platform has vertical sliders; larger
 /// values are up on all of them.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Hash)]
@@ -635,6 +686,13 @@ pub enum Prop {
     KeyboardGrab(bool),
     /// The pointer's cursor over a `GpuSurface`.
     Cursor(Cursor),
+    /// A `Container` or `Group` takes the files and folders this says
+    /// when they're dragged from the platform's file manager and dropped
+    /// on it; `None`: none. While acceptable files are over it, the
+    /// platform shows it'll copy them, and the node reports
+    /// `DropHover(true)`, then `DropHover(false)`; a drop reports the ones
+    /// it takes as `FilesDropped`.
+    FileDrop(Option<FileDrop>),
     /// Raw platform settings for a built-in widget (see
     /// [`Tweak`](crate::Tweak)), in the backend's own form. Applied after
     /// the widget's other props, and again whenever they change.
@@ -706,6 +764,7 @@ macro_rules! static_value {
 }
 
 static_value!(
+    FileDrop,
     TextStyle,
     FontWeight,
     TextAlign,

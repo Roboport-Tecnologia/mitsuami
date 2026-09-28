@@ -246,6 +246,8 @@ struct Node {
     modal: Option<(Option<NodeId>, Modality)>,
     /// The app's raw settings, run after every other prop.
     tweak: Option<Opaque>,
+    /// Hosts: whether the core set a `FileDrop` (the host has the rest).
+    file_drop: bool,
     /// The context menu the app gave, if it gave one (AppKit can't tell
     /// radio items from check items, nor keep roles), and the target of
     /// its items, which only hold weak references to it.
@@ -867,6 +869,7 @@ impl State {
                 mixed: None,
                 checked: false,
                 tweak: None,
+                file_drop: false,
                 context_menu: None,
             },
         );
@@ -879,6 +882,15 @@ impl State {
         match (prop, &mut node.widget) {
             (Prop::Title(t), Widget::Window { window, .. }) => window.setTitle(&ns(t)),
             (Prop::Title(t), Widget::Group { frame, .. }) => set_group_title(frame, t),
+            (Prop::FileDrop(drop), Widget::Host(host) | Widget::Group { host, .. }) => {
+                host.set_file_drop(drop.clone().map(|files| crate::classes::Drop {
+                    id,
+                    files,
+                    events: events.clone(),
+                    hover: Default::default(),
+                }));
+                node.file_drop = true;
+            }
             (Prop::FullScreen(on), Widget::Window { window, _delegate, .. }) => _delegate.set_full_screen(window, *on),
             (Prop::MinSize(min), Widget::Window { window, _delegate, .. }) => _delegate.set_min_size(window, *min),
             (Prop::HeightFollowsContent(on), Widget::Window { window, _delegate, .. }) => {
@@ -2068,6 +2080,25 @@ impl Backend for AppKitBackend {
         if let Some(view) = surface {
             return crate::surface::synthesize(&view, input);
         }
+        // Through the host's own dragging methods, with the paths the
+        // pasteboard would give them.
+        if let SyntheticInput::DragFiles(_) | SyntheticInput::DragLeave | SyntheticInput::DropFiles(_) = input {
+            let host = match self.state.borrow().nodes.get(&id).map(|n| &n.widget) {
+                Some(Widget::Host(host) | Widget::Group { host, .. }) if host.file_drop().is_some() => host.clone(),
+                Some(_) => return Err(ActionError::Unsupported),
+                None => return Err(ActionError::UnknownNode),
+            };
+            match input {
+                SyntheticInput::DragFiles(paths) => {
+                    host.drag_files(paths);
+                }
+                SyntheticInput::DropFiles(paths) => {
+                    host.drop_files(paths);
+                }
+                _ => host.drag_leave(),
+            }
+            return Ok(());
+        }
         if let SyntheticInput::Click(point) = input {
             // Drawn widgets only: native controls track the mouse in a
             // loop of their own, waiting for real events.
@@ -2412,6 +2443,11 @@ impl Backend for AppKitBackend {
                 props.push(Prop::TabTitles(tabs.titles()));
                 props.push(Prop::SelectedIndex(tabs.selected()));
             }
+        }
+        if node.file_drop
+            && let Widget::Host(host) | Widget::Group { host, .. } = &node.widget
+        {
+            props.push(Prop::FileDrop(host.file_drop()));
         }
         if let Some(control) = node.widget.control() {
             props.push(Prop::Enabled(control.isEnabled()));

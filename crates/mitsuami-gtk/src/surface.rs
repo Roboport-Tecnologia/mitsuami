@@ -244,6 +244,10 @@ impl SurfaceArea {
                 let delta = ScrollDelta::Points { x: *dx, y: *dy };
                 state.report(SurfaceInput::Scroll { delta, modifiers });
             }
+            // A surface takes no files.
+            SyntheticInput::DragFiles(_) | SyntheticInput::DragLeave | SyntheticInput::DropFiles(_) => {
+                return Err(ActionError::Unsupported);
+            }
         }
         Ok(())
     }

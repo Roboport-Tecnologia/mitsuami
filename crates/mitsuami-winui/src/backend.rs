@@ -319,6 +319,10 @@ struct Node {
     context_menu: Option<ContextMenu>,
     /// Menu buttons: their menu, set once the core gave one.
     button_menu: Option<ContextMenu>,
+    /// Hosts and groups: the files they take and the drag over them, while
+    /// they take some, and whether the core ever sent `FileDrop`.
+    file_drop: Option<crate::drop::DropTarget>,
+    file_drop_sent: bool,
 }
 
 type Callback = Rc<dyn Fn()>;
@@ -2424,6 +2428,8 @@ impl State {
                 description: None,
                 tooltip: String::new(),
                 context_menu: None,
+                file_drop: None,
+                file_drop_sent: false,
                 button_menu: None,
                 caption: String::new(),
                 icon: String::new(),
@@ -2783,6 +2789,23 @@ impl State {
             (Prop::KeyboardGrab(on), Widget::GpuSurface(surface)) => surface.set_keyboard_grab(*on),
             (Prop::Cursor(cursor), Widget::GpuSurface(surface)) => surface.set_cursor(cursor),
             (Prop::Tweak(tweak), _) => node.tweak = Some(tweak.clone()),
+            (Prop::FileDrop(drop), Widget::Host(_) | Widget::Group(_)) => {
+                node.file_drop_sent = true;
+                match (drop, &node.file_drop) {
+                    (Some(drop), Some(target)) => target.set(drop.clone()),
+                    (Some(drop), None) => {
+                        node.file_drop =
+                            Some(crate::drop::DropTarget::new(id, self.emitter.clone(), drop.clone(), &node.element)?);
+                    }
+                    (None, _) => {
+                        if let Some(target) = node.file_drop.take() {
+                            target.leave();
+                        }
+                        node.element.cast::<w::IUIElement>()?.SetAllowDrop(false)?;
+                    }
+                }
+                set_hit_testable(node)?;
+            }
             (Prop::Tooltip(text), _) => {
                 // On the control itself, not the Border a native render sits in.
                 let control = node.inner.as_ref().unwrap_or(&node.element);
@@ -3365,12 +3388,20 @@ fn scroll_axes(scroll: &w::IScrollViewer) -> R<ScrollAxes> {
 
 /// A Canvas without a background isn't hit-testable, so the pointer would
 /// never rest on it, a right-click would pass it by, and so would the
-/// wheel: a clear one while it has a tooltip (as drawn views have) or a
-/// context menu, or is a ScrollView's content.
+/// wheel and dragged files: a clear one while it has a tooltip (as drawn
+/// views have), a context menu or a drop target, or is a ScrollView's
+/// content. A group's canvas only while it takes files.
 fn set_hit_testable(node: &Node) -> R<()> {
-    let Widget::Host(canvas) = &node.widget else { return Ok(()) };
-    let panel = canvas.cast::<w::IPanel>()?;
-    if node.tooltip.is_empty() && !node.scroll_content && !ContextMenu::has_items(&node.context_menu) {
+    let panel = match &node.widget {
+        Widget::Host(canvas) => canvas.cast::<w::IPanel>()?,
+        Widget::Group(group) if node.file_drop_sent => group.canvas.cast::<w::IPanel>()?,
+        _ => return Ok(()),
+    };
+    if node.tooltip.is_empty()
+        && !node.scroll_content
+        && !ContextMenu::has_items(&node.context_menu)
+        && node.file_drop.is_none()
+    {
         panel.SetBackground(None::<&w::Brush>)
     } else {
         let clear = w::SolidColorBrush::CreateInstanceWithColor(w::Color { a: 0, r: 0, g: 0, b: 0 })?;
@@ -3845,6 +3876,17 @@ impl Backend for WinUiBackend {
     }
 
     fn synthesize(&mut self, id: NodeId, input: &SyntheticInput) -> Result<(), ActionError> {
+        if let SyntheticInput::DragFiles(_) | SyntheticInput::DragLeave | SyntheticInput::DropFiles(_) = input {
+            let state = self.state.borrow();
+            let node = state.nodes.get(&id).ok_or(ActionError::UnknownNode)?;
+            let target = node.file_drop.as_ref().ok_or(ActionError::Unsupported)?;
+            match input {
+                SyntheticInput::DragFiles(paths) => target.drag(paths),
+                SyntheticInput::DropFiles(paths) => target.drop_files(paths),
+                _ => target.leave(),
+            }
+            return Ok(());
+        }
         {
             // What XAML's events would report; a click focuses it.
             let state = self.state.borrow();
@@ -4224,6 +4266,9 @@ impl Backend for WinUiBackend {
         props.extend(node.tweak.clone().map(Prop::Tweak));
         // "" when it has none.
         props.push(Prop::Tooltip(unboxed(w::ToolTipService::GetToolTip(node.control())).unwrap_or_default()));
+        if node.file_drop_sent {
+            props.push(Prop::FileDrop(node.file_drop.as_ref().map(|t| t.file_drop())));
+        }
         if let Some(menu) = &node.context_menu {
             let shown = node.control().cast::<w::IUIElement>().ok()?.ContextFlyout().ok();
             // Ours, or the control's own (or none) while the app's is empty.

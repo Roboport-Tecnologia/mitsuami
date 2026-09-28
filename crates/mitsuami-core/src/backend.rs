@@ -96,6 +96,15 @@ pub enum SyntheticInput {
     /// coordinates. Backends support it on drawn custom widgets, whose
     /// pointer handling is ours.
     Click(Point),
+    /// Files dragged from the file manager, over a node with a
+    /// `Prop::FileDrop`: what the platform's drag handling does when they
+    /// enter it, through the same path.
+    DragFiles(Vec<std::path::PathBuf>),
+    /// The drag leaves the node without dropping.
+    DragLeave,
+    /// The files are dropped on the node (having entered it first, as a
+    /// real drop does).
+    DropFiles(Vec<std::path::PathBuf>),
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]

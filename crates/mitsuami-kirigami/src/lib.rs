@@ -30,6 +30,8 @@ mod events;
 #[cfg(all(target_os = "linux", feature = "qt"))]
 mod ffi;
 #[cfg(all(target_os = "linux", feature = "qt"))]
+mod file_drop;
+#[cfg(all(target_os = "linux", feature = "qt"))]
 mod list;
 #[cfg(all(target_os = "linux", feature = "qt"))]
 mod qml;

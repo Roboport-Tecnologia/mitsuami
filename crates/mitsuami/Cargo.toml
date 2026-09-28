@@ -116,6 +116,10 @@ name = "group"
 harness = false
 
 [[test]]
+name = "file_drop"
+harness = false
+
+[[test]]
 name = "tooltip"
 harness = false
 

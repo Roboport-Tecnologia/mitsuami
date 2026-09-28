@@ -331,6 +331,8 @@ impl SurfaceHost {
                 let delta = ScrollDelta::Points { x: *dx, y: *dy };
                 state.report(SurfaceInput::Scroll { delta, modifiers });
             }
+            // A surface takes no dropped files; the backend refuses them.
+            SyntheticInput::DragFiles(_) | SyntheticInput::DragLeave | SyntheticInput::DropFiles(_) => {}
         }
     }
 }

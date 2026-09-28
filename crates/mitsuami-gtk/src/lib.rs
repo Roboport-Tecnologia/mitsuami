@@ -22,6 +22,8 @@ mod custom;
 #[cfg(target_os = "linux")]
 mod display;
 #[cfg(target_os = "linux")]
+mod file_drop;
+#[cfg(target_os = "linux")]
 mod group;
 #[cfg(target_os = "linux")]
 mod host;

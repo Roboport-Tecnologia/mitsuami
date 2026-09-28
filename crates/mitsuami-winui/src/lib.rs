@@ -47,6 +47,8 @@ mod capture;
 #[cfg(all(windows, target_env = "msvc"))]
 mod custom;
 #[cfg(all(windows, target_env = "msvc"))]
+mod drop;
+#[cfg(all(windows, target_env = "msvc"))]
 mod group;
 #[cfg(all(windows, target_env = "msvc"))]
 mod later;

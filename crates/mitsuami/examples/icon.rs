@@ -14,6 +14,8 @@
 //!   the user's accent. Switch to dark mode to see them follow.
 //! - Turn off "Icons only": the row buttons show their caption beside the
 //!   icon. VoiceOver, Orca, Narrator and friends read the caption either way.
+//! - Drag .iso and .cue files or folders from the file manager onto the
+//!   box at the bottom: they join the library. Other files are refused.
 //! - The trash buttons remove their row. "Add" is the platform's menu
 //!   button: its menu adds a disc of the kind chosen, and Guest tools is a
 //!   submenu.
@@ -79,6 +81,15 @@ fn eject() -> &'static str {
     }
 }
 
+fn download() -> &'static str {
+    platform! {
+        macos => "square.and.arrow.down",
+        gtk => "folder-download-symbolic",
+        kde => "download",
+        windows => "\u{E896}",
+    }
+}
+
 fn add() -> &'static str {
     platform! {
         macos => "plus",
@@ -91,8 +102,8 @@ fn add() -> &'static str {
 #[derive(Clone, PartialEq)]
 struct Disc {
     id: u32,
-    title: &'static str,
-    path: &'static str,
+    title: String,
+    path: String,
     kind: Kind,
 }
 
@@ -105,7 +116,11 @@ const LIBRARY: [(&str, &str, Kind); 4] = [
 
 fn library() -> impl View {
     let discs = signal(
-        LIBRARY.iter().zip(0..).map(|(&(title, path, kind), id)| Disc { id, title, path, kind }).collect::<Vec<_>>(),
+        LIBRARY
+            .iter()
+            .zip(0..)
+            .map(|(&(title, path, kind), id)| Disc { id, title: title.into(), path: path.into(), kind })
+            .collect::<Vec<_>>(),
     );
     let next_id = signal(LIBRARY.len() as u32);
     let size = signal(32.0_f64);
@@ -116,17 +131,32 @@ fn library() -> impl View {
             let id = next_id.get_untracked();
             next_id.set(id + 1);
             let (title, path, kind) = *LIBRARY.iter().find(|(_, _, k)| *k == kind).expect("a disc of the kind");
-            discs.update(|d| d.push(Disc { id, title, path, kind }));
+            discs.update(|d| d.push(Disc { id, title: title.into(), path: path.into(), kind }));
         }
     };
+    // Discs dropped from the file manager, named after their files.
+    let add_dropped = move |paths: Vec<std::path::PathBuf>| {
+        for path in paths {
+            let id = next_id.get_untracked();
+            next_id.set(id + 1);
+            let kind = match path.extension().and_then(|e| e.to_str()).map(str::to_ascii_lowercase).as_deref() {
+                Some("cue") => Kind::Cue,
+                _ if path.is_dir() => Kind::Folder,
+                _ => Kind::Iso,
+            };
+            let title = path.file_stem().map(|s| s.to_string_lossy().into_owned()).unwrap_or_default();
+            discs.update(|d| d.push(Disc { id, title, path: path.display().to_string(), kind }));
+        }
+    };
+    let dropping = signal(false);
     let row = move |disc: Disc| {
         let id = disc.id;
         view! {
             <Row gap=Spacing::Md align=Align::Center>
                 <Icon name=icon(disc.kind) color=Color::SecondaryLabel/>
                 <Column grow=1.0>
-                    <Text>{disc.title}</Text>
-                    <Text text_style=TextStyle::Caption color=Color::SecondaryLabel max_lines=1u32>{disc.path}</Text>
+                    <Text>{disc.title.clone()}</Text>
+                    <Text text_style=TextStyle::Caption color=Color::SecondaryLabel max_lines=1u32>{disc.path.clone()}</Text>
                 </Column>
                 <Button
                     icon=trash()
@@ -169,6 +199,19 @@ fn library() -> impl View {
             <Column gap=Spacing::Md>
                 <For each=discs key=|d: &Disc| d.id let:disc>{row(disc)}</For>
             </Column>
+            <Group
+                a11y_label="Drop discs"
+                file_drop=FileDrop::extensions(["iso", "cue"]).and_folders()
+                @drop=add_dropped
+                @drop_hover=move |over| dropping.set(over)
+            >
+                <Row gap=Spacing::Sm justify=Justify::Center>
+                    <Icon name=download() color=Color::SecondaryLabel/>
+                    <Text color=Color::SecondaryLabel>
+                        {move || if dropping.get() { "Release to add" } else { "Drop .iso, .cue files or folders here" }.to_owned()}
+                    </Text>
+                </Row>
+            </Group>
         </Column>
     }
 }

@@ -21,6 +21,7 @@ use mitsuami_core::{
 };
 
 use crate::custom::{DrawnArea, Emitter, ErasedRender, GtkCx, NativePayload};
+use crate::file_drop::FileDropTarget;
 use crate::host::{Events, Frames, Host, WindowRoot};
 use crate::services::{ContextMenu, GtkServices, Menus, choose_context_item};
 use crate::sidebar::{Sidebar, Split};
@@ -354,6 +355,9 @@ struct Node {
     settings_handlers: Vec<(glib::Object, glib::SignalHandlerId)>,
     /// The context menu, once the app gave one.
     context_menu: Option<ContextMenu>,
+    /// Hosts: what they take when files are dropped on them, once the app
+    /// said (`None` inside: nothing).
+    file_drop: Option<Option<FileDropTarget>>,
 }
 
 pub(crate) struct State {
@@ -1264,6 +1268,7 @@ impl State {
                 modal: None,
                 settings_handlers,
                 context_menu: None,
+                file_drop: None,
             },
         );
     }
@@ -1717,6 +1722,22 @@ impl State {
             (Prop::Selected(rows), Widget::List(list)) => list.set_selected(rows),
             (Prop::EstimatedRowHeight(height), Widget::List(list)) => list.set_estimate(*height),
             (Prop::Row(row), Widget::Host(_)) => node.row = Some(*row),
+            (Prop::FileDrop(drop), widget @ (Widget::Host(_) | Widget::Group(_))) => {
+                let widget = widget.widget().clone();
+                let target = node.file_drop.take().flatten();
+                node.file_drop = Some(match (target, drop) {
+                    (Some(target), Some(drop)) => {
+                        target.set(drop.clone());
+                        Some(target)
+                    }
+                    (None, Some(drop)) => Some(FileDropTarget::new(id, self.events.clone(), &widget, drop.clone())),
+                    (Some(target), None) => {
+                        target.remove();
+                        None
+                    }
+                    (None, None) => None,
+                });
+            }
             (Prop::ScrollAxes(axes), Widget::Scroll { scrolled, .. }) => {
                 set_scroll_policy(scrolled, *axes, scroll_bars(scrolled))
             }
@@ -2465,6 +2486,18 @@ impl Backend for GtkBackend {
         if let Some(Widget::GpuSurface(surface)) = self.state.borrow().nodes.get(&id).map(|n| &n.widget) {
             return surface.synthesize(input);
         }
+        // Through what the drop target's handlers do: GTK can't start a drag.
+        if let SyntheticInput::DragFiles(_) | SyntheticInput::DragLeave | SyntheticInput::DropFiles(_) = input {
+            let state = self.state.borrow();
+            let node = state.nodes.get(&id).ok_or(ActionError::UnknownNode)?;
+            let Some(Some(target)) = &node.file_drop else { return Err(ActionError::Unsupported) };
+            match input {
+                SyntheticInput::DragFiles(paths) => target.drag(paths),
+                SyntheticInput::DropFiles(paths) => target.drop_files(paths),
+                _ => target.drag_leave(),
+            }
+            return Ok(());
+        }
         if let SyntheticInput::Click(point) = input {
             // Drawn widgets only: their pointer handling is ours.
             let state = self.state.borrow();
@@ -2735,6 +2768,9 @@ impl Backend for GtkBackend {
                 props.push(Prop::TabTitles(tabs.titles()));
                 props.push(Prop::SelectedIndex(tabs.selected()));
             }
+        }
+        if let Some(target) = &node.file_drop {
+            props.push(Prop::FileDrop(target.as_ref().map(FileDropTarget::file_drop)));
         }
         let widget = node.widget.widget();
         if node.widget.is_control() {

@@ -22,6 +22,14 @@ fn describe_props(props: &[Prop]) -> String {
             Prop::Tooltip(s) => extra.push(format!("tooltip={s:?}")),
             Prop::ContextMenu(entries) => extra.push(format!("context_menu=[{}]", menu_entries(entries))),
             Prop::Menu(entries) => extra.push(format!("menu=[{}]", menu_entries(entries))),
+            Prop::FileDrop(Some(drop)) => {
+                let files = match &drop.extensions {
+                    None => "files".to_owned(),
+                    Some(e) => e.iter().map(|e| format!(".{e}")).collect::<Vec<_>>().join(" "),
+                };
+                extra.push(format!("file_drop=[{files}{}]", if drop.folders { " folders" } else { "" }));
+            }
+            Prop::FileDrop(None) => {}
             Prop::Options(options) => extra.push(format!("options={options:?}")),
             Prop::TabTitles(titles) => extra.push(format!("tabs={titles:?}")),
             Prop::SelectedIndex(index) => {

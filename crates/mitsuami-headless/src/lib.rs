@@ -122,6 +122,8 @@ struct State {
     focused: Option<NodeId>,
     focus_orders: BTreeMap<NodeId, Vec<NodeId>>,
     app: AppInfo,
+    /// The node files being dragged are over, if it takes them.
+    drop_hover: Option<NodeId>,
 }
 
 impl State {
@@ -527,6 +529,9 @@ impl State {
                 let delta = ScrollDelta::Points { x: *dx, y: *dy };
                 self.emit(id, UiEvent::SurfaceInput(SurfaceInput::Scroll { delta, modifiers }));
             }
+            SyntheticInput::DragFiles(_) | SyntheticInput::DragLeave | SyntheticInput::DropFiles(_) => {
+                return Err(ActionError::Unsupported);
+            }
         }
         Ok(())
     }
@@ -571,6 +576,7 @@ impl HeadlessBackend {
                 metrics: metrics(),
                 log: Vec::new(),
                 focused: None,
+                drop_hover: None,
                 focus_orders: BTreeMap::new(),
                 app: AppInfo::default(),
             })),
@@ -1166,6 +1172,31 @@ impl Backend for HeadlessBackend {
         if kind == WidgetKind::GpuSurface {
             return state.surface_input(id, input);
         }
+        // As a platform does: the files it takes show it'll copy them, and
+        // a drop gives it those.
+        if let SyntheticInput::DragFiles(paths) | SyntheticInput::DropFiles(paths) = input {
+            let drop = find_prop!(node.props, FileDrop).flatten().ok_or(ActionError::Unsupported)?;
+            let accepted = drop.accepted(paths);
+            if !accepted.is_empty() && state.drop_hover != Some(id) {
+                state.drop_hover = Some(id);
+                state.emit(id, UiEvent::DropHover(true));
+            }
+            if matches!(input, SyntheticInput::DropFiles(_)) {
+                if !accepted.is_empty() {
+                    state.emit(id, UiEvent::FilesDropped(accepted));
+                }
+                if state.drop_hover.take_if(|n| *n == id).is_some() {
+                    state.emit(id, UiEvent::DropHover(false));
+                }
+            }
+            return Ok(());
+        }
+        if let SyntheticInput::DragLeave = input {
+            if state.drop_hover.take_if(|n| *n == id).is_some() {
+                state.emit(id, UiEvent::DropHover(false));
+            }
+            return Ok(());
+        }
         let key = match input {
             SyntheticInput::Key(key) => key,
             SyntheticInput::Click(position) => {
@@ -1205,6 +1236,8 @@ impl Backend for HeadlessBackend {
                 state.scroll(id, offset);
                 return Ok(());
             }
+            // Handled above.
+            SyntheticInput::DragFiles(_) | SyntheticInput::DragLeave | SyntheticInput::DropFiles(_) => unreachable!(),
         };
         // Nothing can be typed into a read-only field (AppKit's can't even
         // take focus from the keyboard).

@@ -1037,6 +1037,19 @@ Every platform's label has these, so they're semantic props (§4). Semantic colo
   - that the boxes stay behind the content and don't take its clicks;
   - how they look.
 
+### Dropping files
+
+- **A prop of hosts, not a widget:** `Container::file_drop` and `Group::file_drop` take a `FileDrop` (extensions, or any file, and whether folders), `on_drop` gets the paths, and `on_drop_hover` says when files it takes are over it, for the app's own highlight: platforms show only that they'll copy. 2ksbox's disc library takes .iso and .cue files and folders.
+- **The backend filters, not the core,** because the platform decides while the files are over the node whether the drop is welcome (the copy cursor), before any drop reaches the core. Every backend filters with the core's `FileDrop::accepted`, which asks the file system whether a path is a folder, and reports only what it keeps, in the drag's order.
+- **Not reachable without a pointer:** no platform has an accessible drop, so apps should offer another way in (an open dialog, as the examples do).
+- **Each platform's drop target:**
+  - AppKit: the host view registers for file URLs and is the `NSDraggingDestination`, reading the URLs from the dragging pasteboard.
+  - GTK: a `gtk::DropTarget` for `gdk::FileList` with `preload` on, since GTK hands a drop's files over only once they're read: until then it offers to copy, and once they're in, a drag with nothing the node takes is refused (`reject`). Remote URIs without a local path aren't taken.
+  - WinUI: the host's `Canvas` with `AllowDrop` and XAML's drag events, and a clear background so its empty areas are hit. XAML gives a drag's files only asynchronously (`GetStorageItemsAsync`), so entering starts reading them; until they're read the host takes the drag on its format, and from then on only if the filter keeps one of them. A drop before the read finishes reports when it does; leaving ends the drag, so a late read is dropped.
+  - Kirigami: a Qt Quick `DropArea` over the host, after its children (Qt Quick hands drags only to items that take drops). On `entered` the backend filters the URLs and the area accepts the copy only if something is kept, so a refused drag gets no `exited` or `dropped`. A drop ends the hover itself, since Qt sends no `exited` after one.
+- **Tests drag through each backend's own handling** (`SyntheticInput::DragFiles`, `DragLeave`, `DropFiles`, the test kit's `drag_files`, `drag_leave` and `drop_files`), with real files and folders in a temporary folder (`tests/file_drop.rs`). What they skip is reading the paths from a real drag, which nothing here can start: `examples/file_drop.rs` is for trying it by hand from the file manager, and the icon example's library takes dropped discs too.
+- **Run on AppKit and headless.** GTK, Kirigami and WinUI are only type-checked. Unverified until they run: reading a real drag's paths on every platform (AppKit's pasteboard included); GTK's preload during hover and `reject`; WinUI's read finishing during a drag from Explorer, and its canvas getting drags over empty areas; Kirigami's `drag.urls` and `keys` for drags from Dolphin.
+
 ### Tooltips
 
 - **A prop, not a widget:** `.tooltip(text)` on any widget or container (`ElementBuilder`), sent as `Prop::Tooltip`; empty removes it. 2ksbox puts one on a status line cut off at one line, holding the whole text.
