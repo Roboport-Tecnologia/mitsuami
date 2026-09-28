@@ -3,6 +3,7 @@
 
 use std::rc::Rc;
 
+use mitsuami_core::services::{MenuEntries, install_button_menu};
 use mitsuami_core::{
     Align, AnyView, ButtonRole, ButtonStyle, Children, Color, CurrentWindow, Cursor, Display, Element, ElementBuilder,
     EventValue, FlexDirection, FontWeight, ImageFit, ImageSource, Justify, Length, Modality, NodeId, Orientation,
@@ -1100,6 +1101,67 @@ impl Button {
                 handler();
             }
         });
+        self
+    }
+}
+
+/// A button that opens a menu of actions, as the platform makes one: a
+/// pull-down `NSPopUpButton`, a `gtk::MenuButton`, a `DropDownButton`, a
+/// `QQC2.Button` that opens a `QQC2.Menu`. Each draws its own arrow. The
+/// menu is built as a context menu is, and an item's `on_select` runs when
+/// it's chosen. It has no click of its own: clicking opens the menu.
+///
+/// ```ignore
+/// MenuButton::new("Add").icon(add_icon).menu((
+///     MenuItem::new("Disc image…").on_select(add_image),
+///     MenuItem::new("Folder…").on_select(add_folder),
+///     MenuSeparator,
+///     MenuItem::new("Guest tools").on_select(add_tools),
+/// ))
+/// ```
+pub struct MenuButton(Element);
+widget!(MenuButton);
+
+impl MenuButton {
+    pub fn new(label: impl IntoValue<String>) -> MenuButton {
+        let mut element = Element::new(WidgetKind::MenuButton);
+        element.prop(label.into_value(), Prop::Label);
+        MenuButton(element)
+    }
+
+    /// Its menu: `MenuItem`s, `MenuSeparator`s and submenus (`Menu`).
+    pub fn menu(mut self, entries: impl MenuEntries + 'static) -> MenuButton {
+        self.0.after_build(move |ui, id| install_button_menu(ui, id, entries));
+        self
+    }
+
+    /// An icon before its caption, as for [`Button::icon`].
+    pub fn icon(mut self, name: impl IntoValue<String>) -> MenuButton {
+        self.0.prop(name.into_value(), Prop::Icon);
+        self
+    }
+
+    /// Shows only its icon (and the platform's arrow). The caption stays
+    /// its accessible name.
+    pub fn icon_only(mut self, only: impl IntoValue<bool>) -> MenuButton {
+        self.0.prop(only.into_value(), Prop::IconOnly);
+        self
+    }
+
+    /// How the button is drawn: see [`ButtonStyle`].
+    pub fn button_style(mut self, style: impl IntoValue<ButtonStyle>) -> MenuButton {
+        self.0.prop(style.into_value(), Prop::ButtonStyle);
+        self
+    }
+
+    pub fn enabled(mut self, enabled: impl IntoValue<bool>) -> MenuButton {
+        self.0.prop(enabled.into_value(), Prop::Enabled);
+        self
+    }
+
+    /// Raw platform settings, past the semantic ones: see [`Tweak`].
+    pub fn native(mut self, tweak: Tweak<MenuButton>) -> MenuButton {
+        tweak.apply(&mut self.0);
         self
     }
 }
@@ -2210,6 +2272,7 @@ macro_rules! text_tag {
 
 text_tag!(Text, Text);
 text_tag!(Button, Label);
+text_tag!(MenuButton, Label);
 text_tag!(Checkbox, Label);
 text_tag!(Switch, Label);
 

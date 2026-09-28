@@ -299,31 +299,55 @@ fn trigger(shortcut: &Shortcut) -> String {
 
 /// The group of a widget's context menu actions: `context.item-1`.
 const CONTEXT_GROUP: &str = "context";
+/// The group of a menu button's own menu actions, apart from its context
+/// menu's: `button.item-1`.
+const BUTTON_GROUP: &str = "button";
 
-/// A widget's context menu as GTK objects: the model a popover (or a text
-/// widget's own menu) shows, and the items' actions, which the widget
-/// carries. Both are kept across changes, so a shown menu follows them.
+/// A widget's context menu, or a menu button's own menu, as GTK objects:
+/// the model a popover (a text widget's own menu, the menu button's
+/// popover) shows, and the items' actions, which the widget carries. Both
+/// are kept across changes, so a shown menu follows them.
 pub(crate) struct ContextMenu {
     data: Vec<MenuEntry>,
     model: gio::Menu,
     actions: gio::SimpleActionGroup,
+    /// The actions' group name on the widget.
+    group: &'static str,
     activate: Rc<dyn Fn(u32)>,
     /// The popover while it's shown, parented to the widget.
     popover: Rc<RefCell<Option<gtk::PopoverMenu>>>,
+    /// A menu button's menu: the button shows it in its own popover.
+    button: Option<gtk::MenuButton>,
 }
 
 impl ContextMenu {
+    fn empty(group: &'static str, activate: Rc<dyn Fn(u32)>, button: Option<gtk::MenuButton>) -> ContextMenu {
+        ContextMenu {
+            data: Vec::new(),
+            model: gio::Menu::new(),
+            actions: gio::SimpleActionGroup::new(),
+            group,
+            activate,
+            popover: Rc::default(),
+            button,
+        }
+    }
+
+    /// A menu button's own menu, whose items call `activate` with their
+    /// id. The button opens it as GTK's menu buttons do: a click, Enter or
+    /// Space.
+    pub(crate) fn for_menu_button(button: &gtk::MenuButton, activate: Rc<dyn Fn(u32)>) -> ContextMenu {
+        let menu = ContextMenu::empty(BUTTON_GROUP, activate, Some(button.clone()));
+        button.insert_action_group(BUTTON_GROUP, Some(&menu.actions));
+        button.set_menu_model(Some(&menu.model));
+        menu
+    }
+
     /// A menu for `widget`, whose items call `activate` with their id.
     /// Text widgets add it to their own Cut/Copy/Paste menu, as their
     /// `extra-menu`; other widgets show it in a popover of their own.
     pub(crate) fn new(widget: &gtk::Widget, activate: Rc<dyn Fn(u32)>) -> ContextMenu {
-        let menu = ContextMenu {
-            data: Vec::new(),
-            model: gio::Menu::new(),
-            actions: gio::SimpleActionGroup::new(),
-            activate,
-            popover: Rc::default(),
-        };
+        let menu = ContextMenu::empty(CONTEXT_GROUP, activate, None);
         widget.insert_action_group(CONTEXT_GROUP, Some(&menu.actions));
         match text_widget(widget) {
             Some(TextWidget::Entry(entry)) => entry.set_extra_menu(Some(&menu.model)),
@@ -393,7 +417,7 @@ impl ContextMenu {
                 self.actions.remove_action(&name);
             }
             let mut builder = Builder {
-                group: CONTEXT_GROUP,
+                group: self.group,
                 exact: true,
                 actions: self.actions.clone(),
                 shortcuts: Vec::new(),
@@ -416,6 +440,9 @@ impl ContextMenu {
     /// Gives the model to what shows it: the popover, if it's there, or
     /// the text widget's own menu.
     fn show_model(&self, widget: &gtk::Widget, model: Option<&gio::Menu>) {
+        if let Some(button) = &self.button {
+            return button.set_menu_model(model);
+        }
         match text_widget(widget) {
             Some(TextWidget::Entry(entry)) => entry.set_extra_menu(model),
             Some(TextWidget::Password(entry)) => entry.set_extra_menu(model),
@@ -440,6 +467,9 @@ impl ContextMenu {
     /// popover's, or a text widget's `extra-menu`) and the actions' states.
     /// Roles mean nothing here and come from the app's entries.
     pub(crate) fn entries(&self, widget: &gtk::Widget) -> Vec<MenuEntry> {
+        if let Some(button) = &self.button {
+            return button.menu_model().map(|model| self.read_sections(&model)).unwrap_or_default();
+        }
         let model = match text_widget(widget) {
             Some(TextWidget::Entry(entry)) => entry.extra_menu(),
             Some(TextWidget::Password(entry)) => entry.extra_menu(),
@@ -474,7 +504,7 @@ impl ContextMenu {
                     return Some(MenuEntry::Submenu(MenuData { title, entries }));
                 }
                 let action = string(i, "action")?;
-                let name = action.strip_prefix(&format!("{CONTEXT_GROUP}."))?;
+                let name = action.strip_prefix(&format!("{}.", self.group))?;
                 let id: u32 = name.strip_prefix("item-")?.parse().ok()?;
                 let action = self.actions.lookup_action(name)?;
                 let sent = menu_item_by_id(&self.data, id);

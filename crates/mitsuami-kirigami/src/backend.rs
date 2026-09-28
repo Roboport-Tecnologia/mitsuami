@@ -313,6 +313,7 @@ enum Widget {
     },
     Label(QmlObject),
     Button(QmlObject),
+    MenuButton(QmlObject),
     Field(QmlObject),
     Checkbox(QmlObject),
     Switch(QmlObject),
@@ -378,6 +379,7 @@ impl Widget {
             | Widget::Host(i)
             | Widget::Label(i)
             | Widget::Button(i)
+            | Widget::MenuButton(i)
             | Widget::Field(i)
             | Widget::Checkbox(i)
             | Widget::Switch(i)
@@ -448,6 +450,7 @@ impl Widget {
             self,
             Widget::Label(_)
                 | Widget::Button(_)
+                | Widget::MenuButton(_)
                 | Widget::Field(_)
                 | Widget::Checkbox(_)
                 | Widget::Switch(_)
@@ -462,6 +465,7 @@ impl Widget {
         matches!(
             self,
             Widget::Button(_)
+                | Widget::MenuButton(_)
                 | Widget::Field(_)
                 | Widget::Checkbox(_)
                 | Widget::Switch(_)
@@ -542,6 +546,8 @@ struct Node {
     modal: Option<(Option<NodeId>, Modality)>,
     /// The context menu, once the app gave one.
     context_menu: Option<ContextMenu>,
+    /// Menu buttons: their menu, once the app gave one.
+    button_menu: Option<ContextMenu>,
 }
 
 pub(crate) struct State {
@@ -572,6 +578,9 @@ impl Drop for State {
                 root.window.delete_later();
             }
             if let Some(menu) = &node.context_menu {
+                menu.delete_later();
+            }
+            if let Some(menu) = &node.button_menu {
                 menu.delete_later();
             }
         }
@@ -932,6 +941,8 @@ impl State {
                 button.connect("clicked()", move || events.emit(id, UiEvent::Click));
                 Widget::Button(button)
             }
+            // A click opens its menu: it reports only the item chosen.
+            WidgetKind::MenuButton => Widget::MenuButton(QmlObject::load(&qml::menu_button())),
             WidgetKind::Checkbox | WidgetKind::Switch => {
                 let switch = kind == WidgetKind::Switch;
                 let toggle = QmlObject::load(&if switch { qml::switch() } else { qml::checkbox() });
@@ -1045,6 +1056,7 @@ impl State {
                 scroll_axes: None,
                 a11y_label: None,
                 context_menu: None,
+                button_menu: None,
             },
         );
     }
@@ -1235,7 +1247,7 @@ impl State {
                     HorizontalAlign::Right => ALIGN_RIGHT,
                 },
             ),
-            (Prop::Label(t), Widget::Button(b) | Widget::Checkbox(b)) => b.set_str("text", t),
+            (Prop::Label(t), Widget::Button(b) | Widget::MenuButton(b) | Widget::Checkbox(b)) => b.set_str("text", t),
             (
                 Prop::Label(t),
                 Widget::Switch(s)
@@ -1367,8 +1379,8 @@ impl State {
                 b.set_bool("mitsuamiDefault", *role == ButtonRole::Default);
                 node.role = Some(*role);
             }
-            (Prop::Icon(name), Widget::Button(b)) => b.set_str("mitsuamiIcon", name),
-            (Prop::IconOnly(only), Widget::Button(b)) => {
+            (Prop::Icon(name), Widget::Button(b) | Widget::MenuButton(b)) => b.set_str("mitsuamiIcon", name),
+            (Prop::IconOnly(only), Widget::Button(b) | Widget::MenuButton(b)) => {
                 b.set_bool("mitsuamiIconOnly", *only);
                 node.icon_only = true;
             }
@@ -1377,7 +1389,15 @@ impl State {
                 i.set_real("mitsuamiSize", *points as f64);
                 node.icon_size = true;
             }
-            (Prop::ButtonStyle(style), Widget::Button(b)) => {
+            (Prop::Menu(entries), Widget::MenuButton(b)) => {
+                let b = *b;
+                node.button_menu
+                    .get_or_insert_with(|| {
+                        ContextMenu::for_button(move |chosen| events.emit(id, UiEvent::MenuItem(chosen)))
+                    })
+                    .set(Some(b), entries);
+            }
+            (Prop::ButtonStyle(style), Widget::Button(b) | Widget::MenuButton(b)) => {
                 // Flat buttons have no frame until hovered.
                 b.set_bool("flat", *style == ButtonStyle::Borderless);
                 node.button_style = Some(*style);
@@ -1600,6 +1620,9 @@ impl State {
                 self.menus.forget(*id);
                 // Not the item's child: a popup only has it as its parent.
                 if let Some(menu) = &node.context_menu {
+                    menu.delete_later();
+                }
+                if let Some(menu) = &node.button_menu {
                     menu.delete_later();
                 }
                 match &node.widget {
@@ -1904,8 +1927,10 @@ impl Backend for KirigamiBackend {
     }
 
     fn perform(&mut self, id: NodeId, action: &A11yAction) -> Result<(), ActionError> {
-        if let A11yAction::ContextMenuItem(item) = action {
-            return self.choose_context_menu_item(id, *item);
+        match action {
+            A11yAction::ContextMenuItem(item) => return self.choose_menu_item(id, *item, false),
+            A11yAction::MenuItem(item) => return self.choose_menu_item(id, *item, true),
+            _ => {}
         }
         // A list's rows: select or activate them, as a click or a double
         // click on their delegate does.
@@ -2196,8 +2221,9 @@ impl Backend for KirigamiBackend {
                 props.push(Prop::Placeholder(f.str("placeholderText")));
                 props.push(Prop::ReadOnly(f.bool("readOnly")));
             }
-            Widget::Button(b) => {
+            Widget::Button(b) | Widget::MenuButton(b) => {
                 props.push(Prop::Label(b.str("text")));
+                props.extend(node.button_menu.as_ref().map(|menu| Prop::Menu(menu.shown())));
                 props.push(Prop::Icon(b.str("mitsuamiShownIcon")));
                 if node.icon_only {
                     // Only with an icon: without, it shows its text.
@@ -2489,17 +2515,19 @@ impl KirigamiBackend {
         Ok(())
     }
 
-    /// What assistive technology does once it has shown the menu: trigger
-    /// the item's action, as clicking it does. A disabled item (or one in
-    /// a disabled container) gets no input, so it shows no menu.
-    fn choose_context_menu_item(&self, id: NodeId, item: u32) -> Result<(), ActionError> {
+    /// What assistive technology does once it has shown the menu (the
+    /// node's context menu, or a menu button's own): trigger the item's
+    /// action, as clicking it does. A disabled item (or one in a disabled
+    /// container) gets no input, so it shows no menu.
+    fn choose_menu_item(&self, id: NodeId, item: u32, button: bool) -> Result<(), ActionError> {
         let action = {
             let state = self.state.borrow();
             let node = state.nodes.get(&id).ok_or(ActionError::UnknownNode)?;
             if !node.widget.item().bool("enabled") {
                 return Err(ActionError::Disabled);
             }
-            node.context_menu.as_ref().and_then(|menu| menu.action(item)).ok_or(ActionError::Unsupported)?
+            let menu = if button { &node.button_menu } else { &node.context_menu };
+            menu.as_ref().and_then(|menu| menu.action(item)).ok_or(ActionError::Unsupported)?
         };
         if !action.bool("enabled") {
             return Err(ActionError::Disabled);

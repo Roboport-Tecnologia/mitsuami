@@ -1325,6 +1325,7 @@ impl Inner {
             if matches!(
                 node.kind,
                 WidgetKind::Button
+                    | WidgetKind::MenuButton
                     | WidgetKind::TextInput
                     | WidgetKind::PasswordInput
                     | WidgetKind::Checkbox
@@ -1959,6 +1960,7 @@ impl Inner {
             WidgetKind::Tabs => Role::TabGroup,
             WidgetKind::Text => Role::StaticText,
             WidgetKind::Button => Role::Button,
+            WidgetKind::MenuButton => Role::MenuButton,
             // A text field that hides its text, as every platform exposes
             // one (AppKit's secure subrole, Qt's and UIA's password flag).
             WidgetKind::TextInput | WidgetKind::PasswordInput => Role::TextField,
@@ -1982,6 +1984,7 @@ impl Inner {
                 WidgetKind::Window => crate::find_prop!(props, Title),
                 WidgetKind::Text => crate::find_prop!(props, Text),
                 WidgetKind::Button
+                | WidgetKind::MenuButton
                 | WidgetKind::Checkbox
                 | WidgetKind::Switch
                 | WidgetKind::Select

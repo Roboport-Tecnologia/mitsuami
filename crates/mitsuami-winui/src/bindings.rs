@@ -1837,6 +1837,60 @@ impl windows_core::RuntimeName for DoubleTappedRoutedEventArgs {
 }
 unsafe impl Send for DoubleTappedRoutedEventArgs {}
 unsafe impl Sync for DoubleTappedRoutedEventArgs {}
+#[repr(transparent)]
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct DropDownButton(windows_core::IUnknown);
+windows_core::imp::interface_hierarchy!(DropDownButton, windows_core::IUnknown, windows_core::IInspectable);
+windows_core::imp::required_hierarchy!(
+    DropDownButton,
+    Button,
+    ButtonBase,
+    ContentControl,
+    Control,
+    FrameworkElement,
+    UIElement,
+    DependencyObject
+);
+impl DropDownButton {
+    pub fn new() -> windows_core::Result<Self> {
+        Self::IDropDownButtonFactory(|this| unsafe {
+            let mut result__ = core::mem::zeroed();
+            (windows_core::Interface::vtable(this).CreateInstance)(
+                windows_core::Interface::as_raw(this),
+                core::ptr::null_mut(),
+                core::ptr::null_mut(),
+                &mut result__,
+            )
+            .and_then(|| windows_core::imp::Type::from_abi(result__))
+        })
+    }
+    fn IDropDownButtonFactory<R, F: FnOnce(&IDropDownButtonFactory) -> windows_core::Result<R>>(
+        callback: F,
+    ) -> windows_core::Result<R> {
+        static SHARED: windows_core::imp::FactoryCache<DropDownButton, IDropDownButtonFactory> =
+            windows_core::imp::FactoryCache::new();
+        SHARED.call(callback)
+    }
+}
+impl windows_core::RuntimeType for DropDownButton {
+    const SIGNATURE: windows_core::imp::ConstBuffer =
+        windows_core::imp::ConstBuffer::for_class::<Self, IDropDownButton>();
+}
+unsafe impl windows_core::Interface for DropDownButton {
+    type Vtable = <IDropDownButton as windows_core::Interface>::Vtable;
+    const IID: windows_core::GUID = <IDropDownButton as windows_core::Interface>::IID;
+}
+impl core::ops::Deref for DropDownButton {
+    type Target = IDropDownButton;
+    fn deref(&self) -> &Self::Target {
+        unsafe { core::mem::transmute(self) }
+    }
+}
+impl windows_core::RuntimeName for DropDownButton {
+    const NAME: &'static str = "Microsoft.UI.Xaml.Controls.DropDownButton";
+}
+unsafe impl Send for DropDownButton {}
+unsafe impl Sync for DropDownButton {}
 pub const E_FAIL: windows_core::HRESULT = windows_core::HRESULT(0x80004005_u32 as _);
 #[repr(transparent)]
 #[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
@@ -3286,9 +3340,32 @@ windows_core::imp::define_interface!(IButton, IButton_Vtbl, 0x216c183d_d07a_5aa5
 impl windows_core::RuntimeType for IButton {
     const SIGNATURE: windows_core::imp::ConstBuffer = windows_core::imp::ConstBuffer::for_interface::<Self>();
 }
+impl IButton {
+    pub fn Flyout(&self) -> windows_core::Result<FlyoutBase> {
+        unsafe {
+            let mut result__ = core::mem::zeroed();
+            (windows_core::Interface::vtable(self).Flyout)(windows_core::Interface::as_raw(self), &mut result__)
+                .and_then(|| windows_core::imp::Type::from_abi(result__))
+        }
+    }
+    pub fn SetFlyout<P0>(&self, value: P0) -> windows_core::Result<()>
+    where
+        P0: windows_core::Param<FlyoutBase>,
+    {
+        unsafe {
+            (windows_core::Interface::vtable(self).SetFlyout)(
+                windows_core::Interface::as_raw(self),
+                value.param().abi(),
+            )
+            .ok()
+        }
+    }
+}
 #[repr(C)]
 pub struct IButton_Vtbl {
     pub base__: windows_core::IInspectable_Vtbl,
+    pub Flyout: unsafe extern "system" fn(*mut core::ffi::c_void, *mut *mut core::ffi::c_void) -> windows_core::HRESULT,
+    pub SetFlyout: unsafe extern "system" fn(*mut core::ffi::c_void, *mut core::ffi::c_void) -> windows_core::HRESULT,
 }
 windows_core::imp::define_interface!(IButtonBase, IButtonBase_Vtbl, 0x65714269_2473_5327_a652_0ea6bce7f403);
 impl windows_core::RuntimeType for IButtonBase {
@@ -4220,6 +4297,32 @@ impl windows_core::RuntimeType for IDoubleTappedRoutedEventArgs {
 #[repr(C)]
 pub struct IDoubleTappedRoutedEventArgs_Vtbl {
     pub base__: windows_core::IInspectable_Vtbl,
+}
+windows_core::imp::define_interface!(IDropDownButton, IDropDownButton_Vtbl, 0xc1e9fa91_4f95_5796_8a7b_3b7594a12c69);
+impl windows_core::RuntimeType for IDropDownButton {
+    const SIGNATURE: windows_core::imp::ConstBuffer = windows_core::imp::ConstBuffer::for_interface::<Self>();
+}
+#[repr(C)]
+pub struct IDropDownButton_Vtbl {
+    pub base__: windows_core::IInspectable_Vtbl,
+}
+windows_core::imp::define_interface!(
+    IDropDownButtonFactory,
+    IDropDownButtonFactory_Vtbl,
+    0x7cf3e13b_668d_57e7_b5d6_f5ca3dbc80bd
+);
+impl windows_core::RuntimeType for IDropDownButtonFactory {
+    const SIGNATURE: windows_core::imp::ConstBuffer = windows_core::imp::ConstBuffer::for_interface::<Self>();
+}
+#[repr(C)]
+pub struct IDropDownButtonFactory_Vtbl {
+    pub base__: windows_core::IInspectable_Vtbl,
+    pub CreateInstance: unsafe extern "system" fn(
+        *mut core::ffi::c_void,
+        *mut core::ffi::c_void,
+        *mut *mut core::ffi::c_void,
+        *mut *mut core::ffi::c_void,
+    ) -> windows_core::HRESULT,
 }
 windows_core::imp::define_interface!(
     IExceptionRoutedEventArgs,

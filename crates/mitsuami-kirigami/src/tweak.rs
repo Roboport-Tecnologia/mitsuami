@@ -5,8 +5,8 @@ use std::rc::Rc;
 use mitsuami_core::reactive::{IntoValue, Value};
 use mitsuami_core::{List, Opaque, Tweak};
 use mitsuami_widgets::{
-    Button, Checkbox, Icon, Image, NumberInput, PasswordInput, Progress, ScrollView, Select, Slider, Spinner, Switch,
-    Text, TextInput,
+    Button, Checkbox, Icon, Image, MenuButton, NumberInput, PasswordInput, Progress, ScrollView, Select, Slider,
+    Spinner, Switch, Text, TextInput,
 };
 
 use crate::ffi::QmlObject;
@@ -17,6 +17,9 @@ pub trait Tweakable {}
 
 /// A `QQC2.Button`.
 impl Tweakable for Button {}
+
+/// A `QQC2.Button` that opens a `QQC2.Menu` (its `mitsuamiButtonMenu`).
+impl Tweakable for MenuButton {}
 
 /// A `QQC2.CheckBox`.
 impl Tweakable for Checkbox {}

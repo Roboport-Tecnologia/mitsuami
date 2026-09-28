@@ -185,6 +185,8 @@ enum Widget {
     Field(w::TextBox),
     Password(w::PasswordBox),
     Button(w::Button),
+    /// A button whose `Flyout` is its menu, which it opens on a click.
+    MenuButton(w::DropDownButton),
     Checkbox(w::CheckBox),
     Switch(w::ToggleSwitch),
     Select(w::ComboBox),
@@ -314,13 +316,16 @@ struct Node {
     icon_size: bool,
     /// Set once the core gave a context menu.
     context_menu: Option<ContextMenu>,
+    /// Menu buttons: their menu, set once the core gave one.
+    button_menu: Option<ContextMenu>,
 }
 
 type Callback = Rc<dyn Fn()>;
 type MenuItems = Rc<RefCell<HashMap<u32, (w::MenuFlyoutItemBase, MenuCheck)>>>;
 
-/// A node's context menu: what the core sent, and the `MenuFlyout` showing
-/// it as the control's `ContextFlyout` (none while it's empty).
+/// A node's context menu, or a menu button's menu: what the core sent, and
+/// the `MenuFlyout` showing it as the control's `ContextFlyout` or the
+/// button's `Flyout` (none while it's empty).
 struct ContextMenu {
     sent: Vec<MenuEntry>,
     flyout: Option<w::MenuFlyout>,
@@ -334,8 +339,36 @@ struct ContextMenu {
 }
 
 impl ContextMenu {
+    fn new(activate: Rc<dyn Fn(u32)>, own: Option<w::FlyoutBase>) -> ContextMenu {
+        ContextMenu { sent: Vec::new(), flyout: None, items: MenuItems::default(), revokers: Vec::new(), activate, own }
+    }
+
     fn has_items(menu: &Option<ContextMenu>) -> bool {
         menu.as_ref().is_some_and(|menu| menu.flyout.is_some())
+    }
+
+    /// Shows `entries`: in place when only enabled and checked states
+    /// changed, so an open menu stays open, as the menu bar does; else a
+    /// new flyout (none for no entries). Whether the flyout was replaced.
+    fn update(&mut self, entries: &[MenuEntry], scope: String) -> R<bool> {
+        let replaced = if self.flyout.is_some() && as_menu_bar(entries).same_structure(&as_menu_bar(&self.sent)) {
+            update_items(&self.items, &as_menu_bar(entries));
+            false
+        } else if self.flyout.is_some() || !entries.is_empty() {
+            self.revokers.clear();
+            self.items.borrow_mut().clear();
+            self.flyout = None;
+            if !entries.is_empty() {
+                let mut built =
+                    MenuBuild { activate: &self.activate, revokers: &mut self.revokers, items: &self.items, scope };
+                self.flyout = Some(built.flyout(entries)?);
+            }
+            true
+        } else {
+            false
+        };
+        self.sent = entries.to_vec();
+        Ok(replaced)
     }
 }
 
@@ -534,6 +567,21 @@ fn resource<T: Interface>(name: &str) -> Option<T> {
 
 fn style(name: &str) -> w::Style {
     resource(name).unwrap_or_else(|| panic!("winui backend: missing XAML style {name}"))
+}
+
+/// A menu button's look. Fluent has no subtle `DropDownButton`, and
+/// `SubtleButtonStyle` would replace its template (and its chevron), so
+/// borderless is a style over its own that only clears the fill and the
+/// border, as a subtle button's are at rest; its template still shows a
+/// fill on hover. An explicit style sets only what it says: the theme's
+/// template stays.
+fn set_menu_button_style(button: &w::DropDownButton, button_style: ButtonStyle) -> R<()> {
+    let element = button.cast::<w::IFrameworkElement>()?;
+    if button_style != ButtonStyle::Borderless {
+        return element.SetStyle(None::<&w::Style>);
+    }
+    let markup = r#"<Style xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation" TargetType="DropDownButton"><Setter Property="Background" Value="{ThemeResource SubtleFillColorTransparentBrush}"/><Setter Property="BorderBrush" Value="{ThemeResource SubtleFillColorTransparentBrush}"/></Style>"#;
+    element.SetStyle(&w::XamlReader::Load(markup)?.cast::<w::Style>()?)
 }
 
 /// A button's XAML style, from its role and style: one style has both.
@@ -2089,6 +2137,12 @@ impl State {
                 let element = button.cast()?;
                 (Widget::Button(button), element)
             }
+            // No click of its own: a click opens its flyout.
+            WidgetKind::MenuButton => {
+                let button = w::DropDownButton::new()?;
+                let element = button.cast()?;
+                (Widget::MenuButton(button), element)
+            }
             WidgetKind::Icon => {
                 let icon = w::FontIcon::new()?;
                 let element = icon.cast()?;
@@ -2361,6 +2415,7 @@ impl State {
                 description: None,
                 tooltip: String::new(),
                 context_menu: None,
+                button_menu: None,
                 caption: String::new(),
                 icon: String::new(),
                 icon_only: None,
@@ -2467,15 +2522,15 @@ impl State {
                     w::TextTrimming::None
                 })?;
             }
-            (Prop::Label(t), Widget::Button(_)) => {
+            (Prop::Label(t), Widget::Button(_) | Widget::MenuButton(_)) => {
                 node.caption = t.clone();
                 set_button_content(node)?;
             }
-            (Prop::Icon(name), Widget::Button(_)) => {
+            (Prop::Icon(name), Widget::Button(_) | Widget::MenuButton(_)) => {
                 node.icon = name.clone();
                 set_button_content(node)?;
             }
-            (Prop::IconOnly(only), Widget::Button(_)) => {
+            (Prop::IconOnly(only), Widget::Button(_) | Widget::MenuButton(_)) => {
                 node.icon_only = Some(*only);
                 set_button_content(node)?;
             }
@@ -2709,6 +2764,10 @@ impl State {
                 node.button_style = Some(*button_style);
                 set_button_style(b, node.role, node.button_style)?;
             }
+            (Prop::ButtonStyle(button_style), Widget::MenuButton(b)) => {
+                node.button_style = Some(*button_style);
+                set_menu_button_style(b, *button_style)?;
+            }
             (Prop::TakesInput(on), Widget::GpuSurface(surface)) => surface.set_takes_input(*on)?,
             (Prop::PointerLock(on), Widget::GpuSurface(surface)) => surface.set_pointer_lock(*on),
             (Prop::KeyboardGrab(on), Widget::GpuSurface(surface)) => surface.set_keyboard_grab(*on),
@@ -2730,41 +2789,35 @@ impl State {
                 // without one shows its container's.
                 let control: w::IUIElement = node.control().cast()?;
                 let events = self.emitter.clone();
-                let menu = match &mut node.context_menu {
-                    Some(menu) => menu,
-                    menu @ None => menu.insert(ContextMenu {
-                        sent: Vec::new(),
-                        flyout: None,
-                        items: MenuItems::default(),
-                        revokers: Vec::new(),
-                        activate: Rc::new(move |item| events.emit(id, UiEvent::ContextMenuItem(item))),
-                        own: control.ContextFlyout().ok(),
-                    }),
-                };
-                // In place when only enabled and checked states changed,
-                // so an open menu stays open, as the menu bar does.
-                if menu.flyout.is_some() && as_menu_bar(entries).same_structure(&as_menu_bar(&menu.sent)) {
-                    update_items(&menu.items, &as_menu_bar(entries));
-                } else if menu.flyout.is_some() || !entries.is_empty() {
-                    menu.revokers.clear();
-                    menu.items.borrow_mut().clear();
-                    menu.flyout = None;
-                    if !entries.is_empty() {
-                        let mut built = MenuBuild {
-                            activate: &menu.activate,
-                            revokers: &mut menu.revokers,
-                            items: &menu.items,
-                            scope: format!("node-{id}"),
-                        };
-                        menu.flyout = Some(built.flyout(entries)?);
-                    }
+                let menu = node.context_menu.get_or_insert_with(|| {
+                    ContextMenu::new(
+                        Rc::new(move |item| events.emit(id, UiEvent::ContextMenuItem(item))),
+                        control.ContextFlyout().ok(),
+                    )
+                });
+                if menu.update(entries, format!("node-{id}"))? {
                     match &menu.flyout {
                         Some(flyout) => control.SetContextFlyout(flyout)?,
                         None => control.SetContextFlyout(menu.own.as_ref())?,
                     }
                 }
-                menu.sent = entries.clone();
                 set_hit_testable(node)?;
+            }
+            // The button's own flyout, which XAML opens on a click, Enter,
+            // Space or UIA's Expand. Radio groups are named apart from its
+            // context menu's.
+            (Prop::Menu(entries), Widget::MenuButton(b)) => {
+                let events = self.emitter.clone();
+                let menu = node.button_menu.get_or_insert_with(|| {
+                    ContextMenu::new(Rc::new(move |item| events.emit(id, UiEvent::MenuItem(item))), None)
+                });
+                if menu.update(entries, format!("button-{id}"))? {
+                    let button = b.cast::<w::IButton>()?;
+                    match &menu.flyout {
+                        Some(flyout) => button.SetFlyout(flyout)?,
+                        None => button.SetFlyout(None::<&w::FlyoutBase>)?,
+                    }
+                }
             }
             _ => {}
         }
@@ -3255,6 +3308,7 @@ fn is_control(widget: &Widget) -> bool {
         Widget::Field(_)
             | Widget::Password(_)
             | Widget::Button(_)
+            | Widget::MenuButton(_)
             | Widget::Checkbox(_)
             | Widget::Switch(_)
             | Widget::Select(_)
@@ -3515,6 +3569,7 @@ impl Backend for WinUiBackend {
                 Size::new(size.width.max(200.0), size.height)
             }
             Widget::Button(_)
+            | Widget::MenuButton(_)
             | Widget::Checkbox(_)
             | Widget::Switch(_)
             | Widget::Select(_)
@@ -3556,8 +3611,10 @@ impl Backend for WinUiBackend {
     }
 
     fn perform(&mut self, id: NodeId, action: &A11yAction) -> Result<(), ActionError> {
-        if let A11yAction::ContextMenuItem(item) = action {
-            return self.choose_context_menu_item(id, *item);
+        match action {
+            A11yAction::ContextMenuItem(item) => return self.choose_menu_item(id, *item, false),
+            A11yAction::MenuItem(item) => return self.choose_menu_item(id, *item, true),
+            _ => {}
         }
         // A list's rows: select or activate them, as clicking or double
         // clicking their container does.
@@ -3988,6 +4045,18 @@ impl Backend for WinUiBackend {
                 }
             }
             Widget::Button(_) => props.extend(button_content(node)),
+            Widget::MenuButton(b) => {
+                props.extend(button_content(node));
+                if let Some(menu) = &node.button_menu {
+                    let shown = b.cast::<w::IButton>().ok()?.Flyout().ok();
+                    let ours =
+                        menu.flyout.as_ref().filter(|flyout| shown.as_ref().is_some_and(|s| key(s) == key(*flyout)));
+                    props.push(Prop::Menu(match ours {
+                        Some(flyout) => read_menu(&flyout.cast::<w::IMenuFlyout>().ok()?.Items().ok()?, menu),
+                        None => Vec::new(),
+                    }));
+                }
+            }
             Widget::Icon(icon) => {
                 let name = w::AutomationProperties::GetName(&node.element).unwrap_or_default();
                 if !name.is_empty() {
@@ -4261,15 +4330,17 @@ impl WinUiBackend {
     /// item's UIA Invoke (Toggle for a check item), which clicks it as the
     /// pointer does, so the item's `Click` handler reports it. A disabled
     /// control gets no input, so shows no menu.
-    fn choose_context_menu_item(&self, id: NodeId, item: u32) -> Result<(), ActionError> {
+    /// Chooses an item of the node's context menu, or of a menu button's
+    /// menu, without opening it.
+    fn choose_menu_item(&self, id: NodeId, item: u32, button: bool) -> Result<(), ActionError> {
         let (element, items, activate) = {
             let state = self.state.borrow();
             let node = state.nodes.get(&id).ok_or(ActionError::UnknownNode)?;
             if node.control().cast::<w::IControl>().and_then(|c| c.IsEnabled()).is_ok_and(|on| !on) {
                 return Err(ActionError::Disabled);
             }
-            let menu =
-                node.context_menu.as_ref().filter(|menu| menu.flyout.is_some()).ok_or(ActionError::Unsupported)?;
+            let menu = if button { &node.button_menu } else { &node.context_menu };
+            let menu = menu.as_ref().filter(|menu| menu.flyout.is_some()).ok_or(ActionError::Unsupported)?;
             let element = menu.items.borrow().get(&item).map(|(element, _)| element.clone());
             (element.ok_or(ActionError::Unsupported)?, menu.items.clone(), menu.activate.clone())
         };

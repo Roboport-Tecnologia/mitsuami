@@ -288,17 +288,26 @@ fn context_menu_qml(menu: &MenuData) -> Option<String> {
 /// A node's context menu: the app's entries (as the one menu of a bar, for
 /// [`MenuBarData`]'s helpers), and the `QQC2.Menu` that shows them, made
 /// as they come so it's whole before it's shown. Its parent is the node's
-/// item, whose `mitsuamiContextMenu` it is (see `qml::CONTEXT_MENU`).
+/// item, whose `mitsuamiContextMenu` it is (see `qml::CONTEXT_MENU`). A
+/// menu button's menu is one too, its `mitsuamiButtonMenu` (see
+/// `qml::menu_button`).
 pub(crate) struct ContextMenu {
     entries: Rc<RefCell<MenuBarData>>,
     menu: Option<QmlObject>,
     /// Reports the item chosen.
     choose: Rc<dyn Fn(u32)>,
+    /// The item's property that holds the menu.
+    property: &'static str,
 }
 
 impl ContextMenu {
     pub(crate) fn new(choose: impl Fn(u32) + 'static) -> ContextMenu {
-        ContextMenu { entries: Rc::default(), menu: None, choose: Rc::new(choose) }
+        ContextMenu { entries: Rc::default(), menu: None, choose: Rc::new(choose), property: "mitsuamiContextMenu" }
+    }
+
+    /// A menu button's menu, which a click on it shows.
+    pub(crate) fn for_button(choose: impl Fn(u32) + 'static) -> ContextMenu {
+        ContextMenu { property: "mitsuamiButtonMenu", ..ContextMenu::new(choose) }
     }
 
     /// Shows `entries` on `item`, or only keeps them if the item can't
@@ -313,7 +322,7 @@ impl ContextMenu {
         }
         if let Some(old) = self.menu.take() {
             if let Some(item) = item {
-                item.set_object("mitsuamiContextMenu", None);
+                item.set_object(self.property, None);
             }
             retire(old);
         }
@@ -330,7 +339,7 @@ impl ContextMenu {
                 choose(id);
             });
         }
-        item.set_object("mitsuamiContextMenu", Some(menu));
+        item.set_object(self.property, Some(menu));
         self.menu = Some(menu);
     }
 

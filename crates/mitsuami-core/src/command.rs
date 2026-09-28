@@ -137,6 +137,8 @@ pub enum UiEvent {
     Custom(AnyValue),
     /// The item of the node's context menu with this id was chosen.
     ContextMenuItem(u32),
+    /// The item of a `MenuButton`'s menu with this id was chosen.
+    MenuItem(u32),
     /// A `GpuSurface`'s native surface exists: the app can make its GPU
     /// surface on it. Reported once, before any `SurfaceResized`; its size
     /// may still be empty.

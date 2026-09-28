@@ -184,6 +184,11 @@ enum Widget {
     Entry(gtk::Entry),
     Password(gtk::PasswordEntry),
     Button(gtk::Button),
+    /// A menu button, and its own menu (apart from its context menu).
+    MenuButton {
+        button: gtk::MenuButton,
+        menu: ContextMenu,
+    },
     Checkbox(gtk::CheckButton),
     Switch(gtk::Switch),
     Select {
@@ -254,6 +259,7 @@ impl Widget {
             Widget::Entry(w) => w.upcast_ref(),
             Widget::Password(w) => w.upcast_ref(),
             Widget::Button(w) => w.upcast_ref(),
+            Widget::MenuButton { button, .. } => button.upcast_ref(),
             Widget::Checkbox(w) => w.upcast_ref(),
             Widget::Switch(w) => w.upcast_ref(),
             Widget::Select { dropdown, .. } => dropdown.upcast_ref(),
@@ -281,6 +287,7 @@ impl Widget {
                 | Widget::Entry(_)
                 | Widget::Password(_)
                 | Widget::Button(_)
+                | Widget::MenuButton { .. }
                 | Widget::Checkbox(_)
                 | Widget::Switch(_)
                 | Widget::Select { .. }
@@ -1122,6 +1129,14 @@ impl State {
                 button.connect_clicked(move |_| events.emit(id, UiEvent::Click));
                 Widget::Button(button)
             }
+            WidgetKind::MenuButton => {
+                let button = gtk::MenuButton::new();
+                let menu = ContextMenu::for_menu_button(
+                    &button,
+                    Rc::new(move |item| events.emit(id, UiEvent::MenuItem(item))),
+                );
+                Widget::MenuButton { button, menu }
+            }
             WidgetKind::Checkbox => {
                 let check = gtk::CheckButton::new();
                 check.connect_toggled(move |c| {
@@ -1247,7 +1262,11 @@ impl State {
         );
     }
 
-    fn create_window(&mut self, id: NodeId, settings_handlers: &mut Vec<(glib::Object, glib::SignalHandlerId)>) -> WindowParts {
+    fn create_window(
+        &mut self,
+        id: NodeId,
+        settings_handlers: &mut Vec<(glib::Object, glib::SignalHandlerId)>,
+    ) -> WindowParts {
         let events = self.events.clone();
         let window = gtk::Window::new();
         // An explicit header bar has a known height, so the content gets
@@ -1462,6 +1481,23 @@ impl State {
             (Prop::IconOnly(only), Widget::Button(b)) => {
                 node.button.icon_only = Some(*only);
                 node.button.show(b);
+            }
+            (Prop::Label(t), Widget::MenuButton { button, .. }) => {
+                node.button.label = t.clone();
+                node.button.show(button);
+            }
+            (Prop::Icon(name), Widget::MenuButton { button, .. }) => {
+                node.button.icon = Some(name.clone());
+                node.button.show(button);
+            }
+            (Prop::IconOnly(only), Widget::MenuButton { button, .. }) => {
+                node.button.icon_only = Some(*only);
+                node.button.show(button);
+            }
+            (Prop::Menu(entries), Widget::MenuButton { button, menu }) => menu.set(button.upcast_ref(), entries),
+            (Prop::ButtonStyle(style), Widget::MenuButton { button, .. }) => {
+                button.set_has_frame(*style != ButtonStyle::Borderless);
+                node.button_style = Some(*style);
             }
             (Prop::Label(t), Widget::Checkbox(c)) => c.set_label(Some(t)),
             (Prop::Label(t), Widget::Switch(s)) => {
@@ -2224,6 +2260,19 @@ impl Backend for GtkBackend {
     }
 
     fn perform(&mut self, id: NodeId, action: &A11yAction) -> Result<(), ActionError> {
+        // A menu button's own menu, without opening it.
+        if let A11yAction::MenuItem(item) = action {
+            let actions = {
+                let state = self.state.borrow();
+                let node = state.nodes.get(&id).ok_or(ActionError::UnknownNode)?;
+                let Widget::MenuButton { button, menu } = &node.widget else { return Err(ActionError::Unsupported) };
+                if !button.is_sensitive() {
+                    return Err(ActionError::Disabled);
+                }
+                menu.chooser()
+            };
+            return choose_context_item(&actions, *item);
+        }
         // Any node's, list rows' included. A disabled widget shows none.
         if let A11yAction::ContextMenuItem(item) = action {
             let actions = {
@@ -2554,6 +2603,10 @@ impl Backend for GtkBackend {
                 }
             }
             Widget::Button(b) => props.extend(node.button.read(b)),
+            Widget::MenuButton { button, menu } => {
+                props.extend(node.button.read(button));
+                props.push(Prop::Menu(menu.entries(button.upcast_ref())));
+            }
             Widget::Checkbox(c) => {
                 props.push(Prop::Label(text(c.label())));
                 props.push(Prop::Checked(c.is_active()));
@@ -2889,30 +2942,89 @@ struct ButtonFace {
     icon_only: Option<bool>,
 }
 
+/// What a `gtk::Button` and a `gtk::MenuButton` both do with a caption
+/// and an icon, under different types.
+trait Face: IsA<gtk::Accessible> {
+    fn show_label(&self, label: &str);
+    fn show_icon(&self, icon: &str);
+    fn show_child(&self, child: &gtk::Widget);
+    fn shown_label(&self) -> Option<glib::GString>;
+    fn shown_icon(&self) -> Option<glib::GString>;
+    fn shown_child(&self) -> Option<gtk::Widget>;
+}
+
+impl Face for gtk::Button {
+    fn show_label(&self, label: &str) {
+        self.set_label(label);
+    }
+    fn show_icon(&self, icon: &str) {
+        self.set_icon_name(icon);
+    }
+    fn show_child(&self, child: &gtk::Widget) {
+        self.set_child(Some(child));
+    }
+    fn shown_label(&self) -> Option<glib::GString> {
+        self.label()
+    }
+    fn shown_icon(&self) -> Option<glib::GString> {
+        self.icon_name()
+    }
+    fn shown_child(&self) -> Option<gtk::Widget> {
+        self.child()
+    }
+}
+
+/// GTK draws the arrow after a caption on its own, and none after an icon
+/// alone, as GNOME's icon menu buttons have none; a child of our own
+/// (icon and caption) needs `always-show-arrow` for it.
+impl Face for gtk::MenuButton {
+    fn show_label(&self, label: &str) {
+        self.set_always_show_arrow(false);
+        self.set_label(label);
+    }
+    fn show_icon(&self, icon: &str) {
+        self.set_always_show_arrow(false);
+        self.set_icon_name(icon);
+    }
+    fn show_child(&self, child: &gtk::Widget) {
+        self.set_child(Some(child));
+        self.set_always_show_arrow(true);
+    }
+    fn shown_label(&self) -> Option<glib::GString> {
+        self.label()
+    }
+    fn shown_icon(&self) -> Option<glib::GString> {
+        self.icon_name()
+    }
+    fn shown_child(&self) -> Option<gtk::Widget> {
+        self.child()
+    }
+}
+
 impl ButtonFace {
-    fn show(&self, button: &gtk::Button) {
+    fn show(&self, button: &impl Face) {
         let icon = self.icon.as_deref().unwrap_or_default();
         if icon.is_empty() {
-            button.set_label(&self.label);
+            button.show_label(&self.label);
             button.reset_property(gtk::AccessibleProperty::Label);
         } else if self.icon_only == Some(true) {
-            button.set_icon_name(icon);
+            button.show_icon(icon);
             button.update_property(&[gtk::accessible::Property::Label(&self.label)]);
         } else {
             let content = adw::ButtonContent::new();
             content.set_icon_name(icon);
             content.set_label(&self.label);
-            button.set_child(Some(&content));
+            button.show_child(content.upcast_ref());
             button.reset_property(gtk::AccessibleProperty::Label);
         }
     }
 
     /// Read from what the button shows; an icon button's label is only its
     /// accessible name, which GTK doesn't read back.
-    fn read(&self, button: &gtk::Button) -> Vec<Prop> {
-        let child = button.child();
+    fn read(&self, button: &impl Face) -> Vec<Prop> {
+        let child = button.shown_child();
         let content = child.as_ref().and_then(|c| c.downcast_ref::<adw::ButtonContent>());
-        let (label, icon, only) = match (button.label(), content, button.icon_name()) {
+        let (label, icon, only) = match (button.shown_label(), content, button.shown_icon()) {
             (Some(label), _, _) => (label.to_string(), String::new(), false),
             (None, Some(content), _) => (content.label().to_string(), content.icon_name().to_string(), false),
             (None, None, Some(icon)) => (self.label.clone(), icon.to_string(), true),

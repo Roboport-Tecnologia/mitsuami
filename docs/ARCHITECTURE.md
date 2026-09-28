@@ -1002,6 +1002,23 @@ Every platform's label has these, so they're semantic props (§4). Semantic colo
 - **An icon to assistive technology** (`Role::Image`), named by its label; without one it's decorative. It takes no focus. AppKit's symbol images have no name to read back, so its backend keeps the name and size on the node. GTK, Kirigami and WinUI read them from the widget.
 - **Run on every backend and headless** (`tests/icon.rs`, the pixel test too).
 
+### MenuButton
+
+- **A button that opens a menu of actions,** as a toolbar's "Add" or "New" does: a pull-down `NSPopUpButton` on AppKit, `gtk::MenuButton` on GTK, `DropDownButton` on WinUI, and on Qt a `QQC2.Button` that pops up a `QQC2.Menu`, as Kirigami apps make one. A `Select` is for choosing a value; this is for actions, and it keeps no choice.
+- **Its menu is a context menu's:** the same builder (`MenuItem`, `MenuSeparator`, `Menu` for submenus, checks and radio items), the same data (`Prop::Menu`, next to `Prop::ContextMenu`, so a menu button can have both) and each backend's context menu code, with the choice reported as `UiEvent::MenuItem`.
+- **Caption, icon and style are a `Button`'s,** and each platform draws its own arrow:
+  - AppKit: a pull-down's title is its first menu item, so the backend puts the caption and icon there and makes the menu again with it first. It keeps the caption as the accessible name when only the image shows.
+  - GTK: a caption shows GTK's arrow. An icon with a caption is libadwaita's `ButtonContent` with `always-show-arrow`. An icon alone has no arrow, as GNOME's icon menu buttons have none. The actions are in a group of their own (`button.*`), apart from the context menu's.
+  - WinUI: the content is a `Button`'s. Fluent has no subtle drop-down button, and `SubtleButtonStyle` would replace the template and its chevron, so borderless is a style that only clears the fill and border; it still fills on hover.
+  - Kirigami: its role is `Accessible.ButtonMenu`, for which the desktop style should draw a menu arrow, as Breeze does for a `QPushButton` with a menu. The menu pops up under the button and moves into the window's overlay while open, as context menus do. The button shows pressed while it's open.
+- **No click of its own:** clicking opens the menu, which is modal, so `perform` takes `MenuItem(id)` (the item's own path, as for context menus) and refuses `Activate`. It's a `Role::MenuButton` to assistive technology, named by its caption, and in the Tab order.
+- **The example's tweaks:** a large control size on AppKit, the popover opening upwards on GTK (`direction`), `flat` on Qt, a pill-shaped `CornerRadius` on WinUI.
+- **Run on AppKit and headless.** GTK, Kirigami and WinUI are only type-checked. Unverified until they run:
+  - that Breeze draws the arrow for a `QQC2.Button` with the `ButtonMenu` role;
+  - that Kirigami's menu pops up under the button in the overlay;
+  - that WinUI's borderless style keeps the chevron;
+  - the arrow's room in each measure.
+
 ### Tooltips
 
 - **A prop, not a widget:** `.tooltip(text)` on any widget or container (`ElementBuilder`), sent as `Prop::Tooltip`; empty removes it. 2ksbox puts one on a status line cut off at one line, holding the whole text.

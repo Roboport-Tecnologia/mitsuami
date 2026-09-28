@@ -57,6 +57,12 @@ pub enum WidgetKind {
     Fragment,
     Text,
     Button,
+    /// A native button that opens a menu of actions (a pull-down
+    /// NSPopUpButton, gtk::MenuButton, DropDownButton, a QQC2.Button that
+    /// opens a QQC2.Menu). Its caption, icon and style are a `Button`'s;
+    /// its menu is [`Prop::Menu`], and the item chosen comes as
+    /// [`UiEvent::MenuItem`](crate::UiEvent::MenuItem).
+    MenuButton,
     TextInput,
     /// A native password field (NSSecureTextField, PasswordBox,
     /// gtk::PasswordEntry, Kirigami.PasswordField): a `TextInput` whose
@@ -162,6 +168,7 @@ impl WidgetKind {
             WidgetKind::Fragment => "Fragment",
             WidgetKind::Text => "Text",
             WidgetKind::Button => "Button",
+            WidgetKind::MenuButton => "MenuButton",
             WidgetKind::TextInput => "TextInput",
             WidgetKind::PasswordInput => "PasswordInput",
             WidgetKind::Checkbox => "Checkbox",
@@ -490,7 +497,7 @@ pub enum Prop {
     /// app's `TextAlign` against the text's direction, so it's left or
     /// right here.
     TextAlign(HorizontalAlign),
-    /// Caption of a `Button`, `Checkbox` or `Switch`; accessible name of a
+    /// Caption of a `Button`, `MenuButton`, `Checkbox` or `Switch`; accessible name of a
     /// `Switch`, `Select`, `Slider`, `NumberInput`, `Progress`, `Image`,
     /// `Icon` or `GpuSurface`, and of a `Button` that shows only its icon.
     Label(String),
@@ -540,6 +547,10 @@ pub enum Prop {
     /// or container can have one; empty: none. The node reports the item
     /// chosen as [`UiEvent::ContextMenuItem`](crate::UiEvent::ContextMenuItem).
     ContextMenu(Vec<MenuEntry>),
+    /// A `MenuButton`'s menu: items, separators and submenus, built as a
+    /// context menu's. The node reports the item chosen as
+    /// [`UiEvent::MenuItem`](crate::UiEvent::MenuItem).
+    Menu(Vec<MenuEntry>),
     /// A window is modal, belonging to `owner` (the window it was declared
     /// in, if any). Sent once, before the window is shown.
     Modal {
@@ -550,7 +561,7 @@ pub enum Prop {
     Image(ImageSource),
     /// How an `Image` fills its frame; sent only if the app chose.
     ImageFit(ImageFit),
-    /// What an `Icon` shows, or the icon a `Button` shows before its
+    /// What an `Icon` shows, or the icon a `Button` or `MenuButton` shows before its
     /// caption: a name in the platform's own set (an SF Symbol, a themed
     /// icon's name, a Segoe Fluent Icons glyph). Empty: none. A name the
     /// set doesn't have shows as the platform shows one: nothing, or its
@@ -560,7 +571,7 @@ pub enum Prop {
     /// an SF Symbol's point size (as a font's), the side of a square
     /// elsewhere. Sent only if the app chose.
     IconSize(f32),
-    /// A `Button` shows its icon without its caption, which stays its
+    /// A `Button` or `MenuButton` shows its icon without its caption, which stays its
     /// accessible name. Without an icon it shows its caption.
     IconOnly(bool),
     /// Whether a `Spinner` spins. Stopped, it shows nothing but keeps its
@@ -631,6 +642,10 @@ impl Prop {
         // A spin box can be as wide as its range's longest number (GTK) or
         // its text (Qt).
         if kind == WidgetKind::NumberInput && matches!(self, Prop::Range { .. } | Prop::Number(_)) {
+            return true;
+        }
+        // A pull-down can be as wide as its widest item (AppKit).
+        if kind == WidgetKind::MenuButton && matches!(self, Prop::Menu(_)) {
             return true;
         }
         matches!(

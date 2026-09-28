@@ -13,6 +13,10 @@ pub enum Role {
     StaticText,
     Heading,
     Button,
+    /// A button that opens a menu of actions (a `MenuButton`): AppKit's
+    /// menu button, Qt's `ButtonMenu`, a button with a menu pop-up on GTK
+    /// and in ARIA, UIA's expand-collapse button.
+    MenuButton,
     TextField,
     Checkbox,
     Switch,
@@ -108,6 +112,11 @@ pub enum A11yAction {
     /// assistive technology does once it has shown the menu. The menu
     /// itself never opens.
     ContextMenuItem(u32),
+    /// Choose the item of a `MenuButton`'s menu with this id, as
+    /// assistive technology does once the button has shown it. The menu
+    /// itself never opens. (`Activate` would open it, so a menu button
+    /// doesn't take it.)
+    MenuItem(u32),
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]

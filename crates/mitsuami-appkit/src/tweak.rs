@@ -5,8 +5,8 @@ use std::rc::Rc;
 use mitsuami_core::reactive::{IntoValue, Value};
 use mitsuami_core::{List, Opaque, Tweak};
 use mitsuami_widgets::{
-    Button, Checkbox, Icon, Image, NumberInput, PasswordInput, Progress, ScrollView, Select, Slider, Spinner, Switch,
-    Text, TextInput,
+    Button, Checkbox, Icon, Image, MenuButton, NumberInput, PasswordInput, Progress, ScrollView, Select, Slider,
+    Spinner, Switch, Text, TextInput,
 };
 use objc2::DowncastTarget;
 use objc2_app_kit::{
@@ -45,6 +45,11 @@ impl Tweakable for NumberInput {
 
 impl Tweakable for Image {
     type Native = NSImageView;
+}
+
+/// The pull-down pop-up button.
+impl Tweakable for MenuButton {
+    type Native = NSPopUpButton;
 }
 
 impl Tweakable for Icon {

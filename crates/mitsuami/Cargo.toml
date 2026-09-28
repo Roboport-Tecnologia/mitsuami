@@ -108,6 +108,10 @@ name = "icon"
 harness = false
 
 [[test]]
+name = "menu_button"
+harness = false
+
+[[test]]
 name = "tooltip"
 harness = false
 

@@ -535,6 +535,32 @@ fn icons() -> impl View {
     ))
 }
 
+/// Menu buttons as each platform draws them, closed: with a caption, an
+/// icon before it, the icon alone, borderless, and disabled. Each draws
+/// its own arrow (GNOME's icon-only menu buttons have none).
+#[mitsuami_test::story(sizes = [(420, fit)])]
+fn menu_buttons() -> impl View {
+    let plus = platform! {
+        macos => "plus",
+        gtk => "list-add-symbolic",
+        kde => "list-add",
+        windows => "\u{E710}",
+        _ => "plus",
+    };
+    let menu = || (MenuItem::new("Disc image…"), MenuItem::new("Folder…"));
+    Column::new().padding(16).gap(12).align(Align::Start).children((
+        Row::new().gap(8).align(Align::Center).children((
+            MenuButton::new("Add").menu(menu()),
+            MenuButton::new("Add").icon(plus).menu(menu()),
+            MenuButton::new("Add").icon(plus).icon_only(true).menu(menu()),
+        )),
+        Row::new().gap(8).align(Align::Center).children((
+            MenuButton::new("Add").icon(plus).button_style(ButtonStyle::Borderless).menu(menu()),
+            MenuButton::new("Add").enabled(false).menu(menu()),
+        )),
+    ))
+}
+
 /// A GPU surface nothing has presented to yet, between two lines: where
 /// it sits and how large it is. Captures show what the platform draws
 /// before the app presents (captures don't read GPU surfaces' content).

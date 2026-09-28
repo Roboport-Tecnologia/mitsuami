@@ -902,12 +902,37 @@ impl Menu {
 /// be unique within the node's menu, since the choice comes as the node's
 /// event.
 pub(crate) fn install_context_menu(ui: &Ui, id: NodeId, menu: Menu) {
+    install_menu(ui, id, menu, Prop::ContextMenu, |event| match event {
+        UiEvent::ContextMenuItem(item) => Some(*item),
+        _ => None,
+    });
+}
+
+/// Gives a `MenuButton` its menu, as [`Prop::Menu`], as a context menu is
+/// given (see `install_context_menu`).
+#[doc(hidden)]
+pub fn install_button_menu(ui: &Ui, id: NodeId, entries: impl MenuEntries) {
+    let menu = Menu::new(String::new()).children(entries);
+    install_menu(ui, id, menu, Prop::Menu, |event| match event {
+        UiEvent::MenuItem(item) => Some(*item),
+        _ => None,
+    });
+}
+
+fn install_menu(
+    ui: &Ui,
+    id: NodeId,
+    menu: Menu,
+    prop: fn(Vec<MenuEntry>) -> Prop,
+    chosen_item: fn(&UiEvent) -> Option<u32>,
+) {
     let handlers: Rc<RefCell<HashMap<u32, Handler>>> = Rc::default();
     // As menu bars' handlers do, they run in the scope that built the menu.
     let scope = mitsuami_reactive::Owner::current();
     let chosen = handlers.clone();
     ui.on_event(id, move |event| {
-        let UiEvent::ContextMenuItem(item) = event else { return };
+        let Some(item) = chosen_item(event) else { return };
+        let item = &item;
         let Some(handler) = chosen.borrow().get(item).cloned() else { return };
         match scope {
             Some(scope) if scope.is_alive() => scope.with(|| handler()),
@@ -922,7 +947,7 @@ pub(crate) fn install_context_menu(ui: &Ui, id: NodeId, menu: Menu) {
             next_id
         });
         *handlers.borrow_mut() = collected.into_iter().collect();
-        ui.set_prop(id, Prop::ContextMenu(entries));
+        ui.set_prop(id, prop(entries));
     });
 }
 

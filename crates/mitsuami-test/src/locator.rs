@@ -268,12 +268,24 @@ impl<'a> Locator<'a> {
         None
     }
 
-    /// Chooses an item of the context menu a right-click here shows (see
+    /// Chooses an item of the menu a `MenuButton` opens, or else of the
+    /// context menu a right-click here shows (see
     /// [`context_menu`](Self::context_menu)), by the titles of its
     /// submenus and its own, as assistive technology would once it has
     /// shown the menu: `choose_menu_item(&["Sort By", "Name"])`.
     pub async fn choose_menu_item(&self, path: &[&str]) {
         self.app.settle().await;
+        let id = self.id();
+        if self.app.ui().kind(id) == Some(WidgetKind::MenuButton) {
+            let menu = find_prop!(self.app.ui().props(id), Menu).unwrap_or_default();
+            let Some(item) = find_menu_item(&menu, path) else {
+                self.fail(&format!("the menu of {} has no item {path:?}", self.query))
+            };
+            if let Err(e) = self.app.ui().perform(id, &A11yAction::MenuItem(item.id)) {
+                self.fail(&format!("cannot choose {path:?} in the menu of {}: {e}", self.query));
+            }
+            return self.app.settle().await;
+        }
         let Some((node, menu)) = self.context_menu() else { self.fail(&format!("{} has no context menu", self.query)) };
         let Some(item) = find_menu_item(&menu, path) else {
             self.fail(&format!("the context menu of {} has no item {path:?}", self.query))

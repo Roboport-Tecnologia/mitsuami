@@ -544,6 +544,40 @@ const LABEL_OPTIONS: &str = concat!(
 /// accessible name, as Qt's `IconOnly` buttons do. `mitsuamiShown*` read
 /// back what the button shows.
 pub(crate) fn button() -> String {
+    button_with("")
+}
+
+/// A button that opens a menu, as KDE's buttons with one do: a button
+/// whose accessible role is `ButtonMenu`, which Qt's desktop style draws
+/// with the style's menu arrow (Breeze's), as it draws a `QPushButton`
+/// with a menu. A click (or Space, or assistive technology's press) pops
+/// up `mitsuamiButtonMenu` under it, and it shows pressed while that's
+/// open. The menu is a context menu's (see `ContextMenu::for_button`): in
+/// the window's overlay while it's open, back in the button once closed.
+pub(crate) fn menu_button() -> String {
+    button_with(
+        r#"
+    property QtObject mitsuamiButtonMenu: null
+    Accessible.role: Accessible.ButtonMenu
+    down: pressed || (mitsuamiButtonMenu !== null && mitsuamiButtonMenu.visible)
+    onClicked: {
+        const menu = mitsuamiButtonMenu
+        if (!menu || menu.visible) return
+        const window = Window.window
+        if (window) window.mitsuamiShownMenu = menu
+        const overlay = QQC2.Overlay.overlay
+        if (overlay) {
+            menu.mitsuamiOwner = menu.parent
+            menu.parent = overlay
+        }
+        const at = mapToItem(menu.parent, 0, height)
+        menu.popup(at.x, at.y)
+    }
+"#,
+    )
+}
+
+fn button_with(extra: &str) -> String {
     format!(
         r#"
 QQC2.Button {{
@@ -557,6 +591,7 @@ QQC2.Button {{
     display: mitsuamiIconOnly && mitsuamiIcon !== "" ? QQC2.AbstractButton.IconOnly : QQC2.AbstractButton.TextBesideIcon
     {TEXT_STYLE}
     {}
+    {extra}
 }}
 "#,
         a11y("text")

@@ -21,6 +21,7 @@ fn describe_props(props: &[Prop]) -> String {
             Prop::Placeholder(s) => extra.push(format!("placeholder={s:?}")),
             Prop::Tooltip(s) => extra.push(format!("tooltip={s:?}")),
             Prop::ContextMenu(entries) => extra.push(format!("context_menu=[{}]", menu_entries(entries))),
+            Prop::Menu(entries) => extra.push(format!("menu=[{}]", menu_entries(entries))),
             Prop::Options(options) => extra.push(format!("options={options:?}")),
             Prop::TabTitles(titles) => extra.push(format!("tabs={titles:?}")),
             Prop::SelectedIndex(index) => {
@@ -312,7 +313,7 @@ pub(crate) fn wireframe(root: &NodeInfo) -> String {
             WidgetKind::Container | WidgetKind::ToolbarItem | WidgetKind::Fragment => "#b5bac2",
             WidgetKind::ScrollView | WidgetKind::List | WidgetKind::Sidebar | WidgetKind::Tabs => "#5f7fa0",
             WidgetKind::Text => "#3f7f5f",
-            WidgetKind::Button => "#2f6fdf",
+            WidgetKind::Button | WidgetKind::MenuButton => "#2f6fdf",
             WidgetKind::TextInput => "#a0602a",
             WidgetKind::PasswordInput => "#8a4f1f",
             WidgetKind::Checkbox | WidgetKind::Switch => "#8a4fbf",

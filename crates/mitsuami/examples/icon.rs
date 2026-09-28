@@ -12,7 +12,9 @@
 //!   the user's accent. Switch to dark mode to see them follow.
 //! - Turn off "Icons only": the row buttons show their caption beside the
 //!   icon. VoiceOver, Orca, Narrator and friends read the caption either way.
-//! - The trash buttons remove their row; "Add disc" adds one back.
+//! - The trash buttons remove their row. "Add" is the platform's menu
+//!   button: its menu adds a disc of the kind chosen, and Guest tools is a
+//!   submenu.
 
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
@@ -96,11 +98,14 @@ fn library() -> impl View {
     let next_id = signal(LIBRARY.len() as u32);
     let size = signal(32.0_f64);
     let icons_only = signal(true);
-    let add_disc = move || {
-        let id = next_id.get_untracked();
-        next_id.set(id + 1);
-        let (title, path, kind) = LIBRARY[id as usize % LIBRARY.len()];
-        discs.update(|d| d.push(Disc { id, title, path, kind }));
+    // Adds another of the library's discs of this kind.
+    let add_disc = move |kind: Kind| {
+        move || {
+            let id = next_id.get_untracked();
+            next_id.set(id + 1);
+            let (title, path, kind) = *LIBRARY.iter().find(|(_, _, k)| *k == kind).expect("a disc of the kind");
+            discs.update(|d| d.push(Disc { id, title, path, kind }));
+        }
     };
     let row = move |disc: Disc| {
         let id = disc.id;
@@ -138,7 +143,13 @@ fn library() -> impl View {
             </Row>
             <Row gap=Spacing::Md align=Align::Center>
                 <Text text_style=TextStyle::Headline grow=1.0>"Library"</Text>
-                <Button icon=add() @click=add_disc>"Add disc"</Button>
+                <MenuButton icon=add() menu=(
+                    MenuItem::new("Disc image…").on_select(add_disc(Kind::Iso)),
+                    MenuItem::new("CUE sheet…").on_select(add_disc(Kind::Cue)),
+                    MenuItem::new("Folder…").on_select(add_disc(Kind::Folder)),
+                    MenuSeparator,
+                    Menu::new("Guest tools").item(MenuItem::new("3dfx").on_select(add_disc(Kind::Tools))),
+                )>"Add"</MenuButton>
             </Row>
             <Column gap=Spacing::Md>
                 <For each=discs key=|d: &Disc| d.id let:disc>{row(disc)}</For>

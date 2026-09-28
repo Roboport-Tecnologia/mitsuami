@@ -284,7 +284,16 @@ impl Split {
             bin.add_breakpoint(breakpoint);
         }
         window.set_child(Some(&bin));
-        Split { sidebar: id, bin, view, sidebar_page, sidebar_header, sidebar_view, content, data: sidebar.data.clone() }
+        Split {
+            sidebar: id,
+            bin,
+            view,
+            sidebar_page,
+            sidebar_header,
+            sidebar_view,
+            content,
+            data: sidebar.data.clone(),
+        }
     }
 
     /// Gives the window its content and title bar back.

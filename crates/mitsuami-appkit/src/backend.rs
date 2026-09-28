@@ -87,6 +87,13 @@ enum Widget {
     Checkbox(Retained<NSButton>),
     Switch(Retained<NSSwitch>),
     Select(Retained<NSPopUpButton>),
+    /// A pull-down: its first item is the title it shows, then the app's
+    /// menu, whose items call the target.
+    MenuButton {
+        popup: Retained<NSPopUpButton>,
+        target: Retained<ClosureTarget>,
+        sent: Vec<MenuEntry>,
+    },
     /// A slider, and the step it was given: AppKit steps by tick marks,
     /// which only approximate one that doesn't divide the range.
     Slider {
@@ -134,7 +141,7 @@ impl Widget {
             Widget::Label(v) | Widget::Field(v) => v,
             Widget::Button(v) | Widget::Checkbox(v) => v,
             Widget::Switch(v) => v,
-            Widget::Select(v) => v,
+            Widget::Select(v) | Widget::MenuButton { popup: v, .. } => v,
             Widget::Slider { slider, .. } => slider,
             Widget::NumberInput(v) => v,
             Widget::Progress(v) => v,
@@ -155,7 +162,7 @@ impl Widget {
             Widget::Label(v) | Widget::Field(v) => Some(v),
             Widget::Button(v) | Widget::Checkbox(v) => Some(v),
             Widget::Switch(v) => Some(v),
-            Widget::Select(v) => Some(v),
+            Widget::Select(v) | Widget::MenuButton { popup: v, .. } => Some(v),
             Widget::Slider { slider, .. } => Some(slider),
             // Its field: what's focused, and what text styles apply to.
             Widget::NumberInput(n) => Some(n.field()),
@@ -711,6 +718,22 @@ impl State {
                 }
                 Widget::Select(popup)
             }
+            WidgetKind::MenuButton => {
+                let popup = NSPopUpButton::initWithFrame_pullsDown(
+                    NSPopUpButton::alloc(mtm),
+                    crate::classes::zero_rect(),
+                    true,
+                );
+                let events = self.events.clone();
+                let target = ClosureTarget::new(mtm, move |sender| {
+                    if let Some(item) = sender.downcast_ref::<NSMenuItem>() {
+                        events.emit(id, UiEvent::MenuItem(item.tag() as u32));
+                    }
+                });
+                let widget = Widget::MenuButton { popup, target, sent: Vec::new() };
+                show_pull_down(&widget, "", None, None);
+                widget
+            }
             WidgetKind::Slider => {
                 let slider = NSSlider::new(mtm);
                 unsafe {
@@ -859,6 +882,27 @@ impl State {
             (Prop::Label(t), Widget::Button(b) | Widget::Checkbox(b)) => b.setTitle(&ns(t)),
             (Prop::Label(t), Widget::Switch(s)) => s.setAccessibilityLabel(Some(&ns(t))),
             (Prop::Label(t), Widget::Select(p)) => p.setAccessibilityLabel(Some(&ns(t))),
+            (Prop::Label(_) | Prop::Icon(_) | Prop::IconOnly(_) | Prop::Menu(_), Widget::MenuButton { .. }) => {
+                match prop {
+                    Prop::Icon(name) => node.icon = Some(name.clone()),
+                    Prop::IconOnly(only) => node.icon_only = Some(*only),
+                    Prop::Menu(entries) => {
+                        if let Widget::MenuButton { sent, .. } = &mut node.widget {
+                            *sent = entries.clone();
+                        }
+                    }
+                    _ => {}
+                }
+                let label = match prop {
+                    Prop::Label(t) => t.clone(),
+                    _ => pull_down_title(&node.widget),
+                };
+                show_pull_down(&node.widget, &label, node.icon.as_deref(), node.icon_only);
+            }
+            (Prop::ButtonStyle(style), Widget::MenuButton { popup, .. }) => {
+                popup.setBordered(*style != ButtonStyle::Borderless);
+                node.button_style = Some(*style);
+            }
             (Prop::Options(options), Widget::Select(p)) => {
                 // Items go straight into the menu: `addItemWithTitle:`
                 // drops earlier items with the same title. The chosen index
@@ -1124,7 +1168,7 @@ impl State {
                 // shows too: it keeps the menu on the node.
                 let set = |view: &NSView| unsafe { view.setMenu(menu.as_deref()) };
                 match widget {
-                    Widget::Select(_) => {}
+                    Widget::Select(_) | Widget::MenuButton { .. } => {}
                     Widget::NumberInput(n) => {
                         set(n.field());
                         set(n.stepper());
@@ -1132,7 +1176,7 @@ impl State {
                     Widget::List(list) => set(&list.table),
                     _ => {}
                 }
-                if !matches!(widget, Widget::Select(_)) {
+                if !matches!(widget, Widget::Select(_) | Widget::MenuButton { .. }) {
                     set(widget.view());
                 }
                 node.context_menu = Some((entries.clone(), target));
@@ -1603,6 +1647,28 @@ fn symbol(name: &str, points: Option<f32>) -> Option<Retained<NSImage>> {
     }
 }
 
+/// Shows a menu button's title, icon and menu: a pull-down shows its
+/// first item as its title, so the menu is made again with that first.
+fn show_pull_down(widget: &Widget, title: &str, icon: Option<&str>, icon_only: Option<bool>) {
+    let Widget::MenuButton { popup, target, sent } = widget else { return };
+    let mtm = MainThreadMarker::from(&**popup);
+    let menu = crate::services::context_menu(mtm, sent, ItemTarget { object: target, action: sel!(fire:) });
+    let item = NSMenuItem::new(mtm);
+    item.setTitle(&ns(title));
+    item.setImage(icon.and_then(|name| symbol(name, None)).as_deref());
+    menu.insertItem_atIndex(&item, 0);
+    popup.setMenu(Some(&menu));
+    popup.setImagePosition(image_position(icon_only));
+    // The title stays its accessible name when only the image shows.
+    popup.setAccessibilityLabel(Some(&ns(title)));
+}
+
+/// The title a menu button shows: its pull-down's first item's.
+fn pull_down_title(widget: &Widget) -> String {
+    let Widget::MenuButton { popup, .. } = widget else { return String::new() };
+    popup.itemAtIndex(0).map(|item| item.title().to_string()).unwrap_or_default()
+}
+
 /// Where a button's image goes: before the title, which reads leading in
 /// right-to-left layouts too, or alone.
 fn image_position(icon_only: Option<bool>) -> NSCellImagePosition {
@@ -1719,6 +1785,7 @@ impl Backend for AppKitBackend {
             Widget::Switch(v) => ceil_size(v.intrinsicContentSize()),
             // AppKit sizes pop-up buttons for their widest item.
             Widget::Select(v) => ceil_size(v.intrinsicContentSize()),
+            Widget::MenuButton { popup, .. } => ceil_size(popup.intrinsicContentSize()),
             // No natural width: they're as wide as the layout makes them.
             Widget::Slider { slider, .. } => intrinsic(slider),
             Widget::NumberInput(n) => n.natural_size(),
@@ -1752,6 +1819,9 @@ impl Backend for AppKitBackend {
     fn perform(&mut self, id: NodeId, action: &A11yAction) -> Result<(), ActionError> {
         if let A11yAction::ContextMenuItem(item) = action {
             return self.choose_context_menu_item(id, *item);
+        }
+        if let A11yAction::MenuItem(item) = action {
+            return self.choose_pull_down_item(id, *item);
         }
         // A list's rows: select or activate them in the table. The table
         // only calls back into its own data, never into our state.
@@ -2091,6 +2161,21 @@ impl Backend for AppKitBackend {
                 }
                 props.push(Prop::ReadOnly(!f.isEditable()));
             }
+            Widget::MenuButton { popup, sent, .. } => {
+                props.push(Prop::Label(pull_down_title(&node.widget)));
+                props.extend(node.icon.clone().map(Prop::Icon));
+                if node.icon_only.is_some() {
+                    props.push(Prop::IconOnly(popup.imagePosition() == NSCellImagePosition::ImageOnly));
+                }
+                if let Some(menu) = popup.menu() {
+                    let mut entries = crate::services::context_menu_entries(&menu, sent);
+                    // The title item.
+                    if !entries.is_empty() {
+                        entries.remove(0);
+                    }
+                    props.push(Prop::Menu(entries));
+                }
+            }
             Widget::Button(b) => {
                 props.push(Prop::Label(b.title().to_string()));
                 props.extend(node.icon.clone().map(Prop::Icon));
@@ -2236,7 +2321,7 @@ impl Backend for AppKitBackend {
         props.push(Prop::Tooltip(view.toolTip().map(|t| t.to_string()).unwrap_or_default()));
         if let Some((sent, _)) = &node.context_menu {
             props.push(Prop::ContextMenu(match (&node.widget, view.menu()) {
-                (Widget::Select(_), _) => sent.clone(),
+                (Widget::Select(_) | Widget::MenuButton { .. }, _) => sent.clone(),
                 (_, Some(menu)) => crate::services::context_menu_entries(&menu, sent),
                 (_, None) => Vec::new(),
             }));
@@ -2349,12 +2434,36 @@ impl Backend for AppKitBackend {
 impl AppKitBackend {
     /// What VoiceOver does once it has shown a view's menu: press the
     /// item, which sends its action. A disabled control shows no menu.
+    /// Chooses an item of a menu button's pull-down, as the menu would.
+    fn choose_pull_down_item(&self, id: NodeId, item: u32) -> Result<(), ActionError> {
+        let menu = {
+            let state = self.state.borrow();
+            let node = state.nodes.get(&id).ok_or(ActionError::UnknownNode)?;
+            let Widget::MenuButton { popup, .. } = &node.widget else { return Err(ActionError::Unsupported) };
+            if !popup.isEnabled() {
+                return Err(ActionError::Disabled);
+            }
+            popup.menu()
+        };
+        // Tag 0 is the title item, never an app item.
+        let (item, menu) = menu
+            .filter(|_| item != 0)
+            .and_then(|menu| crate::services::find_tagged(&menu, item))
+            .ok_or(ActionError::Unsupported)?;
+        if !item.isEnabled() {
+            return Err(ActionError::Disabled);
+        }
+        // No state borrow: the item's target emits the choice.
+        menu.performActionForItemAtIndex(menu.indexOfItem(&item));
+        Ok(())
+    }
+
     fn choose_context_menu_item(&self, id: NodeId, item: u32) -> Result<(), ActionError> {
         let (menu, enabled) = {
             let state = self.state.borrow();
             let node = state.nodes.get(&id).ok_or(ActionError::UnknownNode)?;
             let menu = match node.widget {
-                Widget::Select(_) => None,
+                Widget::Select(_) | Widget::MenuButton { .. } => None,
                 _ => node.widget.view().menu(),
             };
             (menu, node.widget.control().is_none_or(|c| c.isEnabled()))

@@ -927,14 +927,16 @@ impl Backend for HeadlessBackend {
             }
             // An icon takes a 16-point square and a 6-point gap before
             // the caption, or the caption's place when it's shown alone.
-            WidgetKind::Button => {
+            // A menu button is a button with a 16-point arrow after it.
+            WidgetKind::Button | WidgetKind::MenuButton => {
+                let arrow = if node.kind == WidgetKind::MenuButton { 16.0 } else { 0.0 };
                 let icon = find_prop!(node.props, Icon).is_some_and(|name| !name.is_empty());
                 let content = match (icon, find_prop!(node.props, IconOnly) == Some(true)) {
                     (true, true) => 16.0,
                     (true, false) => 16.0 + 6.0 + text_size(&label(), font, None, None).width,
                     (false, _) => text_size(&label(), font, None, None).width,
                 };
-                Size::new(content + 24.0, (line + 8.0).max(28.0))
+                Size::new(content + arrow + 24.0, (line + 8.0).max(28.0))
             }
             WidgetKind::TextInput | WidgetKind::PasswordInput => Size::new(200.0, line + 8.0),
             WidgetKind::Checkbox => {
@@ -994,11 +996,21 @@ impl Backend for HeadlessBackend {
             return Err(ActionError::Disabled);
         }
         let kind = node.kind;
-        if let A11yAction::ContextMenuItem(item) = action {
-            let menu = find_prop!(node.props, ContextMenu).unwrap_or_default();
-            return match menu_item_by_id(&menu, *item).map(|item| item.enabled) {
+        // A menu button's own menu, or any node's context menu.
+        let chosen = match action {
+            A11yAction::ContextMenuItem(item) => {
+                Some((find_prop!(node.props, ContextMenu), *item, UiEvent::ContextMenuItem(*item)))
+            }
+            A11yAction::MenuItem(item) if kind == WidgetKind::MenuButton => {
+                Some((find_prop!(node.props, Menu), *item, UiEvent::MenuItem(*item)))
+            }
+            _ => None,
+        };
+        if let Some((menu, item, event)) = chosen {
+            let menu = menu.unwrap_or_default();
+            return match menu_item_by_id(&menu, item).map(|item| item.enabled) {
                 Some(true) => {
-                    state.emit(id, UiEvent::ContextMenuItem(*item));
+                    state.emit(id, event);
                     Ok(())
                 }
                 Some(false) => Err(ActionError::Disabled),

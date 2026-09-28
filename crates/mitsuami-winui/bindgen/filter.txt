@@ -82,6 +82,8 @@ Microsoft.UI.Xaml.Controls.IControl::{get_IsEnabled, put_IsEnabled, put_FontSize
 Microsoft.UI.Xaml.Thickness
 Microsoft.UI.Xaml.Controls.IContentControl::{get_Content, put_Content, get_ContentTemplateRoot}
 Microsoft.UI.Xaml.Controls.Button::CreateInstance
+Microsoft.UI.Xaml.Controls.IButton::{get_Flyout, put_Flyout}
+Microsoft.UI.Xaml.Controls.DropDownButton::CreateInstance
 Microsoft.UI.Xaml.Controls.Primitives.IButtonBase::{add_Click, remove_Click}
 Microsoft.UI.Xaml.Controls.CheckBox::CreateInstance
 Microsoft.UI.Xaml.Controls.Primitives.IToggleButton::{get_IsChecked, put_IsChecked, add_Checked, remove_Checked, add_Unchecked, remove_Unchecked}
