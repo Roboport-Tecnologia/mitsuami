@@ -18,6 +18,12 @@ thread_local! {
 
 fn init() {
     gtk::init().expect("mitsuami: cannot initialize GTK (is there a display?)");
+    // libadwaita takes the dark preference from the system's color scheme
+    // and warns when GTK's older setting is on, as a settings.ini for GTK 3
+    // apps often leaves it. Its apps ignore the setting, so clear it first.
+    if let Some(settings) = gtk::Settings::default() {
+        settings.set_gtk_application_prefer_dark_theme(false);
+    }
     // libadwaita's widgets (the sidebar's split view), and its style.
     adw::init().expect("mitsuami: cannot initialize libadwaita");
 }
