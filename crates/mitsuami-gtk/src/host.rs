@@ -140,10 +140,16 @@ mod imp {
                     continue;
                 }
                 let frame = frames.get(&child).copied().unwrap_or_default();
-                // GTK wants every widget measured before it's allocated.
-                child.measure(gtk::Orientation::Horizontal, -1);
+                // GTK wants every widget measured before it's allocated, and
+                // never below its minimum (it warns): a frame narrower than
+                // that (a percentage width, a stretch) overflows, as it
+                // would in a GTK box.
+                let (min_width, ..) = child.measure(gtk::Orientation::Horizontal, -1);
+                let width = (frame.width().round() as i32).max(min_width);
+                let (min_height, ..) = child.measure(gtk::Orientation::Vertical, width);
+                let height = (frame.height().round() as i32).max(min_height);
                 let transform = gsk::Transform::new().translate(&graphene::Point::new(frame.x(), frame.y()));
-                child.allocate(frame.width().round() as i32, frame.height().round() as i32, -1, Some(transform));
+                child.allocate(width, height, -1, Some(transform));
             }
             if let Some(root) = self.root.get() {
                 let size = Size::new(width as f32, height as f32);
