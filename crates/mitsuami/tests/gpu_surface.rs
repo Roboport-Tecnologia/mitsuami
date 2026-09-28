@@ -400,4 +400,94 @@ async fn reads_as_an_image_named_by_its_label(app: TestApp) {
     app.expect(screen()).to_be_visible().await;
 }
 
+/// The app's cursor over it: the platform's, none, or an image with its
+/// hotspot. The native surface carries it (the mirror check compares).
+#[mitsuami_test::test]
+async fn shows_the_app_s_cursor(app: TestApp) {
+    let arrow = Pixels::new(2, 2, vec![255; 16]).scale(2.0);
+    let cursor = signal(Cursor::Default);
+    app.mount(move || Column::new().child(surface_only().cursor(cursor)));
+    app.settle().await;
+
+    for next in
+        [Cursor::Image { pixels: arrow.clone(), hotspot: Point::new(0.5, 0.5) }, Cursor::Hidden, Cursor::Default]
+    {
+        cursor.set(next.clone());
+        app.settle().await;
+        assert!(app.get(screen()).native_state().props.contains(&Prop::Cursor(next)));
+    }
+}
+
+/// Keys it has down when its window stops being the key one are let go:
+/// their releases would go to another window. Needs a key held, which
+/// only AppKit's real events give here.
+#[cfg(target_os = "macos")]
+#[mitsuami_test::test]
+async fn lets_go_of_its_keys_when_the_window_does(app: TestApp) {
+    use mitsuami::appkit::objc2::rc::Retained;
+    use mitsuami::appkit::objc2::runtime::AnyObject;
+    use mitsuami::appkit::objc2::{Encoding, RefEncode, class, msg_send};
+    use mitsuami::raw_window_handle::RawWindowHandle;
+
+    #[repr(C)]
+    struct CGEvent([u8; 0]);
+    // SAFETY: Quartz's opaque event type, as AppKit encodes it.
+    unsafe impl RefEncode for CGEvent {
+        const ENCODING_REF: Encoding = Encoding::Pointer(&Encoding::Struct("__CGEvent", &[]));
+    }
+    unsafe extern "C" {
+        fn CGEventCreateKeyboardEvent(source: *const std::ffi::c_void, key: u16, down: bool) -> *mut CGEvent;
+        fn CFRelease(cf: *const std::ffi::c_void);
+    }
+
+    let seen = Rc::new(RefCell::new(Vec::new()));
+    let (log, on_input) = input_log();
+    let s = seen.clone();
+    app.mount(move || Column::new().child(surface(&s).size(200.px(), 100.px()).on_input(on_input)));
+    app.settle().await;
+    if app.is_headless() {
+        return;
+    }
+    app.get(screen()).click_at(10.0, 10.0).await;
+    let RawWindowHandle::AppKit(appkit) = handle(&seen).window_handle().unwrap().as_raw() else { panic!() };
+    // SAFETY: the handle keeps the view alive.
+    let view: &AnyObject = unsafe { appkit.ns_view.cast().as_ref() };
+    unsafe {
+        // A down, and no up.
+        let cg = CGEventCreateKeyboardEvent(std::ptr::null(), 0x00, true);
+        let event: Retained<AnyObject> = msg_send![class!(NSEvent), eventWithCGEvent: cg];
+        let _: () = msg_send![view, keyDown: &*event];
+        CFRelease(cg.cast());
+        let window: Retained<AnyObject> = msg_send![view, window];
+        let name = mitsuami::appkit::objc2_app_kit::NSWindowDidResignKeyNotification;
+        let center: Retained<AnyObject> = msg_send![class!(NSNotificationCenter), defaultCenter];
+        let _: () = msg_send![&*center, postNotificationName: name, object: &*window];
+    }
+    app.settle().await;
+
+    assert_eq!(keys(&log), [(KeyCode::KeyA, true), (KeyCode::KeyA, false)], "{log:?}");
+}
+
+/// While it holds the pointer, the mouse's moves come twice: in points,
+/// accelerated as the cursor would be, and in the device's counts, before
+/// the host's acceleration.
+#[mitsuami_test::test(headless)]
+async fn reports_raw_motion_while_locked(app: TestApp) {
+    let locked = signal(true);
+    let (log, on_input) = input_log();
+    app.mount(move || Column::new().child(taking_input(on_input).pointer_lock(locked)));
+    app.settle().await;
+
+    app.headless().move_locked_pointer(app.get(screen()).id(), 3.0, -2.0);
+    app.settle().await;
+
+    let moves: Vec<SurfaceInput> = log
+        .borrow()
+        .iter()
+        .filter(|input| matches!(input, SurfaceInput::Motion { .. } | SurfaceInput::RawMotion { .. }))
+        .copied()
+        .collect();
+    assert_eq!(moves, [SurfaceInput::Motion { dx: 3.0, dy: -2.0 }, SurfaceInput::RawMotion { dx: 3.0, dy: -2.0 }]);
+}
+
 mitsuami_test::main!();

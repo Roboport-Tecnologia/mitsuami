@@ -459,6 +459,20 @@ impl Ui {
         id
     }
 
+    /// Asks for a window's content size, in points, as the app would resize
+    /// it. The platform may refuse it (a window in full screen keeps the
+    /// screen's), and gives it no smaller than the window's `MinSize`; the
+    /// content is laid out at the size it reports (`WindowResized`).
+    pub fn set_window_size(&self, window: NodeId, size: Size) {
+        {
+            let mut inner = self.inner.borrow_mut();
+            let Some(node) = inner.nodes.get_mut(&window).filter(|n| n.kind == WidgetKind::Window) else { return };
+            node.fit_height = false;
+            inner.pending.push(Command::SetWindowSize { id: window, size });
+        }
+        self.changed();
+    }
+
     /// Sets a prop, sending it to the backend only if it changed.
     pub fn set_prop(&self, id: NodeId, prop: Prop) {
         {
@@ -1414,12 +1428,13 @@ impl Inner {
                 node.props.retain(|p| p.key() != prop.key());
                 node.props.push(prop);
             }
-            UiEvent::PointerLockEnded | UiEvent::KeyboardGrabEnded => {
+            UiEvent::PointerLockEnded | UiEvent::KeyboardGrabEnded | UiEvent::FullScreenChanged(_) => {
                 let Some(node) = self.nodes.get_mut(&id) else { return };
-                let prop = if *event == UiEvent::PointerLockEnded {
-                    Prop::PointerLock(false)
-                } else {
-                    Prop::KeyboardGrab(false)
+                let prop = match event {
+                    UiEvent::PointerLockEnded => Prop::PointerLock(false),
+                    UiEvent::KeyboardGrabEnded => Prop::KeyboardGrab(false),
+                    UiEvent::FullScreenChanged(on) => Prop::FullScreen(*on),
+                    _ => unreachable!(),
                 };
                 node.props.retain(|p| p.key() != prop.key());
                 node.props.push(prop);

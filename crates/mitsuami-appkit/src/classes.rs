@@ -174,6 +174,14 @@ pub(crate) struct WindowIvars {
     focused: Cell<Option<NodeId>>,
     /// A dialog: Escape asks it to close.
     modal: Cell<bool>,
+    /// Full screen as AppKit has it, or is moving into.
+    full_screen: Cell<bool>,
+    /// Full screen as the app wants it (and the user, who changes it too).
+    full_screen_wanted: Cell<bool>,
+    /// A transition is under way: AppKit ignores a toggle until it ends.
+    full_screen_moving: Cell<bool>,
+    /// The transition starting is the app's own, so it isn't reported.
+    full_screen_ours: Cell<bool>,
 }
 
 define_class!(
@@ -243,6 +251,40 @@ define_class!(
         fn window_did_change_backing_properties(&self, _notification: &NSNotification) {
             self.ivars().events.emit(self.ivars().id, UiEvent::MetricsChanged);
         }
+
+        // Full screen's transitions. `willEnter` and `willExit` come
+        // inside `toggleFullScreen:`, from the app or from the title
+        // bar's button; `did` ends the animation.
+
+        #[unsafe(method(windowWillEnterFullScreen:))]
+        fn window_will_enter_full_screen(&self, _notification: &NSNotification) {
+            self.full_screen_starts(true);
+        }
+
+        #[unsafe(method(windowWillExitFullScreen:))]
+        fn window_will_exit_full_screen(&self, _notification: &NSNotification) {
+            self.full_screen_starts(false);
+        }
+
+        #[unsafe(method(windowDidEnterFullScreen:))]
+        fn window_did_enter_full_screen(&self, notification: &NSNotification) {
+            self.full_screen_ends(notification);
+        }
+
+        #[unsafe(method(windowDidExitFullScreen:))]
+        fn window_did_exit_full_screen(&self, notification: &NSNotification) {
+            self.full_screen_ends(notification);
+        }
+
+        #[unsafe(method(windowDidFailToEnterFullScreen:))]
+        fn window_did_fail_to_enter_full_screen(&self, _window: &NSWindow) {
+            self.full_screen_fails(false);
+        }
+
+        #[unsafe(method(windowDidFailToExitFullScreen:))]
+        fn window_did_fail_to_exit_full_screen(&self, _window: &NSWindow) {
+            self.full_screen_fails(true);
+        }
     }
 );
 
@@ -261,12 +303,80 @@ impl WindowDelegate {
             views,
             focused: Cell::new(None),
             modal: Cell::new(false),
+            full_screen: Cell::new(false),
+            full_screen_wanted: Cell::new(false),
+            full_screen_moving: Cell::new(false),
+            full_screen_ours: Cell::new(false),
         });
         unsafe { msg_send![super(this), init] }
     }
 
     pub(crate) fn set_modal(&self, modal: bool) {
         self.ivars().modal.set(modal);
+    }
+
+    /// Full screen as the app wants it: applied once the window is shown
+    /// (a hidden window would go into full screen unseen) and no
+    /// transition is under way.
+    pub(crate) fn set_full_screen(&self, window: &NSWindow, on: bool) {
+        self.ivars().full_screen_wanted.set(on);
+        self.apply_full_screen(window);
+    }
+
+    pub(crate) fn apply_full_screen(&self, window: &NSWindow) {
+        let ivars = self.ivars();
+        if ivars.full_screen_moving.get()
+            || !window.isVisible()
+            || ivars.full_screen.get() == ivars.full_screen_wanted.get()
+        {
+            return;
+        }
+        ivars.full_screen_ours.set(true);
+        window.toggleFullScreen(None);
+        // No transition started: AppKit refused (a sheet can't have full
+        // screen). The window stays as it is, and the app hears so.
+        if ivars.full_screen_ours.replace(false) {
+            ivars.full_screen_wanted.set(ivars.full_screen.get());
+            ivars.events.emit(ivars.id, UiEvent::FullScreenChanged(ivars.full_screen.get()));
+        }
+    }
+
+    /// What the window shows: while it's hidden or moving, what it will.
+    pub(crate) fn full_screen(&self, window: &NSWindow) -> bool {
+        let ivars = self.ivars();
+        if ivars.full_screen_moving.get() || !window.isVisible() {
+            ivars.full_screen_wanted.get()
+        } else {
+            ivars.full_screen.get()
+        }
+    }
+
+    fn full_screen_starts(&self, on: bool) {
+        let ivars = self.ivars();
+        ivars.full_screen.set(on);
+        ivars.full_screen_moving.set(true);
+        if !ivars.full_screen_ours.replace(false) {
+            ivars.full_screen_wanted.set(on);
+            ivars.events.emit(ivars.id, UiEvent::FullScreenChanged(on));
+        }
+    }
+
+    /// The app may have changed its mind while it moved.
+    fn full_screen_ends(&self, notification: &NSNotification) {
+        self.ivars().full_screen_moving.set(false);
+        if let Some(window) = notification.object().and_then(|o| o.downcast::<NSWindow>().ok()) {
+            self.apply_full_screen(&window);
+        }
+    }
+
+    /// The window is back as it was: the app hears so.
+    fn full_screen_fails(&self, was: bool) {
+        let ivars = self.ivars();
+        ivars.full_screen.set(was);
+        ivars.full_screen_moving.set(false);
+        if ivars.full_screen_wanted.replace(was) != was {
+            ivars.events.emit(ivars.id, UiEvent::FullScreenChanged(was));
+        }
     }
 
     pub(crate) fn observe_focus(&self, window: &NSWindow) {

@@ -4,6 +4,7 @@
 #include <QAccessible>
 #include <QApplication>
 #include <QClipboard>
+#include <QCursor>
 #include <QFontInfo>
 #include <QHash>
 #include <QImage>
@@ -13,6 +14,7 @@
 #include <QPainter>
 #include <QPainterPath>
 #include <QPalette>
+#include <QPixmap>
 #include <QPointer>
 #include <QQmlComponent>
 #include <QQmlEngine>
@@ -26,6 +28,7 @@
 #include <qpa/qplatformnativeinterface.h>
 #include <QUrl>
 #include <cstring>
+#include <optional>
 
 static mq_callback g_callback = nullptr;
 static mq_input_callback g_input = nullptr;
@@ -205,10 +208,18 @@ public:
         setAcceptedMouseButtons(takes ? Qt::AllButtons : Qt::NoButton);
         setAcceptHoverEvents(takes);
         setActiveFocusOnTab(takes);
-        if (locked) setCursor(Qt::BlankCursor); else unsetCursor();
+        showCursor();
+    }
+
+    // The app's cursor: none (the platform's), or one of its own. A lock
+    // hides it whatever it is.
+    void setChosenCursor(std::optional<QCursor> cursor) {
+        chosen = std::move(cursor);
+        showCursor();
     }
 
     bool takes = false, grabbed = false, locked = false;
+    std::optional<QCursor> chosen;
 
 protected:
     bool event(QEvent* event) override {
@@ -258,6 +269,12 @@ protected:
     }
 
 private:
+    void showCursor() {
+        if (locked) setCursor(Qt::BlankCursor);
+        else if (chosen) setCursor(*chosen);
+        else unsetCursor();
+    }
+
     void onKey(QKeyEvent* event, int32_t kind) {
         if (!takes) return event->ignore();
         // Control+Tab leaves the surface, as it leaves a text view (the
@@ -780,6 +797,29 @@ QObject* mq_surface_input_new(QObject* parent, uint64_t key) {
 
 void mq_surface_input_configure(QObject* item, int32_t takes, int32_t grabbed, int32_t locked) {
     static_cast<SurfaceInputItem*>(item)->configure(takes, grabbed, locked);
+}
+
+// Kind 0: the platform's cursor; 1: none; 2: the pixels (straight RGBA8,
+// copied), at `scale` pixels to a point, with the hotspot in points, as
+// Qt takes it for a pixmap with a device pixel ratio.
+void mq_surface_input_cursor(QObject* item, int32_t kind, const uint8_t* rgba, int32_t width, int32_t height,
+                             double scale, int32_t hot_x, int32_t hot_y) {
+    auto* input = static_cast<SurfaceInputItem*>(item);
+    if (kind == 0) return input->setChosenCursor(std::nullopt);
+    if (kind == 1) return input->setChosenCursor(QCursor(Qt::BlankCursor));
+    QImage image(rgba, width, height, width * 4, QImage::Format_RGBA8888);
+    QPixmap pixmap = QPixmap::fromImage(image.copy());
+    pixmap.setDevicePixelRatio(scale);
+    input->setChosenCursor(QCursor(pixmap, hot_x, hot_y));
+}
+
+int32_t mq_window_states(QObject* window) {
+    auto* w = qobject_cast<QWindow*>(window);
+    return w ? int32_t(w->windowStates().toInt()) : 0;
+}
+
+void mq_window_set_states(QObject* window, int32_t states) {
+    if (auto* w = qobject_cast<QWindow*>(window)) w->setWindowStates(Qt::WindowStates(states));
 }
 
 // A real key press and release with a native scan code, through the

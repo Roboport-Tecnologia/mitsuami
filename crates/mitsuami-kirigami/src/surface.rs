@@ -22,7 +22,8 @@ use std::rc::{Rc, Weak};
 use std::sync::Mutex;
 
 use mitsuami_core::{
-    KeyCode, Modifiers, MouseButton, NodeId, Point, ScrollDelta, SurfaceHandle, SurfaceInput, SurfaceSize, UiEvent,
+    Cursor, KeyCode, Modifiers, MouseButton, NodeId, Point, ScrollDelta, SurfaceHandle, SurfaceInput, SurfaceSize,
+    UiEvent,
 };
 use mitsuami_linux::wayland::{self, Subsurface};
 use mitsuami_linux::x11::ChildWindow;
@@ -38,6 +39,17 @@ pub(crate) struct SurfaceItem {
     /// Takes the input, filling the item.
     pub(crate) input: QmlObject,
     state: Rc<RefCell<ItemState>>,
+    /// The keys down, by evdev code: let go when it loses focus.
+    held: Rc<Keys>,
+}
+
+/// Keys down on the surface, by evdev code, and where to report them.
+struct Keys {
+    id: NodeId,
+    events: Events,
+    /// Evdev codes, and the code their press was reported as (a remapped
+    /// key's, by its keysym).
+    down: RefCell<Vec<(u32, KeyCode)>>,
 }
 
 /// The surface of our own, by display server.
@@ -90,6 +102,9 @@ struct ItemState {
     takes_input: Option<bool>,
     pointer_lock: Option<bool>,
     keyboard_grab: Option<bool>,
+    /// Qt gives no cursor back as it was set.
+    cursor: Option<Cursor>,
+    keys: Rc<Keys>,
     /// What's in effect, and which of them (a lock's reports carry it, so
     /// a late one from a lock let go is dropped).
     lock: Option<(u64, Held)>,
@@ -116,12 +131,20 @@ impl SurfaceItem {
             // loop; it's handled before the loop sleeps again.
             ffi::watch_loop(take_reported);
         }
-        let e = events.clone();
+        let held = Rc::new(Keys { id, events: events.clone(), down: RefCell::default() });
+        let keys = held.clone();
         let input = item.surface_input(ffi::register(move |callback| {
             if let Callback::Input(event) = callback
                 && let Some(input) = surface_input(event)
             {
-                e.emit(id, UiEvent::SurfaceInput(input));
+                if let SurfaceInput::Key { code, native, pressed, .. } = input {
+                    let mut down = keys.down.borrow_mut();
+                    down.retain(|(k, _)| *k != native);
+                    if pressed {
+                        down.push((native, code));
+                    }
+                }
+                keys.events.emit(id, UiEvent::SurfaceInput(input));
             }
         }));
         let state = Rc::new(RefCell::new(ItemState {
@@ -138,6 +161,8 @@ impl SurfaceItem {
             takes_input: None,
             pointer_lock: None,
             keyboard_grab: None,
+            cursor: None,
+            keys: held.clone(),
             lock: None,
             grab: None,
             generation: 0,
@@ -147,9 +172,16 @@ impl SurfaceItem {
             let s = Rc::downgrade(&state);
             item.connect(signal, move || ItemState::sync(&s));
         }
-        // A grab lasts while the surface has focus.
-        let s = Rc::downgrade(&state);
+        // A grab lasts while the surface has focus, and keys held are let
+        // go: their releases go elsewhere. Qt Quick takes active focus
+        // away when the window stops being the active one, too.
+        let (s, keys) = (Rc::downgrade(&state), Rc::downgrade(&held));
         input.connect("activeFocusChanged(bool)", move || {
+            if let Some(keys) = keys.upgrade()
+                && !input.bool("activeFocus")
+            {
+                keys.release();
+            }
             // Not while the state is busy: its own changes don't move focus.
             if let Some(s) = s.upgrade()
                 && let Ok(mut state) = s.try_borrow_mut()
@@ -158,11 +190,12 @@ impl SurfaceItem {
                 state.end_grab();
             }
         });
-        SurfaceItem { item, input, state }
+        SurfaceItem { item, input, state, held }
     }
 
     /// The node is gone: stop showing and reporting.
     pub(crate) fn detach(&self) {
+        self.forget_keys();
         let mut state = self.state.borrow_mut();
         state.live = false;
         state.handle = None;
@@ -193,15 +226,38 @@ impl SurfaceItem {
         if on { state.grab_keyboard() } else { state.release_keyboard() }
     }
 
+    pub(crate) fn set_cursor(&self, cursor: &Cursor) {
+        let mut state = self.state.borrow_mut();
+        state.input.set_surface_cursor(cursor);
+        state.cursor = Some(cursor.clone());
+    }
+
     /// The props kept on the node, as the core set them, the lock and
     /// grab as they are.
-    pub(crate) fn props(&self) -> (Option<bool>, Option<bool>, Option<bool>) {
+    pub(crate) fn props(&self) -> (Option<bool>, Option<bool>, Option<bool>, Option<Cursor>) {
         let state = self.state.borrow();
-        (state.takes_input, state.pointer_lock, state.keyboard_grab)
+        (state.takes_input, state.pointer_lock, state.keyboard_grab, state.cursor.clone())
+    }
+
+    /// Lets go of the keys down without reporting them: the node is gone.
+    fn forget_keys(&self) {
+        self.held.down.borrow_mut().clear();
     }
 
     pub(crate) fn takes_input(&self) -> bool {
         self.state.borrow().takes_input == Some(true)
+    }
+}
+
+impl Keys {
+    /// Reports every key down as let go.
+    fn release(&self) {
+        let down = std::mem::take(&mut *self.down.borrow_mut());
+        for (native, code) in down {
+            let modifiers = Modifiers::default();
+            let key = SurfaceInput::Key { code, native, pressed: false, repeat: false, modifiers };
+            self.events.emit(self.id, UiEvent::SurfaceInput(key));
+        }
     }
 }
 
@@ -226,13 +282,15 @@ impl ItemState {
                 window.connect(signal, move || ItemState::sync(&s));
             }
             // The platform ends the lock and grab when the window stops
-            // being the active one.
+            // being the active one, and keys held are let go (active focus
+            // leaving the input item does it too).
             let s = Rc::downgrade(&this);
             window.connect("activeChanged()", move || {
                 if let Some(s) = s.upgrade()
                     && let Ok(mut state) = s.try_borrow_mut()
                     && !window.is_active()
                 {
+                    state.keys.release();
                     state.end_lock();
                     state.end_grab();
                 }

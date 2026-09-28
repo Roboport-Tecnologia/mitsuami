@@ -356,4 +356,122 @@ async fn a_nested_dialog_applies_or_drops_its_changes(app: TestApp) {
     assert_eq!(machine(&app), None);
 }
 
+fn native_props(app: &TestApp, window: NodeId) -> Vec<Prop> {
+    app.ui().native_state(window).expect("a native window").props
+}
+
+/// Full screen follows the app, and the window comes back to its size.
+/// A window shows it the platform's way: headless fills its screen;
+/// AppKit waits for the window to be shown, which tests don't do, and
+/// the mirror check compares what it will show.
+#[mitsuami_test::test]
+async fn full_screen_follows_the_app(app: TestApp) {
+    let full = signal(false);
+    app.mount(move || {
+        Window::new("Machine").size(Size::new(400.0, 300.0)).full_screen(full).content(|| Text::new("Screen"))
+    });
+    let window = machine(&app).expect("open");
+    let windowed = app.ui().window_size(window).expect("sized");
+
+    full.set(true);
+    app.settle().await;
+    assert!(native_props(&app, window).contains(&Prop::FullScreen(true)));
+    if app.is_headless() {
+        assert_eq!(app.ui().window_size(window), Some(app.headless().screen()));
+    }
+    assert!(full.get_untracked());
+
+    full.set(false);
+    app.settle().await;
+    assert!(native_props(&app, window).contains(&Prop::FullScreen(false)));
+    assert_eq!(app.ui().window_size(window), Some(windowed));
+}
+
+/// The user puts it in full screen, or takes it out, the platform's way
+/// (the title bar's button, the window manager's key): the app's signal
+/// follows.
+#[mitsuami_test::test(headless)]
+async fn the_user_changes_full_screen_too(app: TestApp) {
+    let full = signal(false);
+    app.mount(move || Window::new("Machine").full_screen(full).content(|| Text::new("Screen")));
+    let window = machine(&app).expect("open");
+
+    app.headless().set_full_screen(window, true);
+    app.settle().await;
+    assert!(full.get_untracked());
+    assert_eq!(app.ui().window_size(window), Some(app.headless().screen()));
+
+    app.headless().set_full_screen(window, false);
+    app.settle().await;
+    assert!(!full.get_untracked());
+}
+
+/// A window smaller than its minimum grows to it, whenever the minimum
+/// changes, and the app's sizes go no smaller.
+#[mitsuami_test::test]
+async fn grows_to_its_minimum_size(app: TestApp) {
+    let min = signal(Size::new(400.0, 250.0));
+    app.mount(move || {
+        Window::new("Machine").size(Size::new(300.0, 200.0)).min_size(min).content(|| Text::new("Screen"))
+    });
+    let window = machine(&app).expect("open");
+    app.settle().await;
+    assert_eq!(app.ui().window_size(window), Some(Size::new(400.0, 250.0)));
+    assert!(native_props(&app, window).contains(&Prop::MinSize(Size::new(400.0, 250.0))));
+
+    min.set(Size::new(500.0, 200.0));
+    app.settle().await;
+    assert_eq!(app.ui().window_size(window), Some(Size::new(500.0, 250.0)));
+
+    app.ui().set_window_size(window, Size::new(200.0, 400.0));
+    app.settle().await;
+    assert_eq!(app.ui().window_size(window), Some(Size::new(500.0, 400.0)));
+}
+
+/// The user can't make it smaller than its minimum either.
+#[mitsuami_test::test]
+async fn the_user_goes_no_smaller_than_its_minimum(app: TestApp) {
+    app.mount(|| {
+        Window::new("Machine")
+            .size(Size::new(400.0, 300.0))
+            .min_size(Size::new(320.0, 240.0))
+            .content(|| Text::new("Screen"))
+    });
+    let window = machine(&app).expect("open");
+
+    app.resize_window(window, Size::new(100.0, 100.0)).await;
+    assert_eq!(app.ui().window_size(window), Some(Size::new(320.0, 240.0)));
+}
+
+/// The app resizes it as it likes, and the content follows.
+#[mitsuami_test::test]
+async fn the_app_resizes_it(app: TestApp) {
+    app.mount(|| {
+        Window::new("Machine")
+            .size(Size::new(400.0, 300.0))
+            .content(|| Column::new().child(Row::new().test_id("fill").size(100.vw(), 100.vh())))
+    });
+    let window = machine(&app).expect("open");
+
+    app.ui().set_window_size(window, Size::new(640.0, 480.0));
+    app.settle().await;
+    assert_eq!(app.ui().window_size(window), Some(Size::new(640.0, 480.0)));
+    app.expect(by_test_id("fill")).to_have_frame(Rect::new(0.0, 0.0, 640.0, 480.0)).await;
+}
+
+/// `view!` takes them as attributes.
+#[mitsuami_test::test]
+async fn full_screen_and_minimum_size_in_view_macros(app: TestApp) {
+    let full = signal(false);
+    app.mount(move || {
+        view! {
+            <Window title="Machine" full_screen=full min_size=Size::new(320.0, 240.0)>
+                <Text>"Screen"</Text>
+            </Window>
+        }
+    });
+    let window = machine(&app).expect("open");
+    assert!(native_props(&app, window).contains(&Prop::MinSize(Size::new(320.0, 240.0))));
+}
+
 mitsuami_test::main!();

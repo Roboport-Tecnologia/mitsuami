@@ -34,6 +34,11 @@ pub enum SurfaceInput {
     /// While the pointer is locked: how far it moved, in points,
     /// accelerated as the cursor would be.
     Motion { dx: f32, dy: f32 },
+    /// While the pointer is locked: how far the mouse moved, in the
+    /// device's own counts, before the host's acceleration. Reported with
+    /// `Motion`, for an app that applies its own (a virtual machine's
+    /// guest, a game's camera).
+    RawMotion { dx: f32, dy: f32 },
 }
 
 /// How far a scroll went.

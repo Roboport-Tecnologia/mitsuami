@@ -11,7 +11,7 @@ use std::fmt;
 use std::ptr::NonNull;
 use std::rc::Rc;
 
-use mitsuami_core::{Point, PointerKind};
+use mitsuami_core::{Cursor, Point, PointerKind};
 
 type Raw = *mut c_void;
 
@@ -105,6 +105,19 @@ unsafe extern "C" {
     fn mq_surface_input_new(parent: Raw, key: u64) -> Raw;
     fn mq_surface_input_configure(item: Raw, takes: i32, grabbed: i32, locked: i32);
     fn mq_surface_key(window: Raw, key: i32, scan_code: u32, text: *const c_char);
+    #[allow(clippy::too_many_arguments)]
+    fn mq_surface_input_cursor(
+        item: Raw,
+        kind: i32,
+        rgba: *const u8,
+        width: i32,
+        height: i32,
+        scale: f64,
+        hot_x: i32,
+        hot_y: i32,
+    );
+    fn mq_window_states(window: Raw) -> i32;
+    fn mq_window_set_states(window: Raw, states: i32);
 }
 
 // ------------------------------------------------------------- callbacks
@@ -512,6 +525,36 @@ impl QmlObject {
 
     pub(crate) fn configure_surface_input(self, takes: bool, grabbed: bool, locked: bool) {
         unsafe { mq_surface_input_configure(self.raw(), takes as i32, grabbed as i32, locked as i32) }
+    }
+
+    /// The cursor over a GPU surface's input item.
+    pub(crate) fn set_surface_cursor(self, cursor: &Cursor) {
+        let raw = self.raw();
+        unsafe {
+            match cursor {
+                Cursor::Default => mq_surface_input_cursor(raw, 0, std::ptr::null(), 0, 0, 1.0, 0, 0),
+                Cursor::Hidden => mq_surface_input_cursor(raw, 1, std::ptr::null(), 0, 0, 1.0, 0, 0),
+                Cursor::Image { pixels, hotspot } => mq_surface_input_cursor(
+                    raw,
+                    2,
+                    pixels.rgba().as_ptr(),
+                    pixels.width() as i32,
+                    pixels.height() as i32,
+                    pixels.scale_factor() as f64,
+                    hotspot.x.round() as i32,
+                    hotspot.y.round() as i32,
+                ),
+            }
+        }
+    }
+
+    /// A window's `Qt::WindowStates`.
+    pub(crate) fn window_states(self) -> i32 {
+        unsafe { mq_window_states(self.raw()) }
+    }
+
+    pub(crate) fn set_window_states(self, states: i32) {
+        unsafe { mq_window_set_states(self.raw(), states) }
     }
 
     /// A real key press and release with a native scan code, delivered to

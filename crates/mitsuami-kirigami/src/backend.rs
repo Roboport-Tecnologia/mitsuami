@@ -72,7 +72,14 @@ pub(crate) struct WindowRoot {
     toolbar: RefCell<Vec<NodeId>>,
     /// Whether its first control was given focus, which happens once.
     focused_first: Cell<bool>,
+    /// Full screen as the app wants it, and the user (who changes it too).
+    full_screen: Cell<bool>,
+    /// The smallest content size, if the app set one.
+    min: Cell<Option<Size>>,
 }
+
+/// `Qt::WindowFullScreen`.
+const FULL_SCREEN: i32 = 0x4;
 
 impl WindowRoot {
     fn host_size(&self) -> Size {
@@ -98,6 +105,61 @@ impl WindowRoot {
         self.window.set_real("height", (size.height as f64 + header).round());
     }
 
+    /// Full screen as Qt has it: what it asked the platform for, until the
+    /// platform says otherwise.
+    fn in_full_screen(&self) -> bool {
+        self.window.window_states() & FULL_SCREEN != 0
+    }
+
+    /// As KDE's full screen action does: the other states (maximized)
+    /// stay, for when it comes back.
+    fn set_full_screen(&self, on: bool) {
+        self.full_screen.set(on);
+        let states = self.window.window_states();
+        let wanted = if on { states | FULL_SCREEN } else { states & !FULL_SCREEN };
+        if wanted != states {
+            self.window.set_window_states(wanted);
+        }
+    }
+
+    /// Qt applied a state: on Wayland once the compositor has, and when
+    /// the user changed it (the window manager's key). Only what the app
+    /// didn't ask for is reported, a refusal too.
+    fn states_changed(&self) {
+        let now = self.in_full_screen();
+        if self.full_screen.replace(now) != now {
+            self.events.emit(self.id, UiEvent::FullScreenChanged(now));
+        }
+    }
+
+    /// The window's minimum is the content's and Kirigami's toolbar above
+    /// it, in whole points.
+    fn min_window_size(&self, min: Size) -> (i32, i32) {
+        (min.width.ceil() as i32, (min.height as f64 + self.header()).ceil() as i32)
+    }
+
+    fn apply_min(&self) {
+        let Some(min) = self.min.get() else { return };
+        let (width, height) = self.min_window_size(min);
+        self.window.set_int("minimumWidth", width);
+        self.window.set_int("minimumHeight", height);
+    }
+
+    /// The minimum as Qt has it: the app's, if Qt has what it was given.
+    fn min_size(&self) -> Size {
+        let (width, height) = (self.window.int("minimumWidth"), self.window.int("minimumHeight"));
+        match self.min.get() {
+            Some(min) if self.min_window_size(min) == (width, height) => min,
+            _ => Size::new(width as f32, (height as f64 - self.header()).max(0.0) as f32),
+        }
+    }
+
+    /// A size no smaller than the minimum.
+    fn at_least_min(&self, size: Size) -> Size {
+        let min = self.min.get().unwrap_or(Size::ZERO);
+        Size::new(size.width.max(min.width), size.height.max(min.height))
+    }
+
     /// Whether the window has drawn a frame: it's shown and laid out.
     pub(crate) fn has_rendered(&self) -> bool {
         self.header.get().is_some()
@@ -110,6 +172,7 @@ impl WindowRoot {
         }
         let header = self.window.real("height") - self.host.real("height");
         self.header.set(Some(header.max(0.0)));
+        self.apply_min();
         if let Some(requested) = self.requested.get() {
             self.place(requested);
         }
@@ -128,6 +191,7 @@ impl WindowRoot {
             return;
         }
         self.header.set(Some(now));
+        self.apply_min();
         self.request(self.requested.get().unwrap_or(self.size.get()));
     }
 
@@ -504,6 +568,8 @@ impl KirigamiHandle {
     /// has laid it out; the content host reports it as `WindowResized`.
     pub fn resize_window(&self, window: NodeId, size: Size) {
         let Some(root) = self.window_root(window) else { return };
+        // A drag goes no smaller than the minimum.
+        let size = root.at_least_min(size);
         root.place(size);
         pump_until(Duration::from_secs(2), || root.host_size() == size);
     }
@@ -841,6 +907,14 @@ impl State {
             menu: RefCell::new(menu),
             toolbar: RefCell::new(Vec::new()),
             focused_first: Cell::new(false),
+            full_screen: Cell::new(false),
+            min: Cell::new(None),
+        });
+        let weak = Rc::downgrade(&root);
+        window.connect("windowStateChanged(Qt::WindowState)", move || {
+            if let Some(root) = weak.upgrade() {
+                root.states_changed();
+            }
         });
         for signal in ["widthChanged()", "heightChanged()"] {
             let root = Rc::downgrade(&root);
@@ -926,6 +1000,18 @@ impl State {
                     page.set_str("title", t);
                 }
             }
+            (Prop::FullScreen(on), Widget::Window { root }) => root.set_full_screen(*on),
+            // Qt keeps the user from making it smaller; a window smaller
+            // already grows, as on the other platforms.
+            (Prop::MinSize(min), Widget::Window { root }) => {
+                root.min.set(Some(*min));
+                root.apply_min();
+                let size = root.requested.get().unwrap_or(root.size.get());
+                let grown = root.at_least_min(size);
+                if grown != size && !root.in_full_screen() {
+                    root.request(grown);
+                }
+            }
             (Prop::Text(t), Widget::Label(l)) => l.set_str("text", t),
             // Qt elides the last line it shows.
             (Prop::MaxLines(lines), Widget::Label(l)) => {
@@ -953,6 +1039,7 @@ impl State {
             (Prop::TakesInput(takes), Widget::GpuSurface(surface)) => surface.set_takes_input(*takes),
             (Prop::PointerLock(on), Widget::GpuSurface(surface)) => surface.set_pointer_lock(*on),
             (Prop::KeyboardGrab(on), Widget::GpuSurface(surface)) => surface.set_keyboard_grab(*on),
+            (Prop::Cursor(cursor), Widget::GpuSurface(surface)) => surface.set_cursor(cursor),
             (Prop::Options(options), Widget::Select(s)) => {
                 // A new model resets the chosen index; it stays if it can,
                 // else the first option is chosen, as the core does. It
@@ -1321,9 +1408,12 @@ impl State {
                 item.set_str("mitsuamiA11yDescription", description.as_deref().unwrap_or_default());
                 item.set_bool("mitsuamiA11yHidden", *hidden);
             }
+            // A window in full screen keeps the screen's size.
             Command::SetWindowSize { id, size } => {
                 let root = self.window_root(*id, command);
-                root.request(*size);
+                if !root.in_full_screen() {
+                    root.request(root.at_least_min(*size));
+                }
             }
             Command::SetFocusOrder { window, order } => {
                 let items: Vec<QmlObject> = order.iter().map(|id| self.widget(*id, command).item()).collect();
@@ -1333,9 +1423,10 @@ impl State {
                 // nowhere until a click or Tab. AppKit focuses its initial
                 // first responder and GTK its first control; so does this.
                 if !root.focused_first.get() {
-                    let first = order.iter().map(|id| self.widget(*id, command)).find(|w| {
-                        w.is_focusable() && (!w.is_control() || w.item().bool("enabled"))
-                    });
+                    let first = order
+                        .iter()
+                        .map(|id| self.widget(*id, command))
+                        .find(|w| w.is_focusable() && (!w.is_control() || w.item().bool("enabled")));
                     if root.window.focus_item().and_then(|f| f.node()).is_some() {
                         root.focused_first.set(true);
                     } else if let Some(widget) = first {
@@ -1701,6 +1792,8 @@ impl Backend for KirigamiBackend {
         match &node.widget {
             Widget::Window { root } => {
                 props.push(Prop::Title(root.window.str("title")));
+                props.push(Prop::FullScreen(root.in_full_screen()));
+                props.push(Prop::MinSize(root.min_size()));
                 // The modality as Qt has it; the owner as the node has it.
                 if let Some((owner, modality)) = node.modal {
                     let modality = match root.window.int("modality") {
@@ -1769,10 +1862,11 @@ impl Backend for KirigamiBackend {
             }
             Widget::GpuSurface(surface) => {
                 props.extend(node.a11y_label.clone().map(Prop::Label));
-                let (takes, locked, grabbed) = surface.props();
+                let (takes, locked, grabbed, cursor) = surface.props();
                 props.extend(takes.map(Prop::TakesInput));
                 props.extend(locked.map(Prop::PointerLock));
                 props.extend(grabbed.map(Prop::KeyboardGrab));
+                props.extend(cursor.map(Prop::Cursor));
             }
             Widget::Select(s) => {
                 props.extend(node.a11y_label.clone().map(Prop::Label));

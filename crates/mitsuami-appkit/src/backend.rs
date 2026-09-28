@@ -330,12 +330,15 @@ impl AppKitHandle {
         self.state.borrow().nodes.len()
     }
 
-    /// Resizes a window's content like the user would; the window delegate
-    /// reports it back as a `WindowResized` event.
+    /// Resizes a window's content like the user would, no smaller than its
+    /// minimum, as a drag goes (`setContentSize:` alone would); the window
+    /// delegate reports it back as a `WindowResized` event.
     pub fn resize_window(&self, window: NodeId, size: Size) {
         let window = self.ns_window(window);
         if let Some(window) = window {
-            window.setContentSize(NSSize::new(size.width as f64, size.height as f64));
+            let min = window.contentMinSize();
+            window
+                .setContentSize(NSSize::new((size.width as f64).max(min.width), (size.height as f64).max(min.height)));
         }
     }
 
@@ -355,12 +358,16 @@ impl AppKitHandle {
                         Some(owner) => centre_on(&window, &owner),
                         None => window.center(),
                     }
-                    self.run_modal(id, window);
+                    self.run_modal(id, window.clone());
                 }
                 (None, _) => {
                     window.center();
                     window.makeKeyAndOrderFront(None);
                 }
+            }
+            // Full screen asked for before it was shown.
+            if let Some(Widget::Window { _delegate, .. }) = self.state.borrow().nodes.get(&id).map(|n| &n.widget) {
+                _delegate.apply_full_screen(&window);
             }
         }
     }
@@ -701,6 +708,18 @@ impl State {
         let Some(node) = self.nodes.get_mut(&id) else { violation(command, "node does not exist") };
         match (prop, &mut node.widget) {
             (Prop::Title(t), Widget::Window { window, .. }) => window.setTitle(&ns(t)),
+            (Prop::FullScreen(on), Widget::Window { window, _delegate, .. }) => _delegate.set_full_screen(window, *on),
+            // AppKit keeps the user from resizing below it, but a window
+            // already smaller stays so: it grows here, as on the other
+            // platforms.
+            (Prop::MinSize(min), Widget::Window { window, _delegate, .. }) => {
+                window.setContentMinSize(NSSize::new(min.width as f64, min.height as f64));
+                let content = window.contentRectForFrameRect(window.frame()).size;
+                let grown = NSSize::new(content.width.max(min.width as f64), content.height.max(min.height as f64));
+                if grown != content && !in_full_screen(window) {
+                    window.setContentSize(grown);
+                }
+            }
             // Acted on when the window is shown.
             (Prop::Modal { owner, modality }, Widget::Window { _delegate, .. }) => {
                 _delegate.set_modal(true);
@@ -798,6 +817,7 @@ impl State {
             (Prop::TakesInput(takes), Widget::GpuSurface(view)) => view.set_takes_input(*takes),
             (Prop::PointerLock(on), Widget::GpuSurface(view)) => view.set_pointer_lock(*on),
             (Prop::KeyboardGrab(on), Widget::GpuSurface(view)) => view.set_keyboard_grab(*on),
+            (Prop::Cursor(cursor), Widget::GpuSurface(view)) => view.set_cursor(cursor),
             (Prop::Label(t), Widget::Progress(p) | Widget::Spinner { indicator: p, .. }) => {
                 p.setAccessibilityLabel(Some(&ns(t)))
             }
@@ -1152,9 +1172,16 @@ impl State {
                     view.setAccessibilityElement(false);
                 }
             }
+            // AppKit would resize a window in full screen, and below its
+            // minimum: it keeps the screen's size, and its minimum.
             Command::SetWindowSize { id, size } => match self.nodes.get(id).map(|n| &n.widget) {
                 Some(Widget::Window { window, .. }) => {
-                    window.setContentSize(NSSize::new(size.width as f64, size.height as f64))
+                    if !in_full_screen(window) {
+                        let min = window.contentMinSize();
+                        let size =
+                            NSSize::new((size.width as f64).max(min.width), (size.height as f64).max(min.height));
+                        window.setContentSize(size);
+                    }
                 }
                 _ => violation(command, "not a window"),
             },
@@ -1309,8 +1336,13 @@ fn set_ticks(slider: &NSSlider, step: Option<f64>) {
     }
 }
 
+/// In full screen, or moving into or out of it.
+fn in_full_screen(window: &NSWindow) -> bool {
+    window.styleMask().contains(NSWindowStyleMask::FullScreen)
+}
+
 /// The image a source shows, or none for a file AppKit can't read.
-fn ns_image(source: &ImageSource) -> Option<Retained<NSImage>> {
+pub(crate) fn ns_image(source: &ImageSource) -> Option<Retained<NSImage>> {
     match source {
         ImageSource::File(path) => NSImage::initWithContentsOfFile(NSImage::alloc(), &ns(&path.to_string_lossy())),
         ImageSource::Pixels(pixels) => {
@@ -1707,8 +1739,11 @@ impl Backend for AppKitBackend {
         let mut props = Vec::new();
         let checked = |s: isize| Prop::Checked(s == NSControlStateValueOn);
         match &node.widget {
-            Widget::Window { window, .. } => {
+            Widget::Window { window, _delegate, .. } => {
                 props.push(Prop::Title(window.title().to_string()));
+                props.push(Prop::FullScreen(_delegate.full_screen(window)));
+                let min = window.contentMinSize();
+                props.push(Prop::MinSize(Size::new(min.width as f32, min.height as f32)));
                 props.extend(node.modal.map(|(owner, modality)| Prop::Modal { owner, modality }));
             }
             Widget::Label(l) => {
@@ -1802,6 +1837,7 @@ impl Backend for AppKitBackend {
                 props.push(Prop::TakesInput(view.takes_input()));
                 props.push(Prop::PointerLock(view.pointer_locked()));
                 props.push(Prop::KeyboardGrab(view.keyboard_grabbed()));
+                props.push(Prop::Cursor(view.cursor()));
             }
             Widget::Scroll(scroll) => {
                 let shown = (scroll.hasHorizontalScroller(), scroll.hasVerticalScroller());

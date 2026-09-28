@@ -49,8 +49,8 @@ pub use ui::{NodeInfo, Ui, WeakUi};
 pub use units::{Length, LengthExt, Spacing};
 pub use view::{AnyView, Callback, Children, Slot, View};
 pub use widget::{
-    ButtonRole, ButtonStyle, CurrentWindow, ImageFit, ImageSource, ListStyle, Modality, NodeId, Orientation, Pixels,
-    Prop, RowKey, ScrollAxes, SelectionMode, TextStyle, WidgetKind,
+    ButtonRole, ButtonStyle, CurrentWindow, Cursor, ImageFit, ImageSource, ListStyle, Modality, NodeId, Orientation,
+    Pixels, Prop, RowKey, ScrollAxes, SelectionMode, TextStyle, WidgetKind,
 };
 
 pub use mitsuami_reactive as reactive;

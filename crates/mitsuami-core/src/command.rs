@@ -49,7 +49,10 @@ pub enum Command {
         id: NodeId,
         a11y: A11yProps,
     },
-    /// Window content size requested by the app. The platform may refuse it.
+    /// Window content size requested by the app. The platform may refuse it
+    /// (a window in full screen keeps the screen's), or give it no smaller
+    /// than the window's `MinSize`; it reports the size it gives as
+    /// `WindowResized`.
     SetWindowSize {
         id: NodeId,
         size: Size,
@@ -104,6 +107,11 @@ pub enum UiEvent {
     FocusOut,
     WindowResized(Size),
     WindowCloseRequested,
+    /// The user put a window in full screen, or took it out (the title
+    /// bar's button, the window manager's key), or the platform did. Not
+    /// reported for the app's own `FullScreen`. The core absorbs it as
+    /// `FullScreen`.
+    FullScreenChanged(bool),
     /// Platform metrics changed (text size, color scheme, …).
     MetricsChanged,
     /// A `ScrollView`'s or `List`'s scroll offset changed (by the user or

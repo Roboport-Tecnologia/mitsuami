@@ -10,10 +10,18 @@
 //! click focuses it, and its key and pointer events are reported. The
 //! pointer lock hides the cursor (`ShowCursor`), clips it to the canvas
 //! (`ClipCursor`) and puts it back in the middle after each move
-//! (`SetCursorPos`), reporting the move. The keyboard grab is a low-level
+//! (`SetCursorPos`), reporting the move. Meanwhile the mouse is also
+//! registered for Raw Input, to the child window, whose `WM_INPUT` gives
+//! the device's own counts before the pointer's acceleration. The keyboard grab is a low-level
 //! keyboard hook (`WH_KEYBOARD_LL`), as remote desktop clients and browsers
 //! take Alt+Tab and the Windows key: while the window is the foreground
 //! one and the canvas has focus it swallows every key and reports it.
+//!
+//! The app's cursor is set where XAML sets its own, on `WM_SETCURSOR`: the
+//! XAML window, and the windows in it, are subclassed, and over a surface
+//! with a cursor of the app's they set that one (none: no cursor) instead
+//! of letting XAML set its arrow. An `InputCursor` can't be made from
+//! pixels, and `UIElement.ProtectedCursor` is only a subclass's.
 
 use std::cell::RefCell;
 use std::collections::HashSet;
@@ -25,8 +33,8 @@ use mitsuami_core::raw_window_handle::{
     HandleError, RawDisplayHandle, RawWindowHandle, Win32WindowHandle, WindowsDisplayHandle,
 };
 use mitsuami_core::{
-    Key, KeyCode, Modifiers, MouseButton, NativeSurface, NodeId, Point, Prop, ScrollDelta, SurfaceHandle, SurfaceInput,
-    SurfaceSize, SyntheticInput, UiEvent,
+    Cursor, Key, KeyCode, Modifiers, MouseButton, NativeSurface, NodeId, Pixels, Point, Prop, ScrollDelta,
+    SurfaceHandle, SurfaceInput, SurfaceSize, SyntheticInput, UiEvent,
 };
 use windows_core::{EventRevoker, Interface, PCWSTR, w as wide};
 
@@ -44,6 +52,8 @@ thread_local! {
     static TAKES_TAB: RefCell<HashSet<NodeId>> = RefCell::new(HashSet::new());
     /// The surface holding the keyboard grab, and its hook.
     static GRAB: RefCell<Option<(w::HHOOK, Weak<RefCell<HostState>>)>> = const { RefCell::new(None) };
+    /// Windows subclassed for their `WM_SETCURSOR`.
+    static SUBCLASSED: RefCell<HashSet<isize>> = RefCell::new(HashSet::new());
 }
 
 /// Whether Tab goes to `focused`, a surface that takes input, rather than
@@ -53,7 +63,9 @@ pub(crate) fn takes_tab(focused: Option<NodeId>) -> bool {
 }
 
 /// A window stopped being the active one: its surfaces' pointer lock and
-/// keyboard grab end, as the platform ends them.
+/// keyboard grab end, as the platform ends them, and keys they have down
+/// are let go (their releases go to another window; XAML's focus doesn't
+/// move, so `LostFocus` doesn't come).
 pub(crate) fn window_deactivated(window: w::HWND) {
     let hosts: Vec<_> = HOSTS.with(|h| {
         let mut hosts = h.borrow_mut();
@@ -65,6 +77,7 @@ pub(crate) fn window_deactivated(window: w::HWND) {
         if state.window == window {
             state.end_lock();
             state.end_grab();
+            state.release_keys();
         }
     }
 }
@@ -96,11 +109,18 @@ struct HostState {
     /// In effect, or wanted until the canvas is laid out in a window.
     locked: bool,
     grabbed: bool,
+    /// The mouse is registered for Raw Input, to the child window.
+    raw: bool,
     pending_lock: bool,
     pending_grab: bool,
     focused: bool,
-    /// Keys down while grabbed, by scan code: repeats, and modifiers.
+    /// Keys down, by scan code: for the grab's repeats and modifiers, and
+    /// to let go of them when focus goes.
     keys_down: HashSet<u32>,
+    /// The cursor the core set, and the one made from its image, at the
+    /// scale it was made for.
+    cursor: Option<Cursor>,
+    made: Option<(f64, w::HCURSOR)>,
 }
 
 impl SurfaceHost {
@@ -124,10 +144,13 @@ impl SurfaceHost {
                 grab: None,
                 locked: false,
                 grabbed: false,
+                raw: false,
                 pending_lock: false,
                 pending_grab: false,
                 focused: false,
                 keys_down: HashSet::new(),
+                cursor: None,
+                made: None,
             })
         });
         let input = listen(&element.cast()?, &state)?;
@@ -143,6 +166,7 @@ impl SurfaceHost {
             return Ok(());
         }
         let hwnd = create_child(window)?;
+        subclass_tree(window);
         let handle = SurfaceHandle::new(ChildWindow(hwnd as isize));
         state.hwnd = hwnd;
         state.window = window;
@@ -211,6 +235,17 @@ impl SurfaceHost {
         }
     }
 
+    /// Shown over the canvas from the pointer's next move; at once if
+    /// it's there.
+    pub(crate) fn set_cursor(&self, cursor: &Cursor) {
+        let mut state = self.state.borrow_mut();
+        state.cursor = Some(cursor.clone());
+        state.drop_made();
+        if let Some(shown) = state.cursor_at(cursor_pos()) {
+            unsafe { w::SetCursor(shown) };
+        }
+    }
+
     pub(crate) fn set_keyboard_grab(&self, on: bool) {
         let mut state = self.state.borrow_mut();
         state.grab = Some(on);
@@ -234,6 +269,7 @@ impl SurfaceHost {
         props.extend(state.takes_input.map(Prop::TakesInput));
         props.extend(state.lock.map(|_| Prop::PointerLock(state.locked || state.pending_lock)));
         props.extend(state.grab.map(|_| Prop::KeyboardGrab(state.grabbed || state.pending_grab)));
+        props.extend(state.cursor.clone().map(Prop::Cursor));
         props
     }
 
@@ -367,6 +403,8 @@ fn listen(element: &w::IUIElement, state: &Rc<RefCell<HostState>>) -> R<Vec<Even
             state.focused = false;
             // A grab lasts while the surface has focus.
             state.end_grab();
+            // Keys held are let go: their releases go wherever focus went.
+            state.release_keys();
         }
     })?);
     Ok(revokers)
@@ -383,6 +421,14 @@ impl HostState {
 
     fn pointer_moved(&mut self, args: &w::PointerRoutedEventArgs) -> R<()> {
         let args: w::IPointerRoutedEventArgs = args.cast()?;
+        // The window under the pointer may have come after the surface.
+        if self.cursor.as_ref().is_some_and(|c| *c != Cursor::Default) {
+            let at = cursor_pos();
+            subclass(unsafe { w::WindowFromPoint(at) });
+            if let Some(shown) = self.cursor_at(at) {
+                unsafe { w::SetCursor(shown) };
+            }
+        }
         let position = args.GetCurrentPoint(&self.element)?.cast::<w::IPointerPoint>()?.Position()?;
         if self.locked {
             // How far from the middle, in pixels; the warp back to it
@@ -451,8 +497,51 @@ impl HostState {
         let native = status.scan_code | if status.is_extended_key { 0xE000 } else { 0 };
         let code = KeyCode::from_windows_scancode(native);
         let repeat = pressed && status.was_key_down;
+        if pressed {
+            self.keys_down.insert(native);
+        } else if !self.keys_down.remove(&native) {
+            // A release for a key it never saw go down (it went down elsewhere).
+            return Ok(());
+        }
         self.report(SurfaceInput::Key { code, native, pressed, repeat, modifiers: key_modifiers() });
         Ok(())
+    }
+
+    /// Reports every key it has down as released: focus left, or the
+    /// window stopped being the active one, so their releases go elsewhere.
+    fn release_keys(&mut self) {
+        let modifiers = Modifiers::default();
+        for native in std::mem::take(&mut self.keys_down) {
+            let code = KeyCode::from_windows_scancode(native);
+            self.report(SurfaceInput::Key { code, native, pressed: false, repeat: false, modifiers });
+        }
+    }
+
+    /// The cursor to show at `at` (on screen), if it's over the canvas and
+    /// the app has one of its own there: `None` leaves it to XAML, a null
+    /// cursor hides it.
+    fn cursor_at(&mut self, at: w::POINT) -> Option<w::HCURSOR> {
+        let rect = self.screen_rect()?;
+        let inside = at.x >= rect.left && at.x < rect.right && at.y >= rect.top && at.y < rect.bottom;
+        match self.cursor.clone()? {
+            Cursor::Default => None,
+            _ if !inside => None,
+            Cursor::Hidden => Some(std::ptr::null_mut()),
+            Cursor::Image { pixels, hotspot } => {
+                let scale = self.scale();
+                if self.made.is_none_or(|(made, _)| made != scale) {
+                    self.drop_made();
+                    self.made = make_cursor(&pixels, hotspot, scale).map(|c| (scale, c));
+                }
+                self.made.map(|(_, cursor)| cursor)
+            }
+        }
+    }
+
+    fn drop_made(&mut self) {
+        if let Some((_, cursor)) = self.made.take() {
+            unsafe { _ = w::DestroyIcon(cursor) };
+        }
     }
 
     /// Puts the child window over the canvas, or hides it while the canvas
@@ -501,6 +590,7 @@ impl HostState {
                 unsafe { w::ShowCursor(false.into()) };
                 self.clip();
                 self.warp_to_middle();
+                self.register_raw(true);
             } else {
                 self.emitter.emit(self.id, UiEvent::PointerLockEnded);
             }
@@ -550,7 +640,49 @@ impl HostState {
                 _ = w::ClipCursor(std::ptr::null());
                 w::ShowCursor(true.into());
             }
+            self.register_raw(false);
         }
+    }
+
+    /// Registers the mouse (generic desktop page, mouse usage) for Raw
+    /// Input to the child window, or takes it off. A process has one
+    /// registration per device kind, and only the lock makes it. Without
+    /// `RIDEV_INPUTSINK`: the lock only holds while the window is the
+    /// foreground one. The legacy mouse messages XAML reads still come.
+    fn register_raw(&mut self, on: bool) {
+        if on == self.raw || (on && self.hwnd.is_null()) {
+            return;
+        }
+        let device = w::RAWINPUTDEVICE {
+            usUsagePage: 0x01,
+            usUsage: 0x02,
+            dwFlags: if on { 0 } else { w::RIDEV_REMOVE as u32 },
+            // Taking it off names no window.
+            hwndTarget: if on { self.hwnd } else { std::ptr::null_mut() },
+        };
+        let done = unsafe { w::RegisterRawInputDevices(&device, 1, size_of::<w::RAWINPUTDEVICE>() as u32) };
+        self.raw = on && done.as_bool();
+    }
+
+    /// A mouse's `WM_INPUT` while locked: its relative move, in counts.
+    /// Absolute moves (remote desktop, tablets, some virtual machines'
+    /// mice) have no counts to give, so they're left to `Motion`.
+    fn raw_input(&self, input: w::HRAWINPUT) {
+        let mut raw = w::RAWINPUT::default();
+        let mut size = size_of::<w::RAWINPUT>() as u32;
+        let header = size_of::<w::RAWINPUTHEADER>() as u32;
+        let read = unsafe {
+            w::GetRawInputData(input, w::RID_INPUT as u32, (&mut raw as *mut w::RAWINPUT).cast(), &mut size, header)
+        };
+        if read == u32::MAX || raw.header.dwType != w::RIM_TYPEMOUSE as u32 {
+            return;
+        }
+        // SAFETY: a mouse's input, as its header says.
+        let mouse = unsafe { raw.data.mouse };
+        if mouse.usFlags & w::MOUSE_MOVE_ABSOLUTE as u16 != 0 || (mouse.lLastX == 0 && mouse.lLastY == 0) {
+            return;
+        }
+        self.report(SurfaceInput::RawMotion { dx: mouse.lLastX as f32, dy: mouse.lLastY as f32 });
     }
 
     /// The platform ended the lock.
@@ -577,7 +709,6 @@ impl HostState {
             return;
         }
         self.grabbed = true;
-        self.keys_down.clear();
         GRAB.with(|g| *g.borrow_mut() = Some((hook, self.me.clone())));
     }
 
@@ -586,7 +717,6 @@ impl HostState {
         if !std::mem::take(&mut self.grabbed) {
             return;
         }
-        self.keys_down.clear();
         if let Some((hook, _)) = GRAB.with(|g| g.borrow_mut().take()) {
             unsafe { _ = w::UnhookWindowsHookEx(hook) };
         }
@@ -683,6 +813,132 @@ fn key_modifiers() -> Modifiers {
     }
 }
 
+impl Drop for HostState {
+    fn drop(&mut self) {
+        self.drop_made();
+    }
+}
+
+fn cursor_pos() -> w::POINT {
+    let mut at = w::POINT { x: i32::MIN, y: i32::MIN };
+    unsafe { _ = w::GetCursorPos(&mut at) };
+    at
+}
+
+/// A cursor from the app's image, drawn at the display's scale (nearest
+/// pixel), its hotspot in points scaled with it. Straight alpha, as a
+/// 32-bit cursor's colour bitmap has it; the mask is unused.
+fn make_cursor(pixels: &Pixels, hotspot: Point, scale: f64) -> Option<w::HCURSOR> {
+    let size = pixels.size();
+    let width = ((size.width as f64 * scale).round() as i32).max(1);
+    let height = ((size.height as f64 * scale).round() as i32).max(1);
+    let info = w::BITMAPINFO {
+        bmiHeader: w::BITMAPINFOHEADER {
+            biSize: size_of::<w::BITMAPINFOHEADER>() as u32,
+            biWidth: width,
+            // Top-down rows, as the app's are.
+            biHeight: -height,
+            biPlanes: 1,
+            biBitCount: 32,
+            biCompression: w::BI_RGB as u32,
+            ..Default::default()
+        },
+        ..Default::default()
+    };
+    let mut bits = std::ptr::null_mut();
+    let colour = unsafe {
+        w::CreateDIBSection(std::ptr::null_mut(), &info, w::DIB_RGB_COLORS as u32, &mut bits, std::ptr::null_mut(), 0)
+    };
+    if colour.is_null() || bits.is_null() {
+        return None;
+    }
+    // SAFETY: the section holds `width × height` 32-bit pixels.
+    let out = unsafe { std::slice::from_raw_parts_mut(bits.cast::<u8>(), (width * height * 4) as usize) };
+    let (from_w, from_h) = (pixels.width() as usize, pixels.height() as usize);
+    let rgba = pixels.rgba();
+    for y in 0..height as usize {
+        for x in 0..width as usize {
+            let from = ((y * from_h / height as usize) * from_w + x * from_w / width as usize) * 4;
+            let to = (y * width as usize + x) * 4;
+            out[to..to + 4].copy_from_slice(&[rgba[from + 2], rgba[from + 1], rgba[from], rgba[from + 3]]);
+        }
+    }
+    let mask_row = (width as usize).div_ceil(16) * 2;
+    let zeros = vec![0u8; mask_row * height as usize];
+    let mask = unsafe { w::CreateBitmap(width, height, 1, 1, zeros.as_ptr().cast()) };
+    let spot = |v: f32, max: i32| ((v as f64 * scale).round() as i32).clamp(0, max - 1) as u32;
+    let icon = w::ICONINFO {
+        fIcon: false.into(),
+        xHotspot: spot(hotspot.x, width),
+        yHotspot: spot(hotspot.y, height),
+        hbmMask: mask,
+        hbmColor: colour,
+    };
+    let cursor = unsafe { w::CreateIconIndirect(&icon) };
+    unsafe {
+        _ = w::DeleteObject(colour);
+        _ = w::DeleteObject(mask);
+    }
+    (!cursor.is_null()).then_some(cursor)
+}
+
+/// Subclasses a XAML window and the windows in it (not ours), for their
+/// `WM_SETCURSOR`.
+fn subclass_tree(window: w::HWND) {
+    unsafe extern "system" fn each(hwnd: w::HWND, _: w::LPARAM) -> windows_core::BOOL {
+        subclass(hwnd);
+        true.into()
+    }
+    subclass(window);
+    unsafe { _ = w::EnumChildWindows(window, Some(each), 0) };
+}
+
+fn subclass(hwnd: w::HWND) {
+    if hwnd.is_null() || SUBCLASSED.with(|s| s.borrow().contains(&(hwnd as isize))) {
+        return;
+    }
+    let mut class = [0u16; 32];
+    let len = unsafe { w::GetClassNameW(hwnd, windows_core::PWSTR(class.as_mut_ptr()), class.len() as i32) };
+    if class[..len.max(0) as usize] == *unsafe { CLASS.as_wide() } {
+        return;
+    }
+    if unsafe { w::SetWindowSubclass(hwnd, Some(set_cursor_proc), 0, 0) }.as_bool() {
+        SUBCLASSED.with(|s| s.borrow_mut().insert(hwnd as isize));
+    }
+}
+
+/// Over a surface with a cursor of the app's, sets it rather than letting
+/// XAML set its own. A window asks its parent first only in
+/// `DefWindowProc`, which XAML's input window doesn't reach: each is
+/// subclassed.
+unsafe extern "system" fn set_cursor_proc(
+    hwnd: w::HWND,
+    message: u32,
+    wparam: w::WPARAM,
+    lparam: w::LPARAM,
+    _: usize,
+    _: usize,
+) -> w::LRESULT {
+    if message == w::WM_NCDESTROY as u32 {
+        unsafe { _ = w::RemoveWindowSubclass(hwnd, Some(set_cursor_proc), 0) };
+        SUBCLASSED.with(|s| s.borrow_mut().remove(&(hwnd as isize)));
+    } else if message == w::WM_SETCURSOR as u32 && (lparam & 0xFFFF) as i32 == w::HTCLIENT {
+        let root = unsafe { w::GetAncestor(hwnd, w::GA_ROOT as u32) };
+        let at = cursor_pos();
+        let hosts: Vec<_> = HOSTS.with(|h| h.borrow().iter().filter_map(Weak::upgrade).collect());
+        for host in hosts {
+            let Ok(mut state) = host.try_borrow_mut() else { continue };
+            if state.window == root
+                && let Some(cursor) = state.cursor_at(at)
+            {
+                unsafe { w::SetCursor(cursor) };
+                return 1;
+            }
+        }
+    }
+    unsafe { w::DefSubclassProc(hwnd, message, wparam, lparam) }
+}
+
 /// Registers the child windows' class, once.
 fn register_class() {
     static REGISTER: Once = Once::new();
@@ -698,10 +954,23 @@ fn register_class() {
     });
 }
 
-/// Clicks and the pointer go to XAML's window under it.
+/// Clicks and the pointer go to XAML's window under it. The locked
+/// mouse's Raw Input comes here, and goes on to `DefWindowProc`, which
+/// frees it.
 unsafe extern "system" fn window_proc(hwnd: w::HWND, message: u32, wparam: w::WPARAM, lparam: w::LPARAM) -> w::LRESULT {
     if message == w::WM_NCHITTEST as u32 {
         return w::HTTRANSPARENT as w::LRESULT;
+    }
+    if message == w::WM_INPUT as u32 {
+        let host = HOSTS.with(|h| {
+            h.borrow().iter().filter_map(Weak::upgrade).find(|s| s.try_borrow().is_ok_and(|s| s.hwnd == hwnd))
+        });
+        if let Some(host) = host
+            && let Ok(state) = host.try_borrow()
+            && state.locked
+        {
+            state.raw_input(lparam as w::HRAWINPUT);
+        }
     }
     unsafe { w::DefWindowProcW(hwnd, message, wparam, lparam) }
 }

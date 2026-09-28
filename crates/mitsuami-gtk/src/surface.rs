@@ -12,7 +12,7 @@
 //! `gdk_toplevel_inhibit_system_shortcuts`.
 
 use std::cell::{Cell, RefCell};
-use std::collections::{HashMap, HashSet};
+use std::collections::HashMap;
 use std::ffi::c_void;
 use std::rc::{Rc, Weak};
 
@@ -20,8 +20,8 @@ use gtk::glib::translate::{IntoGlib, ToGlibPtr};
 use gtk::prelude::*;
 use gtk::{gdk, glib, graphene};
 use mitsuami_core::{
-    ActionError, Key, KeyCode, Modifiers, MouseButton, NodeId, Point, Prop, ScrollDelta, SurfaceHandle, SurfaceInput,
-    SurfaceSize, SyntheticInput, UiEvent,
+    ActionError, Cursor, Key, KeyCode, Modifiers, MouseButton, NodeId, Pixels, Point, Prop, ScrollDelta, SurfaceHandle,
+    SurfaceInput, SurfaceSize, SyntheticInput, UiEvent,
 };
 use mitsuami_linux::wayland::{self, Subsurface};
 use mitsuami_linux::{LockEvent, x11};
@@ -82,9 +82,12 @@ struct AreaState {
     /// shortcuts, its `shortcuts-inhibited` handler, and the key
     /// controller that takes keys from the window first.
     grab: Option<Grab>,
-    /// Keys down whose press was reported (evdev codes): what makes a
-    /// repeat, and which releases are the surface's.
-    pressed: HashSet<u32>,
+    /// Keys down whose press was reported (evdev codes), and the code it
+    /// was reported as (a remapped key's, by its keysym): what makes a
+    /// repeat, which releases are the surface's, and what to let go.
+    pressed: HashMap<u32, KeyCode>,
+    /// What the app set, which a `gdk::Cursor` can't give back.
+    cursor: Option<Cursor>,
 }
 
 struct Grab {
@@ -120,7 +123,8 @@ impl SurfaceArea {
             lock: None,
             locks: 0,
             grab: None,
-            pressed: HashSet::new(),
+            pressed: HashMap::new(),
+            cursor: None,
         }));
         AREAS.with(|a| a.borrow_mut().insert(key, Rc::downgrade(&state)));
         let s = state.clone();
@@ -156,18 +160,31 @@ impl SurfaceArea {
                 self.state.borrow_mut().keyboard_grab = Some(*on);
                 AreaState::sync_grab(&self.state);
             }
+            // On the widget: the surface over it takes no input, so the
+            // pointer, and its cursor, are GTK's. "none" is what GTK's own
+            // video widget hides it with.
+            Prop::Cursor(cursor) => {
+                let gdk_cursor = match cursor {
+                    Cursor::Default => None,
+                    Cursor::Hidden => gdk::Cursor::from_name("none", None),
+                    Cursor::Image { pixels, hotspot } => Some(cursor_image(pixels, *hotspot)),
+                };
+                self.area.set_cursor(gdk_cursor.as_ref());
+                self.state.borrow_mut().cursor = Some(cursor.clone());
+            }
             _ => {}
         }
     }
 
-    /// The props GTK can't report: whether it takes input, and the lock
-    /// and grab in effect.
+    /// The props GTK can't report: whether it takes input, the lock and
+    /// grab in effect, and the cursor.
     pub(crate) fn props(&self) -> Vec<Prop> {
         let state = self.state.borrow();
         let mut props = Vec::new();
         props.extend(state.takes_input.map(Prop::TakesInput));
         props.extend(state.pointer_lock.map(|_| Prop::PointerLock(state.lock.is_some())));
         props.extend(state.keyboard_grab.map(|_| Prop::KeyboardGrab(state.grab.is_some())));
+        props.extend(state.cursor.clone().map(Prop::Cursor));
         props
     }
 
@@ -269,6 +286,11 @@ impl AreaState {
                     {
                         AreaState::end_lock(&s);
                         AreaState::end_grab(&s);
+                        // Their releases go to another window. The focus
+                        // controller's `leave` should come too (GTK
+                        // crosses focus out of an inactive window); this
+                        // doesn't depend on it.
+                        s.borrow_mut().release_keys();
                     }
                 });
                 state.window = Some((window, handler));
@@ -500,14 +522,24 @@ impl AreaState {
     fn key(&mut self, code: KeyCode, keycode: u32, pressed: bool, state: gdk::ModifierType) -> bool {
         let native = keycode.saturating_sub(8);
         let repeat = if pressed {
-            !self.pressed.insert(native)
-        } else if self.pressed.remove(&native) {
+            self.pressed.insert(native, code).is_some()
+        } else if self.pressed.remove(&native).is_some() {
             false
         } else {
             return false;
         };
         self.report(SurfaceInput::Key { code, native, pressed, repeat, modifiers: modifiers(state) });
         true
+    }
+
+    /// Reports every key it has down as released: focus left, or the
+    /// window stopped being the active one, so their releases go
+    /// elsewhere.
+    fn release_keys(&mut self) {
+        for (native, code) in std::mem::take(&mut self.pressed) {
+            let modifiers = Modifiers::default();
+            self.report(SurfaceInput::Key { code, native, pressed: false, repeat: false, modifiers });
+        }
     }
 
     fn takes_input(&self) -> bool {
@@ -526,6 +558,45 @@ fn key_code(keys: &gtk::EventControllerKey, keycode: u32) -> KeyCode {
         .and_then(|keys| keys.into_iter().find(|(k, _)| k.group() == layout && k.level() == 0))
         .map(|(_, keysym)| keysym.into_glib());
     keysym.and_then(KeyCode::from_keysym).unwrap_or_else(|| KeyCode::from_evdev(keycode.saturating_sub(8)))
+}
+
+/// A cursor from the app's pixels. GDK shows a texture's pixels one to a
+/// point (GTK 4.16's `Cursor::from_callback` is the scale-aware way): an
+/// image made at another scale is resampled to its size in points, so it
+/// shows at the size the app meant.
+fn cursor_image(pixels: &Pixels, hotspot: Point) -> gdk::Cursor {
+    let scale = pixels.scale_factor();
+    let (width, height) = (pixels.width(), pixels.height());
+    let (w, h) = if scale == 1.0 {
+        (width, height)
+    } else {
+        (((width as f32 / scale).round() as u32).max(1), ((height as f32 / scale).round() as u32).max(1))
+    };
+    let rgba = pixels.rgba();
+    let bytes: Vec<u8> = if (w, h) == (width, height) {
+        rgba.to_vec()
+    } else {
+        // The pixel under each point's middle.
+        let mut out = Vec::with_capacity(w as usize * h as usize * 4);
+        for y in 0..h {
+            let sy = (((y as f32 + 0.5) * scale) as u32).min(height - 1);
+            for x in 0..w {
+                let sx = (((x as f32 + 0.5) * scale) as u32).min(width - 1);
+                let at = (sy as usize * width as usize + sx as usize) * 4;
+                out.extend_from_slice(&rgba[at..at + 4]);
+            }
+        }
+        out
+    };
+    let texture = gdk::MemoryTexture::new(
+        w as i32,
+        h as i32,
+        gdk::MemoryFormat::R8g8b8a8,
+        &glib::Bytes::from_owned(bytes),
+        w as usize * 4,
+    );
+    let (x, y) = (hotspot.x.round() as i32, hotspot.y.round() as i32);
+    gdk::Cursor::from_texture(&texture, x.clamp(0, w as i32 - 1), y.clamp(0, h as i32 - 1), None)
 }
 
 /// The widget's controllers: they report while it takes input.
@@ -640,7 +711,7 @@ fn input_controllers(area: &gtk::DrawingArea, state: &Rc<RefCell<AreaState>>) {
     focus.connect_leave(move |_| {
         if let Some(s) = s.upgrade() {
             // Keys held are let go wherever focus went.
-            s.borrow_mut().pressed.clear();
+            s.borrow_mut().release_keys();
             AreaState::end_grab(&s);
         }
     });

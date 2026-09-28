@@ -231,6 +231,13 @@ impl TestApp {
         self.settle().await;
     }
 
+    /// Simulates the user resizing one of the app's windows.
+    pub async fn resize_window(&self, window: NodeId, size: Size) {
+        self.settle().await;
+        self.driver.resize_window(window, size);
+        self.settle().await;
+    }
+
     /// Clicks a window's close button, as the user would. Whether it
     /// closes is the app's call.
     pub async fn close_window(&self, window: NodeId) {

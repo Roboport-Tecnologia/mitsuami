@@ -7,6 +7,7 @@ use std::sync::Arc;
 use crate::any_value::Opaque;
 use crate::custom::CustomProps;
 use crate::draw::DisplayList;
+use crate::geometry::{Point, Size};
 use crate::services::MenuEntry;
 
 /// Stable identity of a node for the lifetime of a [`Ui`](crate::Ui).
@@ -270,6 +271,20 @@ pub enum ImageFit {
     Stretch,
 }
 
+/// The pointer's cursor over a `GpuSurface`, while it isn't locked.
+#[derive(Clone, Debug, Default, PartialEq)]
+pub enum Cursor {
+    /// The platform's own: the arrow.
+    #[default]
+    Default,
+    /// None: the pointer still moves, unseen (a machine that draws its own).
+    Hidden,
+    /// An image of the app's, e.g. the one a machine gives its pointer,
+    /// shown at its scale. `hotspot`: the point that points, in points from
+    /// its top left.
+    Image { pixels: Pixels, hotspot: Point },
+}
+
 /// What a modal `Window` blocks while it's open, shown each platform's way.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub enum Modality {
@@ -363,6 +378,14 @@ impl ListStyle {
 pub enum Prop {
     /// Window title.
     Title(String),
+    /// A window fills its screen, the platform's own way (a Space of its
+    /// own on macOS). The user can change it too (the title bar's button,
+    /// the window manager's key): the backend reports `FullScreenChanged`,
+    /// which the core absorbs.
+    FullScreen(bool),
+    /// The smallest content size the user can make a window, in points.
+    /// A window smaller when it's set grows to it.
+    MinSize(Size),
     /// Text content of a `Text`.
     Text(String),
     /// How many lines a `Text` shows at most, the last one cut off with an
@@ -470,6 +493,8 @@ pub enum Prop {
     /// `KeyboardGrabEnded` when the surface or its window loses focus, or
     /// it can't grab.
     KeyboardGrab(bool),
+    /// The pointer's cursor over a `GpuSurface`.
+    Cursor(Cursor),
     /// Raw platform settings for a built-in widget (see
     /// [`Tweak`](crate::Tweak)), in the backend's own form. Applied after
     /// the widget's other props, and again whenever they change.
@@ -542,5 +567,7 @@ static_value!(
     ImageSource,
     Pixels,
     ImageFit,
-    Modality
+    Modality,
+    Cursor,
+    Size
 );

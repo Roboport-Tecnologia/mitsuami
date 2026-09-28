@@ -4,10 +4,10 @@
 use std::rc::Rc;
 
 use mitsuami_core::{
-    Align, AnyView, ButtonRole, ButtonStyle, Children, CurrentWindow, Display, Element, ElementBuilder, EventValue,
-    FlexDirection, ImageFit, ImageSource, Justify, Length, Modality, NodeId, Orientation, Pixels, Point, Prop,
-    ScrollAxes, SurfaceHandle, SurfaceInput, SurfaceSize, TextStyle, Track, Tweak, Ui, UiEvent, View, WidgetKind,
-    WindowSize,
+    Align, AnyView, ButtonRole, ButtonStyle, Children, CurrentWindow, Cursor, Display, Element, ElementBuilder,
+    EventValue, FlexDirection, ImageFit, ImageSource, Justify, Length, Modality, NodeId, Orientation, Pixels, Point,
+    Prop, ScrollAxes, Size, SurfaceHandle, SurfaceInput, SurfaceSize, TextStyle, Track, Tweak, Ui, UiEvent, View,
+    WidgetKind, WindowSize,
 };
 use mitsuami_reactive::{IntoValue, Signal, Value, computed, effect, inject, on_cleanup, provide, untrack};
 
@@ -54,6 +54,8 @@ pub struct Window<T = Value<String>> {
     size: WindowSize,
     modality: Value<Option<Modality>>,
     open: Value<bool>,
+    full_screen: Option<Signal<bool>>,
+    min_size: Option<Value<Size>>,
     on_open: Option<Rc<dyn Fn()>>,
     on_close_request: Option<Rc<dyn Fn()>>,
     content: Option<Rc<dyn Fn() -> AnyView>>,
@@ -67,6 +69,8 @@ impl Window {
             size: WindowSize::FitHeight(480.0),
             modality: Value::Static(None),
             open: Value::Static(true),
+            full_screen: None,
+            min_size: None,
             on_open: None,
             on_close_request: None,
             content: None,
@@ -112,6 +116,22 @@ impl<T> Window<T> {
         self.open(open).on_close_request(move || open.set(false))
     }
 
+    /// In full screen while `full_screen` is true, the platform's own way:
+    /// a Space of its own on macOS, the whole screen elsewhere, with the
+    /// platform's own way out. The user can change it too (the title bar's
+    /// button on macOS, the window manager's key), which sets the signal.
+    pub fn full_screen(mut self, full_screen: Signal<bool>) -> Window<T> {
+        self.full_screen = Some(full_screen);
+        self
+    }
+
+    /// The smallest content size the user can make it. Smaller when it's
+    /// set, it grows to it.
+    pub fn min_size(mut self, size: impl IntoValue<Size>) -> Window<T> {
+        self.min_size = Some(size.into_value());
+        self
+    }
+
     /// Called each time it opens, before its content is built: to start a
     /// form from what's saved, say.
     pub fn on_open(mut self, handler: impl Fn() + 'static) -> Window<T> {
@@ -138,7 +158,7 @@ impl View for Window {
     /// top-level.
     fn build(self, ui: &Ui) -> NodeId {
         let placeholder = ui.create(WidgetKind::Fragment, Vec::new());
-        let Window { title, size, modality, open, on_open, on_close_request, content } = self;
+        let Window { title, size, modality, open, full_screen, min_size, on_open, on_close_request, content } = self;
         // The window it's declared in, which a modal window belongs to.
         let owner = inject::<CurrentWindow>().map(|w| w.0);
         let ui = ui.clone();
@@ -152,6 +172,19 @@ impl View for Window {
             let title = title.clone();
             let titled = ui.clone();
             effect(move || titled.set_prop(window, Prop::Title(title.get())));
+            if let Some(min_size) = min_size.clone() {
+                let ui = ui.clone();
+                effect(move || ui.set_prop(window, Prop::MinSize(min_size.get())));
+            }
+            if let Some(full_screen) = full_screen {
+                let filled = ui.clone();
+                effect(move || filled.set_prop(window, Prop::FullScreen(full_screen.get())));
+                ui.on_event(window, move |event| {
+                    if let UiEvent::FullScreenChanged(on) = event {
+                        full_screen.set(*on);
+                    }
+                });
+            }
             provide(CurrentWindow(window));
             if let Some(handler) = &on_open {
                 handler();
@@ -1235,7 +1268,8 @@ impl Image {
 /// the app's own as well. The platform ends both when the window stops
 /// being the active one (the grab also when the surface loses focus), and
 /// sets their signals back to `false`: the app locks again, say, on the
-/// next click.
+/// next click. `cursor` is the cursor over it: the platform's, none, or
+/// the app's own image.
 ///
 /// ```ignore
 /// GpuSurface::new()
@@ -1290,8 +1324,8 @@ impl GpuSurface {
 
     /// Takes keys and the pointer, and reports them: a key down or up, the
     /// pointer's moves, buttons and scrolling over it, and while it's
-    /// locked, how far it moved. Use `on_blur` to let go of keys held when
-    /// it loses focus.
+    /// locked, how far it moved. Keys down when it loses focus, or its
+    /// window stops being the active one, are reported released then.
     pub fn on_input(mut self, handler: impl Fn(SurfaceInput) + 'static) -> GpuSurface {
         self.0.prop(Value::Static(true), Prop::TakesInput);
         self.0.on(move |event| {
@@ -1303,7 +1337,8 @@ impl GpuSurface {
     }
 
     /// Hides and holds the cursor while `locked` is true, reporting its
-    /// moves as `SurfaceInput::Motion`. The platform ends it when the
+    /// moves as `SurfaceInput::Motion`, and before the host's acceleration
+    /// as `SurfaceInput::RawMotion`. The platform ends it when the
     /// window stops being the active one, and `locked` goes back to false.
     pub fn pointer_lock(mut self, locked: Signal<bool>) -> GpuSurface {
         self.0.prop(locked.into_value(), Prop::PointerLock);
@@ -1312,6 +1347,14 @@ impl GpuSurface {
                 locked.set(false);
             }
         });
+        self
+    }
+
+    /// The pointer's cursor over it, while it isn't locked: the
+    /// platform's own, none, or an image of the app's (the one a machine
+    /// gives its pointer, say).
+    pub fn cursor(mut self, cursor: impl IntoValue<Cursor>) -> GpuSurface {
+        self.0.prop(cursor.into_value(), Prop::Cursor);
         self
     }
 
@@ -1407,8 +1450,9 @@ impl Window {
     /// until `title` is set, and only then a `View`.
     #[doc(hidden)]
     pub fn __tag() -> Window<()> {
-        let Window { title: _, size, modality, open, on_open, on_close_request, content } = Window::new(String::new());
-        Window { title: (), size, modality, open, on_open, on_close_request, content }
+        let Window { title: _, size, modality, open, full_screen, min_size, on_open, on_close_request, content } =
+            Window::new(String::new());
+        Window { title: (), size, modality, open, full_screen, min_size, on_open, on_close_request, content }
     }
 
     /// Its content, built each time it opens.
@@ -1420,8 +1464,19 @@ impl Window {
 
 impl Window<()> {
     pub fn title(self, title: impl IntoValue<String>) -> Window {
-        let Window { title: (), size, modality, open, on_open, on_close_request, content } = self;
-        Window { title: title.into_value(), size, modality, open, on_open, on_close_request, content }
+        let Window { title: (), size, modality, open, full_screen, min_size, on_open, on_close_request, content } =
+            self;
+        Window {
+            title: title.into_value(),
+            size,
+            modality,
+            open,
+            full_screen,
+            min_size,
+            on_open,
+            on_close_request,
+            content,
+        }
     }
 }
 

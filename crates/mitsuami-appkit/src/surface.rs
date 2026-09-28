@@ -8,7 +8,8 @@
 //! monitor catches their `keyUp:`s (AppKit sends none for keys released
 //! while Command is held). Its pointer lock is what games do: the cursor
 //! hidden and dissociated from the mouse, whose moves still come as
-//! events with deltas. Its keyboard grab takes every key in that monitor
+//! events with deltas, and GameController's `GCMouse` gives the same
+//! moves before the system's acceleration. Its keyboard grab takes every key in that monitor
 //! before AppKit dispatches it, menus' key equivalents too, and turns off
 //! Command-Tab with the app's presentation options.
 
@@ -22,8 +23,8 @@ use mitsuami_core::raw_window_handle::{
     AppKitDisplayHandle, AppKitWindowHandle, HandleError, RawDisplayHandle, RawWindowHandle,
 };
 use mitsuami_core::{
-    ActionError, EventSink, KeyCode, Modifiers, MouseButton, NativeSurface, NodeId, Point, ScrollDelta, SurfaceHandle,
-    SurfaceInput, SurfaceSize, UiEvent,
+    ActionError, Cursor, EventSink, ImageSource, KeyCode, Modifiers, MouseButton, NativeSurface, NodeId, Pixels, Point,
+    ScrollDelta, SurfaceHandle, SurfaceInput, SurfaceSize, UiEvent,
 };
 use objc2::rc::{Retained, Weak};
 use objc2::runtime::{AnyClass, AnyObject, NSObjectProtocol, ProtocolObject};
@@ -35,7 +36,9 @@ use objc2_app_kit::{
     NSEventMask, NSEventModifierFlags, NSEventType, NSResponder, NSScreen, NSTrackingArea, NSTrackingAreaOptions,
     NSView, NSViewLayerContentsPlacement, NSWindow, NSWindowDidResignKeyNotification,
 };
-use objc2_foundation::{NSNotification, NSNotificationCenter, NSPoint, NSSize, NSString};
+use objc2_foundation::{NSNotification, NSNotificationCenter, NSOperationQueue, NSPoint, NSSize, NSString};
+
+use objc2_game_controller::{GCMouse, GCMouseDidConnectNotification, GCMouseInput};
 
 use crate::classes::zero_rect;
 
@@ -75,6 +78,15 @@ pub(crate) struct SurfaceIvars {
     grab: Cell<Option<NSApplicationPresentationOptions>>,
     /// Ends the lock and the grab when the window stops being the key one.
     resign_observer: RefCell<Option<Observer>>,
+    /// While locked: mice that connect get the raw motion handler too.
+    mouse_observer: RefCell<Option<Observer>>,
+    /// Lets go of the keys down when the window stops being the key one,
+    /// while it's the first responder.
+    key_observer: RefCell<Option<Observer>>,
+    /// The cursor over it (none: the arrow), and what the app asked for,
+    /// which an `NSCursor` can't give back.
+    cursor: RefCell<Option<Retained<NSCursor>>>,
+    cursor_prop: RefCell<Cursor>,
 }
 
 define_class!(
@@ -285,6 +297,15 @@ define_class!(
             self.emit(SurfaceInput::Scroll { delta, modifiers: modifiers(event.modifierFlags()) });
         }
 
+        /// The app's cursor, over the whole view; AppKit shows it while
+        /// the window is the key one.
+        #[unsafe(method(resetCursorRects))]
+        fn reset_cursor_rects(&self) {
+            if let Some(cursor) = &*self.ivars().cursor.borrow() {
+                self.addCursorRect_cursor(self.bounds(), cursor);
+            }
+        }
+
         /// Moves, entering and leaving, while it takes input.
         #[unsafe(method(updateTrackingAreas))]
         fn update_tracking_areas(&self) {
@@ -313,6 +334,10 @@ impl SurfaceView {
             grab_wanted: Cell::new(false),
             grab: Cell::new(None),
             resign_observer: RefCell::new(None),
+            mouse_observer: RefCell::new(None),
+            key_observer: RefCell::new(None),
+            cursor: RefCell::new(None),
+            cursor_prop: RefCell::new(Cursor::Default),
         });
         let view: Retained<SurfaceView> = unsafe { msg_send![super(this), initWithFrame: zero_rect()] };
         view.setWantsLayer(true);
@@ -361,6 +386,25 @@ impl SurfaceView {
             if first.is_some_and(|r| std::ptr::eq(&*r, self.as_super().as_super())) {
                 window.makeFirstResponder(None);
             }
+        }
+    }
+
+    pub(crate) fn cursor(&self) -> Cursor {
+        self.ivars().cursor_prop.borrow().clone()
+    }
+
+    /// An image, or a clear one for none: hiding the cursor with
+    /// `NSCursor.hide` would hide it everywhere until it moved out.
+    pub(crate) fn set_cursor(&self, cursor: &Cursor) {
+        let ns_cursor = match cursor {
+            Cursor::Default => None,
+            Cursor::Hidden => cursor_image(&Pixels::new(1, 1, vec![0; 4]), Point::ZERO),
+            Cursor::Image { pixels, hotspot } => cursor_image(pixels, *hotspot),
+        };
+        *self.ivars().cursor.borrow_mut() = ns_cursor;
+        *self.ivars().cursor_prop.borrow_mut() = cursor.clone();
+        if let Some(window) = self.window() {
+            window.invalidateCursorRectsForView(self);
         }
     }
 
@@ -482,8 +526,8 @@ impl SurfaceView {
         self.key(event, pressed);
     }
 
-    /// Releases every key it has down: focus left, so their releases go
-    /// elsewhere.
+    /// Releases every key it has down: focus left, or the window stopped
+    /// being the key one, so their releases go elsewhere.
     fn release_keys(&self) {
         let down: Vec<u16> = self.ivars().down.borrow_mut().drain().collect();
         for code in down {
@@ -522,11 +566,32 @@ impl SurfaceView {
         let mask = NSEventMask::KeyDown | NSEventMask::KeyUp | NSEventMask::FlagsChanged;
         let monitor = unsafe { NSEvent::addLocalMonitorForEventsMatchingMask_handler(mask, &handler) };
         *self.ivars().monitor.borrow_mut() = monitor;
+        // The window stays the first responder's when it stops being the
+        // key one, but the keys' releases go to the new key window.
+        let Some(window) = self.window() else { return };
+        let weak = Weak::from_retained(&self.retain());
+        let block = RcBlock::new(move |_: NonNull<NSNotification>| {
+            if let Some(view) = weak.load() {
+                view.release_keys();
+            }
+        });
+        let observer = unsafe {
+            NSNotificationCenter::defaultCenter().addObserverForName_object_queue_usingBlock(
+                Some(NSWindowDidResignKeyNotification),
+                Some(&window),
+                None,
+                &block,
+            )
+        };
+        *self.ivars().key_observer.borrow_mut() = Some(observer);
     }
 
     fn stop_watching_keys(&self) {
         if let Some(monitor) = self.ivars().monitor.borrow_mut().take() {
             unsafe { NSEvent::removeMonitor(&monitor) };
+        }
+        if let Some(observer) = self.ivars().key_observer.borrow_mut().take() {
+            unsafe { NSNotificationCenter::defaultCenter().removeObserver(observer.as_ref()) };
         }
     }
 
@@ -588,6 +653,7 @@ impl SurfaceView {
         ivars.locked.set(true);
         self.warp_to_middle(&window);
         self.watch_window(&window);
+        self.watch_mice();
     }
 
     /// Returns whether it was locked.
@@ -598,7 +664,67 @@ impl SurfaceView {
         unsafe { CGAssociateMouseAndMouseCursorPosition(1) };
         NSCursor::unhide();
         self.stop_watching_window();
+        self.stop_watching_mice();
         true
+    }
+
+    /// Raw motion while locked: `GCMouse`'s deltas are the device's, not
+    /// affected by the pointer's speed setting (a small program showed the
+    /// ratio to `NSEvent`'s changing with speed). Up is positive there.
+    /// Its handlers run on the main queue, GameController's default. A
+    /// mouse has one handler, so the last surface to lock has it.
+    fn watch_mice(&self) {
+        let mouse_handler = |view: &SurfaceView| {
+            let weak = Weak::from_retained(&view.retain());
+            RcBlock::new(move |_: NonNull<GCMouseInput>, dx: f32, dy: f32| {
+                if MainThreadMarker::new().is_none() {
+                    return;
+                }
+                if let Some(view) = weak.load()
+                    && view.ivars().locked.get()
+                {
+                    view.emit(SurfaceInput::RawMotion { dx, dy: -dy });
+                }
+            })
+        };
+        let watch = move |mouse: &GCMouse, view: &SurfaceView| {
+            if let Some(input) = unsafe { mouse.mouseInput() } {
+                let handler = mouse_handler(view);
+                unsafe { input.setMouseMovedHandler(RcBlock::as_ptr(&handler)) };
+            }
+        };
+        for mouse in unsafe { GCMouse::mice() } {
+            watch(&mouse, self);
+        }
+        let weak = Weak::from_retained(&self.retain());
+        let block = RcBlock::new(move |notification: NonNull<NSNotification>| {
+            let Some(view) = weak.load() else { return };
+            // SAFETY: the notification center hands the block a live one.
+            let object = unsafe { notification.as_ref() }.object();
+            if let Some(mouse) = object.and_then(|o| o.downcast::<GCMouse>().ok()) {
+                watch(&mouse, &view);
+            }
+        });
+        let observer = unsafe {
+            NSNotificationCenter::defaultCenter().addObserverForName_object_queue_usingBlock(
+                Some(GCMouseDidConnectNotification),
+                None,
+                Some(&NSOperationQueue::mainQueue()),
+                &block,
+            )
+        };
+        *self.ivars().mouse_observer.borrow_mut() = Some(observer);
+    }
+
+    fn stop_watching_mice(&self) {
+        if let Some(observer) = self.ivars().mouse_observer.borrow_mut().take() {
+            unsafe { NSNotificationCenter::defaultCenter().removeObserver(observer.as_ref()) };
+        }
+        for mouse in unsafe { GCMouse::mice() } {
+            if let Some(input) = unsafe { mouse.mouseInput() } {
+                unsafe { input.setMouseMovedHandler(std::ptr::null_mut()) };
+            }
+        }
     }
 
     fn end_lock(&self) {
@@ -708,6 +834,12 @@ impl SurfaceView {
             unsafe { NSNotificationCenter::defaultCenter().removeObserver(observer.as_ref()) };
         }
     }
+}
+
+fn cursor_image(pixels: &Pixels, hotspot: Point) -> Option<Retained<NSCursor>> {
+    let image = crate::backend::ns_image(&ImageSource::Pixels(pixels.clone()))?;
+    let hotspot = NSPoint::new(hotspot.x as f64, hotspot.y as f64);
+    Some(NSCursor::initWithImage_hotSpot(NSCursor::alloc(), &image, hotspot))
 }
 
 /// Whether the window takes the keyboard: the key window of the active

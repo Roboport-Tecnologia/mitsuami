@@ -87,6 +87,17 @@ pub(crate) struct WindowParts {
     /// primary commands hold the items' hosts, in order.
     toolbar: Option<w::CommandBar>,
     toolbar_items: Vec<(NodeId, w::AppBarElementContainer)>,
+    /// Full screen as the app wants it, and the user (who changes it
+    /// too): what the presenter is compared with when it changes.
+    full_screen: Rc<Cell<bool>>,
+    /// Made visible: full screen waits for it, as a hidden window would
+    /// fill the screen unseen.
+    shown: bool,
+    /// The window's own presenter while it's in full screen, to go back
+    /// to with its settings (modal, minimum size).
+    overlapped: Option<w::AppWindowPresenter>,
+    /// The content's minimum size, as the core set it.
+    min_size: Option<Size>,
 }
 
 impl WindowParts {
@@ -586,10 +597,13 @@ impl WinUiHandle {
         let pending = std::mem::take(&mut self.state.borrow_mut().pending_show);
         for id in pending {
             self.make_modal(id);
-            let state = self.state.borrow();
-            if let Some(Widget::Window(parts)) = state.nodes.get(&id).map(|n| &n.widget) {
+            let mut state = self.state.borrow_mut();
+            if let Some(Widget::Window(parts)) = state.nodes.get_mut(&id).map(|n| &mut n.widget) {
                 set_transparent(parts.hwnd, false);
                 unsafe { _ = w::SetForegroundWindow(parts.hwnd) };
+                parts.shown = true;
+                // Full screen asked for before it was shown.
+                apply_full_screen(parts);
             }
         }
     }
@@ -898,10 +912,11 @@ fn update_toolbar(parts: &mut WindowParts) -> R<()> {
         element.SetVisibility(wanted)?;
     }
     parts.root.cast::<w::IUIElement>()?.UpdateLayout()?;
-    if chrome_height(parts) != before
-        && let Some(size) = parts.requested
-    {
-        resize_client(parts, size);
+    if chrome_height(parts) != before {
+        apply_min_size(parts);
+        if let Some(size) = parts.requested {
+            resize_client(parts, size);
+        }
     }
     Ok(())
 }
@@ -930,19 +945,17 @@ fn toolbar_item_frame(parts: &WindowParts, id: NodeId, element: &w::UIElement) -
 /// area below the caption strip while `ClientSize` (and XAML's root) include
 /// it, so aim, look at what we got, and correct once.
 fn resize_client(parts: &WindowParts, size: Size) {
+    // A window in full screen keeps the screen's size.
+    if in_full_screen(&parts.app_window) {
+        return;
+    }
     let Ok(app_window) = parts.app_window.cast::<w::IAppWindow2>() else { return };
+    // No smaller than its minimum, as a drag goes.
+    let min = parts.min_size.unwrap_or(Size::ZERO);
+    let size = Size::new(size.width.max(min.width), size.height.max(min.height));
     let scale = scale_of(parts);
     let chrome = chrome_height(parts);
-    // Windows keeps a resize border inside the client area of windows with
-    // extended title bars (1 px along the top): measure it off the live root.
-    let inset = |client: i32, root: R<f64>| match root {
-        Ok(root) if root > 0.0 => (client - (root * scale).round() as i32).clamp(0, 8),
-        _ => 0,
-    };
-    let (inset_w, inset_h) = match (app_window.ClientSize(), parts.root.cast::<w::IFrameworkElement>()) {
-        (Ok(client), Ok(root)) => (inset(client.width, root.ActualWidth()), inset(client.height, root.ActualHeight())),
-        _ => (0, 0),
-    };
+    let (inset_w, inset_h) = client_insets(parts, scale);
     let want = w::SizeInt32 {
         width: (size.width as f64 * scale).round() as i32 + inset_w,
         height: ((size.height as f64 + chrome) * scale).round() as i32 + inset_h,
@@ -967,6 +980,101 @@ fn resize_client(parts: &WindowParts, size: Size) {
         let width = ((got.width - inset_w) as f64 / scale) as f32;
         let height = ((got.height - inset_h) as f64 / scale - chrome).max(0.0) as f32;
         parts.report_size(Size::new(width, height));
+    }
+}
+
+/// Windows keeps a resize border inside the client area of windows with
+/// extended title bars (1 px along the top): measured off the live root.
+fn client_insets(parts: &WindowParts, scale: f64) -> (i32, i32) {
+    let inset = |client: i32, root: R<f64>| match root {
+        Ok(root) if root > 0.0 => (client - (root * scale).round() as i32).clamp(0, 8),
+        _ => 0,
+    };
+    let client = parts.app_window.cast::<w::IAppWindow2>().and_then(|a| a.ClientSize());
+    match (client, parts.root.cast::<w::IFrameworkElement>()) {
+        (Ok(client), Ok(root)) => (inset(client.width, root.ActualWidth()), inset(client.height, root.ActualHeight())),
+        _ => (0, 0),
+    }
+}
+
+fn in_full_screen(app_window: &w::AppWindow) -> bool {
+    app_window
+        .cast::<w::IAppWindow>()
+        .and_then(|a| a.Presenter())
+        .and_then(|p| p.cast::<w::IAppWindowPresenter>()?.Kind())
+        .is_ok_and(|kind| kind == w::AppWindowPresenterKind::FullScreen)
+}
+
+/// Puts the window in full screen, or back in its own presenter, as the
+/// app wants, once it's shown. `FullScreenPresenter` has no caption, so
+/// the title bar goes too.
+fn apply_full_screen(parts: &mut WindowParts) {
+    if !parts.shown {
+        return;
+    }
+    let on = parts.full_screen.get();
+    if on == in_full_screen(&parts.app_window) {
+        return;
+    }
+    let Ok(app) = parts.app_window.cast::<w::IAppWindow>() else { return };
+    let done = if on {
+        parts.overlapped = app.Presenter().ok();
+        app.SetPresenterByKind(w::AppWindowPresenterKind::FullScreen)
+    } else {
+        match parts.overlapped.take() {
+            Some(presenter) => app.SetPresenter(&presenter),
+            None => app.SetPresenterByKind(w::AppWindowPresenterKind::Overlapped),
+        }
+    };
+    let now = in_full_screen(&parts.app_window);
+    show_title_bar(parts, !now);
+    if !on {
+        apply_min_size(parts);
+    }
+    // Refused: the window stays as it is, and the app hears so.
+    if done.is_err() || now != on {
+        parts.full_screen.set(now);
+        parts.emitter.emit(parts.node, UiEvent::FullScreenChanged(now));
+    }
+}
+
+fn show_title_bar(parts: &WindowParts, shown: bool) {
+    let visibility = if shown { w::Visibility::Visible } else { w::Visibility::Collapsed };
+    _ = parts.title_bar.cast::<w::IUIElement>().and_then(|e| e.SetVisibility(visibility));
+}
+
+/// The content's minimum size as the window's: the presenter's preferred
+/// minimum is the whole window's, in pixels, so it takes the title bar,
+/// the menu bar, the toolbar and the frame. A window already smaller
+/// grows to it. Applied again whenever what's above the content changes.
+fn apply_min_size(parts: &WindowParts) {
+    let Some(min) = parts.min_size else { return };
+    if in_full_screen(&parts.app_window) {
+        return;
+    }
+    let presenter = parts
+        .app_window
+        .cast::<w::IAppWindow>()
+        .and_then(|a| a.Presenter())
+        .and_then(|p| p.cast::<w::IOverlappedPresenter3>());
+    let Ok(presenter) = presenter else { return };
+    let scale = scale_of(parts);
+    let (inset_w, inset_h) = client_insets(parts, scale);
+    let app = parts.app_window.cast::<w::IAppWindow>();
+    let client = parts.app_window.cast::<w::IAppWindow2>().and_then(|a| a.ClientSize());
+    let (frame_w, frame_h) = match (app.and_then(|a| a.Size()), client) {
+        (Ok(outer), Ok(client)) => (outer.width - client.width, outer.height - client.height),
+        _ => (0, 0),
+    };
+    let chrome = chrome_height(parts);
+    let width = (min.width as f64 * scale).round() as i32 + inset_w + frame_w;
+    let height = ((min.height as f64 + chrome) * scale).round() as i32 + inset_h + frame_h;
+    _ = presenter.SetPreferredMinimumWidth(Some(width));
+    _ = presenter.SetPreferredMinimumHeight(Some(height));
+    if let Some(size) = parts.size.get()
+        && (size.width < min.width || size.height < min.height)
+    {
+        resize_client(parts, size);
     }
 }
 
@@ -1051,6 +1159,7 @@ fn install_menu(parts: &mut WindowParts, menu: &MenuBarData, activate: &Rc<dyn F
         _ = children.Append(&element);
         parts.menu_bar = Some(menu_bar);
     }
+    apply_min_size(parts);
     if let Some(size) = parts.requested {
         resize_client(parts, size);
     }
@@ -1395,6 +1504,24 @@ impl State {
                 crate::surface::window_deactivated(hwnd);
             }
         })?);
+        // Full screen changed elsewhere (another part of the process): the
+        // app hears of it. Our own changes match what it asked for.
+        let full_screen = Rc::new(Cell::new(false));
+        revokers.push(app_window.cast::<w::IAppWindow>()?.Changed({
+            let (emitter, full_screen, title_bar) = (emitter.clone(), full_screen.clone(), title_bar.clone());
+            move |sender, args| {
+                let changed = args
+                    .as_ref()
+                    .and_then(|a| a.cast::<w::IAppWindowChangedEventArgs>().ok()?.DidPresenterChange().ok());
+                let Some(app_window) = sender.as_ref().filter(|_| changed == Some(true)) else { return };
+                let on = in_full_screen(app_window);
+                let visibility = if on { w::Visibility::Collapsed } else { w::Visibility::Visible };
+                _ = title_bar.cast::<w::IUIElement>().and_then(|e| e.SetVisibility(visibility));
+                if full_screen.replace(on) != on {
+                    emitter.emit(id, UiEvent::FullScreenChanged(on));
+                }
+            }
+        })?);
         let tab_order = Rc::new(RefCell::new(Vec::new()));
         revokers.push(root_element.PreviewKeyDown({
             let (emitter, by_element, focus, tab_order, root) =
@@ -1445,6 +1572,10 @@ impl State {
             escape: None,
             toolbar: None,
             toolbar_items: Vec::new(),
+            full_screen,
+            shown: false,
+            overlapped: None,
+            min_size: None,
         };
         refresh_menu(&mut parts, &self.menus);
         Ok((Widget::Window(Box::new(parts)), host_element, revokers))
@@ -1818,6 +1949,21 @@ impl State {
             (Prop::Custom(new), Widget::Drawn { props, .. }) => *props = new.clone(),
             (Prop::Drawing(drawing), Widget::Drawn { view, .. }) => view.set_drawing(drawing)?,
             (Prop::Step(new), Widget::Slider { step, .. } | Widget::Number { step, .. }) => *step = *new,
+            // A dialog doesn't take full screen (its presenter is modal,
+            // over its owner), as a sheet can't on macOS.
+            (Prop::FullScreen(on), Widget::Window(parts)) => {
+                if *on && parts.modal.is_some() {
+                    parts.full_screen.set(false);
+                    parts.emitter.emit(parts.node, UiEvent::FullScreenChanged(false));
+                } else {
+                    parts.full_screen.set(*on);
+                    apply_full_screen(parts);
+                }
+            }
+            (Prop::MinSize(min), Widget::Window(parts)) => {
+                parts.min_size = Some(*min);
+                apply_min_size(parts);
+            }
             // Acted on when it's shown.
             (Prop::Modal { owner, modality }, Widget::Window(parts)) => {
                 let was_modal = parts.modal.replace((*owner, *modality)).is_some();
@@ -2078,6 +2224,7 @@ impl State {
             (Prop::TakesInput(on), Widget::GpuSurface(surface)) => surface.set_takes_input(*on)?,
             (Prop::PointerLock(on), Widget::GpuSurface(surface)) => surface.set_pointer_lock(*on),
             (Prop::KeyboardGrab(on), Widget::GpuSurface(surface)) => surface.set_keyboard_grab(*on),
+            (Prop::Cursor(cursor), Widget::GpuSurface(surface)) => surface.set_cursor(cursor),
             (Prop::Tweak(tweak), _) => node.tweak = Some(tweak.clone()),
             (Prop::Tooltip(text), _) => {
                 // On the control itself, not the Border a native render sits in.
@@ -2348,8 +2495,10 @@ impl State {
             }
             Command::SetWindowSize { id, size } => match self.nodes.get_mut(id).map(|n| &mut n.widget) {
                 Some(Widget::Window(parts)) => {
-                    parts.requested = Some(*size);
-                    resize_client(parts, *size);
+                    if !in_full_screen(&parts.app_window) {
+                        parts.requested = Some(*size);
+                        resize_client(parts, *size);
+                    }
                 }
                 _ => violation(command, "not a window"),
             },
@@ -3154,6 +3303,10 @@ impl Backend for WinUiBackend {
             Widget::Window(parts) => {
                 props.push(Prop::Title(parts.window.cast::<w::IWindow>().ok()?.Title().ok()?));
                 props.extend(parts.modal.map(|(owner, modality)| Prop::Modal { owner, modality }));
+                // Until it's shown, what it will show.
+                let full = if parts.shown { in_full_screen(&parts.app_window) } else { parts.full_screen.get() };
+                props.push(Prop::FullScreen(full));
+                props.extend(parts.min_size.map(Prop::MinSize));
             }
             Widget::Label(l) => {
                 let text: w::ITextBlock = l.cast().ok()?;

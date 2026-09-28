@@ -15,7 +15,13 @@
 //!   shows the last key or button. A click captures the pointer and the
 //!   keyboard, as a virtual machine's window does: the pointer's moves
 //!   then move the circle, and Command-Tab (Alt+Tab, Super) come as keys.
-//!   Control+Option (Control+Alt) lets go.
+//!   Control+Option (Control+Alt) lets go. While captured, the circle
+//!   follows the mouse's raw moves, before the system's acceleration, one
+//!   count to a point, and the status line shows them.
+//! - A checkbox puts the window in full screen, which the platform's own
+//!   way out (the title bar's button, Escape on macOS) also ends; a menu
+//!   picks the cursor over the surface: the arrow, none, or a cross drawn
+//!   here. The window goes no smaller than 320 × 240.
 
 use std::cell::{Cell, RefCell};
 use std::collections::HashSet;
@@ -175,97 +181,149 @@ fn render(instance: wgpu::Instance, targets: mpsc::Receiver<Target>, speed: Arc<
     }
 }
 
-fn main() {
-    App::new()
-        .window("GPU surface", Size::new(720.0, 540.0), || {
-            let mut descriptor = wgpu::InstanceDescriptor::new_without_display_handle();
-            // Direct3D 12 on Windows: after fast resizes, NVIDIA's Vulkan
-            // presents to a child window of a XAML window at 2 frames a
-            // second. `WGPU_BACKEND` still picks another.
-            if cfg!(windows) {
-                descriptor.backends = wgpu::Backends::DX12;
-            }
-            let instance = wgpu::Instance::new(descriptor.with_env());
-            let (send, targets) = mpsc::channel();
-            let shared_speed = Arc::new(AtomicU32::new(1.0f32.to_bits()));
-            let spot: Spot = Arc::new([AtomicU32::new(120f32.to_bits()), AtomicU32::new(120f32.to_bits())]);
-            {
-                let (instance, speed, spot) = (instance.clone(), shared_speed.clone(), spot.clone());
-                std::thread::spawn(move || render(instance, targets, speed, spot));
-            }
-            let speed = signal(1.0);
-            effect(move || shared_speed.store((speed.get() as f32).to_bits(), Ordering::Relaxed));
-            let status = signal(String::from("Waiting for the surface"));
-            let ready = move |handle: SurfaceHandle| {
-                // On the UI thread: wgpu's Metal backend reads the view here.
-                let surface = instance.create_surface(handle.clone()).expect("a wgpu surface");
-                let _ = send.send(Target { surface, handle });
-            };
-            let bounds = Rc::new(Cell::new((0.0f32, 0.0f32)));
-            let b = bounds.clone();
-            let resized = move |size: SurfaceSize| {
-                b.set((size.width as f32 / size.scale, size.height as f32 / size.scale));
-                status.set(format!("{} × {} pixels at {}x", size.width, size.height, size.scale));
-            };
-            let captured = signal(false);
-            let held = Rc::new(RefCell::new(HashSet::new()));
-            let input = move |input: SurfaceInput| {
-                let set = |x: f32, y: f32| {
-                    let (width, height) = bounds.get();
-                    spot[0].store(x.clamp(0.0, width).to_bits(), Ordering::Relaxed);
-                    spot[1].store(y.clamp(0.0, height).to_bits(), Ordering::Relaxed);
-                };
-                let get = |i: usize| f32::from_bits(spot[i].load(Ordering::Relaxed));
-                match input {
-                    SurfaceInput::PointerMoved { position, .. } => set(position.x, position.y),
-                    SurfaceInput::Motion { dx, dy } => set(get(0) + dx, get(1) + dy),
-                    SurfaceInput::Button { button, pressed, .. } => {
-                        status.set(format!("{button:?} {}", if pressed { "down" } else { "up" }));
-                        if pressed && !captured.get_untracked() {
-                            captured.set(true);
-                        }
-                    }
-                    SurfaceInput::Key { code, pressed, repeat, .. } => {
-                        let mut held = held.borrow_mut();
-                        if pressed {
-                            held.insert(code)
-                        } else {
-                            held.remove(&code)
-                        };
-                        let side = |a, b| held.contains(&a) || held.contains(&b);
-                        let control = side(KeyCode::ControlLeft, KeyCode::ControlRight);
-                        if control && side(KeyCode::AltLeft, KeyCode::AltRight) && captured.get_untracked() {
-                            captured.set(false);
-                        }
-                        let what = if repeat {
-                            "repeats"
-                        } else if pressed {
-                            "down"
-                        } else {
-                            "up"
-                        };
-                        status.set(format!("{} {what}", code.name()));
-                    }
-                    SurfaceInput::Scroll { delta, .. } => status.set(format!("{delta:?}")),
-                    SurfaceInput::PointerLeft => {}
+/// A 17 × 17 cross, black on white, pointing with its middle.
+fn cross() -> Cursor {
+    let side = 17;
+    let mut rgba = vec![0u8; side * side * 4];
+    for i in 0..side {
+        for (x, y) in [(i, side / 2), (side / 2, i)] {
+            for (dx, dy, shade) in [(-1, 0, 255), (1, 0, 255), (0, -1, 255), (0, 1, 255), (0, 0, 0)] {
+                let (x, y) = (x as i32 + dx, y as i32 + dy);
+                if !(0..side as i32).contains(&x) || !(0..side as i32).contains(&y) {
+                    continue;
                 }
-            };
-            let hint = move || {
-                let hint =
-                    if captured.get() { "Captured: Control+Option lets go" } else { "Click the surface to capture" };
-                hint.to_owned()
-            };
-            view! {
-                <Column grow=1.0>
-                    <GpuSurface label="Moving bands" grow=1.0 @ready=ready @resize=resized @input=input
-                        pointer_lock=captured keyboard_grab=captured/>
-                    <Row padding=Spacing::Md gap=Spacing::Md align=Align::Center>
-                        <Text>{move || status.get()}</Text>
-                        <Text>{hint}</Text>
-                        <Slider label="Speed" range_with=(0.0, 4.0) bind=speed grow=1.0/>
-                    </Row>
-                </Column>
+                let at = (y as usize * side + x as usize) * 4;
+                // The black line wins over its neighbours' white edge.
+                if rgba[at + 3] == 0 || shade == 0 {
+                    rgba[at..at + 4].copy_from_slice(&[shade, shade, shade, 255]);
+                }
             }
-        })
+        }
+    }
+    let middle = (side / 2) as f32 + 0.5;
+    Cursor::Image { pixels: Pixels::new(side as u32, side as u32, rgba), hotspot: Point::new(middle, middle) }
+}
+
+fn main() {
+    let (open, full) = (signal(true), signal(false));
+    App::new()
+        .open(
+            Window::new("GPU surface")
+                .size(Size::new(720.0, 540.0))
+                .min_size(Size::new(320.0, 240.0))
+                .full_screen(full)
+                .bind(open)
+                .content(move || {
+                    let mut descriptor = wgpu::InstanceDescriptor::new_without_display_handle();
+                    // Direct3D 12 on Windows: after fast resizes, NVIDIA's Vulkan
+                    // presents to a child window of a XAML window at 2 frames a
+                    // second. `WGPU_BACKEND` still picks another.
+                    if cfg!(windows) {
+                        descriptor.backends = wgpu::Backends::DX12;
+                    }
+                    let instance = wgpu::Instance::new(descriptor.with_env());
+                    let (send, targets) = mpsc::channel();
+                    let shared_speed = Arc::new(AtomicU32::new(1.0f32.to_bits()));
+                    let spot: Spot = Arc::new([AtomicU32::new(120f32.to_bits()), AtomicU32::new(120f32.to_bits())]);
+                    {
+                        let (instance, speed, spot) = (instance.clone(), shared_speed.clone(), spot.clone());
+                        std::thread::spawn(move || render(instance, targets, speed, spot));
+                    }
+                    let speed = signal(1.0);
+                    effect(move || shared_speed.store((speed.get() as f32).to_bits(), Ordering::Relaxed));
+                    let status = signal(String::from("Waiting for the surface"));
+                    let ready = move |handle: SurfaceHandle| {
+                        // On the UI thread: wgpu's Metal backend reads the view here.
+                        let surface = instance.create_surface(handle.clone()).expect("a wgpu surface");
+                        let _ = send.send(Target { surface, handle });
+                    };
+                    let bounds = Rc::new(Cell::new((0.0f32, 0.0f32)));
+                    let b = bounds.clone();
+                    let resized = move |size: SurfaceSize| {
+                        b.set((size.width as f32 / size.scale, size.height as f32 / size.scale));
+                        status.set(format!("{} × {} pixels at {}x", size.width, size.height, size.scale));
+                    };
+                    let captured = signal(false);
+                    let held = Rc::new(RefCell::new(HashSet::new()));
+                    // Once raw moves come, they move the circle, as they'd
+                    // move a machine's pointer; `Motion` only where there
+                    // are none.
+                    let raw = Cell::new(false);
+                    let input = move |input: SurfaceInput| {
+                        let set = |x: f32, y: f32| {
+                            let (width, height) = bounds.get();
+                            spot[0].store(x.clamp(0.0, width).to_bits(), Ordering::Relaxed);
+                            spot[1].store(y.clamp(0.0, height).to_bits(), Ordering::Relaxed);
+                        };
+                        let get = |i: usize| f32::from_bits(spot[i].load(Ordering::Relaxed));
+                        match input {
+                            SurfaceInput::PointerMoved { position, .. } => set(position.x, position.y),
+                            SurfaceInput::Motion { dx, dy } if !raw.get() => set(get(0) + dx, get(1) + dy),
+                            SurfaceInput::Motion { .. } => {}
+                            SurfaceInput::RawMotion { dx, dy } => {
+                                raw.set(true);
+                                set(get(0) + dx, get(1) + dy);
+                                status.set(format!("Raw motion {dx:+.0} {dy:+.0}"));
+                            }
+                            SurfaceInput::Button { button, pressed, .. } => {
+                                status.set(format!("{button:?} {}", if pressed { "down" } else { "up" }));
+                                if pressed && !captured.get_untracked() {
+                                    captured.set(true);
+                                }
+                            }
+                            SurfaceInput::Key { code, pressed, repeat, .. } => {
+                                let mut held = held.borrow_mut();
+                                if pressed {
+                                    held.insert(code)
+                                } else {
+                                    held.remove(&code)
+                                };
+                                let side = |a, b| held.contains(&a) || held.contains(&b);
+                                let control = side(KeyCode::ControlLeft, KeyCode::ControlRight);
+                                if control && side(KeyCode::AltLeft, KeyCode::AltRight) && captured.get_untracked() {
+                                    captured.set(false);
+                                }
+                                let what = if repeat {
+                                    "repeats"
+                                } else if pressed {
+                                    "down"
+                                } else {
+                                    "up"
+                                };
+                                status.set(format!("{} {what}", code.name()));
+                            }
+                            SurfaceInput::Scroll { delta, .. } => status.set(format!("{delta:?}")),
+                            SurfaceInput::PointerLeft => {}
+                        }
+                    };
+                    let cursor = signal(0);
+                    let shown_cursor = move || match cursor.get() {
+                        0 => Cursor::Default,
+                        1 => Cursor::Hidden,
+                        _ => cross(),
+                    };
+                    let hint = move || {
+                        let hint = if captured.get() {
+                            "Captured: Control+Option lets go"
+                        } else {
+                            "Click the surface to capture"
+                        };
+                        hint.to_owned()
+                    };
+                    view! {
+                        <Column grow=1.0>
+                            <GpuSurface label="Moving bands" grow=1.0 @ready=ready @resize=resized @input=input
+                                pointer_lock=captured keyboard_grab=captured cursor=shown_cursor/>
+                            <Row padding=Spacing::Md gap=Spacing::Md align=Align::Center>
+                                <Text>{move || status.get()}</Text>
+                                <Text>{hint}</Text>
+                                <Slider label="Speed" range_with=(0.0, 4.0) bind=speed grow=1.0/>
+                                <Select label="Cursor" options=["Arrow", "None", "Cross"] bind=cursor/>
+                                <Checkbox bind=full>"Full screen"</Checkbox>
+                            </Row>
+                        </Column>
+                    }
+                }),
+        )
         .run();
 }

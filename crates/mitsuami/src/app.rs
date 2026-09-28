@@ -2,11 +2,18 @@
 
 use mitsuami_core::{AnyView, CurrentWindow, Ui, UiEvent, View, WindowSize, provide_stores};
 use mitsuami_reactive::{Owner, provide};
+use mitsuami_widgets::Window;
 
 struct WindowSpec {
     title: String,
     size: WindowSize,
     content: Box<dyn FnOnce() -> AnyView>,
+}
+
+/// A window opened at startup.
+enum Startup {
+    Spec(WindowSpec),
+    View(Window),
 }
 
 /// An application: its windows and how to start it.
@@ -16,7 +23,7 @@ struct WindowSpec {
 /// ```
 #[derive(Default)]
 pub struct App {
-    windows: Vec<WindowSpec>,
+    windows: Vec<Startup>,
 }
 
 impl App {
@@ -34,7 +41,17 @@ impl App {
         content: impl FnOnce() -> V + 'static,
     ) -> App {
         let content = Box::new(move || AnyView::new(content()));
-        self.windows.push(WindowSpec { title: title.into(), size: size.into(), content });
+        self.windows.push(Startup::Spec(WindowSpec { title: title.into(), size: size.into(), content }));
+        self
+    }
+
+    /// Adds a [`Window`], opened at startup (while its `open` value is
+    /// true): for what only a `Window` has, such as full screen, a minimum
+    /// size or a title that changes. As any `Window`'s, its close button
+    /// does nothing unless it's bound (`bind`) or handled
+    /// (`on_close_request`).
+    pub fn open(mut self, window: Window) -> App {
+        self.windows.push(Startup::View(window));
         self
     }
 
@@ -50,8 +67,14 @@ impl App {
                 provide(ui.clone());
                 provide_stores();
             });
-            for spec in windows {
-                open(ui, app, spec);
+            for window in windows {
+                match window {
+                    Startup::Spec(spec) => open(ui, app, spec),
+                    // Built in the app scope; its placeholder is in no tree.
+                    Startup::View(window) => {
+                        app.with(|| window.build(ui));
+                    }
+                }
             }
         };
         #[cfg(target_os = "macos")]

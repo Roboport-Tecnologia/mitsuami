@@ -162,6 +162,13 @@ void mq_set_input_callback(mq_input_callback callback);
 QObject* mq_surface_input_new(QObject* parent, uint64_t key);
 void mq_surface_input_configure(QObject* item, int32_t takes, int32_t grabbed, int32_t locked);
 void mq_surface_key(QObject* window, int32_t key, uint32_t scan_code, const char* text);
+void mq_surface_input_cursor(QObject* item, int32_t kind, const uint8_t* rgba, int32_t width, int32_t height,
+                             double scale, int32_t hot_x, int32_t hot_y);
+
+// A window's states (Qt::WindowStates: full screen, maximized…), as Qt has
+// them, and the app's.
+int32_t mq_window_states(QObject* window);
+void mq_window_set_states(QObject* window, int32_t states);
 
 // Clipboard.
 char* mq_clipboard_text(void);

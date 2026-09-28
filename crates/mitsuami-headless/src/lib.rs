@@ -32,6 +32,9 @@ use mitsuami_core::{
 const TOOLBAR_HEIGHT: f32 = 40.0;
 const TOOLBAR_SPACING: f32 = 8.0;
 
+/// The screen a window in full screen fills.
+const SCREEN: Size = Size::new(1280.0, 800.0);
+
 /// Fixed metrics: 16px body text, 4/8/12/16/24 spacing, scale factor 1.
 pub fn metrics() -> PlatformMetrics {
     PlatformMetrics {
@@ -70,6 +73,8 @@ struct HeadlessNode {
     heights: BTreeMap<RowKey, f32>,
     /// GPU surfaces only: what the app got.
     surface: Option<SurfaceHandle>,
+    /// Windows in full screen only: their size before, to go back to.
+    windowed: Option<Size>,
 }
 
 /// A `GpuSurface` with nothing to present to: the app gets it, and its
@@ -115,6 +120,36 @@ impl State {
         if let Some(events) = &self.events {
             events.emit(id, event);
         }
+    }
+
+    /// Gives a window a content size, no smaller than its minimum; one in
+    /// full screen keeps the screen's. Reports it if it changed.
+    fn resize(&mut self, window: NodeId, size: Size) {
+        let Some(node) = self.nodes.get_mut(&window) else { return };
+        if node.windowed.is_some() {
+            return;
+        }
+        let size = at_least_min(node, size);
+        if node.frame.size != size {
+            node.frame.size = size;
+            self.emit(window, UiEvent::WindowResized(size));
+        }
+    }
+
+    /// A window fills the screen, or goes back to its size before.
+    fn fill_screen(&mut self, window: NodeId, on: bool) {
+        let Some(node) = self.nodes.get_mut(&window) else { return };
+        if on == node.windowed.is_some() {
+            return;
+        }
+        let size = if on {
+            node.windowed = Some(node.frame.size);
+            SCREEN
+        } else {
+            node.windowed.take().unwrap_or(node.frame.size)
+        };
+        node.frame.size = size;
+        self.emit(window, UiEvent::WindowResized(size));
     }
 
     /// Reports a GPU surface's size in pixels (its frame at the scale
@@ -418,6 +453,12 @@ impl State {
     }
 }
 
+/// A window's size, grown to its minimum.
+fn at_least_min(node: &HeadlessNode, size: Size) -> Size {
+    let min = find_prop!(node.props, MinSize).unwrap_or(Size::ZERO);
+    Size::new(size.width.max(min.width), size.height.max(min.height))
+}
+
 fn violation(command: &Command, problem: &str) -> ! {
     panic!("headless backend: protocol violation in {command:?}: {problem}")
 }
@@ -469,13 +510,32 @@ impl HeadlessHandle {
         std::mem::take(&mut self.state.borrow_mut().log)
     }
 
-    /// Simulates the user resizing a window.
+    /// Simulates the user resizing a window, which goes no smaller than
+    /// its minimum size.
     pub fn resize_window(&self, window: NodeId, size: Size) {
         let mut state = self.state.borrow_mut();
+        let size = state.nodes.get(&window).map_or(size, |node| at_least_min(node, size));
         if let Some(node) = state.nodes.get_mut(&window) {
             node.frame.size = size;
         }
         state.emit(window, UiEvent::WindowResized(size));
+    }
+
+    /// The size of the screen a window in full screen fills.
+    pub fn screen(&self) -> Size {
+        SCREEN
+    }
+
+    /// Simulates the user putting a window in full screen, or taking it
+    /// out (the title bar's button, the window manager's key).
+    pub fn set_full_screen(&self, window: NodeId, on: bool) {
+        let mut state = self.state.borrow_mut();
+        if !state.nodes.contains_key(&window) {
+            return;
+        }
+        state.set_prop(window, Prop::FullScreen(on));
+        state.fill_screen(window, on);
+        state.emit(window, UiEvent::FullScreenChanged(on));
     }
 
     /// Simulates a change of system settings (text size, dark mode, …).
@@ -513,6 +573,18 @@ impl HeadlessHandle {
             state.end_lock(surface, Prop::PointerLock(false));
             state.end_lock(surface, Prop::KeyboardGrab(false));
         }
+    }
+
+    /// Simulates the mouse moving while a surface holds the pointer: its
+    /// move with the host's acceleration, and before it. Headless has no
+    /// acceleration, and one count to a point.
+    pub fn move_locked_pointer(&self, surface: NodeId, dx: f32, dy: f32) {
+        let state = self.state.borrow();
+        if state.nodes.get(&surface).and_then(|n| find_prop!(n.props, PointerLock)) != Some(true) {
+            return;
+        }
+        state.emit(surface, UiEvent::SurfaceInput(SurfaceInput::Motion { dx, dy }));
+        state.emit(surface, UiEvent::SurfaceInput(SurfaceInput::RawMotion { dx, dy }));
     }
 
     pub fn a11y(&self, id: NodeId) -> Option<A11yProps> {
@@ -589,6 +661,7 @@ impl Backend for HeadlessBackend {
                             placed_index: Default::default(),
                             heights: BTreeMap::new(),
                             surface: None,
+                            windowed: None,
                         },
                     );
                     if *kind == WidgetKind::GpuSurface {
@@ -606,6 +679,14 @@ impl Backend for HeadlessBackend {
                     // A grab focuses its surface.
                     if *prop == Prop::KeyboardGrab(true) {
                         state.focus(*id);
+                    }
+                    match prop {
+                        Prop::FullScreen(on) => state.fill_screen(*id, *on),
+                        Prop::MinSize(_) => {
+                            let size = state.nodes[id].frame.size;
+                            state.resize(*id, size);
+                        }
+                        _ => {}
                     }
                     // Like native lists, removing rows deselects them.
                     if let Prop::Rows(rows) = prop {
@@ -676,7 +757,10 @@ impl Backend for HeadlessBackend {
                     state.size_surface(*id);
                 }
                 Command::SetA11y { id, a11y } => state.node(*id, command).a11y = a11y.clone(),
-                Command::SetWindowSize { id, size } => state.node(*id, command).frame.size = *size,
+                Command::SetWindowSize { id, size } => {
+                    state.node(*id, command);
+                    state.resize(*id, *size);
+                }
                 Command::SetFocusOrder { window, order } => {
                     if state.node(*window, command).kind != WidgetKind::Window {
                         violation(command, "not a window");

@@ -18,7 +18,12 @@ Microsoft.UI.Dispatching.DispatcherQueueHandler
 Microsoft.UI.Xaml.Window::CreateInstance
 Microsoft.UI.Xaml.IWindow::{add_Activated, remove_Activated, Activate, Close, get_Content, put_Content, get_Title, put_Title, put_ExtendsContentIntoTitleBar, SetTitleBar}
 Microsoft.UI.Xaml.IWindow2::get_AppWindow
-Microsoft.UI.Windowing.IAppWindow::{get_TitleBar, get_Id, Move, Show, add_Closing, remove_Closing, put_IsShownInSwitchers, get_Presenter, get_Position, get_Size}
+Microsoft.UI.Windowing.IAppWindow::{get_TitleBar, get_Id, Move, Show, add_Closing, remove_Closing, put_IsShownInSwitchers, get_Presenter, get_Position, get_Size, SetPresenter, SetPresenterByKind, add_Changed, remove_Changed}
+Microsoft.UI.Windowing.IAppWindowPresenter::get_Kind
+Microsoft.UI.Windowing.AppWindowPresenterKind
+Microsoft.UI.Windowing.AppWindowChangedEventArgs::{}
+Microsoft.UI.Windowing.IAppWindowChangedEventArgs::get_DidPresenterChange
+Microsoft.UI.Windowing.IOverlappedPresenter3::{put_PreferredMinimumWidth, put_PreferredMinimumHeight}
 Microsoft.UI.Windowing.AppWindowPresenter::{}
 Microsoft.UI.Windowing.OverlappedPresenter::{}
 Microsoft.UI.Windowing.IOverlappedPresenter::{put_IsModal, get_IsModal, put_IsMinimizable, put_IsMaximizable}
@@ -321,3 +326,36 @@ Windows.Win32.WH_KEYBOARD_LL
 Windows.Win32.KBDLLHOOKSTRUCT
 Windows.Win32.LLKHF_EXTENDED
 Windows.Win32.LLKHF_UP
+Windows.Win32.SetWindowSubclass
+Windows.Win32.DefSubclassProc
+Windows.Win32.SUBCLASSPROC
+Windows.Win32.EnumChildWindows
+Windows.Win32.WindowFromPoint
+Windows.Win32.GetAncestor
+Windows.Win32.GA_ROOT
+Windows.Win32.GetCursorPos
+Windows.Win32.SetCursor
+Windows.Win32.WM_SETCURSOR
+Windows.Win32.HTCLIENT
+Windows.Win32.CreateIconIndirect
+Windows.Win32.DestroyIcon
+Windows.Win32.ICONINFO
+Windows.Win32.CreateBitmap
+Windows.Win32.CreateDIBSection
+Windows.Win32.BITMAPINFO
+Windows.Win32.DIB_RGB_COLORS
+Windows.Win32.BI_RGB
+Windows.Win32.DeleteObject
+Windows.Win32.RemoveWindowSubclass
+Windows.Win32.WM_NCDESTROY
+Windows.Win32.RegisterRawInputDevices
+Windows.Win32.RAWINPUTDEVICE
+Windows.Win32.RIDEV_REMOVE
+Windows.Win32.GetRawInputData
+Windows.Win32.RAWINPUT
+Windows.Win32.RAWINPUTHEADER
+Windows.Win32.HRAWINPUT
+Windows.Win32.RID_INPUT
+Windows.Win32.RIM_TYPEMOUSE
+Windows.Win32.MOUSE_MOVE_ABSOLUTE
+Windows.Win32.WM_INPUT

@@ -49,6 +49,56 @@ pub(crate) struct WindowParts {
     /// The app's menu, GNOME style: a menu button at the end of the header bar.
     pub(crate) menu_button: gtk::MenuButton,
     pub(crate) shortcuts: gtk::ShortcutController,
+    full_screen: FullScreen,
+}
+
+/// Full screen as the app wants it. GTK reports its own changes
+/// (`notify::fullscreened`) like the user's, and later: the compositor
+/// applies them when it configures the window. A change it didn't ask
+/// for, or ended somewhere else, is the user's or the platform's.
+#[derive(Clone, Default)]
+struct FullScreen {
+    wanted: Rc<Cell<bool>>,
+    /// Asked for, and not in effect yet.
+    pending: Rc<Cell<bool>>,
+}
+
+impl FullScreen {
+    fn set(&self, window: &gtk::Window, on: bool) {
+        self.wanted.set(on);
+        self.pending.set(window.is_fullscreen() != on);
+        if on { window.fullscreen() } else { window.unfullscreen() }
+    }
+
+    /// What the window shows, or while a request is pending (or it isn't
+    /// shown yet), what it will.
+    fn shown(&self, window: &gtk::Window) -> bool {
+        if self.pending.get() { self.wanted.get() } else { window.is_fullscreen() }
+    }
+
+    fn in_effect(&self, window: &gtk::Window) -> bool {
+        window.is_fullscreen() || (self.pending.get() && self.wanted.get())
+    }
+}
+
+/// Gives a window a new default size. Some backends (Broadway before GTK
+/// 4.16) only size a toplevel when its surface is presented, so a mapped
+/// window ignores a new default size until then. `GtkWindow::present`
+/// would only focus it.
+fn resize(window: &gtk::Window, width: i32, height: i32) {
+    window.set_default_size(width, height);
+    if window.is_mapped()
+        && let Some(toplevel) = window.surface().and_downcast::<gdk::Toplevel>()
+    {
+        let layout = gdk::ToplevelLayout::new();
+        layout.set_resizable(window.is_resizable());
+        toplevel.present(&layout);
+    }
+}
+
+/// A size request's side: none (-1) is 0.
+fn requested(side: i32) -> f32 {
+    side.max(0) as f32
 }
 
 enum Widget {
@@ -384,21 +434,14 @@ impl GtkHandle {
         self.state.borrow().events.set_wake(wake);
     }
 
-    /// Resizes a window's content like the user would, and waits until GTK
-    /// has allocated it; the content host reports it as `WindowResized`.
+    /// Resizes a window's content like the user would, no smaller than its
+    /// minimum (GTK allocates no less), and waits until GTK has allocated
+    /// it; the content host reports it as `WindowResized`.
     pub fn resize_window(&self, window: NodeId, size: Size) {
         let Some((gtk_window, host, header_height)) = self.window_parts(window) else { return };
-        gtk_window.set_default_size(size.width as i32, size.height as i32 + header_height);
-        // Some backends (Broadway before GTK 4.16) only size a toplevel when
-        // its surface is presented, so a mapped window ignores a new default
-        // size until then. `GtkWindow::present` would only focus it.
-        if gtk_window.is_mapped()
-            && let Some(toplevel) = gtk_window.surface().and_downcast::<gdk::Toplevel>()
-        {
-            let layout = gdk::ToplevelLayout::new();
-            layout.set_resizable(gtk_window.is_resizable());
-            toplevel.present(&layout);
-        }
+        let (min_width, min_height) = host.size_request();
+        let size = Size::new(size.width.max(requested(min_width)), size.height.max(requested(min_height)));
+        resize(&gtk_window, size.width as i32, size.height as i32 + header_height);
         let target = (size.width as i32, size.height as i32);
         pump_until(Duration::from_secs(2), || (WidgetExt::width(&host), WidgetExt::height(&host)) == target);
     }
@@ -886,6 +929,18 @@ impl State {
         });
         let e = events.clone();
         window.connect_scale_factor_notify(move |_| e.emit(id, UiEvent::MetricsChanged));
+        let full_screen = FullScreen::default();
+        let (e, fs) = (events.clone(), full_screen.clone());
+        window.connect_fullscreened_notify(move |window| {
+            let now = window.is_fullscreen();
+            // The app's own request, in effect.
+            if fs.pending.replace(false) && now == fs.wanted.get() {
+                return;
+            }
+            if now != fs.wanted.replace(now) {
+                e.emit(id, UiEvent::FullScreenChanged(now));
+            }
+        });
         if let Some(settings) = gtk::Settings::default() {
             for property in ["gtk-font-name", "gtk-theme-name", "gtk-application-prefer-dark-theme"] {
                 let e = events.clone();
@@ -895,7 +950,8 @@ impl State {
             }
         }
         self.pending_show.push(id);
-        let parts = WindowParts { window, host, header, header_height, items: Vec::new(), menu_button, shortcuts };
+        let parts =
+            WindowParts { window, host, header, header_height, items: Vec::new(), menu_button, shortcuts, full_screen };
         self.menus.show_in(id, &parts);
         parts
     }
@@ -927,6 +983,13 @@ impl State {
         let Some(node) = self.nodes.get_mut(&id) else { violation(command, "node does not exist") };
         match (prop, &mut node.widget) {
             (Prop::Title(t), Widget::Window(parts)) => parts.window.set_title(Some(t)),
+            (Prop::FullScreen(on), Widget::Window(parts)) => parts.full_screen.set(&parts.window, *on),
+            // Asked by the content, which the window's minimum follows
+            // (the header bar's above it); a window smaller grows to it,
+            // as GTK allocates no less.
+            (Prop::MinSize(min), Widget::Window(parts)) => {
+                parts.host.set_size_request(min.width.ceil() as i32, min.height.ceil() as i32)
+            }
             (Prop::Text(t), Widget::Label(l)) => l.set_text(t),
             // GTK limits the lines of wrapping labels that ellipsize.
             (Prop::MaxLines(lines), Widget::Label(l)) => {
@@ -1004,9 +1067,10 @@ impl State {
                 surface.area.update_property(&[gtk::accessible::Property::Label(t)]);
                 node.a11y_label = Some(t.clone());
             }
-            (Prop::TakesInput(_) | Prop::PointerLock(_) | Prop::KeyboardGrab(_), Widget::GpuSurface(surface)) => {
-                surface.set_prop(prop)
-            }
+            (
+                Prop::TakesInput(_) | Prop::PointerLock(_) | Prop::KeyboardGrab(_) | Prop::Cursor(_),
+                Widget::GpuSurface(surface),
+            ) => surface.set_prop(prop),
             (Prop::Label(t), Widget::Picture { picture, .. }) => {
                 picture.set_alternative_text(Some(t));
                 node.a11y_label = Some(t.clone());
@@ -1380,10 +1444,22 @@ impl State {
                 }
                 widget.update_state(&[A11yState::Hidden(*hidden)]);
             }
+            // A window in full screen keeps the screen's size (its default
+            // size would apply when it leaves); none goes below its minimum.
             Command::SetWindowSize { id, size } => {
                 let (parts, root) = self.window_root(*id, command);
-                root.size.set(*size);
-                parts.window.set_default_size(size.width as i32, size.height as i32 + parts.header_height);
+                if parts.full_screen.in_effect(&parts.window) {
+                    return;
+                }
+                let (min_width, min_height) = parts.host.size_request();
+                let size = Size::new(size.width.max(requested(min_width)), size.height.max(requested(min_height)));
+                // Before it's first allocated, it's the size the content
+                // has; after, the allocation reports it (the app resizing
+                // it, `Ui::set_window_size`, hears only from that).
+                if !parts.window.is_mapped() {
+                    root.size.set(size);
+                }
+                resize(&parts.window, size.width as i32, size.height as i32 + parts.header_height);
             }
             Command::SetFocusOrder { window, order } => {
                 let widgets: Vec<gtk::Widget> = order
@@ -1874,6 +1950,9 @@ impl Backend for GtkBackend {
         match &node.widget {
             Widget::Window(parts) => {
                 props.push(Prop::Title(text(parts.window.title())));
+                props.push(Prop::FullScreen(parts.full_screen.shown(&parts.window)));
+                let (width, height) = parts.host.size_request();
+                props.push(Prop::MinSize(Size::new(requested(width), requested(height))));
                 props.extend(node.modal.map(|(owner, modality)| Prop::Modal { owner, modality }));
             }
             Widget::Label(l) => {

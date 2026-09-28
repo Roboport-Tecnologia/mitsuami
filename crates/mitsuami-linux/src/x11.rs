@@ -1,5 +1,6 @@
 //! X11: a child window of the toolkit's window, on an xcb connection of
-//! our own, and the pointer lock, a pointer grab on it.
+//! our own, and the pointer lock, a pointer grab on it, with XInput 2's
+//! raw motion for the mouse's moves before the server's acceleration.
 
 use std::ffi::CString;
 use std::num::NonZeroU32;
@@ -15,6 +16,7 @@ use mitsuami_core::{Modifiers, MouseButton, NativeSurface, Point, ScrollDelta, S
 use x11rb::connection::{Connection as _, RequestConnection as _};
 use x11rb::protocol::Event;
 use x11rb::protocol::shape::{self, ConnectionExt as _};
+use x11rb::protocol::xinput::{self, ConnectionExt as _};
 use x11rb::protocol::xproto::{
     AtomEnum, ButtonPressEvent, ClientMessageEvent, ConfigureWindowAux, ConnectionExt as _, CreateWindowAux, EventMask,
     GrabMode, GrabStatus, Gravity, KeyButMask, StackMode, WindowClass,
@@ -215,6 +217,10 @@ impl Inner {
             }
         }
         let _ = self.conn.free_cursor(cursor);
+        let raw = self.select_raw_motion(true);
+        if !raw {
+            eprintln!("mitsuami: no XInput 2 on this X server: no raw motion while the pointer is locked");
+        }
         self.warp_to_middle();
         let point = |x: i16, y: i16| Point::new(x as f32 / scale, y as f32 / scale);
         loop {
@@ -233,6 +239,11 @@ impl Inner {
                         self.warp_to_middle();
                     }
                 }
+                Event::XinputRawMotion(raw) => {
+                    if let Some((dx, dy)) = raw_motion(&raw) {
+                        sink(LockEvent::Input(SurfaceInput::RawMotion { dx, dy }));
+                    }
+                }
                 Event::ButtonPress(press) => {
                     if let Some(input) = button_input(&press, true, point) {
                         sink(LockEvent::Input(input));
@@ -246,6 +257,26 @@ impl Inner {
                 _ => {}
             }
         }
+    }
+
+    /// Raw motion comes only to the root window, and to a client that
+    /// said it speaks XInput 2. Returns whether it's selected (or, turning
+    /// it off, was asked to be unselected).
+    fn select_raw_motion(&self, on: bool) -> bool {
+        if self.conn.extension_information(xinput::X11_EXTENSION_NAME).ok().flatten().is_none() {
+            return false;
+        }
+        if on {
+            let version = self.conn.xinput_xi_query_version(2, 0).ok().and_then(|cookie| cookie.reply().ok());
+            if version.is_none_or(|v| v.major_version < 2) {
+                return false;
+            }
+        }
+        let mask = if on { xinput::XIEventMask::RAW_MOTION } else { xinput::XIEventMask::from(0u32) };
+        let masks = [xinput::EventMask { deviceid: xinput::Device::ALL_MASTER.into(), mask: vec![mask] }];
+        let selected = self.conn.xinput_xi_select_events(self.root, &masks).is_ok();
+        let _ = self.conn.flush();
+        selected
     }
 
     fn warp_to_middle(&self) {
@@ -265,6 +296,22 @@ impl Inner {
         self.conn.free_pixmap(pixmap)?;
         Ok(cursor)
     }
+}
+
+/// The x and y valuators (0 and 1) of a raw motion, unaccelerated: its
+/// values come in the order of the valuators its mask has, and an axis it
+/// doesn't have didn't move.
+fn raw_motion(event: &xinput::RawMotionEvent) -> Option<(f32, f32)> {
+    let mask = event.valuator_mask.first().copied().unwrap_or(0);
+    let value = |valuator: u32| {
+        if mask & (1 << valuator) == 0 {
+            return 0.0;
+        }
+        let index = (mask & ((1 << valuator) - 1)).count_ones() as usize;
+        event.axisvalues_raw.get(index).map_or(0.0, |v| v.integral as f64 + v.frac as f64 / 4_294_967_296.0)
+    };
+    let (dx, dy) = (value(0), value(1));
+    (dx != 0.0 || dy != 0.0).then_some((dx as f32, dy as f32))
 }
 
 /// A button or a wheel's notch while the pointer is grabbed. X11 has the
@@ -312,6 +359,7 @@ impl Drop for PointerLock {
             return;
         }
         let _ = inner.conn.ungrab_pointer(x11rb::CURRENT_TIME);
+        inner.select_raw_motion(false);
         // Wakes the lock's thread, which sees it's no longer locked. An
         // event sent with no mask goes to the window's own client.
         let wake = ClientMessageEvent::new(32, inner.window, AtomEnum::INTEGER, [self.number, 0, 0, 0, 0]);

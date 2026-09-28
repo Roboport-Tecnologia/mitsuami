@@ -424,12 +424,15 @@ impl Dispatch<relative_pointer::ZwpRelativePointerV1, ()> for Watch {
         _: &Connection,
         _: &QueueHandle<Self>,
     ) {
-        // Accelerated, in the surface's logical pixels; reported whenever
-        // the pointer moves over the app's surfaces, locked or not.
-        if let relative_pointer::Event::RelativeMotion { dx, dy, .. } = event
+        // Accelerated, in the surface's logical pixels, and before the
+        // compositor's acceleration, in the device's counts; reported
+        // whenever the pointer moves over the app's surfaces, locked or not.
+        if let relative_pointer::Event::RelativeMotion { dx, dy, dx_unaccel, dy_unaccel, .. } = event
             && watch.locked
         {
             watch.report(LockEvent::Input(SurfaceInput::Motion { dx: dx as f32, dy: dy as f32 }));
+            let (dx, dy) = (dx_unaccel as f32, dy_unaccel as f32);
+            watch.report(LockEvent::Input(SurfaceInput::RawMotion { dx, dy }));
         }
     }
 }

@@ -42,6 +42,7 @@ objc2-foundation = "0.3"
 objc2-app-kit = { version = "0.3", features = ["objc2-uniform-type-identifiers"] }
 objc2-uniform-type-identifiers = "0.3"
 objc2-core-foundation = "0.3"
+objc2-game-controller = "0.3"
 block2 = "0.6"
 dispatch2 = "0.3"
 
@@ -57,7 +58,7 @@ wayland-protocols = { version = "0.32", features = ["client", "unstable"] }
 # GpuSurface's child window on X11, on a connection of its own (xcb is
 # thread-safe, so the app presents from any thread); libxcb is loaded at
 # run time too.
-x11rb = { version = "0.13", features = ["allow-unsafe-code", "dl-libxcb", "shape"] }
+x11rb = { version = "0.13", features = ["allow-unsafe-code", "dl-libxcb", "shape", "xinput"] }
 
 windows-core = "0.100"
 windows-link = "0.100"
