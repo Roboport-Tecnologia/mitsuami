@@ -428,7 +428,14 @@ impl ContextMenu {
             // pages before the old ones go, and GTK warns about their
             // names. Given the model again, it starts over.
             self.show_model(widget, None);
-            self.model.remove_all();
+            if self.button.is_some() {
+                // A menu button makes a new popover for the model. The old
+                // one lives on while the item that made this change is
+                // activated, and would still follow a refilled model.
+                self.model = gio::Menu::new();
+            } else {
+                self.model.remove_all();
+            }
             for section in &sections {
                 self.model.append_section(None, section);
             }
