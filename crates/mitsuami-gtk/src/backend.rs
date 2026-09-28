@@ -488,6 +488,24 @@ impl GtkHandle {
         self.pump();
     }
 
+    /// Waits for mapped windows to reach the size the app or their minimum
+    /// asked for, which GTK allocates (and the host reports) at the next
+    /// frame; a platform that gives another size is waited for no longer
+    /// than a user's resize is.
+    fn wait_for_resizes(&self) {
+        let ids: Vec<NodeId> = self.windows().into_iter().map(|(id, _)| id).collect();
+        for (window, host, _) in ids.into_iter().filter_map(|id| self.window_parts(id)) {
+            let Some(root) = host.window_root() else { continue };
+            let Some(size) = root.resizing.get() else { continue };
+            if !window.is_mapped() {
+                continue;
+            }
+            let target = (size.width as i32, size.height as i32);
+            pump_until(Duration::from_secs(2), || (WidgetExt::width(&host), WidgetExt::height(&host)) == target);
+            root.resizing.set(None);
+        }
+    }
+
     /// Lets GPU surfaces whose frame changed take it now, rather than at
     /// the next frame, as lists do: each reports its new size when
     /// allocated, and the app draws at it.
@@ -647,6 +665,7 @@ impl mitsuami_core::TestHooks for GtkHandle {
         self.layout_lists();
         self.layout_headers();
         self.layout_surfaces();
+        self.wait_for_resizes();
     }
 }
 
@@ -931,6 +950,7 @@ impl State {
             id,
             events: events.clone(),
             size: Cell::new(Size::ZERO),
+            resizing: Cell::new(None),
             focus_order: RefCell::new(Vec::new()),
         };
         let host = Host::new(self.frames.clone(), Some(root));
@@ -1018,7 +1038,15 @@ impl State {
             // (the header bar's above it); a window smaller grows to it,
             // as GTK allocates no less.
             (Prop::MinSize(min), Widget::Window(parts)) => {
-                parts.host.set_size_request(min.width.ceil() as i32, min.height.ceil() as i32)
+                let (width, height) = (min.width.ceil() as i32, min.height.ceil() as i32);
+                parts.host.set_size_request(width, height);
+                if let Some(root) = parts.host.window_root() {
+                    let size = root.resizing.get().unwrap_or(root.size.get());
+                    let grown = Size::new(size.width.max(width as f32), size.height.max(height as f32));
+                    if grown != size {
+                        root.resizing.set(Some(grown));
+                    }
+                }
             }
             (Prop::Text(t), Widget::Label(l)) => l.set_text(t),
             // GTK limits the lines of wrapping labels that ellipsize.
@@ -1482,13 +1510,16 @@ impl State {
                     return;
                 }
                 let (min_width, min_height) = parts.host.size_request();
+                let asked = *size;
                 let size = Size::new(size.width.max(requested(min_width)), size.height.max(requested(min_height)));
                 // Before it's first allocated, it's the size the content
-                // has; after, the allocation reports it (the app resizing
-                // it, `Ui::set_window_size`, hears only from that).
+                // has, as the core asked; after, the allocation reports it
+                // (the app resizing it, `Ui::set_window_size`, hears only
+                // from that), and so does one the minimum grows.
                 if !parts.window.is_mapped() {
-                    root.size.set(size);
+                    root.size.set(asked);
                 }
+                root.resizing.set((root.size.get() != size).then_some(size));
                 resize(&parts.window, size.width as i32, size.height as i32 + parts.header_height);
             }
             Command::SetFocusOrder { window, order } => {

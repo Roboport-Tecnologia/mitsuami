@@ -80,6 +80,9 @@ pub(crate) struct WindowRoot {
     pub(crate) events: Events,
     /// Content size the core knows about (requested or last reported).
     pub(crate) size: Cell<Size>,
+    /// A size it's on its way to, the app's or its minimum's, which GTK
+    /// allocates at the next frame: tests' settles wait for it.
+    pub(crate) resizing: Cell<Option<Size>>,
     /// The core's Tab order.
     pub(crate) focus_order: RefCell<Vec<gtk::Widget>>,
 }

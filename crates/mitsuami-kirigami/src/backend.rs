@@ -192,7 +192,10 @@ impl WindowRoot {
         }
         self.header.set(Some(now));
         self.apply_min();
-        self.request(self.requested.get().unwrap_or(self.size.get()));
+        match self.requested.get() {
+            Some(size) => self.place(size),
+            None => self.request(self.size.get()),
+        }
     }
 
     /// The host changed size: report it, unless it's on its way to a size
@@ -213,6 +216,18 @@ impl WindowRoot {
 
     fn request(&self, size: Size) {
         self.size.set(size);
+        self.requested.set(Some(size));
+        self.place(size);
+    }
+
+    /// Resizes it to what the app asked for, no smaller than its minimum,
+    /// and reports the size it gets. Before it's shown, the core's size
+    /// is what it asked for: a minimum that grows it is reported too.
+    fn resize_to(&self, asked: Size) {
+        if !self.has_rendered() {
+            self.size.set(asked);
+        }
+        let size = self.at_least_min(asked);
         self.requested.set(Some(size));
         self.place(size);
     }
@@ -688,6 +703,14 @@ impl mitsuami_core::TestHooks for KirigamiHandle {
             }
         }
         self.pump();
+        // A size the app or a minimum asked for is reported once Qt lays
+        // the window out; a platform that gives another is waited for no
+        // longer than a user's resize is.
+        for (_, root) in self.windows() {
+            if root.has_rendered() && root.requested.get().is_some() {
+                pump_until(Duration::from_secs(2), || root.requested.get().is_none());
+            }
+        }
     }
 }
 
@@ -1007,9 +1030,8 @@ impl State {
                 root.min.set(Some(*min));
                 root.apply_min();
                 let size = root.requested.get().unwrap_or(root.size.get());
-                let grown = root.at_least_min(size);
-                if grown != size && !root.in_full_screen() {
-                    root.request(grown);
+                if root.at_least_min(size) != size && !root.in_full_screen() {
+                    root.resize_to(size);
                 }
             }
             (Prop::Text(t), Widget::Label(l)) => l.set_str("text", t),
@@ -1412,7 +1434,7 @@ impl State {
             Command::SetWindowSize { id, size } => {
                 let root = self.window_root(*id, command);
                 if !root.in_full_screen() {
-                    root.request(root.at_least_min(*size));
+                    root.resize_to(*size);
                 }
             }
             Command::SetFocusOrder { window, order } => {
