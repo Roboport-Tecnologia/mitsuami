@@ -5875,6 +5875,11 @@ impl INavigationView {
                 .map(|| result__)
         }
     }
+    pub fn SetIsPaneOpen(&self, value: bool) -> windows_core::Result<()> {
+        unsafe {
+            (windows_core::Interface::vtable(self).SetIsPaneOpen)(windows_core::Interface::as_raw(self), value).ok()
+        }
+    }
     pub fn DisplayMode(&self) -> windows_core::Result<NavigationViewDisplayMode> {
         unsafe {
             let mut result__ = core::mem::zeroed();
@@ -5886,6 +5891,15 @@ impl INavigationView {
         unsafe {
             (windows_core::Interface::vtable(self).SetIsSettingsVisible)(windows_core::Interface::as_raw(self), value)
                 .ok()
+        }
+    }
+    pub fn SetIsPaneToggleButtonVisible(&self, value: bool) -> windows_core::Result<()> {
+        unsafe {
+            (windows_core::Interface::vtable(self).SetIsPaneToggleButtonVisible)(
+                windows_core::Interface::as_raw(self),
+                value,
+            )
+            .ok()
         }
     }
     pub fn CompactPaneLength(&self) -> windows_core::Result<f64> {
@@ -5960,12 +5974,42 @@ impl INavigationView {
             ))
         }
     }
+    pub fn DisplayModeChanged<F>(&self, handler: F) -> windows_core::Result<windows_core::EventRevoker>
+    where
+        F: Fn(windows_core::Ref<NavigationView>, windows_core::Ref<NavigationViewDisplayModeChangedEventArgs>)
+            + 'static,
+    {
+        let handler: TypedEventHandler<NavigationView, NavigationViewDisplayModeChangedEventArgs> = {
+            let com = windows_core::imp::DelegateBox::<
+                TypedEventHandler<NavigationView, NavigationViewDisplayModeChangedEventArgs>,
+                F,
+            >::new(
+                &TypedEventHandlerBox::<NavigationView, NavigationViewDisplayModeChangedEventArgs, F>::VTABLE,
+                handler,
+            );
+            unsafe { core::mem::transmute(windows_core::imp::box_new(com)) }
+        };
+        unsafe {
+            let mut result__ = core::mem::zeroed();
+            let token__ = (windows_core::Interface::vtable(self).DisplayModeChanged)(
+                windows_core::Interface::as_raw(self),
+                windows_core::Interface::as_raw(&handler),
+                &mut result__,
+            )
+            .map(|| result__)?;
+            Ok(windows_core::EventRevoker::new(
+                self.clone(),
+                token__,
+                windows_core::Interface::vtable(self).RemoveDisplayModeChanged,
+            ))
+        }
+    }
 }
 #[repr(C)]
 pub struct INavigationView_Vtbl {
     pub base__: windows_core::IInspectable_Vtbl,
     pub IsPaneOpen: unsafe extern "system" fn(*mut core::ffi::c_void, *mut bool) -> windows_core::HRESULT,
-    SetIsPaneOpen: usize,
+    pub SetIsPaneOpen: unsafe extern "system" fn(*mut core::ffi::c_void, bool) -> windows_core::HRESULT,
     CompactModeThresholdWidth: usize,
     SetCompactModeThresholdWidth: usize,
     ExpandedModeThresholdWidth: usize,
@@ -5984,7 +6028,7 @@ pub struct INavigationView_Vtbl {
     IsSettingsVisible: usize,
     pub SetIsSettingsVisible: unsafe extern "system" fn(*mut core::ffi::c_void, bool) -> windows_core::HRESULT,
     IsPaneToggleButtonVisible: usize,
-    SetIsPaneToggleButtonVisible: usize,
+    pub SetIsPaneToggleButtonVisible: unsafe extern "system" fn(*mut core::ffi::c_void, bool) -> windows_core::HRESULT,
     AlwaysShowHeader: usize,
     SetAlwaysShowHeader: usize,
     pub CompactPaneLength: unsafe extern "system" fn(*mut core::ffi::c_void, *mut f64) -> windows_core::HRESULT,
@@ -6017,6 +6061,11 @@ pub struct INavigationView_Vtbl {
     pub SelectionChanged:
         unsafe extern "system" fn(*mut core::ffi::c_void, *mut core::ffi::c_void, *mut i64) -> windows_core::HRESULT,
     pub RemoveSelectionChanged: unsafe extern "system" fn(*mut core::ffi::c_void, i64) -> windows_core::HRESULT,
+    ItemInvoked: usize,
+    RemoveItemInvoked: usize,
+    pub DisplayModeChanged:
+        unsafe extern "system" fn(*mut core::ffi::c_void, *mut core::ffi::c_void, *mut i64) -> windows_core::HRESULT,
+    pub RemoveDisplayModeChanged: unsafe extern "system" fn(*mut core::ffi::c_void, i64) -> windows_core::HRESULT,
 }
 windows_core::imp::define_interface!(INavigationView2, INavigationView2_Vtbl, 0x05b428cf_014c_56dd_896a_a3e7089d73b5);
 impl windows_core::RuntimeType for INavigationView2 {
@@ -6036,6 +6085,18 @@ pub struct INavigationView2_Vtbl {
     IsBackButtonVisible: usize,
     pub SetIsBackButtonVisible:
         unsafe extern "system" fn(*mut core::ffi::c_void, NavigationViewBackButtonVisible) -> windows_core::HRESULT,
+}
+windows_core::imp::define_interface!(
+    INavigationViewDisplayModeChangedEventArgs,
+    INavigationViewDisplayModeChangedEventArgs_Vtbl,
+    0x58dcf1ea_9e56_522c_b3f8_34bd55ecaca4
+);
+impl windows_core::RuntimeType for INavigationViewDisplayModeChangedEventArgs {
+    const SIGNATURE: windows_core::imp::ConstBuffer = windows_core::imp::ConstBuffer::for_interface::<Self>();
+}
+#[repr(C)]
+pub struct INavigationViewDisplayModeChangedEventArgs_Vtbl {
+    pub base__: windows_core::IInspectable_Vtbl,
 }
 windows_core::imp::define_interface!(
     INavigationViewFactory,
@@ -8745,12 +8806,69 @@ impl ITitleBar {
             .ok()
         }
     }
+    pub fn SetIsPaneToggleButtonVisible(&self, value: bool) -> windows_core::Result<()> {
+        unsafe {
+            (windows_core::Interface::vtable(self).SetIsPaneToggleButtonVisible)(
+                windows_core::Interface::as_raw(self),
+                value,
+            )
+            .ok()
+        }
+    }
+    pub fn PaneToggleRequested<F>(&self, handler: F) -> windows_core::Result<windows_core::EventRevoker>
+    where
+        F: Fn(windows_core::Ref<TitleBar>, windows_core::Ref<windows_core::IInspectable>) + 'static,
+    {
+        let handler: TypedEventHandler<TitleBar, windows_core::IInspectable> = {
+            let com = windows_core::imp::DelegateBox::<TypedEventHandler<TitleBar, windows_core::IInspectable>, F>::new(
+                &TypedEventHandlerBox::<TitleBar, windows_core::IInspectable, F>::VTABLE,
+                handler,
+            );
+            unsafe { core::mem::transmute(windows_core::imp::box_new(com)) }
+        };
+        unsafe {
+            let mut result__ = core::mem::zeroed();
+            let token__ = (windows_core::Interface::vtable(self).PaneToggleRequested)(
+                windows_core::Interface::as_raw(self),
+                windows_core::Interface::as_raw(&handler),
+                &mut result__,
+            )
+            .map(|| result__)?;
+            Ok(windows_core::EventRevoker::new(
+                self.clone(),
+                token__,
+                windows_core::Interface::vtable(self).RemovePaneToggleRequested,
+            ))
+        }
+    }
 }
 #[repr(C)]
 pub struct ITitleBar_Vtbl {
     pub base__: windows_core::IInspectable_Vtbl,
     pub Title: unsafe extern "system" fn(*mut core::ffi::c_void, *mut *mut core::ffi::c_void) -> windows_core::HRESULT,
     pub SetTitle: unsafe extern "system" fn(*mut core::ffi::c_void, *mut core::ffi::c_void) -> windows_core::HRESULT,
+    Subtitle: usize,
+    SetSubtitle: usize,
+    IconSource: usize,
+    SetIconSource: usize,
+    LeftHeader: usize,
+    SetLeftHeader: usize,
+    Content: usize,
+    SetContent: usize,
+    RightHeader: usize,
+    SetRightHeader: usize,
+    IsBackButtonVisible: usize,
+    SetIsBackButtonVisible: usize,
+    IsBackButtonEnabled: usize,
+    SetIsBackButtonEnabled: usize,
+    IsPaneToggleButtonVisible: usize,
+    pub SetIsPaneToggleButtonVisible: unsafe extern "system" fn(*mut core::ffi::c_void, bool) -> windows_core::HRESULT,
+    TemplateSettings: usize,
+    BackRequested: usize,
+    RemoveBackRequested: usize,
+    pub PaneToggleRequested:
+        unsafe extern "system" fn(*mut core::ffi::c_void, *mut core::ffi::c_void, *mut i64) -> windows_core::HRESULT,
+    pub RemovePaneToggleRequested: unsafe extern "system" fn(*mut core::ffi::c_void, i64) -> windows_core::HRESULT,
 }
 windows_core::imp::define_interface!(IToggleButton, IToggleButton_Vtbl, 0x686fbaa4_c866_568b_8f75_481d8d545291);
 impl windows_core::RuntimeType for IToggleButton {
@@ -11310,6 +11428,33 @@ impl windows_core::RuntimeType for NavigationViewDisplayMode {
     const SIGNATURE: windows_core::imp::ConstBuffer =
         windows_core::imp::ConstBuffer::from_slice(b"enum(Microsoft.UI.Xaml.Controls.NavigationViewDisplayMode;i4)");
 }
+#[repr(transparent)]
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct NavigationViewDisplayModeChangedEventArgs(windows_core::IUnknown);
+windows_core::imp::interface_hierarchy!(
+    NavigationViewDisplayModeChangedEventArgs,
+    windows_core::IUnknown,
+    windows_core::IInspectable
+);
+impl windows_core::RuntimeType for NavigationViewDisplayModeChangedEventArgs {
+    const SIGNATURE: windows_core::imp::ConstBuffer =
+        windows_core::imp::ConstBuffer::for_class::<Self, INavigationViewDisplayModeChangedEventArgs>();
+}
+unsafe impl windows_core::Interface for NavigationViewDisplayModeChangedEventArgs {
+    type Vtable = <INavigationViewDisplayModeChangedEventArgs as windows_core::Interface>::Vtable;
+    const IID: windows_core::GUID = <INavigationViewDisplayModeChangedEventArgs as windows_core::Interface>::IID;
+}
+impl core::ops::Deref for NavigationViewDisplayModeChangedEventArgs {
+    type Target = INavigationViewDisplayModeChangedEventArgs;
+    fn deref(&self) -> &Self::Target {
+        unsafe { core::mem::transmute(self) }
+    }
+}
+impl windows_core::RuntimeName for NavigationViewDisplayModeChangedEventArgs {
+    const NAME: &'static str = "Microsoft.UI.Xaml.Controls.NavigationViewDisplayModeChangedEventArgs";
+}
+unsafe impl Send for NavigationViewDisplayModeChangedEventArgs {}
+unsafe impl Sync for NavigationViewDisplayModeChangedEventArgs {}
 #[repr(transparent)]
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct NavigationViewItem(windows_core::IUnknown);

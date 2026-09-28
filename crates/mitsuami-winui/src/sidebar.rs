@@ -8,7 +8,7 @@ use std::cell::{Cell, RefCell};
 use std::rc::Rc;
 
 use mitsuami_core::{EventValue, NodeId, SidebarSectionData, UiEvent};
-use windows_core::{EventRevoker, IInspectable, Interface};
+use windows_core::{EventRevoker, IInspectable, IUnknown, Interface};
 
 use crate::backend::{Events, boxed};
 use crate::bindings as w;
@@ -32,10 +32,11 @@ pub(crate) struct Sidebar {
     _selection: EventRevoker,
 }
 
-/// Which of the items `selected` is.
+/// Which of the items `selected` is, by COM identity: the `IUnknown`
+/// pointers, as each interface of an object has a pointer of its own.
 fn index_of(items: &[w::NavigationViewItem], selected: Option<IInspectable>) -> Option<usize> {
-    let selected = selected.filter(|s| !s.as_raw().is_null())?;
-    items.iter().position(|item| item.as_raw() == selected.as_raw())
+    let selected = selected.filter(|s| !s.as_raw().is_null())?.cast::<IUnknown>().ok()?;
+    items.iter().position(|item| item.cast::<IUnknown>().is_ok_and(|item| item.as_raw() == selected.as_raw()))
 }
 
 impl Sidebar {
@@ -154,6 +155,43 @@ impl Sidebar {
         } else {
             0.0
         }
+    }
+
+    /// Puts the menu button in the window's title bar while the pane is
+    /// hidden, as Task Manager has it, and in the pane while it shows: the
+    /// view's own sits over the content's top corner. The title bar's
+    /// button opens the pane. Undone by `leave_title_bar`, and the
+    /// revokers.
+    pub(crate) fn follow_title_bar(view: &w::NavigationView, title_bar: &w::TitleBar) -> R<Vec<EventRevoker>> {
+        let title_bar: w::ITitleBar = title_bar.cast()?;
+        let place = {
+            let title_bar = title_bar.clone();
+            move |view: &w::NavigationView| -> R<()> {
+                let hidden = view.DisplayMode()? == w::NavigationViewDisplayMode::Minimal;
+                view.SetIsPaneToggleButtonVisible(!hidden)?;
+                title_bar.SetIsPaneToggleButtonVisible(hidden)
+            }
+        };
+        place(view)?;
+        let modes = view.DisplayModeChanged(move |view, _| {
+            if let Some(view) = view.as_ref() {
+                let _ = place(view);
+            }
+        })?;
+        // Weakly, as the view's handler holds the title bar.
+        let weak = view.downgrade()?;
+        let toggle = title_bar.PaneToggleRequested(move |_, _| {
+            if let Some(view) = weak.upgrade() {
+                let open = view.IsPaneOpen().unwrap_or(false);
+                let _ = view.SetIsPaneOpen(!open);
+            }
+        })?;
+        Ok(vec![modes, toggle])
+    }
+
+    /// The title bar without the sidebar's menu button.
+    pub(crate) fn leave_title_bar(title_bar: &w::TitleBar) -> R<()> {
+        title_bar.cast::<w::ITitleBar>()?.SetIsPaneToggleButtonVisible(false)
     }
 
     /// What takes keyboard focus in it: the selected item, or the first.

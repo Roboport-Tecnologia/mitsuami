@@ -91,6 +91,8 @@ pub(crate) struct WindowParts {
     /// Its sidebar's node and navigation view, while it has one: the
     /// view's content is the host.
     sidebar: Option<(NodeId, w::NavigationView)>,
+    /// The handlers that move its menu button to the title bar.
+    sidebar_revokers: Vec<EventRevoker>,
     /// Full screen as the app wants it, and the user (who changes it
     /// too): what the presenter is compared with when it changes.
     full_screen: Rc<Cell<bool>>,
@@ -1029,6 +1031,8 @@ fn insert_toolbar_item(parts: &mut WindowParts, id: NodeId, host: &w::UIElement,
 /// place, and keeps its size.
 fn remove_sidebar(parts: &mut WindowParts) -> R<()> {
     let Some((_, view)) = parts.sidebar.take() else { return Ok(()) };
+    parts.sidebar_revokers.clear();
+    crate::sidebar::Sidebar::leave_title_bar(&parts.title_bar)?;
     let children = parts.root.cast::<w::IPanel>()?.Children()?;
     let mut at = 0;
     if children.IndexOf(&view.cast::<w::UIElement>()?, &mut at)? {
@@ -1906,6 +1910,7 @@ impl State {
             toolbar: None,
             toolbar_items: Vec::new(),
             sidebar: None,
+            sidebar_revokers: Vec::new(),
             full_screen,
             shown: false,
             overlapped: None,
@@ -2718,6 +2723,7 @@ impl State {
                     w::Grid::SetRow(&view.cast::<w::FrameworkElement>()?, CONTENT_ROW)?;
                     view.cast::<w::IContentControl>()?.SetContent(&host)?;
                     children.Append(&view.cast::<w::UIElement>()?)?;
+                    parts.sidebar_revokers = crate::sidebar::Sidebar::follow_title_bar(&view, &parts.title_bar)?;
                     parts.sidebar = Some((*child, view));
                     parts.root.cast::<w::IUIElement>()?.UpdateLayout()?;
                     // The content keeps its size: the window grows by the
