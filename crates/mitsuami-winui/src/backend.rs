@@ -2742,6 +2742,32 @@ impl State {
     /// they realise the containers of the rows in view, and the rows they
     /// report are built in the same run-loop turn. Their handlers only
     /// touch their own data and emit.
+    /// Brings scroll views' content into XAML's live tree. A new
+    /// `ScrollViewer` shows its content only once a layout pass has applied
+    /// its template, and XAML measures only elements in the live tree: until
+    /// then, controls in it measured as if untemplated (buttons 0 wide).
+    /// Scroll views inside scroll views connect one level per pass.
+    fn connect_scroll_content(&self) {
+        let live = |element: &w::UIElement| {
+            element.cast::<w::IUIElement>().and_then(|e| e.XamlRoot()).is_ok_and(|r| !r.as_raw().is_null())
+        };
+        loop {
+            let waiting = self.nodes.values().find_map(|node| {
+                let Widget::Scroll(scroll) = &node.widget else { return None };
+                let content = scroll.cast::<w::IContentControl>().ok()?.Content().ok()?;
+                let content: w::UIElement = content.cast().ok()?;
+                (live(&node.element) && !live(&content)).then(|| node.element.clone())
+            });
+            let Some(scroll) = waiting else { break };
+            _ = scroll.cast::<w::IUIElement>().and_then(|e| e.UpdateLayout());
+            let content = scroll.cast::<w::IContentControl>().and_then(|c| c.Content()).and_then(|c| c.cast());
+            if !content.is_ok_and(|c: w::UIElement| live(&c)) {
+                // Nothing more to do this batch; don't spin.
+                break;
+            }
+        }
+    }
+
     fn layout_lists(&self) {
         for node in self.nodes.values() {
             if let Widget::List(list) = &node.widget {
@@ -3111,6 +3137,7 @@ impl Backend for WinUiBackend {
             }
         }
         state.attach_surfaces();
+        state.connect_scroll_content();
         state.layout_lists();
     }
 
