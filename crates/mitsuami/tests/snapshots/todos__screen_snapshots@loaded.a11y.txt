@@ -2,12 +2,13 @@ Window "mitsuami test"
   StaticText "Todos"
   TextField "New todo" value=""
   Button "Add" disabled
-  Checkbox "Try view!" checked=false
-  Button "Remove Try view!"
-  Checkbox "Write a component" checked=false
-  Button "Remove Write a component"
-  Checkbox "Share a store" checked=false
-  Button "Remove Share a store"
+  ScrollArea "Todos"
+    Checkbox "Try view!" checked=false
+    Button "Remove Try view!"
+    Checkbox "Write a component" checked=false
+    Button "Remove Write a component"
+    Checkbox "Share a store" checked=false
+    Button "Remove Share a store"
   StaticText "3 left"
   Switch "Hide done" checked=false
   StaticText "Hide done"

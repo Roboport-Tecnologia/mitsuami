@@ -22,9 +22,9 @@ use mitsuami::prelude::*;
 
 fn main() {
     App::new()
-        .window("mitsuami todos", WindowSize::FitHeight(400.0), || {
+        .window("mitsuami todos", Size::new(400.0, 680.0), || {
             view! {
-                <Column padding=Spacing::Xl>
+                <Column padding=Spacing::Xl grow=1.0>
                     <screen::Screen/>
                 </Column>
             }

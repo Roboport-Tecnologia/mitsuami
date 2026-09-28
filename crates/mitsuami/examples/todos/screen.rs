@@ -20,8 +20,8 @@ pub const LATENCY: Duration = Duration::from_millis(600);
 #[component]
 pub fn Screen() -> impl View {
     view! {
-        <Column gap=Spacing::Xl>
-            <Section title="Todos">
+        <Column gap=Spacing::Xl grow=1.0>
+            <Section title="Todos" grow=1.0>
                 <NewTodo/>
                 <TodoList/>
             </Section>
@@ -35,11 +35,12 @@ pub fn Screen() -> impl View {
     }
 }
 
-/// A headline over whatever goes between the tags.
+/// A headline over whatever goes between the tags. A section that grows
+/// takes the space the others leave.
 #[component]
-fn Section(#[prop(into)] title: String, children: Slot) -> impl View {
+fn Section(#[prop(into)] title: String, #[prop(default = 0.0)] grow: f32, children: Slot) -> impl View {
     view! {
-        <Column gap=Spacing::Sm>
+        <Column gap=Spacing::Sm grow=grow>
             <Text text_style=TextStyle::Headline>{title}</Text>
             {children}
         </Column>
@@ -66,13 +67,19 @@ fn NewTodo() -> impl View {
 fn TodoList() -> impl View {
     let todos = use_store::<Todos>();
     view! {
-        <Column gap=Spacing::Sm>
-            <For each=move || todos.visible() key=|todo| todo.id let:todo>
-                <TodoRow id=todo.id title=todo.title @remove=move |id| todos.remove(id)/>
-            </For>
-            <Show when={move || todos.items.with(Vec::is_empty)}>
-                <Text text_style=TextStyle::Caption>"Nothing to do."</Text>
-            </Show>
+        <Column gap=Spacing::Sm grow=1.0>
+            // A basis of 0 and a minimum height of 0 let the list take what's
+            // left of the window, however many todos there are.
+            <ScrollView grow=1.0 basis=0 min_height=0 a11y_label="Todos">
+                <Column gap=Spacing::Sm>
+                    <For each=move || todos.visible() key=|todo| todo.id let:todo>
+                        <TodoRow id=todo.id title=todo.title @remove=move |id| todos.remove(id)/>
+                    </For>
+                    <Show when={move || todos.items.with(Vec::is_empty)}>
+                        <Text text_style=TextStyle::Caption>"Nothing to do."</Text>
+                    </Show>
+                </Column>
+            </ScrollView>
             <Row gap=Spacing::Md align=Align::Center>
                 <Text grow=1.0 text_style=TextStyle::Caption>{move || match todos.left() {
                     1 => "1 left".to_string(),
