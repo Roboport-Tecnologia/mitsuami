@@ -109,6 +109,9 @@ mod spinner;
 #[path = "../../../crates/mitsuami/examples/switch.rs"]
 mod switch;
 #[allow(dead_code, unused_attributes)]
+#[path = "../../../crates/mitsuami/examples/table.rs"]
+mod table;
+#[allow(dead_code, unused_attributes)]
 #[path = "../../../crates/mitsuami/examples/tabs.rs"]
 mod tabs;
 #[allow(dead_code, unused_attributes)]
@@ -184,6 +187,7 @@ const SECTIONS: [(&str, &[Example]); 7] = [
             example("Group", || AnyView::new(group::settings())),
             example("Separator", || AnyView::new(separator::page())),
             example("List", || AnyView::new(list::page())),
+            example("Table", || AnyView::new(table::page())),
             example("Scroll view", || AnyView::new(scroll_view::page())),
             example("Tabs", || AnyView::new(tabs::preferences())),
             example("Measurements", || AnyView::new(measurements::content())),
