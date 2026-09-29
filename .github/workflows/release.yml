@@ -41,9 +41,9 @@ jobs:
         run: rustup toolchain install
 
       # `cargo publish` builds every crate before uploading, and the GTK
-      # backend needs the system GTK 4 headers to build.
-      - name: Install GTK 4
-        run: sudo apt-get update && sudo apt-get install -y libgtk-4-dev
+      # backend needs the system GTK 4 and libadwaita headers to build.
+      - name: Install GTK 4 and libadwaita
+        run: sudo apt-get update && sudo apt-get install -y libgtk-4-dev libadwaita-1-dev
 
       # Publishes the crates not yet on crates.io, in dependency order.
       - name: Publish
@@ -76,9 +76,9 @@ jobs:
       - name: List the examples
         run: echo "EXAMPLES=$(ls crates/mitsuami/examples | sed 's/\.rs$//' | grep -vx run_loop_smoke | xargs)" >> "$GITHUB_ENV"
 
-      - name: Install GTK 4
+      - name: Install GTK 4 and libadwaita
         if: runner.os == 'Linux'
-        run: sudo apt-get update && sudo apt-get install -y libgtk-4-dev
+        run: sudo apt-get update && sudo apt-get install -y libgtk-4-dev libadwaita-1-dev
 
       - name: Build
         if: runner.os != 'macOS'

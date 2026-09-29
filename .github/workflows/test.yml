@@ -31,10 +31,11 @@ jobs:
 
       - uses: Swatinem/rust-cache@v2
 
-      # GTK 4 headers to build, gtk4-broadwayd for the native tests' private display.
+      # GTK 4 and libadwaita headers to build, gtk4-broadwayd for the native
+      # tests' private display.
       - name: Install GTK 4
         if: runner.os == 'Linux'
-        run: sudo apt-get update && sudo apt-get install -y libgtk-4-dev libgtk-4-bin
+        run: sudo apt-get update && sudo apt-get install -y libgtk-4-dev libadwaita-1-dev libgtk-4-bin
 
       # The WinUI backend needs the Windows App Runtime 2.4+ installed, even
       # headless: its services tests always use the real services.
