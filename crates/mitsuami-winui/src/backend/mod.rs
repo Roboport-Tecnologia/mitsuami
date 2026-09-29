@@ -261,7 +261,8 @@ struct Node {
     element: w::UIElement,
     /// Inside that `Border`: the render's or view's own control. Many XAML
     /// controls size themselves (`RatingControl` sets its own `Width`), so
-    /// they don't get our frame directly.
+    /// they don't get our frame directly. A table's list view, inside
+    /// the grid with its header.
     inner: Option<w::UIElement>,
     parent: Option<NodeId>,
     /// Row hosts: which row of their list they show; cell hosts, which

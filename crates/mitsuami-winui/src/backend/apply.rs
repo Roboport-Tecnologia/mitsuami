@@ -28,7 +28,8 @@ impl State {
         match node.tweak.as_ref().and_then(|tweak| tweak.downcast_ref::<crate::tweak::TweakFn>()) {
             // A group's is its card's.
             Some(run) if let Widget::Group(group) = &node.widget => run(&group.card.cast()?),
-            Some(run) => run(&node.element),
+            // A table's is its list view, not the grid around it.
+            Some(run) => run(node.inner.as_ref().unwrap_or(&node.element)),
             None => Ok(()),
         }
     }
