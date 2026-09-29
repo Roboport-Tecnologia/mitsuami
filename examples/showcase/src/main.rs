@@ -93,6 +93,9 @@ mod tabs;
 #[path = "../../../crates/mitsuami/examples/text.rs"]
 mod text;
 #[allow(dead_code, unused_attributes)]
+#[path = "../../../crates/mitsuami/examples/text_area.rs"]
+mod text_area;
+#[allow(dead_code, unused_attributes)]
 #[path = "../../../crates/mitsuami/examples/text_input.rs"]
 mod text_input;
 #[allow(dead_code, unused_attributes)]
@@ -141,6 +144,7 @@ const SECTIONS: [(&str, &[Example]); 5] = [
             scrolls("Text", || AnyView::new(text::page())),
             scrolls("Text input", || AnyView::new(text_input::page())),
             scrolls("Password input", || AnyView::new(password_input::page())),
+            scrolls("Text area", || AnyView::new(text_area::page())),
         ],
     ),
     (

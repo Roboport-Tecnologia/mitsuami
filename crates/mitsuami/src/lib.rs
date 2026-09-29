@@ -101,6 +101,6 @@ pub mod prelude {
     pub use mitsuami_widgets::{
         Button, Checkbox, Column, Container, GpuSurface, Grid, Group, Icon, Image, MenuButton, NumberInput,
         PasswordInput, Progress, RadioGroup, Row, ScrollView, Select, Separator, Sidebar, SidebarItem, SidebarSection,
-        Slider, Spinner, Switch, Tab, Tabs, Text, TextInput, Toolbar, Window,
+        Slider, Spinner, Switch, Tab, Tabs, Text, TextArea, TextInput, Toolbar, Window,
     };
 }

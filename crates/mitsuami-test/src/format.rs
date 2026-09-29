@@ -48,6 +48,7 @@ fn describe_props(props: &[Prop]) -> String {
             Prop::Running(b) => extra.push(format!("running={b}")),
             Prop::Mixed(b) => extra.push(format!("mixed={b}")),
             Prop::ReadOnly(b) => extra.push(format!("read_only={b}")),
+            Prop::Lines(n) => extra.push(format!("lines={n}")),
             Prop::MaxLines(n) => extra.push(format!("max_lines={}", n.map_or("none".to_owned(), |n| n.to_string()))),
             Prop::Enabled(b) => extra.push(format!("enabled={b}")),
             Prop::TextStyle(s) => extra.push(format!("style={s:?}")),
@@ -326,6 +327,7 @@ pub(crate) fn wireframe(root: &NodeInfo) -> String {
             WidgetKind::Button | WidgetKind::MenuButton => "#2f6fdf",
             WidgetKind::TextInput => "#a0602a",
             WidgetKind::PasswordInput => "#8a4f1f",
+            WidgetKind::TextArea => "#b8733a",
             WidgetKind::Checkbox | WidgetKind::Switch | WidgetKind::RadioGroup => "#8a4fbf",
             WidgetKind::Select
             | WidgetKind::Slider

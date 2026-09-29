@@ -315,6 +315,11 @@ enum Widget {
     Button(QmlObject),
     MenuButton(QmlObject),
     Field(QmlObject),
+    /// A scroll view, and the text area in it.
+    TextArea {
+        root: QmlObject,
+        area: QmlObject,
+    },
     Checkbox(QmlObject),
     Switch(QmlObject),
     Select(QmlObject),
@@ -407,6 +412,7 @@ impl Widget {
             | Widget::Native { item: i, .. }
             | Widget::Tabs { root: i, .. }
             | Widget::Group { root: i, .. }
+            | Widget::TextArea { root: i, .. }
             | Widget::Sidebar { page: i, .. } => *i,
             Widget::GpuSurface(surface) => surface.item,
             Widget::List(list) => list.root,
@@ -427,10 +433,11 @@ impl Widget {
     }
 
     /// Made from our templates, which show a context menu
-    /// (`qml::CONTEXT_MENU`), except text fields: they keep KDE's own, with
-    /// Cut, Copy and Paste, as a field's own menu wins on every platform.
+    /// (`qml::CONTEXT_MENU`), except text fields and areas: they keep KDE's
+    /// own, with Cut, Copy and Paste, as a field's own menu wins on every
+    /// platform.
     fn shows_context_menu(&self) -> bool {
-        self.has_tooltip() && !matches!(self, Widget::Field(_))
+        self.has_tooltip() && !matches!(self, Widget::Field(_) | Widget::TextArea { .. })
     }
 
     /// The item that takes keyboard focus and input: a list's list view.
@@ -440,6 +447,7 @@ impl Widget {
             Widget::List(list) => list.view,
             Widget::GpuSurface(surface) => surface.input,
             Widget::Sidebar { page, .. } => page.child("mitsuamiSidebarList").unwrap_or(*page),
+            Widget::TextArea { area, .. } => *area,
             // Its bar, which hands focus to its selected tab.
             Widget::Tabs { bar, .. } => *bar,
             widget => widget.item(),
@@ -465,6 +473,7 @@ impl Widget {
                 | Widget::Button(_)
                 | Widget::MenuButton(_)
                 | Widget::Field(_)
+                | Widget::TextArea { .. }
                 | Widget::Checkbox(_)
                 | Widget::Switch(_)
                 | Widget::Select(_)
@@ -481,6 +490,7 @@ impl Widget {
             Widget::Button(_)
                 | Widget::MenuButton(_)
                 | Widget::Field(_)
+                | Widget::TextArea { .. }
                 | Widget::Checkbox(_)
                 | Widget::Switch(_)
                 | Widget::Select(_)
@@ -1049,6 +1059,15 @@ impl State {
                 field.connect("accepted()", move || events.emit(id, UiEvent::Submit));
                 Widget::Field(field)
             }
+            WidgetKind::TextArea => {
+                let root = QmlObject::load(&qml::text_area());
+                let area = root.child("mitsuamiTextArea").expect("text areas have their area");
+                // `textChanged` fires for ours too; our sets are marked.
+                root.connect("mitsuamiEdited()", move || {
+                    events.emit(id, UiEvent::Changed(EventValue::Text(root.str("text"))))
+                });
+                Widget::TextArea { root, area }
+            }
             WidgetKind::ScrollView => {
                 let view = QmlObject::load(&qml::scroll_view());
                 let flickable = view.child("mitsuamiFlickable").expect("scroll views have a flickable");
@@ -1408,6 +1427,14 @@ impl State {
             (Prop::Placeholder(t), Widget::Field(f)) => f.set_str("placeholderText", t),
             // Still focusable and selectable, so its text can be copied.
             (Prop::ReadOnly(r), Widget::Field(f)) => f.set_bool("readOnly", *r),
+            (Prop::Value(t), Widget::TextArea { root, .. }) => {
+                if root.str("text") != *t {
+                    set_area_text(*root, t);
+                }
+            }
+            (Prop::Placeholder(t), Widget::TextArea { root, .. }) => root.set_str("placeholderText", t),
+            (Prop::ReadOnly(r), Widget::TextArea { root, .. }) => root.set_bool("readOnly", *r),
+            (Prop::Lines(n), Widget::TextArea { root, .. }) => root.set_int("mitsuamiLines", *n as i32),
             (Prop::Checked(c), Widget::Checkbox(b)) => {
                 node.checked = *c;
                 // The mixed state shows over it.
@@ -1423,6 +1450,13 @@ impl State {
                 } else {
                     b.set_bool("tristate", false);
                     b.set_int("checkState", if node.checked { CHECKED } else { UNCHECKED });
+                }
+            }
+            // Disabled, a text area shows no selection.
+            (Prop::Enabled(e), Widget::TextArea { root, area }) => {
+                root.set_bool("enabled", *e);
+                if !e {
+                    area.invoke("deselect");
                 }
             }
             (Prop::Enabled(e), w) if w.is_control() => w.item().set_bool("enabled", *e),
@@ -1559,8 +1593,9 @@ impl State {
         let node = &self.nodes[&id];
         if let Some(run) = node.tweak.as_ref().and_then(|tweak| tweak.downcast_ref::<crate::tweak::TweakFn>()) {
             match &node.widget {
-                // The list view, not the scroll view around it.
+                // The list view or text area, not the scroll view around it.
                 Widget::List(list) => run(list.view),
+                Widget::TextArea { area, .. } => run(*area),
                 Widget::Group { group, .. } => run(*group),
                 widget => run(widget.item()),
             }
@@ -1901,7 +1936,6 @@ fn tab_titles(tabs: QmlObject) -> Vec<String> {
     tabs.str("mitsuamiShownTitles").split('\u{1f}').map(str::to_owned).collect()
 }
 
-/// A select's options, as it shows them.
 /// The options a radio group has buttons for.
 fn radio_options(group: QmlObject) -> Vec<String> {
     if group.int("mitsuamiCount") == 0 {
@@ -1910,6 +1944,15 @@ fn radio_options(group: QmlObject) -> Vec<String> {
     group.str("mitsuamiOptionTexts").split('\u{1f}').map(str::to_owned).collect()
 }
 
+/// Sets a text area's text as the backend: its `textChanged` doesn't report
+/// an edit.
+fn set_area_text(root: QmlObject, text: &str) {
+    root.set_bool("mitsuamiSetting", true);
+    root.set_str("text", text);
+    root.set_bool("mitsuamiSetting", false);
+}
+
+/// A select's options, as it shows them.
 fn option_texts(select: QmlObject) -> Vec<String> {
     if select.int("count") == 0 {
         return Vec::new();
@@ -2124,6 +2167,15 @@ impl Backend for KirigamiBackend {
                 item.set_int("cursorPosition", text.chars().count() as i32);
                 events.emit(id, UiEvent::Changed(EventValue::Text(text.clone())));
             }
+            (A11yAction::SetValue(text), WidgetKind::TextArea) => {
+                if item.bool("readOnly") {
+                    return Err(ActionError::ReadOnly);
+                }
+                // One edit, reported once, the caret after it.
+                set_area_text(item, text);
+                input.set_int("cursorPosition", text.chars().count() as i32);
+                events.emit(id, UiEvent::Changed(EventValue::Text(text.clone())));
+            }
             // Native views: the item's own accessible actions.
             (A11yAction::Activate, WidgetKind::Native) => {
                 if !item.accessible_action("Press") && !item.accessible_action("Toggle") {
@@ -2250,7 +2302,9 @@ impl Backend for KirigamiBackend {
                     key_in(window, code, text);
                     Ok(())
                 }
-                (WidgetKind::TextInput | WidgetKind::PasswordInput, _) => {
+                // Qt's text area takes Return as a new line and Tab as a
+                // tab, as real keys.
+                (WidgetKind::TextInput | WidgetKind::PasswordInput | WidgetKind::TextArea, _) => {
                     // It would take the keys and ignore them; nothing can be
                     // typed into it on any platform.
                     if widget_item.bool("readOnly") {
@@ -2339,10 +2393,13 @@ impl Backend for KirigamiBackend {
                     _ => HorizontalAlign::Left,
                 }));
             }
-            Widget::Field(f) => {
+            Widget::Field(f) | Widget::TextArea { root: f, .. } => {
                 props.push(Prop::Value(f.str("text")));
                 props.push(Prop::Placeholder(f.str("placeholderText")));
                 props.push(Prop::ReadOnly(f.bool("readOnly")));
+                if let Widget::TextArea { root, .. } = &node.widget {
+                    props.push(Prop::Lines(root.int("mitsuamiLines") as u32));
+                }
             }
             Widget::Button(b) | Widget::MenuButton(b) => {
                 props.push(Prop::Label(b.str("text")));

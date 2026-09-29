@@ -443,6 +443,39 @@ fn password_input_tweak() -> Tweak<PasswordInput> {
     }
 }
 
+/// Text areas: empty with a placeholder (shown on Qt and WinUI), filled
+/// with a line that wraps, more lines than fit, read-only, disabled, and
+/// tweaked: a fixed-pitch font on AppKit and GTK, no wrapping on Qt and
+/// WinUI.
+#[mitsuami_test::story(sizes = [(240, fit)])]
+fn text_areas() -> impl View {
+    const NOTE: &str = "A note that runs past the edge of the area, and wraps.\nAnd a second paragraph.";
+    let many = (1..=8).map(|n| format!("Line {n}")).collect::<Vec<_>>().join("\n");
+    Column::new().padding(16).gap(8).children((
+        TextArea::new().a11y_label("Empty").placeholder("Comments"),
+        TextArea::new().a11y_label("Filled").value(NOTE),
+        TextArea::new().a11y_label("Scrolled").lines(2).value(many),
+        TextArea::new().a11y_label("Read-only").value(NOTE).read_only(true),
+        TextArea::new().a11y_label("Disabled").value(NOTE).enabled(false),
+        TextArea::new().a11y_label("Tweaked").value(NOTE).native(text_area_tweak()),
+    ))
+}
+
+fn text_area_tweak() -> Tweak<TextArea> {
+    platform! {
+        macos => mitsuami::appkit::tweak(|t: &mitsuami::appkit::objc2_app_kit::NSTextView| {
+            use mitsuami::appkit::objc2_app_kit::NSFont;
+            t.setFont(NSFont::userFixedPitchFontOfSize(0.0).as_deref())
+        }),
+        gtk => mitsuami::gtk::tweak(|v: &mitsuami::gtk::gtk::TextView| v.set_monospace(true)),
+        kde => mitsuami::kirigami::tweak(|a: &mitsuami::kirigami::QmlObject| a.set_int("wrapMode", 0)),
+        windows => mitsuami::winui::tweak(|t: &mitsuami::winui::bindings::TextBox| {
+            use mitsuami::winui::windows_core::Interface;
+            t.cast::<mitsuami::winui::bindings::ITextBox>()?.SetTextWrapping(mitsuami::winui::bindings::TextWrapping::NoWrap)
+        }),
+    }
+}
+
 /// Scroll views over more rows than fit: as the platform shows them,
 /// without scroll bars, and tweaked: a bezel border on AppKit, classic
 /// scroll bars on GTK. Qt's and WinUI's tweaks change how it scrolls, which

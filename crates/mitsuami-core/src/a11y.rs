@@ -18,6 +18,10 @@ pub enum Role {
     /// and in ARIA, UIA's expand-collapse button.
     MenuButton,
     TextField,
+    /// A field for text over many lines (a `TextArea`): AppKit's text
+    /// area, a multi-line text field elsewhere (GTK's and Qt's multi-line
+    /// state, UIA's multi-line edit). Its value is the text.
+    TextArea,
     Checkbox,
     Switch,
     /// Radio buttons, one of which at most is checked (a `RadioGroup`):
@@ -159,7 +163,7 @@ pub struct A11yNode {
     pub checked: Option<bool>,
     /// Checkboxes: in the mixed state, whatever `checked` says.
     pub mixed: bool,
-    /// Text fields: shown, but not editable.
+    /// Text fields and areas: shown, but not editable.
     pub read_only: bool,
     /// Text fields: the text is hidden, and not in `value`.
     pub password: bool,

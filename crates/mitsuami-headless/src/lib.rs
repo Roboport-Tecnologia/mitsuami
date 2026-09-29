@@ -952,6 +952,11 @@ impl Backend for HeadlessBackend {
                 Size::new(content + arrow + 24.0, (line + 8.0).max(28.0))
             }
             WidgetKind::TextInput | WidgetKind::PasswordInput => Size::new(200.0, line + 8.0),
+            // A text field's width, and its lines inside the same insets.
+            WidgetKind::TextArea => {
+                let lines = find_prop!(node.props, Lines).unwrap_or(1) as f32;
+                Size::new(200.0, lines * line + 8.0)
+            }
             WidgetKind::Checkbox => {
                 let text = text_size(&label(), font, None, None);
                 Size::new(16.0 + 6.0 + text.width, line.max(16.0))
@@ -1067,7 +1072,7 @@ impl Backend for HeadlessBackend {
                 state.focus(id);
                 state.emit(id, UiEvent::Changed(EventValue::Bool(checked)));
             }
-            (A11yAction::SetValue(text), WidgetKind::TextInput | WidgetKind::PasswordInput) => {
+            (A11yAction::SetValue(text), WidgetKind::TextInput | WidgetKind::PasswordInput | WidgetKind::TextArea) => {
                 if find_prop!(state.nodes[&id].props, ReadOnly) == Some(true) {
                     return Err(ActionError::ReadOnly);
                 }
@@ -1158,6 +1163,7 @@ impl Backend for HeadlessBackend {
                 WidgetKind::Button
                 | WidgetKind::TextInput
                 | WidgetKind::PasswordInput
+                | WidgetKind::TextArea
                 | WidgetKind::Checkbox
                 | WidgetKind::Switch
                 | WidgetKind::Select
@@ -1266,15 +1272,22 @@ impl Backend for HeadlessBackend {
         };
         // Nothing can be typed into a read-only field (AppKit's can't even
         // take focus from the keyboard).
-        if kind == WidgetKind::TextInput && find_prop!(node.props, ReadOnly) == Some(true) {
+        if matches!(kind, WidgetKind::TextInput | WidgetKind::TextArea)
+            && find_prop!(node.props, ReadOnly) == Some(true)
+        {
             return Err(ActionError::ReadOnly);
         }
         match (kind, key) {
-            (WidgetKind::TextInput | WidgetKind::PasswordInput, Key::Char(_) | Key::Backspace) => {
+            (WidgetKind::TextInput | WidgetKind::PasswordInput, Key::Char(_) | Key::Backspace)
+            // Return starts a new line, and Tab inserts a tab, as AppKit's,
+            // GTK's and Qt's text areas take it.
+            | (WidgetKind::TextArea, Key::Char(_) | Key::Backspace | Key::Enter | Key::Tab) => {
                 state.focus(id);
                 let mut text = find_prop!(state.nodes[&id].props, Value).unwrap_or_default();
                 match key {
                     Key::Char(c) => text.push(*c),
+                    Key::Enter => text.push('\n'),
+                    Key::Tab => text.push('\t'),
                     _ => {
                         text.pop();
                     }

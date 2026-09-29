@@ -151,6 +151,10 @@ name = "password_input"
 harness = false
 
 [[test]]
+name = "text_area"
+harness = false
+
+[[test]]
 name = "scroll_view"
 harness = false
 

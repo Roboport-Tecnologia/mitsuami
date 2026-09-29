@@ -14,9 +14,9 @@ use objc2::runtime::{AnyObject, NSObject, NSObjectProtocol, ProtocolObject, Sel}
 use objc2::{ClassType, DefinedClass, MainThreadMarker, MainThreadOnly, Message, define_class, msg_send, sel};
 use objc2_app_kit::{
     NSButton, NSColor, NSControl, NSControlStateValueOn, NSControlTextEditingDelegate, NSDragOperation, NSDraggingInfo,
-    NSEvent, NSPasteboardTypeFileURL, NSPopUpButton, NSRectFill, NSScreen, NSSlider, NSSwitch, NSTextField,
-    NSTextFieldDelegate, NSTextView, NSView, NSViewFrameDidChangeNotification, NSWindow, NSWindowDelegate,
-    NSWindowStyleMask,
+    NSEvent, NSPasteboardTypeFileURL, NSPopUpButton, NSRectFill, NSScreen, NSSlider, NSSwitch, NSText, NSTextDelegate,
+    NSTextField, NSTextFieldDelegate, NSTextView, NSTextViewDelegate, NSView, NSViewFrameDidChangeNotification,
+    NSWindow, NSWindowDelegate, NSWindowStyleMask,
 };
 use objc2_foundation::{
     NSArray, NSKeyValueObservingOptions, NSNotification, NSNotificationCenter, NSObjectNSKeyValueObserverRegistration,
@@ -166,7 +166,8 @@ pub(crate) struct TargetIvars {
 }
 
 define_class!(
-    /// Target of control actions and delegate of text fields for one node.
+    /// Target of control actions and delegate of text fields and areas for one
+    /// node.
     #[unsafe(super(NSObject))]
     #[thread_kind = MainThreadOnly]
     #[ivars = TargetIvars]
@@ -247,6 +248,21 @@ define_class!(
     }
 
     unsafe impl NSTextFieldDelegate for ActionTarget {}
+
+    unsafe impl NSTextDelegate for ActionTarget {
+        /// A text area's text changed: by typing, pasting, undo. The text
+        /// view doesn't post it when its string is set.
+        #[unsafe(method(textDidChange:))]
+        fn text_did_change(&self, notification: &NSNotification) {
+            let Some(object) = notification.object() else { return };
+            if let Some(text) = object.downcast_ref::<NSText>() {
+                let text = text.string().to_string();
+                self.ivars().events.emit(self.ivars().id, UiEvent::Changed(EventValue::Text(text)));
+            }
+        }
+    }
+
+    unsafe impl NSTextViewDelegate for ActionTarget {}
 );
 
 impl ActionTarget {

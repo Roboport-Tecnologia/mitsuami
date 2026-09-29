@@ -183,6 +183,13 @@ enum Widget {
     Host(w::Canvas),
     Label(w::TextBlock),
     Field(w::TextBox),
+    /// A multi-line text box, a text block that measures its lines in its
+    /// font, and how many it's tall: XAML has no number of lines.
+    TextArea {
+        field: w::TextBox,
+        probe: w::TextBlock,
+        lines: u32,
+    },
     Password(w::PasswordBox),
     Button(w::Button),
     /// A button whose `Flyout` is its menu, which it opens on a click.
@@ -2355,24 +2362,26 @@ impl State {
             }
             WidgetKind::TextInput => {
                 let field = w::TextBox::new()?;
-                let iface: w::ITextBox = field.cast()?;
-                // TextChanged also fires (later) for programmatic sets: only
-                // text the core doesn't know about is a user edit.
-                revokers.push(iface.TextChanged({
-                    let (emitter, shown) = (emitter.clone(), shown_text.clone());
-                    move |sender, _| {
-                        let Some(text) = sender.as_ref().and_then(|s| s.cast::<w::ITextBox>().ok()?.Text().ok()) else {
-                            return;
-                        };
-                        if *shown.borrow() != text {
-                            *shown.borrow_mut() = text.clone();
-                            emitter.emit(id, UiEvent::Changed(EventValue::Text(text)));
-                        }
-                    }
-                })?);
+                revokers.push(report_text_changes(&field, &emitter, &shown_text, id)?);
                 revokers.push(submit_on_enter(&field.cast()?, &emitter, id)?);
                 let element = field.cast()?;
                 (Widget::Field(field), element)
+            }
+            // A text box that takes Return, wraps, and shows its vertical
+            // scroll bar as needed, as Fluent's multi-line text boxes are
+            // made: XAML's default style hides it.
+            WidgetKind::TextArea => {
+                let field = w::TextBox::new()?;
+                let iface: w::ITextBox = field.cast()?;
+                iface.SetAcceptsReturn(true)?;
+                iface.SetTextWrapping(w::TextWrapping::Wrap)?;
+                w::ScrollViewer::SetVerticalScrollBarVisibility(
+                    &field.cast::<w::DependencyObject>()?,
+                    w::ScrollBarVisibility::Auto,
+                )?;
+                revokers.push(report_text_changes(&field, &emitter, &shown_text, id)?);
+                let element = field.cast()?;
+                (Widget::TextArea { field, probe: w::TextBlock::new()?, lines: 1 }, element)
             }
             // With XAML's default reveal button, shown while there's text.
             WidgetKind::PasswordInput => {
@@ -2502,6 +2511,7 @@ impl State {
             (Prop::Custom(new), Widget::Drawn { props, .. }) => *props = new.clone(),
             (Prop::Drawing(drawing), Widget::Drawn { view, .. }) => view.set_drawing(drawing)?,
             (Prop::Step(new), Widget::Slider { step, .. } | Widget::Number { step, .. }) => *step = *new,
+            (Prop::Lines(n), Widget::TextArea { lines, .. }) => *lines = *n,
             // A dialog doesn't take full screen (its presenter is modal,
             // over its owner), as a sheet can't on macOS.
             (Prop::FullScreen(on), Widget::Window(parts)) => {
@@ -2757,17 +2767,21 @@ impl State {
             (Prop::SelectedIndex(index), Widget::Tabs(tabs)) => tabs.set_selected(*index)?,
             // Its tabs; its pages are the app's.
             (Prop::Enabled(e), Widget::Tabs(tabs)) => tabs.bar.cast::<w::IControl>()?.SetIsEnabled(*e)?,
-            (Prop::Value(t), Widget::Field(f)) => {
+            (Prop::Value(t), Widget::Field(f) | Widget::TextArea { field: f, .. }) => {
                 let field: w::ITextBox = f.cast()?;
                 // Don't disturb the caret when the field already shows it.
-                if field.Text()? != *t {
+                if box_text(&field)? != *t {
                     *node.shown_text.borrow_mut() = t.clone();
                     field.SetText(t)?;
                 }
             }
-            (Prop::Placeholder(t), Widget::Field(f)) => f.cast::<w::ITextBox>()?.SetPlaceholderText(t)?,
+            (Prop::Placeholder(t), Widget::Field(f) | Widget::TextArea { field: f, .. }) => {
+                f.cast::<w::ITextBox>()?.SetPlaceholderText(t)?
+            }
             // Still focusable and selectable, so its text can be copied.
-            (Prop::ReadOnly(r), Widget::Field(f)) => f.cast::<w::ITextBox>()?.SetIsReadOnly(*r)?,
+            (Prop::ReadOnly(r), Widget::Field(f) | Widget::TextArea { field: f, .. }) => {
+                f.cast::<w::ITextBox>()?.SetIsReadOnly(*r)?
+            }
             (Prop::Value(t), Widget::Password(f)) => {
                 let field: w::IPasswordBox = f.cast()?;
                 if field.Password()? != *t {
@@ -2792,6 +2806,13 @@ impl State {
             (Prop::Checked(c), Widget::Switch(s)) => {
                 node.shown_checked.set(*c);
                 s.cast::<w::IToggleSwitch>()?.SetIsOn(*c)?;
+            }
+            // Disabled, a text area shows no selection.
+            (Prop::Enabled(e), Widget::TextArea { field, .. }) => {
+                field.cast::<w::IControl>()?.SetIsEnabled(*e)?;
+                if !e {
+                    field.cast::<w::ITextBox>()?.SetSelectionLength(0)?;
+                }
             }
             (Prop::Enabled(e), _) if is_control(&node.widget) => {
                 node.element.cast::<w::IControl>()?.SetIsEnabled(*e)?
@@ -3318,13 +3339,15 @@ impl State {
     fn report_value(&self, id: NodeId) {
         let Some(node) = self.nodes.get(&id) else { return };
         let changed = match &node.widget {
-            Widget::Field(f) => f.cast::<w::ITextBox>().and_then(|f| f.Text()).ok().and_then(|text| {
-                let mut shown = node.shown_text.borrow_mut();
-                (*shown != text).then(|| {
-                    *shown = text.clone();
-                    EventValue::Text(text)
+            Widget::Field(f) | Widget::TextArea { field: f, .. } => {
+                f.cast::<w::ITextBox>().and_then(|f| box_text(&f)).ok().and_then(|text| {
+                    let mut shown = node.shown_text.borrow_mut();
+                    (*shown != text).then(|| {
+                        *shown = text.clone();
+                        EventValue::Text(text)
+                    })
                 })
-            }),
+            }
             Widget::Password(f) => f.cast::<w::IPasswordBox>().and_then(|f| f.Password()).ok().and_then(|text| {
                 let mut shown = node.shown_text.borrow_mut();
                 (*shown != text).then(|| {
@@ -3413,6 +3436,32 @@ fn set_later(number: &w::INumberBox, from: f64, to: f64) {
     });
 }
 
+/// A text box's text with its lines ending in `\n`: XAML ends them in
+/// `\r`, whatever they were set with.
+fn box_text(field: &w::ITextBox) -> windows_core::Result<String> {
+    Ok(field.Text()?.replace("\r\n", "\n").replace('\r', "\n"))
+}
+
+/// Reports a text box's user edits. TextChanged also fires (later) for
+/// programmatic sets: only text the core doesn't know about is a user edit.
+fn report_text_changes(
+    field: &w::TextBox,
+    emitter: &Events,
+    shown: &Rc<RefCell<String>>,
+    id: NodeId,
+) -> R<EventRevoker> {
+    let (emitter, shown) = (emitter.clone(), shown.clone());
+    field.cast::<w::ITextBox>()?.TextChanged(move |sender, _| {
+        let Some(text) = sender.as_ref().and_then(|s| box_text(&s.cast::<w::ITextBox>().ok()?).ok()) else {
+            return;
+        };
+        if *shown.borrow() != text {
+            *shown.borrow_mut() = text.clone();
+            emitter.emit(id, UiEvent::Changed(EventValue::Text(text)));
+        }
+    })
+}
+
 /// Return submits a text or password box; leaving it doesn't.
 fn submit_on_enter(field: &w::IUIElement, emitter: &Events, id: NodeId) -> R<EventRevoker> {
     let emitter = emitter.clone();
@@ -3431,6 +3480,7 @@ fn is_control(widget: &Widget) -> bool {
     matches!(
         widget,
         Widget::Field(_)
+            | Widget::TextArea { .. }
             | Widget::Password(_)
             | Widget::Button(_)
             | Widget::MenuButton(_)
@@ -3707,6 +3757,25 @@ impl Backend for WinUiBackend {
                 let size = ceil(measure_element(&node.element, infinite));
                 Size::new(size.width.max(200.0), size.height)
             }
+            // A text field's width. Empty, a text box is one line tall; its
+            // other lines are what a text block in its font adds for them.
+            Widget::TextArea { field, probe, lines } => {
+                let size = ceil(measure_element(&node.element, infinite));
+                let lines_height = |n: u32| -> R<f32> {
+                    let block: w::ITextBlock = probe.cast()?;
+                    block.SetText(&vec!["X"; n as usize].join("\n"))?;
+                    Ok(measure_element(&probe.cast()?, infinite).height)
+                };
+                let extra = (|| -> R<f32> {
+                    let control: w::IControl = field.cast()?;
+                    let block: w::ITextBlock = probe.cast()?;
+                    block.SetFontSize(control.FontSize()?)?;
+                    block.SetFontFamily(&control.FontFamily()?)?;
+                    Ok(lines_height(*lines)? - lines_height(1)?)
+                })()
+                .unwrap_or(0.0);
+                Size::new(size.width.max(200.0), (size.height + extra).ceil())
+            }
             Widget::Button(_)
             | Widget::MenuButton(_)
             | Widget::Checkbox(_)
@@ -3894,7 +3963,7 @@ impl Backend for WinUiBackend {
                 group.SetSelectedIndex(index as i32).map_err(|_| ActionError::Unsupported)?;
                 self.state.borrow().report_value(id);
             }
-            (A11yAction::SetValue(text), WidgetKind::TextInput) => {
+            (A11yAction::SetValue(text), WidgetKind::TextInput | WidgetKind::TextArea) => {
                 if element.cast::<w::ITextBox>().and_then(|f| f.IsReadOnly()).unwrap_or(false) {
                     return Err(ActionError::ReadOnly);
                 }
@@ -4077,7 +4146,9 @@ impl Backend for WinUiBackend {
             return Ok(());
         }
         match (widget_kind, key) {
-            (WidgetKind::TextInput, Key::Char(_) | Key::Backspace | Key::Enter | Key::Tab) => {
+            // A text area takes Return as a new line; Tab moves on from
+            // both, as XAML's text boxes take no tabs.
+            (WidgetKind::TextInput | WidgetKind::TextArea, Key::Char(_) | Key::Backspace | Key::Enter | Key::Tab) => {
                 let field: w::ITextBox = element.cast().map_err(|_| ActionError::Unsupported)?;
                 // It would take the keys and ignore them (our edits go
                 // around that); nothing can be typed into it on any platform.
@@ -4114,6 +4185,7 @@ impl Backend for WinUiBackend {
                         }
                         edit("")
                     })(),
+                    Key::Enter if widget_kind == WidgetKind::TextArea => edit("\r"),
                     Key::Enter => {
                         self.state.borrow().emitter().emit(id, UiEvent::Submit);
                         Ok(())
@@ -4193,9 +4265,12 @@ impl Backend for WinUiBackend {
                 // be told apart from another once resolved.
                 props.extend(node.text_color.map(Prop::TextColor));
             }
-            Widget::Field(f) => {
+            Widget::Field(f) | Widget::TextArea { field: f, .. } => {
                 let field: w::ITextBox = f.cast().ok()?;
-                props.push(Prop::Value(field.Text().ok()?));
+                props.push(Prop::Value(box_text(&field).ok()?));
+                if let Widget::TextArea { lines, .. } = &node.widget {
+                    props.push(Prop::Lines(*lines));
+                }
                 props.push(Prop::ReadOnly(field.IsReadOnly().ok()?));
                 let placeholder = field.PlaceholderText().ok()?;
                 if !placeholder.is_empty() {

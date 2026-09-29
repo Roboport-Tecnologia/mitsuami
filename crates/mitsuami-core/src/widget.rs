@@ -68,6 +68,12 @@ pub enum WidgetKind {
     /// gtk::PasswordEntry, Kirigami.PasswordField): a `TextInput` whose
     /// text is hidden, as each platform hides it.
     PasswordInput,
+    /// A native field for text over many lines (an NSTextView in an
+    /// NSScrollView, a TextBox that accepts Return, a gtk::TextView in a
+    /// gtk::ScrolledWindow, a QQC2.TextArea in a QQC2.ScrollView). Its
+    /// lines wrap, Return starts a new one, and it scrolls past
+    /// [`Prop::Lines`], its natural height.
+    TextArea,
     Checkbox,
     Switch,
     /// A native pop-up menu of text options (NSPopUpButton, ComboBox,
@@ -193,6 +199,7 @@ impl WidgetKind {
             WidgetKind::MenuButton => "MenuButton",
             WidgetKind::TextInput => "TextInput",
             WidgetKind::PasswordInput => "PasswordInput",
+            WidgetKind::TextArea => "TextArea",
             WidgetKind::Checkbox => "Checkbox",
             WidgetKind::Switch => "Switch",
             WidgetKind::Select => "Select",
@@ -576,12 +583,19 @@ pub enum Prop {
     /// `Switch`, `Select`, `RadioGroup`, `Slider`, `NumberInput`, `Progress`, `Image`,
     /// `Icon` or `GpuSurface`, and of a `Button` that shows only its icon.
     Label(String),
-    /// Current text of a `TextInput` or `PasswordInput`.
+    /// Current text of a `TextInput`, `PasswordInput` or `TextArea`; a
+    /// text area's lines end in `\n`.
     Value(String),
+    /// What a text field shows while it's empty. Text areas show it where
+    /// the platform's have one (Qt, WinUI).
     Placeholder(String),
-    /// A `TextInput` shows its text, which can be selected and copied, but
-    /// not edited: by typing, or by assistive technology.
+    /// A `TextInput` or `TextArea` shows its text, which can be selected
+    /// and copied, but not edited: by typing, or by assistive technology.
     ReadOnly(bool),
+    /// How many lines of text a `TextArea` is tall at its natural size, in
+    /// the platform's font and line spacing; it scrolls past them. The
+    /// layout can still make it taller or shorter.
+    Lines(u32),
     Checked(bool),
     /// A `Checkbox` shows the mixed state (some of what it stands for is
     /// checked), whatever `Checked` says. A click leaves it: where it lands
@@ -728,6 +742,9 @@ impl Prop {
         }
         // A pull-down can be as wide as its widest item (AppKit).
         if kind == WidgetKind::MenuButton && matches!(self, Prop::Menu(_)) {
+            return true;
+        }
+        if kind == WidgetKind::TextArea && matches!(self, Prop::Lines(_)) {
             return true;
         }
         matches!(

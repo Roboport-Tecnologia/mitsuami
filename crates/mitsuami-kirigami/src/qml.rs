@@ -636,6 +636,43 @@ pub(crate) fn password_field() -> String {
     format!("Kirigami.PasswordField {{ {TEXT_STYLE} {} }}", a11y("placeholderText"))
 }
 
+/// A text area in a scroll view, as KDE apps make one: it wraps, and the
+/// desktop style frames the scroll view as a field. The scroll view is the
+/// node's item, with the text area's properties; `mitsuamiEdited` is a
+/// user's edit, not the backend's while `mitsuamiSetting`. It's
+/// `mitsuamiLines` of the text area's font tall, and a text field's width
+/// on the other platforms wide.
+pub(crate) fn text_area() -> String {
+    format!(
+        r#"
+QQC2.ScrollView {{
+    id: scroll
+    property alias text: area.text
+    property alias placeholderText: area.placeholderText
+    property alias readOnly: area.readOnly
+    property int mitsuamiLines: 1
+    property bool mitsuamiSetting: false
+    signal mitsuamiEdited()
+    implicitWidth: 200
+    implicitHeight: Math.ceil(topPadding + bottomPadding + area.topPadding + area.bottomPadding
+        + mitsuamiLines * mitsuamiMetrics.height)
+    FontMetrics {{ id: mitsuamiMetrics; font: area.font }}
+    QQC2.TextArea {{
+        id: area
+        objectName: "mitsuamiTextArea"
+        wrapMode: TextEdit.Wrap
+        {TEXT_STYLE}
+        Accessible.name: scroll.Accessible.name
+        Accessible.description: scroll.Accessible.description
+        onTextChanged: if (!scroll.mitsuamiSetting) scroll.mitsuamiEdited()
+    }}
+    {}
+}}
+"#,
+        a11y_with("placeholderText", "hovered")
+    )
+}
+
 pub(crate) fn checkbox() -> String {
     format!("QQC2.CheckBox {{ {TEXT_STYLE} {} }}", a11y("text"))
 }

@@ -4045,9 +4045,23 @@ impl windows_core::RuntimeType for IControl {
     const SIGNATURE: windows_core::imp::ConstBuffer = windows_core::imp::ConstBuffer::for_interface::<Self>();
 }
 impl IControl {
+    pub fn FontSize(&self) -> windows_core::Result<f64> {
+        unsafe {
+            let mut result__ = core::mem::zeroed();
+            (windows_core::Interface::vtable(self).FontSize)(windows_core::Interface::as_raw(self), &mut result__)
+                .map(|| result__)
+        }
+    }
     pub fn SetFontSize(&self, value: f64) -> windows_core::Result<()> {
         unsafe {
             (windows_core::Interface::vtable(self).SetFontSize)(windows_core::Interface::as_raw(self), value).ok()
+        }
+    }
+    pub fn FontFamily(&self) -> windows_core::Result<FontFamily> {
+        unsafe {
+            let mut result__ = core::mem::zeroed();
+            (windows_core::Interface::vtable(self).FontFamily)(windows_core::Interface::as_raw(self), &mut result__)
+                .and_then(|| windows_core::imp::Type::from_abi(result__))
         }
     }
     pub fn SetFontFamily<P0>(&self, value: P0) -> windows_core::Result<()>
@@ -4128,9 +4142,10 @@ pub struct IControl_Vtbl {
     SetIsFocusEngaged: usize,
     RequiresPointer: usize,
     SetRequiresPointer: usize,
-    FontSize: usize,
+    pub FontSize: unsafe extern "system" fn(*mut core::ffi::c_void, *mut f64) -> windows_core::HRESULT,
     pub SetFontSize: unsafe extern "system" fn(*mut core::ffi::c_void, f64) -> windows_core::HRESULT,
-    FontFamily: usize,
+    pub FontFamily:
+        unsafe extern "system" fn(*mut core::ffi::c_void, *mut *mut core::ffi::c_void) -> windows_core::HRESULT,
     pub SetFontFamily:
         unsafe extern "system" fn(*mut core::ffi::c_void, *mut core::ffi::c_void) -> windows_core::HRESULT,
     FontWeight: usize,
@@ -8428,6 +8443,53 @@ pub struct IScrollViewer_Vtbl {
     ) -> windows_core::HRESULT,
 }
 windows_core::imp::define_interface!(
+    IScrollViewerStatics,
+    IScrollViewerStatics_Vtbl,
+    0xd971fd86_0a96_50c4_a6e1_9975faa2a142
+);
+impl windows_core::RuntimeType for IScrollViewerStatics {
+    const SIGNATURE: windows_core::imp::ConstBuffer = windows_core::imp::ConstBuffer::for_interface::<Self>();
+}
+#[repr(C)]
+pub struct IScrollViewerStatics_Vtbl {
+    pub base__: windows_core::IInspectable_Vtbl,
+    HorizontalSnapPointsAlignmentProperty: usize,
+    VerticalSnapPointsAlignmentProperty: usize,
+    HorizontalSnapPointsTypeProperty: usize,
+    VerticalSnapPointsTypeProperty: usize,
+    ZoomSnapPointsTypeProperty: usize,
+    HorizontalOffsetProperty: usize,
+    ViewportWidthProperty: usize,
+    ScrollableWidthProperty: usize,
+    ComputedHorizontalScrollBarVisibilityProperty: usize,
+    ExtentWidthProperty: usize,
+    VerticalOffsetProperty: usize,
+    ViewportHeightProperty: usize,
+    ScrollableHeightProperty: usize,
+    ComputedVerticalScrollBarVisibilityProperty: usize,
+    ExtentHeightProperty: usize,
+    MinZoomFactorProperty: usize,
+    MaxZoomFactorProperty: usize,
+    ZoomFactorProperty: usize,
+    ZoomSnapPointsProperty: usize,
+    TopLeftHeaderProperty: usize,
+    LeftHeaderProperty: usize,
+    TopHeaderProperty: usize,
+    ReduceViewportForCoreInputViewOcclusionsProperty: usize,
+    HorizontalAnchorRatioProperty: usize,
+    VerticalAnchorRatioProperty: usize,
+    HorizontalScrollBarVisibilityProperty: usize,
+    GetHorizontalScrollBarVisibility: usize,
+    SetHorizontalScrollBarVisibility: usize,
+    VerticalScrollBarVisibilityProperty: usize,
+    GetVerticalScrollBarVisibility: usize,
+    pub SetVerticalScrollBarVisibility: unsafe extern "system" fn(
+        *mut core::ffi::c_void,
+        *mut core::ffi::c_void,
+        ScrollBarVisibility,
+    ) -> windows_core::HRESULT,
+}
+windows_core::imp::define_interface!(
     IScrollViewerViewChangedEventArgs,
     IScrollViewerViewChangedEventArgs_Vtbl,
     0xbf7bb85b_1d46_5004_a370_ecb626630588
@@ -9152,6 +9214,30 @@ impl ITextBox {
             (windows_core::Interface::vtable(self).SetIsReadOnly)(windows_core::Interface::as_raw(self), value).ok()
         }
     }
+    pub fn AcceptsReturn(&self) -> windows_core::Result<bool> {
+        unsafe {
+            let mut result__ = core::mem::zeroed();
+            (windows_core::Interface::vtable(self).AcceptsReturn)(windows_core::Interface::as_raw(self), &mut result__)
+                .map(|| result__)
+        }
+    }
+    pub fn SetAcceptsReturn(&self, value: bool) -> windows_core::Result<()> {
+        unsafe {
+            (windows_core::Interface::vtable(self).SetAcceptsReturn)(windows_core::Interface::as_raw(self), value).ok()
+        }
+    }
+    pub fn TextWrapping(&self) -> windows_core::Result<TextWrapping> {
+        unsafe {
+            let mut result__ = core::mem::zeroed();
+            (windows_core::Interface::vtable(self).TextWrapping)(windows_core::Interface::as_raw(self), &mut result__)
+                .map(|| result__)
+        }
+    }
+    pub fn SetTextWrapping(&self, value: TextWrapping) -> windows_core::Result<()> {
+        unsafe {
+            (windows_core::Interface::vtable(self).SetTextWrapping)(windows_core::Interface::as_raw(self), value).ok()
+        }
+    }
     pub fn SetHeader<P0>(&self, value: P0) -> windows_core::Result<()>
     where
         P0: windows_core::Param<windows_core::IInspectable>,
@@ -9230,12 +9316,12 @@ pub struct ITextBox_Vtbl {
     SetMaxLength: usize,
     pub IsReadOnly: unsafe extern "system" fn(*mut core::ffi::c_void, *mut bool) -> windows_core::HRESULT,
     pub SetIsReadOnly: unsafe extern "system" fn(*mut core::ffi::c_void, bool) -> windows_core::HRESULT,
-    AcceptsReturn: usize,
-    SetAcceptsReturn: usize,
+    pub AcceptsReturn: unsafe extern "system" fn(*mut core::ffi::c_void, *mut bool) -> windows_core::HRESULT,
+    pub SetAcceptsReturn: unsafe extern "system" fn(*mut core::ffi::c_void, bool) -> windows_core::HRESULT,
     TextAlignment: usize,
     SetTextAlignment: usize,
-    TextWrapping: usize,
-    SetTextWrapping: usize,
+    pub TextWrapping: unsafe extern "system" fn(*mut core::ffi::c_void, *mut TextWrapping) -> windows_core::HRESULT,
+    pub SetTextWrapping: unsafe extern "system" fn(*mut core::ffi::c_void, TextWrapping) -> windows_core::HRESULT,
     IsSpellCheckEnabled: usize,
     SetIsSpellCheckEnabled: usize,
     IsTextPredictionEnabled: usize,
@@ -13688,6 +13774,29 @@ impl ScrollViewer {
         callback: F,
     ) -> windows_core::Result<R> {
         static SHARED: windows_core::imp::FactoryCache<ScrollViewer, windows_core::imp::IGenericFactory> =
+            windows_core::imp::FactoryCache::new();
+        SHARED.call(callback)
+    }
+    pub fn SetVerticalScrollBarVisibility<P0>(
+        element: P0,
+        verticalscrollbarvisibility: ScrollBarVisibility,
+    ) -> windows_core::Result<()>
+    where
+        P0: windows_core::Param<DependencyObject>,
+    {
+        Self::IScrollViewerStatics(|this| unsafe {
+            (windows_core::Interface::vtable(this).SetVerticalScrollBarVisibility)(
+                windows_core::Interface::as_raw(this),
+                element.param().abi(),
+                verticalscrollbarvisibility,
+            )
+            .ok()
+        })
+    }
+    fn IScrollViewerStatics<R, F: FnOnce(&IScrollViewerStatics) -> windows_core::Result<R>>(
+        callback: F,
+    ) -> windows_core::Result<R> {
+        static SHARED: windows_core::imp::FactoryCache<ScrollViewer, IScrollViewerStatics> =
             windows_core::imp::FactoryCache::new();
         SHARED.call(callback)
     }

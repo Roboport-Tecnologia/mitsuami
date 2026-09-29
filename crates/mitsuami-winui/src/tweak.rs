@@ -6,7 +6,7 @@ use mitsuami_core::reactive::{IntoValue, Value};
 use mitsuami_core::{List, Opaque, Tweak};
 use mitsuami_widgets::{
     Button, Checkbox, Group, Icon, Image, MenuButton, NumberInput, PasswordInput, Progress, RadioGroup, ScrollView,
-    Select, Separator, Slider, Spinner, Switch, Text, TextInput,
+    Select, Separator, Slider, Spinner, Switch, Text, TextArea, TextInput,
 };
 use windows_core::Interface;
 
@@ -76,6 +76,11 @@ impl Tweakable for Separator {
 }
 
 impl Tweakable for TextInput {
+    type Native = w::TextBox;
+}
+
+/// A text box that takes Return.
+impl Tweakable for TextArea {
     type Native = w::TextBox;
 }
 

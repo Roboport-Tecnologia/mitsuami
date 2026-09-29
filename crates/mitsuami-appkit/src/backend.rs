@@ -30,7 +30,7 @@ use objc2_app_kit::{
     NSFontTraitsAttribute, NSFontWeightBold, NSFontWeightMedium, NSFontWeightRegular, NSFontWeightSemibold,
     NSFontWeightTrait, NSImage, NSImageScaling, NSImageSymbolConfiguration, NSImageView, NSMenuItem, NSPopUpButton,
     NSProgressIndicator, NSProgressIndicatorStyle, NSScreen, NSScrollView, NSSecureTextField, NSSlider,
-    NSStandardKeyBindingResponding, NSSwitch, NSTextAlignment, NSTextField, NSTitlePosition, NSView,
+    NSStandardKeyBindingResponding, NSSwitch, NSTextAlignment, NSTextField, NSTextView, NSTitlePosition, NSView,
     NSViewBoundsDidChangeNotification, NSWindow, NSWindowOrderingMode, NSWindowStyleMask, NSWorkspace,
 };
 use objc2_core_foundation::{CFRunLoop, kCFRunLoopDefaultMode};
@@ -90,6 +90,7 @@ enum Widget {
     Tabs(Tabs),
     Label(Retained<NSTextField>),
     Field(Retained<NSTextField>),
+    TextArea(crate::text_area::TextArea),
     Button(Retained<NSButton>),
     Checkbox(Retained<NSButton>),
     Switch(Retained<NSSwitch>),
@@ -148,6 +149,7 @@ impl Widget {
             Widget::Window { host, .. } => host,
             Widget::Host(v) | Widget::Group { host: v, .. } => v,
             Widget::Label(v) | Widget::Field(v) => v,
+            Widget::TextArea(area) => &area.scroll,
             Widget::Button(v) | Widget::Checkbox(v) => v,
             Widget::Switch(v) => v,
             Widget::Select(v) | Widget::MenuButton { popup: v, .. } => v,
@@ -178,8 +180,10 @@ impl Widget {
             // Its field: what's focused, and what text styles apply to.
             Widget::NumberInput(n) => Some(n.field()),
             // Its buttons each: see `RadioGroup`.
+            // A text view isn't a control: see `enabled`.
             Widget::Window { .. }
             | Widget::RadioGroup(_)
+            | Widget::TextArea(_)
             | Widget::Progress(_)
             | Widget::Spinner { .. }
             | Widget::Separator(_)
@@ -206,7 +210,16 @@ impl Widget {
             Widget::Sidebar(sidebar) => Retained::into_super(Retained::into_super(sidebar.table.clone())),
             Widget::NumberInput(n) => Retained::into_super(Retained::into_super(n.field().retain())),
             Widget::RadioGroup(group) => group.key_view(),
+            Widget::TextArea(area) => Retained::into_super(Retained::into_super(area.text.clone())),
             widget => widget.view().retain(),
+        }
+    }
+
+    /// Whether a control or text area takes input; `None` for the rest.
+    fn enabled(&self) -> Option<bool> {
+        match self {
+            Widget::TextArea(area) => Some(area.enabled()),
+            widget => widget.control().map(|c| c.isEnabled()),
         }
     }
 }
@@ -628,6 +641,7 @@ impl State {
                 | WidgetKind::Slider
                 | WidgetKind::TextInput
                 | WidgetKind::PasswordInput
+                | WidgetKind::TextArea
                 | WidgetKind::ScrollView
                 | WidgetKind::List
         )
@@ -835,6 +849,12 @@ impl State {
                 }
                 Widget::Field(field)
             }
+            // Edits come from the delegate's `textDidChange:`.
+            WidgetKind::TextArea => Widget::TextArea(crate::text_area::TextArea::new(
+                mtm,
+                target.as_deref().map(ProtocolObject::from_ref),
+                &font(TextStyle::Body),
+            )),
             WidgetKind::ScrollView => {
                 let scroll = NSScrollView::initWithFrame(NSScrollView::alloc(mtm), crate::classes::zero_rect());
                 scroll.setDrawsBackground(false);
@@ -1102,6 +1122,12 @@ impl State {
                 }
             }
             (Prop::Placeholder(t), Widget::Field(f)) => f.setPlaceholderString(Some(&ns(t))),
+            (Prop::Value(t), Widget::TextArea(area)) => area.set_string(t),
+            // A text view has no placeholder: kept for the mirror.
+            (Prop::Placeholder(t), Widget::TextArea(area)) => area.placeholder = Some(t.clone()),
+            (Prop::ReadOnly(r), Widget::TextArea(area)) => area.set_read_only(*r),
+            (Prop::Enabled(e), Widget::TextArea(area)) => area.set_enabled(*e),
+            (Prop::Lines(lines), Widget::TextArea(area)) => area.lines = *lines,
             // Still selectable, so its text can be copied; it takes focus
             // from a click, and from the keyboard only with Full Keyboard
             // Access.
@@ -1196,6 +1222,7 @@ impl State {
                         n.stepper().setToolTip(text.as_deref());
                     }
                     Widget::List(list) => list.table.setToolTip(text.as_deref()),
+                    Widget::TextArea(area) => area.text.setToolTip(text.as_deref()),
                     _ => {}
                 }
                 widget.view().setToolTip(text.as_deref());
@@ -1269,8 +1296,9 @@ impl State {
         let node = &self.nodes[&id];
         if let Some(run) = node.tweak.as_ref().and_then(|tweak| tweak.downcast_ref::<crate::tweak::TweakFn>()) {
             match &node.widget {
-                // The table, not the scroll view around it.
+                // The table or text view, not the scroll view around it.
                 Widget::List(list) => run(&list.table),
+                Widget::TextArea(area) => run(&area.text),
                 // The box, not the layout host its children are in.
                 Widget::Group { frame, .. } => run(frame),
                 widget => run(widget.view()),
@@ -1925,6 +1953,7 @@ impl Backend for AppKitBackend {
             // No natural width: they're as wide as the layout makes them.
             Widget::Slider { slider, .. } => intrinsic(slider),
             Widget::NumberInput(n) => n.natural_size(),
+            Widget::TextArea(area) => area.natural_size(state.mtm),
             // The image's size in points; nothing shown, none.
             Widget::Image(view) | Widget::Icon(view) => {
                 view.image().map_or(Size::ZERO, |image| ceil_size(image.size()))
@@ -1997,7 +2026,7 @@ impl Backend for AppKitBackend {
                 Widget::Custom { render, props, .. } => Some((render.clone(), props.props().clone())),
                 _ => None,
             };
-            let enabled = node.widget.control().map(|c| c.isEnabled());
+            let enabled = node.widget.enabled();
             (node.widget.view().retain(), enabled, node.kind, state.events.clone(), custom)
         };
         if control_enabled == Some(false) {
@@ -2105,6 +2134,17 @@ impl Backend for AppKitBackend {
                 field.setStringValue(&ns(text));
                 // Programmatic edits don't notify the delegate; assistive
                 // technology edits are user edits, so report one.
+                events.emit(id, UiEvent::Changed(EventValue::Text(text.clone())));
+            }
+            (A11yAction::SetValue(text), WidgetKind::TextArea) => {
+                let scroll: &NSScrollView = widget_view.downcast_ref().ok_or(ActionError::Unsupported)?;
+                let view = scroll.documentView().and_then(|v| v.downcast::<NSTextView>().ok());
+                let view = view.ok_or(ActionError::Unsupported)?;
+                if !view.isEditable() {
+                    return Err(ActionError::ReadOnly);
+                }
+                // `setString:` doesn't notify the delegate either.
+                view.setString(&ns(text));
                 events.emit(id, UiEvent::Changed(EventValue::Text(text.clone())));
             }
             (A11yAction::Focus, _) => {
@@ -2242,10 +2282,10 @@ impl Backend for AppKitBackend {
         let (view, kind) = {
             let state = self.state.borrow();
             let node = state.nodes.get(&id).ok_or(ActionError::UnknownNode)?;
-            if node.widget.control().is_some_and(|c| !c.isEnabled()) {
+            if node.widget.enabled() == Some(false) {
                 return Err(ActionError::Disabled);
             }
-            (node.widget.view().retain(), node.kind)
+            (node.widget.key_view(), node.kind)
         };
         match (kind, key) {
             (
@@ -2283,6 +2323,33 @@ impl Backend for AppKitBackend {
                     _ => sel!(insertTab:),
                 };
                 unsafe { editor.doCommandBySelector(command) };
+                Ok(())
+            }
+            // The text view takes the keys itself, as it takes real ones:
+            // Return starts a new line and Tab inserts a tab.
+            (WidgetKind::TextArea, Key::Char(_) | Key::Backspace | Key::Enter | Key::Tab) => {
+                let window = view.window().ok_or(ActionError::Unsupported)?;
+                let text: &NSTextView = view.downcast_ref().ok_or(ActionError::Unsupported)?;
+                if !text.isEditable() {
+                    return Err(ActionError::ReadOnly);
+                }
+                let first = window.firstResponder();
+                if !first.is_some_and(|r| std::ptr::eq(&*r as *const _ as *const NSView, &*view as *const NSView)) {
+                    window.makeFirstResponder(Some(&view));
+                    // Typing should append, as after clicking past the end.
+                    text.setSelectedRange(NSRange::new(text.string().length(), 0));
+                }
+                let command = match key {
+                    Key::Char(c) => {
+                        let typed = ns(&c.to_string());
+                        let _: () = unsafe { msg_send![text, insertText: &*typed] };
+                        return Ok(());
+                    }
+                    Key::Backspace => sel!(deleteBackward:),
+                    Key::Enter => sel!(insertNewline:),
+                    _ => sel!(insertTab:),
+                };
+                unsafe { text.doCommandBySelector(command) };
                 Ok(())
             }
             (WidgetKind::Button, Key::Enter | Key::Char(' '))
@@ -2339,6 +2406,13 @@ impl Backend for AppKitBackend {
                     props.push(Prop::Placeholder(p.to_string()));
                 }
                 props.push(Prop::ReadOnly(!f.isEditable()));
+            }
+            Widget::TextArea(area) => {
+                props.push(Prop::Value(area.text.string().to_string()));
+                props.extend(area.placeholder.clone().map(Prop::Placeholder));
+                props.push(Prop::ReadOnly(area.read_only()));
+                props.push(Prop::Enabled(area.text.isSelectable()));
+                props.push(Prop::Lines(area.lines));
             }
             Widget::MenuButton { popup, sent, .. } => {
                 props.push(Prop::Label(pull_down_title(&node.widget)));

@@ -1441,6 +1441,84 @@ impl PasswordInput {
     }
 }
 
+/// Text over many lines: the platform's text area, whose lines wrap to its
+/// width and where Return starts a new line. It's as tall as
+/// [`lines`](Self::lines) of the platform's text, and scrolls past them.
+pub struct TextArea(Element);
+widget!(TextArea);
+
+impl Default for TextArea {
+    fn default() -> TextArea {
+        TextArea::new()
+    }
+}
+
+impl TextArea {
+    /// Three lines tall.
+    pub fn new() -> TextArea {
+        let mut element = Element::new(WidgetKind::TextArea);
+        element.prop(Value::Static(3), Prop::Lines);
+        TextArea(element)
+    }
+
+    /// Its lines end in `\n`.
+    pub fn value(mut self, value: impl IntoValue<String>) -> TextArea {
+        self.0.prop(value.into_value(), Prop::Value);
+        self
+    }
+
+    /// Two-way binding, Vue's `v-model`.
+    pub fn bind(self, signal: Signal<String>) -> TextArea {
+        self.value(signal).on_input(move |text| signal.set(text))
+    }
+
+    /// Shown while it's empty, where the platform's text areas show one
+    /// (Qt, WinUI); AppKit's and GTK's have none. It still names the area
+    /// to assistive technology without a label.
+    pub fn placeholder(mut self, placeholder: impl IntoValue<String>) -> TextArea {
+        self.0.prop(placeholder.into_value(), Prop::Placeholder);
+        self
+    }
+
+    pub fn enabled(mut self, enabled: impl IntoValue<bool>) -> TextArea {
+        self.0.prop(enabled.into_value(), Prop::Enabled);
+        self
+    }
+
+    /// Shows the text, which can still be selected, copied and focused, but
+    /// not edited. Unlike a disabled area, it looks and reads as usual.
+    pub fn read_only(mut self, read_only: impl IntoValue<bool>) -> TextArea {
+        self.0.prop(read_only.into_value(), Prop::ReadOnly);
+        self
+    }
+
+    /// How many lines of text tall it is at its natural size: 3 unless
+    /// set, and at least 1. The layout can still stretch or shrink it.
+    pub fn lines(mut self, lines: impl IntoValue<u32>) -> TextArea {
+        self.0.prop(lines.into_value(), |n| Prop::Lines(n.max(1)));
+        self
+    }
+
+    /// Called on every edit with the new text.
+    pub fn on_input(mut self, handler: impl Fn(String) + 'static) -> TextArea {
+        self.0.on(move |event| {
+            if let UiEvent::Changed(EventValue::Text(text)) = event {
+                handler(text.clone());
+            }
+        });
+        self
+    }
+
+    /// Raw platform settings, past the semantic ones: see [`Tweak`]. What
+    /// the platforms offer (spelling and substitutions on AppKit, GTK's
+    /// wrap modes and monospace, Qt's text format, WinUI's spell check and
+    /// header) is each one's own.
+    pub fn native(mut self, tweak: Tweak<TextArea>) -> TextArea {
+        tweak.apply(&mut self.0);
+        self
+    }
+}
+
 macro_rules! toggle {
     ($t:ident) => {
         impl $t {
@@ -2578,6 +2656,13 @@ impl PasswordInput {
     #[doc(hidden)]
     pub fn __tag() -> PasswordInput {
         PasswordInput::new()
+    }
+}
+
+impl TextArea {
+    #[doc(hidden)]
+    pub fn __tag() -> TextArea {
+        TextArea::new()
     }
 }
 

@@ -205,6 +205,14 @@ enum Widget {
         steps: Rc<Steps>,
     },
     SpinButton(gtk::SpinButton),
+    /// A text view in a framed scrolled window, and what GTK has no place
+    /// for: a text view has no placeholder, and no number of lines.
+    TextArea {
+        scrolled: gtk::ScrolledWindow,
+        view: gtk::TextView,
+        placeholder: Option<String>,
+        lines: u32,
+    },
     /// A progress bar, and whether it pulses: GTK shows work of unknown
     /// length by `pulse()` calls, which a timer makes while it's set.
     Progress {
@@ -271,6 +279,7 @@ impl Widget {
             Widget::RadioGroup(group) => group.column.upcast_ref(),
             Widget::Slider { scale, .. } => scale.upcast_ref(),
             Widget::SpinButton(w) => w.upcast_ref(),
+            Widget::TextArea { scrolled, .. } => scrolled.upcast_ref(),
             Widget::Progress { bar, .. } => bar.upcast_ref(),
             Widget::Spinner(w) => w.upcast_ref(),
             Widget::Separator(w) => w.upcast_ref(),
@@ -302,6 +311,7 @@ impl Widget {
                 | Widget::RadioGroup(_)
                 | Widget::Slider { .. }
                 | Widget::SpinButton(_)
+                | Widget::TextArea { .. }
         )
     }
 
@@ -325,6 +335,7 @@ impl Widget {
         match self {
             Widget::List(list) => list.view.clone().upcast(),
             Widget::Sidebar(sidebar) => sidebar.list.clone().upcast(),
+            Widget::TextArea { view, .. } => view.clone().upcast(),
             widget => widget.widget().clone(),
         }
     }
@@ -646,6 +657,22 @@ fn pump_until(timeout: Duration, mut done: impl FnMut() -> bool) -> bool {
 /// The node a widget belongs to: the nearest known widget among it and its
 /// ancestors. Composite widgets (an entry's text, a scroll view's
 /// viewport) put focus on children we didn't create.
+/// A text area's width: a text field's, as on the other platforms.
+const TEXT_AREA_WIDTH: f32 = 200.0;
+
+/// Between a text area's frame and its text.
+const TEXT_AREA_MARGIN: i32 = 6;
+
+/// All of a buffer's text.
+fn buffer_text(buffer: &gtk::TextBuffer) -> String {
+    buffer.text(&buffer.start_iter(), &buffer.end_iter(), false).to_string()
+}
+
+/// A text area's text view, from its scrolled window.
+fn text_view(widget: &gtk::Widget) -> Option<gtk::TextView> {
+    widget.downcast_ref::<gtk::ScrolledWindow>()?.child()?.downcast().ok()
+}
+
 fn owning_node(map: &WidgetMap, widget: Option<gtk::Widget>) -> Option<NodeId> {
     let map = map.borrow();
     let mut current = widget;
@@ -1239,6 +1266,25 @@ impl State {
                 entry.connect_activate(move |_| events.emit(id, UiEvent::Submit));
                 Widget::Password(entry)
             }
+            WidgetKind::TextArea => {
+                let view = gtk::TextView::new();
+                // Wrapped at words, or within a word too long for a line, and
+                // clear of the frame, as GNOME apps set up their text views:
+                // GTK's own don't wrap, and have no margins.
+                view.set_wrap_mode(gtk::WrapMode::WordChar);
+                view.set_top_margin(TEXT_AREA_MARGIN);
+                view.set_bottom_margin(TEXT_AREA_MARGIN);
+                view.set_left_margin(TEXT_AREA_MARGIN);
+                view.set_right_margin(TEXT_AREA_MARGIN);
+                view.buffer().connect_changed(move |buffer| {
+                    events.emit(id, UiEvent::Changed(EventValue::Text(buffer_text(buffer))))
+                });
+                let scrolled = gtk::ScrolledWindow::new();
+                scrolled.set_policy(gtk::PolicyType::Never, gtk::PolicyType::Automatic);
+                scrolled.set_has_frame(true);
+                scrolled.set_child(Some(&view));
+                Widget::TextArea { scrolled, view, placeholder: None, lines: 1 }
+            }
             WidgetKind::ScrollView => {
                 let scrolled = gtk::ScrolledWindow::new();
                 scrolled.set_policy(gtk::PolicyType::Never, gtk::PolicyType::Automatic);
@@ -1686,12 +1732,30 @@ impl State {
                 }
             }
             (Prop::Placeholder(t), Widget::Password(e)) => e.set_placeholder_text(Some(t)),
+            (Prop::Value(t), Widget::TextArea { view, .. }) => {
+                let buffer = view.buffer();
+                if buffer_text(&buffer) != *t {
+                    buffer.set_text(t);
+                }
+            }
+            (Prop::Placeholder(t), Widget::TextArea { placeholder, .. }) => *placeholder = Some(t.clone()),
+            // Still focusable and selectable, so its text can be copied.
+            (Prop::ReadOnly(r), Widget::TextArea { view, .. }) => view.set_editable(!r),
+            (Prop::Lines(n), Widget::TextArea { lines, .. }) => *lines = *n,
             (Prop::Checked(c), Widget::Checkbox(b)) => b.set_active(*c),
             (Prop::Mixed(m), Widget::Checkbox(b)) => {
                 b.set_inconsistent(*m);
                 node.mixed = Some(*m);
             }
             (Prop::Checked(c), Widget::Switch(s)) => s.set_active(*c),
+            // Disabled, a text area shows no selection: it keeps the caret.
+            (Prop::Enabled(e), Widget::TextArea { scrolled, view, .. }) => {
+                scrolled.set_sensitive(*e);
+                if !e {
+                    let buffer = view.buffer();
+                    buffer.place_cursor(&buffer.iter_at_mark(&buffer.get_insert()));
+                }
+            }
             (Prop::Enabled(e), w) if w.is_control() => w.widget().set_sensitive(*e),
             (Prop::TextStyle(style), w) if w.is_control() => {
                 let widget = w.widget();
@@ -1831,8 +1895,9 @@ impl State {
         let node = &self.nodes[&id];
         if let Some(run) = node.tweak.as_ref().and_then(|tweak| tweak.downcast_ref::<crate::tweak::TweakFn>()) {
             match &node.widget {
-                // The list view, not the scrolled window around it.
+                // The list or text view, not the scrolled window around it.
                 Widget::List(list) => run(list.view.upcast_ref()),
+                Widget::TextArea { view, .. } => run(view.upcast_ref()),
                 // The card, not the host the children are in.
                 Widget::Group(group) => run(group.card.upcast_ref()),
                 widget => run(widget.widget()),
@@ -2318,6 +2383,15 @@ impl Backend for GtkBackend {
                 };
                 Size::new(heading + insets.left + insets.right, insets.top + insets.bottom)
             }
+            // A text field's width, and its lines of the view's font inside
+            // its margins and the frame.
+            Widget::TextArea { scrolled, view, lines, .. } => {
+                let line = view.create_pango_layout(Some("X")).pixel_size().1;
+                scrolled.set_min_content_height(line * *lines as i32 + view.top_margin() + view.bottom_margin());
+                let width = request.known_width.unwrap_or(TEXT_AREA_WIDTH);
+                let height = scrolled.measure(gtk::Orientation::Vertical, width.round() as i32).1;
+                Size::new(width, request.known_height.unwrap_or(height as f32))
+            }
             // As large as the layout makes it.
             Widget::GpuSurface(_) => Size::new(request.known_width.unwrap_or(0.0), request.known_height.unwrap_or(0.0)),
             // Measured by the core, or never (the sidebar is the window's).
@@ -2488,6 +2562,17 @@ impl Backend for GtkBackend {
                 entry.set_position(-1);
                 events.emit(id, UiEvent::Changed(EventValue::Text(text.clone())));
             }
+            (A11yAction::SetValue(text), WidgetKind::TextArea) => {
+                let view = text_view(&widget).ok_or(ActionError::Unsupported)?;
+                if !view.is_editable() {
+                    return Err(ActionError::ReadOnly);
+                }
+                // One edit, one event, the caret after it, as for a field.
+                let buffer = view.buffer();
+                events.muted(|| buffer.set_text(text));
+                buffer.place_cursor(&buffer.end_iter());
+                events.emit(id, UiEvent::Changed(EventValue::Text(text.clone())));
+            }
             // Native views: what GTK's accessibility actions do for the
             // widget (activate it, step a range or spin button).
             (A11yAction::Activate, WidgetKind::Native) => {
@@ -2651,6 +2736,33 @@ impl Backend for GtkBackend {
                 }
                 Ok(())
             }
+            // The text view's keybinding signals, as for a field: Return
+            // starts a new line, and Tab inserts a tab unless the view
+            // doesn't take tabs.
+            (WidgetKind::TextArea, Key::Char(_) | Key::Backspace | Key::Enter | Key::Tab) => {
+                let view = text_view(&widget).ok_or(ActionError::Unsupported)?;
+                if !view.is_editable() {
+                    return Err(ActionError::ReadOnly);
+                }
+                let focus = widget.root().and_then(|r| r.focus());
+                if owning_node(&map, focus) != Some(id) {
+                    view.grab_focus();
+                    // Typing appends, as after clicking past the end.
+                    let buffer = view.buffer();
+                    buffer.place_cursor(&buffer.end_iter());
+                }
+                match key {
+                    Key::Char(c) => view.emit_by_name::<()>("insert-at-cursor", &[&c.to_string()]),
+                    Key::Backspace => view.emit_by_name::<()>("backspace", &[]),
+                    Key::Enter => view.emit_by_name::<()>("insert-at-cursor", &[&"\n"]),
+                    _ if view.accepts_tab() => view.emit_by_name::<()>("insert-at-cursor", &[&"\t"]),
+                    _ => {
+                        let window = widget.root().ok_or(ActionError::Unsupported)?;
+                        window.emit_by_name::<()>("move-focus", &[&gtk::DirectionType::TabForward]);
+                    }
+                }
+                Ok(())
+            }
             (WidgetKind::Button, Key::Enter | Key::Char(' '))
             | (WidgetKind::Checkbox | WidgetKind::Switch, Key::Char(' ')) => self.perform(id, &A11yAction::Activate),
             _ => Err(ActionError::Unsupported),
@@ -2701,6 +2813,12 @@ impl Backend for GtkBackend {
                 if let Some(p) = e.placeholder_text() {
                     props.push(Prop::Placeholder(p.to_string()));
                 }
+            }
+            Widget::TextArea { view, placeholder, lines, .. } => {
+                props.push(Prop::Value(buffer_text(&view.buffer())));
+                props.extend(placeholder.clone().map(Prop::Placeholder));
+                props.push(Prop::ReadOnly(!view.is_editable()));
+                props.push(Prop::Lines(*lines));
             }
             Widget::Button(b) => props.extend(node.button.read(b)),
             Widget::MenuButton { button, menu } => {

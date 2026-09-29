@@ -34,6 +34,8 @@ mod surface;
 #[cfg(target_os = "macos")]
 mod tabs;
 #[cfg(target_os = "macos")]
+mod text_area;
+#[cfg(target_os = "macos")]
 mod toolbar;
 #[cfg(target_os = "macos")]
 mod tweak;

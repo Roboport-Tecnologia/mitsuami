@@ -1,0 +1,3 @@
+Window "mitsuami test"
+  TextArea "Note" value="Two\nlines"
+  TextArea "Comments" value=""

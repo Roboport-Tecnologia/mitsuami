@@ -78,7 +78,7 @@ Microsoft.UI.Xaml.Controls.ITextBlock::{get_Text, put_Text, put_TextWrapping, ge
 Microsoft.UI.Xaml.Media.FontFamily::CreateInstanceWithName
 Windows.UI.Text.FontWeight
 Windows.UI.Text.FontStyle
-Microsoft.UI.Xaml.Controls.IControl::{get_IsEnabled, put_IsEnabled, put_FontSize, put_FontWeight, put_FontFamily, put_Background, put_BorderThickness, get_CornerRadius, put_CornerRadius, put_VerticalContentAlignment}
+Microsoft.UI.Xaml.Controls.IControl::{get_IsEnabled, put_IsEnabled, get_FontSize, put_FontSize, get_FontFamily, put_FontWeight, put_FontFamily, put_Background, put_BorderThickness, get_CornerRadius, put_CornerRadius, put_VerticalContentAlignment}
 Microsoft.UI.Xaml.Thickness
 Microsoft.UI.Xaml.Controls.IContentControl::{get_Content, put_Content, get_ContentTemplateRoot}
 Microsoft.UI.Xaml.Controls.Button::CreateInstance
@@ -95,11 +95,11 @@ Microsoft.UI.Xaml.Controls.IComboBox::{put_Header}
 Microsoft.UI.Xaml.Controls.ComboBoxItem::CreateInstance
 Microsoft.UI.Xaml.Controls.RadioButtons::CreateInstance
 Microsoft.UI.Xaml.Controls.IRadioButtons::{get_Items, get_SelectedIndex, put_SelectedIndex, add_SelectionChanged, remove_SelectionChanged, ContainerFromIndex, put_Header}
-Microsoft.UI.Xaml.Controls.ITextBox::{get_Text, put_Text, put_Header, get_IsReadOnly, put_IsReadOnly, get_PlaceholderText, put_PlaceholderText, get_SelectionStart, put_SelectionStart, get_SelectionLength, put_SelectionLength, get_SelectedText, put_SelectedText, add_TextChanged, remove_TextChanged}
+Microsoft.UI.Xaml.Controls.ITextBox::{get_Text, put_Text, put_Header, get_IsReadOnly, put_IsReadOnly, get_PlaceholderText, put_PlaceholderText, get_SelectionStart, put_SelectionStart, get_SelectionLength, put_SelectionLength, get_SelectedText, put_SelectedText, get_AcceptsReturn, put_AcceptsReturn, get_TextWrapping, put_TextWrapping, add_TextChanged, remove_TextChanged}
 Microsoft.UI.Xaml.Controls.TextChangedEventHandler
 Microsoft.UI.Xaml.Controls.PasswordBox::CreateInstance
 Microsoft.UI.Xaml.Controls.IPasswordBox::{get_Password, put_Password, get_PasswordChar, put_PasswordChar, get_PlaceholderText, put_PlaceholderText, add_PasswordChanged, remove_PasswordChanged}
-Microsoft.UI.Xaml.Controls.ScrollViewer::CreateInstance
+Microsoft.UI.Xaml.Controls.ScrollViewer::{CreateInstance, SetVerticalScrollBarVisibility}
 Microsoft.UI.Xaml.Controls.IScrollViewer::{get_HorizontalOffset, get_IsScrollInertiaEnabled, put_IsScrollInertiaEnabled, get_VerticalOffset, get_ScrollableWidth, get_ScrollableHeight, get_HorizontalScrollBarVisibility, put_HorizontalScrollBarVisibility, get_VerticalScrollBarVisibility, put_VerticalScrollBarVisibility, put_HorizontalScrollMode, put_VerticalScrollMode, ChangeViewWithOptionalAnimation, add_ViewChanged, remove_ViewChanged}
 Microsoft.UI.Xaml.Controls.ScrollBarVisibility
 Microsoft.UI.Xaml.Controls.ScrollMode

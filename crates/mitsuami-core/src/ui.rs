@@ -1336,6 +1336,7 @@ impl Inner {
                     | WidgetKind::MenuButton
                     | WidgetKind::TextInput
                     | WidgetKind::PasswordInput
+                    | WidgetKind::TextArea
                     | WidgetKind::Checkbox
                     | WidgetKind::Switch
                     | WidgetKind::Select
@@ -1764,9 +1765,10 @@ impl Inner {
             UiEvent::Changed(value) => {
                 let Some(node) = self.nodes.get_mut(&id) else { return };
                 let prop = match (node.kind, value) {
-                    (WidgetKind::TextInput | WidgetKind::PasswordInput, EventValue::Text(text)) => {
-                        Prop::Value(text.clone())
-                    }
+                    (
+                        WidgetKind::TextInput | WidgetKind::PasswordInput | WidgetKind::TextArea,
+                        EventValue::Text(text),
+                    ) => Prop::Value(text.clone()),
                     (WidgetKind::Checkbox | WidgetKind::Switch, EventValue::Bool(b)) => Prop::Checked(*b),
                     (WidgetKind::List, EventValue::Rows(rows)) => Prop::Selected(rows.clone()),
                     (
@@ -2004,6 +2006,7 @@ impl Inner {
             // A text field that hides its text, as every platform exposes
             // one (AppKit's secure subrole, Qt's and UIA's password flag).
             WidgetKind::TextInput | WidgetKind::PasswordInput => Role::TextField,
+            WidgetKind::TextArea => Role::TextArea,
             WidgetKind::Checkbox => Role::Checkbox,
             WidgetKind::Switch => Role::Switch,
             WidgetKind::Select => Role::ComboBox,
@@ -2040,7 +2043,9 @@ impl Inner {
                 | WidgetKind::Image
                 | WidgetKind::Icon
                 | WidgetKind::GpuSurface => crate::find_prop!(props, Label),
-                WidgetKind::TextInput | WidgetKind::PasswordInput => crate::find_prop!(props, Placeholder),
+                WidgetKind::TextInput | WidgetKind::PasswordInput | WidgetKind::TextArea => {
+                    crate::find_prop!(props, Placeholder)
+                }
                 // Rows read as their text, as screen readers read native rows.
                 WidgetKind::Container if row.is_some() => {
                     let texts: Vec<&str> = children
@@ -2065,7 +2070,9 @@ impl Inner {
             // reads one, unless the app gave its own.
             description: a11y.description.or_else(|| crate::find_prop!(props, Tooltip).filter(|t| !t.is_empty())),
             value: match node.kind {
-                WidgetKind::TextInput => Some(crate::find_prop!(props, Value).unwrap_or_default()),
+                WidgetKind::TextInput | WidgetKind::TextArea => {
+                    Some(crate::find_prop!(props, Value).unwrap_or_default())
+                }
                 // Never read out.
                 WidgetKind::PasswordInput => None,
                 // The chosen option; empty without options.
