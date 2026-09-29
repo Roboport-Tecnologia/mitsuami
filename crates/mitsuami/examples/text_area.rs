@@ -93,7 +93,10 @@ fn platform_option() -> impl View {
             "AppKit: continuous spell checking underlines words as you type.",
         ),
         gtk => (
-            mitsuami::gtk::tweak(|v: &mitsuami::gtk::gtk::TextView| v.set_monospace(true)),
+            mitsuami::gtk::tweak(|v: &mitsuami::gtk::gtk::TextView| {
+                use mitsuami::gtk::gtk::prelude::*;
+                v.set_monospace(true)
+            }),
             "GTK: monospace sets the text in the fixed-width font.",
         ),
         kde => (
