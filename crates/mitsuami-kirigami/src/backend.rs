@@ -15,7 +15,7 @@ use mitsuami_core::{
     AppInfo, ButtonRole, ButtonStyle, Color, Command, CustomProps, DisplayList, EventValue, HorizontalAlign, ImageFit,
     ImageSource, KeyCode, Modality, Modifiers, NativeAppInfo, NativeIcon, NodeId, Opaque, Orientation, Point,
     PointerEvent, Prop, Rect, RowKey, ScrollAxes, ScrollDelta, SelectionMode, SidebarSectionData, Size, SurfaceInput,
-    TextStyle, UiEvent, WidgetKind, find_prop,
+    TabsStyle, TextStyle, UiEvent, WidgetKind, find_prop,
 };
 
 use crate::custom::{Emitter, ErasedRender, KirigamiCx, NativePayload, flatten};
@@ -344,10 +344,10 @@ enum Widget {
         flickable: QmlObject,
     },
     List(crate::list::List),
-    /// A tab view, its tab bar, and the item its page hosts are in.
+    /// A tab view, and the item its page hosts are in. Its strip, the
+    /// bar shown, is `strip`.
     Tabs {
         root: QmlObject,
-        bar: QmlObject,
         pages: QmlObject,
     },
     /// A group: its host, the `QQC2.GroupBox` drawn behind its content,
@@ -449,7 +449,7 @@ impl Widget {
             Widget::Sidebar { page, .. } => page.child("mitsuamiSidebarList").unwrap_or(*page),
             Widget::TextArea { area, .. } => *area,
             // Its bar, which hands focus to its selected tab.
-            Widget::Tabs { bar, .. } => *bar,
+            Widget::Tabs { root, .. } => strip(*root),
             widget => widget.item(),
         }
     }
@@ -548,6 +548,8 @@ struct Node {
     text_style: Option<TextStyle>,
     role: Option<ButtonRole>,
     button_style: Option<ButtonStyle>,
+    /// Tabs: the style the app chose, `Automatic` apart.
+    tabs_style: Option<TabsStyle>,
     /// Sliders: whether the app gave an `Orientation`. Separators: which
     /// way they run, which Kirigami's don't know.
     orientation: Option<Orientation>,
@@ -917,7 +919,6 @@ impl State {
             }
             WidgetKind::Tabs => {
                 let root = QmlObject::load(&qml::tabs());
-                let bar = root.child("mitsuamiTabBar").expect("tab views have a tab bar");
                 let pages = root.child("mitsuamiPages").expect("tab views have a page area");
                 // The user's choice only: the app's doesn't emit it.
                 root.connect("mitsuamiChosen()", move || {
@@ -925,7 +926,7 @@ impl State {
                         events.emit(id, UiEvent::Changed(EventValue::Index(index)));
                     }
                 });
-                Widget::Tabs { root, bar, pages }
+                Widget::Tabs { root, pages }
             }
             WidgetKind::Group => {
                 let root = QmlObject::load(&qml::group());
@@ -1111,6 +1112,7 @@ impl State {
                 text_style: None,
                 role: None,
                 button_style: None,
+                tabs_style: None,
                 orientation: None,
                 mixed: None,
                 checked: false,
@@ -1274,6 +1276,12 @@ impl State {
             (Prop::TabTitles(titles), Widget::Tabs { root, .. }) => {
                 root.set_str_list("mitsuamiTitles", titles);
                 root.invoke("mitsuamiShow");
+            }
+            // Kirigami's navigation bar unless the app asks for Qt's tab bar.
+            (Prop::TabsStyle(style), Widget::Tabs { root, .. }) => {
+                root.set_bool("mitsuamiNavigation", *style != TabsStyle::TabBar);
+                root.invoke("mitsuamiShow");
+                node.tabs_style = Some(*style);
             }
             (Prop::SelectedIndex(index), Widget::Tabs { root, .. }) => {
                 root.set_int("mitsuamiSelected", index.map_or(-1, |i| i as i32));
@@ -1942,6 +1950,11 @@ fn sections_json(sections: &[SidebarSectionData]) -> String {
     format!("[{}]", sections.join(","))
 }
 
+/// A tab view's strip: the bar it shows.
+fn strip(tabs: QmlObject) -> QmlObject {
+    tabs.object("mitsuamiStrip").expect("tab views have a strip")
+}
+
 /// A tab view's titles, as its tabs show them.
 fn tab_titles(tabs: QmlObject) -> Vec<String> {
     if tabs.int("mitsuamiCount") == 0 {
@@ -2019,6 +2032,16 @@ impl Backend for KirigamiBackend {
         theme::metrics()
     }
 
+    /// Below its strip, which is as high as the bar it shows: the
+    /// metrics' are Qt's tab bar's.
+    fn tab_insets(&self, id: NodeId) -> Option<mitsuami_core::Insets> {
+        let state = self.state.borrow();
+        let Some(Widget::Tabs { root, .. }) = state.nodes.get(&id).map(|n| &n.widget) else { return None };
+        let bar = strip(*root);
+        root.invoke("mitsuamiPolishStrip");
+        Some(mitsuami_core::Insets::new(bar.real("implicitHeight").ceil() as f32, 0.0, 0.0, 0.0))
+    }
+
     fn apply(&mut self, batch: &[Command]) {
         let mut state = self.state.borrow_mut();
         let events = state.events.clone();
@@ -2050,10 +2073,11 @@ impl Backend for KirigamiBackend {
             Widget::GpuSurface(_) => Size::new(request.known_width.unwrap_or(0.0), request.known_height.unwrap_or(0.0)),
             // With no page: its bar's size. Qt sizes a bar's tabs when it
             // polishes it, before a frame.
-            Widget::Tabs { bar, .. } => {
-                bar.invoke("ensurePolished");
+            Widget::Tabs { root, .. } => {
+                let bar = strip(*root);
+                root.invoke("mitsuamiPolishStrip");
                 Size::new(
-                    request.known_width.unwrap_or(bar.real("implicitWidth").ceil() as f32),
+                    request.known_width.unwrap_or(root.real("mitsuamiStripWidth").ceil() as f32),
                     request.known_height.unwrap_or(bar.real("implicitHeight").ceil() as f32),
                 )
             }
@@ -2540,9 +2564,20 @@ impl Backend for KirigamiBackend {
                 props.push(Prop::SelectedIndex(usize::try_from(page.int("mitsuamiSelected")).ok()));
             }
             Widget::Group { group, .. } => props.push(Prop::Title(group.str("title"))),
-            Widget::Tabs { root, bar, .. } => {
+            Widget::Tabs { root, .. } => {
                 props.push(Prop::TabTitles(tab_titles(*root)));
-                props.push(Prop::SelectedIndex(usize::try_from(bar.int("currentIndex")).ok()));
+                props.push(Prop::SelectedIndex(usize::try_from(strip(*root).int("currentIndex")).ok()));
+                // Which strip it shows; `Automatic` is the navigation bar.
+                let navigation = root.bool("mitsuamiNavigation");
+                props.extend(
+                    node.tabs_style
+                        .map(|chosen| match (chosen, navigation) {
+                            (TabsStyle::TabBar, false) | (TabsStyle::Automatic | TabsStyle::Navigation, true) => chosen,
+                            (_, true) => TabsStyle::Navigation,
+                            (_, false) => TabsStyle::TabBar,
+                        })
+                        .map(Prop::TabsStyle),
+                );
             }
         }
         if node.widget.is_control() {

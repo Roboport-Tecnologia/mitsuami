@@ -1,25 +1,30 @@
 //! A tab view: libadwaita's inline view switcher over an `adw::ViewStack`,
 //! as GNOME apps switch between panes inside a window, or a
-//! `gtk::Notebook` with libadwaita before 1.7 or the `notebook-tabs`
-//! feature. Each page host is a page,
-//! titled from the node's titles. Both stretch a page's child over their
-//! page area, so each host sits in a host of its own, at the top left, at
-//! the size the core gave it.
+//! `gtk::Notebook` with `TabsStyle::TabBar` or libadwaita before 1.7. Each
+//! page host is a page, titled from the node's titles. Both stretch a
+//! page's child over their page area, so each host sits in a host of its
+//! own, at the top left, at the size the core gave it. The view is in a
+//! box that stands for the node, so a new style makes a new view in it,
+//! with the same pages.
 
 use std::cell::{Cell, RefCell};
 use std::collections::HashMap;
+use std::rc::Rc;
 use std::sync::OnceLock;
 
 use gtk::glib::translate::from_glib;
 use gtk::prelude::*;
 use gtk::{glib, graphene};
-use mitsuami_core::{EventValue, Insets, NodeId, Point, Rect, Size, UiEvent};
+use mitsuami_core::{EventValue, Insets, NodeId, Point, Rect, Size, TabsStyle, UiEvent};
 
 use crate::host::{Events, Frames, Host};
 
 /// The tab view node's native parts, and the core's view of them.
 pub(crate) struct Tabs {
-    view: View,
+    root: gtk::Box,
+    view: RefCell<View>,
+    style: Cell<Option<TabsStyle>>,
+    changed: Rc<dyn Fn(usize)>,
     frames: Frames,
     titles: RefCell<Vec<String>>,
     /// The page the core shows, which may come before its page in a batch.
@@ -32,13 +37,75 @@ impl Tabs {
     pub(crate) fn new(id: NodeId, events: Events, frames: Frames) -> Tabs {
         // It fires for the core's switches and for pages coming and going
         // too: the backend mutes events while it applies commands.
-        let view = View::new(move |index| events.emit(id, UiEvent::Changed(EventValue::Index(index))));
-        Tabs { view, frames, titles: RefCell::default(), selected: Cell::new(None), origins: RefCell::default() }
+        let changed: Rc<dyn Fn(usize)> =
+            Rc::new(move |index| events.emit(id, UiEvent::Changed(EventValue::Index(index))));
+        let view = View::new(Kind::of(TabsStyle::Automatic), changed.clone());
+        let root = gtk::Box::new(gtk::Orientation::Vertical, 0);
+        root.append(view.root());
+        Tabs {
+            root,
+            view: RefCell::new(view),
+            style: Cell::new(None),
+            changed,
+            frames,
+            titles: RefCell::default(),
+            selected: Cell::new(None),
+            origins: RefCell::default(),
+        }
     }
 
     /// The widget the node is.
     pub(crate) fn root(&self) -> &gtk::Widget {
-        self.view.root()
+        self.root.upcast_ref()
+    }
+
+    /// Shows its tabs another way: a new view, with the same pages, titles
+    /// and page shown. The core's switches are muted, so the new view's
+    /// isn't reported.
+    pub(crate) fn set_style(&self, style: TabsStyle) {
+        self.style.set(Some(style));
+        let kind = Kind::of(style);
+        if self.view.borrow().kind() == kind {
+            return;
+        }
+        // GTK keeps the focus on a text field that moves with its page,
+        // but until it's focused again the window never finished drawing
+        // (a capture found nothing drawn): it's focused again.
+        let focus = self.root.root().and_then(|r| r.focus()).filter(|f| f.is_ancestor(&self.root));
+        let new = View::new(kind, self.changed.clone());
+        let old = self.view.replace(new);
+        let wrappers = old.wrappers();
+        for wrapper in &wrappers {
+            old.remove(wrapper);
+        }
+        self.root.remove(old.root());
+        let view = self.view.borrow();
+        self.root.append(view.root());
+        for (index, wrapper) in wrappers.iter().enumerate() {
+            view.insert(index, wrapper, self.titles.borrow().get(index).map_or("", String::as_str));
+        }
+        drop(view);
+        self.show_selected();
+        if let Some(focus) = focus {
+            focus.grab_focus();
+        }
+    }
+
+    /// The style the app chose, as the view shows it: `Automatic` and
+    /// `Navigation` are navigation tabs, unless libadwaita has none.
+    pub(crate) fn style(&self) -> Option<TabsStyle> {
+        let chosen = self.style.get()?;
+        let shown = self.view.borrow().kind();
+        Some(match shown {
+            _ if Kind::of(chosen) == shown => chosen,
+            Kind::TabBar => TabsStyle::TabBar,
+            Kind::Navigation => TabsStyle::Navigation,
+        })
+    }
+
+    /// Where its pages go, as its view has them.
+    pub(crate) fn insets(&self) -> Insets {
+        insets(self.view.borrow().kind())
     }
 
     /// Titles pages by index, whichever of the two came first.
@@ -49,8 +116,8 @@ impl Tabs {
 
     fn retitle(&self) {
         let titles = self.titles.borrow();
-        for (index, page) in self.view.wrappers().iter().enumerate() {
-            self.view.set_title(page, titles.get(index).map_or("", String::as_str));
+        for (index, page) in self.view.borrow().wrappers().iter().enumerate() {
+            self.view.borrow().set_title(page, titles.get(index).map_or("", String::as_str));
         }
     }
 
@@ -63,8 +130,8 @@ impl Tabs {
     /// page when it gets one, and keeps showing a page others are put
     /// before.
     fn show_selected(&self) {
-        if let Some(index) = self.selected.get().filter(|i| *i < self.view.wrappers().len()) {
-            self.view.show(index);
+        if let Some(index) = self.selected.get().filter(|i| *i < self.view.borrow().wrappers().len()) {
+            self.view.borrow().show(index);
         }
     }
 
@@ -72,7 +139,11 @@ impl Tabs {
         let wrapper = Host::new(self.frames.clone(), None);
         host.set_parent(&wrapper);
         self.place(host);
-        self.view.insert(index, wrapper.upcast_ref(), self.titles.borrow().get(index).map_or("", String::as_str));
+        self.view.borrow().insert(
+            index,
+            wrapper.upcast_ref(),
+            self.titles.borrow().get(index).map_or("", String::as_str),
+        );
         self.retitle();
         self.show_selected();
     }
@@ -80,7 +151,7 @@ impl Tabs {
     pub(crate) fn remove(&self, host: &gtk::Widget) {
         let Some(wrapper) = host.parent() else { return };
         host.unparent();
-        self.view.remove(&wrapper);
+        self.view.borrow().remove(&wrapper);
         // It goes back to its place in its next parent.
         if let Some(origin) = self.origins.borrow_mut().remove(host)
             && let Some(frame) = self.frames.borrow_mut().get_mut(host)
@@ -103,16 +174,16 @@ impl Tabs {
 
     /// The page hosts, in order.
     pub(crate) fn pages(&self) -> Vec<gtk::Widget> {
-        self.view.wrappers().iter().filter_map(WidgetExt::first_child).collect()
+        self.view.borrow().wrappers().iter().filter_map(WidgetExt::first_child).collect()
     }
 
     /// The tabs' titles, as they show them.
     pub(crate) fn titles(&self) -> Vec<String> {
-        self.view.wrappers().iter().map(|page| self.view.title(page)).collect()
+        self.view.borrow().wrappers().iter().map(|page| self.view.borrow().title(page)).collect()
     }
 
     pub(crate) fn selected(&self) -> Option<usize> {
-        self.view.current()
+        self.view.borrow().current()
     }
 
     /// Shows the page of the first tab with this title, as a click on it
@@ -120,13 +191,13 @@ impl Tabs {
     /// none.
     pub(crate) fn choose(&self, title: &str) -> bool {
         let Some(index) = self.titles().iter().position(|t| t == title) else { return false };
-        self.view.show(index);
+        self.view.borrow().show(index);
         true
     }
 
     /// Gives the tabs keyboard focus.
     pub(crate) fn focus(&self) -> bool {
-        self.view.focus()
+        self.view.borrow().focus()
     }
 
     /// Where the view shows a page, relative to itself, at the size the
@@ -134,8 +205,8 @@ impl Tabs {
     /// placed it (its window isn't shown yet), where the core put it.
     pub(crate) fn page_frame(&self, host: &gtk::Widget, size: Size) -> Rect {
         let Some(wrapper) = host.parent() else { return Rect::ZERO };
-        let index = self.view.wrappers().iter().position(|w| *w == wrapper);
-        if index.is_none() || index != self.view.current() {
+        let index = self.view.borrow().wrappers().iter().position(|w| *w == wrapper);
+        if index.is_none() || index != self.view.borrow().current() {
             return Rect::ZERO;
         }
         let at = host
@@ -148,6 +219,24 @@ impl Tabs {
     }
 }
 
+/// Which view a style shows, named as the styles are: libadwaita's switcher
+/// for navigation tabs, GTK's notebook for a tab bar.
+#[derive(Clone, Copy, Debug, PartialEq)]
+enum Kind {
+    Navigation,
+    TabBar,
+}
+
+impl Kind {
+    /// A tab bar where libadwaita has no switcher.
+    fn of(style: TabsStyle) -> Kind {
+        match style {
+            TabsStyle::Automatic | TabsStyle::Navigation if switcher_type().is_some() => Kind::Navigation,
+            _ => Kind::TabBar,
+        }
+    }
+}
+
 /// The native tab view: libadwaita's inline view switcher, centred over
 /// its view stack, as in libadwaita's demo and GNOME's apps; or GTK's
 /// notebook, a `gtk::Label` for each tab.
@@ -157,10 +246,11 @@ enum View {
 }
 
 impl View {
-    fn new(changed: impl Fn(usize) + 'static) -> View {
-        let Some(switcher) = switcher_type().map(|ty| glib::Object::with_type(ty).downcast::<gtk::Widget>().unwrap())
-        else {
+    fn new(kind: Kind, changed: Rc<dyn Fn(usize)>) -> View {
+        let switcher = switcher_type().filter(|_| kind == Kind::Navigation);
+        let Some(switcher) = switcher.map(|ty| glib::Object::with_type(ty).downcast::<gtk::Widget>().unwrap()) else {
             let notebook = gtk::Notebook::new();
+            notebook.set_vexpand(true);
             notebook.connect_switch_page(move |_, _, index| changed(index as usize));
             return View::Notebook(notebook);
         };
@@ -176,7 +266,15 @@ impl View {
                 changed(index)
             }
         });
+        root.set_vexpand(true);
         View::Switcher { root, switcher, stack }
+    }
+
+    fn kind(&self) -> Kind {
+        match self {
+            View::Switcher { .. } => Kind::Navigation,
+            View::Notebook(_) => Kind::TabBar,
+        }
     }
 
     fn root(&self) -> &gtk::Widget {
@@ -290,13 +388,10 @@ impl View {
 }
 
 /// libadwaita's inline view switcher, if the libadwaita the app runs with
-/// has one (1.7 and later) and the app didn't ask for notebooks. It's
-/// looked up at run time, so the backend builds against libadwaita 1.4.
+/// has one (1.7 and later). It's looked up at run time, so the backend
+/// builds against libadwaita 1.4.
 fn switcher_type() -> Option<glib::Type> {
     static TYPE: OnceLock<Option<glib::Type>> = OnceLock::new();
-    if cfg!(feature = "notebook-tabs") {
-        return None;
-    }
     *TYPE.get_or_init(|| {
         // SAFETY: the symbol, if libadwaita has it, is its type's getter,
         // `GType adw_inline_view_switcher_get_type(void)`.
@@ -322,12 +417,30 @@ fn current(stack: &adw::ViewStack) -> Option<usize> {
     pages(stack).iter().position(|p| p.child() == shown)
 }
 
-/// Where a tab view's page area is: measured from a throwaway one with a
-/// page much larger than its tab, allocated at its size. If GTK can't
-/// place it, the border is taken as even all round.
-pub(crate) fn insets() -> Insets {
+/// Where the default tab view's page area is, for the metrics.
+pub(crate) fn default_insets() -> Insets {
+    insets(Kind::of(TabsStyle::Automatic))
+}
+
+/// Where a tab view's page area is, measured once for each kind.
+fn insets(kind: Kind) -> Insets {
+    thread_local! {
+        static MEASURED: RefCell<Vec<(Kind, Insets)>> = const { RefCell::new(Vec::new()) };
+    }
+    if let Some(insets) = MEASURED.with(|m| m.borrow().iter().find(|(k, _)| *k == kind).map(|(_, i)| *i)) {
+        return insets;
+    }
+    let insets = measure_insets(kind);
+    MEASURED.with(|m| m.borrow_mut().push((kind, insets)));
+    insets
+}
+
+/// Measured from a throwaway view with a page much larger than its tab,
+/// allocated at its size. If GTK can't place it, the border is taken as
+/// even all round.
+fn measure_insets(kind: Kind) -> Insets {
     const SIDE: i32 = 1000;
-    let view = View::new(|_| {});
+    let view = View::new(kind, Rc::new(|_| {}));
     let page = gtk::Box::new(gtk::Orientation::Horizontal, 0);
     page.set_size_request(SIDE, SIDE);
     view.insert(0, page.upcast_ref(), "Tab");

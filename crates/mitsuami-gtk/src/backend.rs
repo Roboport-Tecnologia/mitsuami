@@ -631,7 +631,7 @@ fn metrics() -> PlatformMetrics {
         } || theme.contains("dark"),
         high_contrast: theme.contains("highcontrast"),
         reduced_motion: settings.as_ref().is_some_and(|s| !s.is_gtk_enable_animations()),
-        tab_insets: crate::tabs::insets(),
+        tab_insets: crate::tabs::default_insets(),
         group_insets: crate::group::insets(false),
         titled_group_insets: crate::group::insets(true),
     }
@@ -1498,6 +1498,7 @@ impl State {
             (Prop::Sections(sections), Widget::Sidebar(sidebar)) => sidebar.set_sections(sections.clone()),
             (Prop::SelectedIndex(index), Widget::Sidebar(sidebar)) => sidebar.set_selected(*index),
             (Prop::TabTitles(titles), Widget::Tabs(tabs)) => tabs.set_titles(titles.clone()),
+            (Prop::TabsStyle(style), Widget::Tabs(tabs)) => tabs.set_style(*style),
             (Prop::Title(title), Widget::Group(group)) => group.set_title(title),
             (Prop::SelectedIndex(index), Widget::Tabs(tabs)) => tabs.set_selected(*index),
             (Prop::FullScreen(on), Widget::Window(parts)) => parts.full_screen.set(&parts.window, *on),
@@ -2365,6 +2366,15 @@ impl Backend for GtkBackend {
         metrics()
     }
 
+    /// A tab bar's pages are elsewhere than navigation tabs': each view
+    /// measures its own.
+    fn tab_insets(&self, id: NodeId) -> Option<mitsuami_core::Insets> {
+        match self.state.borrow().nodes.get(&id).map(|n| &n.widget) {
+            Some(Widget::Tabs(tabs)) => Some(tabs.insets()),
+            _ => None,
+        }
+    }
+
     fn apply(&mut self, batch: &[Command]) {
         let mut state = self.state.borrow_mut();
         let events = state.events.clone();
@@ -2981,6 +2991,7 @@ impl Backend for GtkBackend {
             Widget::Tabs(tabs) => {
                 props.push(Prop::TabTitles(tabs.titles()));
                 props.push(Prop::SelectedIndex(tabs.selected()));
+                props.extend(tabs.style().map(Prop::TabsStyle));
             }
         }
         if let Some(target) = &node.file_drop {

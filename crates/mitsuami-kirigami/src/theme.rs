@@ -107,7 +107,8 @@ pub(crate) fn metrics() -> PlatformMetrics {
 /// A tab view's pages are below its tab bar, with no border around them:
 /// as high as a bar with a tab. Qt lays a bar out (and sizes it) when it
 /// polishes it, which it does only for items in a window, so this one is
-/// polished now.
+/// polished now. Each tab view says its own (`Backend::tab_insets`): the
+/// navigation bar most show is higher.
 fn tab_insets(theme: QmlObject) -> Insets {
     let Some(bar) = theme.object("tabProbe") else { return Insets::ZERO };
     bar.invoke("ensurePolished");

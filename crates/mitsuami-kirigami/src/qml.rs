@@ -315,9 +315,12 @@ Kirigami.ScrollablePage {
     .to_owned()
 }
 
-/// A tab view: a `QQC2.TabBar` of `TabButton`s over the page hosts, as KDE's
-/// settings pages pair a tab bar with the pages it picks. The pages are in
-/// `mitsuamiPages`, below the bar, each at its top-left at the size the core
+/// A tab view: a strip of tabs over the page hosts. The strip is Kirigami's
+/// `NavigationTabBar` (`mitsuamiNavigation`, the default), as Kirigami apps
+/// switch views and libadwaita's view switcher does, or a `QQC2.TabBar` of
+/// `TabButton`s, as KDE's settings pages pair a tab bar with the pages it
+/// picks; `mitsuamiStrip` is the one shown. The pages are in
+/// `mitsuamiPages`, below it, each at its top-left at the size the core
 /// gave it; the one shown is visible, the others hidden, as a `StackLayout`
 /// hides them (one would size them itself). Rust sets `mitsuamiTitles` and
 /// `mitsuamiSelected`, calls `mitsuamiShow` once pages or titles come or
@@ -332,13 +335,38 @@ Item {{
     property var mitsuamiTitles: []
     property int mitsuamiSelected: -1
     property int mitsuamiChoice: -1
-    readonly property int mitsuamiCount: mitsuamiBar.count
+    property bool mitsuamiNavigation: true
+    readonly property Item mitsuamiStrip: mitsuamiNavigation ? mitsuamiNavBar : mitsuamiBar
+    readonly property int mitsuamiCount: mitsuamiNavigation ? mitsuamiNavBar.count : mitsuamiBar.count
     readonly property string mitsuamiShownTitles: {{
         const titles = []
-        for (let i = 0; i < mitsuamiBar.count; i++) titles.push(mitsuamiBar.itemAt(i).text)
+        if (mitsuamiNavigation) {{
+            for (let i = 0; i < mitsuamiNavBar.actions.length; i++) titles.push(mitsuamiNavBar.actions[i].text)
+        }} else {{
+            for (let i = 0; i < mitsuamiBar.count; i++) titles.push(mitsuamiBar.itemAt(i).text)
+        }}
         return titles.join("\u001f")
     }}
+    // The navigation bar's natural width: its buttons, all as wide as the
+    // widest, as it lays them out. Its own implicit width makes room for
+    // five, however many there are.
+    readonly property real mitsuamiStripWidth: {{
+        if (!mitsuamiNavigation) return mitsuamiBar.implicitWidth
+        const buttons = mitsuamiNavBar.tabGroup.buttons
+        let widest = 0
+        for (let i = 0; i < buttons.length; i++) widest = Math.max(widest, buttons[i].implicitWidth)
+        return widest * buttons.length + mitsuamiNavBar.leftPadding + mitsuamiNavBar.rightPadding
+    }}
     signal mitsuamiChosen()
+    // Sizes the strip now, for measuring: its layouts, and its buttons',
+    // size themselves when they're polished, before a frame.
+    function mitsuamiPolishStrip() {{
+        const polish = item => {{
+            for (let i = 0; i < item.children.length; i++) polish(item.children[i])
+            item.ensurePolished()
+        }}
+        polish(mitsuamiStrip)
+    }}
     function mitsuamiChoose(index) {{
         if (index !== mitsuamiSelected) {{
             mitsuamiSelected = index
@@ -346,21 +374,39 @@ Item {{
         }}
         mitsuamiShow()
     }}
-    // The bar and the pages follow the page chosen: the bar resets its
-    // current tab when its buttons are made again.
+    // The strips and the pages follow the page chosen: a strip resets its
+    // current tab when its buttons are made again. The navigation bar's
+    // button is checked, not its `currentIndex` set: that triggers the
+    // tab's action, which is the user's.
     function mitsuamiShow() {{
         mitsuamiBar.currentIndex = mitsuamiSelected
+        const button = mitsuamiNavBar.tabGroup.buttons[mitsuamiSelected]
+        if (button) button.checked = true
+        else if (mitsuamiNavBar.tabGroup.checkedButton) mitsuamiNavBar.tabGroup.checkedButton.checked = false
         const pages = mitsuamiPages.children
         for (let i = 0; i < pages.length; i++) pages[i].visible = i === mitsuamiSelected
     }}
+    // An action for each title, in the navigation bar; the old ones go.
+    function mitsuamiMakeActions() {{
+        const old = []
+        for (let i = 0; i < mitsuamiNavBar.actions.length; i++) old.push(mitsuamiNavBar.actions[i])
+        const made = []
+        for (let i = 0; i < mitsuamiTitles.length; i++)
+            made.push(mitsuamiAction.createObject(mitsuamiNavBar, {{ text: mitsuamiTitles[i], mitsuamiIndex: i }}))
+        mitsuamiNavBar.actions = made
+        for (const action of old) action.destroy()
+    }}
     // The arrow keys pick the tab beside, as KDE's widget tab bars and
-    // every other platform's tab views do; Qt Quick's bar has no keys.
+    // every other platform's tab views do; neither Qt Quick's bar nor
+    // Kirigami's has keys.
     function mitsuamiStep(by) {{
         const index = mitsuamiSelected + by
-        if (index < 0 || index >= mitsuamiBar.count) return
+        if (index < 0 || index >= mitsuamiCount) return
         mitsuamiChoose(index)
-        mitsuamiBar.itemAt(index).forceActiveFocus(Qt.TabFocusReason)
+        const button = mitsuamiNavigation ? mitsuamiNavBar.tabGroup.buttons[index] : mitsuamiBar.itemAt(index)
+        button.forceActiveFocus(Qt.TabFocusReason)
     }}
+    onMitsuamiTitlesChanged: mitsuamiMakeActions()
     onMitsuamiSelectedChanged: mitsuamiShow()
     onMitsuamiChoiceChanged: if (mitsuamiChoice >= 0) {{
         mitsuamiChoose(mitsuamiChoice)
@@ -369,6 +415,7 @@ Item {{
     QQC2.TabBar {{
         id: mitsuamiBar
         objectName: "mitsuamiTabBar"
+        visible: !mitsuamiTabs.mitsuamiNavigation
         width: parent.width
         position: QQC2.TabBar.Header
         // Focused, the bar's selected tab takes it, as Tab focuses it.
@@ -387,10 +434,43 @@ Item {{
             }}
         }}
     }}
+    Component {{
+        id: mitsuamiAction
+        Kirigami.Action {{
+            property int mitsuamiIndex: -1
+            checkable: true
+            // `triggered` is the user's (a click, assistive technology's
+            // Press); the bar's `currentIndex` is anyone's.
+            onTriggered: mitsuamiTabs.mitsuamiChoose(mitsuamiIndex)
+        }}
+    }}
+    Kirigami.NavigationTabBar {{
+        id: mitsuamiNavBar
+        objectName: "mitsuamiNavigationBar"
+        visible: mitsuamiTabs.mitsuamiNavigation
+        width: parent.width
+        // Above the pages: its line below, as a Kirigami page's header.
+        position: QQC2.ToolBar.Header
+        // Its buttons are made after their actions: one is checked then.
+        onCountChanged: mitsuamiTabs.mitsuamiShow()
+        // Focused, the bar's selected tab takes it, as Tab focuses it.
+        onActiveFocusChanged: if (activeFocus && tabGroup.checkedButton) tabGroup.checkedButton.forceActiveFocus(focusReason)
+        // Kirigami's own, with the arrow keys.
+        delegate: Kirigami.NavigationTabButton {{
+            required property QtObject modelData
+            parent: mitsuamiNavBar.contentItem
+            action: modelData
+            Layout.minimumWidth: mitsuamiNavBar.buttonWidth
+            Layout.maximumWidth: mitsuamiNavBar.buttonWidth
+            Layout.fillHeight: true
+            Keys.onLeftPressed: mitsuamiTabs.mitsuamiStep(mirrored ? 1 : -1)
+            Keys.onRightPressed: mitsuamiTabs.mitsuamiStep(mirrored ? -1 : 1)
+        }}
+    }}
     Item {{
         id: mitsuamiPages
         objectName: "mitsuamiPages"
-        anchors.top: mitsuamiBar.bottom
+        anchors.top: mitsuamiTabs.mitsuamiStrip.bottom
         anchors.left: parent.left
         anchors.right: parent.right
         anchors.bottom: parent.bottom

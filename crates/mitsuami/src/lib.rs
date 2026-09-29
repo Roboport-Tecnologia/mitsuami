@@ -91,8 +91,9 @@ pub mod prelude {
         Align, ButtonRole, ButtonStyle, Callback, Children, Cursor, Element, ElementBuilder, FileDrop, FlexDirection,
         FontWeight, For, GridPlacement, ImageFit, ImageSource, Justify, KeyCode, Length, LengthExt, List, ListHandle,
         ListStyle, Modality, Modifiers, MouseButton, NodeId, NodeRef, Orientation, Pixels, Point, Role, ScrollAxes,
-        ScrollDelta, SelectionMode, Show, Size, Slot, Spacing, SurfaceHandle, SurfaceInput, SurfaceSize, TextAlign,
-        TextDirection, TextStyle, Track, Tweak, Ui, View, WindowSize, node_ref, repeat, use_size, use_viewport,
+        ScrollDelta, SelectionMode, Show, Size, Slot, Spacing, SurfaceHandle, SurfaceInput, SurfaceSize, TabsStyle,
+        TextAlign, TextDirection, TextStyle, Track, Tweak, Ui, View, WindowSize, node_ref, repeat, use_size,
+        use_viewport,
     };
     pub use mitsuami_reactive::{
         Computed, IntoValue, Owner, Signal, Value, batch, computed, effect, inject, on_cleanup, provide, signal,

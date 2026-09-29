@@ -2,7 +2,8 @@
 //! platform draws the tab strip and places the pages; every page stays
 //! mounted while it's hidden.
 
-use mitsuami::core::WidgetKind;
+use mitsuami::core::backend::CaptureError;
+use mitsuami::core::{Prop, WidgetKind};
 use mitsuami::prelude::*;
 use mitsuami_test::prelude::*;
 
@@ -257,6 +258,74 @@ async fn its_pages_are_hosts(app: TestApp) {
 
     let kinds: Vec<_> = pages(&app).iter().map(|p| app.ui().kind(*p)).collect();
     assert_eq!(kinds, [Some(WidgetKind::Container); 3]);
+}
+
+/// Either way KDE shows tabs (Kirigami's navigation bar, the default, or
+/// Qt's tab bar) picks and shows pages. The others show their own, and
+/// keep the app's choice.
+async fn picks_and_shows_pages_with(app: TestApp, style: TabsStyle) {
+    let page = signal(Page::General);
+    app.mount(move || settings(page).tabs_style(style));
+
+    let props = app.ui().native_state(tabs(&app)).unwrap().props;
+    assert!(props.contains(&Prop::TabsStyle(style)), "{props:?}");
+    assert_eq!(strip(&app), ["General *", "Network", "Advanced"]);
+    app.get_by_role(Role::Tab, "Advanced").select().await;
+    assert_eq!(page.get(), Page::Advanced);
+    app.expect(by_text("Advanced settings")).to_be_visible().await;
+    page.set(Page::Network);
+    app.settle().await;
+    assert_eq!(strip(&app), ["General", "Network *", "Advanced"]);
+    app.expect(by_text("Network settings")).to_be_visible().await;
+}
+
+#[mitsuami_test::test]
+async fn a_tab_bar_picks_and_shows_pages(app: TestApp) {
+    picks_and_shows_pages_with(app, TabsStyle::TabBar).await;
+}
+
+#[mitsuami_test::test]
+async fn navigation_tabs_pick_and_show_pages(app: TestApp) {
+    picks_and_shows_pages_with(app, TabsStyle::Navigation).await;
+}
+
+/// A style can change while the tab view shows: the page shown stays.
+#[mitsuami_test::test]
+async fn its_style_can_change(app: TestApp) {
+    let page = signal(Page::Network);
+    let style = signal(TabsStyle::Automatic);
+    app.mount(move || settings(page).tabs_style(style));
+
+    style.set(TabsStyle::TabBar);
+    app.settle().await;
+    assert_eq!(strip(&app), ["General", "Network *", "Advanced"]);
+    app.expect(by_text("Network settings")).to_be_visible().await;
+    let view = app.ui().window_frame(tabs(&app)).unwrap();
+    let shown = pages(&app).into_iter().find(|p| app.ui().visible_rect(*p).is_some()).expect("a page shown");
+    let page_frame = app.ui().window_frame(shown).unwrap();
+    assert!(page_frame.y() > view.y() && page_frame.max_y() <= view.max_y(), "{page_frame:?} in {view:?}");
+}
+
+/// A field keeps the focus when the style changes, where the platform
+/// makes a new view for it (GTK) or shows the same pages under another
+/// strip (KDE), and the window is drawn: on GTK, a focused field moved to
+/// the new view left the window never drawn.
+#[mitsuami_test::test]
+async fn a_new_style_keeps_the_focus(app: TestApp) {
+    let page = signal(Page::General);
+    let style = signal(TabsStyle::Navigation);
+    app.mount(move || settings(page).tabs_style(style));
+    app.get_by_label("Name").focus().await;
+    app.expect(by_label("Name")).to_be_focused().await;
+
+    style.set(TabsStyle::TabBar);
+    app.settle().await;
+    app.expect(by_label("Name")).to_be_focused().await;
+    match app.ui().capture(app.window()).await {
+        Err(CaptureError::Unsupported) => assert!(app.is_headless(), "only headless may lack capture"),
+        Err(e) => panic!("capture failed: {e:?}"),
+        Ok(_) => {}
+    }
 }
 
 mitsuami_test::main!();

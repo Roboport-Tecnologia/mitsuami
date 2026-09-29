@@ -497,7 +497,10 @@ fn text_area_tweak() -> Tweak<TextArea> {
             use mitsuami::appkit::objc2_app_kit::NSFont;
             t.setFont(NSFont::userFixedPitchFontOfSize(0.0).as_deref())
         }),
-        gtk => mitsuami::gtk::tweak(|v: &mitsuami::gtk::gtk::TextView| v.set_monospace(true)),
+        gtk => mitsuami::gtk::tweak(|v: &mitsuami::gtk::gtk::TextView| {
+            use mitsuami::gtk::gtk::prelude::*;
+            v.set_monospace(true)
+        }),
         kde => mitsuami::kirigami::tweak(|a: &mitsuami::kirigami::QmlObject| a.set_int("wrapMode", 0)),
         windows => mitsuami::winui::tweak(|t: &mitsuami::winui::bindings::TextBox| {
             use mitsuami::winui::windows_core::Interface;
@@ -734,9 +737,20 @@ fn sidebar() -> impl View {
 /// strip of tabs and border; the pages are inside, as big as the biggest.
 #[mitsuami_test::story(sizes = [(420, fit)])]
 fn tabs() -> impl View {
+    settings_tabs(TabsStyle::Automatic)
+}
+
+/// The same with a tab bar: Qt's `TabBar` on KDE rather than Kirigami's
+/// navigation bar. The others show theirs.
+#[mitsuami_test::story(sizes = [(420, fit)])]
+fn tabs_tab_bar() -> impl View {
+    settings_tabs(TabsStyle::TabBar)
+}
+
+fn settings_tabs(style: TabsStyle) -> impl View {
     let page = signal(1);
     Column::new().padding(16).child(
-        Tabs::new(page).children((
+        Tabs::new(page).tabs_style(style).children((
             Tab::new("General", 0)
                 .padding(12)
                 .gap(8)

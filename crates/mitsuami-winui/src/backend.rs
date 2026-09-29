@@ -15,7 +15,7 @@ use mitsuami_core::units::SpacingScale;
 use mitsuami_core::{
     AnyValue, AppIcon, AppInfo, ButtonRole, ButtonStyle, Command, CustomProps, EventValue, ImageFit, ImageSource,
     Insets, Modality, NativeAppInfo, NativeIcon, NodeId, Opaque, Orientation, Pixels, Point, Prop, Rect, RowKey,
-    ScrollAxes, SelectionMode, Size, TextStyle, UiEvent, WidgetKind, find_prop,
+    ScrollAxes, SelectionMode, Size, TabsStyle, TextStyle, UiEvent, WidgetKind, find_prop,
 };
 use mitsuami_core::{Color, FontWeight, HorizontalAlign};
 use windows_core::{EventRevoker, HSTRING, IInspectable, IUnknown, Interface};
@@ -313,6 +313,8 @@ struct Node {
     text_color: Option<Color>,
     role: Option<ButtonRole>,
     button_style: Option<ButtonStyle>,
+    /// Tabs: the style the app chose, which this platform doesn't have.
+    tabs_style: Option<TabsStyle>,
     /// Sliders: whether the app gave an `Orientation`. Separators: which
     /// way they run, which a `Border` doesn't know.
     orientation: Option<Orientation>,
@@ -2520,6 +2522,7 @@ impl State {
                 text_color: None,
                 role: None,
                 button_style: None,
+                tabs_style: None,
                 orientation: None,
                 mixed: None,
                 tweak: None,
@@ -2806,6 +2809,8 @@ impl State {
             (Prop::Sections(sections), Widget::Sidebar(sidebar)) => sidebar.set_sections(sections.clone())?,
             (Prop::SelectedIndex(index), Widget::Sidebar(sidebar)) => sidebar.set_selected(*index)?,
             (Prop::TabTitles(titles), Widget::Tabs(tabs)) => tabs.set_titles(titles)?,
+            // One way to show tabs: the app's choice is kept, not shown.
+            (Prop::TabsStyle(style), Widget::Tabs(_)) => node.tabs_style = Some(*style),
             (Prop::Title(title), Widget::Group(group)) => group.set_title(title)?,
             (Prop::SelectedIndex(index), Widget::Tabs(tabs)) => tabs.set_selected(*index)?,
             // Its tabs; its pages are the app's.
@@ -4575,6 +4580,7 @@ impl Backend for WinUiBackend {
         props.extend(node.text_style.map(Prop::TextStyle));
         props.extend(node.role.map(Prop::ButtonRole));
         props.extend(node.button_style.map(Prop::ButtonStyle));
+        props.extend(node.tabs_style.map(Prop::TabsStyle));
         props.extend(node.tweak.clone().map(Prop::Tweak));
         // "" when it has none.
         props.push(Prop::Tooltip(unboxed(w::ToolTipService::GetToolTip(node.control())).unwrap_or_default()));

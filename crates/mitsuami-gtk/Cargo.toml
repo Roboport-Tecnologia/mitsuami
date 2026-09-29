@@ -8,10 +8,6 @@ license.workspace = true
 authors.workspace = true
 repository.workspace = true
 
-[features]
-# `Tabs` as a `gtk::Notebook` rather than libadwaita's inline view switcher.
-notebook-tabs = []
-
 [dependencies]
 mitsuami-core.workspace = true
 mitsuami-widgets.workspace = true

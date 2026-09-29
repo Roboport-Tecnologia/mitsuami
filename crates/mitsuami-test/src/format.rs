@@ -32,6 +32,7 @@ fn describe_props(props: &[Prop]) -> String {
             Prop::FileDrop(None) => {}
             Prop::Options(options) => extra.push(format!("options={options:?}")),
             Prop::TabTitles(titles) => extra.push(format!("tabs={titles:?}")),
+            Prop::TabsStyle(style) => extra.push(format!("tabs_style={style:?}")),
             Prop::SelectedIndex(index) => {
                 extra.push(format!("selected={}", index.map_or("none".to_owned(), |i| i.to_string())))
             }

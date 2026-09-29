@@ -601,9 +601,10 @@ impl Ui {
             if matches!(prop, Prop::TextStyle(_)) {
                 inner.styles_dirty = true;
             }
-            // New titles may make the tab strip wider (`size_tab_strips`),
-            // and a group's heading wider, or give it the titled insets.
-            if (matches!(prop, Prop::TabTitles(_))
+            // New titles or another style may make the tab strip wider
+            // (`size_tab_strips`), and a group's heading wider, or give it
+            // the titled insets.
+            if (matches!(prop, Prop::TabTitles(_) | Prop::TabsStyle(_))
                 || (node.kind == WidgetKind::Group && matches!(prop, Prop::Title(_))))
                 && let Some(t) = node.taffy
             {
@@ -1434,7 +1435,7 @@ impl Inner {
             // Its pages are inside its tab strip and border, and it's at
             // least as big as they are.
             if node.kind == WidgetKind::Tabs {
-                let insets = self.metrics.tab_insets;
+                let insets = node.insets.unwrap_or(self.metrics.tab_insets);
                 style.padding = taffy::Rect {
                     left: taffy::LengthPercentage::length(insets.left),
                     right: taffy::LengthPercentage::length(insets.right),
@@ -1604,7 +1605,10 @@ impl Inner {
                 available_height: AvailableSpace::MaxContent,
             };
             let strip = self.backend.measure(id, request);
-            let insets = self.backend.group_insets(id);
+            let insets = match self.nodes[&id].kind {
+                WidgetKind::Tabs => self.backend.tab_insets(id),
+                _ => self.backend.group_insets(id),
+            };
             let node = self.nodes.get_mut(&id).unwrap();
             changed |= node.strip != strip || node.insets != insets;
             node.strip = strip;

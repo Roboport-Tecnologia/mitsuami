@@ -15,7 +15,7 @@ use mitsuami_core::units::SpacingScale;
 use mitsuami_core::{
     AppIcon, AppInfo, ButtonRole, ButtonStyle, Color, Command, CustomProps, EventValue, FontWeight, HorizontalAlign,
     ImageFit, ImageSource, Modality, NativeAppInfo, NativeIcon, NodeId, Opaque, Orientation, Point, Prop, Rect, RowKey,
-    ScrollAxes, SelectionMode, Size, TextStyle, UiEvent, WidgetKind, find_prop,
+    ScrollAxes, SelectionMode, Size, TabsStyle, TextStyle, UiEvent, WidgetKind, find_prop,
 };
 use objc2::rc::Retained;
 use objc2::runtime::{AnyObject, ProtocolObject};
@@ -244,6 +244,8 @@ struct Node {
     align: bool,
     role: Option<ButtonRole>,
     button_style: Option<ButtonStyle>,
+    /// Tabs: the style the app chose, which this platform doesn't have.
+    tabs_style: Option<TabsStyle>,
     /// Sliders: whether the app gave an `Orientation`. Separators: which
     /// way they run, which an `NSBox` takes from its frame's shape.
     orientation: Option<Orientation>,
@@ -917,6 +919,7 @@ impl State {
                 align: false,
                 role: None,
                 button_style: None,
+                tabs_style: None,
                 orientation: None,
                 scroll_axes: ScrollAxes::default(),
                 scroll_bars: true,
@@ -1033,6 +1036,8 @@ impl State {
             (Prop::Sections(sections), Widget::Sidebar(sidebar)) => sidebar.set_sections(sections.clone()),
             (Prop::SelectedIndex(index), Widget::Sidebar(sidebar)) => sidebar.set_selected(*index),
             (Prop::TabTitles(titles), Widget::Tabs(tabs)) => tabs.set_titles(titles.clone()),
+            // One way to show tabs: the app's choice is kept, not shown.
+            (Prop::TabsStyle(style), Widget::Tabs(_)) => node.tabs_style = Some(*style),
             (Prop::SelectedIndex(index), Widget::Tabs(tabs)) => tabs.set_shown(*index),
             (Prop::Label(t), Widget::Slider { slider, .. }) => slider.setAccessibilityLabel(Some(&ns(t))),
             (Prop::Range { min, max }, Widget::Slider { slider, step }) => {
@@ -2618,6 +2623,7 @@ impl Backend for AppKitBackend {
         props.extend(node.text_style.map(Prop::TextStyle));
         props.extend(node.role.map(Prop::ButtonRole));
         props.extend(node.button_style.map(Prop::ButtonStyle));
+        props.extend(node.tabs_style.map(Prop::TabsStyle));
         props.extend(node.tweak.clone().map(Prop::Tweak));
         let view = node.widget.view();
         props.push(Prop::Tooltip(view.toolTip().map(|t| t.to_string()).unwrap_or_default()));

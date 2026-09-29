@@ -10,7 +10,8 @@ use mitsuami_core::{
     Align, AnyView, ButtonRole, ButtonStyle, Children, Color, CurrentWindow, Cursor, Display, Element, ElementBuilder,
     EventValue, FileDrop, FlexDirection, FontWeight, ImageFit, ImageSource, Justify, Length, Modality, NodeId,
     Orientation, Pixels, Point, Prop, ScrollAxes, SidebarItemData, SidebarSectionData, Size, SurfaceHandle,
-    SurfaceInput, SurfaceSize, TextAlign, TextStyle, Track, Tweak, Ui, UiEvent, View, WidgetKind, WindowSize,
+    SurfaceInput, SurfaceSize, TabsStyle, TextAlign, TextStyle, Track, Tweak, Ui, UiEvent, View, WidgetKind,
+    WindowSize,
 };
 use mitsuami_reactive::{IntoValue, Signal, Value, computed, effect, inject, on_cleanup, provide, untrack};
 
@@ -624,6 +625,16 @@ impl<T: PartialEq + Clone + 'static> Tabs<T> {
 
     pub fn tab(self, tab: Tab<T>) -> Tabs<T> {
         self.children(tab)
+    }
+
+    /// How it shows its tabs, where the platform has more than one way:
+    /// navigation tabs (the default: libadwaita's view switcher,
+    /// Kirigami's navigation bar) or a tab bar (GTK's notebook, Qt's tab
+    /// bar) on GNOME and KDE. The others show theirs. In `view!`, after
+    /// `selection`.
+    pub fn tabs_style(mut self, style: impl IntoValue<TabsStyle>) -> Tabs<T> {
+        self.element.prop(style.into_value(), Prop::TabsStyle);
+        self
     }
 }
 

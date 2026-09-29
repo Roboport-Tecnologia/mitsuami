@@ -288,6 +288,21 @@ pub enum ButtonRole {
     Destructive,
 }
 
+/// How a `Tabs` shows its tabs, where the platform has more than one way
+/// (GNOME and KDE). The others show theirs, and ignore it.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Hash)]
+pub enum TabsStyle {
+    /// The platform's own: navigation tabs on GNOME and KDE.
+    #[default]
+    Automatic,
+    /// A tab bar over the pages: GTK's `gtk::Notebook`, Qt's
+    /// `QQC2.TabBar`.
+    TabBar,
+    /// Navigation tabs above the pages: libadwaita's inline view switcher
+    /// (a tab bar before libadwaita 1.7), Kirigami's `NavigationTabBar`.
+    Navigation,
+}
+
 /// How a button is drawn, mapped to each platform's native look.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Hash)]
 pub enum ButtonStyle {
@@ -683,6 +698,8 @@ pub enum Prop {
     ScrollBars(bool),
     /// A `Tabs`' page titles, in page order.
     TabTitles(Vec<String>),
+    /// How a `Tabs` shows its tabs. Sent only if the app chose.
+    TabsStyle(TabsStyle),
     /// A `Sidebar`'s items, in sections, in order.
     Sections(Vec<SidebarSectionData>),
     /// A `List`'s rows, in order.
@@ -808,6 +825,7 @@ static_value!(
     crate::draw::Color,
     ButtonRole,
     ButtonStyle,
+    TabsStyle,
     Orientation,
     ScrollAxes,
     SelectionMode,

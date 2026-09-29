@@ -213,6 +213,13 @@ pub trait Backend {
         None
     }
 
+    /// Where this `Tabs` puts its pages, if not where the metrics'
+    /// `tab_insets` say: its style can give it another strip. Asked when
+    /// its strip is measured.
+    fn tab_insets(&self, _id: NodeId) -> Option<Insets> {
+        None
+    }
+
     /// Applies a batch of commands to the native tree.
     fn apply(&mut self, batch: &[Command]);
 
