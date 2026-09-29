@@ -342,6 +342,16 @@ impl State {
                 }
                 None => violation(command, "node does not exist"),
             },
+            // After the field's `Focus`, so this selection replaces the
+            // one focusing makes (`gtk-entry-select-on-focus`).
+            Command::SelectText { id, range } => match self.nodes.get(id) {
+                Some(node) => {
+                    if !super::selection::select(&node.widget, range.clone()) {
+                        violation(command, "not a text field or text area");
+                    }
+                }
+                None => violation(command, "node does not exist"),
+            },
             Command::ScrollToRow { id, row } => match self.nodes.get(id).map(|n| &n.widget) {
                 Some(Widget::List(list)) => list.scroll_to_row(*row),
                 _ => violation(command, "not a List"),

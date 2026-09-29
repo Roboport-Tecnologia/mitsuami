@@ -2,6 +2,7 @@
 
 use mitsuami_core::a11y::{A11yAction, ActionError};
 use mitsuami_core::backend::{Backend, Key, SyntheticInput};
+use mitsuami_core::services::Shortcut;
 use mitsuami_core::{
     EventValue, KeyCode, Modifiers, MouseButton, NodeId, Point, PointerEvent, PointerKind, Prop, RowKey, ScrollDelta,
     SelectionMode, Size, SurfaceInput, UiEvent, WidgetKind, find_prop,
@@ -47,6 +48,18 @@ impl HeadlessBackend {
         }
         let key = match input {
             SyntheticInput::Key(key) => key,
+            // Text fields take keys with modifiers as editing commands,
+            // which aren't simulated; everywhere else they go up to a node
+            // that takes them.
+            SyntheticInput::Shortcut(shortcut) => {
+                if matches!(
+                    kind,
+                    WidgetKind::TextInput | WidgetKind::PasswordInput | WidgetKind::SearchInput | WidgetKind::TextArea
+                ) {
+                    return Err(ActionError::Unsupported);
+                }
+                return state.bubble_key(id, *shortcut);
+            }
             SyntheticInput::Click(position) => {
                 // Only drawn widgets handle pointers themselves.
                 let drawn = find_prop!(node.props, Custom).is_some_and(|c| c.is_drawn());
@@ -108,15 +121,32 @@ impl HeadlessBackend {
             // GTK's and Qt's text areas take it.
             | (WidgetKind::TextArea, Key::Char(_) | Key::Backspace | Key::Enter | Key::Tab) => {
                 state.focus(id);
-                let mut text = find_prop!(state.nodes[&id].props, Value).unwrap_or_default();
-                match key {
-                    Key::Char(c) => text.push(*c),
-                    Key::Enter => text.push('\n'),
-                    Key::Tab => text.push('\t'),
-                    _ => {
-                        text.pop();
+                // Typing replaces the selection, or goes in at the caret.
+                let mut chars: Vec<char> = find_prop!(state.nodes[&id].props, Value).unwrap_or_default().chars().collect();
+                let selection = state.selection.clone().unwrap_or(chars.len()..chars.len());
+                let caret = match key {
+                    Key::Backspace if selection.is_empty() => {
+                        let start = selection.start.saturating_sub(1);
+                        chars.drain(start..selection.end);
+                        start
                     }
-                }
+                    Key::Backspace => {
+                        chars.drain(selection.clone());
+                        selection.start
+                    }
+                    key => {
+                        let typed = match key {
+                            Key::Char(c) => *c,
+                            Key::Enter => '\n',
+                            _ => '\t',
+                        };
+                        chars.splice(selection.clone(), [typed]);
+                        selection.start + 1
+                    }
+                };
+                let text: String = chars.into_iter().collect();
+                // At the end, the caret is where focusing puts it.
+                state.selection = (caret < text.chars().count()).then_some(caret..caret);
                 state.set_prop(id, Prop::Value(text.clone()));
                 state.emit(id, UiEvent::Changed(EventValue::Text(text.clone())));
                 // Searches as it's typed, with no pause, as WinUI does.
@@ -182,13 +212,32 @@ impl HeadlessBackend {
                     state.emit(window, UiEvent::WindowCloseRequested);
                 }
             }
-            _ => return Err(ActionError::Unsupported),
+            // A key the control doesn't use goes up to a node that takes it.
+            _ => return state.bubble_key(id, Shortcut::new(*key)),
         }
         Ok(())
     }
 }
 
 impl State {
+    /// A key the focused control `id` doesn't use, as platforms send it
+    /// on: up the tree to the nearest node that takes it (`Prop::Keys`).
+    /// Nothing takes it: `Unsupported`, where a platform would beep.
+    fn bubble_key(&mut self, id: NodeId, shortcut: Shortcut) -> Result<(), ActionError> {
+        if self.focus_orders.values().any(|order| order.contains(&id)) {
+            self.focus(id);
+        }
+        let mut node = Some(id);
+        while let Some(at) = node {
+            if find_prop!(self.nodes[&at].props, Keys).is_some_and(|keys| keys.contains(&shortcut)) {
+                self.emit(at, UiEvent::Key(shortcut));
+                return Ok(());
+            }
+            node = self.nodes[&at].parent;
+        }
+        Err(ActionError::Unsupported)
+    }
+
     /// Input on a GPU surface that takes it: a click focuses it and
     /// reports the primary button, keys (Tab too) go down and up, scrolls
     /// are in points.
@@ -207,17 +256,7 @@ impl State {
                 }
             }
             SyntheticInput::Key(key) => {
-                let code = match key {
-                    Key::Char(c) => KeyCode::from_us_char(*c),
-                    Key::Enter => KeyCode::Enter,
-                    Key::Escape => KeyCode::Escape,
-                    Key::Tab => KeyCode::Tab,
-                    Key::Backspace => KeyCode::Backspace,
-                    Key::Up => KeyCode::ArrowUp,
-                    Key::Down => KeyCode::ArrowDown,
-                    Key::Home => KeyCode::Home,
-                    Key::End => KeyCode::End,
-                };
+                let code = KeyCode::from_key(*key);
                 if self.focused != Some(id) {
                     return Err(ActionError::Unsupported);
                 }
@@ -230,7 +269,11 @@ impl State {
                 let delta = ScrollDelta::Points { x: *dx, y: *dy };
                 self.emit(id, UiEvent::SurfaceInput(SurfaceInput::Scroll { delta, modifiers }));
             }
-            SyntheticInput::DragFiles(_) | SyntheticInput::DragLeave | SyntheticInput::DropFiles(_) => {
+            // Keys with modifiers aren't simulated on a surface.
+            SyntheticInput::Shortcut(_)
+            | SyntheticInput::DragFiles(_)
+            | SyntheticInput::DragLeave
+            | SyntheticInput::DropFiles(_) => {
                 return Err(ActionError::Unsupported);
             }
         }

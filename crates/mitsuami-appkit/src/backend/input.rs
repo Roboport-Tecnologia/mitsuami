@@ -2,6 +2,7 @@
 
 use mitsuami_core::a11y::{A11yAction, ActionError};
 use mitsuami_core::backend::{Backend, Key, SyntheticInput};
+use mitsuami_core::services::Shortcut;
 use mitsuami_core::{NodeId, ScrollAxes, WidgetKind};
 use objc2::{msg_send, sel};
 use objc2_app_kit::{
@@ -93,7 +94,22 @@ impl AppKitBackend {
             scroll_to(&scroll, origin);
             return Ok(());
         }
-        let SyntheticInput::Key(key) = input else { unreachable!() };
+        let key = match input {
+            SyntheticInput::Key(key) => key,
+            SyntheticInput::Shortcut(shortcut) => {
+                // Text fields take keys with modifiers as editing
+                // commands, which aren't simulated.
+                let kind = self.state.borrow().nodes.get(&id).ok_or(ActionError::UnknownNode)?.kind;
+                if matches!(
+                    kind,
+                    WidgetKind::TextInput | WidgetKind::PasswordInput | WidgetKind::SearchInput | WidgetKind::TextArea
+                ) {
+                    return Err(ActionError::Unsupported);
+                }
+                return self.send_key(id, *shortcut);
+            }
+            _ => unreachable!(),
+        };
         if *key == Key::Escape {
             return self.escape(id);
         }
@@ -111,7 +127,7 @@ impl AppKitBackend {
                 Key::Home => (115, '\u{f729}'),
                 Key::End => (119, '\u{f72b}'),
                 Key::Enter => (36, '\r'),
-                _ => return Err(ActionError::Unsupported),
+                _ => return self.send_key(id, Shortcut::new(*key)),
             };
             let window = table.window().ok_or(ActionError::Unsupported)?;
             window.makeFirstResponder(Some(&table));
@@ -214,8 +230,26 @@ impl AppKitBackend {
             | (WidgetKind::ToggleButton | WidgetKind::Checkbox | WidgetKind::Switch, Key::Char(' ')) => {
                 self.perform(id, &A11yAction::Activate)
             }
-            _ => Err(ActionError::Unsupported),
+            _ => self.send_key(id, Shortcut::new(*key)),
         }
+    }
+
+    /// A key the control doesn't use, as the keyboard sends it: a real key
+    /// event to its window, the control focused, which goes up the
+    /// responder chain to a host or table that takes it. `Unsupported` if
+    /// none around does: AppKit would beep.
+    fn send_key(&self, id: NodeId, shortcut: Shortcut) -> Result<(), ActionError> {
+        let view = self.state.borrow().nodes.get(&id).ok_or(ActionError::UnknownNode)?.widget.key_view();
+        if !crate::keys::taken_around(&view, shortcut) {
+            return Err(ActionError::Unsupported);
+        }
+        let window = view.window().ok_or(ActionError::Unsupported)?;
+        if view.acceptsFirstResponder() {
+            window.makeFirstResponder(Some(&view));
+        }
+        let event = crate::keys::key_event(&window, shortcut).ok_or(ActionError::Unsupported)?;
+        window.sendEvent(&event);
+        Ok(())
     }
 
     /// Escape, as the keyboard sends it to the focused view's window: a key

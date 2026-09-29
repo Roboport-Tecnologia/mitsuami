@@ -88,6 +88,36 @@ async fn choosing_an_item_runs_it(app: TestApp) {
     assert_eq!(app.get(by_test_id("chosen")).text().as_deref(), Some("by date"));
 }
 
+/// Shortcuts name keys that type nothing too, with or without modifiers:
+/// the menu shows them, the platform's way, and they read back the same.
+#[mitsuami_test::test]
+async fn shortcuts_name_any_key(app: TestApp) {
+    let shortcuts = [
+        Shortcut::primary(Key::Backspace),
+        Shortcut::new(Key::F(2)),
+        Shortcut::new(Key::Up).alt(),
+        Shortcut::primary(Key::Down),
+        Shortcut::new(Key::Delete),
+        Shortcut::new(Key::Enter),
+        Shortcut::primary('O').shift(),
+    ];
+    app.mount(move || {
+        let items: Vec<MenuItem> =
+            shortcuts.iter().enumerate().map(|(i, s)| MenuItem::new(format!("Item {i}")).shortcut(*s)).collect();
+        Text::new("notes.txt").context_menu(items)
+    });
+    let entries = native_menu(&app, by_text("notes.txt")).expect("a menu");
+    let shown: Vec<Option<Shortcut>> = entries
+        .iter()
+        .map(|entry| match entry {
+            MenuEntry::Item(item) => item.shortcut,
+            _ => None,
+        })
+        .collect();
+    assert_eq!(shown, shortcuts.map(Some));
+    assert_eq!(shortcuts[6].key, Key::Char('o'), "a letter is lower case, with Shift apart");
+}
+
 /// As a right-click does, a child without a menu shows its container's.
 #[mitsuami_test::test]
 async fn children_show_their_containers_menu(app: TestApp) {

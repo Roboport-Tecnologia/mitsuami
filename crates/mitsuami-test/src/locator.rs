@@ -1,4 +1,4 @@
-use mitsuami_core::services::{MenuEntry, find_menu_item};
+use mitsuami_core::services::{MenuEntry, Shortcut, find_menu_item};
 use mitsuami_core::{
     A11yAction, A11yNode, Key, NativeState, NodeId, Point, Rect, Role, SyntheticInput, WidgetKind, find_prop,
 };
@@ -135,6 +135,12 @@ impl<'a> Locator<'a> {
         self.native_state().focused
     }
 
+    /// A focused text field's or text area's selection, in characters,
+    /// as the native widget shows it (an empty one is the caret).
+    pub fn text_selection(&self) -> Option<std::ops::Range<usize>> {
+        self.native_state().selection
+    }
+
     /// What the native widget actually shows.
     pub fn native_state(&self) -> NativeState {
         let id = self.id();
@@ -150,10 +156,15 @@ impl<'a> Locator<'a> {
         self.app.settle().await;
     }
 
-    async fn input(&self, key: Key) {
+    async fn input(&self, input: SyntheticInput) {
         let node = self.node();
-        if let Err(e) = self.app.ui().synthesize(node.id, &SyntheticInput::Key(key)) {
-            self.fail(&format!("cannot press {key:?} on {}: {e}", self.query));
+        if let Err(e) = self.app.ui().synthesize(node.id, &input) {
+            let pressed = match &input {
+                SyntheticInput::Key(key) => format!("{key:?}"),
+                SyntheticInput::Shortcut(shortcut) => format!("{shortcut:?}"),
+                other => format!("{other:?}"),
+            };
+            self.fail(&format!("cannot press {pressed} on {}: {e}", self.query));
         }
         self.app.settle().await;
     }
@@ -218,13 +229,21 @@ impl<'a> Locator<'a> {
     pub async fn type_text(&self, text: &str) {
         self.app.settle().await;
         for c in text.chars() {
-            self.input(Key::Char(c)).await;
+            self.input(SyntheticInput::Key(Key::Char(c))).await;
         }
     }
 
-    pub async fn press(&self, key: Key) {
+    /// Presses a key on the control, with it focused, as the keyboard
+    /// does: `press(Key::Enter)`, `press(' ')`, or with modifiers,
+    /// `press(Shortcut::primary(Key::Backspace))`. A key the control
+    /// doesn't use goes up to the nearest node that takes it (`on_key`).
+    pub async fn press(&self, key: impl Into<Shortcut>) {
         self.app.settle().await;
-        self.input(key).await;
+        let input = match key.into() {
+            Shortcut { key, primary: false, shift: false, alt: false } => SyntheticInput::Key(key),
+            shortcut => SyntheticInput::Shortcut(shortcut),
+        };
+        self.input(input).await;
     }
 
     pub async fn focus(&self) {

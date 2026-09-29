@@ -90,9 +90,9 @@ pub mod prelude {
     pub use mitsuami_core::{Action, Resource, Store, action, resource, resource_on, use_store};
     pub use mitsuami_core::{
         Align, ButtonRole, ButtonStyle, Callback, Children, Cursor, Element, ElementBuilder, FileDrop, FlexDirection,
-        FontWeight, For, GridPlacement, ImageFit, ImageSource, InputPurpose, Justify, KeyCode, Length, LengthExt, List,
-        ListHandle, ListStyle, Modality, Modifiers, MouseButton, NodeId, NodeRef, Orientation, Pixels, Point, Role,
-        ScrollAxes, ScrollDelta, SelectionMode, Show, Size, Slot, Sort, SortOrder, Spacing, SurfaceHandle,
+        FontWeight, For, GridPlacement, ImageFit, ImageSource, InputPurpose, Justify, Key, KeyCode, Length, LengthExt,
+        List, ListHandle, ListStyle, Modality, Modifiers, MouseButton, NodeId, NodeRef, Orientation, Pixels, Point,
+        Role, ScrollAxes, ScrollDelta, SelectionMode, Show, Size, Slot, Sort, SortOrder, Spacing, SurfaceHandle,
         SurfaceInput, SurfaceSize, Table, TableColumn, TabsStyle, TextAlign, TextDirection, TextStyle, Track, Tweak,
         Ui, View, WindowSize, node_ref, repeat, use_size, use_viewport,
     };

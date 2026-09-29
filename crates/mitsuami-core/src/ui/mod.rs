@@ -124,6 +124,8 @@ struct Inner {
     /// Focus requests, sent after the structure of the batch: a node focused
     /// right after it's built isn't in a window yet.
     pending_focus: Vec<NodeId>,
+    /// Text selections asked for, sent after the focus requests.
+    pending_selections: Vec<(NodeId, std::ops::Range<usize>)>,
     windows: Vec<NodeId>,
     styles_dirty: bool,
     resync: BTreeSet<NodeId>,
@@ -215,6 +217,7 @@ impl Ui {
                 next_id: 1,
                 pending: Vec::new(),
                 pending_focus: Vec::new(),
+                pending_selections: Vec::new(),
                 windows: Vec::new(),
                 styles_dirty: true,
                 resync: BTreeSet::new(),

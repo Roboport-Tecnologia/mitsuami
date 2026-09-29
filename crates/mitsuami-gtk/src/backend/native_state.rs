@@ -218,6 +218,7 @@ impl GtkBackend {
         if let Some(target) = &node.file_drop {
             props.push(Prop::FileDrop(target.as_ref().map(FileDropTarget::file_drop)));
         }
+        props.extend(node.keys.as_ref().map(|c| Prop::Keys(crate::keys::keys(c))));
         let widget = node.widget.widget();
         if node.widget.is_control() {
             props.push(Prop::Enabled(widget.is_sensitive()));
@@ -294,8 +295,18 @@ impl GtkBackend {
         drop(by_widget);
         let focus = widget.root().and_then(|r| r.focus());
         let focused = !matches!(node.widget, Widget::Window(_)) && owning_node(&state.by_widget, focus) == Some(id);
+        let selection = super::selection::selection(&node.widget, focused);
         // A list's focus is on its view, or on one of its rows' item
         // widgets; a control in a row owns its own.
-        Some(NativeState { kind: node.kind, props, frame, parent: node.parent, children, focused, scroll_offset })
+        Some(NativeState {
+            kind: node.kind,
+            props,
+            frame,
+            parent: node.parent,
+            children,
+            focused,
+            scroll_offset,
+            selection,
+        })
     }
 }

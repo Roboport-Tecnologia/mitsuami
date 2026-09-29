@@ -345,6 +345,7 @@ impl State {
             aimed,
             focus,
             tab_order,
+            wanted_focus: RefCell::default(),
             // Known from its Create, so a dialog never gets the app's bar.
             modal,
             disabled: Vec::new(),

@@ -20,6 +20,8 @@ mod classes;
 #[cfg(target_os = "macos")]
 mod custom;
 #[cfg(target_os = "macos")]
+mod keys;
+#[cfg(target_os = "macos")]
 mod list;
 #[cfg(target_os = "macos")]
 mod number_field;

@@ -50,6 +50,7 @@ enum {
     MQ_CLOSE = 4,        // the user asked to close a window (refused)
     MQ_BEFORE_WAIT = 5,  // the event loop is about to sleep
     MQ_TIMER = 6,
+    MQ_KEY = 7,          // a node took a key: its index in the node's keys in x
 };
 
 // Forwards one signal of one object to Rust. A child of the object, so it
@@ -117,6 +118,8 @@ void mq_set_geometry(QObject* item, double x, double y, double w, double h);
 void mq_polish_items(QObject* window);
 void mq_map_to_scene(QObject* item, double* x, double* y);
 int32_t mq_invoke(QObject* object, const char* method);
+// Selects text of a Qt Quick text input or edit, in QString positions.
+void mq_select_text(QObject* object, int32_t start, int32_t end);
 void mq_set_node(QObject* object, uint64_t node);
 uint64_t mq_node_of(QObject* object);
 
@@ -146,7 +149,13 @@ QObject* mq_focus_item(QObject* window);
 void mq_force_focus(QObject* item);
 void mq_set_tab_order(QObject* window, QObject* const* items, int32_t count);
 int32_t mq_a11y_action(QObject* item, const char* action);
-void mq_key(QObject* window, int32_t key, int32_t shift, const char* text);
+// `modifiers` are input flags (MQ_SHIFT…).
+void mq_key(QObject* window, int32_t key, int32_t modifiers, const char* text);
+// A node's keys: key presses that come up to the item unaccepted, as Qt
+// Quick sends them on from the focused item, are its keys (`Qt::Key` codes
+// and input flags) and reported as MQ_KEY. The filter goes with the item.
+QObject* mq_key_filter_new(QObject* item, uint64_t key);
+void mq_key_filter_set(QObject* filter, const int32_t* keys, const int32_t* modifiers, int32_t count);
 void mq_click(QObject* window, double x, double y);
 
 // Drawn items and capture.

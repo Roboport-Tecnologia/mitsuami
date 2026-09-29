@@ -2,6 +2,7 @@
 
 use mitsuami_core::a11y::{A11yAction, ActionError};
 use mitsuami_core::backend::{Backend, Key, SyntheticInput};
+use mitsuami_core::services::Shortcut;
 use mitsuami_core::{NodeId, Point, SelectionMode, UiEvent, WidgetKind};
 use windows_core::Interface;
 
@@ -30,7 +31,8 @@ impl WinUiBackend {
             // What XAML's events would report; a click focuses it.
             let state = self.state.borrow();
             if let Some(Widget::GpuSurface(surface)) = state.nodes.get(&id).map(|n| &n.widget) {
-                if !surface.takes_input() {
+                // Keys with modifiers aren't simulated on a surface.
+                if !surface.takes_input() || matches!(input, SyntheticInput::Shortcut(_)) {
                     return Err(ActionError::Unsupported);
                 }
                 if let SyntheticInput::Click(_) = input {
@@ -76,12 +78,26 @@ impl WinUiBackend {
                         };
                         list.scroll_to(Point::new(x as f32, y as f32)).map_err(|_| ActionError::Unsupported)
                     }
-                    SyntheticInput::Key(key) if list.mode() != SelectionMode::None => {
+                    // The list view's own keys: those simulated here, and
+                    // the rest (the page keys, with modifiers) aren't.
+                    SyntheticInput::Key(key) if list.uses(Shortcut::new(*key)) => {
+                        if list.mode() == SelectionMode::None {
+                            return Err(ActionError::Unsupported);
+                        }
                         _ = list.view.cast::<w::IUIElement>().and_then(|e| e.Focus(w::FocusState::Keyboard));
                         match list.key(*key) {
                             Ok(true) => Ok(()),
                             _ => Err(ActionError::Unsupported),
                         }
+                    }
+                    SyntheticInput::Shortcut(shortcut) if list.uses(*shortcut) => Err(ActionError::Unsupported),
+                    SyntheticInput::Key(key) => {
+                        drop(state);
+                        self.send_key(id, Shortcut::new(*key))
+                    }
+                    SyntheticInput::Shortcut(shortcut) => {
+                        drop(state);
+                        self.send_key(id, *shortcut)
                     }
                     _ => Err(ActionError::Unsupported),
                 };
@@ -103,7 +119,27 @@ impl WinUiBackend {
         if enabled == Some(false) {
             return Err(ActionError::Disabled);
         }
-        let SyntheticInput::Key(key) = input else { unreachable!() };
+        let key = match input {
+            SyntheticInput::Key(key) => key,
+            SyntheticInput::Shortcut(shortcut) => {
+                // Text fields take keys with modifiers as editing
+                // commands, which aren't simulated.
+                if matches!(
+                    widget_kind,
+                    WidgetKind::TextInput | WidgetKind::PasswordInput | WidgetKind::SearchInput | WidgetKind::TextArea
+                ) || self.uses(id, *shortcut)
+                {
+                    return Err(ActionError::Unsupported);
+                }
+                return self.send_key(id, *shortcut);
+            }
+            _ => unreachable!(),
+        };
+        // A node's keys come first: its window's accelerator only sees
+        // the keys nothing on the way up handled.
+        if *key == Key::Escape && self.send_key(id, Shortcut::new(*key)).is_ok() {
+            return Ok(());
+        }
         if *key == Key::Escape {
             // What the accelerator does, in the node's window if it's a
             // dialog; a plain window ignores Escape. Keys are synthesized
@@ -194,14 +230,17 @@ impl WinUiBackend {
             (WidgetKind::PasswordInput, Key::Char(_) | Key::Backspace | Key::Enter | Key::Tab) => {
                 let field: w::IPasswordBox = element.cast().map_err(|_| ActionError::Unsupported)?;
                 let ui: w::IUIElement = element.cast().map_err(|_| ActionError::Unsupported)?;
+                let all = &self.state.borrow().nodes[&id].password_all;
                 if ui.FocusState().unwrap_or(w::FocusState::Unfocused) == w::FocusState::Unfocused {
                     self.state.borrow().focus(id, w::FocusState::Keyboard);
+                    all.set(false);
                 }
                 // Password boxes have no caret or selection to edit through:
                 // edits go to the end, where typing into a focused box puts
-                // them, and PasswordChanged reports them.
+                // them, or replace all of it if it's selected, and
+                // PasswordChanged reports them.
                 let edit = |edit: &dyn Fn(&mut String)| -> windows_core::Result<()> {
-                    let mut text = field.Password()?;
+                    let mut text = if all.replace(false) { String::new() } else { field.Password()? };
                     edit(&mut text);
                     field.SetPassword(&text)
                 };
@@ -226,7 +265,77 @@ impl WinUiBackend {
             | (WidgetKind::ToggleButton | WidgetKind::Checkbox | WidgetKind::Switch, Key::Char(' ')) => {
                 self.perform(id, &A11yAction::Activate)
             }
-            _ => Err(ActionError::Unsupported),
+            // Keys the control uses that aren't simulated.
+            _ if self.uses(id, Shortcut::new(*key)) => Err(ActionError::Unsupported),
+            _ => self.send_key(id, Shortcut::new(*key)),
         }
+    }
+
+    /// A key the control doesn't use, as XAML routes it: `KeyDown` goes up
+    /// from the focused control, and the nearest node that takes the key
+    /// handles it (`keys.rs`). The control is focused first, if it takes
+    /// focus. `Unsupported` if nothing takes it.
+    fn send_key(&self, id: NodeId, shortcut: Shortcut) -> Result<(), ActionError> {
+        let state = self.state.borrow();
+        let node = state.nodes.get(&id).ok_or(ActionError::UnknownNode)?;
+        if is_control(&node.widget) {
+            state.focus(id, w::FocusState::Keyboard);
+        }
+        let mut current = Some(id);
+        while let Some(node) = current.and_then(|c| state.nodes.get(&c)) {
+            if node.keys.as_ref().is_some_and(|keys| keys.take(shortcut)) {
+                return Ok(());
+            }
+            current = node.parent;
+        }
+        Err(ActionError::Unsupported)
+    }
+
+    /// Whether the control handles a key itself on `KeyDown`, so it never
+    /// goes up to a node's keys: as each XAML control does. Tab is the
+    /// window's (its `PreviewKeyDown` moves focus). Custom renders and
+    /// native views could use any key.
+    fn uses(&self, id: NodeId, shortcut: Shortcut) -> bool {
+        let state = self.state.borrow();
+        let Some(node) = state.nodes.get(&id) else { return false };
+        let Shortcut { key, primary, alt, .. } = shortcut;
+        let plain = !primary && !alt;
+        let arrow = matches!(key, Key::Up | Key::Down | Key::Left | Key::Right);
+        let paging = matches!(key, Key::Home | Key::End | Key::PageUp | Key::PageDown);
+        key == Key::Tab
+            || match &node.widget {
+                // Text boxes: typing, and moving and selecting in the text
+                // (with Control by words, and its own editing commands).
+                Widget::Field(_) | Widget::Password(_) => {
+                    !alt && matches!(key, Key::Char(_) | Key::Backspace | Key::Delete | Key::Left | Key::Right)
+                        || matches!(key, Key::Home | Key::End)
+                }
+                // Up and Down go through its suggestions.
+                Widget::Search(_) => {
+                    !alt && (matches!(key, Key::Char(_) | Key::Backspace | Key::Delete) || arrow)
+                        || matches!(key, Key::Home | Key::End)
+                }
+                // A text area also takes Return and moves by lines; a
+                // number box steps with its arrows and page keys.
+                Widget::TextArea { .. } | Widget::Number { .. } => {
+                    !alt && matches!(key, Key::Char(_) | Key::Backspace | Key::Delete | Key::Enter) || arrow || paging
+                }
+                Widget::Button(_) | Widget::Toggle(_) | Widget::Checkbox(_) | Widget::MenuButton(_) => {
+                    plain && matches!(key, Key::Enter | Key::Char(' '))
+                }
+                Widget::Switch(_) => plain && key == Key::Char(' '),
+                // Typing picks an option; Alt+Up and Alt+Down open it.
+                Widget::Select(_) => {
+                    !primary && (arrow || paging) || plain && matches!(key, Key::Char(_) | Key::Enter | Key::F(4))
+                }
+                Widget::RadioGroup(_) => plain && (arrow || key == Key::Char(' ')),
+                Widget::Slider { .. } | Widget::Scroll(_) => plain && (arrow || paging),
+                Widget::Sidebar(_) | Widget::Tabs(_) => {
+                    plain && (arrow || matches!(key, Key::Home | Key::End | Key::Enter | Key::Char(' ')))
+                }
+                Widget::List(list) => list.uses(shortcut),
+                Widget::Custom { .. } | Widget::Native { .. } => true,
+                _ => false,
+            }
     }
 }

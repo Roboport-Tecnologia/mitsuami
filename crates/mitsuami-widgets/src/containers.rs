@@ -4,6 +4,7 @@ use std::rc::Rc;
 
 use std::path::PathBuf;
 
+use mitsuami_core::services::Shortcut;
 use mitsuami_core::{
     Align, Children, Display, Element, ElementBuilder, FileDrop, FlexDirection, Justify, Length, NodeId, Prop, Track,
     Tweak, Ui, UiEvent, View, WidgetKind,
@@ -66,6 +67,22 @@ impl Container {
                 handler(*over);
             }
         });
+        self
+    }
+
+    /// Runs `handler` when `key` is pressed while it, or a control
+    /// inside it, has keyboard focus, and the focused control doesn't use
+    /// the key itself: Space for a preview, Delete for Move to Trash.
+    /// A key goes to the nearest node around the focused control that
+    /// takes it. Nothing shows keys taken this way, so give the command a
+    /// menu item or a button too, and pick the keys the platform's own apps
+    /// use (`platform!`).
+    ///
+    /// ```ignore
+    /// Column::new().on_key(Shortcut::primary(Key::Backspace), trash)
+    /// ```
+    pub fn on_key(mut self, key: impl Into<Shortcut>, handler: impl Fn() + 'static) -> Container {
+        self.0.on_key(key.into(), handler);
         self
     }
 
@@ -236,6 +253,22 @@ impl Group {
                 handler(*over);
             }
         });
+        self
+    }
+
+    /// Runs `handler` when `key` is pressed while it, or a control
+    /// inside it, has keyboard focus, and the focused control doesn't use
+    /// the key itself: Space for a preview, Delete for Move to Trash.
+    /// A key goes to the nearest node around the focused control that
+    /// takes it. Nothing shows keys taken this way, so give the command a
+    /// menu item or a button too, and pick the keys the platform's own apps
+    /// use (`platform!`).
+    ///
+    /// ```ignore
+    /// Group::new().on_key(Shortcut::primary(Key::Backspace), trash)
+    /// ```
+    pub fn on_key(mut self, key: impl Into<Shortcut>, handler: impl Fn() + 'static) -> Group {
+        self.0.on_key(key.into(), handler);
         self
     }
 

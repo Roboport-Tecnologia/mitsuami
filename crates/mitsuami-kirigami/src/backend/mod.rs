@@ -32,9 +32,11 @@ mod measure;
 mod native_state;
 mod perform;
 mod props;
+mod selection;
 mod widget;
 mod window;
 
+pub(crate) use input::qt_key;
 pub(crate) use window::dialog_parent;
 
 /// How the backend behaves; apps and tests want different things.
@@ -247,6 +249,9 @@ struct Node {
     /// the app gave `FileDrop` at all.
     file_drop: Option<crate::file_drop::FileDropArea>,
     file_drop_given: bool,
+    /// Hosts, groups, lists and tables: the keys they take, once the app
+    /// gave them.
+    keys: Option<crate::keys::NodeKeys>,
 }
 
 pub(crate) struct State {

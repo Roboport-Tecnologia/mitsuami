@@ -7,6 +7,7 @@ mod fields;
 mod focus;
 mod handle;
 mod input;
+mod keys;
 mod measure;
 mod menus;
 mod native_state;
@@ -14,6 +15,7 @@ mod new_window;
 mod perform;
 mod props;
 mod scroll;
+mod selection;
 mod styles;
 mod windows;
 
@@ -99,6 +101,9 @@ pub(crate) struct WindowParts {
     focus: Rc<Cell<Option<NodeId>>>,
     /// The Tab order sent by the core.
     tab_order: Rc<RefCell<Vec<NodeId>>>,
+    /// Focus asked for before the control could take it, and the text to
+    /// select in it (`focus_wanted`).
+    wanted_focus: RefCell<Option<(NodeId, Option<std::ops::Range<usize>>)>>,
     /// Modal, and the window it belongs to: acted on when it's shown.
     modal: Option<(Option<NodeId>, Modality)>,
     /// The windows it disabled while it's open (application-modal), to
@@ -308,6 +313,12 @@ struct Node {
     /// they take some, and whether the core ever sent `FileDrop`.
     file_drop: Option<crate::drop::DropTarget>,
     file_drop_sent: bool,
+    /// Containers, groups, lists and tables: the keys they take, once the
+    /// core sent some.
+    keys: Option<keys::Keys>,
+    /// Password boxes: all their text is selected (`SelectText`), which
+    /// XAML can't tell, so typing replaces it.
+    password_all: Cell<bool>,
 }
 
 type Callback = Rc<dyn Fn()>;

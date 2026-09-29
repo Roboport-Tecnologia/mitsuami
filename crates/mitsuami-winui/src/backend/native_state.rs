@@ -275,6 +275,8 @@ impl WinUiBackend {
         if node.file_drop_sent {
             props.push(Prop::FileDrop(node.file_drop.as_ref().map(|t| t.file_drop())));
         }
+        // What its `KeyDown` handler takes: XAML has no keys to read back.
+        props.extend(node.keys.as_ref().map(|k| Prop::Keys(k.keys())));
         if let Some(menu) = &node.context_menu {
             let shown = node.control().cast::<w::IUIElement>().ok()?.ContextFlyout().ok();
             // Ours, or the control's own (or none) while the app's is empty.
@@ -353,7 +355,17 @@ impl WinUiBackend {
                     .cast::<w::IUIElement>()
                     .and_then(|e| e.FocusState())
                     .is_ok_and(|f| f != w::FocusState::Unfocused);
-        Some(NativeState { kind: node.kind, props, frame, parent: node.parent, children, focused, scroll_offset })
+        let selection = super::selection::selection(node, focused);
+        Some(NativeState {
+            kind: node.kind,
+            props,
+            frame,
+            parent: node.parent,
+            children,
+            focused,
+            scroll_offset,
+            selection,
+        })
     }
 }
 

@@ -58,8 +58,10 @@ impl MenuItem {
         self
     }
 
-    pub fn shortcut(mut self, shortcut: Shortcut) -> MenuItem {
-        self.shortcut = Some(shortcut);
+    /// The item's shortcut, or `None` for none: some items have one only
+    /// on some platforms.
+    pub fn shortcut(mut self, shortcut: impl Into<Option<Shortcut>>) -> MenuItem {
+        self.shortcut = shortcut.into();
         self
     }
 

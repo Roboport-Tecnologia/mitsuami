@@ -21,6 +21,7 @@ use mitsuami_reactive::{IntoValue, Signal, Value, effect};
 use crate::command::{EventValue, UiEvent};
 use crate::element::{Element, ElementBuilder};
 use crate::list::{KeyFn, ListHandle, Mount, RowParts, build_rows};
+use crate::services::Shortcut;
 use crate::tweak::Tweak;
 use crate::ui::Ui;
 use crate::units::Length;
@@ -222,6 +223,23 @@ impl<T: 'static, K: 'static> Table<T, K> {
     /// pressed on it.
     pub fn on_activate(mut self, handler: impl Fn(K) + 'static) -> Self {
         self.on_activate = Some(Rc::new(handler));
+        self
+    }
+
+    /// Runs `handler` when `key` is pressed while the table, or a control
+    /// inside it, has keyboard focus, and the focused control doesn't use
+    /// the key itself (the arrows, Home and End, typing to
+    /// select, and what else the platform's table takes): Space for a preview, Delete for Move to Trash.
+    /// A key goes to the nearest node around the focused control that
+    /// takes it. Nothing shows keys taken this way, so give the command a
+    /// menu item or a button too, and pick the keys the platform's own apps
+    /// use (`platform!`).
+    ///
+    /// ```ignore
+    /// Table::new(..).on_key(' ', preview)
+    /// ```
+    pub fn on_key(mut self, key: impl Into<Shortcut>, handler: impl Fn() + 'static) -> Self {
+        self.element.on_key(key.into(), handler);
         self
     }
 

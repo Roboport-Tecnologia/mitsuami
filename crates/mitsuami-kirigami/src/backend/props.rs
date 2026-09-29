@@ -335,6 +335,10 @@ impl State {
                     }
                 }
             }
+            (Prop::Keys(keys), Widget::Host(_) | Widget::Group { .. } | Widget::List(_)) => {
+                let item = node.widget.item();
+                node.keys.get_or_insert_with(|| crate::keys::NodeKeys::new(item, id, events)).set(keys);
+            }
             (Prop::Menu(entries), Widget::MenuButton(b)) => {
                 let b = *b;
                 node.button_menu

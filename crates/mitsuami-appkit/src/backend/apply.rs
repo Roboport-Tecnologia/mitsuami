@@ -341,6 +341,10 @@ impl State {
                     window.makeFirstResponder(Some(&view));
                 }
             }
+            Command::SelectText { id, range } => {
+                let Some(node) = self.nodes.get(id) else { violation(command, "node does not exist") };
+                super::selection::select(&node.widget, range.clone());
+            }
         }
     }
 }

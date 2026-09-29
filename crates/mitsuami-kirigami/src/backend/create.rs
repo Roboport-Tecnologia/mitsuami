@@ -264,6 +264,7 @@ impl State {
                 button_menu: None,
                 file_drop: None,
                 file_drop_given: false,
+                keys: None,
             },
         );
     }

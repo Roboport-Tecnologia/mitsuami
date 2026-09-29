@@ -6,11 +6,11 @@ use std::path::PathBuf;
 use std::rc::{Rc, Weak};
 
 use block2::RcBlock;
-use mitsuami_core::NodeId;
 use mitsuami_core::services::{
     Alert, AlertStyle, FileFilter, MenuBarData, MenuCheck, MenuData, MenuEntry, MenuItemData, MenuRole, OpenFile,
     Reply, SaveFile, ServiceError, Services, Shortcut, existing_folder, menu_item_by_id,
 };
+use mitsuami_core::{Key, NodeId};
 use objc2::rc::Retained;
 use objc2::runtime::{AnyObject, NSObject, NSObjectProtocol, Sel};
 use objc2::{DefinedClass, MainThreadMarker, MainThreadOnly, Message, define_class, msg_send, sel};
@@ -357,7 +357,62 @@ fn menu_of(
     holder
 }
 
-fn modifiers(shortcut: &Shortcut) -> NSEventModifierFlags {
+/// The character AppKit names a key by, in key equivalents and key
+/// events: the key's own for those that type one, a function key's
+/// (`NSUpArrowFunctionKey`) for the others.
+pub(crate) fn key_character(key: Key) -> char {
+    match key {
+        Key::Char(c) => c,
+        Key::Enter => '\r',
+        Key::Escape => '\u{1b}',
+        Key::Tab => '\t',
+        // `NSBackspaceCharacter`, as Finder's Move to Trash has it.
+        Key::Backspace => '\u{8}',
+        Key::Delete => '\u{f728}',
+        Key::Up => '\u{f700}',
+        Key::Down => '\u{f701}',
+        Key::Left => '\u{f702}',
+        Key::Right => '\u{f703}',
+        Key::Home => '\u{f729}',
+        Key::End => '\u{f72b}',
+        Key::PageUp => '\u{f72c}',
+        Key::PageDown => '\u{f72d}',
+        Key::F(n) => char::from_u32(0xf703 + u32::from(n)).unwrap_or('\u{f704}'),
+    }
+}
+
+/// The character a key event of this key carries, as the keyboard sends
+/// it: the Delete (⌫) key's is `NSDeleteCharacter`.
+pub(crate) fn event_character(key: Key) -> char {
+    match key {
+        Key::Backspace => '\u{7f}',
+        key => key_character(key),
+    }
+}
+
+/// The key AppKit names by this character (see [`key_character`]).
+/// `NSDeleteCharacter` is the Delete (⌫) key's own.
+pub(crate) fn key_of(c: char) -> Key {
+    match c {
+        '\r' | '\u{3}' => Key::Enter,
+        '\u{1b}' => Key::Escape,
+        '\t' => Key::Tab,
+        '\u{8}' | '\u{7f}' => Key::Backspace,
+        '\u{f728}' => Key::Delete,
+        '\u{f700}' => Key::Up,
+        '\u{f701}' => Key::Down,
+        '\u{f702}' => Key::Left,
+        '\u{f703}' => Key::Right,
+        '\u{f729}' => Key::Home,
+        '\u{f72b}' => Key::End,
+        '\u{f72c}' => Key::PageUp,
+        '\u{f72d}' => Key::PageDown,
+        '\u{f704}'..='\u{f726}' => Key::F((c as u32 - 0xf703) as u8),
+        c => Key::Char(c),
+    }
+}
+
+pub(crate) fn modifiers(shortcut: &Shortcut) -> NSEventModifierFlags {
     let mut mask = NSEventModifierFlags::empty();
     if shortcut.primary {
         mask |= NSEventModifierFlags::Command;
@@ -393,7 +448,7 @@ fn app_item(
     shortcut: Option<Shortcut>,
     target: ItemTarget,
 ) -> Retained<NSMenuItem> {
-    let key = shortcut.map(|s| s.key.to_string()).unwrap_or_default();
+    let key = shortcut.map(|s| key_character(s.key).to_string()).unwrap_or_default();
     let item = item(mtm, title, Some(target.action), &key);
     unsafe { item.setTarget(Some(target.object)) };
     item.setTag(data.id as isize);
@@ -453,7 +508,7 @@ pub(crate) fn context_menu_entries(menu: &NSMenu, sent: &[MenuEntry]) -> Vec<Men
                     id,
                     title: item.title().to_string(),
                     shortcut: key.chars().next().map(|key| Shortcut {
-                        key,
+                        key: key_of(key),
                         primary: mask.contains(NSEventModifierFlags::Command),
                         shift: mask.contains(NSEventModifierFlags::Shift),
                         alt: mask.contains(NSEventModifierFlags::Option),

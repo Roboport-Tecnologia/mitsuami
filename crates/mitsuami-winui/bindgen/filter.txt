@@ -97,7 +97,7 @@ Microsoft.UI.Xaml.Controls.IComboBox::{put_Header}
 Microsoft.UI.Xaml.Controls.ComboBoxItem::CreateInstance
 Microsoft.UI.Xaml.Controls.RadioButtons::CreateInstance
 Microsoft.UI.Xaml.Controls.IRadioButtons::{get_Items, get_SelectedIndex, put_SelectedIndex, add_SelectionChanged, remove_SelectionChanged, ContainerFromIndex, put_Header}
-Microsoft.UI.Xaml.Controls.ITextBox::{get_Text, put_Text, put_Header, get_IsReadOnly, put_IsReadOnly, get_PlaceholderText, put_PlaceholderText, get_SelectionStart, put_SelectionStart, get_SelectionLength, put_SelectionLength, get_SelectedText, put_SelectedText, get_AcceptsReturn, put_AcceptsReturn, get_TextWrapping, put_TextWrapping, get_InputScope, put_InputScope, add_TextChanged, remove_TextChanged}
+Microsoft.UI.Xaml.Controls.ITextBox::{get_Text, put_Text, put_Header, get_IsReadOnly, put_IsReadOnly, get_PlaceholderText, put_PlaceholderText, get_SelectionStart, put_SelectionStart, get_SelectionLength, put_SelectionLength, get_SelectedText, put_SelectedText, Select, get_AcceptsReturn, put_AcceptsReturn, get_TextWrapping, put_TextWrapping, get_InputScope, put_InputScope, add_TextChanged, remove_TextChanged}
 Microsoft.UI.Xaml.Input.InputScope::CreateInstance
 Microsoft.UI.Xaml.Input.IInputScope::get_Names
 Microsoft.UI.Xaml.Input.InputScopeName::CreateInstance
@@ -111,7 +111,7 @@ Microsoft.UI.Xaml.Controls.IAutoSuggestBoxQuerySubmittedEventArgs::get_QueryText
 Microsoft.UI.Xaml.Controls.SymbolIcon::CreateInstanceWithSymbol
 Microsoft.UI.Xaml.Controls.Symbol
 Microsoft.UI.Xaml.Controls.PasswordBox::CreateInstance
-Microsoft.UI.Xaml.Controls.IPasswordBox::{get_Password, put_Password, get_PasswordChar, put_PasswordChar, get_PlaceholderText, put_PlaceholderText, add_PasswordChanged, remove_PasswordChanged}
+Microsoft.UI.Xaml.Controls.IPasswordBox::{get_Password, put_Password, SelectAll, get_PasswordChar, put_PasswordChar, get_PlaceholderText, put_PlaceholderText, add_PasswordChanged, remove_PasswordChanged}
 Microsoft.UI.Xaml.Controls.ScrollViewer::{CreateInstance, SetVerticalScrollBarVisibility, SetHorizontalScrollBarVisibility}
 Microsoft.UI.Xaml.Controls.IScrollViewer::{get_HorizontalOffset, get_IsScrollInertiaEnabled, put_IsScrollInertiaEnabled, get_VerticalOffset, get_ScrollableWidth, get_ScrollableHeight, get_HorizontalScrollBarVisibility, put_HorizontalScrollBarVisibility, get_VerticalScrollBarVisibility, put_VerticalScrollBarVisibility, put_HorizontalScrollMode, put_VerticalScrollMode, ChangeViewWithOptionalAnimation, add_ViewChanged, remove_ViewChanged}
 Microsoft.UI.Xaml.Controls.ScrollBarVisibility

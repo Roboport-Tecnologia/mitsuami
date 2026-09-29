@@ -4,6 +4,7 @@ use std::time::Duration;
 
 use mitsuami_core::a11y::{A11yAction, ActionError};
 use mitsuami_core::backend::{Backend, Key, SyntheticInput};
+use mitsuami_core::services::Shortcut;
 use mitsuami_core::{
     KeyCode, Modifiers, NodeId, ScrollAxes, ScrollDelta, SelectionMode, SurfaceInput, UiEvent, WidgetKind,
 };
@@ -14,24 +15,43 @@ use crate::ffi::QmlObject;
 use super::{KirigamiBackend, Widget, pump_until};
 
 // Qt key codes (`Qt::Key`).
-const KEY_TAB: i32 = 0x0100_0001;
-const KEY_BACKSPACE: i32 = 0x0100_0003;
-const KEY_RETURN: i32 = 0x0100_0004;
 const KEY_ESCAPE: i32 = 0x0100_0000;
-const KEY_HOME: i32 = 0x0100_0010;
-const KEY_END: i32 = 0x0100_0011;
-const KEY_UP: i32 = 0x0100_0013;
-const KEY_DOWN: i32 = 0x0100_0015;
 const KEY_UNKNOWN: i32 = 0x01ff_ffff;
+
+/// A key's `Qt::Key`, and the text a key event of it carries.
+pub(crate) fn qt_key(key: Key) -> (i32, String) {
+    let special = |offset: i32| (0x0100_0000 + offset, String::new());
+    match key {
+        // ASCII keys are their upper case character in Qt.
+        Key::Char(c) => {
+            let code = if c.is_ascii_graphic() || c == ' ' { c.to_ascii_uppercase() as i32 } else { KEY_UNKNOWN };
+            (code, c.to_string())
+        }
+        Key::Escape => (KEY_ESCAPE, "\u{1b}".into()),
+        Key::Tab => (0x0100_0001, "\t".into()),
+        Key::Backspace => special(0x03),
+        Key::Enter => (0x0100_0004, "\r".into()),
+        Key::Delete => special(0x07),
+        Key::Home => special(0x10),
+        Key::End => special(0x11),
+        Key::Left => special(0x12),
+        Key::Up => special(0x13),
+        Key::Right => special(0x14),
+        Key::Down => special(0x15),
+        Key::PageUp => special(0x16),
+        Key::PageDown => special(0x17),
+        Key::F(n) => special(0x2f + i32::from(n)),
+    }
+}
 
 /// A key pressed in a window, which the user's keys reach once it's the
 /// focused window: its shortcuts (a modal window's Escape) only match then.
-fn key_in(window: QmlObject, code: i32, text: &str) {
+fn key_in(window: QmlObject, code: i32, modifiers: i32, text: &str) {
     if !window.bool("mitsuamiFocused") {
         window.invoke("requestActivate");
         pump_until(Duration::from_secs(2), || window.bool("mitsuamiFocused"));
     }
-    window.key(code, false, text);
+    window.key(code, modifiers, text);
 }
 
 impl KirigamiBackend {
@@ -74,6 +94,17 @@ impl KirigamiBackend {
         match input {
             // Handled above.
             SyntheticInput::DragFiles(_) | SyntheticInput::DragLeave | SyntheticInput::DropFiles(_) => unreachable!(),
+            // Text fields take keys with modifiers as editing commands,
+            // which aren't simulated.
+            SyntheticInput::Shortcut(_)
+                if matches!(
+                    kind,
+                    WidgetKind::TextInput | WidgetKind::PasswordInput | WidgetKind::SearchInput | WidgetKind::TextArea
+                ) =>
+            {
+                Err(ActionError::Unsupported)
+            }
+            SyntheticInput::Shortcut(shortcut) => self.send_key(id, *shortcut, widget_item, window),
             SyntheticInput::Click(point) => {
                 // Drawn widgets only: their pointer handling is ours.
                 let drawn = matches!(self.state.borrow().nodes.get(&id).map(|n| &n.widget), Some(Widget::Drawn { .. }));
@@ -140,14 +171,8 @@ impl KirigamiBackend {
                         return Err(ActionError::Unsupported);
                     }
                     widget_item.force_focus();
-                    let (code, text) = match key {
-                        Key::Up => (KEY_UP, ""),
-                        Key::Down => (KEY_DOWN, ""),
-                        Key::Home => (KEY_HOME, ""),
-                        Key::End => (KEY_END, ""),
-                        _ => (KEY_RETURN, "\r"),
-                    };
-                    key_in(window, code, text);
+                    let (code, text) = qt_key(*key);
+                    key_in(window, code, 0, &text);
                     Ok(())
                 }
                 // Qt's text area takes Return as a new line and Tab as a
@@ -168,25 +193,8 @@ impl KirigamiBackend {
                         // Typing appends, as after clicking past the end.
                         widget_item.set_int("cursorPosition", widget_item.str("text").chars().count() as i32);
                     }
-                    let (code, text) = match key {
-                        Key::Char(c) => {
-                            let code = if c.is_ascii_alphanumeric() || *c == ' ' {
-                                c.to_ascii_uppercase() as i32
-                            } else {
-                                KEY_UNKNOWN
-                            };
-                            (code, c.to_string())
-                        }
-                        Key::Backspace => (KEY_BACKSPACE, String::new()),
-                        Key::Enter => (KEY_RETURN, "\r".into()),
-                        Key::Tab => (KEY_TAB, "\t".into()),
-                        Key::Escape => (KEY_ESCAPE, "\u{1b}".into()),
-                        Key::Up => (KEY_UP, String::new()),
-                        Key::Down => (KEY_DOWN, String::new()),
-                        Key::Home => (KEY_HOME, String::new()),
-                        Key::End => (KEY_END, String::new()),
-                    };
-                    key_in(window, code, &text);
+                    let (code, text) = qt_key(*key);
+                    key_in(window, code, 0, &text);
                     Ok(())
                 }
                 (WidgetKind::Button, Key::Enter | Key::Char(' '))
@@ -200,12 +208,51 @@ impl KirigamiBackend {
                     if self.state.borrow().nodes.get(&id).is_some_and(|n| n.widget.is_control()) {
                         widget_item.force_focus();
                     }
-                    key_in(window, KEY_ESCAPE, "\u{1b}");
+                    key_in(window, KEY_ESCAPE, 0, "\u{1b}");
                     Ok(())
                 }
-                _ => Err(ActionError::Unsupported),
+                _ => self.send_key(id, Shortcut::new(*key), widget_item, window),
             },
         }
+    }
+
+    /// A key the control doesn't use, as the keyboard sends it: a real key
+    /// press to its window, the control focused, which Qt Quick sends on
+    /// up its parent items to a node's item that takes it (`crate::keys`).
+    /// `Unsupported` if none around does.
+    fn send_key(
+        &self,
+        id: NodeId,
+        shortcut: Shortcut,
+        input_item: QmlObject,
+        window: Option<QmlObject>,
+    ) -> Result<(), ActionError> {
+        let focusable = {
+            let state = self.state.borrow();
+            let mut at = Some(id);
+            let mut taken = false;
+            while let Some(node) = at.and_then(|at| state.nodes.get(&at)) {
+                if node.keys.as_ref().is_some_and(|keys| keys.takes(&shortcut)) {
+                    taken = true;
+                    break;
+                }
+                at = node.parent;
+            }
+            if !taken {
+                return Err(ActionError::Unsupported);
+            }
+            state.nodes.get(&id).is_some_and(|n| n.widget.is_focusable())
+        };
+        let window = window.ok_or(ActionError::Unsupported)?;
+        if focusable {
+            input_item.force_focus();
+        }
+        let (code, mut text) = qt_key(shortcut.key);
+        if shortcut.shift {
+            text = text.to_uppercase();
+        }
+        key_in(window, code, crate::keys::modifiers(&shortcut), &text);
+        Ok(())
     }
 
     /// Input on a GPU surface that takes it, through Qt's own event path:
@@ -233,24 +280,7 @@ impl KirigamiBackend {
                 if window.focus_item().and_then(|f| f.node()) != Some(node_key(id)) {
                     return Err(ActionError::Unsupported);
                 }
-                let (qt_key, code, text) = match key {
-                    Key::Char(c) => {
-                        let qt_key = if c.is_ascii_alphanumeric() || *c == ' ' {
-                            c.to_ascii_uppercase() as i32
-                        } else {
-                            KEY_UNKNOWN
-                        };
-                        (qt_key, KeyCode::from_us_char(*c), c.to_string())
-                    }
-                    Key::Enter => (KEY_RETURN, KeyCode::Enter, "\r".to_owned()),
-                    Key::Escape => (KEY_ESCAPE, KeyCode::Escape, String::new()),
-                    Key::Tab => (KEY_TAB, KeyCode::Tab, "\t".to_owned()),
-                    Key::Backspace => (KEY_BACKSPACE, KeyCode::Backspace, String::new()),
-                    Key::Up => (KEY_UP, KeyCode::ArrowUp, String::new()),
-                    Key::Down => (KEY_DOWN, KeyCode::ArrowDown, String::new()),
-                    Key::Home => (KEY_HOME, KeyCode::Home, String::new()),
-                    Key::End => (KEY_END, KeyCode::End, String::new()),
-                };
+                let ((qt_key, text), code) = (qt_key(*key), KeyCode::from_key(*key));
                 // XKB key codes: evdev's plus 8.
                 window.surface_key(qt_key, crate::surface::evdev_code(code) + 8, &text);
             }
@@ -259,7 +289,11 @@ impl KirigamiBackend {
                 let modifiers = Modifiers::default();
                 events.emit(id, UiEvent::SurfaceInput(SurfaceInput::Scroll { delta, modifiers }));
             }
-            SyntheticInput::DragFiles(_) | SyntheticInput::DragLeave | SyntheticInput::DropFiles(_) => {
+            // Keys with modifiers aren't simulated on a surface.
+            SyntheticInput::Shortcut(_)
+            | SyntheticInput::DragFiles(_)
+            | SyntheticInput::DragLeave
+            | SyntheticInput::DropFiles(_) => {
                 return Err(ActionError::Unsupported);
             }
         }

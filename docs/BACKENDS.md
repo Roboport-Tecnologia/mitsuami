@@ -63,6 +63,7 @@ Validate as you go. Panic on protocol violations such as an unknown node, a doub
 | `ScrollTo { id, offset }` | Scroll the `ScrollView` or `List` so `offset` is at its top-left. Already clamped (a `List` clamps it itself). The platform then **reports `Scrolled`**, as for a user scroll. |
 | `ScrollToRow { id, row }` | Scroll the `List` just enough to show that row, with the platform's own "scroll to row". Report `Scrolled`, and the rows shown. |
 | `Focus { id }` | Give the control keyboard focus. The focus change is reported through your focus tracking (§4), not by this command. |
+| `SelectText { id, range }` | Select these characters (Unicode scalar values, already within its text) of a text field's or text area's text, the platform's way, converting to its units (AppKit's and Qt's are UTF-16, GTK's characters). A `Focus` for it comes first in the batch, so it replaces whatever focusing selected (AppKit and GTK select all of a field). |
 
 ### 3.1 Widget kinds
 
@@ -195,6 +196,7 @@ A prop the app didn't give isn't sent ("sent only if the app chose"), so the pla
 | `Selected` | List | The selected rows. |
 | `ListStyle` | List | Automatic, Plain or Framed. Automatic draws as Plain. Report back what was sent: no toolkit tells Automatic from Plain. |
 | `FileDrop` | Container, Group | Take files and folders dragged from the file manager: the platform's drop target on the host (AppKit `registerForDraggedTypes` with file URLs, a `gtk::DropTarget` for `gdk::FileList`, XAML's `AllowDrop` and drag events, a Qt Quick `DropArea`), showing a copy only while `FileDrop::accepted` keeps some of the dragged files, and reporting `DropHover` and `FilesDropped`. Only local paths. `None` removes it and ends any hover. Keep it on the node and report it. |
+| `Keys` | Container, Group, List, Table | The keys it takes while it, or a control inside it, has keyboard focus, and the focused control doesn't use them. Take them where keys the focused control left come up: AppKit's responder chain (a host's `keyDown:`; for a list, a responder put between its table and the clip view), GTK a `ShortcutController` in local scope and the bubble phase, Qt an event filter on the item (unaccepted keys go up the items), XAML a bubbling `KeyDown` (not accelerators, which XAML runs before the element's `KeyDown`). A list's or table's go after its view's own keys: on the scroll view around it. Report `Key`, and the keys back (kept on the node where the platform can't give them). |
 
 **Window chrome** (§11)
 
@@ -252,7 +254,8 @@ Native callbacks **only** call `events.emit(id, event)` on the `EventSink` given
 | `Scrolled(offset)` | a `ScrollView`'s or `List`'s offset changes, by the user **or** by `ScrollTo` | |
 | `RowShown(key)` | a `List` realises a row (it's in view, or about to be) | it already had |
 | `RowHidden(key)` | a `List` lets go of a row it had shown | a reload shows it again right away: report only the difference |
-| `RowActivated(key)` | a `List` row is double-clicked, or Enter is pressed on it | |
+| `RowActivated(key)` | a `List` row is double-clicked, or Return is pressed on it without ⌘/Ctrl, ⌥/Alt or ⌃/Meta (those go to the list's keys) | |
+| `Key(shortcut)` | a key in the node's `Keys` comes up from the focused control (the node, or a control inside it) | the focused control used it, or a nearer node took it |
 | `RowWidth(width)` | a `List` gives its rows a width other than its own (legacy scroll bars, insets, a frame): once it's known, and when it changes | |
 | `ColumnWidths(widths)` | a `Table`'s columns give their cells new widths, in column order: once they're known, and whenever they change (the user resized a column, the table was resized and a column that expands took the room) | they didn't change |
 | `WindowResized(size)` | the window's content area changes size (report the content size, without any menu bar or toolbar you placed in the window) | |
@@ -334,7 +337,7 @@ These make one test suite run against every backend.
 ### 7.2 `synthesize(id, input)`: behave as close to real input as the platform allows
 
 - `Key(Char | Backspace | Enter | Tab)` on text, password and search fields and text areas must go through the platform's text-editing path, so the real signals fire. AppKit drives the field editor (`insertText:`, `doCommandBySelector:`), a secure one for password fields, and a text area's text view itself; Qt sends real key events; GTK 4 can't inject keys, so it emits the keybinding signals keys are bound to (`insert-at-cursor`, `backspace`, `activate`, `move-focus`).
-  - If the field wasn't focused, focus it and **put the caret at the end**: focusing selects all, and the first keystroke would replace everything.
+  - If the field wasn't focused, focus it and **put the caret at the end**: focusing selects all, and the first keystroke would replace everything. If it was, type at its caret, over its selection, as the keyboard does (GTK's `insert-at-cursor` leaves a selection: delete it first).
   - Any key on a read-only field: `ActionError::ReadOnly`, before focusing it. Nothing can be typed into one anywhere, and AppKit's can't take keyboard focus, so no platform delivers the keys.
   - Enter in a search field searches (WinUI's backend reports it: only a real key raises `QuerySubmitted`). In a text area, Enter is a new line everywhere, and Tab is the platform's: AppKit, GTK (while the view `accepts_tab`) and Qt insert a tab, WinUI moves focus on.
   - WinUI's `PasswordBox` has no caret or selection to edit through, so its backend edits `Password` at the end, where typing into a focused box goes, and `PasswordChanged` reports it.
@@ -342,13 +345,14 @@ These make one test suite run against every backend.
 - Enter or Space on buttons, Space on toggles.
 - `Scroll { dx, dy }` scrolls a `ScrollView` or `List` as a scroll wheel would, clamped.
 - `Key(Up | Down | Home | End | Enter)` on a `List` goes through the list's own key handling: move the selection and scroll to it, or activate the selected row.
+- A `Key` the control doesn't use, and `Shortcut` (a key with modifiers), go up as the real key would: to the nearest node that has it in its `Keys`, which reports `Key` (ARCHITECTURE.md §13.29). Focus the control and send a real key event where the platform takes one (AppKit's window `sendEvent:`, Qt's key press with its modifiers). GTK runs its own shortcut controllers from the focused widget up, in its order, activating the first match; WinUI, which can't be sent keys, keeps a table of the keys XAML's controls keep, and walks up the nodes. `Unsupported` if nothing takes it (the platform would beep), and for `Shortcut` on text fields and GPU surfaces: editing commands and a surface's modifiers aren't simulated.
 - `Click(point)` on **drawn** custom widgets: a real down/up pair through your drawn view's event handlers. `Unsupported` elsewhere: native controls often track the mouse in a modal loop.
 - `DragFiles(paths)`, `DragLeave` and `DropFiles(paths)` on a host with a `FileDrop`: run the functions your drag handlers call, with the paths a real drag's data would give them (a drop enters first, as a real one does). `Unsupported` on a node without one. Nothing here can drag from a file manager, so reading the paths from a real drag is only tried by hand (`examples/file_drop.rs`).
 - On a `GpuSurface` that takes input: `Click` focuses it and reports the primary button down and up there, `Key` the key down and up, `Scroll` one scroll in points (§12).
 
 ### 7.3 `native_state(id)`: read back what the widget shows
 
-**Read back from the widget** what it actually shows: its props (text, title, value, placeholder, checked, enabled, and every other prop the core has), its frame, its parent and children (in native order), whether it's focused, and its scroll offset. Only keep on the node what the platform can't report. After every settle, the test kit compares this with the core and fails on any difference: the mirror check. It has caught every serious backend bug so far.
+**Read back from the widget** what it actually shows: its props (text, title, value, placeholder, checked, enabled, and every other prop the core has), its frame, its parent and children (in native order), whether it's focused, its scroll offset, and a focused text field's or text area's selection, in characters (the caret when empty). Only keep on the node what the platform can't report. After every settle, the test kit compares this with the core and fails on any difference: the mirror check. It has caught every serious backend bug so far.
 
 - A window's children include its toolbar items, after its content, then its sidebar.
 - A `ToolbarItem` reports the rect the toolbar gave it, in the coordinates of the window's content (above it, so at a negative y), and `Rect::ZERO` while it's hidden, whether it's empty or the toolbar put it in an overflow menu.
@@ -400,7 +404,7 @@ Implement `Services`. **Never block**: reply later, from the platform's completi
 - **Update in place when you can:** if `MenuBarData::same_structure` holds, only enabled and checked states changed; rebuilding would close an open menu.
 - **Items with a role** (`MenuRole::{About, Settings, Quit}`) go where the platform puts them: `MenuBarData::take_role` takes them out of the app's menus, tidying separators. A Quit item replaces your own Quit. Where the platform has no place for them, leave them.
 - **Check and radio items** are drawn by the platform, radio groups named by `MenuData::radio_groups`. If it toggles an item itself on a click, put the app's state back: the core sends the new state when the app changes it, and only the user's choice may call `activate`.
-- `Shortcut::primary` is Command on macOS and Ctrl on GTK, Qt and WinUI.
+- `Shortcut::primary` is Command on macOS and Ctrl on GTK, Qt and WinUI; `alt` is Option on macOS. A shortcut's `Key` is a lower-case character or a key that types none (arrows, Home, End, Page Up and Down, Backspace, Delete, Enter, Escape, Tab, F1–F24): name it the platform's way (AppKit's function-key characters, with `NSBackspaceCharacter` for Backspace; GTK's keyval names; `QKeySequence`'s portable names; WinUI's virtual keys, `VK_OEM_*` for punctuation), and read it back to the same `Key`.
 - **Context menus and menu buttons** (`Prop::ContextMenu`, `Prop::Menu`) are built by the same code: ids, check marks, radio groups, submenus, separators, shortcuts shown (only the menu bar's work from the keyboard); roles mean nothing there.
 
 ### 8.2 Windows closing and the app quitting
@@ -437,6 +441,7 @@ A `List` is the platform's list control, and the platform virtualises it: it scr
 - **Callbacks come at any time.** A table can ask for cells, heights and counts in the middle of your own `apply` (a reload, a scroll, a resize). Keep the list's data (keys, heights, hosts, cells) in a small `Rc<RefCell<…>>` of its own that the data source reads, never your backend's main state or the `Ui`, and only `emit` from there.
 - **`native_state` of a row host** reports the rect the platform gave that row, in the list's content; the core uses its position (that's where frames inside rows, visibility and `scroll_into_view` come from), and the mirror check compares its size with the host's. The `List` reports its `Rows`, `SelectionMode` and `Selected` as the native control shows them, and its `ListStyle` as last set.
 - **Focus:** the `List` itself takes focus (it's in the Tab order), as the native control does.
+- **Keys:** the list's own keys (`Prop::Keys`) get only what its view left: the view's keys (arrows, typing to select, Space where the platform selects with it) are the platform's. Return activates only without ⌘/Ctrl, ⌥/Alt or ⌃/Meta.
 
 ARCHITECTURE.md §13.22 has each platform's list.
 

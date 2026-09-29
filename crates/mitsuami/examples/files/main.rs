@@ -20,8 +20,11 @@
 //! - Items show the icons the platform's file manager gives them, where
 //!   the app can get them (`file_icon/`); trashing puts them in the
 //!   platform's trash, and opening asks the platform.
-//! - The window's menus have it all again, with shortcuts, and Go to
-//!   Folder… (⌘⇧G, Ctrl+Shift+G) for a typed path.
+//! - The window's menus have it all again, with the platform's file
+//!   manager's shortcuts (⌘⌫ and ⌘↑ in Finder; Delete, F2 and Alt+↑
+//!   elsewhere), and Go to Folder… (⌘⇧G, Ctrl+Shift+G) for a typed path.
+//! - Space on the list shows or hides the preview on macOS, where Quick
+//!   Look is on Space.
 //!
 //! Reading folders and changing them happen off the UI thread.
 

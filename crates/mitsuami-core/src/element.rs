@@ -7,7 +7,7 @@ use mitsuami_reactive::{IntoValue, Value, effect};
 use crate::a11y::{A11yProps, Role};
 use crate::command::UiEvent;
 use crate::measure::NodeRef;
-use crate::services::{Menu, MenuEntries, install_context_menu};
+use crate::services::{Menu, MenuEntries, Shortcut, install_context_menu};
 use crate::style::{Align, Edges, GridPlacement, Position, Style, TextDirection};
 use crate::ui::{Handler, Ui};
 use crate::units::Length;
@@ -77,6 +77,26 @@ impl Element {
 
     pub fn on(&mut self, handler: impl Fn(&UiEvent) + 'static) {
         self.handlers.push(Rc::new(handler));
+    }
+
+    /// Takes `shortcut` while the node, or a control inside it, has
+    /// keyboard focus (`Prop::Keys`), and runs `handler` when it's pressed.
+    /// For containers, groups, lists and tables.
+    pub fn on_key(&mut self, shortcut: Shortcut, handler: impl Fn() + 'static) {
+        let keys = self.static_props.iter_mut().find_map(|p| match p {
+            Prop::Keys(keys) => Some(keys),
+            _ => None,
+        });
+        match keys {
+            Some(keys) if keys.contains(&shortcut) => {}
+            Some(keys) => keys.push(shortcut),
+            None => self.static_props.push(Prop::Keys(vec![shortcut])),
+        }
+        self.on(move |event| {
+            if *event == UiEvent::Key(shortcut) {
+                handler();
+            }
+        });
     }
 
     /// Runs `f` right after the node is created, in the building scope.
@@ -283,9 +303,10 @@ pub trait ElementBuilder: Sized {
         self
     }
 
-    /// Points `node` at this widget's node, for [`use_size`](crate::use_size).
+    /// Points `node` at this widget's node, for [`use_size`](crate::use_size)
+    /// and to focus it from code ([`NodeRef::focus`]).
     fn node_ref(mut self, node: NodeRef) -> Self {
-        self.element().after_build(move |_, id| node.attach(id));
+        self.element().after_build(move |ui, id| node.attach(ui, id));
         self
     }
 

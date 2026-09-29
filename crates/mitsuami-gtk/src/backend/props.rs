@@ -457,6 +457,11 @@ impl State {
                     (None, None) => None,
                 });
             }
+            // On the list's scrolled window: after the view, which uses
+            // its own keys first.
+            (Prop::Keys(keys), widget @ (Widget::Host(_) | Widget::Group(_) | Widget::List(_))) => {
+                crate::keys::set_keys(&mut node.keys, widget.widget(), id, &self.events, keys)
+            }
             (Prop::ScrollAxes(axes), Widget::Scroll { scrolled, .. }) => {
                 set_scroll_policy(scrolled, *axes, scroll_bars(scrolled))
             }

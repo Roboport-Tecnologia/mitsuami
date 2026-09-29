@@ -325,6 +325,7 @@ impl State {
                     widget.input_item().force_focus();
                 }
             }
+            Command::SelectText { id, range } => super::selection::select(self.widget(*id, command), range.clone()),
             Command::ScrollToRow { id, row } => match self.nodes.get(id).map(|n| &n.widget) {
                 Some(Widget::List(list)) => list.scroll_to_row(*row),
                 _ => violation(command, "not a List"),

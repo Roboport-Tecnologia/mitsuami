@@ -202,7 +202,10 @@ async fn a_new_folder_is_named_right_away(app: TestApp) {
 
     app.get_by_role(Role::Button, "New Folder").click().await;
     app.expect(by_label("New name")).to_have_value("untitled folder 2").await;
-    app.get_by_label("New name").fill("Invoices").await;
+    // All of a folder's name is selected, and what's typed replaces it.
+    app.expect(by_label("New name")).to_be_focused().await;
+    assert_eq!(app.get_by_label("New name").text_selection(), Some(0..17));
+    app.get_by_label("New name").type_text("Invoices").await;
     app.get_by_label("New name").press(Key::Enter).await;
     listed(&app, &["Invoices", "todo.txt", "untitled folder"]).await;
     app.expect(by_text("1 of 3 items selected")).to_exist().await;
@@ -217,7 +220,11 @@ async fn renaming_to_a_taken_name_says_why(app: TestApp) {
 
     row(&app, "a.txt").choose_menu_item(&["Rename…"]).await;
     app.expect(by_text("Rename \u{201C}a.txt\u{201D} to:")).to_exist().await;
-    app.get_by_label("New name").fill("b.txt").await;
+    // The name without its extension is selected, as file managers do.
+    app.expect(by_label("New name")).to_be_focused().await;
+    assert_eq!(app.get_by_label("New name").text_selection(), Some(0..1));
+    app.get_by_label("New name").type_text("b").await;
+    app.expect(by_label("New name")).to_have_value("b.txt").await;
     app.get_by_role(Role::Button, "Rename").click().await;
 
     // The rename fails on a worker thread; the warning follows.
@@ -251,6 +258,69 @@ async fn duplicates_and_trash(app: TestApp) {
     row(&app, "Old copy").choose_menu_item(&["Move to Trash"]).await;
     listed(&app, &["Old", "report copy.txt", "report.txt"]).await;
     assert!(fixture.trash.join("Old copy/draft.txt").is_file());
+}
+
+/// The menus have the platform's file manager's shortcuts, keys that type
+/// nothing included.
+#[mitsuami_test::test]
+async fn menus_have_the_file_manager_s_shortcuts(app: TestApp) {
+    let fixture = Fixture::new(&app, &["Projects/todo.txt"]);
+    fixture.mount(&app);
+    listed(&app, &["Projects"]).await;
+    let shortcut = |path: &[&str]| app.services().menu_item(path).and_then(|item| item.shortcut);
+    let (trash, up) = platform! {
+        macos => (Shortcut::primary(Key::Backspace), Shortcut::primary(Key::Up)),
+        _ => (Shortcut::new(Key::Delete), Shortcut::new(Key::Up).alt()),
+    };
+    assert_eq!(shortcut(&["File", "Move to Trash"]), Some(trash));
+    assert_eq!(shortcut(&["Go", "Enclosing Folder"]), Some(up));
+    assert_eq!(
+        shortcut(&["File", "Rename…"]),
+        platform! { macos => None, _ => Some(Shortcut::new(Key::F(2))) },
+        "Finder renames with Return"
+    );
+
+    row(&app, "Projects").click().await;
+    listed(&app, &["todo.txt"]).await;
+    assert!(app.services().choose_menu_item(&["Go", "Enclosing Folder"]));
+    listed(&app, &["Projects"]).await;
+}
+
+/// Space on the list shows and hides the preview, where the platform's
+/// file manager has it there and its list doesn't keep Space (Finder).
+#[mitsuami_test::test]
+async fn the_preview_key_shows_and_hides_the_preview(app: TestApp) {
+    let Some(key) = screen::preview_key() else { return };
+    let fixture = Fixture::new(&app, &["notes.txt"]);
+    fixture.mount(&app);
+    listed(&app, &["notes.txt"]).await;
+    row(&app, "notes.txt").select().await;
+    assert!(app.get_by_label("Preview").exists());
+
+    app.get_by_role(Role::List, "Items").press(key).await;
+    assert!(!app.get_by_label("Preview").exists());
+    app.get_by_role(Role::List, "Items").press(key).await;
+    app.expect(by_text("This is notes.txt.\nSecond line.")).to_exist().await;
+}
+
+/// Go to Folder… opens with its field focused, and again with the path
+/// typed last selected, as Finder's does.
+#[mitsuami_test::test]
+async fn go_to_folder_starts_from_the_path_typed_last(app: TestApp) {
+    let fixture = Fixture::new(&app, &["Projects/todo.txt"]);
+    fixture.mount(&app);
+    listed(&app, &["Projects"]).await;
+    let projects = fixture.root.join("Projects").display().to_string();
+
+    assert!(app.services().choose_menu_item(&["Go", "Go to Folder…"]));
+    app.expect(by_label("Folder")).to_be_focused().await;
+    app.get_by_label("Folder").type_text(&projects).await;
+    app.get_by_label("Folder").press(Key::Enter).await;
+    listed(&app, &["todo.txt"]).await;
+
+    assert!(app.services().choose_menu_item(&["Go", "Go to Folder…"]));
+    app.expect(by_label("Folder")).to_be_focused().await;
+    assert_eq!(app.get_by_label("Folder").text_selection(), Some(0..projects.chars().count()));
 }
 
 #[mitsuami_test::test]

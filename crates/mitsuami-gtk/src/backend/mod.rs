@@ -39,6 +39,7 @@ mod native_state;
 mod perform;
 mod props;
 mod scroll;
+mod selection;
 mod slider;
 mod text;
 mod window;
@@ -289,6 +290,9 @@ struct Node {
     /// Hosts: what they take when files are dropped on them, once the app
     /// said (`None` inside: nothing).
     file_drop: Option<Option<FileDropTarget>>,
+    /// Hosts, groups and lists: the controller of their keys, once the
+    /// app gave some.
+    keys: Option<gtk::ShortcutController>,
 }
 
 pub(crate) struct State {

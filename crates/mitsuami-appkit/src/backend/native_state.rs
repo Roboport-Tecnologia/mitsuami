@@ -268,6 +268,11 @@ pub(super) fn native_state(state: &State, id: NodeId) -> Option<NativeState> {
     {
         props.push(Prop::FileDrop(host.file_drop()));
     }
+    match &node.widget {
+        Widget::Host(host) | Widget::Group { host, .. } => props.extend(host.keys().map(Prop::Keys)),
+        Widget::List(list) => props.extend(list.keys().map(Prop::Keys)),
+        _ => {}
+    }
     if let Some(control) = node.widget.control() {
         props.push(Prop::Enabled(control.isEnabled()));
     }
@@ -361,6 +366,7 @@ pub(super) fn native_state(state: &State, id: NodeId) -> Option<NativeState> {
         children,
         focused: focused(&node.widget),
         scroll_offset,
+        selection: super::selection::selection(&node.widget, focused(&node.widget)),
     })
 }
 

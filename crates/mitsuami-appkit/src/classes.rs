@@ -6,6 +6,7 @@ use std::ffi::c_void;
 use std::path::PathBuf;
 use std::rc::Rc;
 
+use mitsuami_core::services::Shortcut;
 use mitsuami_core::{
     DisplayList, EventSink, EventValue, FileDrop, NodeId, Point, PointerEvent, PointerKind, Size, UiEvent, WidgetKind,
 };
@@ -22,6 +23,8 @@ use objc2_foundation::{
     NSArray, NSKeyValueObservingOptions, NSNotification, NSNotificationCenter, NSObjectNSKeyValueObserverRegistration,
     NSPoint, NSRect, NSSize, NSString, NSURL,
 };
+
+use crate::keys::Keys;
 
 pub(crate) fn zero_rect() -> NSRect {
     NSRect::new(NSPoint::new(0.0, 0.0), NSSize::new(0.0, 0.0))
@@ -49,6 +52,8 @@ pub(crate) struct HostIvars {
     drop: RefCell<Option<Drop>>,
     /// A table's cell: it keeps its host centred in its height.
     centers: Cell<bool>,
+    /// The keys it takes, if the app gave any.
+    keys: RefCell<Option<Keys>>,
 }
 
 /// A host's file drop: what it takes, where it reports, and whether
@@ -80,6 +85,15 @@ define_class!(
                 self.center_subviews();
             } else {
                 unsafe { msg_send![super(self), resizeSubviewsWithOldSize: old] }
+            }
+        }
+
+        /// A key the focused view inside didn't use, passed up the
+        /// responder chain: taken if it's one of the host's.
+        #[unsafe(method(keyDown:))]
+        fn key_down(&self, event: &NSEvent) {
+            if !self.ivars().keys.borrow().as_ref().is_some_and(|keys| keys.take(event)) {
+                unsafe { msg_send![super(self), keyDown: event] }
             }
         }
 
@@ -120,6 +134,7 @@ impl HostView {
             fill: Cell::new(fill),
             drop: RefCell::new(None),
             centers: Cell::new(false),
+            keys: RefCell::new(None),
         });
         unsafe { msg_send![super(this), initWithFrame: zero_rect()] }
     }
@@ -148,6 +163,19 @@ impl HostView {
             None => self.unregisterDraggedTypes(),
         }
         *self.ivars().drop.borrow_mut() = drop;
+    }
+
+    pub(crate) fn set_keys(&self, keys: Option<Keys>) {
+        *self.ivars().keys.borrow_mut() = keys;
+    }
+
+    /// The keys it takes, if the app gave any.
+    pub(crate) fn keys(&self) -> Option<Vec<Shortcut>> {
+        self.ivars().keys.borrow().as_ref().map(|k| k.keys.clone())
+    }
+
+    pub(crate) fn takes(&self, shortcut: Shortcut) -> bool {
+        self.ivars().keys.borrow().as_ref().is_some_and(|k| k.keys.contains(&shortcut))
     }
 
     pub(crate) fn file_drop(&self) -> Option<FileDrop> {

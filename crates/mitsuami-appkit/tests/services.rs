@@ -11,7 +11,7 @@ mod checks {
 
     use mitsuami_appkit::{AppKitBackend, AppKitHandle, BackendOptions, NativeView};
     use mitsuami_core::services::{Alert, Menu, MenuBar, MenuItem, MenuRole, OpenFile, Shortcut};
-    use mitsuami_core::{Size, Ui, View};
+    use mitsuami_core::{Key, Size, Ui, View};
     use objc2::rc::Retained;
     use objc2::runtime::AnyObject;
     use objc2_app_kit::{
@@ -88,7 +88,9 @@ mod checks {
                         .item(
                             MenuItem::new("New").on_select(move || c.set(c.get() + 1)).shortcut(Shortcut::primary('n')),
                         )
-                        .item(MenuItem::new("Unavailable").enabled(false)),
+                        .item(MenuItem::new("Unavailable").enabled(false))
+                        .item(MenuItem::new("Move to Trash").shortcut(Shortcut::primary(Key::Backspace)))
+                        .item(MenuItem::new("Enclosing Folder").shortcut(Shortcut::primary(Key::Up))),
                 )
                 .menu(Menu::new("View").item(MenuItem::new("Zoom"))),
         );
@@ -103,6 +105,11 @@ mod checks {
         assert!(new.keyEquivalentModifierMask().contains(NSEventModifierFlags::Command));
         assert!(new.isEnabled());
         assert!(!file.itemAtIndex(1).unwrap().isEnabled());
+        // Keys that type nothing, as Finder names them.
+        let trash = file.itemAtIndex(2).unwrap();
+        assert_eq!(trash.keyEquivalent().to_string(), "\u{8}");
+        assert_eq!(trash.keyEquivalentModifierMask(), NSEventModifierFlags::Command);
+        assert_eq!(file.itemAtIndex(3).unwrap().keyEquivalent().to_string(), "\u{f700}");
 
         file.performActionForItemAtIndex(0);
         f.ui.tick();

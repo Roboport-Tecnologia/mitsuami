@@ -370,7 +370,9 @@ QQC2.ScrollView {{
             }}
             else if (event.key === Qt.Key_Home && count > 0) {{ currentIndex = 0; event.accepted = true }}
             else if (event.key === Qt.Key_End && count > 0) {{ currentIndex = count - 1; event.accepted = true }}
-            else if ((event.key === Qt.Key_Return || event.key === Qt.Key_Enter) && currentIndex >= 0) {{
+            // Return with Ctrl, Alt or Meta goes on up, to a node's keys.
+            else if ((event.key === Qt.Key_Return || event.key === Qt.Key_Enter) && currentIndex >= 0
+                     && !(event.modifiers & (Qt.ControlModifier | Qt.AltModifier | Qt.MetaModifier))) {{
                 mitsuamiOpen(mitsuamiKeys[currentIndex])
                 event.accepted = true
             }}
@@ -665,7 +667,9 @@ Item {{
                 else if (event.key === Qt.Key_Down) next = mitsuamiCurrent < 0 ? 0 : Math.min(last, mitsuamiCurrent + 1)
                 else if (event.key === Qt.Key_Home) next = 0
                 else if (event.key === Qt.Key_End) next = last
-                else if ((event.key === Qt.Key_Return || event.key === Qt.Key_Enter) && mitsuamiCurrent >= 0) {{
+                // Return with Ctrl, Alt or Meta goes on up, to a node's keys.
+                else if ((event.key === Qt.Key_Return || event.key === Qt.Key_Enter) && mitsuamiCurrent >= 0
+                         && !(event.modifiers & (Qt.ControlModifier | Qt.AltModifier | Qt.MetaModifier))) {{
                     mitsuamiOpen(mitsuamiKeys[mitsuamiCurrent])
                     event.accepted = true
                 }}

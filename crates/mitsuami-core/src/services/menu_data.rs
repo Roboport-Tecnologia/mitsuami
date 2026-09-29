@@ -1,19 +1,34 @@
 //! Menus as data, as platforms get them: menu bars, items, shortcuts and
 //! roles.
 
-/// A keyboard shortcut. `primary` is ⌘ on macOS and Ctrl elsewhere.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+use crate::backend::Key;
+
+/// A keyboard shortcut: a key, and the modifiers held with it. `primary`
+/// is ⌘ on macOS and Ctrl elsewhere; `alt` is ⌥ on macOS.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub struct Shortcut {
-    pub key: char,
+    /// A letter is lower case: Shift is `shift`.
+    pub key: Key,
     pub primary: bool,
     pub shift: bool,
     pub alt: bool,
 }
 
 impl Shortcut {
-    /// ⌘+key on macOS, Ctrl+key elsewhere.
-    pub fn primary(key: char) -> Shortcut {
-        Shortcut { key: key.to_ascii_lowercase(), primary: true, shift: false, alt: false }
+    /// The key on its own: `Shortcut::new(Key::F(2))`, or with modifiers
+    /// added, `Shortcut::new(Key::Up).alt()`.
+    pub fn new(key: impl Into<Key>) -> Shortcut {
+        let key = match key.into() {
+            Key::Char(c) => Key::Char(c.to_ascii_lowercase()),
+            key => key,
+        };
+        Shortcut { key, primary: false, shift: false, alt: false }
+    }
+
+    /// ⌘+key on macOS, Ctrl+key elsewhere: `Shortcut::primary('s')`,
+    /// `Shortcut::primary(Key::Backspace)`.
+    pub fn primary(key: impl Into<Key>) -> Shortcut {
+        Shortcut { primary: true, ..Shortcut::new(key) }
     }
 
     pub fn shift(mut self) -> Shortcut {
@@ -24,6 +39,18 @@ impl Shortcut {
     pub fn alt(mut self) -> Shortcut {
         self.alt = true;
         self
+    }
+}
+
+impl From<Key> for Shortcut {
+    fn from(key: Key) -> Shortcut {
+        Shortcut::new(key)
+    }
+}
+
+impl From<char> for Shortcut {
+    fn from(c: char) -> Shortcut {
+        Shortcut::new(c)
     }
 }
 

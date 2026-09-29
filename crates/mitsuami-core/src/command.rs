@@ -4,6 +4,7 @@ use crate::a11y::A11yProps;
 use crate::any_value::AnyValue;
 use crate::geometry::{Point, Rect, Size};
 use crate::input::SurfaceInput;
+use crate::services::Shortcut;
 use crate::surface::{SurfaceHandle, SurfaceSize};
 use crate::widget::{ColumnSort, NodeId, Prop, RowKey, WidgetKind};
 
@@ -74,6 +75,13 @@ pub enum Command {
     },
     Focus {
         id: NodeId,
+    },
+    /// Selects these characters of a text field's or text area's text,
+    /// counted in Unicode scalar values and within it. A `Focus` for the
+    /// field comes first in the batch: a selection is the focused field's.
+    SelectText {
+        id: NodeId,
+        range: std::ops::Range<usize>,
     },
     /// Scrolls a `List` just enough to show a row, as the platform's own
     /// "scroll to row" does. The platform then reports `Scrolled`, and the
@@ -159,6 +167,9 @@ pub enum UiEvent {
     ContextMenuItem(u32),
     /// The item of a `MenuButton`'s menu with this id was chosen.
     MenuItem(u32),
+    /// A key the node takes (`Prop::Keys`) was pressed while it, or a
+    /// control inside it that doesn't use the key, had keyboard focus.
+    Key(Shortcut),
     /// Files a node takes (`Prop::FileDrop`) are being dragged over it
     /// (`true`), or no longer are: they left, or were dropped.
     DropHover(bool),

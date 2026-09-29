@@ -14,6 +14,7 @@ mod native_state;
 mod perform;
 mod props;
 mod scrolling;
+mod selection;
 mod windows;
 
 use std::cell::RefCell;

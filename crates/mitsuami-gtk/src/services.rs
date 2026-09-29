@@ -21,7 +21,7 @@ use mitsuami_core::services::{
     Alert, MenuBarData, MenuCheck, MenuData, MenuEntry, MenuItemData, MenuRole, OpenFile, Reply, SaveFile,
     ServiceError, Services, Shortcut, existing_folder, menu_item_by_id,
 };
-use mitsuami_core::{ActionError, NodeId};
+use mitsuami_core::{ActionError, Key, NodeId};
 
 use crate::backend::{GtkHandle, State, WindowParts, dialog_parent, file_filters};
 
@@ -277,7 +277,7 @@ fn check_state(item: &MenuItemData) -> Option<glib::Variant> {
 
 /// `<Control><Shift>n`, the notation of `gtk_shortcut_trigger_parse_string`,
 /// which names keys like `,` (`comma`).
-fn trigger(shortcut: &Shortcut) -> String {
+pub(crate) fn trigger(shortcut: &Shortcut) -> String {
     let mut trigger = String::new();
     if shortcut.primary {
         trigger.push_str("<Control>");
@@ -288,13 +288,53 @@ fn trigger(shortcut: &Shortcut) -> String {
     if shortcut.alt {
         trigger.push_str("<Alt>");
     }
-    // SAFETY: any keyval is a valid `Key`; unknown ones have no name.
-    let key: gdk::Key = unsafe { glib::translate::from_glib(gdk::unicode_to_keyval(shortcut.key as u32)) };
-    match key.name() {
-        Some(name) => trigger.push_str(&name),
-        None => trigger.push(shortcut.key),
-    }
+    let named = |name: &str| name.to_owned();
+    let key = match shortcut.key {
+        Key::Char(c) => {
+            // SAFETY: any keyval is a valid `Key`; unknown ones have no name.
+            let key: gdk::Key = unsafe { glib::translate::from_glib(gdk::unicode_to_keyval(c as u32)) };
+            key.name().map(|n| n.to_string()).unwrap_or_else(|| c.to_string())
+        }
+        Key::Enter => named("Return"),
+        Key::Escape => named("Escape"),
+        Key::Tab => named("Tab"),
+        Key::Backspace => named("BackSpace"),
+        Key::Delete => named("Delete"),
+        Key::Up => named("Up"),
+        Key::Down => named("Down"),
+        Key::Left => named("Left"),
+        Key::Right => named("Right"),
+        Key::Home => named("Home"),
+        Key::End => named("End"),
+        Key::PageUp => named("Page_Up"),
+        Key::PageDown => named("Page_Down"),
+        Key::F(n) => format!("F{n}"),
+    };
+    trigger.push_str(&key);
     trigger
+}
+
+/// The key a GTK keyval stands for.
+pub(crate) fn key_of(key: gdk::Key) -> Option<Key> {
+    Some(match key {
+        gdk::Key::Return | gdk::Key::KP_Enter => Key::Enter,
+        gdk::Key::Escape => Key::Escape,
+        gdk::Key::Tab => Key::Tab,
+        gdk::Key::BackSpace => Key::Backspace,
+        gdk::Key::Delete => Key::Delete,
+        gdk::Key::Up => Key::Up,
+        gdk::Key::Down => Key::Down,
+        gdk::Key::Left => Key::Left,
+        gdk::Key::Right => Key::Right,
+        gdk::Key::Home => Key::Home,
+        gdk::Key::End => Key::End,
+        gdk::Key::Page_Up => Key::PageUp,
+        gdk::Key::Page_Down => Key::PageDown,
+        key => match key.name().as_deref().and_then(|n| n.strip_prefix('F')).and_then(|n| n.parse().ok()) {
+            Some(n) => Key::F(n),
+            None => Key::Char(key.to_unicode()?),
+        },
+    })
 }
 
 /// The group of a widget's context menu actions: `context.item-1`.
@@ -634,7 +674,7 @@ fn popup(
 fn parse_trigger(accel: &str) -> Option<Shortcut> {
     let (key, modifiers) = gtk::accelerator_parse(accel)?;
     Some(Shortcut {
-        key: key.to_unicode()?,
+        key: key_of(key)?,
         primary: modifiers.contains(gdk::ModifierType::CONTROL_MASK),
         shift: modifiers.contains(gdk::ModifierType::SHIFT_MASK),
         alt: modifiers.contains(gdk::ModifierType::ALT_MASK),

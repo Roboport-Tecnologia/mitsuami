@@ -132,6 +132,14 @@ name = "file_drop"
 harness = false
 
 [[test]]
+name = "focus"
+harness = false
+
+[[test]]
+name = "keys"
+harness = false
+
+[[test]]
 name = "tooltip"
 harness = false
 

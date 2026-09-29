@@ -8,7 +8,7 @@ use crate::any_value::Opaque;
 use crate::custom::CustomProps;
 use crate::draw::{Color, DisplayList};
 use crate::geometry::{Point, Size};
-use crate::services::MenuEntry;
+use crate::services::{MenuEntry, Shortcut};
 
 /// Stable identity of a node for the lifetime of a [`Ui`](crate::Ui).
 #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
@@ -871,6 +871,13 @@ pub enum Prop {
     /// `DropHover(true)`, then `DropHover(false)`; a drop reports the ones
     /// it takes as `FilesDropped`.
     FileDrop(Option<FileDrop>),
+    /// The keys a `Container`, `Group`, `List` or `Table` takes while it,
+    /// or a control inside it, has keyboard focus, and the focused control
+    /// doesn't use them itself: they go up from the focused control, as the
+    /// platform sends keys it doesn't use, to the nearest node that takes
+    /// them, which reports [`UiEvent::Key`](crate::UiEvent::Key). Sent only
+    /// if the app gave some.
+    Keys(Vec<Shortcut>),
     /// Raw platform settings for a built-in widget (see
     /// [`Tweak`](crate::Tweak)), in the backend's own form. Applied after
     /// the widget's other props, and again whenever they change.

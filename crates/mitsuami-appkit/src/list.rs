@@ -20,13 +20,15 @@ use std::rc::Rc;
 use mitsuami_core::{
     ColumnData, ColumnSort, EventSink, EventValue, ListStyle, NodeId, Rect, RowKey, SelectionMode, SortOrder, UiEvent,
 };
+
+use mitsuami_core::services::Shortcut;
 use objc2::rc::Retained;
 use objc2::runtime::{AnyObject, NSObject, NSObjectProtocol, ProtocolObject};
 use objc2::{DefinedClass, MainThreadMarker, MainThreadOnly, define_class, msg_send, sel};
 use objc2_app_kit::{
-    NSAnimationContext, NSBorderType, NSControlTextEditingDelegate, NSEvent, NSImage, NSMenu, NSScrollView,
-    NSTableColumn, NSTableColumnResizingOptions, NSTableRowView, NSTableView, NSTableViewColumnAutoresizingStyle,
-    NSTableViewDataSource, NSTableViewDelegate, NSTableViewStyle, NSView,
+    NSAnimationContext, NSBorderType, NSControlTextEditingDelegate, NSEvent, NSEventModifierFlags, NSImage, NSMenu,
+    NSResponder, NSScrollView, NSTableColumn, NSTableColumnResizingOptions, NSTableRowView, NSTableView,
+    NSTableViewColumnAutoresizingStyle, NSTableViewDataSource, NSTableViewDelegate, NSTableViewStyle, NSView,
 };
 use objc2_foundation::{
     NSArray, NSIndexSet, NSInteger, NSMutableIndexSet, NSNotFound, NSNotification, NSSize, NSSortDescriptor, NSString,
@@ -71,6 +73,8 @@ pub(crate) struct ListData {
     /// Set while the table reloads: rows come and go, and only the
     /// difference is reported at the end.
     reloading: bool,
+    /// The keys the app gave it (`Prop::Keys`), if any.
+    keys: Option<Vec<Shortcut>>,
 }
 
 impl ListData {
@@ -255,8 +259,9 @@ define_class!(
     impl ListTable {
         #[unsafe(method(keyDown:))]
         fn key_down(&self, event: &NSEvent) {
-            // Return, and Enter on the keypad.
-            if matches!(event.keyCode(), 36 | 76) && self.selectedRow() >= 0 {
+            // Return, and Enter on the keypad, without ⌘, ⌥ or ⌃.
+            let held = NSEventModifierFlags::Command | NSEventModifierFlags::Option | NSEventModifierFlags::Control;
+            if matches!(event.keyCode(), 36 | 76) && !event.modifierFlags().intersects(held) && self.selectedRow() >= 0 {
                 self.ivars().activate(self.selectedRow());
                 return;
             }
@@ -275,7 +280,34 @@ define_class!(
     }
 );
 
+define_class!(
+    /// The table's next responder, ahead of its clip view: the keys the
+    /// table passes on (those it doesn't use) come here first, and go to
+    /// the list's own keys (`Prop::Keys`), then on up.
+    #[unsafe(super(NSResponder))]
+    #[thread_kind = MainThreadOnly]
+    #[ivars = ListIvars]
+    pub(crate) struct ListKeys;
+
+    impl ListKeys {
+        #[unsafe(method(keyDown:))]
+        fn key_down(&self, event: &NSEvent) {
+            let ListIvars { id, events, data } = self.ivars();
+            let keys = data.borrow().keys.clone().unwrap_or_default();
+            match crate::keys::shortcut_of(event).filter(|s| keys.contains(s)) {
+                Some(shortcut) => events.emit(*id, UiEvent::Key(shortcut)),
+                None => unsafe { msg_send![super(self), keyDown: event] },
+            }
+        }
+    }
+);
+
 impl ListTable {
+    /// Whether the app gave the list this key (`Prop::Keys`).
+    pub(crate) fn takes(&self, shortcut: Shortcut) -> bool {
+        self.ivars().data.borrow().keys.as_ref().is_some_and(|keys| keys.contains(&shortcut))
+    }
+
     /// The menu of the view under the pointer in a row, or of the nearest
     /// view around it. The table's `hitTest:` answers itself over its
     /// rows' labels, so the search starts from the cell.
@@ -358,6 +390,8 @@ pub(crate) struct List {
     /// A list's one column; a table has the app's.
     column: Option<Retained<NSTableColumn>>,
     _source: Retained<ListSource>,
+    /// The table's next responder, which the table doesn't retain.
+    _keys: Retained<ListKeys>,
     data: SharedList,
     /// The row width last reported.
     reported_width: Cell<Option<f32>>,
@@ -411,7 +445,25 @@ impl List {
         // the title bar on top of that.
         scroll.setAutomaticallyAdjustsContentInsets(false);
         scroll.setDocumentView(Some(&table));
-        List { scroll, table, column, _source: source, data, reported_width: Cell::new(None), style: Cell::new(None) }
+        // Keys the table passes on reach the list's own keys first. The
+        // table's superview (its next responder) stays put from here.
+        let keys: Retained<ListKeys> = unsafe { msg_send![super(ListKeys::alloc(mtm).set_ivars(ivars())), init] };
+        // SAFETY: both responders live as long as the list, which keeps
+        // `keys` (a next responder isn't retained).
+        unsafe {
+            keys.setNextResponder(table.nextResponder().as_deref());
+            table.setNextResponder(Some(&keys));
+        }
+        List {
+            scroll,
+            table,
+            column,
+            _source: source,
+            _keys: keys,
+            data,
+            reported_width: Cell::new(None),
+            style: Cell::new(None),
+        }
     }
 
     /// New rows: the table reloads, keeps the selected rows that stayed
@@ -465,6 +517,14 @@ impl List {
             events.emit(*id, UiEvent::RowShown(row));
         }
         data.shown = now;
+    }
+
+    pub(crate) fn set_keys(&self, keys: Vec<Shortcut>) {
+        self.data.borrow_mut().keys = Some(keys);
+    }
+
+    pub(crate) fn keys(&self) -> Option<Vec<Shortcut>> {
+        self.data.borrow().keys.clone()
     }
 
     pub(crate) fn set_estimate(&self, height: f32) {

@@ -15,11 +15,11 @@ use std::fmt::Write;
 use std::path::PathBuf;
 use std::rc::Rc;
 
-use mitsuami_core::NodeId;
 use mitsuami_core::services::{
     Alert, AlertStyle, FileFilter, MenuBarData, MenuCheck, MenuData, MenuEntry, MenuItemData, MenuRole, OpenFile,
     Reply, SaveFile, ServiceError, Services, Shortcut, existing_folder,
 };
+use mitsuami_core::{Key, NodeId};
 
 use crate::backend::{KirigamiHandle, WindowRoot, dialog_parent};
 use crate::ffi::{self, QmlObject, js_string};
@@ -130,7 +130,7 @@ fn item_name(id: u32) -> String {
     format!("mitsuamiItem{id}")
 }
 
-/// `Ctrl+Shift+N`, the notation of `QKeySequence`.
+/// `Ctrl+Shift+N`, the portable notation of `QKeySequence`.
 fn sequence(shortcut: &Shortcut) -> String {
     let mut keys = String::new();
     if shortcut.primary {
@@ -142,7 +142,24 @@ fn sequence(shortcut: &Shortcut) -> String {
     if shortcut.alt {
         keys.push_str("Alt+");
     }
-    keys.push(shortcut.key.to_ascii_uppercase());
+    match shortcut.key {
+        Key::Char(' ') => keys.push_str("Space"),
+        Key::Char(c) => keys.push(c.to_ascii_uppercase()),
+        Key::Enter => keys.push_str("Return"),
+        Key::Escape => keys.push_str("Esc"),
+        Key::Tab => keys.push_str("Tab"),
+        Key::Backspace => keys.push_str("Backspace"),
+        Key::Delete => keys.push_str("Del"),
+        Key::Up => keys.push_str("Up"),
+        Key::Down => keys.push_str("Down"),
+        Key::Left => keys.push_str("Left"),
+        Key::Right => keys.push_str("Right"),
+        Key::Home => keys.push_str("Home"),
+        Key::End => keys.push_str("End"),
+        Key::PageUp => keys.push_str("PgUp"),
+        Key::PageDown => keys.push_str("PgDown"),
+        Key::F(n) => _ = write!(keys, "F{n}"),
+    }
     keys
 }
 

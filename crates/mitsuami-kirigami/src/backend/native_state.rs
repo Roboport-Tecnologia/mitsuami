@@ -228,6 +228,7 @@ impl KirigamiBackend {
         if node.file_drop_given {
             props.push(Prop::FileDrop(node.file_drop.as_ref().map(|area| area.drop_value())));
         }
+        props.extend(node.keys.as_ref().map(|keys| Prop::Keys(keys.keys())));
         props.push(Prop::Tooltip(if node.widget.has_tooltip() {
             node.widget.item().str("mitsuamiTooltip")
         } else {
@@ -308,6 +309,16 @@ impl KirigamiBackend {
         };
         let focused = !matches!(node.widget, Widget::Window { .. })
             && window.and_then(|w| w.focus_item()).and_then(|f| f.node()) == Some(node_key(id));
-        Some(NativeState { kind: node.kind, props, frame, parent: node.parent, children, focused, scroll_offset })
+        let selection = super::selection::selection(&node.widget).filter(|_| focused);
+        Some(NativeState {
+            kind: node.kind,
+            props,
+            frame,
+            parent: node.parent,
+            children,
+            focused,
+            scroll_offset,
+            selection,
+        })
     }
 }

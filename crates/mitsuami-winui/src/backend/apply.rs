@@ -332,7 +332,26 @@ impl State {
             },
             Command::Focus { id } => {
                 self.element(*id, command);
-                self.focus(*id, w::FocusState::Programmatic);
+                let focused = self.focus(*id, w::FocusState::Programmatic);
+                if let Some(parts) = self.window_of(*id) {
+                    *parts.wanted_focus.borrow_mut() = (!focused).then_some((*id, None));
+                }
+            }
+            Command::SelectText { id, range } => {
+                let Some(node) = self.nodes.get(id) else { violation(command, "node does not exist") };
+                if !matches!(
+                    node.widget,
+                    Widget::Field(_) | Widget::TextArea { .. } | Widget::Password(_) | Widget::Search(_)
+                ) {
+                    violation(command, "not a text field or text area");
+                }
+                // Selected once it has focus, if it's still waiting for it.
+                match self.window_of(*id).map(|p| p.wanted_focus.borrow_mut()) {
+                    Some(mut wanted) if wanted.as_ref().is_some_and(|(w, _)| w == id) => {
+                        *wanted = Some((*id, Some(range.clone())));
+                    }
+                    _ => super::selection::select(node, range.clone())?,
+                }
             }
             Command::ScrollToRow { id, row } => match self.nodes.get(id).map(|n| &n.widget) {
                 Some(Widget::List(list)) => list.scroll_to_row(*row)?,

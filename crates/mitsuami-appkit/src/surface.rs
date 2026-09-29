@@ -18,7 +18,7 @@ use std::collections::HashSet;
 use std::ptr::NonNull;
 
 use block2::RcBlock;
-use mitsuami_core::backend::{Key, SyntheticInput};
+use mitsuami_core::backend::SyntheticInput;
 use mitsuami_core::raw_window_handle::{
     AppKitDisplayHandle, AppKitWindowHandle, HandleError, RawDisplayHandle, RawWindowHandle,
 };
@@ -890,17 +890,7 @@ pub(crate) fn synthesize(view: &SurfaceView, input: &SyntheticInput) -> Result<(
             if !first.is_some_and(|r| std::ptr::eq(&*r, view.as_super().as_super())) {
                 return Err(ActionError::Unsupported);
             }
-            let (code, character) = match key {
-                Key::Char(c) => (KeyCode::from_us_char(*c), *c),
-                Key::Enter => (KeyCode::Enter, '\r'),
-                Key::Escape => (KeyCode::Escape, '\u{1b}'),
-                Key::Tab => (KeyCode::Tab, '\t'),
-                Key::Backspace => (KeyCode::Backspace, '\u{7f}'),
-                Key::Up => (KeyCode::ArrowUp, '\u{f700}'),
-                Key::Down => (KeyCode::ArrowDown, '\u{f701}'),
-                Key::Home => (KeyCode::Home, '\u{f729}'),
-                Key::End => (KeyCode::End, '\u{f72b}'),
-            };
+            let (code, character) = (KeyCode::from_key(*key), crate::services::event_character(*key));
             let code = (0..0x7F).find(|c| KeyCode::from_mac(*c) == code).ok_or(ActionError::Unsupported)?;
             let characters = NSString::from_str(&character.to_string());
             for (kind, up) in [(NSEventType::KeyDown, false), (NSEventType::KeyUp, true)] {
@@ -924,7 +914,11 @@ pub(crate) fn synthesize(view: &SurfaceView, input: &SyntheticInput) -> Result<(
             let delta = ScrollDelta::Points { x: *dx, y: *dy };
             view.emit(SurfaceInput::Scroll { delta, modifiers: Modifiers::default() });
         }
-        SyntheticInput::DragFiles(_) | SyntheticInput::DragLeave | SyntheticInput::DropFiles(_) => {
+        // Keys with modifiers aren't simulated on a surface.
+        SyntheticInput::Shortcut(_)
+        | SyntheticInput::DragFiles(_)
+        | SyntheticInput::DragLeave
+        | SyntheticInput::DropFiles(_) => {
             return Err(ActionError::Unsupported);
         }
     }

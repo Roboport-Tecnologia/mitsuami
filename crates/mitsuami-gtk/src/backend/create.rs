@@ -270,6 +270,7 @@ impl State {
                 settings_handlers,
                 context_menu: None,
                 file_drop: None,
+                keys: None,
             },
         );
     }

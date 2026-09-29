@@ -64,6 +64,13 @@ impl Ui {
                 inner.pending.push(Command::Focus { id });
             }
         }
+        for (id, range) in std::mem::take(&mut inner.pending_selections) {
+            let Some(node) = inner.nodes.get(&id) else { continue };
+            // Within the text the field has now.
+            let len = crate::find_prop!(node.props, Value).map_or(0, |v| v.chars().count());
+            let end = range.end.min(len);
+            inner.pending.push(Command::SelectText { id, range: range.start.min(end)..end });
+        }
         let batch = std::mem::take(&mut inner.pending);
         if !batch.is_empty() {
             inner.backend.apply(&batch);

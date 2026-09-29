@@ -87,6 +87,9 @@ struct State {
     metrics: PlatformMetrics,
     log: Vec<Command>,
     focused: Option<NodeId>,
+    /// The focused text field's selection, in characters; `None` is the
+    /// caret at the end, where focusing puts it.
+    selection: Option<std::ops::Range<usize>>,
     focus_orders: BTreeMap<NodeId, Vec<NodeId>>,
     app: AppInfo,
     /// The node files being dragged are over, if it takes them.
@@ -120,6 +123,7 @@ impl HeadlessBackend {
                 metrics: metrics(),
                 log: Vec::new(),
                 focused: None,
+                selection: None,
                 drop_hover: None,
                 focus_orders: BTreeMap::new(),
                 app: AppInfo::default(),

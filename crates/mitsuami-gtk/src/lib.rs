@@ -28,6 +28,8 @@ mod group;
 #[cfg(target_os = "linux")]
 mod host;
 #[cfg(target_os = "linux")]
+mod keys;
+#[cfg(target_os = "linux")]
 mod list;
 #[cfg(target_os = "linux")]
 mod radio;

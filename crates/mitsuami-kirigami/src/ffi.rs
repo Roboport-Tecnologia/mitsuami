@@ -45,6 +45,7 @@ unsafe extern "C" {
     fn mq_polish_items(window: Raw);
     fn mq_map_to_scene(item: Raw, x: *mut f64, y: *mut f64);
     fn mq_invoke(object: Raw, method: *const c_char) -> i32;
+    fn mq_select_text(object: Raw, start: i32, end: i32);
     fn mq_set_node(object: Raw, node: u64);
     fn mq_node_of(object: Raw) -> u64;
 
@@ -71,7 +72,9 @@ unsafe extern "C" {
     fn mq_force_focus(item: Raw);
     fn mq_set_tab_order(window: Raw, items: *const Raw, count: i32);
     fn mq_a11y_action(item: Raw, action: *const c_char) -> i32;
-    fn mq_key(window: Raw, key: i32, shift: i32, text: *const c_char);
+    fn mq_key(window: Raw, key: i32, modifiers: i32, text: *const c_char);
+    fn mq_key_filter_new(item: Raw, key: u64) -> Raw;
+    fn mq_key_filter_set(filter: Raw, keys: *const i32, modifiers: *const i32, count: i32);
     fn mq_click(window: Raw, x: f64, y: f64);
 
     fn mq_drawn_new(key: u64) -> Raw;
@@ -141,6 +144,8 @@ pub(crate) enum Callback {
     Timer,
     /// Input on a GPU surface's input item (`MQ_KEY_DOWN`…).
     Input(SurfaceEvent),
+    /// A node took the key at this index of its keys.
+    Key(usize),
 }
 
 /// What a GPU surface's input item reports: see `mq_input_callback`.
@@ -180,6 +185,7 @@ extern "C" fn dispatch(key: u64, kind: i32, x: f64, y: f64) {
         4 => Callback::Close,
         5 => Callback::BeforeWait,
         6 => Callback::Timer,
+        7 => Callback::Key(x as usize),
         _ => return,
     };
     // Qt may call back while the process tears down, after thread-locals.
@@ -426,6 +432,12 @@ impl QmlObject {
     /// Calls a method, signal or slot that takes no arguments.
     pub fn invoke(self, method: &str) -> bool {
         unsafe { mq_invoke(self.raw(), c(method).as_ptr()) != 0 }
+    }
+
+    /// Selects text of a text field or edit, in UTF-16 units (Qt's
+    /// positions); the cursor goes to `end`.
+    pub(crate) fn select_text(self, start: i32, end: i32) {
+        unsafe { mq_select_text(self.raw(), start, end) }
     }
 
     pub fn set_str(self, name: &str, value: &str) {
@@ -693,9 +705,28 @@ impl QmlObject {
         unsafe { mq_set_tab_order(self.raw(), raw.as_ptr(), raw.len() as i32) }
     }
 
-    /// A real key press and release, delivered to the focused item.
-    pub(crate) fn key(self, key: i32, shift: bool, text: &str) {
-        unsafe { mq_key(self.raw(), key, shift as i32, c(text).as_ptr()) }
+    /// A real key press and release, delivered to the focused item, with
+    /// modifiers held (`MQ_SHIFT`…).
+    pub(crate) fn key(self, key: i32, modifiers: i32, text: &str) {
+        unsafe { mq_key(self.raw(), key, modifiers, c(text).as_ptr()) }
+    }
+
+    /// A filter of the key presses that come up to this item unaccepted:
+    /// `f` hears the index of each that is one of its keys (see
+    /// [`set_key_filter`](Self::set_key_filter)). It goes with the item.
+    pub(crate) fn key_filter(self, f: impl Fn(usize) + 'static) -> QmlObject {
+        let key = register(move |callback| {
+            if let Callback::Key(index) = callback {
+                f(index)
+            }
+        });
+        QmlObject::from_raw(unsafe { mq_key_filter_new(self.raw(), key) }).expect("a key filter")
+    }
+
+    /// A key filter's keys: `Qt::Key` codes, and the modifiers held.
+    pub(crate) fn set_key_filter(self, keys: &[(i32, i32)]) {
+        let (codes, modifiers): (Vec<i32>, Vec<i32>) = keys.iter().copied().unzip();
+        unsafe { mq_key_filter_set(self.raw(), codes.as_ptr(), modifiers.as_ptr(), keys.len() as i32) }
     }
 
     /// A real primary-button click at a point of the window's scene.

@@ -3,6 +3,7 @@
 use gtk::prelude::*;
 use mitsuami_core::a11y::{A11yAction, ActionError};
 use mitsuami_core::backend::{Backend, Key, SyntheticInput};
+use mitsuami_core::services::Shortcut;
 use mitsuami_core::{NodeId, SelectionMode, WidgetKind};
 
 use super::text::text_view;
@@ -62,14 +63,30 @@ impl GtkBackend {
             step(scrolled.vadjustment(), *dy, v_on);
             return Ok(());
         }
-        let SyntheticInput::Key(key) = input else { unreachable!() };
+        let key = match input {
+            SyntheticInput::Key(key) => key,
+            SyntheticInput::Shortcut(shortcut) => {
+                // Text fields take keys with modifiers as editing
+                // commands, which aren't simulated.
+                let kind = self.state.borrow().nodes.get(&id).ok_or(ActionError::UnknownNode)?.kind;
+                if matches!(
+                    kind,
+                    WidgetKind::TextInput | WidgetKind::PasswordInput | WidgetKind::SearchInput | WidgetKind::TextArea
+                ) {
+                    return Err(ActionError::Unsupported);
+                }
+                return self.send_key(id, *shortcut);
+            }
+            _ => unreachable!(),
+        };
         if *key == Key::Escape {
             return self.escape(id);
         }
         // Lists: GTK 4 can't inject key events, and its list keyboard
         // handling has no signals to emit, so do what it does: arrows,
         // Home and End move the selection and show it; Enter activates.
-        {
+        // Other keys go on as any control's.
+        if let Key::Up | Key::Down | Key::Home | Key::End | Key::Enter = key {
             let state = self.state.borrow();
             if let Some(Widget::List(list)) = state.nodes.get(&id).map(|n| &n.widget) {
                 state.lists_dirty.set(true);
@@ -92,7 +109,7 @@ impl GtkBackend {
                     (Key::End, _) | (Key::Up, None) => last,
                     (Key::Up, Some(i)) => Some(i.saturating_sub(1)),
                     (Key::Down, Some(i)) => Some((i + 1).min(last.unwrap_or(0))),
-                    _ => return Err(ActionError::Unsupported),
+                    _ => unreachable!(),
                 };
                 if let Some(row) = next.map(|i| rows[i]) {
                     list.select(row);
@@ -131,7 +148,12 @@ impl GtkBackend {
                 }
                 let text = entry.delegate().ok_or(ActionError::Unsupported)?;
                 match key {
-                    Key::Char(c) => text.emit_by_name::<()>("insert-at-cursor", &[&c.to_string()]),
+                    // Typing replaces the selection, as GTK's own typing
+                    // does before it inserts; `insert-at-cursor` doesn't.
+                    Key::Char(c) => {
+                        text.delete_selection();
+                        text.emit_by_name::<()>("insert-at-cursor", &[&c.to_string()])
+                    }
                     Key::Backspace => text.emit_by_name::<()>("backspace", &[]),
                     Key::Enter => text.emit_by_name::<()>("activate", &[]),
                     _ => {
@@ -156,11 +178,18 @@ impl GtkBackend {
                     let buffer = view.buffer();
                     buffer.place_cursor(&buffer.end_iter());
                 }
+                // What's typed replaces the selection, as the text view's
+                // own typing does before it inserts; `insert-at-cursor`
+                // doesn't. Backspace deletes it itself.
+                let typed = |text: &str| {
+                    view.buffer().delete_selection(true, view.is_editable());
+                    view.emit_by_name::<()>("insert-at-cursor", &[&text]);
+                };
                 match key {
-                    Key::Char(c) => view.emit_by_name::<()>("insert-at-cursor", &[&c.to_string()]),
+                    Key::Char(c) => typed(&c.to_string()),
                     Key::Backspace => view.emit_by_name::<()>("backspace", &[]),
-                    Key::Enter => view.emit_by_name::<()>("insert-at-cursor", &[&"\n"]),
-                    _ if view.accepts_tab() => view.emit_by_name::<()>("insert-at-cursor", &[&"\t"]),
+                    Key::Enter => typed("\n"),
+                    _ if view.accepts_tab() => typed("\t"),
                     _ => {
                         let window = widget.root().ok_or(ActionError::Unsupported)?;
                         window.emit_by_name::<()>("move-focus", &[&gtk::DirectionType::TabForward]);
@@ -172,7 +201,31 @@ impl GtkBackend {
             | (WidgetKind::ToggleButton | WidgetKind::Checkbox | WidgetKind::Switch, Key::Char(' ')) => {
                 self.perform(id, &A11yAction::Activate)
             }
-            _ => Err(ActionError::Unsupported),
+            _ => self.send_key(id, Shortcut::new(*key)),
         }
+    }
+
+    /// A key as the keyboard sends it, after focusing the node if it
+    /// takes focus: from the focused widget, if it's in the node, or else
+    /// the node's, through the shortcut controllers on the way up, where
+    /// the control's own bindings come before the keys of the nodes
+    /// around it. `Unsupported` if none takes it.
+    fn send_key(&self, id: NodeId, shortcut: Shortcut) -> Result<(), ActionError> {
+        let (widget, focus) = {
+            let state = self.state.borrow();
+            let node = state.nodes.get(&id).ok_or(ActionError::UnknownNode)?;
+            if node.widget.is_control() && !node.widget.widget().is_sensitive() {
+                return Err(ActionError::Disabled);
+            }
+            (node.widget.widget().clone(), node.widget.focus_widget())
+        };
+        let inside = |w: &gtk::Widget| w == &widget || w.is_ancestor(&widget);
+        // Does nothing on widgets that don't take focus. A list's view
+        // isn't focusable itself, but puts focus on its row.
+        if !widget.root().and_then(|r| r.focus()).is_some_and(|f| inside(&f)) {
+            focus.grab_focus();
+        }
+        let start = widget.root().and_then(|r| r.focus()).filter(|f| inside(f)).unwrap_or(widget);
+        if crate::keys::press(&start, shortcut) { Ok(()) } else { Err(ActionError::Unsupported) }
     }
 }

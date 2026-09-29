@@ -63,6 +63,13 @@ impl HeadlessBackend {
                 }
                 Command::SetProp { id, prop } => {
                     state.node(*id, command);
+                    // New text puts the caret at its end.
+                    if let Prop::Value(text) = prop
+                        && state.focused == Some(*id)
+                        && find_prop!(state.nodes[id].props, Value).as_ref() != Some(text)
+                    {
+                        state.selection = None;
+                    }
                     state.set_prop(*id, prop.clone());
                     // A grab focuses its surface.
                     if *prop == Prop::KeyboardGrab(true) {
@@ -171,6 +178,26 @@ impl HeadlessBackend {
                 Command::Focus { id } => {
                     state.node(*id, command);
                     state.focus(*id);
+                }
+                Command::SelectText { id, range } => {
+                    let node = state.node(*id, command);
+                    if !matches!(
+                        node.kind,
+                        WidgetKind::TextInput
+                            | WidgetKind::PasswordInput
+                            | WidgetKind::SearchInput
+                            | WidgetKind::TextArea
+                    ) {
+                        violation(command, "not a text field or text area");
+                    }
+                    let len = find_prop!(node.props, Value).map_or(0, |v| v.chars().count());
+                    if range.start > range.end || range.end > len {
+                        violation(command, "a selection past the text");
+                    }
+                    if state.focused != Some(*id) {
+                        violation(command, "a selection of a field without focus");
+                    }
+                    state.selection = Some(range.clone());
                 }
                 Command::ScrollToRow { id, row } => {
                     if !state.node(*id, command).kind.has_rows() {

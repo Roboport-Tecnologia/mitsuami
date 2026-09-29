@@ -7739,6 +7739,9 @@ impl IPasswordBox {
             ))
         }
     }
+    pub fn SelectAll(&self) -> windows_core::Result<()> {
+        unsafe { (windows_core::Interface::vtable(self).SelectAll)(windows_core::Interface::as_raw(self)).ok() }
+    }
 }
 #[repr(C)]
 pub struct IPasswordBox_Vtbl {
@@ -7780,6 +7783,13 @@ pub struct IPasswordBox_Vtbl {
     pub PasswordChanged:
         unsafe extern "system" fn(*mut core::ffi::c_void, *mut core::ffi::c_void, *mut i64) -> windows_core::HRESULT,
     pub RemovePasswordChanged: unsafe extern "system" fn(*mut core::ffi::c_void, i64) -> windows_core::HRESULT,
+    ContextMenuOpening: usize,
+    RemoveContextMenuOpening: usize,
+    Paste: usize,
+    RemovePaste: usize,
+    PasswordChanging: usize,
+    RemovePasswordChanging: usize,
+    pub SelectAll: unsafe extern "system" fn(*mut core::ffi::c_void) -> windows_core::HRESULT,
 }
 windows_core::imp::define_interface!(IPickFileResult, IPickFileResult_Vtbl, 0xe6f2e3d6_7bb0_5d81_9e7d_6fd35a1f25ab);
 impl windows_core::RuntimeType for IPickFileResult {
@@ -10124,6 +10134,11 @@ impl ITextBox {
             ))
         }
     }
+    pub fn Select(&self, start: i32, length: i32) -> windows_core::Result<()> {
+        unsafe {
+            (windows_core::Interface::vtable(self).Select)(windows_core::Interface::as_raw(self), start, length).ok()
+        }
+    }
 }
 #[repr(C)]
 pub struct ITextBox_Vtbl {
@@ -10189,6 +10204,27 @@ pub struct ITextBox_Vtbl {
     pub TextChanged:
         unsafe extern "system" fn(*mut core::ffi::c_void, *mut core::ffi::c_void, *mut i64) -> windows_core::HRESULT,
     pub RemoveTextChanged: unsafe extern "system" fn(*mut core::ffi::c_void, i64) -> windows_core::HRESULT,
+    SelectionChanged: usize,
+    RemoveSelectionChanged: usize,
+    ContextMenuOpening: usize,
+    RemoveContextMenuOpening: usize,
+    Paste: usize,
+    RemovePaste: usize,
+    TextCompositionStarted: usize,
+    RemoveTextCompositionStarted: usize,
+    TextCompositionChanged: usize,
+    RemoveTextCompositionChanged: usize,
+    TextCompositionEnded: usize,
+    RemoveTextCompositionEnded: usize,
+    CopyingToClipboard: usize,
+    RemoveCopyingToClipboard: usize,
+    CuttingToClipboard: usize,
+    RemoveCuttingToClipboard: usize,
+    BeforeTextChanging: usize,
+    RemoveBeforeTextChanging: usize,
+    SelectionChanging: usize,
+    RemoveSelectionChanging: usize,
+    pub Select: unsafe extern "system" fn(*mut core::ffi::c_void, i32, i32) -> windows_core::HRESULT,
 }
 windows_core::imp::define_interface!(ITextBoxFactory, ITextBoxFactory_Vtbl, 0xe1d8b82e_bc60_5d27_b646_5ca4c4a69432);
 impl windows_core::RuntimeType for ITextBoxFactory {

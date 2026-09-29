@@ -37,8 +37,8 @@ use mitsuami_core::raw_window_handle::{
     HandleError, RawDisplayHandle, RawWindowHandle, Win32WindowHandle, WindowsDisplayHandle,
 };
 use mitsuami_core::{
-    Cursor, Key, KeyCode, Modifiers, MouseButton, NativeSurface, NodeId, Pixels, Point, Prop, ScrollDelta,
-    SurfaceHandle, SurfaceInput, SurfaceSize, SyntheticInput, UiEvent,
+    Cursor, KeyCode, Modifiers, MouseButton, NativeSurface, NodeId, Pixels, Point, Prop, ScrollDelta, SurfaceHandle,
+    SurfaceInput, SurfaceSize, SyntheticInput, UiEvent,
 };
 use windows_core::{EventRevoker, Interface, PCWSTR, w as wide};
 
@@ -308,17 +308,7 @@ impl SurfaceHost {
                 }
             }
             SyntheticInput::Key(key) => {
-                let code = match key {
-                    Key::Char(c) => KeyCode::from_us_char(*c),
-                    Key::Enter => KeyCode::Enter,
-                    Key::Escape => KeyCode::Escape,
-                    Key::Tab => KeyCode::Tab,
-                    Key::Backspace => KeyCode::Backspace,
-                    Key::Up => KeyCode::ArrowUp,
-                    Key::Down => KeyCode::ArrowDown,
-                    Key::Home => KeyCode::Home,
-                    Key::End => KeyCode::End,
-                };
+                let code = KeyCode::from_key(*key);
                 let native = (1..0x80)
                     .chain(0xE001..0xE080)
                     .find(|scan| KeyCode::from_windows_scancode(*scan) == code)
@@ -331,8 +321,12 @@ impl SurfaceHost {
                 let delta = ScrollDelta::Points { x: *dx, y: *dy };
                 state.report(SurfaceInput::Scroll { delta, modifiers });
             }
-            // A surface takes no dropped files; the backend refuses them.
-            SyntheticInput::DragFiles(_) | SyntheticInput::DragLeave | SyntheticInput::DropFiles(_) => {}
+            // A surface takes no dropped files, and keys with modifiers
+            // aren't simulated on one; the backend refuses them.
+            SyntheticInput::Shortcut(_)
+            | SyntheticInput::DragFiles(_)
+            | SyntheticInput::DragLeave
+            | SyntheticInput::DropFiles(_) => {}
         }
     }
 }

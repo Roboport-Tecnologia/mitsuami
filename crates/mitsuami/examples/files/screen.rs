@@ -25,7 +25,7 @@ pub fn Finder() -> impl View {
             <Tools/>
             <Menus preview=preview going_to=going_to/>
             <Row grow=1.0 basis=0 min_height=0>
-                <Files/>
+                <Files preview=preview/>
                 <Show when=preview>
                     <Separator orientation=Orientation::Vertical/>
                     <Preview/>
@@ -105,6 +105,36 @@ fn sort_items(browser: Browser) -> Menu {
         .item(MenuItem::new("Reversed").bind(browser.descending))
 }
 
+/// The shortcuts the platform's file manager has for these items: Finder,
+/// Nautilus, Dolphin and File Explorer agree off macOS.
+struct Keys {
+    rename: Option<Shortcut>,
+    trash: Shortcut,
+    back: Shortcut,
+    forward: Shortcut,
+    up: Shortcut,
+}
+
+fn keys() -> Keys {
+    platform! {
+        macos => Keys {
+            // Finder renames with Return, which opens here.
+            rename: None,
+            trash: Shortcut::primary(Key::Backspace),
+            back: Shortcut::primary('['),
+            forward: Shortcut::primary(']'),
+            up: Shortcut::primary(Key::Up),
+        },
+        _ => Keys {
+            rename: Some(Shortcut::new(Key::F(2))),
+            trash: Shortcut::new(Key::Delete),
+            back: Shortcut::new(Key::Left).alt(),
+            forward: Shortcut::new(Key::Right).alt(),
+            up: Shortcut::new(Key::Up).alt(),
+        },
+    }
+}
+
 /// The window's own menus.
 #[component]
 fn Menus(preview: Signal<bool>, going_to: Signal<bool>) -> impl View {
@@ -114,15 +144,16 @@ fn Menus(preview: Signal<bool>, going_to: Signal<bool>) -> impl View {
     let paths = move || browser.selection().into_iter().map(|e| e.path).collect::<Vec<_>>();
     let place = move |path: PathBuf| move || browser.go(path.clone());
     let (home, computer) = (fs::home(), fs::computer().1);
+    let keys = keys();
     view! {
         <MenuBar>
             <Menu title="File">
                 <MenuItem shortcut=Shortcut::primary('n').shift() @select=move || browser.new_folder()>"New Folder"</MenuItem>
                 <MenuItem shortcut=Shortcut::primary('o') enabled=some @select=move || browser.open(browser.selection())>"Open"</MenuItem>
                 <MenuSeparator/>
-                <MenuItem enabled=one @select=move || browser.renaming.set(paths().pop())>"Rename…"</MenuItem>
+                <MenuItem shortcut=keys.rename enabled=one @select=move || browser.renaming.set(paths().pop())>"Rename…"</MenuItem>
                 <MenuItem shortcut=Shortcut::primary('d') enabled=some @select=move || browser.duplicate(paths())>"Duplicate"</MenuItem>
-                <MenuItem enabled=some @select=move || browser.trash(paths())>"Move to Trash"</MenuItem>
+                <MenuItem shortcut=keys.trash enabled=some @select=move || browser.trash(paths())>"Move to Trash"</MenuItem>
                 <MenuSeparator/>
                 <MenuItem shortcut=Shortcut::primary('c').alt() enabled=some @select=move || copy_paths(paths())>"Copy as Pathname"</MenuItem>
             </Menu>
@@ -133,9 +164,9 @@ fn Menus(preview: Signal<bool>, going_to: Signal<bool>) -> impl View {
                 {sort_items(browser)}
             </Menu>
             <Menu title="Go">
-                <MenuItem shortcut=Shortcut::primary('[') enabled=move || browser.can_go_back() @select=move || browser.go_back()>"Back"</MenuItem>
-                <MenuItem shortcut=Shortcut::primary(']') enabled=move || browser.can_go_forward() @select=move || browser.go_forward()>"Forward"</MenuItem>
-                <MenuItem enabled=move || browser.can_go_up() @select=move || browser.go_up()>"Enclosing Folder"</MenuItem>
+                <MenuItem shortcut=keys.back enabled=move || browser.can_go_back() @select=move || browser.go_back()>"Back"</MenuItem>
+                <MenuItem shortcut=keys.forward enabled=move || browser.can_go_forward() @select=move || browser.go_forward()>"Forward"</MenuItem>
+                <MenuItem shortcut=keys.up enabled=move || browser.can_go_up() @select=move || browser.go_up()>"Enclosing Folder"</MenuItem>
                 <MenuSeparator/>
                 <MenuItem shortcut=Shortcut::primary('h').shift() @select=place(home)>"Home"</MenuItem>
                 <MenuItem shortcut=Shortcut::primary('c').shift() @select=place(computer)>"Computer"</MenuItem>
@@ -153,10 +184,19 @@ fn copy_paths(paths: Vec<PathBuf>) {
     });
 }
 
+/// The key that shows the selection larger: Finder's Quick Look is on
+/// Space. Nautilus's previewer is too, but GTK's list keeps Space (it
+/// selects the focused row), as XAML's does; Dolphin and File Explorer
+/// have no such key.
+pub fn preview_key() -> Option<Shortcut> {
+    platform! { macos => Some(Shortcut::new(' ')), _ => None }
+}
+
 /// The folder's items: a header to sort by, and the platform's list.
-/// Files dropped on it are copied in.
+/// Files dropped on it are copied in. The preview key shows or hides the
+/// preview, where the list doesn't use it itself.
 #[component]
-fn Files() -> impl View {
+fn Files(preview: Signal<bool>) -> impl View {
     let browser = use_store::<Browser>();
     let handle = ListHandle::new();
     let entries = computed(move || browser.entries());
@@ -175,6 +215,19 @@ fn Files() -> impl View {
         loaded && entries.with(Vec::is_empty)
     };
     let row = move |entry: Entry| file_row(browser, entry);
+    let mut list = List::new(entries, |e: &Entry| e.path.clone(), row)
+        .selected(browser.selected)
+        .selection_mode(SelectionMode::Multiple)
+        .handle(handle)
+        .estimated_row_height(28)
+        .on_activate(move |path: PathBuf| browser.open_path(&path))
+        .a11y_label("Items")
+        .hidden(move || browser.listing.error().is_some() || empty())
+        .grow(1.0)
+        .basis(0);
+    if let Some(key) = preview_key() {
+        list = list.on_key(key, move || preview.update(|p| *p = !*p));
+    }
     Column::new()
         .grow(1.0)
         .min_width(320)
@@ -203,16 +256,7 @@ fn Files() -> impl View {
                     .text_style(TextStyle::Caption)
                     .padding(Spacing::Lg)
             }),
-            List::new(entries, |e: &Entry| e.path.clone(), row)
-                .selected(browser.selected)
-                .selection_mode(SelectionMode::Multiple)
-                .handle(handle)
-                .estimated_row_height(28)
-                .on_activate(move |path: PathBuf| browser.open_path(&path))
-                .a11y_label("Items")
-                .hidden(move || browser.listing.error().is_some() || empty())
-                .grow(1.0)
-                .basis(0),
+            list,
         ))
 }
 
@@ -389,19 +433,28 @@ fn PathBarRow() -> impl View {
     }
 }
 
-/// Asks for an item's new name, while the browser is renaming one.
+/// The part of a name file managers select to rename it: a file's name
+/// without its extension, all of a folder's or a dot file's.
+pub fn stem_len(name: &str, folder: bool) -> usize {
+    match name.rfind('.') {
+        Some(dot) if dot > 0 && !folder => name[..dot].chars().count(),
+        _ => name.chars().count(),
+    }
+}
+
+/// Asks for an item's new name, while the browser is renaming one. It
+/// opens with the name in its field, the part to rename selected.
 #[component]
 fn RenameDialog() -> impl View {
     let browser = use_store::<Browser>();
-    let draft = signal(String::new());
-    watch(
-        move || browser.renaming.get(),
-        move |renaming, _| {
-            if let Some(path) = renaming {
-                draft.set(name_of(path));
-            }
-        },
-    );
+    let (draft, field) = (signal(String::new()), node_ref());
+    let start = move || {
+        let Some(path) = browser.renaming.get_untracked() else { return };
+        let folder = browser.listing.data().unwrap_or_default().iter().any(|e| e.path == path && e.is_dir);
+        let name = name_of(&path);
+        field.select_text(0..stem_len(&name, folder));
+        draft.set(name);
+    };
     let cancel = move || browser.renaming.set(None);
     let commit = move || {
         if let Some(path) = browser.renaming.get_untracked() {
@@ -414,10 +467,10 @@ fn RenameDialog() -> impl View {
     };
     view! {
         <Window title="Rename" open=move || browser.renaming.get().is_some() modal=Modality::Window
-            size=WindowSize::FitHeight(360.0) @close_request=cancel>
+            size=WindowSize::FitHeight(360.0) @open=start @close_request=cancel>
             <Column padding=Spacing::Xl gap=Spacing::Md>
                 <Text>{prompt}</Text>
-                <TextInput bind=draft a11y_label="New name" @submit=commit/>
+                <TextInput bind=draft a11y_label="New name" node_ref=field @submit=commit/>
                 <Row gap=Spacing::Sm justify=Justify::End>
                     <Button role=ButtonRole::Cancel @click=cancel>"Cancel"</Button>
                     <Button role=ButtonRole::Default enabled=move || !draft.get().trim().is_empty() @click=commit>
@@ -429,11 +482,12 @@ fn RenameDialog() -> impl View {
     }
 }
 
-/// Goes to a folder typed in: `~` is the home folder.
+/// Goes to a folder typed in: `~` is the home folder. It opens with the
+/// path typed last selected, as Finder's does.
 #[component]
 fn GoToDialog(open: Signal<bool>) -> impl View {
     let browser = use_store::<Browser>();
-    let draft = signal(String::new());
+    let (draft, field) = (signal(String::new()), node_ref());
     let cancel = move || open.set(false);
     let commit = move || {
         let typed = draft.get_untracked();
@@ -452,9 +506,10 @@ fn GoToDialog(open: Signal<bool>) -> impl View {
         }
     };
     view! {
-        <Window title="Go to Folder" bind=open modal=Modality::Window size=WindowSize::FitHeight(420.0)>
+        <Window title="Go to Folder" bind=open modal=Modality::Window size=WindowSize::FitHeight(420.0)
+            @open=move || field.select_text(0..usize::MAX)>
             <Column padding=Spacing::Xl gap=Spacing::Md>
-                <TextInput bind=draft a11y_label="Folder" placeholder="~/Documents" @submit=commit/>
+                <TextInput bind=draft a11y_label="Folder" placeholder="~/Documents" node_ref=field @submit=commit/>
                 <Row gap=Spacing::Sm justify=Justify::End>
                     <Button role=ButtonRole::Cancel @click=cancel>"Cancel"</Button>
                     <Button role=ButtonRole::Default enabled=move || !draft.get().trim().is_empty() @click=commit>"Go"</Button>

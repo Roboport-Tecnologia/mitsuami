@@ -37,6 +37,15 @@ impl HeadlessBackend {
             children: node.children.clone(),
             focused: state.focused == Some(id),
             scroll_offset: node.kind.scrolls().then_some(node.scroll_offset),
+            selection: (state.focused == Some(id)
+                && matches!(
+                    node.kind,
+                    WidgetKind::TextInput | WidgetKind::PasswordInput | WidgetKind::SearchInput | WidgetKind::TextArea
+                ))
+            .then(|| {
+                let len = find_prop!(node.props, Value).map_or(0, |v| v.chars().count());
+                state.selection.clone().unwrap_or(len..len)
+            }),
         })
     }
 }

@@ -484,6 +484,8 @@ impl State {
                 context_menu: None,
                 file_drop: None,
                 file_drop_sent: false,
+                keys: None,
+                password_all: Cell::new(false),
                 button_menu: None,
                 caption: String::new(),
                 icon: String::new(),

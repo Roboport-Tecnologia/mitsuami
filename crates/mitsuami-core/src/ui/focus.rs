@@ -26,8 +26,28 @@ impl Ui {
         self.inner.borrow().focus_order(window)
     }
 
+    /// Gives the control keyboard focus, at the next commit.
     pub fn focus(&self, id: NodeId) {
         self.inner.borrow_mut().pending_focus.push(id);
+        self.changed();
+    }
+
+    /// Focuses a text field or text area and selects these characters of
+    /// its text (Unicode scalar values), at the next commit; a range past
+    /// its end is cut to it. Other controls are only focused.
+    pub fn select_text(&self, id: NodeId, range: std::ops::Range<usize>) {
+        let mut inner = self.inner.borrow_mut();
+        inner.pending_focus.push(id);
+        let text = inner.nodes.get(&id).is_some_and(|n| {
+            matches!(
+                n.kind,
+                WidgetKind::TextInput | WidgetKind::PasswordInput | WidgetKind::SearchInput | WidgetKind::TextArea
+            )
+        });
+        if text {
+            inner.pending_selections.push((id, range));
+        }
+        drop(inner);
         self.changed();
     }
 }

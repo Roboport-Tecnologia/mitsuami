@@ -4,9 +4,9 @@ use std::fmt::Write;
 
 use mitsuami_core::draw::{DrawOp, PathElement};
 use mitsuami_core::geometry::Num;
-use mitsuami_core::services::MenuEntry;
+use mitsuami_core::services::{MenuEntry, Shortcut};
 use mitsuami_core::{
-    A11yNode, Color, Command, Cursor, DisplayList, ImageSource, NodeInfo, Point, Prop, Shape, WidgetKind,
+    A11yNode, Color, Command, Cursor, DisplayList, ImageSource, Key, NodeInfo, Point, Prop, Shape, WidgetKind,
 };
 
 fn describe_props(props: &[Prop]) -> String {
@@ -30,6 +30,10 @@ fn describe_props(props: &[Prop]) -> String {
                 extra.push(format!("file_drop=[{files}{}]", if drop.folders { " folders" } else { "" }));
             }
             Prop::FileDrop(None) => {}
+            Prop::Keys(keys) => {
+                let keys: Vec<String> = keys.iter().map(shortcut).collect();
+                extra.push(format!("keys=[{}]", keys.join(" ")));
+            }
             Prop::Options(options) => extra.push(format!("options={options:?}")),
             Prop::TabTitles(titles) => extra.push(format!("tabs={titles:?}")),
             Prop::TabIcons(icons) => extra.push(format!("tab_icons={icons:?}")),
@@ -156,6 +160,21 @@ fn describe_props(props: &[Prop]) -> String {
 }
 
 /// `Rename, -, Sort By [Name, Date]`: titles, separators and submenus.
+/// `primary+shift+Backspace`, `F2`, `' '`.
+fn shortcut(shortcut: &Shortcut) -> String {
+    let mut text = String::new();
+    for (held, name) in [(shortcut.primary, "primary+"), (shortcut.shift, "shift+"), (shortcut.alt, "alt+")] {
+        if held {
+            text.push_str(name);
+        }
+    }
+    match shortcut.key {
+        Key::Char(c) => text.push_str(&format!("{c:?}")),
+        key => text.push_str(&format!("{key:?}")),
+    }
+    text
+}
+
 fn menu_entries(entries: &[MenuEntry]) -> String {
     let entries: Vec<String> = entries
         .iter()
@@ -254,6 +273,7 @@ pub(crate) fn commands(log: &[Command]) -> String {
             }
             Command::ScrollTo { id, offset } => format!("scroll {id} to {},{}", Num(offset.x), Num(offset.y)),
             Command::Focus { id } => format!("focus {id}"),
+            Command::SelectText { id, range } => format!("select {id} {}..{}", range.start, range.end),
             Command::ScrollToRow { id, row } => format!("scroll {id} to row {}", row.0),
         };
         out.push_str(&line);

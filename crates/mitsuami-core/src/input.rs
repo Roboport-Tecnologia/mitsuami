@@ -294,4 +294,30 @@ impl KeyCode {
             _ => Unidentified,
         }
     }
+
+    /// The key that types or is `key` on a US keyboard: what tests press.
+    pub fn from_key(key: crate::backend::Key) -> KeyCode {
+        use crate::backend::Key;
+        const F: [KeyCode; 24] = [
+            F1, F2, F3, F4, F5, F6, F7, F8, F9, F10, F11, F12, F13, F14, F15, F16, F17, F18, F19, F20, F21, F22, F23,
+            F24,
+        ];
+        match key {
+            Key::Char(c) => KeyCode::from_us_char(c),
+            Key::Enter => Enter,
+            Key::Escape => Escape,
+            Key::Tab => Tab,
+            Key::Backspace => Backspace,
+            Key::Delete => Delete,
+            Key::Up => ArrowUp,
+            Key::Down => ArrowDown,
+            Key::Left => ArrowLeft,
+            Key::Right => ArrowRight,
+            Key::Home => Home,
+            Key::End => End,
+            Key::PageUp => PageUp,
+            Key::PageDown => PageDown,
+            Key::F(n) => F.get(usize::from(n).wrapping_sub(1)).copied().unwrap_or(Unidentified),
+        }
+    }
 }

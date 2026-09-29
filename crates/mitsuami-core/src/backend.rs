@@ -8,6 +8,7 @@ use crate::a11y::{A11yAction, ActionError};
 use crate::app_info::{AppInfo, NativeAppInfo};
 use crate::command::{Command, UiEvent};
 use crate::geometry::{Insets, Point, Rect, Size};
+use crate::services::Shortcut;
 use crate::units::SpacingScale;
 use crate::widget::{NodeId, Prop, TextStyle, WidgetKind};
 
@@ -85,13 +86,14 @@ impl FontSizes {
 /// Raw input for [`Backend::synthesize`].
 #[derive(Clone, Debug, PartialEq)]
 pub enum SyntheticInput {
+    /// A key pressed and released, on its own.
     Key(Key),
+    /// A key pressed and released with modifiers held: what a node's keys
+    /// (`Prop::Keys`) take, where the focused control doesn't use it.
+    Shortcut(Shortcut),
     /// Scroll-wheel / trackpad scroll over a `ScrollView` or `List`, in logical units
     /// (positive = towards the end of the content).
-    Scroll {
-        dx: f32,
-        dy: f32,
-    },
+    Scroll { dx: f32, dy: f32 },
     /// A primary-button click (down, then up) at this point, in the node's
     /// coordinates. Backends support it on drawn custom widgets, whose
     /// pointer handling is ours.
@@ -107,17 +109,35 @@ pub enum SyntheticInput {
     DropFiles(Vec<std::path::PathBuf>),
 }
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+/// A key, by what it types or does: a character (`Char(' ')` is the
+/// space bar), or a key that types none. For shortcuts, key bindings and
+/// synthesized input.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub enum Key {
     Char(char),
     Enter,
     Escape,
     Tab,
+    /// The key that deletes backwards: Delete (⌫) on Apple keyboards.
     Backspace,
+    /// The key that deletes forwards: ⌦ on Apple keyboards.
+    Delete,
     Up,
     Down,
+    Left,
+    Right,
     Home,
     End,
+    PageUp,
+    PageDown,
+    /// A function key, from F1.
+    F(u8),
+}
+
+impl From<char> for Key {
+    fn from(c: char) -> Key {
+        Key::Char(c)
+    }
 }
 
 /// What a native widget actually shows, read back from the platform.
@@ -133,6 +153,9 @@ pub struct NativeState {
     pub focused: bool,
     /// `ScrollView`s and `List`s only: the current scroll offset.
     pub scroll_offset: Option<Point>,
+    /// A focused text field's or text area's selection, in characters (an
+    /// empty one is the caret); `None` for anything else.
+    pub selection: Option<std::ops::Range<usize>>,
 }
 
 /// An RGBA8 screenshot in physical pixels.

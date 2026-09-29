@@ -68,6 +68,7 @@ impl WinUiHandle {
     /// Makes visible the windows whose first layout has been applied,
     /// modal ones first made modal.
     pub fn show_pending_windows(&self) {
+        self.state.borrow().focus_wanted();
         let pending = std::mem::take(&mut self.state.borrow_mut().pending_show);
         for id in pending {
             self.make_modal(id);
@@ -81,8 +82,11 @@ impl WinUiHandle {
                 apply_full_screen(parts);
                 apply_maximized(parts);
                 // It was activated when made, before its content: its
-                // controls can take focus now.
-                restore_focus(&parts.root, &by_element, &parts.focus, &parts.tab_order.borrow(), &emitter);
+                // controls can take focus now, unless one asked for still
+                // can't.
+                if parts.wanted_focus.borrow().is_none() {
+                    restore_focus(&parts.root, &by_element, &parts.focus, &parts.tab_order.borrow(), &emitter);
+                }
             }
         }
         // Windows moved to another display since.

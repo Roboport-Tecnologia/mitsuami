@@ -20,7 +20,7 @@ use gtk::glib::translate::{IntoGlib, ToGlibPtr};
 use gtk::prelude::*;
 use gtk::{gdk, glib, graphene};
 use mitsuami_core::{
-    ActionError, Cursor, Key, KeyCode, Modifiers, MouseButton, NodeId, Pixels, Point, Prop, ScrollDelta, SurfaceHandle,
+    ActionError, Cursor, KeyCode, Modifiers, MouseButton, NodeId, Pixels, Point, Prop, ScrollDelta, SurfaceHandle,
     SurfaceInput, SurfaceSize, SyntheticInput, UiEvent,
 };
 use mitsuami_linux::wayland::{self, Subsurface};
@@ -224,17 +224,7 @@ impl SurfaceArea {
                 if !self.area.is_focus() {
                     return Err(ActionError::Unsupported);
                 }
-                let code = match key {
-                    Key::Char(c) => KeyCode::from_us_char(*c),
-                    Key::Enter => KeyCode::Enter,
-                    Key::Escape => KeyCode::Escape,
-                    Key::Tab => KeyCode::Tab,
-                    Key::Backspace => KeyCode::Backspace,
-                    Key::Up => KeyCode::ArrowUp,
-                    Key::Down => KeyCode::ArrowDown,
-                    Key::Home => KeyCode::Home,
-                    Key::End => KeyCode::End,
-                };
+                let code = KeyCode::from_key(*key);
                 let native = (1..=255).find(|c| KeyCode::from_evdev(*c) == code).unwrap_or(0);
                 for pressed in [true, false] {
                     state.report(SurfaceInput::Key { code, native, pressed, repeat: false, modifiers });
@@ -244,8 +234,12 @@ impl SurfaceArea {
                 let delta = ScrollDelta::Points { x: *dx, y: *dy };
                 state.report(SurfaceInput::Scroll { delta, modifiers });
             }
-            // A surface takes no files.
-            SyntheticInput::DragFiles(_) | SyntheticInput::DragLeave | SyntheticInput::DropFiles(_) => {
+            // A surface takes no files, and keys with modifiers aren't
+            // simulated on one.
+            SyntheticInput::Shortcut(_)
+            | SyntheticInput::DragFiles(_)
+            | SyntheticInput::DragLeave
+            | SyntheticInput::DropFiles(_) => {
                 return Err(ActionError::Unsupported);
             }
         }

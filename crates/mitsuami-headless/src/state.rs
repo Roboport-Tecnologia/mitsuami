@@ -40,6 +40,7 @@ impl State {
         if self.focused == Some(id) {
             return;
         }
+        self.selection = None;
         if let Some(previous) = self.focused.replace(id) {
             self.emit(previous, UiEvent::FocusOut);
             // A keyboard grab lasts while its surface has focus.

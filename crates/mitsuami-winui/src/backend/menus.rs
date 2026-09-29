@@ -4,9 +4,9 @@
 use std::collections::HashMap;
 use std::rc::Rc;
 
-use mitsuami_core::NodeId;
 use mitsuami_core::a11y::ActionError;
 use mitsuami_core::services::{MenuBarData, MenuCheck, MenuData, MenuEntry, MenuItemData, Shortcut};
+use mitsuami_core::{Key, NodeId};
 use windows_core::{EventRevoker, Interface};
 
 use super::windows::{MENU_ROW, apply_min_size, resize_client};
@@ -254,15 +254,10 @@ pub(super) fn read_menu(
             .then(|| accelerators.GetAt(0).ok()?.cast::<w::IKeyboardAccelerator>().ok())
             .flatten()
             .and_then(|accel| {
-                let key = char::from_u32(accel.Key().ok()?.0 as u32)?;
+                let key = key_of(accel.Key().ok()?)?;
                 let modifiers = accel.Modifiers().ok()?;
                 Some(Shortcut {
-                    // XAML's keys are upper case: the case sent, if it's this key.
-                    key: sent
-                        .and_then(|s| s.shortcut)
-                        .map(|s| s.key)
-                        .filter(|k| k.eq_ignore_ascii_case(&key))
-                        .unwrap_or(key.to_ascii_lowercase()),
+                    key,
                     primary: modifiers.contains(w::VirtualKeyModifiers::Control),
                     shift: modifiers.contains(w::VirtualKeyModifiers::Shift),
                     alt: modifiers.contains(w::VirtualKeyModifiers::Menu),
@@ -307,9 +302,73 @@ fn show_checks(items: &MenuItems) {
     }
 }
 
-fn virtual_key(c: char) -> Option<w::VirtualKey> {
-    let c = c.to_ascii_uppercase();
-    (c.is_ascii_uppercase() || c.is_ascii_digit()).then_some(w::VirtualKey(c as i32))
+/// A US keyboard's punctuation keys, by their unshifted character: the
+/// `VK_OEM_*` keys, which XAML's `VirtualKey` has no names for.
+const OEM: [(char, i32); 11] = [
+    (';', 0xBA),
+    ('=', 0xBB),
+    (',', 0xBC),
+    ('-', 0xBD),
+    ('.', 0xBE),
+    ('/', 0xBF),
+    ('`', 0xC0),
+    ('[', 0xDB),
+    ('\\', 0xDC),
+    (']', 0xDD),
+    ('\'', 0xDE),
+];
+
+/// The virtual key of a key: a letter's or digit's is its upper case
+/// character.
+pub(crate) fn virtual_key(key: Key) -> Option<w::VirtualKey> {
+    let code = match key {
+        Key::Char(c) => {
+            let c = c.to_ascii_uppercase();
+            if c.is_ascii_uppercase() || c.is_ascii_digit() || c == ' ' {
+                c as i32
+            } else {
+                OEM.iter().find(|(o, _)| *o == c)?.1
+            }
+        }
+        Key::Enter => 0x0D,
+        Key::Escape => 0x1B,
+        Key::Tab => 0x09,
+        Key::Backspace => 0x08,
+        Key::Delete => 0x2E,
+        Key::Up => 0x26,
+        Key::Down => 0x28,
+        Key::Left => 0x25,
+        Key::Right => 0x27,
+        Key::Home => 0x24,
+        Key::End => 0x23,
+        Key::PageUp => 0x21,
+        Key::PageDown => 0x22,
+        Key::F(n @ 1..=24) => 0x6F + i32::from(n),
+        Key::F(_) => return None,
+    };
+    Some(w::VirtualKey(code))
+}
+
+/// The key a virtual key stands for; a letter's is lower case.
+pub(crate) fn key_of(key: w::VirtualKey) -> Option<Key> {
+    Some(match key.0 {
+        0x0D => Key::Enter,
+        0x1B => Key::Escape,
+        0x09 => Key::Tab,
+        0x08 => Key::Backspace,
+        0x2E => Key::Delete,
+        0x26 => Key::Up,
+        0x28 => Key::Down,
+        0x25 => Key::Left,
+        0x27 => Key::Right,
+        0x24 => Key::Home,
+        0x23 => Key::End,
+        0x21 => Key::PageUp,
+        0x22 => Key::PageDown,
+        code @ 0x70..=0x87 => Key::F((code - 0x6F) as u8),
+        code @ (0x20 | 0x30..=0x39 | 0x41..=0x5A) => Key::Char(char::from_u32(code as u32)?.to_ascii_lowercase()),
+        code => Key::Char(OEM.iter().find(|(_, o)| *o == code)?.0),
+    })
 }
 
 impl WinUiBackend {

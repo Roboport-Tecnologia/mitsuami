@@ -53,6 +53,29 @@ impl State {
     }
 }
 
+impl State {
+    /// Focus (and a selection) asked for before the control could take
+    /// it: a new window's content is in XAML's live tree only once it's
+    /// laid out. Tried again each turn until the control has loaded, and
+    /// before a window first shown focuses the first in the Tab order.
+    pub(super) fn focus_wanted(&self) {
+        for node in self.nodes.values() {
+            let Widget::Window(parts) = &node.widget else { continue };
+            let Some((id, range)) = parts.wanted_focus.borrow().clone() else { continue };
+            if let Some(target) = self.nodes.get(&id) {
+                if self.focus(id, w::FocusState::Programmatic) {
+                    if let Some(range) = range {
+                        _ = super::selection::select(target, range);
+                    }
+                } else if !target.control().cast::<w::IFrameworkElement>().and_then(|f| f.IsLoaded()).unwrap_or(true) {
+                    continue;
+                }
+            }
+            *parts.wanted_focus.borrow_mut() = None;
+        }
+    }
+}
+
 pub(super) fn is_control(widget: &Widget) -> bool {
     matches!(
         widget,

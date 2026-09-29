@@ -459,7 +459,8 @@ impl List {
             }
         })?);
 
-        // Double-click: the row under the pointer. Return: the selected row.
+        // Double-click: the row under the pointer. Return: the selected
+        // row, without Control or Alt, which leave it to a node's keys.
         revokers.push(view.cast::<w::IUIElement>()?.DoubleTapped({
             let (data, events, view) = (data.clone(), events.clone(), view.clone());
             move |_, args| {
@@ -474,7 +475,10 @@ impl List {
             let (data, events, view) = (data.clone(), events.clone(), view.clone());
             move |_, args| {
                 let Some(args) = args.as_ref().and_then(|a| a.cast::<w::IKeyRoutedEventArgs>().ok()) else { return };
+                let held = |key: i32| unsafe { w::GetKeyState(key) } < 0;
                 if args.Key().is_ok_and(|k| k == w::VirtualKey::Enter)
+                    && !held(w::VK_CONTROL)
+                    && !held(w::VK_MENU)
                     && let Some(key) = selected(&view, &data.borrow()).first()
                 {
                     events.emit(id, UiEvent::RowActivated(*key));
@@ -958,8 +962,27 @@ impl List {
         hosts.into_iter().map(|(_, id)| id).collect()
     }
 
+    /// Whether the list view uses a key itself, ahead of a node's keys: it
+    /// moves focus and the selection with the arrows, Home, End and the
+    /// page keys (with Shift and Control too), selects with Space, and
+    /// selects every row with Control+A. Return activates the selected
+    /// row (our handler).
+    pub(crate) fn uses(&self, shortcut: mitsuami_core::services::Shortcut) -> bool {
+        use mitsuami_core::Key;
+        let selects = self.mode() != SelectionMode::None;
+        !shortcut.alt
+            && match shortcut.key {
+                Key::Up | Key::Down | Key::Home | Key::End | Key::PageUp | Key::PageDown => true,
+                Key::Char(' ') => selects,
+                Key::Char('a') => shortcut.primary && self.mode() == SelectionMode::Multiple,
+                Key::Enter => !shortcut.primary && !self.selected().is_empty(),
+                _ => false,
+            }
+    }
+
     /// Keyboard navigation: what the list view does with arrows, Home and
-    /// End (move the selection and show it) and Return (activate).
+    /// End (move the selection and show it), Space (select) and Return
+    /// (activate).
     pub(crate) fn key(&self, key: mitsuami_core::Key) -> R<bool> {
         use mitsuami_core::Key;
         let rows = self.data.borrow().rows.clone();
@@ -968,6 +991,24 @@ impl List {
         if key == Key::Enter {
             if let Some(row) = selected.first() {
                 self.activate(*row);
+            }
+            return Ok(true);
+        }
+        // Space selects the focused row, which is where the selection
+        // starts (or the first row) here; a multiple selection toggles it.
+        if key == Key::Char(' ') {
+            let Some(row) = selected.first().or(rows.first()).copied() else { return Ok(true) };
+            let now = match self.mode() {
+                SelectionMode::Multiple if selected.contains(&row) => {
+                    selected.iter().copied().filter(|k| *k != row).collect()
+                }
+                SelectionMode::Multiple => [selected.clone(), vec![row]].concat(),
+                _ => vec![row],
+            };
+            self.set_selected(&now)?;
+            let now = self.selected();
+            if now != selected {
+                self.events.emit(self.id, UiEvent::Changed(EventValue::Rows(now)));
             }
             return Ok(true);
         }

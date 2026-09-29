@@ -494,6 +494,12 @@ impl State {
                 }
                 set_hit_testable(node)?;
             }
+            (Prop::Keys(keys), Widget::Host(_) | Widget::Group(_) | Widget::List(_)) => match &node.keys {
+                Some(taken) => taken.set(keys.clone()),
+                None => {
+                    node.keys = Some(super::keys::Keys::new(id, self.emitter.clone(), &node.element, keys.clone())?);
+                }
+            },
             (Prop::Tooltip(text), _) => {
                 // On the control itself, not the Border a native render sits in.
                 let control = node.inner.as_ref().unwrap_or(&node.element);

@@ -337,6 +337,46 @@ private:
     uint64_t key;
 };
 
+static Qt::KeyboardModifiers qt_modifiers(int32_t flags) {
+    Qt::KeyboardModifiers mods;
+    if (flags & MQ_SHIFT) mods |= Qt::ShiftModifier;
+    if (flags & MQ_CONTROL) mods |= Qt::ControlModifier;
+    if (flags & MQ_ALT) mods |= Qt::AltModifier;
+    if (flags & MQ_META) mods |= Qt::MetaModifier;
+    return mods;
+}
+
+// A node's keys. Qt Quick sends a key press to the focused item, then up
+// its parent items until one accepts it, so this filter on the node's item
+// sees only what the items inside didn't use.
+class KeyFilter : public QObject {
+public:
+    KeyFilter(QObject* parent, uint64_t key) : QObject(parent), key(key) {}
+    ~KeyFilter() override { call(key, MQ_DROPPED); }
+    QList<QPair<int, Qt::KeyboardModifiers>> keys;
+protected:
+    bool eventFilter(QObject*, QEvent* event) override {
+        if (event->type() != QEvent::KeyPress) return false;
+        auto* press = static_cast<QKeyEvent*>(event);
+        // Shift+Tab comes as Backtab, and the keypad's Enter is Return.
+        int k = press->key();
+        if (k == Qt::Key_Backtab) k = Qt::Key_Tab;
+        if (k == Qt::Key_Enter) k = Qt::Key_Return;
+        Qt::KeyboardModifiers mods =
+            press->modifiers() & (Qt::ShiftModifier | Qt::ControlModifier | Qt::AltModifier | Qt::MetaModifier);
+        for (int i = 0; i < keys.size(); i++) {
+            if (keys[i].first == k && keys[i].second == mods) {
+                press->accept();
+                call(key, MQ_KEY, i);
+                return true;
+            }
+        }
+        return false;
+    }
+private:
+    uint64_t key;
+};
+
 // Tab and Shift+Tab follow a window-wide order, wrapping around. Qt Quick's
 // own chain follows item order within each parent.
 class TabOrder : public QObject {
@@ -582,6 +622,10 @@ int32_t mq_invoke(QObject* object, const char* method) {
     return QMetaObject::invokeMethod(object, method, Qt::DirectConnection) ? 1 : 0;
 }
 
+void mq_select_text(QObject* object, int32_t start, int32_t end) {
+    QMetaObject::invokeMethod(object, "select", Qt::DirectConnection, Q_ARG(int, start), Q_ARG(int, end));
+}
+
 void mq_set_node(QObject* object, uint64_t node) {
     object->setProperty("_mitsuamiNode", QVariant::fromValue<quint64>(node));
 }
@@ -660,6 +704,18 @@ QObject* mq_focus_item(QObject* window) {
     return quick ? quick->activeFocusItem() : nullptr;
 }
 
+QObject* mq_key_filter_new(QObject* item, uint64_t key) {
+    auto* filter = new KeyFilter(item, key);
+    item->installEventFilter(filter);
+    return filter;
+}
+
+void mq_key_filter_set(QObject* filter, const int32_t* keys, const int32_t* modifiers, int32_t count) {
+    auto* f = static_cast<KeyFilter*>(filter);
+    f->keys.clear();
+    for (int i = 0; i < count; i++) f->keys.append({keys[i], qt_modifiers(modifiers[i])});
+}
+
 void mq_force_focus(QObject* item) { qobject_cast<QQuickItem*>(item)->forceActiveFocus(Qt::OtherFocusReason); }
 
 void mq_set_tab_order(QObject* window, QObject* const* items, int32_t count) {
@@ -700,9 +756,9 @@ QT_END_NAMESPACE
 // A real key press and release, delivered to the window's focused item.
 // Shortcuts get it first, as QTest's do: a shortcut that takes it is all
 // the key does.
-void mq_key(QObject* window, int32_t key, int32_t shift, const char* text) {
+void mq_key(QObject* window, int32_t key, int32_t flags, const char* text) {
     auto* quick = qobject_cast<QQuickWindow*>(window);
-    Qt::KeyboardModifiers modifiers = shift ? Qt::ShiftModifier : Qt::NoModifier;
+    Qt::KeyboardModifiers modifiers = qt_modifiers(flags);
     QString t = QString::fromUtf8(text);
     if (qt_sendShortcutOverrideEvent(quick, 0, key, modifiers, t, false, 1)) return;
     QKeyEvent press(QEvent::KeyPress, key, modifiers, t);
