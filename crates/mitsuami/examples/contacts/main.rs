@@ -2,7 +2,8 @@
 //!
 //! Ten thousand contacts in the platform's own list control, which decides
 //! which rows to show; only those are built, and the rest are just keys.
-//! The search field filters them, the selection survives filtering while
+//! The platform's search field filters them when it asks for a search
+//! (as typing pauses, on Return), the selection survives filtering while
 //! its row stays, and activating a row (double-click or Return) opens it.
 
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]

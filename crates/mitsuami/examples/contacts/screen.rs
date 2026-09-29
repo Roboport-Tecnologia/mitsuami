@@ -119,7 +119,7 @@ pub fn Contacts() -> impl View {
     view! {
         <Column gap=Spacing::Md padding=Spacing::Lg grow=1.0>
             <Row gap=Spacing::Sm align=Align::Center>
-                <TextInput bind=query placeholder="Search" a11y_label="Search" grow=1.0/>
+                <SearchInput placeholder="Search" a11y_label="Search" grow=1.0 @search=move |q| query.set(q)/>
                 <Text text_style=TextStyle::Caption>{move || format!("{} of {total}", shown.get().len())}</Text>
             </Row>
             <Row gap=Spacing::Lg grow=1.0 shrink=1.0 basis=0>
