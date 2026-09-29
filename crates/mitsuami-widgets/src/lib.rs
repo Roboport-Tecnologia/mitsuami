@@ -54,7 +54,7 @@ macro_rules! widget {
 /// `<Window title="Machine" bind=editing>…</Window>`.
 pub struct Window<T = Value<String>> {
     title: T,
-    size: WindowSize,
+    size: Value<WindowSize>,
     modality: Value<Option<Modality>>,
     open: Value<bool>,
     full_screen: Option<Signal<bool>>,
@@ -69,7 +69,7 @@ impl Window {
     pub fn new(title: impl IntoValue<String>) -> Window {
         Window {
             title: title.into_value(),
-            size: WindowSize::FitHeight(480.0),
+            size: Value::Static(WindowSize::FitHeight(480.0)),
             modality: Value::Static(None),
             open: Value::Static(true),
             full_screen: None,
@@ -84,9 +84,11 @@ impl Window {
 impl<T> Window<T> {
     /// Its content size when it opens: a [`Size`](mitsuami_core::Size),
     /// [`WindowSize::FitHeight`] to fit the height to the content, or
-    /// [`WindowSize::FollowHeight`] to follow it as it changes.
-    pub fn size(mut self, size: impl Into<WindowSize>) -> Window<T> {
-        self.size = size.into();
+    /// [`WindowSize::FollowHeight`] to follow it as it changes. Read each
+    /// time it opens, as its modality is, so a change applies at the next
+    /// opening.
+    pub fn size(mut self, size: impl IntoValue<WindowSize>) -> Window<T> {
+        self.size = size.into_value();
         self
     }
 
@@ -167,7 +169,7 @@ impl View for Window {
         let owner = inject::<CurrentWindow>().map(|w| w.0);
         let ui = ui.clone();
         let show = move || {
-            let window = ui.create_window(String::new(), size);
+            let window = ui.create_window(String::new(), size.get());
             if let Some(modality) = modality.get() {
                 // With no window to block, it blocks the app.
                 let modality = if owner.is_some() { modality } else { Modality::Application };

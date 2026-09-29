@@ -1,5 +1,7 @@
 use std::fmt;
 
+use mitsuami_reactive::{IntoValue, Value};
+
 /// A size in logical units (points / DIPs), never physical pixels.
 #[derive(Clone, Copy, Debug, Default, PartialEq)]
 pub struct Size {
@@ -40,6 +42,18 @@ pub enum WindowSize {
 impl From<Size> for WindowSize {
     fn from(size: Size) -> WindowSize {
         WindowSize::Fixed(size)
+    }
+}
+
+impl IntoValue<WindowSize> for WindowSize {
+    fn into_value(self) -> Value<WindowSize> {
+        Value::Static(self)
+    }
+}
+
+impl IntoValue<WindowSize> for Size {
+    fn into_value(self) -> Value<WindowSize> {
+        Value::Static(WindowSize::Fixed(self))
     }
 }
 

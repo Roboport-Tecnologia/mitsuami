@@ -14,6 +14,9 @@
 //!   whole app (`Modality::Application`). It applies from the next opening.
 //!   Escape closes a modal one, as it closes dialogs (asking first, with
 //!   unsaved changes); a plain one ignores it.
+//!   A dialog follows its content's height; a plain window has a fixed
+//!   size, since macOS can open it as a tab of the launcher (always in
+//!   full screen), and a tab takes its window's size.
 //! - The app's id, name and icon (`App::id`, `name`, `icon`): the Dock's
 //!   icon and "Quit Machines" on macOS, the windows' icon on Windows,
 //!   " — Machines" after each title on KDE. GTK looks for the icon named
@@ -106,8 +109,13 @@ fn machine_window(name: &'static str, editing: Signal<bool>, saved: Settings, op
     view! {
         <Window
             title=move || if unsaved() { format!("{name} (edited)") } else { name.to_owned() }
-            // As tall as what it shows: it grows for the note below.
-            size=WindowSize::FollowHeight(360.0)
+            // A dialog is as tall as what it shows: it grows for the note
+            // below. A plain window has a size of its own: macOS can open
+            // it as a tab of the launcher, which would follow its height.
+            size=move || match MODALITIES[open_as.get()] {
+                None => WindowSize::Fixed(Size::new(360.0, 220.0)),
+                Some(_) => WindowSize::FollowHeight(360.0),
+            }
             modality=move || MODALITIES[open_as.get()]
             open=editing
             // Each opening starts from what's saved.

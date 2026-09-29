@@ -146,6 +146,30 @@ async fn fits_its_height_to_its_content(app: TestApp) {
     assert!((140.0..141.0).contains(&size.height), "{size:?}");
 }
 
+/// Its size is read as it opens: a change applies at the next opening.
+#[mitsuami_test::test]
+async fn its_size_applies_at_the_next_opening(app: TestApp) {
+    let open = signal(true);
+    let wide = signal(false);
+    app.mount(move || {
+        Window::new("Machine")
+            .size(move || WindowSize::Fixed(Size::new(if wide.get() { 400.0 } else { 300.0 }, 200.0)))
+            .open(open)
+            .content(|| Text::new("Screen"))
+    });
+    assert_eq!(app.ui().window_size(machine(&app).expect("open")).expect("sized").width, 300.0);
+
+    wide.set(true);
+    app.settle().await;
+    assert_eq!(app.ui().window_size(machine(&app).expect("still open")).expect("sized").width, 300.0);
+
+    open.set(false);
+    app.settle().await;
+    open.set(true);
+    app.settle().await;
+    assert_eq!(app.ui().window_size(machine(&app).expect("open again")).expect("sized").width, 400.0);
+}
+
 /// Up to a pixel of slack: platforms size windows in physical pixels.
 fn height_of(app: &TestApp, window: NodeId) -> f32 {
     app.ui().window_size(window).expect("sized").height
