@@ -4,7 +4,7 @@
 use objc2::rc::Retained;
 use objc2::runtime::AnyObject;
 use objc2::{DefinedClass, MainThreadMarker, MainThreadOnly, define_class, msg_send, sel};
-use objc2_app_kit::{NSControl, NSEventMask, NSStepper, NSTextField, NSView};
+use objc2_app_kit::{NSControl, NSStepper, NSTextField, NSView};
 use objc2_foundation::{NSPoint, NSRect, NSSize};
 
 use mitsuami_core::{EventSink, EventValue, NodeId, Size, UiEvent};
@@ -81,12 +81,6 @@ impl NumberField {
         let stepper = NSStepper::new(mtm);
         // Whole numbers only: Qt's spin box holds an `int`.
         stepper.setIncrement(1.0);
-        // Held down, a stepper steps again and again (`autorepeat`), but
-        // one made in code only sends its action for the first step unless
-        // its cell also sends on periodic events. Seen on macOS 26.
-        if let Some(cell) = stepper.cell() {
-            cell.sendActionOn(NSEventMask::LeftMouseDown | NSEventMask::LeftMouseDragged | NSEventMask::Periodic);
-        }
         let this = NumberField::alloc(mtm).set_ivars(NumberFieldIvars {
             id,
             events,
