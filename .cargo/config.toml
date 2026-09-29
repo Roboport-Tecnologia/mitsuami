@@ -2,3 +2,9 @@
 # `cargo mitsuami …` runs this workspace's CLI, so it's always the current
 # one. Apps install it instead: `cargo install cargo-mitsuami`.
 mitsuami = "run --quiet --package cargo-mitsuami --"
+
+# Debuginfo goes in .dwo files shared by every binary, not a copy in each
+# (macOS already does this by default). Not in the dev profile because MSVC
+# doesn't support it.
+[target.'cfg(target_os = "linux")']
+rustflags = ["-Csplit-debuginfo=unpacked"]

@@ -81,6 +81,11 @@ windows-collections = "0.100"
 windows-future = "0.100"
 windows-reference = "0.100"
 
+[profile.dev]
+# Full debuginfo made every example and test binary over 100MB, nearly all of
+# it DWARF duplicated per binary. Line tables keep file:line in backtraces.
+debug = "line-tables-only"
+
 [workspace.lints.rust]
 unsafe_op_in_unsafe_fn = "deny"
 missing_debug_implementations = "allow"
