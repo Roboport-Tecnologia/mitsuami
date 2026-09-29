@@ -182,15 +182,6 @@ const SECTIONS: [(&str, &[Example]); 5] = [
 
 fn showcase() -> impl View {
     let chosen = signal("Button");
-    // The sidebar, shown or hidden the platform's way; its own controls
-    // (macOS's divider, Windows' menu button) set it too.
-    let sidebar = signal(true);
-    let sidebar_icon = platform! {
-        macos => "sidebar.left",
-        gtk => "sidebar-show-symbolic",
-        kde => "sidebar-show",
-        windows => "\u{E700}",
-    };
     let sections = SECTIONS
         .iter()
         .map(|(title, examples)| {
@@ -228,12 +219,7 @@ fn showcase() -> impl View {
     // instead of scrolling.
     view! {
         <Column grow=1.0 min_height=0>
-            <Sidebar selection=chosen shown=sidebar>{sections}</Sidebar>
-            <Toolbar>
-                <ToggleButton bind=sidebar icon=sidebar_icon icon_only=true button_style=ButtonStyle::Borderless>
-                    "Sidebar"
-                </ToggleButton>
-            </Toolbar>
+            <Sidebar selection=chosen>{sections}</Sidebar>
             {pages}
         </Column>
     }
