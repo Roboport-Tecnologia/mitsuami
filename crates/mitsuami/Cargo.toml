@@ -15,6 +15,9 @@ default = ["gtk"]
 # Windows.
 gtk = ["dep:mitsuami-gtk"]
 kde = ["dep:mitsuami-kirigami", "mitsuami-kirigami/qt"]
+# With GTK, `Tabs` as a `gtk::Notebook` rather than libadwaita's inline view
+# switcher.
+gtk-notebook-tabs = ["mitsuami-gtk?/notebook-tabs"]
 
 [dependencies]
 mitsuami-core.workspace = true

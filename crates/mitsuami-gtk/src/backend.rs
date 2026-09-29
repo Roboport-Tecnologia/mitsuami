@@ -275,7 +275,7 @@ impl Widget {
             Widget::Scroll { scrolled, .. } => scrolled.upcast_ref(),
             Widget::List(list) => list.scrolled.upcast_ref(),
             Widget::Sidebar(sidebar) => sidebar.scrolled.upcast_ref(),
-            Widget::Tabs(tabs) => tabs.notebook.upcast_ref(),
+            Widget::Tabs(tabs) => tabs.root(),
             Widget::Group(group) => group.host.upcast_ref(),
             Widget::Custom { widget, .. } | Widget::Native { widget, .. } => widget,
             Widget::Drawn { drawn, .. } => drawn.area.upcast_ref(),
@@ -841,27 +841,27 @@ impl GtkHandle {
         self.pump();
     }
 
-    /// Lets notebooks that switched pages, or got new ones, place them now,
+    /// Lets tab views that switched pages, or got new ones, place them now,
     /// rather than at the next frame, as header bars do.
     fn layout_tabs(&self) {
-        let notebooks: Vec<gtk::Notebook> = {
+        let views: Vec<gtk::Widget> = {
             let state = self.state.borrow();
             state
                 .nodes
                 .values()
                 .filter_map(|n| match &n.widget {
-                    Widget::Tabs(tabs) if tabs.notebook.is_mapped() && tabs.notebook.should_layout() => {
-                        Some(tabs.notebook.clone())
+                    Widget::Tabs(tabs) if tabs.root().is_mapped() && tabs.root().should_layout() => {
+                        Some(tabs.root().clone())
                     }
                     _ => None,
                 })
                 .collect()
         };
-        for notebook in notebooks {
-            let Some(bounds) = notebook.parent().and_then(|p| notebook.compute_bounds(&p)) else { continue };
-            notebook.measure(gtk::Orientation::Horizontal, -1);
+        for view in views {
+            let Some(bounds) = view.parent().and_then(|p| view.compute_bounds(&p)) else { continue };
+            view.measure(gtk::Orientation::Horizontal, -1);
             let transform = gsk::Transform::new().translate(&graphene::Point::new(bounds.x(), bounds.y()));
-            notebook.allocate(bounds.width().round() as i32, bounds.height().round() as i32, -1, Some(transform));
+            view.allocate(bounds.width().round() as i32, bounds.height().round() as i32, -1, Some(transform));
         }
         self.pump();
     }
@@ -1985,7 +1985,7 @@ impl State {
                 {
                     parts.split.take().unwrap().remove(&parts.window, &parts.header, &parts.host);
                 }
-                // A page destroyed without being removed: out of its notebook.
+                // A page destroyed without being removed: out of its tab view.
                 if let Some(Widget::Tabs(tabs)) = node.parent.and_then(|p| self.nodes.get(&p)).map(|n| &n.widget) {
                     tabs.remove(&widget);
                 }
@@ -2021,7 +2021,7 @@ impl State {
                     }
                     return;
                 }
-                // A page: the notebook places it.
+                // A page: the tab view places it.
                 if let Some(Widget::Tabs(tabs)) =
                     self.nodes[id].parent.and_then(|p| self.nodes.get(&p)).map(|p| &p.widget)
                 {
@@ -2368,12 +2368,11 @@ impl Backend for GtkBackend {
                     _ => Err(ActionError::Unsupported),
                 };
             }
-            // A tab, as the user clicks it: the notebook reports it. Its
-            // tabs take focus, the notebook itself.
+            // A tab, as the user clicks it: the view reports it.
             if let Widget::Tabs(tabs) = &node.widget {
                 return match action {
                     A11yAction::SetValue(title) if tabs.choose(title) => Ok(()),
-                    A11yAction::Focus if tabs.notebook.grab_focus() => Ok(()),
+                    A11yAction::Focus if tabs.focus() => Ok(()),
                     A11yAction::ScrollIntoView => Ok(()),
                     _ => Err(ActionError::Unsupported),
                 };
@@ -2816,7 +2815,7 @@ impl Backend for GtkBackend {
                     _ => Rect::ZERO,
                 }
             }
-            // A page is where the notebook put it; the others aren't shown.
+            // A page is where the tab view put it; the others aren't shown.
             (_, Some(Widget::Tabs(tabs))) => tabs.page_frame(widget, frame.size),
             _ => frame,
         };

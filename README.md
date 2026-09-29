@@ -96,7 +96,8 @@ Two are crates of their own, so the workspace's tests don't build wgpu:
 - `cargo run --manifest-path examples/gpu-surface/Cargo.toml`: a surface
   presented to with wgpu from a thread of its own.
 
-On Linux, building needs the GTK 4 development files (4.10 or newer), and
+On Linux, building needs the GTK 4 (4.10 or newer) and libadwaita (1.4 or
+newer) development files, and
 native tests need `gtk4-broadwayd`, GTK's in-memory display server: tests
 run on a private Broadway display (with desktop portals off), so windows get
 their exact sizes and dialogs stay off your desktop. `MITSUAMI_SHOW_WINDOWS=1`

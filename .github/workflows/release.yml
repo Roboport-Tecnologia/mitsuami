@@ -177,7 +177,7 @@ jobs:
 
           - **Windows** (x86_64): needs the [Windows App Runtime 2.4 or later](https://aka.ms/windowsappsdk/2.5/latest/windowsappruntimeinstall-x64.exe).
           - **macOS** (Apple silicon and Intel): the binary isn't signed. Run `xattr -dr com.apple.quarantine <folder>` after extracting, or allow it in System Settings → Privacy & Security.
-          - **Linux** (x86_64): needs GTK 4.10 or later, libadwaita 1.4 or later and glibc 2.39 or later (Ubuntu 24.04 and newer).
+          - **Linux** (x86_64): needs GTK 4.10 or later, libadwaita 1.4 or later (1.7 for its tabs as a view switcher) and glibc 2.39 or later (Ubuntu 24.04 and newer).
           - **Linux, KDE Plasma** (x86_64, the `-kde` archive): the same showcase on Qt Quick and Kirigami. Built on Arch Linux as of 20 September 2026, so it needs Qt 6, Kirigami and qqc2-desktop-style at least as new as Arch's then, and a glibc to match.
           EOF
           gh release create "$GITHUB_REF_NAME" dist/* --repo "$GITHUB_REPOSITORY" \

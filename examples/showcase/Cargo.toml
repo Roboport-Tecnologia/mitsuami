@@ -15,11 +15,13 @@ name = "showcase"
 path = "src/main.rs"
 
 # The Linux toolkit, as `mitsuami`'s: `--no-default-features --features kde`
-# builds it on Qt Quick and Kirigami without GTK.
+# builds it on Qt Quick and Kirigami without GTK, and `gtk-notebook-tabs`
+# shows its tabs as a `gtk::Notebook`.
 [features]
 default = ["gtk"]
 gtk = ["mitsuami/gtk"]
 kde = ["mitsuami/kde"]
+gtk-notebook-tabs = ["mitsuami/gtk-notebook-tabs"]
 
 [dependencies]
 mitsuami = { path = "../../crates/mitsuami", default-features = false }
