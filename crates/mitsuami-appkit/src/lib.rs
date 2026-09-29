@@ -29,6 +29,7 @@ mod services;
 mod sidebar;
 #[cfg(target_os = "macos")]
 mod surface;
+#[cfg(target_os = "macos")]
 mod tabs;
 #[cfg(target_os = "macos")]
 mod toolbar;
