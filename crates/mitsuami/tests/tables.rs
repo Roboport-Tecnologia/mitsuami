@@ -299,4 +299,23 @@ async fn tables_are_tags(app: TestApp) {
     assert_eq!(row_names(&app), ["File 0 0 KB", "File 1 37 KB"]);
 }
 
+/// Multiple selection leaves the columns the table's width: WinUI's rows
+/// show a check box before their cells, and the columns (with the header)
+/// start after it.
+#[mitsuami_test::test]
+async fn multiple_selection_keeps_the_columns_in_the_table(app: TestApp) {
+    let data = signal(files(3));
+    let mode = signal(SelectionMode::Single);
+    app.mount(move || table(data, by_name()).selection_mode(mode));
+    app.settle().await;
+    let kind = || app.get_by_role(Role::Row, "File 0 0 KB Document").node().children[2].frame;
+    let (table, single) = (app.get_by_test_id("table").frame(), kind());
+
+    mode.set(SelectionMode::Multiple);
+    app.settle().await;
+    let multiple = kind();
+    assert!(multiple.max_x() <= table.max_x(), "{multiple:?} in {table:?}");
+    assert_eq!(multiple.width(), single.width());
+}
+
 mitsuami_test::main!();

@@ -175,6 +175,9 @@ struct Data {
     width: Option<f32>,
     row_width: Option<f32>,
     scroll: Option<w::IScrollViewer>,
+    /// Where a row's content starts in its container: after the check box
+    /// `ListViewItem`s show with multiple selection, else 0.
+    inset: f64,
     /// Set while the backend changes the items or the selection: XAML
     /// reports selections in between (items removed) that aren't the
     /// user's.
@@ -217,8 +220,14 @@ impl Data {
         columns.max(self.available() as f64)
     }
 
-    /// The room the rows have: the list's width, less a frame's border.
+    /// The room the rows' content has: the list's width, less a frame's
+    /// border and the check box.
     fn available(&self) -> f32 {
+        (self.inside() - self.inset as f32).max(0.0)
+    }
+
+    /// The list's width, less a frame's border.
+    fn inside(&self) -> f32 {
         let border = if self.style.is_some_and(ListStyle::framed) { 2.0 * FRAME_BORDER } else { 0.0 };
         (self.width.unwrap_or(0.0) - border).max(0.0)
     }
@@ -270,12 +279,13 @@ fn size_columns(d: &mut Data) -> Option<Vec<f32>> {
     })
 }
 
-/// Puts a table's header buttons and grippers over their columns, moved
-/// with the rows' sideways scroll, and shows the sort.
+/// Puts a table's header buttons and grippers over their columns (past
+/// the rows' check boxes), moved with the rows' sideways scroll, and shows
+/// the sort.
 fn place_header(d: &Data) {
     let Some(header) = &d.header else { return };
     for (column, (button, icon, gripper)) in header.columns.iter().enumerate() {
-        let (x, width) = (d.column_x(column) - d.sideways, d.widths.get(column).copied().unwrap_or(0.0));
+        let (x, width) = (d.inset + d.column_x(column) - d.sideways, d.widths.get(column).copied().unwrap_or(0.0));
         if let Ok(fe) = button.cast::<w::IFrameworkElement>() {
             _ = fe.SetWidth(width);
             _ = fe.SetHeight(HEADER_HEIGHT);
@@ -295,7 +305,7 @@ fn place_header(d: &Data) {
     }
     // The header shows only what's above the rows.
     if let Ok(clip) = w::RectangleGeometry::new() {
-        let rect = w::Rect { x: 0.0, y: 0.0, width: d.available(), height: HEADER_HEIGHT as f32 };
+        let rect = w::Rect { x: 0.0, y: 0.0, width: d.inside(), height: HEADER_HEIGHT as f32 };
         if clip.cast::<w::IRectangleGeometry>().and_then(|g| g.SetRect(rect)).is_ok() {
             _ = header.canvas.cast::<w::IUIElement>().and_then(|e| e.SetClip(&clip));
         }
@@ -993,10 +1003,34 @@ impl List {
     /// and reports the rows realised. XAML would at its next layout pass.
     pub(crate) fn layout(&self) {
         _ = self.view.cast::<w::IUIElement>().and_then(|e| e.UpdateLayout());
+        self.measure_inset();
         if let Some(scroll) = self.scroll_viewer() {
             report_offset(&self.events, self.id, &self.offset, &scroll, self.is_table());
         }
         report(&self.data, &self.events, self.id);
+    }
+
+    /// Finds where rows' content starts in their containers, from a row
+    /// realised: XAML's `ListViewItem` puts a check box before it with
+    /// multiple selection. The header and columns (a list's rows' width)
+    /// follow it.
+    fn measure_inset(&self) {
+        let inset = {
+            let d = self.data.borrow();
+            let Some((key, cell)) = d.cells.iter().next() else { return };
+            let Some(item) = d.index.get(key).and_then(|i| d.items.get(*i)) else { return };
+            let measured = (|| -> R<f32> {
+                let container = self.view.cast::<w::IItemContainerMapping>()?.ContainerFromItem(item)?;
+                let transform = cell.cast::<w::IUIElement>()?.TransformToVisual(&container.cast::<w::UIElement>()?)?;
+                Ok(transform.cast::<w::IGeneralTransform>()?.TransformPoint(w::Point { x: 0.0, y: 0.0 })?.x)
+            })();
+            let Ok(inset) = measured else { return };
+            f64::from(inset.max(0.0).round())
+        };
+        if std::mem::replace(&mut self.data.borrow_mut().inset, inset) != inset {
+            self.report_row_width();
+            relayout(&self.data, &self.events, self.id);
+        }
     }
 
     pub(crate) fn scroll_offset(&self) -> Point {
