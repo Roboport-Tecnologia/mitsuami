@@ -23,7 +23,7 @@ use crate::runtime;
 /// raises `Closing`, which asks the app.
 /// Whether the app runs from a package (MSIX), which has its own id and
 /// icon.
-pub(super) fn packaged() -> bool {
+pub(crate) fn packaged() -> bool {
     let mut length = 0u32;
     unsafe { w::GetCurrentPackageFullName(&mut length, windows_core::PWSTR::null()) != w::APPMODEL_ERROR_NO_PACKAGE }
 }

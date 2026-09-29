@@ -43,7 +43,8 @@ use crate::runtime;
 use crate::surface::SurfaceHost;
 use fields::inner_text_box;
 pub(crate) use measure::measure_element;
-use new_window::{packaged, set_icon, window_icon};
+pub(crate) use new_window::packaged;
+use new_window::{set_icon, window_icon};
 use styles::font_sizes;
 pub(crate) use styles::style;
 

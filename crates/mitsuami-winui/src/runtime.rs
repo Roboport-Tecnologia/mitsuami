@@ -43,7 +43,11 @@ pub fn init() {
 }
 
 fn try_init() -> Result<()> {
-    bootstrap()?;
+    // A package declares the runtime as a dependency in its manifest, and
+    // Windows adds it to the package graph before we start.
+    if !crate::backend::packaged() {
+        bootstrap()?;
+    }
     unsafe {
         // Logical units everywhere; XAML scales per monitor.
         _ = SetProcessDpiAwarenessContext(DPI_AWARENESS_CONTEXT_PER_MONITOR_AWARE_V2);
@@ -69,6 +73,7 @@ fn try_init() -> Result<()> {
 /// Framework-dependent bootstrap: adds the installed runtime package to our
 /// process's package graph, as `windows-reactor` does.
 fn bootstrap() -> Result<()> {
+    let (try_create, add) = dynamic_dependencies()?;
     let arch = match std::env::consts::ARCH {
         "x86_64" => PackageDependencyProcessorArchitectures_X64,
         "aarch64" => PackageDependencyProcessorArchitectures_Arm64,
@@ -77,7 +82,7 @@ fn bootstrap() -> Result<()> {
     };
     let mut id = PWSTR::null();
     unsafe {
-        TryCreatePackageDependency(
+        try_create(
             std::ptr::null_mut(),
             FRAMEWORK_FAMILY,
             PACKAGE_VERSION { Anonymous: PACKAGE_VERSION_0 { Version: MIN_VERSION } },
@@ -90,10 +95,52 @@ fn bootstrap() -> Result<()> {
         .ok()?;
         let mut context = std::ptr::null_mut();
         let mut full_name = PWSTR::null();
-        let added = AddPackageDependency(PCWSTR(id.0), 0, 0, &mut context, &mut full_name);
+        let added = add(PCWSTR(id.0), 0, 0, &mut context, &mut full_name);
         _ = HeapFree(GetProcessHeap(), 0, id.0.cast());
         _ = HeapFree(GetProcessHeap(), 0, full_name.0.cast());
         added.ok()
+    }
+}
+
+type TryCreatePackageDependency = unsafe extern "system" fn(
+    PSID,
+    PCWSTR,
+    PACKAGE_VERSION,
+    PackageDependencyProcessorArchitectures,
+    PackageDependencyLifetimeKind,
+    PCWSTR,
+    CreatePackageDependencyOptions,
+    *mut PWSTR,
+) -> windows_core::HRESULT;
+type AddPackageDependency = unsafe extern "system" fn(
+    PCWSTR,
+    i32,
+    AddPackageDependencyOptions,
+    *mut PACKAGEDEPENDENCY_CONTEXT,
+    *mut PWSTR,
+) -> windows_core::HRESULT;
+
+/// Windows' dynamic dependency API, looked up rather than linked: it came
+/// with Windows 11, and a link would keep the executable from loading on
+/// Windows 10 even packaged, where it isn't needed.
+fn dynamic_dependencies() -> Result<(TryCreatePackageDependency, AddPackageDependency)> {
+    let missing = || {
+        windows_core::Error::new(
+            windows_core::HRESULT(0x8007_007Fu32 as i32), // ERROR_PROC_NOT_FOUND
+            "an unpackaged app needs Windows 11; on Windows 10 install it as an MSIX package",
+        )
+    };
+    unsafe {
+        let module = GetModuleHandleW(w!("kernelbase.dll"));
+        if module.is_null() {
+            return Err(missing());
+        }
+        let try_create = GetProcAddress(module, windows_core::s!("TryCreatePackageDependency")).ok_or_else(missing)?;
+        let add = GetProcAddress(module, windows_core::s!("AddPackageDependency")).ok_or_else(missing)?;
+        Ok((
+            std::mem::transmute::<unsafe extern "system" fn() -> isize, TryCreatePackageDependency>(try_create),
+            std::mem::transmute::<unsafe extern "system" fn() -> isize, AddPackageDependency>(add),
+        ))
     }
 }
 

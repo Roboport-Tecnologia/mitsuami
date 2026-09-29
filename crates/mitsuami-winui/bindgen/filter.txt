@@ -206,8 +206,12 @@ Windows.UI.ViewManagement.IAccessibilitySettings::get_HighContrast
 Windows.Foundation.PropertyValue::{CreateString, CreateDouble, CreateBoolean}
 Windows.Foundation.IPropertyValue::{GetString, GetBoolean}
 Windows.Foundation.Size
-Windows.Win32.AddPackageDependency
-Windows.Win32.TryCreatePackageDependency
+Windows.Win32.AddPackageDependencyOptions
+Windows.Win32.CreatePackageDependencyOptions
+Windows.Win32.PackageDependencyLifetimeKind
+Windows.Win32.PACKAGEDEPENDENCY_CONTEXT
+Windows.Win32.PSID
+Windows.Win32.GetProcAddress
 Windows.Win32.PACKAGE_VERSION
 Windows.Win32.PackageDependencyProcessorArchitectures
 Windows.Win32.STATEREPOSITORY_E_DEPENDENCY_NOT_RESOLVED
