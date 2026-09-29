@@ -72,16 +72,16 @@ fn changing() -> impl View {
     }
 }
 
+pub fn page() -> impl View {
+    view! {
+        <Column padding=Spacing::Xl gap=Spacing::Xl>
+            {status()}
+            {controls()}
+            {changing()}
+        </Column>
+    }
+}
+
 fn main() {
-    App::new()
-        .window("Tooltips", WindowSize::FitHeight(480.0), || {
-            view! {
-                <Column padding=Spacing::Xl gap=Spacing::Xl>
-                    {status()}
-                    {controls()}
-                    {changing()}
-                </Column>
-            }
-        })
-        .run();
+    App::new().window("Tooltips", WindowSize::FitHeight(480.0), page).run();
 }

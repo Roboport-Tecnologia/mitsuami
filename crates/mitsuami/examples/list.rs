@@ -171,18 +171,18 @@ fn platform_option() -> impl View {
     }
 }
 
+pub fn page() -> impl View {
+    view! {
+        <ScrollView>
+            <Column padding=Spacing::Xl gap=Spacing::Xl>
+                {gallery()}
+                {playground()}
+                {platform_option()}
+            </Column>
+        </ScrollView>
+    }
+}
+
 fn main() {
-    App::new()
-        .window("List", WindowSize::FitHeight(640.0), || {
-            view! {
-                <ScrollView>
-                    <Column padding=Spacing::Xl gap=Spacing::Xl>
-                        {gallery()}
-                        {playground()}
-                        {platform_option()}
-                    </Column>
-                </ScrollView>
-            }
-        })
-        .run();
+    App::new().window("List", WindowSize::FitHeight(640.0), page).run();
 }

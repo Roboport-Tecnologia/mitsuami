@@ -105,15 +105,15 @@ fn boxes() -> impl View {
     }
 }
 
+pub fn page() -> impl View {
+    view! {
+        <Column padding=Spacing::Xl gap=Spacing::Xl>
+            {machines()}
+            {boxes()}
+        </Column>
+    }
+}
+
 fn main() {
-    App::new()
-        .window("Context Menus", WindowSize::FitHeight(420.0), || {
-            view! {
-                <Column padding=Spacing::Xl gap=Spacing::Xl>
-                    {machines()}
-                    {boxes()}
-                </Column>
-            }
-        })
-        .run();
+    App::new().window("Context Menus", WindowSize::FitHeight(420.0), page).run();
 }

@@ -1,0 +1,16 @@
+# Every example in one window: `cargo run --manifest-path examples/showcase/Cargo.toml`.
+# A crate of its own, outside the workspace, as the GPU surface example it
+# shows is: so wgpu isn't built with the workspace's tests.
+[package]
+name = "showcase-example"
+version = "0.0.0"
+edition = "2024"
+license = "MIT OR Apache-2.0"
+publish = false
+
+[workspace]
+
+[dependencies]
+mitsuami = { path = "../../crates/mitsuami" }
+wgpu = "30"
+pollster = "0.4"

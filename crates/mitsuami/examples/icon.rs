@@ -114,7 +114,7 @@ const LIBRARY: [(&str, &str, Kind); 4] = [
     ("Guest tools (3dfx)", "guest-tools-3dfx.iso", Kind::Tools),
 ];
 
-fn library() -> impl View {
+pub fn library() -> impl View {
     let discs = signal(
         LIBRARY
             .iter()

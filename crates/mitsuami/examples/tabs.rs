@@ -19,7 +19,7 @@ enum Pane {
     Advanced,
 }
 
-fn preferences() -> impl View {
+pub fn preferences() -> impl View {
     let pane = signal(Pane::General);
     let next = move || {
         pane.set(match pane.get() {

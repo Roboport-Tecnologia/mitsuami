@@ -418,7 +418,7 @@ MITSUAMI_NATIVE=1 cargo test                    # all app suites on your backend
 MITSUAMI_NATIVE=1 cargo test -p mitsuami --test conformance   # the contract
 MITSUAMI_SHOW_WINDOWS=1 MITSUAMI_NATIVE=1 cargo test          # watch it
 cargo run -p mitsuami --example run_loop_smoke  # timers, background wake-up, exit (must exit by itself)
-cargo run -p mitsuami --example showcase        # look at it
+cargo run --manifest-path examples/showcase/Cargo.toml   # look at it: every example
 ```
 
 - **`tests/conformance.rs` is the contract.** Get it green first; the other suites mostly follow.

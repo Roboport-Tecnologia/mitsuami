@@ -106,16 +106,16 @@ fn platform_option() -> impl View {
     }
 }
 
+pub fn page() -> impl View {
+    view! {
+        <Column padding=Spacing::Xl gap=Spacing::Xl>
+            {gallery()}
+            {playground()}
+            {platform_option()}
+        </Column>
+    }
+}
+
 fn main() {
-    App::new()
-        .window("NumberInput", WindowSize::FitHeight(480.0), || {
-            view! {
-                <Column padding=Spacing::Xl gap=Spacing::Xl>
-                    {gallery()}
-                    {playground()}
-                    {platform_option()}
-                </Column>
-            }
-        })
-        .run();
+    App::new().window("NumberInput", WindowSize::FitHeight(480.0), page).run();
 }

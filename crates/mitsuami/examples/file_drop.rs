@@ -35,7 +35,7 @@ fn zone(title: &'static str, hint: &'static str, drop: FileDrop, dropped: Signal
         .child(Text::new(hint).color(Color::SecondaryLabel))
 }
 
-fn window() -> impl View {
+pub fn window() -> impl View {
     let dropped = signal(Vec::<String>::new());
     let add = move || {
         spawn_local(async move {

@@ -161,40 +161,42 @@ fn machine_row(name: &'static str, saved: Settings, open_as: Signal<usize>) -> i
     }
 }
 
+pub fn page() -> impl View {
+    let about = signal(false);
+    let open_as = signal(1);
+    view! {
+        <Column padding=Spacing::Xl gap=Spacing::Md>
+            <Text text_style=TextStyle::Title>"Machines"</Text>
+            <Row gap=Spacing::Md align=Align::Center>
+                <Text>"Open machines as"</Text>
+                // A sheet on macOS; elsewhere a dialog that blocks
+                // this window (GTK's block the whole app).
+                <Select
+                    label="Open machines as"
+                    options=["Plain windows", "Blocking this window", "Blocking the app"]
+                    bind=open_as
+                />
+            </Row>
+            {machine_row("Windows 98", Settings::new(64, 1), open_as)}
+            {machine_row("Windows XP", Settings::new(256, 2), open_as)}
+            <Row justify=Justify::End>
+                <Button @click=move || about.set(true)>"About"</Button>
+            </Row>
+            <Window title="About" bind=about>
+                <Column padding=Spacing::Xl gap=Spacing::Sm>
+                    <Text text_style=TextStyle::Headline>"mitsuami"</Text>
+                    <Text>"Windows opened while the app runs."</Text>
+                </Column>
+            </Window>
+        </Column>
+    }
+}
+
 fn main() {
     App::new()
         .id("org.mitsuami.Machines")
         .name("Machines")
         .icon(AppIcon::bytes(include_bytes!("../tests/assets/blue-red-20x10.png").as_slice()))
-        .window("Machines", WindowSize::FitHeight(420.0), || {
-            let about = signal(false);
-            let open_as = signal(1);
-            view! {
-                <Column padding=Spacing::Xl gap=Spacing::Md>
-                    <Text text_style=TextStyle::Title>"Machines"</Text>
-                    <Row gap=Spacing::Md align=Align::Center>
-                        <Text>"Open machines as"</Text>
-                        // A sheet on macOS; elsewhere a dialog that blocks
-                        // this window (GTK's block the whole app).
-                        <Select
-                            label="Open machines as"
-                            options=["Plain windows", "Blocking this window", "Blocking the app"]
-                            bind=open_as
-                        />
-                    </Row>
-                    {machine_row("Windows 98", Settings::new(64, 1), open_as)}
-                    {machine_row("Windows XP", Settings::new(256, 2), open_as)}
-                    <Row justify=Justify::End>
-                        <Button @click=move || about.set(true)>"About"</Button>
-                    </Row>
-                    <Window title="About" bind=about>
-                        <Column padding=Spacing::Xl gap=Spacing::Sm>
-                            <Text text_style=TextStyle::Headline>"mitsuami"</Text>
-                            <Text>"Windows opened while the app runs."</Text>
-                        </Column>
-                    </Window>
-                </Column>
-            }
-        })
+        .window("Machines", WindowSize::FitHeight(420.0), page)
         .run();
 }

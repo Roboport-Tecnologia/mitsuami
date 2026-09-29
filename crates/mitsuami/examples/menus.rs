@@ -28,7 +28,7 @@ enum Zoom {
     Large,
 }
 
-fn launcher() -> impl View {
+pub fn launcher() -> impl View {
     let running = signal(false);
     let sidebar = signal(true);
     let zoom = signal(Zoom::Small);

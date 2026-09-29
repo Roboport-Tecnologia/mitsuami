@@ -10,8 +10,6 @@
 //!   keyed `For`.
 //! - The quote loads with a `resource` (loading, error, refetch), and the
 //!   sync button runs an `action` (pending, latest value).
-//!
-//! `showcase` is the same kind of tour written with the builder API.
 
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 

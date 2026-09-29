@@ -127,16 +127,16 @@ fn platform_option() -> impl View {
     }
 }
 
+pub fn page() -> impl View {
+    view! {
+        <Column padding=Spacing::Xl gap=Spacing::Xl>
+            {gallery()}
+            {machine()}
+            {platform_option()}
+        </Column>
+    }
+}
+
 fn main() {
-    App::new()
-        .window("Menu buttons", WindowSize::FitHeight(560.0), || {
-            view! {
-                <Column padding=Spacing::Xl gap=Spacing::Xl>
-                    {gallery()}
-                    {machine()}
-                    {platform_option()}
-                </Column>
-            }
-        })
-        .run();
+    App::new().window("Menu buttons", WindowSize::FitHeight(560.0), page).run();
 }

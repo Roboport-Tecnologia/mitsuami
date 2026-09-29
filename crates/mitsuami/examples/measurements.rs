@@ -63,7 +63,7 @@ fn panel() -> impl View {
     }
 }
 
-fn content() -> impl View {
+pub fn content() -> impl View {
     let viewport = use_viewport();
     let wide = computed(move || viewport.get().width >= 640.0);
     view! {

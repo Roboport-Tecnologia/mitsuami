@@ -86,9 +86,15 @@ never open real dialogs or touch your clipboard.
 Try the example apps with `cargo run -p mitsuami --example <name>`:
 
 - `todos`: components, `view!`, a store, a resource and an action.
-- `showcase`: a counter, a form, menus and a dialog, with the builder API.
 - `escape_hatches`: custom widgets that are native where the platform has
   the control, and `platform!`.
+
+Two are crates of their own, so the workspace's tests don't build wgpu:
+
+- `cargo run --manifest-path examples/showcase/Cargo.toml`: every example
+  in one window, picked from its sidebar, the GPU surface among them.
+- `cargo run --manifest-path examples/gpu-surface/Cargo.toml`: a surface
+  presented to with wgpu from a thread of its own.
 
 On Linux, building needs the GTK 4 development files (4.10 or newer), and
 native tests need `gtk4-broadwayd`, GTK's in-memory display server: tests

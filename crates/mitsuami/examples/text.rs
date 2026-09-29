@@ -152,16 +152,16 @@ fn platform_option() -> impl View {
     }
 }
 
+pub fn page() -> impl View {
+    view! {
+        <Column padding=Spacing::Xl gap=Spacing::Xl>
+            {gallery()}
+            {playground()}
+            {platform_option()}
+        </Column>
+    }
+}
+
 fn main() {
-    App::new()
-        .window("Text", WindowSize::FitHeight(640.0), || {
-            view! {
-                <Column padding=Spacing::Xl gap=Spacing::Xl>
-                    {gallery()}
-                    {playground()}
-                    {platform_option()}
-                </Column>
-            }
-        })
-        .run();
+    App::new().window("Text", WindowSize::FitHeight(640.0), page).run();
 }

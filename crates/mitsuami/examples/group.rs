@@ -14,7 +14,7 @@
 
 use mitsuami::prelude::*;
 
-fn settings() -> impl View {
+pub fn settings() -> impl View {
     let headings = signal(true);
     let heading = move |title: &'static str| move || if headings.get() { title.to_string() } else { String::new() };
     let memory = signal(64);

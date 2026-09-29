@@ -15,7 +15,7 @@ use mitsuami::prelude::*;
 const LONG: &str = "Couldn't start the player: /Applications/2ksbox.app/Contents/MacOS/player \
                     exited with status 1 before its window opened.";
 
-fn launcher() -> impl View {
+pub fn launcher() -> impl View {
     let busy = signal(false);
     let status = signal(String::from("Ready"));
     let machines = signal(0);
