@@ -520,7 +520,8 @@ impl State {
             }
             // The button's own flyout, which XAML opens on a click, Enter,
             // Space or UIA's Expand. Radio groups are named apart from its
-            // context menu's.
+            // context menu's. Flyouts open above by default; drop-down
+            // buttons' open below, as WinUI's own samples set them.
             (Prop::Menu(entries), Widget::MenuButton(b)) => {
                 let events = self.emitter.clone();
                 let menu = node.button_menu.get_or_insert_with(|| {
@@ -529,7 +530,10 @@ impl State {
                 if menu.update(entries, format!("button-{id}"))? {
                     let button = b.cast::<w::IButton>()?;
                     match &menu.flyout {
-                        Some(flyout) => button.SetFlyout(flyout)?,
+                        Some(flyout) => {
+                            flyout.cast::<w::IFlyoutBase>()?.SetPlacement(w::FlyoutPlacementMode::Bottom)?;
+                            button.SetFlyout(flyout)?
+                        }
                         None => button.SetFlyout(None::<&w::FlyoutBase>)?,
                     }
                 }

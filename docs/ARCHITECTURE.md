@@ -831,10 +831,10 @@ A label, in a text style (§5), wrapping at words.
   - AppKit: a pull-down's title is its first menu item, so the backend puts the caption and icon there and makes the menu again with it first. It keeps the caption as the accessible name when only the image shows.
   - GTK: a caption shows GTK's arrow. An icon with a caption is libadwaita's `ButtonContent` with `always-show-arrow`. An icon alone has no arrow, as GNOME's icon menu buttons have none. The actions are in a group of their own (`button.*`), apart from the context menu's.
   - Kirigami: its role is `Accessible.ButtonMenu`, for which the desktop style should draw a menu arrow, as Breeze does for a `QPushButton` with a menu. The menu pops up under the button and moves into the window's overlay while open, as context menus do. The button shows pressed while it's open.
-  - WinUI: the content is a `Button`'s. Fluent has no subtle drop-down button, and `SubtleButtonStyle` would replace the template and its chevron, so borderless is a style that only clears the fill and border; it still fills on hover.
+  - WinUI: the content is a `Button`'s. Fluent has no subtle drop-down button, and `SubtleButtonStyle` would replace the template and its chevron, so borderless is a style that only clears the fill and border; it still fills on hover. A flyout opens above its target by default, so the menu is set to open below (`Placement` `Bottom`), as WinUI's own drop-down buttons set it.
 - **No click of its own:** clicking opens the menu, which is modal, so `perform` takes `MenuItem(id)` (the item's own path, as for context menus) and refuses `Activate`. It's a `Role::MenuButton` to assistive technology, named by its caption, and in the Tab order.
 - **The example's tweaks:** a large control size on AppKit, the popover opening upwards on GTK (`direction`), `flat` on Qt, a pill-shaped `CornerRadius` on WinUI.
-- **Where it has run:** AppKit and headless. Only type-checked on GTK, Kirigami and WinUI; to verify there: that Breeze draws the arrow for a `QQC2.Button` with the `ButtonMenu` role; that Kirigami's menu pops up under the button in the overlay; that WinUI's borderless style keeps the chevron; the arrow's room in each measure.
+- **Where it has run:** AppKit, WinUI and headless. Only type-checked on GTK and Kirigami; to verify there: that Breeze draws the arrow for a `QQC2.Button` with the `ButtonMenu` role; that Kirigami's menu pops up under the button in the overlay; that WinUI's borderless style keeps the chevron; the arrow's room in each measure.
 
 ### 13.5 Checkbox
 

@@ -2361,6 +2361,33 @@ impl windows_core::RuntimeName for FlyoutBase {
 unsafe impl Send for FlyoutBase {}
 unsafe impl Sync for FlyoutBase {}
 #[repr(transparent)]
+#[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
+pub struct FlyoutPlacementMode(pub i32);
+impl FlyoutPlacementMode {
+    pub const Top: Self = Self(0);
+    pub const Bottom: Self = Self(1);
+    pub const Left: Self = Self(2);
+    pub const Right: Self = Self(3);
+    pub const Full: Self = Self(4);
+    pub const TopEdgeAlignedLeft: Self = Self(5);
+    pub const TopEdgeAlignedRight: Self = Self(6);
+    pub const BottomEdgeAlignedLeft: Self = Self(7);
+    pub const BottomEdgeAlignedRight: Self = Self(8);
+    pub const LeftEdgeAlignedTop: Self = Self(9);
+    pub const LeftEdgeAlignedBottom: Self = Self(10);
+    pub const RightEdgeAlignedTop: Self = Self(11);
+    pub const RightEdgeAlignedBottom: Self = Self(12);
+    pub const Auto: Self = Self(13);
+}
+impl windows_core::imp::TypeKind for FlyoutPlacementMode {
+    type TypeKind = windows_core::imp::CopyType;
+}
+impl windows_core::RuntimeType for FlyoutPlacementMode {
+    const SIGNATURE: windows_core::imp::ConstBuffer = windows_core::imp::ConstBuffer::from_slice(
+        b"enum(Microsoft.UI.Xaml.Controls.Primitives.FlyoutPlacementMode;i4)",
+    );
+}
+#[repr(transparent)]
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct FocusManager(windows_core::IUnknown);
 windows_core::imp::interface_hierarchy!(FocusManager, windows_core::IUnknown, windows_core::IInspectable);
@@ -5077,9 +5104,18 @@ windows_core::imp::define_interface!(IFlyoutBase, IFlyoutBase_Vtbl, 0xbb6603bf_7
 impl windows_core::RuntimeType for IFlyoutBase {
     const SIGNATURE: windows_core::imp::ConstBuffer = windows_core::imp::ConstBuffer::for_interface::<Self>();
 }
+impl IFlyoutBase {
+    pub fn SetPlacement(&self, value: FlyoutPlacementMode) -> windows_core::Result<()> {
+        unsafe {
+            (windows_core::Interface::vtable(self).SetPlacement)(windows_core::Interface::as_raw(self), value).ok()
+        }
+    }
+}
 #[repr(C)]
 pub struct IFlyoutBase_Vtbl {
     pub base__: windows_core::IInspectable_Vtbl,
+    Placement: usize,
+    pub SetPlacement: unsafe extern "system" fn(*mut core::ffi::c_void, FlyoutPlacementMode) -> windows_core::HRESULT,
 }
 windows_core::imp::define_interface!(IFocusManager, IFocusManager_Vtbl, 0x9fd07bc5_d2d4_53fe_a31a_846de8b7a257);
 impl windows_core::RuntimeType for IFocusManager {
