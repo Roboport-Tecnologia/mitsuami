@@ -139,6 +139,25 @@ async fn toolbar_items_are_over_the_content(app: TestApp) {
     assert!(item.max_y() <= 0.0 && item.x() >= 0.0, "{item:?}");
 }
 
+/// A toolbar that comes after the sidebar goes between the content and
+/// the sidebar, as the page of a sidebar app that has one.
+#[mitsuami_test::test]
+async fn a_toolbar_can_come_after_it(app: TestApp) {
+    let page = signal(Page::General);
+    app.mount(move || {
+        Column::new().children((
+            settings(page),
+            Show::new(move || page.get() == Page::WiFi, || Toolbar::new().child(Text::new("Scanning"))),
+        ))
+    });
+
+    app.get_by_role(Role::ListItem, "Wi-Fi").select().await;
+    let item = app.get_by_text("Scanning").frame();
+    assert!(item.max_y() <= 0.0 && item.x() >= 0.0, "{item:?}");
+    app.get_by_role(Role::ListItem, "General").select().await;
+    app.expect(by_text("Scanning")).to_be_hidden().await;
+}
+
 /// The window's minimum is its content's, as without a sidebar.
 #[mitsuami_test::test]
 async fn the_minimum_size_is_the_contents(app: TestApp) {

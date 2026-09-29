@@ -2931,11 +2931,14 @@ impl State {
                     return Ok(());
                 }
                 if self.nodes[child].kind == WidgetKind::ToolbarItem {
-                    // Items come after the window's content.
+                    // Items come after the window's content, and before its sidebar.
                     let content = self
                         .nodes
                         .values()
-                        .filter(|n| n.parent == Some(*parent) && n.kind != WidgetKind::ToolbarItem)
+                        .filter(|n| {
+                            n.parent == Some(*parent)
+                                && !matches!(n.kind, WidgetKind::ToolbarItem | WidgetKind::Sidebar)
+                        })
                         .count();
                     let Some(index) = index.checked_sub(content) else {
                         violation(command, "toolbar items go after the window's content")
