@@ -3,6 +3,7 @@
 //! - Every role in every style, and disabled: what the semantic props look
 //!   like on this platform.
 //! - A playground: pick the role, style, label and whether it's enabled.
+//! - Toggle buttons, which stay pressed until they're clicked again.
 //! - A raw platform setting, through `.native()`: a different one on each
 //!   platform, since each has its own.
 
@@ -96,6 +97,37 @@ fn playground() -> impl View {
     }
 }
 
+/// Buttons that stay pressed, bordered and borderless, one with only an
+/// icon, as a text editor's formatting bar has them.
+fn toggles() -> impl View {
+    let (bold, italic) = (signal(true), signal(false));
+    let icon = platform! {
+        macos => "italic",
+        gtk => "format-text-italic-symbolic",
+        kde => "format-text-italic",
+        windows => "\u{E8DB}",
+    };
+    view! {
+        <Column gap=Spacing::Md>
+            {heading("Toggle buttons")}
+            <Row gap=Spacing::Md align=Align::Center>
+                <ToggleButton bind=bold>"Bold"</ToggleButton>
+                <ToggleButton bind=italic icon=icon icon_only=true>"Italic"</ToggleButton>
+                <ToggleButton bind=bold button_style=ButtonStyle::Borderless>"Bold"</ToggleButton>
+                <Text>
+                    {move || match (bold.get(), italic.get()) {
+                        (true, true) => "Bold and italic",
+                        (true, false) => "Bold",
+                        (false, true) => "Italic",
+                        (false, false) => "Plain",
+                    }
+                    .to_string()}
+                </Text>
+            </Row>
+        </Column>
+    }
+}
+
 /// A setting only this platform has, straight on the native button.
 fn platform_option() -> impl View {
     let (tweak, about): (Tweak<Button>, &str) = platform! {
@@ -143,6 +175,7 @@ pub fn page() -> impl View {
         <Column padding=Spacing::Xl gap=Spacing::Xl>
             {gallery()}
             {playground()}
+            {toggles()}
             {platform_option()}
         </Column>
     }

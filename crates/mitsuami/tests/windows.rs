@@ -627,4 +627,75 @@ async fn its_minimum_goes_no_larger_than_the_screen(app: TestApp) {
     }
 }
 
+/// Maximized follows the app, and the window comes back to its size. A
+/// window shows it the platform's way: headless fills its work area,
+/// AppKit zooms it to its screen's.
+#[mitsuami_test::test]
+async fn maximized_follows_the_app(app: TestApp) {
+    let zoomed = signal(false);
+    app.mount(move || {
+        Window::new("Machine").size(Size::new(400.0, 300.0)).maximized(zoomed).content(|| Text::new("Screen"))
+    });
+    let window = machine(&app).expect("open");
+    let restored = app.ui().window_size(window).expect("sized");
+
+    zoomed.set(true);
+    app.settle().await;
+    assert!(native_props(&app, window).contains(&Prop::Maximized(true)));
+    let size = app.ui().window_size(window).expect("sized");
+    assert!(size.width > restored.width && size.height > restored.height, "{size:?} from {restored:?}");
+    if app.is_headless() {
+        assert_eq!(size, app.headless().work_area());
+    }
+    assert!(zoomed.get_untracked());
+
+    zoomed.set(false);
+    app.settle().await;
+    assert!(native_props(&app, window).contains(&Prop::Maximized(false)));
+    assert_eq!(app.ui().window_size(window), Some(restored));
+}
+
+/// The user maximizes it, or restores it, the platform's way (the title
+/// bar's button, a double-click on it): the app's signal follows.
+#[mitsuami_test::test(headless)]
+async fn the_user_maximizes_it_too(app: TestApp) {
+    let zoomed = signal(false);
+    app.mount(move || Window::new("Machine").maximized(zoomed).content(|| Text::new("Screen")));
+    let window = machine(&app).expect("open");
+
+    app.headless().set_maximized(window, true);
+    app.settle().await;
+    assert!(zoomed.get_untracked());
+    assert_eq!(app.ui().window_size(window), Some(app.headless().work_area()));
+
+    app.headless().set_maximized(window, false);
+    app.settle().await;
+    assert!(!zoomed.get_untracked());
+}
+
+/// The user can't resize a window that isn't resizable; the app still
+/// sizes it, and can make it resizable again.
+#[mitsuami_test::test]
+async fn a_fixed_window_keeps_its_size(app: TestApp) {
+    let resizable = signal(false);
+    app.mount(move || {
+        Window::new("Machine").size(Size::new(400.0, 300.0)).resizable(resizable).content(|| Text::new("Screen"))
+    });
+    let window = machine(&app).expect("open");
+    assert!(native_props(&app, window).contains(&Prop::Resizable(false)));
+
+    app.resize_window(window, Size::new(500.0, 400.0)).await;
+    assert_eq!(app.ui().window_size(window), Some(Size::new(400.0, 300.0)));
+
+    app.ui().set_window_size(window, Size::new(480.0, 360.0));
+    app.settle().await;
+    assert_eq!(app.ui().window_size(window), Some(Size::new(480.0, 360.0)));
+
+    resizable.set(true);
+    app.settle().await;
+    assert!(native_props(&app, window).contains(&Prop::Resizable(true)));
+    app.resize_window(window, Size::new(500.0, 400.0)).await;
+    assert_eq!(app.ui().window_size(window), Some(Size::new(500.0, 400.0)));
+}
+
 mitsuami_test::main!();

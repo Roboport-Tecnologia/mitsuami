@@ -92,6 +92,8 @@ fn text_options() -> impl View {
         Text::new("Bold italic").weight(FontWeight::Bold).italic(true),
         Text::new("Centred").text_align(TextAlign::Center),
         Text::new("End").text_align(TextAlign::End),
+        // Drawn as a label on every platform.
+        Text::new("Selectable").selectable(true),
     ));
     Column::new().padding(16).gap(4).children((colors, fonts))
 }
@@ -136,6 +138,32 @@ fn toggles() -> impl View {
         Checkbox::new("Disabled").enabled(false),
         Switch::new("Off"),
         Switch::new("On").checked(true),
+    ))
+}
+
+/// Toggle buttons off and on, bordered and borderless, with an icon, and
+/// disabled: pressed ones are a darker bezel on AppKit, the accent colour
+/// on WinUI, and shown pressed on GTK and Qt.
+#[mitsuami_test::story(sizes = [(420, fit)])]
+fn toggle_buttons() -> impl View {
+    let bold = platform! {
+        macos => "bold",
+        gtk => "format-text-bold-symbolic",
+        kde => "format-text-bold",
+        windows => "\u{E8DD}",
+        _ => "bold",
+    };
+    let row = |style: ButtonStyle, enabled: bool| {
+        Row::new().gap(8).children((
+            ToggleButton::new("Off").button_style(style).enabled(enabled),
+            ToggleButton::new("On").checked(true).button_style(style).enabled(enabled),
+            ToggleButton::new("Bold").icon(bold).icon_only(true).checked(true).button_style(style).enabled(enabled),
+        ))
+    };
+    Column::new().padding(16).gap(8).align(Align::Start).children((
+        row(ButtonStyle::Bordered, true),
+        row(ButtonStyle::Borderless, true),
+        row(ButtonStyle::Bordered, false),
     ))
 }
 
@@ -485,6 +513,7 @@ fn text_areas() -> impl View {
         TextArea::new().a11y_label("Empty").placeholder("Comments"),
         TextArea::new().a11y_label("Filled").value(NOTE),
         TextArea::new().a11y_label("Scrolled").lines(2).value(many),
+        TextArea::new().a11y_label("Unwrapped").lines(2).value(NOTE).line_wrap(false),
         TextArea::new().a11y_label("Read-only").value(NOTE).read_only(true),
         TextArea::new().a11y_label("Disabled").value(NOTE).enabled(false),
         TextArea::new().a11y_label("Tweaked").value(NOTE).native(text_area_tweak()),
@@ -745,6 +774,24 @@ fn tabs() -> impl View {
 #[mitsuami_test::story(sizes = [(420, fit)])]
 fn tabs_tab_bar() -> impl View {
     settings_tabs(TabsStyle::TabBar)
+}
+
+/// Tabs with icons, where the platform's tabs show them: libadwaita's view
+/// switcher, WinUI's selector bar, Kirigami's navigation bar. AppKit's tab
+/// view shows only titles.
+#[mitsuami_test::story(sizes = [(420, fit)])]
+fn tabs_with_icons() -> impl View {
+    let (general, network) = platform! {
+        macos => ("gearshape", "network"),
+        gtk => ("emblem-system-symbolic", "network-wired-symbolic"),
+        kde => ("configure", "network-wired"),
+        windows => ("\u{E713}", "\u{E968}"),
+    };
+    let page = signal(0);
+    Column::new().padding(16).child(Tabs::new(page).children((
+        Tab::new("General", 0).icon(general).padding(12).child(Text::new("Name")),
+        Tab::new("Network", 1).icon(network).padding(12).child(Text::new("Nothing here yet.")),
+    )))
 }
 
 fn settings_tabs(style: TabsStyle) -> impl View {

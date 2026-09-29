@@ -6,7 +6,7 @@ use mitsuami_core::reactive::{IntoValue, Value};
 use mitsuami_core::{List, Opaque, Tweak};
 use mitsuami_widgets::{
     Button, Checkbox, Group, Icon, Image, MenuButton, NumberInput, PasswordInput, Progress, RadioGroup, ScrollView,
-    SearchInput, Select, Separator, Slider, Spinner, Switch, Text, TextArea, TextInput,
+    SearchInput, Select, Separator, Slider, Spinner, Switch, Text, TextArea, TextInput, ToggleButton,
 };
 
 use crate::ffi::QmlObject;
@@ -17,6 +17,9 @@ pub trait Tweakable {}
 
 /// A `QQC2.Button`.
 impl Tweakable for Button {}
+
+/// A checkable `QQC2.Button`.
+impl Tweakable for ToggleButton {}
 
 /// A `QQC2.Button` that opens a `QQC2.Menu` (its `mitsuamiButtonMenu`).
 impl Tweakable for MenuButton {}

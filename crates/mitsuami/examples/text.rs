@@ -3,6 +3,7 @@
 //! - Every text style, from the platform's type ramp.
 //! - A playground: a paragraph at a width and a line limit, in a colour,
 //!   a weight, italics and an alignment, left to right or right to left.
+//! - Selectable text, which can be selected and copied.
 //! - A raw platform setting, through `.native()`. Those are the options
 //!   every platform's label shares: the rest is each one's own.
 
@@ -113,6 +114,23 @@ fn playground() -> impl View {
     }
 }
 
+/// Text that can be selected and copied, beside a label that can't: drawn
+/// the same, as each platform draws a selectable label.
+fn selectable() -> impl View {
+    view! {
+        <Column gap=Spacing::Md>
+            {heading("Selectable")}
+            <Grid columns=[Track::MaxContent, Track::MaxContent] column_gap=Spacing::Md row_gap=Spacing::Sm>
+                <Text>"Licence key"</Text>
+                <Text selectable=true>"ABCD-1234-EFGH-5678"</Text>
+                <Text>"Machine"</Text>
+                <Text selectable=true>"Windows 98 SE, 64 MB"</Text>
+            </Grid>
+            <Text text_style=TextStyle::Caption>"Drag across the values to select them, and copy them."</Text>
+        </Column>
+    }
+}
+
 /// A setting only this platform has, straight on the native label.
 fn platform_option() -> impl View {
     let (tweak, about): (Tweak<Text>, &str) = platform! {
@@ -157,6 +175,7 @@ pub fn page() -> impl View {
         <Column padding=Spacing::Xl gap=Spacing::Xl>
             {gallery()}
             {playground()}
+            {selectable()}
             {platform_option()}
         </Column>
     }

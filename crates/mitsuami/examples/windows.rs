@@ -8,6 +8,9 @@
 //!   in it: OK applies its changes to the machine window's form, Cancel
 //!   (or Escape, or its close button) drops them. It closes with the
 //!   machine window.
+//! - A machine window's "Maximized" and "Resizable" switches maximize it
+//!   (on macOS, zoom it) and keep the user from resizing it. Maximizing it
+//!   from its title bar sets the switch.
 //! - "About" opens a window that its close button closes (`bind`).
 //! - "Open machines as" picks how the machine windows open: plain windows,
 //!   sheets on the launcher (`Modality::Window`), or windows that block the
@@ -80,6 +83,7 @@ fn machine_window(name: &'static str, editing: Signal<bool>, saved: Settings, op
     // What the form shows, apart from what's saved until "Save".
     let form = Settings::new(0, 0);
     let advanced = signal(false);
+    let (maximized, resizable) = (signal(false), signal(true));
     let unsaved = move || form.differs_from(saved);
     let ask_to_close = move || {
         if !unsaved() {
@@ -113,10 +117,12 @@ fn machine_window(name: &'static str, editing: Signal<bool>, saved: Settings, op
             // below. A plain window has a size of its own: macOS can open
             // it as a tab of the launcher, which would follow its height.
             size=move || match MODALITIES[open_as.get()] {
-                None => WindowSize::Fixed(Size::new(360.0, 220.0)),
+                None => WindowSize::Fixed(Size::new(360.0, 260.0)),
                 Some(_) => WindowSize::FollowHeight(360.0),
             }
             modality=move || MODALITIES[open_as.get()]
+            maximized=maximized
+            resizable=resizable
             open=editing
             // Each opening starts from what's saved.
             @open=move || form.copy_from(saved)
@@ -130,6 +136,12 @@ fn machine_window(name: &'static str, editing: Signal<bool>, saved: Settings, op
                 <Row gap=Spacing::Md align=Align::Center>
                     <Text grow=1.0>{move || format!("Processors: {}", form.cpus.get())}</Text>
                     <Button @click=move || advanced.set(true)>"Advanced…"</Button>
+                </Row>
+                <Row gap=Spacing::Md align=Align::Center>
+                    <Text>"Maximized"</Text>
+                    <Switch bind=maximized>"Maximized"</Switch>
+                    <Text>"Resizable"</Text>
+                    <Switch bind=resizable>"Resizable"</Switch>
                 </Row>
                 <Show when=unsaved>
                     <Text>"Changes take effect the next time the machine starts."</Text>

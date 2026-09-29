@@ -2,10 +2,13 @@
 //! whose pane lists the items and whose content is the window's content
 //! host. Its display mode is XAML's `Auto`: the pane is open in a wide
 //! window, icons only in a narrower one, and behind a menu button in a
-//! narrow one.
+//! narrow one. Icons only needs every item to have an icon, as Fluent's
+//! guidance has it: without, the view goes from open to the menu button,
+//! and a closed pane, which would show as that strip, is hidden whole,
+//! with the menu button in the title bar to bring it back.
 
 use std::cell::{Cell, RefCell};
-use std::rc::Rc;
+use std::rc::{Rc, Weak};
 
 use mitsuami_core::{EventValue, NodeId, SidebarSectionData, UiEvent};
 use windows_core::{EventRevoker, IInspectable, IUnknown, Interface};
@@ -14,6 +17,9 @@ use crate::backend::{Events, boxed};
 use crate::bindings as w;
 
 type R<T> = windows_core::Result<T>;
+
+/// Places the menu buttons (see `Sidebar::follow_title_bar`).
+pub(crate) type Place = Rc<dyn Fn()>;
 
 /// The widths from which `Auto` shows the pane open, and icons only
 /// (XAML's `ExpandedModeThresholdWidth` and `CompactModeThresholdWidth`).
@@ -30,6 +36,24 @@ pub(crate) struct Sidebar {
     /// reported to it: `SelectionChanged` fires for the app's changes too.
     shown: Rc<Cell<Option<usize>>>,
     _selection: EventRevoker,
+    /// Whether the pane is open, set by the core or reported to it: the
+    /// view reports the app's openings too.
+    open: Rc<Cell<bool>>,
+    _panes: [EventRevoker; 2],
+    /// Where the menu buttons go, once it's in a window: the window holds
+    /// it (`follow_title_bar`), and new items place them again.
+    place: RefCell<Option<Weak<dyn Fn()>>>,
+}
+
+/// Which menu button shows, the view's or the title bar's, and whether
+/// the pane shows at all (see `Sidebar::follow_title_bar`).
+fn place_toggles(view: &w::NavigationView, title_bar: &w::ITitleBar) -> R<()> {
+    let minimal = view.DisplayMode()? == w::NavigationViewDisplayMode::Minimal;
+    let without_icons = view.CompactModeThresholdWidth()? >= view.ExpandedModeThresholdWidth()?;
+    let gone = !minimal && without_icons && !view.IsPaneOpen()?;
+    view.cast::<w::INavigationView2>()?.SetIsPaneVisible(!gone)?;
+    view.SetIsPaneToggleButtonVisible(!minimal && !gone)?;
+    title_bar.SetIsPaneToggleButtonVisible(minimal || gone)
 }
 
 /// Which of the items `selected` is, by COM identity: the `IUnknown`
@@ -49,7 +73,7 @@ impl Sidebar {
         let items = Rc::new(RefCell::new(Vec::<w::NavigationViewItem>::new()));
         let shown = Rc::new(Cell::new(None));
         let selection = view.SelectionChanged({
-            let (items, shown) = (items.clone(), shown.clone());
+            let (items, shown, emitter) = (items.clone(), shown.clone(), emitter.clone());
             move |_, args| {
                 let Some(args) =
                     args.as_ref().and_then(|a| a.cast::<w::INavigationViewSelectionChangedEventArgs>().ok())
@@ -64,7 +88,41 @@ impl Sidebar {
                 }
             }
         })?;
-        Ok(Sidebar { view, items, sections: RefCell::new(Vec::new()), shown, _selection: selection })
+        // Opened or closed by the user (its menu button, the title bar's,
+        // a click beside a pane over the content), or by `Auto` as the
+        // window's width changes.
+        let open = Rc::new(Cell::new(view.IsPaneOpen()?));
+        let view2 = view.cast::<w::INavigationView2>()?;
+        let panes = [true, false].map(|opened| {
+            let (emitter, open) = (emitter.clone(), open.clone());
+            let handler = move |_: windows_core::Ref<w::NavigationView>, _: windows_core::Ref<IInspectable>| {
+                if open.replace(opened) != opened {
+                    emitter.emit(id, UiEvent::SidebarShownChanged(opened));
+                }
+            };
+            if opened { view2.PaneOpened(handler) } else { view2.PaneClosed(handler) }
+        });
+        let [opened, closed] = panes;
+        Ok(Sidebar {
+            view,
+            items,
+            sections: RefCell::new(Vec::new()),
+            shown,
+            _selection: selection,
+            open,
+            _panes: [opened?, closed?],
+            place: RefCell::new(None),
+        })
+    }
+
+    /// Opens or closes the pane without reporting it.
+    pub(crate) fn set_shown(&self, shown: bool) -> R<()> {
+        self.open.set(shown);
+        self.view.SetIsPaneOpen(shown)
+    }
+
+    pub(crate) fn is_shown(&self) -> bool {
+        self.view.IsPaneOpen().unwrap_or(self.open.get())
     }
 
     /// New items: a header for each titled section, a line between
@@ -95,6 +153,16 @@ impl Sidebar {
                 menu.Append(&item.cast::<IInspectable>()?)?;
                 items.push(item);
             }
+        }
+        // Compact mode shows icons alone: an item without one would show its
+        // title cut down to the strip. Without icons for all, `Auto` skips
+        // it, going from open to the menu button.
+        let all_icons = sections.iter().flat_map(|s| &s.items).all(|i| i.icon.as_ref().is_some_and(|g| !g.is_empty()));
+        let expanded = self.view.ExpandedModeThresholdWidth().unwrap_or(EXPANDED_FROM as f64);
+        self.view.SetCompactModeThresholdWidth(if all_icons { COMPACT_FROM as f64 } else { expanded })?;
+        let place = self.place.borrow().as_ref().and_then(Weak::upgrade);
+        if let Some(place) = place {
+            place();
         }
         *self.items.borrow_mut() = items;
         *self.sections.borrow_mut() = sections;
@@ -132,6 +200,9 @@ impl Sidebar {
 
     /// Where the pane is in the view: open, icons only, or closed.
     pub(crate) fn pane_width(view: &w::NavigationView) -> f32 {
+        if !view.cast::<w::INavigationView2>().and_then(|v| v.IsPaneVisible()).unwrap_or(true) {
+            return 0.0;
+        }
         match view.DisplayMode() {
             Ok(w::NavigationViewDisplayMode::Expanded) if view.IsPaneOpen().unwrap_or(false) => {
                 view.OpenPaneLength().unwrap_or(0.0) as f32
@@ -144,13 +215,16 @@ impl Sidebar {
     }
 
     /// How much wider the window is than a content this wide: by the pane,
-    /// as `Auto` shows it at the window's width.
+    /// as `Auto` shows it at the window's width (never icons only while an
+    /// item has none: the thresholds are then the same).
     pub(crate) fn extra_width(view: &w::NavigationView, content: f32) -> f32 {
         let open = view.OpenPaneLength().unwrap_or(320.0) as f32;
         let compact = view.CompactPaneLength().unwrap_or(48.0) as f32;
-        if content + open >= EXPANDED_FROM {
+        let expanded_from = view.ExpandedModeThresholdWidth().map_or(EXPANDED_FROM, |w| w as f32);
+        let compact_from = view.CompactModeThresholdWidth().map_or(COMPACT_FROM, |w| w as f32);
+        if content + open >= expanded_from {
             open
-        } else if content + compact >= COMPACT_FROM {
+        } else if compact_from < expanded_from && content + compact >= compact_from {
             compact
         } else {
             0.0
@@ -160,37 +234,59 @@ impl Sidebar {
     /// Puts the menu button in the window's title bar while the pane is
     /// hidden, as Task Manager has it, and in the pane while it shows: the
     /// view's own sits over the content's top corner. The title bar's
-    /// button opens the pane. Undone by `leave_title_bar`, and the
-    /// revokers.
-    pub(crate) fn follow_title_bar(view: &w::NavigationView, title_bar: &w::TitleBar) -> R<Vec<EventRevoker>> {
+    /// button opens the pane. Hidden is `Minimal`, or a closed pane while
+    /// an item has no icon: the icons-only strip it would show cuts titles
+    /// down, so the pane goes whole (`IsPaneVisible`), and comes back open
+    /// from the title bar's button. Undone by `leave_title_bar` and the
+    /// revokers; the window keeps the placing, which the sidebar calls
+    /// again when its items change.
+    pub(crate) fn follow_title_bar(&self, title_bar: &w::TitleBar) -> R<(Vec<EventRevoker>, Place)> {
         let title_bar: w::ITitleBar = title_bar.cast()?;
-        let place = {
-            let title_bar = title_bar.clone();
-            move |view: &w::NavigationView| -> R<()> {
-                let hidden = view.DisplayMode()? == w::NavigationViewDisplayMode::Minimal;
-                view.SetIsPaneToggleButtonVisible(!hidden)?;
-                title_bar.SetIsPaneToggleButtonVisible(hidden)
-            }
+        // Weakly, as the view's handlers hold it.
+        let weak = self.view.downgrade()?;
+        let place: Place = {
+            let (weak, title_bar) = (weak.clone(), title_bar.clone());
+            Rc::new(move || {
+                if let Some(view) = weak.upgrade() {
+                    let _ = place_toggles(&view, &title_bar);
+                }
+            })
         };
-        place(view)?;
-        let modes = view.DisplayModeChanged(move |view, _| {
-            if let Some(view) = view.as_ref() {
-                let _ = place(view);
+        *self.place.borrow_mut() = Some(Rc::downgrade(&place));
+        place();
+        let modes = self.view.DisplayModeChanged({
+            let place = Rc::downgrade(&place);
+            move |_, _| {
+                if let Some(place) = place.upgrade() {
+                    place();
+                }
             }
         })?;
-        // Weakly, as the view's handler holds the title bar.
-        let weak = view.downgrade()?;
+        let view2 = self.view.cast::<w::INavigationView2>()?;
+        let panes = [true, false].map(|opened| {
+            let place = Rc::downgrade(&place);
+            let handler = move |_: windows_core::Ref<w::NavigationView>, _: windows_core::Ref<IInspectable>| {
+                if let Some(place) = place.upgrade() {
+                    place();
+                }
+            };
+            if opened { view2.PaneOpened(handler) } else { view2.PaneClosed(handler) }
+        });
+        let [opened, closed] = panes;
         let toggle = title_bar.PaneToggleRequested(move |_, _| {
             if let Some(view) = weak.upgrade() {
                 let open = view.IsPaneOpen().unwrap_or(false);
+                // A pane hidden whole comes back open.
+                let _ = view.cast::<w::INavigationView2>().and_then(|v| v.SetIsPaneVisible(true));
                 let _ = view.SetIsPaneOpen(!open);
             }
         })?;
-        Ok(vec![modes, toggle])
+        Ok((vec![modes, opened?, closed?, toggle], place))
     }
 
-    /// The title bar without the sidebar's menu button.
-    pub(crate) fn leave_title_bar(title_bar: &w::TitleBar) -> R<()> {
+    /// The title bar without the sidebar's menu button, and the pane shown.
+    pub(crate) fn leave_title_bar(view: &w::NavigationView, title_bar: &w::TitleBar) -> R<()> {
+        view.cast::<w::INavigationView2>()?.SetIsPaneVisible(true)?;
         title_bar.cast::<w::ITitleBar>()?.SetIsPaneToggleButtonVisible(false)
     }
 

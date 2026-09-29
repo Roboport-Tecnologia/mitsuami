@@ -89,10 +89,10 @@ pub mod prelude {
     pub use mitsuami_core::{Action, Resource, Store, action, resource, resource_on, use_store};
     pub use mitsuami_core::{
         Align, ButtonRole, ButtonStyle, Callback, Children, Cursor, Element, ElementBuilder, FileDrop, FlexDirection,
-        FontWeight, For, GridPlacement, ImageFit, ImageSource, Justify, KeyCode, Length, LengthExt, List, ListHandle,
-        ListStyle, Modality, Modifiers, MouseButton, NodeId, NodeRef, Orientation, Pixels, Point, Role, ScrollAxes,
-        ScrollDelta, SelectionMode, Show, Size, Slot, Spacing, SurfaceHandle, SurfaceInput, SurfaceSize, TabsStyle,
-        TextAlign, TextDirection, TextStyle, Track, Tweak, Ui, View, WindowSize, node_ref, repeat, use_size,
+        FontWeight, For, GridPlacement, ImageFit, ImageSource, InputPurpose, Justify, KeyCode, Length, LengthExt, List,
+        ListHandle, ListStyle, Modality, Modifiers, MouseButton, NodeId, NodeRef, Orientation, Pixels, Point, Role,
+        ScrollAxes, ScrollDelta, SelectionMode, Show, Size, Slot, Spacing, SurfaceHandle, SurfaceInput, SurfaceSize,
+        TabsStyle, TextAlign, TextDirection, TextStyle, Track, Tweak, Ui, View, WindowSize, node_ref, repeat, use_size,
         use_viewport,
     };
     pub use mitsuami_reactive::{
@@ -102,6 +102,6 @@ pub mod prelude {
     pub use mitsuami_widgets::{
         Button, Checkbox, Column, Container, GpuSurface, Grid, Group, Icon, Image, MenuButton, NumberInput,
         PasswordInput, Progress, RadioGroup, Row, ScrollView, SearchInput, Select, Separator, Sidebar, SidebarItem,
-        SidebarSection, Slider, Spinner, Switch, Tab, Tabs, Text, TextArea, TextInput, Toolbar, Window,
+        SidebarSection, Slider, Spinner, Switch, Tab, Tabs, Text, TextArea, TextInput, ToggleButton, Toolbar, Window,
     };
 }

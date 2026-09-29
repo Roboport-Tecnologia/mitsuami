@@ -17,7 +17,7 @@ use mitsuami_core::{
     Insets, Modality, NativeAppInfo, NativeIcon, NodeId, Opaque, Orientation, Pixels, Point, Prop, Rect, RowKey,
     ScrollAxes, SelectionMode, Size, TabsStyle, TextStyle, UiEvent, WidgetKind, find_prop,
 };
-use mitsuami_core::{Color, FontWeight, HorizontalAlign};
+use mitsuami_core::{Color, FontWeight, HorizontalAlign, InputPurpose};
 use windows_core::{EventRevoker, HSTRING, IInspectable, IUnknown, Interface};
 
 use crate::bindings as w;
@@ -94,13 +94,20 @@ pub(crate) struct WindowParts {
     /// Its sidebar's node and navigation view, while it has one: the
     /// view's content is the host.
     sidebar: Option<(NodeId, w::NavigationView)>,
-    /// The handlers that move its menu button to the title bar.
+    /// The handlers that move its menu button to the title bar, and what
+    /// places it, which the sidebar holds weakly.
     sidebar_revokers: Vec<EventRevoker>,
+    sidebar_place: Option<crate::sidebar::Place>,
     /// Full screen as the app wants it, and the user (who changes it
     /// too): what the presenter is compared with when it changes.
     full_screen: Rc<Cell<bool>>,
-    /// Made visible: full screen waits for it, as a hidden window would
-    /// fill the screen unseen.
+    /// Maximized as the app wants it, and the user: what the presenter's
+    /// state is compared with when the window's size changes.
+    maximized: Rc<Cell<bool>>,
+    /// The user can resize it: the presenter's, kept for full screen.
+    resizable: bool,
+    /// Made visible: full screen and maximizing wait for it, as a hidden
+    /// window would fill the screen unseen, or be shown by `Maximize`.
     shown: bool,
     /// The window's own presenter while it's in full screen, to go back
     /// to with its settings (modal, minimum size).
@@ -196,6 +203,8 @@ enum Widget {
     /// Windows' search box: an auto-suggest box with the find icon.
     Search(w::AutoSuggestBox),
     Button(w::Button),
+    /// A toggle button: a button's content, a checkbox's `IsChecked`.
+    Toggle(w::ToggleButton),
     /// A button whose `Flyout` is its menu, which it opens on a click.
     MenuButton(w::DropDownButton),
     Checkbox(w::CheckBox),
@@ -612,6 +621,18 @@ fn set_menu_button_style(button: &w::DropDownButton, button_style: ButtonStyle) 
     element.SetStyle(&w::XamlReader::Load(markup)?.cast::<w::Style>()?)
 }
 
+/// A toggle button's look: Fluent has no subtle toggle button, so
+/// borderless clears the fill and the border at rest, as for a menu
+/// button; checked, its template's accent fill still shows.
+fn set_toggle_style(button: &w::ToggleButton, button_style: ButtonStyle) -> R<()> {
+    let element = button.cast::<w::IFrameworkElement>()?;
+    if button_style != ButtonStyle::Borderless {
+        return element.SetStyle(None::<&w::Style>);
+    }
+    let markup = r#"<Style xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation" TargetType="ToggleButton"><Setter Property="Background" Value="{ThemeResource SubtleFillColorTransparentBrush}"/><Setter Property="BorderBrush" Value="{ThemeResource SubtleFillColorTransparentBrush}"/></Style>"#;
+    element.SetStyle(&w::XamlReader::Load(markup)?.cast::<w::Style>()?)
+}
+
 /// A button's XAML style, from its role and style: one style has both.
 /// Borderless wins, since it's how the button is drawn. Fluent has no
 /// cancel or destructive style.
@@ -850,6 +871,10 @@ impl WinUiHandle {
     pub fn resize_window(&self, window: NodeId, size: Size) {
         let state = self.state.borrow();
         if let Some(Widget::Window(parts)) = state.nodes.get(&window).map(|n| &n.widget) {
+            // The user can't resize it.
+            if !parts.resizable {
+                return;
+            }
             let height = parts.size.get().filter(|_| parts.height_locked).map_or(size.height, |s| s.height);
             resize_client(parts, Size::new(size.width, height));
         }
@@ -867,8 +892,9 @@ impl WinUiHandle {
                 set_transparent(parts.hwnd, false);
                 unsafe { _ = w::SetForegroundWindow(parts.hwnd) };
                 parts.shown = true;
-                // Full screen asked for before it was shown.
+                // Full screen, or maximized, asked for before it was shown.
                 apply_full_screen(parts);
+                apply_maximized(parts);
                 // It was activated when made, before its content: its
                 // controls can take focus now.
                 restore_focus(&parts.root, &by_element, &parts.focus, &parts.tab_order.borrow(), &emitter);
@@ -1201,7 +1227,8 @@ fn insert_toolbar_item(parts: &mut WindowParts, id: NodeId, host: &w::UIElement,
 fn remove_sidebar(parts: &mut WindowParts) -> R<()> {
     let Some((_, view)) = parts.sidebar.take() else { return Ok(()) };
     parts.sidebar_revokers.clear();
-    crate::sidebar::Sidebar::leave_title_bar(&parts.title_bar)?;
+    parts.sidebar_place = None;
+    crate::sidebar::Sidebar::leave_title_bar(&view, &parts.title_bar)?;
     let children = parts.root.cast::<w::IPanel>()?.Children()?;
     let mut at = 0;
     if children.IndexOf(&view.cast::<w::UIElement>()?, &mut at)? {
@@ -1355,6 +1382,28 @@ fn in_full_screen(app_window: &w::AppWindow) -> bool {
         .is_ok_and(|kind| kind == w::AppWindowPresenterKind::FullScreen)
 }
 
+/// The window's own presenter, which full screen swaps out.
+fn overlapped(app_window: &w::AppWindow) -> Option<w::IOverlappedPresenter> {
+    app_window.cast::<w::IAppWindow>().ok()?.Presenter().ok()?.cast().ok()
+}
+
+fn is_maximized(app_window: &w::AppWindow) -> bool {
+    overlapped(app_window).and_then(|p| p.State().ok()) == Some(w::OverlappedPresenterState::Maximized)
+}
+
+/// Maximizes the window, or restores it, as the app wants, once it's shown
+/// (`Maximize` would show a hidden window) and out of full screen.
+fn apply_maximized(parts: &WindowParts) {
+    if !parts.shown || in_full_screen(&parts.app_window) {
+        return;
+    }
+    let on = parts.maximized.get();
+    let Some(presenter) = overlapped(&parts.app_window).filter(|_| is_maximized(&parts.app_window) != on) else {
+        return;
+    };
+    _ = if on { presenter.Maximize() } else { presenter.Restore() };
+}
+
 /// Puts the window in full screen, or back in its own presenter, as the
 /// app wants, once it's shown. `FullScreenPresenter` has no caption, so
 /// the title bar goes too.
@@ -1380,6 +1429,7 @@ fn apply_full_screen(parts: &mut WindowParts) {
     show_title_bar(parts, !now);
     if !on {
         apply_min_size(parts);
+        apply_maximized(parts);
     }
     // Refused: the window stays as it is, and the app hears so.
     if done.is_err() || now != on {
@@ -1974,13 +2024,26 @@ impl State {
         // Full screen changed elsewhere (another part of the process): the
         // app hears of it. Our own changes match what it asked for.
         let full_screen = Rc::new(Cell::new(false));
+        let maximized = Rc::new(Cell::new(false));
         let monitor = unsafe { w::MonitorFromWindow(hwnd, w::MONITOR_DEFAULTTONEAREST as u32) } as isize;
         let (monitor, moved) = (Rc::new(Cell::new(monitor)), Rc::new(Cell::new(false)));
         revokers.push(app_window.cast::<w::IAppWindow>()?.Changed({
             let (emitter, full_screen, title_bar) = (emitter.clone(), full_screen.clone(), title_bar.clone());
-            let (monitor, moved) = (monitor.clone(), moved.clone());
+            let (monitor, moved, maximized) = (monitor.clone(), moved.clone(), maximized.clone());
             move |sender, args| {
                 let args = args.as_ref().and_then(|a| a.cast::<w::IAppWindowChangedEventArgs>().ok());
+                // Maximized or restored by the user (the caption's button, a
+                // double-click on it, Win+Up), which resizes it; the app's own
+                // match what it asked for. Full screen isn't maximized.
+                if let (Some(true), Some(app_window)) =
+                    (args.as_ref().and_then(|a| a.DidSizeChange().ok()), sender.as_ref())
+                    && !in_full_screen(app_window)
+                {
+                    let now = is_maximized(app_window);
+                    if maximized.replace(now) != now {
+                        emitter.emit(id, UiEvent::MaximizedChanged(now));
+                    }
+                }
                 // Onto another display: its minimum is applied again after
                 // the next tick, where the backend's state is at hand.
                 if args.as_ref().and_then(|a| a.DidPositionChange().ok()) == Some(true) {
@@ -2083,7 +2146,10 @@ impl State {
             toolbar_items: Vec::new(),
             sidebar: None,
             sidebar_revokers: Vec::new(),
+            sidebar_place: None,
             full_screen,
+            maximized,
+            resizable: true,
             shown: false,
             overlapped: None,
             min_size: None,
@@ -2185,6 +2251,26 @@ impl State {
                 revokers.push(button.cast::<w::IButtonBase>()?.Click(move |_, _| emitter.emit(id, UiEvent::Click))?);
                 let element = button.cast()?;
                 (Widget::Button(button), element)
+            }
+            // Reported as a checkbox is: the value it shows, once.
+            WidgetKind::ToggleButton => {
+                let button = w::ToggleButton::new()?;
+                let toggle: w::IToggleButton = button.cast()?;
+                for checked in [true, false] {
+                    let (emitter, shown) = (emitter.clone(), shown_checked.clone());
+                    let handler = move |sender: windows_core::Ref<IInspectable>,
+                                        _: windows_core::Ref<w::RoutedEventArgs>| {
+                        let value = sender.as_ref().and_then(|s| s.cast::<w::IToggleButton>().ok()?.IsChecked().ok());
+                        if let Some(value) = value
+                            && shown.replace(value) != value
+                        {
+                            emitter.emit(id, UiEvent::Changed(EventValue::Bool(value)));
+                        }
+                    };
+                    revokers.push(if checked { toggle.Checked(handler)? } else { toggle.Unchecked(handler)? });
+                }
+                let element = button.cast()?;
+                (Widget::Toggle(button), element)
             }
             // No click of its own: a click opens its flyout.
             WidgetKind::MenuButton => {
@@ -2577,6 +2663,21 @@ impl State {
                 parts.height_locked = *on;
                 apply_min_size(parts);
             }
+            (Prop::Maximized(on), Widget::Window(parts)) => {
+                parts.maximized.set(*on);
+                apply_maximized(parts);
+            }
+            // On its own presenter, which comes back after full screen.
+            (Prop::Resizable(on), Widget::Window(parts)) => {
+                parts.resizable = *on;
+                let presenter = match (&parts.overlapped, in_full_screen(&parts.app_window)) {
+                    (Some(saved), true) => saved.cast::<w::IOverlappedPresenter>().ok(),
+                    _ => overlapped(&parts.app_window),
+                };
+                if let Some(presenter) = presenter {
+                    presenter.SetIsResizable(*on)?;
+                }
+            }
             // Acted on when it's shown.
             (Prop::Modal { owner, modality }, Widget::Window(parts)) => {
                 let was_modal = parts.modal.replace((*owner, *modality)).is_some();
@@ -2629,6 +2730,7 @@ impl State {
                 parts.title_bar.cast::<w::ITitleBar>()?.SetTitle(t)?;
             }
             (Prop::Text(t), Widget::Label(l)) => l.cast::<w::ITextBlock>()?.SetText(t)?,
+            (Prop::Selectable(on), Widget::Label(l)) => l.cast::<w::ITextBlock>()?.SetIsTextSelectionEnabled(*on)?,
             // 0 is XAML's "no limit"; trimming puts an ellipsis at the end
             // of the last line shown.
             (Prop::MaxLines(lines), Widget::Label(l)) => {
@@ -2640,15 +2742,15 @@ impl State {
                     w::TextTrimming::None
                 })?;
             }
-            (Prop::Label(t), Widget::Button(_) | Widget::MenuButton(_)) => {
+            (Prop::Label(t), Widget::Button(_) | Widget::Toggle(_) | Widget::MenuButton(_)) => {
                 node.caption = t.clone();
                 set_button_content(node)?;
             }
-            (Prop::Icon(name), Widget::Button(_) | Widget::MenuButton(_)) => {
+            (Prop::Icon(name), Widget::Button(_) | Widget::Toggle(_) | Widget::MenuButton(_)) => {
                 node.icon = name.clone();
                 set_button_content(node)?;
             }
-            (Prop::IconOnly(only), Widget::Button(_) | Widget::MenuButton(_)) => {
+            (Prop::IconOnly(only), Widget::Button(_) | Widget::Toggle(_) | Widget::MenuButton(_)) => {
                 node.icon_only = Some(*only);
                 set_button_content(node)?;
             }
@@ -2764,6 +2866,9 @@ impl State {
                 node.shown_number.set(iface.Value()?);
             }
             // What the spin buttons and arrow keys add; 1 unless set.
+            (Prop::WrapAround(on), Widget::Number { number, .. }) => {
+                number.cast::<w::INumberBox>()?.SetIsWrapEnabled(*on)?
+            }
             (Prop::Step(new), Widget::Number { number, .. }) => {
                 number.cast::<w::INumberBox>()?.SetSmallChange(new.unwrap_or(1.0))?
             }
@@ -2808,7 +2913,9 @@ impl State {
             }
             (Prop::Sections(sections), Widget::Sidebar(sidebar)) => sidebar.set_sections(sections.clone())?,
             (Prop::SelectedIndex(index), Widget::Sidebar(sidebar)) => sidebar.set_selected(*index)?,
+            (Prop::SidebarShown(shown), Widget::Sidebar(sidebar)) => sidebar.set_shown(*shown)?,
             (Prop::TabTitles(titles), Widget::Tabs(tabs)) => tabs.set_titles(titles)?,
+            (Prop::TabIcons(icons), Widget::Tabs(tabs)) => tabs.set_icons(icons)?,
             // One way to show tabs: the app's choice is kept, not shown.
             (Prop::TabsStyle(style), Widget::Tabs(_)) => node.tabs_style = Some(*style),
             (Prop::Title(title), Widget::Group(group)) => group.set_title(title)?,
@@ -2827,6 +2934,31 @@ impl State {
                 f.cast::<w::ITextBox>()?.SetPlaceholderText(t)?
             }
             // Still focusable and selectable, so its text can be copied.
+            // The touch keyboard's layout, and the input panel's.
+            (Prop::InputPurpose(purpose), Widget::Field(f)) => {
+                let name = w::InputScopeName::new()?;
+                name.cast::<w::IInputScopeName>()?.SetNameValue(match purpose {
+                    InputPurpose::Text => w::InputScopeNameValue::Default,
+                    InputPurpose::Email => w::InputScopeNameValue::EmailSmtpAddress,
+                    InputPurpose::Url => w::InputScopeNameValue::Url,
+                    InputPurpose::Phone => w::InputScopeNameValue::TelephoneNumber,
+                })?;
+                let scope = w::InputScope::new()?;
+                scope.cast::<w::IInputScope>()?.Names()?.Append(&name)?;
+                f.cast::<w::ITextBox>()?.SetInputScope(&scope)?;
+            }
+            // Unwrapped, long lines scroll sideways.
+            (Prop::LineWrap(on), Widget::TextArea { field, .. }) => {
+                field.cast::<w::ITextBox>()?.SetTextWrapping(if *on {
+                    w::TextWrapping::Wrap
+                } else {
+                    w::TextWrapping::NoWrap
+                })?;
+                w::ScrollViewer::SetHorizontalScrollBarVisibility(
+                    &field.cast::<w::DependencyObject>()?,
+                    if *on { w::ScrollBarVisibility::Disabled } else { w::ScrollBarVisibility::Auto },
+                )?;
+            }
             (Prop::ReadOnly(r), Widget::Field(f) | Widget::TextArea { field: f, .. }) => {
                 f.cast::<w::ITextBox>()?.SetIsReadOnly(*r)?
             }
@@ -2858,6 +2990,10 @@ impl State {
                 node.shown_mixed.set(*m);
                 let checked = node.shown_checked.get();
                 b.cast::<w::IToggleButton>()?.SetIsChecked(if *m { None } else { Some(checked) })?;
+            }
+            (Prop::Checked(c), Widget::Toggle(b)) => {
+                node.shown_checked.set(*c);
+                b.cast::<w::IToggleButton>()?.SetIsChecked(Some(*c))?;
             }
             (Prop::Checked(c), Widget::Switch(s)) => {
                 node.shown_checked.set(*c);
@@ -2932,6 +3068,10 @@ impl State {
             (Prop::ButtonStyle(button_style), Widget::MenuButton(b)) => {
                 node.button_style = Some(*button_style);
                 set_menu_button_style(b, *button_style)?;
+            }
+            (Prop::ButtonStyle(button_style), Widget::Toggle(b)) => {
+                node.button_style = Some(*button_style);
+                set_toggle_style(b, *button_style)?;
             }
             (Prop::TakesInput(on), Widget::GpuSurface(surface)) => surface.set_takes_input(*on)?,
             (Prop::PointerLock(on), Widget::GpuSurface(surface)) => surface.set_pointer_lock(*on),
@@ -3048,12 +3188,16 @@ impl State {
                 }
                 if let Widget::Sidebar(sidebar) = &self.nodes[child].widget {
                     let view = sidebar.view.clone();
-                    let Some(Widget::Window(parts)) = self.nodes.get_mut(parent).map(|n| &mut n.widget) else {
+                    let Some(Widget::Window(parts)) = self.nodes.get(parent).map(|n| &n.widget) else {
                         violation(command, "a sidebar goes in a window")
                     };
                     if parts.sidebar.is_some() {
                         violation(command, "a window has one sidebar");
                     }
+                    let (revokers, place) = sidebar.follow_title_bar(&parts.title_bar)?;
+                    let Some(Widget::Window(parts)) = self.nodes.get_mut(parent).map(|n| &mut n.widget) else {
+                        unreachable!()
+                    };
                     // The view takes the host's place, with the host as
                     // its content, and fills it (not our zero frame).
                     let children = parts.root.cast::<w::IPanel>()?.Children()?;
@@ -3068,7 +3212,8 @@ impl State {
                     w::Grid::SetRow(&view.cast::<w::FrameworkElement>()?, CONTENT_ROW)?;
                     view.cast::<w::IContentControl>()?.SetContent(&host)?;
                     children.Append(&view.cast::<w::UIElement>()?)?;
-                    parts.sidebar_revokers = crate::sidebar::Sidebar::follow_title_bar(&view, &parts.title_bar)?;
+                    parts.sidebar_revokers = revokers;
+                    parts.sidebar_place = Some(place);
                     parts.sidebar = Some((*child, view));
                     parts.root.cast::<w::IUIElement>()?.UpdateLayout()?;
                     // The content keeps its size: the window grows by the
@@ -3438,9 +3583,10 @@ impl State {
                 .SelectedIndex()
                 .ok()
                 .and_then(|i| (i >= 0 && node.shown_index.replace(i) != i).then_some(EventValue::Index(i as usize))),
-            Widget::Checkbox(_) | Widget::Switch(_) => {
+            Widget::Checkbox(_) | Widget::Switch(_) | Widget::Toggle(_) => {
                 let value = match &node.widget {
                     Widget::Checkbox(b) => b.cast::<w::IToggleButton>().and_then(|b| b.IsChecked()).ok(),
+                    Widget::Toggle(b) => b.cast::<w::IToggleButton>().and_then(|b| b.IsChecked()).ok(),
                     Widget::Switch(s) => s.cast::<w::IToggleSwitch>().and_then(|s| s.IsOn()).ok(),
                     _ => None,
                 };
@@ -3599,6 +3745,7 @@ fn is_control(widget: &Widget) -> bool {
             | Widget::Password(_)
             | Widget::Search(_)
             | Widget::Button(_)
+            | Widget::Toggle(_)
             | Widget::MenuButton(_)
             | Widget::Checkbox(_)
             | Widget::Switch(_)
@@ -3884,6 +4031,7 @@ impl Backend for WinUiBackend {
                 Size::new(size.width.ceil().max(200.0), size.height.ceil())
             }
             Widget::Button(_)
+            | Widget::Toggle(_)
             | Widget::MenuButton(_)
             | Widget::Checkbox(_)
             | Widget::Switch(_)
@@ -4006,7 +4154,7 @@ impl Backend for WinUiBackend {
                     .map_err(|_| ActionError::Unsupported)?;
                 invoke.Invoke().map_err(|_| ActionError::Unsupported)?;
             }
-            (A11yAction::Activate, WidgetKind::Checkbox | WidgetKind::Switch) => {
+            (A11yAction::Activate, WidgetKind::Checkbox | WidgetKind::Switch | WidgetKind::ToggleButton) => {
                 let toggle: w::IToggleProvider = peer()?
                     .GetPattern(w::PatternInterface::Toggle)
                     .and_then(|p| p.cast())
@@ -4360,7 +4508,9 @@ impl Backend for WinUiBackend {
                 result.map_err(|_| ActionError::Unsupported)
             }
             (WidgetKind::Button, Key::Enter | Key::Char(' '))
-            | (WidgetKind::Checkbox | WidgetKind::Switch, Key::Char(' ')) => self.perform(id, &A11yAction::Activate),
+            | (WidgetKind::ToggleButton | WidgetKind::Checkbox | WidgetKind::Switch, Key::Char(' ')) => {
+                self.perform(id, &A11yAction::Activate)
+            }
             _ => Err(ActionError::Unsupported),
         }
     }
@@ -4378,6 +4528,17 @@ impl Backend for WinUiBackend {
                 props.push(Prop::FullScreen(full));
                 props.extend(parts.min_size.map(Prop::MinSize));
                 props.push(Prop::HeightFollowsContent(height_locked(parts)));
+                // Until it's shown, and in full screen, what it will show.
+                let shows = parts.shown && !in_full_screen(&parts.app_window);
+                props.push(Prop::Maximized(if shows {
+                    is_maximized(&parts.app_window)
+                } else {
+                    parts.maximized.get()
+                }));
+                let resizable = overlapped(&parts.app_window).and_then(|p| p.IsResizable().ok());
+                props.push(Prop::Resizable(
+                    resizable.filter(|_| !in_full_screen(&parts.app_window)).unwrap_or(parts.resizable),
+                ));
             }
             Widget::Label(l) => {
                 let text: w::ITextBlock = l.cast().ok()?;
@@ -4386,6 +4547,7 @@ impl Backend for WinUiBackend {
                 props.push(Prop::MaxLines((lines > 0).then_some(lines as u32)));
                 props.push(Prop::FontWeight(weight_of(text.FontWeight().ok()?.weight)));
                 props.push(Prop::Italic(text.FontStyle().ok()? == w::FontStyle::Italic));
+                props.push(Prop::Selectable(text.IsTextSelectionEnabled().ok()?));
                 props.push(Prop::TextAlign(match text.TextAlignment().ok()? {
                     w::TextAlignment::Center => HorizontalAlign::Center,
                     w::TextAlignment::Right => HorizontalAlign::Right,
@@ -4400,6 +4562,17 @@ impl Backend for WinUiBackend {
                 props.push(Prop::Value(box_text(&field).ok()?));
                 if let Widget::TextArea { lines, .. } = &node.widget {
                     props.push(Prop::Lines(*lines));
+                    props.push(Prop::LineWrap(field.TextWrapping().ok()? != w::TextWrapping::NoWrap));
+                } else {
+                    let scope = field.InputScope().ok();
+                    let names = scope.and_then(|s| s.cast::<w::IInputScope>().ok()?.Names().ok());
+                    let name = names.and_then(|n| n.GetAt(0).ok()?.cast::<w::IInputScopeName>().ok()?.NameValue().ok());
+                    props.push(Prop::InputPurpose(match name {
+                        Some(w::InputScopeNameValue::EmailSmtpAddress) => InputPurpose::Email,
+                        Some(w::InputScopeNameValue::Url) => InputPurpose::Url,
+                        Some(w::InputScopeNameValue::TelephoneNumber) => InputPurpose::Phone,
+                        _ => InputPurpose::Text,
+                    }));
                 }
                 props.push(Prop::ReadOnly(field.IsReadOnly().ok()?));
                 let placeholder = field.PlaceholderText().ok()?;
@@ -4424,6 +4597,10 @@ impl Backend for WinUiBackend {
                 }
             }
             Widget::Button(_) => props.extend(button_content(node)),
+            Widget::Toggle(b) => {
+                props.extend(button_content(node));
+                props.push(Prop::Checked(b.cast::<w::IToggleButton>().ok()?.IsChecked().unwrap_or(false)));
+            }
             Widget::MenuButton(b) => {
                 props.extend(button_content(node));
                 if let Some(menu) = &node.button_menu {
@@ -4492,6 +4669,7 @@ impl Backend for WinUiBackend {
                 props.push(Prop::Range { min: iface.Minimum().ok()?, max: iface.Maximum().ok()? });
                 props.push(Prop::Step(*step));
                 props.push(Prop::Number(iface.Value().ok()?));
+                props.push(Prop::WrapAround(iface.IsWrapEnabled().ok()?));
             }
             Widget::Progress(p) => {
                 let name = w::AutomationProperties::GetName(&node.element).unwrap_or_default();
@@ -4545,10 +4723,12 @@ impl Backend for WinUiBackend {
             Widget::Sidebar(sidebar) => {
                 props.push(Prop::Sections(sidebar.sections()));
                 props.push(Prop::SelectedIndex(sidebar.selected()));
+                props.push(Prop::SidebarShown(sidebar.is_shown()));
             }
             Widget::Group(group) => props.push(Prop::Title(group.title())),
             Widget::Tabs(tabs) => {
                 props.push(Prop::TabTitles(tabs.titles()));
+                props.push(Prop::TabIcons(tabs.icons()));
                 props.push(Prop::SelectedIndex(tabs.selected()));
                 props.push(Prop::Enabled(tabs.bar.cast::<w::IControl>().ok()?.IsEnabled().ok()?));
             }

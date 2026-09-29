@@ -13,9 +13,9 @@ use mitsuami_core::backend::{
 use mitsuami_core::services::{MenuBarData, Reply};
 use mitsuami_core::{
     AppInfo, ButtonRole, ButtonStyle, Color, Command, CustomProps, DisplayList, EventValue, HorizontalAlign, ImageFit,
-    ImageSource, KeyCode, Modality, Modifiers, NativeAppInfo, NativeIcon, NodeId, Opaque, Orientation, Point,
-    PointerEvent, Prop, Rect, RowKey, ScrollAxes, ScrollDelta, SelectionMode, SidebarSectionData, Size, SurfaceInput,
-    TabsStyle, TextStyle, UiEvent, WidgetKind, find_prop,
+    ImageSource, InputPurpose, KeyCode, Modality, Modifiers, NativeAppInfo, NativeIcon, NodeId, Opaque, Orientation,
+    Point, PointerEvent, Prop, Rect, RowKey, ScrollAxes, ScrollDelta, SelectionMode, SidebarSectionData, Size,
+    SurfaceInput, TabsStyle, TextStyle, UiEvent, WidgetKind, find_prop,
 };
 
 use crate::custom::{Emitter, ErasedRender, KirigamiCx, NativePayload, flatten};
@@ -79,6 +79,11 @@ pub(crate) struct WindowRoot {
     focused_first: Cell<bool>,
     /// Full screen as the app wants it, and the user (who changes it too).
     full_screen: Cell<bool>,
+    /// Maximized as the app wants it, and the user.
+    maximized: Cell<bool>,
+    /// The user can resize it: without, its minimum and maximum are its
+    /// size, which moves with every size the app gives it.
+    resizable: Cell<bool>,
     /// The smallest content size, if the app set one.
     min: Cell<Option<Size>>,
     /// The content sets the height, not the user.
@@ -89,6 +94,28 @@ pub(crate) struct WindowRoot {
 
 /// `Qt::WindowFullScreen`.
 const FULL_SCREEN: i32 = 0x4;
+/// `Qt::WindowMaximized`.
+const MAXIMIZED: i32 = 0x2;
+
+/// `TextEdit.NoWrap` and `TextEdit.Wrap` (at word boundaries, or anywhere).
+const TEXT_EDIT_NO_WRAP: i32 = 0;
+const TEXT_EDIT_WRAP: i32 = 4;
+
+/// `Qt::ImhDialableCharactersOnly`, `Qt::ImhEmailCharactersOnly` and
+/// `Qt::ImhUrlCharactersOnly`: what a field is for, to an input method.
+const PHONE_HINT: i32 = 0x0010_0000;
+const EMAIL_HINT: i32 = 0x0020_0000;
+const URL_HINT: i32 = 0x0040_0000;
+const PURPOSE_HINTS: i32 = PHONE_HINT | EMAIL_HINT | URL_HINT;
+
+fn purpose_hint(purpose: InputPurpose) -> i32 {
+    match purpose {
+        InputPurpose::Text => 0,
+        InputPurpose::Email => EMAIL_HINT,
+        InputPurpose::Url => URL_HINT,
+        InputPurpose::Phone => PHONE_HINT,
+    }
+}
 
 /// `QWINDOWSIZE_MAX`, a window's largest side and its default maximum.
 const WINDOW_SIZE_MAX: i32 = 16_777_215;
@@ -124,13 +151,49 @@ impl WindowRoot {
     fn place(&self, size: Size) {
         let header = self.header();
         let height = (size.height as f64 + header).round();
-        // A locked height moves with it.
-        if self.height_locked.get() {
-            self.window.set_int("minimumHeight", height as i32);
-            self.window.set_int("maximumHeight", height as i32);
+        let width = (size.width as f64 + self.side()).round();
+        // A locked height moves with it, and a fixed size: let go first,
+        // so neither bound is past the other on the way.
+        if !self.resizable.get() {
+            self.window.set_int("minimumWidth", 0);
+            self.window.set_int("maximumWidth", WINDOW_SIZE_MAX);
+            self.window.set_int("maximumWidth", width as i32);
+            self.window.set_int("minimumWidth", width as i32);
         }
-        self.window.set_real("width", (size.width as f64 + self.side()).round());
+        if self.height_locked.get() || !self.resizable.get() {
+            self.window.set_int("minimumHeight", 0);
+            self.window.set_int("maximumHeight", WINDOW_SIZE_MAX);
+            self.window.set_int("maximumHeight", height as i32);
+            self.window.set_int("minimumHeight", height as i32);
+        }
+        self.window.set_real("width", width);
         self.window.set_real("height", height);
+    }
+
+    /// The user can't resize it: Qt has no such flag on Linux, and KWin
+    /// holds a window whose minimum is its maximum, as KDE's fixed-size
+    /// dialogs are.
+    fn set_resizable(&self, on: bool) {
+        self.resizable.set(on);
+        self.apply_min();
+    }
+
+    fn width_fixed(&self) -> bool {
+        self.window.int("maximumWidth") < WINDOW_SIZE_MAX
+    }
+
+    fn is_maximized(&self) -> bool {
+        self.window.window_states() & MAXIMIZED != 0
+    }
+
+    /// As KDE's maximize action does: full screen stays as it is.
+    fn set_maximized(&self, on: bool) {
+        self.maximized.set(on);
+        let states = self.window.window_states();
+        let wanted = if on { states | MAXIMIZED } else { states & !MAXIMIZED };
+        if wanted != states {
+            self.window.set_window_states(wanted);
+        }
     }
 
     /// The content sets the height: a minimum and a maximum at the height
@@ -141,8 +204,9 @@ impl WindowRoot {
         self.apply_min();
     }
 
+    /// A fixed size holds the height too: then the app's.
     fn height_locked(&self) -> bool {
-        self.window.int("maximumHeight") < WINDOW_SIZE_MAX
+        if self.resizable.get() { self.window.int("maximumHeight") < WINDOW_SIZE_MAX } else { self.height_locked.get() }
     }
 
     /// Full screen as Qt has it: what it asked the platform for, until the
@@ -170,6 +234,10 @@ impl WindowRoot {
         if self.full_screen.replace(now) != now {
             self.events.emit(self.id, UiEvent::FullScreenChanged(now));
         }
+        let now = self.is_maximized();
+        if self.maximized.replace(now) != now {
+            self.events.emit(self.id, UiEvent::MaximizedChanged(now));
+        }
     }
 
     /// The window's minimum is the content's and Kirigami's toolbar above
@@ -196,20 +264,29 @@ impl WindowRoot {
 
     fn apply_min(&self) {
         let min = self.min.get().map(|min| self.min_window_size(min));
-        let locked = self.height_locked.get().then(|| self.window.real("height").round() as i32);
+        let fixed = !self.resizable.get();
+        let current = |side: &str| self.window.real(side).round() as i32;
+        let locked = (self.height_locked.get() || fixed).then(|| current("height"));
         // Nothing to set, or to take back.
-        if min.is_none() && locked.is_none() && !self.height_locked() {
+        let held = self.window.int("maximumHeight") < WINDOW_SIZE_MAX || self.width_fixed();
+        if min.is_none() && locked.is_none() && !held {
             return;
         }
         let (width, height) = min.unwrap_or((0, 0));
-        self.window.set_int("minimumWidth", width);
-        self.window.set_int("minimumHeight", locked.unwrap_or(height));
+        let fixed_width = fixed.then(|| current("width"));
+        self.window.set_int("maximumWidth", fixed_width.unwrap_or(WINDOW_SIZE_MAX));
+        self.window.set_int("minimumWidth", fixed_width.unwrap_or(width));
         self.window.set_int("maximumHeight", locked.unwrap_or(WINDOW_SIZE_MAX));
+        self.window.set_int("minimumHeight", locked.unwrap_or(height));
     }
 
     /// The minimum as Qt has it: the app's, if Qt has what it was given
     /// (capped by the screen). A locked height hides the minimum's.
     fn min_size(&self) -> Size {
+        // A fixed size hides the minimum: the app's.
+        if !self.resizable.get() {
+            return self.min.get().unwrap_or(Size::ZERO);
+        }
         let (width, height) = (self.window.int("minimumWidth"), self.window.int("minimumHeight"));
         let locked = self.height_locked();
         match self.min.get() {
@@ -728,6 +805,10 @@ impl KirigamiHandle {
     /// has laid it out; the content host reports it as `WindowResized`.
     pub fn resize_window(&self, window: NodeId, size: Size) {
         let Some(root) = self.window_root(window) else { return };
+        // The user can't resize it.
+        if !root.resizable.get() {
+            return;
+        }
         // A drag goes no smaller than the minimum, and keeps a locked height.
         let mut size = root.at_least_min(size);
         if root.height_locked() {
@@ -973,7 +1054,20 @@ impl State {
                 payload.apply(item);
                 Widget::Native { item, measure, last: opaque }
             }
-            WidgetKind::Text => Widget::Label(QmlObject::load(&qml::label())),
+            // Selectable text is another item: chosen once, when it's made.
+            WidgetKind::Text => {
+                let selectable = matches!(command, Command::Create { props, .. }
+                    if find_prop!(props, Selectable) == Some(true));
+                Widget::Label(QmlObject::load(&if selectable { qml::selectable_label() } else { qml::label() }))
+            }
+            // `toggled` is the user's; `checkedChanged` fires for ours too.
+            WidgetKind::ToggleButton => {
+                let button = QmlObject::load(&qml::toggle_button());
+                button.connect("toggled()", move || {
+                    events.emit(id, UiEvent::Changed(EventValue::Bool(button.bool("checked"))))
+                });
+                Widget::Button(button)
+            }
             WidgetKind::Button => {
                 let button = QmlObject::load(&qml::button());
                 button.connect("clicked()", move || events.emit(id, UiEvent::Click));
@@ -1157,6 +1251,8 @@ impl State {
             toolbar: RefCell::new(Vec::new()),
             focused_first: Cell::new(false),
             full_screen: Cell::new(false),
+            maximized: Cell::new(false),
+            resizable: Cell::new(true),
             min: Cell::new(None),
             height_locked: Cell::new(false),
             sidebar: Cell::new(None),
@@ -1271,12 +1367,15 @@ impl State {
             (Prop::SelectedIndex(index), Widget::Sidebar { page, .. }) => {
                 page.set_int("mitsuamiSelected", index.map_or(-1, |i| i as i32));
             }
+            // Its window takes the page out of its row, or puts it back.
+            (Prop::SidebarShown(shown), Widget::Sidebar { page, .. }) => page.set_bool("mitsuamiShown", *shown),
             // Titles and pages come in either order: each shows again.
             (Prop::Title(title), Widget::Group { root, .. }) => root.set_str("mitsuamiTitle", title),
             (Prop::TabTitles(titles), Widget::Tabs { root, .. }) => {
                 root.set_str_list("mitsuamiTitles", titles);
                 root.invoke("mitsuamiShow");
             }
+            (Prop::TabIcons(icons), Widget::Tabs { root, .. }) => root.set_str_list("mitsuamiIcons", icons),
             // Kirigami's navigation bar unless the app asks for Qt's tab bar.
             (Prop::TabsStyle(style), Widget::Tabs { root, .. }) => {
                 root.set_bool("mitsuamiNavigation", *style != TabsStyle::TabBar);
@@ -1289,6 +1388,8 @@ impl State {
             }
             (Prop::FullScreen(on), Widget::Window { root }) => root.set_full_screen(*on),
             (Prop::HeightFollowsContent(on), Widget::Window { root }) => root.set_height_locked(*on),
+            (Prop::Maximized(on), Widget::Window { root }) => root.set_maximized(*on),
+            (Prop::Resizable(on), Widget::Window { root }) => root.set_resizable(*on),
             // Qt keeps the user from making it smaller; a window smaller
             // already grows, as on the other platforms.
             (Prop::MinSize(min), Widget::Window { root }) => {
@@ -1379,6 +1480,7 @@ impl State {
             }
             (Prop::Step(step), Widget::NumberInput(s)) => s.set_int("stepSize", step.map_or(1, |s| s as i32)),
             (Prop::Number(n), Widget::NumberInput(s)) => s.set_int("value", *n as i32),
+            (Prop::WrapAround(on), Widget::NumberInput(s)) => s.set_bool("wrap", *on),
             (Prop::Orientation(o), Widget::Slider(s)) => {
                 s.set_int("orientation", if o.vertical() { QT_VERTICAL } else { QT_HORIZONTAL });
                 node.orientation = Some(*o);
@@ -1449,6 +1551,11 @@ impl State {
             (Prop::Placeholder(t), Widget::Field(f)) => f.set_str("placeholderText", t),
             // Still focusable and selectable, so its text can be copied.
             (Prop::ReadOnly(r), Widget::Field(f)) => f.set_bool("readOnly", *r),
+            // For the on-screen keyboard and input methods.
+            (Prop::InputPurpose(purpose), Widget::Field(f)) => {
+                let hints = f.int("inputMethodHints") & !PURPOSE_HINTS;
+                f.set_int("inputMethodHints", hints | purpose_hint(*purpose));
+            }
             (Prop::Value(t), Widget::TextArea { root, .. }) => {
                 if root.str("text") != *t {
                     set_area_text(*root, t);
@@ -1457,6 +1564,10 @@ impl State {
             (Prop::Placeholder(t), Widget::TextArea { root, .. }) => root.set_str("placeholderText", t),
             (Prop::ReadOnly(r), Widget::TextArea { root, .. }) => root.set_bool("readOnly", *r),
             (Prop::Lines(n), Widget::TextArea { root, .. }) => root.set_int("mitsuamiLines", *n as i32),
+            // Unwrapped, long lines scroll sideways in the scroll view.
+            (Prop::LineWrap(on), Widget::TextArea { area, .. }) => {
+                area.set_int("wrapMode", if *on { TEXT_EDIT_WRAP } else { TEXT_EDIT_NO_WRAP })
+            }
             (Prop::Checked(c), Widget::Checkbox(b)) => {
                 node.checked = *c;
                 // The mixed state shows over it.
@@ -1530,6 +1641,7 @@ impl State {
                 b.set_bool("flat", *style == ButtonStyle::Borderless);
                 node.button_style = Some(*style);
             }
+            (Prop::Checked(c), Widget::Button(b)) => b.set_bool("checked", *c),
             (Prop::Tweak(tweak), _) => node.tweak = Some(tweak.clone()),
             (Prop::Tooltip(text), widget) => {
                 if widget.has_tooltip() {
@@ -1584,6 +1696,17 @@ impl State {
                 *last = opaque.clone();
             }
             _ => {}
+        }
+        // A window's sidebar leaves its row or comes back, and the content
+        // keeps its size: the window shrinks or grows by the column.
+        if let Prop::SidebarShown(_) = prop
+            && let Some(Widget::Window { root }) = node.parent.and_then(|p| self.nodes.get(&p)).map(|p| &p.widget)
+        {
+            root.window.invoke("mitsuamiApplySidebarShown");
+            let size = root.size.get();
+            if !size.is_empty() {
+                root.resize_to(size);
+            }
         }
     }
 
@@ -2156,6 +2279,13 @@ impl Backend for KirigamiBackend {
                     return Err(ActionError::Unsupported);
                 }
             }
+            // A checkable button's action is Toggle, or Press where Qt
+            // gives it only that.
+            (A11yAction::Activate, WidgetKind::ToggleButton) => {
+                if !item.accessible_action("Toggle") && !item.accessible_action("Press") {
+                    return Err(ActionError::Unsupported);
+                }
+            }
             (A11yAction::Activate, WidgetKind::Checkbox | WidgetKind::Switch) => {
                 if !item.accessible_action("Toggle") {
                     return Err(ActionError::Unsupported);
@@ -2389,7 +2519,7 @@ impl Backend for KirigamiBackend {
                     Ok(())
                 }
                 (WidgetKind::Button, Key::Enter | Key::Char(' '))
-                | (WidgetKind::Checkbox | WidgetKind::Switch, Key::Char(' ')) => {
+                | (WidgetKind::ToggleButton | WidgetKind::Checkbox | WidgetKind::Switch, Key::Char(' ')) => {
                     self.perform(id, &A11yAction::Activate)
                 }
                 // A real Escape, from the node if it takes focus: a modal
@@ -2418,6 +2548,8 @@ impl Backend for KirigamiBackend {
                 props.push(Prop::FullScreen(root.in_full_screen()));
                 props.push(Prop::MinSize(root.min_size()));
                 props.push(Prop::HeightFollowsContent(root.height_locked()));
+                props.push(Prop::Maximized(root.is_maximized()));
+                props.push(Prop::Resizable(!root.width_fixed()));
                 // The modality as Qt has it; the owner as the node has it.
                 if let Some((owner, modality)) = node.modal {
                     let modality = match root.window.int("modality") {
@@ -2430,6 +2562,7 @@ impl Backend for KirigamiBackend {
             }
             Widget::Label(l) => {
                 props.push(Prop::Text(l.str("text")));
+                props.push(Prop::Selectable(l.bool("mitsuamiSelectable")));
                 let lines = l.int("maximumLineCount");
                 props.push(Prop::MaxLines((lines != i32::MAX).then_some(lines as u32)));
                 props
@@ -2447,12 +2580,22 @@ impl Backend for KirigamiBackend {
                 props.push(Prop::Value(f.str("text")));
                 props.push(Prop::Placeholder(f.str("placeholderText")));
                 props.push(Prop::ReadOnly(f.bool("readOnly")));
-                if let Widget::TextArea { root, .. } = &node.widget {
+                if let Widget::TextArea { root, area } = &node.widget {
                     props.push(Prop::Lines(root.int("mitsuamiLines") as u32));
+                    props.push(Prop::LineWrap(area.int("wrapMode") != TEXT_EDIT_NO_WRAP));
+                } else if node.kind == WidgetKind::TextInput {
+                    let hints = f.int("inputMethodHints");
+                    let shown = [InputPurpose::Phone, InputPurpose::Email, InputPurpose::Url]
+                        .into_iter()
+                        .find(|p| hints & purpose_hint(*p) != 0);
+                    props.push(Prop::InputPurpose(shown.unwrap_or_default()));
                 }
             }
             Widget::Button(b) | Widget::MenuButton(b) => {
                 props.push(Prop::Label(b.str("text")));
+                if node.kind == WidgetKind::ToggleButton {
+                    props.push(Prop::Checked(b.bool("checked")));
+                }
                 props.extend(node.button_menu.as_ref().map(|menu| Prop::Menu(menu.shown())));
                 props.push(Prop::Icon(b.str("mitsuamiShownIcon")));
                 if node.icon_only {
@@ -2492,6 +2635,7 @@ impl Backend for KirigamiBackend {
                 props.extend(node.a11y_label.clone().map(Prop::Label));
                 props.push(Prop::Range { min: s.int("from").into(), max: s.int("to").into() });
                 props.push(Prop::Step(Some(s.int("stepSize").into())));
+                props.push(Prop::WrapAround(s.bool("wrap")));
                 props.push(Prop::Number(s.int("value").into()));
             }
             Widget::Progress(p) => {
@@ -2562,10 +2706,20 @@ impl Backend for KirigamiBackend {
             Widget::Sidebar { page, sections } => {
                 props.push(Prop::Sections(sections.clone()));
                 props.push(Prop::SelectedIndex(usize::try_from(page.int("mitsuamiSelected")).ok()));
+                // As its window's row has it, or the app wants it before.
+                let root = node.parent.and_then(|p| state.nodes.get(&p)).and_then(|p| match &p.widget {
+                    Widget::Window { root } => Some(root.window),
+                    _ => None,
+                });
+                props.push(Prop::SidebarShown(match root {
+                    Some(window) => window.bool("mitsuamiSidebarIn"),
+                    None => page.bool("mitsuamiShown"),
+                }));
             }
             Widget::Group { group, .. } => props.push(Prop::Title(group.str("title"))),
             Widget::Tabs { root, .. } => {
                 props.push(Prop::TabTitles(tab_titles(*root)));
+                props.push(Prop::TabIcons(root.str("mitsuamiShownIcons").split('\u{1f}').map(str::to_owned).collect()));
                 props.push(Prop::SelectedIndex(usize::try_from(strip(*root).int("currentIndex")).ok()));
                 // Which strip it shows; `Automatic` is the navigation bar.
                 let navigation = root.bool("mitsuamiNavigation");
@@ -2618,7 +2772,7 @@ impl Backend for KirigamiBackend {
             // A sidebar's page is beside the content (at negative x), where
             // the page row shows it.
             (Some(Widget::Window { root }), Widget::Sidebar { page, .. }) => {
-                if !page.bool("visible") || page.real("width") <= 0.0 {
+                if !root.window.bool("mitsuamiSidebarIn") || !page.bool("visible") || page.real("width") <= 0.0 {
                     Rect::ZERO
                 } else {
                     let (at, origin) = (page.map_to_scene(Point::ZERO), root.host.map_to_scene(Point::ZERO));

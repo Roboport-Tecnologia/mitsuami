@@ -31,6 +31,8 @@ pub(crate) struct Tabs {
     pub bar: w::SelectorBar,
     /// One per title, in order: what the bar's selection is compared with.
     items: Rc<RefCell<Vec<w::SelectorBarItem>>>,
+    /// Glyphs by tab, empty for none, for items made after they came.
+    icons: RefCell<Vec<String>>,
     /// The pages' hosts, in order.
     pages: Rc<RefCell<Vec<w::UIElement>>>,
     /// The page shown, set by the core or reported to it:
@@ -41,6 +43,12 @@ pub(crate) struct Tabs {
     height: BarHeight,
     _selection: EventRevoker,
     _loaded: EventRevoker,
+}
+
+/// A tab's glyph; empty for none.
+fn icon_of(item: &w::SelectorBarItem) -> String {
+    let icon = item.cast::<w::ISelectorBarItem>().and_then(|i| i.Icon());
+    icon.and_then(|i| i.cast::<w::IFontIcon>()?.Glyph()).unwrap_or_default()
 }
 
 /// Which of the items `selected` is.
@@ -115,7 +123,19 @@ impl Tabs {
                 }
             }
         })?;
-        Ok(Tabs { canvas, bar, items, pages, shown, id, emitter, height, _selection: selection, _loaded: loaded })
+        Ok(Tabs {
+            canvas,
+            bar,
+            items,
+            icons: RefCell::new(Vec::new()),
+            pages,
+            shown,
+            id,
+            emitter,
+            height,
+            _selection: selection,
+            _loaded: loaded,
+        })
     }
 
     /// New titles, relabelling the tabs there are: the selected one stays
@@ -141,7 +161,38 @@ impl Tabs {
             list.RemoveAtEnd()?;
         }
         *self.items.borrow_mut() = items;
+        self.show_icons()?;
         self.set_selected(self.shown.get())
+    }
+
+    /// New icons, Segoe Fluent Icons glyphs before the tabs' titles, as a
+    /// selector bar item shows its `Icon`.
+    pub(crate) fn set_icons(&self, icons: &[String]) -> R<()> {
+        *self.icons.borrow_mut() = icons.to_vec();
+        self.show_icons()
+    }
+
+    fn show_icons(&self) -> R<()> {
+        let icons = self.icons.borrow();
+        for (index, item) in self.items.borrow().iter().enumerate() {
+            let glyph = icons.get(index).map_or("", String::as_str);
+            if icon_of(item) == glyph {
+                continue;
+            }
+            let icon = if glyph.is_empty() {
+                None
+            } else {
+                let icon = w::FontIcon::new()?;
+                icon.cast::<w::IFontIcon>()?.SetGlyph(glyph)?;
+                Some(icon.cast::<w::IconElement>()?)
+            };
+            item.cast::<w::ISelectorBarItem>()?.SetIcon(icon.as_ref())?;
+        }
+        Ok(())
+    }
+
+    pub(crate) fn icons(&self) -> Vec<String> {
+        self.items.borrow().iter().map(icon_of).collect()
     }
 
     pub(crate) fn titles(&self) -> Vec<String> {

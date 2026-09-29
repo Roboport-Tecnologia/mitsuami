@@ -16,8 +16,8 @@ use mitsuami_core::services::{MenuBarData, Reply};
 use mitsuami_core::units::SpacingScale;
 use mitsuami_core::{
     AppInfo, ButtonRole, ButtonStyle, Color, Command, CustomProps, EventValue, FontWeight, HorizontalAlign, ImageFit,
-    ImageSource, Modality, NativeAppInfo, NativeIcon, NodeId, Opaque, Orientation, Point, Prop, Rect, RowKey,
-    ScrollAxes, SelectionMode, Size, TextStyle, UiEvent, WidgetKind, find_prop,
+    ImageSource, InputPurpose, Modality, NativeAppInfo, NativeIcon, NodeId, Opaque, Orientation, Point, Prop, Rect,
+    RowKey, ScrollAxes, SelectionMode, Size, TextStyle, UiEvent, WidgetKind, find_prop,
 };
 
 use crate::custom::{DrawnArea, Emitter, ErasedRender, GtkCx, NativePayload};
@@ -57,6 +57,11 @@ pub(crate) struct WindowParts {
     pub(crate) menu_button: gtk::MenuButton,
     pub(crate) shortcuts: gtk::ShortcutController,
     full_screen: FullScreen,
+    maximized: Maximized,
+    /// The app's `Resizable`, and its `HeightFollowsContent`: GTK 4 can't
+    /// hold one side, so either makes the window not resizable.
+    resizable: bool,
+    height_locked: bool,
     min_size: MinSize,
     /// The window's content beside its sidebar, while it has one.
     split: Option<Split>,
@@ -156,6 +161,30 @@ impl FullScreen {
 
     fn in_effect(&self, window: &gtk::Window) -> bool {
         window.is_fullscreen() || (self.pending.get() && self.wanted.get())
+    }
+}
+
+/// Maximized as the app wants it, which GTK reports as it does full
+/// screen: its own changes like the user's, and later, when the compositor
+/// configures the window.
+#[derive(Clone, Default)]
+struct Maximized {
+    wanted: Rc<Cell<bool>>,
+    /// Asked for, and not in effect yet.
+    pending: Rc<Cell<bool>>,
+}
+
+impl Maximized {
+    fn set(&self, window: &gtk::Window, on: bool) {
+        self.wanted.set(on);
+        self.pending.set(window.is_maximized() != on);
+        if on { window.maximize() } else { window.unmaximize() }
+    }
+
+    /// What the window shows, or while a request is pending (or it isn't
+    /// shown yet), what it will.
+    fn shown(&self, window: &gtk::Window) -> bool {
+        if self.pending.get() { self.wanted.get() } else { window.is_maximized() }
     }
 }
 
@@ -1175,6 +1204,12 @@ impl State {
                 button.connect_clicked(move |_| events.emit(id, UiEvent::Click));
                 Widget::Button(button)
             }
+            // A button still, whose caption, icon and style are a button's.
+            WidgetKind::ToggleButton => {
+                let toggle = gtk::ToggleButton::new();
+                toggle.connect_toggled(move |t| events.emit(id, UiEvent::Changed(EventValue::Bool(t.is_active()))));
+                Widget::Button(toggle.upcast())
+            }
             WidgetKind::MenuButton => {
                 let button = gtk::MenuButton::new();
                 let menu = ContextMenu::for_menu_button(
@@ -1436,6 +1471,18 @@ impl State {
             let handler = manager.connect_dark_notify(move |_| e.emit(id, UiEvent::MetricsChanged));
             settings_handlers.push((manager.upcast(), handler));
         }
+        let maximized = Maximized::default();
+        let (e, m) = (events.clone(), maximized.clone());
+        window.connect_maximized_notify(move |window| {
+            let now = window.is_maximized();
+            // The app's own request, in effect.
+            if m.pending.replace(false) && now == m.wanted.get() {
+                return;
+            }
+            if now != m.wanted.replace(now) {
+                e.emit(id, UiEvent::MaximizedChanged(now));
+            }
+        });
         let min_size = MinSize::default();
         min_size.header_height.set(header_height);
         // Another monitor, another cap on the minimum.
@@ -1455,6 +1502,9 @@ impl State {
             menu_button,
             shortcuts,
             full_screen,
+            maximized,
+            resizable: true,
+            height_locked: false,
             min_size,
             split: None,
         };
@@ -1497,7 +1547,9 @@ impl State {
             }
             (Prop::Sections(sections), Widget::Sidebar(sidebar)) => sidebar.set_sections(sections.clone()),
             (Prop::SelectedIndex(index), Widget::Sidebar(sidebar)) => sidebar.set_selected(*index),
+            (Prop::SidebarShown(shown), Widget::Sidebar(sidebar)) => sidebar.set_shown(*shown),
             (Prop::TabTitles(titles), Widget::Tabs(tabs)) => tabs.set_titles(titles.clone()),
+            (Prop::TabIcons(icons), Widget::Tabs(tabs)) => tabs.set_icons(icons.clone()),
             (Prop::TabsStyle(style), Widget::Tabs(tabs)) => tabs.set_style(*style),
             (Prop::Title(title), Widget::Group(group)) => group.set_title(title),
             (Prop::SelectedIndex(index), Widget::Tabs(tabs)) => tabs.set_selected(*index),
@@ -1509,8 +1561,17 @@ impl State {
             // GTK 4 can't hold one side of a window: the content sets its
             // size, which the user can't change, as GNOME's dialogs that
             // fit their content.
-            (Prop::HeightFollowsContent(on), Widget::Window(parts)) => parts.window.set_resizable(!*on),
+            (Prop::HeightFollowsContent(on), Widget::Window(parts)) => {
+                parts.height_locked = *on;
+                parts.window.set_resizable(parts.resizable && !parts.height_locked);
+            }
+            (Prop::Resizable(on), Widget::Window(parts)) => {
+                parts.resizable = *on;
+                parts.window.set_resizable(parts.resizable && !parts.height_locked);
+            }
+            (Prop::Maximized(on), Widget::Window(parts)) => parts.maximized.set(&parts.window, *on),
             (Prop::Text(t), Widget::Label(l)) => l.set_text(t),
+            (Prop::Selectable(on), Widget::Label(l)) => l.set_selectable(*on),
             // GTK limits the lines of wrapping labels that ellipsize.
             (Prop::MaxLines(lines), Widget::Label(l)) => {
                 l.set_lines(lines.map_or(-1, |n| n as i32));
@@ -1664,6 +1725,7 @@ impl State {
                 spin.set_increments(step, step * 10.0);
             }
             (Prop::Number(n), Widget::SpinButton(spin)) => spin.set_value(*n),
+            (Prop::WrapAround(on), Widget::SpinButton(spin)) => spin.set_wrap(*on),
             (Prop::Label(t), Widget::Progress { bar, .. }) => {
                 bar.update_property(&[gtk::accessible::Property::Label(t)]);
                 node.a11y_label = Some(t.clone());
@@ -1756,6 +1818,13 @@ impl State {
             (Prop::Placeholder(t), Widget::Entry(e)) => e.set_placeholder_text(Some(t)),
             // Still focusable and selectable, so its text can be copied.
             (Prop::ReadOnly(r), Widget::Entry(e)) => e.set_editable(!r),
+            // For the on-screen keyboard and input methods.
+            (Prop::InputPurpose(purpose), Widget::Entry(e)) => e.set_input_purpose(match purpose {
+                InputPurpose::Text => gtk::InputPurpose::FreeForm,
+                InputPurpose::Email => gtk::InputPurpose::Email,
+                InputPurpose::Url => gtk::InputPurpose::Url,
+                InputPurpose::Phone => gtk::InputPurpose::Phone,
+            }),
             (Prop::Value(t), Widget::Password(e)) => {
                 if e.text() != t.as_str() {
                     e.set_text(t);
@@ -1778,6 +1847,14 @@ impl State {
             // Still focusable and selectable, so its text can be copied.
             (Prop::ReadOnly(r), Widget::TextArea { view, .. }) => view.set_editable(!r),
             (Prop::Lines(n), Widget::TextArea { lines, .. }) => *lines = *n,
+            // Unwrapped, long lines scroll sideways.
+            (Prop::LineWrap(on), Widget::TextArea { scrolled, view, .. }) => {
+                view.set_wrap_mode(if *on { gtk::WrapMode::WordChar } else { gtk::WrapMode::None });
+                scrolled.set_policy(
+                    if *on { gtk::PolicyType::Never } else { gtk::PolicyType::Automatic },
+                    gtk::PolicyType::Automatic,
+                );
+            }
             (Prop::Checked(c), Widget::Checkbox(b)) => b.set_active(*c),
             (Prop::Mixed(m), Widget::Checkbox(b)) => {
                 b.set_inconsistent(*m);
@@ -1815,6 +1892,11 @@ impl State {
             (Prop::ButtonStyle(style), Widget::Button(b)) => {
                 b.set_has_frame(*style != ButtonStyle::Borderless);
                 node.button_style = Some(*style);
+            }
+            (Prop::Checked(c), Widget::Button(b)) => {
+                if let Some(toggle) = b.downcast_ref::<gtk::ToggleButton>() {
+                    toggle.set_active(*c);
+                }
             }
             (Prop::Tweak(tweak), _) => node.tweak = Some(tweak.clone()),
             // On the widget the pointer rests on: a list's view, not the
@@ -2555,6 +2637,10 @@ impl Backend for GtkBackend {
             (A11yAction::Activate, WidgetKind::Button) => {
                 widget.downcast_ref::<gtk::Button>().ok_or(ActionError::Unsupported)?.emit_clicked()
             }
+            (A11yAction::Activate, WidgetKind::ToggleButton) => {
+                let toggle = widget.downcast_ref::<gtk::ToggleButton>().ok_or(ActionError::Unsupported)?;
+                toggle.set_active(!toggle.is_active());
+            }
             (A11yAction::Activate, WidgetKind::Checkbox) => {
                 let check = widget.downcast_ref::<gtk::CheckButton>().ok_or(ActionError::Unsupported)?;
                 check.set_active(!check.is_active());
@@ -2817,7 +2903,9 @@ impl Backend for GtkBackend {
                 Ok(())
             }
             (WidgetKind::Button, Key::Enter | Key::Char(' '))
-            | (WidgetKind::Checkbox | WidgetKind::Switch, Key::Char(' ')) => self.perform(id, &A11yAction::Activate),
+            | (WidgetKind::ToggleButton | WidgetKind::Checkbox | WidgetKind::Switch, Key::Char(' ')) => {
+                self.perform(id, &A11yAction::Activate)
+            }
             _ => Err(ActionError::Unsupported),
         }
     }
@@ -2832,11 +2920,17 @@ impl Backend for GtkBackend {
                 props.push(Prop::Title(text(parts.window.title())));
                 props.push(Prop::FullScreen(parts.full_screen.shown(&parts.window)));
                 props.push(Prop::MinSize(parts.min_size.shown(&parts.window, &parts.host)));
-                props.push(Prop::HeightFollowsContent(!parts.window.is_resizable()));
+                // Either keeps the window from resizing: each as the app
+                // gave it while the other does.
+                let resizable = parts.window.is_resizable();
+                props.push(Prop::HeightFollowsContent(if parts.resizable { !resizable } else { parts.height_locked }));
+                props.push(Prop::Resizable(if parts.height_locked { parts.resizable } else { resizable }));
+                props.push(Prop::Maximized(parts.maximized.shown(&parts.window)));
                 props.extend(node.modal.map(|(owner, modality)| Prop::Modal { owner, modality }));
             }
             Widget::Label(l) => {
                 props.push(Prop::Text(l.text().to_string()));
+                props.push(Prop::Selectable(l.is_selectable()));
                 let limited = l.ellipsize() != pango::EllipsizeMode::None && l.lines() > 0;
                 props.push(Prop::MaxLines(limited.then(|| l.lines() as u32)));
                 props.extend(label_color(l, node.text_color).map(Prop::TextColor));
@@ -2860,6 +2954,12 @@ impl Backend for GtkBackend {
                     props.push(Prop::Placeholder(p.to_string()));
                 }
                 props.push(Prop::ReadOnly(!e.is_editable()));
+                props.push(Prop::InputPurpose(match e.input_purpose() {
+                    gtk::InputPurpose::Email => InputPurpose::Email,
+                    gtk::InputPurpose::Url => InputPurpose::Url,
+                    gtk::InputPurpose::Phone => InputPurpose::Phone,
+                    _ => InputPurpose::Text,
+                }));
             }
             Widget::Password(e) => {
                 props.push(Prop::Value(e.text().to_string()));
@@ -2878,8 +2978,12 @@ impl Backend for GtkBackend {
                 props.extend(placeholder.clone().map(Prop::Placeholder));
                 props.push(Prop::ReadOnly(!view.is_editable()));
                 props.push(Prop::Lines(*lines));
+                props.push(Prop::LineWrap(view.wrap_mode() != gtk::WrapMode::None));
             }
-            Widget::Button(b) => props.extend(node.button.read(b)),
+            Widget::Button(b) => {
+                props.extend(node.button.read(b));
+                props.extend(b.downcast_ref::<gtk::ToggleButton>().map(|t| Prop::Checked(t.is_active())));
+            }
             Widget::MenuButton { button, menu } => {
                 props.extend(node.button.read(button));
                 props.push(Prop::Menu(menu.entries(button.upcast_ref())));
@@ -2925,6 +3029,7 @@ impl Backend for GtkBackend {
                 props.push(Prop::Range { min: adjustment.lower(), max: adjustment.upper() });
                 props.push(Prop::Step(Some(adjustment.step_increment())));
                 props.push(Prop::Number(spin.value()));
+                props.push(Prop::WrapAround(spin.wraps()));
             }
             Widget::Progress { bar, pulsing } => {
                 props.extend(node.a11y_label.clone().map(Prop::Label));
@@ -2986,10 +3091,12 @@ impl Backend for GtkBackend {
             Widget::Sidebar(sidebar) => {
                 props.push(Prop::Sections(sidebar.sections()));
                 props.push(Prop::SelectedIndex(sidebar.selected()));
+                props.extend(sidebar.shown().map(Prop::SidebarShown));
             }
             Widget::Group(group) => props.push(Prop::Title(group.title())),
             Widget::Tabs(tabs) => {
                 props.push(Prop::TabTitles(tabs.titles()));
+                props.push(Prop::TabIcons(tabs.icons()));
                 props.push(Prop::SelectedIndex(tabs.selected()));
                 props.extend(tabs.style().map(Prop::TabsStyle));
             }

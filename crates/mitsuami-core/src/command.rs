@@ -117,6 +117,15 @@ pub enum UiEvent {
     /// reported for the app's own `FullScreen`. The core absorbs it as
     /// `FullScreen`.
     FullScreenChanged(bool),
+    /// The user maximized a window or restored it (the title bar's button,
+    /// a double-click on it, the window manager's key), or the platform
+    /// did. Not reported for the app's own `Maximized`. The core absorbs
+    /// it as `Maximized`.
+    MaximizedChanged(bool),
+    /// The user showed or hid a `Sidebar` (the platform's own toggle, its
+    /// divider dragged away), or the platform did. Not reported for the
+    /// app's own `SidebarShown`. The core absorbs it as `SidebarShown`.
+    SidebarShownChanged(bool),
     /// Platform metrics changed (text size, color scheme, …).
     MetricsChanged,
     /// A `ScrollView`'s or `List`'s scroll offset changed (by the user or

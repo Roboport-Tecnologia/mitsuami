@@ -228,4 +228,18 @@ async fn a_button_follows_its_icon(app: TestApp) {
     assert!(has(&app, by_role(Role::Button, "Delete"), Prop::Label("Delete".into())));
 }
 
+/// A new caption keeps an icon shown alone so: AppKit puts a button's
+/// image back beside a new title. `view!` sets the caption last.
+#[mitsuami_test::test]
+async fn a_new_caption_keeps_the_icon_alone(app: TestApp) {
+    let caption = signal("Delete".to_string());
+    let icon = trash();
+    app.mount(move || view! { <Row><Button icon=icon.clone() icon_only=true>{caption}</Button></Row> });
+    assert!(has(&app, by_role(Role::Button, "Delete"), Prop::IconOnly(true)));
+
+    caption.set("Discard".into());
+    app.settle().await;
+    assert!(has(&app, by_role(Role::Button, "Discard"), Prop::IconOnly(true)));
+}
+
 mitsuami_test::main!();

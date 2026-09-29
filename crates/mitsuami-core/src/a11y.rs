@@ -13,6 +13,11 @@ pub enum Role {
     StaticText,
     Heading,
     Button,
+    /// A button that stays pressed until it's pressed again (a
+    /// `ToggleButton`): AppKit's toggle, GTK's toggle button, ARIA's
+    /// pressed button, Qt's and UIA's checkable button. `checked` while
+    /// it's pressed.
+    ToggleButton,
     /// A button that opens a menu of actions (a `MenuButton`): AppKit's
     /// menu button, Qt's `ButtonMenu`, a button with a menu pop-up on GTK
     /// and in ARIA, UIA's expand-collapse button.

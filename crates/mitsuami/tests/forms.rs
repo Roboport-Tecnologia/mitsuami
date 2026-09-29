@@ -224,4 +224,21 @@ async fn form_a11y_snapshot(app: TestApp) {
     app.assert_a11y_snapshot("filled");
 }
 
+/// What a field is for reaches the platform's field, which uses it as it
+/// uses one (a keyboard, autofill), and can change.
+#[mitsuami_test::test]
+async fn its_purpose_reaches_the_field(app: TestApp) {
+    let purpose = signal(InputPurpose::Email);
+    app.mount(move || TextInput::new().a11y_label("Contact").input_purpose(purpose));
+
+    for shown in [InputPurpose::Email, InputPurpose::Url, InputPurpose::Phone, InputPurpose::Text] {
+        purpose.set(shown);
+        app.settle().await;
+        let props = app.get_by_label("Contact").native_state().props;
+        assert!(props.contains(&Prop::InputPurpose(shown)), "{shown:?} in {props:?}");
+    }
+    app.get_by_label("Contact").fill("ada@example.com").await;
+    app.expect(by_label("Contact")).to_have_value("ada@example.com").await;
+}
+
 mitsuami_test::main!();

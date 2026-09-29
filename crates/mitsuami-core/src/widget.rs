@@ -57,6 +57,12 @@ pub enum WidgetKind {
     Fragment,
     Text,
     Button,
+    /// A native button that stays pressed until it's clicked again (an
+    /// `NSButton` of the push-on-push-off type, gtk::ToggleButton,
+    /// ToggleButton, a checkable QQC2.Button). A `Button`'s caption, icon
+    /// and style, and a `Checkbox`'s [`Prop::Checked`], reported as
+    /// `Changed(Bool)`.
+    ToggleButton,
     /// A native button that opens a menu of actions (a pull-down
     /// NSPopUpButton, gtk::MenuButton, DropDownButton, a QQC2.Button that
     /// opens a QQC2.Menu). Its caption, icon and style are a `Button`'s;
@@ -202,6 +208,7 @@ impl WidgetKind {
             WidgetKind::Fragment => "Fragment",
             WidgetKind::Text => "Text",
             WidgetKind::Button => "Button",
+            WidgetKind::ToggleButton => "ToggleButton",
             WidgetKind::MenuButton => "MenuButton",
             WidgetKind::TextInput => "TextInput",
             WidgetKind::PasswordInput => "PasswordInput",
@@ -267,6 +274,20 @@ pub enum HorizontalAlign {
     Left,
     Center,
     Right,
+}
+
+/// What a `TextInput` is for, which the platform uses as it uses one: to
+/// pick an on-screen keyboard, to offer autofill, to check what's typed.
+/// Only the purposes every platform has.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Hash)]
+pub enum InputPurpose {
+    /// Any text.
+    #[default]
+    Text,
+    Email,
+    Url,
+    /// A telephone number.
+    Phone,
 }
 
 /// What a button does in its window or dialog, which each platform shows
@@ -583,6 +604,14 @@ pub enum Prop {
     /// its width; where the platform can't hold one side (GTK), neither.
     /// The core sets it for a `WindowSize::FollowHeight` window.
     HeightFollowsContent(bool),
+    /// A window fills its screen's working area as the platform's maximize
+    /// (on macOS, zoom) does, and is back to its own size without. The user
+    /// can change it too: the backend reports `MaximizedChanged`, which the
+    /// core absorbs. Sent only if the app chose.
+    Maximized(bool),
+    /// The user can resize a window. Without, only the app sets its size;
+    /// sent only if the app chose.
+    Resizable(bool),
     /// Text content of a `Text`.
     Text(String),
     /// How many lines a `Text` shows at most, the last one cut off with an
@@ -601,9 +630,14 @@ pub enum Prop {
     /// app's `TextAlign` against the text's direction, so it's left or
     /// right here.
     TextAlign(HorizontalAlign),
-    /// Caption of a `Button`, `MenuButton`, `Checkbox` or `Switch`; accessible name of a
-    /// `Switch`, `Select`, `RadioGroup`, `Slider`, `NumberInput`, `Progress`, `Image`,
-    /// `Icon` or `GpuSurface`, and of a `Button` that shows only its icon.
+    /// A `Text`'s text can be selected and copied by the user. Sent when
+    /// the text is created, and never changed: Qt's selectable label is
+    /// another item.
+    Selectable(bool),
+    /// Caption of a `Button`, `ToggleButton`, `MenuButton`, `Checkbox` or
+    /// `Switch`; accessible name of a `Switch`, `Select`, `RadioGroup`,
+    /// `Slider`, `NumberInput`, `Progress`, `Image`, `Icon` or `GpuSurface`,
+    /// and of a button that shows only its icon.
     Label(String),
     /// Current text of a `TextInput`, `PasswordInput`, `SearchInput` or
     /// `TextArea`; a text area's lines end in `\n`.
@@ -618,6 +652,13 @@ pub enum Prop {
     /// the platform's font and line spacing; it scrolls past them. The
     /// layout can still make it taller or shorter.
     Lines(u32),
+    /// A `TextArea`'s lines wrap to its width. Without, a line is as long
+    /// as its text, and the area scrolls sideways. Sent only if the app
+    /// chose.
+    LineWrap(bool),
+    /// What a `TextInput` is for; sent only if the app chose.
+    InputPurpose(InputPurpose),
+    /// Checked state of a `Checkbox`, `Switch` or `ToggleButton`.
     Checked(bool),
     /// A `Checkbox` shows the mixed state (some of what it stands for is
     /// checked), whatever `Checked` says. A click leaves it: where it lands
@@ -647,6 +688,10 @@ pub enum Prop {
     /// `NumberInput`'s buttons and arrow keys add or take away. `None`: the
     /// platform's default.
     Step(Option<f64>),
+    /// A `NumberInput` stepped past one end of its range goes on from the
+    /// other. Sent only if the app chose: without, it's the platform's
+    /// (AppKit's stepper wraps, the others stop).
+    WrapAround(bool),
     /// Which way a `Slider` or a `Separator` runs.
     Orientation(Orientation),
     /// Text the platform shows when the pointer rests on the widget, as
@@ -672,8 +717,8 @@ pub enum Prop {
     Image(ImageSource),
     /// How an `Image` fills its frame; sent only if the app chose.
     ImageFit(ImageFit),
-    /// What an `Icon` shows, or the icon a `Button` or `MenuButton` shows before its
-    /// caption: a name in the platform's own set (an SF Symbol, a themed
+    /// What an `Icon` shows, or the icon a `Button`, `ToggleButton` or
+    /// `MenuButton` shows before its caption: a name in the platform's own set (an SF Symbol, a themed
     /// icon's name, a Segoe Fluent Icons glyph). Empty: none. A name the
     /// set doesn't have shows as the platform shows one: nothing, or its
     /// missing-icon icon.
@@ -682,7 +727,7 @@ pub enum Prop {
     /// an SF Symbol's point size (as a font's), the side of a square
     /// elsewhere. Sent only if the app chose.
     IconSize(f32),
-    /// A `Button` or `MenuButton` shows its icon without its caption, which stays its
+    /// A button shows its icon without its caption, which stays its
     /// accessible name. Without an icon it shows its caption.
     IconOnly(bool),
     /// Whether a `Spinner` spins. Stopped, it shows nothing but keeps its
@@ -698,10 +743,18 @@ pub enum Prop {
     ScrollBars(bool),
     /// A `Tabs`' page titles, in page order.
     TabTitles(Vec<String>),
+    /// A `Tabs`' tab icons, in page order: names in the platform's own set,
+    /// as `Icon`'s; empty for none. Sent only if a tab has one.
+    TabIcons(Vec<String>),
     /// How a `Tabs` shows its tabs. Sent only if the app chose.
     TabsStyle(TabsStyle),
     /// A `Sidebar`'s items, in sections, in order.
     Sections(Vec<SidebarSectionData>),
+    /// A `Sidebar` is shown beside the window's content, or hidden, as the
+    /// platform shows and hides one. The user can change it too: the
+    /// backend reports `SidebarShownChanged`, which the core absorbs. Sent
+    /// only if the app chose.
+    SidebarShown(bool),
     /// A `List`'s rows, in order.
     Rows(Vec<RowKey>),
     /// How high a `List`'s rows are likely to be, for platforms that must
@@ -830,6 +883,7 @@ static_value!(
     ScrollAxes,
     SelectionMode,
     ListStyle,
+    InputPurpose,
     ImageSource,
     Pixels,
     ImageFit,

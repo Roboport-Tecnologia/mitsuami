@@ -8,8 +8,8 @@ use std::path::PathBuf;
 
 use mitsuami_core::{
     Align, AnyView, ButtonRole, ButtonStyle, Children, Color, CurrentWindow, Cursor, Display, Element, ElementBuilder,
-    EventValue, FileDrop, FlexDirection, FontWeight, ImageFit, ImageSource, Justify, Length, Modality, NodeId,
-    Orientation, Pixels, Point, Prop, ScrollAxes, SidebarItemData, SidebarSectionData, Size, SurfaceHandle,
+    EventValue, FileDrop, FlexDirection, FontWeight, ImageFit, ImageSource, InputPurpose, Justify, Length, Modality,
+    NodeId, Orientation, Pixels, Point, Prop, ScrollAxes, SidebarItemData, SidebarSectionData, Size, SurfaceHandle,
     SurfaceInput, SurfaceSize, TabsStyle, TextAlign, TextStyle, Track, Tweak, Ui, UiEvent, View, WidgetKind,
     WindowSize,
 };
@@ -59,6 +59,8 @@ pub struct Window<T = Value<String>> {
     modality: Value<Option<Modality>>,
     open: Value<bool>,
     full_screen: Option<Signal<bool>>,
+    maximized: Option<Signal<bool>>,
+    resizable: Option<Value<bool>>,
     min_size: Option<Value<Size>>,
     on_open: Option<Rc<dyn Fn()>>,
     on_close_request: Option<Rc<dyn Fn()>>,
@@ -74,6 +76,8 @@ impl Window {
             modality: Value::Static(None),
             open: Value::Static(true),
             full_screen: None,
+            maximized: None,
+            resizable: None,
             min_size: None,
             on_open: None,
             on_close_request: None,
@@ -132,6 +136,23 @@ impl<T> Window<T> {
         self
     }
 
+    /// Maximized while `maximized` is true, as the platform maximizes a
+    /// window: its screen's working area (on macOS, zoomed to fit it). The
+    /// user can change it too (the title bar's button, a double-click on
+    /// it, the window manager's key), which sets the signal.
+    pub fn maximized(mut self, maximized: Signal<bool>) -> Window<T> {
+        self.maximized = Some(maximized);
+        self
+    }
+
+    /// Whether the user can resize it; they can unless it's set false.
+    /// The app can still size it, and a window that follows its content's
+    /// height still does.
+    pub fn resizable(mut self, resizable: impl IntoValue<bool>) -> Window<T> {
+        self.resizable = Some(resizable.into_value());
+        self
+    }
+
     /// The smallest content size the user can make it. Smaller when it's
     /// set, it grows to it.
     pub fn min_size(mut self, size: impl IntoValue<Size>) -> Window<T> {
@@ -165,7 +186,19 @@ impl View for Window {
     /// top-level.
     fn build(self, ui: &Ui) -> NodeId {
         let placeholder = ui.create(WidgetKind::Fragment, Vec::new());
-        let Window { title, size, modality, open, full_screen, min_size, on_open, on_close_request, content } = self;
+        let Window {
+            title,
+            size,
+            modality,
+            open,
+            full_screen,
+            maximized,
+            resizable,
+            min_size,
+            on_open,
+            on_close_request,
+            content,
+        } = self;
         // The window it's declared in, which a modal window belongs to.
         let owner = inject::<CurrentWindow>().map(|w| w.0);
         let ui = ui.clone();
@@ -191,6 +224,19 @@ impl View for Window {
                         full_screen.set(*on);
                     }
                 });
+            }
+            if let Some(maximized) = maximized {
+                let zoomed = ui.clone();
+                effect(move || zoomed.set_prop(window, Prop::Maximized(maximized.get())));
+                ui.on_event(window, move |event| {
+                    if let UiEvent::MaximizedChanged(on) = event {
+                        maximized.set(*on);
+                    }
+                });
+            }
+            if let Some(resizable) = resizable.clone() {
+                let ui = ui.clone();
+                effect(move || ui.set_prop(window, Prop::Resizable(resizable.get())));
             }
             provide(CurrentWindow(window));
             if let Some(handler) = &on_open {
@@ -331,11 +377,22 @@ impl View for Toolbar {
 pub struct Sidebar<T: 'static> {
     selection: Signal<T>,
     sections: Vec<SidebarSection<T>>,
+    shown: Option<Signal<bool>>,
 }
 
 impl<T: PartialEq + Clone + 'static> Sidebar<T> {
     pub fn new(selection: Signal<T>) -> Sidebar<T> {
-        Sidebar { selection, sections: Vec::new() }
+        Sidebar { selection, sections: Vec::new(), shown: None }
+    }
+
+    /// Shown beside the window's content while `shown` is true, hidden
+    /// otherwise, as the platform shows and hides a sidebar. The user can
+    /// change it too (the platform's toggle, its divider dragged away),
+    /// which sets the signal. Where the platform's sidebar can't be hidden
+    /// in a wide window (GTK), it's the page shown in a narrow one.
+    pub fn shown(mut self, shown: Signal<bool>) -> Sidebar<T> {
+        self.shown = Some(shown);
+        self
     }
 
     /// Items and sections, in order. Items outside a section next to each
@@ -362,7 +419,7 @@ impl<T: PartialEq + Clone + 'static> View for Sidebar<T> {
         let Some(CurrentWindow(window)) = inject::<CurrentWindow>() else {
             panic!("a Sidebar goes in a window's content");
         };
-        let Sidebar { selection, sections } = self;
+        let Sidebar { selection, sections, shown: showing } = self;
         let values: Rc<Vec<T>> =
             Rc::new(sections.iter().flat_map(|s| s.items.iter().map(|i| i.value.clone())).collect());
         let sidebar = ui.create(WidgetKind::Sidebar, Vec::new());
@@ -395,6 +452,15 @@ impl<T: PartialEq + Clone + 'static> View for Sidebar<T> {
                 selection.set(value.clone());
             }
         });
+        if let Some(showing) = showing {
+            let shown = ui.clone();
+            effect(move || shown.set_prop(sidebar, Prop::SidebarShown(showing.get())));
+            ui.on_event(sidebar, move |event| {
+                if let UiEvent::SidebarShownChanged(on) = event {
+                    showing.set(*on);
+                }
+            });
+        }
         let ui = ui.clone();
         on_cleanup(move || ui.destroy(sidebar));
         placeholder
@@ -645,6 +711,15 @@ impl<T: PartialEq + Clone + 'static> View for Tabs<T> {
         let values: Rc<Vec<T>> = Rc::new(tabs.iter().map(|t| t.value.clone()).collect());
         // The titles first: the selection is an index into them.
         element.prop(Value::Dynamic(Rc::new(move || titles.iter().map(|t| t.get()).collect())), Prop::TabTitles);
+        if tabs.iter().any(|t| t.icon.is_some()) {
+            let icons: Vec<Option<Value<String>>> = tabs.iter().map(|t| t.icon.clone()).collect();
+            element.prop(
+                Value::Dynamic(Rc::new(move || {
+                    icons.iter().map(|i| i.as_ref().map(|i| i.get()).unwrap_or_default()).collect()
+                })),
+                Prop::TabIcons,
+            );
+        }
         let shown = values.clone();
         element.prop(
             Value::Dynamic(Rc::new(move || {
@@ -674,6 +749,7 @@ impl<T: PartialEq + Clone + 'static> View for Tabs<T> {
 /// `<Tab title="General" value=Page::General>…</Tab>`.
 pub struct Tab<T: 'static> {
     title: Value<String>,
+    icon: Option<Value<String>>,
     value: T,
     page: Container,
 }
@@ -686,7 +762,7 @@ impl<T: 'static> ElementBuilder for Tab<T> {
 
 impl<T: 'static> Tab<T> {
     pub fn new(title: impl IntoValue<String>, value: T) -> Tab<T> {
-        Tab { title: title.into_value(), value, page: Column::new() }
+        Tab { title: title.into_value(), icon: None, value, page: Column::new() }
     }
 
     pub fn title(mut self, title: impl IntoValue<String>) -> Tab<T> {
@@ -694,9 +770,18 @@ impl<T: 'static> Tab<T> {
         self
     }
 
+    /// An icon on its tab, named in the platform's own set as for
+    /// [`Icon`]; empty: none. Shown where the platform's tabs show one
+    /// (libadwaita's view switcher, WinUI's selector bar, Qt's tabs);
+    /// AppKit's tab view shows titles only.
+    pub fn icon(mut self, name: impl IntoValue<String>) -> Tab<T> {
+        self.icon = Some(name.into_value());
+        self
+    }
+
     /// The value picking it gives the tabs' selection.
     pub fn value<U: 'static>(self, value: U) -> Tab<U> {
-        Tab { title: self.title, value, page: self.page }
+        Tab { title: self.title, icon: self.icon, value, page: self.page }
     }
 
     /// What it shows, in a column.
@@ -1185,10 +1270,17 @@ impl Text {
         self
     }
 
+    /// Its text can be selected and copied, as the platform's selectable
+    /// labels are (Kirigami's `SelectableLabel` on KDE). Fixed when it's
+    /// built: on KDE a selectable label is another item.
+    pub fn selectable(mut self, selectable: bool) -> Text {
+        self.0.prop(Value::Static(selectable), Prop::Selectable);
+        self
+    }
+
     /// Raw platform settings, past the semantic ones: see [`Tweak`]. What
     /// the platforms offer (style classes on GTK, Markdown on Qt, character
-    /// spacing on WinUI, selection on all but Qt's labels) is each one's
-    /// own.
+    /// spacing on WinUI) is each one's own.
     pub fn native(mut self, tweak: Tweak<Text>) -> Text {
         tweak.apply(&mut self.0);
         self
@@ -1248,6 +1340,45 @@ impl Button {
                 handler();
             }
         });
+        self
+    }
+}
+
+/// A button that stays pressed until it's clicked again, as the platform
+/// makes one: an `NSButton` that pushes on and off, a `gtk::ToggleButton`,
+/// a `ToggleButton`, a checkable `QQC2.Button`. Its caption, icon and style
+/// are a [`Button`]'s; whether it's pressed is `checked`, as a checkbox's.
+pub struct ToggleButton(Element);
+widget!(ToggleButton);
+
+impl ToggleButton {
+    pub fn new(label: impl IntoValue<String>) -> ToggleButton {
+        let mut element = Element::new(WidgetKind::ToggleButton);
+        element.prop(label.into_value(), Prop::Label);
+        ToggleButton(element)
+    }
+
+    /// How the button is drawn: see [`ButtonStyle`].
+    pub fn button_style(mut self, style: impl IntoValue<ButtonStyle>) -> ToggleButton {
+        self.0.prop(style.into_value(), Prop::ButtonStyle);
+        self
+    }
+
+    /// An icon before its caption, as for [`Button::icon`].
+    pub fn icon(mut self, name: impl IntoValue<String>) -> ToggleButton {
+        self.0.prop(name.into_value(), Prop::Icon);
+        self
+    }
+
+    /// Shows only its icon. The caption stays its accessible name.
+    pub fn icon_only(mut self, only: impl IntoValue<bool>) -> ToggleButton {
+        self.0.prop(only.into_value(), Prop::IconOnly);
+        self
+    }
+
+    /// Raw platform settings, past the semantic ones: see [`Tweak`].
+    pub fn native(mut self, tweak: Tweak<ToggleButton>) -> ToggleButton {
+        tweak.apply(&mut self.0);
         self
     }
 }
@@ -1352,6 +1483,14 @@ impl TextInput {
     /// not edited. Unlike a disabled field, it looks and reads as usual.
     pub fn read_only(mut self, read_only: impl IntoValue<bool>) -> TextInput {
         self.0.prop(read_only.into_value(), Prop::ReadOnly);
+        self
+    }
+
+    /// What it's for (an email address, a URL, a phone number), which the
+    /// platform uses as it uses one: to pick an on-screen keyboard, to
+    /// offer autofill. It doesn't check what's typed.
+    pub fn input_purpose(mut self, purpose: impl IntoValue<InputPurpose>) -> TextInput {
+        self.0.prop(purpose.into_value(), Prop::InputPurpose);
         self
     }
 
@@ -1582,6 +1721,14 @@ impl TextArea {
         self
     }
 
+    /// Whether its lines wrap to its width, as they do unless it's set
+    /// false. Without, each line is as long as its text, and the area
+    /// scrolls sideways: for code, or logs.
+    pub fn line_wrap(mut self, wrap: impl IntoValue<bool>) -> TextArea {
+        self.0.prop(wrap.into_value(), Prop::LineWrap);
+        self
+    }
+
     /// Called on every edit with the new text.
     pub fn on_input(mut self, handler: impl Fn(String) + 'static) -> TextArea {
         self.0.on(move |event| {
@@ -1665,6 +1812,8 @@ impl Checkbox {
 pub struct Switch(Element);
 widget!(Switch);
 toggle!(Switch);
+// A toggle button's pressed state.
+toggle!(ToggleButton);
 
 impl Switch {
     pub fn new(label: impl IntoValue<String>) -> Switch {
@@ -2055,6 +2204,14 @@ impl NumberInput {
             dynamic => Value::Dynamic(Rc::new(move || Some(dynamic.get().into()))),
         };
         self.element.prop(step, Prop::Step);
+        self
+    }
+
+    /// Stepped past one end of its range, it goes on from the other.
+    /// Without, it's the platform's: AppKit's stepper wraps round, the
+    /// other platforms' spin boxes stop.
+    pub fn wrap_around(mut self, wrap: impl IntoValue<bool>) -> NumberInput {
+        self.element.prop(wrap.into_value(), Prop::WrapAround);
         self
     }
 
@@ -2537,9 +2694,7 @@ impl Window {
     /// until `title` is set, and only then a `View`.
     #[doc(hidden)]
     pub fn __tag() -> Window<()> {
-        let Window { title: _, size, modality, open, full_screen, min_size, on_open, on_close_request, content } =
-            Window::new(String::new());
-        Window { title: (), size, modality, open, full_screen, min_size, on_open, on_close_request, content }
+        Window::new(String::new()).retitled(())
     }
 
     /// Its content, built each time it opens.
@@ -2551,14 +2706,34 @@ impl Window {
 
 impl Window<()> {
     pub fn title(self, title: impl IntoValue<String>) -> Window {
-        let Window { title: (), size, modality, open, full_screen, min_size, on_open, on_close_request, content } =
-            self;
-        Window {
-            title: title.into_value(),
+        self.retitled(title.into_value())
+    }
+}
+
+impl<T> Window<T> {
+    /// The same window with another title type.
+    fn retitled<U>(self, title: U) -> Window<U> {
+        let Window {
+            title: _,
             size,
             modality,
             open,
             full_screen,
+            maximized,
+            resizable,
+            min_size,
+            on_open,
+            on_close_request,
+            content,
+        } = self;
+        Window {
+            title,
+            size,
+            modality,
+            open,
+            full_screen,
+            maximized,
+            resizable,
             min_size,
             on_open,
             on_close_request,
@@ -2724,6 +2899,7 @@ macro_rules! text_tag {
 
 text_tag!(Text, Text);
 text_tag!(Button, Label);
+text_tag!(ToggleButton, Label);
 text_tag!(MenuButton, Label);
 text_tag!(Checkbox, Label);
 text_tag!(Switch, Label);

@@ -197,4 +197,20 @@ async fn the_options_follow_their_signals(app: TestApp) {
     assert!(has(&app, "text", Prop::TextAlign(HorizontalAlign::Right)));
 }
 
+/// Selectable text is the platform's selectable label, and still reads as
+/// text; a label isn't selectable unless it says so.
+#[mitsuami_test::test]
+async fn selectable_text_reaches_the_label(app: TestApp) {
+    app.mount(|| {
+        Column::new().children((
+            Text::new("ABCD-1234").selectable(true).test_id("key"),
+            Text::new("Licence key").test_id("label"),
+        ))
+    });
+
+    assert!(has(&app, "key", Prop::Selectable(true)));
+    assert!(!has(&app, "label", Prop::Selectable(true)));
+    app.expect(by_role(Role::StaticText, "ABCD-1234")).to_be_visible().await;
+}
+
 mitsuami_test::main!();

@@ -328,4 +328,31 @@ async fn a_new_style_keeps_the_focus(app: TestApp) {
     }
 }
 
+/// A tab can have an icon, named in the platform's set; the platform shows
+/// it where its tabs show one (AppKit's tab view shows only titles), and
+/// the titles still name the tabs.
+#[mitsuami_test::test]
+async fn tabs_can_have_icons(app: TestApp) {
+    let gear = platform! {
+        macos => "gearshape",
+        gtk => "emblem-system-symbolic",
+        kde => "configure",
+        windows => "\u{E713}",
+        _ => "gear",
+    };
+    let page = signal(Page::General);
+    app.mount(move || {
+        Tabs::new(page).children((
+            Tab::new("General", Page::General).icon(gear).child(Text::new("General settings")),
+            Tab::new("Network", Page::Network).child(Text::new("Network settings")),
+        ))
+    });
+
+    let props = app.ui().native_state(tabs(&app)).expect("a tab view").props;
+    assert!(props.contains(&Prop::TabIcons(vec![gear.to_owned(), String::new()])), "{props:?}");
+    assert_eq!(strip(&app), ["General *", "Network"]);
+    app.get_by_role(Role::Tab, "Network").select().await;
+    assert_eq!(page.get_untracked(), Page::Network);
+}
+
 mitsuami_test::main!();

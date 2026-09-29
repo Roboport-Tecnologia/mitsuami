@@ -27,6 +27,9 @@ pub(crate) struct Tabs {
     changed: Rc<dyn Fn(usize)>,
     frames: Frames,
     titles: RefCell<Vec<String>>,
+    /// Icons by page, empty for none: a view stack page's icon name. A
+    /// notebook's tabs are text, so there they're only kept.
+    icons: RefCell<Vec<String>>,
     /// The page the core shows, which may come before its page in a batch.
     selected: Cell<Option<usize>>,
     /// Where the core put each page, until the view has placed it.
@@ -49,6 +52,7 @@ impl Tabs {
             changed,
             frames,
             titles: RefCell::default(),
+            icons: RefCell::default(),
             selected: Cell::new(None),
             origins: RefCell::default(),
         }
@@ -85,6 +89,7 @@ impl Tabs {
             view.insert(index, wrapper, self.titles.borrow().get(index).map_or("", String::as_str));
         }
         drop(view);
+        self.retitle();
         self.show_selected();
         if let Some(focus) = focus {
             focus.grab_focus();
@@ -114,10 +119,30 @@ impl Tabs {
         self.retitle();
     }
 
+    /// Icons pages by index, as titles.
+    pub(crate) fn set_icons(&self, icons: Vec<String>) {
+        *self.icons.borrow_mut() = icons;
+        self.retitle();
+    }
+
+    /// Titles and icons each page, which a view stack loses when it takes
+    /// pages out to insert one.
     fn retitle(&self) {
-        let titles = self.titles.borrow();
-        for (index, page) in self.view.borrow().wrappers().iter().enumerate() {
-            self.view.borrow().set_title(page, titles.get(index).map_or("", String::as_str));
+        let (titles, icons) = (self.titles.borrow(), self.icons.borrow());
+        let view = self.view.borrow();
+        for (index, page) in view.wrappers().iter().enumerate() {
+            view.set_title(page, titles.get(index).map_or("", String::as_str));
+            view.set_icon(page, icons.get(index).map_or("", String::as_str));
+        }
+        view.show_icons(icons.iter().any(|i| !i.is_empty()));
+    }
+
+    /// The tabs' icons, as a view stack shows them; a notebook's are kept.
+    pub(crate) fn icons(&self) -> Vec<String> {
+        let view = self.view.borrow();
+        match &*view {
+            View::Switcher { stack, .. } => view.wrappers().iter().map(|w| icon_name(stack, w)).collect(),
+            View::Notebook(_) => self.icons.borrow().clone(),
         }
     }
 
@@ -350,6 +375,28 @@ impl View {
         }
     }
 
+    fn set_icon(&self, wrapper: &gtk::Widget, icon: &str) {
+        if let View::Switcher { stack, .. } = self
+            && icon_name(stack, wrapper) != icon
+        {
+            stack.page(wrapper).set_icon_name(Some(icon).filter(|i| !i.is_empty()));
+        }
+    }
+
+    /// An inline view switcher shows labels unless told to show icons too.
+    fn show_icons(&self, icons: bool) {
+        let View::Switcher { switcher, .. } = self else { return };
+        // Its mode is an enum of the switcher's, which is looked up at run
+        // time too.
+        let mode = switcher
+            .find_property("display-mode")
+            .and_then(|p| glib::EnumClass::with_type(p.value_type()))
+            .and_then(|class| class.to_value_by_nick(if icons { "both" } else { "labels" }));
+        if let Some(mode) = mode {
+            switcher.set_property_from_value("display-mode", &mode);
+        }
+    }
+
     fn title(&self, wrapper: &gtk::Widget) -> String {
         match self {
             View::Switcher { stack, .. } => stack.page(wrapper).title(),
@@ -403,6 +450,11 @@ fn switcher_type() -> Option<glib::Type> {
             })
         }
     })
+}
+
+/// A view stack page's icon name; empty for none.
+fn icon_name(stack: &adw::ViewStack, wrapper: &gtk::Widget) -> String {
+    stack.page(wrapper).icon_name().map(|i| i.to_string()).unwrap_or_default()
 }
 
 /// A view stack's pages, in order.

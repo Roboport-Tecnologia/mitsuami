@@ -9,7 +9,12 @@
 //! - Make the window narrow: each platform collapses the sidebar its own way
 //!   (hidden on macOS, a page of its own on GNOME and KDE, icons only, then
 //!   a menu button, on Windows).
-//! - Hide the sidebar: the content keeps its size, and the window shrinks.
+//! - Hide the sidebar, the platform's way (`Sidebar::shown`): collapsed on
+//!   macOS, its pane closed on Windows (icons only in a wide window), its
+//!   page out of the row on KDE. GNOME's split view shows its sidebar
+//!   while the window is wide: there it hides only in a narrow window,
+//!   showing the page. Hiding it from the platform's own controls (macOS's
+//!   View menu or divider, Windows' menu button) changes the button too.
 
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
@@ -82,19 +87,17 @@ fn settings() -> impl View {
     };
     view! {
         <Column padding=Spacing::Xl gap=Spacing::Md>
-            <Show when=sidebar>
-                <Sidebar selection=page>
-                    {Page::General.item()}
-                    {Page::Appearance.item()}
-                    <SidebarSection title="Network">
-                        {Page::WiFi.item()}
-                        {Page::Bluetooth.item()}
-                    </SidebarSection>
-                    <SidebarSection title="Devices">
-                        {Page::Keyboard.item()}
-                    </SidebarSection>
-                </Sidebar>
-            </Show>
+            <Sidebar selection=page shown=sidebar>
+                {Page::General.item()}
+                {Page::Appearance.item()}
+                <SidebarSection title="Network">
+                    {Page::WiFi.item()}
+                    {Page::Bluetooth.item()}
+                </SidebarSection>
+                <SidebarSection title="Devices">
+                    {Page::Keyboard.item()}
+                </SidebarSection>
+            </Sidebar>
             <Text text_style=TextStyle::Title>{move || page.get().title().to_owned()}</Text>
             <Text>{move || page.get().about().to_owned()}</Text>
             <Row gap=Spacing::Md>

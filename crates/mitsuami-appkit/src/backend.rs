@@ -14,8 +14,8 @@ use mitsuami_core::services::MenuEntry;
 use mitsuami_core::units::SpacingScale;
 use mitsuami_core::{
     AppIcon, AppInfo, ButtonRole, ButtonStyle, Color, Command, CustomProps, EventValue, FontWeight, HorizontalAlign,
-    ImageFit, ImageSource, Modality, NativeAppInfo, NativeIcon, NodeId, Opaque, Orientation, Point, Prop, Rect, RowKey,
-    ScrollAxes, SelectionMode, Size, TabsStyle, TextStyle, UiEvent, WidgetKind, find_prop,
+    ImageFit, ImageSource, InputPurpose, Modality, NativeAppInfo, NativeIcon, NodeId, Opaque, Orientation, Point, Prop,
+    Rect, RowKey, ScrollAxes, SelectionMode, Size, TabsStyle, TextStyle, UiEvent, WidgetKind, find_prop,
 };
 use objc2::rc::Retained;
 use objc2::runtime::{AnyObject, ProtocolObject};
@@ -23,15 +23,17 @@ use objc2::{AnyThread, MainThreadMarker, MainThreadOnly, Message, msg_send, sel}
 use objc2_app_kit::{
     NSAccessibility, NSAppearance, NSAppearanceCustomization, NSAppearanceNameAqua, NSAppearanceNameDarkAqua,
     NSApplication, NSAutoresizingMaskOptions, NSBackingStoreType, NSBitmapFormat, NSBitmapImageRep, NSBox, NSBoxType,
-    NSButton, NSCellImagePosition, NSColor, NSColorSpace, NSControl, NSControlStateValueMixed, NSControlStateValueOff,
-    NSControlStateValueOn, NSDeviceRGBColorSpace, NSEvent, NSEventModifierFlags, NSEventType, NSFont,
-    NSFontDescriptorSymbolicTraits, NSFontTextStyle, NSFontTextStyleBody, NSFontTextStyleCallout,
+    NSButton, NSButtonType, NSCellImagePosition, NSColor, NSColorSpace, NSControl, NSControlStateValueMixed,
+    NSControlStateValueOff, NSControlStateValueOn, NSDeviceRGBColorSpace, NSEvent, NSEventModifierFlags, NSEventType,
+    NSFont, NSFontDescriptorSymbolicTraits, NSFontTextStyle, NSFontTextStyleBody, NSFontTextStyleCallout,
     NSFontTextStyleCaption1, NSFontTextStyleHeadline, NSFontTextStyleLargeTitle, NSFontTextStyleTitle1,
     NSFontTraitsAttribute, NSFontWeightBold, NSFontWeightMedium, NSFontWeightRegular, NSFontWeightSemibold,
     NSFontWeightTrait, NSImage, NSImageScaling, NSImageSymbolConfiguration, NSImageView, NSMenuItem, NSPopUpButton,
     NSProgressIndicator, NSProgressIndicatorStyle, NSScreen, NSScrollView, NSSearchField, NSSecureTextField, NSSlider,
-    NSStandardKeyBindingResponding, NSSwitch, NSTextAlignment, NSTextField, NSTextView, NSTitlePosition, NSView,
-    NSViewBoundsDidChangeNotification, NSWindow, NSWindowOrderingMode, NSWindowStyleMask, NSWorkspace,
+    NSStandardKeyBindingResponding, NSSwitch, NSTextAlignment, NSTextContent, NSTextContentType,
+    NSTextContentTypeEmailAddress, NSTextContentTypeTelephoneNumber, NSTextContentTypeURL, NSTextField, NSTextView,
+    NSTitlePosition, NSView, NSViewBoundsDidChangeNotification, NSWindow, NSWindowOrderingMode, NSWindowStyleMask,
+    NSWorkspace,
 };
 use objc2_core_foundation::{CFRunLoop, kCFRunLoopDefaultMode};
 use objc2_foundation::{
@@ -244,8 +246,10 @@ struct Node {
     align: bool,
     role: Option<ButtonRole>,
     button_style: Option<ButtonStyle>,
-    /// Tabs: the style the app chose, which this platform doesn't have.
+    /// Tabs: the style the app chose, which this platform doesn't have,
+    /// and the icons it gave, which an `NSTabView` doesn't draw.
     tabs_style: Option<TabsStyle>,
+    tab_icons: Option<Vec<String>>,
     /// Sliders: whether the app gave an `Orientation`. Separators: which
     /// way they run, which an `NSBox` takes from its frame's shape.
     orientation: Option<Orientation>,
@@ -474,6 +478,10 @@ impl AppKitHandle {
         let Some(Widget::Window { window, _delegate, .. }) = state.nodes.get(&window).map(|n| &n.widget) else {
             return;
         };
+        // The user can't resize a window without the resizable style.
+        if !window.styleMask().contains(NSWindowStyleMask::Resizable) {
+            return;
+        }
         let (window, extra) = (window.clone(), _delegate.extra(window));
         drop(state);
         let (min, max) = (window.contentMinSize(), window.contentMaxSize());
@@ -643,6 +651,7 @@ impl State {
         let target = matches!(
             kind,
             WidgetKind::Button
+                | WidgetKind::ToggleButton
                 | WidgetKind::Checkbox
                 | WidgetKind::Switch
                 | WidgetKind::Select
@@ -748,6 +757,13 @@ impl State {
             }
             WidgetKind::Button => {
                 Widget::Button(unsafe { NSButton::buttonWithTitle_target_action(&ns(""), target_obj, action, mtm) })
+            }
+            // A push button that stays in once clicked, with a darker bezel
+            // while it's in (macOS 26).
+            WidgetKind::ToggleButton => {
+                let button = unsafe { NSButton::buttonWithTitle_target_action(&ns(""), target_obj, action, mtm) };
+                button.setButtonType(NSButtonType::PushOnPushOff);
+                Widget::Button(button)
             }
             WidgetKind::Checkbox => {
                 Widget::Checkbox(unsafe { NSButton::checkboxWithTitle_target_action(&ns(""), target_obj, action, mtm) })
@@ -920,6 +936,7 @@ impl State {
                 role: None,
                 button_style: None,
                 tabs_style: None,
+                tab_icons: None,
                 orientation: None,
                 scroll_axes: ScrollAxes::default(),
                 scroll_bars: true,
@@ -955,6 +972,17 @@ impl State {
                 node.file_drop = true;
             }
             (Prop::FullScreen(on), Widget::Window { window, _delegate, .. }) => _delegate.set_full_screen(window, *on),
+            // AppKit's maximize is zoom: the title bar's green button with
+            // Option, or a double-click on the title bar.
+            (Prop::Maximized(on), Widget::Window { window, _delegate, .. }) => _delegate.set_zoomed(window, *on),
+            (Prop::Resizable(on), Widget::Window { window, .. }) => {
+                let mask = window.styleMask();
+                window.setStyleMask(if *on {
+                    mask | NSWindowStyleMask::Resizable
+                } else {
+                    mask & !NSWindowStyleMask::Resizable
+                });
+            }
             (Prop::MinSize(min), Widget::Window { window, _delegate, .. }) => _delegate.set_min_size(window, *min),
             (Prop::HeightFollowsContent(on), Widget::Window { window, _delegate, .. }) => {
                 _delegate.set_height_locked(window, *on)
@@ -965,6 +993,7 @@ impl State {
                 node.modal = Some((*owner, *modality));
             }
             (Prop::Text(t), Widget::Label(l)) => l.setStringValue(&ns(t)),
+            (Prop::Selectable(on), Widget::Label(l)) => l.setSelectable(*on),
             // 0 is AppKit's "no limit"; the cell puts an ellipsis at the
             // end of the last line it shows.
             (Prop::MaxLines(lines), Widget::Label(l)) => {
@@ -973,7 +1002,15 @@ impl State {
                     cell.setTruncatesLastVisibleLine(lines.is_some());
                 }
             }
-            (Prop::Label(t), Widget::Button(b) | Widget::Checkbox(b)) => b.setTitle(&ns(t)),
+            (Prop::Label(t), Widget::Checkbox(b)) => b.setTitle(&ns(t)),
+            // A new title puts the image back beside it: an icon shown
+            // alone stays so.
+            (Prop::Label(t), Widget::Button(b)) => {
+                b.setTitle(&ns(t));
+                if node.icon.is_some() {
+                    b.setImagePosition(image_position(node.icon_only));
+                }
+            }
             (Prop::Label(t), Widget::Switch(s)) => s.setAccessibilityLabel(Some(&ns(t))),
             (Prop::Label(t), Widget::Select(p)) => p.setAccessibilityLabel(Some(&ns(t))),
             (Prop::Label(t), Widget::RadioGroup(group)) => group.stack.setAccessibilityLabel(Some(&ns(t))),
@@ -1035,7 +1072,12 @@ impl State {
             }
             (Prop::Sections(sections), Widget::Sidebar(sidebar)) => sidebar.set_sections(sections.clone()),
             (Prop::SelectedIndex(index), Widget::Sidebar(sidebar)) => sidebar.set_selected(*index),
+            // Applied to the window's split, once it has one.
+            (Prop::SidebarShown(on), Widget::Sidebar(sidebar)) => sidebar.shown.set(Some(*on)),
             (Prop::TabTitles(titles), Widget::Tabs(tabs)) => tabs.set_titles(titles.clone()),
+            // An `NSTabView` draws only titles: its items' images are for
+            // a tab view controller's toolbar style. Kept for the mirror.
+            (Prop::TabIcons(icons), Widget::Tabs(_)) => node.tab_icons = Some(icons.clone()),
             // One way to show tabs: the app's choice is kept, not shown.
             (Prop::TabsStyle(style), Widget::Tabs(_)) => node.tabs_style = Some(*style),
             (Prop::SelectedIndex(index), Widget::Tabs(tabs)) => tabs.set_shown(*index),
@@ -1067,6 +1109,8 @@ impl State {
                 n.show_number();
             }
             (Prop::Step(step), Widget::NumberInput(n)) => n.stepper().setIncrement(step.unwrap_or(1.0)),
+            // On by default: AppKit's stepper wraps unless it's turned off.
+            (Prop::WrapAround(on), Widget::NumberInput(n)) => n.stepper().setValueWraps(*on),
             (Prop::Number(v), Widget::NumberInput(n)) => {
                 n.stepper().setDoubleValue(*v);
                 n.show_number();
@@ -1150,12 +1194,15 @@ impl State {
                 }
             }
             (Prop::Placeholder(t), Widget::Field(f)) => f.setPlaceholderString(Some(&ns(t))),
+            // For autofill; AppKit has no on-screen keyboard to pick.
+            (Prop::InputPurpose(purpose), Widget::Field(f)) => f.setContentType(content_type(*purpose)),
             (Prop::Value(t), Widget::TextArea(area)) => area.set_string(t),
             // A text view has no placeholder: kept for the mirror.
             (Prop::Placeholder(t), Widget::TextArea(area)) => area.placeholder = Some(t.clone()),
             (Prop::ReadOnly(r), Widget::TextArea(area)) => area.set_read_only(*r),
             (Prop::Enabled(e), Widget::TextArea(area)) => area.set_enabled(*e),
             (Prop::Lines(lines), Widget::TextArea(area)) => area.lines = *lines,
+            (Prop::LineWrap(on), Widget::TextArea(area)) => area.set_line_wrap(*on),
             // Still selectable, so its text can be copied; it takes focus
             // from a click, and from the keyboard only with Full Keyboard
             // Access.
@@ -1176,6 +1223,9 @@ impl State {
                     (false, true) => NSControlStateValueOn,
                     (false, false) => NSControlStateValueOff,
                 });
+            }
+            (Prop::Checked(c), Widget::Button(b)) => {
+                b.setState(if *c { NSControlStateValueOn } else { NSControlStateValueOff })
             }
             (Prop::Checked(c), Widget::Switch(s)) => {
                 s.setState(if *c { NSControlStateValueOn } else { NSControlStateValueOff })
@@ -1309,6 +1359,12 @@ impl State {
             }
             _ => {}
         }
+        if let Prop::SidebarShown(on) = prop
+            && let Some(Widget::Window { split: Some(split), .. }) =
+                node.parent.and_then(|p| self.nodes.get(&p)).map(|p| &p.widget)
+        {
+            split.set_shown(*on);
+        }
     }
 
     fn view(&self, id: NodeId, command: &Command) -> Retained<NSView> {
@@ -1368,6 +1424,7 @@ impl State {
                     let (mtm, animate) = (self.mtm, self.options.show_windows);
                     let Widget::Sidebar(sidebar) = &self.nodes[child].widget else { unreachable!() };
                     let scroll = sidebar.scroll.clone();
+                    let shown = sidebar.shown.get();
                     let Widget::Window { window, host, _delegate, toolbar, split } =
                         &mut self.nodes.get_mut(parent).unwrap().widget
                     else {
@@ -1381,7 +1438,11 @@ impl State {
                     // content, as a unified toolbar puts them.
                     let size = host.frame().size;
                     toolbar.get_or_insert_with(|| Toolbar::new(mtm, window, *parent, animate)).set_sidebar(true);
-                    *split = Some(Split::new(mtm, window, host, *child, &scroll));
+                    let made = Split::new(mtm, window, host, *child, &scroll, self.events.clone());
+                    if let Some(shown) = shown {
+                        made.set_shown(shown);
+                    }
+                    *split = Some(made);
                     _delegate.set_detail(Some(host));
                     window.setContentSize(
                         _delegate.at_least_min(window, Size::new(size.width as f32, size.height as f32)),
@@ -1740,6 +1801,27 @@ fn set_ticks(slider: &NSSlider, step: Option<f64>) {
 }
 
 /// In full screen, or moving into or out of it.
+/// The content type AppKit's autofill takes for a purpose.
+fn content_type(purpose: InputPurpose) -> Option<&'static NSTextContentType> {
+    Some(unsafe {
+        match purpose {
+            InputPurpose::Text => return None,
+            InputPurpose::Email => NSTextContentTypeEmailAddress,
+            InputPurpose::Url => NSTextContentTypeURL,
+            InputPurpose::Phone => NSTextContentTypeTelephoneNumber,
+        }
+    })
+}
+
+/// The purpose a field's content type stands for; any other, or none, is
+/// text.
+fn input_purpose(shown: Option<&NSTextContentType>) -> InputPurpose {
+    [InputPurpose::Email, InputPurpose::Url, InputPurpose::Phone]
+        .into_iter()
+        .find(|p| shown.zip(content_type(*p)).is_some_and(|(shown, t)| shown.isEqualToString(t)))
+        .unwrap_or_default()
+}
+
 fn in_full_screen(window: &NSWindow) -> bool {
     window.styleMask().contains(NSWindowStyleMask::FullScreen)
 }
@@ -2065,7 +2147,10 @@ impl Backend for AppKitBackend {
         }
         // No state borrow below: AppKit calls back into our targets.
         match (action, kind) {
-            (A11yAction::Activate, WidgetKind::Button | WidgetKind::Checkbox | WidgetKind::Switch) => {
+            (
+                A11yAction::Activate,
+                WidgetKind::Button | WidgetKind::ToggleButton | WidgetKind::Checkbox | WidgetKind::Switch,
+            ) => {
                 // The press action assistive technology uses. Its return
                 // value is unreliable for windows that aren't on screen (it
                 // reports NO after pressing), so it is ignored.
@@ -2388,7 +2473,9 @@ impl Backend for AppKitBackend {
                 Ok(())
             }
             (WidgetKind::Button, Key::Enter | Key::Char(' '))
-            | (WidgetKind::Checkbox | WidgetKind::Switch, Key::Char(' ')) => self.perform(id, &A11yAction::Activate),
+            | (WidgetKind::ToggleButton | WidgetKind::Checkbox | WidgetKind::Switch, Key::Char(' ')) => {
+                self.perform(id, &A11yAction::Activate)
+            }
             _ => Err(ActionError::Unsupported),
         }
     }
@@ -2404,10 +2491,13 @@ impl Backend for AppKitBackend {
                 props.push(Prop::FullScreen(_delegate.full_screen(window)));
                 props.push(Prop::MinSize(_delegate.min_size(window)));
                 props.push(Prop::HeightFollowsContent(_delegate.height_locked(window)));
+                props.push(Prop::Maximized(_delegate.zoomed(window)));
+                props.push(Prop::Resizable(window.styleMask().contains(NSWindowStyleMask::Resizable)));
                 props.extend(node.modal.map(|(owner, modality)| Prop::Modal { owner, modality }));
             }
             Widget::Label(l) => {
                 props.push(Prop::Text(l.stringValue().to_string()));
+                props.push(Prop::Selectable(l.isSelectable()));
                 let lines = l.maximumNumberOfLines();
                 props.push(Prop::MaxLines((lines > 0).then_some(lines as u32)));
                 if let Some(font) = l.font() {
@@ -2441,8 +2531,12 @@ impl Backend for AppKitBackend {
                     props.push(Prop::Placeholder(p.to_string()));
                 }
                 props.push(Prop::ReadOnly(!f.isEditable()));
+                if node.kind == WidgetKind::TextInput {
+                    props.push(Prop::InputPurpose(input_purpose(f.contentType().as_deref())));
+                }
             }
             Widget::TextArea(area) => {
+                props.push(Prop::LineWrap(area.line_wrap()));
                 props.push(Prop::Value(area.text.string().to_string()));
                 props.extend(area.placeholder.clone().map(Prop::Placeholder));
                 props.push(Prop::ReadOnly(area.read_only()));
@@ -2470,6 +2564,9 @@ impl Backend for AppKitBackend {
             }
             Widget::Button(b) => {
                 props.push(Prop::Label(b.title().to_string()));
+                if node.kind == WidgetKind::ToggleButton {
+                    props.push(checked(b.state()));
+                }
                 props.extend(node.icon.clone().map(Prop::Icon));
                 if node.icon_only.is_some() {
                     props.push(Prop::IconOnly(b.imagePosition() == NSCellImagePosition::ImageOnly));
@@ -2538,6 +2635,7 @@ impl Backend for AppKitBackend {
                 let stepper = n.stepper();
                 props.push(Prop::Range { min: stepper.minValue(), max: stepper.maxValue() });
                 props.push(Prop::Step(Some(stepper.increment())));
+                props.push(Prop::WrapAround(stepper.valueWraps()));
                 // What the field shows, which is the stepper's number.
                 props.extend(n.field().stringValue().to_string().parse().ok().map(Prop::Number));
             }
@@ -2606,10 +2704,23 @@ impl Backend for AppKitBackend {
             Widget::Sidebar(sidebar) => {
                 props.push(Prop::Sections(sidebar.sections()));
                 props.push(Prop::SelectedIndex(sidebar.selected()));
+                // As the split shows it, or the app wants it before there's one.
+                let split = node.parent.and_then(|p| state.nodes.get(&p)).and_then(|p| match &p.widget {
+                    Widget::Window { split: Some(split), .. } => Some(split),
+                    _ => None,
+                });
+                props.extend(
+                    match split {
+                        Some(split) => Some(!split.collapsed()),
+                        None => sidebar.shown.get(),
+                    }
+                    .map(Prop::SidebarShown),
+                );
             }
             Widget::Tabs(tabs) => {
                 props.push(Prop::TabTitles(tabs.titles()));
                 props.push(Prop::SelectedIndex(tabs.selected()));
+                props.extend(node.tab_icons.clone().map(Prop::TabIcons));
             }
         }
         if node.file_drop

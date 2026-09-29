@@ -333,4 +333,26 @@ async fn a_tweak_runs_on_the_native_text_view_after_its_props(app: TestApp) {
     assert_eq!(log.borrow().last().map(String::as_str), Some("second"));
 }
 
+/// Its lines wrap unless the app says otherwise; without, a long line
+/// scrolls sideways, and the area keeps its size either way.
+#[mitsuami_test::test]
+async fn lines_wrap_unless_the_app_says_otherwise(app: TestApp) {
+    let wrap = signal(false);
+    let long = "A line much longer than a text area is wide. ".repeat(8);
+    app.mount(move || {
+        Column::new()
+            .align(Align::Start)
+            .children(TextArea::new().a11y_label("Log").value(long.clone()).line_wrap(wrap))
+    });
+    assert!(has(&app, "Log", Prop::LineWrap(false)));
+    let size = app.get_by_label("Log").frame().size;
+
+    wrap.set(true);
+    app.settle().await;
+    assert!(has(&app, "Log", Prop::LineWrap(true)));
+    assert_eq!(app.get_by_label("Log").frame().size, size);
+    app.get_by_label("Log").fill("typed").await;
+    app.expect(by_label("Log")).to_have_value("typed").await;
+}
+
 mitsuami_test::main!();

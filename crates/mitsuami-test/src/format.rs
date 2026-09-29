@@ -32,6 +32,8 @@ fn describe_props(props: &[Prop]) -> String {
             Prop::FileDrop(None) => {}
             Prop::Options(options) => extra.push(format!("options={options:?}")),
             Prop::TabTitles(titles) => extra.push(format!("tabs={titles:?}")),
+            Prop::TabIcons(icons) => extra.push(format!("tab_icons={icons:?}")),
+            Prop::SidebarShown(b) => extra.push(format!("sidebar_shown={b}")),
             Prop::TabsStyle(style) => extra.push(format!("tabs_style={style:?}")),
             Prop::SelectedIndex(index) => {
                 extra.push(format!("selected={}", index.map_or("none".to_owned(), |i| i.to_string())))
@@ -49,6 +51,10 @@ fn describe_props(props: &[Prop]) -> String {
             Prop::Running(b) => extra.push(format!("running={b}")),
             Prop::Mixed(b) => extra.push(format!("mixed={b}")),
             Prop::ReadOnly(b) => extra.push(format!("read_only={b}")),
+            Prop::Selectable(b) => extra.push(format!("selectable={b}")),
+            Prop::LineWrap(b) => extra.push(format!("line_wrap={b}")),
+            Prop::InputPurpose(p) => extra.push(format!("input_purpose={p:?}")),
+            Prop::WrapAround(b) => extra.push(format!("wrap_around={b}")),
             Prop::Lines(n) => extra.push(format!("lines={n}")),
             Prop::MaxLines(n) => extra.push(format!("max_lines={}", n.map_or("none".to_owned(), |n| n.to_string()))),
             Prop::Enabled(b) => extra.push(format!("enabled={b}")),
@@ -105,6 +111,8 @@ fn describe_props(props: &[Prop]) -> String {
             Prop::PointerLock(b) => extra.push(format!("pointer_lock={b}")),
             Prop::KeyboardGrab(b) => extra.push(format!("keyboard_grab={b}")),
             Prop::FullScreen(b) => extra.push(format!("full_screen={b}")),
+            Prop::Maximized(b) => extra.push(format!("maximized={b}")),
+            Prop::Resizable(b) => extra.push(format!("resizable={b}")),
             Prop::MinSize(size) => extra.push(format!("min_size={}x{}", Num(size.width), Num(size.height))),
             Prop::HeightFollowsContent(b) => extra.push(format!("height_follows_content={b}")),
             Prop::Cursor(Cursor::Default) => extra.push("cursor=default".to_owned()),
@@ -325,7 +333,7 @@ pub(crate) fn wireframe(root: &NodeInfo) -> String {
                 "#5f7fa0"
             }
             WidgetKind::Text => "#3f7f5f",
-            WidgetKind::Button | WidgetKind::MenuButton => "#2f6fdf",
+            WidgetKind::Button | WidgetKind::ToggleButton | WidgetKind::MenuButton => "#2f6fdf",
             WidgetKind::TextInput => "#a0602a",
             WidgetKind::PasswordInput => "#8a4f1f",
             WidgetKind::SearchInput => "#c07a3a",

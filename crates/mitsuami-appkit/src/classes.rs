@@ -188,6 +188,10 @@ define_class!(
                     }
                     None => return,
                 },
+                WidgetKind::ToggleButton => match sender.downcast_ref::<NSButton>() {
+                    Some(b) => UiEvent::Changed(EventValue::Bool(b.state() == NSControlStateValueOn)),
+                    None => return,
+                },
                 WidgetKind::Switch => match sender.downcast_ref::<NSSwitch>() {
                     Some(s) => UiEvent::Changed(EventValue::Bool(s.state() == NSControlStateValueOn)),
                     None => return,
@@ -303,6 +307,9 @@ pub(crate) struct WindowIvars {
     full_screen_moving: Cell<bool>,
     /// The transition starting is the app's own, so it isn't reported.
     full_screen_ours: Cell<bool>,
+    /// Zoomed (AppKit's maximized) as last reported or set, to tell the
+    /// user's zooms from the app's.
+    zoomed: Cell<bool>,
     /// The app's minimum content size, if it set one.
     min_size: Cell<Option<Size>>,
     /// The content sets the height, not the user.
@@ -393,6 +400,11 @@ define_class!(
             if self.ivars().detail.borrow().is_none() {
                 self.ivars().events.emit(self.ivars().id, UiEvent::WindowResized(size));
             }
+            // A zoom by the user, or one a resize undid.
+            let zoomed = self.zoomed(window);
+            if self.ivars().zoomed.replace(zoomed) != zoomed {
+                self.ivars().events.emit(self.ivars().id, UiEvent::MaximizedChanged(zoomed));
+            }
         }
 
         /// Another screen, another cap on the minimum.
@@ -463,6 +475,7 @@ impl WindowDelegate {
             full_screen_wanted: Cell::new(false),
             full_screen_moving: Cell::new(false),
             full_screen_ours: Cell::new(false),
+            zoomed: Cell::new(false),
             min_size: Cell::new(None),
             height_locked: Cell::new(false),
             detail: RefCell::new(None),
@@ -581,6 +594,21 @@ impl WindowDelegate {
             (Some(min), Some(capped)) if capped.width == now.width && (locked || capped.height == now.height) => min,
             _ => Size::new(now.width as f32, now.height as f32),
         }
+    }
+
+    /// Zoomed, as AppKit maximizes a window: to its standard frame, the
+    /// screen's visible area unless the window's delegate says otherwise.
+    /// `zoom:` goes back to the frame it had before. In full screen, it
+    /// isn't zoomed.
+    pub(crate) fn set_zoomed(&self, window: &NSWindow, on: bool) {
+        self.ivars().zoomed.set(on);
+        if self.zoomed(window) != on {
+            window.zoom(None);
+        }
+    }
+
+    pub(crate) fn zoomed(&self, window: &NSWindow) -> bool {
+        !window.styleMask().contains(NSWindowStyleMask::FullScreen) && window.isZoomed()
     }
 
     /// Full screen as the app wants it: applied once the window is shown

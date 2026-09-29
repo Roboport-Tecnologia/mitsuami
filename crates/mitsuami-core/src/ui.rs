@@ -601,10 +601,10 @@ impl Ui {
             if matches!(prop, Prop::TextStyle(_)) {
                 inner.styles_dirty = true;
             }
-            // New titles or another style may make the tab strip wider
+            // New titles, icons or another style may make the tab strip wider
             // (`size_tab_strips`), and a group's heading wider, or give it
             // the titled insets.
-            if (matches!(prop, Prop::TabTitles(_) | Prop::TabsStyle(_))
+            if (matches!(prop, Prop::TabTitles(_) | Prop::TabIcons(_) | Prop::TabsStyle(_))
                 || (node.kind == WidgetKind::Group && matches!(prop, Prop::Title(_))))
                 && let Some(t) = node.taffy
             {
@@ -1334,6 +1334,7 @@ impl Inner {
             if matches!(
                 node.kind,
                 WidgetKind::Button
+                    | WidgetKind::ToggleButton
                     | WidgetKind::MenuButton
                     | WidgetKind::TextInput
                     | WidgetKind::PasswordInput
@@ -1777,7 +1778,9 @@ impl Inner {
                         | WidgetKind::TextArea,
                         EventValue::Text(text),
                     ) => Prop::Value(text.clone()),
-                    (WidgetKind::Checkbox | WidgetKind::Switch, EventValue::Bool(b)) => Prop::Checked(*b),
+                    (WidgetKind::Checkbox | WidgetKind::Switch | WidgetKind::ToggleButton, EventValue::Bool(b)) => {
+                        Prop::Checked(*b)
+                    }
                     (WidgetKind::List, EventValue::Rows(rows)) => Prop::Selected(rows.clone()),
                     (
                         WidgetKind::Select | WidgetKind::RadioGroup | WidgetKind::Sidebar | WidgetKind::Tabs,
@@ -1795,12 +1798,18 @@ impl Inner {
                 node.props.retain(|p| p.key() != prop.key());
                 node.props.push(prop);
             }
-            UiEvent::PointerLockEnded | UiEvent::KeyboardGrabEnded | UiEvent::FullScreenChanged(_) => {
+            UiEvent::PointerLockEnded
+            | UiEvent::KeyboardGrabEnded
+            | UiEvent::FullScreenChanged(_)
+            | UiEvent::MaximizedChanged(_)
+            | UiEvent::SidebarShownChanged(_) => {
                 let Some(node) = self.nodes.get_mut(&id) else { return };
                 let prop = match event {
                     UiEvent::PointerLockEnded => Prop::PointerLock(false),
                     UiEvent::KeyboardGrabEnded => Prop::KeyboardGrab(false),
                     UiEvent::FullScreenChanged(on) => Prop::FullScreen(*on),
+                    UiEvent::MaximizedChanged(on) => Prop::Maximized(*on),
+                    UiEvent::SidebarShownChanged(shown) => Prop::SidebarShown(*shown),
                     _ => unreachable!(),
                 };
                 node.props.retain(|p| p.key() != prop.key());
@@ -2010,6 +2019,7 @@ impl Inner {
             WidgetKind::Group => Role::Group,
             WidgetKind::Text => Role::StaticText,
             WidgetKind::Button => Role::Button,
+            WidgetKind::ToggleButton => Role::ToggleButton,
             WidgetKind::MenuButton => Role::MenuButton,
             // A text field that hides its text, as every platform exposes
             // one (AppKit's secure subrole, Qt's and UIA's password flag).
@@ -2039,6 +2049,7 @@ impl Inner {
                 WidgetKind::Group => crate::find_prop!(props, Title).filter(|t| !t.is_empty()),
                 WidgetKind::Text => crate::find_prop!(props, Text),
                 WidgetKind::Button
+                | WidgetKind::ToggleButton
                 | WidgetKind::MenuButton
                 | WidgetKind::Checkbox
                 | WidgetKind::Switch
@@ -2098,7 +2109,9 @@ impl Inner {
                 _ => a11y.value,
             },
             checked: match node.kind {
-                WidgetKind::Checkbox | WidgetKind::Switch => Some(crate::find_prop!(props, Checked).unwrap_or(false)),
+                WidgetKind::Checkbox | WidgetKind::Switch | WidgetKind::ToggleButton => {
+                    Some(crate::find_prop!(props, Checked).unwrap_or(false))
+                }
                 _ => None,
             },
             mixed: node.kind == WidgetKind::Checkbox && crate::find_prop!(props, Mixed) == Some(true),

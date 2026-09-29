@@ -8,7 +8,7 @@
 //! libadwaita 1.9's `AdwSidebar` is the list GNOME apps move to; it needs
 //! a floor above the 1.4 the split view needs (Ubuntu 24.04 has 1.5).
 
-use std::cell::RefCell;
+use std::cell::{Cell, RefCell};
 use std::rc::Rc;
 
 use adw::prelude::*;
@@ -69,6 +69,10 @@ pub(crate) struct Sidebar {
     pub scrolled: gtk::ScrolledWindow,
     pub list: gtk::ListBox,
     data: Rc<RefCell<Data>>,
+    events: Events,
+    /// Shown as the app wants it, if it said. A split view shows its
+    /// sidebar whenever it isn't collapsed; collapsed, it's the page shown.
+    shown: Rc<Cell<Option<bool>>>,
 }
 
 impl Sidebar {
@@ -124,7 +128,7 @@ impl Sidebar {
             }
         });
         // Chosen in a collapsed split view, the content shows.
-        let (d, e) = (data.clone(), events);
+        let (d, e) = (data.clone(), events.clone());
         list.connect_row_activated(move |_, _| {
             if let (false, Some(split)) = (e.is_muted(), &d.borrow().split) {
                 split.view.set_show_content(true);
@@ -133,7 +137,27 @@ impl Sidebar {
         let scrolled = gtk::ScrolledWindow::new();
         scrolled.set_policy(gtk::PolicyType::Never, gtk::PolicyType::Automatic);
         scrolled.set_child(Some(&list));
-        Sidebar { scrolled, list, data }
+        Sidebar { scrolled, list, data, events, shown: Rc::default() }
+    }
+
+    /// Shown or hidden as the app wants: in a collapsed split view, the
+    /// sidebar's page or the content's. A split view that isn't collapsed
+    /// always shows its sidebar, so there it's kept for when it collapses.
+    pub(crate) fn set_shown(&self, shown: bool) {
+        self.shown.set(Some(shown));
+        if let Some(split) = &self.data.borrow().split
+            && split.view.is_collapsed()
+        {
+            split.view.set_show_content(!shown);
+        }
+    }
+
+    /// As the split view shows it, collapsed; else as the app wants it.
+    pub(crate) fn shown(&self) -> Option<bool> {
+        match &self.data.borrow().split {
+            Some(split) if split.view.is_collapsed() => Some(!split.view.shows_content()),
+            _ => self.shown.get(),
+        }
     }
 
     /// New items: the list is filled again, keeping the selected item,
@@ -273,6 +297,22 @@ impl Split {
         sidebar.data.borrow().title_content();
         view.set_sidebar(Some(&sidebar_page));
         view.set_content(Some(&content_page));
+        // Collapsed, the page shown is the user's (a back button, an item
+        // chosen) or the app's, whose changes are muted.
+        let (e, shown) = (sidebar.events.clone(), sidebar.shown.clone());
+        view.connect_show_content_notify(move |view| {
+            if view.is_collapsed() && !e.is_muted() {
+                shown.set(Some(!view.shows_content()));
+                e.emit(id, UiEvent::SidebarShownChanged(!view.shows_content()));
+            }
+        });
+        // Collapsing, it shows the page the app wants.
+        let shown = sidebar.shown.clone();
+        view.connect_collapsed_notify(move |view| {
+            if let (true, Some(shown)) = (view.is_collapsed(), shown.get()) {
+                view.set_show_content(!shown);
+            }
+        });
         let bin = adw::BreakpointBin::new();
         // GNOME's smallest window, which a breakpoint bin needs as its
         // own minimum.

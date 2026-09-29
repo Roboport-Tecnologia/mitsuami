@@ -3105,12 +3105,20 @@ impl IAppWindowChangedEventArgs {
             .map(|| result__)
         }
     }
+    pub fn DidSizeChange(&self) -> windows_core::Result<bool> {
+        unsafe {
+            let mut result__ = core::mem::zeroed();
+            (windows_core::Interface::vtable(self).DidSizeChange)(windows_core::Interface::as_raw(self), &mut result__)
+                .map(|| result__)
+        }
+    }
 }
 #[repr(C)]
 pub struct IAppWindowChangedEventArgs_Vtbl {
     pub base__: windows_core::IInspectable_Vtbl,
     pub DidPositionChange: unsafe extern "system" fn(*mut core::ffi::c_void, *mut bool) -> windows_core::HRESULT,
     pub DidPresenterChange: unsafe extern "system" fn(*mut core::ffi::c_void, *mut bool) -> windows_core::HRESULT,
+    pub DidSizeChange: unsafe extern "system" fn(*mut core::ffi::c_void, *mut bool) -> windows_core::HRESULT,
 }
 windows_core::imp::define_interface!(
     IAppWindowClosingEventArgs,
@@ -5753,6 +5761,48 @@ impl windows_core::RuntimeType for IInputObject {
 pub struct IInputObject_Vtbl {
     pub base__: windows_core::IInspectable_Vtbl,
 }
+windows_core::imp::define_interface!(IInputScope, IInputScope_Vtbl, 0x76ea58b1_e910_5176_9147_695cc95e7da2);
+impl windows_core::RuntimeType for IInputScope {
+    const SIGNATURE: windows_core::imp::ConstBuffer = windows_core::imp::ConstBuffer::for_interface::<Self>();
+}
+impl IInputScope {
+    pub fn Names(&self) -> windows_core::Result<windows_collections::IVector<InputScopeName>> {
+        unsafe {
+            let mut result__ = core::mem::zeroed();
+            (windows_core::Interface::vtable(self).Names)(windows_core::Interface::as_raw(self), &mut result__)
+                .and_then(|| windows_core::imp::Type::from_abi(result__))
+        }
+    }
+}
+#[repr(C)]
+pub struct IInputScope_Vtbl {
+    pub base__: windows_core::IInspectable_Vtbl,
+    pub Names: unsafe extern "system" fn(*mut core::ffi::c_void, *mut *mut core::ffi::c_void) -> windows_core::HRESULT,
+}
+windows_core::imp::define_interface!(IInputScopeName, IInputScopeName_Vtbl, 0xee99a66d_28d0_53cb_82ee_1b6ee58bcc35);
+impl windows_core::RuntimeType for IInputScopeName {
+    const SIGNATURE: windows_core::imp::ConstBuffer = windows_core::imp::ConstBuffer::for_interface::<Self>();
+}
+impl IInputScopeName {
+    pub fn NameValue(&self) -> windows_core::Result<InputScopeNameValue> {
+        unsafe {
+            let mut result__ = core::mem::zeroed();
+            (windows_core::Interface::vtable(self).NameValue)(windows_core::Interface::as_raw(self), &mut result__)
+                .map(|| result__)
+        }
+    }
+    pub fn SetNameValue(&self, value: InputScopeNameValue) -> windows_core::Result<()> {
+        unsafe {
+            (windows_core::Interface::vtable(self).SetNameValue)(windows_core::Interface::as_raw(self), value).ok()
+        }
+    }
+}
+#[repr(C)]
+pub struct IInputScopeName_Vtbl {
+    pub base__: windows_core::IInspectable_Vtbl,
+    pub NameValue: unsafe extern "system" fn(*mut core::ffi::c_void, *mut InputScopeNameValue) -> windows_core::HRESULT,
+    pub SetNameValue: unsafe extern "system" fn(*mut core::ffi::c_void, InputScopeNameValue) -> windows_core::HRESULT,
+}
 windows_core::imp::define_interface!(IInvokeProvider, IInvokeProvider_Vtbl, 0x02481105_3378_544d_b4e1_a1b368afbc02);
 impl windows_core::RuntimeType for IInvokeProvider {
     const SIGNATURE: windows_core::imp::ConstBuffer = windows_core::imp::ConstBuffer::for_interface::<Self>();
@@ -6529,6 +6579,35 @@ impl INavigationView {
             (windows_core::Interface::vtable(self).SetIsPaneOpen)(windows_core::Interface::as_raw(self), value).ok()
         }
     }
+    pub fn CompactModeThresholdWidth(&self) -> windows_core::Result<f64> {
+        unsafe {
+            let mut result__ = core::mem::zeroed();
+            (windows_core::Interface::vtable(self).CompactModeThresholdWidth)(
+                windows_core::Interface::as_raw(self),
+                &mut result__,
+            )
+            .map(|| result__)
+        }
+    }
+    pub fn SetCompactModeThresholdWidth(&self, value: f64) -> windows_core::Result<()> {
+        unsafe {
+            (windows_core::Interface::vtable(self).SetCompactModeThresholdWidth)(
+                windows_core::Interface::as_raw(self),
+                value,
+            )
+            .ok()
+        }
+    }
+    pub fn ExpandedModeThresholdWidth(&self) -> windows_core::Result<f64> {
+        unsafe {
+            let mut result__ = core::mem::zeroed();
+            (windows_core::Interface::vtable(self).ExpandedModeThresholdWidth)(
+                windows_core::Interface::as_raw(self),
+                &mut result__,
+            )
+            .map(|| result__)
+        }
+    }
     pub fn DisplayMode(&self) -> windows_core::Result<NavigationViewDisplayMode> {
         unsafe {
             let mut result__ = core::mem::zeroed();
@@ -6659,9 +6738,10 @@ pub struct INavigationView_Vtbl {
     pub base__: windows_core::IInspectable_Vtbl,
     pub IsPaneOpen: unsafe extern "system" fn(*mut core::ffi::c_void, *mut bool) -> windows_core::HRESULT,
     pub SetIsPaneOpen: unsafe extern "system" fn(*mut core::ffi::c_void, bool) -> windows_core::HRESULT,
-    CompactModeThresholdWidth: usize,
-    SetCompactModeThresholdWidth: usize,
-    ExpandedModeThresholdWidth: usize,
+    pub CompactModeThresholdWidth: unsafe extern "system" fn(*mut core::ffi::c_void, *mut f64) -> windows_core::HRESULT,
+    pub SetCompactModeThresholdWidth: unsafe extern "system" fn(*mut core::ffi::c_void, f64) -> windows_core::HRESULT,
+    pub ExpandedModeThresholdWidth:
+        unsafe extern "system" fn(*mut core::ffi::c_void, *mut f64) -> windows_core::HRESULT,
     SetExpandedModeThresholdWidth: usize,
     FooterMenuItems: usize,
     FooterMenuItemsSource: usize,
@@ -6727,6 +6807,72 @@ impl INavigationView2 {
                 .ok()
         }
     }
+    pub fn PaneClosed<F>(&self, handler: F) -> windows_core::Result<windows_core::EventRevoker>
+    where
+        F: Fn(windows_core::Ref<NavigationView>, windows_core::Ref<windows_core::IInspectable>) + 'static,
+    {
+        let handler: TypedEventHandler<NavigationView, windows_core::IInspectable> = {
+            let com =
+                windows_core::imp::DelegateBox::<TypedEventHandler<NavigationView, windows_core::IInspectable>, F>::new(
+                    &TypedEventHandlerBox::<NavigationView, windows_core::IInspectable, F>::VTABLE,
+                    handler,
+                );
+            unsafe { core::mem::transmute(windows_core::imp::box_new(com)) }
+        };
+        unsafe {
+            let mut result__ = core::mem::zeroed();
+            let token__ = (windows_core::Interface::vtable(self).PaneClosed)(
+                windows_core::Interface::as_raw(self),
+                windows_core::Interface::as_raw(&handler),
+                &mut result__,
+            )
+            .map(|| result__)?;
+            Ok(windows_core::EventRevoker::new(
+                self.clone(),
+                token__,
+                windows_core::Interface::vtable(self).RemovePaneClosed,
+            ))
+        }
+    }
+    pub fn PaneOpened<F>(&self, handler: F) -> windows_core::Result<windows_core::EventRevoker>
+    where
+        F: Fn(windows_core::Ref<NavigationView>, windows_core::Ref<windows_core::IInspectable>) + 'static,
+    {
+        let handler: TypedEventHandler<NavigationView, windows_core::IInspectable> = {
+            let com =
+                windows_core::imp::DelegateBox::<TypedEventHandler<NavigationView, windows_core::IInspectable>, F>::new(
+                    &TypedEventHandlerBox::<NavigationView, windows_core::IInspectable, F>::VTABLE,
+                    handler,
+                );
+            unsafe { core::mem::transmute(windows_core::imp::box_new(com)) }
+        };
+        unsafe {
+            let mut result__ = core::mem::zeroed();
+            let token__ = (windows_core::Interface::vtable(self).PaneOpened)(
+                windows_core::Interface::as_raw(self),
+                windows_core::Interface::as_raw(&handler),
+                &mut result__,
+            )
+            .map(|| result__)?;
+            Ok(windows_core::EventRevoker::new(
+                self.clone(),
+                token__,
+                windows_core::Interface::vtable(self).RemovePaneOpened,
+            ))
+        }
+    }
+    pub fn IsPaneVisible(&self) -> windows_core::Result<bool> {
+        unsafe {
+            let mut result__ = core::mem::zeroed();
+            (windows_core::Interface::vtable(self).IsPaneVisible)(windows_core::Interface::as_raw(self), &mut result__)
+                .map(|| result__)
+        }
+    }
+    pub fn SetIsPaneVisible(&self, value: bool) -> windows_core::Result<()> {
+        unsafe {
+            (windows_core::Interface::vtable(self).SetIsPaneVisible)(windows_core::Interface::as_raw(self), value).ok()
+        }
+    }
 }
 #[repr(C)]
 pub struct INavigationView2_Vtbl {
@@ -6734,6 +6880,32 @@ pub struct INavigationView2_Vtbl {
     IsBackButtonVisible: usize,
     pub SetIsBackButtonVisible:
         unsafe extern "system" fn(*mut core::ffi::c_void, NavigationViewBackButtonVisible) -> windows_core::HRESULT,
+    IsBackEnabled: usize,
+    SetIsBackEnabled: usize,
+    PaneTitle: usize,
+    SetPaneTitle: usize,
+    BackRequested: usize,
+    RemoveBackRequested: usize,
+    pub PaneClosed:
+        unsafe extern "system" fn(*mut core::ffi::c_void, *mut core::ffi::c_void, *mut i64) -> windows_core::HRESULT,
+    pub RemovePaneClosed: unsafe extern "system" fn(*mut core::ffi::c_void, i64) -> windows_core::HRESULT,
+    PaneClosing: usize,
+    RemovePaneClosing: usize,
+    pub PaneOpened:
+        unsafe extern "system" fn(*mut core::ffi::c_void, *mut core::ffi::c_void, *mut i64) -> windows_core::HRESULT,
+    pub RemovePaneOpened: unsafe extern "system" fn(*mut core::ffi::c_void, i64) -> windows_core::HRESULT,
+    PaneOpening: usize,
+    RemovePaneOpening: usize,
+    PaneDisplayMode: usize,
+    SetPaneDisplayMode: usize,
+    PaneHeader: usize,
+    SetPaneHeader: usize,
+    PaneCustomContent: usize,
+    SetPaneCustomContent: usize,
+    ContentOverlay: usize,
+    SetContentOverlay: usize,
+    pub IsPaneVisible: unsafe extern "system" fn(*mut core::ffi::c_void, *mut bool) -> windows_core::HRESULT,
+    pub SetIsPaneVisible: unsafe extern "system" fn(*mut core::ffi::c_void, bool) -> windows_core::HRESULT,
 }
 windows_core::imp::define_interface!(
     INavigationViewDisplayModeChangedEventArgs,
@@ -6969,6 +7141,18 @@ impl INumberBox {
             .ok()
         }
     }
+    pub fn IsWrapEnabled(&self) -> windows_core::Result<bool> {
+        unsafe {
+            let mut result__ = core::mem::zeroed();
+            (windows_core::Interface::vtable(self).IsWrapEnabled)(windows_core::Interface::as_raw(self), &mut result__)
+                .map(|| result__)
+        }
+    }
+    pub fn SetIsWrapEnabled(&self, value: bool) -> windows_core::Result<()> {
+        unsafe {
+            (windows_core::Interface::vtable(self).SetIsWrapEnabled)(windows_core::Interface::as_raw(self), value).ok()
+        }
+    }
     pub fn ValueChanged<F>(&self, handler: F) -> windows_core::Result<windows_core::EventRevoker>
     where
         F: Fn(windows_core::Ref<NumberBox>, windows_core::Ref<NumberBoxValueChangedEventArgs>) + 'static,
@@ -7036,8 +7220,8 @@ pub struct INumberBox_Vtbl {
     ) -> windows_core::HRESULT,
     pub SetSpinButtonPlacementMode:
         unsafe extern "system" fn(*mut core::ffi::c_void, NumberBoxSpinButtonPlacementMode) -> windows_core::HRESULT,
-    IsWrapEnabled: usize,
-    SetIsWrapEnabled: usize,
+    pub IsWrapEnabled: unsafe extern "system" fn(*mut core::ffi::c_void, *mut bool) -> windows_core::HRESULT,
+    pub SetIsWrapEnabled: unsafe extern "system" fn(*mut core::ffi::c_void, bool) -> windows_core::HRESULT,
     AcceptsExpression: usize,
     SetAcceptsExpression: usize,
     NumberFormatter: usize,
@@ -7101,6 +7285,31 @@ impl IOverlappedPresenter {
     pub fn SetIsModal(&self, value: bool) -> windows_core::Result<()> {
         unsafe { (windows_core::Interface::vtable(self).SetIsModal)(windows_core::Interface::as_raw(self), value).ok() }
     }
+    pub fn IsResizable(&self) -> windows_core::Result<bool> {
+        unsafe {
+            let mut result__ = core::mem::zeroed();
+            (windows_core::Interface::vtable(self).IsResizable)(windows_core::Interface::as_raw(self), &mut result__)
+                .map(|| result__)
+        }
+    }
+    pub fn SetIsResizable(&self, value: bool) -> windows_core::Result<()> {
+        unsafe {
+            (windows_core::Interface::vtable(self).SetIsResizable)(windows_core::Interface::as_raw(self), value).ok()
+        }
+    }
+    pub fn State(&self) -> windows_core::Result<OverlappedPresenterState> {
+        unsafe {
+            let mut result__ = core::mem::zeroed();
+            (windows_core::Interface::vtable(self).State)(windows_core::Interface::as_raw(self), &mut result__)
+                .map(|| result__)
+        }
+    }
+    pub fn Maximize(&self) -> windows_core::Result<()> {
+        unsafe { (windows_core::Interface::vtable(self).Maximize)(windows_core::Interface::as_raw(self)).ok() }
+    }
+    pub fn Restore(&self) -> windows_core::Result<()> {
+        unsafe { (windows_core::Interface::vtable(self).Restore)(windows_core::Interface::as_raw(self)).ok() }
+    }
 }
 #[repr(C)]
 pub struct IOverlappedPresenter_Vtbl {
@@ -7115,6 +7324,13 @@ pub struct IOverlappedPresenter_Vtbl {
     pub SetIsMinimizable: unsafe extern "system" fn(*mut core::ffi::c_void, bool) -> windows_core::HRESULT,
     pub IsModal: unsafe extern "system" fn(*mut core::ffi::c_void, *mut bool) -> windows_core::HRESULT,
     pub SetIsModal: unsafe extern "system" fn(*mut core::ffi::c_void, bool) -> windows_core::HRESULT,
+    pub IsResizable: unsafe extern "system" fn(*mut core::ffi::c_void, *mut bool) -> windows_core::HRESULT,
+    pub SetIsResizable: unsafe extern "system" fn(*mut core::ffi::c_void, bool) -> windows_core::HRESULT,
+    pub State:
+        unsafe extern "system" fn(*mut core::ffi::c_void, *mut OverlappedPresenterState) -> windows_core::HRESULT,
+    pub Maximize: unsafe extern "system" fn(*mut core::ffi::c_void) -> windows_core::HRESULT,
+    Minimize: usize,
+    pub Restore: unsafe extern "system" fn(*mut core::ffi::c_void) -> windows_core::HRESULT,
 }
 windows_core::imp::define_interface!(
     IOverlappedPresenter3,
@@ -8794,7 +9010,11 @@ pub struct IScrollViewerStatics_Vtbl {
     VerticalAnchorRatioProperty: usize,
     HorizontalScrollBarVisibilityProperty: usize,
     GetHorizontalScrollBarVisibility: usize,
-    SetHorizontalScrollBarVisibility: usize,
+    pub SetHorizontalScrollBarVisibility: unsafe extern "system" fn(
+        *mut core::ffi::c_void,
+        *mut core::ffi::c_void,
+        ScrollBarVisibility,
+    ) -> windows_core::HRESULT,
     VerticalScrollBarVisibilityProperty: usize,
     GetVerticalScrollBarVisibility: usize,
     pub SetVerticalScrollBarVisibility: unsafe extern "system" fn(
@@ -9003,12 +9223,30 @@ impl ISelectorBarItem {
             .ok()
         }
     }
+    pub fn Icon(&self) -> windows_core::Result<IconElement> {
+        unsafe {
+            let mut result__ = core::mem::zeroed();
+            (windows_core::Interface::vtable(self).Icon)(windows_core::Interface::as_raw(self), &mut result__)
+                .and_then(|| windows_core::imp::Type::from_abi(result__))
+        }
+    }
+    pub fn SetIcon<P0>(&self, value: P0) -> windows_core::Result<()>
+    where
+        P0: windows_core::Param<IconElement>,
+    {
+        unsafe {
+            (windows_core::Interface::vtable(self).SetIcon)(windows_core::Interface::as_raw(self), value.param().abi())
+                .ok()
+        }
+    }
 }
 #[repr(C)]
 pub struct ISelectorBarItem_Vtbl {
     pub base__: windows_core::IInspectable_Vtbl,
     pub Text: unsafe extern "system" fn(*mut core::ffi::c_void, *mut *mut core::ffi::c_void) -> windows_core::HRESULT,
     pub SetText: unsafe extern "system" fn(*mut core::ffi::c_void, *mut core::ffi::c_void) -> windows_core::HRESULT,
+    pub Icon: unsafe extern "system" fn(*mut core::ffi::c_void, *mut *mut core::ffi::c_void) -> windows_core::HRESULT,
+    pub SetIcon: unsafe extern "system" fn(*mut core::ffi::c_void, *mut core::ffi::c_void) -> windows_core::HRESULT,
 }
 windows_core::imp::define_interface!(
     ISelectorBarItemFactory,
@@ -9407,6 +9645,25 @@ impl ITextBlock {
             .ok()
         }
     }
+    pub fn IsTextSelectionEnabled(&self) -> windows_core::Result<bool> {
+        unsafe {
+            let mut result__ = core::mem::zeroed();
+            (windows_core::Interface::vtable(self).IsTextSelectionEnabled)(
+                windows_core::Interface::as_raw(self),
+                &mut result__,
+            )
+            .map(|| result__)
+        }
+    }
+    pub fn SetIsTextSelectionEnabled(&self, value: bool) -> windows_core::Result<()> {
+        unsafe {
+            (windows_core::Interface::vtable(self).SetIsTextSelectionEnabled)(
+                windows_core::Interface::as_raw(self),
+                value,
+            )
+            .ok()
+        }
+    }
     pub fn MaxLines(&self) -> windows_core::Result<i32> {
         unsafe {
             let mut result__ = core::mem::zeroed();
@@ -9453,8 +9710,8 @@ pub struct ITextBlock_Vtbl {
     SetLineHeight: usize,
     LineStackingStrategy: usize,
     SetLineStackingStrategy: usize,
-    IsTextSelectionEnabled: usize,
-    SetIsTextSelectionEnabled: usize,
+    pub IsTextSelectionEnabled: unsafe extern "system" fn(*mut core::ffi::c_void, *mut bool) -> windows_core::HRESULT,
+    pub SetIsTextSelectionEnabled: unsafe extern "system" fn(*mut core::ffi::c_void, bool) -> windows_core::HRESULT,
     SelectedText: usize,
     ContentStart: usize,
     ContentEnd: usize,
@@ -9574,6 +9831,25 @@ impl ITextBox {
             (windows_core::Interface::vtable(self).SetTextWrapping)(windows_core::Interface::as_raw(self), value).ok()
         }
     }
+    pub fn InputScope(&self) -> windows_core::Result<InputScope> {
+        unsafe {
+            let mut result__ = core::mem::zeroed();
+            (windows_core::Interface::vtable(self).InputScope)(windows_core::Interface::as_raw(self), &mut result__)
+                .and_then(|| windows_core::imp::Type::from_abi(result__))
+        }
+    }
+    pub fn SetInputScope<P0>(&self, value: P0) -> windows_core::Result<()>
+    where
+        P0: windows_core::Param<InputScope>,
+    {
+        unsafe {
+            (windows_core::Interface::vtable(self).SetInputScope)(
+                windows_core::Interface::as_raw(self),
+                value.param().abi(),
+            )
+            .ok()
+        }
+    }
     pub fn SetHeader<P0>(&self, value: P0) -> windows_core::Result<()>
     where
         P0: windows_core::Param<windows_core::IInspectable>,
@@ -9662,8 +9938,10 @@ pub struct ITextBox_Vtbl {
     SetIsSpellCheckEnabled: usize,
     IsTextPredictionEnabled: usize,
     SetIsTextPredictionEnabled: usize,
-    InputScope: usize,
-    SetInputScope: usize,
+    pub InputScope:
+        unsafe extern "system" fn(*mut core::ffi::c_void, *mut *mut core::ffi::c_void) -> windows_core::HRESULT,
+    pub SetInputScope:
+        unsafe extern "system" fn(*mut core::ffi::c_void, *mut core::ffi::c_void) -> windows_core::HRESULT,
     Header: usize,
     pub SetHeader: unsafe extern "system" fn(*mut core::ffi::c_void, *mut core::ffi::c_void) -> windows_core::HRESULT,
     HeaderTemplate: usize,
@@ -9904,6 +10182,24 @@ pub struct IToggleButton_Vtbl {
     pub Unchecked:
         unsafe extern "system" fn(*mut core::ffi::c_void, *mut core::ffi::c_void, *mut i64) -> windows_core::HRESULT,
     pub RemoveUnchecked: unsafe extern "system" fn(*mut core::ffi::c_void, i64) -> windows_core::HRESULT,
+}
+windows_core::imp::define_interface!(
+    IToggleButtonFactory,
+    IToggleButtonFactory_Vtbl,
+    0x519511bb_d35b_5e2d_966c_8369405a4408
+);
+impl windows_core::RuntimeType for IToggleButtonFactory {
+    const SIGNATURE: windows_core::imp::ConstBuffer = windows_core::imp::ConstBuffer::for_interface::<Self>();
+}
+#[repr(C)]
+pub struct IToggleButtonFactory_Vtbl {
+    pub base__: windows_core::IInspectable_Vtbl,
+    pub CreateInstance: unsafe extern "system" fn(
+        *mut core::ffi::c_void,
+        *mut core::ffi::c_void,
+        *mut *mut core::ffi::c_void,
+        *mut *mut core::ffi::c_void,
+    ) -> windows_core::HRESULT,
 }
 windows_core::imp::define_interface!(
     IToggleMenuFlyoutItem,
@@ -11666,6 +11962,132 @@ unsafe impl Send for InputObject {}
 unsafe impl Sync for InputObject {}
 #[repr(transparent)]
 #[derive(Clone, Debug, Eq, PartialEq)]
+pub struct InputScope(windows_core::IUnknown);
+windows_core::imp::interface_hierarchy!(InputScope, windows_core::IUnknown, windows_core::IInspectable);
+windows_core::imp::required_hierarchy!(InputScope, DependencyObject);
+impl InputScope {
+    pub fn new() -> windows_core::Result<Self> {
+        Self::IActivationFactory(|f| f.ActivateInstance::<Self>())
+    }
+    fn IActivationFactory<R, F: FnOnce(&windows_core::imp::IGenericFactory) -> windows_core::Result<R>>(
+        callback: F,
+    ) -> windows_core::Result<R> {
+        static SHARED: windows_core::imp::FactoryCache<InputScope, windows_core::imp::IGenericFactory> =
+            windows_core::imp::FactoryCache::new();
+        SHARED.call(callback)
+    }
+}
+impl windows_core::RuntimeType for InputScope {
+    const SIGNATURE: windows_core::imp::ConstBuffer = windows_core::imp::ConstBuffer::for_class::<Self, IInputScope>();
+}
+unsafe impl windows_core::Interface for InputScope {
+    type Vtable = <IInputScope as windows_core::Interface>::Vtable;
+    const IID: windows_core::GUID = <IInputScope as windows_core::Interface>::IID;
+}
+impl core::ops::Deref for InputScope {
+    type Target = IInputScope;
+    fn deref(&self) -> &Self::Target {
+        unsafe { core::mem::transmute(self) }
+    }
+}
+impl windows_core::RuntimeName for InputScope {
+    const NAME: &'static str = "Microsoft.UI.Xaml.Input.InputScope";
+}
+unsafe impl Send for InputScope {}
+unsafe impl Sync for InputScope {}
+#[repr(transparent)]
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct InputScopeName(windows_core::IUnknown);
+windows_core::imp::interface_hierarchy!(InputScopeName, windows_core::IUnknown, windows_core::IInspectable);
+windows_core::imp::required_hierarchy!(InputScopeName, DependencyObject);
+impl InputScopeName {
+    pub fn new() -> windows_core::Result<Self> {
+        Self::IActivationFactory(|f| f.ActivateInstance::<Self>())
+    }
+    fn IActivationFactory<R, F: FnOnce(&windows_core::imp::IGenericFactory) -> windows_core::Result<R>>(
+        callback: F,
+    ) -> windows_core::Result<R> {
+        static SHARED: windows_core::imp::FactoryCache<InputScopeName, windows_core::imp::IGenericFactory> =
+            windows_core::imp::FactoryCache::new();
+        SHARED.call(callback)
+    }
+}
+impl windows_core::RuntimeType for InputScopeName {
+    const SIGNATURE: windows_core::imp::ConstBuffer =
+        windows_core::imp::ConstBuffer::for_class::<Self, IInputScopeName>();
+}
+unsafe impl windows_core::Interface for InputScopeName {
+    type Vtable = <IInputScopeName as windows_core::Interface>::Vtable;
+    const IID: windows_core::GUID = <IInputScopeName as windows_core::Interface>::IID;
+}
+impl core::ops::Deref for InputScopeName {
+    type Target = IInputScopeName;
+    fn deref(&self) -> &Self::Target {
+        unsafe { core::mem::transmute(self) }
+    }
+}
+impl windows_core::RuntimeName for InputScopeName {
+    const NAME: &'static str = "Microsoft.UI.Xaml.Input.InputScopeName";
+}
+unsafe impl Send for InputScopeName {}
+unsafe impl Sync for InputScopeName {}
+#[repr(transparent)]
+#[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
+pub struct InputScopeNameValue(pub i32);
+impl InputScopeNameValue {
+    pub const Default: Self = Self(0);
+    pub const Url: Self = Self(1);
+    pub const EmailSmtpAddress: Self = Self(5);
+    pub const PersonalFullName: Self = Self(7);
+    pub const CurrencyAmountAndSymbol: Self = Self(20);
+    pub const CurrencyAmount: Self = Self(21);
+    pub const DateMonthNumber: Self = Self(23);
+    pub const DateDayNumber: Self = Self(24);
+    pub const DateYear: Self = Self(25);
+    pub const Digits: Self = Self(28);
+    pub const Number: Self = Self(29);
+    pub const Password: Self = Self(31);
+    pub const TelephoneNumber: Self = Self(32);
+    pub const TelephoneCountryCode: Self = Self(33);
+    pub const TelephoneAreaCode: Self = Self(34);
+    pub const TelephoneLocalNumber: Self = Self(35);
+    pub const TimeHour: Self = Self(37);
+    pub const TimeMinutesOrSeconds: Self = Self(38);
+    pub const NumberFullWidth: Self = Self(39);
+    pub const AlphanumericHalfWidth: Self = Self(40);
+    pub const AlphanumericFullWidth: Self = Self(41);
+    pub const Hiragana: Self = Self(44);
+    pub const KatakanaHalfWidth: Self = Self(45);
+    pub const KatakanaFullWidth: Self = Self(46);
+    pub const Hanja: Self = Self(47);
+    pub const HangulHalfWidth: Self = Self(48);
+    pub const HangulFullWidth: Self = Self(49);
+    pub const Search: Self = Self(50);
+    pub const Formula: Self = Self(51);
+    pub const SearchIncremental: Self = Self(52);
+    pub const ChineseHalfWidth: Self = Self(53);
+    pub const ChineseFullWidth: Self = Self(54);
+    pub const NativeScript: Self = Self(55);
+    pub const Text: Self = Self(57);
+    pub const Chat: Self = Self(58);
+    pub const NameOrPhoneNumber: Self = Self(59);
+    pub const EmailNameOrAddress: Self = Self(60);
+    pub const Maps: Self = Self(62);
+    pub const NumericPassword: Self = Self(63);
+    pub const NumericPin: Self = Self(64);
+    pub const AlphanumericPin: Self = Self(65);
+    pub const FormulaNumber: Self = Self(67);
+    pub const ChatWithoutEmoji: Self = Self(68);
+}
+impl windows_core::imp::TypeKind for InputScopeNameValue {
+    type TypeKind = windows_core::imp::CopyType;
+}
+impl windows_core::RuntimeType for InputScopeNameValue {
+    const SIGNATURE: windows_core::imp::ConstBuffer =
+        windows_core::imp::ConstBuffer::from_slice(b"enum(Microsoft.UI.Xaml.Input.InputScopeNameValue;i4)");
+}
+#[repr(transparent)]
+#[derive(Clone, Debug, Eq, PartialEq)]
 pub struct ItemCollection(windows_core::IUnknown);
 windows_core::imp::interface_hierarchy!(
     ItemCollection,
@@ -12857,6 +13279,21 @@ impl windows_core::RuntimeName for OverlappedPresenter {
 }
 unsafe impl Send for OverlappedPresenter {}
 unsafe impl Sync for OverlappedPresenter {}
+#[repr(transparent)]
+#[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
+pub struct OverlappedPresenterState(pub i32);
+impl OverlappedPresenterState {
+    pub const Maximized: Self = Self(0);
+    pub const Minimized: Self = Self(1);
+    pub const Restored: Self = Self(2);
+}
+impl windows_core::imp::TypeKind for OverlappedPresenterState {
+    type TypeKind = windows_core::imp::CopyType;
+}
+impl windows_core::RuntimeType for OverlappedPresenterState {
+    const SIGNATURE: windows_core::imp::ConstBuffer =
+        windows_core::imp::ConstBuffer::from_slice(b"enum(Microsoft.UI.Windowing.OverlappedPresenterState;i4)");
+}
 pub type PACKAGEDEPENDENCY_CONTEXT = *mut core::ffi::c_void;
 #[repr(C)]
 #[derive(Clone, Copy)]
@@ -14113,6 +14550,22 @@ impl ScrollViewer {
             windows_core::imp::FactoryCache::new();
         SHARED.call(callback)
     }
+    pub fn SetHorizontalScrollBarVisibility<P0>(
+        element: P0,
+        horizontalscrollbarvisibility: ScrollBarVisibility,
+    ) -> windows_core::Result<()>
+    where
+        P0: windows_core::Param<DependencyObject>,
+    {
+        Self::IScrollViewerStatics(|this| unsafe {
+            (windows_core::Interface::vtable(this).SetHorizontalScrollBarVisibility)(
+                windows_core::Interface::as_raw(this),
+                element.param().abi(),
+                horizontalscrollbarvisibility,
+            )
+            .ok()
+        })
+    }
     pub fn SetVerticalScrollBarVisibility<P0>(
         element: P0,
         verticalscrollbarvisibility: ScrollBarVisibility,
@@ -15283,6 +15736,27 @@ windows_core::imp::required_hierarchy!(
     UIElement,
     DependencyObject
 );
+impl ToggleButton {
+    pub fn new() -> windows_core::Result<Self> {
+        Self::IToggleButtonFactory(|this| unsafe {
+            let mut result__ = core::mem::zeroed();
+            (windows_core::Interface::vtable(this).CreateInstance)(
+                windows_core::Interface::as_raw(this),
+                core::ptr::null_mut(),
+                core::ptr::null_mut(),
+                &mut result__,
+            )
+            .and_then(|| windows_core::imp::Type::from_abi(result__))
+        })
+    }
+    fn IToggleButtonFactory<R, F: FnOnce(&IToggleButtonFactory) -> windows_core::Result<R>>(
+        callback: F,
+    ) -> windows_core::Result<R> {
+        static SHARED: windows_core::imp::FactoryCache<ToggleButton, IToggleButtonFactory> =
+            windows_core::imp::FactoryCache::new();
+        SHARED.call(callback)
+    }
+}
 impl windows_core::RuntimeType for ToggleButton {
     const SIGNATURE: windows_core::imp::ConstBuffer =
         windows_core::imp::ConstBuffer::for_class::<Self, IToggleButton>();

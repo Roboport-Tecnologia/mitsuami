@@ -273,4 +273,73 @@ async fn each_window_has_its_own(app: TestApp) {
     assert_eq!(app.ui().window_of(app.get_by_role(Role::ListItem, "General").id()), Some(app.window()));
 }
 
+/// The pages, with the sidebar shown while `shown` is.
+fn hideable(page: Signal<Page>, shown: Signal<bool>) -> impl View {
+    Column::new().grow(1.0).children((
+        Sidebar::new(page)
+            .shown(shown)
+            .children((SidebarItem::new("General", Page::General), SidebarItem::new("Wi-Fi", Page::WiFi))),
+        Text::new(move || format!("{:?} settings", page.get())),
+    ))
+}
+
+/// Whether a hidden sidebar is out of sight: libadwaita's split view shows
+/// its sidebar whenever it isn't collapsed, so GTK hides it only in a
+/// narrow window.
+fn hides_when_wide(app: &TestApp) -> bool {
+    app.backend_name() != "gtk"
+}
+
+/// The app hides it and shows it again: hidden, it takes no room beside
+/// the content.
+#[mitsuami_test::test]
+async fn the_app_shows_and_hides_it(app: TestApp) {
+    let (page, shown) = (signal(Page::General), signal(true));
+    app.mount(move || hideable(page, shown));
+    let id = sidebar(&app).expect("a sidebar");
+
+    shown.set(false);
+    app.settle().await;
+    assert!(app.ui().native_state(id).unwrap().props.contains(&Prop::SidebarShown(false)));
+    if hides_when_wide(&app) {
+        assert!(app.ui().frame(id).unwrap().size.is_empty(), "{:?}", app.ui().frame(id));
+    }
+
+    shown.set(true);
+    app.settle().await;
+    assert!(app.ui().native_state(id).unwrap().props.contains(&Prop::SidebarShown(true)));
+    assert!(app.ui().frame(id).unwrap().width() > 0.0);
+    assert!(shown.get_untracked());
+}
+
+/// Hidden from the start, it's hidden once the window has it.
+#[mitsuami_test::test]
+async fn it_can_start_hidden(app: TestApp) {
+    let (page, shown) = (signal(Page::General), signal(false));
+    app.mount(move || hideable(page, shown));
+    let id = sidebar(&app).expect("a sidebar");
+
+    assert!(app.ui().native_state(id).unwrap().props.contains(&Prop::SidebarShown(false)));
+    if hides_when_wide(&app) {
+        assert!(app.ui().frame(id).unwrap().size.is_empty());
+    }
+}
+
+/// The user hides it or shows it the platform's way: the app's signal
+/// follows.
+#[mitsuami_test::test(headless)]
+async fn the_user_shows_and_hides_it_too(app: TestApp) {
+    let (page, shown) = (signal(Page::General), signal(true));
+    app.mount(move || hideable(page, shown));
+    let id = sidebar(&app).expect("a sidebar");
+
+    app.headless().set_sidebar_shown(id, false);
+    app.settle().await;
+    assert!(!shown.get_untracked());
+
+    app.headless().set_sidebar_shown(id, true);
+    app.settle().await;
+    assert!(shown.get_untracked());
+}
+
 mitsuami_test::main!();

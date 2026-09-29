@@ -228,4 +228,24 @@ async fn a_tweak_runs_on_the_native_spin_box_after_its_props(app: TestApp) {
     assert_eq!(log.borrow().last(), Some(&70.0));
 }
 
+/// Where the app says, every platform's spin box wraps round, or stops:
+/// stepped past one end, it goes on from the other.
+#[mitsuami_test::test]
+async fn wraps_round_or_stops_as_the_app_says(app: TestApp) {
+    let wraps = signal(true);
+    app.mount(move || NumberInput::new("Memory").range(1, 10).value(10).wrap_around(wraps));
+    assert!(has(&app, memory(), Prop::WrapAround(true)));
+
+    app.get(memory()).increment().await;
+    app.expect(memory()).to_have_value("1").await;
+    app.get(memory()).decrement().await;
+    app.expect(memory()).to_have_value("10").await;
+
+    wraps.set(false);
+    app.settle().await;
+    assert!(has(&app, memory(), Prop::WrapAround(false)));
+    app.get(memory()).increment().await;
+    app.expect(memory()).to_have_value("10").await;
+}
+
 mitsuami_test::main!();

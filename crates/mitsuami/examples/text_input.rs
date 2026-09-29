@@ -2,14 +2,24 @@
 //!
 //! - A few fields: empty with a placeholder, with text, read-only,
 //!   disabled, and one with more text than fits.
-//! - A playground: type, change the placeholder, make it read-only or turn
-//!   it off, press Return to submit.
-//! - A raw platform setting, through `.native()`. Read-only is the one
-//!   option every platform's text field has: the rest is each one's own.
+//! - A playground: type, change the placeholder, say what it's for, make
+//!   it read-only or turn it off, press Return to submit.
+//! - A raw platform setting, through `.native()`. Read-only and what it's
+//!   for are the options every platform's text field has: the rest is each
+//!   one's own.
 
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
 use mitsuami::prelude::*;
+
+/// What a field can be for: the purposes every platform has, which pick an
+/// on-screen keyboard (GTK, WinUI, Qt) or autofill (AppKit).
+const PURPOSES: [(&str, InputPurpose); 4] = [
+    ("Text", InputPurpose::Text),
+    ("Email", InputPurpose::Email),
+    ("URL", InputPurpose::Url),
+    ("Phone", InputPurpose::Phone),
+];
 
 fn heading(text: &str) -> impl View {
     let text = text.to_string();
@@ -52,6 +62,7 @@ fn playground() -> impl View {
     let placeholder = signal("Your name".to_string());
     let read_only = signal(false);
     let enabled = signal(true);
+    let purpose = signal(0);
     let submitted = signal(None::<String>);
     view! {
         <Column gap=Spacing::Md>
@@ -64,6 +75,8 @@ fn playground() -> impl View {
             >
                 <Text>"Placeholder"</Text>
                 <TextInput a11y_label="Placeholder" bind=placeholder/>
+                <Text>"For"</Text>
+                <Row><Select label="For" options=PURPOSES.map(|(name, _)| name) bind=purpose/></Row>
                 <Text>"Read-only"</Text>
                 <Switch bind=read_only>"Read-only"</Switch>
                 <Text>"Enabled"</Text>
@@ -74,6 +87,7 @@ fn playground() -> impl View {
                     placeholder=placeholder
                     bind=text
                     read_only=read_only
+                    input_purpose=move || PURPOSES[purpose.get()].1
                     enabled=enabled
                     @submit=move || submitted.set(Some(text.get_untracked()))
                 />

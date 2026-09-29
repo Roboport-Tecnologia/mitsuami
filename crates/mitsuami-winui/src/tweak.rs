@@ -6,7 +6,7 @@ use mitsuami_core::reactive::{IntoValue, Value};
 use mitsuami_core::{List, Opaque, Tweak};
 use mitsuami_widgets::{
     Button, Checkbox, Group, Icon, Image, MenuButton, NumberInput, PasswordInput, Progress, RadioGroup, ScrollView,
-    SearchInput, Select, Separator, Slider, Spinner, Switch, Text, TextArea, TextInput,
+    SearchInput, Select, Separator, Slider, Spinner, Switch, Text, TextArea, TextInput, ToggleButton,
 };
 use windows_core::Interface;
 
@@ -19,6 +19,10 @@ pub trait Tweakable {
 
 impl Tweakable for Button {
     type Native = w::Button;
+}
+
+impl Tweakable for ToggleButton {
+    type Native = w::ToggleButton;
 }
 
 impl Tweakable for Checkbox {

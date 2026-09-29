@@ -2,10 +2,10 @@
 //!
 //! - A feedback form: Return starts a new line in the message, and the
 //!   button sends it.
-//! - A playground: how many lines tall it is, read-only, enabled, and what
-//!   the text holds.
-//! - A raw platform setting, through `.native()`. Lines, read-only and a
-//!   placeholder are the options text areas have in common (AppKit's and
+//! - A playground: how many lines tall it is, whether its lines wrap,
+//!   read-only, enabled, and what the text holds.
+//! - A raw platform setting, through `.native()`. Lines, wrapping, read-only
+//!   and a placeholder are the options text areas have in common (AppKit's and
 //!   GTK's show no placeholder); the rest is each platform's own.
 
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
@@ -48,15 +48,19 @@ fn feedback() -> impl View {
 
 /// One area, and switches for what it can be.
 fn playground() -> impl View {
-    let text = signal("Edit me.\nEach line ends in a newline.".to_string());
+    let text = signal(
+        "Edit me.\nEach line ends in a newline, and a line longer than the area is wide wraps, unless it's told not to."
+            .to_string(),
+    );
     let lines = signal(3);
+    let wrap = signal(true);
     let read_only = signal(false);
     let enabled = signal(true);
     view! {
         <Column gap=Spacing::Md>
             {heading("Try it")}
             <TextArea a11y_label="Playground" bind=text lines=move || lines.get() as u32
-                read_only=read_only enabled=enabled/>
+                line_wrap=wrap read_only=read_only enabled=enabled/>
             <Grid
                 columns=[Track::MaxContent, Track::Size(1.fr())]
                 column_gap=Spacing::Md
@@ -65,6 +69,8 @@ fn playground() -> impl View {
             >
                 <Text>"Lines"</Text>
                 <NumberInput label="Lines" range_with=(1, 12) bind=lines/>
+                <Text>"Wraps"</Text>
+                <Switch bind=wrap>"Wraps"</Switch>
                 <Text>"Read-only"</Text>
                 <Switch bind=read_only>"Read-only"</Switch>
                 <Text>"Enabled"</Text>

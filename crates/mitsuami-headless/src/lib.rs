@@ -48,6 +48,9 @@ const RADIO_GAP: f32 = 6.0;
 
 /// The screen a window in full screen fills.
 const SCREEN: Size = Size::new(1280.0, 800.0);
+/// What a maximized window's content fills: the screen less a bar and the
+/// window's title bar.
+const WORK_AREA: Size = Size::new(1280.0, 740.0);
 
 /// Fixed metrics: 16px body text, 4/8/12/16/24 spacing, scale factor 1.
 pub fn metrics() -> PlatformMetrics {
@@ -92,6 +95,8 @@ struct HeadlessNode {
     surface: Option<SurfaceHandle>,
     /// Windows in full screen only: their size before, to go back to.
     windowed: Option<Size>,
+    /// Maximized windows only: their size before, to go back to.
+    restored: Option<Size>,
 }
 
 /// A `GpuSurface` with nothing to present to: the app gets it, and its
@@ -146,6 +151,11 @@ impl State {
     /// full screen keeps the screen's. Reports it if it changed.
     fn resize(&mut self, window: NodeId, size: Size) {
         let Some(node) = self.nodes.get_mut(&window) else { return };
+        // A maximized window takes it when it's restored, as GTK's does.
+        if node.restored.is_some() {
+            node.restored = Some(at_least_min(node, size));
+            return;
+        }
         if node.windowed.is_some() {
             return;
         }
@@ -168,6 +178,27 @@ impl State {
         } else {
             node.windowed.take().unwrap_or(node.frame.size)
         };
+        node.frame.size = size;
+        self.emit(window, UiEvent::WindowResized(size));
+    }
+
+    /// A window fills the work area, or goes back to its size before.
+    fn maximize(&mut self, window: NodeId, on: bool) {
+        let Some(node) = self.nodes.get_mut(&window) else { return };
+        if on == node.restored.is_some() {
+            return;
+        }
+        let size = if on {
+            node.restored = Some(node.frame.size);
+            WORK_AREA
+        } else {
+            node.restored.take().unwrap_or(node.frame.size)
+        };
+        // One in full screen keeps the screen until it leaves it.
+        if node.windowed.is_some() {
+            node.windowed = Some(size);
+            return;
+        }
         node.frame.size = size;
         self.emit(window, UiEvent::WindowResized(size));
     }
@@ -426,6 +457,10 @@ impl State {
     fn sidebar_frame(&self, sidebar: NodeId) -> Rect {
         let node = &self.nodes[&sidebar];
         let Some(window) = node.parent.map(|p| &self.nodes[&p]) else { return Rect::ZERO };
+        // A hidden one is empty, as a collapsed one is on every platform.
+        if find_prop!(node.props, SidebarShown) == Some(false) {
+            return Rect::ZERO;
+        }
         Rect::new(-SIDEBAR_WIDTH, 0.0, SIDEBAR_WIDTH, window.frame.height())
     }
 
@@ -601,9 +636,13 @@ impl HeadlessHandle {
     }
 
     /// Simulates the user resizing a window, which goes no smaller than
-    /// its minimum size, and keeps its height if its content sets it.
+    /// its minimum size, and keeps its height if its content sets it. A
+    /// window that isn't resizable keeps its size.
     pub fn resize_window(&self, window: NodeId, size: Size) {
         let mut state = self.state.borrow_mut();
+        if state.nodes.get(&window).and_then(|n| find_prop!(n.props, Resizable)) == Some(false) {
+            return;
+        }
         let size = state.nodes.get(&window).map_or(size, |node| {
             let size = at_least_min(node, size);
             match find_prop!(node.props, HeightFollowsContent) {
@@ -632,6 +671,35 @@ impl HeadlessHandle {
         state.set_prop(window, Prop::FullScreen(on));
         state.fill_screen(window, on);
         state.emit(window, UiEvent::FullScreenChanged(on));
+    }
+
+    /// The size of a maximized window's content.
+    pub fn work_area(&self) -> Size {
+        WORK_AREA
+    }
+
+    /// Simulates the user maximizing a window, or restoring it (the title
+    /// bar's button, a double-click on it, the window manager's key).
+    pub fn set_maximized(&self, window: NodeId, on: bool) {
+        let mut state = self.state.borrow_mut();
+        if !state.nodes.contains_key(&window) {
+            return;
+        }
+        state.set_prop(window, Prop::Maximized(on));
+        state.maximize(window, on);
+        state.emit(window, UiEvent::MaximizedChanged(on));
+    }
+
+    /// Simulates the user showing or hiding a window's sidebar (the
+    /// platform's toggle, its divider dragged away).
+    pub fn set_sidebar_shown(&self, sidebar: NodeId, shown: bool) {
+        let mut state = self.state.borrow_mut();
+        let Some(node) = state.nodes.get(&sidebar) else { return };
+        if find_prop!(node.props, SidebarShown).unwrap_or(true) == shown {
+            return;
+        }
+        state.set_prop(sidebar, Prop::SidebarShown(shown));
+        state.emit(sidebar, UiEvent::SidebarShownChanged(shown));
     }
 
     /// Simulates a change of system settings (text size, dark mode, …).
@@ -770,8 +838,12 @@ impl Backend for HeadlessBackend {
                             heights: BTreeMap::new(),
                             surface: None,
                             windowed: None,
+                            restored: None,
                         },
                     );
+                    if find_prop!(props, Maximized) == Some(true) {
+                        state.maximize(*id, true);
+                    }
                     if *kind == WidgetKind::GpuSurface {
                         let surface = SurfaceHandle::new(HeadlessSurface);
                         state.nodes.get_mut(id).unwrap().surface = Some(surface.clone());
@@ -790,6 +862,7 @@ impl Backend for HeadlessBackend {
                     }
                     match prop {
                         Prop::FullScreen(on) => state.fill_screen(*id, *on),
+                        Prop::Maximized(on) => state.maximize(*id, *on),
                         Prop::MinSize(_) => {
                             let size = state.nodes[id].frame.size;
                             state.resize(*id, size);
@@ -941,7 +1014,7 @@ impl Backend for HeadlessBackend {
             // An icon takes a 16-point square and a 6-point gap before
             // the caption, or the caption's place when it's shown alone.
             // A menu button is a button with a 16-point arrow after it.
-            WidgetKind::Button | WidgetKind::MenuButton => {
+            WidgetKind::Button | WidgetKind::ToggleButton | WidgetKind::MenuButton => {
                 let arrow = if node.kind == WidgetKind::MenuButton { 16.0 } else { 0.0 };
                 let icon = find_prop!(node.props, Icon).is_some_and(|name| !name.is_empty());
                 let content = match (icon, find_prop!(node.props, IconOnly) == Some(true)) {
@@ -1060,7 +1133,7 @@ impl Backend for HeadlessBackend {
                 state.focus(id);
                 state.emit(id, UiEvent::Click);
             }
-            (A11yAction::Activate, WidgetKind::Checkbox | WidgetKind::Switch) => {
+            (A11yAction::Activate, WidgetKind::Checkbox | WidgetKind::Switch | WidgetKind::ToggleButton) => {
                 // Out of the mixed state, a click checks the box, as on
                 // AppKit and Qt.
                 let props = &state.nodes[&id].props;
@@ -1117,12 +1190,16 @@ impl Backend for HeadlessBackend {
                     .unwrap_or((0.0, 100.0));
                 let value = find_prop!(props, Number).unwrap_or(min);
                 let step = find_prop!(props, Step).flatten().unwrap_or(1.0);
+                let wraps = find_prop!(props, WrapAround) == Some(true);
                 // Whole numbers, clamped at the ends, as GTK, Qt and WinUI
-                // do it.
+                // do it; stepped past one end of a range that wraps, the
+                // other end, as every platform's wrapping does it.
                 let value = match action {
                     A11yAction::SetValue(text) => {
                         text.trim().parse::<f64>().map_err(|_| ActionError::Unsupported)?.round()
                     }
+                    A11yAction::Increment if wraps && value + step > max => min,
+                    A11yAction::Decrement if wraps && value - step < min => max,
                     A11yAction::Increment => value + step,
                     _ => value - step,
                 };
@@ -1167,6 +1244,7 @@ impl Backend for HeadlessBackend {
             (
                 A11yAction::Focus,
                 WidgetKind::Button
+                | WidgetKind::ToggleButton
                 | WidgetKind::TextInput
                 | WidgetKind::PasswordInput
                 | WidgetKind::SearchInput
@@ -1318,7 +1396,7 @@ impl Backend for HeadlessBackend {
                 }
             }
             (WidgetKind::Button, Key::Enter | Key::Char(' ')) => state.emit(id, UiEvent::Click),
-            (WidgetKind::Checkbox | WidgetKind::Switch, Key::Char(' ')) => {
+            (WidgetKind::Checkbox | WidgetKind::Switch | WidgetKind::ToggleButton, Key::Char(' ')) => {
                 drop(state);
                 return self.perform(id, &A11yAction::Activate);
             }

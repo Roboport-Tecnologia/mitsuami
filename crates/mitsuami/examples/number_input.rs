@@ -41,6 +41,7 @@ fn playground() -> impl View {
     let max = signal(100);
     let step = signal(1);
     let enabled = signal(true);
+    let wraps = signal(false);
     let value = signal(10);
     view! {
         <Column gap=Spacing::Md>
@@ -57,12 +58,15 @@ fn playground() -> impl View {
                 <NumberInput label="Step" range_with=(1, 1000) bind=step/>
                 <Text>"Enabled"</Text>
                 <Switch bind=enabled>"Enabled"</Switch>
+                <Text>"Wraps round"</Text>
+                <Switch bind=wraps>"Wraps round"</Switch>
                 <Text>"Value"</Text>
                 <NumberInput
                     label="Value"
                     range_with=move || (0, max.get())
                     step=step
                     enabled=enabled
+                    wrap_around=wraps
                     bind=value
                 />
             </Grid>

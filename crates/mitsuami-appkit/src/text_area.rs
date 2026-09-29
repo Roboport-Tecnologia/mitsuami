@@ -6,7 +6,8 @@ use objc2::rc::Retained;
 use objc2::runtime::ProtocolObject;
 use objc2::{ClassType, MainThreadMarker};
 use objc2_app_kit::{
-    NSBorderType, NSColor, NSControlSize, NSFont, NSScrollView, NSScroller, NSTextView, NSTextViewDelegate,
+    NSAutoresizingMaskOptions, NSBorderType, NSColor, NSControlSize, NSFont, NSScrollView, NSScroller, NSTextView,
+    NSTextViewDelegate,
 };
 use objc2_foundation::{NSRange, NSSize, NSString};
 
@@ -53,6 +54,7 @@ impl TextArea {
         // Don't disturb the caret when it already shows it.
         if self.text.string().to_string() != value {
             self.text.setString(&NSString::from_str(value));
+            self.fit_width();
         }
     }
 
@@ -88,6 +90,46 @@ impl TextArea {
         }
         let color = if self.enabled { NSColor::textColor() } else { NSColor::disabledControlTextColor() };
         self.text.setTextColor(Some(&color));
+    }
+
+    /// Lines wrapped to the view's width, or as long as their text, with
+    /// a horizontal scroller, as Apple's text system guide sets a text
+    /// view up for each.
+    pub(crate) fn set_line_wrap(&self, wrap: bool) {
+        let Some(container) = (unsafe { self.text.textContainer() }) else { return };
+        let huge = f32::MAX as f64;
+        self.scroll.setHasHorizontalScroller(!wrap);
+        self.text.setHorizontallyResizable(!wrap);
+        self.text.setMaxSize(NSSize::new(huge, huge));
+        container.setWidthTracksTextView(wrap);
+        if wrap {
+            let width = self.scroll.contentSize().width;
+            container.setContainerSize(NSSize::new(width, huge));
+            self.text.setAutoresizingMask(NSAutoresizingMaskOptions::ViewWidthSizable);
+            self.text.setFrameSize(NSSize::new(width, self.text.frame().size.height));
+        } else {
+            container.setContainerSize(NSSize::new(huge, huge));
+            self.text.setAutoresizingMask(
+                NSAutoresizingMaskOptions::ViewWidthSizable | NSAutoresizingMaskOptions::ViewHeightSizable,
+            );
+            self.fit_width();
+        }
+    }
+
+    /// Unwrapped, as wide as its longest line: laid out now, as the text
+    /// system would at the next display.
+    fn fit_width(&self) {
+        if let (Some(container), Some(layout)) =
+            (unsafe { self.text.textContainer() }, unsafe { self.text.layoutManager() })
+            && !container.widthTracksTextView()
+        {
+            layout.ensureLayoutForTextContainer(&container);
+            self.text.sizeToFit();
+        }
+    }
+
+    pub(crate) fn line_wrap(&self) -> bool {
+        unsafe { self.text.textContainer() }.is_none_or(|c| c.widthTracksTextView())
     }
 
     /// A text field's width, and `lines` lines of its font inside the

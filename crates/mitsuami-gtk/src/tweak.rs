@@ -7,7 +7,7 @@ use mitsuami_core::reactive::{IntoValue, Value};
 use mitsuami_core::{List, Opaque, Tweak};
 use mitsuami_widgets::{
     Button, Checkbox, Group, Icon, Image, MenuButton, NumberInput, PasswordInput, Progress, RadioGroup, ScrollView,
-    SearchInput, Select, Separator, Slider, Spinner, Switch, Text, TextArea, TextInput,
+    SearchInput, Select, Separator, Slider, Spinner, Switch, Text, TextArea, TextInput, ToggleButton,
 };
 
 use crate::backend::{STEPS, Steps, update_marks};
@@ -19,6 +19,10 @@ pub trait Tweakable {
 
 impl Tweakable for Button {
     type Native = gtk::Button;
+}
+
+impl Tweakable for ToggleButton {
+    type Native = gtk::ToggleButton;
 }
 
 impl Tweakable for Checkbox {

@@ -174,17 +174,34 @@ Kirigami.ApplicationWindow {{
     property Item mitsuamiSidebar: null
     // How much wider the window is than its content.
     readonly property real mitsuamiSidebarWidth:
-        mitsuamiSidebar && pageStack.wideMode ? mitsuamiSidebar.width : 0
+        mitsuamiSidebar && mitsuamiSidebarIn && pageStack.wideMode ? mitsuamiSidebar.width : 0
+    // Whether its page is in the row: the app can take it out
+    // (`mitsuamiShown`), and put it back.
+    property bool mitsuamiSidebarIn: false
     function mitsuamiShowSidebar() {{
         mitsuamiSidebar.mitsuamiStack = pageStack
+        if (mitsuamiSidebar.mitsuamiShown) mitsuamiAddSidebar()
+    }}
+    function mitsuamiAddSidebar() {{
         // `insertPage` pops the pages from its position on first, which
         // would take the content's: pushed after it, then moved ahead.
         pageStack.push(mitsuamiSidebar)
         pageStack.movePage(pageStack.depth - 1, 0)
         pageStack.currentIndex = pageStack.wideMode ? 1 : 0
+        mitsuamiSidebarIn = true
+    }}
+    function mitsuamiApplySidebarShown() {{
+        if (!mitsuamiSidebar || mitsuamiSidebar.mitsuamiShown === mitsuamiSidebarIn) return
+        if (mitsuamiSidebar.mitsuamiShown) {{
+            mitsuamiAddSidebar()
+        }} else {{
+            pageStack.removePage(mitsuamiSidebar)
+            mitsuamiSidebarIn = false
+        }}
     }}
     function mitsuamiHideSidebar() {{
-        pageStack.removePage(mitsuamiSidebar)
+        if (mitsuamiSidebarIn) pageStack.removePage(mitsuamiSidebar)
+        mitsuamiSidebarIn = false
         mitsuamiSidebar = null
     }}
     {drawer}
@@ -232,6 +249,8 @@ Kirigami.ScrollablePage {
     id: mitsuamiSidebar
     padding: 0
     property Item mitsuamiContent: null
+    // Shown as the app wants it: the window takes the page out of its row.
+    property bool mitsuamiShown: true
     // The window's page row, set by the window: the page is made apart
     // from it, where Kirigami's `applicationWindow()` isn't defined.
     property QtObject mitsuamiStack: null
@@ -333,6 +352,8 @@ pub(crate) fn tabs() -> String {
 Item {{
     id: mitsuamiTabs
     property var mitsuamiTitles: []
+    // Themed icons' names by tab, empty for none.
+    property var mitsuamiIcons: []
     property int mitsuamiSelected: -1
     property int mitsuamiChoice: -1
     property bool mitsuamiNavigation: true
@@ -347,6 +368,18 @@ Item {{
             for (let i = 0; i < mitsuamiCount; i++) titles.push(mitsuamiBar.itemAt(i).text)
         }}
         return titles.join("\u001f")
+    }}
+    readonly property string mitsuamiShownIcons: {{
+        const icons = []
+        if (mitsuamiNavigation) {{
+            for (let i = 0; i < mitsuamiNavBar.actions.length; i++) icons.push(mitsuamiNavBar.actions[i].icon.name)
+        }} else {{
+            for (let i = 0; i < mitsuamiCount; i++) icons.push(mitsuamiBar.itemAt(i).icon.name)
+        }}
+        return icons.join("\u001f")
+    }}
+    function mitsuamiIcon(index) {{
+        return index >= 0 && index < mitsuamiIcons.length ? mitsuamiIcons[index] : ""
     }}
     // The navigation bar's natural width: its buttons, all as wide as the
     // widest, as it lays them out. Its own implicit width makes room for
@@ -440,6 +473,7 @@ Item {{
     }}
     component MitsuamiTab: QQC2.TabButton {{
         property int mitsuamiIndex: 0
+        icon.name: mitsuamiTabs.mitsuamiIcon(mitsuamiIndex)
         // `clicked` is the user's (and assistive technology's Press); the
         // bar's `currentIndexChanged` is anyone's.
         onClicked: mitsuamiTabs.mitsuamiChoose(mitsuamiIndex)
@@ -450,6 +484,7 @@ Item {{
         id: mitsuamiAction
         Kirigami.Action {{
             property int mitsuamiIndex: -1
+            icon.name: mitsuamiTabs.mitsuamiIcon(mitsuamiIndex)
             checkable: true
             // `triggered` is the user's (a click, assistive technology's
             // Press); the bar's `currentIndex` is anyone's.
@@ -553,7 +588,20 @@ pub(crate) fn label() -> String {
     // Word wrapping: a word longer than the line overflows rather than
     // breaking, so the longest word is the min-content width.
     format!(
-        "QQC2.Label {{ wrapMode: Text.WordWrap; verticalAlignment: Text.AlignTop {TEXT_STYLE} {LABEL_OPTIONS} {} }}",
+        "QQC2.Label {{ readonly property bool mitsuamiSelectable: false; wrapMode: Text.WordWrap; \
+         verticalAlignment: Text.AlignTop {TEXT_STYLE} {LABEL_OPTIONS} {} }}",
+        a11y_hover("text")
+    )
+}
+
+/// A label whose text can be selected: Kirigami's selectable label, a
+/// read-only text area drawn as a label, as KDE apps show text to copy.
+/// It has no line limit or elision, so those are kept, as a label has them.
+pub(crate) fn selectable_label() -> String {
+    format!(
+        "Kirigami.SelectableLabel {{ readonly property bool mitsuamiSelectable: true; \
+         property int maximumLineCount: 2147483647; property int elide: Text.ElideNone; wrapMode: Text.WordWrap; \
+         verticalAlignment: Text.AlignTop {TEXT_STYLE} {LABEL_OPTIONS} {} }}",
         a11y_hover("text")
     )
 }
@@ -716,6 +764,12 @@ QQC2.Button {{
 "#,
         a11y("text")
     )
+}
+
+/// A button that stays pressed: a checkable button, whose `toggled` is
+/// the user's.
+pub(crate) fn toggle_button() -> String {
+    button_with("    checkable: true")
 }
 
 pub(crate) fn text_field() -> String {

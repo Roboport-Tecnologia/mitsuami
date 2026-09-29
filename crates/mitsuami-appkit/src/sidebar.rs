@@ -9,12 +9,13 @@
 //! Like a list's, the table's data source reads only the sidebar's own
 //! [`SidebarData`], and only emits.
 
-use std::cell::RefCell;
+use std::cell::{Cell, RefCell};
+use std::ffi::c_void;
 use std::rc::Rc;
 
 use mitsuami_core::{EventSink, EventValue, NodeId, SidebarItemData, SidebarSectionData, UiEvent};
 use objc2::rc::Retained;
-use objc2::runtime::{NSObject, NSObjectProtocol, ProtocolObject};
+use objc2::runtime::{AnyObject, NSObject, NSObjectProtocol, ProtocolObject};
 use objc2::{DefinedClass, MainThreadMarker, MainThreadOnly, Message, define_class, msg_send};
 use objc2_app_kit::{
     NSControlTextEditingDelegate, NSImage, NSImageScaling, NSImageView, NSLayoutConstraint, NSLineBreakMode,
@@ -22,7 +23,10 @@ use objc2_app_kit::{
     NSTableView, NSTableViewColumnAutoresizingStyle, NSTableViewDataSource, NSTableViewDelegate,
     NSTableViewRowSizeStyle, NSTableViewStyle, NSTextField, NSView, NSViewController, NSWindow, NSWindowStyleMask,
 };
-use objc2_foundation::{NSArray, NSIndexSet, NSInteger, NSNotification, NSString};
+use objc2_foundation::{
+    NSArray, NSIndexSet, NSInteger, NSKeyValueObservingOptions, NSNotification, NSObjectNSKeyValueObserverRegistration,
+    NSString,
+};
 
 use crate::classes::zero_rect;
 
@@ -182,6 +186,8 @@ pub(crate) struct Sidebar {
     pub table: Retained<NSTableView>,
     _source: Retained<SidebarSource>,
     data: Shared,
+    /// Shown as the app wants it, if it said: the split shows it.
+    pub shown: Cell<Option<bool>>,
 }
 
 impl Sidebar {
@@ -211,7 +217,7 @@ impl Sidebar {
         scroll.setAutohidesScrollers(true);
         scroll.setDrawsBackground(false);
         scroll.setDocumentView(Some(&table));
-        Sidebar { scroll, table, _source: source, data }
+        Sidebar { scroll, table, _source: source, data, shown: Cell::new(None) }
     }
 
     /// New items: the table reloads, and keeps the selected item, which
@@ -282,12 +288,53 @@ impl Sidebar {
     }
 }
 
+pub(crate) struct WatchIvars {
+    sidebar: NodeId,
+    events: EventSink,
+    /// Collapsed as last reported or set, to tell the user's changes from
+    /// the backend's.
+    collapsed: Cell<bool>,
+}
+
+define_class!(
+    /// Watches the sidebar item's `collapsed` (KVO): the user collapsed or
+    /// expanded it (its divider, the toolbar's toggle, View ▸ Hide
+    /// Sidebar), or AppKit did for a narrow window.
+    #[unsafe(super(NSObject))]
+    #[thread_kind = MainThreadOnly]
+    #[ivars = WatchIvars]
+    pub(crate) struct CollapseWatch;
+
+    impl CollapseWatch {
+        #[unsafe(method(observeValueForKeyPath:ofObject:change:context:))]
+        fn observe_value(
+            &self,
+            _key_path: Option<&NSString>,
+            object: Option<&AnyObject>,
+            _change: Option<&AnyObject>,
+            _context: *mut c_void,
+        ) {
+            let Some(item) = object.and_then(|o| o.downcast_ref::<NSSplitViewItem>()) else { return };
+            let WatchIvars { sidebar, events, collapsed } = self.ivars();
+            let now = item.isCollapsed();
+            if collapsed.replace(now) != now {
+                events.emit(*sidebar, UiEvent::SidebarShownChanged(!now));
+            }
+        }
+    }
+
+    unsafe impl NSObjectProtocol for CollapseWatch {}
+);
+
+const COLLAPSED: &str = "collapsed";
+
 /// A window split in two: the sidebar, and a view holding the window's
 /// content (its host), below the title bar and toolbar.
 pub(crate) struct Split {
     pub sidebar: NodeId,
     controller: Retained<NSSplitViewController>,
     item: Retained<NSSplitViewItem>,
+    watch: Retained<CollapseWatch>,
 }
 
 impl Split {
@@ -300,6 +347,7 @@ impl Split {
         host: &NSView,
         sidebar: NodeId,
         scroll: &NSScrollView,
+        events: EventSink,
     ) -> Split {
         let side = NSViewController::new(mtm);
         side.setView(scroll);
@@ -323,11 +371,35 @@ impl Split {
             host.trailingAnchor().constraintEqualToAnchor(&detail.trailingAnchor()),
             host.bottomAnchor().constraintEqualToAnchor(&detail.bottomAnchor()),
         ]));
-        Split { sidebar, controller, item }
+        let watch = CollapseWatch::alloc(mtm).set_ivars(WatchIvars {
+            sidebar,
+            events,
+            collapsed: Cell::new(item.isCollapsed()),
+        });
+        let watch: Retained<CollapseWatch> = unsafe { msg_send![super(watch), init] };
+        unsafe {
+            item.addObserver_forKeyPath_options_context(
+                &watch,
+                &NSString::from_str(COLLAPSED),
+                NSKeyValueObservingOptions::New,
+                std::ptr::null_mut(),
+            );
+        }
+        Split { sidebar, controller, item, watch }
+    }
+
+    /// Shows or hides the sidebar without reporting it, as the toolbar's
+    /// toggle does (`toggleSidebar:`), animated in a shown window.
+    pub(crate) fn set_shown(&self, shown: bool) {
+        self.watch.ivars().collapsed.set(!shown);
+        if self.item.isCollapsed() == shown {
+            self.item.setCollapsed(!shown);
+        }
     }
 
     /// Gives the window its content back, as it was before the split.
     pub(crate) fn remove(self, window: &NSWindow, host: &NSView) {
+        unsafe { self.item.removeObserver_forKeyPath(&self.watch, &NSString::from_str(COLLAPSED)) };
         window.setContentViewController(None);
         host.removeFromSuperview();
         host.setTranslatesAutoresizingMaskIntoConstraints(true);
