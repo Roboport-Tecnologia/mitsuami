@@ -18,6 +18,10 @@ pub enum Role {
     /// and in ARIA, UIA's expand-collapse button.
     MenuButton,
     TextField,
+    /// A field for search text (a `SearchInput`): AppKit's search field,
+    /// GTK's search box, ARIA's searchbox, a text field on Qt and UIA (the
+    /// edit in an auto-suggest box). Its value is the text.
+    SearchField,
     /// A field for text over many lines (a `TextArea`): AppKit's text
     /// area, a multi-line text field elsewhere (GTK's and Qt's multi-line
     /// state, UIA's multi-line edit). Its value is the text.

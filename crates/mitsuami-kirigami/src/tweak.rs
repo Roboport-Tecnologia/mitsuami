@@ -6,7 +6,7 @@ use mitsuami_core::reactive::{IntoValue, Value};
 use mitsuami_core::{List, Opaque, Tweak};
 use mitsuami_widgets::{
     Button, Checkbox, Group, Icon, Image, MenuButton, NumberInput, PasswordInput, Progress, RadioGroup, ScrollView,
-    Select, Separator, Slider, Spinner, Switch, Text, TextArea, TextInput,
+    SearchInput, Select, Separator, Slider, Spinner, Switch, Text, TextArea, TextInput,
 };
 
 use crate::ffi::QmlObject;
@@ -66,6 +66,9 @@ impl Tweakable for TextArea {}
 
 /// A `Kirigami.PasswordField`, a `QQC2.TextField`.
 impl Tweakable for PasswordInput {}
+
+/// A `Kirigami.SearchField`, a `QQC2.TextField`.
+impl Tweakable for SearchInput {}
 
 /// A `QQC2.ScrollView`, whose `contentItem` is the `Flickable` that
 /// scrolls.

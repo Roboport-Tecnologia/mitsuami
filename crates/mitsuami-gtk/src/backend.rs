@@ -185,6 +185,7 @@ enum Widget {
     Label(gtk::Label),
     Entry(gtk::Entry),
     Password(gtk::PasswordEntry),
+    Search(gtk::SearchEntry),
     Button(gtk::Button),
     /// A menu button, and its own menu (apart from its context menu).
     MenuButton {
@@ -271,6 +272,7 @@ impl Widget {
             Widget::Label(w) => w.upcast_ref(),
             Widget::Entry(w) => w.upcast_ref(),
             Widget::Password(w) => w.upcast_ref(),
+            Widget::Search(w) => w.upcast_ref(),
             Widget::Button(w) => w.upcast_ref(),
             Widget::MenuButton { button, .. } => button.upcast_ref(),
             Widget::Checkbox(w) => w.upcast_ref(),
@@ -303,6 +305,7 @@ impl Widget {
             Widget::Label(_)
                 | Widget::Entry(_)
                 | Widget::Password(_)
+                | Widget::Search(_)
                 | Widget::Button(_)
                 | Widget::MenuButton { .. }
                 | Widget::Checkbox(_)
@@ -1266,6 +1269,32 @@ impl State {
                 entry.connect_activate(move |_| events.emit(id, UiEvent::Submit));
                 Widget::Password(entry)
             }
+            // GTK's `search-changed` comes 150 ms after typing pauses, and at
+            // once when the field is emptied, but for any change, the app's
+            // too: `set_text` starts the same timer, which fires after the
+            // commands are applied. So only a search that follows a user
+            // edit is reported. Return searches at once.
+            WidgetKind::SearchInput => {
+                let entry = gtk::SearchEntry::new();
+                let edited = Rc::new(Cell::new(false));
+                let (e, ed) = (events.clone(), edited.clone());
+                entry.connect_changed(move |entry| {
+                    ed.set(!e.is_muted());
+                    e.emit(id, UiEvent::Changed(EventValue::Text(entry.text().to_string())))
+                });
+                let (e, ed) = (events.clone(), edited.clone());
+                entry.connect_search_changed(move |entry| {
+                    if ed.replace(false) {
+                        e.emit(id, UiEvent::Search(entry.text().to_string()));
+                    }
+                });
+                // The search the timer would make is this one.
+                entry.connect_activate(move |entry| {
+                    edited.set(false);
+                    events.emit(id, UiEvent::Search(entry.text().to_string()));
+                });
+                Widget::Search(entry)
+            }
             WidgetKind::TextArea => {
                 let view = gtk::TextView::new();
                 // Wrapped at words, or within a word too long for a line, and
@@ -1732,6 +1761,12 @@ impl State {
                 }
             }
             (Prop::Placeholder(t), Widget::Password(e)) => e.set_placeholder_text(Some(t)),
+            (Prop::Value(t), Widget::Search(e)) => {
+                if e.text() != t.as_str() {
+                    e.set_text(t);
+                }
+            }
+            (Prop::Placeholder(t), Widget::Search(e)) => e.set_placeholder_text(Some(t)),
             (Prop::Value(t), Widget::TextArea { view, .. }) => {
                 let buffer = view.buffer();
                 if buffer_text(&buffer) != *t {
@@ -2550,7 +2585,10 @@ impl Backend for GtkBackend {
                 let index = option_texts(&options).iter().position(|o| o == text).ok_or(ActionError::Unsupported)?;
                 dropdown.set_selected(index as u32);
             }
-            (A11yAction::SetValue(text), WidgetKind::TextInput | WidgetKind::PasswordInput) => {
+            (
+                A11yAction::SetValue(text),
+                WidgetKind::TextInput | WidgetKind::PasswordInput | WidgetKind::SearchInput,
+            ) => {
                 let entry = widget.dynamic_cast_ref::<gtk::Editable>().ok_or(ActionError::Unsupported)?;
                 if !entry.is_editable() {
                     return Err(ActionError::ReadOnly);
@@ -2561,6 +2599,11 @@ impl Backend for GtkBackend {
                 // The caret ends up after the new text, as if it was typed.
                 entry.set_position(-1);
                 events.emit(id, UiEvent::Changed(EventValue::Text(text.clone())));
+                // An edit searches, once: the muted `set_text` isn't
+                // searched for when GTK's timer fires.
+                if kind == WidgetKind::SearchInput {
+                    events.emit(id, UiEvent::Search(text.clone()));
+                }
             }
             (A11yAction::SetValue(text), WidgetKind::TextArea) => {
                 let view = text_view(&widget).ok_or(ActionError::Unsupported)?;
@@ -2705,7 +2748,7 @@ impl Backend for GtkBackend {
         };
         match (kind, key) {
             (
-                WidgetKind::TextInput | WidgetKind::PasswordInput,
+                WidgetKind::TextInput | WidgetKind::PasswordInput | WidgetKind::SearchInput,
                 Key::Char(_) | Key::Backspace | Key::Enter | Key::Tab,
             ) => {
                 // GTK 4 can't inject key events. Emit the keybinding signals
@@ -2809,6 +2852,12 @@ impl Backend for GtkBackend {
                 props.push(Prop::ReadOnly(!e.is_editable()));
             }
             Widget::Password(e) => {
+                props.push(Prop::Value(e.text().to_string()));
+                if let Some(p) = e.placeholder_text() {
+                    props.push(Prop::Placeholder(p.to_string()));
+                }
+            }
+            Widget::Search(e) => {
                 props.push(Prop::Value(e.text().to_string()));
                 if let Some(p) = e.placeholder_text() {
                     props.push(Prop::Placeholder(p.to_string()));

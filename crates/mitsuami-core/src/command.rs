@@ -103,6 +103,11 @@ pub enum UiEvent {
     /// The user changed a control's value. The native widget already shows it.
     Changed(EventValue),
     Submit,
+    /// A `SearchInput` asks for a search for its text, when the platform
+    /// does: as the user types (after a pause, where the platform waits for
+    /// one), on Return, and when the field is cleared. Not for text the
+    /// core set.
+    Search(String),
     FocusIn,
     FocusOut,
     WindowResized(Size),

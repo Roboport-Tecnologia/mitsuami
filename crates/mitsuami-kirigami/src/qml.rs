@@ -636,6 +636,52 @@ pub(crate) fn password_field() -> String {
     format!("Kirigami.PasswordField {{ {TEXT_STYLE} {} }}", a11y("placeholderText"))
 }
 
+/// KDE's search field, with Kirigami's own search timing: `accepted` a
+/// short pause after the text changes (`autoAccept`), on Return, and from
+/// its clear button. It fires for text the backend set too, so a search is
+/// reported (`mitsuamiSearched`) only after a user's edit, on Return, or
+/// when the clear button emptied it; `mitsuamiShown` is the text the core
+/// knows, which Rust sets with its own. The clear button's edit isn't a
+/// `textEdited`, so it's reported (`mitsuamiEdited`) as the search comes.
+pub(crate) fn search_field() -> String {
+    format!(
+        r#"
+Kirigami.SearchField {{
+    id: field
+    property string mitsuamiShown: ""
+    property bool mitsuamiPending: false
+    property bool mitsuamiReturn: false
+    signal mitsuamiEdited()
+    signal mitsuamiSearched()
+    onTextEdited: {{
+        mitsuamiShown = text
+        mitsuamiPending = true
+        mitsuamiEdited()
+    }}
+    // Seen before the field takes it, and left to it.
+    Keys.onPressed: (event) => {{
+        if (event.key === Qt.Key_Return || event.key === Qt.Key_Enter) mitsuamiReturn = true
+        event.accepted = false
+    }}
+    onAccepted: {{
+        const cleared = text !== mitsuamiShown
+        if (cleared) {{
+            mitsuamiShown = text
+            mitsuamiEdited()
+        }}
+        const search = cleared || mitsuamiPending || mitsuamiReturn
+        mitsuamiPending = false
+        mitsuamiReturn = false
+        if (search) mitsuamiSearched()
+    }}
+    {TEXT_STYLE}
+    {}
+}}
+"#,
+        a11y("placeholderText")
+    )
+}
+
 /// A text area in a scroll view, as KDE apps make one: it wraps, and the
 /// desktop style frames the scroll view as a field. The scroll view is the
 /// node's item, with the text area's properties; `mitsuamiEdited` is a

@@ -416,6 +416,105 @@ impl windows_core::RuntimeType for ApplicationTheme {
 }
 #[repr(transparent)]
 #[derive(Clone, Debug, Eq, PartialEq)]
+pub struct AutoSuggestBox(windows_core::IUnknown);
+windows_core::imp::interface_hierarchy!(AutoSuggestBox, windows_core::IUnknown, windows_core::IInspectable);
+windows_core::imp::required_hierarchy!(
+    AutoSuggestBox,
+    ItemsControl,
+    Control,
+    FrameworkElement,
+    UIElement,
+    DependencyObject
+);
+impl AutoSuggestBox {
+    pub fn new() -> windows_core::Result<Self> {
+        Self::IActivationFactory(|f| f.ActivateInstance::<Self>())
+    }
+    fn IActivationFactory<R, F: FnOnce(&windows_core::imp::IGenericFactory) -> windows_core::Result<R>>(
+        callback: F,
+    ) -> windows_core::Result<R> {
+        static SHARED: windows_core::imp::FactoryCache<AutoSuggestBox, windows_core::imp::IGenericFactory> =
+            windows_core::imp::FactoryCache::new();
+        SHARED.call(callback)
+    }
+}
+impl windows_core::RuntimeType for AutoSuggestBox {
+    const SIGNATURE: windows_core::imp::ConstBuffer =
+        windows_core::imp::ConstBuffer::for_class::<Self, IAutoSuggestBox>();
+}
+unsafe impl windows_core::Interface for AutoSuggestBox {
+    type Vtable = <IAutoSuggestBox as windows_core::Interface>::Vtable;
+    const IID: windows_core::GUID = <IAutoSuggestBox as windows_core::Interface>::IID;
+}
+impl core::ops::Deref for AutoSuggestBox {
+    type Target = IAutoSuggestBox;
+    fn deref(&self) -> &Self::Target {
+        unsafe { core::mem::transmute(self) }
+    }
+}
+impl windows_core::RuntimeName for AutoSuggestBox {
+    const NAME: &'static str = "Microsoft.UI.Xaml.Controls.AutoSuggestBox";
+}
+unsafe impl Send for AutoSuggestBox {}
+unsafe impl Sync for AutoSuggestBox {}
+#[repr(transparent)]
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct AutoSuggestBoxQuerySubmittedEventArgs(windows_core::IUnknown);
+windows_core::imp::interface_hierarchy!(
+    AutoSuggestBoxQuerySubmittedEventArgs,
+    windows_core::IUnknown,
+    windows_core::IInspectable
+);
+windows_core::imp::required_hierarchy!(AutoSuggestBoxQuerySubmittedEventArgs, DependencyObject);
+impl windows_core::RuntimeType for AutoSuggestBoxQuerySubmittedEventArgs {
+    const SIGNATURE: windows_core::imp::ConstBuffer =
+        windows_core::imp::ConstBuffer::for_class::<Self, IAutoSuggestBoxQuerySubmittedEventArgs>();
+}
+unsafe impl windows_core::Interface for AutoSuggestBoxQuerySubmittedEventArgs {
+    type Vtable = <IAutoSuggestBoxQuerySubmittedEventArgs as windows_core::Interface>::Vtable;
+    const IID: windows_core::GUID = <IAutoSuggestBoxQuerySubmittedEventArgs as windows_core::Interface>::IID;
+}
+impl core::ops::Deref for AutoSuggestBoxQuerySubmittedEventArgs {
+    type Target = IAutoSuggestBoxQuerySubmittedEventArgs;
+    fn deref(&self) -> &Self::Target {
+        unsafe { core::mem::transmute(self) }
+    }
+}
+impl windows_core::RuntimeName for AutoSuggestBoxQuerySubmittedEventArgs {
+    const NAME: &'static str = "Microsoft.UI.Xaml.Controls.AutoSuggestBoxQuerySubmittedEventArgs";
+}
+unsafe impl Send for AutoSuggestBoxQuerySubmittedEventArgs {}
+unsafe impl Sync for AutoSuggestBoxQuerySubmittedEventArgs {}
+#[repr(transparent)]
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct AutoSuggestBoxTextChangedEventArgs(windows_core::IUnknown);
+windows_core::imp::interface_hierarchy!(
+    AutoSuggestBoxTextChangedEventArgs,
+    windows_core::IUnknown,
+    windows_core::IInspectable
+);
+windows_core::imp::required_hierarchy!(AutoSuggestBoxTextChangedEventArgs, DependencyObject);
+impl windows_core::RuntimeType for AutoSuggestBoxTextChangedEventArgs {
+    const SIGNATURE: windows_core::imp::ConstBuffer =
+        windows_core::imp::ConstBuffer::for_class::<Self, IAutoSuggestBoxTextChangedEventArgs>();
+}
+unsafe impl windows_core::Interface for AutoSuggestBoxTextChangedEventArgs {
+    type Vtable = <IAutoSuggestBoxTextChangedEventArgs as windows_core::Interface>::Vtable;
+    const IID: windows_core::GUID = <IAutoSuggestBoxTextChangedEventArgs as windows_core::Interface>::IID;
+}
+impl core::ops::Deref for AutoSuggestBoxTextChangedEventArgs {
+    type Target = IAutoSuggestBoxTextChangedEventArgs;
+    fn deref(&self) -> &Self::Target {
+        unsafe { core::mem::transmute(self) }
+    }
+}
+impl windows_core::RuntimeName for AutoSuggestBoxTextChangedEventArgs {
+    const NAME: &'static str = "Microsoft.UI.Xaml.Controls.AutoSuggestBoxTextChangedEventArgs";
+}
+unsafe impl Send for AutoSuggestBoxTextChangedEventArgs {}
+unsafe impl Sync for AutoSuggestBoxTextChangedEventArgs {}
+#[repr(transparent)]
+#[derive(Clone, Debug, Eq, PartialEq)]
 pub struct AutomationPeer(windows_core::IUnknown);
 windows_core::imp::interface_hierarchy!(AutomationPeer, windows_core::IUnknown, windows_core::IInspectable);
 windows_core::imp::required_hierarchy!(AutomationPeer, DependencyObject);
@@ -3215,6 +3314,221 @@ pub struct IApplicationStatics_Vtbl {
     pub base__: windows_core::IInspectable_Vtbl,
     pub Current:
         unsafe extern "system" fn(*mut core::ffi::c_void, *mut *mut core::ffi::c_void) -> windows_core::HRESULT,
+}
+windows_core::imp::define_interface!(IAutoSuggestBox, IAutoSuggestBox_Vtbl, 0x3eea809e_b2db_521d_97db_e0648fb5d798);
+impl windows_core::RuntimeType for IAutoSuggestBox {
+    const SIGNATURE: windows_core::imp::ConstBuffer = windows_core::imp::ConstBuffer::for_interface::<Self>();
+}
+impl IAutoSuggestBox {
+    pub fn Text(&self) -> windows_core::Result<String> {
+        unsafe {
+            let mut result__ = core::mem::zeroed();
+            (windows_core::Interface::vtable(self).Text)(windows_core::Interface::as_raw(self), &mut result__).map(
+                || {
+                    let hstring: windows_core::HSTRING = core::mem::transmute(result__);
+                    hstring.to_string_lossy()
+                },
+            )
+        }
+    }
+    pub fn SetText(&self, value: &str) -> windows_core::Result<()> {
+        unsafe {
+            (windows_core::Interface::vtable(self).SetText)(
+                windows_core::Interface::as_raw(self),
+                core::mem::transmute_copy(&windows_core::HSTRING::from(value)),
+            )
+            .ok()
+        }
+    }
+    pub fn PlaceholderText(&self) -> windows_core::Result<String> {
+        unsafe {
+            let mut result__ = core::mem::zeroed();
+            (windows_core::Interface::vtable(self).PlaceholderText)(
+                windows_core::Interface::as_raw(self),
+                &mut result__,
+            )
+            .map(|| {
+                let hstring: windows_core::HSTRING = core::mem::transmute(result__);
+                hstring.to_string_lossy()
+            })
+        }
+    }
+    pub fn SetPlaceholderText(&self, value: &str) -> windows_core::Result<()> {
+        unsafe {
+            (windows_core::Interface::vtable(self).SetPlaceholderText)(
+                windows_core::Interface::as_raw(self),
+                core::mem::transmute_copy(&windows_core::HSTRING::from(value)),
+            )
+            .ok()
+        }
+    }
+    pub fn SetHeader<P0>(&self, value: P0) -> windows_core::Result<()>
+    where
+        P0: windows_core::Param<windows_core::IInspectable>,
+    {
+        unsafe {
+            (windows_core::Interface::vtable(self).SetHeader)(
+                windows_core::Interface::as_raw(self),
+                value.param().abi(),
+            )
+            .ok()
+        }
+    }
+    pub fn QueryIcon(&self) -> windows_core::Result<IconElement> {
+        unsafe {
+            let mut result__ = core::mem::zeroed();
+            (windows_core::Interface::vtable(self).QueryIcon)(windows_core::Interface::as_raw(self), &mut result__)
+                .and_then(|| windows_core::imp::Type::from_abi(result__))
+        }
+    }
+    pub fn SetQueryIcon<P0>(&self, value: P0) -> windows_core::Result<()>
+    where
+        P0: windows_core::Param<IconElement>,
+    {
+        unsafe {
+            (windows_core::Interface::vtable(self).SetQueryIcon)(
+                windows_core::Interface::as_raw(self),
+                value.param().abi(),
+            )
+            .ok()
+        }
+    }
+    pub fn TextChanged<F>(&self, handler: F) -> windows_core::Result<windows_core::EventRevoker>
+    where
+        F: Fn(windows_core::Ref<AutoSuggestBox>, windows_core::Ref<AutoSuggestBoxTextChangedEventArgs>) + 'static,
+    {
+        let handler: TypedEventHandler<AutoSuggestBox, AutoSuggestBoxTextChangedEventArgs> = {
+            let com = windows_core::imp::DelegateBox::<
+                TypedEventHandler<AutoSuggestBox, AutoSuggestBoxTextChangedEventArgs>,
+                F,
+            >::new(
+                &TypedEventHandlerBox::<AutoSuggestBox, AutoSuggestBoxTextChangedEventArgs, F>::VTABLE, handler
+            );
+            unsafe { core::mem::transmute(windows_core::imp::box_new(com)) }
+        };
+        unsafe {
+            let mut result__ = core::mem::zeroed();
+            let token__ = (windows_core::Interface::vtable(self).TextChanged)(
+                windows_core::Interface::as_raw(self),
+                windows_core::Interface::as_raw(&handler),
+                &mut result__,
+            )
+            .map(|| result__)?;
+            Ok(windows_core::EventRevoker::new(
+                self.clone(),
+                token__,
+                windows_core::Interface::vtable(self).RemoveTextChanged,
+            ))
+        }
+    }
+    pub fn QuerySubmitted<F>(&self, handler: F) -> windows_core::Result<windows_core::EventRevoker>
+    where
+        F: Fn(windows_core::Ref<AutoSuggestBox>, windows_core::Ref<AutoSuggestBoxQuerySubmittedEventArgs>) + 'static,
+    {
+        let handler: TypedEventHandler<AutoSuggestBox, AutoSuggestBoxQuerySubmittedEventArgs> = {
+            let com = windows_core::imp::DelegateBox::<
+                TypedEventHandler<AutoSuggestBox, AutoSuggestBoxQuerySubmittedEventArgs>,
+                F,
+            >::new(
+                &TypedEventHandlerBox::<AutoSuggestBox, AutoSuggestBoxQuerySubmittedEventArgs, F>::VTABLE,
+                handler,
+            );
+            unsafe { core::mem::transmute(windows_core::imp::box_new(com)) }
+        };
+        unsafe {
+            let mut result__ = core::mem::zeroed();
+            let token__ = (windows_core::Interface::vtable(self).QuerySubmitted)(
+                windows_core::Interface::as_raw(self),
+                windows_core::Interface::as_raw(&handler),
+                &mut result__,
+            )
+            .map(|| result__)?;
+            Ok(windows_core::EventRevoker::new(
+                self.clone(),
+                token__,
+                windows_core::Interface::vtable(self).RemoveQuerySubmitted,
+            ))
+        }
+    }
+}
+#[repr(C)]
+pub struct IAutoSuggestBox_Vtbl {
+    pub base__: windows_core::IInspectable_Vtbl,
+    MaxSuggestionListHeight: usize,
+    SetMaxSuggestionListHeight: usize,
+    IsSuggestionListOpen: usize,
+    SetIsSuggestionListOpen: usize,
+    TextMemberPath: usize,
+    SetTextMemberPath: usize,
+    pub Text: unsafe extern "system" fn(*mut core::ffi::c_void, *mut *mut core::ffi::c_void) -> windows_core::HRESULT,
+    pub SetText: unsafe extern "system" fn(*mut core::ffi::c_void, *mut core::ffi::c_void) -> windows_core::HRESULT,
+    UpdateTextOnSelect: usize,
+    SetUpdateTextOnSelect: usize,
+    pub PlaceholderText:
+        unsafe extern "system" fn(*mut core::ffi::c_void, *mut *mut core::ffi::c_void) -> windows_core::HRESULT,
+    pub SetPlaceholderText:
+        unsafe extern "system" fn(*mut core::ffi::c_void, *mut core::ffi::c_void) -> windows_core::HRESULT,
+    Header: usize,
+    pub SetHeader: unsafe extern "system" fn(*mut core::ffi::c_void, *mut core::ffi::c_void) -> windows_core::HRESULT,
+    AutoMaximizeSuggestionArea: usize,
+    SetAutoMaximizeSuggestionArea: usize,
+    TextBoxStyle: usize,
+    SetTextBoxStyle: usize,
+    pub QueryIcon:
+        unsafe extern "system" fn(*mut core::ffi::c_void, *mut *mut core::ffi::c_void) -> windows_core::HRESULT,
+    pub SetQueryIcon:
+        unsafe extern "system" fn(*mut core::ffi::c_void, *mut core::ffi::c_void) -> windows_core::HRESULT,
+    LightDismissOverlayMode: usize,
+    SetLightDismissOverlayMode: usize,
+    Description: usize,
+    SetDescription: usize,
+    SuggestionChosen: usize,
+    RemoveSuggestionChosen: usize,
+    pub TextChanged:
+        unsafe extern "system" fn(*mut core::ffi::c_void, *mut core::ffi::c_void, *mut i64) -> windows_core::HRESULT,
+    pub RemoveTextChanged: unsafe extern "system" fn(*mut core::ffi::c_void, i64) -> windows_core::HRESULT,
+    pub QuerySubmitted:
+        unsafe extern "system" fn(*mut core::ffi::c_void, *mut core::ffi::c_void, *mut i64) -> windows_core::HRESULT,
+    pub RemoveQuerySubmitted: unsafe extern "system" fn(*mut core::ffi::c_void, i64) -> windows_core::HRESULT,
+}
+windows_core::imp::define_interface!(
+    IAutoSuggestBoxQuerySubmittedEventArgs,
+    IAutoSuggestBoxQuerySubmittedEventArgs_Vtbl,
+    0x26da5de4_57a6_57bf_acc9_aac599c0b22b
+);
+impl windows_core::RuntimeType for IAutoSuggestBoxQuerySubmittedEventArgs {
+    const SIGNATURE: windows_core::imp::ConstBuffer = windows_core::imp::ConstBuffer::for_interface::<Self>();
+}
+impl IAutoSuggestBoxQuerySubmittedEventArgs {
+    pub fn QueryText(&self) -> windows_core::Result<String> {
+        unsafe {
+            let mut result__ = core::mem::zeroed();
+            (windows_core::Interface::vtable(self).QueryText)(windows_core::Interface::as_raw(self), &mut result__).map(
+                || {
+                    let hstring: windows_core::HSTRING = core::mem::transmute(result__);
+                    hstring.to_string_lossy()
+                },
+            )
+        }
+    }
+}
+#[repr(C)]
+pub struct IAutoSuggestBoxQuerySubmittedEventArgs_Vtbl {
+    pub base__: windows_core::IInspectable_Vtbl,
+    pub QueryText:
+        unsafe extern "system" fn(*mut core::ffi::c_void, *mut *mut core::ffi::c_void) -> windows_core::HRESULT,
+}
+windows_core::imp::define_interface!(
+    IAutoSuggestBoxTextChangedEventArgs,
+    IAutoSuggestBoxTextChangedEventArgs_Vtbl,
+    0xd7191d84_e886_547f_a3e2_12f0e05b20fa
+);
+impl windows_core::RuntimeType for IAutoSuggestBoxTextChangedEventArgs {
+    const SIGNATURE: windows_core::imp::ConstBuffer = windows_core::imp::ConstBuffer::for_interface::<Self>();
+}
+#[repr(C)]
+pub struct IAutoSuggestBoxTextChangedEventArgs_Vtbl {
+    pub base__: windows_core::IInspectable_Vtbl,
 }
 windows_core::imp::define_interface!(IAutomationPeer, IAutomationPeer_Vtbl, 0xe51d3e4e_34f0_568c_999f_6277e2afe6d7);
 impl windows_core::RuntimeType for IAutomationPeer {
@@ -8977,6 +9291,28 @@ pub struct IStyle_Vtbl {
     BasedOn: usize,
     pub SetBasedOn: unsafe extern "system" fn(*mut core::ffi::c_void, *mut core::ffi::c_void) -> windows_core::HRESULT,
 }
+windows_core::imp::define_interface!(ISymbolIcon, ISymbolIcon_Vtbl, 0xa4322906_0dbe_5eb7_8b64_3e832246eb7f);
+impl windows_core::RuntimeType for ISymbolIcon {
+    const SIGNATURE: windows_core::imp::ConstBuffer = windows_core::imp::ConstBuffer::for_interface::<Self>();
+}
+#[repr(C)]
+pub struct ISymbolIcon_Vtbl {
+    pub base__: windows_core::IInspectable_Vtbl,
+}
+windows_core::imp::define_interface!(
+    ISymbolIconFactory,
+    ISymbolIconFactory_Vtbl,
+    0xd4430447_567c_5aad_996a_a547774e2c3c
+);
+impl windows_core::RuntimeType for ISymbolIconFactory {
+    const SIGNATURE: windows_core::imp::ConstBuffer = windows_core::imp::ConstBuffer::for_interface::<Self>();
+}
+#[repr(C)]
+pub struct ISymbolIconFactory_Vtbl {
+    pub base__: windows_core::IInspectable_Vtbl,
+    pub CreateInstanceWithSymbol:
+        unsafe extern "system" fn(*mut core::ffi::c_void, Symbol, *mut *mut core::ffi::c_void) -> windows_core::HRESULT,
+}
 windows_core::imp::define_interface!(ITextBlock, ITextBlock_Vtbl, 0x1ac8d84f_392c_5c7e_83f5_a53e3bf0abb0);
 impl windows_core::RuntimeType for ITextBlock {
     const SIGNATURE: windows_core::imp::ConstBuffer = windows_core::imp::ConstBuffer::for_interface::<Self>();
@@ -14390,6 +14726,258 @@ impl windows_core::RuntimeName for Style {
 }
 unsafe impl Send for Style {}
 unsafe impl Sync for Style {}
+#[repr(transparent)]
+#[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
+pub struct Symbol(pub i32);
+impl Symbol {
+    pub const Previous: Self = Self(57600);
+    pub const Next: Self = Self(57601);
+    pub const Play: Self = Self(57602);
+    pub const Pause: Self = Self(57603);
+    pub const Edit: Self = Self(57604);
+    pub const Save: Self = Self(57605);
+    pub const Clear: Self = Self(57606);
+    pub const Delete: Self = Self(57607);
+    pub const Remove: Self = Self(57608);
+    pub const Add: Self = Self(57609);
+    pub const Cancel: Self = Self(57610);
+    pub const Accept: Self = Self(57611);
+    pub const More: Self = Self(57612);
+    pub const Redo: Self = Self(57613);
+    pub const Undo: Self = Self(57614);
+    pub const Home: Self = Self(57615);
+    pub const Up: Self = Self(57616);
+    pub const Forward: Self = Self(57617);
+    pub const Back: Self = Self(57618);
+    pub const Favorite: Self = Self(57619);
+    pub const Camera: Self = Self(57620);
+    pub const Setting: Self = Self(57621);
+    pub const Video: Self = Self(57622);
+    pub const Sync: Self = Self(57623);
+    pub const Download: Self = Self(57624);
+    pub const Mail: Self = Self(57625);
+    pub const Find: Self = Self(57626);
+    pub const Help: Self = Self(57627);
+    pub const Upload: Self = Self(57628);
+    pub const Emoji: Self = Self(57629);
+    pub const TwoPage: Self = Self(57630);
+    pub const LeaveChat: Self = Self(57631);
+    pub const MailForward: Self = Self(57632);
+    pub const Clock: Self = Self(57633);
+    pub const Send: Self = Self(57634);
+    pub const Crop: Self = Self(57635);
+    pub const RotateCamera: Self = Self(57636);
+    pub const People: Self = Self(57637);
+    pub const OpenPane: Self = Self(57638);
+    pub const ClosePane: Self = Self(57639);
+    pub const World: Self = Self(57640);
+    pub const Flag: Self = Self(57641);
+    pub const PreviewLink: Self = Self(57642);
+    pub const Globe: Self = Self(57643);
+    pub const Trim: Self = Self(57644);
+    pub const AttachCamera: Self = Self(57645);
+    pub const ZoomIn: Self = Self(57646);
+    pub const Bookmarks: Self = Self(57647);
+    pub const Document: Self = Self(57648);
+    pub const ProtectedDocument: Self = Self(57649);
+    pub const Page: Self = Self(57650);
+    pub const Bullets: Self = Self(57651);
+    pub const Comment: Self = Self(57652);
+    pub const MailFilled: Self = Self(57653);
+    pub const ContactInfo: Self = Self(57654);
+    pub const HangUp: Self = Self(57655);
+    pub const ViewAll: Self = Self(57656);
+    pub const MapPin: Self = Self(57657);
+    pub const Phone: Self = Self(57658);
+    pub const VideoChat: Self = Self(57659);
+    pub const Switch: Self = Self(57660);
+    pub const Contact: Self = Self(57661);
+    pub const Rename: Self = Self(57662);
+    pub const Pin: Self = Self(57665);
+    pub const MusicInfo: Self = Self(57666);
+    pub const Go: Self = Self(57667);
+    pub const Keyboard: Self = Self(57668);
+    pub const DockLeft: Self = Self(57669);
+    pub const DockRight: Self = Self(57670);
+    pub const DockBottom: Self = Self(57671);
+    pub const Remote: Self = Self(57672);
+    pub const Refresh: Self = Self(57673);
+    pub const Rotate: Self = Self(57674);
+    pub const Shuffle: Self = Self(57675);
+    pub const List: Self = Self(57676);
+    pub const Shop: Self = Self(57677);
+    pub const SelectAll: Self = Self(57678);
+    pub const Orientation: Self = Self(57679);
+    pub const Import: Self = Self(57680);
+    pub const ImportAll: Self = Self(57681);
+    pub const BrowsePhotos: Self = Self(57685);
+    pub const WebCam: Self = Self(57686);
+    pub const Pictures: Self = Self(57688);
+    pub const SaveLocal: Self = Self(57689);
+    pub const Caption: Self = Self(57690);
+    pub const Stop: Self = Self(57691);
+    pub const ShowResults: Self = Self(57692);
+    pub const Volume: Self = Self(57693);
+    pub const Repair: Self = Self(57694);
+    pub const Message: Self = Self(57695);
+    pub const Page2: Self = Self(57696);
+    pub const CalendarDay: Self = Self(57697);
+    pub const CalendarWeek: Self = Self(57698);
+    pub const Calendar: Self = Self(57699);
+    pub const Character: Self = Self(57700);
+    pub const MailReplyAll: Self = Self(57701);
+    pub const Read: Self = Self(57702);
+    pub const Link: Self = Self(57703);
+    pub const Account: Self = Self(57704);
+    pub const ShowBcc: Self = Self(57705);
+    pub const HideBcc: Self = Self(57706);
+    pub const Cut: Self = Self(57707);
+    pub const Attach: Self = Self(57708);
+    pub const Paste: Self = Self(57709);
+    pub const Filter: Self = Self(57710);
+    pub const Copy: Self = Self(57711);
+    pub const Emoji2: Self = Self(57712);
+    pub const Important: Self = Self(57713);
+    pub const MailReply: Self = Self(57714);
+    pub const SlideShow: Self = Self(57715);
+    pub const Sort: Self = Self(57716);
+    pub const Manage: Self = Self(57720);
+    pub const AllApps: Self = Self(57721);
+    pub const DisconnectDrive: Self = Self(57722);
+    pub const MapDrive: Self = Self(57723);
+    pub const NewWindow: Self = Self(57724);
+    pub const OpenWith: Self = Self(57725);
+    pub const ContactPresence: Self = Self(57729);
+    pub const Priority: Self = Self(57730);
+    pub const GoToToday: Self = Self(57732);
+    pub const Font: Self = Self(57733);
+    pub const FontColor: Self = Self(57734);
+    pub const Contact2: Self = Self(57735);
+    pub const Folder: Self = Self(57736);
+    pub const Audio: Self = Self(57737);
+    pub const Placeholder: Self = Self(57738);
+    pub const View: Self = Self(57739);
+    pub const SetLockScreen: Self = Self(57740);
+    pub const SetTile: Self = Self(57741);
+    pub const ClosedCaption: Self = Self(57744);
+    pub const StopSlideShow: Self = Self(57745);
+    pub const Permissions: Self = Self(57746);
+    pub const Highlight: Self = Self(57747);
+    pub const DisableUpdates: Self = Self(57748);
+    pub const UnFavorite: Self = Self(57749);
+    pub const UnPin: Self = Self(57750);
+    pub const OpenLocal: Self = Self(57751);
+    pub const Mute: Self = Self(57752);
+    pub const Italic: Self = Self(57753);
+    pub const Underline: Self = Self(57754);
+    pub const Bold: Self = Self(57755);
+    pub const MoveToFolder: Self = Self(57756);
+    pub const LikeDislike: Self = Self(57757);
+    pub const Dislike: Self = Self(57758);
+    pub const Like: Self = Self(57759);
+    pub const AlignRight: Self = Self(57760);
+    pub const AlignCenter: Self = Self(57761);
+    pub const AlignLeft: Self = Self(57762);
+    pub const Zoom: Self = Self(57763);
+    pub const ZoomOut: Self = Self(57764);
+    pub const OpenFile: Self = Self(57765);
+    pub const OtherUser: Self = Self(57766);
+    pub const Admin: Self = Self(57767);
+    pub const Street: Self = Self(57795);
+    pub const Map: Self = Self(57796);
+    pub const ClearSelection: Self = Self(57797);
+    pub const FontDecrease: Self = Self(57798);
+    pub const FontIncrease: Self = Self(57799);
+    pub const FontSize: Self = Self(57800);
+    pub const CellPhone: Self = Self(57801);
+    pub const ReShare: Self = Self(57802);
+    pub const Tag: Self = Self(57803);
+    pub const RepeatOne: Self = Self(57804);
+    pub const RepeatAll: Self = Self(57805);
+    pub const OutlineStar: Self = Self(57806);
+    pub const SolidStar: Self = Self(57807);
+    pub const Calculator: Self = Self(57808);
+    pub const Directions: Self = Self(57809);
+    pub const Target: Self = Self(57810);
+    pub const Library: Self = Self(57811);
+    pub const PhoneBook: Self = Self(57812);
+    pub const Memo: Self = Self(57813);
+    pub const Microphone: Self = Self(57814);
+    pub const PostUpdate: Self = Self(57815);
+    pub const BackToWindow: Self = Self(57816);
+    pub const FullScreen: Self = Self(57817);
+    pub const NewFolder: Self = Self(57818);
+    pub const CalendarReply: Self = Self(57819);
+    pub const UnSyncFolder: Self = Self(57821);
+    pub const ReportHacked: Self = Self(57822);
+    pub const SyncFolder: Self = Self(57823);
+    pub const BlockContact: Self = Self(57824);
+    pub const SwitchApps: Self = Self(57825);
+    pub const AddFriend: Self = Self(57826);
+    pub const TouchPointer: Self = Self(57827);
+    pub const GoToStart: Self = Self(57828);
+    pub const ZeroBars: Self = Self(57829);
+    pub const OneBar: Self = Self(57830);
+    pub const TwoBars: Self = Self(57831);
+    pub const ThreeBars: Self = Self(57832);
+    pub const FourBars: Self = Self(57833);
+    pub const Scan: Self = Self(58004);
+    pub const Preview: Self = Self(58005);
+    pub const GlobalNavigationButton: Self = Self(59136);
+    pub const Share: Self = Self(59181);
+    pub const Print: Self = Self(59209);
+    pub const XboxOneConsole: Self = Self(59792);
+}
+impl windows_core::imp::TypeKind for Symbol {
+    type TypeKind = windows_core::imp::CopyType;
+}
+impl windows_core::RuntimeType for Symbol {
+    const SIGNATURE: windows_core::imp::ConstBuffer =
+        windows_core::imp::ConstBuffer::from_slice(b"enum(Microsoft.UI.Xaml.Controls.Symbol;i4)");
+}
+#[repr(transparent)]
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct SymbolIcon(windows_core::IUnknown);
+windows_core::imp::interface_hierarchy!(SymbolIcon, windows_core::IUnknown, windows_core::IInspectable);
+windows_core::imp::required_hierarchy!(SymbolIcon, IconElement, FrameworkElement, UIElement, DependencyObject);
+impl SymbolIcon {
+    pub fn CreateInstanceWithSymbol(symbol: Symbol) -> windows_core::Result<Self> {
+        Self::ISymbolIconFactory(|this| unsafe {
+            let mut result__ = core::mem::zeroed();
+            (windows_core::Interface::vtable(this).CreateInstanceWithSymbol)(
+                windows_core::Interface::as_raw(this),
+                symbol,
+                &mut result__,
+            )
+            .and_then(|| windows_core::imp::Type::from_abi(result__))
+        })
+    }
+    fn ISymbolIconFactory<R, F: FnOnce(&ISymbolIconFactory) -> windows_core::Result<R>>(
+        callback: F,
+    ) -> windows_core::Result<R> {
+        static SHARED: windows_core::imp::FactoryCache<SymbolIcon, ISymbolIconFactory> =
+            windows_core::imp::FactoryCache::new();
+        SHARED.call(callback)
+    }
+}
+impl windows_core::RuntimeType for SymbolIcon {
+    const SIGNATURE: windows_core::imp::ConstBuffer = windows_core::imp::ConstBuffer::for_class::<Self, ISymbolIcon>();
+}
+unsafe impl windows_core::Interface for SymbolIcon {
+    type Vtable = <ISymbolIcon as windows_core::Interface>::Vtable;
+    const IID: windows_core::GUID = <ISymbolIcon as windows_core::Interface>::IID;
+}
+impl core::ops::Deref for SymbolIcon {
+    type Target = ISymbolIcon;
+    fn deref(&self) -> &Self::Target {
+        unsafe { core::mem::transmute(self) }
+    }
+}
+impl windows_core::RuntimeName for SymbolIcon {
+    const NAME: &'static str = "Microsoft.UI.Xaml.Controls.SymbolIcon";
+}
+unsafe impl Send for SymbolIcon {}
+unsafe impl Sync for SymbolIcon {}
 pub const TME_LEAVE: i32 = 2;
 #[repr(C)]
 #[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]

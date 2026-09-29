@@ -566,7 +566,7 @@ pub(crate) fn choose_context_item(actions: &gio::SimpleActionGroup, id: u32) -> 
 enum TextWidget {
     Entry(gtk::Entry),
     Password(gtk::PasswordEntry),
-    /// A spin button's text.
+    /// A spin button's or search entry's text.
     Text(gtk::Text),
 }
 
@@ -576,6 +576,10 @@ fn text_widget(widget: &gtk::Widget) -> Option<TextWidget> {
     }
     if let Some(entry) = widget.downcast_ref::<gtk::PasswordEntry>() {
         return Some(TextWidget::Password(entry.clone()));
+    }
+    // A search entry has no menu of its own to add to: its text's is it.
+    if let Some(entry) = widget.downcast_ref::<gtk::SearchEntry>() {
+        return entry.delegate().and_downcast::<gtk::Text>().map(TextWidget::Text);
     }
     // The spin buttons' own secondary clicks go to their minimum and
     // maximum, so a spin button's menu is its text's.

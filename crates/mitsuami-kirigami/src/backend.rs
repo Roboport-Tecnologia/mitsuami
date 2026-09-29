@@ -1059,6 +1059,16 @@ impl State {
                 field.connect("accepted()", move || events.emit(id, UiEvent::Submit));
                 Widget::Field(field)
             }
+            WidgetKind::SearchInput => {
+                let field = QmlObject::load(&qml::search_field());
+                let e = events.clone();
+                // The user's edits, the clear button's too; not ours.
+                field.connect("mitsuamiEdited()", move || {
+                    e.emit(id, UiEvent::Changed(EventValue::Text(field.str("text"))))
+                });
+                field.connect("mitsuamiSearched()", move || events.emit(id, UiEvent::Search(field.str("text"))));
+                Widget::Field(field)
+            }
             WidgetKind::TextArea => {
                 let root = QmlObject::load(&qml::text_area());
                 let area = root.child("mitsuamiTextArea").expect("text areas have their area");
@@ -1421,6 +1431,10 @@ impl State {
             (Prop::Value(t), Widget::Field(f)) => {
                 // Don't disturb the caret when the field already shows it.
                 if f.str("text") != *t {
+                    // Kirigami's search for it isn't reported.
+                    if node.kind == WidgetKind::SearchInput {
+                        f.set_str("mitsuamiShown", t);
+                    }
                     f.set_str("text", t);
                 }
             }
@@ -2167,6 +2181,15 @@ impl Backend for KirigamiBackend {
                 item.set_int("cursorPosition", text.chars().count() as i32);
                 events.emit(id, UiEvent::Changed(EventValue::Text(text.clone())));
             }
+            // Searched for at once, as a user's edit that's done; Kirigami's
+            // own search for it isn't reported.
+            (A11yAction::SetValue(text), WidgetKind::SearchInput) => {
+                item.set_str("mitsuamiShown", text);
+                item.set_str("text", text);
+                item.set_int("cursorPosition", text.chars().count() as i32);
+                events.emit(id, UiEvent::Changed(EventValue::Text(text.clone())));
+                events.emit(id, UiEvent::Search(text.clone()));
+            }
             (A11yAction::SetValue(text), WidgetKind::TextArea) => {
                 if item.bool("readOnly") {
                     return Err(ActionError::ReadOnly);
@@ -2304,7 +2327,10 @@ impl Backend for KirigamiBackend {
                 }
                 // Qt's text area takes Return as a new line and Tab as a
                 // tab, as real keys.
-                (WidgetKind::TextInput | WidgetKind::PasswordInput | WidgetKind::TextArea, _) => {
+                (
+                    WidgetKind::TextInput | WidgetKind::PasswordInput | WidgetKind::SearchInput | WidgetKind::TextArea,
+                    _,
+                ) => {
                     // It would take the keys and ignore them; nothing can be
                     // typed into it on any platform.
                     if widget_item.bool("readOnly") {

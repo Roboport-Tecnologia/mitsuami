@@ -1441,6 +1441,78 @@ impl PasswordInput {
     }
 }
 
+/// Single-line entry of search text: the platform's search field, with its
+/// search icon and clear button. [`on_search`](Self::on_search) is called
+/// when the platform asks for a search, as its own apps search.
+pub struct SearchInput(Element);
+widget!(SearchInput);
+
+impl Default for SearchInput {
+    fn default() -> SearchInput {
+        SearchInput::new()
+    }
+}
+
+impl SearchInput {
+    pub fn new() -> SearchInput {
+        SearchInput(Element::new(WidgetKind::SearchInput))
+    }
+
+    pub fn value(mut self, value: impl IntoValue<String>) -> SearchInput {
+        self.0.prop(value.into_value(), Prop::Value);
+        self
+    }
+
+    /// Two-way binding, Vue's `v-model`.
+    pub fn bind(self, signal: Signal<String>) -> SearchInput {
+        self.value(signal).on_input(move |text| signal.set(text))
+    }
+
+    /// Shown while it's empty, in place of the platform's own where it has
+    /// one (AppKit, Qt). It names the field to assistive technology
+    /// without a label.
+    pub fn placeholder(mut self, placeholder: impl IntoValue<String>) -> SearchInput {
+        self.0.prop(placeholder.into_value(), Prop::Placeholder);
+        self
+    }
+
+    pub fn enabled(mut self, enabled: impl IntoValue<bool>) -> SearchInput {
+        self.0.prop(enabled.into_value(), Prop::Enabled);
+        self
+    }
+
+    /// Called on every edit with the new text, the clear button's too.
+    pub fn on_input(mut self, handler: impl Fn(String) + 'static) -> SearchInput {
+        self.0.on(move |event| {
+            if let UiEvent::Changed(EventValue::Text(text)) = event {
+                handler(text.clone());
+            }
+        });
+        self
+    }
+
+    /// Called with the text when the platform asks for a search: as the
+    /// user types, after a pause where the platform waits for one (AppKit,
+    /// GTK, Qt) and at once where it doesn't (WinUI); on Return; and when
+    /// the field is cleared. Not for text the app set.
+    pub fn on_search(mut self, handler: impl Fn(String) + 'static) -> SearchInput {
+        self.0.on(move |event| {
+            if let UiEvent::Search(text) = event {
+                handler(text.clone());
+            }
+        });
+        self
+    }
+
+    /// Raw platform settings, past the semantic ones: see [`Tweak`]. What
+    /// the platforms offer (recent searches on AppKit, GTK's search delay,
+    /// Kirigami's longer one, a header on WinUI) is each one's own.
+    pub fn native(mut self, tweak: Tweak<SearchInput>) -> SearchInput {
+        tweak.apply(&mut self.0);
+        self
+    }
+}
+
 /// Text over many lines: the platform's text area, whose lines wrap to its
 /// width and where Return starts a new line. It's as tall as
 /// [`lines`](Self::lines) of the platform's text, and scrolls past them.
@@ -2656,6 +2728,13 @@ impl PasswordInput {
     #[doc(hidden)]
     pub fn __tag() -> PasswordInput {
         PasswordInput::new()
+    }
+}
+
+impl SearchInput {
+    #[doc(hidden)]
+    pub fn __tag() -> SearchInput {
+        SearchInput::new()
     }
 }
 

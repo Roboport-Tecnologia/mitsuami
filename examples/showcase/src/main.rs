@@ -72,6 +72,9 @@ mod radio_group;
 #[path = "../../../crates/mitsuami/examples/scroll_view.rs"]
 mod scroll_view;
 #[allow(dead_code, unused_attributes)]
+#[path = "../../../crates/mitsuami/examples/search_input.rs"]
+mod search_input;
+#[allow(dead_code, unused_attributes)]
 #[path = "../../../crates/mitsuami/examples/select.rs"]
 mod select;
 #[allow(dead_code, unused_attributes)]
@@ -139,6 +142,7 @@ const SECTIONS: [(&str, &[Example]); 5] = [
             example("Text", || AnyView::new(text::page())),
             example("Text input", || AnyView::new(text_input::page())),
             example("Password input", || AnyView::new(password_input::page())),
+            example("Search input", || AnyView::new(search_input::page())),
             example("Text area", || AnyView::new(text_area::page())),
         ],
     ),

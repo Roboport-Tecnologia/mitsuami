@@ -14,9 +14,9 @@ use objc2::runtime::{AnyObject, NSObject, NSObjectProtocol, ProtocolObject, Sel}
 use objc2::{ClassType, DefinedClass, MainThreadMarker, MainThreadOnly, Message, define_class, msg_send, sel};
 use objc2_app_kit::{
     NSButton, NSColor, NSControl, NSControlStateValueOn, NSControlTextEditingDelegate, NSDragOperation, NSDraggingInfo,
-    NSEvent, NSPasteboardTypeFileURL, NSPopUpButton, NSRectFill, NSScreen, NSSlider, NSSwitch, NSText, NSTextDelegate,
-    NSTextField, NSTextFieldDelegate, NSTextView, NSTextViewDelegate, NSView, NSViewFrameDidChangeNotification,
-    NSWindow, NSWindowDelegate, NSWindowStyleMask,
+    NSEvent, NSPasteboardTypeFileURL, NSPopUpButton, NSRectFill, NSScreen, NSSearchFieldDelegate, NSSlider, NSSwitch,
+    NSText, NSTextDelegate, NSTextField, NSTextFieldDelegate, NSTextView, NSTextViewDelegate, NSView,
+    NSViewFrameDidChangeNotification, NSWindow, NSWindowDelegate, NSWindowStyleMask,
 };
 use objc2_foundation::{
     NSArray, NSKeyValueObservingOptions, NSNotification, NSNotificationCenter, NSObjectNSKeyValueObserverRegistration,
@@ -200,6 +200,10 @@ define_class!(
                     Some(index) if index >= 0 => UiEvent::Changed(EventValue::Index(index as usize)),
                     _ => return,
                 },
+                WidgetKind::SearchInput => match sender.downcast_ref::<NSTextField>() {
+                    Some(f) => UiEvent::Search(f.stringValue().to_string()),
+                    None => return,
+                },
                 _ => return,
             };
             events.emit(*id, event);
@@ -222,7 +226,8 @@ define_class!(
 
     unsafe impl NSControlTextEditingDelegate for ActionTarget {
         /// Return / Enter submits. Deliberately not the field's action: that
-        /// also fires when editing ends by Tab or a click elsewhere.
+        /// also fires when editing ends by Tab or a click elsewhere. A search
+        /// field's action is its search, Return's included.
         #[unsafe(method(control:textView:doCommandBySelector:))]
         fn control_text_view_do_command_by_selector(
             &self,
@@ -230,7 +235,7 @@ define_class!(
             _text_view: &NSTextView,
             command: Sel,
         ) -> bool {
-            if command == sel!(insertNewline:) {
+            if command == sel!(insertNewline:) && self.ivars().kind != WidgetKind::SearchInput {
                 self.ivars().events.emit(self.ivars().id, UiEvent::Submit);
             }
             // Not handled: AppKit carries on with its default behaviour.
@@ -248,6 +253,8 @@ define_class!(
     }
 
     unsafe impl NSTextFieldDelegate for ActionTarget {}
+
+    unsafe impl NSSearchFieldDelegate for ActionTarget {}
 
     unsafe impl NSTextDelegate for ActionTarget {
         /// A text area's text changed: by typing, pasting, undo. The text

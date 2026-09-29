@@ -29,14 +29,14 @@ use objc2_app_kit::{
     NSFontTextStyleCaption1, NSFontTextStyleHeadline, NSFontTextStyleLargeTitle, NSFontTextStyleTitle1,
     NSFontTraitsAttribute, NSFontWeightBold, NSFontWeightMedium, NSFontWeightRegular, NSFontWeightSemibold,
     NSFontWeightTrait, NSImage, NSImageScaling, NSImageSymbolConfiguration, NSImageView, NSMenuItem, NSPopUpButton,
-    NSProgressIndicator, NSProgressIndicatorStyle, NSScreen, NSScrollView, NSSecureTextField, NSSlider,
+    NSProgressIndicator, NSProgressIndicatorStyle, NSScreen, NSScrollView, NSSearchField, NSSecureTextField, NSSlider,
     NSStandardKeyBindingResponding, NSSwitch, NSTextAlignment, NSTextField, NSTextView, NSTitlePosition, NSView,
     NSViewBoundsDidChangeNotification, NSWindow, NSWindowOrderingMode, NSWindowStyleMask, NSWorkspace,
 };
 use objc2_core_foundation::{CFRunLoop, kCFRunLoopDefaultMode};
 use objc2_foundation::{
-    NSArray, NSBundle, NSData, NSDictionary, NSNotificationCenter, NSObjectProtocol, NSPoint, NSProcessInfo, NSRange,
-    NSRect, NSSize, NSString,
+    NSArray, NSBundle, NSData, NSDefaultRunLoopMode, NSDictionary, NSNotificationCenter, NSObjectProtocol, NSPoint,
+    NSProcessInfo, NSRange, NSRect, NSRunLoop, NSSize, NSString,
 };
 
 use crate::classes::{ActionTarget, ClosureTarget, DrawnView, HostView, ViewMap, WindowDelegate};
@@ -593,8 +593,14 @@ impl mitsuami_core::TestHooks for AppKitHandle {
     }
 
     /// Offscreen windows get no display cycle, where tables add the rows
-    /// scrolling brought into view and toolbars place their items.
+    /// scrolling brought into view and toolbars place their items. While a
+    /// search field is shown, timers that are due fire, as in the app's run
+    /// loop: it searches once typing pauses. Not always yet: tables and tab
+    /// views run timers too, which change what their tests capture.
     fn settle(&self) {
+        if self.state.borrow().nodes.values().any(|n| n.kind == WidgetKind::SearchInput) {
+            NSRunLoop::currentRunLoop().limitDateForMode(unsafe { NSDefaultRunLoopMode });
+        }
         let state = self.state.borrow();
         state.layout_lists();
         state.layout_toolbars();
@@ -641,6 +647,7 @@ impl State {
                 | WidgetKind::Slider
                 | WidgetKind::TextInput
                 | WidgetKind::PasswordInput
+                | WidgetKind::SearchInput
                 | WidgetKind::TextArea
                 | WidgetKind::ScrollView
                 | WidgetKind::List
@@ -848,6 +855,22 @@ impl State {
                     unsafe { field.setDelegate(Some(ProtocolObject::from_ref(&**target))) };
                 }
                 Widget::Field(field)
+            }
+            WidgetKind::SearchInput => {
+                // Edits come from the delegate, as a text field's; searches
+                // from the field's action, which AppKit sends when typing
+                // pauses, on Return, and when the field is cleared, but not
+                // for text set in code.
+                let field = NSSearchField::new(mtm);
+                if let Some(target) = &target {
+                    // SAFETY: the node keeps the target alive as long as the field.
+                    unsafe {
+                        field.setTarget(Some(target.as_ref()));
+                        field.setAction(action);
+                        field.setDelegate(Some(ProtocolObject::from_ref(&**target)));
+                    }
+                }
+                Widget::Field(field.into_super())
             }
             // Edits come from the delegate's `textDidChange:`.
             WidgetKind::TextArea => Widget::TextArea(crate::text_area::TextArea::new(
@@ -2126,15 +2149,22 @@ impl Backend for AppKitBackend {
                 let (Some(index), Some(menu)) = (index, popup.menu()) else { return Err(ActionError::Unsupported) };
                 menu.performActionForItemAtIndex(index as isize);
             }
-            (A11yAction::SetValue(text), WidgetKind::TextInput | WidgetKind::PasswordInput) => {
+            (
+                A11yAction::SetValue(text),
+                WidgetKind::TextInput | WidgetKind::PasswordInput | WidgetKind::SearchInput,
+            ) => {
                 let field: &NSTextField = widget_view.downcast_ref().ok_or(ActionError::Unsupported)?;
                 if !field.isEditable() {
                     return Err(ActionError::ReadOnly);
                 }
                 field.setStringValue(&ns(text));
                 // Programmatic edits don't notify the delegate; assistive
-                // technology edits are user edits, so report one.
+                // technology edits are user edits, so report one, and the
+                // search a search field's edits ask for.
                 events.emit(id, UiEvent::Changed(EventValue::Text(text.clone())));
+                if kind == WidgetKind::SearchInput {
+                    events.emit(id, UiEvent::Search(text.clone()));
+                }
             }
             (A11yAction::SetValue(text), WidgetKind::TextArea) => {
                 let scroll: &NSScrollView = widget_view.downcast_ref().ok_or(ActionError::Unsupported)?;
@@ -2289,7 +2319,7 @@ impl Backend for AppKitBackend {
         };
         match (kind, key) {
             (
-                WidgetKind::TextInput | WidgetKind::PasswordInput,
+                WidgetKind::TextInput | WidgetKind::PasswordInput | WidgetKind::SearchInput,
                 Key::Char(_) | Key::Backspace | Key::Enter | Key::Tab,
             ) => {
                 // Drive the field editor, the object that receives real

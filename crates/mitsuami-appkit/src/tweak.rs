@@ -6,12 +6,12 @@ use mitsuami_core::reactive::{IntoValue, Value};
 use mitsuami_core::{List, Opaque, Tweak};
 use mitsuami_widgets::{
     Button, Checkbox, Group, Icon, Image, MenuButton, NumberInput, PasswordInput, Progress, RadioGroup, ScrollView,
-    Select, Separator, Slider, Spinner, Switch, Text, TextArea, TextInput,
+    SearchInput, Select, Separator, Slider, Spinner, Switch, Text, TextArea, TextInput,
 };
 use objc2::DowncastTarget;
 use objc2_app_kit::{
-    NSBox, NSButton, NSImageView, NSPopUpButton, NSProgressIndicator, NSScrollView, NSSecureTextField, NSSlider,
-    NSStackView, NSSwitch, NSTableView, NSTextField, NSTextView, NSView,
+    NSBox, NSButton, NSImageView, NSPopUpButton, NSProgressIndicator, NSScrollView, NSSearchField, NSSecureTextField,
+    NSSlider, NSStackView, NSSwitch, NSTableView, NSTextField, NSTextView, NSView,
 };
 
 /// A built-in widget, and the AppKit control that shows it.
@@ -85,6 +85,10 @@ impl Tweakable for TextInput {
 
 impl Tweakable for PasswordInput {
     type Native = NSSecureTextField;
+}
+
+impl Tweakable for SearchInput {
+    type Native = NSSearchField;
 }
 
 /// The text view, not the scroll view around it: reach that with

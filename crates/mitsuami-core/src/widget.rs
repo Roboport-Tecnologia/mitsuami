@@ -68,6 +68,12 @@ pub enum WidgetKind {
     /// gtk::PasswordEntry, Kirigami.PasswordField): a `TextInput` whose
     /// text is hidden, as each platform hides it.
     PasswordInput,
+    /// A native search field (NSSearchField, gtk::SearchEntry, an
+    /// AutoSuggestBox with the find icon, Kirigami.SearchField): a
+    /// `TextInput` with the platform's search icon and clear button, which
+    /// asks for a search ([`UiEvent::Search`](crate::UiEvent::Search)) as
+    /// the platform does.
+    SearchInput,
     /// A native field for text over many lines (an NSTextView in an
     /// NSScrollView, a TextBox that accepts Return, a gtk::TextView in a
     /// gtk::ScrolledWindow, a QQC2.TextArea in a QQC2.ScrollView). Its
@@ -199,6 +205,7 @@ impl WidgetKind {
             WidgetKind::MenuButton => "MenuButton",
             WidgetKind::TextInput => "TextInput",
             WidgetKind::PasswordInput => "PasswordInput",
+            WidgetKind::SearchInput => "SearchInput",
             WidgetKind::TextArea => "TextArea",
             WidgetKind::Checkbox => "Checkbox",
             WidgetKind::Switch => "Switch",
@@ -583,8 +590,8 @@ pub enum Prop {
     /// `Switch`, `Select`, `RadioGroup`, `Slider`, `NumberInput`, `Progress`, `Image`,
     /// `Icon` or `GpuSurface`, and of a `Button` that shows only its icon.
     Label(String),
-    /// Current text of a `TextInput`, `PasswordInput` or `TextArea`; a
-    /// text area's lines end in `\n`.
+    /// Current text of a `TextInput`, `PasswordInput`, `SearchInput` or
+    /// `TextArea`; a text area's lines end in `\n`.
     Value(String),
     /// What a text field shows while it's empty. Text areas show it where
     /// the platform's have one (Qt, WinUI).

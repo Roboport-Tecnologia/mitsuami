@@ -193,6 +193,8 @@ enum Widget {
         lines: u32,
     },
     Password(w::PasswordBox),
+    /// Windows' search box: an auto-suggest box with the find icon.
+    Search(w::AutoSuggestBox),
     Button(w::Button),
     /// A button whose `Flyout` is its menu, which it opens on a click.
     MenuButton(w::DropDownButton),
@@ -267,6 +269,8 @@ impl Node {
             Widget::Tabs(tabs) => crate::tabs::Tabs::focus_target(&tabs.bar),
             // Its chosen button, or the first, as Tab reaches the group.
             Widget::RadioGroup(group) => group.ContainerFromIndex(group.SelectedIndex().ok()?.max(0)).ok()?.cast().ok(),
+            // The text box in its template.
+            Widget::Search(_) => inner_text_box(&self.element).and_then(|f| f.cast().ok()),
             _ => self.control().cast().ok(),
         }
     }
@@ -2411,6 +2415,40 @@ impl State {
                 let element = field.cast()?;
                 (Widget::Password(field), element)
             }
+            // An auto-suggest box with the find icon, as Windows' search
+            // boxes are made, and no suggestions: a list would pop up.
+            WidgetKind::SearchInput => {
+                let search = w::AutoSuggestBox::new()?;
+                let iface: w::IAutoSuggestBox = search.cast()?;
+                iface.SetQueryIcon(
+                    &w::SymbolIcon::CreateInstanceWithSymbol(w::Symbol::Find)?.cast::<w::IconElement>()?,
+                )?;
+                // TextChanged also fires (later) for programmatic sets: only
+                // text the core doesn't know about is a user edit. It's a
+                // search too, at once: XAML doesn't wait for a pause.
+                revokers.push(iface.TextChanged({
+                    let (emitter, shown) = (emitter.clone(), shown_text.clone());
+                    move |sender, _| {
+                        let Some(text) = sender.as_ref().and_then(|s| s.Text().ok()) else { return };
+                        if *shown.borrow() != text {
+                            *shown.borrow_mut() = text.clone();
+                            emitter.emit(id, UiEvent::Changed(EventValue::Text(text.clone())));
+                            emitter.emit(id, UiEvent::Search(text));
+                        }
+                    }
+                })?);
+                // Return, or a click on the find icon.
+                revokers.push(iface.QuerySubmitted({
+                    let emitter = emitter.clone();
+                    move |_, args| {
+                        if let Some(text) = args.as_ref().and_then(|a| a.QueryText().ok()) {
+                            emitter.emit(id, UiEvent::Search(text));
+                        }
+                    }
+                })?);
+                let element = search.cast()?;
+                (Widget::Search(search), element)
+            }
             WidgetKind::ScrollView => {
                 let scroll = w::ScrollViewer::new()?;
                 let iface: w::IScrollViewer = scroll.cast()?;
@@ -2795,6 +2833,14 @@ impl State {
                 }
             }
             (Prop::Placeholder(t), Widget::Password(f)) => f.cast::<w::IPasswordBox>()?.SetPlaceholderText(t)?,
+            (Prop::Value(t), Widget::Search(s)) => {
+                let search: w::IAutoSuggestBox = s.cast()?;
+                if search.Text()? != *t {
+                    *node.shown_text.borrow_mut() = t.clone();
+                    search.SetText(t)?;
+                }
+            }
+            (Prop::Placeholder(t), Widget::Search(s)) => s.cast::<w::IAutoSuggestBox>()?.SetPlaceholderText(t)?,
             (Prop::Checked(c), Widget::Checkbox(b)) => {
                 node.shown_checked.set(*c);
                 // The mixed state shows over it.
@@ -3360,6 +3406,13 @@ impl State {
                     EventValue::Text(text)
                 })
             }),
+            Widget::Search(s) => s.cast::<w::IAutoSuggestBox>().and_then(|s| s.Text()).ok().and_then(|text| {
+                let mut shown = node.shown_text.borrow_mut();
+                (*shown != text).then(|| {
+                    *shown = text.clone();
+                    EventValue::Text(text)
+                })
+            }),
             Widget::Slider { slider, .. } => slider
                 .cast::<w::IRangeBase>()
                 .and_then(|r| r.Value())
@@ -3394,7 +3447,15 @@ impl State {
             _ => None,
         };
         if let Some(value) = changed {
+            // A search box's edit is a search too, as its TextChanged is.
+            let search = match (&node.widget, &value) {
+                (Widget::Search(_), EventValue::Text(text)) => Some(text.clone()),
+                _ => None,
+            };
             self.emitter.emit(id, UiEvent::Changed(value));
+            if let Some(text) = search {
+                self.emitter.emit(id, UiEvent::Search(text));
+            }
         }
     }
 
@@ -3495,6 +3556,22 @@ fn report_text_changes(
     })
 }
 
+/// The text box in a search box's template, once it's applied.
+fn inner_text_box(search: &w::UIElement) -> Option<w::ITextBox> {
+    let mut queue = std::collections::VecDeque::from([search.cast::<w::DependencyObject>().ok()?]);
+    while let Some(node) = queue.pop_front() {
+        if let Ok(field) = node.cast::<w::ITextBox>() {
+            return Some(field);
+        }
+        for i in 0..w::VisualTreeHelper::GetChildrenCount(&node).unwrap_or(0) {
+            if let Ok(child) = w::VisualTreeHelper::GetChild(&node, i) {
+                queue.push_back(child);
+            }
+        }
+    }
+    None
+}
+
 /// Return submits a text or password box; leaving it doesn't.
 fn submit_on_enter(field: &w::IUIElement, emitter: &Events, id: NodeId) -> R<EventRevoker> {
     let emitter = emitter.clone();
@@ -3515,6 +3592,7 @@ fn is_control(widget: &Widget) -> bool {
         Widget::Field(_)
             | Widget::TextArea { .. }
             | Widget::Password(_)
+            | Widget::Search(_)
             | Widget::Button(_)
             | Widget::MenuButton(_)
             | Widget::Checkbox(_)
@@ -3785,7 +3863,7 @@ impl Backend for WinUiBackend {
                 });
                 ceil(measure_element(&node.element, w::Size { width: width.unwrap_or(f32::INFINITY), ..infinite }))
             }
-            Widget::Field(_) | Widget::Password(_) => {
+            Widget::Field(_) | Widget::Password(_) | Widget::Search(_) => {
                 // Text boxes have no useful intrinsic width.
                 let size = ceil(measure_element(&node.element, infinite));
                 Size::new(size.width.max(200.0), size.height)
@@ -4003,6 +4081,18 @@ impl Backend for WinUiBackend {
                 *shown_text.borrow_mut() = text.clone();
                 events.emit(id, UiEvent::Changed(EventValue::Text(text.clone())));
             }
+            // What editing its text box does; the box reports it only
+            // later, and as a search at once.
+            (A11yAction::SetValue(text), WidgetKind::SearchInput) => {
+                *shown_text.borrow_mut() = text.clone();
+                let set = match inner_text_box(&element) {
+                    Some(field) => field.SetText(text),
+                    None => element.cast::<w::IAutoSuggestBox>().and_then(|s| s.SetText(text)),
+                };
+                set.map_err(|_| ActionError::Unsupported)?;
+                events.emit(id, UiEvent::Changed(EventValue::Text(text.clone())));
+                events.emit(id, UiEvent::Search(text.clone()));
+            }
             // Password boxes don't let UI Automation set their value.
             (A11yAction::SetValue(text), WidgetKind::PasswordInput) => {
                 let field: w::IPasswordBox = element.cast().map_err(|_| ActionError::Unsupported)?;
@@ -4171,15 +4261,22 @@ impl Backend for WinUiBackend {
         }
         match (widget_kind, key) {
             // A text area takes Return as a new line; Tab moves on from
-            // both, as XAML's text boxes take no tabs.
-            (WidgetKind::TextInput | WidgetKind::TextArea, Key::Char(_) | Key::Backspace | Key::Enter | Key::Tab) => {
-                let field: w::ITextBox = element.cast().map_err(|_| ActionError::Unsupported)?;
+            // all three, as XAML's text boxes take no tabs.
+            (
+                WidgetKind::TextInput | WidgetKind::TextArea | WidgetKind::SearchInput,
+                Key::Char(_) | Key::Backspace | Key::Enter | Key::Tab,
+            ) => {
+                // A search box is edited through the text box in its template.
+                let field: w::ITextBox = match widget_kind {
+                    WidgetKind::SearchInput => inner_text_box(&element).ok_or(ActionError::Unsupported)?,
+                    _ => element.cast().map_err(|_| ActionError::Unsupported)?,
+                };
                 // It would take the keys and ignore them (our edits go
                 // around that); nothing can be typed into it on any platform.
                 if field.IsReadOnly().unwrap_or(false) {
                     return Err(ActionError::ReadOnly);
                 }
-                let ui: w::IUIElement = element.cast().map_err(|_| ActionError::Unsupported)?;
+                let ui: w::IUIElement = field.cast().map_err(|_| ActionError::Unsupported)?;
                 if ui.FocusState().unwrap_or(w::FocusState::Unfocused) == w::FocusState::Unfocused {
                     self.state.borrow().focus(id, w::FocusState::Keyboard);
                     // Focusing may select everything; typing should append,
@@ -4210,6 +4307,10 @@ impl Backend for WinUiBackend {
                         edit("")
                     })(),
                     Key::Enter if widget_kind == WidgetKind::TextArea => edit("\r"),
+                    // What its QuerySubmitted reports for a real Return.
+                    Key::Enter if widget_kind == WidgetKind::SearchInput => field.Text().map(|text| {
+                        self.state.borrow().emitter().emit(id, UiEvent::Search(text));
+                    }),
                     Key::Enter => {
                         self.state.borrow().emitter().emit(id, UiEvent::Submit);
                         Ok(())
@@ -4297,6 +4398,14 @@ impl Backend for WinUiBackend {
                 }
                 props.push(Prop::ReadOnly(field.IsReadOnly().ok()?));
                 let placeholder = field.PlaceholderText().ok()?;
+                if !placeholder.is_empty() {
+                    props.push(Prop::Placeholder(placeholder));
+                }
+            }
+            Widget::Search(s) => {
+                let search: w::IAutoSuggestBox = s.cast().ok()?;
+                props.push(Prop::Value(search.Text().ok()?));
+                let placeholder = search.PlaceholderText().ok()?;
                 if !placeholder.is_empty() {
                     props.push(Prop::Placeholder(placeholder));
                 }

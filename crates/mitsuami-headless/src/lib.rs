@@ -951,7 +951,7 @@ impl Backend for HeadlessBackend {
                 };
                 Size::new(content + arrow + 24.0, (line + 8.0).max(28.0))
             }
-            WidgetKind::TextInput | WidgetKind::PasswordInput => Size::new(200.0, line + 8.0),
+            WidgetKind::TextInput | WidgetKind::PasswordInput | WidgetKind::SearchInput => Size::new(200.0, line + 8.0),
             // A text field's width, and its lines inside the same insets.
             WidgetKind::TextArea => {
                 let lines = find_prop!(node.props, Lines).unwrap_or(1) as f32;
@@ -1072,12 +1072,18 @@ impl Backend for HeadlessBackend {
                 state.focus(id);
                 state.emit(id, UiEvent::Changed(EventValue::Bool(checked)));
             }
-            (A11yAction::SetValue(text), WidgetKind::TextInput | WidgetKind::PasswordInput | WidgetKind::TextArea) => {
+            (
+                A11yAction::SetValue(text),
+                WidgetKind::TextInput | WidgetKind::PasswordInput | WidgetKind::SearchInput | WidgetKind::TextArea,
+            ) => {
                 if find_prop!(state.nodes[&id].props, ReadOnly) == Some(true) {
                     return Err(ActionError::ReadOnly);
                 }
                 state.set_prop(id, Prop::Value(text.clone()));
                 state.emit(id, UiEvent::Changed(EventValue::Text(text.clone())));
+                if kind == WidgetKind::SearchInput {
+                    state.emit(id, UiEvent::Search(text.clone()));
+                }
             }
             (A11yAction::SetValue(_) | A11yAction::Increment | A11yAction::Decrement, WidgetKind::Slider) => {
                 let props = &state.nodes[&id].props;
@@ -1163,6 +1169,7 @@ impl Backend for HeadlessBackend {
                 WidgetKind::Button
                 | WidgetKind::TextInput
                 | WidgetKind::PasswordInput
+                | WidgetKind::SearchInput
                 | WidgetKind::TextArea
                 | WidgetKind::Checkbox
                 | WidgetKind::Switch
@@ -1278,7 +1285,7 @@ impl Backend for HeadlessBackend {
             return Err(ActionError::ReadOnly);
         }
         match (kind, key) {
-            (WidgetKind::TextInput | WidgetKind::PasswordInput, Key::Char(_) | Key::Backspace)
+            (WidgetKind::TextInput | WidgetKind::PasswordInput | WidgetKind::SearchInput, Key::Char(_) | Key::Backspace)
             // Return starts a new line, and Tab inserts a tab, as AppKit's,
             // GTK's and Qt's text areas take it.
             | (WidgetKind::TextArea, Key::Char(_) | Key::Backspace | Key::Enter | Key::Tab) => {
@@ -1293,11 +1300,19 @@ impl Backend for HeadlessBackend {
                     }
                 }
                 state.set_prop(id, Prop::Value(text.clone()));
-                state.emit(id, UiEvent::Changed(EventValue::Text(text)));
+                state.emit(id, UiEvent::Changed(EventValue::Text(text.clone())));
+                // Searches as it's typed, with no pause, as WinUI does.
+                if kind == WidgetKind::SearchInput {
+                    state.emit(id, UiEvent::Search(text));
+                }
             }
             (WidgetKind::TextInput | WidgetKind::PasswordInput, Key::Enter) => state.emit(id, UiEvent::Submit),
+            (WidgetKind::SearchInput, Key::Enter) => {
+                let text = find_prop!(state.nodes[&id].props, Value).unwrap_or_default();
+                state.emit(id, UiEvent::Search(text));
+            }
             // Moves focus on; the field keeps its text and does not submit.
-            (WidgetKind::TextInput | WidgetKind::PasswordInput, Key::Tab) => {
+            (WidgetKind::TextInput | WidgetKind::PasswordInput | WidgetKind::SearchInput, Key::Tab) => {
                 if let Some(next) = state.next_focusable(id) {
                     state.focus(next);
                 }

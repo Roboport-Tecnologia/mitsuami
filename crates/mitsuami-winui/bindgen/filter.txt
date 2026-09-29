@@ -97,6 +97,12 @@ Microsoft.UI.Xaml.Controls.RadioButtons::CreateInstance
 Microsoft.UI.Xaml.Controls.IRadioButtons::{get_Items, get_SelectedIndex, put_SelectedIndex, add_SelectionChanged, remove_SelectionChanged, ContainerFromIndex, put_Header}
 Microsoft.UI.Xaml.Controls.ITextBox::{get_Text, put_Text, put_Header, get_IsReadOnly, put_IsReadOnly, get_PlaceholderText, put_PlaceholderText, get_SelectionStart, put_SelectionStart, get_SelectionLength, put_SelectionLength, get_SelectedText, put_SelectedText, get_AcceptsReturn, put_AcceptsReturn, get_TextWrapping, put_TextWrapping, add_TextChanged, remove_TextChanged}
 Microsoft.UI.Xaml.Controls.TextChangedEventHandler
+Microsoft.UI.Xaml.Controls.AutoSuggestBox::CreateInstance
+Microsoft.UI.Xaml.Controls.IAutoSuggestBox::{get_Text, put_Text, get_PlaceholderText, put_PlaceholderText, get_QueryIcon, put_QueryIcon, put_Header, add_TextChanged, remove_TextChanged, add_QuerySubmitted, remove_QuerySubmitted}
+Microsoft.UI.Xaml.Controls.AutoSuggestBoxQuerySubmittedEventArgs::{}
+Microsoft.UI.Xaml.Controls.IAutoSuggestBoxQuerySubmittedEventArgs::get_QueryText
+Microsoft.UI.Xaml.Controls.SymbolIcon::CreateInstanceWithSymbol
+Microsoft.UI.Xaml.Controls.Symbol
 Microsoft.UI.Xaml.Controls.PasswordBox::CreateInstance
 Microsoft.UI.Xaml.Controls.IPasswordBox::{get_Password, put_Password, get_PasswordChar, put_PasswordChar, get_PlaceholderText, put_PlaceholderText, add_PasswordChanged, remove_PasswordChanged}
 Microsoft.UI.Xaml.Controls.ScrollViewer::{CreateInstance, SetVerticalScrollBarVisibility}

@@ -443,6 +443,36 @@ fn password_input_tweak() -> Tweak<PasswordInput> {
     }
 }
 
+/// Search fields: empty with the platform's placeholder, with the app's,
+/// filled (with the clear button), disabled, and tweaked: searching on
+/// every keystroke on AppKit, a longer search delay on GTK and Qt (neither
+/// shows), a header on WinUI.
+#[mitsuami_test::story(sizes = [(240, fit)])]
+fn search_inputs() -> impl View {
+    Column::new().padding(16).gap(8).children((
+        SearchInput::new().a11y_label("Empty"),
+        SearchInput::new().a11y_label("Placeholder").placeholder("Find in page"),
+        SearchInput::new().a11y_label("Filled").value("apricot"),
+        SearchInput::new().a11y_label("Disabled").value("apricot").enabled(false),
+        SearchInput::new().a11y_label("Tweaked").value("apricot").native(search_input_tweak()),
+    ))
+}
+
+fn search_input_tweak() -> Tweak<SearchInput> {
+    platform! {
+        macos => mitsuami::appkit::tweak(|f: &mitsuami::appkit::objc2_app_kit::NSSearchField| {
+            f.setSendsSearchStringImmediately(true)
+        }),
+        gtk => mitsuami::gtk::tweak(|e: &mitsuami::gtk::gtk::SearchEntry| e.set_search_delay(1000)),
+        kde => mitsuami::kirigami::tweak(|f: &mitsuami::kirigami::QmlObject| f.set_bool("delaySearch", true)),
+        windows => mitsuami::winui::tweak(|s: &mitsuami::winui::bindings::AutoSuggestBox| {
+            use mitsuami::winui::bindings::{IAutoSuggestBox, PropertyValue};
+            use mitsuami::winui::windows_core::Interface;
+            s.cast::<IAutoSuggestBox>()?.SetHeader(&PropertyValue::CreateString("Find in mail")?)
+        }),
+    }
+}
+
 /// Text areas: empty with a placeholder (shown on Qt and WinUI), filled
 /// with a line that wraps, more lines than fit, read-only, disabled, and
 /// tweaked: a fixed-pitch font on AppKit and GTK, no wrapping on Qt and

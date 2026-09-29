@@ -7,7 +7,7 @@ use mitsuami_core::reactive::{IntoValue, Value};
 use mitsuami_core::{List, Opaque, Tweak};
 use mitsuami_widgets::{
     Button, Checkbox, Group, Icon, Image, MenuButton, NumberInput, PasswordInput, Progress, RadioGroup, ScrollView,
-    Select, Separator, Slider, Spinner, Switch, Text, TextArea, TextInput,
+    SearchInput, Select, Separator, Slider, Spinner, Switch, Text, TextArea, TextInput,
 };
 
 use crate::backend::{STEPS, Steps, update_marks};
@@ -81,6 +81,10 @@ impl Tweakable for TextInput {
 
 impl Tweakable for PasswordInput {
     type Native = gtk::PasswordEntry;
+}
+
+impl Tweakable for SearchInput {
+    type Native = gtk::SearchEntry;
 }
 
 /// The text view, not the scrolled window around it: reach that with

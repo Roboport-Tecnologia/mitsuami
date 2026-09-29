@@ -6,7 +6,7 @@ use mitsuami_core::reactive::{IntoValue, Value};
 use mitsuami_core::{List, Opaque, Tweak};
 use mitsuami_widgets::{
     Button, Checkbox, Group, Icon, Image, MenuButton, NumberInput, PasswordInput, Progress, RadioGroup, ScrollView,
-    Select, Separator, Slider, Spinner, Switch, Text, TextArea, TextInput,
+    SearchInput, Select, Separator, Slider, Spinner, Switch, Text, TextArea, TextInput,
 };
 use windows_core::Interface;
 
@@ -86,6 +86,11 @@ impl Tweakable for TextArea {
 
 impl Tweakable for PasswordInput {
     type Native = w::PasswordBox;
+}
+
+/// An auto-suggest box with the find icon.
+impl Tweakable for SearchInput {
+    type Native = w::AutoSuggestBox;
 }
 
 impl Tweakable for ScrollView {
