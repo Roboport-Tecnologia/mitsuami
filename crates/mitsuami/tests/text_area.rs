@@ -242,6 +242,29 @@ async fn is_as_tall_as_its_lines(app: TestApp) {
     assert!(((three - one) / 2.0 - line).abs() <= 1.0, "{one} {three} {six}");
 }
 
+/// Its text doesn't count: with text or without, and as its lines
+/// change, it's as tall as its lines.
+#[mitsuami_test::test]
+async fn is_as_tall_as_its_lines_whatever_its_text(app: TestApp) {
+    let lines = signal(1);
+    let text = "One\nTwo\nThree\nFour".to_string();
+    app.mount(move || {
+        Column::new().align(Align::Start).children((
+            TextArea::new().a11y_label("Empty").lines(lines),
+            TextArea::new().a11y_label("Full").lines(lines).value(text.clone()),
+        ))
+    });
+    let height = |label: &str| app.get_by_label(label).frame().size.height;
+    let mut last = 0.0;
+    for n in [1, 3, 6] {
+        lines.set(n);
+        app.settle().await;
+        assert_eq!(height("Full"), height("Empty"), "{n} lines");
+        assert!(height("Empty") > last, "{n} lines: {} after {last}", height("Empty"));
+        last = height("Empty");
+    }
+}
+
 /// Text past its lines scrolls inside it: it doesn't grow.
 #[mitsuami_test::test]
 async fn scrolls_past_its_lines(app: TestApp) {

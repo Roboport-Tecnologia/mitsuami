@@ -51,6 +51,9 @@ pub(crate) struct WindowParts {
     pub(crate) window: w::Window,
     root: w::Grid,
     host: w::Canvas,
+    /// An empty text box, collapsed, that text areas measure their lines
+    /// by: XAML measures text boxes only in a live tree.
+    text_probe: w::TextBox,
     title_bar: w::TitleBar,
     app_window: w::AppWindow,
     pub(crate) hwnd: w::HWND,
@@ -183,11 +186,10 @@ enum Widget {
     Host(w::Canvas),
     Label(w::TextBlock),
     Field(w::TextBox),
-    /// A multi-line text box, a text block that measures its lines in its
-    /// font, and how many it's tall: XAML has no number of lines.
+    /// A multi-line text box, and how many lines it's tall: XAML has no
+    /// number of lines.
     TextArea {
         field: w::TextBox,
-        probe: w::TextBlock,
         lines: u32,
     },
     Password(w::PasswordBox),
@@ -1855,6 +1857,8 @@ impl State {
         let title_bar: w::TitleBar = children.GetAt(0)?.cast()?;
         let host: w::Canvas = children.GetAt(1)?.cast()?;
         let host_element: w::UIElement = host.cast()?;
+        let text_probe = text_area_probe()?;
+        children.Append(&text_probe.cast::<w::UIElement>()?)?;
         if let Some(appearance) = self.options.appearance {
             let theme = match appearance {
                 Appearance::Light => w::ElementTheme::Light,
@@ -2049,6 +2053,7 @@ impl State {
             window,
             root,
             host,
+            text_probe,
             title_bar,
             app_window,
             hwnd,
@@ -2381,7 +2386,7 @@ impl State {
                 )?;
                 revokers.push(report_text_changes(&field, &emitter, &shown_text, id)?);
                 let element = field.cast()?;
-                (Widget::TextArea { field, probe: w::TextBlock::new()?, lines: 1 }, element)
+                (Widget::TextArea { field, lines: 1 }, element)
             }
             // With XAML's default reveal button, shown while there's text.
             WidgetKind::PasswordInput => {
@@ -3437,6 +3442,34 @@ fn set_later(number: &w::INumberBox, from: f64, to: f64) {
 }
 
 /// A text box's text with its lines ending in `\n`: XAML ends them in
+/// A text box made as text areas are, to measure their lines by: out of
+/// sight, out of the Tab order and of the accessibility tree.
+fn text_area_probe() -> R<w::TextBox> {
+    let probe = w::TextBox::new()?;
+    let iface: w::ITextBox = probe.cast()?;
+    iface.SetAcceptsReturn(true)?;
+    iface.SetTextWrapping(w::TextWrapping::Wrap)?;
+    let element: w::IUIElement = probe.cast()?;
+    element.SetIsTabStop(false)?;
+    element.SetVisibility(w::Visibility::Collapsed)?;
+    w::AutomationProperties::SetAccessibilityView(&probe.cast::<w::DependencyObject>()?, w::AccessibilityView::Raw)?;
+    Ok(probe)
+}
+
+/// The size of a text area of this many lines in `field`'s font: the
+/// probe's, shown only while it's measured.
+fn measure_lines(field: &w::TextBox, probe: &w::TextBox, lines: u32) -> R<w::Size> {
+    let (font, empty): (w::IControl, w::IControl) = (field.cast()?, probe.cast()?);
+    empty.SetFontSize(font.FontSize()?)?;
+    empty.SetFontFamily(&font.FontFamily()?)?;
+    probe.cast::<w::ITextBox>()?.SetText(&vec![""; lines.max(1) as usize].join("\r"))?;
+    let element: w::IUIElement = probe.cast()?;
+    element.SetVisibility(w::Visibility::Visible)?;
+    let size = measure_element(&probe.cast()?, w::Size { width: f32::INFINITY, height: f32::INFINITY });
+    element.SetVisibility(w::Visibility::Collapsed)?;
+    Ok(size)
+}
+
 /// `\r`, whatever they were set with.
 fn box_text(field: &w::ITextBox) -> windows_core::Result<String> {
     Ok(field.Text()?.replace("\r\n", "\n").replace('\r', "\n"))
@@ -3757,24 +3790,15 @@ impl Backend for WinUiBackend {
                 let size = ceil(measure_element(&node.element, infinite));
                 Size::new(size.width.max(200.0), size.height)
             }
-            // A text field's width. Empty, a text box is one line tall; its
-            // other lines are what a text block in its font adds for them.
-            Widget::TextArea { field, probe, lines } => {
-                let size = ceil(measure_element(&node.element, infinite));
-                let lines_height = |n: u32| -> R<f32> {
-                    let block: w::ITextBlock = probe.cast()?;
-                    block.SetText(&vec!["X"; n as usize].join("\n"))?;
-                    Ok(measure_element(&probe.cast()?, infinite).height)
-                };
-                let extra = (|| -> R<f32> {
-                    let control: w::IControl = field.cast()?;
-                    let block: w::ITextBlock = probe.cast()?;
-                    block.SetFontSize(control.FontSize()?)?;
-                    block.SetFontFamily(&control.FontFamily()?)?;
-                    Ok(lines_height(*lines)? - lines_height(1)?)
-                })()
-                .unwrap_or(0.0);
-                Size::new(size.width.max(200.0), (size.height + extra).ceil())
+            // A text field's width, and as tall as an empty text box in
+            // its font with that many lines: a text box is as big as its
+            // text, which mustn't count.
+            Widget::TextArea { field, lines } => {
+                let size = state
+                    .window_of(id)
+                    .and_then(|parts| measure_lines(field, &parts.text_probe, *lines).ok())
+                    .unwrap_or_default();
+                Size::new(size.width.ceil().max(200.0), size.height.ceil())
             }
             Widget::Button(_)
             | Widget::MenuButton(_)
