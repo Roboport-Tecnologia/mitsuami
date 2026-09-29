@@ -32,9 +32,9 @@ impl Ui {
         self.changed();
     }
 
-    /// Focuses a text field or text area and selects these characters of
-    /// its text (Unicode scalar values), at the next commit; a range past
-    /// its end is cut to it. Other controls are only focused.
+    /// Focuses a text field or text area and selects these grapheme
+    /// clusters of its text, at the next commit; a range past its end is
+    /// cut to it. Other controls are only focused.
     pub fn select_text(&self, id: NodeId, range: std::ops::Range<usize>) {
         let mut inner = self.inner.borrow_mut();
         inner.pending_focus.push(id);

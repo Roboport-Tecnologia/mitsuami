@@ -48,6 +48,7 @@ pub use app::App;
 pub use mitsuami_core as core;
 /// The `raw-window-handle` a [`SurfaceHandle`](prelude::SurfaceHandle) implements.
 pub use mitsuami_core::raw_window_handle;
+pub use mitsuami_core::unicode_segmentation;
 pub use mitsuami_macros::{IntoValue, component, view};
 pub use mitsuami_reactive as reactive;
 pub use mitsuami_widgets as widgets;

@@ -40,8 +40,8 @@ async fn a_selection_selects_part_of_a_field(app: TestApp) {
     assert_eq!(name.get_untracked(), "todo.txt");
 }
 
-/// Characters, not bytes nor UTF-16 units: an emoji is one; a range past
-/// the end is cut to it; a text area selects too.
+/// Characters as people see them, not bytes nor UTF-16 units: an emoji is
+/// one; a range past the end is cut to it; a text area selects too.
 #[mitsuami_test::test]
 async fn selections_count_characters(app: TestApp) {
     let (name, notes) = (signal("📁 Photos.zip".to_owned()), signal("first\nsecond".to_owned()));
@@ -95,6 +95,35 @@ async fn asked_before_the_control_is_built(app: TestApp) {
     let field = app.get_by_label("New name");
     app.expect(by_label("New name")).to_be_focused().await;
     assert_eq!(field.text_selection(), Some(0..6));
+}
+
+/// A character made of several code points is one, never split: an
+/// accent written as a combining mark, a family emoji joined with
+/// zero-width joiners, a flag.
+#[mitsuami_test::test]
+async fn selections_count_graphemes(app: TestApp) {
+    // "e" + U+0301; man, woman, girl joined by U+200D; the regional
+    // indicators for Portugal.
+    let name = signal("e\u{301}cole 👨\u{200d}👩\u{200d}👧 🇵🇹.txt".to_owned());
+    app.mount(move || {
+        let field = node_ref();
+        Column::new().children((
+            TextInput::new().bind(name).a11y_label("Name").node_ref(field),
+            Button::new("École").on_click(move || field.select_text(0..5)),
+            Button::new("Family").on_click(move || field.select_text(6..7)),
+            Button::new("Flag").on_click(move || field.select_text(8..9)),
+        ))
+    });
+    let field = app.get_by_label("Name");
+    app.get_by_role(Role::Button, "École").click().await;
+    assert_eq!(field.text_selection(), Some(0..5));
+    app.get_by_role(Role::Button, "Family").click().await;
+    assert_eq!(field.text_selection(), Some(6..7));
+    app.get_by_role(Role::Button, "Flag").click().await;
+    assert_eq!(field.text_selection(), Some(8..9));
+
+    field.type_text("PT").await;
+    assert_eq!(name.get_untracked(), "e\u{301}cole 👨\u{200d}👩\u{200d}👧 PT.txt");
 }
 
 mitsuami_test::main!();

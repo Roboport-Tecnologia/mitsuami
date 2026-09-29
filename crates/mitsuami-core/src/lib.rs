@@ -13,6 +13,7 @@ pub mod draw;
 mod element;
 mod flow;
 pub mod geometry;
+pub mod graphemes;
 mod input;
 mod list;
 mod measure;
@@ -63,3 +64,5 @@ pub use widget::{
 
 pub use mitsuami_reactive as reactive;
 pub use raw_window_handle;
+/// Grapheme clusters, which text selections count (`NodeRef::select_text`).
+pub use unicode_segmentation;

@@ -5,6 +5,7 @@
 use std::path::{Path, PathBuf};
 
 use mitsuami::prelude::*;
+use mitsuami::unicode_segmentation::UnicodeSegmentation;
 
 use crate::browser::{Browser, SortBy};
 use crate::file_icon::{FileIcon, FileIconProps};
@@ -433,12 +434,12 @@ fn PathBarRow() -> impl View {
     }
 }
 
-/// The part of a name file managers select to rename it: a file's name
-/// without its extension, all of a folder's or a dot file's.
+/// The part of a name file managers select to rename it, in graphemes: a
+/// file's name without its extension, all of a folder's or a dot file's.
 pub fn stem_len(name: &str, folder: bool) -> usize {
     match name.rfind('.') {
-        Some(dot) if dot > 0 && !folder => name[..dot].chars().count(),
-        _ => name.chars().count(),
+        Some(dot) if dot > 0 && !folder => name[..dot].graphemes(true).count(),
+        _ => name.graphemes(true).count(),
     }
 }
 

@@ -67,10 +67,13 @@ impl NodeRef {
     }
 
     /// Focuses a text field or text area and selects these characters of
-    /// its text, counted in Unicode scalar values (`chars`): a file's name
-    /// without its extension, as file managers select one to rename. Cut
-    /// to the text's end; other controls are only focused. Asked before
-    /// the field is built, it's done once it is, after its first text.
+    /// its text, counted as people see them: grapheme clusters, so an
+    /// accented letter or an emoji made of several code points is one
+    /// (`text.graphemes(true)`, from the re-exported `unicode_segmentation`).
+    /// A file's name without its extension, say, as file managers select
+    /// one to rename. Cut to the text's end; other controls are only
+    /// focused. Asked before the field is built, it's done once it is,
+    /// after its first text.
     pub fn select_text(&self, range: Range<usize>) {
         self.request(Request::Select(range));
     }

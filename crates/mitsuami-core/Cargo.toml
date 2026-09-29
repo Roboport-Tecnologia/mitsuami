@@ -12,6 +12,7 @@ repository.workspace = true
 mitsuami-reactive.workspace = true
 taffy.workspace = true
 raw-window-handle.workspace = true
+unicode-segmentation.workspace = true
 
 [lints]
 workspace = true

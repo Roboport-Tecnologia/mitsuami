@@ -63,7 +63,7 @@ Validate as you go. Panic on protocol violations such as an unknown node, a doub
 | `ScrollTo { id, offset }` | Scroll the `ScrollView` or `List` so `offset` is at its top-left. Already clamped (a `List` clamps it itself). The platform then **reports `Scrolled`**, as for a user scroll. |
 | `ScrollToRow { id, row }` | Scroll the `List` just enough to show that row, with the platform's own "scroll to row". Report `Scrolled`, and the rows shown. |
 | `Focus { id }` | Give the control keyboard focus. The focus change is reported through your focus tracking (§4), not by this command. |
-| `SelectText { id, range }` | Select these characters (Unicode scalar values, already within its text) of a text field's or text area's text, the platform's way, converting to its units (AppKit's and Qt's are UTF-16, GTK's characters). A `Focus` for it comes first in the batch, so it replaces whatever focusing selected (AppKit and GTK select all of a field). |
+| `SelectText { id, range }` | Select these characters (Unicode scalar values, already within its text and on grapheme boundaries: the app counts graphemes) of a text field's or text area's text, the platform's way, converting to its units (AppKit's and Qt's are UTF-16, GTK's characters). A `Focus` for it comes first in the batch, so it replaces whatever focusing selected (AppKit and GTK select all of a field). |
 
 ### 3.1 Widget kinds
 

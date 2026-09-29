@@ -135,10 +135,13 @@ impl<'a> Locator<'a> {
         self.native_state().focused
     }
 
-    /// A focused text field's or text area's selection, in characters,
-    /// as the native widget shows it (an empty one is the caret).
+    /// A focused text field's or text area's selection, in grapheme
+    /// clusters as `select_text` counts them, as the native widget shows
+    /// it (an empty one is the caret).
     pub fn text_selection(&self) -> Option<std::ops::Range<usize>> {
-        self.native_state().selection
+        let state = self.native_state();
+        let text = mitsuami_core::find_prop!(state.props, Value).unwrap_or_default();
+        Some(mitsuami_core::graphemes::graphemes_of(&text, state.selection?))
     }
 
     /// What the native widget actually shows.

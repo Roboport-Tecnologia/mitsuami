@@ -66,10 +66,10 @@ impl Ui {
         }
         for (id, range) in std::mem::take(&mut inner.pending_selections) {
             let Some(node) = inner.nodes.get(&id) else { continue };
-            // Within the text the field has now.
-            let len = crate::find_prop!(node.props, Value).map_or(0, |v| v.chars().count());
-            let end = range.end.min(len);
-            inner.pending.push(Command::SelectText { id, range: range.start.min(end)..end });
+            // Graphemes of the text the field has now, in its `char`s.
+            let text = crate::find_prop!(node.props, Value).unwrap_or_default();
+            let range = crate::graphemes::chars_of(&text, range);
+            inner.pending.push(Command::SelectText { id, range });
         }
         let batch = std::mem::take(&mut inner.pending);
         if !batch.is_empty() {

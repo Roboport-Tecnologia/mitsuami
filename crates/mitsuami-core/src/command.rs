@@ -77,7 +77,8 @@ pub enum Command {
         id: NodeId,
     },
     /// Selects these characters of a text field's or text area's text,
-    /// counted in Unicode scalar values and within it. A `Focus` for the
+    /// counted in Unicode scalar values, within it and on grapheme
+    /// boundaries (the app counts graphemes). A `Focus` for the
     /// field comes first in the batch: a selection is the focused field's.
     SelectText {
         id: NodeId,
