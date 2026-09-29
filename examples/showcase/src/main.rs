@@ -6,9 +6,9 @@
 //! `button.rs`'s `page()`, the GPU surface page `examples/gpu-surface`'s.
 //! The `sidebar` example isn't one of them, as the showcase is one.
 //!
-//! - Pages that fit their window's height scroll here; the ones sized to
-//!   fill theirs (File drop, GPU surface, Icon, List, Measurements, Tabs)
-//!   fill the page.
+//! - Every page scrolls when it's taller than the window. The ones sized
+//!   to fill theirs (File drop, GPU surface, Icon, Measurements, Tabs)
+//!   fill the page when it's taller than they need.
 //! - Leaving a page drops it and its state, as closing its window would;
 //!   the Menus page takes the app's menus with it, the GPU surface page
 //!   its render thread.
@@ -108,76 +108,70 @@ mod tooltip;
 #[path = "../../../crates/mitsuami/examples/windows.rs"]
 mod windows;
 
-/// An example's page: its title, which is also its value in the sidebar,
-/// and whether it scrolls or fills the page.
+/// An example's page, and its title, which is also its value in the
+/// sidebar.
 struct Example {
     title: &'static str,
     page: fn() -> AnyView,
-    scrolls: bool,
 }
 
-const fn scrolls(title: &'static str, page: fn() -> AnyView) -> Example {
-    Example { title, page, scrolls: true }
-}
-
-const fn fills(title: &'static str, page: fn() -> AnyView) -> Example {
-    Example { title, page, scrolls: false }
+const fn example(title: &'static str, page: fn() -> AnyView) -> Example {
+    Example { title, page }
 }
 
 const SECTIONS: [(&str, &[Example]); 5] = [
     (
         "Controls",
         &[
-            scrolls("Button", || AnyView::new(button::page())),
-            scrolls("Checkbox", || AnyView::new(checkbox::page())),
-            scrolls("Switch", || AnyView::new(switch::page())),
-            scrolls("Slider", || AnyView::new(slider::page())),
-            scrolls("Number input", || AnyView::new(number_input::page())),
-            scrolls("Select", || AnyView::new(select::page())),
-            scrolls("Radio group", || AnyView::new(radio_group::page())),
-            scrolls("Menu button", || AnyView::new(menu_button::page())),
+            example("Button", || AnyView::new(button::page())),
+            example("Checkbox", || AnyView::new(checkbox::page())),
+            example("Switch", || AnyView::new(switch::page())),
+            example("Slider", || AnyView::new(slider::page())),
+            example("Number input", || AnyView::new(number_input::page())),
+            example("Select", || AnyView::new(select::page())),
+            example("Radio group", || AnyView::new(radio_group::page())),
+            example("Menu button", || AnyView::new(menu_button::page())),
         ],
     ),
     (
         "Text",
         &[
-            scrolls("Text", || AnyView::new(text::page())),
-            scrolls("Text input", || AnyView::new(text_input::page())),
-            scrolls("Password input", || AnyView::new(password_input::page())),
-            scrolls("Text area", || AnyView::new(text_area::page())),
+            example("Text", || AnyView::new(text::page())),
+            example("Text input", || AnyView::new(text_input::page())),
+            example("Password input", || AnyView::new(password_input::page())),
+            example("Text area", || AnyView::new(text_area::page())),
         ],
     ),
     (
         "Images and status",
         &[
-            fills("Icon", || AnyView::new(icon::library())),
-            scrolls("Image", || AnyView::new(image::page())),
-            scrolls("Progress", || AnyView::new(progress::page())),
-            scrolls("Spinner", || AnyView::new(spinner::page())),
-            fills("GPU surface", || AnyView::new(gpu_surface::page(full_screen()))),
+            example("Icon", || AnyView::new(icon::library())),
+            example("Image", || AnyView::new(image::page())),
+            example("Progress", || AnyView::new(progress::page())),
+            example("Spinner", || AnyView::new(spinner::page())),
+            example("GPU surface", || AnyView::new(gpu_surface::page(full_screen()))),
         ],
     ),
     (
         "Containers",
         &[
-            scrolls("Group", || AnyView::new(group::settings())),
-            scrolls("Separator", || AnyView::new(separator::page())),
-            // Scrolls itself, around its lists.
-            fills("List", || AnyView::new(list::page())),
-            scrolls("Scroll view", || AnyView::new(scroll_view::page())),
-            fills("Tabs", || AnyView::new(tabs::preferences())),
-            fills("Measurements", || AnyView::new(measurements::content())),
+            example("Group", || AnyView::new(group::settings())),
+            example("Separator", || AnyView::new(separator::page())),
+            example("List", || AnyView::new(list::page())),
+            example("Scroll view", || AnyView::new(scroll_view::page())),
+            example("Tabs", || AnyView::new(tabs::preferences())),
+            example("Measurements", || AnyView::new(measurements::content())),
         ],
     ),
     (
         "Windows and menus",
         &[
-            scrolls("Toolbar", || AnyView::new(toolbar::launcher())),
-            scrolls("Menus", || AnyView::new(menus::launcher())),
-            scrolls("Context menu", || AnyView::new(context_menu::page())),
-            scrolls("Tooltip", || AnyView::new(tooltip::page())),
-            scrolls("Windows", || AnyView::new(windows::page())),
-            fills("File drop", || AnyView::new(file_drop::window())),
+            example("Toolbar", || AnyView::new(toolbar::launcher())),
+            example("Menus", || AnyView::new(menus::launcher())),
+            example("Context menu", || AnyView::new(context_menu::page())),
+            example("Tooltip", || AnyView::new(tooltip::page())),
+            example("Windows", || AnyView::new(windows::page())),
+            example("File drop", || AnyView::new(file_drop::window())),
         ],
     ),
 ];
@@ -194,7 +188,7 @@ fn showcase() -> impl View {
     let pages = SECTIONS
         .iter()
         .flat_map(|(_, examples)| examples.iter())
-        .map(|&Example { title, page, scrolls }| {
+        .map(|&Example { title, page }| {
             Show::new(
                 move || chosen.get() == title,
                 move || {
@@ -202,13 +196,25 @@ fn showcase() -> impl View {
                         // The page installs the app's menus; they go with it.
                         on_cleanup(|| set_menu(MenuBar::new()));
                     }
-                    if scrolls { AnyView::new(view! { <ScrollView grow=1.0>{page()}</ScrollView> }) } else { page() }
+                    // At least as tall as the scroll view, so pages that
+                    // fill their window fill it, and scroll once they
+                    // need more.
+                    let body = node_ref();
+                    let size = use_size(body);
+                    view! {
+                        <ScrollView grow=1.0 node_ref=body>
+                            <Column min_height=move || Length::from(size.get().height)>{page()}</Column>
+                        </ScrollView>
+                    }
                 },
             )
         })
         .collect::<Vec<_>>();
+    // No minimum height: by default a column is at least as tall as its
+    // content, and the page's scroll view would grow past the window
+    // instead of scrolling.
     view! {
-        <Column grow=1.0>
+        <Column grow=1.0 min_height=0>
             <Sidebar selection=chosen>{sections}</Sidebar>
             {pages}
         </Column>
