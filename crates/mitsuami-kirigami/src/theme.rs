@@ -69,7 +69,7 @@ fn luminance([r, g, b, _]: Rgba) -> f32 {
 pub(crate) fn metrics() -> PlatformMetrics {
     let theme = theme();
     let body = theme.font_px("defaultFont") as f32;
-    // Kirigami.Heading's scale (levels 1, 2 and 3), as in `qml.rs`.
+    // Kirigami.Heading's scale (levels 1, 2 and 3), as in `qml/mod.rs`.
     let heading = |factor: f32| body * factor;
     let small = theme.real("smallSpacing") as f32;
     let large = theme.real("largeSpacing") as f32;
@@ -90,7 +90,7 @@ pub(crate) fn metrics() -> PlatformMetrics {
             headline: heading(1.15),
             body,
             callout: body,
-            // As in `qml.rs`: the small font, if it's smaller.
+            // As in `qml/mod.rs`: the small font, if it's smaller.
             caption: Some(theme.font_px("smallFont") as f32).filter(|small| *small < body).unwrap_or(body * 0.8),
             monospace: theme.font_px("fixedWidthFont") as f32,
         },
