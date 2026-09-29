@@ -1,121 +1,228 @@
 # mitsuami
 
-Native, declarative, cross-platform UI for Rust: AppKit on macOS, WinUI 3 on
-Windows, GTK 4 on Linux, or Qt Quick with Kirigami for KDE Plasma, driven by
-one Vue-inspired layer with CSS-style flexbox/grid layout.
+Native, declarative, cross-platform UI for Rust.
 
-Status: **M1 to M5 done**. The AppKit, GTK 4 and WinUI 3 backends run real
-apps on macOS, Linux and Windows, and the same tests pass headlessly and
-against the native widgets of all three. On Linux, the `kde` feature swaps
-GTK 4 for Qt Quick and Kirigami, KDE Plasma's toolkit, which passes the same
-tests. The escape hatches work on each:
-`platform!` for per-platform code, `NativeView` for any `NSView`, GTK widget,
-QML item or XAML element, and custom widgets that are native where the platform has
-the control, and built ad hoc from the platform's widgets, drawn or composed
-where it doesn't. Apps can be written with `view!` and `#[component]`, and
-keep shared state in stores, resources and actions. Writing a backend starts
-with [`docs/BACKENDS.md`](docs/BACKENDS.md). The design is in
-[`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md).
-
-On Windows, mitsuami needs the Windows App Runtime 2.4 or later installed,
-and builds with the MSVC toolchain.
+You write one UI with a Vue-inspired layer: signals, components and
+flexbox/grid layout. Each platform shows it with its own controls: AppKit on
+macOS, WinUI 3 on Windows, and GTK 4 on Linux, or Qt Quick with Kirigami for
+KDE Plasma. A button is an `NSButton` on macOS, a `gtk::Button` on GNOME, and
+it looks, sizes and behaves as that platform's buttons do. mitsuami doesn't
+try to make platforms look the same.
 
 ```rust
 use mitsuami::prelude::*;
 
-fn counter(initial: i32) -> impl View {
-    let count = signal(initial);
-    Column::new().padding(16).gap(Spacing::Md).children((
-        Text::new(move || format!("Count: {}", count.get())).text_style(TextStyle::Title),
-        Button::new("Increment").on_click(move || count.update(|c| *c += 1)),
-    ))
+fn main() {
+    App::new()
+        .window("Hello", Size::new(320.0, 160.0), || {
+            let clicks = signal(0);
+            view! {
+                <Column padding=Spacing::Xl gap=Spacing::Md>
+                    <Text>{move || format!("Clicked {} times", clicks.get())}</Text>
+                    <Button @click=move || clicks.update(|c| *c += 1)>"Click me"</Button>
+                </Column>
+            }
+        })
+        .run();
 }
 ```
+
+More in [the examples](#examples): one per widget, and a few whole apps in
+[`crates/mitsuami/examples`](crates/mitsuami/examples) and
+[`examples`](examples).
+
+## Getting started
+
+```toml
+[dependencies]
+mitsuami = "0.0.1"
+
+[dev-dependencies]
+mitsuami-test = "0.0.1"
+```
+
+The backend is picked by the target OS; there's nothing to configure. Rust
+1.95 or newer (edition 2024).
+
+| Platform | Backend | Needs |
+|---|---|---|
+| macOS 11+ | AppKit | Nothing else |
+| Windows | WinUI 3 | The MSVC toolchain, and the Windows App Runtime 2.4 or later installed |
+| Linux (default) | GTK 4 | GTK 4.10+ and libadwaita 1.4+ development files |
+| Linux (KDE Plasma) | Qt Quick + Kirigami | Qt 6.5+ development files (Qt Quick, Qt Quick Controls, Qt Widgets); at run time Kirigami 6 and `qqc2-desktop-style`, with Breeze for Plasma's look (without it, Fusion) |
+
+For KDE Plasma, turn on the `kde` feature (with `gtk` on too, `kde` wins),
+and the test kit's own `kde` feature:
+
+```toml
+mitsuami = { version = "0.0.1", default-features = false, features = ["kde"] }
+mitsuami-test = { version = "0.0.1", features = ["kde"] }
+```
+
+## The basics
+
+- **Views** are built with `view!`, or with the builder API it expands to
+  (`Button::new("Save").on_click(…)`). `#[component]` makes a function a
+  component with typed props.
+- **State** is fine-grained: `signal`, `computed` and effects. A component
+  runs once; only what reads a signal updates when it changes. Shared state
+  lives in stores (`Store`, `use_store`), async data in `resource`, and
+  async work in `action`.
+- **Control flow**: `Show` and keyed `For`.
+- **Layout** is flexbox and grid with CSS semantics (Taffy), in units like
+  `px`, `em`, `%` and `fr`, and platform spacing tokens (`Spacing::Md`).
+  HiDPI needs nothing from the app.
+- **Styling** is semantic, not pixel-level: roles, button styles, text
+  styles. The platform decides what they look like.
+- **Accessibility**: every widget has a role, name and value. Tests find
+  widgets through them.
+- **Escape hatches**, when the shared widgets aren't enough:
+  - `platform!` picks per-platform code, from one detail to a whole screen,
+    while stores stay shared.
+  - `.native(tweak(…))` sets something on the native widget directly.
+  - `NativeView` embeds any `NSView`, GTK widget, QML item or XAML element.
+  - Custom widgets: one definition, native where the platform has the
+    control, and composed or drawn where it doesn't.
+  - `GpuSurface` is a surface the app presents to with its own GPU API
+    (wgpu, Metal, Vulkan, Direct3D), from its own thread.
+
+Built-in widgets: `Text`, `Button`, `ToggleButton`, `TextInput`,
+`PasswordInput`, `SearchInput`, `TextArea`, `Checkbox`, `Switch`,
+`RadioGroup`, `Slider`, `NumberInput`, `Select`, `Progress`, `Spinner`,
+`Separator`, `Image`, `Icon`, `ScrollView`, `List` (virtualised), `Group`,
+`Sidebar`, `Tabs`, `Toolbar`, `MenuButton`, menus, context menus, tooltips,
+windows and dialogs. [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md) §10
+lists the native control each one is on every platform.
+
+## Examples
+
+Each widget has an example that shows it in every variant, with a
+playground to try its props:
+
+```sh
+cargo run -p mitsuami --example button
+```
+
+The others in [`crates/mitsuami/examples`](crates/mitsuami/examples) run the
+same way: `checkbox`, `context_menu`, `file_drop`, `group`, `icon`, `image`,
+`list`, `measurements`, `menu_button`, `menus`, `number_input`,
+`password_input`, `progress`, `radio_group`, `scroll_view`, `search_input`,
+`select`, `separator`, `sidebar`, `slider`, `spinner`, `switch`, `tabs`,
+`text`, `text_area`, `text_input`, `toolbar`, `tooltip`, `windows`.
+
+Whole apps:
+
+- `todos`: components, `view!`, a store, a resource and an action.
+- `contacts`: ten thousand rows in the platform's own list control,
+  filtered by a search field.
+- `escape_hatches`: custom widgets that are native where the platform has
+  the control, and `platform!`.
+
+Two are crates of their own, so the workspace doesn't build wgpu:
+
+- [`examples/showcase`](examples/showcase): every example in one window,
+  picked from its sidebar.
+  `cargo run --manifest-path examples/showcase/Cargo.toml`
+- [`examples/gpu-surface`](examples/gpu-surface): a `GpuSurface` presented
+  to with wgpu from a thread of its own.
+  `cargo run --manifest-path examples/gpu-surface/Cargo.toml`
+
+## Testing your app
+
+`mitsuami-test` drives your UI the way a user and assistive technology do:
+find widgets by role and text, click, type, and assert. The same test runs
+headless (fast, deterministic metrics) or on the real native widgets.
+
+```rust
+use mitsuami::prelude::*;
+use mitsuami_test::prelude::*;
+
+#[mitsuami_test::test]
+async fn clicking_counts(app: TestApp) {
+    app.mount(hello); // the view from the example above
+    app.get_by_role(Role::Button, "Click me").click().await;
+    app.expect(by_text("Clicked 1 times")).to_be_visible().await;
+}
+
+mitsuami_test::main!();
+```
+
+Native UI has to own the main thread, so each test file is a target of its
+own with `harness = false`:
+
+```toml
+[[test]]
+name = "hello"
+harness = false
+```
+
+`cargo test` runs it headless; `MITSUAMI_NATIVE=1 cargo test` runs it on
+this machine's native backend. Tests control time (`app.advance(..)` moves
+the clock `sleep` uses) and answer dialogs through scripted services
+(`app.services()`), so they never open real dialogs or touch your
+clipboard. The kit also has tree, layout and wireframe snapshots, and
+stories (`#[mitsuami_test::story]`) that capture a view at each size, in
+light and dark. [`crates/mitsuami/tests`](crates/mitsuami/tests) has plenty
+of examples.
 
 ## Crates
 
 | Crate | |
 |---|---|
-| `mitsuami` | Facade and prelude |
+| `mitsuami` | Facade and prelude; picks the backend |
 | `mitsuami-reactive` | Signals, computed values, effects, ownership, context |
 | `mitsuami-core` | Node tree, styles and units, Taffy layout, a11y model, `Show`/`For`, backend contract |
 | `mitsuami-widgets` | Built-in widgets |
 | `mitsuami-macros` | `view!` and `#[component]` |
 | `mitsuami-headless` | In-memory backend with deterministic metrics that validates the protocol |
-| `mitsuami-test` | Test runner, a11y queries, actions, assertions, snapshots |
+| `mitsuami-test` | Test runner, a11y queries, actions, assertions, snapshots, stories |
 | `mitsuami-appkit` | AppKit backend (macOS) |
 | `mitsuami-gtk` | GTK 4 backend (Linux) |
 | `mitsuami-kirigami` | Qt Quick and Kirigami backend (Linux, KDE Plasma; the `kde` feature) |
+| `mitsuami-linux` | `GpuSurface` for GTK and Kirigami: a Wayland subsurface or an X11 child window |
 | `mitsuami-winui` | WinUI 3 backend (Windows) |
 
-## Testing
+## Working on mitsuami
 
-There are no unit tests. Everything is tested through public APIs.
+- [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md): the design, the MVP plan
+  (§14), and notes on each widget and platform (§16).
+- [`docs/BACKENDS.md`](docs/BACKENDS.md): the backend contract. Writing a
+  backend starts there.
+- [`CLAUDE.md`](CLAUDE.md): the project's rules, including what adding a
+  widget touches and how to type-check the other platforms from macOS.
+
+There are no unit tests: everything is tested through public APIs, in
+[`crates/mitsuami/tests`](crates/mitsuami/tests).
 
 ```sh
 cargo test --workspace                       # everything, headless
 cargo test -p mitsuami --test layout grid    # one suite, filtered
-MITSUAMI_NATIVE=1 cargo test                 # the same tests on the native backend
+MITSUAMI_NATIVE=1 cargo test --workspace     # the same tests on the native backend
 MITSUAMI_SHOW_WINDOWS=1 MITSUAMI_NATIVE=1 cargo test   # …and watch them
 MITSUAMI_UPDATE_SNAPSHOTS=1 cargo test       # accept snapshot / visual baseline changes
 MITSUAMI_WAIT_MS=5000 cargo test             # longer wait for background work in assertions
 MITSUAMI_SKIP_MACHINE_SNAPSHOTS=1 cargo test # skip native snapshots that depend on fonts, OS and scale
-MITSUAMI_IMAGE=macos-26 cargo test           # name the machine image native snapshots belong to (CI sets it)
 MITSUAMI_NATIVE=1 cargo test -p mitsuami -p mitsuami-kirigami \
   --features mitsuami/kde,mitsuami-test/kde,mitsuami-kirigami/qt   # native tests on Kirigami
 ```
+
+On Linux, native tests need `gtk4-broadwayd`, GTK's in-memory display
+server: they run on a private Broadway display (with desktop portals off),
+so windows get their exact sizes and dialogs stay off your desktop.
+`MITSUAMI_SHOW_WINDOWS=1` puts them on your display instead. On Kirigami,
+they run on Qt's offscreen platform, with Breeze Light or Dark forced and
+animations off.
 
 Native snapshots and visual baselines depend on the machine, so they are
 kept per machine image: `tests/{snapshots,visual}/<backend>/<image>/`, where
 the image defaults to the OS and its version (`macos-26@2x`). Only CI's are
 kept in the repository; a machine's own are recorded on its first run and
-ignored by git. When a CI run fails on missing or changed ones, it uploads
-them, and `.github/scripts/accept-snapshots.sh <run id>` accepts them.
+ignored by git. Don't set `MITSUAMI_IMAGE` locally: it names CI's image.
+When a CI run fails on missing or changed ones, it uploads them, and
+`.github/scripts/accept-snapshots.sh <run id>` accepts them.
 
-CI tests only run when started by hand, `gh workflow run test.yml --ref
+CI only runs when started by hand, `gh workflow run test.yml --ref
 <branch>`, and before a release (headless only) when a tag is pushed.
-
-Stories (`#[mitsuami_test::story]`) render a view in a given state and
-compare a capture with a baseline at each size, in light and dark: see
-`crates/mitsuami/tests/stories.rs`.
-
-Tests control time (`app.advance(..)` moves the clock that `sleep` uses)
-and answer dialogs through scripted services (`app.services()`), so they
-never open real dialogs or touch your clipboard.
-
-Try the example apps with `cargo run -p mitsuami --example <name>`:
-
-- `todos`: components, `view!`, a store, a resource and an action.
-- `escape_hatches`: custom widgets that are native where the platform has
-  the control, and `platform!`.
-
-Two are crates of their own, so the workspace's tests don't build wgpu:
-
-- `cargo run --manifest-path examples/showcase/Cargo.toml`: every example
-  in one window, picked from its sidebar, the GPU surface among them.
-- `cargo run --manifest-path examples/gpu-surface/Cargo.toml`: a surface
-  presented to with wgpu from a thread of its own.
-
-On Linux, building needs the GTK 4 (4.10 or newer) and libadwaita (1.4 or
-newer) development files, and
-native tests need `gtk4-broadwayd`, GTK's in-memory display server: tests
-run on a private Broadway display (with desktop portals off), so windows get
-their exact sizes and dialogs stay off your desktop. `MITSUAMI_SHOW_WINDOWS=1`
-puts them on your display instead.
-
-For KDE Plasma, build with `mitsuami = { version = "…", default-features =
-false, features = ["kde"] }` (with `gtk` on too, `kde` wins). It needs the
-Qt 6.5+ development files (Qt Quick, Qt Quick Controls, Qt Widgets) and, at
-run time, Kirigami 6 and `qqc2-desktop-style`; Breeze gives it Plasma's look
-(without it, the controls fall back to Fusion). `platform!` has `kde` and
-`gtk` arms to tell the two Linux toolkits apart. Native tests run on Qt's
-offscreen platform, with Breeze Light or Dark forced and animations off. The
-test kit needs its own `kde` feature: `mitsuami-test = { …, features =
-["kde"] }`.
-
-UI test targets use `harness = false` and `mitsuami_test::main!()`, because
-native UI has to own the main thread. See `crates/mitsuami/tests/` for
-examples.
 
 ## License
 
