@@ -192,7 +192,7 @@ impl Inner {
                             }
                             // Like a scroll view, a list has no natural size
                             // of its own: it's as big as its style makes it.
-                            None if node.is_some_and(|n| n.kind == WidgetKind::List) => {
+                            None if node.is_some_and(|n| n.kind.has_rows()) => {
                                 Size::new(known.width.unwrap_or(0.0), known.height.unwrap_or(0.0))
                             }
                             None => backend.measure(*id, request),
@@ -212,27 +212,49 @@ impl Inner {
         let node = &self.nodes[&list];
         let width = node.row_width.unwrap_or(node.frame.width());
         for host in node.native_children.clone() {
-            let Some(t) = self.nodes[&host].taffy else { continue };
-            if let Ok(style) = self.taffy.style(t)
-                && style.size.width != taffy::Dimension::length(width)
-            {
-                let mut style = style.clone();
-                style.size.width = taffy::Dimension::length(width);
-                let _ = self.taffy.set_style(t, style);
-            }
-            let available = taffy::Size {
-                width: taffy::AvailableSpace::Definite(width),
-                height: taffy::AvailableSpace::MaxContent,
-            };
-            self.compute_layout(t, available);
-            let height = self.taffy.layout(t).map_or(0.0, |l| l.size.height);
-            let frame = Rect::new(0.0, 0.0, width, height);
-            if self.nodes[&host].frame != frame {
-                self.nodes.get_mut(&host).unwrap().frame = frame;
-                self.pending.push(Command::SetFrame { id: host, frame });
-            }
-            self.collect_frames(host);
+            self.layout_hosted(host, width);
         }
+    }
+
+    /// Lays out a `Table`'s mounted cells, each on its own at the width
+    /// its column gives its cells, and as high as its content. Their sizes
+    /// are sent; where they go is the platform's to decide, and it makes
+    /// each row as high as its highest cell, at least.
+    fn layout_table(&mut self, table: NodeId) {
+        let node = &self.nodes[&table];
+        // Until the platform says, the widths the columns start at.
+        let widths = node.column_widths.clone().unwrap_or_else(|| {
+            let columns = crate::find_prop!(node.props, Columns).unwrap_or_default();
+            columns.iter().map(|c| c.width.unwrap_or(100.0)).collect()
+        });
+        for host in node.native_children.clone() {
+            let Some(cell) = crate::find_prop!(self.nodes[&host].props, Cell) else { continue };
+            let width = widths.get(cell.column).copied().unwrap_or(0.0);
+            self.layout_hosted(host, width);
+        }
+    }
+
+    /// Lays out a row's or cell's host on its own, at this width and as
+    /// high as its content, and sends its size.
+    fn layout_hosted(&mut self, host: NodeId, width: f32) {
+        let Some(t) = self.nodes[&host].taffy else { return };
+        if let Ok(style) = self.taffy.style(t)
+            && style.size.width != taffy::Dimension::length(width)
+        {
+            let mut style = style.clone();
+            style.size.width = taffy::Dimension::length(width);
+            let _ = self.taffy.set_style(t, style);
+        }
+        let available =
+            taffy::Size { width: taffy::AvailableSpace::Definite(width), height: taffy::AvailableSpace::MaxContent };
+        self.compute_layout(t, available);
+        let height = self.taffy.layout(t).map_or(0.0, |l| l.size.height);
+        let frame = Rect::new(0.0, 0.0, width, height);
+        if self.nodes[&host].frame != frame {
+            self.nodes.get_mut(&host).unwrap().frame = frame;
+            self.pending.push(Command::SetFrame { id: host, frame });
+        }
+        self.collect_frames(host);
     }
 
     /// Lays out a window's toolbar items, each on its own at its natural
@@ -269,8 +291,10 @@ impl Inner {
     }
 
     fn collect_frames(&mut self, parent: NodeId) {
-        if self.nodes[&parent].kind == WidgetKind::List {
-            return self.layout_list(parent);
+        match self.nodes[&parent].kind {
+            WidgetKind::List => return self.layout_list(parent),
+            WidgetKind::Table => return self.layout_table(parent),
+            _ => {}
         }
         for child in self.nodes[&parent].native_children.clone() {
             let node = &self.nodes[&child];

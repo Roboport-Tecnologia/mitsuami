@@ -1,4 +1,7 @@
-//! `List`: a XAML `ListView` whose items are the row keys (boxed strings).
+//! `List` and `Table`: a XAML `ListView` whose items are the row keys
+//! (boxed strings). WinUI has no table, so a table is built as Fluent apps
+//! (File Explorer, Files) build one: the list view under a header row of
+//! column buttons, each row's cells side by side at the columns' widths.
 //!
 //! The list view virtualises its containers: it realises `ListViewItem`s
 //! for the rows in view (and its cache) and recycles them as rows scroll
@@ -19,7 +22,9 @@ use std::cell::{Cell, RefCell};
 use std::collections::{HashMap, HashSet};
 use std::rc::Rc;
 
-use mitsuami_core::{EventValue, ListStyle, NodeId, Point, Rect, RowKey, SelectionMode, UiEvent};
+use mitsuami_core::{
+    ColumnData, ColumnSort, EventValue, ListStyle, NodeId, Point, Rect, RowKey, SelectionMode, SortOrder, UiEvent,
+};
 use windows_core::{EventRevoker, IInspectable, IUnknown, Interface};
 
 use crate::backend::{Events, boxed};
@@ -60,15 +65,95 @@ const PLAIN_STYLE: &str =
 /// The framed style's border, on each side.
 const FRAME_BORDER: f32 = 1.0;
 
+/// A framed table: the card's border and background around its header and
+/// rows, which are in a `Grid`.
+const FRAMED_TABLE_STYLE: &str = r#"<Style xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation" TargetType="Grid">
+    <Setter Property="BorderThickness" Value="1"/>
+    <Setter Property="BorderBrush" Value="{ThemeResource CardStrokeColorDefaultBrush}"/>
+    <Setter Property="Background" Value="{ThemeResource CardBackgroundFillColorDefaultBrush}"/>
+    <Setter Property="CornerRadius" Value="{ThemeResource ControlCornerRadius}"/>
+</Style>"#;
+
+const PLAIN_TABLE_STYLE: &str =
+    r#"<Style xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation" TargetType="Grid"/>"#;
+
+/// A table: its header above its rows.
+const TABLE_ROOT: &str = r#"<Grid xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation">
+    <Grid.RowDefinitions><RowDefinition Height="32"/><RowDefinition Height="*"/></Grid.RowDefinitions>
+</Grid>"#;
+
+/// The header row's height (`TABLE_ROOT`'s first row).
+const HEADER_HEIGHT: f64 = 32.0;
+/// A table's rows are at least as high as a `ListViewItem`
+/// (`ListViewItemMinHeight`), which a list's rows are not held to.
+const TABLE_ROW_MIN: f64 = 40.0;
+/// Room at each side of a cell's content, as in a column header's title.
+const CELL_PADDING: f64 = 12.0;
+/// A column without a width, and the narrowest the user can make one.
+const COLUMN_WIDTH: f64 = 120.0;
+const COLUMN_MIN: f64 = 2.0 * CELL_PADDING + 16.0;
+/// The gripper at a header's trailing edge that resizes its column.
+const GRIPPER: f64 = 8.0;
+
+/// Glyphs of Segoe Fluent Icons: the sort's chevron, up or down.
+const ASCENDING: &str = "\u{E70E}";
+const DESCENDING: &str = "\u{E70D}";
+
+/// A column's header: a borderless button with its title and the sort's
+/// glyph, as Fluent tables have.
+fn header_markup(title: &str) -> String {
+    let title = title.replace('&', "&amp;").replace('<', "&lt;").replace('>', "&gt;").replace('"', "&quot;");
+    format!(
+        r#"<Button xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation" Background="Transparent" BorderThickness="0" CornerRadius="0" Padding="{CELL_PADDING},0,{CELL_PADDING},0" HorizontalContentAlignment="Stretch" VerticalContentAlignment="Center" HorizontalAlignment="Stretch" VerticalAlignment="Stretch">
+    <Grid>
+        <TextBlock Text="{title}" TextTrimming="CharacterEllipsis" Margin="0,0,16,0" VerticalAlignment="Center"/>
+        <FontIcon Glyph="" FontSize="10" HorizontalAlignment="Right" VerticalAlignment="Center"/>
+    </Grid>
+</Button>"#
+    )
+}
+
+/// The gripper: transparent, but hit-testable, with the divider line down
+/// its middle.
+const GRIPPER_MARKUP: &str = r#"<Border xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation" Background="Transparent">
+    <Border Width="1" Margin="0,8,0,8" HorizontalAlignment="Center" Background="{ThemeResource DividerStrokeColorDefaultBrush}"/>
+</Border>"#;
+
+/// A cell: its row, and its column (a list's is 0).
+type Slot = (RowKey, usize);
+
+/// A table's header, and the column the gripper being dragged resizes.
+struct Header {
+    canvas: w::Canvas,
+    /// Each column's button and the glyph in it, and its gripper.
+    columns: Vec<(w::Button, w::FontIcon, w::Border)>,
+    revokers: Vec<EventRevoker>,
+    /// The column being resized, where the drag started and its width then.
+    drag: Option<(usize, f64, f64)>,
+}
+
 #[derive(Default)]
 struct Data {
+    /// A table's header; none for a list.
+    header: Option<Header>,
+    /// Tables only: the columns as sent, the widths the user gave some,
+    /// the columns' widths now (their cells' content's and padding), the
+    /// widths last reported, the sort shown, and how far the rows are
+    /// scrolled sideways (the header follows).
+    columns: Vec<ColumnData>,
+    resized: Vec<Option<f64>>,
+    widths: Vec<f64>,
+    reported: Vec<f32>,
+    sort: Option<ColumnSort>,
+    sideways: f64,
     rows: Vec<RowKey>,
     /// The objects in the view's `Items`, one per row.
     items: Vec<IInspectable>,
     index: HashMap<RowKey, usize>,
-    /// The mounted rows' hosts, and their heights.
-    hosts: HashMap<RowKey, (NodeId, w::UIElement)>,
-    heights: HashMap<RowKey, f64>,
+    /// The mounted hosts (a list's rows', a table's cells'), and their
+    /// heights.
+    hosts: HashMap<Slot, (NodeId, w::UIElement)>,
+    heights: HashMap<Slot, f64>,
     /// The cells of the rows realised, with how many containers each is
     /// realised in.
     /// The row each container was last realised for.
@@ -100,17 +185,165 @@ impl Data {
         self.estimate.or(self.learned).unwrap_or(32.0)
     }
 
-    /// A row's cell height: as measured last, else the estimate. Never 0
+    fn is_table(&self) -> bool {
+        self.header.is_some()
+    }
+
+    /// A row's cell height: as measured last (a table's highest cell's, and
+    /// at least a `ListViewItem`'s height), else the estimate. Never 0
     /// while a new host waits for its height: rows above the view that
     /// shrank and grew back made XAML shift the offset to keep the rows in
     /// view still, a little further down every layout pass.
     fn height(&self, key: RowKey) -> f64 {
-        self.heights.get(&key).copied().unwrap_or_else(|| self.estimate())
+        if !self.is_table() {
+            return self.heights.get(&(key, 0)).copied().unwrap_or_else(|| self.estimate());
+        }
+        let cells = (0..self.columns.len()).filter_map(|c| self.heights.get(&(key, c)).copied());
+        cells.reduce(f64::max).unwrap_or_else(|| self.estimate()).max(TABLE_ROW_MIN)
     }
+
+    /// Where a table's column starts, in a row.
+    fn column_x(&self, column: usize) -> f64 {
+        self.widths.iter().take(column).sum()
+    }
+
+    /// How wide a table's rows are: its columns', or the list's if wider.
+    fn rows_width(&self) -> f64 {
+        let columns: f64 = self.widths.iter().sum();
+        columns.max(self.available() as f64)
+    }
+
+    /// The room the rows have: the list's width, less a frame's border.
+    fn available(&self) -> f32 {
+        let border = if self.style.is_some_and(ListStyle::framed) { 2.0 * FRAME_BORDER } else { 0.0 };
+        (self.width.unwrap_or(0.0) - border).max(0.0)
+    }
+}
+
+/// Sizes a table's row cell, and places its cells' hosts: across at their
+/// columns, each centred in the row's height.
+fn place_row(d: &Data, key: RowKey) {
+    let Some(cell) = d.cells.get(&key) else { return };
+    let height = d.height(key);
+    set_height(cell, height);
+    if !d.is_table() {
+        return;
+    }
+    if let Ok(fe) = cell.cast::<w::IFrameworkElement>() {
+        _ = fe.SetWidth(d.rows_width());
+    }
+    for column in 0..d.columns.len() {
+        let Some((_, host)) = d.hosts.get(&(key, column)) else { continue };
+        let own = d.heights.get(&(key, column)).copied().unwrap_or(0.0);
+        _ = w::Canvas::SetLeft(host, d.column_x(column) + CELL_PADDING);
+        _ = w::Canvas::SetTop(host, ((height - own) / 2.0).round().max(0.0));
+    }
+}
+
+/// Sizes a table's columns: each as wide as the user made it, or else the
+/// app, or else the default; the ones that expand share what's left of
+/// the table's width. Returns the widths their cells get if they changed.
+fn size_columns(d: &mut Data) -> Option<Vec<f32>> {
+    let mut widths: Vec<f64> = d
+        .columns
+        .iter()
+        .zip(&d.resized)
+        .map(|(c, resized)| resized.or(c.width.map(f64::from)).unwrap_or(COLUMN_WIDTH).max(COLUMN_MIN))
+        .collect();
+    let expanding: Vec<usize> = (0..widths.len()).filter(|i| d.columns[*i].expand && d.resized[*i].is_none()).collect();
+    let left = d.available() as f64 - widths.iter().sum::<f64>();
+    if left > 0.0 && !expanding.is_empty() {
+        let share = (left / expanding.len() as f64).floor();
+        for i in expanding {
+            widths[i] += share;
+        }
+    }
+    d.widths = widths;
+    let cells: Vec<f32> = d.widths.iter().map(|w| (w - 2.0 * CELL_PADDING).max(0.0) as f32).collect();
+    (cells != d.reported).then(|| {
+        d.reported = cells.clone();
+        cells
+    })
+}
+
+/// Puts a table's header buttons and grippers over their columns, moved
+/// with the rows' sideways scroll, and shows the sort.
+fn place_header(d: &Data) {
+    let Some(header) = &d.header else { return };
+    for (column, (button, icon, gripper)) in header.columns.iter().enumerate() {
+        let (x, width) = (d.column_x(column) - d.sideways, d.widths.get(column).copied().unwrap_or(0.0));
+        if let Ok(fe) = button.cast::<w::IFrameworkElement>() {
+            _ = fe.SetWidth(width);
+            _ = fe.SetHeight(HEADER_HEIGHT);
+        }
+        _ = w::Canvas::SetLeft(button, x);
+        if let Ok(fe) = gripper.cast::<w::IFrameworkElement>() {
+            _ = fe.SetWidth(GRIPPER);
+            _ = fe.SetHeight(HEADER_HEIGHT);
+        }
+        _ = w::Canvas::SetLeft(gripper, x + width - GRIPPER / 2.0);
+        let glyph = match d.sort.filter(|s| s.column == column).map(|s| s.order) {
+            Some(SortOrder::Ascending) => ASCENDING,
+            Some(SortOrder::Descending) => DESCENDING,
+            None => "",
+        };
+        _ = icon.cast::<w::IFontIcon>().and_then(|i| i.SetGlyph(glyph));
+    }
+    // The header shows only what's above the rows.
+    if let Ok(clip) = w::RectangleGeometry::new() {
+        let rect = w::Rect { x: 0.0, y: 0.0, width: d.available(), height: HEADER_HEIGHT as f32 };
+        if clip.cast::<w::IRectangleGeometry>().and_then(|g| g.SetRect(rect)).is_ok() {
+            _ = header.canvas.cast::<w::IUIElement>().and_then(|e| e.SetClip(&clip));
+        }
+    }
+}
+
+/// Lays a table out again after its columns changed: the header, every
+/// realised row, and the widths reported if they changed.
+fn relayout(data: &Rc<RefCell<Data>>, events: &Events, id: NodeId) {
+    let widths = {
+        let mut d = data.borrow_mut();
+        if !d.is_table() {
+            return;
+        }
+        let widths = size_columns(&mut d);
+        place_header(&d);
+        for key in d.cells.keys().copied().collect::<Vec<_>>() {
+            place_row(&d, key);
+        }
+        widths
+    };
+    if let Some(widths) = widths {
+        events.emit(id, UiEvent::ColumnWidths(widths));
+    }
+}
+
+/// The user pressed a column's header: sorts as tables do (the same column
+/// the other way round, another one ascending), shows it and reports it.
+fn press(data: &Rc<RefCell<Data>>, events: &Events, id: NodeId, column: usize) -> bool {
+    let sort = {
+        let mut d = data.borrow_mut();
+        if !d.columns.get(column).is_some_and(|c| c.sortable) {
+            return false;
+        }
+        let order = match d.sort {
+            Some(sort) if sort.column == column => sort.order.reversed(),
+            _ => SortOrder::Ascending,
+        };
+        let sort = ColumnSort { column, order };
+        d.sort = Some(sort);
+        place_header(&d);
+        sort
+    };
+    events.emit(id, UiEvent::Changed(EventValue::Sort(sort)));
+    true
 }
 
 pub(crate) struct List {
     pub view: w::ListView,
+    /// A table's `Grid` of its header and the list view: the node's
+    /// element. None for a list, whose element is the view.
+    pub root: Option<w::Grid>,
     id: NodeId,
     events: Events,
     data: Rc<RefCell<Data>>,
@@ -152,7 +385,9 @@ fn set_height(cell: &w::Canvas, height: f64) {
 }
 
 impl List {
-    pub(crate) fn new(id: NodeId, events: Events) -> R<List> {
+    /// A list, or with `table` a table, whose columns come with
+    /// `set_columns`.
+    pub(crate) fn new(id: NodeId, events: Events, table: bool) -> R<List> {
         let view = w::ListView::new()?;
         let style: w::Style = w::XamlReader::Load(ITEM_STYLE)?.cast()?;
         view.cast::<w::IItemsControl>()?.SetItemContainerStyle(&style)?;
@@ -191,14 +426,16 @@ impl List {
                     release(&mut d, old, &cell);
                 }
                 if !recycled {
-                    if let Some(host) = d.hosts.get(&key).map(|(_, host)| host.clone()) {
+                    let hosts: Vec<w::UIElement> =
+                        d.hosts.iter().filter(|((row, _), _)| *row == key).map(|(_, (_, host))| host.clone()).collect();
+                    for host in hosts {
                         if let Some(old) = d.cells.get(&key).filter(|c| **c != cell) {
                             take_out(old, &host);
                         }
                         put_in(&cell, &host);
                     }
-                    set_height(&cell, d.height(key));
                     d.cells.insert(key, cell);
+                    place_row(&d, key);
                     d.container_rows.insert(container_key, key);
                     *d.bound.entry(key).or_default() += 1;
                 }
@@ -246,7 +483,147 @@ impl List {
             }
         })?);
 
-        Ok(List { view, id, events, data, offset: Rc::default(), revokers: RefCell::new(revokers) })
+        let root = if table { Some(Self::table_parts(&view, &data)?) } else { None };
+        Ok(List { view, root, id, events, data, offset: Rc::default(), revokers: RefCell::new(revokers) })
+    }
+
+    /// A table's `Grid`: its header, an empty canvas until the columns
+    /// come, above the list view.
+    fn table_parts(view: &w::ListView, data: &Rc<RefCell<Data>>) -> R<w::Grid> {
+        let root: w::Grid = w::XamlReader::Load(TABLE_ROOT)?.cast()?;
+        let canvas = w::Canvas::new()?;
+        let children = root.cast::<w::IPanel>()?.Children()?;
+        children.Append(&canvas.cast::<w::UIElement>()?)?;
+        children.Append(&view.cast::<w::UIElement>()?)?;
+        w::Grid::SetRow(&view.cast::<w::FrameworkElement>()?, 1)?;
+        data.borrow_mut().header = Some(Header { canvas, columns: Vec::new(), revokers: Vec::new(), drag: None });
+        Ok(root)
+    }
+
+    /// A table's columns: a header button each, which sorts by it if it's
+    /// sortable, with a gripper at its trailing edge that resizes it.
+    pub(crate) fn set_columns(&self, columns: &[ColumnData]) -> R<()> {
+        let (id, events) = (self.id, self.events.clone());
+        let canvas = {
+            let mut d = self.data.borrow_mut();
+            let Some(header) = d.header.as_mut() else { return Ok(()) };
+            header.revokers.clear();
+            header.columns.clear();
+            header.drag = None;
+            header.canvas.clone()
+        };
+        let children = canvas.cast::<w::IPanel>()?.Children()?;
+        children.Clear()?;
+        let mut parts = Vec::new();
+        let mut revokers = Vec::new();
+        for (column, data) in columns.iter().enumerate() {
+            let button: w::Button = w::XamlReader::Load(&header_markup(&data.title))?.cast()?;
+            let content: w::Grid = button.cast::<w::IContentControl>()?.Content()?.cast()?;
+            let icon: w::FontIcon = content.cast::<w::IPanel>()?.Children()?.GetAt(1)?.cast()?;
+            w::AutomationProperties::SetName(&button.cast::<w::UIElement>()?, &data.title)?;
+            revokers.push(button.cast::<w::IButtonBase>()?.Click({
+                let (data, events) = (self.data.clone(), events.clone());
+                move |_, _| {
+                    press(&data, &events, id, column);
+                }
+            })?);
+            let gripper: w::Border = w::XamlReader::Load(GRIPPER_MARKUP)?.cast()?;
+            revokers.extend(self.resizes(&gripper, column)?);
+            children.Append(&button.cast::<w::UIElement>()?)?;
+            children.Append(&gripper.cast::<w::UIElement>()?)?;
+            parts.push((button, icon, gripper));
+        }
+        {
+            let mut d = self.data.borrow_mut();
+            d.columns = columns.to_vec();
+            d.resized = vec![None; columns.len()];
+            d.sort = d.sort.filter(|s| columns.get(s.column).is_some_and(|c| c.sortable));
+            let header = d.header.as_mut().expect("a table");
+            header.columns = parts;
+            header.revokers = revokers;
+        }
+        relayout(&self.data, &self.events, self.id);
+        Ok(())
+    }
+
+    /// Dragging a gripper resizes its column, as the Files app's do: the
+    /// column keeps the width the user gave it from then on.
+    fn resizes(&self, gripper: &w::Border, column: usize) -> R<Vec<EventRevoker>> {
+        let element: w::IUIElement = gripper.cast()?;
+        let (id, events) = (self.id, self.events.clone());
+        // Where the pointer is along the header, which doesn't move.
+        let x = |data: &Rc<RefCell<Data>>, args: &windows_core::Ref<w::PointerRoutedEventArgs>| -> Option<f64> {
+            let canvas: w::UIElement = data.borrow().header.as_ref()?.canvas.cast().ok()?;
+            let args: w::IPointerRoutedEventArgs = args.as_ref()?.cast().ok()?;
+            Some(args.GetCurrentPoint(&canvas).ok()?.cast::<w::IPointerPoint>().ok()?.Position().ok()?.x as f64)
+        };
+        let pressed = element.PointerPressed({
+            let (data, element) = (self.data.clone(), element.clone());
+            move |_, args| {
+                let Some(start) = x(&data, &args) else { return };
+                if let Some(pointer) =
+                    args.as_ref().and_then(|a| a.cast::<w::IPointerRoutedEventArgs>().ok()?.Pointer().ok())
+                {
+                    _ = element.CapturePointer(&pointer);
+                }
+                let mut d = data.borrow_mut();
+                let width = d.widths.get(column).copied().unwrap_or(COLUMN_WIDTH);
+                if let Some(header) = d.header.as_mut() {
+                    header.drag = Some((column, start, width));
+                }
+                if let Some(args) = args.as_ref().and_then(|a| a.cast::<w::IPointerRoutedEventArgs>().ok()) {
+                    _ = args.SetHandled(true);
+                }
+            }
+        })?;
+        let moved = element.PointerMoved({
+            let (data, events) = (self.data.clone(), events.clone());
+            move |_, args| {
+                let Some(now) = x(&data, &args) else { return };
+                {
+                    let mut d = data.borrow_mut();
+                    let Some((column, start, width)) = d.header.as_ref().and_then(|h| h.drag) else { return };
+                    let width = (width + now - start).max(COLUMN_MIN);
+                    if let Some(resized) = d.resized.get_mut(column) {
+                        *resized = Some(width);
+                    }
+                }
+                relayout(&data, &events, id);
+            }
+        })?;
+        let released = element.PointerReleased({
+            let data = self.data.clone();
+            move |_, _| {
+                if let Some(header) = data.borrow_mut().header.as_mut() {
+                    header.drag = None;
+                }
+            }
+        })?;
+        Ok(vec![pressed, moved, released])
+    }
+
+    pub(crate) fn columns(&self) -> Vec<ColumnData> {
+        self.data.borrow().columns.clone()
+    }
+
+    /// Shows the sort in the header, without reporting it.
+    pub(crate) fn set_sort(&self, sort: Option<ColumnSort>) {
+        let mut d = self.data.borrow_mut();
+        d.sort = sort;
+        place_header(&d);
+    }
+
+    pub(crate) fn sort(&self) -> Option<ColumnSort> {
+        self.data.borrow().sort
+    }
+
+    /// Presses a column's header, as a click does.
+    pub(crate) fn press_header(&self, column: usize) -> bool {
+        press(&self.data, &self.events, self.id, column)
+    }
+
+    pub(crate) fn is_table(&self) -> bool {
+        self.data.borrow().is_table()
     }
 
     fn items(&self) -> R<w::ItemCollection> {
@@ -259,10 +636,22 @@ impl List {
             return Some(scroll);
         }
         let scroll = find_scroll_viewer(&self.view.cast().ok()?)?;
-        let (events, last, id) = (self.events.clone(), self.offset.clone(), self.id);
+        // A table's columns can be wider than it: its rows scroll sideways,
+        // and the header with them.
+        let table = self.data.borrow().is_table();
+        if table {
+            _ = scroll.SetHorizontalScrollMode(w::ScrollMode::Enabled);
+            _ = scroll.SetHorizontalScrollBarVisibility(w::ScrollBarVisibility::Auto);
+        }
+        let (events, last, id, data) = (self.events.clone(), self.offset.clone(), self.id, self.data.clone());
         if let Ok(revoker) = scroll.ViewChanged(move |sender, _| {
             if let Some(scroll) = sender.as_ref().and_then(|s| s.cast::<w::IScrollViewer>().ok()) {
-                report_offset(&events, id, &last, &scroll);
+                report_offset(&events, id, &last, &scroll, table);
+                if table {
+                    let mut d = data.borrow_mut();
+                    d.sideways = scroll.HorizontalOffset().unwrap_or(0.0);
+                    place_header(&d);
+                }
             }
         }) {
             self.revokers.borrow_mut().push(revoker);
@@ -290,7 +679,7 @@ impl List {
             d.items.splice(prefix..prefix + removed, new_items.iter().cloned());
             d.index = rows.iter().enumerate().map(|(i, r)| (*r, i)).collect();
             let index = std::mem::take(&mut d.index);
-            d.heights.retain(|k, _| index.contains_key(k));
+            d.heights.retain(|(k, _), _| index.contains_key(k));
             d.index = index;
             d.rows = rows;
         }
@@ -347,12 +736,24 @@ impl List {
         self.data.borrow().mode
     }
 
+    /// A framed list has a card's border; a framed table has it around its
+    /// header and rows.
     pub(crate) fn set_style(&self, style: ListStyle) -> R<()> {
-        let markup = if style.framed() { FRAMED_STYLE } else { PLAIN_STYLE };
-        let xaml: w::Style = w::XamlReader::Load(markup)?.cast()?;
-        self.view.cast::<w::IFrameworkElement>()?.SetStyle(&xaml)?;
+        match &self.root {
+            Some(root) => {
+                let markup = if style.framed() { FRAMED_TABLE_STYLE } else { PLAIN_TABLE_STYLE };
+                let xaml: w::Style = w::XamlReader::Load(markup)?.cast()?;
+                root.cast::<w::IFrameworkElement>()?.SetStyle(&xaml)?;
+            }
+            None => {
+                let markup = if style.framed() { FRAMED_STYLE } else { PLAIN_STYLE };
+                let xaml: w::Style = w::XamlReader::Load(markup)?.cast()?;
+                self.view.cast::<w::IFrameworkElement>()?.SetStyle(&xaml)?;
+            }
+        }
         self.data.borrow_mut().style = Some(style);
         self.report_row_width();
+        relayout(&self.data, &self.events, self.id);
         Ok(())
     }
 
@@ -361,16 +762,20 @@ impl List {
     }
 
     /// The list's width: rows get it, less a frame's border.
+    /// A table's columns follow its width.
     pub(crate) fn set_width(&self, width: f32) {
         self.data.borrow_mut().width = Some(width);
         self.report_row_width();
+        relayout(&self.data, &self.events, self.id);
     }
 
+    /// A table reports its columns' widths instead.
     fn report_row_width(&self) {
         let mut d = self.data.borrow_mut();
-        let Some(width) = d.width else { return };
-        let border = if d.style.is_some_and(ListStyle::framed) { 2.0 * FRAME_BORDER } else { 0.0 };
-        let row_width = (width - border).max(0.0);
+        if d.width.is_none() || d.is_table() {
+            return;
+        }
+        let row_width = d.available();
         if d.row_width.replace(row_width) != Some(row_width) {
             drop(d);
             self.events.emit(self.id, UiEvent::RowWidth(row_width));
@@ -433,47 +838,48 @@ impl List {
         self.data.borrow().estimate.map(|h| h as f32)
     }
 
-    /// Hosts a mounted row, in its cell if the row is realised.
-    pub(crate) fn insert(&self, key: RowKey, id: NodeId, host: w::UIElement) {
+    /// Hosts a mounted row, or a table's cell, in its row's cell if the
+    /// row is realised.
+    pub(crate) fn insert(&self, key: RowKey, column: usize, id: NodeId, host: w::UIElement) {
         let mut d = self.data.borrow_mut();
+        d.hosts.insert((key, column), (id, host.clone()));
         if let Some(cell) = d.cells.get(&key).cloned() {
             put_in(&cell, &host);
-            set_height(&cell, d.height(key));
+            place_row(&d, key);
         }
-        d.hosts.insert(key, (id, host));
     }
 
-    pub(crate) fn remove(&self, key: RowKey) {
+    pub(crate) fn remove(&self, key: RowKey, column: usize) {
         let mut d = self.data.borrow_mut();
-        if let Some((_, host)) = d.hosts.remove(&key)
+        if let Some((_, host)) = d.hosts.remove(&(key, column))
             && let Some(cell) = d.cells.get(&key).cloned()
         {
             take_out(&cell, &host);
-            set_height(&cell, d.height(key));
+            place_row(&d, key);
         }
     }
 
-    /// A host's new height: its cell follows, and without the app's
+    /// A host's new height: its row follows (a table's is as high as its
+    /// highest cell, which are centred in it), and without the app's
     /// estimate, the first row measured sets it.
-    pub(crate) fn set_row_height(&self, key: RowKey, height: f32) {
+    pub(crate) fn set_row_height(&self, key: RowKey, column: usize, height: f32) {
         let mut d = self.data.borrow_mut();
         let height = height as f64;
-        d.heights.insert(key, height);
+        d.heights.insert((key, column), height);
         if d.estimate.is_none() && d.learned.is_none() && height > 0.0 {
             d.learned = Some(height);
         }
-        if let Some(cell) = d.cells.get(&key) {
-            set_height(cell, height);
-        }
+        place_row(&d, key);
     }
 
     pub(crate) fn scroll_to(&self, offset: Point) -> R<()> {
         let Some(scroll) = self.scroll_viewer() else { return Ok(()) };
         let element: w::IUIElement = scroll.cast()?;
         element.UpdateLayout()?;
-        scroll.ChangeViewWithOptionalAnimation(None, Some(offset.y as f64), None, true)?;
+        let x = self.is_table().then_some(offset.x as f64);
+        scroll.ChangeViewWithOptionalAnimation(x, Some(offset.y as f64), None, true)?;
         element.UpdateLayout()?;
-        report_offset(&self.events, self.id, &self.offset, &scroll);
+        report_offset(&self.events, self.id, &self.offset, &scroll, self.is_table());
         Ok(())
     }
 
@@ -486,7 +892,7 @@ impl List {
             self.view.cast::<w::IListViewBase>()?.ScrollIntoView(&item)?;
             self.view.cast::<w::IUIElement>()?.UpdateLayout()?;
             if let Some(scroll) = self.scroll_viewer() {
-                report_offset(&self.events, self.id, &self.offset, &scroll);
+                report_offset(&self.events, self.id, &self.offset, &scroll, self.is_table());
             }
         }
         Ok(())
@@ -497,14 +903,14 @@ impl List {
     pub(crate) fn layout(&self) {
         _ = self.view.cast::<w::IUIElement>().and_then(|e| e.UpdateLayout());
         if let Some(scroll) = self.scroll_viewer() {
-            report_offset(&self.events, self.id, &self.offset, &scroll);
+            report_offset(&self.events, self.id, &self.offset, &scroll, self.is_table());
         }
         report(&self.data, &self.events, self.id);
     }
 
     pub(crate) fn scroll_offset(&self) -> Point {
         let Some(scroll) = self.scroll_viewer() else { return Point::ZERO };
-        Point::new(0.0, scroll.VerticalOffset().unwrap_or(0.0) as f32)
+        offset_of(&scroll, self.is_table())
     }
 
     /// Where the view put a row: its host's position in the scroll
@@ -512,17 +918,29 @@ impl List {
     /// not the view: XAML applies a scroll at its next layout, so right
     /// after one the view's transform and the offset disagree.
     pub(crate) fn row_rect(&self, host: &w::UIElement, size: Rect) -> Rect {
-        let placed = (|| {
-            let content = self.scroll_viewer()?.cast::<w::IContentControl>().ok()?.Content().ok()?;
-            let content: w::UIElement = content.cast().ok()?;
-            let point = host.cast::<w::IUIElement>().ok()?.TransformToVisual(&content).ok()?;
-            let point = point.cast::<w::IGeneralTransform>().ok()?.TransformPoint(w::Point { x: 0.0, y: 0.0 }).ok()?;
-            Some(point.y)
-        })();
+        let placed = self.placed(host);
         match placed {
-            Some(y) => Rect::new(0.0, y, size.width(), size.height()),
+            Some(y) => Rect::new(0.0, y.1, size.width(), size.height()),
             None => size,
         }
+    }
+
+    /// Where the table put a cell's host: its place in the scroll viewer's
+    /// content, below the header, at the host's size.
+    pub(crate) fn cell_rect(&self, host: &w::UIElement, size: Rect) -> Rect {
+        match self.placed(host) {
+            Some((x, y)) => Rect::new(x, y + HEADER_HEIGHT as f32, size.width(), size.height()),
+            None => size,
+        }
+    }
+
+    /// A host's position in the scroll viewer's content.
+    fn placed(&self, host: &w::UIElement) -> Option<(f32, f32)> {
+        let content = self.scroll_viewer()?.cast::<w::IContentControl>().ok()?.Content().ok()?;
+        let content: w::UIElement = content.cast().ok()?;
+        let point = host.cast::<w::IUIElement>().ok()?.TransformToVisual(&content).ok()?;
+        let point = point.cast::<w::IGeneralTransform>().ok()?.TransformPoint(w::Point { x: 0.0, y: 0.0 }).ok()?;
+        Some((point.x, point.y))
     }
 
     pub(crate) fn rows(&self) -> Vec<RowKey> {
@@ -531,11 +949,11 @@ impl List {
         d.items.iter().take(count).filter_map(key_of).collect()
     }
 
-    /// The hosted rows, in row order.
+    /// The hosted rows (a table's cells), in row order, then column order.
     pub(crate) fn children(&self) -> Vec<NodeId> {
         let d = self.data.borrow();
-        let mut hosts: Vec<(usize, NodeId)> =
-            d.hosts.iter().filter_map(|(key, (id, _))| Some((*d.index.get(key)?, *id))).collect();
+        let mut hosts: Vec<((usize, usize), NodeId)> =
+            d.hosts.iter().filter_map(|((key, column), (id, _))| Some(((*d.index.get(key)?, *column), *id))).collect();
         hosts.sort();
         hosts.into_iter().map(|(_, id)| id).collect()
     }
@@ -568,10 +986,16 @@ impl List {
     }
 }
 
+/// How far a list is scrolled: down, and a table's also sideways.
+fn offset_of(scroll: &w::IScrollViewer, sideways: bool) -> Point {
+    let x = if sideways { scroll.HorizontalOffset().unwrap_or(0.0) as f32 } else { 0.0 };
+    Point::new(x, scroll.VerticalOffset().unwrap_or(0.0) as f32)
+}
+
 /// Reports a scroll offset once per change: XAML's `ViewChanged` arrives
 /// after the change we made and reported.
-fn report_offset(events: &Events, id: NodeId, last: &Cell<Point>, scroll: &w::IScrollViewer) {
-    let offset = Point::new(0.0, scroll.VerticalOffset().unwrap_or(0.0) as f32);
+fn report_offset(events: &Events, id: NodeId, last: &Cell<Point>, scroll: &w::IScrollViewer, sideways: bool) {
+    let offset = offset_of(scroll, sideways);
     if last.replace(offset) != offset {
         events.emit(id, UiEvent::Scrolled(offset));
     }
@@ -625,8 +1049,10 @@ fn find_scroll_viewer(root: &w::DependencyObject) -> Option<w::IScrollViewer> {
 
 /// A container lets go of a row: its host leaves the cell.
 fn release(d: &mut Data, key: RowKey, cell: &w::Canvas) {
-    if let Some((_, host)) = d.hosts.get(&key) {
-        take_out(cell, host);
+    for ((row, _), (_, host)) in &d.hosts {
+        if *row == key {
+            take_out(cell, host);
+        }
     }
     if d.cells.get(&key) == Some(cell) {
         d.cells.remove(&key);

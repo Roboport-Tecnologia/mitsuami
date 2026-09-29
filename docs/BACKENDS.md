@@ -97,6 +97,7 @@ Validate as you go. Panic on protocol violations such as an unknown node, a doub
 | `RadioGroup` | `NSStackView` (vertical) of radio `NSButton`s with one target and action | vertical `gtk::Box` (`RadioGroup` role) of `gtk::CheckButton`s in one group | `RadioButtons` of strings | `ColumnLayout` of `QQC2.RadioButton`s (`autoExclusive`) |
 | `ScrollView` | `NSScrollView` | `gtk::ScrolledWindow` | `ScrollViewer` | `QQC2.ScrollView` around a `Flickable` |
 | `List` (§10) | view-based `NSTableView` in an `NSScrollView` | `gtk::ListView` over a `gio::ListStore` of keys | `ListView` over the keys (boxed strings), with `Canvas` cells | QML `ListView` over the keys, with `QQC2.ItemDelegate`s |
+| `Table` (§10.1) | view-based `NSTableView` with a column per `ColumnData` and its header, in an `NSScrollView` | `gtk::ColumnView` over a `gio::ListStore` of keys, a `ColumnViewColumn` per column | `ListView` over the keys under a header row of column buttons (WinUI has no table), each item a `Canvas` of cells at the columns' widths | QML `TableView` over the keys under a `HorizontalHeaderView` |
 | `Group` | a layout host with an `NSBox` behind its children (the title inside at the top) | a layout host with a `heading` label and a libadwaita `card` under it behind its children | a `Canvas` with a `BodyStrongTextBlockStyle` heading and a card `Border` under it behind its children | a host with a `QQC2.GroupBox` behind the item its children go in |
 | `Custom` (native render) | the render's view (`NativeRender`) | the render's widget | the render's element, in a `Border` | the render's item |
 | `Custom` (drawn) | `DrawnView`: flipped `NSView` that rasterizes the display list | a `gtk::DrawingArea` rasterized with Cairo | a `Canvas` of XAML `Path`s (markup through `XamlReader::Load`, theme brushes) | a `QQuickPaintedItem` painted with `QPainter` |
@@ -187,6 +188,9 @@ A prop the app didn't give isn't sent ("sent only if the app chose"), so the pla
 | `Rows` | List | The rows' keys, in order (§10). |
 | `EstimatedRowHeight` | List | How high rows are likely to be, for platforms that size rows before showing them. |
 | `Row` | Container | This container is the host of that row of its `List`. |
+| `Columns` | Table | The columns, in order: each one's title, the width it starts at (`None`: the platform's default), whether it takes the room left (`expand`) and whether its header sorts (`sortable`). Report it back as sent: widths change as the user resizes, and are reported with `ColumnWidths`. |
+| `Sort` | Table | The column the table is sorted by and which way, or none: show it in the header, the platform's way (AppKit's indicator image, GTK's sorter arrow, Qt's and WinUI's header glyph). Setting it must not report `Changed(Sort)`. |
+| `Cell` | Container | This container is the host of that cell (row and column) of its `Table`. |
 | `SelectionMode` | List | None, Single or Multiple. It can change while the list shows: keep what the platform keeps of the selection, never more than the new mode holds (none, or one row), and **report `Changed(Rows)`** if rows were let go. |
 | `Selected` | List | The selected rows. |
 | `ListStyle` | List | Automatic, Plain or Framed. Automatic draws as Plain. Report back what was sent: no toolkit tells Automatic from Plain. |
@@ -240,7 +244,8 @@ Native callbacks **only** call `events.emit(id, event)` on the `EventSink` given
 | `Changed(Bool)` | the user toggles a checkbox, switch or toggle button | the core set `Checked`. **GTK `toggled`/`notify::active` and WinUI `Checked`/`Unchecked`/`Toggled` fire on programmatic sets.** Qt's `toggled` is the user's only (`checkedChanged` is anyone's). |
 | `Changed(Number)` | the user (or assistive technology) moves a slider, or steps a spin box or commits a number typed into it (Return, or leaving the field: not every keystroke), rounded to a whole number and kept in its range | the core set `Number` or `Range`. **GTK `value-changed` and WinUI `ValueChanged` fire on programmatic sets and clamps.** Qt's `moved` is the user's only. |
 | `Changed(Index)` | the user (or assistive technology) chooses a select's option, a radio group's option, a sidebar's item, or a tab | the core set `SelectedIndex`, `Options` or `TabTitles`, or pages came or went; or the user clicked the radio button already chosen. **GTK `notify::selected`, `switch-page` and `toggled`, and WinUI `SelectionChanged` fire on programmatic sets.** **AppKit sends a radio button's action again on a click on the chosen one.** Qt's `activated` and `toggled` are the user's only (`currentIndexChanged` and `checkedChanged` are anyone's). |
-| `Changed(Rows)` | the user (or assistive technology) changes a `List`'s selection, including rows deselected because they were removed or the `SelectionMode` can't hold them | the core set `Selected` |
+| `Changed(Sort)` | the user (or assistive technology) presses a sortable column's header of a `Table`: sort as the platform does (the same column the other way round, another one ascending), show it, and report the new sort | the core set `Sort` |
+| `Changed(Rows)` | the user (or assistive technology) changes a `List`'s or `Table`'s selection, including rows deselected because they were removed or the `SelectionMode` can't hold them | the core set `Selected` |
 | `Submit` | **Return/Enter** in a text or password field (GTK `activate`; WinUI `KeyDown` with `Enter`). Never from a text area, where Return starts a new line. | editing ends in other ways: Tab, a click elsewhere, focus loss. AppKit's field action does fire then; that was a real bug. |
 | `Search(text)` | a search field asks for a search, with the platform's timing: its signal once typing pauses (AppKit's action, GTK `search-changed`, Kirigami `accepted`) or at once (WinUI `TextChanged`), on Return (AppKit's action, GTK `activate`, Kirigami `accepted`, WinUI `QuerySubmitted`), and when cleared. After `Changed(Text)` when both come | the core set the text. **GTK's `search-changed` and Kirigami's `accepted` fire for programmatic sets**, after their delay: report one only after a user edit, on Return, or on clearing. |
 | `FocusIn` / `FocusOut` | keyboard focus moves, **from any source** (click, Tab, code): out for the old control first, then in for the new | |
@@ -249,6 +254,7 @@ Native callbacks **only** call `events.emit(id, event)` on the `EventSink` given
 | `RowHidden(key)` | a `List` lets go of a row it had shown | a reload shows it again right away: report only the difference |
 | `RowActivated(key)` | a `List` row is double-clicked, or Enter is pressed on it | |
 | `RowWidth(width)` | a `List` gives its rows a width other than its own (legacy scroll bars, insets, a frame): once it's known, and when it changes | |
+| `ColumnWidths(widths)` | a `Table`'s columns give their cells new widths, in column order: once they're known, and whenever they change (the user resized a column, the table was resized and a column that expands took the room) | they didn't change |
 | `WindowResized(size)` | the window's content area changes size (report the content size, without any menu bar or toolbar you placed in the window) | |
 | `WindowCloseRequested` | the user asks to close a window. **Don't close it**: the app decides, and the core sends `Destroy`. | |
 | `FullScreenChanged(on)` | the user puts a window in full screen or takes it out, the platform's way (AppKit's title bar button, the window manager's key), or the platform refuses the app's `FullScreen` | the core set `FullScreen`, even once the platform applies it later. **GTK's `notify::fullscreened`, Qt's `windowStateChanged` and WinUI's `AppWindow.Changed` fire for the app's own**: compare with what the app asked for. |
@@ -318,7 +324,8 @@ These make one test suite run against every backend.
   - on a tab view: show the page of its first tab with that title, as a click on the tab does, and report `Changed(Index)` if it wasn't shown; `Unsupported` if there's none.
 - `Increment` / `Decrement` on a slider: step it as the platform's accessibility or keyboard does (VoiceOver's increment, a GTK step, UIA RangeValue by `SmallChange`, Qt's `increase()` and `moved`), which reports `Changed(Number)`. On a `NumberInput`, do what its buttons do (VoiceOver's increment on the stepper, GTK's `spin`, UIA RangeValue by `SmallChange`, Qt's `increase()` and `valueModified`).
 - `Focus`: move keyboard focus to the control. On a sidebar, to its list (its selected item, where items take focus); on a radio group, its chosen button, or its first, as Tab does; on a tab view, its tab strip (its selected tab).
-- `Select` on a `List`'s row host: select that row (the only selected one), as a screen reader's select does, and report `Changed(Rows)` on the `List`. `Unsupported` if the list's `SelectionMode` is None. `Activate` on a row host: report `RowActivated` on the `List`.
+- `Select` on a `List`'s row host, or a `Table`'s cell host: select that row (the only selected one), as a screen reader's select does, and report `Changed(Rows)` on the list. `Unsupported` if the list's `SelectionMode` is None. `Activate` on a row or cell host: report `RowActivated` on the list.
+- `PressHeader(column)` on a `Table`: press that column's header as a click does, which sorts by it and reports `Changed(Sort)`. `Unsupported` if the column isn't sortable.
 - `ContextMenuItem(id)`: choose that item of the node's context menu, as a screen reader does once it has shown the menu, through the item's own path (AppKit's `performActionForItemAtIndex:`), which reports `ContextMenuItem(id)`. Never open the menu. `Disabled` for a disabled item or control (disabled controls show no menu), `Unsupported` if there's no such item. The test kit finds the node the way a right-click would: the nearest one up the tree with a menu.
 - `MenuItem(id)` on a menu button: choose that item of its menu as `ContextMenuItem` does, reporting `MenuItem(id)`, without opening the menu. `Activate` on it is `Unsupported`: pressing it opens the menu, which is modal.
 - `ScrollIntoView`: the core does it (it knows where everything is), so accept it and do nothing.
@@ -432,6 +439,19 @@ A `List` is the platform's list control, and the platform virtualises it: it scr
 - **Focus:** the `List` itself takes focus (it's in the Tab order), as the native control does.
 
 ARCHITECTURE.md §13.22 has each platform's list.
+
+### 10.1 Tables
+
+A `Table` is a list whose rows are cells under column headers: everything in §10 holds (rows, selection, activation, keys, scrolling, `ListStyle`, `EstimatedRowHeight`), with cells in place of row hosts.
+
+- **Columns are `Prop::Columns`.** Make one native column per entry, titled, at its width (or your default), resizable by the user as your tables' are; the ones that `expand` share the room the table has past the others' widths, as your platform shares it. A sortable column's header sorts when pressed (the others' don't). Columns come before rows, and may come again: rebuild them, keeping the rows.
+- **Report `ColumnWidths`:** the width each column gives its cells' content, less your own padding between cells, once known and whenever it changes. The core lays each cell out at its column's width.
+- **Cells:** for each row you realise (`RowShown`), the core mounts a host per column, a `Container` with `Prop::Cell { row, column }`, inserted as the table's native children in row order, then column order. Put each in its native cell; its `SetFrame` is its size (the column's width, its content's height), at origin 0. **Make a row as high as its highest cell, and at least your platform's row height**, and centre each cell's host in its row's height, as your tables centre a cell's content. Keep a cell's parts (padding, a selection highlight) the platform's.
+- **Sorting is the app's.** Show `Prop::Sort` in the header; when the user presses a sortable header, sort as the platform does (the same column the other way round, another ascending, unless your platform starts some columns descending), show it, and report `Changed(Sort)`. Never reorder rows yourself: the app sends new `Rows`.
+- **`native_state` of a cell host** reports the rect the platform gave its content, in the table's content: below the header, in the table's unscrolled coordinates (with its `scroll_offset` as the table's content scrolled from where its rows start, 0 at the top, however your scroll view insets the rows under the header). The table reports its `Columns` as sent and its `Sort` as the header shows it, besides a list's props.
+- **Scrolling:** a table's columns can be wider than it, so it scrolls sideways too.
+
+ARCHITECTURE.md §13.27 has each platform's table.
 
 ## 11. Window chrome: toolbars, sidebars and tab views
 

@@ -3,7 +3,7 @@
 use std::rc::Rc;
 
 use mitsuami_core::reactive::{IntoValue, Value};
-use mitsuami_core::{List, Opaque, Tweak};
+use mitsuami_core::{List, Opaque, Table, Tweak};
 use mitsuami_widgets::{
     Button, Checkbox, Group, Icon, Image, MenuButton, NumberInput, PasswordInput, Progress, RadioGroup, ScrollView,
     SearchInput, Select, Separator, Slider, Spinner, Switch, Text, TextArea, TextInput, ToggleButton,
@@ -79,6 +79,10 @@ impl Tweakable for ScrollView {}
 
 /// A QML `ListView`, in a `QQC2.ScrollView` (its parent's parent).
 impl Tweakable for List {}
+
+/// A QML `TableView`, in a `QQC2.ScrollView` under a
+/// `QQC2.HorizontalHeaderView` (in their parent's parent).
+impl Tweakable for Table {}
 
 /// A `QQC2.Label`.
 impl Tweakable for Text {}

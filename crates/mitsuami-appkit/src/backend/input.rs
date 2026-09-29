@@ -7,7 +7,7 @@ use objc2::{msg_send, sel};
 use objc2_app_kit::{
     NSEvent, NSEventModifierFlags, NSEventType, NSStandardKeyBindingResponding, NSTextField, NSTextView, NSView,
 };
-use objc2_foundation::{NSPoint, NSRange};
+use objc2_foundation::{NSPoint, NSRange, NSSize};
 
 use super::scrolling::scroll_to;
 use super::{AppKitBackend, Widget, ns};
@@ -70,19 +70,25 @@ impl AppKitBackend {
         if let SyntheticInput::Scroll { dx, dy } = input {
             let (scroll, axes) = match self.state.borrow().nodes.get(&id).map(|n| (&n.widget, n.scroll_axes)) {
                 Some((Widget::Scroll(scroll), axes)) => (scroll.clone(), axes),
-                Some((Widget::List(list), _)) => (list.scroll.clone(), ScrollAxes::Vertical),
+                Some((Widget::List(list), _)) => {
+                    let axes =
+                        if list.scroll.hasHorizontalScroller() { ScrollAxes::Both } else { ScrollAxes::Vertical };
+                    (list.scroll.clone(), axes)
+                }
                 Some(_) => return Err(ActionError::Unsupported),
                 None => return Err(ActionError::UnknownNode),
             };
             let clip = scroll.contentView();
-            let visible = clip.bounds();
-            let content = scroll.documentView().map_or(visible.size, |d| d.frame().size);
+            // What shows below a table's header.
+            let (start, insets) = (crate::classes::scrolled(&clip), clip.contentInsets());
+            let visible = NSSize::new(clip.bounds().size.width - insets.left, clip.bounds().size.height - insets.top);
+            let content = scroll.documentView().map_or(visible, |d| d.frame().size);
             let clamp = |v: f64, content: f64, visible: f64, on: bool| {
                 if on { v.clamp(0.0, (content - visible).max(0.0)) } else { 0.0 }
             };
             let origin = NSPoint::new(
-                clamp(visible.origin.x + *dx as f64, content.width, visible.size.width, axes.horizontal()),
-                clamp(visible.origin.y + *dy as f64, content.height, visible.size.height, axes.vertical()),
+                clamp(start.x + *dx as f64, content.width, visible.width, axes.horizontal()),
+                clamp(start.y + *dy as f64, content.height, visible.height, axes.vertical()),
             );
             scroll_to(&scroll, origin);
             return Ok(());

@@ -81,6 +81,20 @@ impl KirigamiBackend {
                 window.click(widget_item.map_to_scene(*point));
                 Ok(())
             }
+            // A table's content starts at its origin too, and scrolls
+            // sideways.
+            SyntheticInput::Scroll { dx, dy } if kind == WidgetKind::Table => {
+                let view = widget_item;
+                for (offset, origin, content, size, by) in [
+                    ("contentX", "originX", "contentWidth", "width", *dx),
+                    ("contentY", "originY", "contentHeight", "height", *dy),
+                ] {
+                    let (origin, max) = (view.real(origin), (view.real(content) - view.real(size)).max(0.0));
+                    let at = (view.real(offset) - origin + by as f64).clamp(0.0, max);
+                    view.set_real(offset, at + origin);
+                }
+                Ok(())
+            }
             SyntheticInput::Scroll { dy, .. } if kind == WidgetKind::List => {
                 // `ListView`'s content starts at `originY`.
                 let view = widget_item;
@@ -113,7 +127,7 @@ impl KirigamiBackend {
             SyntheticInput::Key(key) => match (kind, key) {
                 // Real key events, through the list view's own keyboard
                 // navigation (and ours for Home, End and Return).
-                (WidgetKind::List, Key::Up | Key::Down | Key::Home | Key::End | Key::Enter) => {
+                (WidgetKind::List | WidgetKind::Table, Key::Up | Key::Down | Key::Home | Key::End | Key::Enter) => {
                     let window = window.ok_or(ActionError::Unsupported)?;
                     if self
                         .state

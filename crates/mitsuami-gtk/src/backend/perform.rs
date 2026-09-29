@@ -56,6 +56,10 @@ impl GtkBackend {
                 }
                 return Ok(());
             }
+            if let (A11yAction::PressHeader(column), Widget::List(list)) = (action, &node.widget) {
+                state.lists_dirty.set(true);
+                return if list.press_header(*column) { Ok(()) } else { Err(ActionError::Unsupported) };
+            }
             if let (A11yAction::Focus, Widget::List(list)) = (action, &node.widget) {
                 return if list.view.grab_focus() { Ok(()) } else { Err(ActionError::Unsupported) };
             }

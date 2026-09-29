@@ -43,6 +43,7 @@ impl HeadlessBackend {
                             placed: Vec::new(),
                             placed_index: Default::default(),
                             heights: BTreeMap::new(),
+                            column_widths: Vec::new(),
                             surface: None,
                             windowed: None,
                             restored: None,
@@ -172,8 +173,8 @@ impl HeadlessBackend {
                     state.focus(*id);
                 }
                 Command::ScrollToRow { id, row } => {
-                    if state.node(*id, command).kind != WidgetKind::List {
-                        violation(command, "not a List");
+                    if !state.node(*id, command).kind.has_rows() {
+                        violation(command, "not a List or Table");
                     }
                     state.place_rows(*id);
                     state.reveal(*id, *row);
@@ -182,9 +183,11 @@ impl HeadlessBackend {
         }
         if let Some(last) = batch.last() {
             // New data, sizes or rows: what's in view may have changed.
-            let lists: Vec<NodeId> =
-                state.nodes.iter().filter(|(_, n)| n.kind == WidgetKind::List).map(|(id, _)| *id).collect();
+            let lists: Vec<NodeId> = state.nodes.iter().filter(|(_, n)| n.kind.has_rows()).map(|(id, _)| *id).collect();
             for list in &lists {
+                if state.nodes[list].kind == WidgetKind::Table {
+                    state.size_columns(*list);
+                }
                 state.place_rows(*list);
             }
             state.check_lists(last);

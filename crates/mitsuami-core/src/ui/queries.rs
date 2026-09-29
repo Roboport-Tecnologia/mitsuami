@@ -134,7 +134,7 @@ impl Inner {
         Some(self.nodes.get(&id)?.native_parent.map_or(Point::ZERO, |p| self.content_origin(p)))
     }
 
-    /// A node's frame in its native parent. A list's rows and a window's
+    /// A node's frame in its native parent. A list's rows, a table's cells and a window's
     /// toolbar items are where the platform placed them (as its
     /// `native_state` says), at the size the core sent; toolbar items the
     /// platform hides are empty. A window's sidebar is where the platform
@@ -143,7 +143,9 @@ impl Inner {
     pub(super) fn placed_frame(&self, id: NodeId) -> Rect {
         let node = &self.nodes[&id];
         let placed_natively = in_chrome(node.kind)
-            || node.native_parent.is_some_and(|p| matches!(self.nodes[&p].kind, WidgetKind::List | WidgetKind::Tabs));
+            || node.native_parent.is_some_and(|p| {
+                matches!(self.nodes[&p].kind, WidgetKind::List | WidgetKind::Table | WidgetKind::Tabs)
+            });
         if !placed_natively {
             return node.frame;
         }

@@ -68,6 +68,14 @@ impl HeadlessBackend {
                         mitsuami_core::ScrollAxes::Vertical,
                         Size::new(node.frame.width(), state.rows(id).iter().map(|r| r.height).sum()),
                     ),
+                    // Below its header, and as wide as its columns.
+                    WidgetKind::Table => (
+                        mitsuami_core::ScrollAxes::Both,
+                        Size::new(
+                            node.column_widths.iter().map(|w| w + super::metrics::COLUMN_SPACING).sum(),
+                            state.rows(id).iter().map(|r| r.height).sum::<f32>() + super::metrics::TABLE_HEADER_HEIGHT,
+                        ),
+                    ),
                     _ => (
                         find_prop!(node.props, ScrollAxes).unwrap_or_default(),
                         node.children.first().map_or(Size::ZERO, |c| state.nodes[c].frame.size),
@@ -134,7 +142,7 @@ impl HeadlessBackend {
             }
             // Arrows, Home and End move the selection (from the first
             // selected row) and show it; Enter activates it.
-            (WidgetKind::List, Key::Up | Key::Down | Key::Home | Key::End | Key::Enter) => {
+            (WidgetKind::List | WidgetKind::Table, Key::Up | Key::Down | Key::Home | Key::End | Key::Enter) => {
                 if find_prop!(state.nodes[&id].props, SelectionMode).unwrap_or_default() == SelectionMode::None {
                     return Err(ActionError::Unsupported);
                 }

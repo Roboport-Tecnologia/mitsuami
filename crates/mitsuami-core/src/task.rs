@@ -3,6 +3,8 @@
 //!
 //! - [`spawn_local`] runs a future on the UI thread. It is owned by the
 //!   current reactive scope and cancelled when that scope is disposed.
+//!   Stores' actions use [`Store::spawn`](crate::Store::spawn), which runs
+//!   it in the store's scope.
 //! - [`spawn_blocking`] runs a closure on a background thread and resolves
 //!   (on the UI thread) with its result.
 //! - [`sleep`] waits on the `Ui`'s clock: real time in apps, a manual clock in
@@ -258,7 +260,9 @@ pub(crate) fn current_ui() -> Ui {
 }
 
 /// Runs `future` on the UI thread. It is cancelled when the current reactive
-/// scope (e.g. the component that started it) is disposed.
+/// scope (e.g. the component that started it) is disposed. A store's action
+/// is called in its caller's scope: it spawns with
+/// [`Store::spawn`](crate::Store::spawn) instead.
 pub fn spawn_local(future: impl Future<Output = ()> + 'static) -> TaskHandle {
     let handle = current_ui().spawn_in(future, Owner::current());
     let cancel = handle.clone();

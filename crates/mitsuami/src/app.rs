@@ -13,7 +13,7 @@ struct WindowSpec {
 /// A window opened at startup.
 enum Startup {
     Spec(WindowSpec),
-    View(Window),
+    View(Box<dyn FnOnce() -> Window>),
 }
 
 /// An application: who it is, its windows and how to start it.
@@ -79,8 +79,19 @@ impl App {
     /// size or a title that changes. As any `Window`'s, its close button
     /// does nothing unless it's bound (`bind`) or handled
     /// (`on_close_request`).
-    pub fn open(mut self, window: Window) -> App {
-        self.windows.push(Startup::View(window));
+    ///
+    /// `window` makes it in the app scope, once the app has started, so
+    /// it can use stores and signals made there live as long as the app:
+    ///
+    /// ```ignore
+    /// App::new().open(|| {
+    ///     let browser = use_store::<Browser>();
+    ///     let open = signal(true);
+    ///     Window::new(move || browser.title()).bind(open).content(Finder::new)
+    /// })
+    /// ```
+    pub fn open(mut self, window: impl FnOnce() -> Window + 'static) -> App {
+        self.windows.push(Startup::View(Box::new(window)));
         self
     }
 
@@ -99,9 +110,10 @@ impl App {
             for window in windows {
                 match window {
                     Startup::Spec(spec) => open(ui, app, spec),
-                    // Built in the app scope; its placeholder is in no tree.
+                    // Made and built in the app scope; its placeholder is in
+                    // no tree.
                     Startup::View(window) => {
-                        app.with(|| window.build(ui));
+                        app.with(|| window().build(ui));
                     }
                 }
             }

@@ -89,7 +89,7 @@ mitsuami-test = { version = "0.0.1", features = ["kde"] }
 Built-in widgets: `Text`, `Button`, `ToggleButton`, `TextInput`,
 `PasswordInput`, `SearchInput`, `TextArea`, `Checkbox`, `Switch`,
 `RadioGroup`, `Slider`, `NumberInput`, `Select`, `Progress`, `Spinner`,
-`Separator`, `Image`, `Icon`, `ScrollView`, `List` (virtualised), `Group`,
+`Separator`, `Image`, `Icon`, `ScrollView`, `List` and `Table` (virtualised), `Group`,
 `Sidebar`, `Tabs`, `Toolbar`, `MenuButton`, menus, context menus, tooltips,
 windows and dialogs. [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md) §13
 lists the native control each one is on every platform.
@@ -107,8 +107,8 @@ The others in [`crates/mitsuami/examples`](crates/mitsuami/examples) run the
 same way: `checkbox`, `context_menu`, `file_drop`, `group`, `icon`, `image`,
 `list`, `measurements`, `menu_button`, `menus`, `number_input`,
 `password_input`, `progress`, `radio_group`, `scroll_view`, `search_input`,
-`select`, `separator`, `sidebar`, `slider`, `spinner`, `switch`, `tabs`,
-`text`, `text_area`, `text_input`, `toolbar`, `tooltip`, `windows`.
+`select`, `separator`, `sidebar`, `slider`, `spinner`, `switch`, `table`,
+`tabs`, `text`, `text_area`, `text_input`, `toolbar`, `tooltip`, `windows`.
 
 Whole apps:
 

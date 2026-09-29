@@ -2,7 +2,7 @@
 
 use crate::a11y::{A11yNode, Role};
 use crate::geometry::{Point, Rect};
-use crate::widget::{NodeId, WidgetKind};
+use crate::widget::{NodeId, RowKey, WidgetKind};
 
 use super::{Inner, Ui};
 
@@ -48,16 +48,23 @@ impl Inner {
         if node.kind == WidgetKind::RadioGroup {
             children = self.radio_buttons(id, frame);
         }
+        // A table's headers, then its cells in rows.
+        if node.kind == WidgetKind::Table {
+            children = self.table_children(id, frame, children);
+        }
 
         let labelled = a11y.label.is_some() || a11y.labelled_by.is_some();
         let row = crate::find_prop!(node.props, Row);
+        let cell = crate::find_prop!(node.props, Cell);
         let role = a11y.role.unwrap_or(match node.kind {
             WidgetKind::Window => Role::Window,
             WidgetKind::Container if row.is_some() => Role::ListItem,
+            WidgetKind::Container if cell.is_some() => Role::Cell,
             WidgetKind::Container if labelled => Role::Group,
             WidgetKind::Container | WidgetKind::ToolbarItem | WidgetKind::Fragment => Role::None,
             WidgetKind::ScrollView => Role::ScrollArea,
             WidgetKind::List | WidgetKind::Sidebar => Role::List,
+            WidgetKind::Table => Role::Table,
             WidgetKind::Tabs => Role::TabGroup,
             // Named by its heading, as a fieldset by its legend.
             WidgetKind::Group => Role::Group,
@@ -110,16 +117,9 @@ impl Inner {
                 WidgetKind::TextInput | WidgetKind::PasswordInput | WidgetKind::SearchInput | WidgetKind::TextArea => {
                     crate::find_prop!(props, Placeholder)
                 }
-                // Rows read as their text, as screen readers read native rows.
-                WidgetKind::Container if row.is_some() => {
-                    let texts: Vec<&str> = children
-                        .iter()
-                        .flat_map(|c| c.walk())
-                        .filter(|n| n.role == Role::StaticText)
-                        .filter_map(|n| n.name.as_deref())
-                        .collect();
-                    (!texts.is_empty()).then(|| texts.join(" "))
-                }
+                // Rows and cells read as their text, as screen readers read
+                // native rows and cells.
+                WidgetKind::Container if row.is_some() || cell.is_some() => text_in(&children),
                 _ => None,
             });
         let selected = row.map(|key| {
@@ -228,6 +228,56 @@ impl Inner {
             .collect()
     }
 
+    /// A table's column headers, which are its data, not nodes (named by
+    /// their titles, the sorted one's value its order), then its rows:
+    /// its cells, grouped by row. A row stands for its first cell, which
+    /// assistive technology selects the row through.
+    fn table_children(&self, id: NodeId, frame: Rect, cells: Vec<A11yNode>) -> Vec<A11yNode> {
+        let props = &self.nodes[&id].props;
+        let sort = crate::find_prop!(props, Sort).flatten();
+        let selected = crate::find_prop!(props, Selected).unwrap_or_default();
+        let node = |id, role, name: Option<String>, value, selected, frame, children| A11yNode {
+            id,
+            role,
+            name,
+            description: None,
+            value,
+            checked: None,
+            mixed: false,
+            read_only: false,
+            password: false,
+            selected,
+            enabled: true,
+            test_id: None,
+            frame,
+            children,
+        };
+        let columns = crate::find_prop!(props, Columns).unwrap_or_default();
+        let mut out: Vec<A11yNode> = columns
+            .into_iter()
+            .enumerate()
+            .map(|(index, column)| {
+                let order = sort.filter(|s| s.column == index).map(|s| format!("{:?}", s.order));
+                node(id, Role::ColumnHeader, Some(column.title), order, None, frame, Vec::new())
+            })
+            .collect();
+        let mut rows: Vec<(RowKey, Vec<A11yNode>)> = Vec::new();
+        for cell in cells {
+            let Some(key) = crate::find_prop!(self.nodes[&cell.id].props, Cell).map(|c| c.row) else { continue };
+            match rows.last_mut() {
+                Some((last, cells)) if *last == key => cells.push(cell),
+                _ => rows.push((key, vec![cell])),
+            }
+        }
+        out.extend(rows.into_iter().map(|(key, cells)| {
+            let frame = cells.iter().map(|c| c.frame).reduce(|a, b| a.union(&b)).unwrap_or_default();
+            let name = cells.iter().filter_map(|c| c.name.as_deref()).collect::<Vec<_>>().join(" ");
+            let name = (!name.is_empty()).then_some(name);
+            node(cells[0].id, Role::Row, name, None, Some(selected.contains(&key)), frame, cells)
+        }));
+        out
+    }
+
     /// A sidebar's items, which are its data, not nodes: list items named
     /// by their titles, under a heading for each titled section. They
     /// stand for the sidebar, where assistive technology acts on them.
@@ -261,4 +311,15 @@ impl Inner {
         }
         out
     }
+}
+
+/// The text in these nodes, joined, as screen readers read a row or cell.
+fn text_in(children: &[A11yNode]) -> Option<String> {
+    let texts: Vec<&str> = children
+        .iter()
+        .flat_map(|c| c.walk())
+        .filter(|n| n.role == Role::StaticText)
+        .filter_map(|n| n.name.as_deref())
+        .collect();
+    (!texts.is_empty()).then(|| texts.join(" "))
 }

@@ -104,6 +104,15 @@ impl Inner {
                     style.align_self.get_or_insert(taffy::AlignSelf::START);
                 }
             }
+            // Text cut off at a line limit shrinks to fit, as a label that
+            // ellipsizes does on every platform. Flex's automatic minimum
+            // would be its longest word, a whole path say.
+            if node.kind == WidgetKind::Text
+                && crate::find_prop!(node.props, MaxLines).flatten().is_some()
+                && style.min_size.width == taffy::LengthPercentageAuto::auto()
+            {
+                style.min_size.width = taffy::LengthPercentageAuto::length(0.0);
+            }
             if node.kind == WidgetKind::Window {
                 style.size = taffy::Size {
                     width: taffy::Dimension::length(node.window_size.width),

@@ -73,27 +73,27 @@ fn composed(widget: Composed<PathBar>) -> impl View {
             (hidden, shown)
         }
     };
-    let (hidden, shown) = (split.clone(), split);
+    let (has_hidden, hidden, shown) = (split.clone(), split.clone(), split);
     let (more, crumb) = (widget.clone(), widget);
     Row::new().a11y_label(label).align(Align::Center).min_width(0).children((
-        // A menu button's items are built with it, so it's built again when
-        // they change: keyed by them, one or none.
-        For::new(
-            move || Some(hidden().0).filter(|h| !h.is_empty()).into_iter().collect::<Vec<_>>(),
-            Vec::clone,
-            move |hidden: Vec<PathBuf>| {
-                let items: Vec<MenuItem> = hidden
-                    .into_iter()
-                    .map(|folder| {
-                        let widget = more.clone();
-                        MenuItem::new(name(&folder))
-                            .on_select(move || widget.emit(PathBarEvent::Chosen(folder.clone())))
-                    })
-                    .collect();
+        Show::new(
+            move || !has_hidden().0.is_empty(),
+            move || {
+                let (hidden, more) = (hidden.clone(), more.clone());
+                let items = move || {
+                    let folders = hidden().0.into_iter();
+                    folders
+                        .map(|folder| {
+                            let widget = more.clone();
+                            MenuItem::new(name(&folder))
+                                .on_select(move || widget.emit(PathBarEvent::Chosen(folder.clone())))
+                        })
+                        .collect::<Vec<_>>()
+                };
                 MenuButton::new("\u{2026}")
                     .a11y_label("Folders above")
                     .button_style(ButtonStyle::Borderless)
-                    .menu(items)
+                    .menu_with(items)
             },
         ),
         For::new(
@@ -111,12 +111,12 @@ fn composed(widget: Composed<PathBar>) -> impl View {
                 };
                 let button = move || {
                     let (widget, folder) = (widget.clone(), folder.clone());
-                    Row::new().align(Align::Center).children((
+                    (
                         Button::new(name(&folder))
                             .button_style(ButtonStyle::Borderless)
                             .on_click(move || widget.emit(PathBarEvent::Chosen(folder.clone()))),
                         Text::new("\u{203A}").text_style(TextStyle::Caption),
-                    ))
+                    )
                 };
                 Show::new(last, here).fallback(button)
             },

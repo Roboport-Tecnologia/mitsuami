@@ -426,8 +426,16 @@ impl State {
                 (Widget::Tabs(tabs), element)
             }
             WidgetKind::List => {
-                let list = crate::list::List::new(id, emitter.clone())?;
+                let list = crate::list::List::new(id, emitter.clone(), false)?;
                 let element = list.view.cast()?;
+                (Widget::List(list), element)
+            }
+            // The header and the list view in a grid: the view takes focus
+            // and is what assistive technology and tweaks reach.
+            WidgetKind::Table => {
+                let list = crate::list::List::new(id, emitter.clone(), true)?;
+                let element = list.root.as_ref().expect("a table has a root").cast()?;
+                inner = Some(list.view.cast()?);
                 (Widget::List(list), element)
             }
         };
@@ -452,6 +460,7 @@ impl State {
                 inner,
                 parent: None,
                 row: None,
+                column: None,
                 revokers,
                 shown_text,
                 shown_checked,

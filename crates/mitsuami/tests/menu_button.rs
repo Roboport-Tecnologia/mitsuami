@@ -87,6 +87,34 @@ async fn choosing_an_item_runs_it(app: TestApp) {
     app.expect(by_test_id("chosen")).to_have_text("3dfx").await;
 }
 
+/// A menu built with a closure is built again when what it reads changes,
+/// and its new items run.
+#[mitsuami_test::test]
+async fn a_built_menu_follows_what_it_reads(app: TestApp) {
+    let recent = signal(vec!["a.txt".to_owned()]);
+    let chosen = signal(String::new());
+    app.mount(move || {
+        Column::new().align(Align::Start).children((
+            MenuButton::new("Add").menu_with(move || {
+                recent
+                    .get()
+                    .into_iter()
+                    .map(|name| MenuItem::new(name.clone()).on_select(move || chosen.set(name.clone())))
+                    .collect::<Vec<_>>()
+            }),
+            Text::new(chosen).test_id("chosen"),
+        ))
+    });
+    app.expect(add("Add")).to_be_visible().await;
+    assert_eq!(titles(&native_menu(&app, "Add")), ["a.txt"]);
+
+    recent.set(vec!["b.txt".to_owned(), "a.txt".to_owned()]);
+    app.settle().await;
+    assert_eq!(titles(&native_menu(&app, "Add")), ["b.txt", "a.txt"]);
+    app.get(add("Add")).choose_menu_item(&["b.txt"]).await;
+    app.expect(by_test_id("chosen")).to_have_text("b.txt").await;
+}
+
 /// Clicking opens the menu, which would be modal: it has no click of its
 /// own for assistive technology to take in its place.
 #[mitsuami_test::test]

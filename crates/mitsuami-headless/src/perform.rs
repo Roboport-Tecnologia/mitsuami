@@ -2,7 +2,7 @@
 
 use mitsuami_core::a11y::{A11yAction, ActionError};
 use mitsuami_core::services::menu_item_by_id;
-use mitsuami_core::{EventValue, NodeId, Prop, SelectionMode, UiEvent, WidgetKind, find_prop};
+use mitsuami_core::{ColumnSort, EventValue, NodeId, Prop, SelectionMode, SortOrder, UiEvent, WidgetKind, find_prop};
 
 use super::HeadlessBackend;
 
@@ -163,12 +163,30 @@ impl HeadlessBackend {
                 | WidgetKind::Slider
                 | WidgetKind::NumberInput
                 | WidgetKind::List
+                | WidgetKind::Table
                 | WidgetKind::Sidebar
                 | WidgetKind::Tabs,
             ) => state.focus(id),
+            // A header sorts by its column: the same one the other way
+            // round, another one ascending, as native tables do.
+            (A11yAction::PressHeader(column), WidgetKind::Table) => {
+                let props = &state.nodes[&id].props;
+                let columns = find_prop!(props, Columns).unwrap_or_default();
+                if !columns.get(*column).is_some_and(|c| c.sortable) {
+                    return Err(ActionError::Unsupported);
+                }
+                let order = match find_prop!(props, Sort).flatten() {
+                    Some(sort) if sort.column == *column => sort.order.reversed(),
+                    _ => SortOrder::Ascending,
+                };
+                let sort = ColumnSort { column: *column, order };
+                state.set_prop(id, Prop::Sort(Some(sort)));
+                state.emit(id, UiEvent::Changed(EventValue::Sort(sort)));
+            }
             (A11yAction::Select | A11yAction::Activate, WidgetKind::Container) => {
-                let row = find_prop!(state.nodes[&id].props, Row);
-                let list = state.nodes[&id].parent.filter(|p| state.nodes[p].kind == WidgetKind::List);
+                let props = &state.nodes[&id].props;
+                let row = find_prop!(props, Row).or_else(|| find_prop!(props, Cell).map(|c| c.row));
+                let list = state.nodes[&id].parent.filter(|p| state.nodes[p].kind.has_rows());
                 let (Some(row), Some(list)) = (row, list) else { return Err(ActionError::Unsupported) };
                 if *action == A11yAction::Activate {
                     state.emit(list, UiEvent::RowActivated(row));

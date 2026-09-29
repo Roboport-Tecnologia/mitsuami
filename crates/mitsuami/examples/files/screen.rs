@@ -27,10 +27,8 @@ pub fn Finder() -> impl View {
             <Row grow=1.0 basis=0 min_height=0>
                 <Files/>
                 <Show when=preview>
-                    <Row>
-                        <Separator orientation=Orientation::Vertical/>
-                        <Preview/>
-                    </Row>
+                    <Separator orientation=Orientation::Vertical/>
+                    <Preview/>
                 </Show>
             </Row>
             <Separator/>
@@ -268,11 +266,7 @@ fn file_row(browser: Browser, entry: Entry) -> impl View {
         .gap(Spacing::Sm)
         .align(Align::Center)
         .children((
-            FileIcon::view(Value::Static(FileIconProps {
-                path: entry.path.clone(),
-                fallback: entry.icon().to_owned(),
-                size: 16.0,
-            })),
+            FileIcon::view(FileIconProps { path: entry.path.clone(), fallback: entry.icon().to_owned(), size: 16.0 }),
             Text::new(entry.name.clone()).max_lines(1).grow(1.0).shrink(1.0).basis(0),
             caption(entry.modified.map(fs::civil).unwrap_or_default(), MODIFIED),
             caption(entry.size.map(fs::human_size).unwrap_or_else(|| "--".into()), SIZE),
@@ -330,9 +324,7 @@ fn Preview() -> impl View {
     let info = |label: &'static str, value: Box<dyn Fn() -> String>| {
         Row::new().gap(Spacing::Sm).children((
             Text::new(label).text_style(TextStyle::Caption).width(64).text_align(TextAlign::End),
-            // A path is one long word: at no minimum width, it wraps where
-            // the column ends rather than running past it.
-            Text::new(value).text_style(TextStyle::Caption).max_lines(3).grow(1.0).shrink(1.0).basis(0).min_width(0),
+            Text::new(value).text_style(TextStyle::Caption).max_lines(3).grow(1.0).shrink(1.0).basis(0),
         ))
     };
     let picture = move || {
@@ -368,10 +360,8 @@ fn Preview() -> impl View {
                         {info("Where", Box::new(field(|e| e.path.parent().map(|p| p.display().to_string()).unwrap_or_default())))}
                     </Column>
                     <Show when=move || text.data().flatten().is_some()>
-                        <Column gap=Spacing::Md>
-                            <Separator/>
-                            <Text text_style=TextStyle::Monospace max_lines=16>{move || text.data().flatten().unwrap_or_default()}</Text>
-                        </Column>
+                        <Separator/>
+                        <Text text_style=TextStyle::Monospace max_lines=16>{move || text.data().flatten().unwrap_or_default()}</Text>
                     </Show>
                 </Column>
             </Show>

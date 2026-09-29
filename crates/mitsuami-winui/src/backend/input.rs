@@ -63,11 +63,18 @@ impl WinUiBackend {
             let state = self.state.borrow();
             if let Some(Widget::List(list)) = state.nodes.get(&id).map(|n| &n.widget) {
                 return match input {
-                    SyntheticInput::Scroll { dy, .. } => {
+                    // A table's rows also scroll sideways.
+                    SyntheticInput::Scroll { dx, dy } => {
                         let scroll = list.scroll_viewer().ok_or(ActionError::Unsupported)?;
                         let max = scroll.ScrollableHeight().unwrap_or(0.0).max(0.0);
                         let y = (scroll.VerticalOffset().unwrap_or(0.0) + *dy as f64).clamp(0.0, max);
-                        list.scroll_to(Point::new(0.0, y as f32)).map_err(|_| ActionError::Unsupported)
+                        let x = if list.is_table() {
+                            let max = scroll.ScrollableWidth().unwrap_or(0.0).max(0.0);
+                            (scroll.HorizontalOffset().unwrap_or(0.0) + *dx as f64).clamp(0.0, max)
+                        } else {
+                            0.0
+                        };
+                        list.scroll_to(Point::new(x as f32, y as f32)).map_err(|_| ActionError::Unsupported)
                     }
                     SyntheticInput::Key(key) if list.mode() != SelectionMode::None => {
                         _ = list.view.cast::<w::IUIElement>().and_then(|e| e.Focus(w::FocusState::Keyboard));

@@ -27,12 +27,28 @@ pub(crate) fn zero_rect() -> NSRect {
     NSRect::new(NSPoint::new(0.0, 0.0), NSSize::new(0.0, 0.0))
 }
 
+/// How far a scroll view is scrolled, from where its content starts: a
+/// table's clip view is inset below its header, so its bounds start above.
+pub(crate) fn scrolled(clip: &objc2_app_kit::NSClipView) -> NSPoint {
+    let (origin, insets) = (clip.bounds().origin, clip.contentInsets());
+    NSPoint::new(origin.x + insets.left, origin.y + insets.top)
+}
+
+/// Where a scroll view's clip view goes for this offset from where its
+/// content starts.
+pub(crate) fn clip_origin(clip: &objc2_app_kit::NSClipView, offset: NSPoint) -> NSPoint {
+    let insets = clip.contentInsets();
+    NSPoint::new(offset.x - insets.left, offset.y - insets.top)
+}
+
 pub(crate) struct HostIvars {
     /// Paint the window background (window content views only), so
     /// offscreen captures look like the real window.
     fill: Cell<bool>,
     /// The files it takes when they're dropped on it, if any.
     drop: RefCell<Option<Drop>>,
+    /// A table's cell: it keeps its host centred in its height.
+    centers: Cell<bool>,
 }
 
 /// A host's file drop: what it takes, where it reports, and whether
@@ -56,6 +72,15 @@ define_class!(
         #[unsafe(method(isFlipped))]
         fn is_flipped(&self) -> bool {
             true
+        }
+
+        #[unsafe(method(resizeSubviewsWithOldSize:))]
+        fn resize_subviews(&self, old: NSSize) {
+            if self.ivars().centers.get() {
+                self.center_subviews();
+            } else {
+                unsafe { msg_send![super(self), resizeSubviewsWithOldSize: old] }
+            }
         }
 
         #[unsafe(method(drawRect:))]
@@ -91,8 +116,29 @@ define_class!(
 
 impl HostView {
     pub(crate) fn new(mtm: MainThreadMarker, fill: bool) -> Retained<HostView> {
-        let this = HostView::alloc(mtm).set_ivars(HostIvars { fill: Cell::new(fill), drop: RefCell::new(None) });
+        let this = HostView::alloc(mtm).set_ivars(HostIvars {
+            fill: Cell::new(fill),
+            drop: RefCell::new(None),
+            centers: Cell::new(false),
+        });
         unsafe { msg_send![super(this), initWithFrame: zero_rect()] }
+    }
+
+    /// A table's cell: its host is centred in its height, now and as the
+    /// row's height changes.
+    pub(crate) fn new_cell(mtm: MainThreadMarker) -> Retained<HostView> {
+        let cell = HostView::new(mtm, false);
+        cell.ivars().centers.set(true);
+        cell
+    }
+
+    /// Centres the host in a table's cell, at the left.
+    pub(crate) fn center_subviews(&self) {
+        let height = self.bounds().size.height;
+        for view in self.subviews().iter() {
+            let y = ((height - view.frame().size.height) / 2.0).round();
+            view.setFrameOrigin(NSPoint::new(0.0, y));
+        }
     }
 
     /// Takes these files when they're dropped on it, or none.
@@ -219,8 +265,8 @@ define_class!(
         #[unsafe(method(scrolled:))]
         fn scrolled(&self, notification: &NSNotification) {
             let Some(object) = notification.object() else { return };
-            let Some(clip) = object.downcast_ref::<NSView>() else { return };
-            let origin = clip.bounds().origin;
+            let Some(clip) = object.downcast_ref::<objc2_app_kit::NSClipView>() else { return };
+            let origin = scrolled(clip);
             let offset = Point::new(origin.x as f32, origin.y as f32);
             self.ivars().events.emit(self.ivars().id, UiEvent::Scrolled(offset));
         }

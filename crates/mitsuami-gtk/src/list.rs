@@ -1,11 +1,12 @@
-//! `List`: a `gtk::ListView` in a `gtk::ScrolledWindow`, over a
+//! `List` and `Table`: a `gtk::ListView`, or a `gtk::ColumnView` with a
+//! column per table column, in a `gtk::ScrolledWindow`, over a
 //! `gio::ListStore` of row keys.
 //!
-//! The list view virtualises: its factory binds the rows it shows to item
-//! widgets and unbinds them when they scroll away, and we report the rows
+//! The view virtualises: its factories bind the rows it shows to item
+//! widgets and unbind them when they scroll away, and we report the rows
 //! bound (`RowShown`, `RowHidden`) so the core mounts and disposes them.
-//! Each item's child is a box that holds the row's host once the core
-//! sends it, and is as high as the estimate until then.
+//! Each item's child holds its host once the core sends it (a list's row
+//! host, a table's cell host), and is as high as the estimate until then.
 //!
 //! GTK binds and unbinds during layout, and rebinds a row it keeps when the
 //! model changes around it, so the rows bound are compared with the rows
@@ -17,22 +18,35 @@ use std::collections::{HashMap, HashSet};
 use std::rc::Rc;
 
 use gtk::prelude::*;
-use gtk::{gio, glib};
-use mitsuami_core::{EventValue, ListStyle, NodeId, Point, Rect, RowKey, SelectionMode, UiEvent};
+use gtk::subclass::prelude::*;
+use gtk::{gio, glib, graphene, gsk};
+use mitsuami_core::{
+    ColumnData, ColumnSort, EventValue, ListStyle, NodeId, Point, Rect, RowKey, SelectionMode, SortOrder, UiEvent,
+};
 
 use crate::host::Events;
 
-/// What the list shows, shared with the factory's and the selection's
+/// A cell: its row, and its column (a list's is 0).
+type Slot = (RowKey, usize);
+
+/// Reports a table column's cells' width, from a cell as it's allocated.
+type WidthReport = Rc<dyn Fn(usize, i32)>;
+
+/// What the list shows, shared with the factories' and the selection's
 /// signal handlers.
 struct Data {
     rows: Vec<RowKey>,
     index: HashMap<RowKey, usize>,
-    /// The mounted rows' hosts.
-    hosts: HashMap<RowKey, (NodeId, gtk::Widget)>,
-    /// The cells of the rows bound, and how many item widgets each is
-    /// bound to (briefly two, while GTK moves a row between them).
-    cells: HashMap<RowKey, gtk::Box>,
-    bound: HashMap<RowKey, usize>,
+    /// The mounted hosts: a list's rows', a table's cells'.
+    hosts: HashMap<Slot, (NodeId, gtk::Widget)>,
+    /// The cells bound (a list's boxes, a table's `TableCell`s), and how
+    /// many item widgets each is bound to (briefly two, while GTK moves a
+    /// row between them).
+    cells: HashMap<Slot, gtk::Widget>,
+    bound: HashMap<Slot, usize>,
+    /// Tables only: the columns as sent, and the widths reported.
+    columns: Vec<ColumnData>,
+    widths: Vec<f32>,
     /// The rows reported shown.
     shown: HashSet<RowKey>,
     /// A report of the rows bound is on its way.
@@ -53,9 +67,17 @@ impl Data {
     }
 }
 
+/// The view: a list's, or a table's.
+enum View {
+    List(gtk::ListView),
+    Table(gtk::ColumnView),
+}
+
 pub(crate) struct List {
     pub scrolled: gtk::ScrolledWindow,
-    pub view: gtk::ListView,
+    /// The `gtk::ListView`, or a table's `gtk::ColumnView`.
+    pub view: gtk::Widget,
+    typed: View,
     store: gio::ListStore,
     id: NodeId,
     events: Events,
@@ -89,95 +111,112 @@ fn install_css() {
     }
 }
 
+fn new_data() -> Rc<RefCell<Data>> {
+    Rc::new(RefCell::new(Data {
+        rows: Vec::new(),
+        index: HashMap::new(),
+        hosts: HashMap::new(),
+        cells: HashMap::new(),
+        bound: HashMap::new(),
+        columns: Vec::new(),
+        widths: Vec::new(),
+        shown: HashSet::new(),
+        report_queued: false,
+        estimate: None,
+        learned: None,
+        mode: SelectionMode::None,
+        style: None,
+        row_width: None,
+    }))
+}
+
+/// Puts a host in its cell: a list's box, or a table's cell.
+fn attach(cell: &gtk::Widget, host: &gtk::Widget) {
+    host.unparent();
+    match cell.downcast_ref::<gtk::Box>() {
+        Some(cell) => cell.append(host),
+        None => host.set_parent(cell),
+    }
+    cell.set_height_request(-1);
+}
+
+/// Takes the hosts out of a cell, which waits at the estimate's height.
+fn detach(cell: &gtk::Widget) {
+    while let Some(child) = cell.first_child() {
+        match cell.downcast_ref::<gtk::Box>() {
+            Some(cell) => cell.remove(&child),
+            None => child.unparent(),
+        }
+    }
+}
+
+/// A factory binding one column's cells: a list's one, or a table's. `make`
+/// makes an empty cell.
+fn factory(
+    data: &Rc<RefCell<Data>>,
+    events: &Events,
+    id: NodeId,
+    column: usize,
+    make: impl Fn() -> gtk::Widget + 'static,
+) -> gtk::SignalListItemFactory {
+    let factory = gtk::SignalListItemFactory::new();
+    factory.connect_setup(move |_, item| {
+        let Some(item) = item.downcast_ref::<gtk::ListItem>() else { return };
+        item.set_child(Some(&make()));
+    });
+    {
+        let (data, events) = (data.clone(), events.clone());
+        factory.connect_bind(move |_, item| {
+            let Some(item) = item.downcast_ref::<gtk::ListItem>() else { return };
+            let (Some(key), Some(cell)) = (item.item().as_ref().and_then(key_of), item.child()) else { return };
+            let mut d = data.borrow_mut();
+            match d.hosts.get(&(key, column)).map(|(_, host)| host.clone()) {
+                Some(host) => attach(&cell, &host),
+                None => cell.set_height_request(d.estimate()),
+            }
+            d.cells.insert((key, column), cell);
+            *d.bound.entry((key, column)).or_default() += 1;
+            queue_report(&data, &mut d, &events, id);
+        });
+    }
+    {
+        let (data, events) = (data.clone(), events.clone());
+        factory.connect_unbind(move |_, item| {
+            let Some(item) = item.downcast_ref::<gtk::ListItem>() else { return };
+            let (Some(key), Some(cell)) = (item.item().as_ref().and_then(key_of), item.child()) else { return };
+            let mut d = data.borrow_mut();
+            // The host goes with the row, wherever it's bound next.
+            detach(&cell);
+            if d.cells.get(&(key, column)) == Some(&cell) {
+                d.cells.remove(&(key, column));
+            }
+            if let Some(count) = d.bound.get_mut(&(key, column)) {
+                *count -= 1;
+                if *count == 0 {
+                    d.bound.remove(&(key, column));
+                }
+            }
+            queue_report(&data, &mut d, &events, id);
+        });
+    }
+    factory
+}
+
 impl List {
     pub(crate) fn new(id: NodeId, events: Events) -> List {
         install_css();
-        let data = Rc::new(RefCell::new(Data {
-            rows: Vec::new(),
-            index: HashMap::new(),
-            hosts: HashMap::new(),
-            cells: HashMap::new(),
-            bound: HashMap::new(),
-            shown: HashSet::new(),
-            report_queued: false,
-            estimate: None,
-            learned: None,
-            mode: SelectionMode::None,
-            style: None,
-            row_width: None,
-        }));
-        let store = gio::ListStore::new::<gtk::StringObject>();
-        let factory = gtk::SignalListItemFactory::new();
-        factory.connect_setup(|_, item| {
-            let Some(item) = item.downcast_ref::<gtk::ListItem>() else { return };
-            item.set_child(Some(&gtk::Box::new(gtk::Orientation::Vertical, 0)));
-        });
-        {
-            let (data, events) = (data.clone(), events.clone());
-            factory.connect_bind(move |_, item| {
-                let Some(item) = item.downcast_ref::<gtk::ListItem>() else { return };
-                let (Some(key), Some(cell)) = (item.item().as_ref().and_then(key_of), item.child()) else { return };
-                let Ok(cell) = cell.downcast::<gtk::Box>() else { return };
-                let mut d = data.borrow_mut();
-                match d.hosts.get(&key).map(|(_, host)| host.clone()) {
-                    Some(host) => {
-                        host.unparent();
-                        cell.append(&host);
-                        cell.set_height_request(-1);
-                    }
-                    None => cell.set_height_request(d.estimate()),
-                }
-                d.cells.insert(key, cell);
-                *d.bound.entry(key).or_default() += 1;
-                queue_report(&data, &mut d, &events, id);
-            });
-        }
-        {
-            let (data, events) = (data.clone(), events.clone());
-            factory.connect_unbind(move |_, item| {
-                let Some(item) = item.downcast_ref::<gtk::ListItem>() else { return };
-                let (Some(key), Some(cell)) = (item.item().as_ref().and_then(key_of), item.child()) else { return };
-                let Ok(cell) = cell.downcast::<gtk::Box>() else { return };
-                let mut d = data.borrow_mut();
-                // The host goes with the row, wherever it's bound next.
-                while let Some(child) = cell.first_child() {
-                    cell.remove(&child);
-                }
-                if d.cells.get(&key) == Some(&cell) {
-                    d.cells.remove(&key);
-                }
-                if let Some(count) = d.bound.get_mut(&key) {
-                    *count -= 1;
-                    if *count == 0 {
-                        d.bound.remove(&key);
-                    }
-                }
-                queue_report(&data, &mut d, &events, id);
-            });
-        }
+        let data = new_data();
+        let factory = factory(&data, &events, id, 0, || gtk::Box::new(gtk::Orientation::Vertical, 0).upcast());
         let view = gtk::ListView::new(None::<gtk::NoSelection>, Some(factory));
         view.add_css_class("mitsuami-list");
         // Activation is double-click or Enter, as in Files.
         view.set_single_click_activate(false);
         {
             let (data, events) = (data.clone(), events.clone());
-            view.connect_activate(move |_, position| {
-                let key = data.borrow().rows.get(position as usize).copied();
-                if let Some(key) = key {
-                    events.emit(id, UiEvent::RowActivated(key));
-                }
-            });
+            view.connect_activate(move |_, position| activated(&data, &events, id, position));
         }
         let scrolled = gtk::ScrolledWindow::new();
         scrolled.set_policy(gtk::PolicyType::Never, gtk::PolicyType::Automatic);
-        scrolled.set_child(Some(&view));
-        let v = scrolled.vadjustment();
-        {
-            let (events, h) = (events.clone(), scrolled.hadjustment());
-            v.connect_value_changed(move |v| {
-                events.emit(id, UiEvent::Scrolled(Point::new(h.value() as f32, v.value() as f32)))
-            });
-        }
         {
             // The view is as wide as its horizontal page: a frame takes
             // room from the rows.
@@ -189,9 +228,164 @@ impl List {
                 }
             });
         }
-        let list = List { scrolled, view, store, id, events, data, muted: Rc::default() };
+        List::finish(scrolled, View::List(view), id, events, data)
+    }
+
+    /// A table: a column view, with the theme's own cells and header. Its
+    /// columns come with `set_columns`. Its columns can be wider than it.
+    pub(crate) fn new_table(id: NodeId, events: Events) -> List {
+        let data = new_data();
+        let view = gtk::ColumnView::new(None::<gtk::NoSelection>);
+        view.set_single_click_activate(false);
+        view.set_reorderable(false);
+        {
+            let (data, events) = (data.clone(), events.clone());
+            view.connect_activate(move |_, position| activated(&data, &events, id, position));
+        }
+        let scrolled = gtk::ScrolledWindow::new();
+        scrolled.set_policy(gtk::PolicyType::Automatic, gtk::PolicyType::Automatic);
+        let list = List::finish(scrolled, View::Table(view.clone()), id, events, data);
+        // Pressing a sortable header changes the view's sorter: the app
+        // sorts.
+        if let Some(sorter) = view.sorter() {
+            let (view, events, muted) = (view.clone(), list.events.clone(), list.muted.clone());
+            sorter.connect_changed(move |_, _| {
+                if !muted.get()
+                    && let Some(sort) = sort_of(&view)
+                {
+                    events.emit(id, UiEvent::Changed(EventValue::Sort(sort)));
+                }
+            });
+        }
+        list
+    }
+
+    fn finish(scrolled: gtk::ScrolledWindow, typed: View, id: NodeId, events: Events, data: Rc<RefCell<Data>>) -> List {
+        let view: gtk::Widget = match &typed {
+            View::List(v) => v.clone().upcast(),
+            View::Table(v) => v.clone().upcast(),
+        };
+        scrolled.set_child(Some(&view));
+        let v = scrolled.vadjustment();
+        {
+            let (events, h) = (events.clone(), scrolled.hadjustment());
+            v.connect_value_changed(move |v| {
+                events.emit(id, UiEvent::Scrolled(Point::new(h.value() as f32, v.value() as f32)))
+            });
+        }
+        if matches!(typed, View::Table(_)) {
+            let (events, v) = (events.clone(), v.clone());
+            scrolled.hadjustment().connect_value_changed(move |h| {
+                events.emit(id, UiEvent::Scrolled(Point::new(h.value() as f32, v.value() as f32)))
+            });
+        }
+        let store = gio::ListStore::new::<gtk::StringObject>();
+        let list = List { scrolled, view, typed, store, id, events, data, muted: Rc::default() };
         list.set_mode(SelectionMode::None);
         list
+    }
+
+    /// A table's columns: titled, resizable, at the width the app gave (or
+    /// 100, as AppKit's and the core's default), the ones that expand
+    /// sharing the room left, and a sorter on the sortable ones, which
+    /// makes their headers sort. Each binds its own cells.
+    pub(crate) fn set_columns(&self, columns: &[ColumnData]) {
+        let View::Table(view) = &self.typed else { return };
+        let sort = sort_of(view);
+        self.muted.set(true);
+        while let Some(column) = view.columns().item(0).and_downcast::<gtk::ColumnViewColumn>() {
+            view.remove_column(&column);
+        }
+        {
+            let mut data = self.data.borrow_mut();
+            data.columns = columns.to_vec();
+            data.widths = columns.iter().map(|c| c.width.unwrap_or(100.0)).collect();
+        }
+        for (index, column) in columns.iter().enumerate() {
+            let data = self.data.clone();
+            let report = self.width_reporter();
+            let make = move || {
+                let cell = TableCell::new(index, report.clone());
+                // Empty until its host comes, at the estimate's height.
+                cell.set_height_request(data.borrow().estimate());
+                cell.upcast()
+            };
+            let factory = factory(&self.data, &self.events, self.id, index, make);
+            let native = gtk::ColumnViewColumn::new(Some(&column.title), Some(factory));
+            native.set_resizable(true);
+            native.set_expand(column.expand);
+            match column.width {
+                Some(width) => native.set_fixed_width(width.round() as i32),
+                None if !column.expand => native.set_fixed_width(100),
+                None => {}
+            }
+            if column.sortable {
+                native.set_sorter(Some(&gtk::CustomSorter::new(|_, _| gtk::Ordering::Equal)));
+            }
+            view.append_column(&native);
+        }
+        self.set_sort(sort.filter(|s| columns.get(s.column).is_some_and(|c| c.sortable)));
+        self.muted.set(false);
+    }
+
+    pub(crate) fn columns(&self) -> Vec<ColumnData> {
+        self.data.borrow().columns.clone()
+    }
+
+    /// Reports a column's cells' width when it changes, from the cells as
+    /// GTK allocates them (inside the theme's cell padding).
+    fn width_reporter(&self) -> WidthReport {
+        let (data, events, id) = (Rc::downgrade(&self.data), self.events.clone(), self.id);
+        Rc::new(move |column, width| {
+            let Some(data) = data.upgrade() else { return };
+            let Ok(mut d) = data.try_borrow_mut() else { return };
+            let width = width as f32;
+            match d.widths.get_mut(column) {
+                Some(w) if *w != width => *w = width,
+                _ => return,
+            }
+            let widths = d.widths.clone();
+            drop(d);
+            events.emit(id, UiEvent::ColumnWidths(widths));
+        })
+    }
+
+    /// Shows the sort in the header, without reporting it.
+    pub(crate) fn set_sort(&self, sort: Option<ColumnSort>) {
+        let View::Table(view) = &self.typed else { return };
+        let column = sort.and_then(|s| view.columns().item(s.column as u32)).and_downcast::<gtk::ColumnViewColumn>();
+        let order = match sort.map(|s| s.order) {
+            Some(SortOrder::Descending) => gtk::SortType::Descending,
+            _ => gtk::SortType::Ascending,
+        };
+        let muted = self.muted.replace(true);
+        view.sort_by_column(column.as_ref(), order);
+        self.muted.set(muted);
+    }
+
+    pub(crate) fn sort(&self) -> Option<ColumnSort> {
+        match &self.typed {
+            View::Table(view) => sort_of(view),
+            View::List(_) => None,
+        }
+    }
+
+    /// Presses a sortable column's header, as a click does: the same column
+    /// the other way round, another one ascending. The sorter reports it.
+    pub(crate) fn press_header(&self, column: usize) -> bool {
+        let View::Table(view) = &self.typed else { return false };
+        let Some(native) = view.columns().item(column as u32).and_downcast::<gtk::ColumnViewColumn>() else {
+            return false;
+        };
+        if native.sorter().is_none() {
+            return false;
+        }
+        let order = match sort_of(view) {
+            Some(sort) if sort.column == column && sort.order == SortOrder::Ascending => gtk::SortType::Descending,
+            _ => gtk::SortType::Ascending,
+        };
+        view.sort_by_column(Some(&native), order);
+        true
     }
 
     /// New rows, as the fewest changes to the store: rows before and after
@@ -262,7 +456,10 @@ impl List {
         // keeps it as its focus, so keys go nowhere. Focus stays in the
         // list, as in AppKit's tables.
         let focused = self.focused();
-        self.view.set_model(Some(&model));
+        match &self.typed {
+            View::List(view) => view.set_model(Some(&model)),
+            View::Table(view) => view.set_model(Some(&model)),
+        }
         if focused {
             self.view.grab_focus();
         }
@@ -293,7 +490,7 @@ impl List {
     /// Selects rows without reporting it. A single selection only takes
     /// `set_selected`; a multiple one takes a whole bitset.
     pub(crate) fn set_selected(&self, keys: &[RowKey]) {
-        let Some(model) = self.view.model() else { return };
+        let Some(model) = self.model() else { return };
         let indexes: Vec<u32> = {
             let data = self.data.borrow();
             keys.iter().filter_map(|k| data.index.get(k).map(|i| *i as u32)).collect()
@@ -317,8 +514,16 @@ impl List {
         self.events.emit_always(self.id, UiEvent::Changed(EventValue::Rows(self.selected())));
     }
 
+    /// The selection model: the view's.
+    fn model(&self) -> Option<gtk::SelectionModel> {
+        match &self.typed {
+            View::List(view) => view.model(),
+            View::Table(view) => view.model(),
+        }
+    }
+
     pub(crate) fn selected(&self) -> Vec<RowKey> {
-        match self.view.model() {
+        match self.model() {
             Some(model) => selected_keys(&self.data.borrow(), &model),
             None => Vec::new(),
         }
@@ -332,23 +537,22 @@ impl List {
         self.data.borrow().estimate.map(|h| h as f32)
     }
 
-    /// Hosts a mounted row, in its cell if it's bound.
-    pub(crate) fn insert(&self, key: RowKey, id: NodeId, host: gtk::Widget) {
+    /// Hosts a mounted row, or a table's cell, in its cell if it's bound.
+    pub(crate) fn insert(&self, key: RowKey, column: usize, id: NodeId, host: gtk::Widget) {
         let mut data = self.data.borrow_mut();
-        if let Some(cell) = data.cells.get(&key) {
-            host.unparent();
-            cell.append(&host);
-            cell.set_height_request(-1);
+        if let Some(cell) = data.cells.get(&(key, column)) {
+            attach(cell, &host);
         }
-        data.hosts.insert(key, (id, host));
+        data.hosts.insert((key, column), (id, host));
     }
 
-    pub(crate) fn remove(&self, key: RowKey) {
+    pub(crate) fn remove(&self, key: RowKey, column: usize) {
         let mut data = self.data.borrow_mut();
-        if let Some((_, host)) = data.hosts.remove(&key)
-            && let Some(cell) = host.parent().and_then(|p| p.downcast::<gtk::Box>().ok())
+        if let Some((_, host)) = data.hosts.remove(&(key, column))
+            && let Some(cell) = host.parent()
+            && data.cells.get(&(key, column)) == Some(&cell)
         {
-            cell.remove(&host);
+            detach(&cell);
             cell.set_height_request(data.estimate());
         }
     }
@@ -361,10 +565,28 @@ impl List {
         }
     }
 
+    /// The list view that scrolls to items: the list's, or the one inside
+    /// a table's column view (`ColumnView::scroll_to` needs GTK 4.12).
+    fn list_view(&self) -> Option<gtk::Widget> {
+        match &self.typed {
+            View::List(view) => Some(view.clone().upcast()),
+            View::Table(view) => {
+                let mut child = view.first_child();
+                while let Some(c) = child {
+                    if c.is::<gtk::ListView>() {
+                        return Some(c);
+                    }
+                    child = c.next_sibling();
+                }
+                None
+            }
+        }
+    }
+
     pub(crate) fn scroll_to_row(&self, key: RowKey) {
         let index = self.data.borrow().index.get(&key).copied();
-        if let Some(index) = index {
-            let _ = self.view.activate_action("list.scroll-to-item", Some(&(index as u32).to_variant()));
+        if let (Some(index), Some(view)) = (index, self.list_view()) {
+            let _ = view.activate_action("list.scroll-to-item", Some(&(index as u32).to_variant()));
         }
     }
 
@@ -378,7 +600,7 @@ impl List {
     /// Selects a row as the user would: alone, and shown.
     pub(crate) fn select(&self, key: RowKey) {
         let index = self.data.borrow().index.get(&key).copied();
-        if let (Some(index), Some(model)) = (index, self.view.model()) {
+        if let (Some(index), Some(model)) = (index, self.model()) {
             model.select_item(index as u32, true);
             self.scroll_to_row(key);
         }
@@ -388,15 +610,20 @@ impl List {
         (0..self.store.n_items()).filter_map(|i| self.store.item(i).as_ref().and_then(key_of)).collect()
     }
 
-    /// Where GTK placed a row's host, in the list's content, if it did:
-    /// it only allocates the rows in view.
-    fn placed(&self, host: &gtk::Widget) -> Option<f32> {
+    /// Where GTK placed a host, in the view's content (a table's below its
+    /// header), if it did: it only allocates the rows in view.
+    fn placed_at(&self, host: &gtk::Widget) -> Option<Point> {
         let row = host.parent()?.parent()?;
         if !row.is_child_visible() || !host.is_mapped() {
             return None;
         }
         let point = host.compute_point(&self.view, &gtk::graphene::Point::new(0.0, 0.0))?;
-        Some(point.y() + self.scrolled.vadjustment().value() as f32)
+        let (h, v) = (self.scrolled.hadjustment().value() as f32, self.scrolled.vadjustment().value() as f32);
+        Some(Point::new(point.x() + h, point.y() + v))
+    }
+
+    fn placed(&self, host: &gtk::Widget) -> Option<f32> {
+        self.placed_at(host).map(|p| p.y)
     }
 
     /// Where a row is in the list's content, at its host's size. GTK keeps
@@ -406,7 +633,7 @@ impl List {
     pub(crate) fn row_rect(&self, key: RowKey, frames: &crate::host::Frames) -> Option<Rect> {
         let data = self.data.borrow();
         let frames = frames.borrow();
-        let host_of = |key: &RowKey| data.hosts.get(key).map(|(_, host)| host);
+        let host_of = |key: &RowKey| data.hosts.get(&(*key, 0)).map(|(_, host)| host);
         let height =
             |key: &RowKey| host_of(key).and_then(|h| frames.get(h)).map_or(data.estimate() as f32, |f| f.height());
         let index = *data.index.get(&key)?;
@@ -426,11 +653,51 @@ impl List {
         Some(Rect { origin: Point::new(0.0, y), size })
     }
 
-    /// The hosted rows, in row order.
+    /// Where a table put a cell's host, in its content, at the host's
+    /// size: where GTK placed it, or else across from where it placed the
+    /// column's other cells, below the row placed nearest (as `row_rect`,
+    /// with each row as high as its highest cell).
+    pub(crate) fn cell_rect(&self, key: RowKey, column: usize, frames: &crate::host::Frames) -> Option<Rect> {
+        let data = self.data.borrow();
+        let size = data.hosts.get(&(key, column)).and_then(|(_, h)| frames.borrow().get(h).copied())?.size;
+        if let Some(origin) = data.hosts.get(&(key, column)).and_then(|(_, h)| self.placed_at(h)) {
+            return Some(Rect { origin, size });
+        }
+        let frames = frames.borrow();
+        let (columns, all) = (data.columns.len().max(1), &data.hosts);
+        let hosts = |key: &RowKey| {
+            let key = *key;
+            (0..columns).filter_map(move |c| all.get(&(key, c)).map(|(_, h)| h))
+        };
+        let height = |key: &RowKey| {
+            hosts(key)
+                .filter_map(|h| frames.get(h))
+                .map(|f| f.height())
+                .reduce(f32::max)
+                .unwrap_or(data.estimate() as f32)
+        };
+        let placed = |i: usize| data.rows.get(i).and_then(|k| hosts(k).find_map(|h| self.placed_at(h)));
+        let x = data.hosts.iter().filter(|((_, c), _)| *c == column).find_map(|(_, (_, h))| self.placed_at(h))?.x;
+        let index = *data.index.get(&key)?;
+        let y = (1..=data.rows.len()).find_map(|d| {
+            if let Some((i, p)) = index.checked_sub(d).and_then(|i| Some((i, placed(i)?))) {
+                return Some(p.y + data.rows[i..index].iter().map(height).sum::<f32>());
+            }
+            let below = index + d;
+            let p = placed(below)?;
+            Some(p.y - data.rows[index..below].iter().map(height).sum::<f32>())
+        })?;
+        Some(Rect { origin: Point::new(x, y), size })
+    }
+
+    /// The hosts, in row order, then column order.
     pub(crate) fn children(&self) -> Vec<NodeId> {
         let data = self.data.borrow();
-        let mut hosts: Vec<(usize, NodeId)> =
-            data.hosts.iter().filter_map(|(key, (id, _))| Some((*data.index.get(key)?, *id))).collect();
+        let mut hosts: Vec<((usize, usize), NodeId)> = data
+            .hosts
+            .iter()
+            .filter_map(|((key, column), (id, _))| Some(((*data.index.get(key)?, *column), *id)))
+            .collect();
         hosts.sort();
         hosts.into_iter().map(|(_, id)| id).collect()
     }
@@ -452,7 +719,7 @@ fn queue_report(data: &Rc<RefCell<Data>>, d: &mut Data, events: &Events, id: Nod
     glib::idle_add_local_once(move || {
         let mut d = data.borrow_mut();
         d.report_queued = false;
-        let now: HashSet<RowKey> = d.bound.keys().copied().collect();
+        let now: HashSet<RowKey> = d.bound.keys().map(|(key, _)| *key).collect();
         let mut hidden: Vec<RowKey> = d.shown.difference(&now).copied().collect();
         let mut shown: Vec<RowKey> = now.difference(&d.shown).copied().collect();
         hidden.sort_by_key(|k| d.index.get(k).copied());
@@ -465,4 +732,93 @@ fn queue_report(data: &Rc<RefCell<Data>>, d: &mut Data, events: &Events, id: Nod
         }
         d.shown = now;
     });
+}
+
+/// A row was activated: double-clicked, or Enter pressed on it.
+fn activated(data: &Rc<RefCell<Data>>, events: &Events, id: NodeId, position: u32) {
+    let key = data.borrow().rows.get(position as usize).copied();
+    if let Some(key) = key {
+        events.emit(id, UiEvent::RowActivated(key));
+    }
+}
+
+/// A table's sort, as its sorter has it: its primary column and order.
+fn sort_of(view: &gtk::ColumnView) -> Option<ColumnSort> {
+    let sorter = view.sorter()?.downcast::<gtk::ColumnViewSorter>().ok()?;
+    let primary = sorter.primary_sort_column()?;
+    let columns = view.columns();
+    let column = (0..columns.n_items()).find(|i| columns.item(*i).as_ref() == Some(primary.upcast_ref()))? as usize;
+    let order = match sorter.primary_sort_order() {
+        gtk::SortType::Descending => SortOrder::Descending,
+        _ => SortOrder::Ascending,
+    };
+    Some(ColumnSort { column, order })
+}
+
+mod imp {
+    use super::*;
+
+    /// A table's cell: it holds its host at the host's size, centred in
+    /// the row's height, and asks for no width, so the column's width is
+    /// the column's (the host's width follows it, as the core lays it out
+    /// at the width reported).
+    #[derive(Default)]
+    pub(crate) struct TableCell {
+        pub(super) column: Cell<usize>,
+        pub(super) report: RefCell<Option<WidthReport>>,
+    }
+
+    #[glib::object_subclass]
+    impl ObjectSubclass for TableCell {
+        const NAME: &'static str = "MitsuamiTableCell";
+        type Type = super::TableCell;
+        type ParentType = gtk::Widget;
+    }
+
+    impl ObjectImpl for TableCell {
+        fn dispose(&self) {
+            while let Some(child) = self.obj().first_child() {
+                child.unparent();
+            }
+        }
+    }
+
+    impl WidgetImpl for TableCell {
+        fn measure(&self, orientation: gtk::Orientation, _for_size: i32) -> (i32, i32, i32, i32) {
+            if orientation == gtk::Orientation::Horizontal {
+                return (0, 0, -1, -1);
+            }
+            let height = self.obj().first_child().map_or(0, |c| c.measure(gtk::Orientation::Vertical, -1).0);
+            (height, height, -1, -1)
+        }
+
+        fn size_allocate(&self, width: i32, height: i32, _baseline: i32) {
+            if let Some(child) = self.obj().first_child() {
+                let (w, ..) = child.measure(gtk::Orientation::Horizontal, -1);
+                let (h, ..) = child.measure(gtk::Orientation::Vertical, w);
+                let y = ((height - h) / 2).max(0);
+                let transform = gsk::Transform::new().translate(&graphene::Point::new(0.0, y as f32));
+                child.allocate(w, h, -1, Some(transform));
+            }
+            let report = self.report.borrow().clone();
+            if let Some(report) = report {
+                report(self.column.get(), width);
+            }
+        }
+    }
+}
+
+glib::wrapper! {
+    pub(crate) struct TableCell(ObjectSubclass<imp::TableCell>)
+        @extends gtk::Widget,
+        @implements gtk::Accessible, gtk::Buildable, gtk::ConstraintTarget;
+}
+
+impl TableCell {
+    fn new(column: usize, report: WidthReport) -> TableCell {
+        let cell: TableCell = glib::Object::new();
+        cell.imp().column.set(column);
+        *cell.imp().report.borrow_mut() = Some(report);
+        cell
+    }
 }

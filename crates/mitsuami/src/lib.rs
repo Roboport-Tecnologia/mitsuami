@@ -48,7 +48,7 @@ pub use app::App;
 pub use mitsuami_core as core;
 /// The `raw-window-handle` a [`SurfaceHandle`](prelude::SurfaceHandle) implements.
 pub use mitsuami_core::raw_window_handle;
-pub use mitsuami_macros::{component, view};
+pub use mitsuami_macros::{IntoValue, component, view};
 pub use mitsuami_reactive as reactive;
 pub use mitsuami_widgets as widgets;
 
@@ -76,7 +76,7 @@ compile_error!("mitsuami: pick a Linux toolkit with the `gtk` (default) or `kde`
 pub use mitsuami_winui as winui;
 
 pub mod prelude {
-    pub use crate::{App, component, platform, view};
+    pub use crate::{App, IntoValue, component, platform, view};
     pub use mitsuami_core::draw::DisplayList;
     pub use mitsuami_core::services::{
         Alert, AlertStyle, FileFilter, Menu, MenuBar, MenuItem, MenuRole, MenuSeparator, OpenFile, SaveFile,
@@ -92,9 +92,9 @@ pub mod prelude {
         Align, ButtonRole, ButtonStyle, Callback, Children, Cursor, Element, ElementBuilder, FileDrop, FlexDirection,
         FontWeight, For, GridPlacement, ImageFit, ImageSource, InputPurpose, Justify, KeyCode, Length, LengthExt, List,
         ListHandle, ListStyle, Modality, Modifiers, MouseButton, NodeId, NodeRef, Orientation, Pixels, Point, Role,
-        ScrollAxes, ScrollDelta, SelectionMode, Show, Size, Slot, Spacing, SurfaceHandle, SurfaceInput, SurfaceSize,
-        TabsStyle, TextAlign, TextDirection, TextStyle, Track, Tweak, Ui, View, WindowSize, node_ref, repeat, use_size,
-        use_viewport,
+        ScrollAxes, ScrollDelta, SelectionMode, Show, Size, Slot, Sort, SortOrder, Spacing, SurfaceHandle,
+        SurfaceInput, SurfaceSize, Table, TableColumn, TabsStyle, TextAlign, TextDirection, TextStyle, Track, Tweak,
+        Ui, View, WindowSize, node_ref, repeat, use_size, use_viewport,
     };
     pub use mitsuami_reactive::{
         Computed, IntoValue, Owner, Signal, Value, batch, computed, effect, inject, on_cleanup, provide, signal,

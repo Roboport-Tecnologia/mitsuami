@@ -234,13 +234,15 @@ fn full_screen() -> Signal<bool> {
 }
 
 fn main() {
-    let (open, full) = (signal(true), signal(false));
     App::new()
-        .open(Window::new("mitsuami showcase").size(Size::new(760.0, 640.0)).full_screen(full).bind(open).content(
-            move || {
-                provide(FullScreen(full));
-                showcase()
-            },
-        ))
+        .open(|| {
+            let full = signal(false);
+            Window::new("mitsuami showcase").size(Size::new(760.0, 640.0)).full_screen(full).bind(signal(true)).content(
+                move || {
+                    provide(FullScreen(full));
+                    showcase()
+                },
+            )
+        })
         .run();
 }

@@ -8,14 +8,23 @@ use std::rc::Rc;
 use mitsuami_reactive::{IntoValue, Owner, Value, computed, effect, on_cleanup, untrack};
 
 use crate::ui::Ui;
-use crate::view::{AnyView, View};
+use crate::view::{AnyView, Children, View};
 use crate::widget::{NodeId, WidgetKind};
 
-type Branch = Rc<dyn Fn() -> AnyView>;
+type Branch = Rc<dyn Fn() -> Vec<AnyView>>;
+
+fn branch<C: Children>(children: impl Fn() -> C + 'static) -> Branch {
+    Rc::new(move || {
+        let mut views = Vec::new();
+        children().into_views(&mut views);
+        views
+    })
+}
 
 /// Renders `then` while `when` is true, otherwise the optional fallback.
-/// Vue's `v-if` / `v-else`. Switching branches disposes the old branch's
-/// nodes and reactive state.
+/// Vue's `v-if` / `v-else`. Either is any children: a view, or a tuple of
+/// them, which take their places in the parent as if written there.
+/// Switching branches disposes the old branch's nodes and reactive state.
 pub struct Show {
     when: Value<bool>,
     then: Branch,
@@ -23,12 +32,12 @@ pub struct Show {
 }
 
 impl Show {
-    pub fn new<V: View>(when: impl IntoValue<bool>, then: impl Fn() -> V + 'static) -> Show {
-        Show { when: when.into_value(), then: Rc::new(move || AnyView::new(then())), fallback: None }
+    pub fn new<C: Children>(when: impl IntoValue<bool>, then: impl Fn() -> C + 'static) -> Show {
+        Show { when: when.into_value(), then: branch(then), fallback: None }
     }
 
-    pub fn fallback<V: View>(mut self, fallback: impl Fn() -> V + 'static) -> Show {
-        self.fallback = Some(Rc::new(move || AnyView::new(fallback())));
+    pub fn fallback<C: Children>(mut self, fallback: impl Fn() -> C + 'static) -> Show {
+        self.fallback = Some(branch(fallback));
         self
     }
 }
@@ -41,10 +50,12 @@ impl View for Show {
         let render = move |condition: bool| {
             let branch = if condition { Some(&then) } else { fallback.as_ref() };
             if let Some(branch) = branch {
-                let child = branch().build(&ui);
-                ui.append_child(fragment, child);
-                let ui = ui.clone();
-                on_cleanup(move || ui.destroy(child));
+                for view in branch() {
+                    let child = view.build(&ui);
+                    ui.append_child(fragment, child);
+                    let ui = ui.clone();
+                    on_cleanup(move || ui.destroy(child));
+                }
             }
         };
         match when {
@@ -146,8 +157,8 @@ impl ShowWithoutWhen {
         ShowWhen { when: when.into_value(), fallback: self.fallback }
     }
 
-    pub fn fallback<V: View>(mut self, fallback: impl Fn() -> V + 'static) -> ShowWithoutWhen {
-        self.fallback = Some(Rc::new(move || AnyView::new(fallback())));
+    pub fn fallback<C: Children>(mut self, fallback: impl Fn() -> C + 'static) -> ShowWithoutWhen {
+        self.fallback = Some(branch(fallback));
         self
     }
 }
@@ -159,13 +170,13 @@ pub struct ShowWhen {
 }
 
 impl ShowWhen {
-    pub fn fallback<V: View>(mut self, fallback: impl Fn() -> V + 'static) -> ShowWhen {
-        self.fallback = Some(Rc::new(move || AnyView::new(fallback())));
+    pub fn fallback<C: Children>(mut self, fallback: impl Fn() -> C + 'static) -> ShowWhen {
+        self.fallback = Some(branch(fallback));
         self
     }
 
-    pub fn __children<V: View>(self, then: impl Fn() -> V + 'static) -> Show {
-        Show { when: self.when, then: Rc::new(move || AnyView::new(then())), fallback: self.fallback }
+    pub fn __children<C: Children>(self, then: impl Fn() -> C + 'static) -> Show {
+        Show { when: self.when, then: branch(then), fallback: self.fallback }
     }
 }
 

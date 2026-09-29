@@ -17,25 +17,57 @@
 //!
 //! A store `provide`d in a scope takes precedence there, which is how tests
 //! (and previews) swap in a store in a known state.
+//!
+//! An action that runs async work starts it with [`Store::spawn`], so it
+//! runs in the store's scope. [`spawn_local`] would tie it to the view that
+//! called the action, and closing that view (a dialog, say) would cancel it.
 
 use std::any::{Any, TypeId};
 use std::cell::RefCell;
 use std::collections::HashMap;
+use std::future::Future;
 use std::rc::Rc;
 
 use mitsuami_reactive::{Owner, inject, provide};
+
+use crate::task::{TaskHandle, spawn_local};
 
 /// App-wide state, created once per app by [`use_store`].
 pub trait Store: Clone + 'static {
     /// Creates the store. Runs once, in a scope that lives as long as the
     /// app, so the store's effects, resources and tasks do too.
     fn create() -> Self;
+
+    /// Runs `future` on the UI thread in the store's scope, for its
+    /// actions' async work: it goes on when the view that called the
+    /// action goes away, and stops with the store. The store is the one
+    /// [`use_store`] finds from the caller's scope, `provide`d or the app's.
+    ///
+    /// ```ignore
+    /// fn rename(&self, path: PathBuf, name: String) {
+    ///     let store = *self;
+    ///     self.spawn(async move {
+    ///         let result = spawn_blocking(move || fs::rename(&path, &name)).await;
+    ///         store.renamed(result);
+    ///     });
+    /// }
+    /// ```
+    ///
+    /// # Panics
+    /// Outside of an app, or for a store neither `provide`d above this
+    /// scope nor made by [`use_store`].
+    fn spawn(&self, future: impl Future<Output = ()> + 'static) -> TaskHandle {
+        store_scope::<Self>().with(|| spawn_local(future))
+    }
 }
 
 #[derive(Clone)]
 struct Registry {
     stores: Rc<RefCell<HashMap<TypeId, Rc<dyn Any>>>>,
-    /// The app scope; each store gets a child of it.
+    /// Each store's scope, a child of the app scope. Known before the store
+    /// is made, so `create` can spawn.
+    scopes: Rc<RefCell<HashMap<TypeId, Owner>>>,
+    /// The app scope.
     owner: Owner,
 }
 
@@ -46,7 +78,7 @@ struct Registry {
 /// When called outside of any scope.
 pub fn provide_stores() {
     let owner = Owner::current().expect("mitsuami: provide_stores needs a scope (Owner::with)");
-    provide(Registry { stores: Rc::default(), owner });
+    provide(Registry { stores: Rc::default(), scopes: Rc::default(), owner });
 }
 
 /// The app's instance of store `S`, created on first use; or the one
@@ -70,7 +102,25 @@ pub fn use_store<S: Store>() -> S {
         return store.downcast_ref::<S>().expect("mitsuami: store registry holds the wrong type").clone();
     }
     // Not borrowed while creating: a store may use other stores.
-    let store = registry.owner.child().with(S::create);
+    let scope = registry.owner.child();
+    registry.scopes.borrow_mut().insert(TypeId::of::<S>(), scope);
+    let store = scope.with(S::create);
     registry.stores.borrow_mut().insert(TypeId::of::<S>(), Rc::new(store.clone()));
     store
+}
+
+/// The scope of the store `use_store::<S>()` would return here: the one it
+/// was `provide`d in, or the one the app made it in.
+fn store_scope<S: Store>() -> Owner {
+    if let Some(scope) = Owner::providing::<S>() {
+        return scope;
+    }
+    let scope = inject::<Registry>().and_then(|registry| registry.scopes.borrow().get(&TypeId::of::<S>()).copied());
+    scope.unwrap_or_else(|| {
+        panic!(
+            "mitsuami: {}::spawn found no store scope; spawn from an app's view or task, with a store \
+             from use_store or one provided above it",
+            std::any::type_name::<S>()
+        )
+    })
 }

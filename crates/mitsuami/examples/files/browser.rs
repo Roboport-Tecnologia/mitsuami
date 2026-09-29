@@ -41,9 +41,6 @@ pub struct Browser {
     /// is read again.
     fresh: Signal<Vec<PathBuf>>,
     outside: Signal<Outside>,
-    /// The store's scope. Its work runs there: started from a dialog's
-    /// button, it would stop when the dialog closes.
-    scope: Owner,
 }
 
 impl Store for Browser {
@@ -69,7 +66,6 @@ impl Browser {
             renaming: signal(None),
             fresh: signal(Vec::new()),
             outside: signal(outside),
-            scope: Owner::current().expect("a browser is made in a scope"),
         };
         // Once a listing with new items arrives, they're what's selected.
         effect(move || {
@@ -217,7 +213,7 @@ impl Browser {
     /// Makes an untitled folder and starts renaming it.
     pub fn new_folder(&self) {
         let (browser, folder) = (*self, self.folder.get_untracked());
-        self.run(async move {
+        self.spawn(async move {
             match spawn_blocking(move || fs::new_folder(&folder)).await {
                 Ok(path) => {
                     browser.fresh.set(vec![path.clone()]);
@@ -231,7 +227,7 @@ impl Browser {
 
     pub fn rename(&self, path: PathBuf, name: String) {
         let browser = *self;
-        self.run(async move {
+        self.spawn(async move {
             match spawn_blocking(move || fs::rename(&path, &name)).await {
                 Ok(to) => {
                     browser.fresh.set(vec![to]);
@@ -253,7 +249,7 @@ impl Browser {
 
     fn copy_here(&self, paths: Vec<PathBuf>, suffix: &'static str) {
         let (browser, folder) = (*self, self.folder.get_untracked());
-        self.run(async move {
+        self.spawn(async move {
             match spawn_blocking(move || fs::copy_into(&paths, &folder, suffix)).await {
                 Ok(copies) => browser.fresh.set(copies),
                 Err(error) => browser.fail("The items couldn't be copied.", error),
@@ -267,7 +263,7 @@ impl Browser {
     pub fn trash(&self, paths: Vec<PathBuf>) {
         let browser = *self;
         let trash = self.outside.get_untracked().trash;
-        self.run(async move {
+        self.spawn(async move {
             if trash.deletes() {
                 let title = match paths.as_slice() {
                     [one] => {
@@ -293,13 +289,9 @@ impl Browser {
         });
     }
 
-    fn run(&self, work: impl Future<Output = ()> + 'static) {
-        self.scope.with(|| spawn_local(work));
-    }
-
     fn fail(&self, what: impl Into<String>, why: String) {
         let warning = Alert::new(what).message(why).style(AlertStyle::Warning);
-        self.run(async move {
+        self.spawn(async move {
             alert(warning).await;
         });
     }

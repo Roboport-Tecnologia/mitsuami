@@ -235,6 +235,8 @@ struct Node {
     parent: Option<NodeId>,
     /// Row hosts: which row of their list they show.
     row: Option<RowKey>,
+    /// Cell hosts: which column of their table's row they show.
+    column: Option<usize>,
     /// Props AppKit can't report back faithfully.
     text_style: Option<TextStyle>,
     /// Labels: what the app gave, which the font and colour are made of

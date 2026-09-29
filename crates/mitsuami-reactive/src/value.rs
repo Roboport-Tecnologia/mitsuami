@@ -42,6 +42,11 @@ impl<T: Clone + 'static> Value<T> {
 }
 
 /// Conversion into a [`Value`].
+#[diagnostic::on_unimplemented(
+    message = "`{Self}` can't be a `Value<{T}>`",
+    note = "a value is a literal, a `Signal`, a `Computed` or a closure returning it",
+    note = "derive `IntoValue` on a type of your own (a custom widget's props) to pass it as it is"
+)]
 pub trait IntoValue<T: 'static> {
     fn into_value(self) -> Value<T>;
 }

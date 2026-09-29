@@ -231,6 +231,14 @@ pub trait ElementBuilder: Sized {
         self
     }
 
+    /// A context menu built by `entries`, and built again whenever what it
+    /// reads changes, as [`Menu::children_with`] builds its entries.
+    fn context_menu_with<E: MenuEntries>(mut self, entries: impl Fn() -> E + 'static) -> Self {
+        let menu = Menu::new(String::new()).children_with(entries);
+        self.element().after_build(move |ui, id| install_context_menu(ui, id, menu));
+        self
+    }
+
     fn a11y_label(mut self, label: impl Into<String>) -> Self {
         self.element().a11y.label = Some(label.into());
         self

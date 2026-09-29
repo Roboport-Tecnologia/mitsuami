@@ -160,7 +160,8 @@ impl<'a> Locator<'a> {
 
     /// Activates the control: click a button, toggle a checkbox. A radio
     /// button is chosen by its option (the first with it), as a radio
-    /// group's buttons are its data, not nodes of their own.
+    /// group's buttons are its data, not nodes of their own; so is a
+    /// table's column header pressed, by its title, which sorts the table.
     pub async fn click(&self) {
         self.app.settle().await;
         let node = self.node();
@@ -168,13 +169,21 @@ impl<'a> Locator<'a> {
             (Some(WidgetKind::RadioGroup), Role::RadioButton, Some(option)) => {
                 self.act(A11yAction::SetValue(option)).await
             }
+            (Some(WidgetKind::Table), Role::ColumnHeader, Some(title)) => {
+                let columns = find_prop!(self.app.ui().props(node.id), Columns).unwrap_or_default();
+                let Some(column) = columns.iter().position(|c| c.title == title) else {
+                    self.fail(&format!("the table has no column {title:?}"))
+                };
+                self.act(A11yAction::PressHeader(column)).await
+            }
             _ => self.act(A11yAction::Activate).await,
         }
     }
 
     /// Selects a list row, as assistive technology would: in place of the
     /// selected row, or of every selected row in a multiple-selection list.
-    /// Clicking a row ([`click`](Self::click)) activates it instead.
+    /// A table's row is selected through it or any of its cells. Clicking
+    /// a row ([`click`](Self::click)) activates it instead.
     ///
     /// A sidebar's item is chosen by its title (the first with it), as its
     /// items are the sidebar's data, not nodes of their own; so is a tab
@@ -296,10 +305,10 @@ impl<'a> Locator<'a> {
     pub fn context_menu(&self) -> Option<(NodeId, Vec<MenuEntry>)> {
         let ui = self.app.ui();
         let mut id = Some(self.id());
-        // A list row's host holds the row's view, which is what a
-        // right-click on the row hits.
+        // A list row's host (a table cell's) holds the row's view, which is
+        // what a right-click on the row hits.
         if let Some(host) = id
-            && find_prop!(ui.props(host), Row).is_some()
+            && (find_prop!(ui.props(host), Row).is_some() || find_prop!(ui.props(host), Cell).is_some())
             && let [view] = ui.children(host)[..]
         {
             id = Some(view);

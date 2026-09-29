@@ -247,13 +247,20 @@ impl WinUiBackend {
             }
             Widget::Native { last, .. } => props.push(Prop::Native(last.clone())),
             Widget::List(list) => {
+                if list.is_table() {
+                    props.push(Prop::Columns(list.columns()));
+                    props.push(Prop::Sort(list.sort()));
+                }
                 props.push(Prop::Rows(list.rows()));
                 props.extend(list.estimate().map(Prop::EstimatedRowHeight));
                 props.push(Prop::SelectionMode(list.mode()));
                 props.extend(list.style().map(Prop::ListStyle));
                 props.push(Prop::Selected(list.selected()));
             }
-            Widget::Host(_) => props.extend(node.row.map(Prop::Row)),
+            Widget::Host(_) => props.extend(node.row.map(|row| match node.column {
+                Some(column) => Prop::Cell(mitsuami_core::CellKey { row, column }),
+                None => Prop::Row(row),
+            })),
         }
         if is_control(&node.widget) && !matches!(node.widget, Widget::Scroll(_) | Widget::List(_)) {
             props.push(Prop::Enabled(node.element.cast::<w::IControl>().ok()?.IsEnabled().ok()?));
@@ -294,6 +301,7 @@ impl WinUiBackend {
         // A row is where the list view put it, a toolbar item where the
         // toolbar did.
         let frame = match node.parent.and_then(|p| state.nodes.get(&p)).map(|p| &p.widget) {
+            Some(Widget::List(list)) if node.column.is_some() => list.cell_rect(&node.element, frame),
             Some(Widget::List(list)) => list.row_rect(&node.element, frame),
             Some(Widget::Window(parts)) if node.kind == WidgetKind::ToolbarItem => {
                 toolbar_item_frame(parts, id, &node.element).unwrap_or(frame)

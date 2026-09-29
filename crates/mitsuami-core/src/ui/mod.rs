@@ -66,10 +66,12 @@ struct Node {
     /// window, oldest first: the last the platform reported, and the ones
     /// since that it hasn't yet.
     heights: Vec<f32>,
-    /// ScrollViews and Lists only: how far the content is scrolled.
+    /// ScrollViews, Lists and Tables only: how far the content is scrolled.
     scroll_offset: Point,
     /// Lists only: the width the platform gives their rows, if not their own.
     row_width: Option<f32>,
+    /// Tables only: the widths the platform gives their columns' cells.
+    column_widths: Option<Vec<f32>>,
     /// Tabs and groups only: the size of their tab strip, or heading, and
     /// border, with no content.
     strip: Size,

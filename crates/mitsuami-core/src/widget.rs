@@ -145,6 +145,18 @@ pub enum WidgetKind {
     /// the rows the core mounted for those (`Container`s with a
     /// [`Prop::Row`]), in row order. It scrolls like a `ScrollView`.
     List,
+    /// A native table: a `List` whose rows are cells under column headers
+    /// (NSTableView with columns and a header, gtk::ColumnView, a QML
+    /// TableView under a HorizontalHeaderView; WinUI has none, so a
+    /// ListView under a header of column buttons, as Fluent apps build
+    /// one). Its columns are [`Prop::Columns`], sorted as [`Prop::Sort`]
+    /// says. Its data, selection and scrolling are a `List`'s; its native
+    /// children are the hosts of the cells the core mounted for the rows it
+    /// shows (`Container`s with a [`Prop::Cell`]), in row order, then
+    /// column order. The platform sizes its columns, and the user resizes
+    /// them: it reports the width each column gives its cells
+    /// (`ColumnWidths`).
+    Table,
     /// A native tab view: pages, one shown at a time, and a strip of their
     /// titles to pick one (NSTabView, libadwaita's inline view switcher or
     /// a gtk::Notebook, a SelectorBar over its pages on WinUI, Kirigami's
@@ -193,7 +205,12 @@ impl WidgetKind {
 
     /// Scrolls its content: `ScrollTo` and `Scrolled` apply.
     pub fn scrolls(self) -> bool {
-        matches!(self, WidgetKind::ScrollView | WidgetKind::List)
+        matches!(self, WidgetKind::ScrollView | WidgetKind::List | WidgetKind::Table)
+    }
+
+    /// Has rows the platform realises: a `List` or a `Table`.
+    pub fn has_rows(self) -> bool {
+        matches!(self, WidgetKind::List | WidgetKind::Table)
     }
 
     pub fn name(self) -> &'static str {
@@ -204,6 +221,7 @@ impl WidgetKind {
             WidgetKind::Sidebar => "Sidebar",
             WidgetKind::ScrollView => "ScrollView",
             WidgetKind::List => "List",
+            WidgetKind::Table => "Table",
             WidgetKind::Tabs => "Tabs",
             WidgetKind::Group => "Group",
             WidgetKind::Fragment => "Fragment",
@@ -542,6 +560,53 @@ impl ScrollAxes {
 #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub struct RowKey(pub u64);
 
+/// A cell of a `Table`: its row, and its column's index.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
+pub struct CellKey {
+    pub row: RowKey,
+    pub column: usize,
+}
+
+/// A column of a `Table`, as backends get it.
+#[derive(Clone, Debug, PartialEq)]
+pub struct ColumnData {
+    /// Its header's title.
+    pub title: String,
+    /// How wide it starts, in points; `None`: the platform's default. The
+    /// user can resize it, as the platform lets them.
+    pub width: Option<f32>,
+    /// It takes the room the table has past its columns' widths, shared
+    /// with the other columns that do, as the platform shares it.
+    pub expand: bool,
+    /// Its header sorts the table by it when pressed.
+    pub sortable: bool,
+}
+
+/// Which way a `Table` is sorted.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Hash)]
+pub enum SortOrder {
+    #[default]
+    Ascending,
+    Descending,
+}
+
+impl SortOrder {
+    /// The other way round.
+    pub fn reversed(self) -> SortOrder {
+        match self {
+            SortOrder::Ascending => SortOrder::Descending,
+            SortOrder::Descending => SortOrder::Ascending,
+        }
+    }
+}
+
+/// The column a `Table` is sorted by, and which way, as its header shows.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+pub struct ColumnSort {
+    pub column: usize,
+    pub order: SortOrder,
+}
+
 /// How many rows of a `List` can be selected.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Hash)]
 pub enum SelectionMode {
@@ -763,6 +828,14 @@ pub enum Prop {
     EstimatedRowHeight(f32),
     /// Which row of its `List` a row host shows.
     Row(RowKey),
+    /// A `Table`'s columns, in order.
+    Columns(Vec<ColumnData>),
+    /// The column a `Table` is sorted by, which its header shows. The user
+    /// pressing a sortable column's header sorts it as the platform does:
+    /// the backend reports `Changed(Sort)`, which the core absorbs.
+    Sort(Option<ColumnSort>),
+    /// Which cell of its `Table` a cell host shows.
+    Cell(CellKey),
     SelectionMode(SelectionMode),
     ListStyle(ListStyle),
     /// The selected rows of a `List`.
@@ -883,6 +956,7 @@ static_value!(
     Orientation,
     ScrollAxes,
     SelectionMode,
+    SortOrder,
     ListStyle,
     InputPurpose,
     ImageSource,

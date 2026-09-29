@@ -188,13 +188,20 @@ impl GtkBackend {
             }
             Widget::Native { last, .. } => props.push(Prop::Native(last.clone())),
             Widget::List(list) => {
+                if node.kind == WidgetKind::Table {
+                    props.push(Prop::Columns(list.columns()));
+                    props.push(Prop::Sort(list.sort()));
+                }
                 props.push(Prop::Rows(list.rows()));
                 props.extend(list.estimate().map(Prop::EstimatedRowHeight));
                 props.push(Prop::SelectionMode(list.mode()));
                 props.extend(list.style().map(Prop::ListStyle));
                 props.push(Prop::Selected(list.selected()));
             }
-            Widget::Host(_) => props.extend(node.row.map(Prop::Row)),
+            Widget::Host(_) => props.extend(node.row.map(|row| match node.column {
+                Some(column) => Prop::Cell(mitsuami_core::CellKey { row, column }),
+                None => Prop::Row(row),
+            })),
             Widget::Sidebar(sidebar) => {
                 props.push(Prop::Sections(sidebar.sections()));
                 props.push(Prop::SelectedIndex(sidebar.selected()));
@@ -228,9 +235,14 @@ impl GtkBackend {
             }
             _ => state.frames.borrow().get(widget).copied().unwrap_or_default(),
         };
-        // A row is where the list view put it.
+        // A row is where the list view put it, and a cell where the column
+        // view did.
         let frame = match (node.row, node.parent.and_then(|p| state.nodes.get(&p)).map(|p| &p.widget)) {
-            (Some(row), Some(Widget::List(list))) => list.row_rect(row, &state.frames).unwrap_or(frame),
+            (Some(row), Some(Widget::List(list))) => match node.column {
+                Some(column) => list.cell_rect(row, column, &state.frames),
+                None => list.row_rect(row, &state.frames),
+            }
+            .unwrap_or(frame),
             // A toolbar item is where the header bar put it, in the content
             // host's coordinates (above it); a hidden one isn't shown.
             (_, Some(Widget::Window(parts))) if node.kind == WidgetKind::ToolbarItem => {

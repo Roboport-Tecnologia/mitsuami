@@ -248,8 +248,11 @@ struct Node {
     /// they don't get our frame directly.
     inner: Option<w::UIElement>,
     parent: Option<NodeId>,
-    /// Row hosts: which row of their list they show.
+    /// Row hosts: which row of their list they show; cell hosts, which
+    /// row of their table.
     row: Option<RowKey>,
+    /// Cell hosts: which column of their table's row they show.
+    column: Option<usize>,
     revokers: Vec<EventRevoker>,
     /// The value the native widget is known to show, set by the core or
     /// reported to it. Change events that match it are programmatic.

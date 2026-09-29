@@ -159,7 +159,7 @@ impl Inner {
         let child_taffy = self.nodes[&child].taffy.filter(|_| !in_chrome(self.nodes[&child].kind));
         if let Some(node) = self.nodes.get_mut(&parent) {
             node.native_children.retain(|c| *c != child);
-            if let (Some(p), Some(c), false) = (node.taffy, child_taffy, node.kind == WidgetKind::List) {
+            if let (Some(p), Some(c), false) = (node.taffy, child_taffy, node.kind.has_rows()) {
                 let _ = self.taffy.remove_child(p, c);
             }
         }
@@ -234,7 +234,7 @@ impl Inner {
         let taffy_children: Vec<_> =
             desired.iter().filter(|c| !in_chrome(self.nodes[*c].kind)).filter_map(|c| self.nodes[c].taffy).collect();
         // A list's rows are laid out on their own (`layout_list`).
-        if let Some(t) = self.nodes[&parent].taffy.filter(|_| self.nodes[&parent].kind != WidgetKind::List) {
+        if let Some(t) = self.nodes[&parent].taffy.filter(|_| !self.nodes[&parent].kind.has_rows()) {
             let _ = self.taffy.set_children(t, &taffy_children);
         }
         self.nodes.get_mut(&parent).unwrap().native_children = desired;

@@ -323,15 +323,15 @@ pub fn page(full: Signal<bool>) -> impl View {
 }
 
 fn main() {
-    let (open, full) = (signal(true), signal(false));
     App::new()
-        .open(
+        .open(|| {
+            let full = signal(false);
             Window::new("GPU surface")
                 .size(Size::new(720.0, 540.0))
                 .min_size(Size::new(320.0, 240.0))
                 .full_screen(full)
-                .bind(open)
-                .content(move || page(full)),
-        )
+                .bind(signal(true))
+                .content(move || page(full))
+        })
         .run();
 }

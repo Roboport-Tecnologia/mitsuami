@@ -39,7 +39,8 @@ impl State {
         let node = &self.nodes[&id];
         if let Some(run) = node.tweak.as_ref().and_then(|tweak| tweak.downcast_ref::<crate::tweak::TweakFn>()) {
             match &node.widget {
-                // The list view or text area, not the scroll view around it.
+                // The list or table view or text area, not the scroll view
+                // around it.
                 Widget::List(list) => run(list.view),
                 Widget::TextArea { area, .. } => run(*area),
                 Widget::Group { group, .. } => run(*group),
@@ -117,9 +118,9 @@ impl State {
                 }
                 if let Widget::List(list) = &self.nodes[parent].widget {
                     let Some(row) = self.nodes[child].row else {
-                        violation(command, "a List's children are row hosts (Containers with a Prop::Row)")
+                        violation(command, "a List's children are row hosts, a Table's cell hosts")
                     };
-                    list.insert(row, *child, item);
+                    list.insert(row, self.nodes[child].column.unwrap_or(0), *child, item);
                     self.nodes.get_mut(child).unwrap().parent = Some(*parent);
                     return;
                 }
@@ -148,7 +149,10 @@ impl State {
                     violation(command, "not a child of this parent");
                 }
                 match (&self.nodes[parent].widget, &self.nodes[child].widget) {
-                    (Widget::List(list), _) => list.remove(self.nodes[child].row.expect("inserted with a row")),
+                    (Widget::List(list), _) => list.remove(
+                        self.nodes[child].row.expect("inserted with a row"),
+                        self.nodes[child].column.unwrap_or(0),
+                    ),
                     (Widget::Window { root }, Widget::Sidebar { .. }) => hide_sidebar(root),
                     // Out of the page area, shown again wherever it goes.
                     (Widget::Tabs { root, .. }, child) => {

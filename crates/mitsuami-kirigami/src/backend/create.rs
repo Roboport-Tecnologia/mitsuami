@@ -223,7 +223,9 @@ impl State {
                 Widget::Scroll { view, flickable }
             }
             WidgetKind::Fragment => violation(command, "fragments are core-only"),
-            WidgetKind::List => Widget::List(crate::list::List::new(id, events.clone())),
+            WidgetKind::List | WidgetKind::Table => {
+                Widget::List(crate::list::List::new(id, events.clone(), kind == WidgetKind::Table))
+            }
         };
         let item = widget.item();
         item.set_node(node_key(id));
@@ -243,6 +245,7 @@ impl State {
                 widget,
                 parent: None,
                 row: None,
+                column: None,
                 text_style: None,
                 role: None,
                 button_style: None,

@@ -5,7 +5,7 @@ use crate::any_value::AnyValue;
 use crate::geometry::{Point, Rect, Size};
 use crate::input::SurfaceInput;
 use crate::surface::{SurfaceHandle, SurfaceSize};
-use crate::widget::{NodeId, Prop, RowKey, WidgetKind};
+use crate::widget::{ColumnSort, NodeId, Prop, RowKey, WidgetKind};
 
 /// A change the backend must apply to the native widget tree.
 ///
@@ -90,8 +90,10 @@ pub enum EventValue {
     Bool(bool),
     /// A `Slider`'s or `NumberInput`'s new value.
     Number(f64),
-    /// A `List`'s selected rows.
+    /// A `List`'s or `Table`'s selected rows.
     Rows(Vec<RowKey>),
+    /// The column a `Table` is sorted by now, and which way.
+    Sort(ColumnSort),
     /// The option chosen in a `Select` or `RadioGroup`.
     Index(usize),
 }
@@ -131,10 +133,10 @@ pub enum UiEvent {
     /// A `ScrollView`'s or `List`'s scroll offset changed (by the user or
     /// by `ScrollTo`).
     Scrolled(Point),
-    /// A `List` realised a row: it's in view, or about to be. The core
-    /// mounts the row and sends its host.
+    /// A `List` or `Table` realised a row: it's in view, or about to be.
+    /// The core mounts the row and sends its host (a table's: its cells').
     RowShown(RowKey),
-    /// A `List` let go of a row it had shown. The core disposes it.
+    /// A `List` or `Table` let go of a row it had shown. The core disposes it.
     RowHidden(RowKey),
     /// A `List`'s row was activated: double-clicked, or Enter pressed on it.
     RowActivated(RowKey),
@@ -142,6 +144,10 @@ pub enum UiEvent {
     /// width (scroll bars that take room from the rows, list insets). Rows
     /// are laid out at that width.
     RowWidth(f32),
+    /// The widths a `Table`'s columns give their cells, in column order:
+    /// once they're known, and whenever they change (the user resized a
+    /// column, the table was resized). Cells are laid out at them.
+    ColumnWidths(Vec<f32>),
     /// A pointer event on a drawn custom widget, in its coordinates.
     Pointer(PointerEvent),
     /// A widget's natural size changed on its own (an image finished

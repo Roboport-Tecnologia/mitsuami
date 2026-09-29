@@ -50,6 +50,7 @@ impl Ui {
                     heights: Vec::new(),
                     scroll_offset: Point::ZERO,
                     row_width: None,
+                    column_widths: None,
                     strip: Size::ZERO,
                     insets: None,
                 },
@@ -130,7 +131,8 @@ impl Ui {
             {
                 let _ = inner.taffy.mark_dirty(t);
             }
-            if matches!(prop, Prop::TextStyle(_)) {
+            // A line limit changes a text's minimum width (`resolve_node`).
+            if matches!(prop, Prop::TextStyle(_) | Prop::MaxLines(_)) {
                 inner.styles_dirty = true;
             }
             // New titles, icons or another style may make the tab strip wider

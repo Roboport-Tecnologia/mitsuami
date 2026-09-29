@@ -17,7 +17,7 @@ mod macos;
 
 pub struct FileIcon;
 
-#[derive(Clone, Debug, PartialEq)]
+#[derive(Clone, Debug, PartialEq, IntoValue)]
 pub struct FileIconProps {
     pub path: PathBuf,
     /// The built-in icon's name, where the platform's isn't available.

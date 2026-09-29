@@ -66,6 +66,32 @@ async fn show_renders_the_fallback_when_false(app: TestApp) {
     app.expect(by_role(Role::Button, "Log in")).not_to_exist().await;
 }
 
+/// Several children take their places in the parent, as if written there:
+/// laid out along its row, and all disposed together.
+#[mitsuami_test::test]
+async fn show_takes_several_children(app: TestApp) {
+    let open = signal(true);
+    app.mount(move || {
+        view! {
+            <Row gap=8>
+                <Text>"Name"</Text>
+                <Show when=open fallback=|| view! { <Text>"Nothing"</Text> }>
+                    <Separator orientation=Orientation::Vertical/>
+                    <Text>"Preview"</Text>
+                </Show>
+            </Row>
+        }
+    });
+    assert_eq!(texts(&app), ["Name", "Preview"]);
+    let (name, preview) = (app.get_by_text("Name").frame(), app.get_by_text("Preview").frame());
+    assert!(preview.origin.x > name.origin.x + name.size.width, "not along the row: {name:?} and {preview:?}");
+
+    open.set(false);
+    app.expect(by_text("Preview")).not_to_exist().await;
+    assert_eq!(texts(&app), ["Name", "Nothing"]);
+    assert!(app.a11y_tree().walk().iter().all(|n| n.role != Role::Separator));
+}
+
 #[mitsuami_test::test]
 async fn for_renders_items_in_order(app: TestApp) {
     let items = signal(vec![item(1, "a"), item(2, "b"), item(3, "c")]);

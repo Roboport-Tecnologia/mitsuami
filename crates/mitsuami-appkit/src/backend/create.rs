@@ -45,6 +45,7 @@ impl State {
                 | WidgetKind::TextArea
                 | WidgetKind::ScrollView
                 | WidgetKind::List
+                | WidgetKind::Table
         )
         .then(|| ActionTarget::new(mtm, id, kind, self.events.clone()));
         let action = Some(sel!(fire:));
@@ -289,8 +290,8 @@ impl State {
                 observe_scrolling(&scroll, target.as_deref());
                 Widget::Scroll(scroll)
             }
-            WidgetKind::List => {
-                let list = crate::list::List::new(mtm, id, self.events.clone());
+            WidgetKind::List | WidgetKind::Table => {
+                let list = crate::list::List::new(mtm, id, self.events.clone(), kind == WidgetKind::Table);
                 observe_scrolling(&list.scroll, target.as_deref());
                 Widget::List(list)
             }
@@ -311,6 +312,7 @@ impl State {
                 _targets: targets,
                 parent: None,
                 row: None,
+                column: None,
                 text_style: None,
                 weight: None,
                 italic: None,

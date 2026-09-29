@@ -205,8 +205,11 @@ struct Node {
     kind: WidgetKind,
     widget: Widget,
     parent: Option<NodeId>,
-    /// Row hosts: which row of their list they show.
+    /// Row hosts: which row of their list they show; cell hosts, of their
+    /// table.
     row: Option<RowKey>,
+    /// Cell hosts: which column of their table's row they show.
+    column: Option<usize>,
     /// Props Qt can't report back faithfully.
     text_style: Option<TextStyle>,
     role: Option<ButtonRole>,

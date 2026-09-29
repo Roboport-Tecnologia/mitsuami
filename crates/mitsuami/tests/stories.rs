@@ -937,4 +937,41 @@ fn list_tweak() -> Tweak<List> {
     }
 }
 
+#[derive(Clone, Copy, Debug, PartialEq)]
+enum ContactColumn {
+    Name,
+    Email,
+}
+
+/// A table sorted by name, the other way round, with a selected row: the
+/// platform draws the header, its sort indicator, the rows' selection and
+/// the scroll bar.
+#[mitsuami_test::story(sizes = [(420, fit)], play = select_grace_row)]
+fn table() -> impl View {
+    let (selected, sort) = (signal(Vec::<u32>::new()), signal(Sort::descending(ContactColumn::Name)));
+    let contacts = move || {
+        let mut contacts = CONTACTS.to_vec();
+        match sort.get().by {
+            ContactColumn::Name => contacts.sort_by_key(|c| c.name),
+            ContactColumn::Email => contacts.sort_by_key(|c| c.email),
+        }
+        if sort.get().order == SortOrder::Descending {
+            contacts.reverse();
+        }
+        contacts
+    };
+    Column::new().child(
+        Table::new(contacts, |c: &Contact| c.id)
+            .column(TableColumn::new("Name", |c: Contact| Text::new(c.name)).width(150).sort_key(ContactColumn::Name))
+            .column(TableColumn::new("Email", |c: Contact| Text::new(c.email)).expand().sort_key(ContactColumn::Email))
+            .sort(sort)
+            .selected(selected)
+            .height(180),
+    )
+}
+
+async fn select_grace_row(app: &TestApp) {
+    app.get_by_role(Role::Cell, "Grace Hopper").select().await;
+}
+
 mitsuami_test::main!();

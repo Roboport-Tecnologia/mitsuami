@@ -64,6 +64,23 @@ async fn max_lines_follows_its_signal(app: TestApp) {
     assert_eq!(height(&app, "text"), one);
 }
 
+/// A text with a line limit shrinks below its longest word (a path), as
+/// ellipsizing labels do on every platform; one without keeps the word's
+/// width and runs past its row.
+#[mitsuami_test::test]
+async fn a_line_limit_lets_text_shrink_below_its_longest_word(app: TestApp) {
+    const PATH: &str = "/Users/someone/Documents/Projects/mitsuami/crates/mitsuami/examples";
+    app.mount(|| {
+        Column::new().width(120).align(Align::Stretch).children((
+            Row::new().child(Text::new(PATH).max_lines(1).shrink(1.0).test_id("limited")),
+            Row::new().child(Text::new(PATH).shrink(1.0).test_id("unlimited")),
+        ))
+    });
+    let (limited, unlimited) = (app.get_by_test_id("limited").frame(), app.get_by_test_id("unlimited").frame());
+    assert!(limited.width() <= 120.0, "the limited text didn't shrink: {limited:?}");
+    assert!(unlimited.width() > 120.0, "the unlimited text shrank below its word: {unlimited:?}");
+}
+
 /// Logs the text the native label shows, each time the tweak runs.
 fn log_text(log: Rc<RefCell<Vec<String>>>) -> Tweak<Text> {
     platform! {

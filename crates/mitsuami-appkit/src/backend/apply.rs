@@ -131,9 +131,9 @@ impl State {
                 }
                 if let Widget::List(list) = &self.nodes[parent].widget {
                     let Some(row) = self.nodes[child].row else {
-                        violation(command, "a List's children are row hosts (Containers with a Prop::Row)")
+                        violation(command, "a List's children are row hosts, a Table's cell hosts")
                     };
-                    list.insert(row, *child, child_view);
+                    list.insert(row, self.nodes[child].column.unwrap_or(0), *child, child_view);
                     self.nodes.get_mut(child).unwrap().parent = Some(*parent);
                     return;
                 }
@@ -156,7 +156,7 @@ impl State {
                 if self.nodes.get(child).and_then(|n| n.parent) != Some(*parent) {
                     violation(command, "not a child of this parent");
                 }
-                let row = self.nodes[child].row;
+                let (row, column) = (self.nodes[child].row, self.nodes[child].column.unwrap_or(0));
                 if let Widget::Window { window, host, _delegate, toolbar, split } =
                     &mut self.nodes.get_mut(parent).unwrap().widget
                     && split.as_ref().is_some_and(|s| s.sidebar == *child)
@@ -182,7 +182,7 @@ impl State {
                 match &mut self.nodes.get_mut(parent).unwrap().widget {
                     Widget::Window { toolbar: Some(toolbar), .. } if toolbar.contains(*child) => toolbar.remove(*child),
                     Widget::Scroll(scroll) => scroll.setDocumentView(None),
-                    Widget::List(list) => list.remove(row.expect("inserted with a row")),
+                    Widget::List(list) => list.remove(row.expect("inserted with a row"), column),
                     Widget::Tabs(tabs) => tabs.remove(*child),
                     _ => self.view(*child, command).removeFromSuperview(),
                 }
@@ -244,7 +244,9 @@ impl State {
                     toolbar.set_size(*id, rect.size.width, rect.size.height);
                     return;
                 }
-                // A row fills its cell, and the table makes the row as high.
+                // A row fills its cell, and the table makes the row as high;
+                // a table's cell sits centred in its cell, and the table
+                // makes the row as high as its highest.
                 let parent = self.nodes.get(id).and_then(|n| n.parent).map(|p| &self.nodes[&p].widget);
                 // A page is where its tab view puts it, at this size.
                 if let Some(Widget::Tabs(tabs)) = parent {
@@ -254,7 +256,7 @@ impl State {
                 if let Some(Widget::List(list)) = parent {
                     self.view(*id, command).setFrame(rect);
                     if let Some(row) = self.nodes[id].row {
-                        list.set_row_height(row, frame.height());
+                        list.set_host_height(row, self.nodes[id].column.unwrap_or(0), frame.height());
                     }
                     return;
                 }

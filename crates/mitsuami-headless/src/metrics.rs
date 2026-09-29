@@ -20,6 +20,12 @@ pub(super) const TAB_PADDING: f32 = 24.0;
 /// A group's border and margins, and room for a heading at the top.
 pub(super) const GROUP_INSETS: Insets = Insets::new(8.0, 8.0, 8.0, 8.0);
 pub(super) const TITLED_GROUP_INSETS: Insets = Insets::new(32.0, 8.0, 8.0, 8.0);
+/// A table: its header this high above its rows, its rows at least this
+/// high, its columns this far apart and this wide unless the app says.
+pub(super) const TABLE_HEADER_HEIGHT: f32 = 24.0;
+pub(super) const TABLE_ROW_HEIGHT: f32 = 24.0;
+pub(super) const COLUMN_SPACING: f32 = 4.0;
+pub(super) const COLUMN_WIDTH: f32 = 100.0;
 /// Between a radio group's buttons.
 pub(super) const RADIO_GAP: f32 = 6.0;
 

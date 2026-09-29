@@ -246,6 +246,7 @@ impl State {
             }
             WidgetKind::Fragment => violation(command, "fragments are core-only"),
             WidgetKind::List => Widget::List(crate::list::List::new(id, events.clone())),
+            WidgetKind::Table => Widget::List(crate::list::List::new_table(id, events.clone())),
         };
         self.by_widget.borrow_mut().insert(widget.widget().clone(), id);
         self.nodes.insert(
@@ -255,6 +256,7 @@ impl State {
                 widget,
                 parent: None,
                 row: None,
+                column: None,
                 text_style: None,
                 text_color: None,
                 role: None,

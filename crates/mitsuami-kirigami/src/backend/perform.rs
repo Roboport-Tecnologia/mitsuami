@@ -14,8 +14,18 @@ impl KirigamiBackend {
             A11yAction::MenuItem(item) => return self.choose_menu_item(id, *item, true),
             _ => {}
         }
-        // A list's rows: select or activate them, as a click or a double
-        // click on their delegate does.
+        // A table's header: pressed as a click on it does, which sorts.
+        if let A11yAction::PressHeader(column) = action {
+            let state = self.state.borrow();
+            return match state.nodes.get(&id).map(|n| (n.kind, &n.widget)) {
+                Some((WidgetKind::Table, Widget::List(list))) if list.press_header(*column) => Ok(()),
+                Some(_) => Err(ActionError::Unsupported),
+                None => Err(ActionError::UnknownNode),
+            };
+        }
+        // A list's rows (a table's, through their cells): select or
+        // activate them, as a click or a double click on their delegate
+        // does.
         {
             let state = self.state.borrow();
             let node = state.nodes.get(&id).ok_or(ActionError::UnknownNode)?;

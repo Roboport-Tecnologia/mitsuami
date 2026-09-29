@@ -58,8 +58,12 @@ impl Ui {
                     }
                     current = node.native_parent;
                 }
-                (inner.nodes[&scroll_view].kind == WidgetKind::List)
-                    .then(|| current.and_then(|host| crate::find_prop!(inner.nodes[&host].props, Row)))
+                inner.nodes[&scroll_view].kind.has_rows().then(|| {
+                    current.and_then(|host| {
+                        let props = &inner.nodes[&host].props;
+                        crate::find_prop!(props, Row).or_else(|| crate::find_prop!(props, Cell).map(|cell| cell.row))
+                    })
+                })
             };
             if let Some(row) = row {
                 if let Some(row) = row {
@@ -89,7 +93,7 @@ impl Ui {
     pub(crate) fn scroll_to_row(&self, id: NodeId, row: RowKey) {
         {
             let mut inner = self.inner.borrow_mut();
-            if inner.nodes.get(&id).is_none_or(|n| n.kind != WidgetKind::List) {
+            if inner.nodes.get(&id).is_none_or(|n| !n.kind.has_rows()) {
                 return;
             }
             inner.pending.push(Command::ScrollToRow { id, row });
@@ -107,6 +111,8 @@ impl Inner {
                 node.native_children.first().map_or(Size::ZERO, |c| self.nodes[c].frame.size),
             ),
             WidgetKind::List => (crate::ScrollAxes::Vertical, Size::new(node.frame.width(), f32::INFINITY)),
+            // Its columns can be wider than it: the platform clamps.
+            WidgetKind::Table => (crate::ScrollAxes::Both, Size::new(f32::INFINITY, f32::INFINITY)),
             _ => return None,
         };
         let viewport = node.frame.size;

@@ -122,6 +122,64 @@ async fn stores_can_load_data(app: TestApp) {
     app.expect(by_text("apples, pears")).to_exist().await;
 }
 
+/// A store whose action saves in the background, as a rename does.
+#[derive(Clone, Copy)]
+struct Drafts {
+    saved: Signal<u32>,
+}
+
+impl Store for Drafts {
+    fn create() -> Drafts {
+        Drafts { saved: signal(0) }
+    }
+}
+
+impl Drafts {
+    fn save(&self) {
+        let drafts = *self;
+        self.spawn(async move {
+            sleep(SECOND).await;
+            drafts.saved.update(|n| *n += 1);
+        });
+    }
+}
+
+/// A dialog's button calls the action and the dialog closes: the store's
+/// work goes on, in the store's scope, where `spawn_local` would have tied
+/// it to the dialog.
+async fn save_from_a_closing_view(app: &TestApp) {
+    let open = signal(true);
+    app.mount(move || {
+        let drafts = use_store::<Drafts>();
+        view! {
+            <Column>
+                <Show when=open>
+                    <Button @click=move || {
+                        use_store::<Drafts>().save();
+                        open.set(false);
+                    }>"Save"</Button>
+                </Show>
+                <Text>{move || format!("{} saved", drafts.saved.get())}</Text>
+            </Column>
+        }
+    });
+    app.get_by_role(Role::Button, "Save").click().await;
+    app.expect(by_role(Role::Button, "Save")).not_to_exist().await;
+    app.advance(SECOND).await;
+    app.expect(by_text("1 saved")).to_exist().await;
+}
+
+#[mitsuami_test::test]
+async fn a_stores_work_outlives_the_view_that_started_it(app: TestApp) {
+    save_from_a_closing_view(&app).await;
+}
+
+#[mitsuami_test::test]
+async fn a_provided_stores_work_runs_where_it_was_provided(app: TestApp) {
+    app.provide(Drafts { saved: signal(0) });
+    save_from_a_closing_view(&app).await;
+}
+
 // -------------------------------------------------------------- resources
 
 /// "Loading", the data, or the error, with the data kept while reloading.

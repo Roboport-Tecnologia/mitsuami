@@ -7,7 +7,7 @@ use objc2_foundation::NSPoint;
 /// Scrolls like the user would, so the clip view reports the change.
 pub(super) fn scroll_to(scroll: &NSScrollView, origin: NSPoint) {
     let clip = scroll.contentView();
-    clip.scrollToPoint(origin);
+    clip.scrollToPoint(crate::classes::clip_origin(&clip, origin));
     scroll.reflectScrolledClipView(&clip);
 }
 

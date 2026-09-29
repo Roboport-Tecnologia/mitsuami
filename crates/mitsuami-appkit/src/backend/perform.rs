@@ -30,6 +30,7 @@ impl AppKitBackend {
                 (node.row, node.parent.and_then(|p| state.nodes.get(&p)).map(|p| &p.widget))
             {
                 match action {
+                    // A table's row, through any of its cells.
                     A11yAction::Select if list.mode() != SelectionMode::None => {
                         list.set_selected(&[row]);
                         list.report_selection();
@@ -40,6 +41,14 @@ impl AppKitBackend {
                 }
                 return Ok(());
             }
+        }
+        if let A11yAction::PressHeader(column) = action {
+            let state = self.state.borrow();
+            return match state.nodes.get(&id).map(|n| (n.kind, &n.widget)) {
+                Some((WidgetKind::Table, Widget::List(list))) if list.press_header(*column) => Ok(()),
+                Some(_) => Err(ActionError::Unsupported),
+                None => Err(ActionError::UnknownNode),
+            };
         }
         let (widget_view, control_enabled, kind, events, custom) = {
             let state = self.state.borrow();

@@ -410,3 +410,307 @@ QQC2.ScrollView {{
         context_menu_handlers("scroll")
     )
 }
+
+/// A table: a QML `TableView` over the row keys, in the style's scroll
+/// view, under a `QQC2.HorizontalHeaderView` synced to it. Its model is a
+/// `TableModel` with a column per table column, each showing the row's key
+/// (`display`, a field per column), made again when the columns change. A cell delegate holds
+/// its cell's host (`mitsuamiHost`) in a slot centred in its row once the
+/// backend puts it there, and is as high as it and its padding, at least
+/// as high as the style's item delegates (the rows of its lists), or the
+/// estimate until then. `TableView` makes a row as high as its highest
+/// cell; hosts that change height lay the view out again. Rows show the
+/// selection across their cells, and the style's alternate colour when
+/// `alternatingRows` is set.
+///
+/// Columns start at their widths (with the padding), the ones that expand
+/// share the room left, and the user resizes them from the header
+/// (`resizableColumns`, Qt 6.5); a column resized stays at its width. The
+/// widths cells get are `mitsuamiCellWidths` (comma-separated), updated
+/// each time the view lays out.
+///
+/// Rust sets, on the table view (`mitsuamiTableView`), `mitsuamiColumns`
+/// (JSON: `title`, `width`, `expand`, `sortable`), `mitsuamiKeys`,
+/// `mitsuamiSelected`, `mitsuamiMode` (0 none, 1 single, 2 multiple),
+/// `mitsuamiEstimate`, `mitsuamiScrollTo` (an index), `mitsuamiSortColumn`
+/// and `mitsuamiDescending` (the sort shown), and `mitsuamiPressed` (a
+/// column whose header to press), and listens to `mitsuamiRowsChanged()`,
+/// `mitsuamiSelectionChanged()`, `mitsuamiActivate()` (as a list's) and
+/// `mitsuamiSortPressed()` (a header pressed changed the sort).
+pub(crate) fn table() -> String {
+    format!(
+        r#"
+import Qt.labs.qmlmodels
+Item {{
+    id: table
+    property bool mitsuamiFramed: false
+    Accessible.role: Accessible.Table
+    HoverHandler {{ id: mitsuamiHover }}
+    {}
+    {}
+    // The style's row height: its item delegates', as its lists' rows.
+    QQC2.ItemDelegate {{ id: rowProbe; text: "M"; visible: false }}
+    Rectangle {{
+        anchors {{ left: parent.left; right: parent.right; top: parent.top }}
+        height: header.height
+        Kirigami.Theme.colorSet: Kirigami.Theme.Header
+        Kirigami.Theme.inherit: false
+        color: Kirigami.Theme.backgroundColor
+        Kirigami.Separator {{ anchors {{ left: parent.left; right: parent.right; bottom: parent.bottom }} }}
+    }}
+    QQC2.HorizontalHeaderView {{
+        id: header
+        objectName: "mitsuamiTableHeader"
+        syncView: view
+        x: scroll.leftPadding
+        width: view.width
+        clip: true
+        resizableColumns: true
+        delegate: Item {{
+            id: headerCell
+            required property int column
+            readonly property var mitsuamiColumn: view.mitsuamiColumns[column] ?? ({{ title: "", sortable: false }})
+            readonly property bool mitsuamiSorted: view.mitsuamiSortColumn === column
+            implicitHeight: headerLabel.implicitHeight + Kirigami.Units.smallSpacing * 2
+            Accessible.role: Accessible.ColumnHeader
+            Accessible.name: mitsuamiColumn.title
+            QQC2.Label {{
+                id: headerLabel
+                anchors {{ left: parent.left; right: sortIcon.left; verticalCenter: parent.verticalCenter }}
+                anchors.leftMargin: view.mitsuamiPadding
+                text: headerCell.mitsuamiColumn.title
+                elide: Text.ElideRight
+            }}
+            Kirigami.Icon {{
+                id: sortIcon
+                visible: headerCell.mitsuamiSorted
+                width: visible ? Kirigami.Units.iconSizes.small : 0
+                height: width
+                anchors {{ right: parent.right; rightMargin: view.mitsuamiPadding; verticalCenter: parent.verticalCenter }}
+                source: view.mitsuamiDescending ? "view-sort-descending" : "view-sort-ascending"
+            }}
+            Kirigami.Separator {{
+                anchors {{ right: parent.right; top: parent.top; bottom: parent.bottom }}
+                anchors.topMargin: Kirigami.Units.smallSpacing
+                anchors.bottomMargin: Kirigami.Units.smallSpacing
+            }}
+            TapHandler {{
+                enabled: headerCell.mitsuamiColumn.sortable
+                onTapped: view.mitsuamiPress(headerCell.column)
+            }}
+        }}
+    }}
+    QQC2.ScrollView {{
+        id: scroll
+        anchors {{ left: parent.left; right: parent.right; top: header.bottom; bottom: parent.bottom }}
+        TableView {{
+            id: view
+            objectName: "mitsuamiTableView"
+            Binding {{
+                target: scroll.background
+                when: scroll.background !== null
+                property: "visible"
+                value: table.mitsuamiFramed
+            }}
+            property string mitsuamiColumnsJson: "[]"
+            readonly property var mitsuamiColumns: JSON.parse(mitsuamiColumnsJson)
+            property var mitsuamiKeys: []
+            property var mitsuamiSelected: []
+            readonly property string mitsuamiSelectedKeys: mitsuamiSelected.join(",")
+            property int mitsuamiMode: 0
+            property real mitsuamiEstimate: 24
+            property int mitsuamiScrollTo: -1
+            property string mitsuamiActivated: ""
+            property int mitsuamiSortColumn: -1
+            property bool mitsuamiDescending: false
+            property int mitsuamiPressed: -1
+            property int mitsuamiCurrent: -1
+            property string mitsuamiCellWidths: ""
+            readonly property real mitsuamiPadding: Kirigami.Units.smallSpacing
+            readonly property real mitsuamiMinRow: rowProbe.implicitHeight
+            signal mitsuamiRowsChanged()
+            signal mitsuamiSelectionChanged()
+            signal mitsuamiActivate()
+            signal mitsuamiSortPressed()
+            clip: true
+            boundsBehavior: Flickable.StopAtBounds
+            reuseItems: false
+            resizableColumns: true
+            activeFocusOnTab: true
+            function mitsuamiNotify() {{ Qt.callLater(view.mitsuamiRowsChanged) }}
+            function mitsuamiRelayout() {{ Qt.callLater(view.forceLayout) }}
+            // A model with a column per column, each showing the row's key.
+            // A `TableModel` made without rows never learns its columns,
+            // so there's none until there are rows, and a new one when the
+            // columns change.
+            property QtObject mitsuamiModel: null
+            function mitsuamiBuild(columnsChanged) {{
+                // Each column shows a field of its own, all the row's key.
+                const rows = mitsuamiKeys.map(k => {{
+                    const row = {{}}
+                    for (let i = 0; i < mitsuamiColumns.length; i++) row["k" + i] = k
+                    return row
+                }})
+                if (mitsuamiModel && !columnsChanged && rows.length > 0) {{
+                    mitsuamiModel.rows = rows
+                    return
+                }}
+                const old = mitsuamiModel
+                if (mitsuamiColumns.length > 0 && rows.length > 0) {{
+                    let text = "import Qt.labs.qmlmodels\nTableModel {{\n"
+                    for (let i = 0; i < mitsuamiColumns.length; i++) text += "TableModelColumn {{ display: \"k" + i + "\" }}\n"
+                    mitsuamiModel = Qt.createQmlObject(text + "}}", view)
+                    mitsuamiModel.rows = rows
+                }} else {{
+                    mitsuamiModel = null
+                }}
+                model = mitsuamiModel
+                if (old) old.destroy()
+            }}
+            onMitsuamiColumnsChanged: mitsuamiBuild(true)
+            onMitsuamiKeysChanged: mitsuamiBuild(false)
+            function mitsuamiBaseWidth(column) {{
+                const width = mitsuamiColumns[column].width
+                return width >= 0 ? width : Kirigami.Units.gridUnit * 6
+            }}
+            // A column's width, unless the user resized it: its own, and
+            // for one that expands, a share of the room left.
+            function mitsuamiWidth(column) {{
+                const data = mitsuamiColumns[column]
+                if (!data) return 0
+                const base = mitsuamiBaseWidth(column)
+                if (!data.expand) return base
+                let used = 0, sharing = 0
+                for (let i = 0; i < mitsuamiColumns.length; i++) {{
+                    const explicit = explicitColumnWidth(i)
+                    if (explicit >= 0) used += explicit
+                    else {{
+                        used += mitsuamiBaseWidth(i)
+                        if (mitsuamiColumns[i].expand) sharing++
+                    }}
+                }}
+                return base + Math.floor(Math.max(0, width - used) / Math.max(1, sharing))
+            }}
+            columnWidthProvider: function(column) {{
+                const explicit = explicitColumnWidth(column)
+                return explicit >= 0 ? explicit : mitsuamiWidth(column)
+            }}
+            // Not while laying out: a scroll bar coming changes the width.
+            onWidthChanged: mitsuamiRelayout()
+            onLayoutChanged: mitsuamiCellWidths = mitsuamiColumns.map((_, column) => {{
+                const explicit = explicitColumnWidth(column)
+                return Math.max(0, (explicit >= 0 ? explicit : mitsuamiWidth(column)) - 2 * mitsuamiPadding)
+            }}).join(",")
+            function mitsuamiShow(index) {{
+                if (index >= 0 && index < mitsuamiKeys.length) positionViewAtRow(index, TableView.Contain)
+            }}
+            // Once rows just set are laid out: the view ignores rows it
+            // hasn't.
+            onMitsuamiScrollToChanged: if (mitsuamiScrollTo >= 0) {{
+                const index = mitsuamiScrollTo
+                mitsuamiScrollTo = -1
+                Qt.callLater(() => mitsuamiShow(index))
+            }}
+            // Sorts as KDE's views do: the same column the other way
+            // round, another one ascending.
+            function mitsuamiPress(column) {{
+                const data = mitsuamiColumns[column]
+                if (!data || !data.sortable) return
+                if (mitsuamiSortColumn === column) mitsuamiDescending = !mitsuamiDescending
+                else {{
+                    mitsuamiSortColumn = column
+                    mitsuamiDescending = false
+                }}
+                mitsuamiSortPressed()
+            }}
+            onMitsuamiPressedChanged: if (mitsuamiPressed >= 0) {{
+                mitsuamiPress(mitsuamiPressed)
+                mitsuamiPressed = -1
+            }}
+            // Multiple selection is KDE's, as the list's (`qml::list`).
+            property string mitsuamiAnchor: ""
+            function mitsuamiPick(key, modifiers) {{
+                if (mitsuamiMode === 0) return
+                const anchor = mitsuamiKeys.indexOf(mitsuamiAnchor)
+                if (mitsuamiMode === 2 && (modifiers & Qt.ShiftModifier) && anchor >= 0) {{
+                    const index = mitsuamiKeys.indexOf(key)
+                    mitsuamiSelected = mitsuamiKeys.slice(Math.min(anchor, index), Math.max(anchor, index) + 1)
+                }} else if (mitsuamiMode === 2 && (modifiers & Qt.ControlModifier)) {{
+                    const on = mitsuamiSelected.indexOf(key) < 0
+                    mitsuamiSelected = mitsuamiKeys.filter(k => k === key ? on : mitsuamiSelected.indexOf(k) >= 0)
+                    mitsuamiAnchor = key
+                }} else {{
+                    mitsuamiSelected = [key]
+                    mitsuamiAnchor = key
+                }}
+                mitsuamiCurrent = mitsuamiKeys.indexOf(key)
+                mitsuamiSelectionChanged()
+            }}
+            function mitsuamiOpen(key) {{
+                mitsuamiActivated = key
+                mitsuamiActivate()
+            }}
+            // The arrows, Home and End move the current row, which is the
+            // selection; Return opens it.
+            Keys.onPressed: (event) => {{
+                const count = mitsuamiKeys.length
+                const last = count - 1
+                let next = -2
+                if (event.matches(StandardKey.SelectAll) && mitsuamiMode === 2) {{
+                    mitsuamiSelected = mitsuamiKeys.slice()
+                    mitsuamiSelectionChanged()
+                    event.accepted = true
+                }}
+                else if (event.key === Qt.Key_Up) next = mitsuamiCurrent < 0 ? last : Math.max(0, mitsuamiCurrent - 1)
+                else if (event.key === Qt.Key_Down) next = mitsuamiCurrent < 0 ? 0 : Math.min(last, mitsuamiCurrent + 1)
+                else if (event.key === Qt.Key_Home) next = 0
+                else if (event.key === Qt.Key_End) next = last
+                else if ((event.key === Qt.Key_Return || event.key === Qt.Key_Enter) && mitsuamiCurrent >= 0) {{
+                    mitsuamiOpen(mitsuamiKeys[mitsuamiCurrent])
+                    event.accepted = true
+                }}
+                if (next > -2) {{
+                    if (count > 0 && mitsuamiMode !== 0) {{
+                        mitsuamiShow(next)
+                        mitsuamiPick(mitsuamiKeys[next], event.modifiers & Qt.ShiftModifier)
+                    }}
+                    event.accepted = true
+                }}
+            }}
+            delegate: Rectangle {{
+                id: cell
+                required property int row
+                required property int column
+                required property string display
+                property string mitsuamiKey: display
+                property int mitsuamiColumn: column
+                property Item mitsuamiHost: null
+                implicitHeight: Math.max(view.mitsuamiMinRow,
+                    (mitsuamiHost ? mitsuamiHost.height : view.mitsuamiEstimate) + 2 * view.mitsuamiPadding)
+                color: view.mitsuamiSelected.indexOf(display) >= 0 ? Kirigami.Theme.highlightColor
+                    : view.alternatingRows && row % 2 === 1 ? Kirigami.Theme.alternateBackgroundColor : "transparent"
+                // The host, centred in the row's height.
+                Item {{
+                    objectName: "mitsuamiCellSlot"
+                    x: view.mitsuamiPadding
+                    y: Math.round((cell.height - height) / 2)
+                    width: cell.mitsuamiHost ? cell.mitsuamiHost.width : 0
+                    height: cell.mitsuamiHost ? cell.mitsuamiHost.height : 0
+                }}
+                // `tapped` says which modifiers were held.
+                TapHandler {{
+                    onTapped: view.mitsuamiPick(cell.display, point.modifiers)
+                    onDoubleTapped: view.mitsuamiOpen(cell.display)
+                }}
+                onImplicitHeightChanged: view.mitsuamiRelayout()
+                Component.onCompleted: view.mitsuamiNotify()
+                Component.onDestruction: view.mitsuamiNotify()
+            }}
+        }}
+    }}
+}}
+"#,
+        a11y_with("\"\"", "mitsuamiHover.hovered"),
+        context_menu_handlers("table")
+    )
+}

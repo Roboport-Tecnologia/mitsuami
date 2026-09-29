@@ -12,7 +12,7 @@ use crate::ui::Ui;
 use crate::view::View;
 use crate::widget::{CurrentWindow, NodeId, Prop, WidgetKind};
 
-use super::menu::{Entry, Handler, Mark, Menu, MenuBar, MenuEntries};
+use super::menu::{Entry, Handler, Mark, Menu, MenuBar};
 use super::menu_data::{MenuBarData, MenuCheck, MenuData, MenuEntry, MenuItemData};
 
 impl MenuBar {
@@ -58,10 +58,9 @@ pub(crate) fn install_context_menu(ui: &Ui, id: NodeId, menu: Menu) {
 }
 
 /// Gives a `MenuButton` its menu, as [`Prop::Menu`], as a context menu is
-/// given (see `install_context_menu`).
+/// given (see `install_context_menu`). The menu's title isn't shown.
 #[doc(hidden)]
-pub fn install_button_menu(ui: &Ui, id: NodeId, entries: impl MenuEntries) {
-    let menu = Menu::new(String::new()).children(entries);
+pub fn install_button_menu(ui: &Ui, id: NodeId, menu: Menu) {
     install_menu(ui, id, menu, Prop::Menu, |event| match event {
         UiEvent::MenuItem(item) => Some(*item),
         _ => None,

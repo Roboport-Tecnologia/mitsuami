@@ -28,6 +28,12 @@ impl Owner {
         with_runtime(|rt| rt.current_owner()).map(|key| Owner { key })
     }
 
+    /// The nearest scope, the current one or above, that `provide`s a `T`:
+    /// the one [`inject`](crate::inject) would find it in.
+    pub fn providing<T: 'static>() -> Option<Owner> {
+        with_runtime(|rt| rt.provider(std::any::TypeId::of::<T>())).map(|key| Owner { key })
+    }
+
     /// Runs `f` with this scope as the current owner.
     pub fn with<R>(&self, f: impl FnOnce() -> R) -> R {
         with_runtime(|rt| rt.with_owner(Some(self.key), f))

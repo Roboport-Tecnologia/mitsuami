@@ -1,6 +1,6 @@
 //! Push, toggle and menu buttons.
 
-use mitsuami_core::services::{MenuEntries, install_button_menu};
+use mitsuami_core::services::{Menu, MenuEntries, install_button_menu};
 
 use mitsuami_core::{
     ButtonRole, ButtonStyle, Element, ElementBuilder, EventValue, NodeId, Prop, Tweak, Ui, UiEvent, View, WidgetKind,
@@ -130,7 +130,22 @@ impl MenuButton {
 
     /// Its menu: `MenuItem`s, `MenuSeparator`s and submenus (`Menu`).
     pub fn menu(mut self, entries: impl MenuEntries + 'static) -> MenuButton {
-        self.0.after_build(move |ui, id| install_button_menu(ui, id, entries));
+        let menu = Menu::new(String::new()).children(entries);
+        self.0.after_build(move |ui, id| install_button_menu(ui, id, menu));
+        self
+    }
+
+    /// Its menu, built by `entries`, and built again whenever what it reads
+    /// changes: the folders above this one, say.
+    ///
+    /// ```ignore
+    /// MenuButton::new("Recent").menu_with(move || {
+    ///     recent.get().into_iter().map(|path| MenuItem::new(path.clone()).on_select(move || open(&path))).collect::<Vec<_>>()
+    /// })
+    /// ```
+    pub fn menu_with<E: MenuEntries>(mut self, entries: impl Fn() -> E + 'static) -> MenuButton {
+        let menu = Menu::new(String::new()).children_with(entries);
+        self.0.after_build(move |ui, id| install_button_menu(ui, id, menu));
         self
     }
 

@@ -259,6 +259,8 @@ struct Node {
     parent: Option<NodeId>,
     /// Row hosts: which row of their list they show.
     row: Option<RowKey>,
+    /// Cell hosts: which column of their table's row they show.
+    column: Option<usize>,
     /// Props GTK can't report back faithfully.
     text_style: Option<TextStyle>,
     /// Labels: the colour the app gave, for the theme colours GTK has no

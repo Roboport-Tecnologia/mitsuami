@@ -4,7 +4,7 @@ use std::rc::Rc;
 
 use gtk::prelude::*;
 use mitsuami_core::reactive::{IntoValue, Value};
-use mitsuami_core::{List, Opaque, Tweak};
+use mitsuami_core::{List, Opaque, Table, Tweak};
 use mitsuami_widgets::{
     Button, Checkbox, Group, Icon, Image, MenuButton, NumberInput, PasswordInput, Progress, RadioGroup, ScrollView,
     SearchInput, Select, Separator, Slider, Spinner, Switch, Text, TextArea, TextInput, ToggleButton,
@@ -103,6 +103,11 @@ impl Tweakable for ScrollView {
 
 impl Tweakable for List {
     type Native = gtk::ListView;
+}
+
+/// The column view, not the scrolled window around it.
+impl Tweakable for Table {
+    type Native = gtk::ColumnView;
 }
 
 impl Tweakable for Text {

@@ -40,6 +40,11 @@ impl WinUiBackend {
                     _ => Err(ActionError::Unsupported),
                 };
             }
+            // A header, as a click presses it.
+            if let (A11yAction::PressHeader(column), Widget::List(list)) = (action, &node.widget) {
+                return if list.press_header(*column) { Ok(()) } else { Err(ActionError::Unsupported) };
+            }
+            // A row, through its host or (a table's) any of its cells.
             if let (Some(row), Some(Widget::List(list))) =
                 (node.row, node.parent.and_then(|p| state.nodes.get(&p)).map(|p| &p.widget))
             {

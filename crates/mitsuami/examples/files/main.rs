@@ -38,16 +38,16 @@ use mitsuami::prelude::*;
 use browser::Browser;
 
 fn main() {
-    let open = signal(true);
     App::new()
         .id("org.mitsuami.Files")
         .name("Files")
-        .open(
-            Window::new(move || use_store::<Browser>().title())
+        .open(|| {
+            let browser = use_store::<Browser>();
+            Window::new(move || browser.title())
                 .size(Size::new(900.0, 560.0))
                 .min_size(Size::new(560.0, 320.0))
-                .bind(open)
-                .content(screen::Finder::new),
-        )
+                .bind(signal(true))
+                .content(screen::Finder::new)
+        })
         .run();
 }

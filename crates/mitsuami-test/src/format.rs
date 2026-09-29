@@ -97,6 +97,27 @@ fn describe_props(props: &[Prop]) -> String {
             Prop::Rows(rows) => extra.push(format!("rows={}", rows.len())),
             Prop::EstimatedRowHeight(h) => extra.push(format!("estimated_row_height={}", Num(*h))),
             Prop::Row(key) => extra.push(format!("row={}", key.0)),
+            Prop::Cell(cell) => extra.push(format!("cell={},{}", cell.row.0, cell.column)),
+            // `Name*, Size 80`: titles, the widths the app gave, and which
+            // ones expand (`*`).
+            Prop::Columns(columns) => {
+                let columns: Vec<String> = columns
+                    .iter()
+                    .map(|c| {
+                        let mut column = c.title.clone();
+                        if c.expand {
+                            column.push('*');
+                        }
+                        if let Some(width) = c.width {
+                            column.push_str(&format!(" {}", Num(width)));
+                        }
+                        column
+                    })
+                    .collect();
+                extra.push(format!("columns=[{}]", columns.join(", ")));
+            }
+            Prop::Sort(None) => extra.push("sort=none".to_owned()),
+            Prop::Sort(Some(sort)) => extra.push(format!("sort={}:{:?}", sort.column, sort.order)),
             Prop::SelectionMode(mode) => extra.push(format!("selection={mode:?}")),
             Prop::ListStyle(style) => extra.push(format!("list_style={style:?}")),
             Prop::Selected(rows) => {
@@ -329,9 +350,12 @@ pub(crate) fn wireframe(root: &NodeInfo) -> String {
         match kind {
             WidgetKind::Window => "#8a8f98",
             WidgetKind::Container | WidgetKind::ToolbarItem | WidgetKind::Fragment => "#b5bac2",
-            WidgetKind::ScrollView | WidgetKind::List | WidgetKind::Sidebar | WidgetKind::Tabs | WidgetKind::Group => {
-                "#5f7fa0"
-            }
+            WidgetKind::ScrollView
+            | WidgetKind::List
+            | WidgetKind::Table
+            | WidgetKind::Sidebar
+            | WidgetKind::Tabs
+            | WidgetKind::Group => "#5f7fa0",
             WidgetKind::Text => "#3f7f5f",
             WidgetKind::Button | WidgetKind::ToggleButton | WidgetKind::MenuButton => "#2f6fdf",
             WidgetKind::TextInput => "#a0602a",

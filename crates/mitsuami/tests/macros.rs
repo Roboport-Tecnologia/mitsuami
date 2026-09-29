@@ -216,7 +216,7 @@ async fn many_children_and_several_roots(app: TestApp) {
 /// A dot that is on or off; activating it asks to toggle.
 struct Dot;
 
-#[derive(Clone, Debug, PartialEq)]
+#[derive(Clone, Debug, PartialEq, IntoValue)]
 struct DotProps {
     on: bool,
 }
@@ -268,14 +268,17 @@ async fn custom_widgets_are_tags(app: TestApp) {
         view! {
             <Row gap=8>
                 <Dot props=move || DotProps { on: on.get() } a11y_label="First" @event=move |_| on.update(|on| *on = !*on)/>
-                // Attributes can come before the props.
-                <Dot a11y_label="Second" test_id="second" props=|| DotProps { on: true }/>
+                // Attributes can come before the props, and derived
+                // `IntoValue` props can be passed as they are.
+                <Dot a11y_label="Second" test_id="second" props=DotProps { on: true }/>
+                {Dot::view(DotProps { on: false }).test_id("third")}
             </Row>
         }
     });
     app.expect(by_role(Role::Button, "First")).to_exist().await;
     assert_eq!(app.get_by_role(Role::Button, "First").value().as_deref(), Some("Off"));
     assert_eq!(app.get_by_test_id("second").value().as_deref(), Some("On"));
+    assert_eq!(app.get_by_test_id("third").value().as_deref(), Some("Off"));
 
     app.get_by_role(Role::Button, "First").click().await;
     assert!(on.get_untracked());

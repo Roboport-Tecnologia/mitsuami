@@ -1,4 +1,5 @@
-//! `view!` and `#[component]`. Use them through `mitsuami`, not directly.
+//! `view!`, `#[component]` and `#[derive(IntoValue)]`. Use them through
+//! `mitsuami`, not directly.
 //!
 //! Both are sugar over the builder API: they expand to builder calls, so
 //! anything they write can be written by hand.
@@ -77,4 +78,30 @@ pub fn view(input: TokenStream) -> TokenStream {
 #[proc_macro_attribute]
 pub fn component(attr: TokenStream, item: TokenStream) -> TokenStream {
     component::expand(attr.into(), item.into()).unwrap_or_else(syn::Error::into_compile_error).into()
+}
+
+/// Lets a type be passed as it is where a reactive value is taken
+/// (`impl IntoValue<T>`), as literals are: a custom widget's props, say,
+/// in `Rating::view(RatingProps { .. })` or `props=RatingProps { .. }`. A
+/// closure or a signal still makes them reactive.
+///
+/// ```ignore
+/// #[derive(Clone, Debug, PartialEq, IntoValue)]
+/// pub struct RatingProps { pub value: u8 }
+/// ```
+#[proc_macro_derive(IntoValue)]
+pub fn derive_into_value(input: TokenStream) -> TokenStream {
+    let input = syn::parse_macro_input!(input as syn::DeriveInput);
+    let name = &input.ident;
+    let (impl_generics, ty_generics, where_clause) = input.generics.split_for_impl();
+    let mut where_clause = where_clause.cloned().unwrap_or_else(|| syn::parse_quote!(where));
+    where_clause.predicates.push(syn::parse_quote!(Self: 'static));
+    quote::quote! {
+        impl #impl_generics ::mitsuami::reactive::IntoValue<#name #ty_generics> for #name #ty_generics #where_clause {
+            fn into_value(self) -> ::mitsuami::reactive::Value<Self> {
+                ::mitsuami::reactive::Value::Static(self)
+            }
+        }
+    }
+    .into()
 }

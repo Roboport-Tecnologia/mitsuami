@@ -388,12 +388,19 @@ impl Runtime {
     }
 
     pub(crate) fn inject(&self, type_id: TypeId) -> Option<Rc<dyn Any>> {
+        let key = self.provider(type_id)?;
+        let nodes = self.nodes.borrow();
+        nodes[key].contexts.iter().find(|(t, _)| *t == type_id).map(|(_, value)| value.clone())
+    }
+
+    /// The nearest owner, the current one or above, that provides `type_id`.
+    pub(crate) fn provider(&self, type_id: TypeId) -> Option<NodeKey> {
         let nodes = self.nodes.borrow();
         let mut current = self.owner.get();
         while let Some(key) = current {
             let node = nodes.get(key)?;
-            if let Some((_, value)) = node.contexts.iter().find(|(t, _)| *t == type_id) {
-                return Some(value.clone());
+            if node.contexts.iter().any(|(t, _)| *t == type_id) {
+                return Some(key);
             }
             current = node.owner;
         }

@@ -332,6 +332,12 @@ impl State {
             (Prop::EstimatedRowHeight(height), Widget::List(list)) => list.set_estimate(*height),
             (Prop::Selected(rows), Widget::List(list)) => list.set_selected(rows),
             (Prop::Row(row), Widget::Host(_)) => node.row = Some(*row),
+            (Prop::Cell(cell), Widget::Host(_)) => {
+                node.row = Some(cell.row);
+                node.column = Some(cell.column);
+            }
+            (Prop::Columns(columns), Widget::List(list)) => list.set_columns(mtm, columns),
+            (Prop::Sort(sort), Widget::List(list)) => list.set_sort(*sort),
             (Prop::ScrollAxes(axes), Widget::Scroll(scroll)) => {
                 node.scroll_axes = *axes;
                 set_scrollers(scroll, node.scroll_axes, node.scroll_bars);

@@ -47,7 +47,7 @@ impl State {
         if let Some(run) = node.tweak.as_ref().and_then(|tweak| tweak.downcast_ref::<crate::tweak::TweakFn>()) {
             match &node.widget {
                 // The list or text view, not the scrolled window around it.
-                Widget::List(list) => run(list.view.upcast_ref()),
+                Widget::List(list) => run(&list.view),
                 Widget::TextArea { view, .. } => run(view.upcast_ref()),
                 // The card, not the host the children are in.
                 Widget::Group(group) => run(group.card.upcast_ref()),
@@ -134,9 +134,9 @@ impl State {
                     }
                     Some(Widget::List(list)) => {
                         let Some(row) = self.nodes[child].row else {
-                            violation(command, "a List's children are row hosts (Containers with a Prop::Row)")
+                            violation(command, "a List's children are row hosts, a Table's cell hosts")
                         };
-                        list.insert(row, *child, child_widget);
+                        list.insert(row, self.nodes[child].column.unwrap_or(0), *child, child_widget);
                     }
                     Some(Widget::Tabs(tabs)) => {
                         if self.nodes[child].kind != WidgetKind::Container {
@@ -187,7 +187,10 @@ impl State {
                 }
                 match &self.nodes[parent].widget {
                     Widget::Scroll { viewport, .. } => viewport.set_child(None::<&gtk::Widget>),
-                    Widget::List(list) => list.remove(self.nodes[child].row.expect("inserted with a row")),
+                    Widget::List(list) => list.remove(
+                        self.nodes[child].row.expect("inserted with a row"),
+                        self.nodes[child].column.unwrap_or(0),
+                    ),
                     Widget::Tabs(tabs) => tabs.remove(&self.widget(*child, command)),
                     _ => self.widget(*child, command).unparent(),
                 }

@@ -130,6 +130,12 @@ impl Rect {
         Rect { origin: Point::new(self.origin.x + by.x, self.origin.y + by.y), size: self.size }
     }
 
+    /// The smallest rectangle that holds both.
+    pub fn union(&self, other: &Rect) -> Rect {
+        let (x, y) = (self.x().min(other.x()), self.y().min(other.y()));
+        Rect::new(x, y, self.max_x().max(other.max_x()) - x, self.max_y().max(other.max_y()) - y)
+    }
+
     /// The overlapping area, or `None` when the rectangles don't overlap.
     pub fn intersection(&self, other: &Rect) -> Option<Rect> {
         let x = self.x().max(other.x());

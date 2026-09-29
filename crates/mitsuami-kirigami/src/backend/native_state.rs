@@ -172,13 +172,20 @@ impl KirigamiBackend {
             }
             Widget::Native { last, .. } => props.push(Prop::Native(last.clone())),
             Widget::List(list) => {
+                if node.kind == WidgetKind::Table {
+                    props.push(Prop::Columns(list.columns()));
+                    props.push(Prop::Sort(list.sort()));
+                }
                 props.push(Prop::Rows(list.rows()));
                 props.extend(list.estimate().map(Prop::EstimatedRowHeight));
                 props.push(Prop::SelectionMode(list.mode()));
                 props.extend(list.style().map(Prop::ListStyle));
                 props.push(Prop::Selected(list.selected()));
             }
-            Widget::Host(_) => props.extend(node.row.map(Prop::Row)),
+            Widget::Host(_) => props.extend(node.row.map(|row| match node.column {
+                Some(column) => Prop::Cell(mitsuami_core::CellKey { row, column }),
+                None => Prop::Row(row),
+            })),
             Widget::ToolbarItem { .. } => {}
             Widget::Sidebar { page, sections } => {
                 props.push(Prop::Sections(sections.clone()));
@@ -234,8 +241,9 @@ impl KirigamiBackend {
             }
             _ => frame_of(item),
         };
-        // A row is where the list view put it, a toolbar item where the
-        // toolbar did: above the content, in its coordinates.
+        // A row is where the list view put it (a cell where the table view
+        // did), a toolbar item where the toolbar did: above the content,
+        // in its coordinates.
         let frame = match (node.parent.and_then(|p| state.nodes.get(&p)).map(|p| &p.widget), &node.widget) {
             (Some(Widget::List(list)), _) => list.row_rect(item, frame),
             (Some(Widget::Window { root }), Widget::ToolbarItem { host, action }) => {

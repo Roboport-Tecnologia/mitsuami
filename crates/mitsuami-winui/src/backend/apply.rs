@@ -127,9 +127,9 @@ impl State {
                     }
                     Some(Widget::List(list)) => {
                         let Some(row) = self.nodes[child].row else {
-                            violation(command, "a List's children are row hosts (Containers with a Prop::Row)")
+                            violation(command, "a List's children are row hosts, a Table's cell hosts")
                         };
-                        list.insert(row, *child, child_element.clone());
+                        list.insert(row, self.nodes[child].column.unwrap_or(0), *child, child_element.clone());
                     }
                     Some(Widget::Scroll(scroll)) => {
                         let content = scroll.cast::<w::IContentControl>()?;
@@ -178,7 +178,10 @@ impl State {
                 }
                 match &self.nodes[parent].widget {
                     Widget::Tabs(tabs) => tabs.remove(&child_element)?,
-                    Widget::List(list) => list.remove(self.nodes[child].row.expect("inserted with a row")),
+                    Widget::List(list) => list.remove(
+                        self.nodes[child].row.expect("inserted with a row"),
+                        self.nodes[child].column.unwrap_or(0),
+                    ),
                     Widget::Scroll(scroll) => {
                         scroll.cast::<w::IContentControl>()?.SetContent(None::<&IInspectable>)?;
                         self.nodes.get_mut(parent).unwrap().shift_wheel = None;
@@ -266,7 +269,7 @@ impl State {
                 if let (Some(row), Some(Widget::List(list))) =
                     (self.nodes[id].row, self.nodes[id].parent.and_then(|p| self.nodes.get(&p)).map(|p| &p.widget))
                 {
-                    list.set_row_height(row, frame.height());
+                    list.set_row_height(row, self.nodes[id].column.unwrap_or(0), frame.height());
                 }
             }
             Command::SetA11y { id, a11y } => {

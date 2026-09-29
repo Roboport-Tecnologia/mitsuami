@@ -156,7 +156,8 @@ impl Inner {
                     (WidgetKind::Checkbox | WidgetKind::Switch | WidgetKind::ToggleButton, EventValue::Bool(b)) => {
                         Prop::Checked(*b)
                     }
-                    (WidgetKind::List, EventValue::Rows(rows)) => Prop::Selected(rows.clone()),
+                    (WidgetKind::List | WidgetKind::Table, EventValue::Rows(rows)) => Prop::Selected(rows.clone()),
+                    (WidgetKind::Table, EventValue::Sort(sort)) => Prop::Sort(Some(*sort)),
                     (
                         WidgetKind::Select | WidgetKind::RadioGroup | WidgetKind::Sidebar | WidgetKind::Tabs,
                         EventValue::Index(index),
@@ -204,6 +205,11 @@ impl Inner {
             UiEvent::RowWidth(width) => {
                 if let Some(node) = self.nodes.get_mut(&id) {
                     node.row_width = Some(*width);
+                }
+            }
+            UiEvent::ColumnWidths(widths) => {
+                if let Some(node) = self.nodes.get_mut(&id) {
+                    node.column_widths = Some(widths.clone());
                 }
             }
             UiEvent::WindowResized(size) => {

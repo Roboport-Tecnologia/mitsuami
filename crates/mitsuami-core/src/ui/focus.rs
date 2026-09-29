@@ -57,6 +57,7 @@ impl Inner {
                     | WidgetKind::Slider
                     | WidgetKind::NumberInput
                     | WidgetKind::List
+                    | WidgetKind::Table
                     | WidgetKind::Sidebar
                     | WidgetKind::Tabs
             ) || (node.kind == WidgetKind::GpuSurface && crate::find_prop!(node.props, TakesInput) == Some(true))

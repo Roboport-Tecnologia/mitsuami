@@ -55,6 +55,17 @@ pub enum Role {
     SpinButton,
     List,
     ListItem,
+    /// Rows of cells under column headers (a `Table`): its headers, then
+    /// its rows.
+    Table,
+    /// A column's header in a `Table`, named by its title. Its value is
+    /// the table's sort order while the table is sorted by it.
+    ColumnHeader,
+    /// A row of a `Table`, named by its cells' text, selected while it's
+    /// selected: its cells.
+    Row,
+    /// A cell of a `Table`'s row, named by its text.
+    Cell,
     ScrollArea,
     /// Pages with a tab each, one shown (a `Tabs`): its tabs, then the
     /// shown page's content.
@@ -127,9 +138,14 @@ pub enum A11yAction {
     Increment,
     Decrement,
     ScrollIntoView,
-    /// Select a `List` row (in a single-selection list, instead of the
-    /// selected one; in a multiple-selection list, as the only one).
+    /// Select a `List` row or a `Table` row (on a row or one of its cells;
+    /// in a single-selection list, instead of the selected one; in a
+    /// multiple-selection list, as the only one).
     Select,
+    /// Press the header of a `Table`'s column, by its index, as assistive
+    /// technology presses one: the table sorts by that column, or the
+    /// other way round, as the platform does. Only sortable columns.
+    PressHeader(usize),
     /// Choose the item of the node's context menu with this id, as
     /// assistive technology does once it has shown the menu. The menu
     /// itself never opens.

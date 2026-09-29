@@ -372,6 +372,12 @@ impl State {
             (Prop::Selected(rows), Widget::List(list)) => list.set_selected(rows),
             (Prop::EstimatedRowHeight(height), Widget::List(list)) => list.set_estimate(*height),
             (Prop::Row(row), Widget::Host(_)) => node.row = Some(*row),
+            (Prop::Cell(cell), Widget::Host(_)) => {
+                node.row = Some(cell.row);
+                node.column = Some(cell.column);
+            }
+            (Prop::Columns(columns), Widget::List(list)) => list.set_columns(columns),
+            (Prop::Sort(sort), Widget::List(list)) => list.set_sort(*sort),
             (Prop::ScrollAxes(axes), Widget::Scroll { view, .. }) => {
                 let bits = match axes {
                     ScrollAxes::Horizontal => 1,

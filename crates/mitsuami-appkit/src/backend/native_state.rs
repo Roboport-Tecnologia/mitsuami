@@ -227,13 +227,20 @@ pub(super) fn native_state(state: &State, id: NodeId) -> Option<NativeState> {
         }
         Widget::Native { last, .. } => props.push(Prop::Native(last.clone())),
         Widget::List(list) => {
+            if node.kind == WidgetKind::Table {
+                props.push(Prop::Columns(list.columns()));
+                props.push(Prop::Sort(list.sort()));
+            }
             props.push(Prop::Rows(list.rows()));
             props.extend(list.estimate().map(Prop::EstimatedRowHeight));
             props.push(Prop::SelectionMode(list.mode()));
             props.extend(list.style().map(Prop::ListStyle));
             props.push(Prop::Selected(list.selected()));
         }
-        Widget::Host(_) => props.extend(node.row.map(Prop::Row)),
+        Widget::Host(_) => props.extend(node.row.map(|row| match node.column {
+            Some(column) => Prop::Cell(mitsuami_core::CellKey { row, column }),
+            None => Prop::Row(row),
+        })),
         Widget::Sidebar(sidebar) => {
             props.push(Prop::Sections(sidebar.sections()));
             props.push(Prop::SelectedIndex(sidebar.selected()));
@@ -284,11 +291,15 @@ pub(super) fn native_state(state: &State, id: NodeId) -> Option<NativeState> {
         _ => view.alignmentRectForFrame(view.frame()),
     };
     let mut frame = Rect::new(f.origin.x as f32, f.origin.y as f32, f.size.width as f32, f.size.height as f32);
-    // A row is where the table put it.
+    // A row is where the table put it, and so is a cell.
     if let (Some(row), Some(Widget::List(list))) =
         (node.row, node.parent.and_then(|p| state.nodes.get(&p)).map(|p| &p.widget))
     {
-        frame = list.row_rect(row).unwrap_or(frame);
+        frame = match node.column {
+            Some(column) => list.cell_rect(row, column, view),
+            None => list.row_rect(row),
+        }
+        .unwrap_or(frame);
     }
     // So is a page, by its tab view; one not shown isn't anywhere.
     if let Some(Widget::Tabs(tabs)) = node.parent.and_then(|p| state.nodes.get(&p)).map(|p| &p.widget) {
@@ -319,7 +330,7 @@ pub(super) fn native_state(state: &State, id: NodeId) -> Option<NativeState> {
     let by_view = state.by_view.borrow();
     let (children, scroll_offset) = match &node.widget {
         Widget::List(list) => {
-            let origin = list.scroll.contentView().bounds().origin;
+            let origin = crate::classes::scrolled(&list.scroll.contentView());
             (list.children(), Some(Point::new(origin.x as f32, origin.y as f32)))
         }
         Widget::Tabs(tabs) => (tabs.ids(), None),
