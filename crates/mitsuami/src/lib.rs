@@ -27,8 +27,8 @@
 //! ```
 //!
 //! The platform backend is chosen by target OS: AppKit on macOS, WinUI 3 on
-//! Windows, and on Linux GTK 4, or Qt Quick and Kirigami (KDE Plasma) with
-//! the `kde` feature.
+//! Windows (or the classic Win32 controls, with the `win32` feature), and on
+//! Linux GTK 4, or Qt Quick and Kirigami (KDE Plasma) with the `kde` feature.
 //!
 //! Escape hatches, for when the shared widgets aren't enough:
 //! - [`platform!`] picks per-platform code (a whole screen, a detail) at
@@ -73,6 +73,11 @@ compile_error!("mitsuami: pick a Linux toolkit with the `gtk` (default) or `kde`
 /// bindings to write them with (`winui::bindings`, `winui::windows_core`).
 #[cfg(windows)]
 pub use mitsuami_winui as winui;
+
+/// The Win32 backend (the `win32` feature): tweaks of the classic
+/// controls, and the `windows-sys` bindings to write them with.
+#[cfg(all(windows, feature = "win32"))]
+pub use mitsuami_win32 as win32;
 
 pub mod prelude {
     pub use crate::{App, component, platform, view};

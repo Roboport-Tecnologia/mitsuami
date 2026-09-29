@@ -196,6 +196,13 @@ fn log_value(log: Rc<RefCell<Vec<f64>>>) -> Tweak<Slider> {
             log.borrow_mut().push(s.value())
         }),
         kde => mitsuami::kirigami::tweak(move |s: &mitsuami::kirigami::QmlObject| log.borrow_mut().push(s.real("value"))),
+        // A trackbar's position (TBM_GETPOS is WM_USER), which is the
+        // value in a range of whole numbers.
+        win32 => mitsuami::win32::tweak(move |s: &mitsuami::win32::Trackbar| {
+            use mitsuami::win32::Control;
+            use mitsuami::win32::windows_sys::Win32::UI::WindowsAndMessaging::WM_USER;
+            log.borrow_mut().push(s.send(WM_USER, 0, 0) as f64)
+        }),
         windows => mitsuami::winui::tweak(move |s: &mitsuami::winui::bindings::Slider| {
             use mitsuami::winui::windows_core::Interface;
             log.borrow_mut().push(s.cast::<mitsuami::winui::bindings::IRangeBase>()?.Value()?);

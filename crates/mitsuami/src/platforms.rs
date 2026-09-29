@@ -8,6 +8,9 @@
 /// On Linux, `gtk` and `kde` name the toolkit: `kde` matches when mitsuami
 /// is built with its `kde` feature (Qt Quick and Kirigami), `gtk` when it
 /// isn't. `linux` matches either, so put `kde` or `gtk` arms before it.
+/// On Windows, `win32` matches when mitsuami is built with its `win32`
+/// feature (the classic controls), `winui` when it isn't; `windows`
+/// matches either.
 ///
 /// ```ignore
 /// fn preferences() -> impl View {
@@ -66,6 +69,12 @@ macro_rules! __platform {
     (@names $v:ident $seen:tt $out:tt $p:tt kde $($rest:tt)*) => {
         $crate::__platform_kde!($v $seen $out $p $($rest)*)
     };
+    (@names $v:ident $seen:tt $out:tt $p:tt win32 $($rest:tt)*) => {
+        $crate::__platform_win32!($v $seen $out $p $($rest)*)
+    };
+    (@names $v:ident $seen:tt $out:tt $p:tt winui $($rest:tt)*) => {
+        $crate::__platform_winui!($v $seen $out $p $($rest)*)
+    };
     (@names $v:ident $seen:tt $out:tt $p:tt | $($rest:tt)*) => {
         $crate::__platform!(@names $v $seen $out $p $($rest)*)
     };
@@ -85,7 +94,7 @@ macro_rules! __platform {
         ::core::compile_error!(::core::concat!(
             "platform!: unknown platform `",
             ::core::stringify!($other),
-            "`; use macos, windows, linux, gtk, kde, `|` between them, or `_`"
+            "`; use macos, windows, linux, gtk, kde, win32, winui, `|` between them, or `_`"
         ))
     };
 }
@@ -124,6 +133,44 @@ macro_rules! __platform_gtk {
 #[doc(hidden)]
 #[macro_export]
 macro_rules! __platform_gtk {
+    ($v:ident $seen:tt $out:tt [$($p:tt)*] $($rest:tt)*) => {
+        $crate::__platform!(@names $v $seen $out [$($p)* any(),] $($rest)*)
+    };
+}
+
+// `win32` is Windows with the `win32` feature; `winui` is Windows without it.
+
+#[cfg(feature = "win32")]
+#[doc(hidden)]
+#[macro_export]
+macro_rules! __platform_win32 {
+    ($v:ident $seen:tt $out:tt [$($p:tt)*] $($rest:tt)*) => {
+        $crate::__platform!(@names $v $seen $out [$($p)* target_os = "windows",] $($rest)*)
+    };
+}
+
+#[cfg(not(feature = "win32"))]
+#[doc(hidden)]
+#[macro_export]
+macro_rules! __platform_win32 {
+    ($v:ident $seen:tt $out:tt [$($p:tt)*] $($rest:tt)*) => {
+        $crate::__platform!(@names $v $seen $out [$($p)* any(),] $($rest)*)
+    };
+}
+
+#[cfg(not(feature = "win32"))]
+#[doc(hidden)]
+#[macro_export]
+macro_rules! __platform_winui {
+    ($v:ident $seen:tt $out:tt [$($p:tt)*] $($rest:tt)*) => {
+        $crate::__platform!(@names $v $seen $out [$($p)* target_os = "windows",] $($rest)*)
+    };
+}
+
+#[cfg(feature = "win32")]
+#[doc(hidden)]
+#[macro_export]
+macro_rules! __platform_winui {
     ($v:ident $seen:tt $out:tt [$($p:tt)*] $($rest:tt)*) => {
         $crate::__platform!(@names $v $seen $out [$($p)* any(),] $($rest)*)
     };

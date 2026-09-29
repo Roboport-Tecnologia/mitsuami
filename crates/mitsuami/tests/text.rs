@@ -72,6 +72,13 @@ fn log_text(log: Rc<RefCell<Vec<String>>>) -> Tweak<Text> {
         }),
         gtk => mitsuami::gtk::tweak(move |l: &mitsuami::gtk::gtk::Label| log.borrow_mut().push(l.text().to_string())),
         kde => mitsuami::kirigami::tweak(move |l: &mitsuami::kirigami::QmlObject| log.borrow_mut().push(l.str("text"))),
+        win32 => mitsuami::win32::tweak(move |t: &mitsuami::win32::Static| {
+            use mitsuami::win32::Control;
+            use mitsuami::win32::windows_sys::Win32::UI::WindowsAndMessaging::{WM_GETTEXT, WM_GETTEXTLENGTH};
+            let mut text = vec![0u16; t.send(WM_GETTEXTLENGTH, 0, 0) as usize + 1];
+            let len = t.send(WM_GETTEXT, text.len(), text.as_mut_ptr() as isize) as usize;
+            log.borrow_mut().push(String::from_utf16_lossy(&text[..len]))
+        }),
         windows => mitsuami::winui::tweak(move |t: &mitsuami::winui::bindings::TextBlock| {
             use mitsuami::winui::windows_core::Interface;
             log.borrow_mut().push(t.cast::<mitsuami::winui::bindings::ITextBlock>()?.Text()?);

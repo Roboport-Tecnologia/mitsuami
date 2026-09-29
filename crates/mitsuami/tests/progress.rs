@@ -96,6 +96,11 @@ fn log_indeterminate(log: Rc<RefCell<Vec<bool>>>) -> Tweak<Progress> {
         kde => mitsuami::kirigami::tweak(move |p: &mitsuami::kirigami::QmlObject| {
             log.borrow_mut().push(p.bool("indeterminate"))
         }),
+        win32 => mitsuami::win32::tweak(move |p: &mitsuami::win32::ProgressBar| {
+            use mitsuami::win32::Control;
+            use mitsuami::win32::windows_sys::Win32::UI::Controls::PBS_MARQUEE;
+            log.borrow_mut().push(p.style() & PBS_MARQUEE != 0)
+        }),
         windows => mitsuami::winui::tweak(move |p: &mitsuami::winui::bindings::ProgressBar| {
             use mitsuami::winui::windows_core::Interface;
             log.borrow_mut().push(p.cast::<mitsuami::winui::bindings::IProgressBar>()?.IsIndeterminate()?);

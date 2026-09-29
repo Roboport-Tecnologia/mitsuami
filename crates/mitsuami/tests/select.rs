@@ -197,6 +197,11 @@ fn log_options(log: Rc<RefCell<Vec<usize>>>) -> Tweak<Select> {
         kde => mitsuami::kirigami::tweak(move |c: &mitsuami::kirigami::QmlObject| {
             log.borrow_mut().push(c.int("count") as usize)
         }),
+        win32 => mitsuami::win32::tweak(move |c: &mitsuami::win32::ComboBox| {
+            use mitsuami::win32::Control;
+            use mitsuami::win32::windows_sys::Win32::UI::WindowsAndMessaging::CB_GETCOUNT;
+            log.borrow_mut().push(c.send(CB_GETCOUNT, 0, 0) as usize)
+        }),
         windows => mitsuami::winui::tweak(move |c: &mitsuami::winui::bindings::ComboBox| {
             use mitsuami::winui::windows_core::Interface;
             let items = c.cast::<mitsuami::winui::bindings::IItemsControl>()?.Items()?;

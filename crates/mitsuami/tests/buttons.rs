@@ -83,6 +83,10 @@ fn log_enabled(log: Rc<RefCell<Vec<bool>>>) -> Tweak<Button> {
         kde => mitsuami::kirigami::tweak(move |b: &mitsuami::kirigami::QmlObject| {
             log.borrow_mut().push(b.bool("enabled"))
         }),
+        win32 => mitsuami::win32::tweak(move |b: &mitsuami::win32::PushButton| {
+            use mitsuami::win32::Control;
+            log.borrow_mut().push(b.is_enabled())
+        }),
         windows => mitsuami::winui::tweak(move |b: &mitsuami::winui::bindings::Button| {
             use mitsuami::winui::windows_core::Interface;
             log.borrow_mut().push(b.cast::<mitsuami::winui::bindings::IControl>()?.IsEnabled()?);
@@ -124,6 +128,7 @@ async fn a_tweak_with_a_value_runs_again_when_it_changes(app: TestApp) {
         macos => mitsuami::appkit::tweak_with(size, move |_: &mitsuami::appkit::objc2_app_kit::NSButton, s| record(s)),
         gtk => mitsuami::gtk::tweak_with(size, move |_: &mitsuami::gtk::gtk::Button, s| record(s)),
         kde => mitsuami::kirigami::tweak_with(size, move |_, s| record(s)),
+        win32 => mitsuami::win32::tweak_with(size, move |_: &mitsuami::win32::PushButton, s| record(s)),
         windows => mitsuami::winui::tweak_with(size, move |_: &mitsuami::winui::bindings::Button, s| {
             record(s);
             Ok(())

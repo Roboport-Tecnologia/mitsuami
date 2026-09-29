@@ -650,6 +650,7 @@ dependencies = [
  "mitsuami-reactive",
  "mitsuami-test",
  "mitsuami-widgets",
+ "mitsuami-win32",
  "mitsuami-winui",
 ]
 
@@ -750,6 +751,7 @@ dependencies = [
  "mitsuami-kirigami",
  "mitsuami-reactive",
  "mitsuami-test-macros",
+ "mitsuami-win32",
  "mitsuami-winui",
  "objc2",
  "png",
@@ -771,6 +773,15 @@ version = "0.0.1"
 dependencies = [
  "mitsuami-core",
  "mitsuami-reactive",
+]
+
+[[package]]
+name = "mitsuami-win32"
+version = "0.0.1"
+dependencies = [
+ "mitsuami-core",
+ "mitsuami-widgets",
+ "windows-sys",
 ]
 
 [[package]]

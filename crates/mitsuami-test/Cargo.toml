@@ -12,6 +12,9 @@ repository.workspace = true
 # Runs native tests on Qt Quick and Kirigami instead of GTK 4, on Linux.
 # Turn it on together with `mitsuami`'s `kde` feature.
 kde = ["dep:mitsuami-kirigami", "mitsuami-kirigami/qt"]
+# Runs native tests on the classic Win32 controls instead of WinUI 3, on
+# Windows. Turn it on together with `mitsuami`'s `win32` feature.
+win32 = ["dep:mitsuami-win32"]
 
 [dependencies]
 mitsuami-core.workspace = true
@@ -32,6 +35,7 @@ mitsuami-kirigami = { workspace = true, optional = true }
 
 [target.'cfg(windows)'.dependencies]
 mitsuami-winui.workspace = true
+mitsuami-win32 = { workspace = true, optional = true }
 
 [lints]
 workspace = true

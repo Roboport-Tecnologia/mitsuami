@@ -133,7 +133,7 @@ fn native(appearance: Appearance) -> (Ui, Box<dyn TestHooks>) {
 
 /// Test windows are alive but invisible (and click-through) unless
 /// MITSUAMI_SHOW_WINDOWS=1: XAML only lays out and renders live windows.
-#[cfg(windows)]
+#[cfg(all(windows, not(feature = "win32")))]
 fn native(appearance: Appearance) -> (Ui, Box<dyn TestHooks>) {
     use mitsuami_winui::{BackendOptions, WinUiBackend};
     mitsuami_winui::init_for_tests();
@@ -141,6 +141,22 @@ fn native(appearance: Appearance) -> (Ui, Box<dyn TestHooks>) {
         show_windows: show_windows(),
         record_commands: true,
         appearance: Some(appearance),
+        private_clipboard: true,
+    });
+    let hooks = backend.handle();
+    (Ui::new(backend), Box::new(hooks))
+}
+
+/// Test windows are alive but invisible (and click-through) unless
+/// MITSUAMI_SHOW_WINDOWS=1, as on WinUI. Classic controls have no dark
+/// mode, so the appearance is the system's.
+#[cfg(all(windows, feature = "win32"))]
+fn native(_: Appearance) -> (Ui, Box<dyn TestHooks>) {
+    use mitsuami_win32::{BackendOptions, Win32Backend};
+    mitsuami_win32::init_for_tests();
+    let backend = Win32Backend::new(BackendOptions {
+        show_windows: show_windows(),
+        record_commands: true,
         private_clipboard: true,
     });
     let hooks = backend.handle();

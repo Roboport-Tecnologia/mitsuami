@@ -121,6 +121,10 @@ fn log_enabled(log: Rc<RefCell<Vec<bool>>>) -> Tweak<Checkbox> {
         kde => mitsuami::kirigami::tweak(move |b: &mitsuami::kirigami::QmlObject| {
             log.borrow_mut().push(b.bool("enabled"))
         }),
+        win32 => mitsuami::win32::tweak(move |b: &mitsuami::win32::CheckBox| {
+            use mitsuami::win32::Control;
+            log.borrow_mut().push(b.is_enabled())
+        }),
         windows => mitsuami::winui::tweak(move |b: &mitsuami::winui::bindings::CheckBox| {
             use mitsuami::winui::windows_core::Interface;
             log.borrow_mut().push(b.cast::<mitsuami::winui::bindings::IControl>()?.IsEnabled()?);

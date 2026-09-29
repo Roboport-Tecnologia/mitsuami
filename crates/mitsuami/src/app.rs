@@ -114,7 +114,9 @@ impl App {
         mitsuami_gtk::run(info, setup);
         #[cfg(all(target_os = "linux", not(any(feature = "gtk", feature = "kde"))))]
         let _ = (info, setup);
-        #[cfg(windows)]
+        #[cfg(all(windows, feature = "win32"))]
+        mitsuami_win32::run(info, setup);
+        #[cfg(all(windows, not(feature = "win32")))]
         mitsuami_winui::run(info, setup);
         #[cfg(not(any(target_os = "macos", target_os = "linux", windows)))]
         {

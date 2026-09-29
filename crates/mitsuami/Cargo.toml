@@ -15,6 +15,9 @@ default = ["gtk"]
 # Windows.
 gtk = ["dep:mitsuami-gtk"]
 kde = ["dep:mitsuami-kirigami", "mitsuami-kirigami/qt"]
+# On Windows, the classic Win32 controls instead of WinUI 3. WinUI stays
+# built, so code written for it (`winui::tweak`) still compiles.
+win32 = ["dep:mitsuami-win32"]
 
 [dependencies]
 mitsuami-core.workspace = true
@@ -31,6 +34,7 @@ mitsuami-kirigami = { workspace = true, optional = true }
 
 [target.'cfg(windows)'.dependencies]
 mitsuami-winui.workspace = true
+mitsuami-win32 = { workspace = true, optional = true }
 
 [dev-dependencies]
 mitsuami-test.workspace = true

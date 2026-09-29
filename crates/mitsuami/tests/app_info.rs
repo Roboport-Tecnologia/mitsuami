@@ -22,7 +22,7 @@ fn expected(app: &TestApp) -> NativeAppInfo {
         // GTK 4 windows show the theme's icon named after the id.
         "gtk" => NativeAppInfo { id, name, icon: Some(NativeIcon::Named(ID.to_owned())) },
         // The name is the executable's.
-        "winui" => NativeAppInfo { id, name: None, icon: image },
+        "winui" | "win32" => NativeAppInfo { id, name: None, icon: image },
         // Qt shows the image when the theme has no icon named after the
         // id, as it has none for the tests.
         _ => NativeAppInfo { id, name, icon: image },

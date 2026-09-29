@@ -22,6 +22,7 @@ mitsuami-macros = { path = "crates/mitsuami-macros", version = "=0.0.1" }
 mitsuami-appkit = { path = "crates/mitsuami-appkit", version = "=0.0.1" }
 mitsuami-gtk = { path = "crates/mitsuami-gtk", version = "=0.0.1" }
 mitsuami-winui = { path = "crates/mitsuami-winui", version = "=0.0.1" }
+mitsuami-win32 = { path = "crates/mitsuami-win32", version = "=0.0.1" }
 mitsuami-kirigami = { path = "crates/mitsuami-kirigami", version = "=0.0.1" }
 mitsuami-linux = { path = "crates/mitsuami-linux", version = "=0.0.1" }
 
@@ -68,6 +69,8 @@ windows-link = "0.100"
 windows-collections = "0.100"
 windows-future = "0.100"
 windows-reference = "0.100"
+# The Win32 backend: plain C bindings, already in the tree through other crates.
+windows-sys = "0.61"
 
 [workspace.lints.rust]
 unsafe_op_in_unsafe_fn = "deny"

@@ -29,7 +29,8 @@ bends to each platform's native controls, never the other way around:
 - `crates/mitsuami-headless`: in-memory backend with fixed metrics; it
   validates the protocol and stands in for a platform in tests.
 - Backends: `mitsuami-appkit`, `mitsuami-gtk` (Linux only),
-  `mitsuami-winui` (Windows only), `mitsuami-kirigami` (Linux, `qt` feature).
+  `mitsuami-winui` (Windows only), `mitsuami-kirigami` (Linux, `qt` feature),
+  `mitsuami-win32` (Windows, `win32` feature; some widgets only).
   `mitsuami-linux` is GTK's and Kirigami's `GpuSurface` (Wayland subsurface,
   X11 child window, pointer locks).
 - `crates/mitsuami-test`: the test kit (queries, actions, snapshots, stories).
