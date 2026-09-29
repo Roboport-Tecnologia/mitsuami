@@ -158,9 +158,18 @@ impl<'a> Locator<'a> {
         self.app.settle().await;
     }
 
-    /// Activates the control: click a button, toggle a checkbox.
+    /// Activates the control: click a button, toggle a checkbox. A radio
+    /// button is chosen by its option (the first with it), as a radio
+    /// group's buttons are its data, not nodes of their own.
     pub async fn click(&self) {
-        self.act(A11yAction::Activate).await;
+        self.app.settle().await;
+        let node = self.node();
+        match (self.app.ui().kind(node.id), node.role, node.name) {
+            (Some(WidgetKind::RadioGroup), Role::RadioButton, Some(option)) => {
+                self.act(A11yAction::SetValue(option)).await
+            }
+            _ => self.act(A11yAction::Activate).await,
+        }
     }
 
     /// Selects a list row, as assistive technology would: in place of the
@@ -184,8 +193,8 @@ impl<'a> Locator<'a> {
         self.act(A11yAction::SetValue(text.to_owned())).await;
     }
 
-    /// Chooses the option with this text in a `Select`, as assistive
-    /// technology would.
+    /// Chooses the option with this text in a `Select` or `RadioGroup`, as
+    /// assistive technology would.
     pub async fn select_option(&self, option: &str) {
         self.act(A11yAction::SetValue(option.to_owned())).await;
     }

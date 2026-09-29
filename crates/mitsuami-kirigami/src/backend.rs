@@ -318,6 +318,7 @@ enum Widget {
     Checkbox(QmlObject),
     Switch(QmlObject),
     Select(QmlObject),
+    RadioGroup(QmlObject),
     Slider(QmlObject),
     NumberInput(QmlObject),
     Progress(QmlObject),
@@ -392,6 +393,7 @@ impl Widget {
             | Widget::Checkbox(i)
             | Widget::Switch(i)
             | Widget::Select(i)
+            | Widget::RadioGroup(i)
             | Widget::Slider(i)
             | Widget::NumberInput(i)
             | Widget::Progress(i)
@@ -466,6 +468,7 @@ impl Widget {
                 | Widget::Checkbox(_)
                 | Widget::Switch(_)
                 | Widget::Select(_)
+                | Widget::RadioGroup(_)
                 | Widget::Slider(_)
                 | Widget::NumberInput(_)
         )
@@ -481,6 +484,7 @@ impl Widget {
                 | Widget::Checkbox(_)
                 | Widget::Switch(_)
                 | Widget::Select(_)
+                | Widget::RadioGroup(_)
                 | Widget::Slider(_)
                 | Widget::NumberInput(_)
                 | Widget::Custom { .. }
@@ -991,6 +995,15 @@ impl State {
                 });
                 Widget::Select(select)
             }
+            WidgetKind::RadioGroup => {
+                let group = QmlObject::load(&qml::radio_group());
+                group.connect("mitsuamiChosen()", move || {
+                    if let Ok(index) = usize::try_from(group.int("mitsuamiSelected")) {
+                        events.emit(id, UiEvent::Changed(EventValue::Index(index)))
+                    }
+                });
+                Widget::RadioGroup(group)
+            }
             WidgetKind::Slider => {
                 let slider = QmlObject::load(&qml::slider());
                 // `moved` is the user's; `valueChanged` fires for ours too.
@@ -1279,6 +1292,7 @@ impl State {
                 Prop::Label(t),
                 Widget::Switch(s)
                 | Widget::Select(s)
+                | Widget::RadioGroup(s)
                 | Widget::Slider(s)
                 | Widget::NumberInput(s)
                 | Widget::Progress(s)
@@ -1368,6 +1382,19 @@ impl State {
                 if let Some(fraction) = progress {
                     p.set_real("value", *fraction);
                 }
+            }
+            // New buttons, chosen as before if they can be, as the core
+            // does: it only sends the index when that changes it.
+            (Prop::Options(options), Widget::RadioGroup(g)) => {
+                g.invoke("mitsuamiReadShown");
+                let shown = g.int("mitsuamiShown");
+                g.set_int("mitsuamiSelected", if shown < options.len() as i32 { shown } else { -1 });
+                g.set_str_list("mitsuamiOptions", options);
+            }
+            (Prop::SelectedIndex(index), Widget::RadioGroup(g)) => {
+                g.set_int("mitsuamiSelected", index.map_or(-1, |i| i as i32));
+                // Set to what it was, it doesn't show it again.
+                g.invoke("mitsuamiShow");
             }
             (Prop::SelectedIndex(index), Widget::Select(s)) => {
                 s.set_int("currentIndex", index.map_or(-1, |i| i as i32))
@@ -1749,6 +1776,7 @@ impl State {
                     node.widget,
                     Widget::Switch(_)
                         | Widget::Select(_)
+                        | Widget::RadioGroup(_)
                         | Widget::Slider(_)
                         | Widget::NumberInput(_)
                         | Widget::Progress(_)
@@ -1874,6 +1902,14 @@ fn tab_titles(tabs: QmlObject) -> Vec<String> {
 }
 
 /// A select's options, as it shows them.
+/// The options a radio group has buttons for.
+fn radio_options(group: QmlObject) -> Vec<String> {
+    if group.int("mitsuamiCount") == 0 {
+        return Vec::new();
+    }
+    group.str("mitsuamiOptionTexts").split('\u{1f}').map(str::to_owned).collect()
+}
+
 fn option_texts(select: QmlObject) -> Vec<String> {
     if select.int("count") == 0 {
         return Vec::new();
@@ -1963,6 +1999,12 @@ impl Backend for KirigamiBackend {
                     request.known_width.unwrap_or(bar.real("implicitWidth").ceil() as f32),
                     request.known_height.unwrap_or(bar.real("implicitHeight").ceil() as f32),
                 )
+            }
+            // Its buttons, down the column: a layout sizes itself when
+            // it's polished, before a frame.
+            Widget::RadioGroup(group) => {
+                group.invoke("ensurePolished");
+                measure_item(*group, false, request)
             }
             // Empty, with its title: the box's own implicit size, which is
             // at least its title's width and its paddings.
@@ -2061,6 +2103,11 @@ impl Backend for KirigamiBackend {
             // As if its tab were clicked.
             (A11yAction::SetValue(title), WidgetKind::Tabs) => {
                 let index = tab_titles(item).iter().position(|t| t == title).ok_or(ActionError::Unsupported)?;
+                item.set_int("mitsuamiChoice", index as i32);
+            }
+            // As if its button were clicked.
+            (A11yAction::SetValue(text), WidgetKind::RadioGroup) => {
+                let index = radio_options(item).iter().position(|o| o == text).ok_or(ActionError::Unsupported)?;
                 item.set_int("mitsuamiChoice", index as i32);
             }
             // As if the option were picked from the pop-up.
@@ -2372,6 +2419,12 @@ impl Backend for KirigamiBackend {
                 props.extend(locked.map(Prop::PointerLock));
                 props.extend(grabbed.map(Prop::KeyboardGrab));
                 props.extend(cursor.map(Prop::Cursor));
+            }
+            Widget::RadioGroup(g) => {
+                props.extend(node.a11y_label.clone().map(Prop::Label));
+                props.push(Prop::Options(radio_options(*g)));
+                g.invoke("mitsuamiReadShown");
+                props.push(Prop::SelectedIndex(usize::try_from(g.int("mitsuamiShown")).ok()));
             }
             Widget::Select(s) => {
                 props.extend(node.a11y_label.clone().map(Prop::Label));

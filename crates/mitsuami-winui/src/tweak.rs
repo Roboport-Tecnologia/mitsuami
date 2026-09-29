@@ -5,8 +5,8 @@ use std::rc::Rc;
 use mitsuami_core::reactive::{IntoValue, Value};
 use mitsuami_core::{List, Opaque, Tweak};
 use mitsuami_widgets::{
-    Button, Checkbox, Group, Icon, Image, MenuButton, NumberInput, PasswordInput, Progress, ScrollView, Select,
-    Separator, Slider, Spinner, Switch, Text, TextInput,
+    Button, Checkbox, Group, Icon, Image, MenuButton, NumberInput, PasswordInput, Progress, RadioGroup, ScrollView,
+    Select, Separator, Slider, Spinner, Switch, Text, TextInput,
 };
 use windows_core::Interface;
 
@@ -31,6 +31,10 @@ impl Tweakable for Switch {
 
 impl Tweakable for Select {
     type Native = w::ComboBox;
+}
+
+impl Tweakable for RadioGroup {
+    type Native = w::RadioButtons;
 }
 
 impl Tweakable for Slider {

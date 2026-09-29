@@ -20,6 +20,12 @@ pub enum Role {
     TextField,
     Checkbox,
     Switch,
+    /// Radio buttons, one of which at most is checked (a `RadioGroup`):
+    /// its radio buttons.
+    RadioGroup,
+    /// An option of a `RadioGroup`, named by its text, checked while it's
+    /// the one chosen.
+    RadioButton,
     /// A button that pops up a list of options to choose one from (a
     /// `Select`). Its value is the chosen option.
     ComboBox,
@@ -101,8 +107,8 @@ pub enum A11yAction {
     /// Press / click / toggle, whatever the control's primary action is.
     Activate,
     Focus,
-    /// Replace a text field's text, choose the `Select` option with this
-    /// text, or move a `Slider` or `NumberInput` to this number.
+    /// Replace a text field's text, choose the `Select` or `RadioGroup`
+    /// option with this text, or move a `Slider` or `NumberInput` to this number.
     SetValue(String),
     /// Step an adjustable control (a slider, a spin button) up or down.
     Increment,

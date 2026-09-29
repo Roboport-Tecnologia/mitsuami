@@ -66,6 +66,9 @@ mod password_input;
 #[path = "../../../crates/mitsuami/examples/progress.rs"]
 mod progress;
 #[allow(dead_code, unused_attributes)]
+#[path = "../../../crates/mitsuami/examples/radio_group.rs"]
+mod radio_group;
+#[allow(dead_code, unused_attributes)]
 #[path = "../../../crates/mitsuami/examples/scroll_view.rs"]
 mod scroll_view;
 #[allow(dead_code, unused_attributes)]
@@ -128,6 +131,7 @@ const SECTIONS: [(&str, &[Example]); 5] = [
             scrolls("Slider", || AnyView::new(slider::page())),
             scrolls("Number input", || AnyView::new(number_input::page())),
             scrolls("Select", || AnyView::new(select::page())),
+            scrolls("Radio group", || AnyView::new(radio_group::page())),
             scrolls("Menu button", || AnyView::new(menu_button::page())),
         ],
     ),

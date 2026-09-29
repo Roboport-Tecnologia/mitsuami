@@ -43,6 +43,8 @@ const TAB_PADDING: f32 = 24.0;
 /// A group's border and margins, and room for a heading at the top.
 const GROUP_INSETS: Insets = Insets::new(8.0, 8.0, 8.0, 8.0);
 const TITLED_GROUP_INSETS: Insets = Insets::new(32.0, 8.0, 8.0, 8.0);
+/// Between a radio group's buttons.
+const RADIO_GAP: f32 = 6.0;
 
 /// The screen a window in full screen fills.
 const SCREEN: Size = Size::new(1280.0, 800.0);
@@ -989,6 +991,14 @@ impl Backend for HeadlessBackend {
                 let chosen = find_prop!(node.props, SelectedIndex).flatten().and_then(|i| options.get(i).cloned());
                 Size::new(text_size(&chosen.unwrap_or_default(), font, None, None).width + 32.0, (line + 8.0).max(28.0))
             }
+            // A checkbox's box and text for each option, down a column.
+            WidgetKind::RadioGroup => {
+                let options = find_prop!(node.props, Options).unwrap_or_default();
+                let widest = options.iter().map(|o| text_size(o, font, None, None).width).fold(0.0, f32::max);
+                let count = options.len() as f32;
+                let height = count * line.max(16.0) + (count - 1.0).max(0.0) * RADIO_GAP;
+                Size::new(if options.is_empty() { 0.0 } else { 16.0 + 6.0 + widest }, height)
+            }
             // Its strip: a tab for each title, side by side, and its border.
             WidgetKind::Tabs => {
                 let titles = find_prop!(node.props, TabTitles).unwrap_or_default();
@@ -1115,6 +1125,15 @@ impl Backend for HeadlessBackend {
                 state.set_prop(id, Prop::SelectedIndex(Some(index)));
                 state.emit(id, UiEvent::Changed(EventValue::Index(index)));
             }
+            // A radio button, by its option, as a screen reader presses one.
+            (A11yAction::SetValue(text), WidgetKind::RadioGroup) => {
+                let options = find_prop!(state.nodes[&id].props, Options).unwrap_or_default();
+                let index = options.iter().position(|o| o == text).ok_or(ActionError::Unsupported)?;
+                if find_prop!(state.nodes[&id].props, SelectedIndex).flatten() != Some(index) {
+                    state.set_prop(id, Prop::SelectedIndex(Some(index)));
+                    state.emit(id, UiEvent::Changed(EventValue::Index(index)));
+                }
+            }
             // An item, by its title, as a screen reader selects one.
             (A11yAction::SetValue(title), WidgetKind::Sidebar) => {
                 let sections = find_prop!(state.nodes[&id].props, Sections).unwrap_or_default();
@@ -1142,6 +1161,7 @@ impl Backend for HeadlessBackend {
                 | WidgetKind::Checkbox
                 | WidgetKind::Switch
                 | WidgetKind::Select
+                | WidgetKind::RadioGroup
                 | WidgetKind::Slider
                 | WidgetKind::NumberInput
                 | WidgetKind::List

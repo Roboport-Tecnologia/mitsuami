@@ -5,13 +5,13 @@ use std::rc::Rc;
 use mitsuami_core::reactive::{IntoValue, Value};
 use mitsuami_core::{List, Opaque, Tweak};
 use mitsuami_widgets::{
-    Button, Checkbox, Group, Icon, Image, MenuButton, NumberInput, PasswordInput, Progress, ScrollView, Select,
-    Separator, Slider, Spinner, Switch, Text, TextInput,
+    Button, Checkbox, Group, Icon, Image, MenuButton, NumberInput, PasswordInput, Progress, RadioGroup, ScrollView,
+    Select, Separator, Slider, Spinner, Switch, Text, TextInput,
 };
 use objc2::DowncastTarget;
 use objc2_app_kit::{
     NSBox, NSButton, NSImageView, NSPopUpButton, NSProgressIndicator, NSScrollView, NSSecureTextField, NSSlider,
-    NSSwitch, NSTableView, NSTextField, NSView,
+    NSStackView, NSSwitch, NSTableView, NSTextField, NSView,
 };
 
 /// A built-in widget, and the AppKit control that shows it.
@@ -33,6 +33,11 @@ impl Tweakable for Switch {
 
 impl Tweakable for Select {
     type Native = NSPopUpButton;
+}
+
+/// The stack view its radio buttons are in.
+impl Tweakable for RadioGroup {
+    type Native = NSStackView;
 }
 
 impl Tweakable for Slider {

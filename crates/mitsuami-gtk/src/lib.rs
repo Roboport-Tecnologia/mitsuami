@@ -30,6 +30,8 @@ mod host;
 #[cfg(target_os = "linux")]
 mod list;
 #[cfg(target_os = "linux")]
+mod radio;
+#[cfg(target_os = "linux")]
 mod services;
 #[cfg(target_os = "linux")]
 mod session;

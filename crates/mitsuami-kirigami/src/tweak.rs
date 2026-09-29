@@ -5,8 +5,8 @@ use std::rc::Rc;
 use mitsuami_core::reactive::{IntoValue, Value};
 use mitsuami_core::{List, Opaque, Tweak};
 use mitsuami_widgets::{
-    Button, Checkbox, Group, Icon, Image, MenuButton, NumberInput, PasswordInput, Progress, ScrollView, Select,
-    Separator, Slider, Spinner, Switch, Text, TextInput,
+    Button, Checkbox, Group, Icon, Image, MenuButton, NumberInput, PasswordInput, Progress, RadioGroup, ScrollView,
+    Select, Separator, Slider, Spinner, Switch, Text, TextInput,
 };
 
 use crate::ffi::QmlObject;
@@ -32,6 +32,9 @@ impl Tweakable for Switch {}
 
 /// A `QQC2.ComboBox`.
 impl Tweakable for Select {}
+
+/// The `ColumnLayout` its `QQC2.RadioButton`s are in.
+impl Tweakable for RadioGroup {}
 
 /// A `QQC2.Slider`.
 impl Tweakable for Slider {}

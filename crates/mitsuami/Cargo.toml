@@ -95,6 +95,10 @@ name = "select"
 harness = false
 
 [[test]]
+name = "radio_group"
+harness = false
+
+[[test]]
 name = "slider"
 harness = false
 

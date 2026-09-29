@@ -42,6 +42,7 @@ use objc2_foundation::{
 use crate::classes::{ActionTarget, ClosureTarget, DrawnView, HostView, ViewMap, WindowDelegate};
 use crate::custom::{AppKitCx, Emitter, ErasedRender, NativePayload};
 use crate::number_field::NumberField;
+use crate::radio::RadioGroup;
 use crate::services::ItemTarget;
 use crate::sidebar::{Sidebar, Split};
 use crate::surface::SurfaceView;
@@ -93,6 +94,7 @@ enum Widget {
     Checkbox(Retained<NSButton>),
     Switch(Retained<NSSwitch>),
     Select(Retained<NSPopUpButton>),
+    RadioGroup(RadioGroup),
     /// A pull-down: its first item is the title it shows, then the app's
     /// menu, whose items call the target.
     MenuButton {
@@ -149,6 +151,7 @@ impl Widget {
             Widget::Button(v) | Widget::Checkbox(v) => v,
             Widget::Switch(v) => v,
             Widget::Select(v) | Widget::MenuButton { popup: v, .. } => v,
+            Widget::RadioGroup(group) => &group.stack,
             Widget::Slider { slider, .. } => slider,
             Widget::NumberInput(v) => v,
             Widget::Progress(v) => v,
@@ -174,7 +177,9 @@ impl Widget {
             Widget::Slider { slider, .. } => Some(slider),
             // Its field: what's focused, and what text styles apply to.
             Widget::NumberInput(n) => Some(n.field()),
+            // Its buttons each: see `RadioGroup`.
             Widget::Window { .. }
+            | Widget::RadioGroup(_)
             | Widget::Progress(_)
             | Widget::Spinner { .. }
             | Widget::Separator(_)
@@ -200,6 +205,7 @@ impl Widget {
             Widget::List(list) => Retained::into_super(Retained::into_super(Retained::into_super(list.table.clone()))),
             Widget::Sidebar(sidebar) => Retained::into_super(Retained::into_super(sidebar.table.clone())),
             Widget::NumberInput(n) => Retained::into_super(Retained::into_super(n.field().retain())),
+            Widget::RadioGroup(group) => group.key_view(),
             widget => widget.view().retain(),
         }
     }
@@ -666,6 +672,7 @@ impl State {
                 Widget::Window { window, host, _delegate: delegate, toolbar: None, split: None }
             }
             WidgetKind::Sidebar => Widget::Sidebar(Sidebar::new(mtm, id, self.events.clone())),
+            WidgetKind::RadioGroup => Widget::RadioGroup(RadioGroup::new(mtm, id, self.events.clone())),
             WidgetKind::Container | WidgetKind::ToolbarItem => Widget::Host(HostView::new(mtm, false)),
             WidgetKind::Group => {
                 let host = HostView::new(mtm, false);
@@ -923,6 +930,10 @@ impl State {
             (Prop::Label(t), Widget::Button(b) | Widget::Checkbox(b)) => b.setTitle(&ns(t)),
             (Prop::Label(t), Widget::Switch(s)) => s.setAccessibilityLabel(Some(&ns(t))),
             (Prop::Label(t), Widget::Select(p)) => p.setAccessibilityLabel(Some(&ns(t))),
+            (Prop::Label(t), Widget::RadioGroup(group)) => group.stack.setAccessibilityLabel(Some(&ns(t))),
+            (Prop::Options(options), Widget::RadioGroup(group)) => group.set_options(options),
+            (Prop::SelectedIndex(index), Widget::RadioGroup(group)) => group.set_selected(*index),
+            (Prop::Enabled(e), Widget::RadioGroup(group)) => group.set_enabled(*e),
             (Prop::Label(_) | Prop::Icon(_) | Prop::IconOnly(_) | Prop::Menu(_), Widget::MenuButton { .. }) => {
                 match prop {
                     Prop::Icon(name) => node.icon = Some(name.clone()),
@@ -1623,6 +1634,7 @@ fn focused(widget: &Widget) -> bool {
         // While editing, the window's field editor is first responder.
         Widget::Field(field) => field.currentEditor().is_some(),
         Widget::NumberInput(n) => n.field().currentEditor().is_some(),
+        Widget::RadioGroup(group) => group.has_focus(&responder),
         _ => std::ptr::eq(&*responder as *const _ as *const NSView, &*view as *const NSView),
     }
 }
@@ -1905,6 +1917,7 @@ impl Backend for AppKitBackend {
                 }
             }
             Widget::Checkbox(v) => ceil_size(v.intrinsicContentSize()),
+            Widget::RadioGroup(group) => ceil_size(group.stack.fittingSize()),
             Widget::Switch(v) => ceil_size(v.intrinsicContentSize()),
             // AppKit sizes pop-up buttons for their widest item.
             Widget::Select(v) => ceil_size(v.intrinsicContentSize()),
@@ -2050,6 +2063,19 @@ impl Backend for AppKitBackend {
                     return Err(ActionError::Unsupported);
                 };
                 if !sidebar.choose(title) {
+                    return Err(ActionError::Unsupported);
+                }
+            }
+            // As if the user clicked the button: its action reports it.
+            (A11yAction::SetValue(option), WidgetKind::RadioGroup) => {
+                let state = self.state.borrow();
+                let Some(Widget::RadioGroup(group)) = state.nodes.get(&id).map(|n| &n.widget) else {
+                    return Err(ActionError::Unsupported);
+                };
+                if !group.is_enabled() {
+                    return Err(ActionError::Disabled);
+                }
+                if !group.choose(option) {
                     return Err(ActionError::Unsupported);
                 }
             }
@@ -2364,6 +2390,14 @@ impl Backend for AppKitBackend {
                     props.push(Prop::Label(label.to_string()));
                 }
                 props.push(checked(s.state()));
+            }
+            Widget::RadioGroup(group) => {
+                if let Some(label) = group.stack.accessibilityLabel() {
+                    props.push(Prop::Label(label.to_string()));
+                }
+                props.push(Prop::Options(group.options()));
+                props.push(Prop::SelectedIndex(group.selected()));
+                props.push(Prop::Enabled(group.is_enabled()));
             }
             Widget::Select(p) => {
                 if let Some(label) = p.accessibilityLabel() {

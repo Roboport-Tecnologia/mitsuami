@@ -865,6 +865,23 @@ Things the AppKit backend taught us, some of them now part of the contract:
 - **Tweaks run after the options too:** replacing them re-runs the tweak, like any prop change.
 - **Run on AppKit, GTK, Kirigami and WinUI,** and checked by eye on each.
 
+### RadioGroup
+
+- **Radio buttons, one for each option, down a column:** radio `NSButton`s in an `NSStackView` on AppKit, `gtk::CheckButton`s in one group in a `gtk::Box` on GTK, `RadioButtons` on WinUI, and `QQC2.RadioButton`s in a `ColumnLayout` on Qt. Its options and choice are a `Select`'s (`Prop::Options`, `Prop::SelectedIndex`, `Changed(Index)`); the label is its accessible name, not drawn, as a select's.
+- **None chosen is allowed,** unlike a `Select`: every platform's radio buttons can all be off, as HTML's start, so the core enforces nothing. `RadioGroup::selected` and `bind` take an `Option<usize>` (`IntoValue` now takes an `Option` as a literal), and an index past the options chooses none. The user can't get back to none: a click on the chosen button changes nothing on every platform, which the tests check.
+- **How far apart the buttons are is the platform's:** `NSStackView`'s own spacing on AppKit (8), 6 on GTK (as GNOME's dialogs space related controls), Kirigami's `smallSpacing` on Qt, `RadioButtons`' own on WinUI. The tests only check that each option adds height and the longest decides the width.
+- **Each backend keeps the choice across new options** as the core does: the buttons already there keep their place on AppKit and GTK, with the new text; WinUI's items are replaced and the index set again; Qt's `Repeater` makes new buttons for a new model, so the backend reads the chosen one back first and sets it again.
+  - AppKit: buttons with the same action in the same superview turn each other off, but only on a click, so the backend sets every button's state. A click on the chosen button sends its action again: the backend compares with the choice it knows.
+  - GTK: `toggled` fires for programmatic sets (muted) and for the button turned off (ignored: only the one turned on reports).
+  - Qt: `toggled` is the user's only; `perform` checks the button and emits it, as `Select` emits `activated`. The column hands its focus to the chosen button, or the first, so Tab reaches the group once. A layout sizes itself when polished, so `measure` polishes it first.
+  - WinUI: `SelectionChanged` fires for programmatic sets too, guarded by `shown_index` as a select's is.
+- **A radio group to assistive technology** (`Role::RadioGroup`), named by its label, holding a `Role::RadioButton` for each option, checked while it's chosen. The buttons are data, not nodes, as tabs are: they stand for the group, and the test kit's `click()` on one chooses its option (`A11yAction::SetValue`). Natively the group is `NSAccessibilityRadioGroupRole`, GTK's `RadioGroup` role, `RadioButtons`' own peer, and a `Grouping` on Qt, which has no radio group role. It's one stop in the Tab order.
+- **No semantic options past the options and the choice.** Side by side isn't shared: WinUI's `RadioButtons` has `MaxColumns`, AppKit and GTK a horizontal stack or box, Qt a `RowLayout`. So `RadioGroup` only gets `.native(tweak)`, on the container: the stack view, the box, the `ColumnLayout`, the `RadioButtons`. The example's tweaks: horizontal on AppKit and GTK, no spacing on Qt, a `Header` on WinUI (`IRadioButtons::put_Header` added to the bindings).
+- **Run headless and natively on GTK and Kirigami** (Arch Linux: GTK 4.22, libadwaita 1.9, Qt 6.11, Kirigami 6.30), `tests/radio_group.rs`, and the `radio_groups` story checked by eye on both. `examples/radio_group.rs` is for trying it by hand, and it's in the showcase. AppKit and WinUI are only type-checked. Unverified until they run:
+  - AppKit: that `NSStackView`'s `fittingSize` is the group's size when placed by frame, that `performClick:` on the chosen button leaves it on, and focus with and without Full Keyboard Access;
+  - WinUI: that `RadioButtons` reports `SelectionChanged` when its items are replaced, that `ContainerFromIndex` has a button to focus before the group is first laid out, and its measure;
+  - how both look.
+
 ### Slider: orientation and tweaks
 
 - **`Slider::orientation`** is the one semantic option every platform's slider has: AppKit `vertical`, GTK's `orientation`, Qt's `orientation`, XAML's `Orientation` (bindings added). Tick marks (not on Qt's), a drawn value (GTK only) and reversed direction (not on AppKit or Qt) aren't shared, so they're tweaks.

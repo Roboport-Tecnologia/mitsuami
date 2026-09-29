@@ -1339,6 +1339,7 @@ impl Inner {
                     | WidgetKind::Checkbox
                     | WidgetKind::Switch
                     | WidgetKind::Select
+                    | WidgetKind::RadioGroup
                     | WidgetKind::Slider
                     | WidgetKind::NumberInput
                     | WidgetKind::List
@@ -1768,9 +1769,10 @@ impl Inner {
                     }
                     (WidgetKind::Checkbox | WidgetKind::Switch, EventValue::Bool(b)) => Prop::Checked(*b),
                     (WidgetKind::List, EventValue::Rows(rows)) => Prop::Selected(rows.clone()),
-                    (WidgetKind::Select | WidgetKind::Sidebar | WidgetKind::Tabs, EventValue::Index(index)) => {
-                        Prop::SelectedIndex(Some(*index))
-                    }
+                    (
+                        WidgetKind::Select | WidgetKind::RadioGroup | WidgetKind::Sidebar | WidgetKind::Tabs,
+                        EventValue::Index(index),
+                    ) => Prop::SelectedIndex(Some(*index)),
                     (WidgetKind::Slider | WidgetKind::NumberInput, EventValue::Number(number)) => Prop::Number(*number),
                     _ => return,
                 };
@@ -1980,6 +1982,9 @@ impl Inner {
         if node.kind == WidgetKind::Tabs {
             children.splice(0..0, self.tabs(id, frame));
         }
+        if node.kind == WidgetKind::RadioGroup {
+            children = self.radio_buttons(id, frame);
+        }
 
         let labelled = a11y.label.is_some() || a11y.labelled_by.is_some();
         let row = crate::find_prop!(node.props, Row);
@@ -2002,6 +2007,7 @@ impl Inner {
             WidgetKind::Checkbox => Role::Checkbox,
             WidgetKind::Switch => Role::Switch,
             WidgetKind::Select => Role::ComboBox,
+            WidgetKind::RadioGroup => Role::RadioGroup,
             WidgetKind::Slider => Role::Slider,
             WidgetKind::NumberInput => Role::SpinButton,
             // A spinner reads as a progress bar without a value, as in ARIA.
@@ -2025,6 +2031,7 @@ impl Inner {
                 | WidgetKind::Checkbox
                 | WidgetKind::Switch
                 | WidgetKind::Select
+                | WidgetKind::RadioGroup
                 | WidgetKind::Tabs
                 | WidgetKind::Slider
                 | WidgetKind::NumberInput
@@ -2113,6 +2120,36 @@ impl Inner {
                 password: false,
                 selected: Some(shown == Some(index)),
                 enabled: true,
+                test_id: None,
+                frame,
+                children: Vec::new(),
+            })
+            .collect()
+    }
+
+    /// A radio group's buttons, which are its data, not nodes: named by
+    /// their options, the chosen one's checked. They stand for the group,
+    /// where assistive technology acts on them.
+    fn radio_buttons(&self, id: NodeId, frame: Rect) -> Vec<A11yNode> {
+        let props = &self.nodes[&id].props;
+        let chosen = crate::find_prop!(props, SelectedIndex).flatten();
+        let enabled = crate::find_prop!(props, Enabled).unwrap_or(true);
+        let options = crate::find_prop!(props, Options).unwrap_or_default();
+        options
+            .into_iter()
+            .enumerate()
+            .map(|(index, option)| A11yNode {
+                id,
+                role: Role::RadioButton,
+                name: Some(option),
+                description: None,
+                value: None,
+                checked: Some(chosen == Some(index)),
+                mixed: false,
+                read_only: false,
+                password: false,
+                selected: None,
+                enabled,
                 test_id: None,
                 frame,
                 children: Vec::new(),

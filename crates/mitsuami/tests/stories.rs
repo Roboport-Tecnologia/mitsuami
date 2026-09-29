@@ -699,6 +699,18 @@ fn selects() -> impl View {
     ))
 }
 
+/// Down a column, at each platform's spacing: none chosen, one chosen,
+/// and disabled.
+#[mitsuami_test::story(sizes = [(240, fit)])]
+fn radio_groups() -> impl View {
+    let sizes = ["Small", "Medium", "Extra large"];
+    Column::new().padding(16).gap(16).align(Align::Start).children((
+        RadioGroup::new("Size").options(sizes),
+        RadioGroup::new("Size, chosen").options(sizes).selected(Some(2)),
+        RadioGroup::new("Size, disabled").options(sizes).selected(Some(1)).enabled(false),
+    ))
+}
+
 fn signup() -> impl View {
     let agreed = signal(false);
     Column::new().padding(16).gap(8).children((

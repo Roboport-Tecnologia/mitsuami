@@ -24,6 +24,8 @@ mod list;
 #[cfg(target_os = "macos")]
 mod number_field;
 #[cfg(target_os = "macos")]
+mod radio;
+#[cfg(target_os = "macos")]
 mod services;
 #[cfg(target_os = "macos")]
 mod sidebar;

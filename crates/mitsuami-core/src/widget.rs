@@ -73,6 +73,11 @@ pub enum WidgetKind {
     /// A native pop-up menu of text options (NSPopUpButton, ComboBox,
     /// gtk::DropDown, QQC2.ComboBox). Its options are [`Prop::Options`].
     Select,
+    /// Native radio buttons, one for each of [`Prop::Options`], of which
+    /// one at most is chosen, [`Prop::SelectedIndex`] (NSButtons of the
+    /// radio type, RadioButtons, gtk::CheckButtons in a group,
+    /// QQC2.RadioButtons). Down a column, as each platform stacks them.
+    RadioGroup,
     /// A native slider (NSSlider, Slider, gtk::Scale, QQC2.Slider): a
     /// [`Prop::Number`] in a [`Prop::Range`], in [`Prop::Step`]s.
     Slider,
@@ -191,6 +196,7 @@ impl WidgetKind {
             WidgetKind::Checkbox => "Checkbox",
             WidgetKind::Switch => "Switch",
             WidgetKind::Select => "Select",
+            WidgetKind::RadioGroup => "RadioGroup",
             WidgetKind::Slider => "Slider",
             WidgetKind::NumberInput => "NumberInput",
             WidgetKind::Progress => "Progress",
@@ -567,7 +573,7 @@ pub enum Prop {
     /// right here.
     TextAlign(HorizontalAlign),
     /// Caption of a `Button`, `MenuButton`, `Checkbox` or `Switch`; accessible name of a
-    /// `Switch`, `Select`, `Slider`, `NumberInput`, `Progress`, `Image`,
+    /// `Switch`, `Select`, `RadioGroup`, `Slider`, `NumberInput`, `Progress`, `Image`,
     /// `Icon` or `GpuSurface`, and of a `Button` that shows only its icon.
     Label(String),
     /// Current text of a `TextInput` or `PasswordInput`.
@@ -585,10 +591,10 @@ pub enum Prop {
     TextStyle(TextStyle),
     ButtonRole(ButtonRole),
     ButtonStyle(ButtonStyle),
-    /// A `Select`'s options, in order.
+    /// A `Select`'s or `RadioGroup`'s options, in order.
     Options(Vec<String>),
     /// Which option of a `Select` is chosen: always one, unless it has no
-    /// options. Which item of a `Sidebar` is, counting across its sections:
+    /// options. Which option of a `RadioGroup` is: `None` for none. Which item of a `Sidebar` is, counting across its sections:
     /// `None` for none. Which page of a `Tabs` is shown: always one, unless
     /// it has no pages.
     SelectedIndex(Option<usize>),

@@ -190,6 +190,7 @@ enum Widget {
     Checkbox(w::CheckBox),
     Switch(w::ToggleSwitch),
     Select(w::ComboBox),
+    RadioGroup(w::RadioButtons),
     /// A slider, and the step it was given (XAML reads back its own
     /// default without one).
     Slider {
@@ -255,6 +256,8 @@ impl Node {
         match &self.widget {
             Widget::Sidebar(sidebar) => crate::sidebar::Sidebar::focus_target(&sidebar.view),
             Widget::Tabs(tabs) => crate::tabs::Tabs::focus_target(&tabs.bar),
+            // Its chosen button, or the first, as Tab reaches the group.
+            Widget::RadioGroup(group) => group.ContainerFromIndex(group.SelectedIndex().ok()?.max(0)).ok()?.cast().ok(),
             _ => self.control().cast().ok(),
         }
     }
@@ -281,7 +284,7 @@ struct Node {
     /// Checkboxes: whether they show the mixed state (`IsChecked` null).
     /// Leaving it is a change, whatever the value lands on.
     shown_mixed: Rc<Cell<bool>>,
-    /// Selects: the chosen index, or -1.
+    /// Selects and radio groups: the chosen index, or -1.
     shown_index: Rc<Cell<i32>>,
     /// Sliders and number boxes: the value.
     shown_number: Rc<Cell<f64>>,
@@ -614,6 +617,12 @@ fn option_texts(combo: &w::ComboBox) -> Vec<String> {
     (0..items.Size().unwrap_or(0))
         .filter_map(|i| unboxed(items.GetAt(i).ok()?.cast::<w::IContentControl>().ok()?.Content()))
         .collect()
+}
+
+/// The options of a radio group's items, which are strings.
+fn radio_options(group: &w::RadioButtons) -> Vec<String> {
+    let Ok(items) = group.Items() else { return Vec::new() };
+    (0..items.Size().unwrap_or(0)).filter_map(|i| unboxed(items.GetAt(i))).collect()
 }
 
 /// Measures with the frame size we imposed lifted: XAML's `Measure` honours
@@ -2230,6 +2239,24 @@ impl State {
                 let element = combo.cast()?;
                 (Widget::Select(combo), element)
             }
+            WidgetKind::RadioGroup => {
+                let group = w::RadioButtons::new()?;
+                // Setting the index or the items reports it too: only an
+                // index the core doesn't know about is the user's choice.
+                let (emitter, shown) = (emitter.clone(), shown_index.clone());
+                revokers.push(group.SelectionChanged(move |sender, _| {
+                    let Some(index) =
+                        sender.as_ref().and_then(|s| s.cast::<w::IRadioButtons>().ok()?.SelectedIndex().ok())
+                    else {
+                        return;
+                    };
+                    if index >= 0 && shown.replace(index) != index {
+                        emitter.emit(id, UiEvent::Changed(EventValue::Index(index as usize)));
+                    }
+                })?);
+                let element = group.cast()?;
+                (Widget::RadioGroup(group), element)
+            }
             WidgetKind::Slider => {
                 let slider = w::Slider::new()?;
                 // Setting the value or the range reports it too: only a
@@ -2587,6 +2614,7 @@ impl State {
                 Prop::Label(t),
                 Widget::Switch(_)
                 | Widget::Select(_)
+                | Widget::RadioGroup(_)
                 | Widget::Slider { .. }
                 | Widget::Number { .. }
                 | Widget::Progress(_)
@@ -2691,11 +2719,31 @@ impl State {
                 node.shown_number.set(iface.Value()?);
             }
             (Prop::Running(r), Widget::Spinner(ring)) => ring.cast::<w::IProgressRing>()?.SetIsActive(*r)?,
+            (Prop::Options(options), Widget::RadioGroup(group)) => {
+                // Strings: RadioButtons makes a button for each. Replacing
+                // them moves the selection; the chosen index stays if it
+                // can, else none is chosen, as the core does. It sends the
+                // index when that changes it.
+                let chosen = group.SelectedIndex()?;
+                let index = if (0..options.len() as i32).contains(&chosen) { chosen } else { -1 };
+                node.shown_index.set(index);
+                let items = group.Items()?;
+                items.Clear()?;
+                for option in options {
+                    items.Append(&boxed(option))?;
+                }
+                group.SetSelectedIndex(index)?;
+            }
             (Prop::Progress(progress), Widget::Progress(p)) => {
                 p.cast::<w::IProgressBar>()?.SetIsIndeterminate(progress.is_none())?;
                 if let Some(fraction) = progress {
                     p.cast::<w::IRangeBase>()?.SetValue(*fraction)?;
                 }
+            }
+            (Prop::SelectedIndex(index), Widget::RadioGroup(group)) => {
+                let index = index.map_or(-1, |i| i as i32);
+                node.shown_index.set(index);
+                group.SetSelectedIndex(index)?;
             }
             (Prop::SelectedIndex(index), Widget::Select(combo)) => {
                 let index = index.map_or(-1, |i| i as i32);
@@ -3141,6 +3189,7 @@ impl State {
                     self.nodes[id].widget,
                     Widget::Switch(_)
                         | Widget::Select(_)
+                        | Widget::RadioGroup(_)
                         | Widget::Slider { .. }
                         | Widget::Number { .. }
                         | Widget::Progress(_)
@@ -3299,6 +3348,10 @@ impl State {
                 .and_then(|s| s.SelectedIndex())
                 .ok()
                 .and_then(|i| (i >= 0 && node.shown_index.replace(i) != i).then_some(EventValue::Index(i as usize))),
+            Widget::RadioGroup(group) => group
+                .SelectedIndex()
+                .ok()
+                .and_then(|i| (i >= 0 && node.shown_index.replace(i) != i).then_some(EventValue::Index(i as usize))),
             Widget::Checkbox(_) | Widget::Switch(_) => {
                 let value = match &node.widget {
                     Widget::Checkbox(b) => b.cast::<w::IToggleButton>().and_then(|b| b.IsChecked()).ok(),
@@ -3384,6 +3437,7 @@ fn is_control(widget: &Widget) -> bool {
             | Widget::Checkbox(_)
             | Widget::Switch(_)
             | Widget::Select(_)
+            | Widget::RadioGroup(_)
             | Widget::Slider { .. }
             | Widget::Number { .. }
             | Widget::Scroll(_)
@@ -3658,6 +3712,7 @@ impl Backend for WinUiBackend {
             | Widget::Checkbox(_)
             | Widget::Switch(_)
             | Widget::Select(_)
+            | Widget::RadioGroup(_)
             | Widget::Slider { .. }
             | Widget::Number { .. }
             | Widget::Progress(_)
@@ -3830,6 +3885,13 @@ impl Backend for WinUiBackend {
                     .cast::<w::ISelector>()
                     .and_then(|s| s.SetSelectedIndex(index as i32))
                     .map_err(|_| ActionError::Unsupported)?;
+                self.state.borrow().report_value(id);
+            }
+            (A11yAction::SetValue(text), WidgetKind::RadioGroup) => {
+                // As its button's click chooses it.
+                let group: w::RadioButtons = element.cast().map_err(|_| ActionError::Unsupported)?;
+                let index = radio_options(&group).iter().position(|o| o == text).ok_or(ActionError::Unsupported)?;
+                group.SetSelectedIndex(index as i32).map_err(|_| ActionError::Unsupported)?;
                 self.state.borrow().report_value(id);
             }
             (A11yAction::SetValue(text), WidgetKind::TextInput) => {
@@ -4258,6 +4320,14 @@ impl Backend for WinUiBackend {
                 props.push(Prop::Options(option_texts(combo)));
                 let index = combo.cast::<w::ISelector>().ok()?.SelectedIndex().ok()?;
                 props.push(Prop::SelectedIndex(usize::try_from(index).ok()));
+            }
+            Widget::RadioGroup(group) => {
+                let name = w::AutomationProperties::GetName(&node.element).unwrap_or_default();
+                if !name.is_empty() {
+                    props.push(Prop::Label(name));
+                }
+                props.push(Prop::Options(radio_options(group)));
+                props.push(Prop::SelectedIndex(usize::try_from(group.SelectedIndex().ok()?).ok()));
             }
             Widget::Sidebar(sidebar) => {
                 props.push(Prop::Sections(sidebar.sections()));

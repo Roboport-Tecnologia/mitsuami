@@ -92,7 +92,7 @@ pub enum EventValue {
     Number(f64),
     /// A `List`'s selected rows.
     Rows(Vec<RowKey>),
-    /// The option chosen in a `Select`.
+    /// The option chosen in a `Select` or `RadioGroup`.
     Index(usize),
 }
 

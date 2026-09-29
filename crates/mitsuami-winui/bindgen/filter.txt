@@ -93,6 +93,8 @@ Microsoft.UI.Xaml.Controls.TextBox::CreateInstance
 Microsoft.UI.Xaml.Controls.ComboBox::CreateInstance
 Microsoft.UI.Xaml.Controls.IComboBox::{put_Header}
 Microsoft.UI.Xaml.Controls.ComboBoxItem::CreateInstance
+Microsoft.UI.Xaml.Controls.RadioButtons::CreateInstance
+Microsoft.UI.Xaml.Controls.IRadioButtons::{get_Items, get_SelectedIndex, put_SelectedIndex, add_SelectionChanged, remove_SelectionChanged, ContainerFromIndex, put_Header}
 Microsoft.UI.Xaml.Controls.ITextBox::{get_Text, put_Text, put_Header, get_IsReadOnly, put_IsReadOnly, get_PlaceholderText, put_PlaceholderText, get_SelectionStart, put_SelectionStart, get_SelectionLength, put_SelectionLength, get_SelectedText, put_SelectedText, add_TextChanged, remove_TextChanged}
 Microsoft.UI.Xaml.Controls.TextChangedEventHandler
 Microsoft.UI.Xaml.Controls.PasswordBox::CreateInstance

@@ -23,6 +23,7 @@ use mitsuami_core::{
 use crate::custom::{DrawnArea, Emitter, ErasedRender, GtkCx, NativePayload};
 use crate::file_drop::FileDropTarget;
 use crate::host::{Events, Frames, Host, WindowRoot};
+use crate::radio::RadioGroup;
 use crate::services::{ContextMenu, GtkServices, Menus, choose_context_item};
 use crate::sidebar::{Sidebar, Split};
 use crate::surface::SurfaceArea;
@@ -196,6 +197,7 @@ enum Widget {
         dropdown: gtk::DropDown,
         options: gtk::StringList,
     },
+    RadioGroup(RadioGroup),
     /// A scale, and its step and marks, also kept on the scale for
     /// [`crate::show_step_marks`].
     Slider {
@@ -266,6 +268,7 @@ impl Widget {
             Widget::Checkbox(w) => w.upcast_ref(),
             Widget::Switch(w) => w.upcast_ref(),
             Widget::Select { dropdown, .. } => dropdown.upcast_ref(),
+            Widget::RadioGroup(group) => group.column.upcast_ref(),
             Widget::Slider { scale, .. } => scale.upcast_ref(),
             Widget::SpinButton(w) => w.upcast_ref(),
             Widget::Progress { bar, .. } => bar.upcast_ref(),
@@ -296,6 +299,7 @@ impl Widget {
                 | Widget::Checkbox(_)
                 | Widget::Switch(_)
                 | Widget::Select { .. }
+                | Widget::RadioGroup(_)
                 | Widget::Slider { .. }
                 | Widget::SpinButton(_)
         )
@@ -1177,6 +1181,7 @@ impl State {
                 });
                 Widget::Select { dropdown, options }
             }
+            WidgetKind::RadioGroup => Widget::RadioGroup(RadioGroup::new(events.clone(), id)),
             WidgetKind::Slider => {
                 let scale = gtk::Scale::new(gtk::Orientation::Horizontal, None::<&gtk::Adjustment>);
                 scale.connect_value_changed(move |s| events.emit(id, UiEvent::Changed(EventValue::Number(s.value()))));
@@ -1535,6 +1540,12 @@ impl State {
                     dropdown.set_selected(if chosen < count { chosen } else { 0 });
                 }
             }
+            (Prop::Label(t), Widget::RadioGroup(group)) => {
+                group.column.update_property(&[gtk::accessible::Property::Label(t)]);
+                node.a11y_label = Some(t.clone());
+            }
+            (Prop::Options(options), Widget::RadioGroup(group)) => group.set_options(options),
+            (Prop::SelectedIndex(index), Widget::RadioGroup(group)) => group.set_selected(*index),
             (Prop::Label(t), Widget::Slider { scale, .. }) => {
                 scale.update_property(&[gtk::accessible::Property::Label(t)]);
                 node.a11y_label = Some(t.clone());
@@ -2376,6 +2387,23 @@ impl Backend for GtkBackend {
                     _ => Err(ActionError::Unsupported),
                 };
             }
+            // A radio button, as the user clicks it: its toggle reports it.
+            if let Widget::RadioGroup(group) = &node.widget {
+                if !group.column.is_sensitive() && !matches!(action, A11yAction::ScrollIntoView) {
+                    return Err(ActionError::Disabled);
+                }
+                let group = RadioGroup::clone(group);
+                drop(state);
+                return match action {
+                    A11yAction::SetValue(option) if group.has(option) => {
+                        group.choose(option);
+                        Ok(())
+                    }
+                    A11yAction::Focus if group.focus() => Ok(()),
+                    A11yAction::ScrollIntoView => Ok(()),
+                    _ => Err(ActionError::Unsupported),
+                };
+            }
             // A tab, as the user clicks it: the view reports it.
             if let Widget::Tabs(tabs) = &node.widget {
                 return match action {
@@ -2695,6 +2723,11 @@ impl Backend for GtkBackend {
                 props.push(Prop::Options(option_texts(options)));
                 let index = dropdown.selected();
                 props.push(Prop::SelectedIndex((index != gtk::INVALID_LIST_POSITION).then_some(index as usize)));
+            }
+            Widget::RadioGroup(group) => {
+                props.extend(node.a11y_label.clone().map(Prop::Label));
+                props.push(Prop::Options(group.options()));
+                props.push(Prop::SelectedIndex(group.selected()));
             }
             Widget::Slider { scale, steps } => {
                 props.extend(node.a11y_label.clone().map(Prop::Label));

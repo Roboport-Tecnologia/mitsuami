@@ -6,8 +6,8 @@ use gtk::prelude::*;
 use mitsuami_core::reactive::{IntoValue, Value};
 use mitsuami_core::{List, Opaque, Tweak};
 use mitsuami_widgets::{
-    Button, Checkbox, Group, Icon, Image, MenuButton, NumberInput, PasswordInput, Progress, ScrollView, Select,
-    Separator, Slider, Spinner, Switch, Text, TextInput,
+    Button, Checkbox, Group, Icon, Image, MenuButton, NumberInput, PasswordInput, Progress, RadioGroup, ScrollView,
+    Select, Separator, Slider, Spinner, Switch, Text, TextInput,
 };
 
 use crate::backend::{STEPS, Steps, update_marks};
@@ -31,6 +31,11 @@ impl Tweakable for Switch {
 
 impl Tweakable for Select {
     type Native = gtk::DropDown;
+}
+
+/// The box the check buttons are in.
+impl Tweakable for RadioGroup {
+    type Native = gtk::Box;
 }
 
 impl Tweakable for Slider {

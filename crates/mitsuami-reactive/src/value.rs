@@ -112,6 +112,12 @@ impl<T: 'static> IntoValue<Vec<T>> for Vec<T> {
     }
 }
 
+impl<T: 'static> IntoValue<Option<T>> for Option<T> {
+    fn into_value(self) -> Value<Option<T>> {
+        Value::Static(self)
+    }
+}
+
 impl<const N: usize> IntoValue<Vec<String>> for [&str; N] {
     fn into_value(self) -> Value<Vec<String>> {
         Value::Static(self.iter().map(|s| (*s).to_owned()).collect())

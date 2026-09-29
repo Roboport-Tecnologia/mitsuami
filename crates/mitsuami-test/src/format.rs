@@ -326,7 +326,7 @@ pub(crate) fn wireframe(root: &NodeInfo) -> String {
             WidgetKind::Button | WidgetKind::MenuButton => "#2f6fdf",
             WidgetKind::TextInput => "#a0602a",
             WidgetKind::PasswordInput => "#8a4f1f",
-            WidgetKind::Checkbox | WidgetKind::Switch => "#8a4fbf",
+            WidgetKind::Checkbox | WidgetKind::Switch | WidgetKind::RadioGroup => "#8a4fbf",
             WidgetKind::Select
             | WidgetKind::Slider
             | WidgetKind::NumberInput
