@@ -20,7 +20,7 @@ Native wins (ARCHITECTURE.md §1): widgets behave, size and respond as the platf
 
 | Piece | Where | Reference |
 |---|---|---|
-| `Backend` | `mitsuami_core::Backend` | `mitsuami-appkit/src/backend.rs` |
+| `Backend` | `mitsuami_core::Backend` | `mitsuami-appkit/src/backend/` |
 | `Services` (clipboard, dialogs, menus) | `mitsuami_core::services::Services` | `mitsuami-appkit/src/services.rs` |
 | `TestHooks` on your shareable handle | `mitsuami_core::TestHooks` | `impl TestHooks for AppKitHandle` |
 | `run(info, setup)`: the app's run loop | your crate | `mitsuami-appkit/src/app.rs` |

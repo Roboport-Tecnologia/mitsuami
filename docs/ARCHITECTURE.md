@@ -107,7 +107,7 @@ Why not a virtual DOM? Native widgets are expensive to create and have state of 
 
 ### The node tree is the source of truth
 
-A node, simplified from `crates/mitsuami-core/src/ui.rs`:
+A node, simplified from `crates/mitsuami-core/src/ui/mod.rs`:
 
 ```rust
 struct Node {
