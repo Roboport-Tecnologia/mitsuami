@@ -2,7 +2,8 @@
 //! whose pane lists the items and whose content is the window's content
 //! host. Its display mode is XAML's `Auto`: the pane is open in a wide
 //! window, icons only in a narrower one, and behind a menu button in a
-//! narrow one. Icons only needs every item to have an icon, as Fluent's
+//! narrow one; open in a wide window, it has no menu button to close it,
+//! as in Settings. Icons only needs every item to have an icon, as Fluent's
 //! guidance has it: without, the view goes from open to the menu button,
 //! and a closed pane, which would show as that strip, is hidden whole,
 //! with the menu button in the title bar to bring it back.
@@ -48,11 +49,16 @@ pub(crate) struct Sidebar {
 /// Which menu button shows, the view's or the title bar's, and whether
 /// the pane shows at all (see `Sidebar::follow_title_bar`).
 fn place_toggles(view: &w::NavigationView, title_bar: &w::ITitleBar) -> R<()> {
-    let minimal = view.DisplayMode()? == w::NavigationViewDisplayMode::Minimal;
+    let mode = view.DisplayMode()?;
+    let minimal = mode == w::NavigationViewDisplayMode::Minimal;
+    let open = view.IsPaneOpen()?;
     let without_icons = view.CompactModeThresholdWidth()? >= view.ExpandedModeThresholdWidth()?;
-    let gone = !minimal && without_icons && !view.IsPaneOpen()?;
+    let gone = !minimal && without_icons && !open;
+    // Open in a wide window, the pane stays: Windows' Settings has no menu
+    // button there.
+    let fixed = mode == w::NavigationViewDisplayMode::Expanded && open;
     view.cast::<w::INavigationView2>()?.SetIsPaneVisible(!gone)?;
-    view.SetIsPaneToggleButtonVisible(!minimal && !gone)?;
+    view.SetIsPaneToggleButtonVisible(!minimal && !gone && !fixed)?;
     title_bar.SetIsPaneToggleButtonVisible(minimal || gone)
 }
 
@@ -118,7 +124,24 @@ impl Sidebar {
     /// Opens or closes the pane without reporting it.
     pub(crate) fn set_shown(&self, shown: bool) -> R<()> {
         self.open.set(shown);
-        self.view.SetIsPaneOpen(shown)
+        // Unloaded, the pane reads closed, so closing it is no change and
+        // `Auto` opens it in a wide window: closed from open, it's the app's
+        // choice, which `Auto` keeps.
+        if !shown && !self.view.cast::<w::IFrameworkElement>()?.IsLoaded()? {
+            self.view.SetIsPaneOpen(true)?;
+        }
+        self.view.SetIsPaneOpen(shown)?;
+        // The view doesn't report the app's closing.
+        self.place_again();
+        Ok(())
+    }
+
+    /// Places the menu buttons again, once it's in a window.
+    fn place_again(&self) {
+        let place = self.place.borrow().as_ref().and_then(Weak::upgrade);
+        if let Some(place) = place {
+            place();
+        }
     }
 
     pub(crate) fn is_shown(&self) -> bool {
@@ -160,10 +183,7 @@ impl Sidebar {
         let all_icons = sections.iter().flat_map(|s| &s.items).all(|i| i.icon.as_ref().is_some_and(|g| !g.is_empty()));
         let expanded = self.view.ExpandedModeThresholdWidth().unwrap_or(EXPANDED_FROM as f64);
         self.view.SetCompactModeThresholdWidth(if all_icons { COMPACT_FROM as f64 } else { expanded })?;
-        let place = self.place.borrow().as_ref().and_then(Weak::upgrade);
-        if let Some(place) = place {
-            place();
-        }
+        self.place_again();
         *self.items.borrow_mut() = items;
         *self.sections.borrow_mut() = sections;
         let kept = self.shown.get().filter(|i| *i < self.items.borrow().len());
@@ -254,12 +274,18 @@ impl Sidebar {
         };
         *self.place.borrow_mut() = Some(Rc::downgrade(&place));
         place();
+        // Once the view is done: it reports the new mode before `Auto` opens
+        // the pane, which it does only while the pane is visible.
         let modes = self.view.DisplayModeChanged({
             let place = Rc::downgrade(&place);
             move |_, _| {
-                if let Some(place) = place.upgrade() {
-                    place();
-                }
+                let Ok(queue) = w::DispatcherQueue::GetForCurrentThread() else { return };
+                let ticket = crate::later::park(place.clone());
+                crate::later::on_ui(&queue, move || {
+                    if let Some(place) = crate::later::take::<Weak<dyn Fn()>>(ticket).and_then(|p| p.upgrade()) {
+                        place();
+                    }
+                });
             }
         })?;
         let view2 = self.view.cast::<w::INavigationView2>()?;
