@@ -893,8 +893,10 @@ QQC2.ComboBox {{
     property int mitsuamiChoice: -1
     model: mitsuamiOptions
     // A window of its own (a Wayland popup), as GTK's is: drawn in the
-    // window, it went under a GPU surface's subsurface.
-    popup.popupType: QQC2.Popup.Window
+    // window, it went under a GPU surface's subsurface. `popupType` is Qt
+    // 6.8's, and a binding to it wouldn't load before that, so it's set
+    // where Qt has it; older ones keep the list in the window.
+    Component.onCompleted: if (popup.popupType !== undefined) popup.popupType = QQC2.Popup.Window
     onMitsuamiChoiceChanged: if (mitsuamiChoice >= 0) {{
         currentIndex = mitsuamiChoice
         mitsuamiChoice = -1
