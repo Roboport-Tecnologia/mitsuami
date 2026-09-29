@@ -337,13 +337,14 @@ Item {{
     property int mitsuamiChoice: -1
     property bool mitsuamiNavigation: true
     readonly property Item mitsuamiStrip: mitsuamiNavigation ? mitsuamiNavBar : mitsuamiBar
-    readonly property int mitsuamiCount: mitsuamiNavigation ? mitsuamiNavBar.count : mitsuamiBar.count
+    readonly property int mitsuamiCount: mitsuamiNavigation ? mitsuamiNavBar.count
+        : mitsuamiTitles.length > 0 ? mitsuamiBar.count : 0
     readonly property string mitsuamiShownTitles: {{
         const titles = []
         if (mitsuamiNavigation) {{
             for (let i = 0; i < mitsuamiNavBar.actions.length; i++) titles.push(mitsuamiNavBar.actions[i].text)
         }} else {{
-            for (let i = 0; i < mitsuamiBar.count; i++) titles.push(mitsuamiBar.itemAt(i).text)
+            for (let i = 0; i < mitsuamiCount; i++) titles.push(mitsuamiBar.itemAt(i).text)
         }}
         return titles.join("\u001f")
     }}
@@ -420,19 +421,30 @@ Item {{
         position: QQC2.TabBar.Header
         // Focused, the bar's selected tab takes it, as Tab focuses it.
         onActiveFocusChanged: if (activeFocus && currentItem) currentItem.forceActiveFocus(focusReason)
+        // The first tab is always there, hidden without titles: the desktop
+        // style's bar is as high as its first tab, and warned while a
+        // repeater had yet to make one.
+        MitsuamiTab {{
+            text: mitsuamiTabs.mitsuamiTitles.length > 0 ? mitsuamiTabs.mitsuamiTitles[0] : ""
+            visible: mitsuamiTabs.mitsuamiTitles.length > 0
+        }}
         Repeater {{
-            model: mitsuamiTabs.mitsuamiTitles
-            QQC2.TabButton {{
+            model: mitsuamiTabs.mitsuamiTitles.slice(1)
+            MitsuamiTab {{
                 required property string modelData
                 required property int index
                 text: modelData
-                // `clicked` is the user's (and assistive technology's
-                // Press); the bar's `currentIndexChanged` is anyone's.
-                onClicked: mitsuamiTabs.mitsuamiChoose(index)
-                Keys.onLeftPressed: mitsuamiTabs.mitsuamiStep(mirrored ? 1 : -1)
-                Keys.onRightPressed: mitsuamiTabs.mitsuamiStep(mirrored ? -1 : 1)
+                mitsuamiIndex: index + 1
             }}
         }}
+    }}
+    component MitsuamiTab: QQC2.TabButton {{
+        property int mitsuamiIndex: 0
+        // `clicked` is the user's (and assistive technology's Press); the
+        // bar's `currentIndexChanged` is anyone's.
+        onClicked: mitsuamiTabs.mitsuamiChoose(mitsuamiIndex)
+        Keys.onLeftPressed: mitsuamiTabs.mitsuamiStep(mirrored ? 1 : -1)
+        Keys.onRightPressed: mitsuamiTabs.mitsuamiStep(mirrored ? -1 : 1)
     }}
     Component {{
         id: mitsuamiAction
