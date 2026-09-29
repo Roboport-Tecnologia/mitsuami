@@ -91,6 +91,12 @@ pub enum WidgetKind {
     /// QQC2.BusyIndicator). It spins while [`Prop::Running`], and shows
     /// nothing otherwise.
     Spinner,
+    /// A native separator line between groups of content (a separator
+    /// NSBox, gtk::Separator, Kirigami.Separator; WinUI has none, so a
+    /// `Border` in the divider brush, as Fluent apps draw one). It runs as
+    /// [`Prop::Orientation`] says and is as thick as the platform draws
+    /// it; the layout gives it its length.
+    Separator,
     /// A native image view (NSImageView, Image, gtk::Picture, QML Image):
     /// a picture from [`Prop::Image`], at its own size unless the layout
     /// sizes it, fitted as [`Prop::ImageFit`] says.
@@ -189,6 +195,7 @@ impl WidgetKind {
             WidgetKind::NumberInput => "NumberInput",
             WidgetKind::Progress => "Progress",
             WidgetKind::Spinner => "Spinner",
+            WidgetKind::Separator => "Separator",
             WidgetKind::Image => "Image",
             WidgetKind::Icon => "Icon",
             WidgetKind::GpuSurface => "GpuSurface",
@@ -439,8 +446,8 @@ impl FileDrop {
     }
 }
 
-/// Which way a `Slider` runs. Every platform has vertical sliders; larger
-/// values are up on all of them.
+/// Which way a `Slider` or a `Separator` runs. Every platform has vertical
+/// sliders; larger values are up on all of them.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Hash)]
 pub enum Orientation {
     #[default]
@@ -598,7 +605,7 @@ pub enum Prop {
     /// `NumberInput`'s buttons and arrow keys add or take away. `None`: the
     /// platform's default.
     Step(Option<f64>),
-    /// Which way a `Slider` runs.
+    /// Which way a `Slider` or a `Separator` runs.
     Orientation(Orientation),
     /// Text the platform shows when the pointer rests on the widget, as
     /// its tooltip, and assistive technology reads as its description.

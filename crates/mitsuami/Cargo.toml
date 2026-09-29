@@ -159,6 +159,10 @@ name = "spinner"
 harness = false
 
 [[test]]
+name = "separator"
+harness = false
+
+[[test]]
 name = "gpu_surface"
 harness = false
 

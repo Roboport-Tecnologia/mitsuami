@@ -5,8 +5,8 @@ use std::rc::Rc;
 use mitsuami_core::reactive::{IntoValue, Value};
 use mitsuami_core::{List, Opaque, Tweak};
 use mitsuami_widgets::{
-    Button, Checkbox, Group, Icon, Image, MenuButton, NumberInput, PasswordInput, Progress, ScrollView, Select, Slider,
-    Spinner, Switch, Text, TextInput,
+    Button, Checkbox, Group, Icon, Image, MenuButton, NumberInput, PasswordInput, Progress, ScrollView, Select,
+    Separator, Slider, Spinner, Switch, Text, TextInput,
 };
 use objc2::DowncastTarget;
 use objc2_app_kit::{
@@ -67,6 +67,11 @@ impl Tweakable for Progress {
 
 impl Tweakable for Spinner {
     type Native = NSProgressIndicator;
+}
+
+/// A separator `NSBox`.
+impl Tweakable for Separator {
+    type Native = NSBox;
 }
 
 impl Tweakable for TextInput {

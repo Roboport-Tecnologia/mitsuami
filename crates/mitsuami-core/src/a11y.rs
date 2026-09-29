@@ -27,6 +27,9 @@ pub enum Role {
     /// isn't known.
     ProgressBar,
     Image,
+    /// A line between groups of content (a `Separator`), which assistive
+    /// technology announces or skips as the platform does.
+    Separator,
     Slider,
     /// A field for a number with buttons that step it (a `NumberInput`).
     /// Its value is the number.

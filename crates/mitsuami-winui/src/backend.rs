@@ -204,6 +204,8 @@ enum Widget {
     },
     Progress(w::ProgressBar),
     Spinner(w::ProgressRing),
+    /// XAML has no separator control: a `Border` in the divider brush.
+    Separator(w::Border),
     /// An image view, and what it was given: XAML can't give back a
     /// source's path or pixels, or say whether a fit was chosen.
     Image {
@@ -295,7 +297,8 @@ struct Node {
     text_color: Option<Color>,
     role: Option<ButtonRole>,
     button_style: Option<ButtonStyle>,
-    /// Sliders: whether the app gave an `Orientation`.
+    /// Sliders: whether the app gave an `Orientation`. Separators: which
+    /// way they run, which a `Border` doesn't know.
     orientation: Option<Orientation>,
     /// Checkboxes: whether the app gave `Mixed`.
     mixed: Option<bool>,
@@ -677,6 +680,17 @@ fn set_label_style(label: &w::TextBlock, text_style: Option<TextStyle>, color: O
 
 /// A style that sets a `target`'s foreground to a colour, as markup, so a
 /// theme resource keeps following the theme once set.
+/// A separator's look: a line in the divider brush, 1 epx across, as
+/// Fluent apps draw one between groups of content. The layout gives its
+/// length.
+fn separator_style(orientation: Orientation) -> R<w::Style> {
+    let across = if orientation.vertical() { "MinWidth" } else { "MinHeight" };
+    let markup = format!(
+        r#"<Style xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation" TargetType="Border"><Setter Property="Background" Value="{{ThemeResource DividerStrokeColorDefaultBrush}}"/><Setter Property="{across}" Value="1"/></Style>"#
+    );
+    w::XamlReader::Load(&markup)?.cast()
+}
+
 fn foreground_style(target: &str, color: Color) -> R<w::Style> {
     let markup = format!(
         r#"<Style xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation" TargetType="{target}"><Setter Property="Foreground" Value="{}"/></Style>"#,
@@ -2283,6 +2297,12 @@ impl State {
                 let element = ring.cast()?;
                 (Widget::Spinner(ring), element)
             }
+            WidgetKind::Separator => {
+                let line = w::Border::new()?;
+                line.cast::<w::IFrameworkElement>()?.SetStyle(&separator_style(Orientation::Horizontal)?)?;
+                let element = line.cast()?;
+                (Widget::Separator(line), element)
+            }
             // XAML decodes files in the background: once it has, the image
             // has a size, and the core measures it again. A file it can't
             // read shows nothing.
@@ -2626,6 +2646,10 @@ impl State {
                 let value = new.unwrap_or(1.0);
                 slider.cast::<w::ISlider>()?.SetStepFrequency(value)?;
                 slider.cast::<w::IRangeBase>()?.SetSmallChange(value)?;
+            }
+            (Prop::Orientation(o), Widget::Separator(line)) => {
+                line.cast::<w::IFrameworkElement>()?.SetStyle(&separator_style(*o)?)?;
+                node.orientation = Some(*o);
             }
             (Prop::Orientation(o), Widget::Slider { slider, .. }) => {
                 let orientation = if o.vertical() { w::Orientation::Vertical } else { w::Orientation::Horizontal };
@@ -3639,6 +3663,12 @@ impl Backend for WinUiBackend {
             | Widget::Progress(_)
             | Widget::Spinner(_)
             | Widget::Icon(_) => ceil(measure_element(&node.element, infinite)),
+            // To the nearest, not up: XAML rounds its 1 epx to whole
+            // pixels (1.33 at 150 %), and up would make it 2.
+            Widget::Separator(_) => {
+                let size = measure_element(&node.element, infinite);
+                Size::new(size.width.round(), size.height.round())
+            }
             // Pixels over their scale. A file at its pixel count in
             // effective pixels, as XAML shows it; nothing until it's
             // decoded, or if it can't be.
@@ -4204,6 +4234,7 @@ impl Backend for WinUiBackend {
                 }
                 props.push(Prop::Running(ring.cast::<w::IProgressRing>().ok()?.IsActive().ok()?));
             }
+            Widget::Separator(_) => props.extend(node.orientation.map(Prop::Orientation)),
             Widget::GpuSurface(surface) => {
                 let name = w::AutomationProperties::GetName(&node.element).unwrap_or_default();
                 if !name.is_empty() {

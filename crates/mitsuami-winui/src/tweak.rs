@@ -5,8 +5,8 @@ use std::rc::Rc;
 use mitsuami_core::reactive::{IntoValue, Value};
 use mitsuami_core::{List, Opaque, Tweak};
 use mitsuami_widgets::{
-    Button, Checkbox, Group, Icon, Image, MenuButton, NumberInput, PasswordInput, Progress, ScrollView, Select, Slider,
-    Spinner, Switch, Text, TextInput,
+    Button, Checkbox, Group, Icon, Image, MenuButton, NumberInput, PasswordInput, Progress, ScrollView, Select,
+    Separator, Slider, Spinner, Switch, Text, TextInput,
 };
 use windows_core::Interface;
 
@@ -64,6 +64,11 @@ impl Tweakable for Progress {
 
 impl Tweakable for Spinner {
     type Native = w::ProgressRing;
+}
+
+/// The line: XAML has no separator control.
+impl Tweakable for Separator {
+    type Native = w::Border;
 }
 
 impl Tweakable for TextInput {

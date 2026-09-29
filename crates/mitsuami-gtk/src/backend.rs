@@ -210,6 +210,7 @@ enum Widget {
         pulsing: Rc<Cell<bool>>,
     },
     Spinner(gtk::Spinner),
+    Separator(gtk::Separator),
     /// A picture, and what it was given: GTK can't give pixels back, and
     /// reads its content fit back whether the app chose one or not.
     Picture {
@@ -269,6 +270,7 @@ impl Widget {
             Widget::SpinButton(w) => w.upcast_ref(),
             Widget::Progress { bar, .. } => bar.upcast_ref(),
             Widget::Spinner(w) => w.upcast_ref(),
+            Widget::Separator(w) => w.upcast_ref(),
             Widget::Picture { picture, .. } => picture.upcast_ref(),
             Widget::Icon { image, .. } => image.upcast_ref(),
             Widget::GpuSurface(surface) => surface.area.upcast_ref(),
@@ -1206,6 +1208,7 @@ impl State {
             }
             WidgetKind::Progress => Widget::Progress { bar: gtk::ProgressBar::new(), pulsing: Rc::default() },
             WidgetKind::Spinner => Widget::Spinner(gtk::Spinner::new()),
+            WidgetKind::Separator => Widget::Separator(gtk::Separator::new(gtk::Orientation::Horizontal)),
             WidgetKind::Icon => Widget::Icon { image: gtk::Image::new(), size: None },
             WidgetKind::Image => Widget::Picture { picture: gtk::Picture::new(), source: None, fit: None },
             WidgetKind::GpuSurface => Widget::GpuSurface(SurfaceArea::new(id, events.clone())),
@@ -1558,6 +1561,11 @@ impl State {
                 scale.set_inverted(o.vertical());
                 node.orientation = Some(*o);
             }
+            (Prop::Orientation(o), Widget::Separator(line)) => line.set_orientation(if o.vertical() {
+                gtk::Orientation::Vertical
+            } else {
+                gtk::Orientation::Horizontal
+            }),
             (Prop::Label(t), Widget::SpinButton(spin)) => {
                 spin.update_property(&[gtk::accessible::Property::Label(t)]);
                 node.a11y_label = Some(t.clone());
@@ -2716,6 +2724,10 @@ impl Backend for GtkBackend {
                 props.extend(node.a11y_label.clone().map(Prop::Label));
                 props.push(Prop::Running(s.is_spinning()));
             }
+            Widget::Separator(line) => props.push(Prop::Orientation(match line.orientation() {
+                gtk::Orientation::Vertical => Orientation::Vertical,
+                _ => Orientation::Horizontal,
+            })),
             Widget::Picture { picture, source, fit } => {
                 props.extend(node.a11y_label.clone().map(Prop::Label));
                 props.extend(source.clone().map(Prop::Image));

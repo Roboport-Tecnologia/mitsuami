@@ -357,6 +357,23 @@ fn spinner_tweak() -> Tweak<Spinner> {
     }
 }
 
+/// Separators across a column, between groups, and down a row between
+/// buttons, as thick as each platform draws them.
+#[mitsuami_test::story(sizes = [(240, fit)])]
+fn separators() -> impl View {
+    Column::new().padding(16).gap(12).children((
+        Text::new("General"),
+        Separator::new(),
+        Text::new("Advanced"),
+        Row::new().gap(8).children((
+            Button::new("Cut"),
+            Button::new("Copy"),
+            Separator::vertical(),
+            Button::new("Undo"),
+        )),
+    ))
+}
+
 /// Every state of a text field: empty with a placeholder, with text,
 /// read-only (drawn as usual on every platform), disabled.
 #[mitsuami_test::story(sizes = [(240, fit)])]

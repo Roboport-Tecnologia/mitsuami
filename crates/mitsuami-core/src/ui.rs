@@ -2006,6 +2006,7 @@ impl Inner {
             WidgetKind::NumberInput => Role::SpinButton,
             // A spinner reads as a progress bar without a value, as in ARIA.
             WidgetKind::Progress | WidgetKind::Spinner => Role::ProgressBar,
+            WidgetKind::Separator => Role::Separator,
             // What the app draws there is a picture to assistive technology.
             WidgetKind::Image | WidgetKind::Icon | WidgetKind::GpuSurface => Role::Image,
             WidgetKind::Custom(_) | WidgetKind::Native => Role::Group,

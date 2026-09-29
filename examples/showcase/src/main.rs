@@ -72,6 +72,9 @@ mod scroll_view;
 #[path = "../../../crates/mitsuami/examples/select.rs"]
 mod select;
 #[allow(dead_code, unused_attributes)]
+#[path = "../../../crates/mitsuami/examples/separator.rs"]
+mod separator;
+#[allow(dead_code, unused_attributes)]
 #[path = "../../../crates/mitsuami/examples/slider.rs"]
 mod slider;
 #[allow(dead_code, unused_attributes)]
@@ -150,6 +153,7 @@ const SECTIONS: [(&str, &[Example]); 5] = [
         "Containers",
         &[
             scrolls("Group", || AnyView::new(group::settings())),
+            scrolls("Separator", || AnyView::new(separator::page())),
             // Scrolls itself, around its lists.
             fills("List", || AnyView::new(list::page())),
             scrolls("Scroll view", || AnyView::new(scroll_view::page())),

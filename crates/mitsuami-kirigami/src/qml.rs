@@ -786,6 +786,12 @@ pub(crate) fn spinner() -> String {
     format!("QQC2.BusyIndicator {{ running: false; {} }}", a11y("\"\""))
 }
 
+/// A 1 px line in the separator colour, which reads as a separator. It
+/// has no orientation: its frame is long one way and 1 px the other.
+pub(crate) fn separator() -> String {
+    format!("Kirigami.Separator {{ {} }}", a11y_hover("\"\""))
+}
+
 pub(crate) fn progress() -> String {
     format!("QQC2.ProgressBar {{ from: 0; to: 1; {} }}", a11y("\"\""))
 }

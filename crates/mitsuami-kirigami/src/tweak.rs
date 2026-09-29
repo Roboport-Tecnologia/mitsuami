@@ -5,8 +5,8 @@ use std::rc::Rc;
 use mitsuami_core::reactive::{IntoValue, Value};
 use mitsuami_core::{List, Opaque, Tweak};
 use mitsuami_widgets::{
-    Button, Checkbox, Group, Icon, Image, MenuButton, NumberInput, PasswordInput, Progress, ScrollView, Select, Slider,
-    Spinner, Switch, Text, TextInput,
+    Button, Checkbox, Group, Icon, Image, MenuButton, NumberInput, PasswordInput, Progress, ScrollView, Select,
+    Separator, Slider, Spinner, Switch, Text, TextInput,
 };
 
 use crate::ffi::QmlObject;
@@ -44,6 +44,9 @@ impl Tweakable for Progress {}
 
 /// A `QQC2.BusyIndicator`.
 impl Tweakable for Spinner {}
+
+/// A `Kirigami.Separator`.
+impl Tweakable for Separator {}
 
 /// A QtQuick `Image`.
 impl Tweakable for Image {}

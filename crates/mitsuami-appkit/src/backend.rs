@@ -113,6 +113,7 @@ enum Widget {
         indicator: Retained<NSProgressIndicator>,
         running: bool,
     },
+    Separator(Retained<NSBox>),
     Image(Retained<NSImageView>),
     Icon(Retained<NSImageView>),
     GpuSurface(Retained<SurfaceView>),
@@ -152,6 +153,7 @@ impl Widget {
             Widget::NumberInput(v) => v,
             Widget::Progress(v) => v,
             Widget::Spinner { indicator, .. } => indicator,
+            Widget::Separator(v) => v,
             Widget::Image(v) | Widget::Icon(v) => v,
             Widget::GpuSurface(v) => v,
             Widget::Scroll(v) => v,
@@ -175,6 +177,7 @@ impl Widget {
             Widget::Window { .. }
             | Widget::Progress(_)
             | Widget::Spinner { .. }
+            | Widget::Separator(_)
             | Widget::Image(_)
             | Widget::Icon(_)
             | Widget::GpuSurface(_)
@@ -222,7 +225,8 @@ struct Node {
     align: bool,
     role: Option<ButtonRole>,
     button_style: Option<ButtonStyle>,
-    /// Sliders: whether the app gave an `Orientation`.
+    /// Sliders: whether the app gave an `Orientation`. Separators: which
+    /// way they run, which an `NSBox` takes from its frame's shape.
     orientation: Option<Orientation>,
     /// Checkboxes: whether the app gave `Mixed`, and the `Checked` the box
     /// shows when it isn't mixed.
@@ -791,6 +795,12 @@ impl State {
                 indicator.setDisplayedWhenStopped(false);
                 Widget::Spinner { indicator, running: false }
             }
+            // It runs the long way of its frame, which the layout gives.
+            WidgetKind::Separator => {
+                let line = NSBox::new(mtm);
+                line.setBoxType(NSBoxType::Separator);
+                Widget::Separator(line)
+            }
             WidgetKind::TextInput => {
                 // No target-action: submit comes from the delegate (Return
                 // only), edits from `controlTextDidChange:`.
@@ -981,6 +991,7 @@ impl State {
                 set_ticks(slider, *new);
             }
             (Prop::Number(n), Widget::Slider { slider, .. }) => slider.setDoubleValue(*n),
+            (Prop::Orientation(o), Widget::Separator(_)) => node.orientation = Some(*o),
             (Prop::Orientation(o), Widget::Slider { slider, .. }) => {
                 slider.setVertical(o.vertical());
                 node.orientation = Some(*o);
@@ -1907,6 +1918,15 @@ impl Backend for AppKitBackend {
             }
             Widget::Progress(p) => intrinsic(p),
             Widget::Spinner { indicator, .. } => intrinsic(indicator),
+            // As thick as AppKit makes it (a 1-point line); the layout
+            // gives its length.
+            Widget::Separator(line) => {
+                let size = intrinsic(line);
+                match node.orientation.unwrap_or_default() {
+                    Orientation::Horizontal => Size::new(0.0, size.height.max(1.0)),
+                    Orientation::Vertical => Size::new(size.width.max(1.0), 0.0),
+                }
+            }
             // As large as the layout makes it.
             Widget::GpuSurface(_) => Size::ZERO,
             Widget::Custom { view, render, props } => {
@@ -2390,6 +2410,8 @@ impl Backend for AppKitBackend {
                 }
                 props.push(Prop::Running(*running));
             }
+            // AppKit reads it from the frame's shape: keep the app's.
+            Widget::Separator(_) => props.extend(node.orientation.map(Prop::Orientation)),
             Widget::Image(view) => {
                 if let Some(label) = view.accessibilityLabel() {
                     props.push(Prop::Label(label.to_string()));

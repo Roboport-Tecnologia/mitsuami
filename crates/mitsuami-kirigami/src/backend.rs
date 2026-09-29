@@ -322,6 +322,7 @@ enum Widget {
     NumberInput(QmlObject),
     Progress(QmlObject),
     Spinner(QmlObject),
+    Separator(QmlObject),
     Icon(QmlObject),
     /// An image, what it shows (Qt can't give pixels or the source back as
     /// given), and the pixels it hands QML's provider, if any.
@@ -395,6 +396,7 @@ impl Widget {
             | Widget::NumberInput(i)
             | Widget::Progress(i)
             | Widget::Spinner(i)
+            | Widget::Separator(i)
             | Widget::Icon(i)
             | Widget::Image { item: i, .. }
             | Widget::Scroll { view: i, .. }
@@ -532,7 +534,8 @@ struct Node {
     text_style: Option<TextStyle>,
     role: Option<ButtonRole>,
     button_style: Option<ButtonStyle>,
-    /// Sliders: whether the app gave an `Orientation`.
+    /// Sliders: whether the app gave an `Orientation`. Separators: which
+    /// way they run, which Kirigami's don't know.
     orientation: Option<Orientation>,
     /// Checkboxes: whether the app gave `Mixed`, and the `Checked` the box
     /// shows when it isn't mixed.
@@ -1008,6 +1011,7 @@ impl State {
             }
             WidgetKind::Progress => Widget::Progress(QmlObject::load(&qml::progress())),
             WidgetKind::Spinner => Widget::Spinner(QmlObject::load(&qml::spinner())),
+            WidgetKind::Separator => Widget::Separator(QmlObject::load(&qml::separator())),
             WidgetKind::Icon => Widget::Icon(QmlObject::load(&qml::icon())),
             WidgetKind::GpuSurface => Widget::GpuSurface(SurfaceItem::new(id, events.clone())),
             WidgetKind::Image => {
@@ -1328,6 +1332,9 @@ impl State {
                 s.set_int("orientation", if o.vertical() { QT_VERTICAL } else { QT_HORIZONTAL });
                 node.orientation = Some(*o);
             }
+            // Kirigami's has no orientation: its frame says which way it
+            // runs.
+            (Prop::Orientation(o), Widget::Separator(_)) => node.orientation = Some(*o),
             // Stopped, a busy indicator fades out.
             (Prop::Running(r), Widget::Spinner(s)) => s.set_bool("running", *r),
             (Prop::Image(new), Widget::Image { item, source, pixels, .. }) => {
@@ -2341,6 +2348,7 @@ impl Backend for KirigamiBackend {
                 props.extend(node.a11y_label.clone().map(Prop::Label));
                 props.push(Prop::Running(s.bool("running")));
             }
+            Widget::Separator(_) => props.extend(node.orientation.map(Prop::Orientation)),
             Widget::Icon(i) => {
                 props.extend(node.a11y_label.clone().map(Prop::Label));
                 props.push(Prop::Icon(i.str("mitsuamiShownName")));

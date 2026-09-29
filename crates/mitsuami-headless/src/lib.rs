@@ -963,6 +963,11 @@ impl Backend for HeadlessBackend {
             WidgetKind::NumberInput => Size::new(96.0, line + 8.0),
             WidgetKind::Progress => Size::new(160.0, 8.0),
             WidgetKind::Spinner => Size::new(16.0, 16.0),
+            // A 1-point line; the layout gives it its length.
+            WidgetKind::Separator => match find_prop!(node.props, Orientation).unwrap_or_default() {
+                Orientation::Horizontal => Size::new(0.0, 1.0),
+                Orientation::Vertical => Size::new(1.0, 0.0),
+            },
             // A square, 16 points unless sized; no name shows nothing.
             WidgetKind::Icon => match find_prop!(node.props, Icon) {
                 Some(name) if !name.is_empty() => {
