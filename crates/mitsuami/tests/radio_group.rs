@@ -180,13 +180,14 @@ async fn refuses_options_it_does_not_have_and_disabled_choices(app: TestApp) {
 
 /// A button per option, down a column: each option makes the group taller,
 /// and the longest decides its width. How far apart the buttons are is
-/// the platform's.
+/// the platform's. The third option is an "I", narrower than "A" and "B" in
+/// any font ("C" is wider than both in AppKit's).
 #[mitsuami_test::test]
 async fn is_sized_for_its_options(app: TestApp) {
     app.mount(|| {
         Column::new().align(Align::Start).children((
             RadioGroup::new("Two").options(["A", "B"]),
-            RadioGroup::new("Three").options(["A", "B", "C"]),
+            RadioGroup::new("Three").options(["A", "B", "I"]),
             RadioGroup::new("Long").options(["A considerably longer option", "B"]),
         ))
     });
