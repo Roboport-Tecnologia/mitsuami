@@ -3,12 +3,14 @@
 //! One screen, the same on every platform, with three custom widgets, each
 //! native where the platform has the control and stood in for elsewhere:
 //!
-//! - `Lock` is native on Linux (`GtkLockButton`), composed from a built-in
-//!   button elsewhere. It guards the rating and Submit.
+//! - `Lock` is native on GTK (`GtkLockButton`) and KDE (Qt's `DelayButton`),
+//!   composed from a built-in button elsewhere. It guards the rating and
+//!   Submit.
 //! - `Rating` is native on macOS (`NSLevelIndicator`) and on Windows
-//!   (`RatingControl`), built ad hoc from star buttons on GTK (as GNOME
-//!   Software does), drawn elsewhere.
-//! - `PipsPager` is native on Windows (WinUI's `PipsPager`), drawn elsewhere.
+//!   (`RatingControl`), built ad hoc from star buttons on GTK and KDE (as
+//!   GNOME Software and Discover do), drawn elsewhere.
+//! - `PipsPager` is native on Windows (WinUI's `PipsPager`) and KDE (Qt's
+//!   `PageIndicator`), drawn elsewhere.
 //!
 //! `platform!` picks each widget's render; the labels show "(native)" only
 //! where it's the platform's own control. The store (`store.rs`) is shared.

@@ -1,5 +1,6 @@
 //! mitsuami: native widgets on macOS (AppKit), Windows (WinUI 3) and Linux
-//! (GTK 4), driven by one declarative, Vue-inspired layer.
+//! (GTK 4, or Qt Quick and Kirigami for KDE Plasma), driven by one
+//! declarative, Vue-inspired layer.
 //!
 //! ```ignore
 //! use mitsuami::prelude::*;

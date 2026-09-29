@@ -1,4 +1,4 @@
-# M0.5 WinUI spike (docs/ARCHITECTURE.md §13, §14). Throwaway: not a workspace
+# M0.5 WinUI spike (docs/ARCHITECTURE.md §15, §16, §18). Throwaway: not a workspace
 # member, never published. Drives WinUI 3 imperatively through our own
 # windows-bindgen 0.100 bindings (route b).
 [package]

@@ -4,7 +4,7 @@ A throwaway spike that drives Qt Quick Controls in a Kirigami window
 imperatively from Rust, the way mitsuami's command protocol would: create,
 place, measure, act, observe, capture. It is not a workspace member. The
 backend it led to is `crates/mitsuami-kirigami`; what that taught is in
-`docs/ARCHITECTURE.md` §16.
+`docs/ARCHITECTURE.md` §15 (Kirigami).
 
 It needs the Qt 6 development files (Quick, Qml, QuickControls2, Widgets),
 Kirigami and `qqc2-desktop-style`:

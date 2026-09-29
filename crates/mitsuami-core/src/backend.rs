@@ -177,7 +177,7 @@ impl EventSink {
 /// [`Backend`] contract. Implemented by each backend's shareable handle.
 pub trait TestHooks {
     /// Short name used in snapshot and visual baseline paths: `"appkit"`,
-    /// `"gtk"`, `"winui"`.
+    /// `"gtk"`, `"winui"`, `"kirigami"`.
     fn name(&self) -> &'static str;
     /// Resizes a window's content area the way the user would, so the
     /// platform reports it back as `WindowResized`.
@@ -195,8 +195,8 @@ pub trait TestHooks {
     fn app_info(&self, window: NodeId) -> NativeAppInfo;
     /// Called after every settle: lets the platform catch up on work it
     /// does asynchronously (showing windows, allocating, delivering queued
-    /// notifications) without waiting. Platforms that do it all
-    /// synchronously, like AppKit, need nothing here.
+    /// notifications) without waiting. Every backend has some: AppKit lays
+    /// out tables and toolbars, which make their views in a layout pass.
     fn settle(&self) {}
 }
 

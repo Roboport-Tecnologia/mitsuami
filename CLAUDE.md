@@ -34,7 +34,9 @@ bends to each platform's native controls, never the other way around:
   X11 child window, pointer locks).
 - `crates/mitsuami-test`: the test kit (queries, actions, snapshots, stories).
 - `docs/BACKENDS.md` is the backend contract; `docs/ARCHITECTURE.md` has the
-  design, the MVP plan (§14) and implementation notes per milestone (§16).
+  design (§1–§12), a section per widget (§13) and per window and shell
+  feature (§14), each ending with where it has run, what each backend
+  taught (§15), and the plan (§16).
 
 ## Adding a widget
 
@@ -87,8 +89,8 @@ Backend rules the tests enforce:
   (`CGEvent`) needs an Accessibility permission this terminal lacks. Build a
   small `swiftc` app in the scratchpad with the variants side by side and
   ask the maintainer to try it (run with `!`). That's how AppKit steppers
-  made in code were found not to repeat (`docs/ARCHITECTURE.md`,
-  NumberInput).
+  made in code were found not to repeat (`docs/ARCHITECTURE.md`
+  §13.10, NumberInput).
 - Visual stories aren't validated yet: development moves too fast for
   baselines to keep up. Missing or failing visual baselines (stories, and
   the other platforms' captures) are expected; don't treat them as

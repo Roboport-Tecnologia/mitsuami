@@ -91,7 +91,7 @@ Built-in widgets: `Text`, `Button`, `ToggleButton`, `TextInput`,
 `RadioGroup`, `Slider`, `NumberInput`, `Select`, `Progress`, `Spinner`,
 `Separator`, `Image`, `Icon`, `ScrollView`, `List` (virtualised), `Group`,
 `Sidebar`, `Tabs`, `Toolbar`, `MenuButton`, menus, context menus, tooltips,
-windows and dialogs. [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md) §10
+windows and dialogs. [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md) §13
 lists the native control each one is on every platform.
 
 ## Examples
@@ -184,8 +184,9 @@ of examples.
 
 ## Working on mitsuami
 
-- [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md): the design, the MVP plan
-  (§14), and notes on each widget and platform (§16).
+- [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md): the design, how each
+  widget and window feature works on every platform (§13, §14), what each
+  backend taught (§15), and the plan (§16).
 - [`docs/BACKENDS.md`](docs/BACKENDS.md): the backend contract. Writing a
   backend starts there.
 - [`CLAUDE.md`](CLAUDE.md): the project's rules, including what adding a

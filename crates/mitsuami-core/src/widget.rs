@@ -146,8 +146,9 @@ pub enum WidgetKind {
     /// [`Prop::Row`]), in row order. It scrolls like a `ScrollView`.
     List,
     /// A native tab view: pages, one shown at a time, and a strip of their
-    /// titles to pick one (NSTabView, gtk::Notebook, a SelectorBar over
-    /// its pages on WinUI, QQC2.TabBar over a StackLayout). Its native
+    /// titles to pick one (NSTabView, libadwaita's inline view switcher or
+    /// a gtk::Notebook, a SelectorBar over its pages on WinUI, Kirigami's
+    /// NavigationTabBar or a QQC2.TabBar). Its native
     /// children are its pages' hosts (`Container`s), in order, titled by
     /// [`Prop::TabTitles`]; the shown one is [`Prop::SelectedIndex`].
     /// Every page stays mounted. The core lays out each page at the size

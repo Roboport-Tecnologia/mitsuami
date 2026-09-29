@@ -2,7 +2,7 @@
 
 A throwaway spike that drives WinUI 3 imperatively through our own
 `windows-bindgen` 0.100 bindings. It is not a workspace member. The findings are
-in `docs/ARCHITECTURE.md` §13 and §17.
+in `docs/ARCHITECTURE.md` §15 (WinUI) and §18.
 
 It needs Windows App Runtime 2.4 or later installed, and the MSVC toolchain:
 
