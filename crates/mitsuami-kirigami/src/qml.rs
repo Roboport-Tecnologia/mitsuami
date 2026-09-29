@@ -738,9 +738,15 @@ Kirigami.SearchField {{
         mitsuamiPending = true
         mitsuamiEdited()
     }}
-    // Seen before the field takes it, and left to it.
-    Keys.onPressed: (event) => {{
-        if (event.key === Qt.Key_Return || event.key === Qt.Key_Enter) mitsuamiReturn = true
+    // Seen before the field takes it, and left to it. Not `onPressed`:
+    // the context menu's handler is (`CONTEXT_MENU`), and it leaves these
+    // keys to these handlers.
+    Keys.onReturnPressed: (event) => {{
+        mitsuamiReturn = true
+        event.accepted = false
+    }}
+    Keys.onEnterPressed: (event) => {{
+        mitsuamiReturn = true
         event.accepted = false
     }}
     onAccepted: {{
