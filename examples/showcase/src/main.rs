@@ -34,6 +34,9 @@ mod context_menu;
 #[path = "../../../crates/mitsuami/examples/file_drop.rs"]
 mod file_drop;
 #[allow(dead_code, unused_attributes)]
+#[path = "../../../crates/mitsuami/examples/focus.rs"]
+mod focus;
+#[allow(dead_code, unused_attributes)]
 #[path = "../../gpu-surface/src/main.rs"]
 mod gpu_surface;
 #[allow(dead_code, unused_attributes)]
@@ -51,6 +54,9 @@ mod icon;
 #[allow(dead_code, unused_attributes)]
 #[path = "../../../crates/mitsuami/examples/image.rs"]
 mod image;
+#[allow(dead_code, unused_attributes)]
+#[path = "../../../crates/mitsuami/examples/keys.rs"]
+mod keys;
 #[allow(dead_code, unused_attributes)]
 #[path = "../../../crates/mitsuami/examples/launch.rs"]
 mod launch;
@@ -90,6 +96,9 @@ mod select;
 #[allow(dead_code, unused_attributes)]
 #[path = "../../../crates/mitsuami/examples/separator.rs"]
 mod separator;
+#[allow(dead_code, unused_attributes)]
+#[path = "../../../crates/mitsuami/examples/shortcuts.rs"]
+mod shortcuts;
 #[allow(dead_code, unused_attributes)]
 #[path = "../../../crates/mitsuami/examples/slider.rs"]
 mod slider;
@@ -135,7 +144,7 @@ const fn example(title: &'static str, page: fn() -> AnyView) -> Example {
     Example { title, page }
 }
 
-const SECTIONS: [(&str, &[Example]); 6] = [
+const SECTIONS: [(&str, &[Example]); 7] = [
     (
         "Controls",
         &[
@@ -189,6 +198,14 @@ const SECTIONS: [(&str, &[Example]); 6] = [
             example("Tooltip", || AnyView::new(tooltip::page())),
             example("Windows", || AnyView::new(windows::page())),
             example("File drop", || AnyView::new(file_drop::window())),
+        ],
+    ),
+    (
+        "Keyboard",
+        &[
+            example("Keys", || AnyView::new(keys::page())),
+            example("Shortcuts", || AnyView::new(shortcuts::page())),
+            example("Focus", || AnyView::new(focus::page())),
         ],
     ),
     (
