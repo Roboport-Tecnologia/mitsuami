@@ -805,7 +805,7 @@ A label, in a text style (§5), wrapping at words.
   - WinUI: colour is a `Foreground` setter in a style loaded with `XamlReader`, based on the text style's (`BasedOn`), so theme brushes follow the theme as Fluent's own styles do (`TextFillColorPrimaryBrush`, `TextFillColorSecondaryBrush`, `AccentTextFillColorPrimaryBrush`, `SystemFillColorCriticalBrush`, `CautionBrush`, `SuccessBrush`). A brush can't be told apart once resolved, so the colour is reported from the node. Weight (400 to 700) and italics are local values, which beat style setters, so a new text style keeps them. `TextAlignment` Left, Center or Right.
   - Weight and italics change a label's size (`affects_measure`); alignment and colour don't.
 - **Left out:** a font family or point size (§5). Style classes, rich text and letter spacing are each platform's own.
-- **The example's tweaks:** selectable text on AppKit and GTK (the same as `selectable`), Markdown (`textFormat`) on Qt, `CharacterSpacing` on WinUI. The `text_tweaked` story still sets AppKit's secondary colour and GTK's `dim-label`, which `color(Color::SecondaryLabel)` now does.
+- **The example's tweaks:** expansion tooltips on AppKit (`allowsExpansionToolTips`: the whole text in a tooltip when it's cut off, so the example cuts its line off there), Pango attributes on GTK (underlined), Markdown (`textFormat`) on Qt, `CharacterSpacing` on WinUI. The `text_tweaked` story has the same; a still capture doesn't show AppKit's. GTK's `use-markup` would parallel Qt's Markdown, but the mirror check reads the label's `text`, which drops the markup. The GTK tweak ran natively on GTK; AppKit's is only type-checked.
 - **Text styles per platform:** GNOME's type scale on GTK (`title-1`, `title-2`, `heading`, `caption`, `monospace`; GNOME has no callout size, so callouts use the body's). On Kirigami without Plasma's platform theme, the small font falls back to a 12 pt system font, larger than the body, so captions are 0.8 × the body, Plasma's ratio.
 - **Where it has run:** the line limit on every backend, checked by eye. Colour, weight, italics, alignment and `selectable` on AppKit and headless (`tests/text.rs`, the `text_options` story); only type-checked on GTK, Kirigami and WinUI (Kirigami's QML parsed with Homebrew's `qmllint`, without its modules). To verify there: whether GTK's own theme (not libadwaita's) styles `.accent`, `.error`, `.warning` and `.success` labels (the mirror check reads the class, not the colour); Pango's automatic direction putting a right-to-left paragraph's left alignment on the right; Kirigami's colour and weight bindings, and that a label without a colour draws as the desktop style's does; WinUI's `SetBasedOn` on a freshly loaded style, and a coloured label without a text style replacing an implicit `TextBlock` style, if any; how the colours and weights look, in light and dark (`examples/text.rs` has a control for each).
 
@@ -826,7 +826,7 @@ A label, in a text style (§5), wrapping at words.
   - AppKit measures a borderless image-only button smaller than its symbol (15 × 9 for the trash can's 15 × 17), so the backend makes it at least the image's size.
   - A new title resets an `NSButton`'s image position, and `view!` sets the caption after `icon_only`, so the backend sets the image position again with the title (`a_new_caption_keeps_the_icon_alone`).
 - **Presses go through the platform's accessibility press** (§15), as a screen reader's do.
-- **The example** (`examples/button.rs`) shows every role in every style, a playground of the semantic props, toggle buttons, and one tweak per platform: a large control size on AppKit (a `bezelColor` tint didn't show in captures), GTK's `circular` class, `checkable` on Qt, a `CornerRadius` of 16 on WinUI.
+- **The example** (`examples/button.rs`) shows every role in every style, a playground of the semantic props, toggle buttons, and one tweak per platform: a large control size on AppKit (a `bezelColor` tint didn't show in captures), GTK's `circular` class, a `padding` of 16 on Qt (only type-checked), a `CornerRadius` of 16 on WinUI.
 - **Where it has run:** roles and styles on every backend, checked by eye; icons on every backend and headless (`tests/icon.rs`).
 
 ### 13.3 ToggleButton
@@ -927,7 +927,7 @@ A label, in a text style (§5), wrapping at words.
 - **A spin button to assistive technology** (`Role::SpinButton`), named by its label, with the number as its value. On AppKit the field and the stepper both get the label, as VoiceOver finds them separately.
 - **Left out:** decimals (Qt's holds an `int`).
 - **Not tested: typing keys into one.** `synthesize` has no `NumberInput` path yet on any backend (each would drive the field inside); the suite uses assistive technology's `SetValue`, `Increment` and `Decrement`.
-- **The example's tweaks:** `valueWraps` off on AppKit, `wrap` on GTK and Qt (the same as `wrap_around`), `Compact` spin buttons on WinUI.
+- **The example's tweaks:** a rounded bezel on AppKit's field, a vertical spin button on GTK (buttons above and below the number), `wheelEnabled` on Qt, `Compact` spin buttons on WinUI. The GTK tweak ran natively; AppKit's and Qt's are only type-checked.
 - **Where it has run:** every backend and headless, checked by eye. `wrap_around` on AppKit and headless (`tests/number_input.rs`), only type-checked elsewhere.
 
 ### 13.11 Progress
@@ -1007,7 +1007,7 @@ A label, in a text style (§5), wrapping at words.
 - **A text area to assistive technology:** role `TextArea` (AppKit's text area, GTK's and Qt's multi-line text, UIA's multi-line edit), named by its label or placeholder, its text as its value.
 - **Its lines end in `\n`.** XAML's text box ends them in `\r`, whatever it's given, so the WinUI backend reads text boxes' text back with `\n`.
 - **Change signals:** AppKit's `textDidChange:` is the user's only; GTK's buffer `changed` is muted while commands apply, as an entry's is; WinUI's `TextChanged` is checked against `shown_text`, as a text box's is. Qt's `TextArea` has no user-only signal (`textEdited` is `TextField`'s): the QML marks the backend's own sets (`mitsuamiSetting`) and reports the rest as `mitsuamiEdited`.
-- **The example's tweaks:** continuous spell checking on AppKit, monospace on GTK, no wrapping on Qt and WinUI (the same as `line_wrap(false)`). The story's tweak is a fixed-pitch font on AppKit and GTK.
+- **The example's tweaks:** continuous spell checking on AppKit, monospace on GTK, `wrapMode` `WrapAnywhere` on Qt (lines broken inside words too), a `Header` on WinUI. The story's tweak is a fixed-pitch font on AppKit and GTK, and Qt's and WinUI's as the example's; those two are only type-checked.
 - **Where it has run:** AppKit, WinUI and headless. Only type-checked on GTK and Kirigami (the Kirigami QML linted with `qmllint`). On WinUI, `read_only_and_enabled_follow_their_signals` fails: typed after it was made editable, the text isn't in the native box (not looked into yet). `line_wrap` on AppKit and headless only.
 
 ### 13.18 Image

@@ -106,16 +106,17 @@ fn platform_option() -> impl View {
             "GTK: monospace sets the text in the fixed-width font.",
         ),
         kde => (
-            mitsuami::kirigami::tweak(|a: &mitsuami::kirigami::QmlObject| a.set_int("wrapMode", 0)),
-            "Kirigami: wrapMode NoWrap scrolls long lines sideways instead of wrapping them.",
+            // TextEdit.WrapAnywhere.
+            mitsuami::kirigami::tweak(|a: &mitsuami::kirigami::QmlObject| a.set_int("wrapMode", 3)),
+            "Qt Quick: wrapMode WrapAnywhere breaks lines anywhere, even inside a word, instead of between words.",
         ),
         windows => (
             mitsuami::winui::tweak(|t: &mitsuami::winui::bindings::TextBox| {
-                use mitsuami::winui::bindings::{ITextBox, TextWrapping};
+                use mitsuami::winui::bindings::{ITextBox, PropertyValue};
                 use mitsuami::winui::windows_core::Interface;
-                t.cast::<ITextBox>()?.SetTextWrapping(TextWrapping::NoWrap)
+                t.cast::<ITextBox>()?.SetHeader(&PropertyValue::CreateString("Message")?)
             }),
-            "WinUI: TextWrapping NoWrap scrolls long lines sideways instead of wrapping them.",
+            "WinUI: Header draws a caption above the text box, WinUI's own way to label it.",
         ),
     };
     view! {

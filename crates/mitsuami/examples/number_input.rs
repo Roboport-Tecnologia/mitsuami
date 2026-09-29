@@ -79,16 +79,21 @@ fn playground() -> impl View {
 fn platform_option() -> impl View {
     let (tweak, about): (Tweak<NumberInput>, &str) = platform! {
         macos => (
-            mitsuami::appkit::tweak(|n: &mitsuami::appkit::NumberField| n.stepper().setValueWraps(false)),
-            "AppKit: a stepper wraps round at its ends; valueWraps off stops it there instead.",
+            mitsuami::appkit::tweak(|n: &mitsuami::appkit::NumberField| {
+                n.field().setBezelStyle(mitsuami::appkit::objc2_app_kit::NSTextFieldBezelStyle::RoundedBezel)
+            }),
+            "AppKit: the rounded bezel style gives the field round ends.",
         ),
         gtk => (
-            mitsuami::gtk::tweak(|s: &mitsuami::gtk::gtk::SpinButton| s.set_wrap(true)),
-            "GTK: wrap makes the buttons go round from one end to the other.",
+            mitsuami::gtk::tweak(|s: &mitsuami::gtk::gtk::SpinButton| {
+                use mitsuami::gtk::gtk::prelude::*;
+                s.set_orientation(mitsuami::gtk::gtk::Orientation::Vertical)
+            }),
+            "GTK: a vertical spin button puts its buttons above and below the number.",
         ),
         kde => (
-            mitsuami::kirigami::tweak(|s: &mitsuami::kirigami::QmlObject| s.set_bool("wrap", true)),
-            "Qt Quick: wrap makes the buttons go round from one end to the other.",
+            mitsuami::kirigami::tweak(|s: &mitsuami::kirigami::QmlObject| s.set_bool("wheelEnabled", true)),
+            "Qt Quick: wheelEnabled lets the mouse wheel change the number under the pointer.",
         ),
         windows => (
             mitsuami::winui::tweak(|n: &mitsuami::winui::bindings::NumberBox| {

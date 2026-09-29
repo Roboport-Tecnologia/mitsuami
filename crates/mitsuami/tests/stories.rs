@@ -30,7 +30,7 @@ fn buttons() -> impl View {
 }
 
 /// A raw platform setting through `.native()`: a large control on AppKit,
-/// round ends on GTK and WinUI, a checkable button, checked, on Qt.
+/// round ends on GTK and WinUI, more padding on Qt.
 #[mitsuami_test::story(sizes = [(240, fit)])]
 fn button_tweaked() -> impl View {
     let tweak: Tweak<Button> = platform! {
@@ -41,10 +41,7 @@ fn button_tweaked() -> impl View {
             use mitsuami::gtk::gtk::prelude::*;
             b.add_css_class("circular")
         }),
-        kde => mitsuami::kirigami::tweak(|b: &mitsuami::kirigami::QmlObject| {
-            b.set_bool("checkable", true);
-            b.set_bool("checked", true);
-        }),
+        kde => mitsuami::kirigami::tweak(|b: &mitsuami::kirigami::QmlObject| b.set_real("padding", 16.0)),
         windows => mitsuami::winui::tweak(|b: &mitsuami::winui::bindings::Button| {
             use mitsuami::winui::bindings::{CornerRadius, IControl};
             use mitsuami::winui::windows_core::Interface;
@@ -99,8 +96,9 @@ fn text_options() -> impl View {
 }
 
 /// A paragraph cut off at two lines and at one, with the platform's
-/// ellipsis, and a tweaked label: the secondary colour on AppKit, dimmed on
-/// GTK, Markdown on Qt, spread letters on WinUI.
+/// ellipsis, and a tweaked label: underlined on GTK, Markdown on Qt, spread
+/// letters on WinUI. AppKit's tweak shows the whole text in a tooltip,
+/// which a still capture doesn't show.
 #[mitsuami_test::story(sizes = [(240, fit)])]
 fn text_tweaked() -> impl View {
     let paragraph = "Widgets behave, size, animate and respond as the platform's own controls do, \
@@ -108,19 +106,26 @@ fn text_tweaked() -> impl View {
     Column::new().padding(16).gap(8).children((
         Text::new(paragraph).max_lines(2),
         Text::new(paragraph).max_lines(1),
-        // Markup only where the tweak renders it.
-        Text::new(platform! { kde => "Tweaked, with **some** of it _marked up_", _ => "Tweaked" }).native(text_tweak()),
+        // Markup only where the tweak renders it; cut off where it has a
+        // tooltip.
+        Text::new(platform! {
+            kde => "Tweaked, with **some** of it _marked up_",
+            macos => "Tweaked: a line too long for the story, whole in its tooltip",
+            _ => "Tweaked",
+        })
+        .max_lines(1)
+        .native(text_tweak()),
     ))
 }
 
 fn text_tweak() -> Tweak<Text> {
     platform! {
-        macos => mitsuami::appkit::tweak(|t: &mitsuami::appkit::objc2_app_kit::NSTextField| {
-            t.setTextColor(Some(&mitsuami::appkit::objc2_app_kit::NSColor::secondaryLabelColor()))
-        }),
+        macos => mitsuami::appkit::tweak(|t: &mitsuami::appkit::objc2_app_kit::NSTextField| t.setAllowsExpansionToolTips(true)),
         gtk => mitsuami::gtk::tweak(|l: &mitsuami::gtk::gtk::Label| {
-            use mitsuami::gtk::gtk::prelude::*;
-            l.add_css_class("dim-label")
+            use mitsuami::gtk::gtk::pango::{AttrInt, AttrList, Underline};
+            let attributes = AttrList::new();
+            attributes.insert(AttrInt::new_underline(Underline::Single));
+            l.set_attributes(Some(&attributes))
         }),
         kde => mitsuami::kirigami::tweak(|l: &mitsuami::kirigami::QmlObject| l.set_int("textFormat", 3)),
         windows => mitsuami::winui::tweak(|t: &mitsuami::winui::bindings::TextBlock| {
@@ -503,8 +508,8 @@ fn search_input_tweak() -> Tweak<SearchInput> {
 
 /// Text areas: empty with a placeholder (shown on Qt and WinUI), filled
 /// with a line that wraps, more lines than fit, read-only, disabled, and
-/// tweaked: a fixed-pitch font on AppKit and GTK, no wrapping on Qt and
-/// WinUI.
+/// tweaked: a fixed-pitch font on AppKit and GTK, lines broken inside words
+/// on Qt, a header on WinUI.
 #[mitsuami_test::story(sizes = [(240, fit)])]
 fn text_areas() -> impl View {
     const NOTE: &str = "A note that runs past the edge of the area, and wraps.\nAnd a second paragraph.";
@@ -530,10 +535,12 @@ fn text_area_tweak() -> Tweak<TextArea> {
             use mitsuami::gtk::gtk::prelude::*;
             v.set_monospace(true)
         }),
-        kde => mitsuami::kirigami::tweak(|a: &mitsuami::kirigami::QmlObject| a.set_int("wrapMode", 0)),
+        // TextEdit.WrapAnywhere.
+        kde => mitsuami::kirigami::tweak(|a: &mitsuami::kirigami::QmlObject| a.set_int("wrapMode", 3)),
         windows => mitsuami::winui::tweak(|t: &mitsuami::winui::bindings::TextBox| {
+            use mitsuami::winui::bindings::{ITextBox, PropertyValue};
             use mitsuami::winui::windows_core::Interface;
-            t.cast::<mitsuami::winui::bindings::ITextBox>()?.SetTextWrapping(mitsuami::winui::bindings::TextWrapping::NoWrap)
+            t.cast::<ITextBox>()?.SetHeader(&PropertyValue::CreateString("Note")?)
         }),
     }
 }

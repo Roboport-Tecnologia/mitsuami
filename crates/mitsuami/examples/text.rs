@@ -135,12 +135,17 @@ fn selectable() -> impl View {
 fn platform_option() -> impl View {
     let (tweak, about): (Tweak<Text>, &str) = platform! {
         macos => (
-            mitsuami::appkit::tweak(|t: &mitsuami::appkit::objc2_app_kit::NSTextField| t.setSelectable(true)),
-            "AppKit: selectable, so the text can be selected and copied.",
+            mitsuami::appkit::tweak(|t: &mitsuami::appkit::objc2_app_kit::NSTextField| t.setAllowsExpansionToolTips(true)),
+            "AppKit: allowsExpansionToolTips shows the whole text in a tooltip, under the pointer, when it's cut off.",
         ),
         gtk => (
-            mitsuami::gtk::tweak(|l: &mitsuami::gtk::gtk::Label| l.set_selectable(true)),
-            "GTK: selectable, so the text can be selected and copied.",
+            mitsuami::gtk::tweak(|l: &mitsuami::gtk::gtk::Label| {
+                use mitsuami::gtk::gtk::pango::{AttrInt, AttrList, Underline};
+                let attributes = AttrList::new();
+                attributes.insert(AttrInt::new_underline(Underline::Single));
+                l.set_attributes(Some(&attributes))
+            }),
+            "GTK: Pango attributes style runs of the text, here all of it underlined.",
         ),
         kde => (
             // Text.MarkdownText.
@@ -155,16 +160,19 @@ fn platform_option() -> impl View {
             "WinUI: CharacterSpacing spreads the letters, in thousandths of an em.",
         ),
     };
-    // Markup only where the tweak renders it; elsewhere it would show as is.
+    // Markup only where the tweak renders it; elsewhere it would show as
+    // is. On AppKit, a line too long to fit, for the tooltip.
     let sample = platform! {
+        macos => "text, cut off where the line ends: hover over it to read the rest, as Finder shows a file \
+                  name too long for its column",
         kde => "text, with **some** of it _marked up_",
         _ => "text, as the tweak shows it",
     };
     view! {
         <Column gap=Spacing::Md>
             {heading("A platform option")}
-            <Text>{format!("Plain {sample}")}</Text>
-            <Text native=tweak>{format!("Tweaked {sample}")}</Text>
+            <Text max_lines=1>{format!("Plain {sample}")}</Text>
+            <Text max_lines=1 native=tweak>{format!("Tweaked {sample}")}</Text>
             <Text text_style=TextStyle::Caption>{about}</Text>
         </Column>
     }

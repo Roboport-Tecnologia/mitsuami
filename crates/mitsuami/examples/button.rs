@@ -145,8 +145,8 @@ fn platform_option() -> impl View {
             "GTK: the circular style class rounds the button's ends.",
         ),
         kde => (
-            mitsuami::kirigami::tweak(|b: &mitsuami::kirigami::QmlObject| b.set_bool("checkable", true)),
-            "Qt Quick: checkable makes the button stay down when clicked, as a toggle.",
+            mitsuami::kirigami::tweak(|b: &mitsuami::kirigami::QmlObject| b.set_real("padding", 16.0)),
+            "Qt Quick: a padding of 16 puts more room around the caption.",
         ),
         windows => (
             mitsuami::winui::tweak(|b: &mitsuami::winui::bindings::Button| {
