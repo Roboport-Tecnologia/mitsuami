@@ -4,7 +4,7 @@ use mitsuami_core::backend::{AvailableSpace, MeasureRequest};
 use mitsuami_core::{ImageSource, NodeId, Size};
 use windows_core::Interface;
 
-use super::fields::measure_lines;
+use super::fields::{inner_text_box, measure_lines};
 use super::{Widget, WinUiBackend, ok};
 use crate::bindings as w;
 
@@ -23,6 +23,42 @@ pub(crate) fn measure_element(element: &w::UIElement, available: w::Size) -> w::
     _ = fe.SetWidth(width);
     _ = fe.SetHeight(height);
     desired
+}
+
+/// A number box with room for its clear button. Its text box shows the
+/// button in a column of its own while it has focus, and a frame measured
+/// without it would leave the button over the value. While the button
+/// shows, XAML's measure has it already; while it's hidden, it's shown for
+/// its own measure and hidden again, as the text box's state had it.
+fn measure_number_box(element: &w::UIElement) -> w::Size {
+    let infinite = w::Size { width: f32::INFINITY, height: f32::INFINITY };
+    // Measuring applies the templates the button is in.
+    let size = measure_element(element, infinite);
+    let Some(clear) = inner_text_box(element).and_then(|field| clear_button(&field)) else { return size };
+    if clear.Visibility().is_ok_and(|v| v == w::Visibility::Visible) {
+        return size;
+    }
+    _ = clear.SetVisibility(w::Visibility::Visible);
+    _ = clear.Measure(infinite);
+    let button = clear.DesiredSize().unwrap_or_default();
+    _ = clear.SetVisibility(w::Visibility::Collapsed);
+    w::Size { width: size.width + button.width, ..size }
+}
+
+/// The button in a text box's template: its clear button.
+fn clear_button(field: &w::ITextBox) -> Option<w::IUIElement> {
+    let mut queue = std::collections::VecDeque::from([field.cast::<w::DependencyObject>().ok()?]);
+    while let Some(node) = queue.pop_front() {
+        if node.cast::<w::IButton>().is_ok() {
+            return node.cast().ok();
+        }
+        for i in 0..w::VisualTreeHelper::GetChildrenCount(&node).unwrap_or(0) {
+            if let Ok(child) = w::VisualTreeHelper::GetChild(&node, i) {
+                queue.push_back(child);
+            }
+        }
+    }
+    None
 }
 
 fn ceil(size: w::Size) -> Size {
@@ -67,10 +103,10 @@ impl WinUiBackend {
             | Widget::Select(_)
             | Widget::RadioGroup(_)
             | Widget::Slider { .. }
-            | Widget::Number { .. }
             | Widget::Progress(_)
             | Widget::Spinner(_)
             | Widget::Icon(_) => ceil(measure_element(&node.element, infinite)),
+            Widget::Number { .. } => ceil(measure_number_box(&node.element)),
             // To the nearest, not up: XAML rounds its 1 epx to whole
             // pixels (1.33 at 150 %), and up would make it 2.
             Widget::Separator(_) => {
