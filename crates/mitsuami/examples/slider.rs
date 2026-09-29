@@ -15,9 +15,25 @@ fn heading(text: &str) -> impl View {
     view! { <Text text_style=TextStyle::Headline>{text.to_string()}</Text> }
 }
 
+/// How far a wheel notch moves the slider on GTK: its page increment,
+/// which the backend makes ten steps, the whole range without a step.
+fn wheel(page: f64) -> Tweak<Slider> {
+    platform! {
+        gtk => mitsuami::gtk::tweak(move |s: &mitsuami::gtk::gtk::Scale| {
+            use mitsuami::gtk::gtk::prelude::*;
+            s.adjustment().set_page_increment(page)
+        }),
+        // Qt, WinUI and AppKit's wheels are their own.
+        _ => {
+            let _ = page;
+            Tweak::none()
+        }
+    }
+}
+
 fn gallery() -> impl View {
     let vertical = |name: &str, value: f64| {
-        view! { <Slider label=name orientation=Orientation::Vertical value=value/> }
+        view! { <Slider label=name orientation=Orientation::Vertical value=value native=wheel(1.0)/> }
     };
     view! {
         <Column gap=Spacing::Md>
@@ -29,12 +45,12 @@ fn gallery() -> impl View {
                 align=Align::Center
             >
                 <Text>"No step"</Text>
-                <Slider label="No step" value=30.0/>
+                <Slider label="No step" value=30.0 native=wheel(1.0)/>
                 <Text>"A step of 20"</Text>
                 // What a step does is the platform's: tick marks the knob
                 // stops at on AppKit, snapping on WinUI, keyboard moves on
                 // GTK and Qt.
-                <Slider label="A step of 20" step=20.0 value=40.0/>
+                <Slider label="A step of 20" step=20.0 value=40.0 native=wheel(20.0)/>
                 <Text>"Disabled"</Text>
                 <Slider label="Disabled" value=70.0 enabled=false/>
             </Grid>
@@ -80,6 +96,7 @@ fn playground() -> impl View {
                     bind=value
                     height=move || if is_vertical() { Length::Px(140.0) } else { Length::Auto }
                     grow=move || if is_vertical() { 0.0 } else { 1.0 }
+                    native=wheel(1.0)
                 />
                 <Text>{move || format!("{:.0}", value.get())}</Text>
             </Row>
@@ -98,9 +115,11 @@ fn platform_option() -> impl View {
         ),
         gtk => (
             mitsuami::gtk::tweak(|s: &mitsuami::gtk::gtk::Scale| {
-            use mitsuami::gtk::gtk::prelude::*;
-            s.set_draw_value(true)
-        }),
+                use mitsuami::gtk::gtk::prelude::*;
+                s.set_draw_value(true);
+                // A step per wheel notch, as `wheel` does elsewhere.
+                s.adjustment().set_page_increment(1.0)
+            }),
             "GTK: draw-value shows the value beside the scale.",
         ),
         kde => (
