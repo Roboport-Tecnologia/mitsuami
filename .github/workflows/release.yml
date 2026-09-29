@@ -51,8 +51,11 @@ jobs:
         env:
           CARGO_REGISTRY_TOKEN: ${{ secrets.CARGO_REGISTRY_TOKEN }}
 
-  examples:
-    name: Build the examples (${{ matrix.name }})
+  # The showcase, every example in one window, for each platform. A crate
+  # of its own, outside the workspace (it has the GPU surface example,
+  # which needs wgpu), so it builds with `--manifest-path`.
+  showcase:
+    name: Build the showcase (${{ matrix.name }})
     needs: test
     strategy:
       matrix:
@@ -65,16 +68,14 @@ jobs:
       run:
         shell: bash
     env:
-      ARCHIVE: mitsuami-examples-${{ github.ref_name }}-${{ matrix.name }}
+      ARCHIVE: mitsuami-showcase-${{ github.ref_name }}-${{ matrix.name }}
+      MANIFEST: examples/showcase/Cargo.toml
+      BUILT: examples/showcase/target
     steps:
       - uses: actions/checkout@v5
 
       - name: Install the toolchain from rust-toolchain.toml
         run: rustup toolchain install
-
-      # Every example but run_loop_smoke, a check that the run loop ends.
-      - name: List the examples
-        run: echo "EXAMPLES=$(ls crates/mitsuami/examples | sed 's/\.rs$//' | grep -vx run_loop_smoke | xargs)" >> "$GITHUB_ENV"
 
       - name: Install GTK 4 and libadwaita
         if: runner.os == 'Linux'
@@ -82,13 +83,13 @@ jobs:
 
       - name: Build
         if: runner.os != 'macOS'
-        run: cargo build --release -p mitsuami $(printf -- '--example %s ' $EXAMPLES)
+        run: cargo build --release --manifest-path "$MANIFEST"
 
       - name: Package (Linux)
         if: runner.os == 'Linux'
         run: |
           mkdir "$ARCHIVE"
-          for e in $EXAMPLES; do cp "target/release/examples/$e" "$ARCHIVE/"; done
+          cp "$BUILT/release/showcase" "$ARCHIVE/"
           tar -czf "$ARCHIVE.tar.gz" "$ARCHIVE"
 
       # One binary for Apple silicon and Intel Macs.
@@ -97,21 +98,19 @@ jobs:
         run: |
           rustup target add aarch64-apple-darwin x86_64-apple-darwin
           for t in aarch64-apple-darwin x86_64-apple-darwin; do
-            cargo build --release -p mitsuami --target "$t" $(printf -- '--example %s ' $EXAMPLES)
+            cargo build --release --manifest-path "$MANIFEST" --target "$t"
           done
           mkdir "$ARCHIVE"
-          for e in $EXAMPLES; do
-            lipo -create -output "$ARCHIVE/$e" \
-              "target/aarch64-apple-darwin/release/examples/$e" \
-              "target/x86_64-apple-darwin/release/examples/$e"
-          done
+          lipo -create -output "$ARCHIVE/showcase" \
+            "$BUILT/aarch64-apple-darwin/release/showcase" \
+            "$BUILT/x86_64-apple-darwin/release/showcase"
           tar -czf "$ARCHIVE.tar.gz" "$ARCHIVE"
 
       - name: Package (Windows)
         if: runner.os == 'Windows'
         run: |
           mkdir "$ARCHIVE"
-          for e in $EXAMPLES; do cp "target/release/examples/$e.exe" "$ARCHIVE/"; done
+          cp "$BUILT/release/showcase.exe" "$ARCHIVE/"
           7z a "$ARCHIVE.zip" "$ARCHIVE"
 
       - uses: actions/upload-artifact@v5
@@ -119,12 +118,11 @@ jobs:
           name: ${{ env.ARCHIVE }}
           path: ${{ env.ARCHIVE }}.*
 
-  # The same examples on Qt Quick and Kirigami (the `kde` feature), in an
-  # Arch Linux container as in the KDE tests: Kirigami 6 isn't packaged for
-  # Ubuntu 24.04. GTK 4 is there because the test kit, a dev-dependency,
-  # needs it to build; the examples don't link it.
-  examples-kde:
-    name: Build the examples (linux-x86_64-kde)
+  # The showcase on Qt Quick and Kirigami (the `kde` feature, without GTK),
+  # in an Arch Linux container as in the KDE tests: Kirigami 6 isn't
+  # packaged for Ubuntu 24.04.
+  showcase-kde:
+    name: Build the showcase (linux-x86_64-kde)
     needs: test
     runs-on: ubuntu-24.04
     container: archlinux:base-devel-20260920.0.596911
@@ -132,28 +130,25 @@ jobs:
       run:
         shell: bash
     env:
-      ARCHIVE: mitsuami-examples-${{ github.ref_name }}-linux-x86_64-kde
+      ARCHIVE: mitsuami-showcase-${{ github.ref_name }}-linux-x86_64-kde
     steps:
-      - name: Install Qt, Kirigami and GTK 4
+      - name: Install Qt and Kirigami
         run: |
           echo 'Server = https://archive.archlinux.org/repos/2026/09/20/$repo/os/$arch' > /etc/pacman.d/mirrorlist
-          pacman -Syu --noconfirm --needed git rustup zip qt6-declarative kirigami qqc2-desktop-style gtk4
+          pacman -Syu --noconfirm --needed git rustup zip qt6-declarative kirigami qqc2-desktop-style
 
       - uses: actions/checkout@v5
 
       - name: Install the toolchain from rust-toolchain.toml
         run: rustup toolchain install
 
-      - name: List the examples
-        run: echo "EXAMPLES=$(ls crates/mitsuami/examples | sed 's/\.rs$//' | grep -vx run_loop_smoke | xargs)" >> "$GITHUB_ENV"
-
       - name: Build
-        run: cargo build --release -p mitsuami --features kde $(printf -- '--example %s ' $EXAMPLES)
+        run: cargo build --release --manifest-path examples/showcase/Cargo.toml --no-default-features --features kde
 
       - name: Package
         run: |
           mkdir "$ARCHIVE"
-          for e in $EXAMPLES; do cp "target/release/examples/$e" "$ARCHIVE/"; done
+          cp examples/showcase/target/release/showcase "$ARCHIVE/"
           zip -r "$ARCHIVE.zip" "$ARCHIVE"
 
       - uses: actions/upload-artifact@v5
@@ -163,7 +158,7 @@ jobs:
 
   release:
     name: Create the GitHub release
-    needs: [publish, examples, examples-kde]
+    needs: [publish, showcase, showcase-kde]
     runs-on: ubuntu-24.04
     permissions:
       contents: write
@@ -176,14 +171,14 @@ jobs:
       - name: Create the release
         run: |
           cat > notes.md <<'EOF'
-          ## Examples
+          ## The showcase
 
-          Every example, built for each platform:
+          Every example in one window, picked from its sidebar, built for each platform:
 
           - **Windows** (x86_64): needs the [Windows App Runtime 2.4 or later](https://aka.ms/windowsappsdk/2.5/latest/windowsappruntimeinstall-x64.exe).
-          - **macOS** (Apple silicon and Intel): the binaries aren't signed. Run `xattr -dr com.apple.quarantine <folder>` after extracting, or allow them in System Settings → Privacy & Security.
-          - **Linux** (x86_64): needs GTK 4.10 or later and glibc 2.39 or later (Ubuntu 24.04 and newer).
-          - **Linux, KDE Plasma** (x86_64, the `-kde` archive): the same examples on Qt Quick and Kirigami. Built on Arch Linux as of 20 September 2026, so it needs Qt 6, Kirigami and qqc2-desktop-style at least as new as Arch's then, and a glibc to match.
+          - **macOS** (Apple silicon and Intel): the binary isn't signed. Run `xattr -dr com.apple.quarantine <folder>` after extracting, or allow it in System Settings → Privacy & Security.
+          - **Linux** (x86_64): needs GTK 4.10 or later, libadwaita 1.4 or later and glibc 2.39 or later (Ubuntu 24.04 and newer).
+          - **Linux, KDE Plasma** (x86_64, the `-kde` archive): the same showcase on Qt Quick and Kirigami. Built on Arch Linux as of 20 September 2026, so it needs Qt 6, Kirigami and qqc2-desktop-style at least as new as Arch's then, and a glibc to match.
           EOF
           gh release create "$GITHUB_REF_NAME" dist/* --repo "$GITHUB_REPOSITORY" \
             --title "$GITHUB_REF_NAME" --notes-file notes.md --generate-notes

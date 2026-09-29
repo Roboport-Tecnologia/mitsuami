@@ -10,7 +10,18 @@ publish = false
 
 [workspace]
 
+[[bin]]
+name = "showcase"
+path = "src/main.rs"
+
+# The Linux toolkit, as `mitsuami`'s: `--no-default-features --features kde`
+# builds it on Qt Quick and Kirigami without GTK.
+[features]
+default = ["gtk"]
+gtk = ["mitsuami/gtk"]
+kde = ["mitsuami/kde"]
+
 [dependencies]
-mitsuami = { path = "../../crates/mitsuami" }
+mitsuami = { path = "../../crates/mitsuami", default-features = false }
 wgpu = "30"
 pollster = "0.4"

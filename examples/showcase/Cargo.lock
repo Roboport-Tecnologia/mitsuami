@@ -814,6 +814,7 @@ dependencies = [
  "mitsuami-appkit",
  "mitsuami-core",
  "mitsuami-gtk",
+ "mitsuami-kirigami",
  "mitsuami-macros",
  "mitsuami-reactive",
  "mitsuami-widgets",
@@ -855,6 +856,17 @@ dependencies = [
  "mitsuami-core",
  "mitsuami-linux",
  "mitsuami-widgets",
+]
+
+[[package]]
+name = "mitsuami-kirigami"
+version = "0.0.1"
+dependencies = [
+ "cc",
+ "mitsuami-core",
+ "mitsuami-linux",
+ "mitsuami-widgets",
+ "pkg-config",
 ]
 
 [[package]]
