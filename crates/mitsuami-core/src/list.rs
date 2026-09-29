@@ -8,7 +8,7 @@
 //! it. Rows are keyed like [`For`](crate::For)'s.
 
 use std::cell::RefCell;
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::hash::Hash;
 use std::rc::Rc;
 
@@ -298,9 +298,10 @@ impl<T: Clone + 'static, K: Eq + Hash + Clone + 'static> View for List<T, K> {
             effect(move || {
                 let items = each.get();
                 untrack(|| {
-                    let order = {
+                    let (order, was) = {
                         let mut rows = rows.borrow_mut();
                         let rows = &mut *rows;
+                        let was: HashSet<RowKey> = rows.order.iter().copied().collect();
                         let mut row_keys = HashMap::with_capacity(items.len());
                         let mut keys = HashMap::with_capacity(items.len());
                         let mut by_key = HashMap::with_capacity(items.len());
@@ -329,9 +330,31 @@ impl<T: Clone + 'static, K: Eq + Hash + Clone + 'static> View for List<T, K> {
                         for row in gone {
                             unmount(rows, row);
                         }
-                        order
+                        (order, was)
                     };
+                    let Some(selected) = selected else {
+                        ui.set_prop(id, Prop::Rows(order));
+                        return arrange();
+                    };
+                    // Selected rows that go are deselected here, before the
+                    // rows change: the platform would report it later, after
+                    // whatever the app selects next.
+                    let keys = selected.get_untracked();
+                    let (kept, shown) = {
+                        let rows = rows.borrow();
+                        let kept: Vec<K> = keys.iter().filter(|k| rows.row_keys.contains_key(k)).cloned().collect();
+                        let mut shown: Vec<RowKey> = kept.iter().map(|k| rows.row_keys[k]).collect();
+                        shown.sort_by_key(|row| rows.position[row]);
+                        (kept, shown)
+                    };
+                    let staying = shown.iter().filter(|row| was.contains(row)).copied().collect();
+                    ui.set_prop(id, Prop::Selected(staying));
                     ui.set_prop(id, Prop::Rows(order));
+                    // With the rows in, keys selected before theirs came.
+                    ui.set_prop(id, Prop::Selected(shown));
+                    if kept.len() != keys.len() {
+                        selected.set(kept);
+                    }
                     arrange();
                 });
             });
@@ -343,7 +366,9 @@ impl<T: Clone + 'static, K: Eq + Hash + Clone + 'static> View for List<T, K> {
             effect(move || {
                 let keys = selected.get();
                 let rows = rows_.borrow();
-                let selection: Vec<RowKey> = keys.iter().filter_map(|k| rows.row_keys.get(k).copied()).collect();
+                // In row order, as platforms report their selection.
+                let mut selection: Vec<RowKey> = keys.iter().filter_map(|k| rows.row_keys.get(k).copied()).collect();
+                selection.sort_by_key(|row| rows.position[row]);
                 drop(rows);
                 untrack(|| ui_.set_prop(id, Prop::Selected(selection)));
             });

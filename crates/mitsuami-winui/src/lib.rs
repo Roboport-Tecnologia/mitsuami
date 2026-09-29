@@ -80,7 +80,8 @@ pub use services::WinUiServices;
 #[cfg(all(windows, target_env = "msvc"))]
 pub use tweak::{Tweakable, tweak, tweak_with};
 
-// What native renders and native views are written with, at the version
-// the backend uses: `cast`, `Result`, event revokers.
+// What native renders and native views are written with, at the versions
+// the backend uses: `cast`, `Result`, event revokers, and collections to
+// fill an `ItemsSource` with.
 #[cfg(all(windows, target_env = "msvc"))]
-pub use windows_core;
+pub use {windows_collections, windows_core};

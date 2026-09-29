@@ -259,13 +259,21 @@ impl State {
                     return;
                 }
                 let view = self.view(*id, command);
+                let rect = NSRect::new(
+                    NSPoint::new(frame.x() as f64, frame.y() as f64),
+                    NSSize::new(frame.width() as f64, frame.height() as f64),
+                );
+                // A separator is its line: its alignment insets follow its
+                // frame's shape, so a vertical one set through them while
+                // it's still horizontal would land 2pt off each end.
+                if matches!(self.nodes[id].widget, Widget::Separator(_)) {
+                    view.setFrame(rect);
+                    return;
+                }
                 // Layout places what the user sees, the alignment rect, as
                 // Auto Layout does; controls draw their bezels inset from
                 // their frames (a push button by 7pt a side before macOS 26).
-                view.setFrame(view.frameForAlignmentRect(NSRect::new(
-                    NSPoint::new(frame.x() as f64, frame.y() as f64),
-                    NSSize::new(frame.width() as f64, frame.height() as f64),
-                )));
+                view.setFrame(view.frameForAlignmentRect(rect));
             }
             Command::SetA11y { id, a11y } => {
                 let view = self.view(*id, command);

@@ -296,6 +296,14 @@ impl<'a> Locator<'a> {
     pub fn context_menu(&self) -> Option<(NodeId, Vec<MenuEntry>)> {
         let ui = self.app.ui();
         let mut id = Some(self.id());
+        // A list row's host holds the row's view, which is what a
+        // right-click on the row hits.
+        if let Some(host) = id
+            && find_prop!(ui.props(host), Row).is_some()
+            && let [view] = ui.children(host)[..]
+        {
+            id = Some(view);
+        }
         while let Some(node) = id {
             // Separators alone show nothing.
             let shown = |menu: &Vec<MenuEntry>| menu.iter().any(|e| !matches!(e, MenuEntry::Separator));

@@ -117,6 +117,9 @@ Whole apps:
   filtered by a search field.
 - `escape_hatches`: custom widgets that are native where the platform has
   the control, and `platform!`.
+- `files`: a simplified Finder on the real file system: sidebar places,
+  the platform's list, a preview, menus, rename, trash and drops, with a
+  path bar and file icons that are the platform's own where it has them.
 
 Two are crates of their own, so the workspace doesn't build wgpu:
 

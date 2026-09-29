@@ -452,3 +452,7 @@ Microsoft.UI.Xaml.Controls.SelectorBarItem::CreateInstance
 Microsoft.UI.Xaml.Controls.ISelectorBarItem::{get_Text, put_Text, get_Icon, put_Icon}
 Microsoft.UI.Xaml.Controls.StackPanel::CreateInstance
 Microsoft.UI.Xaml.Controls.IStackPanel::{put_Orientation, put_Spacing}
+Microsoft.UI.Xaml.Controls.BreadcrumbBar::CreateInstance
+Microsoft.UI.Xaml.Controls.IBreadcrumbBar::{get_ItemsSource, put_ItemsSource, add_ItemClicked, remove_ItemClicked}
+Microsoft.UI.Xaml.Controls.BreadcrumbBarItemClickedEventArgs::{}
+Microsoft.UI.Xaml.Controls.IBreadcrumbBarItemClickedEventArgs::get_Index

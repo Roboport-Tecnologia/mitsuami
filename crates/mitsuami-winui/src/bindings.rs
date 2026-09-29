@@ -770,6 +770,78 @@ unsafe impl Send for Border {}
 unsafe impl Sync for Border {}
 #[repr(transparent)]
 #[derive(Clone, Debug, Eq, PartialEq)]
+pub struct BreadcrumbBar(windows_core::IUnknown);
+windows_core::imp::interface_hierarchy!(BreadcrumbBar, windows_core::IUnknown, windows_core::IInspectable);
+windows_core::imp::required_hierarchy!(BreadcrumbBar, Control, FrameworkElement, UIElement, DependencyObject);
+impl BreadcrumbBar {
+    pub fn new() -> windows_core::Result<Self> {
+        Self::IBreadcrumbBarFactory(|this| unsafe {
+            let mut result__ = core::mem::zeroed();
+            (windows_core::Interface::vtable(this).CreateInstance)(
+                windows_core::Interface::as_raw(this),
+                core::ptr::null_mut(),
+                core::ptr::null_mut(),
+                &mut result__,
+            )
+            .and_then(|| windows_core::imp::Type::from_abi(result__))
+        })
+    }
+    fn IBreadcrumbBarFactory<R, F: FnOnce(&IBreadcrumbBarFactory) -> windows_core::Result<R>>(
+        callback: F,
+    ) -> windows_core::Result<R> {
+        static SHARED: windows_core::imp::FactoryCache<BreadcrumbBar, IBreadcrumbBarFactory> =
+            windows_core::imp::FactoryCache::new();
+        SHARED.call(callback)
+    }
+}
+impl windows_core::RuntimeType for BreadcrumbBar {
+    const SIGNATURE: windows_core::imp::ConstBuffer =
+        windows_core::imp::ConstBuffer::for_class::<Self, IBreadcrumbBar>();
+}
+unsafe impl windows_core::Interface for BreadcrumbBar {
+    type Vtable = <IBreadcrumbBar as windows_core::Interface>::Vtable;
+    const IID: windows_core::GUID = <IBreadcrumbBar as windows_core::Interface>::IID;
+}
+impl core::ops::Deref for BreadcrumbBar {
+    type Target = IBreadcrumbBar;
+    fn deref(&self) -> &Self::Target {
+        unsafe { core::mem::transmute(self) }
+    }
+}
+impl windows_core::RuntimeName for BreadcrumbBar {
+    const NAME: &'static str = "Microsoft.UI.Xaml.Controls.BreadcrumbBar";
+}
+unsafe impl Send for BreadcrumbBar {}
+unsafe impl Sync for BreadcrumbBar {}
+#[repr(transparent)]
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct BreadcrumbBarItemClickedEventArgs(windows_core::IUnknown);
+windows_core::imp::interface_hierarchy!(
+    BreadcrumbBarItemClickedEventArgs,
+    windows_core::IUnknown,
+    windows_core::IInspectable
+);
+impl windows_core::RuntimeType for BreadcrumbBarItemClickedEventArgs {
+    const SIGNATURE: windows_core::imp::ConstBuffer =
+        windows_core::imp::ConstBuffer::for_class::<Self, IBreadcrumbBarItemClickedEventArgs>();
+}
+unsafe impl windows_core::Interface for BreadcrumbBarItemClickedEventArgs {
+    type Vtable = <IBreadcrumbBarItemClickedEventArgs as windows_core::Interface>::Vtable;
+    const IID: windows_core::GUID = <IBreadcrumbBarItemClickedEventArgs as windows_core::Interface>::IID;
+}
+impl core::ops::Deref for BreadcrumbBarItemClickedEventArgs {
+    type Target = IBreadcrumbBarItemClickedEventArgs;
+    fn deref(&self) -> &Self::Target {
+        unsafe { core::mem::transmute(self) }
+    }
+}
+impl windows_core::RuntimeName for BreadcrumbBarItemClickedEventArgs {
+    const NAME: &'static str = "Microsoft.UI.Xaml.Controls.BreadcrumbBarItemClickedEventArgs";
+}
+unsafe impl Send for BreadcrumbBarItemClickedEventArgs {}
+unsafe impl Sync for BreadcrumbBarItemClickedEventArgs {}
+#[repr(transparent)]
+#[derive(Clone, Debug, Eq, PartialEq)]
 pub struct Brush(windows_core::IUnknown);
 windows_core::imp::interface_hierarchy!(Brush, windows_core::IUnknown, windows_core::IInspectable);
 windows_core::imp::required_hierarchy!(Brush, DependencyObject);
@@ -3768,6 +3840,112 @@ pub struct IBorder_Vtbl {
     SetPadding: usize,
     pub Child: unsafe extern "system" fn(*mut core::ffi::c_void, *mut *mut core::ffi::c_void) -> windows_core::HRESULT,
     pub SetChild: unsafe extern "system" fn(*mut core::ffi::c_void, *mut core::ffi::c_void) -> windows_core::HRESULT,
+}
+windows_core::imp::define_interface!(IBreadcrumbBar, IBreadcrumbBar_Vtbl, 0x2e47b7d6_5fbd_54c7_b0b1_ceff4a19c744);
+impl windows_core::RuntimeType for IBreadcrumbBar {
+    const SIGNATURE: windows_core::imp::ConstBuffer = windows_core::imp::ConstBuffer::for_interface::<Self>();
+}
+impl IBreadcrumbBar {
+    pub fn ItemsSource(&self) -> windows_core::Result<windows_core::IInspectable> {
+        unsafe {
+            let mut result__ = core::mem::zeroed();
+            (windows_core::Interface::vtable(self).ItemsSource)(windows_core::Interface::as_raw(self), &mut result__)
+                .and_then(|| windows_core::imp::Type::from_abi(result__))
+        }
+    }
+    pub fn SetItemsSource<P0>(&self, value: P0) -> windows_core::Result<()>
+    where
+        P0: windows_core::Param<windows_core::IInspectable>,
+    {
+        unsafe {
+            (windows_core::Interface::vtable(self).SetItemsSource)(
+                windows_core::Interface::as_raw(self),
+                value.param().abi(),
+            )
+            .ok()
+        }
+    }
+    pub fn ItemClicked<F>(&self, handler: F) -> windows_core::Result<windows_core::EventRevoker>
+    where
+        F: Fn(windows_core::Ref<BreadcrumbBar>, windows_core::Ref<BreadcrumbBarItemClickedEventArgs>) + 'static,
+    {
+        let handler: TypedEventHandler<BreadcrumbBar, BreadcrumbBarItemClickedEventArgs> = {
+            let com = windows_core::imp::DelegateBox::<
+                TypedEventHandler<BreadcrumbBar, BreadcrumbBarItemClickedEventArgs>,
+                F,
+            >::new(
+                &TypedEventHandlerBox::<BreadcrumbBar, BreadcrumbBarItemClickedEventArgs, F>::VTABLE, handler
+            );
+            unsafe { core::mem::transmute(windows_core::imp::box_new(com)) }
+        };
+        unsafe {
+            let mut result__ = core::mem::zeroed();
+            let token__ = (windows_core::Interface::vtable(self).ItemClicked)(
+                windows_core::Interface::as_raw(self),
+                windows_core::Interface::as_raw(&handler),
+                &mut result__,
+            )
+            .map(|| result__)?;
+            Ok(windows_core::EventRevoker::new(
+                self.clone(),
+                token__,
+                windows_core::Interface::vtable(self).RemoveItemClicked,
+            ))
+        }
+    }
+}
+#[repr(C)]
+pub struct IBreadcrumbBar_Vtbl {
+    pub base__: windows_core::IInspectable_Vtbl,
+    pub ItemsSource:
+        unsafe extern "system" fn(*mut core::ffi::c_void, *mut *mut core::ffi::c_void) -> windows_core::HRESULT,
+    pub SetItemsSource:
+        unsafe extern "system" fn(*mut core::ffi::c_void, *mut core::ffi::c_void) -> windows_core::HRESULT,
+    ItemTemplate: usize,
+    SetItemTemplate: usize,
+    pub ItemClicked:
+        unsafe extern "system" fn(*mut core::ffi::c_void, *mut core::ffi::c_void, *mut i64) -> windows_core::HRESULT,
+    pub RemoveItemClicked: unsafe extern "system" fn(*mut core::ffi::c_void, i64) -> windows_core::HRESULT,
+}
+windows_core::imp::define_interface!(
+    IBreadcrumbBarFactory,
+    IBreadcrumbBarFactory_Vtbl,
+    0xd5b6a6d9_3148_5cbc_a6ae_0f44cde41952
+);
+impl windows_core::RuntimeType for IBreadcrumbBarFactory {
+    const SIGNATURE: windows_core::imp::ConstBuffer = windows_core::imp::ConstBuffer::for_interface::<Self>();
+}
+#[repr(C)]
+pub struct IBreadcrumbBarFactory_Vtbl {
+    pub base__: windows_core::IInspectable_Vtbl,
+    pub CreateInstance: unsafe extern "system" fn(
+        *mut core::ffi::c_void,
+        *mut core::ffi::c_void,
+        *mut *mut core::ffi::c_void,
+        *mut *mut core::ffi::c_void,
+    ) -> windows_core::HRESULT,
+}
+windows_core::imp::define_interface!(
+    IBreadcrumbBarItemClickedEventArgs,
+    IBreadcrumbBarItemClickedEventArgs_Vtbl,
+    0x1ceea503_365e_580d_bcd4_e9ad0248f6b5
+);
+impl windows_core::RuntimeType for IBreadcrumbBarItemClickedEventArgs {
+    const SIGNATURE: windows_core::imp::ConstBuffer = windows_core::imp::ConstBuffer::for_interface::<Self>();
+}
+impl IBreadcrumbBarItemClickedEventArgs {
+    pub fn Index(&self) -> windows_core::Result<i32> {
+        unsafe {
+            let mut result__ = core::mem::zeroed();
+            (windows_core::Interface::vtable(self).Index)(windows_core::Interface::as_raw(self), &mut result__)
+                .map(|| result__)
+        }
+    }
+}
+#[repr(C)]
+pub struct IBreadcrumbBarItemClickedEventArgs_Vtbl {
+    pub base__: windows_core::IInspectable_Vtbl,
+    pub Index: unsafe extern "system" fn(*mut core::ffi::c_void, *mut i32) -> windows_core::HRESULT,
 }
 windows_core::imp::define_interface!(IBrush, IBrush_Vtbl, 0x2de3cb83_1329_5679_88f8_c822bc5442cb);
 impl windows_core::RuntimeType for IBrush {

@@ -1,0 +1,53 @@
+//! A file browser: `cargo run -p mitsuami --example files`.
+//!
+//! A simplified Finder, on the real file system:
+//!
+//! - The sidebar's places (home, Desktop, Documents…, the disk) choose the
+//!   folder; it follows along as you go elsewhere, choosing none.
+//! - The folder's items are in the platform's own list: select several,
+//!   double-click (or Return) a folder to go in, a file to open it in its
+//!   app. The column titles sort; again, the other way round.
+//! - The toolbar goes back and forward, makes folders, has the view
+//!   options (sort, hidden files) and searches the folder as you type.
+//! - Right-click an item to open, rename, duplicate, trash it, or copy its
+//!   path; right-click the list's background to make a folder.
+//! - Drop files from another file manager on the list: they're copied in.
+//! - The preview shows the selection: a picture, a text file's first
+//!   lines, a folder's item count.
+//! - The path bar along the bottom goes to any folder above this one:
+//!   `NSPathControl` on macOS, `BreadcrumbBar` on Windows, and buttons as
+//!   Nautilus and Dolphin have them elsewhere (`path_bar/`).
+//! - Items show the icons the platform's file manager gives them, where
+//!   the app can get them (`file_icon/`); trashing puts them in the
+//!   platform's trash, and opening asks the platform.
+//! - The window's menus have it all again, with shortcuts, and Go to
+//!   Folder… (⌘⇧G, Ctrl+Shift+G) for a typed path.
+//!
+//! Reading folders and changing them happen off the UI thread.
+
+#![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
+
+mod browser;
+mod file_icon;
+mod fs;
+mod path_bar;
+mod screen;
+
+use mitsuami::prelude::*;
+
+use browser::Browser;
+
+fn main() {
+    let open = signal(true);
+    App::new()
+        .id("org.mitsuami.Files")
+        .name("Files")
+        .open(
+            Window::new(move || use_store::<Browser>().title())
+                .size(Size::new(900.0, 560.0))
+                .min_size(Size::new(560.0, 320.0))
+                .bind(open)
+                .content(screen::Finder::new),
+        )
+        .run();
+}

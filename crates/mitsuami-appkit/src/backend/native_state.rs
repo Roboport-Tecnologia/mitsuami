@@ -278,7 +278,11 @@ pub(super) fn native_state(state: &State, id: NodeId) -> Option<NativeState> {
             (_, None) => Vec::new(),
         }));
     }
-    let f = view.alignmentRectForFrame(view.frame());
+    let f = match node.widget {
+        // Placed by its frame (see `SetFrame`).
+        Widget::Separator(_) => view.frame(),
+        _ => view.alignmentRectForFrame(view.frame()),
+    };
     let mut frame = Rect::new(f.origin.x as f32, f.origin.y as f32, f.size.width as f32, f.size.height as f32);
     // A row is where the table put it.
     if let (Some(row), Some(Widget::List(list))) =
