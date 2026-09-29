@@ -69,6 +69,11 @@ impl HeadlessBackend {
                 }
                 _ => Size::ZERO,
             },
+            // A square, 16 points unless sized, whatever the file.
+            WidgetKind::FileIcon => {
+                let side = find_prop!(node.props, IconSize).unwrap_or(16.0);
+                Size::new(side, side)
+            }
             // Pixels over their scale; a PNG file by its header. Anything
             // else is a file the headless backend can't read: no size.
             WidgetKind::Image => match find_prop!(node.props, Image) {

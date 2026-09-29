@@ -161,6 +161,9 @@ impl State {
             WidgetKind::Spinner => Widget::Spinner(gtk::Spinner::new()),
             WidgetKind::Separator => Widget::Separator(gtk::Separator::new(gtk::Orientation::Horizontal)),
             WidgetKind::Icon => Widget::Icon { image: gtk::Image::new(), size: None },
+            WidgetKind::FileIcon => {
+                Widget::FileIcon { image: gtk::Image::new(), file: None, thumbnail: None, size: None }
+            }
             WidgetKind::Image => Widget::Picture { picture: gtk::Picture::new(), source: None, fit: None },
             WidgetKind::GpuSurface => Widget::GpuSurface(SurfaceArea::new(id, events.clone())),
             WidgetKind::TextInput => {

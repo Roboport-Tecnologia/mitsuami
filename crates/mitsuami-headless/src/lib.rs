@@ -18,7 +18,9 @@ mod state;
 mod windows;
 
 pub use metrics::metrics;
-pub use services::{FakeServices, FakeServicesHandle, Pending, PendingAlert, PendingOpen, PendingSave};
+pub use services::{
+    FakeServices, FakeServicesHandle, Pending, PendingAlert, PendingLaunch, PendingOpen, PendingSave, PendingTrash,
+};
 
 use std::cell::RefCell;
 use std::collections::{BTreeMap, BTreeSet};

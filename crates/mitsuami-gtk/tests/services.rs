@@ -1,5 +1,5 @@
 //! The real GTK services, end to end: clipboard, the header bar menu, alert
-//! dialogs and file dialogs. App tests use scripted services instead, so
+//! dialogs, file dialogs and the trash. App tests use scripted services instead, so
 //! this is where the native ones are checked. Runs on the private test
 //! display, whose clipboard is its own.
 //!
@@ -330,6 +330,32 @@ mod checks {
         f.ui.destroy(window);
         f.ui.tick();
     }
+
+    /// Trashes a file of its own into the home trash (the file is made in
+    /// the data folder, on the trash's disk), checks the freedesktop.org
+    /// trash has it with the `.trashinfo` Files restores from, and deletes both.
+    pub fn trash_moves_files_to_the_home_trash(f: &Fixture) {
+        let data = std::env::var_os("XDG_DATA_HOME")
+            .map(std::path::PathBuf::from)
+            .unwrap_or_else(|| std::env::home_dir().unwrap().join(".local/share"));
+        let name = format!("mitsuami-trash-check-{}.txt", std::process::id());
+        let file = data.join(&name);
+        std::fs::create_dir_all(&data).unwrap();
+        std::fs::write(&file, b"trash me").unwrap();
+        let answer = Rc::new(RefCell::new(None));
+        let a = answer.clone();
+        let reply = f.ui.trash(None, vec![file.clone()]);
+        f.ui.spawn_local(async move { *a.borrow_mut() = Some(reply.await) });
+        pump_until(f, "the trash", || answer.borrow().is_some());
+
+        assert_eq!(*answer.borrow(), Some(Ok(())));
+        assert!(!file.exists(), "the file left its folder");
+        let (trashed, info) =
+            (data.join("Trash/files").join(&name), data.join("Trash/info").join(format!("{name}.trashinfo")));
+        assert!(trashed.exists() && info.exists(), "in the trash, with what restoring it needs");
+        std::fs::remove_file(trashed).unwrap();
+        std::fs::remove_file(info).unwrap();
+    }
 }
 
 #[cfg(target_os = "linux")]
@@ -337,7 +363,7 @@ fn main() {
     use std::panic::{AssertUnwindSafe, catch_unwind};
 
     type Check = (&'static str, fn(&checks::Fixture));
-    let checks: [Check; 8] = [
+    let checks: [Check; 9] = [
         ("clipboard_round_trips", checks::clipboard_round_trips),
         ("menus_are_installed_and_activate", checks::menus_are_installed_and_activate),
         ("items_check_nest_and_take_roles", checks::items_check_nest_and_take_roles),
@@ -349,6 +375,7 @@ fn main() {
             "file_dialogs_start_in_their_folder_and_offer_every_file",
             checks::file_dialogs_start_in_their_folder_and_offer_every_file,
         ),
+        ("trash_moves_files_to_the_home_trash", checks::trash_moves_files_to_the_home_trash),
     ];
     let filter: Vec<String> = std::env::args().skip(1).filter(|a| !a.starts_with('-')).collect();
     let fixture = checks::fixture();

@@ -306,6 +306,20 @@ QQC2.ScrollView {{
         property int mitsuamiScrollTo: -1
         property string mitsuamiActivated: ""
         property bool mitsuamiMuted: false
+        // The rows' files (`Prop::RowFiles`), as file URLs by row key.
+        property var mitsuamiFileKeys: []
+        property var mitsuamiFileUrls: []
+        readonly property var mitsuamiFiles: {{
+            const files = {{}}
+            for (let i = 0; i < mitsuamiFileKeys.length; i++) files[mitsuamiFileKeys[i]] = mitsuamiFileUrls[i]
+            return files
+        }}
+        // What dragging a row carries: the selected rows' files when it's
+        // selected, as Dolphin drags a selection, else its own.
+        function mitsuamiDragUrls(key) {{
+            const keys = mitsuamiSelected.indexOf(key) >= 0 ? mitsuamiSelected : [key]
+            return keys.map(k => mitsuamiFiles[k]).filter(u => u !== undefined)
+        }}
         // At the end, a list stays there as rows turn out taller than estimated.
         property bool mitsuamiAtEnd: false
         onContentYChanged: mitsuamiAtEnd = count > 0 && atYEnd
@@ -401,6 +415,22 @@ QQC2.ScrollView {{
             TapHandler {{
                 onTapped: view.mitsuamiPick(modelData, point.modifiers)
             }}
+            // Dragging a row with a file carries it (or the selection's)
+            // out as a copy, as a platform drag (`Drag.Automatic`). With
+            // the mouse only: a touch drag scrolls. The list can't take the
+            // drag over once it's begun.
+            readonly property var mitsuamiDragUrls: view.mitsuamiDragUrls(modelData)
+            DragHandler {{
+                id: mitsuamiDrag
+                target: null
+                enabled: view.mitsuamiFiles[modelData] !== undefined
+                acceptedDevices: PointerDevice.Mouse
+                grabPermissions: PointerHandler.CanTakeOverFromAnything | PointerHandler.ApprovesTakeOverByHandlersOfSameType
+            }}
+            Drag.active: mitsuamiDrag.active
+            Drag.dragType: Drag.Automatic
+            Drag.supportedActions: Qt.CopyAction
+            Drag.mimeData: ({{ "text/uri-list": mitsuamiDragUrls.join("\r\n") }})
             onDoubleClicked: view.mitsuamiOpen(modelData)
             Component.onCompleted: view.mitsuamiNotify()
             Component.onDestruction: view.mitsuamiNotify()
@@ -528,6 +558,20 @@ Item {{
             property int mitsuamiPressed: -1
             property int mitsuamiCurrent: -1
             property string mitsuamiCellWidths: ""
+            // The rows' files (`Prop::RowFiles`), as file URLs by row key.
+            property var mitsuamiFileKeys: []
+            property var mitsuamiFileUrls: []
+            readonly property var mitsuamiFiles: {{
+                const files = {{}}
+                for (let i = 0; i < mitsuamiFileKeys.length; i++) files[mitsuamiFileKeys[i]] = mitsuamiFileUrls[i]
+                return files
+            }}
+            // What dragging a row carries: the selected rows' files when it's
+            // selected, as Dolphin drags a selection, else its own.
+            function mitsuamiDragUrls(key) {{
+                const keys = mitsuamiSelected.indexOf(key) >= 0 ? mitsuamiSelected : [key]
+                return keys.map(k => mitsuamiFiles[k]).filter(u => u !== undefined)
+            }}
             readonly property real mitsuamiPadding: Kirigami.Units.smallSpacing
             readonly property real mitsuamiMinRow: rowProbe.implicitHeight
             signal mitsuamiRowsChanged()
@@ -706,6 +750,22 @@ Item {{
                     onTapped: view.mitsuamiPick(cell.display, point.modifiers)
                     onDoubleTapped: view.mitsuamiOpen(cell.display)
                 }}
+                // Dragging a row's cell with a file carries it (or the selection's)
+                // out as a copy, as a platform drag (`Drag.Automatic`). With
+                // the mouse only: a touch drag scrolls. The table can't take the
+                // drag over once it's begun.
+                readonly property var mitsuamiDragUrls: view.mitsuamiDragUrls(cell.display)
+                DragHandler {{
+                    id: mitsuamiDrag
+                    target: null
+                    enabled: view.mitsuamiFiles[cell.display] !== undefined
+                    acceptedDevices: PointerDevice.Mouse
+                    grabPermissions: PointerHandler.CanTakeOverFromAnything | PointerHandler.ApprovesTakeOverByHandlersOfSameType
+                }}
+                Drag.active: mitsuamiDrag.active
+                Drag.dragType: Drag.Automatic
+                Drag.supportedActions: Qt.CopyAction
+                Drag.mimeData: ({{ "text/uri-list": mitsuamiDragUrls.join("\r\n") }})
                 onImplicitHeightChanged: view.mitsuamiRelayout()
                 Component.onCompleted: view.mitsuamiNotify()
                 Component.onDestruction: view.mitsuamiNotify()

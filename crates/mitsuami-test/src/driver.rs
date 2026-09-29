@@ -72,6 +72,10 @@ impl Driver {
     pub(crate) fn settle(&self) {
         self.hooks.settle();
     }
+
+    pub(crate) fn dragged_files(&self, node: NodeId) -> Option<Vec<std::path::PathBuf>> {
+        self.hooks.dragged_files(node)
+    }
 }
 
 impl Drop for Driver {

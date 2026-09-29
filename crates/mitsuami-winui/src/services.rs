@@ -1,4 +1,5 @@
-//! Clipboard, dialogs and the menu bar on Windows.
+//! Clipboard, dialogs, the Recycle Bin, launching and the menu bar on
+//! Windows.
 
 use std::cell::RefCell;
 use std::collections::VecDeque;
@@ -7,7 +8,7 @@ use std::rc::Rc;
 
 use mitsuami_core::NodeId;
 use mitsuami_core::services::{
-    Alert, FileFilter, MenuBarData, OpenFile, Reply, SaveFile, ServiceError, Services, existing_folder,
+    Alert, FileFilter, Launch, MenuBarData, OpenFile, Reply, SaveFile, ServiceError, Services, existing_folder,
 };
 use windows_core::{HSTRING, Interface};
 
@@ -217,9 +218,104 @@ impl Services for WinUiServices {
         }
     }
 
+    /// The shell's own file operation, as Explorer's Delete: it asks first
+    /// when the Recycle Bin's settings say so, offers to delete what's too
+    /// big to recycle, and shows its progress and errors on the window. It
+    /// runs its own message loop, so it starts from the dispatcher queue,
+    /// outside the `Ui`'s call.
+    fn trash(&mut self, parent: Option<NodeId>, paths: &[PathBuf], reply: Reply<Result<(), ServiceError>>) {
+        let owner = self.backend.window_parts(parent, |p| p.hwnd as isize);
+        let ticket = later::park((paths.to_vec(), reply));
+        later::on_ui(&self.queue, move || {
+            if let Some((paths, reply)) = later::take::<(Vec<PathBuf>, Reply<Result<(), ServiceError>>)>(ticket) {
+                reply(recycle(owner.map(|hwnd| hwnd as w::HWND), &paths));
+            }
+        });
+    }
+
+    /// The shell's default verb, as a double-click in Explorer: it asks
+    /// which app ("How do you want to open this?") when none is set. It
+    /// may wait on the app and show UI, so it too starts from the
+    /// dispatcher queue.
+    fn launch(&mut self, parent: Option<NodeId>, target: &Launch, reply: Reply<Result<(), ServiceError>>) {
+        let owner = self.backend.window_parts(parent, |p| p.hwnd as isize);
+        let target: HSTRING = match target {
+            Launch::Path(path) => path.as_os_str().into(),
+            Launch::Url(url) => url.into(),
+        };
+        let ticket = later::park(reply);
+        later::on_ui(&self.queue, move || {
+            if let Some(reply) = later::take::<Reply<Result<(), ServiceError>>>(ticket) {
+                reply(shell_open(owner.map(|hwnd| hwnd as w::HWND), &target));
+            }
+        });
+    }
+
     fn set_menu(&mut self, window: Option<NodeId>, menu: &MenuBarData, activate: Rc<dyn Fn(u32)>) {
         self.backend.set_menu(window, menu, activate);
     }
+}
+
+fn shell_open(owner: Option<w::HWND>, target: &HSTRING) -> Result<(), ServiceError> {
+    let mut info = w::SHELLEXECUTEINFOW {
+        cbSize: size_of::<w::SHELLEXECUTEINFOW>() as u32,
+        hwnd: owner.unwrap_or(std::ptr::null_mut()),
+        lpFile: windows_core::PCWSTR(target.as_ptr()),
+        nShow: w::SW_SHOWNORMAL,
+        ..Default::default()
+    };
+    if unsafe { w::ShellExecuteExW(&mut info) }.as_bool() {
+        return Ok(());
+    }
+    match unsafe { w::GetLastError() } as i32 {
+        w::ERROR_NO_ASSOCIATION => Err(ServiceError::Unavailable),
+        w::ERROR_CANCELLED => Err(ServiceError::Cancelled),
+        _ => Err(ServiceError::Failed(windows_core::HRESULT::from_thread().message())),
+    }
+}
+
+fn recycle(owner: Option<w::HWND>, paths: &[PathBuf]) -> Result<(), ServiceError> {
+    let cancelled = |hr: windows_core::HRESULT| {
+        // HRESULT_FROM_WIN32(ERROR_CANCELLED) too, from the confirmation.
+        hr == w::COPYENGINE_E_USER_CANCELLED || hr.0 as u32 == 0x8007_0000 | w::ERROR_CANCELLED as u32
+    };
+    let failed = |hr: windows_core::HRESULT| {
+        if cancelled(hr) { ServiceError::Cancelled } else { ServiceError::Failed(hr.message()) }
+    };
+    unsafe {
+        let mut raw = std::ptr::null_mut();
+        let clsctx = w::CLSCTX_ALL as u32;
+        w::CoCreateInstance(&w::FileOperation, std::ptr::null_mut(), clsctx, &w::IFileOperation::IID, &mut raw)
+            .ok()
+            .map_err(|e| failed(e.code()))?;
+        let operation = w::IFileOperation::from_raw(raw);
+        // Undo is what sends deletes to the Recycle Bin (and before
+        // Windows 8, all there was).
+        let flags = (w::FOF_ALLOWUNDO | w::FOFX_RECYCLEONDELETE) as u32;
+        operation.SetOperationFlags(flags).ok().map_err(|e| failed(e.code()))?;
+        if let Some(owner) = owner {
+            operation.SetOwnerWindow(owner).ok().map_err(|e| failed(e.code()))?;
+        }
+        for path in paths {
+            let mut raw = std::ptr::null_mut();
+            let name = HSTRING::from(path.as_os_str());
+            w::SHCreateItemFromParsingName(
+                windows_core::PCWSTR(name.as_ptr()),
+                std::ptr::null_mut(),
+                &w::IShellItem::IID,
+                &mut raw,
+            )
+            .ok()
+            .map_err(|e| failed(e.code()))?;
+            let item = w::IShellItem::from_raw(raw);
+            operation.DeleteItem(&item, None::<&w::IFileOperationProgressSink>).ok().map_err(|e| failed(e.code()))?;
+        }
+        operation.PerformOperations().ok().map_err(|e| failed(e.code()))?;
+        if operation.GetAnyOperationsAborted().is_ok_and(|aborted| aborted.as_bool()) {
+            return Err(ServiceError::Cancelled);
+        }
+    }
+    Ok(())
 }
 
 /// Shows the next queued alert unless one is showing.

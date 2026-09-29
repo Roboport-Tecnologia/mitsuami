@@ -15,11 +15,12 @@
 
 use std::cell::{Cell, RefCell};
 use std::collections::{HashMap, HashSet};
+use std::path::PathBuf;
 use std::rc::Rc;
 
 use gtk::prelude::*;
 use gtk::subclass::prelude::*;
-use gtk::{gio, glib, graphene, gsk};
+use gtk::{gdk, gio, glib, graphene, gsk};
 use mitsuami_core::{
     ColumnData, ColumnSort, EventValue, ListStyle, NodeId, Point, Rect, RowKey, SelectionMode, SortOrder, UiEvent,
 };
@@ -59,6 +60,9 @@ struct Data {
     style: Option<ListStyle>,
     /// The width last reported for rows.
     row_width: Option<f64>,
+    /// The rows' files, as the app gave them (`Prop::RowFiles`), and by row.
+    files: Option<Vec<(RowKey, PathBuf)>>,
+    file_of: HashMap<RowKey, PathBuf>,
 }
 
 impl Data {
@@ -127,7 +131,52 @@ fn new_data() -> Rc<RefCell<Data>> {
         mode: SelectionMode::None,
         style: None,
         row_width: None,
+        files: None,
+        file_of: HashMap::new(),
     }))
+}
+
+/// The files dragging `key` carries: the selected rows' when it's
+/// selected, as Files drags a selection, else its own.
+fn dragged(data: &Data, key: RowKey, model: Option<&gtk::SelectionModel>) -> Vec<PathBuf> {
+    let selected = model.map(|m| selected_keys(data, m)).unwrap_or_default();
+    let rows = if selected.contains(&key) { selected } else { vec![key] };
+    rows.iter().filter_map(|row| data.file_of.get(row).cloned()).collect()
+}
+
+/// Makes a cell a drag source, as Files' rows are: dragging it carries its
+/// row's file (or the selection's) as a `gdk::FileList`, which file
+/// managers and other apps take, offered as a copy. A row without a file
+/// doesn't drag.
+fn drag_source(data: &Rc<RefCell<Data>>, cell: &gtk::Widget) {
+    let source = gtk::DragSource::new();
+    source.set_actions(gdk::DragAction::COPY);
+    let (data, weak) = (Rc::downgrade(data), cell.downgrade());
+    source.connect_prepare(move |_, _, _| {
+        let (data, cell) = (data.upgrade()?, weak.upgrade()?);
+        let data = data.borrow();
+        let key = data.cells.iter().find(|(_, c)| **c == cell).map(|((key, _), _)| *key)?;
+        let model = view_model(&cell);
+        let files = dragged(&data, key, model.as_ref());
+        let files: Vec<gio::File> = files.iter().map(gio::File::for_path).collect();
+        (!files.is_empty()).then(|| gdk::ContentProvider::for_value(&gdk::FileList::from_array(&files).to_value()))
+    });
+    // The row itself under the pointer, as Files shows a dragged row.
+    let weak = cell.downgrade();
+    source.connect_drag_begin(move |source, _| {
+        if let Some(cell) = weak.upgrade() {
+            source.set_icon(Some(&gtk::WidgetPaintable::new(Some(&cell))), 0, 0);
+        }
+    });
+    cell.add_controller(source);
+}
+
+/// The selection model of the list or table view a cell is in.
+fn view_model(cell: &gtk::Widget) -> Option<gtk::SelectionModel> {
+    if let Some(view) = cell.ancestor(gtk::ListView::static_type()).and_downcast::<gtk::ListView>() {
+        return view.model();
+    }
+    cell.ancestor(gtk::ColumnView::static_type()).and_downcast::<gtk::ColumnView>()?.model()
 }
 
 /// Puts a host in its cell: a list's box, or a table's cell.
@@ -160,10 +209,15 @@ fn factory(
     make: impl Fn() -> gtk::Widget + 'static,
 ) -> gtk::SignalListItemFactory {
     let factory = gtk::SignalListItemFactory::new();
-    factory.connect_setup(move |_, item| {
-        let Some(item) = item.downcast_ref::<gtk::ListItem>() else { return };
-        item.set_child(Some(&make()));
-    });
+    {
+        let data = data.clone();
+        factory.connect_setup(move |_, item| {
+            let Some(item) = item.downcast_ref::<gtk::ListItem>() else { return };
+            let cell = make();
+            drag_source(&data, &cell);
+            item.set_child(Some(&cell));
+        });
+    }
     {
         let (data, events) = (data.clone(), events.clone());
         factory.connect_bind(move |_, item| {
@@ -531,6 +585,22 @@ impl List {
 
     pub(crate) fn set_estimate(&self, height: f32) {
         self.data.borrow_mut().estimate = Some(height.round() as i32);
+    }
+
+    pub(crate) fn set_row_files(&self, files: Vec<(RowKey, PathBuf)>) {
+        let mut data = self.data.borrow_mut();
+        data.file_of = files.iter().cloned().collect();
+        data.files = Some(files);
+    }
+
+    pub(crate) fn row_files(&self) -> Option<Vec<(RowKey, PathBuf)>> {
+        self.data.borrow().files.clone()
+    }
+
+    /// What dragging `key` carries, as its cells' drag source makes it.
+    pub(crate) fn dragged_files(&self, key: RowKey) -> Option<Vec<PathBuf>> {
+        let files = dragged(&self.data.borrow(), key, self.model().as_ref());
+        (!files.is_empty()).then_some(files)
     }
 
     pub(crate) fn estimate(&self) -> Option<f32> {

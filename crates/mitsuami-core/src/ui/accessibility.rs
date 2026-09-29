@@ -87,7 +87,7 @@ impl Inner {
             WidgetKind::Progress | WidgetKind::Spinner => Role::ProgressBar,
             WidgetKind::Separator => Role::Separator,
             // What the app draws there is a picture to assistive technology.
-            WidgetKind::Image | WidgetKind::Icon | WidgetKind::GpuSurface => Role::Image,
+            WidgetKind::Image | WidgetKind::Icon | WidgetKind::FileIcon | WidgetKind::GpuSurface => Role::Image,
             WidgetKind::Custom(_) | WidgetKind::Native => Role::Group,
         });
         if role == Role::None {
@@ -113,6 +113,7 @@ impl Inner {
                 | WidgetKind::Spinner
                 | WidgetKind::Image
                 | WidgetKind::Icon
+                | WidgetKind::FileIcon
                 | WidgetKind::GpuSurface => crate::find_prop!(props, Label),
                 WidgetKind::TextInput | WidgetKind::PasswordInput | WidgetKind::SearchInput | WidgetKind::TextArea => {
                     crate::find_prop!(props, Placeholder)

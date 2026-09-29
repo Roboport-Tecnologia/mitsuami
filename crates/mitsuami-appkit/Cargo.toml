@@ -21,6 +21,7 @@ objc2-game-controller.workspace = true
 block2.workspace = true
 dispatch2.workspace = true
 objc2-uniform-type-identifiers.workspace = true
+objc2-quick-look-thumbnailing.workspace = true
 
 [target.'cfg(target_os = "macos")'.dev-dependencies]
 mitsuami-reactive.workspace = true

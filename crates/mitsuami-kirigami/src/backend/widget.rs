@@ -25,6 +25,7 @@ impl Widget {
             | Widget::Spinner(i)
             | Widget::Separator(i)
             | Widget::Icon(i)
+            | Widget::FileIcon(i)
             | Widget::Image { item: i, .. }
             | Widget::Scroll { view: i, .. }
             | Widget::Custom { item: i, .. }

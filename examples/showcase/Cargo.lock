@@ -834,6 +834,7 @@ dependencies = [
  "objc2-core-foundation",
  "objc2-foundation",
  "objc2-game-controller",
+ "objc2-quick-look-thumbnailing",
  "objc2-uniform-type-identifiers",
 ]
 
@@ -1158,6 +1159,20 @@ dependencies = [
  "objc2-core-graphics",
  "objc2-foundation",
  "objc2-metal",
+]
+
+[[package]]
+name = "objc2-quick-look-thumbnailing"
+version = "0.3.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "ac8e00da1ca87ffe3ea8d20981026f013df91072a140432f0f88da9a356d9b3c"
+dependencies = [
+ "bitflags",
+ "block2",
+ "objc2",
+ "objc2-app-kit",
+ "objc2-core-foundation",
+ "objc2-foundation",
 ]
 
 [[package]]

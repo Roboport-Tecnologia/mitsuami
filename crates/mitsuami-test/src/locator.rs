@@ -270,6 +270,15 @@ impl<'a> Locator<'a> {
         self.app.settle().await;
     }
 
+    /// The files dragging this row (a list item, or a table's row) out of
+    /// the app would carry, as the platform's drag source gives them: the
+    /// selected rows' if it's selected, else its own. Empty if it doesn't
+    /// drag. Nothing starts a real drag: the backend's drag handling runs
+    /// up to where the platform would take the files.
+    pub fn dragged_files(&self) -> Vec<std::path::PathBuf> {
+        self.app.dragged_files(self.node().id).unwrap_or_default()
+    }
+
     /// Drags these files and folders from the file manager over the node,
     /// through the platform's own drag handling, without dropping them.
     pub async fn drag_files<P: AsRef<std::path::Path>>(&self, paths: &[P]) {

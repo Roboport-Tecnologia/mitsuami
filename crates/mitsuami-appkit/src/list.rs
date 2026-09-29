@@ -15,6 +15,7 @@
 
 use std::cell::{Cell, RefCell};
 use std::collections::{HashMap, HashSet};
+use std::path::PathBuf;
 use std::rc::Rc;
 
 use mitsuami_core::{
@@ -26,12 +27,14 @@ use objc2::rc::Retained;
 use objc2::runtime::{AnyObject, NSObject, NSObjectProtocol, ProtocolObject};
 use objc2::{DefinedClass, MainThreadMarker, MainThreadOnly, define_class, msg_send, sel};
 use objc2_app_kit::{
-    NSAnimationContext, NSBorderType, NSControlTextEditingDelegate, NSEvent, NSEventModifierFlags, NSImage, NSMenu,
-    NSResponder, NSScrollView, NSTableColumn, NSTableColumnResizingOptions, NSTableRowView, NSTableView,
-    NSTableViewColumnAutoresizingStyle, NSTableViewDataSource, NSTableViewDelegate, NSTableViewStyle, NSView,
+    NSAnimationContext, NSBorderType, NSControlTextEditingDelegate, NSDragOperation, NSEvent, NSEventModifierFlags,
+    NSImage, NSMenu, NSPasteboardWriting, NSResponder, NSScrollView, NSTableColumn, NSTableColumnResizingOptions,
+    NSTableRowView, NSTableView, NSTableViewColumnAutoresizingStyle, NSTableViewDataSource, NSTableViewDelegate,
+    NSTableViewStyle, NSView,
 };
 use objc2_foundation::{
     NSArray, NSIndexSet, NSInteger, NSMutableIndexSet, NSNotFound, NSNotification, NSSize, NSSortDescriptor, NSString,
+    NSURL,
 };
 
 use crate::classes::{HostView, zero_rect};
@@ -75,6 +78,9 @@ pub(crate) struct ListData {
     reloading: bool,
     /// The keys the app gave it (`Prop::Keys`), if any.
     keys: Option<Vec<Shortcut>>,
+    /// The rows' files, as the app gave them (`Prop::RowFiles`), and by row.
+    files: Option<Vec<(RowKey, PathBuf)>>,
+    file_of: HashMap<RowKey, PathBuf>,
 }
 
 impl ListData {
@@ -88,6 +94,14 @@ impl ListData {
     /// put once known: the table keeps the heights it read.
     fn estimate(&self) -> f64 {
         self.estimate.or(self.learned).unwrap_or(24.0)
+    }
+
+    /// What dragging a row gives the pasteboard: its file's URL, which
+    /// Finder and other apps take as the file. The table asks for each row
+    /// it drags: the selected rows when a selected row is dragged.
+    fn pasteboard_writer(&self, key: RowKey) -> Option<Retained<NSURL>> {
+        let path = self.file_of.get(&key)?;
+        Some(NSURL::fileURLWithPath(&NSString::from_str(&path.to_string_lossy())))
     }
 
     /// The rows' heights, as sent: a list's host's, or a table's highest
@@ -133,6 +147,17 @@ define_class!(
         #[unsafe(method(numberOfRowsInTableView:))]
         fn number_of_rows(&self, _table: &NSTableView) -> NSInteger {
             self.ivars().data.borrow().rows.len() as NSInteger
+        }
+
+        #[unsafe(method_id(tableView:pasteboardWriterForRow:))]
+        fn pasteboard_writer_for_row(
+            &self,
+            _table: &NSTableView,
+            row: NSInteger,
+        ) -> Option<Retained<ProtocolObject<dyn NSPasteboardWriting>>> {
+            let data = self.ivars().data.borrow();
+            let url = data.rows.get(row as usize).and_then(|key| data.pasteboard_writer(*key));
+            url.map(ProtocolObject::from_retained)
         }
 
         #[unsafe(method(tableView:sortDescriptorsDidChange:))]
@@ -430,6 +455,11 @@ impl List {
             table.addTableColumn(&column);
             Some(column)
         };
+        // Rows dragged out (`Prop::RowFiles`) are copied, as from apps that
+        // aren't the file manager; the table offers nothing outside the app
+        // by default.
+        table.setDraggingSourceOperationMask_forLocal(NSDragOperation::Copy, false);
+        table.setDraggingSourceOperationMask_forLocal(NSDragOperation::Copy, true);
         unsafe {
             table.setDataSource(Some(ProtocolObject::from_ref(&*source)));
             table.setDelegate(Some(ProtocolObject::from_ref(&*source)));
@@ -797,6 +827,41 @@ impl List {
             f.size.width as f32,
             f.size.height as f32,
         ))
+    }
+
+    pub(crate) fn set_row_files(&self, files: Vec<(RowKey, PathBuf)>) {
+        let mut data = self.data.borrow_mut();
+        data.file_of = files.iter().cloned().collect();
+        data.files = Some(files);
+    }
+
+    pub(crate) fn row_files(&self) -> Option<Vec<(RowKey, PathBuf)>> {
+        self.data.borrow().files.clone()
+    }
+
+    /// What dragging `row` puts on the pasteboard, as the table drags: every
+    /// selected row's writer when it's selected, else its own, asked of the
+    /// table's data source as the table asks it.
+    pub(crate) fn dragged_files(&self, row: RowKey) -> Option<Vec<PathBuf>> {
+        let selected = self.selected();
+        let rows = if selected.contains(&row) { selected } else { vec![row] };
+        // SAFETY: the data source is the list's own `ListSource`, alive as
+        // long as the list.
+        let source = unsafe { self.table.dataSource() }?;
+        let indexes: Vec<NSInteger> = {
+            let data = self.data.borrow();
+            rows.iter().filter_map(|row| data.index.get(row).map(|i| *i as NSInteger)).collect()
+        };
+        let paths: Vec<PathBuf> = indexes
+            .into_iter()
+            .filter_map(|index| {
+                let writer: Option<Retained<AnyObject>> =
+                    unsafe { msg_send![&*source, tableView: &*self.table, pasteboardWriterForRow: index] };
+                let url = writer?.downcast::<NSURL>().ok()?;
+                url.path().map(|p| PathBuf::from(p.to_string()))
+            })
+            .collect();
+        (!paths.is_empty()).then_some(paths)
     }
 
     /// The rows as the table has them.

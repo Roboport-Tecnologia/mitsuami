@@ -8,7 +8,6 @@ use mitsuami::prelude::*;
 use mitsuami::unicode_segmentation::UnicodeSegmentation;
 
 use crate::browser::{Browser, SortBy};
-use crate::file_icon::{FileIcon, FileIconProps};
 use crate::fs::{self, Entry};
 use crate::path_bar::{PathBar, PathBarEvent, PathBarProps};
 
@@ -222,6 +221,8 @@ fn Files(preview: Signal<bool>) -> impl View {
         .handle(handle)
         .estimated_row_height(28)
         .on_activate(move |path: PathBuf| browser.open_path(&path))
+        // To the file manager, Mail, another folder: a copy.
+        .drag_files(|e: &Entry| Some(e.path.clone()))
         .a11y_label("Items")
         .hidden(move || browser.listing.error().is_some() || empty())
         .grow(1.0)
@@ -311,7 +312,7 @@ fn file_row(browser: Browser, entry: Entry) -> impl View {
         .gap(Spacing::Sm)
         .align(Align::Center)
         .children((
-            FileIcon::view(FileIconProps { path: entry.path.clone(), fallback: entry.icon().to_owned(), size: 16.0 }),
+            FileIcon::new(&entry.path),
             Text::new(entry.name.clone()).max_lines(1).grow(1.0).shrink(1.0).basis(0),
             caption(entry.modified.map(fs::civil).unwrap_or_default(), MODIFIED),
             caption(entry.size.map(fs::human_size).unwrap_or_else(|| "--".into()), SIZE),
@@ -378,16 +379,11 @@ fn Preview() -> impl View {
             .label(field(|e| e.name.clone()))
             .height(160)
     };
+    // A document's thumbnail where the platform makes one, as Finder's
+    // preview shows it.
     let icon = move || {
-        let props = move || {
-            let entry = one.get();
-            FileIconProps {
-                path: entry.as_ref().map(|e| e.path.clone()).unwrap_or_default(),
-                fallback: entry.as_ref().map(|e| e.icon().to_owned()).unwrap_or_default(),
-                size: 64.0,
-            }
-        };
-        Row::new().justify(Justify::Center).children(FileIcon::view(props))
+        let path = move || one.get().map(|e| e.path).unwrap_or_default();
+        Row::new().justify(Justify::Center).children(FileIcon::new(path).icon_size(64.0).thumbnail(true))
     };
     view! {
         <ScrollView width=240 a11y_label="Preview">

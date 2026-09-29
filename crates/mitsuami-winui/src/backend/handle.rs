@@ -236,6 +236,15 @@ impl mitsuami_core::TestHooks for WinUiHandle {
         "winui"
     }
 
+    fn dragged_files(&self, node: NodeId) -> Option<Vec<std::path::PathBuf>> {
+        let state = self.state.borrow();
+        let host = state.nodes.get(&node)?;
+        match &state.nodes.get(&host.parent?)?.widget {
+            Widget::List(list) => list.dragged_files(host.row?),
+            _ => None,
+        }
+    }
+
     fn resize_window(&self, window: NodeId, size: Size) {
         WinUiHandle::resize_window(self, window, size);
     }
@@ -291,6 +300,7 @@ impl mitsuami_core::TestHooks for WinUiHandle {
         // Spinners have no size until XAML loads them, at its next frame,
         // and images from files until XAML has decoded them, in the
         // background: wait for both, so tests see the size the app gets.
+        // Files' icons wait for the shell's image, for captures.
         // A window's content too is laid out at its new size only at
         // XAML's next frame (a new window's at the size it opened at, wider
         // than the one set), and the toolbar places items from its edge.
@@ -298,6 +308,8 @@ impl mitsuami_core::TestHooks for WinUiHandle {
         while self.state.borrow().nodes.values().any(|n| match &n.widget {
             Widget::Spinner(ring) => !ring.cast::<w::IFrameworkElement>().and_then(|f| f.IsLoaded()).unwrap_or(true),
             Widget::Image { bitmap: Some(_), failed, opened, .. } => !failed.get() && !opened.get(),
+            // Files' icons until the shell's image is shown.
+            Widget::FileIcon { asked, shown, .. } => shown.get() != asked.get(),
             Widget::Window(parts) => parts.size.get().is_some_and(|size| {
                 let Ok(host) = parts.host.cast::<w::IFrameworkElement>() else { return false };
                 let (width, height) = (host.ActualWidth().unwrap_or(0.0), host.ActualHeight().unwrap_or(0.0));

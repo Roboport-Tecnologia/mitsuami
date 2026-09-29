@@ -206,6 +206,12 @@ impl State {
                 view.setImageScaling(NSImageScaling::ScaleNone);
                 Widget::Icon(view)
             }
+            // Scaled to its square, which its thumbnail may not fill.
+            WidgetKind::FileIcon => {
+                let view = NSImageView::new(mtm);
+                view.setImageScaling(NSImageScaling::ScaleProportionallyUpOrDown);
+                Widget::FileIcon(view)
+            }
             WidgetKind::GpuSurface => {
                 let (view, handle) = SurfaceView::new(mtm, id, self.events.clone());
                 self.events.emit(id, UiEvent::SurfaceReady(handle));
@@ -330,6 +336,8 @@ impl State {
                 icon: None,
                 icon_size: None,
                 icon_only: None,
+                file: None,
+                thumbnail: None,
                 modal: None,
                 mixed: None,
                 checked: false,

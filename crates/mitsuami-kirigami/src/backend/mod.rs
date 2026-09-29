@@ -140,6 +140,7 @@ enum Widget {
     Spinner(QmlObject),
     Separator(QmlObject),
     Icon(QmlObject),
+    FileIcon(QmlObject),
     /// An image, what it shows (Qt can't give pixels or the source back as
     /// given), and the pixels it hands QML's provider, if any.
     Image {

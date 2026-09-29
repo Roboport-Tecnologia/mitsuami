@@ -94,26 +94,6 @@ impl Entry {
             ext => format!("{} file", ext.to_uppercase()),
         }
     }
-
-    /// An SF Symbol, a theme icon, a Segoe Fluent Icons glyph.
-    pub fn icon(&self) -> &'static str {
-        if self.is_app() {
-            platform! {
-                macos => "app", gtk => "application-x-executable-symbolic",
-                kde => "application-x-executable", windows => "\u{ECAA}",
-            }
-        } else if self.is_dir {
-            platform! { macos => "folder", gtk => "folder-symbolic", kde => "folder", windows => "\u{E8B7}" }
-        } else if self.is_image() {
-            platform! {
-                macos => "photo", gtk => "image-x-generic-symbolic", kde => "image-x-generic", windows => "\u{EB9F}",
-            }
-        } else {
-            platform! {
-                macos => "doc", gtk => "text-x-generic-symbolic", kde => "text-plain", windows => "\u{E8A5}",
-            }
-        }
-    }
 }
 
 /// The folder's entries, unsorted.
@@ -218,111 +198,13 @@ fn copy(from: &Path, to: &Path) -> io::Result<()> {
     }
 }
 
-/// Where trashed items go.
-#[derive(Clone, Debug, PartialEq)]
-pub enum Trash {
-    /// The user's: through `NSFileManager` on macOS and GIO on GNOME, so
-    /// Finder's and Nautilus's Put Back work; the freedesktop.org trash by
-    /// hand on KDE. Windows' Recycle Bin is only reachable through the
-    /// shell's API (`IFileOperation`), so there items are deleted, after
-    /// asking.
-    Platform,
-    /// A folder of the app's own, for tests.
-    #[allow(dead_code)]
-    Folder(PathBuf),
-}
-
-impl Trash {
-    /// Whether trashing deletes for good, so the app should ask first.
-    pub fn deletes(&self) -> bool {
-        *self == Trash::Platform && cfg!(windows)
-    }
-}
-
-pub fn trash(paths: &[PathBuf], trash: &Trash) -> Result<(), String> {
+/// Deletes for good, for disks without a trash.
+pub fn delete(paths: &[PathBuf]) -> Result<(), String> {
     for path in paths {
-        match trash {
-            Trash::Folder(folder) => move_into(path, folder)?,
-            Trash::Platform => platform_trash(path)?,
-        }
+        let result = if path.is_dir() { std::fs::remove_dir_all(path) } else { std::fs::remove_file(path) };
+        result.map_err(|e| describe(&e))?;
     }
     Ok(())
-}
-
-fn move_into(path: &Path, folder: &Path) -> Result<(), String> {
-    let name = path.file_name().ok_or("Can't move that.")?.to_string_lossy().into_owned();
-    std::fs::create_dir_all(folder).map_err(|e| describe(&e))?;
-    std::fs::rename(path, free_name(folder, &name)).map_err(|e| describe(&e))
-}
-
-#[cfg(target_os = "macos")]
-fn platform_trash(path: &Path) -> Result<(), String> {
-    use mitsuami::appkit::objc2_foundation::{NSFileManager, NSString, NSURL};
-    let url = NSURL::fileURLWithPath(&NSString::from_str(&path.to_string_lossy()));
-    NSFileManager::defaultManager()
-        .trashItemAtURL_resultingItemURL_error(&url, None)
-        .map_err(|e| e.localizedDescription().to_string())
-}
-
-#[cfg(all(target_os = "linux", not(feature = "kde")))]
-fn platform_trash(path: &Path) -> Result<(), String> {
-    use mitsuami::gtk::gtk::gio::{self, prelude::*};
-    gio::File::for_path(path).trash(gio::Cancellable::NONE).map_err(|e| e.message().to_owned())
-}
-
-/// The freedesktop.org trash, as KIO fills it: the item in `files`, and a
-/// `.trashinfo` beside it in `info` that lets Dolphin put it back.
-#[cfg(all(target_os = "linux", feature = "kde"))]
-fn platform_trash(path: &Path) -> Result<(), String> {
-    let trash = std::env::var_os("XDG_DATA_HOME")
-        .map(PathBuf::from)
-        .unwrap_or_else(|| home().join(".local/share"))
-        .join("Trash");
-    let (files, info) = (trash.join("files"), trash.join("info"));
-    std::fs::create_dir_all(&files).and_then(|()| std::fs::create_dir_all(&info)).map_err(|e| describe(&e))?;
-    let name = path.file_name().ok_or("Can't move that.")?.to_string_lossy().into_owned();
-    let to = free_name(&files, &name);
-    let stored = to.file_name().unwrap().to_string_lossy().into_owned();
-    let when = civil(SystemTime::now()).replace(' ', "T") + ":00";
-    let text = format!("[Trash Info]\nPath={}\nDeletionDate={when}\n", path.display());
-    std::fs::write(info.join(format!("{stored}.trashinfo")), text).map_err(|e| describe(&e))?;
-    std::fs::rename(path, &to).map_err(|e| describe(&e))
-}
-
-#[cfg(windows)]
-fn platform_trash(path: &Path) -> Result<(), String> {
-    let result = if path.is_dir() { std::fs::remove_dir_all(path) } else { std::fs::remove_file(path) };
-    result.map_err(|e| describe(&e))
-}
-
-/// Opens a file with the app the platform picks for it: `NSWorkspace` on
-/// macOS, GTK's file launcher on GNOME (it asks which app when none is
-/// set), and the desktop's opener elsewhere.
-pub fn launch(path: &Path) -> Result<(), String> {
-    platform! {
-        macos => {
-            use mitsuami::appkit::objc2_app_kit::NSWorkspace;
-            use mitsuami::appkit::objc2_foundation::{NSString, NSURL};
-            let url = NSURL::fileURLWithPath(&NSString::from_str(&path.to_string_lossy()));
-            if NSWorkspace::sharedWorkspace().openURL(&url) { Ok(()) } else { Err("No app can open it.".into()) }
-        },
-        gtk => {
-            use mitsuami::gtk::gtk::{self, gio};
-            gtk::FileLauncher::new(Some(&gio::File::for_path(path))).launch(
-                None::<&gtk::Window>,
-                gio::Cancellable::NONE,
-                |_| {},
-            );
-            Ok(())
-        },
-        kde => spawn("xdg-open", path),
-        windows => spawn("explorer", path),
-    }
-}
-
-#[cfg(any(windows, all(target_os = "linux", feature = "kde")))]
-fn spawn(opener: &str, path: &Path) -> Result<(), String> {
-    std::process::Command::new(opener).arg(path).spawn().map(|_| ()).map_err(|e| describe(&e))
 }
 
 pub fn home() -> PathBuf {

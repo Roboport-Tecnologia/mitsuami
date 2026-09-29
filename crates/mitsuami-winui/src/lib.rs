@@ -49,6 +49,8 @@ mod custom;
 #[cfg(all(windows, target_env = "msvc"))]
 mod drop;
 #[cfg(all(windows, target_env = "msvc"))]
+mod file_icon;
+#[cfg(all(windows, target_env = "msvc"))]
 mod group;
 #[cfg(all(windows, target_env = "msvc"))]
 mod later;

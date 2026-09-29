@@ -44,6 +44,17 @@ objc2-app-kit = { version = "0.3", features = ["objc2-uniform-type-identifiers"]
 objc2-uniform-type-identifiers = "0.3"
 objc2-core-foundation = "0.3"
 objc2-game-controller = "0.3"
+# FileIcon's thumbnails, as Finder makes them.
+objc2-quick-look-thumbnailing = { version = "0.3", default-features = false, features = [
+    "std",
+    "QLThumbnailGenerator",
+    "QLThumbnailGenerationRequest",
+    "QLThumbnailRepresentation",
+    "bitflags",
+    "block2",
+    "objc2-app-kit",
+    "objc2-core-foundation",
+] }
 block2 = "0.6"
 dispatch2 = "0.3"
 

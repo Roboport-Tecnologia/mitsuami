@@ -216,6 +216,13 @@ pub trait TestHooks {
     /// What this window shows of the app's id, name and icon (see
     /// [`AppInfo`]), read from the platform.
     fn app_info(&self, window: NodeId) -> NativeAppInfo;
+    /// The files dragging this row out of its `List` or `Table` carries
+    /// (`Prop::RowFiles`), as the platform's drag source gives them: the
+    /// selected rows' when the row is selected, else its own. `node` is the
+    /// row's host (a table's: any of its cells'). `None` if it doesn't drag.
+    /// Nothing here can start a real drag; this goes through the backend's
+    /// own drag handling up to where the platform takes the files.
+    fn dragged_files(&self, node: NodeId) -> Option<Vec<std::path::PathBuf>>;
     /// Called after every settle: lets the platform catch up on work it
     /// does asynchronously (showing windows, allocating, delivering queued
     /// notifications) without waiting. Every backend has some: AppKit lays

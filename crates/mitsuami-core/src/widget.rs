@@ -130,6 +130,14 @@ pub enum WidgetKind {
     /// [`Prop::Icon`] names it, at the platform's own size unless
     /// [`Prop::IconSize`] says otherwise.
     Icon,
+    /// A file's or folder's own icon, as the platform's file manager shows
+    /// it: `NSWorkspace`'s in an NSImageView, GIO's in a gtk::Image, its
+    /// MIME type's in a Kirigami.Icon, the shell's in a XAML Image.
+    /// [`Prop::File`] names it; it's a square as big as the platform's
+    /// small icons unless [`Prop::IconSize`] says otherwise. With
+    /// [`Prop::Thumbnail`], a preview of what's in the file where the
+    /// platform makes one.
+    FileIcon,
     /// A native surface the app presents to with its own GPU API, off the
     /// UI thread (an `NSView` backed by a `CAMetalLayer`, a Wayland
     /// subsurface, a child window). The backend reports it as
@@ -244,6 +252,7 @@ impl WidgetKind {
             WidgetKind::Separator => "Separator",
             WidgetKind::Image => "Image",
             WidgetKind::Icon => "Icon",
+            WidgetKind::FileIcon => "FileIcon",
             WidgetKind::GpuSurface => "GpuSurface",
             WidgetKind::Custom(name) => name,
             WidgetKind::Native => "Native",
@@ -791,8 +800,16 @@ pub enum Prop {
     Icon(String),
     /// How big an `Icon` is, in points, used as the platform sizes icons:
     /// an SF Symbol's point size (as a font's), the side of a square
-    /// elsewhere. Sent only if the app chose.
+    /// elsewhere; a `FileIcon`'s square's side everywhere. Sent only if the
+    /// app chose.
     IconSize(f32),
+    /// The file or folder a `FileIcon` shows the icon of. It's read when
+    /// set, as an image file is.
+    File(PathBuf),
+    /// A `FileIcon` shows a preview of what's in the file (a picture's,
+    /// a document's first page) in place of its icon, where the platform
+    /// makes one; its icon until then, and where it makes none.
+    Thumbnail(bool),
     /// A button shows its icon without its caption, which stays its
     /// accessible name. Without an icon it shows its caption.
     IconOnly(bool),
@@ -871,6 +888,13 @@ pub enum Prop {
     /// `DropHover(true)`, then `DropHover(false)`; a drop reports the ones
     /// it takes as `FilesDropped`.
     FileDrop(Option<FileDrop>),
+    /// A `List`'s or `Table`'s rows' files: dragging a row carries its
+    /// file out of the app (to the file manager, another app, a folder),
+    /// and dragging a selected row carries every selected row's, as the
+    /// platform drags a selection. The drag offers to copy. Rows without a
+    /// file don't drag. Sent before the rows, and only if the app gave
+    /// them.
+    RowFiles(Vec<(RowKey, PathBuf)>),
     /// The keys a `Container`, `Group`, `List` or `Table` takes while it,
     /// or a control inside it, has keyboard focus, and the focused control
     /// doesn't use them itself: they go up from the focused control, as the

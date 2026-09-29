@@ -14,7 +14,7 @@ use crate::services::ItemTarget;
 
 use super::fonts::{font, label_font};
 use super::group::set_group_title;
-use super::images::{image_position, ns_image, symbol};
+use super::images::{FILE_ICON_SIZE, image_position, ns_image, show_file_icon, symbol};
 use super::menus::{pull_down_title, show_pull_down};
 use super::scrolling::set_scrollers;
 use super::{State, Widget, ns, violation};
@@ -196,7 +196,19 @@ impl State {
                 });
                 node.fit = Some(*fit);
             }
-            (Prop::Label(t), Widget::Image(view) | Widget::Icon(view)) => view.setAccessibilityLabel(Some(&ns(t))),
+            (Prop::Label(t), Widget::Image(view) | Widget::Icon(view) | Widget::FileIcon(view)) => {
+                view.setAccessibilityLabel(Some(&ns(t)))
+            }
+            (Prop::File(_) | Prop::IconSize(_) | Prop::Thumbnail(_), Widget::FileIcon(view)) => {
+                match prop {
+                    Prop::File(path) => node.file = Some(path.clone()),
+                    Prop::IconSize(points) => node.icon_size = Some(*points),
+                    Prop::Thumbnail(on) => node.thumbnail = Some(*on),
+                    _ => {}
+                }
+                let side = node.icon_size.unwrap_or(FILE_ICON_SIZE);
+                show_file_icon(mtm, view, node.file.as_deref(), side, node.thumbnail == Some(true));
+            }
             (Prop::Icon(name), Widget::Icon(view)) => {
                 node.icon = Some(name.clone());
                 view.setImage(symbol(name, node.icon_size).as_deref());
@@ -331,6 +343,7 @@ impl State {
                 });
             }
             (Prop::Rows(rows), Widget::List(list)) => list.set_rows(rows.clone()),
+            (Prop::RowFiles(files), Widget::List(list)) => list.set_row_files(files.clone()),
             (Prop::SelectionMode(mode), Widget::List(list)) => list.set_mode(*mode),
             (Prop::ListStyle(style), Widget::List(list)) => list.set_style(*style),
             (Prop::EstimatedRowHeight(height), Widget::List(list)) => list.set_estimate(*height),

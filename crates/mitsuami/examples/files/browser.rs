@@ -5,7 +5,7 @@ use std::path::{Path, PathBuf};
 
 use mitsuami::prelude::*;
 
-use crate::fs::{self, Entry, Trash};
+use crate::fs::{self, Entry};
 
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub enum SortBy {
@@ -13,15 +13,6 @@ pub enum SortBy {
     Kind,
     Size,
     Modified,
-}
-
-/// What the browser does outside its window: where trashed items go, and
-/// how files are opened. Tests swap them for ones that stay in a folder of
-/// their own.
-#[derive(Clone)]
-pub struct Outside {
-    pub trash: Trash,
-    pub launch: fn(&Path) -> Result<(), String>,
 }
 
 #[derive(Clone, Copy)]
@@ -40,17 +31,16 @@ pub struct Browser {
     /// Items made or copied by the last action, to select once the folder
     /// is read again.
     fresh: Signal<Vec<PathBuf>>,
-    outside: Signal<Outside>,
 }
 
 impl Store for Browser {
     fn create() -> Browser {
-        Browser::at(fs::home(), Outside { trash: Trash::Platform, launch: fs::launch })
+        Browser::at(fs::home())
     }
 }
 
 impl Browser {
-    pub fn at(folder: PathBuf, outside: Outside) -> Browser {
+    pub fn at(folder: PathBuf) -> Browser {
         let folder = signal(folder);
         let listing = resource_on(move || folder.get(), |folder| spawn_blocking(move || fs::read_folder(&folder)));
         let browser = Browser {
@@ -65,7 +55,6 @@ impl Browser {
             descending: signal(false),
             renaming: signal(None),
             fresh: signal(Vec::new()),
-            outside: signal(outside),
         };
         // Once a listing with new items arrives, they're what's selected.
         effect(move || {
@@ -187,19 +176,27 @@ impl Browser {
         self.listing.refetch();
     }
 
-    /// Opens entries: a folder in this window, files in their apps.
+    /// Opens entries: a folder in this window, files in their apps. Where
+    /// no app is set, the platform says so or asks which (except KDE's,
+    /// which only fails: then the browser says so).
     pub fn open(&self, entries: Vec<Entry>) {
-        let launch = self.outside.get_untracked().launch;
         if let [entry] = entries.as_slice()
             && entry.is_dir
             && !entry.is_app()
         {
             return self.go(entry.path.clone());
         }
+        let browser = *self;
         for entry in entries {
-            if let Err(error) = launch(&entry.path) {
-                self.fail(format!("\u{201C}{}\u{201D} couldn't be opened.", entry.name), error);
-            }
+            let opening = launch(&entry.path);
+            self.spawn(async move {
+                let why = match opening.await {
+                    Ok(()) | Err(ServiceError::Cancelled) => return,
+                    Err(ServiceError::Unavailable) => "No app is set to open it.".to_string(),
+                    Err(error) => error.to_string(),
+                };
+                browser.fail(format!("\u{201C}{}\u{201D} couldn't be opened.", entry.name), why);
+            });
         }
     }
 
@@ -242,9 +239,15 @@ impl Browser {
         self.copy_here(paths, "copy");
     }
 
-    /// Copies what was dropped into the folder shown.
+    /// Copies what was dropped into the folder shown. Items dropped where
+    /// they already are (dragged from this list) stay as they are, as in
+    /// file managers.
     pub fn copy_in(&self, paths: Vec<PathBuf>) {
-        self.copy_here(paths, "");
+        let folder = self.folder.get_untracked();
+        let paths: Vec<PathBuf> = paths.into_iter().filter(|p| p.parent() != Some(folder.as_path())).collect();
+        if !paths.is_empty() {
+            self.copy_here(paths, "");
+        }
     }
 
     fn copy_here(&self, paths: Vec<PathBuf>, suffix: &'static str) {
@@ -258,35 +261,42 @@ impl Browser {
         });
     }
 
-    /// Moves items to the trash; where there's none, asks before deleting
-    /// them for good.
+    /// Moves items to the platform's trash; where their disk has none,
+    /// asks before deleting them for good, as Finder and Files do.
     pub fn trash(&self, paths: Vec<PathBuf>) {
         let browser = *self;
-        let trash = self.outside.get_untracked().trash;
         self.spawn(async move {
-            if trash.deletes() {
-                let title = match paths.as_slice() {
-                    [one] => {
-                        format!("Delete \u{201C}{}\u{201D}?", one.file_name().unwrap_or_default().to_string_lossy())
-                    }
-                    many => format!("Delete {} items?", many.len()),
-                };
-                let confirm = Alert::new(title)
-                    .message("This can't be undone.")
-                    .style(AlertStyle::Warning)
-                    .button("Delete")
-                    .button("Cancel");
-                if alert(confirm).await != 0 {
-                    return;
+            match trash(paths.clone()).await {
+                Ok(()) | Err(ServiceError::Cancelled) => {}
+                // Those before the one that failed are in the trash.
+                Err(ServiceError::Unavailable) => {
+                    browser.delete(paths.into_iter().filter(|p| p.symlink_metadata().is_ok()).collect()).await
                 }
-            }
-            let result = spawn_blocking(move || fs::trash(&paths, &trash)).await;
-            if let Err(error) = result {
-                browser.fail("The items couldn't be moved to the trash.", error);
+                Err(error) => browser.fail("The items couldn't be moved to the trash.", error.to_string()),
             }
             browser.selected.set(Vec::new());
             browser.reload();
         });
+    }
+
+    async fn delete(&self, paths: Vec<PathBuf>) {
+        let title = match paths.as_slice() {
+            [one] => {
+                format!("Delete \u{201C}{}\u{201D} immediately?", one.file_name().unwrap_or_default().to_string_lossy())
+            }
+            many => format!("Delete {} items immediately?", many.len()),
+        };
+        let confirm = Alert::new(title)
+            .message("This disk has no trash. You can't undo this action.")
+            .style(AlertStyle::Warning)
+            .button("Delete")
+            .button("Cancel");
+        if alert(confirm).await != 0 {
+            return;
+        }
+        if let Err(error) = spawn_blocking(move || fs::delete(&paths)).await {
+            self.fail("The items couldn't be deleted.", error);
+        }
     }
 
     fn fail(&self, what: impl Into<String>, why: String) {

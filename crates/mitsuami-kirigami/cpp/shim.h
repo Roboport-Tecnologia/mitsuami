@@ -202,6 +202,12 @@ int32_t mq_window_icon(QObject* window, char** name, int32_t* width, int32_t* he
 // Clipboard.
 char* mq_clipboard_text(void);
 void mq_set_clipboard_text(const char* text);
+// Null when trashed, else why not (free with mq_free).
+char* mq_trash(const char* path);
+// The icon names of a file's MIME type, "name\ngeneric" (free with mq_free).
+char* mq_mime_icon(const char* path);
+// Opens a local path (is_path) or a URL in its app; 0 if nothing did.
+int32_t mq_open_url(const char* target, int32_t is_path);
 
 // GPU surfaces: on Wayland Qt's wl_display, a window's wl_surface (both
 // null on other platforms, or before the window has one); an item's

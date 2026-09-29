@@ -275,6 +275,15 @@ impl mitsuami_core::TestHooks for GtkHandle {
         "gtk"
     }
 
+    fn dragged_files(&self, node: NodeId) -> Option<Vec<std::path::PathBuf>> {
+        let state = self.state.borrow();
+        let host = state.nodes.get(&node)?;
+        match &state.nodes.get(&host.parent?)?.widget {
+            Widget::List(list) => list.dragged_files(host.row?),
+            _ => None,
+        }
+    }
+
     fn resize_window(&self, window: NodeId, size: Size) {
         GtkHandle::resize_window(self, window, size);
     }

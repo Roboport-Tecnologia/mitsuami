@@ -267,6 +267,7 @@ impl State {
                         | Widget::Progress(_)
                         | Widget::Spinner(_)
                         | Widget::Icon(_)
+                        | Widget::FileIcon(_)
                         | Widget::Image { .. }
                         | Widget::GpuSurface(_)
                 );

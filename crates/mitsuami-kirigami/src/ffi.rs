@@ -97,6 +97,9 @@ unsafe extern "C" {
 
     fn mq_clipboard_text() -> *mut c_char;
     fn mq_set_clipboard_text(text: *const c_char);
+    fn mq_trash(path: *const c_char) -> *mut c_char;
+    fn mq_open_url(target: *const c_char, is_path: i32) -> i32;
+    fn mq_mime_icon(path: *const c_char) -> *mut c_char;
 
     fn mq_platform_has_surfaces() -> i32;
     fn mq_wayland_display() -> Raw;
@@ -334,6 +337,24 @@ pub(crate) fn clipboard_text() -> Option<String> {
 
 pub(crate) fn set_clipboard_text(text: &str) {
     unsafe { mq_set_clipboard_text(c(text).as_ptr()) }
+}
+
+/// Moves an item to the trash; `Err` says why not.
+pub(crate) fn trash(path: &std::path::Path) -> Result<(), String> {
+    let why = unsafe { mq_trash(c(&path.to_string_lossy()).as_ptr()) };
+    if why.is_null() { Ok(()) } else { Err(owned(why)) }
+}
+
+/// The icon names of a file's MIME type: its own, and its generic one.
+pub(crate) fn mime_icon(path: &std::path::Path) -> (String, String) {
+    let names = owned(unsafe { mq_mime_icon(c(&path.to_string_lossy()).as_ptr()) });
+    let (name, generic) = names.split_once('\n').unwrap_or((&names, ""));
+    (name.to_owned(), generic.to_owned())
+}
+
+/// Opens a local path or a URL in its app; `false` if nothing did.
+pub(crate) fn open_url(target: &str, is_path: bool) -> bool {
+    unsafe { mq_open_url(c(target).as_ptr(), i32::from(is_path)) != 0 }
 }
 
 // ---------------------------------------------------------------- objects

@@ -3,13 +3,13 @@
 
 use std::cell::RefCell;
 use std::future::Future;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::rc::Rc;
 use std::task::{Poll, Waker};
 
 use crate::ui::Ui;
 
-use super::{Alert, MenuBar, OpenFile, Reply, SaveFile, ServiceError};
+use super::{Alert, Launch, MenuBar, OpenFile, Reply, SaveFile, ServiceError};
 
 struct OneShot<T> {
     value: Option<T>,
@@ -67,6 +67,22 @@ pub fn open_file(request: OpenFile) -> impl Future<Output = Option<Vec<PathBuf>>
 
 pub fn save_file(request: SaveFile) -> impl Future<Output = Option<PathBuf>> + use<> {
     ui().save_file(None, request)
+}
+
+/// Moves files and folders to the trash; see [`Services::trash`](super::Services::trash).
+pub fn trash(paths: Vec<PathBuf>) -> impl Future<Output = Result<(), ServiceError>> + use<> {
+    ui().trash(None, paths)
+}
+
+/// Opens a file or folder in the app the platform picks for it; see
+/// [`Services::launch`](super::Services::launch).
+pub fn launch(path: &Path) -> impl Future<Output = Result<(), ServiceError>> + use<> {
+    ui().launch(None, Launch::Path(path.to_owned()))
+}
+
+/// Opens a URL in the app set for its scheme (the browser for `https:`).
+pub fn launch_url(url: &str) -> impl Future<Output = Result<(), ServiceError>> + use<> {
+    ui().launch(None, Launch::Url(url.to_owned()))
 }
 
 /// Installs the app's menus; see [`Ui::set_menu`]. A window's own menus

@@ -1,4 +1,4 @@
-//! Images, icons and GPU surfaces.
+//! Images, icons, files' icons and GPU surfaces.
 
 use std::rc::Rc;
 
@@ -115,6 +115,55 @@ impl Icon {
 
     /// Raw platform settings, past the semantic ones: see [`Tweak`].
     pub fn native(mut self, tweak: Tweak<Icon>) -> Icon {
+        tweak.apply(&mut self.0);
+        self
+    }
+}
+
+/// A file's or folder's own icon, as the platform's file manager shows
+/// it: an app's own, a folder's custom one, a document's by its type (the
+/// icon theme's on Linux). It's a square as big as the platform's small
+/// icons (16 points) unless `icon_size` says otherwise. With `thumbnail`,
+/// a preview of what's in the file (a picture's, a document's first page)
+/// where the platform makes one. The file is read when it's set. Its
+/// label is its accessible name; without one it's decorative, as it
+/// usually sits beside the file's name.
+///
+/// ```ignore
+/// FileIcon::new(&entry.path).icon_size(32.0).thumbnail(true)
+/// ```
+pub struct FileIcon(Element);
+
+widget!(FileIcon);
+
+impl FileIcon {
+    pub fn new(path: impl IntoValue<std::path::PathBuf>) -> FileIcon {
+        let mut element = Element::new(WidgetKind::FileIcon);
+        element.prop(path.into_value(), Prop::File);
+        FileIcon(element)
+    }
+
+    /// Its accessible name, where no text beside it names the file.
+    pub fn label(mut self, label: impl IntoValue<String>) -> FileIcon {
+        self.0.prop(label.into_value(), Prop::Label);
+        self
+    }
+
+    /// Its square's side, in points.
+    pub fn icon_size(mut self, points: impl IntoValue<f32>) -> FileIcon {
+        self.0.prop(points.into_value(), Prop::IconSize);
+        self
+    }
+
+    /// Shows a preview of what's in the file where the platform makes one
+    /// (macOS, Windows, and GNOME's cached ones), its icon until then.
+    pub fn thumbnail(mut self, thumbnail: impl IntoValue<bool>) -> FileIcon {
+        self.0.prop(thumbnail.into_value(), Prop::Thumbnail);
+        self
+    }
+
+    /// Raw platform settings, past the semantic ones: see [`Tweak`].
+    pub fn native(mut self, tweak: Tweak<FileIcon>) -> FileIcon {
         tweak.apply(&mut self.0);
         self
     }
@@ -271,6 +320,20 @@ impl Icon {
     #[doc(hidden)]
     pub fn name(mut self, name: impl IntoValue<String>) -> Icon {
         self.0.prop(name.into_value(), Prop::Icon);
+        self
+    }
+}
+
+impl FileIcon {
+    /// `<FileIcon path=entry.path icon_size=32.0/>`
+    #[doc(hidden)]
+    pub fn __tag() -> FileIcon {
+        FileIcon(Element::new(WidgetKind::FileIcon))
+    }
+
+    #[doc(hidden)]
+    pub fn path(mut self, path: impl IntoValue<std::path::PathBuf>) -> FileIcon {
+        self.0.prop(path.into_value(), Prop::File);
         self
     }
 }

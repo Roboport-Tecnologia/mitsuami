@@ -114,6 +114,15 @@ impl WinUiBackend {
                     }));
                 }
             }
+            Widget::FileIcon { file, thumbnail, size, .. } => {
+                let name = w::AutomationProperties::GetName(&node.element).unwrap_or_default();
+                if !name.is_empty() {
+                    props.push(Prop::Label(name));
+                }
+                props.extend(file.clone().map(Prop::File));
+                props.extend(thumbnail.map(Prop::Thumbnail));
+                props.extend(size.map(Prop::IconSize));
+            }
             Widget::Icon(icon) => {
                 let name = w::AutomationProperties::GetName(&node.element).unwrap_or_default();
                 if !name.is_empty() {
@@ -256,6 +265,7 @@ impl WinUiBackend {
                 props.push(Prop::SelectionMode(list.mode()));
                 props.extend(list.style().map(Prop::ListStyle));
                 props.push(Prop::Selected(list.selected()));
+                props.extend(list.row_files().map(Prop::RowFiles));
             }
             Widget::Host(_) => props.extend(node.row.map(|row| match node.column {
                 Some(column) => Prop::Cell(mitsuami_core::CellKey { row, column }),

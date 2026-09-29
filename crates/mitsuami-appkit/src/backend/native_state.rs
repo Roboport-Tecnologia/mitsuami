@@ -116,6 +116,14 @@ pub(super) fn native_state(state: &State, id: NodeId) -> Option<NativeState> {
                 props.push(Prop::TextColor(if shown.isEqual(Some(&given)) { sent } else { rgba(&shown) }));
             }
         }
+        Widget::FileIcon(view) => {
+            if let Some(label) = view.accessibilityLabel() {
+                props.push(Prop::Label(label.to_string()));
+            }
+            props.extend(node.file.clone().map(Prop::File));
+            props.extend(node.icon_size.map(Prop::IconSize));
+            props.extend(node.thumbnail.map(Prop::Thumbnail));
+        }
         Widget::Checkbox(b) => {
             props.push(Prop::Label(b.title().to_string()));
             let mixed = b.state() == NSControlStateValueMixed;
@@ -236,6 +244,7 @@ pub(super) fn native_state(state: &State, id: NodeId) -> Option<NativeState> {
             props.push(Prop::SelectionMode(list.mode()));
             props.extend(list.style().map(Prop::ListStyle));
             props.push(Prop::Selected(list.selected()));
+            props.extend(list.row_files().map(Prop::RowFiles));
         }
         Widget::Host(_) => props.extend(node.row.map(|row| match node.column {
             Some(column) => Prop::Cell(mitsuami_core::CellKey { row, column }),

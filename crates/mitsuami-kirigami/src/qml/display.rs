@@ -49,6 +49,28 @@ Kirigami.Icon {{
     )
 }
 
+/// A file's icon: its MIME type's from the icon theme, as Dolphin shows
+/// it, which the backend sets as `source` (with the generic one as
+/// `fallback`), in a square of `mitsuamiSize`. The file and the thumbnail
+/// flag are kept for reading back: QML has no thumbnailer (Dolphin's are
+/// KIO's), so a thumbnail is never shown.
+pub(crate) fn file_icon() -> String {
+    format!(
+        r#"
+Kirigami.Icon {{
+    property string mitsuamiFile: ""
+    property bool mitsuamiThumbnail: false
+    property real mitsuamiSize: Kirigami.Units.iconSizes.small
+    implicitWidth: mitsuamiSize
+    implicitHeight: mitsuamiSize
+    Accessible.role: Accessible.Graphic
+    {}
+}}
+"#,
+        a11y_hover("\"\"")
+    )
+}
+
 /// A 1 px line in the separator colour, which reads as a separator. It
 /// has no orientation: its frame is long one way and 1 px the other.
 pub(crate) fn separator() -> String {

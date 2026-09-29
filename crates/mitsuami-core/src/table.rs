@@ -20,7 +20,7 @@ use mitsuami_reactive::{IntoValue, Signal, Value, effect};
 
 use crate::command::{EventValue, UiEvent};
 use crate::element::{Element, ElementBuilder};
-use crate::list::{KeyFn, ListHandle, Mount, RowParts, build_rows};
+use crate::list::{FileFn, KeyFn, ListHandle, Mount, RowParts, build_rows};
 use crate::services::Shortcut;
 use crate::tweak::Tweak;
 use crate::ui::Ui;
@@ -146,6 +146,7 @@ pub struct Table<T: 'static = (), K: 'static = ()> {
     on_activate: Option<Rc<dyn Fn(K)>>,
     estimate: Option<f32>,
     handle: Option<ListHandle<K>>,
+    files: Option<FileFn<T>>,
 }
 
 impl<T: Clone + 'static, K: Eq + Hash + Clone + 'static> Table<T, K> {
@@ -168,7 +169,15 @@ impl<T: 'static, K: 'static> Table<T, K> {
             on_activate: None,
             estimate: None,
             handle: None,
+            files: None,
         }
+    }
+
+    /// Rows can be dragged out of the app, carrying the files their items
+    /// stand for, as a `List`'s [`drag_files`](crate::List::drag_files).
+    pub fn drag_files(mut self, file: impl Fn(&T) -> Option<std::path::PathBuf> + 'static) -> Self {
+        self.files = Some(Rc::new(file));
+        self
     }
 
     /// Adds a column, after the others.
@@ -275,8 +284,20 @@ impl<T: 'static, K: 'static> ElementBuilder for Table<T, K> {
 
 impl<T: Clone + 'static, K: Eq + Hash + Clone + 'static> View for Table<T, K> {
     fn build(self, ui: &Ui) -> NodeId {
-        let Table { mut element, each, key, columns, sort, mode, style, selected, on_activate, estimate, handle } =
-            self;
+        let Table {
+            mut element,
+            each,
+            key,
+            columns,
+            sort,
+            mode,
+            style,
+            selected,
+            on_activate,
+            estimate,
+            handle,
+            files,
+        } = self;
         let data: Vec<ColumnData> = columns
             .iter()
             .map(|column| {
@@ -309,7 +330,7 @@ impl<T: Clone + 'static, K: Eq + Hash + Clone + 'static> View for Table<T, K> {
         let id = build_rows(
             ui,
             element,
-            RowParts { each, key, mount, mode, style, selected, on_activate, estimate, handle },
+            RowParts { each, key, mount, mode, style, selected, on_activate, estimate, handle, files },
         );
         if let Some(sort) = sort {
             (sort.install)(ui, id, keys);

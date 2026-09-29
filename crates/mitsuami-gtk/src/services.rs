@@ -1,4 +1,4 @@
-//! Clipboard, dialogs and menus on GTK 4.
+//! Clipboard, dialogs, the trash, launching and menus on GTK 4.
 //!
 //! GNOME apps have no menu bar: the app's menus go in a menu button at the
 //! end of each window's header bar (the "primary menu", F10), one section
@@ -18,7 +18,7 @@ use std::rc::{Rc, Weak};
 use gtk::prelude::*;
 use gtk::{gdk, gio, glib};
 use mitsuami_core::services::{
-    Alert, MenuBarData, MenuCheck, MenuData, MenuEntry, MenuItemData, MenuRole, OpenFile, Reply, SaveFile,
+    Alert, Launch, MenuBarData, MenuCheck, MenuData, MenuEntry, MenuItemData, MenuRole, OpenFile, Reply, SaveFile,
     ServiceError, Services, Shortcut, existing_folder, menu_item_by_id,
 };
 use mitsuami_core::{ActionError, Key, NodeId};
@@ -705,6 +705,20 @@ fn path(file: &gio::File) -> Option<PathBuf> {
     file.path()
 }
 
+/// Trashes the items one after another with GIO, as Nautilus does, so its
+/// Restore finds them. `paths` is in reverse, the next one last.
+fn trash_each(mut paths: Vec<PathBuf>, reply: Reply<Result<(), ServiceError>>) {
+    let Some(path) = paths.pop() else { return reply(Ok(())) };
+    gio::File::for_path(path).trash_async(glib::Priority::DEFAULT, None::<&gio::Cancellable>, move |result| {
+        match result {
+            Ok(()) => trash_each(paths, reply),
+            // A disk without a trash (some network and removable ones).
+            Err(error) if error.matches(gio::IOErrorEnum::NotSupported) => reply(Err(ServiceError::Unavailable)),
+            Err(error) => reply(Err(ServiceError::Failed(error.message().to_owned()))),
+        }
+    });
+}
+
 impl Services for GtkServices {
     fn clipboard_text(&mut self, reply: Reply<Option<String>>) {
         let Some(display) = gdk::Display::default() else { return reply(None) };
@@ -791,6 +805,34 @@ impl Services for GtkServices {
         let window = dialog_parent(&self.backend, parent);
         dialog
             .save(window.as_ref(), None::<&gio::Cancellable>, move |result| reply(result.ok().and_then(|f| path(&f))));
+    }
+
+    fn trash(&mut self, _parent: Option<NodeId>, paths: &[PathBuf], reply: Reply<Result<(), ServiceError>>) {
+        trash_each(paths.iter().rev().cloned().collect(), reply);
+    }
+
+    /// GTK's launchers, through the portal where there is one: GNOME asks
+    /// which app when none is set for the type.
+    fn launch(&mut self, parent: Option<NodeId>, target: &Launch, reply: Reply<Result<(), ServiceError>>) {
+        let window = dialog_parent(&self.backend, parent);
+        let done = move |result: Result<(), glib::Error>| {
+            reply(result.map_err(|error| {
+                if error.matches(gtk::DialogError::Dismissed) || error.matches(gtk::DialogError::Cancelled) {
+                    ServiceError::Cancelled
+                } else if error.matches(gio::IOErrorEnum::NotSupported) {
+                    ServiceError::Unavailable
+                } else {
+                    ServiceError::Failed(error.message().to_owned())
+                }
+            }))
+        };
+        let cancellable = None::<&gio::Cancellable>;
+        match target {
+            Launch::Path(path) => {
+                gtk::FileLauncher::new(Some(&gio::File::for_path(path))).launch(window.as_ref(), cancellable, done)
+            }
+            Launch::Url(url) => gtk::UriLauncher::new(url).launch(window.as_ref(), cancellable, done),
+        }
     }
 
     fn set_menu(&mut self, window: Option<NodeId>, menu: &MenuBarData, activate: Rc<dyn Fn(u32)>) {

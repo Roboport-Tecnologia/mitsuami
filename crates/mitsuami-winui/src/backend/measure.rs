@@ -125,6 +125,11 @@ impl WinUiBackend {
                 )
             }
             Widget::Image { .. } => Size::ZERO,
+            // A square, whatever the file.
+            Widget::FileIcon { size, .. } => {
+                let side = size.unwrap_or(super::props::FILE_ICON_SIZE);
+                Size::new(side, side)
+            }
             // As large as the layout makes it.
             Widget::GpuSurface(_) => Size::ZERO,
             Widget::Custom { render, props } => render

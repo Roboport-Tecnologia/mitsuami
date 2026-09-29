@@ -1,14 +1,14 @@
-//! Clipboard, dialogs and the menu bar on macOS.
+//! Clipboard, dialogs, the trash, launching and the menu bar on macOS.
 
 use std::cell::{Cell, RefCell};
 use std::collections::HashMap;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::rc::{Rc, Weak};
 
 use block2::RcBlock;
 use mitsuami_core::services::{
-    Alert, AlertStyle, FileFilter, MenuBarData, MenuCheck, MenuData, MenuEntry, MenuItemData, MenuRole, OpenFile,
-    Reply, SaveFile, ServiceError, Services, Shortcut, existing_folder, menu_item_by_id,
+    Alert, AlertStyle, FileFilter, Launch, MenuBarData, MenuCheck, MenuData, MenuEntry, MenuItemData, MenuRole,
+    OpenFile, Reply, SaveFile, ServiceError, Services, Shortcut, existing_folder, menu_item_by_id,
 };
 use mitsuami_core::{Key, NodeId};
 use objc2::rc::Retained;
@@ -17,11 +17,14 @@ use objc2::{DefinedClass, MainThreadMarker, MainThreadOnly, Message, define_clas
 use objc2_app_kit::{
     NSAlert, NSAlertFirstButtonReturn, NSAlertStyle, NSApplication, NSControlStateValueOff, NSControlStateValueOn,
     NSEventModifierFlags, NSMenu, NSMenuItem, NSModalResponse, NSModalResponseOK, NSOpenPanel, NSPasteboard,
-    NSPasteboardTypeString, NSSavePanel, NSWindow, NSWindowDidBecomeMainNotification,
-    NSWindowDidResignMainNotification,
+    NSPasteboardTypeString, NSRunningApplication, NSSavePanel, NSWindow, NSWindowDidBecomeMainNotification,
+    NSWindowDidResignMainNotification, NSWorkspace, NSWorkspaceOpenConfiguration,
 };
 use objc2_core_foundation::{CFRunLoop, kCFRunLoopCommonModes};
-use objc2_foundation::{NSArray, NSNotification, NSNotificationCenter, NSString, NSURL};
+use objc2_foundation::{
+    NSArray, NSCocoaErrorDomain, NSError, NSFeatureUnsupportedError, NSFileManager, NSNotification,
+    NSNotificationCenter, NSOSStatusErrorDomain, NSString, NSURL, NSUserCancelledError,
+};
 use objc2_uniform_type_identifiers::UTType;
 
 use crate::backend::AppKitHandle;
@@ -165,6 +168,41 @@ fn content_types(filters: &[FileFilter]) -> Option<Retained<NSArray<UTType>>> {
         .filter_map(|ext| UTType::typeWithFilenameExtension(&ns(ext.trim_start_matches('.'))))
         .collect();
     (!types.is_empty()).then(|| NSArray::from_retained_slice(&types))
+}
+
+/// Moves an item to its disk's trash, where Finder's Put Back finds it.
+fn trash_item(path: &Path) -> Result<(), ServiceError> {
+    let url = NSURL::fileURLWithPath(&ns(&path.to_string_lossy()));
+    NSFileManager::defaultManager().trashItemAtURL_resultingItemURL_error(&url, None).map_err(|error| {
+        if error.code() == NSFeatureUnsupportedError && error.domain().isEqualToString(unsafe { NSCocoaErrorDomain }) {
+            ServiceError::Unavailable
+        } else {
+            ServiceError::Failed(error.localizedDescription().to_string())
+        }
+    })
+}
+
+thread_local! {
+    /// Replies waiting for `NSWorkspace`, whose completion handlers run on
+    /// another thread, by ticket.
+    static LAUNCHES: RefCell<HashMap<u64, Reply<Result<(), ServiceError>>>> = RefCell::new(HashMap::new());
+    static NEXT_LAUNCH: Cell<u64> = const { Cell::new(0) };
+}
+
+/// Launch Services' "no application" and "the user cancelled".
+const APPLICATION_NOT_FOUND: isize = -10814;
+const USER_CANCELED: isize = -128;
+
+fn launch_error(error: &NSError) -> ServiceError {
+    let (domain, code) = (error.domain(), error.code());
+    let cocoa = domain.isEqualToString(unsafe { NSCocoaErrorDomain });
+    let status = domain.isEqualToString(unsafe { NSOSStatusErrorDomain });
+    match code {
+        APPLICATION_NOT_FOUND if status => ServiceError::Unavailable,
+        USER_CANCELED if status => ServiceError::Cancelled,
+        code if cocoa && code == NSUserCancelledError => ServiceError::Cancelled,
+        _ => ServiceError::Failed(error.localizedDescription().to_string()),
+    }
 }
 
 /// Runs `f` on the main run loop soon, outside whatever is calling us now.
@@ -311,6 +349,36 @@ impl Services for AppKitServices {
             Some(window) => panel.beginSheetModalForWindow_completionHandler(&window, &done),
             None => panel.beginWithCompletionHandler(&done),
         }
+    }
+
+    /// `NSFileManager` trashes synchronously: within a disk it's a move.
+    fn trash(&mut self, _parent: Option<NodeId>, paths: &[PathBuf], reply: Reply<Result<(), ServiceError>>) {
+        reply(paths.iter().try_for_each(|path| trash_item(path)));
+    }
+
+    /// `NSWorkspace` opens it as Finder would, asking which app (or
+    /// saying there's none) itself when no app is set.
+    fn launch(&mut self, _parent: Option<NodeId>, target: &Launch, reply: Reply<Result<(), ServiceError>>) {
+        let url = match target {
+            Launch::Path(path) => NSURL::fileURLWithPath(&ns(&path.to_string_lossy())),
+            Launch::Url(url) => match NSURL::URLWithString(&ns(url)) {
+                Some(url) => url,
+                None => return reply(Err(ServiceError::Failed(format!("\u{201C}{url}\u{201D} isn't a URL")))),
+            },
+        };
+        let ticket = NEXT_LAUNCH.replace(NEXT_LAUNCH.get() + 1);
+        LAUNCHES.with(|l| l.borrow_mut().insert(ticket, reply));
+        let done = RcBlock::new(move |_app: *mut NSRunningApplication, error: *mut NSError| {
+            // SAFETY: AppKit passes a valid error or null.
+            let result = unsafe { error.as_ref() }.map_or(Ok(()), |error| Err(launch_error(error)));
+            dispatch2::DispatchQueue::main().exec_async(move || {
+                if let Some(reply) = LAUNCHES.with(|l| l.borrow_mut().remove(&ticket)) {
+                    reply(result);
+                }
+            });
+        });
+        let configuration = NSWorkspaceOpenConfiguration::configuration();
+        NSWorkspace::sharedWorkspace().openURL_configuration_completionHandler(&url, &configuration, Some(&done));
     }
 
     fn set_menu(&mut self, window: Option<NodeId>, menu: &MenuBarData, activate: Rc<dyn Fn(u32)>) {

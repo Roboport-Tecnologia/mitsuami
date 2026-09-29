@@ -121,6 +121,7 @@ enum Widget {
     Separator(Retained<NSBox>),
     Image(Retained<NSImageView>),
     Icon(Retained<NSImageView>),
+    FileIcon(Retained<NSImageView>),
     GpuSurface(Retained<SurfaceView>),
     Scroll(Retained<NSScrollView>),
     List(crate::list::List),
@@ -161,7 +162,7 @@ impl Widget {
             Widget::Progress(v) => v,
             Widget::Spinner { indicator, .. } => indicator,
             Widget::Separator(v) => v,
-            Widget::Image(v) | Widget::Icon(v) => v,
+            Widget::Image(v) | Widget::Icon(v) | Widget::FileIcon(v) => v,
             Widget::GpuSurface(v) => v,
             Widget::Scroll(v) => v,
             Widget::List(list) => &list.scroll,
@@ -191,6 +192,7 @@ impl Widget {
             | Widget::Separator(_)
             | Widget::Image(_)
             | Widget::Icon(_)
+            | Widget::FileIcon(_)
             | Widget::GpuSurface(_)
             | Widget::Host(_)
             | Widget::Group { .. }
@@ -273,6 +275,10 @@ struct Node {
     icon: Option<String>,
     icon_size: Option<f32>,
     icon_only: Option<bool>,
+    /// File icons: the file, and whether the app asked for a thumbnail,
+    /// which an image view can't give back.
+    file: Option<std::path::PathBuf>,
+    thumbnail: Option<bool>,
     /// Windows: modal, and the window they belong to.
     modal: Option<(Option<NodeId>, Modality)>,
     /// The app's raw settings, run after every other prop.

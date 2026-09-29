@@ -179,6 +179,12 @@ impl TestApp {
 
     /// What a window shows of the app's id, name and icon, read from the
     /// platform: what it took of [`Ui::set_app_info`]'s.
+    /// The files dragging a list's or table's row out would carry, through
+    /// the backend's own drag source; see [`Locator::dragged_files`].
+    pub(crate) fn dragged_files(&self, node: NodeId) -> Option<Vec<PathBuf>> {
+        self.driver.dragged_files(node)
+    }
+
     pub fn native_app_info(&self, window: NodeId) -> NativeAppInfo {
         self.driver.app_info(window)
     }

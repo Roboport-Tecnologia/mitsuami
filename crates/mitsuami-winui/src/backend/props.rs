@@ -1,5 +1,6 @@
 //! Setting props on nodes.
 
+use std::cell::Cell;
 use std::rc::Rc;
 
 use mitsuami_core::{Command, ImageFit, ImageSource, NodeId, Pixels, Prop, TextStyle, UiEvent};
@@ -97,6 +98,53 @@ impl State {
                 }
                 *source = Some(new.clone());
             }
+            (
+                Prop::File(_) | Prop::IconSize(_) | Prop::Thumbnail(_),
+                Widget::FileIcon { image, file, thumbnail, size, asked, shown },
+            ) => {
+                match prop {
+                    Prop::File(path) => *file = Some(path.clone()),
+                    Prop::Thumbnail(on) => *thumbnail = Some(*on),
+                    Prop::IconSize(points) => *size = Some(*points),
+                    _ => {}
+                }
+                let side = size.unwrap_or(FILE_ICON_SIZE);
+                let element = image.cast::<w::IFrameworkElement>()?;
+                element.SetWidth(f64::from(side))?;
+                element.SetHeight(f64::from(side))?;
+                let ticket = asked.get() + 1;
+                asked.set(ticket);
+                let Some(path) = file.clone() else {
+                    image.SetSource(None::<&w::ImageSource>)?;
+                    shown.set(ticket);
+                    return Ok(());
+                };
+                // In the window's pixels, so the shell's image isn't scaled.
+                let scale =
+                    image.cast::<w::IUIElement>()?.XamlRoot().and_then(|r| r.RasterizationScale()).unwrap_or(1.0);
+                let pixels = (f64::from(side) * scale).round() as i32;
+                let queue = w::DispatcherQueue::GetForCurrentThread()?;
+                let parked = crate::later::park((image.clone(), asked.clone(), shown.clone()));
+                crate::file_icon::load(path, pixels, *thumbnail == Some(true), move |loaded| {
+                    crate::later::on_ui(&queue, move || {
+                        let Some((image, asked, shown)) =
+                            crate::later::take::<(w::Image, Rc<Cell<u64>>, Rc<Cell<u64>>)>(parked)
+                        else {
+                            return;
+                        };
+                        // A later load replaces this one.
+                        if asked.get() != ticket {
+                            return;
+                        }
+                        let source = loaded.and_then(|l| crate::file_icon::bitmap(&l).ok());
+                        _ = match source.and_then(|b| b.cast::<w::ImageSource>().ok()) {
+                            Some(source) => image.SetSource(&source),
+                            None => image.SetSource(None::<&w::ImageSource>),
+                        };
+                        shown.set(ticket);
+                    });
+                });
+            }
             (Prop::ImageFit(new), Widget::Image { image, fit, .. }) => {
                 image.SetStretch(match new {
                     ImageFit::Contain => w::Stretch::Uniform,
@@ -172,6 +220,7 @@ impl State {
                 | Widget::Spinner(_)
                 | Widget::Image { .. }
                 | Widget::Icon(_)
+                | Widget::FileIcon { .. }
                 | Widget::GpuSurface(_),
             ) => {
                 w::AutomationProperties::SetName(&node.element, t)?;
@@ -445,6 +494,7 @@ impl State {
                 set_scrolling(&scroll, scroll_axes(&scroll)?, *show)?
             }
             (Prop::Rows(rows), Widget::List(list)) => list.set_rows(rows.clone())?,
+            (Prop::RowFiles(files), Widget::List(list)) => list.set_row_files(files.clone())?,
             (Prop::SelectionMode(mode), Widget::List(list)) => list.set_mode(*mode)?,
             (Prop::ListStyle(style), Widget::List(list)) => list.set_style(*style)?,
             (Prop::Selected(rows), Widget::List(list)) => list.set_selected(rows)?,
@@ -555,6 +605,9 @@ impl State {
         Ok(())
     }
 }
+
+/// A file icon's side when the app gives none: Explorer's details view's.
+pub(super) const FILE_ICON_SIZE: f32 = 16.0;
 
 /// A bitmap of the pixels, as XAML takes them: premultiplied BGRA.
 fn writeable_bitmap(pixels: &Pixels) -> R<w::WriteableBitmap> {

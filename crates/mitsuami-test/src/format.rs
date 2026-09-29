@@ -30,6 +30,14 @@ fn describe_props(props: &[Prop]) -> String {
                 extra.push(format!("file_drop=[{files}{}]", if drop.folders { " folders" } else { "" }));
             }
             Prop::FileDrop(None) => {}
+            // Their names: the rest is the machine's.
+            Prop::RowFiles(files) => {
+                let names: Vec<String> = files
+                    .iter()
+                    .map(|(_, path)| path.file_name().unwrap_or_default().to_string_lossy().into_owned())
+                    .collect();
+                extra.push(format!("row_files={names:?}"));
+            }
             Prop::Keys(keys) => {
                 let keys: Vec<String> = keys.iter().map(shortcut).collect();
                 extra.push(format!("keys=[{}]", keys.join(" ")));
@@ -78,6 +86,11 @@ fn describe_props(props: &[Prop]) -> String {
             Prop::Icon(name) => extra.push(format!("icon={name:?}")),
             Prop::IconSize(points) => extra.push(format!("icon_size={}", Num(*points))),
             Prop::IconOnly(only) => extra.push(format!("icon_only={only}")),
+            // Its name: the rest is the machine's (a temporary folder).
+            Prop::File(path) => {
+                extra.push(format!("file={:?}", path.file_name().unwrap_or_default().to_string_lossy()))
+            }
+            Prop::Thumbnail(on) => extra.push(format!("thumbnail={on}")),
             Prop::Modal { owner, modality } => {
                 extra.push(format!("modal={modality:?}"));
                 extra.extend(owner.map(|o| format!("owner={o}")));
@@ -388,7 +401,7 @@ pub(crate) fn wireframe(root: &NodeInfo) -> String {
             | WidgetKind::NumberInput
             | WidgetKind::Progress
             | WidgetKind::Spinner => "#1f8a8a",
-            WidgetKind::Image | WidgetKind::Icon => "#b8860b",
+            WidgetKind::Image | WidgetKind::Icon | WidgetKind::FileIcon => "#b8860b",
             WidgetKind::Separator => "#8a8f98",
             WidgetKind::GpuSurface => "#2b2b2b",
             WidgetKind::Custom(_) | WidgetKind::Native => "#c0392b",

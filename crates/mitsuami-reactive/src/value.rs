@@ -97,7 +97,19 @@ macro_rules! static_values {
     )*};
 }
 
-static_values!(String, bool, char, f32, f64, i8, i16, i32, i64, u8, u16, u32, u64, usize, isize);
+static_values!(String, std::path::PathBuf, bool, char, f32, f64, i8, i16, i32, i64, u8, u16, u32, u64, usize, isize);
+
+impl IntoValue<std::path::PathBuf> for &std::path::Path {
+    fn into_value(self) -> Value<std::path::PathBuf> {
+        Value::Static(self.to_owned())
+    }
+}
+
+impl IntoValue<std::path::PathBuf> for &std::path::PathBuf {
+    fn into_value(self) -> Value<std::path::PathBuf> {
+        Value::Static(self.clone())
+    }
+}
 
 impl IntoValue<(i32, i32)> for (i32, i32) {
     fn into_value(self) -> Value<(i32, i32)> {

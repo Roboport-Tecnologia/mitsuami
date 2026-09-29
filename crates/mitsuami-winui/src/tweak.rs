@@ -5,8 +5,8 @@ use std::rc::Rc;
 use mitsuami_core::reactive::{IntoValue, Value};
 use mitsuami_core::{List, Opaque, Table, Tweak};
 use mitsuami_widgets::{
-    Button, Checkbox, Group, Icon, Image, MenuButton, NumberInput, PasswordInput, Progress, RadioGroup, ScrollView,
-    SearchInput, Select, Separator, Slider, Spinner, Switch, Text, TextArea, TextInput, ToggleButton,
+    Button, Checkbox, FileIcon, Group, Icon, Image, MenuButton, NumberInput, PasswordInput, Progress, RadioGroup,
+    ScrollView, SearchInput, Select, Separator, Slider, Spinner, Switch, Text, TextArea, TextInput, ToggleButton,
 };
 use windows_core::Interface;
 
@@ -55,6 +55,10 @@ impl Tweakable for Image {
 
 impl Tweakable for Icon {
     type Native = w::FontIcon;
+}
+
+impl Tweakable for FileIcon {
+    type Native = w::Image;
 }
 
 impl Tweakable for MenuButton {

@@ -2,15 +2,19 @@ windows_core::link!("api-ms-win-appmodel-runtime-l1-1-5.dll" "system" fn AddPack
 windows_core::link!("user32.dll" "system" fn CallNextHookEx(hhk : HHOOK, ncode : i32, wparam : WPARAM, lparam : LPARAM) -> LRESULT);
 windows_core::link!("user32.dll" "system" fn ClientToScreen(hwnd : HWND, lppoint : *mut POINT) -> windows_core::BOOL);
 windows_core::link!("user32.dll" "system" fn ClipCursor(lprect : *const RECT) -> windows_core::BOOL);
+windows_core::link!("ole32.dll" "system" fn CoCreateInstance(rclsid : *const windows_core::GUID, punkouter : *mut core::ffi::c_void, dwclscontext : u32, riid : *const windows_core::GUID, ppv : *mut *mut core::ffi::c_void) -> windows_core::HRESULT);
 windows_core::link!("ole32.dll" "system" fn CoInitializeEx(pvreserved : *const core::ffi::c_void, dwcoinit : u32) -> windows_core::HRESULT);
 windows_core::link!("ole32.dll" "system" fn CoTaskMemFree(pv : *mut core::ffi::c_void));
+windows_core::link!("ole32.dll" "system" fn CoUninitialize());
 windows_core::link!("gdi32.dll" "system" fn CreateBitmap(nwidth : i32, nheight : i32, nplanes : u32, nbitcount : u32, lpbits : *const core::ffi::c_void) -> HBITMAP);
+windows_core::link!("gdi32.dll" "system" fn CreateCompatibleDC(hdc : HDC) -> HDC);
 windows_core::link!("gdi32.dll" "system" fn CreateDIBSection(hdc : HDC, pbmi : *const BITMAPINFO, usage : u32, ppvbits : *mut *mut core::ffi::c_void, hsection : HANDLE, offset : u32) -> HBITMAP);
 windows_core::link!("user32.dll" "system" fn CreateIconFromResourceEx(presbits : *const u8, dwressize : u32, ficon : windows_core::BOOL, dwver : u32, cxdesired : i32, cydesired : i32, flags : u32) -> HICON);
 windows_core::link!("user32.dll" "system" fn CreateIconIndirect(piconinfo : *const ICONINFO) -> HICON);
 windows_core::link!("user32.dll" "system" fn CreateWindowExW(dwexstyle : u32, lpclassname : windows_core::PCWSTR, lpwindowname : windows_core::PCWSTR, dwstyle : u32, x : i32, y : i32, nwidth : i32, nheight : i32, hwndparent : HWND, hmenu : HMENU, hinstance : HINSTANCE, lpparam : *const core::ffi::c_void) -> HWND);
 windows_core::link!("comctl32.dll" "system" fn DefSubclassProc(hwnd : HWND, umsg : u32, wparam : WPARAM, lparam : LPARAM) -> LRESULT);
 windows_core::link!("user32.dll" "system" fn DefWindowProcW(hwnd : HWND, msg : u32, wparam : WPARAM, lparam : LPARAM) -> LRESULT);
+windows_core::link!("gdi32.dll" "system" fn DeleteDC(hdc : HDC) -> windows_core::BOOL);
 windows_core::link!("gdi32.dll" "system" fn DeleteObject(ho : HGDIOBJ) -> windows_core::BOOL);
 windows_core::link!("user32.dll" "system" fn DestroyIcon(hicon : HICON) -> windows_core::BOOL);
 windows_core::link!("user32.dll" "system" fn DestroyWindow(hwnd : HWND) -> windows_core::BOOL);
@@ -26,12 +30,14 @@ windows_core::link!("shell32.dll" "system" fn GetCurrentProcessExplicitAppUserMo
 windows_core::link!("kernel32.dll" "system" fn GetCurrentProcessId() -> u32);
 windows_core::link!("kernel32.dll" "system" fn GetCurrentThreadId() -> u32);
 windows_core::link!("user32.dll" "system" fn GetCursorPos(lppoint : *mut POINT) -> windows_core::BOOL);
+windows_core::link!("gdi32.dll" "system" fn GetDIBits(hdc : HDC, hbm : HBITMAP, start : u32, clines : u32, lpvbits : *mut core::ffi::c_void, lpbmi : *mut BITMAPINFO, usage : u32) -> i32);
 windows_core::link!("user32.dll" "system" fn GetDpiForSystem() -> u32);
 windows_core::link!("user32.dll" "system" fn GetDpiForWindow(hwnd : HWND) -> u32);
 windows_core::link!("user32.dll" "system" fn GetFocus() -> HWND);
 windows_core::link!("user32.dll" "system" fn GetForegroundWindow() -> HWND);
 windows_core::link!("user32.dll" "system" fn GetIconInfo(hicon : HICON, piconinfo : *mut ICONINFO) -> windows_core::BOOL);
 windows_core::link!("user32.dll" "system" fn GetKeyState(nvirtkey : i32) -> i16);
+windows_core::link!("kernel32.dll" "system" fn GetLastError() -> u32);
 windows_core::link!("kernel32.dll" "system" fn GetModuleHandleW(lpmodulename : windows_core::PCWSTR) -> HMODULE);
 windows_core::link!("user32.dll" "system" fn GetMonitorInfoW(hmonitor : HMONITOR, lpmi : *mut MONITORINFO) -> windows_core::BOOL);
 windows_core::link!("gdi32.dll" "system" fn GetObjectW(h : HANDLE, c : i32, pv : *mut core::ffi::c_void) -> i32);
@@ -54,6 +60,7 @@ windows_core::link!("user32.dll" "system" fn RegisterClassExW(param0 : *const WN
 windows_core::link!("user32.dll" "system" fn RegisterRawInputDevices(prawinputdevices : *const RAWINPUTDEVICE, uinumdevices : u32, cbsize : u32) -> windows_core::BOOL);
 windows_core::link!("user32.dll" "system" fn ReleaseCapture() -> windows_core::BOOL);
 windows_core::link!("comctl32.dll" "system" fn RemoveWindowSubclass(hwnd : HWND, pfnsubclass : SUBCLASSPROC, uidsubclass : usize) -> windows_core::BOOL);
+windows_core::link!("shell32.dll" "system" fn SHCreateItemFromParsingName(pszpath : windows_core::PCWSTR, pbc : *mut core::ffi::c_void, riid : *const windows_core::GUID, ppv : *mut *mut core::ffi::c_void) -> windows_core::HRESULT);
 windows_core::link!("user32.dll" "system" fn SendMessageW(hwnd : HWND, msg : u32, wparam : WPARAM, lparam : LPARAM) -> LRESULT);
 windows_core::link!("user32.dll" "system" fn SetCapture(hwnd : HWND) -> HWND);
 windows_core::link!("shell32.dll" "system" fn SetCurrentProcessExplicitAppUserModelID(appid : windows_core::PCWSTR) -> windows_core::HRESULT);
@@ -71,6 +78,7 @@ windows_core::link!("user32.dll" "system" fn SetWindowLongW(hwnd : HWND, nindex 
 windows_core::link!("user32.dll" "system" fn SetWindowPos(hwnd : HWND, hwndinsertafter : HWND, x : i32, y : i32, cx : i32, cy : i32, uflags : u32) -> windows_core::BOOL);
 windows_core::link!("comctl32.dll" "system" fn SetWindowSubclass(hwnd : HWND, pfnsubclass : SUBCLASSPROC, uidsubclass : usize, dwrefdata : usize) -> windows_core::BOOL);
 windows_core::link!("user32.dll" "system" fn SetWindowsHookExW(idhook : i32, lpfn : HOOKPROC, hmod : HINSTANCE, dwthreadid : u32) -> HHOOK);
+windows_core::link!("shell32.dll" "system" fn ShellExecuteExW(pexecinfo : *mut SHELLEXECUTEINFOW) -> windows_core::BOOL);
 windows_core::link!("user32.dll" "system" fn ShowCursor(bshow : windows_core::BOOL) -> i32);
 windows_core::link!("user32.dll" "system" fn ShutdownBlockReasonCreate(hwnd : HWND, pwszreason : windows_core::PCWSTR) -> windows_core::BOOL);
 windows_core::link!("user32.dll" "system" fn ShutdownBlockReasonDestroy(hwnd : HWND) -> windows_core::BOOL);
@@ -944,9 +952,12 @@ impl windows_core::RuntimeName for ButtonBase {
 }
 unsafe impl Send for ButtonBase {}
 unsafe impl Sync for ButtonBase {}
+pub const CLSCTX_ALL: i32 = 23;
 pub type COINIT = i32;
 pub const COINIT_APARTMENTTHREADED: COINIT = 2;
+pub const COINIT_MULTITHREADED: COINIT = 0;
 pub type COLORREF = u32;
+pub const COPYENGINE_E_USER_CANCELLED: windows_core::HRESULT = windows_core::HRESULT(0x80270000_u32 as _);
 #[repr(transparent)]
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct Canvas(windows_core::IUnknown);
@@ -1697,6 +1708,98 @@ unsafe impl Send for DataPackageView {}
 unsafe impl Sync for DataPackageView {}
 #[repr(transparent)]
 #[derive(Clone, Debug, Eq, PartialEq)]
+pub struct DataProviderDeferral(windows_core::IUnknown);
+windows_core::imp::interface_hierarchy!(DataProviderDeferral, windows_core::IUnknown, windows_core::IInspectable);
+impl windows_core::RuntimeType for DataProviderDeferral {
+    const SIGNATURE: windows_core::imp::ConstBuffer =
+        windows_core::imp::ConstBuffer::for_class::<Self, IDataProviderDeferral>();
+}
+unsafe impl windows_core::Interface for DataProviderDeferral {
+    type Vtable = <IDataProviderDeferral as windows_core::Interface>::Vtable;
+    const IID: windows_core::GUID = <IDataProviderDeferral as windows_core::Interface>::IID;
+}
+impl core::ops::Deref for DataProviderDeferral {
+    type Target = IDataProviderDeferral;
+    fn deref(&self) -> &Self::Target {
+        unsafe { core::mem::transmute(self) }
+    }
+}
+impl windows_core::RuntimeName for DataProviderDeferral {
+    const NAME: &'static str = "Windows.ApplicationModel.DataTransfer.DataProviderDeferral";
+}
+unsafe impl Send for DataProviderDeferral {}
+unsafe impl Sync for DataProviderDeferral {}
+windows_core::imp::define_interface!(
+    DataProviderHandler,
+    DataProviderHandler_Vtbl,
+    0xe7ecd720_f2f4_4a2d_920e_170a2f482a27
+);
+impl windows_core::RuntimeType for DataProviderHandler {
+    const SIGNATURE: windows_core::imp::ConstBuffer = windows_core::imp::ConstBuffer::for_interface::<Self>();
+}
+impl DataProviderHandler {
+    pub fn new<F: Fn(windows_core::Ref<DataProviderRequest>) + 'static>(invoke: F) -> Self {
+        let com = windows_core::imp::DelegateBox::<Self, F>::new(&DataProviderHandlerBox::<F>::VTABLE, invoke);
+        unsafe { core::mem::transmute(windows_core::imp::box_new(com)) }
+    }
+}
+#[repr(C)]
+pub struct DataProviderHandler_Vtbl {
+    base__: windows_core::IUnknown_Vtbl,
+    Invoke: unsafe extern "system" fn(
+        this: *mut core::ffi::c_void,
+        request: *mut core::ffi::c_void,
+    ) -> windows_core::HRESULT,
+}
+struct DataProviderHandlerBox<F: Fn(windows_core::Ref<DataProviderRequest>) + 'static>(
+    core::marker::PhantomData<(fn() -> F,)>,
+);
+impl<F: Fn(windows_core::Ref<DataProviderRequest>) + 'static> DataProviderHandlerBox<F> {
+    const VTABLE: DataProviderHandler_Vtbl = DataProviderHandler_Vtbl {
+        base__: windows_core::IUnknown_Vtbl {
+            QueryInterface: windows_core::imp::DelegateBox::<DataProviderHandler, F>::QueryInterface,
+            AddRef: windows_core::imp::DelegateBox::<DataProviderHandler, F>::AddRef,
+            Release: windows_core::imp::DelegateBox::<DataProviderHandler, F>::Release,
+        },
+        Invoke: Self::Invoke,
+    };
+    unsafe extern "system" fn Invoke(
+        this: *mut core::ffi::c_void,
+        request: *mut core::ffi::c_void,
+    ) -> windows_core::HRESULT {
+        unsafe {
+            let this = &mut *(this as *mut *mut core::ffi::c_void
+                as *mut windows_core::imp::DelegateBox<DataProviderHandler, F>);
+            (this.invoke)(core::mem::transmute_copy(&request));
+            windows_core::HRESULT(0)
+        }
+    }
+}
+#[repr(transparent)]
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct DataProviderRequest(windows_core::IUnknown);
+windows_core::imp::interface_hierarchy!(DataProviderRequest, windows_core::IUnknown, windows_core::IInspectable);
+impl windows_core::RuntimeType for DataProviderRequest {
+    const SIGNATURE: windows_core::imp::ConstBuffer =
+        windows_core::imp::ConstBuffer::for_class::<Self, IDataProviderRequest>();
+}
+unsafe impl windows_core::Interface for DataProviderRequest {
+    type Vtable = <IDataProviderRequest as windows_core::Interface>::Vtable;
+    const IID: windows_core::GUID = <IDataProviderRequest as windows_core::Interface>::IID;
+}
+impl core::ops::Deref for DataProviderRequest {
+    type Target = IDataProviderRequest;
+    fn deref(&self) -> &Self::Target {
+        unsafe { core::mem::transmute(self) }
+    }
+}
+impl windows_core::RuntimeName for DataProviderRequest {
+    const NAME: &'static str = "Windows.ApplicationModel.DataTransfer.DataProviderRequest";
+}
+unsafe impl Send for DataProviderRequest {}
+unsafe impl Sync for DataProviderRequest {}
+#[repr(transparent)]
+#[derive(Clone, Debug, Eq, PartialEq)]
 pub struct DataReader(windows_core::IUnknown);
 windows_core::imp::interface_hierarchy!(DataReader, windows_core::IUnknown, windows_core::IInspectable, IDataReader);
 impl DataReader {
@@ -2126,6 +2229,73 @@ impl<F: Fn(windows_core::Ref<windows_core::IInspectable>, windows_core::Ref<Drag
 }
 #[repr(transparent)]
 #[derive(Clone, Debug, Eq, PartialEq)]
+pub struct DragItemsStartingEventArgs(windows_core::IUnknown);
+windows_core::imp::interface_hierarchy!(DragItemsStartingEventArgs, windows_core::IUnknown, windows_core::IInspectable);
+impl windows_core::RuntimeType for DragItemsStartingEventArgs {
+    const SIGNATURE: windows_core::imp::ConstBuffer =
+        windows_core::imp::ConstBuffer::for_class::<Self, IDragItemsStartingEventArgs>();
+}
+unsafe impl windows_core::Interface for DragItemsStartingEventArgs {
+    type Vtable = <IDragItemsStartingEventArgs as windows_core::Interface>::Vtable;
+    const IID: windows_core::GUID = <IDragItemsStartingEventArgs as windows_core::Interface>::IID;
+}
+impl core::ops::Deref for DragItemsStartingEventArgs {
+    type Target = IDragItemsStartingEventArgs;
+    fn deref(&self) -> &Self::Target {
+        unsafe { core::mem::transmute(self) }
+    }
+}
+impl windows_core::RuntimeName for DragItemsStartingEventArgs {
+    const NAME: &'static str = "Microsoft.UI.Xaml.Controls.DragItemsStartingEventArgs";
+}
+unsafe impl Send for DragItemsStartingEventArgs {}
+unsafe impl Sync for DragItemsStartingEventArgs {}
+windows_core::imp::define_interface!(
+    DragItemsStartingEventHandler,
+    DragItemsStartingEventHandler_Vtbl,
+    0x55532800_7617_5d67_80bf_b98c0a41b9d6
+);
+impl windows_core::RuntimeType for DragItemsStartingEventHandler {
+    const SIGNATURE: windows_core::imp::ConstBuffer = windows_core::imp::ConstBuffer::for_interface::<Self>();
+}
+#[repr(C)]
+pub struct DragItemsStartingEventHandler_Vtbl {
+    base__: windows_core::IUnknown_Vtbl,
+    Invoke: unsafe extern "system" fn(
+        this: *mut core::ffi::c_void,
+        sender: *mut core::ffi::c_void,
+        e: *mut core::ffi::c_void,
+    ) -> windows_core::HRESULT,
+}
+struct DragItemsStartingEventHandlerBox<
+    F: Fn(windows_core::Ref<windows_core::IInspectable>, windows_core::Ref<DragItemsStartingEventArgs>) + 'static,
+>(core::marker::PhantomData<(fn() -> F,)>);
+impl<F: Fn(windows_core::Ref<windows_core::IInspectable>, windows_core::Ref<DragItemsStartingEventArgs>) + 'static>
+    DragItemsStartingEventHandlerBox<F>
+{
+    const VTABLE: DragItemsStartingEventHandler_Vtbl = DragItemsStartingEventHandler_Vtbl {
+        base__: windows_core::IUnknown_Vtbl {
+            QueryInterface: windows_core::imp::DelegateBox::<DragItemsStartingEventHandler, F>::QueryInterface,
+            AddRef: windows_core::imp::DelegateBox::<DragItemsStartingEventHandler, F>::AddRef,
+            Release: windows_core::imp::DelegateBox::<DragItemsStartingEventHandler, F>::Release,
+        },
+        Invoke: Self::Invoke,
+    };
+    unsafe extern "system" fn Invoke(
+        this: *mut core::ffi::c_void,
+        sender: *mut core::ffi::c_void,
+        e: *mut core::ffi::c_void,
+    ) -> windows_core::HRESULT {
+        unsafe {
+            let this = &mut *(this as *mut *mut core::ffi::c_void
+                as *mut windows_core::imp::DelegateBox<DragItemsStartingEventHandler, F>);
+            (this.invoke)(core::mem::transmute_copy(&sender), core::mem::transmute_copy(&e));
+            windows_core::HRESULT(0)
+        }
+    }
+}
+#[repr(transparent)]
+#[derive(Clone, Debug, Eq, PartialEq)]
 pub struct DropDownButton(windows_core::IUnknown);
 windows_core::imp::interface_hierarchy!(DropDownButton, windows_core::IUnknown, windows_core::IInspectable);
 windows_core::imp::required_hierarchy!(
@@ -2178,6 +2348,8 @@ impl windows_core::RuntimeName for DropDownButton {
 }
 unsafe impl Send for DropDownButton {}
 unsafe impl Sync for DropDownButton {}
+pub const ERROR_CANCELLED: i32 = 1223;
+pub const ERROR_NO_ASSOCIATION: i32 = 1155;
 pub const E_FAIL: windows_core::HRESULT = windows_core::HRESULT(0x80004005_u32 as _);
 #[repr(transparent)]
 #[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
@@ -2323,6 +2495,8 @@ impl<F: Fn(windows_core::Ref<windows_core::IInspectable>, windows_core::Ref<Exce
         }
     }
 }
+pub const FOFX_RECYCLEONDELETE: i32 = 524288;
+pub const FOF_ALLOWUNDO: i32 = 64;
 #[repr(transparent)]
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct FileOpenPicker(windows_core::IUnknown);
@@ -2366,6 +2540,7 @@ impl windows_core::RuntimeName for FileOpenPicker {
 }
 unsafe impl Send for FileOpenPicker {}
 unsafe impl Sync for FileOpenPicker {}
+pub const FileOperation: windows_core::GUID = windows_core::GUID::from_u128(0x3ad05575_8857_4850_9277_11b85bdb8e09);
 #[repr(transparent)]
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct FileSavePicker(windows_core::IUnknown);
@@ -2884,6 +3059,7 @@ pub type HGDIOBJ = *mut core::ffi::c_void;
 pub type HHOOK = *mut core::ffi::c_void;
 pub type HICON = *mut core::ffi::c_void;
 pub type HINSTANCE = *mut core::ffi::c_void;
+pub type HKEY = *mut core::ffi::c_void;
 pub type HMENU = *mut core::ffi::c_void;
 pub type HMODULE = HINSTANCE;
 pub type HMONITOR = *mut core::ffi::c_void;
@@ -3737,6 +3913,22 @@ pub struct IAutomationPropertiesStatics_Vtbl {
         *mut core::ffi::c_void,
         AccessibilityView,
     ) -> windows_core::HRESULT,
+}
+windows_core::imp::define_interface!(IBindCtx, IBindCtx_Vtbl, 0x0000000e_0000_0000_c000_000000000046);
+windows_core::imp::interface_hierarchy!(IBindCtx, windows_core::IUnknown);
+#[repr(C)]
+pub struct IBindCtx_Vtbl {
+    pub base__: windows_core::IUnknown_Vtbl,
+    RegisterObjectBound: usize,
+    RevokeObjectBound: usize,
+    ReleaseBoundObjects: usize,
+    SetBindOptions: usize,
+    GetBindOptions: usize,
+    GetRunningObjectTable: usize,
+    RegisterObjectParam: usize,
+    GetObjectParam: usize,
+    EnumObjectParam: usize,
+    RevokeObjectParam: usize,
 }
 windows_core::imp::define_interface!(IBitmapImage, IBitmapImage_Vtbl, 0x5cc29916_a411_5bc2_a3c5_a00d99a59da8);
 impl windows_core::RuntimeType for IBitmapImage {
@@ -4722,6 +4914,25 @@ impl windows_core::RuntimeType for IDataPackage {
     const SIGNATURE: windows_core::imp::ConstBuffer = windows_core::imp::ConstBuffer::for_interface::<Self>();
 }
 impl IDataPackage {
+    pub fn SetRequestedOperation(&self, value: DataPackageOperation) -> windows_core::Result<()> {
+        unsafe {
+            (windows_core::Interface::vtable(self).SetRequestedOperation)(windows_core::Interface::as_raw(self), value)
+                .ok()
+        }
+    }
+    pub fn SetDataProvider<P1>(&self, formatid: &str, delayrenderer: P1) -> windows_core::Result<()>
+    where
+        P1: windows_core::Param<DataProviderHandler>,
+    {
+        unsafe {
+            (windows_core::Interface::vtable(self).SetDataProvider)(
+                windows_core::Interface::as_raw(self),
+                core::mem::transmute_copy(&windows_core::HSTRING::from(formatid)),
+                delayrenderer.param().abi(),
+            )
+            .ok()
+        }
+    }
     pub fn SetText(&self, value: &str) -> windows_core::Result<()> {
         unsafe {
             (windows_core::Interface::vtable(self).SetText)(
@@ -4738,13 +4949,18 @@ pub struct IDataPackage_Vtbl {
     GetView: usize,
     Properties: usize,
     RequestedOperation: usize,
-    SetRequestedOperation: usize,
+    pub SetRequestedOperation:
+        unsafe extern "system" fn(*mut core::ffi::c_void, DataPackageOperation) -> windows_core::HRESULT,
     OperationCompleted: usize,
     RemoveOperationCompleted: usize,
     Destroyed: usize,
     RemoveDestroyed: usize,
     SetData: usize,
-    SetDataProvider: usize,
+    pub SetDataProvider: unsafe extern "system" fn(
+        *mut core::ffi::c_void,
+        *mut core::ffi::c_void,
+        *mut core::ffi::c_void,
+    ) -> windows_core::HRESULT,
     pub SetText: unsafe extern "system" fn(*mut core::ffi::c_void, *mut core::ffi::c_void) -> windows_core::HRESULT,
 }
 windows_core::imp::define_interface!(IDataPackageView, IDataPackageView_Vtbl, 0x7b840471_5900_4d85_a90b_10cb85fe3552);
@@ -4803,6 +5019,59 @@ pub struct IDataPackageView_Vtbl {
     GetBitmapAsync: usize,
     pub GetStorageItemsAsync:
         unsafe extern "system" fn(*mut core::ffi::c_void, *mut *mut core::ffi::c_void) -> windows_core::HRESULT,
+}
+windows_core::imp::define_interface!(
+    IDataProviderDeferral,
+    IDataProviderDeferral_Vtbl,
+    0xc2cf2373_2d26_43d9_b69d_dcb86d03f6da
+);
+impl windows_core::RuntimeType for IDataProviderDeferral {
+    const SIGNATURE: windows_core::imp::ConstBuffer = windows_core::imp::ConstBuffer::for_interface::<Self>();
+}
+impl IDataProviderDeferral {
+    pub fn Complete(&self) -> windows_core::Result<()> {
+        unsafe { (windows_core::Interface::vtable(self).Complete)(windows_core::Interface::as_raw(self)).ok() }
+    }
+}
+#[repr(C)]
+pub struct IDataProviderDeferral_Vtbl {
+    pub base__: windows_core::IInspectable_Vtbl,
+    pub Complete: unsafe extern "system" fn(*mut core::ffi::c_void) -> windows_core::HRESULT,
+}
+windows_core::imp::define_interface!(
+    IDataProviderRequest,
+    IDataProviderRequest_Vtbl,
+    0xebbc7157_d3c8_47da_acde_f82388d5f716
+);
+impl windows_core::RuntimeType for IDataProviderRequest {
+    const SIGNATURE: windows_core::imp::ConstBuffer = windows_core::imp::ConstBuffer::for_interface::<Self>();
+}
+impl IDataProviderRequest {
+    pub fn GetDeferral(&self) -> windows_core::Result<DataProviderDeferral> {
+        unsafe {
+            let mut result__ = core::mem::zeroed();
+            (windows_core::Interface::vtable(self).GetDeferral)(windows_core::Interface::as_raw(self), &mut result__)
+                .and_then(|| windows_core::imp::Type::from_abi(result__))
+        }
+    }
+    pub fn SetData<P0>(&self, value: P0) -> windows_core::Result<()>
+    where
+        P0: windows_core::Param<windows_core::IInspectable>,
+    {
+        unsafe {
+            (windows_core::Interface::vtable(self).SetData)(windows_core::Interface::as_raw(self), value.param().abi())
+                .ok()
+        }
+    }
+}
+#[repr(C)]
+pub struct IDataProviderRequest_Vtbl {
+    pub base__: windows_core::IInspectable_Vtbl,
+    FormatId: usize,
+    Deadline: usize,
+    pub GetDeferral:
+        unsafe extern "system" fn(*mut core::ffi::c_void, *mut *mut core::ffi::c_void) -> windows_core::HRESULT,
+    pub SetData: unsafe extern "system" fn(*mut core::ffi::c_void, *mut core::ffi::c_void) -> windows_core::HRESULT,
 }
 windows_core::imp::define_interface!(IDataReader, IDataReader_Vtbl, 0xe2b50029_b4c1_4314_a4b8_fb813a2f275e);
 impl windows_core::RuntimeType for IDataReader {
@@ -5043,6 +5312,41 @@ pub struct IDragEventArgs_Vtbl {
     pub SetAcceptedOperation:
         unsafe extern "system" fn(*mut core::ffi::c_void, DataPackageOperation) -> windows_core::HRESULT,
 }
+windows_core::imp::define_interface!(
+    IDragItemsStartingEventArgs,
+    IDragItemsStartingEventArgs_Vtbl,
+    0xa6938886_20df_558e_ac74_bb5b7f2f7e90
+);
+impl windows_core::RuntimeType for IDragItemsStartingEventArgs {
+    const SIGNATURE: windows_core::imp::ConstBuffer = windows_core::imp::ConstBuffer::for_interface::<Self>();
+}
+impl IDragItemsStartingEventArgs {
+    pub fn SetCancel(&self, value: bool) -> windows_core::Result<()> {
+        unsafe { (windows_core::Interface::vtable(self).SetCancel)(windows_core::Interface::as_raw(self), value).ok() }
+    }
+    pub fn Items(&self) -> windows_core::Result<windows_collections::IVector<windows_core::IInspectable>> {
+        unsafe {
+            let mut result__ = core::mem::zeroed();
+            (windows_core::Interface::vtable(self).Items)(windows_core::Interface::as_raw(self), &mut result__)
+                .and_then(|| windows_core::imp::Type::from_abi(result__))
+        }
+    }
+    pub fn Data(&self) -> windows_core::Result<DataPackage> {
+        unsafe {
+            let mut result__ = core::mem::zeroed();
+            (windows_core::Interface::vtable(self).Data)(windows_core::Interface::as_raw(self), &mut result__)
+                .and_then(|| windows_core::imp::Type::from_abi(result__))
+        }
+    }
+}
+#[repr(C)]
+pub struct IDragItemsStartingEventArgs_Vtbl {
+    pub base__: windows_core::IInspectable_Vtbl,
+    Cancel: usize,
+    pub SetCancel: unsafe extern "system" fn(*mut core::ffi::c_void, bool) -> windows_core::HRESULT,
+    pub Items: unsafe extern "system" fn(*mut core::ffi::c_void, *mut *mut core::ffi::c_void) -> windows_core::HRESULT,
+    pub Data: unsafe extern "system" fn(*mut core::ffi::c_void, *mut *mut core::ffi::c_void) -> windows_core::HRESULT,
+}
 windows_core::imp::define_interface!(IDropDownButton, IDropDownButton_Vtbl, 0xc1e9fa91_4f95_5796_8a7b_3b7594a12c69);
 impl windows_core::RuntimeType for IDropDownButton {
     const SIGNATURE: windows_core::imp::ConstBuffer = windows_core::imp::ConstBuffer::for_interface::<Self>();
@@ -5192,6 +5496,104 @@ pub struct IFileOpenPickerFactory_Vtbl {
         WindowId,
         *mut *mut core::ffi::c_void,
     ) -> windows_core::HRESULT,
+}
+windows_core::imp::define_interface!(IFileOperation, IFileOperation_Vtbl, 0x947aab5f_0a5c_4c13_b4d6_4bf7836fc9f8);
+windows_core::imp::interface_hierarchy!(IFileOperation, windows_core::IUnknown);
+impl IFileOperation {
+    pub unsafe fn SetOperationFlags(&self, dwoperationflags: u32) -> windows_core::HRESULT {
+        unsafe {
+            (windows_core::Interface::vtable(self).SetOperationFlags)(
+                windows_core::Interface::as_raw(self),
+                dwoperationflags,
+            )
+        }
+    }
+    pub unsafe fn SetOwnerWindow(&self, hwndowner: HWND) -> windows_core::HRESULT {
+        unsafe {
+            (windows_core::Interface::vtable(self).SetOwnerWindow)(windows_core::Interface::as_raw(self), hwndowner)
+        }
+    }
+    pub unsafe fn DeleteItem<P0, P1>(&self, psiitem: P0, pfopsitem: P1) -> windows_core::HRESULT
+    where
+        P0: windows_core::Param<IShellItem>,
+        P1: windows_core::Param<IFileOperationProgressSink>,
+    {
+        unsafe {
+            (windows_core::Interface::vtable(self).DeleteItem)(
+                windows_core::Interface::as_raw(self),
+                psiitem.param().abi(),
+                pfopsitem.param().abi(),
+            )
+        }
+    }
+    pub unsafe fn PerformOperations(&self) -> windows_core::HRESULT {
+        unsafe { (windows_core::Interface::vtable(self).PerformOperations)(windows_core::Interface::as_raw(self)) }
+    }
+    pub unsafe fn GetAnyOperationsAborted(&self) -> windows_core::Result<windows_core::BOOL> {
+        unsafe {
+            let mut result__ = core::mem::zeroed();
+            (windows_core::Interface::vtable(self).GetAnyOperationsAborted)(
+                windows_core::Interface::as_raw(self),
+                &mut result__,
+            )
+            .map(|| result__)
+        }
+    }
+}
+#[repr(C)]
+pub struct IFileOperation_Vtbl {
+    pub base__: windows_core::IUnknown_Vtbl,
+    Advise: usize,
+    Unadvise: usize,
+    pub SetOperationFlags: unsafe extern "system" fn(*mut core::ffi::c_void, u32) -> windows_core::HRESULT,
+    SetProgressMessage: usize,
+    SetProgressDialog: usize,
+    SetProperties: usize,
+    pub SetOwnerWindow: unsafe extern "system" fn(*mut core::ffi::c_void, HWND) -> windows_core::HRESULT,
+    ApplyPropertiesToItem: usize,
+    ApplyPropertiesToItems: usize,
+    RenameItem: usize,
+    RenameItems: usize,
+    MoveItem: usize,
+    MoveItems: usize,
+    CopyItem: usize,
+    CopyItems: usize,
+    pub DeleteItem: unsafe extern "system" fn(
+        *mut core::ffi::c_void,
+        *mut core::ffi::c_void,
+        *mut core::ffi::c_void,
+    ) -> windows_core::HRESULT,
+    DeleteItems: usize,
+    NewItem: usize,
+    pub PerformOperations: unsafe extern "system" fn(*mut core::ffi::c_void) -> windows_core::HRESULT,
+    pub GetAnyOperationsAborted:
+        unsafe extern "system" fn(*mut core::ffi::c_void, *mut windows_core::BOOL) -> windows_core::HRESULT,
+}
+windows_core::imp::define_interface!(
+    IFileOperationProgressSink,
+    IFileOperationProgressSink_Vtbl,
+    0x04b0f1a7_9490_44bc_96e1_4296a31252e2
+);
+windows_core::imp::interface_hierarchy!(IFileOperationProgressSink, windows_core::IUnknown);
+#[repr(C)]
+pub struct IFileOperationProgressSink_Vtbl {
+    pub base__: windows_core::IUnknown_Vtbl,
+    StartOperations: usize,
+    FinishOperations: usize,
+    PreRenameItem: usize,
+    PostRenameItem: usize,
+    PreMoveItem: usize,
+    PostMoveItem: usize,
+    PreCopyItem: usize,
+    PostCopyItem: usize,
+    PreDeleteItem: usize,
+    PostDeleteItem: usize,
+    PreNewItem: usize,
+    PostNewItem: usize,
+    UpdateProgress: usize,
+    ResetTimer: usize,
+    PauseTimer: usize,
+    ResumeTimer: usize,
 }
 windows_core::imp::define_interface!(IFileSavePicker, IFileSavePicker_Vtbl, 0x79f1f4df_741b_59b2_aa06_fe9ac817b7dd);
 impl windows_core::RuntimeType for IFileSavePicker {
@@ -6343,6 +6745,18 @@ impl IListViewBase {
             (windows_core::Interface::vtable(self).SetSelectionMode)(windows_core::Interface::as_raw(self), value).ok()
         }
     }
+    pub fn CanDragItems(&self) -> windows_core::Result<bool> {
+        unsafe {
+            let mut result__ = core::mem::zeroed();
+            (windows_core::Interface::vtable(self).CanDragItems)(windows_core::Interface::as_raw(self), &mut result__)
+                .map(|| result__)
+        }
+    }
+    pub fn SetCanDragItems(&self, value: bool) -> windows_core::Result<()> {
+        unsafe {
+            (windows_core::Interface::vtable(self).SetCanDragItems)(windows_core::Interface::as_raw(self), value).ok()
+        }
+    }
     pub fn SingleSelectionFollowsFocus(&self) -> windows_core::Result<bool> {
         unsafe {
             let mut result__ = core::mem::zeroed();
@@ -6360,6 +6774,32 @@ impl IListViewBase {
                 value,
             )
             .ok()
+        }
+    }
+    pub fn DragItemsStarting<F>(&self, handler: F) -> windows_core::Result<windows_core::EventRevoker>
+    where
+        F: Fn(windows_core::Ref<windows_core::IInspectable>, windows_core::Ref<DragItemsStartingEventArgs>) + 'static,
+    {
+        let handler: DragItemsStartingEventHandler = {
+            let com = windows_core::imp::DelegateBox::<DragItemsStartingEventHandler, F>::new(
+                &DragItemsStartingEventHandlerBox::<F>::VTABLE,
+                handler,
+            );
+            unsafe { core::mem::transmute(windows_core::imp::box_new(com)) }
+        };
+        unsafe {
+            let mut result__ = core::mem::zeroed();
+            let token__ = (windows_core::Interface::vtable(self).DragItemsStarting)(
+                windows_core::Interface::as_raw(self),
+                windows_core::Interface::as_raw(&handler),
+                &mut result__,
+            )
+            .map(|| result__)?;
+            Ok(windows_core::EventRevoker::new(
+                self.clone(),
+                token__,
+                windows_core::Interface::vtable(self).RemoveDragItemsStarting,
+            ))
         }
     }
     pub fn ContainerContentChanging<F>(&self, handler: F) -> windows_core::Result<windows_core::EventRevoker>
@@ -6414,8 +6854,8 @@ pub struct IListViewBase_Vtbl {
         unsafe extern "system" fn(*mut core::ffi::c_void, ListViewSelectionMode) -> windows_core::HRESULT,
     IsSwipeEnabled: usize,
     SetIsSwipeEnabled: usize,
-    CanDragItems: usize,
-    SetCanDragItems: usize,
+    pub CanDragItems: unsafe extern "system" fn(*mut core::ffi::c_void, *mut bool) -> windows_core::HRESULT,
+    pub SetCanDragItems: unsafe extern "system" fn(*mut core::ffi::c_void, bool) -> windows_core::HRESULT,
     CanReorderItems: usize,
     SetCanReorderItems: usize,
     IsItemClickEnabled: usize,
@@ -6439,8 +6879,9 @@ pub struct IListViewBase_Vtbl {
         unsafe extern "system" fn(*mut core::ffi::c_void, bool) -> windows_core::HRESULT,
     ItemClick: usize,
     RemoveItemClick: usize,
-    DragItemsStarting: usize,
-    RemoveDragItemsStarting: usize,
+    pub DragItemsStarting:
+        unsafe extern "system" fn(*mut core::ffi::c_void, *mut core::ffi::c_void, *mut i64) -> windows_core::HRESULT,
+    pub RemoveDragItemsStarting: unsafe extern "system" fn(*mut core::ffi::c_void, i64) -> windows_core::HRESULT,
     DragItemsCompleted: usize,
     RemoveDragItemsCompleted: usize,
     pub ContainerContentChanging:
@@ -9510,6 +9951,43 @@ impl windows_core::RuntimeType for ISelectorItem {
 pub struct ISelectorItem_Vtbl {
     pub base__: windows_core::IInspectable_Vtbl,
 }
+windows_core::imp::define_interface!(IShellItem, IShellItem_Vtbl, 0x43826d1e_e718_42ee_bc55_a1e261c37bfe);
+windows_core::imp::interface_hierarchy!(IShellItem, windows_core::IUnknown);
+#[repr(C)]
+pub struct IShellItem_Vtbl {
+    pub base__: windows_core::IUnknown_Vtbl,
+    BindToHandler: usize,
+    GetParent: usize,
+    GetDisplayName: usize,
+    GetAttributes: usize,
+    Compare: usize,
+}
+windows_core::imp::define_interface!(
+    IShellItemImageFactory,
+    IShellItemImageFactory_Vtbl,
+    0xbcc18b79_ba16_442f_80c4_8a59c30c463b
+);
+windows_core::imp::interface_hierarchy!(IShellItemImageFactory, windows_core::IUnknown);
+impl IShellItemImageFactory {
+    pub unsafe fn GetImage(&self, size: SIZE, flags: SIIGBF) -> windows_core::Result<HBITMAP> {
+        unsafe {
+            let mut result__ = core::mem::zeroed();
+            (windows_core::Interface::vtable(self).GetImage)(
+                windows_core::Interface::as_raw(self),
+                size,
+                flags,
+                &mut result__,
+            )
+            .map(|| result__)
+        }
+    }
+}
+#[repr(C)]
+pub struct IShellItemImageFactory_Vtbl {
+    pub base__: windows_core::IUnknown_Vtbl,
+    pub GetImage:
+        unsafe extern "system" fn(*mut core::ffi::c_void, SIZE, SIIGBF, *mut HBITMAP) -> windows_core::HRESULT,
+}
 windows_core::imp::define_interface!(
     ISizeChangedEventArgs,
     ISizeChangedEventArgs_Vtbl,
@@ -9695,6 +10173,58 @@ pub struct IStandardDataFormatsStatics_Vtbl {
     Bitmap: usize,
     pub StorageItems:
         unsafe extern "system" fn(*mut core::ffi::c_void, *mut *mut core::ffi::c_void) -> windows_core::HRESULT,
+}
+windows_core::imp::define_interface!(IStorageFile, IStorageFile_Vtbl, 0xfa3f6186_4214_428c_a64c_14c9ac7315ea);
+impl windows_core::RuntimeType for IStorageFile {
+    const SIGNATURE: windows_core::imp::ConstBuffer = windows_core::imp::ConstBuffer::for_interface::<Self>();
+}
+windows_core::imp::interface_hierarchy!(IStorageFile, windows_core::IUnknown, windows_core::IInspectable);
+#[repr(C)]
+pub struct IStorageFile_Vtbl {
+    pub base__: windows_core::IInspectable_Vtbl,
+}
+windows_core::imp::define_interface!(
+    IStorageFileStatics,
+    IStorageFileStatics_Vtbl,
+    0x5984c710_daf2_43c8_8bb4_a4d3eacfd03f
+);
+impl windows_core::RuntimeType for IStorageFileStatics {
+    const SIGNATURE: windows_core::imp::ConstBuffer = windows_core::imp::ConstBuffer::for_interface::<Self>();
+}
+#[repr(C)]
+pub struct IStorageFileStatics_Vtbl {
+    pub base__: windows_core::IInspectable_Vtbl,
+    pub GetFileFromPathAsync: unsafe extern "system" fn(
+        *mut core::ffi::c_void,
+        *mut core::ffi::c_void,
+        *mut *mut core::ffi::c_void,
+    ) -> windows_core::HRESULT,
+}
+windows_core::imp::define_interface!(IStorageFolder, IStorageFolder_Vtbl, 0x72d1cb78_b3ef_4f75_a80b_6fd9dae2944b);
+impl windows_core::RuntimeType for IStorageFolder {
+    const SIGNATURE: windows_core::imp::ConstBuffer = windows_core::imp::ConstBuffer::for_interface::<Self>();
+}
+windows_core::imp::interface_hierarchy!(IStorageFolder, windows_core::IUnknown, windows_core::IInspectable);
+#[repr(C)]
+pub struct IStorageFolder_Vtbl {
+    pub base__: windows_core::IInspectable_Vtbl,
+}
+windows_core::imp::define_interface!(
+    IStorageFolderStatics,
+    IStorageFolderStatics_Vtbl,
+    0x08f327ff_85d5_48b9_aee9_28511e339f9f
+);
+impl windows_core::RuntimeType for IStorageFolderStatics {
+    const SIGNATURE: windows_core::imp::ConstBuffer = windows_core::imp::ConstBuffer::for_interface::<Self>();
+}
+#[repr(C)]
+pub struct IStorageFolderStatics_Vtbl {
+    pub base__: windows_core::IInspectable_Vtbl,
+    pub GetFolderFromPathAsync: unsafe extern "system" fn(
+        *mut core::ffi::c_void,
+        *mut core::ffi::c_void,
+        *mut *mut core::ffi::c_void,
+    ) -> windows_core::HRESULT,
 }
 windows_core::imp::define_interface!(IStorageItem, IStorageItem_Vtbl, 0x4207a996_ca2f_42f7_bde8_8b10457a7f30);
 impl windows_core::RuntimeType for IStorageItem {
@@ -14732,6 +15262,93 @@ impl<F: Fn(windows_core::Ref<windows_core::IInspectable>, windows_core::Ref<Rout
         }
     }
 }
+#[repr(C, packed(1))]
+#[cfg(target_arch = "x86")]
+#[derive(Clone, Copy)]
+pub struct SHELLEXECUTEINFOW {
+    pub cbSize: u32,
+    pub fMask: u32,
+    pub hwnd: HWND,
+    pub lpVerb: windows_core::PCWSTR,
+    pub lpFile: windows_core::PCWSTR,
+    pub lpParameters: windows_core::PCWSTR,
+    pub lpDirectory: windows_core::PCWSTR,
+    pub nShow: i32,
+    pub hInstApp: HINSTANCE,
+    pub lpIDList: *mut core::ffi::c_void,
+    pub lpClass: windows_core::PCWSTR,
+    pub hkeyClass: HKEY,
+    pub dwHotKey: u32,
+    pub Anonymous: SHELLEXECUTEINFOW_0,
+    pub hProcess: HANDLE,
+}
+#[cfg(target_arch = "x86")]
+impl Default for SHELLEXECUTEINFOW {
+    fn default() -> Self {
+        unsafe { core::mem::zeroed() }
+    }
+}
+#[repr(C, packed(1))]
+#[cfg(target_arch = "x86")]
+#[derive(Clone, Copy)]
+pub union SHELLEXECUTEINFOW_0 {
+    pub hIcon: HANDLE,
+    pub hMonitor: HANDLE,
+}
+#[cfg(target_arch = "x86")]
+impl Default for SHELLEXECUTEINFOW_0 {
+    fn default() -> Self {
+        unsafe { core::mem::zeroed() }
+    }
+}
+#[repr(C)]
+#[cfg(any(target_arch = "aarch64", target_arch = "arm64ec", target_arch = "x86_64"))]
+#[derive(Clone, Copy)]
+pub struct SHELLEXECUTEINFOW {
+    pub cbSize: u32,
+    pub fMask: u32,
+    pub hwnd: HWND,
+    pub lpVerb: windows_core::PCWSTR,
+    pub lpFile: windows_core::PCWSTR,
+    pub lpParameters: windows_core::PCWSTR,
+    pub lpDirectory: windows_core::PCWSTR,
+    pub nShow: i32,
+    pub hInstApp: HINSTANCE,
+    pub lpIDList: *mut core::ffi::c_void,
+    pub lpClass: windows_core::PCWSTR,
+    pub hkeyClass: HKEY,
+    pub dwHotKey: u32,
+    pub Anonymous: SHELLEXECUTEINFOW_0,
+    pub hProcess: HANDLE,
+}
+#[cfg(any(target_arch = "aarch64", target_arch = "arm64ec", target_arch = "x86_64"))]
+impl Default for SHELLEXECUTEINFOW {
+    fn default() -> Self {
+        unsafe { core::mem::zeroed() }
+    }
+}
+#[repr(C)]
+#[cfg(any(target_arch = "aarch64", target_arch = "arm64ec", target_arch = "x86_64"))]
+#[derive(Clone, Copy)]
+pub union SHELLEXECUTEINFOW_0 {
+    pub hIcon: HANDLE,
+    pub hMonitor: HANDLE,
+}
+#[cfg(any(target_arch = "aarch64", target_arch = "arm64ec", target_arch = "x86_64"))]
+impl Default for SHELLEXECUTEINFOW_0 {
+    fn default() -> Self {
+        unsafe { core::mem::zeroed() }
+    }
+}
+pub type SIIGBF = i32;
+pub const SIIGBF_ICONONLY: SIIGBF = 4;
+pub const SIIGBF_RESIZETOFIT: SIIGBF = 0;
+#[repr(C)]
+#[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
+pub struct SIZE {
+    pub cx: i32,
+    pub cy: i32,
+}
 pub const STATEREPOSITORY_E_DEPENDENCY_NOT_RESOLVED: windows_core::HRESULT = windows_core::HRESULT(0x80670016_u32 as _);
 pub type SUBCLASSPROC = Option<
     unsafe extern "system" fn(
@@ -14746,6 +15363,7 @@ pub type SUBCLASSPROC = Option<
 pub const SWP_HIDEWINDOW: i32 = 128;
 pub const SWP_NOACTIVATE: i32 = 16;
 pub const SWP_SHOWWINDOW: i32 = 64;
+pub const SW_SHOWNORMAL: i32 = 1;
 #[repr(transparent)]
 #[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
 pub struct ScrollBarVisibility(pub i32);
@@ -15389,6 +16007,92 @@ impl StandardDataFormats {
 }
 impl windows_core::RuntimeName for StandardDataFormats {
     const NAME: &'static str = "Windows.ApplicationModel.DataTransfer.StandardDataFormats";
+}
+#[repr(transparent)]
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct StorageFile(windows_core::IUnknown);
+windows_core::imp::interface_hierarchy!(StorageFile, windows_core::IUnknown, windows_core::IInspectable, IStorageFile);
+impl StorageFile {
+    pub fn GetFileFromPathAsync(path: &str) -> windows_core::Result<windows_future::IAsyncOperation<Self>> {
+        Self::IStorageFileStatics(|this| unsafe {
+            let mut result__ = core::mem::zeroed();
+            (windows_core::Interface::vtable(this).GetFileFromPathAsync)(
+                windows_core::Interface::as_raw(this),
+                core::mem::transmute_copy(&windows_core::HSTRING::from(path)),
+                &mut result__,
+            )
+            .and_then(|| windows_core::imp::Type::from_abi(result__))
+        })
+    }
+    fn IStorageFileStatics<R, F: FnOnce(&IStorageFileStatics) -> windows_core::Result<R>>(
+        callback: F,
+    ) -> windows_core::Result<R> {
+        static SHARED: windows_core::imp::FactoryCache<StorageFile, IStorageFileStatics> =
+            windows_core::imp::FactoryCache::new();
+        SHARED.call(callback)
+    }
+}
+impl windows_core::RuntimeType for StorageFile {
+    const SIGNATURE: windows_core::imp::ConstBuffer = windows_core::imp::ConstBuffer::for_class::<Self, IStorageFile>();
+}
+unsafe impl windows_core::Interface for StorageFile {
+    type Vtable = <IStorageFile as windows_core::Interface>::Vtable;
+    const IID: windows_core::GUID = <IStorageFile as windows_core::Interface>::IID;
+}
+impl core::ops::Deref for StorageFile {
+    type Target = IStorageFile;
+    fn deref(&self) -> &Self::Target {
+        unsafe { core::mem::transmute(self) }
+    }
+}
+impl windows_core::RuntimeName for StorageFile {
+    const NAME: &'static str = "Windows.Storage.StorageFile";
+}
+#[repr(transparent)]
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct StorageFolder(windows_core::IUnknown);
+windows_core::imp::interface_hierarchy!(
+    StorageFolder,
+    windows_core::IUnknown,
+    windows_core::IInspectable,
+    IStorageFolder
+);
+impl StorageFolder {
+    pub fn GetFolderFromPathAsync(path: &str) -> windows_core::Result<windows_future::IAsyncOperation<Self>> {
+        Self::IStorageFolderStatics(|this| unsafe {
+            let mut result__ = core::mem::zeroed();
+            (windows_core::Interface::vtable(this).GetFolderFromPathAsync)(
+                windows_core::Interface::as_raw(this),
+                core::mem::transmute_copy(&windows_core::HSTRING::from(path)),
+                &mut result__,
+            )
+            .and_then(|| windows_core::imp::Type::from_abi(result__))
+        })
+    }
+    fn IStorageFolderStatics<R, F: FnOnce(&IStorageFolderStatics) -> windows_core::Result<R>>(
+        callback: F,
+    ) -> windows_core::Result<R> {
+        static SHARED: windows_core::imp::FactoryCache<StorageFolder, IStorageFolderStatics> =
+            windows_core::imp::FactoryCache::new();
+        SHARED.call(callback)
+    }
+}
+impl windows_core::RuntimeType for StorageFolder {
+    const SIGNATURE: windows_core::imp::ConstBuffer =
+        windows_core::imp::ConstBuffer::for_class::<Self, IStorageFolder>();
+}
+unsafe impl windows_core::Interface for StorageFolder {
+    type Vtable = <IStorageFolder as windows_core::Interface>::Vtable;
+    const IID: windows_core::GUID = <IStorageFolder as windows_core::Interface>::IID;
+}
+impl core::ops::Deref for StorageFolder {
+    type Target = IStorageFolder;
+    fn deref(&self) -> &Self::Target {
+        unsafe { core::mem::transmute(self) }
+    }
+}
+impl windows_core::RuntimeName for StorageFolder {
+    const NAME: &'static str = "Windows.Storage.StorageFolder";
 }
 #[repr(transparent)]
 #[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]

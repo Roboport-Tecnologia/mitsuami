@@ -7,7 +7,8 @@
 //! The `sidebar` example isn't one of them, as the showcase is one.
 //!
 //! - Every page scrolls when it's taller than the window. The ones sized
-//!   to fill theirs (File drop, GPU surface, Icon, Measurements, Tabs)
+//!   to fill theirs (File drop, GPU surface, Icon, Measurements, Tabs, and
+//!   the Files pages)
 //!   fill the page when it's taller than they need.
 //! - Leaving a page drops it and its state, as closing its window would;
 //!   the Menus page takes the app's menus with it, the GPU surface page
@@ -36,6 +37,12 @@ mod file_drop;
 #[path = "../../gpu-surface/src/main.rs"]
 mod gpu_surface;
 #[allow(dead_code, unused_attributes)]
+#[path = "../../../crates/mitsuami/examples/file_drag.rs"]
+mod file_drag;
+#[allow(dead_code, unused_attributes)]
+#[path = "../../../crates/mitsuami/examples/file_icon.rs"]
+mod file_icon;
+#[allow(dead_code, unused_attributes)]
 #[path = "../../../crates/mitsuami/examples/group.rs"]
 mod group;
 #[allow(dead_code, unused_attributes)]
@@ -44,6 +51,9 @@ mod icon;
 #[allow(dead_code, unused_attributes)]
 #[path = "../../../crates/mitsuami/examples/image.rs"]
 mod image;
+#[allow(dead_code, unused_attributes)]
+#[path = "../../../crates/mitsuami/examples/launch.rs"]
+mod launch;
 #[allow(dead_code, unused_attributes)]
 #[path = "../../../crates/mitsuami/examples/list.rs"]
 mod list;
@@ -108,6 +118,9 @@ mod toolbar;
 #[path = "../../../crates/mitsuami/examples/tooltip.rs"]
 mod tooltip;
 #[allow(dead_code, unused_attributes)]
+#[path = "../../../crates/mitsuami/examples/trash.rs"]
+mod trash;
+#[allow(dead_code, unused_attributes)]
 #[path = "../../../crates/mitsuami/examples/windows.rs"]
 mod windows;
 
@@ -122,7 +135,7 @@ const fn example(title: &'static str, page: fn() -> AnyView) -> Example {
     Example { title, page }
 }
 
-const SECTIONS: [(&str, &[Example]); 5] = [
+const SECTIONS: [(&str, &[Example]); 6] = [
     (
         "Controls",
         &[
@@ -176,6 +189,15 @@ const SECTIONS: [(&str, &[Example]); 5] = [
             example("Tooltip", || AnyView::new(tooltip::page())),
             example("Windows", || AnyView::new(windows::page())),
             example("File drop", || AnyView::new(file_drop::window())),
+        ],
+    ),
+    (
+        "Files",
+        &[
+            example("File icon", || AnyView::new(file_icon::page())),
+            example("Trash", || AnyView::new(trash::page())),
+            example("Open in another app", || AnyView::new(launch::page())),
+            example("Dragging files out", || AnyView::new(file_drag::page())),
         ],
     ),
 ];

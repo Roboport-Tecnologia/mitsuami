@@ -18,6 +18,7 @@
 
 use std::cell::RefCell;
 use std::collections::{HashMap, HashSet};
+use std::path::{Path, PathBuf};
 use std::rc::Rc;
 
 use mitsuami_core::{
@@ -53,6 +54,8 @@ struct Data {
     style: Option<ListStyle>,
     /// The width last reported for rows.
     row_width: Option<f64>,
+    /// The rows' files, as the app gave them (`Prop::RowFiles`).
+    files: Option<Vec<(RowKey, PathBuf)>>,
 }
 
 pub(crate) struct List {
@@ -64,6 +67,42 @@ pub(crate) struct List {
     id: NodeId,
     events: Events,
     data: Rc<RefCell<Data>>,
+}
+
+/// A path as a `file://` URL, as `text/uri-list` holds them: bytes other
+/// than unreserved ones and `/` percent-encoded.
+fn file_url(path: &Path) -> String {
+    use std::os::unix::ffi::OsStrExt;
+    let mut url = String::from("file://");
+    for &byte in path.as_os_str().as_bytes() {
+        match byte {
+            b'A'..=b'Z' | b'a'..=b'z' | b'0'..=b'9' | b'-' | b'.' | b'_' | b'~' | b'/' => url.push(byte as char),
+            _ => url.push_str(&format!("%{byte:02X}")),
+        }
+    }
+    url
+}
+
+/// The path of a `file://` URL.
+fn local_path(url: &str) -> Option<PathBuf> {
+    use std::os::unix::ffi::OsStringExt;
+    let encoded = url.strip_prefix("file://")?.as_bytes();
+    let mut bytes = Vec::with_capacity(encoded.len());
+    let mut i = 0;
+    while i < encoded.len() {
+        let hex = encoded.get(i + 1..i + 3).and_then(|h| u8::from_str_radix(std::str::from_utf8(h).ok()?, 16).ok());
+        match (encoded[i], hex) {
+            (b'%', Some(byte)) => {
+                bytes.push(byte);
+                i += 3;
+            }
+            (byte, _) => {
+                bytes.push(byte);
+                i += 1;
+            }
+        }
+    }
+    Some(PathBuf::from(std::ffi::OsString::from_vec(bytes)))
 }
 
 fn parse(key: &str) -> Option<RowKey> {
@@ -164,6 +203,27 @@ impl List {
         if kept != selected {
             self.events.emit_always(self.id, UiEvent::Changed(EventValue::Rows(kept)));
         }
+    }
+
+    /// The rows' files, which the view's delegates drag (see `qml::list`).
+    pub(crate) fn set_row_files(&self, files: Vec<(RowKey, PathBuf)>) {
+        let keys: Vec<String> = files.iter().map(|(k, _)| k.0.to_string()).collect();
+        let urls: Vec<String> = files.iter().map(|(_, path)| file_url(path)).collect();
+        self.view.set_str_list("mitsuamiFileKeys", &keys);
+        self.view.set_str_list("mitsuamiFileUrls", &urls);
+        self.data.borrow_mut().files = Some(files);
+    }
+
+    pub(crate) fn row_files(&self) -> Option<Vec<(RowKey, PathBuf)>> {
+        self.data.borrow().files.clone()
+    }
+
+    /// What dragging a mounted row carries: its delegate's drag's URLs,
+    /// as QML makes them from the selection.
+    pub(crate) fn dragged_files(&self, host: QmlObject) -> Option<Vec<PathBuf>> {
+        let urls = delegate_holding(host)?.str_list("mitsuamiDragUrls");
+        let paths: Vec<PathBuf> = urls.iter().filter_map(|url| local_path(url)).collect();
+        (!paths.is_empty()).then_some(paths)
     }
 
     /// The selection is ours: keep what the new mode holds, the first row

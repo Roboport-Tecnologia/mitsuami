@@ -12,14 +12,16 @@
 //! - Right-click an item to open, rename, duplicate, trash it, or copy its
 //!   path; right-click the list's background to make a folder.
 //! - Drop files from another file manager on the list: they're copied in.
+//!   Drag items out to the file manager, Mail or another app: a copy.
 //! - The preview shows the selection: a picture, a text file's first
 //!   lines, a folder's item count.
 //! - The path bar along the bottom goes to any folder above this one:
 //!   `NSPathControl` on macOS, `BreadcrumbBar` on Windows, and buttons as
 //!   Nautilus and Dolphin have them elsewhere (`path_bar/`).
-//! - Items show the icons the platform's file manager gives them, where
-//!   the app can get them (`file_icon/`); trashing puts them in the
-//!   platform's trash, and opening asks the platform.
+//! - Items show the icons the platform's file manager gives them, and the
+//!   preview a document's thumbnail (mitsuami's `FileIcon`). Trashing puts
+//!   them in the platform's trash, and opening asks the platform
+//!   (mitsuami's `trash` and `launch` services).
 //! - The window's menus have it all again, with the platform's file
 //!   manager's shortcuts (⌘⌫ and ⌘↑ in Finder; Delete, F2 and Alt+↑
 //!   elsewhere), and Go to Folder… (⌘⇧G, Ctrl+Shift+G) for a typed path.
@@ -31,7 +33,6 @@
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
 mod browser;
-mod file_icon;
 mod fs;
 mod path_bar;
 mod screen;

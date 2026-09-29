@@ -5,12 +5,15 @@
 #include <QApplication>
 #include <QClipboard>
 #include <QCursor>
+#include <QDesktopServices>
+#include <QFile>
 #include <QFontInfo>
 #include <QHash>
 #include <QIcon>
 #include <QImage>
 #include <QKeyEvent>
 #include <QMimeData>
+#include <QMimeDatabase>
 #include <QMouseEvent>
 #include <QPainter>
 #include <QPainterPath>
@@ -864,6 +867,26 @@ char* mq_clipboard_text(void) {
 }
 
 void mq_set_clipboard_text(const char* text) { QGuiApplication::clipboard()->setText(QString::fromUtf8(text)); }
+
+// The freedesktop.org trash, with the .trashinfo Dolphin restores from.
+char* mq_trash(const char* path) {
+    QFile file(QString::fromUtf8(path));
+    if (file.moveToTrash()) return nullptr;
+    return dup(file.errorString());
+}
+
+// What Dolphin shows without a thumbnail: the MIME type's icon, found by
+// name and content, and its generic one for themes without it.
+char* mq_mime_icon(const char* path) {
+    QMimeType type = QMimeDatabase().mimeTypeForFile(QString::fromUtf8(path));
+    return dup(type.iconName() + QLatin1Char('\n') + type.genericIconName());
+}
+
+// kde-open (or xdg-open, or the portal), as KDE apps open files and links.
+int32_t mq_open_url(const char* target, int32_t is_path) {
+    QString text = QString::fromUtf8(target);
+    return QDesktopServices::openUrl(is_path ? QUrl::fromLocalFile(text) : QUrl(text));
+}
 }
 
 // ------------------------------------------------------------ GPU surfaces

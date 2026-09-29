@@ -117,7 +117,7 @@ Microsoft.UI.Xaml.Controls.IScrollViewer::{get_HorizontalOffset, get_IsScrollIne
 Microsoft.UI.Xaml.Controls.ScrollBarVisibility
 Microsoft.UI.Xaml.Controls.ScrollMode
 Microsoft.UI.Xaml.Controls.ListView::CreateInstance
-Microsoft.UI.Xaml.Controls.IListViewBase::{get_SelectionMode, get_SingleSelectionFollowsFocus, put_SingleSelectionFollowsFocus, put_SelectionMode, get_SelectedItems, ScrollIntoView, add_ContainerContentChanging, remove_ContainerContentChanging}
+Microsoft.UI.Xaml.Controls.IListViewBase::{get_SelectionMode, get_SingleSelectionFollowsFocus, put_SingleSelectionFollowsFocus, put_SelectionMode, get_SelectedItems, ScrollIntoView, add_ContainerContentChanging, remove_ContainerContentChanging, get_CanDragItems, put_CanDragItems, add_DragItemsStarting, remove_DragItemsStarting}
 Microsoft.UI.Xaml.Controls.ListViewSelectionMode
 Microsoft.UI.Xaml.Controls.IContainerContentChangingEventArgs::{get_ItemContainer, get_InRecycleQueue, get_Item, put_Handled}
 Microsoft.UI.Xaml.Controls.ListViewItem::{}
@@ -177,7 +177,7 @@ Windows.Storage.Streams.IDataReader::ReadBytes
 Windows.Storage.Streams.IBuffer::get_Length
 Windows.ApplicationModel.DataTransfer.Clipboard::{GetContent, SetContent, Flush}
 Windows.ApplicationModel.DataTransfer.DataPackage::CreateInstance
-Windows.ApplicationModel.DataTransfer.IDataPackage::SetText
+Windows.ApplicationModel.DataTransfer.IDataPackage::{SetText, SetDataProvider, put_RequestedOperation}
 Windows.ApplicationModel.DataTransfer.IDataPackageView::{Contains, GetTextAsync, GetStorageItemsAsync}
 Windows.ApplicationModel.DataTransfer.StandardDataFormats::{get_Text, get_StorageItems}
 Windows.ApplicationModel.DataTransfer.DataPackageOperation
@@ -456,3 +456,44 @@ Microsoft.UI.Xaml.Controls.BreadcrumbBar::CreateInstance
 Microsoft.UI.Xaml.Controls.IBreadcrumbBar::{get_ItemsSource, put_ItemsSource, add_ItemClicked, remove_ItemClicked}
 Microsoft.UI.Xaml.Controls.BreadcrumbBarItemClickedEventArgs::{}
 Microsoft.UI.Xaml.Controls.IBreadcrumbBarItemClickedEventArgs::get_Index
+Windows.Win32.IFileOperation::{SetOperationFlags, SetOwnerWindow, DeleteItem, PerformOperations, GetAnyOperationsAborted}
+Windows.Win32.FileOperation
+Windows.Win32.IShellItem::{}
+Windows.Win32.SHCreateItemFromParsingName
+Windows.Win32.CoCreateInstance
+Windows.Win32.CLSCTX_ALL
+Windows.Win32.FOF_ALLOWUNDO
+Windows.Win32.FOFX_RECYCLEONDELETE
+Windows.Win32.COPYENGINE_E_USER_CANCELLED
+Windows.Win32.ERROR_CANCELLED
+Windows.Win32.ShellExecuteExW
+Windows.Win32.SHELLEXECUTEINFOW
+Windows.Win32.SW_SHOWNORMAL
+Windows.Win32.GetLastError
+Windows.Win32.ERROR_NO_ASSOCIATION
+Windows.Win32.IShellItemImageFactory::GetImage
+Windows.Win32.SIIGBF_ICONONLY
+Windows.Win32.SIIGBF_RESIZETOFIT
+Windows.Win32.SIZE
+Windows.Win32.GetObjectW
+Windows.Win32.BITMAP
+Windows.Win32.GetDIBits
+Windows.Win32.BITMAPINFO
+Windows.Win32.BITMAPINFOHEADER
+Windows.Win32.DIB_RGB_COLORS
+Windows.Win32.BI_RGB
+Windows.Win32.CreateCompatibleDC
+Windows.Win32.DeleteDC
+Windows.Win32.DeleteObject
+Windows.Win32.COINIT_MULTITHREADED
+Windows.Win32.CoUninitialize
+Microsoft.UI.Xaml.Controls.DragItemsStartingEventHandler
+Microsoft.UI.Xaml.Controls.DragItemsStartingEventArgs::{}
+Microsoft.UI.Xaml.Controls.IDragItemsStartingEventArgs::{get_Items, get_Data, put_Cancel}
+Windows.ApplicationModel.DataTransfer.DataProviderHandler
+Windows.ApplicationModel.DataTransfer.DataProviderRequest::{}
+Windows.ApplicationModel.DataTransfer.IDataProviderRequest::{GetDeferral, SetData}
+Windows.ApplicationModel.DataTransfer.DataProviderDeferral::{}
+Windows.ApplicationModel.DataTransfer.IDataProviderDeferral::Complete
+Windows.Storage.StorageFile::GetFileFromPathAsync
+Windows.Storage.StorageFolder::GetFolderFromPathAsync

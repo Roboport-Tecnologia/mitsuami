@@ -1,4 +1,4 @@
-//! Clipboard, dialogs and menus on KDE.
+//! Clipboard, dialogs, the trash, launching and menus on KDE.
 //!
 //! Kirigami apps put their menus in a global drawer shown as a menu
 //! (`isMenu`): a hamburger button in the page toolbar, one submenu per app
@@ -16,8 +16,8 @@ use std::path::PathBuf;
 use std::rc::Rc;
 
 use mitsuami_core::services::{
-    Alert, AlertStyle, FileFilter, MenuBarData, MenuCheck, MenuData, MenuEntry, MenuItemData, MenuRole, OpenFile,
-    Reply, SaveFile, ServiceError, Services, Shortcut, existing_folder,
+    Alert, AlertStyle, FileFilter, Launch, MenuBarData, MenuCheck, MenuData, MenuEntry, MenuItemData, MenuRole,
+    OpenFile, Reply, SaveFile, ServiceError, Services, Shortcut, existing_folder,
 };
 use mitsuami_core::{Key, NodeId};
 
@@ -598,6 +598,24 @@ impl Services for KirigamiServices {
         dialog.connect("accepted()", move || accepted(dialog.paths("selectedFile").into_iter().next()));
         dialog.connect("rejected()", move || answer(None));
         self.open_dialog(dialog, parent);
+    }
+
+    /// Qt's trash (`QFile::moveToTrash`) is the freedesktop.org one KIO
+    /// uses, so Dolphin restores from it. It moves synchronously, and
+    /// doesn't say when a disk has no trash, so every failure is `Failed`.
+    fn trash(&mut self, _parent: Option<NodeId>, paths: &[PathBuf], reply: Reply<Result<(), ServiceError>>) {
+        reply(paths.iter().try_for_each(|path| ffi::trash(path).map_err(ServiceError::Failed)));
+    }
+
+    /// `QDesktopServices::openUrl`: kde-open on Plasma, the portal in a
+    /// sandbox. Qt only says whether it worked, and what fails is nearly
+    /// always that no app opens it, so a failure is `Unavailable`.
+    fn launch(&mut self, _parent: Option<NodeId>, target: &Launch, reply: Reply<Result<(), ServiceError>>) {
+        let opened = match target {
+            Launch::Path(path) => ffi::open_url(&path.to_string_lossy(), true),
+            Launch::Url(url) => ffi::open_url(url, false),
+        };
+        reply(if opened { Ok(()) } else { Err(ServiceError::Unavailable) });
     }
 
     fn set_menu(&mut self, window: Option<NodeId>, menu: &MenuBarData, activate: Rc<dyn Fn(u32)>) {

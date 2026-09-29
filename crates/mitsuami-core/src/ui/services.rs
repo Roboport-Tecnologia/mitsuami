@@ -1,10 +1,11 @@
-//! Platform services on a `Ui`: the clipboard, dialogs, menus and quitting.
+//! Platform services on a `Ui`: the clipboard, dialogs, the trash,
+//! launching, menus and quitting.
 
 use std::rc::Rc;
 
 use crate::command::UiEvent;
 use crate::services::{
-    Alert, MenuBar, MenuBarData, MenuRole, OpenFile, SaveFile, ServiceError, Services, reply_future,
+    Alert, Launch, MenuBar, MenuBarData, MenuRole, OpenFile, SaveFile, ServiceError, Services, reply_future,
 };
 use crate::widget::NodeId;
 
@@ -59,6 +60,28 @@ impl Ui {
         let (reply, answer) = reply_future();
         self.services.borrow_mut().save_file(parent, &request, reply);
         answer
+    }
+
+    /// Moves files and folders to the trash; see [`Services::trash`].
+    pub fn trash(
+        &self,
+        parent: Option<NodeId>,
+        paths: Vec<std::path::PathBuf>,
+    ) -> impl std::future::Future<Output = Result<(), ServiceError>> + use<> {
+        let (reply, done) = reply_future();
+        self.services.borrow_mut().trash(parent, &paths, reply);
+        done
+    }
+
+    /// Opens a file, folder or URL in another app; see [`Services::launch`].
+    pub fn launch(
+        &self,
+        parent: Option<NodeId>,
+        target: Launch,
+    ) -> impl std::future::Future<Output = Result<(), ServiceError>> + use<> {
+        let (reply, done) = reply_future();
+        self.services.borrow_mut().launch(parent, &target, reply);
+        done
     }
 
     /// Installs the app's menus, replacing the ones installed before.

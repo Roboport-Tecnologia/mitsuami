@@ -31,6 +31,7 @@ mod button;
 mod capture;
 mod create;
 mod dialogs;
+mod file_icon;
 mod handle;
 mod input;
 mod measure;
@@ -144,6 +145,14 @@ enum Widget {
         image: gtk::Image,
         size: Option<f32>,
     },
+    /// A file's icon, what the app gave (GTK shows a GIcon, not a path),
+    /// and its size, as `Icon`'s.
+    FileIcon {
+        image: gtk::Image,
+        file: Option<std::path::PathBuf>,
+        thumbnail: Option<bool>,
+        size: Option<f32>,
+    },
     GpuSurface(SurfaceArea),
     Scroll {
         scrolled: gtk::ScrolledWindow,
@@ -196,7 +205,7 @@ impl Widget {
             Widget::Spinner(w) => w.upcast_ref(),
             Widget::Separator(w) => w.upcast_ref(),
             Widget::Picture { picture, .. } => picture.upcast_ref(),
-            Widget::Icon { image, .. } => image.upcast_ref(),
+            Widget::Icon { image, .. } | Widget::FileIcon { image, .. } => image.upcast_ref(),
             Widget::GpuSurface(surface) => surface.area.upcast_ref(),
             Widget::Scroll { scrolled, .. } => scrolled.upcast_ref(),
             Widget::List(list) => list.scrolled.upcast_ref(),

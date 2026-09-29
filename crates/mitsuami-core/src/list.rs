@@ -10,6 +10,7 @@
 use std::cell::RefCell;
 use std::collections::{HashMap, HashSet};
 use std::hash::Hash;
+use std::path::PathBuf;
 use std::rc::Rc;
 
 use mitsuami_reactive::{IntoValue, Owner, Signal, Value, effect, untrack};
@@ -24,6 +25,8 @@ use crate::view::{AnyView, View};
 use crate::widget::{ListStyle, NodeId, Prop, RowKey, SelectionMode, WidgetKind};
 
 pub(crate) type KeyFn<T, K> = Rc<dyn Fn(&T) -> K>;
+/// The file a row's item stands for, which dragging the row carries.
+pub(crate) type FileFn<T> = Rc<dyn Fn(&T) -> Option<PathBuf>>;
 type RowOf<K> = Rc<dyn Fn(&K) -> Option<RowKey>>;
 
 /// How a `List` renders a row.
@@ -59,6 +62,7 @@ pub struct List<T: 'static = (), K: 'static = (), R = RowRender<T>> {
     on_activate: Option<Rc<dyn Fn(K)>>,
     estimate: Option<f32>,
     handle: Option<ListHandle<K>>,
+    files: Option<FileFn<T>>,
 }
 
 impl<T: Clone + 'static, K: Eq + Hash + Clone + 'static> List<T, K> {
@@ -88,7 +92,24 @@ impl<T: 'static, K: 'static, R> List<T, K, R> {
             on_activate: None,
             estimate: None,
             handle: None,
+            files: None,
         }
+    }
+
+    /// Rows can be dragged out of the app, carrying the files their items
+    /// stand for (`None`: that row doesn't drag), to the file manager,
+    /// another app or a folder, as a file manager's rows are: the
+    /// platform's own drag, which drags the selected rows when a selected
+    /// one is dragged. The drag offers to copy, so the files stay where
+    /// they are. Dragging isn't reachable from the keyboard or assistive
+    /// technology, so offer another way too (Copy, Share, Export).
+    ///
+    /// ```ignore
+    /// List::new(..).drag_files(|entry: &Entry| Some(entry.path.clone()))
+    /// ```
+    pub fn drag_files(mut self, file: impl Fn(&T) -> Option<PathBuf> + 'static) -> Self {
+        self.files = Some(Rc::new(file));
+        self
     }
 
     /// Binds the selection, as the selected rows' keys, both ways. Lists
@@ -246,18 +267,20 @@ pub(crate) struct RowParts<T: 'static, K: 'static> {
     pub on_activate: Option<Rc<dyn Fn(K)>>,
     pub estimate: Option<f32>,
     pub handle: Option<ListHandle<K>>,
+    pub files: Option<FileFn<T>>,
 }
 
 impl<T: Clone + 'static, K: Eq + Hash + Clone + 'static> View for List<T, K> {
     fn build(self, ui: &Ui) -> NodeId {
-        let List { element, each, key, render, mode, style, selected, on_activate, estimate, handle } = self;
+        let List { element, each, key, render, mode, style, selected, on_activate, estimate, handle, files } = self;
         let mount: Mount<T> = Rc::new(move |ui: &Ui, row, item| {
             let host = ui.create(WidgetKind::Container, vec![Prop::Row(row)]);
             let content = (render.0)(item).build(ui);
             ui.append_child(host, content);
             vec![host]
         });
-        build_rows(ui, element, RowParts { each, key, mount, mode, style, selected, on_activate, estimate, handle })
+        let parts = RowParts { each, key, mount, mode, style, selected, on_activate, estimate, handle, files };
+        build_rows(ui, element, parts)
     }
 }
 
@@ -268,7 +291,7 @@ pub(crate) fn build_rows<T: Clone + 'static, K: Eq + Hash + Clone + 'static>(
     mut element: Element,
     parts: RowParts<T, K>,
 ) -> NodeId {
-    let RowParts { each, key, mount, mode, style, selected, on_activate, estimate, handle } = parts;
+    let RowParts { each, key, mount, mode, style, selected, on_activate, estimate, handle, files } = parts;
     let mode = mode.unwrap_or(Value::Static(match selected {
         Some(_) => SelectionMode::Single,
         None => SelectionMode::None,
@@ -351,6 +374,7 @@ pub(crate) fn build_rows<T: Clone + 'static, K: Eq + Hash + Clone + 'static>(
         effect(move || {
             let items = each.get();
             untrack(|| {
+                let mut row_files = Vec::new();
                 let (order, was) = {
                     let mut rows = rows.borrow_mut();
                     let rows = &mut *rows;
@@ -368,6 +392,9 @@ pub(crate) fn build_rows<T: Clone + 'static, K: Eq + Hash + Clone + 'static>(
                                 RowKey(rows.next_key - 1)
                             }
                         };
+                        if let Some(path) = files.as_ref().and_then(|file| file(&item)) {
+                            row_files.push((row, path));
+                        }
                         row_keys.insert(k.clone(), row);
                         keys.insert(row, k);
                         by_key.insert(row, item);
@@ -385,6 +412,10 @@ pub(crate) fn build_rows<T: Clone + 'static, K: Eq + Hash + Clone + 'static>(
                     }
                     (order, was)
                 };
+                // Before the rows, so a row can be dragged once it's there.
+                if files.is_some() {
+                    ui.set_prop(id, Prop::RowFiles(row_files));
+                }
                 let Some(selected) = selected else {
                     ui.set_prop(id, Prop::Rows(order));
                     return arrange();
@@ -505,8 +536,8 @@ impl<T: 'static> ElementBuilder for ListWithoutKey<T> {
 impl<T: Clone + 'static, K: Eq + Hash + Clone + 'static> List<T, K, ()> {
     #[doc(hidden)]
     pub fn __children<V: View>(self, render: impl Fn(T) -> V + 'static) -> List<T, K> {
-        let List { element, each, key, mode, style, selected, on_activate, estimate, handle, .. } = self;
+        let List { element, each, key, mode, style, selected, on_activate, estimate, handle, files, .. } = self;
         let render = RowRender(Rc::new(move |item| AnyView::new(render(item))) as Rc<dyn Fn(T) -> AnyView>);
-        List { element, each, key, render, mode, style, selected, on_activate, estimate, handle }
+        List { element, each, key, render, mode, style, selected, on_activate, estimate, handle, files }
     }
 }

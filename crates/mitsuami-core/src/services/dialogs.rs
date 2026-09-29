@@ -1,4 +1,4 @@
-//! Alerts and file dialogs: what an app asks for.
+//! Alerts, file dialogs and launching: what an app asks for.
 
 use std::path::{Path, PathBuf};
 
@@ -45,6 +45,17 @@ impl Alert {
     pub fn effective_buttons(&self) -> Vec<String> {
         if self.buttons.is_empty() { vec!["OK".to_string()] } else { self.buttons.clone() }
     }
+}
+
+/// What [`launch`](super::launch) opens, in the app the platform picks.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum Launch {
+    /// A file in the app set for its type, a folder in the file manager,
+    /// an app itself.
+    Path(PathBuf),
+    /// A URL in the app set for its scheme: the browser for `https:`, the
+    /// mail app for `mailto:`.
+    Url(String),
 }
 
 /// Files to offer in a file dialog, e.g. `FileFilter::new("Images", ["png", "jpg"])`.

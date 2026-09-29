@@ -76,6 +76,22 @@ name = "contacts"
 harness = false
 
 [[test]]
+name = "trash"
+harness = false
+
+[[test]]
+name = "launch"
+harness = false
+
+[[test]]
+name = "file_icon"
+harness = false
+
+[[test]]
+name = "file_drag"
+harness = false
+
+[[test]]
 name = "conformance"
 harness = false
 

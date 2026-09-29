@@ -21,7 +21,7 @@ Native wins (ARCHITECTURE.md §1): widgets behave, size and respond as the platf
 | Piece | Where | Reference |
 |---|---|---|
 | `Backend` | `mitsuami_core::Backend` | `mitsuami-appkit/src/backend/` |
-| `Services` (clipboard, dialogs, menus) | `mitsuami_core::services::Services` | `mitsuami-appkit/src/services.rs` |
+| `Services` (clipboard, dialogs, the trash, launching, menus) | `mitsuami_core::services::Services` | `mitsuami-appkit/src/services.rs` |
 | `TestHooks` on your shareable handle | `mitsuami_core::TestHooks` | `impl TestHooks for AppKitHandle` |
 | `run(info, setup)`: the app's run loop | your crate | `mitsuami-appkit/src/app.rs` |
 | `init_for_tests()` | your crate | same file |
@@ -93,6 +93,7 @@ Validate as you go. Panic on protocol violations such as an unknown node, a doub
 | `Separator` | `NSBox` of type separator | `gtk::Separator` | `Border` in `DividerStrokeColorDefaultBrush`, 1 epx across | `Kirigami.Separator` |
 | `Image` | `NSImageView` | `gtk::Picture` | `Image` (a `BitmapImage`, or a `WriteableBitmap` for pixels) | QML `Image` (an image provider for pixels) |
 | `Icon` | `NSImageView` of an SF Symbol (else a named image) | `gtk::Image` of a themed icon | `FontIcon` (a Segoe Fluent Icons glyph) | `Kirigami.Icon` |
+| `FileIcon` | `NSImageView` of `NSWorkspace.iconForFile` (QuickLook's thumbnail) | `gtk::Image` of GIO's `standard::icon` (the cached thumbnail) | `Image` of `IShellItemImageFactory::GetImage`, read on a thread | `Kirigami.Icon` of the MIME type's icon |
 | `GpuSurface` (§12) | `NSView` whose backing layer is a `CAMetalLayer` | `gtk::DrawingArea` keeping the space, under a Wayland subsurface or an X11 child window of our own (`mitsuami-linux`) | a focusable element keeping the space, under a child HWND | `Item` keeping the space, under a Wayland subsurface or an X11 child window of our own |
 | `Select` | `NSPopUpButton` (items added to its menu) | `gtk::DropDown` over a `gtk::StringList` | `ComboBox` of `ComboBoxItem`s | `QQC2.ComboBox` |
 | `RadioGroup` | `NSStackView` (vertical) of radio `NSButton`s with one target and action | vertical `gtk::Box` (`RadioGroup` role) of `gtk::CheckButton`s in one group | `RadioButtons` of strings | `ColumnLayout` of `QQC2.RadioButton`s (`autoExclusive`) |
@@ -137,11 +138,13 @@ A prop the app didn't give isn't sent ("sent only if the app chose"), so the pla
 
 | Prop | Applies to | Notes |
 |---|---|---|
-| `Label` | Button, ToggleButton, MenuButton, Checkbox, Switch, Select, RadioGroup, Slider, NumberInput, Progress, Image, Icon, GpuSurface | Only buttons and checkboxes show it; for the others it's the accessible name, and for a button that shows only its icon. |
+| `Label` | Button, ToggleButton, MenuButton, Checkbox, Switch, Select, RadioGroup, Slider, NumberInput, Progress, Image, Icon, FileIcon, GpuSurface | Only buttons and checkboxes show it; for the others it's the accessible name, and for a button that shows only its icon. |
 | `ButtonRole` | Button | Normal, Default, Cancel or Destructive. Default: Return clicks it and it shows as the default (AppKit `keyEquivalent` `"\r"`, GTK `suggested-action`, Qt `Accessible.defaultButton`, WinUI `AccentButtonStyle`). Cancel: Escape clicks it (AppKit `keyEquivalent` Escape); the others show a normal button. Destructive: GTK `destructive-action`, AppKit `hasDestructiveAction`; Qt and WinUI have no such style. Keep it on the node: no toolkit tells every role apart. |
 | `ButtonStyle` | Button, ToggleButton, MenuButton | Automatic, Bordered or Borderless. Automatic draws as Bordered. Borderless: AppKit `bordered` off, GTK `has-frame` off, Qt `flat`, WinUI `SubtleButtonStyle` (a toggle or menu button: a style of its own clearing the fill and border at rest, as Fluent has no subtle one). On WinUI one XAML style carries both role and style: Borderless wins over Default. Report back what was sent. |
 | `Icon` | Icon, Button, ToggleButton, MenuButton | A name in the platform's own set: an SF Symbol, a themed icon's name, a Segoe Fluent Icons glyph. A button shows it before its caption, placed and sized as the platform places a button's icon; empty: none. A name the set lacks shows as the platform shows one (nothing, its missing-icon icon, the font's fallback). Measure the icon or button with it. Report it back, or keep it on the node where the platform can't (AppKit's symbol images have no name). |
-| `IconSize` | Icon | In points: a symbol's point size on AppKit, the side of a square elsewhere (GTK `pixel_size`, `FontSize`, Kirigami's width and height). Otherwise the platform's size for an icon on its own. |
+| `IconSize` | Icon, FileIcon | In points: a symbol's point size on AppKit, the side of a square elsewhere (GTK `pixel_size`, `FontSize`, Kirigami's width and height). Otherwise the platform's size for an icon on its own. A `FileIcon` is always a square of this side, 16 by default: measure it so, whatever the file. |
+| `File` | FileIcon | The file or folder whose icon it shows, read when set: the icon the platform's file manager shows for it. Keep it on the node (no platform gives a path back). |
+| `Thumbnail` | FileIcon | Show a preview of what's in the file in place of its icon where the platform makes one (QuickLook, the shell's image, a cached thumbnail on GTK), the icon until then; ignore it where it makes none (Kirigami). Make it in the background and drop one that arrives for a file no longer shown; have `settle` wait for it. |
 | `IconOnly` | Button, ToggleButton, MenuButton | Shows the icon without the caption, which stays the accessible name (AppKit `imagePosition` image only, GTK's icon button with the caption as its accessible label, Qt `display: IconOnly`, WinUI the glyph alone with the caption as its automation name). Without an icon, the caption shows. Report it as the button shows it, and as given while there's no icon. |
 | `Menu` | MenuButton | Its menu, built as a context menu is (§8.1), and shown the platform's way when the button is clicked. Items report `MenuItem(id)`. Keep it apart from the node's `ContextMenu`, which a menu button can have too. Report it back as `ContextMenu` is. |
 
@@ -194,6 +197,7 @@ A prop the app didn't give isn't sent ("sent only if the app chose"), so the pla
 | `Cell` | Container | This container is the host of that cell (row and column) of its `Table`. |
 | `SelectionMode` | List | None, Single or Multiple. It can change while the list shows: keep what the platform keeps of the selection, never more than the new mode holds (none, or one row), and **report `Changed(Rows)`** if rows were let go. |
 | `Selected` | List | The selected rows. |
+| `RowFiles` | List, Table | Each row's file, sent before the rows and only if the app gave them (§10). Dragging a row carries its file out; a selected row, every selected row's. |
 | `ListStyle` | List | Automatic, Plain or Framed. Automatic draws as Plain. Report back what was sent: no toolkit tells Automatic from Plain. |
 | `FileDrop` | Container, Group | Take files and folders dragged from the file manager: the platform's drop target on the host (AppKit `registerForDraggedTypes` with file URLs, a `gtk::DropTarget` for `gdk::FileList`, XAML's `AllowDrop` and drag events, a Qt Quick `DropArea`), showing a copy only while `FileDrop::accepted` keeps some of the dragged files, and reporting `DropHover` and `FilesDropped`. Only local paths. `None` removes it and ends any hover. Keep it on the node and report it. |
 | `Keys` | Container, Group, List, Table | The keys it takes while it, or a control inside it, has keyboard focus, and the focused control doesn't use them. Take them where keys the focused control left come up: AppKit's responder chain (a host's `keyDown:`; for a list, a responder put between its table and the clip view), GTK a `ShortcutController` in local scope and the bubble phase, Qt an event filter on the item (unaccepted keys go up the items), XAML a bubbling `KeyDown` (not accelerators, which XAML runs before the element's `KeyDown`). A list's or table's go after its view's own keys: on the scroll view around it. Report `Key`, and the keys back (kept on the node where the platform can't give them). |
@@ -376,6 +380,7 @@ RGBA8 at backing scale, rows top to bottom. Reply when the image is ready, right
 - **`close_window(window)`** clicks a window's close button the way the user would, through the platform (`performClose:`, `gtk::Window::close`, `QQuickWindow::close`, a posted `WM_CLOSE` on WinUI: XAML's `Window.Close` skips `Closing`), so the platform reports `WindowCloseRequested` itself. Never close the window: whether it closes is the app's call, and the core destroys it if so.
 - **`take_command_log()`** returns the commands applied since the last call (record them when the test kit asks you to), for command snapshots; **`node_count()`** the live native nodes, as a leak detector.
 - **`app_info(window)`** reads back what the window shows of the app's id, name and icon (§13), as a `NativeAppInfo`: `None` for what the platform has no place for, the icon as an image's size or a theme name.
+- **`dragged_files(node)`** returns what dragging a row out would carry (`node` is a row host, or any of a table row's cell hosts): nothing here can start a real drag, so run your drag source's own code up to where the platform takes the files, e.g. call the table's data source for each dragged row's pasteboard writer, and read the paths from what it gives.
 - **`settle()`** runs after every settle and while a test awaits something the platform completes (a capture). Use it to let the platform catch up without blocking, and report what that brings. Every backend has work there: AppKit lays out tables and toolbars, which make their views in a layout pass offscreen windows never get, and runs its run loop while a search field waits on a timer; GTK presents windows and dispatches what its main context has ready (allocations, adjustments, focus), and allocates lists, header bars and surfaces itself, since frames stall on its test display; Kirigami polishes windows, so Qt has placed what it lays out; WinUI pumps messages, picks up focus moves XAML made itself, and waits for templates and images to load.
 
 ## 8. Services
@@ -388,6 +393,8 @@ Implement `Services`. **Never block**: reply later, from the platform's completi
 | clipboard write (async reply, can fail) | `NSPasteboard` (replies at once) | `gdk::Clipboard::set_text` | `Clipboard.SetContent` (throws while another process holds the clipboard: reply `Err`) | `QClipboard` (replies at once) |
 | alert | `NSAlert` sheet on the parent | `gtk::AlertDialog::choose` | `ContentDialog` (one at a time per window) | `Kirigami.PromptDialog` in the window's overlay |
 | open / save | `NSOpenPanel` / `NSSavePanel` sheets with `UTType` filters | `gtk::FileDialog` (`open`/`open_multiple`/`save`) with `gtk::FileFilter` | the Windows App SDK's pickers (`Microsoft.Windows.Storage.Pickers`: `FileOpenPicker`, `FolderPicker`, `FileSavePicker`), created with the window's `WindowId` | Qt Quick's `FileDialog` / `FolderDialog` (Plasma's own through its platform theme) |
+| trash (async reply, can fail) | `NSFileManager.trashItemAtURL` (replies at once) | `gio::File::trash_async`, one after another | `IFileOperation` with `FOF_ALLOWUNDO` and `FOFX_RECYCLEONDELETE`, owned by the window, started from the dispatcher queue | `QFile::moveToTrash` (replies at once) |
+| launch (async reply, can fail) | `NSWorkspace.openURL(_:configuration:completionHandler:)`, the reply sent back to the main queue | `gtk::FileLauncher` / `gtk::UriLauncher` on the window | `ShellExecuteExW` (default verb) owned by the window, from the dispatcher queue | `QDesktopServices::openUrl` (replies at once) |
 | menus | the global `NSMenu` bar: the app menu, the app's File, Edit, the rest; a window's own menus while it's main | the header bar's primary menu (a `gio::Menu` section per menu) in each window | a `MenuBar` in each window | a `Kirigami.GlobalDrawer` shown as a menu (`isMenu`) in each window |
 | submenus | `NSMenuItem.submenu` | `gio::Menu::append_submenu` | `MenuFlyoutSubItem` | nested `Kirigami.Action`s |
 | check / radio items | `NSMenuItem.state` | a stateful action (boolean; a radio item's holds its id, its target) | `ToggleMenuFlyoutItem` / `RadioMenuFlyoutItem` (`GroupName`) | `checkable` actions; a radio group in one `QQC2.ActionGroup` |
@@ -395,6 +402,8 @@ Implement `Services`. **Never block**: reply later, from the platform's completi
 
 - **`parent: None`** means the focused window: AppKit uses the key window, then the main window. Only fall back to app-modal if there is no window. Qt's `active` is true for a focused window's transient parents too, and so for their other dialogs; Kirigami tracks `QGuiApplication::focusWindow()` instead, and WinUI `GetActiveWindow`.
 - **A file dialog's `start_folder`** is where it opens: take `services::existing_folder(&request.start_folder)`, which is `None` for a folder that isn't there, and leave the choice to the platform then. **A `FileFilter` with no extensions** (`FileFilter::all`, `is_all`) lets every file through: a filter of its own where the platform offers a choice of filters, and no restriction at all where it only has one list of allowed types (AppKit). `OpenFile::directories` opens folders.
+- **Trash** each item in turn and reply with the first failure: `ServiceError::Unavailable` when the item's disk has no trash (so the app can offer to delete it), `Cancelled` when the user said no to the platform's own question, `Failed` with the platform's reason otherwise.
+- **Launch** as the file manager's double-click does, and let the platform handle an unset app (its own "which app?" or "no app" UI). `Cancelled` when the user dismissed that, `Unavailable` when there is no app. Don't run an opener as a process.
 
 ### 8.1 Menus
 
@@ -441,6 +450,7 @@ A `List` is the platform's list control, and the platform virtualises it: it scr
 - **Callbacks come at any time.** A table can ask for cells, heights and counts in the middle of your own `apply` (a reload, a scroll, a resize). Keep the list's data (keys, heights, hosts, cells) in a small `Rc<RefCell<…>>` of its own that the data source reads, never your backend's main state or the `Ui`, and only `emit` from there.
 - **`native_state` of a row host** reports the rect the platform gave that row, in the list's content; the core uses its position (that's where frames inside rows, visibility and `scroll_into_view` come from), and the mirror check compares its size with the host's. The `List` reports its `Rows`, `SelectionMode` and `Selected` as the native control shows them, and its `ListStyle` as last set.
 - **Focus:** the `List` itself takes focus (it's in the Tab order), as the native control does.
+- **Dragging rows out (`Prop::RowFiles`):** make the rows a drag source through the platform's own list drag, offering only a copy, with the files as the platform's file type (file URLs on the pasteboard, a `gdk::FileList`, storage items, a `text/uri-list`). Dragging a selected row carries the selection's files, as your platform drags a selection; rows without a file don't drag. Keep the files on the list and report them back.
 - **Keys:** the list's own keys (`Prop::Keys`) get only what its view left: the view's keys (arrows, typing to select, Space where the platform selects with it) are the platform's. Return activates only without ⌘/Ctrl, ⌥/Alt or ⌃/Meta.
 
 ARCHITECTURE.md §13.22 has each platform's list.
@@ -551,6 +561,8 @@ The contract is async wherever **any** platform might complete the work later. R
 | `capture` | WinUI renders to bitmaps asynchronously |
 | `clipboard_text`, `set_clipboard_text` | GTK and WinUI clipboards are async; writes can fail |
 | `alert`, `open_file`, `save_file` | the user answers later |
+| `trash` | GTK's trash is async, and Windows may ask the user first |
+| `launch` | the platform may ask which app, and AppKit's and GTK's answers come later |
 
 | Sync | Why it can stay sync |
 |---|---|
@@ -578,7 +590,7 @@ cargo run --manifest-path examples/showcase/Cargo.toml       # look at it: every
 - **Mirror checks** run after every settle, comparing native and core children, props, frames, focus and scroll offsets (§7.3). A failure names the node and the difference.
 - **Visual baselines** are stored per backend and machine image in `tests/visual/<name>/<image>/` (ARCHITECTURE.md §12). The first run records them on your machine; look at them. CI records its own: a failing run uploads them, and `.github/scripts/accept-snapshots.sh <run id>` accepts them.
 - **Headless-only tests** (`#[mitsuami_test::test(headless)]`: fake metrics, simulated system changes) are skipped in native runs.
-- **Your real services** aren't exercised by app tests, which use a scripted fake. Copy `mitsuami-appkit/tests/services.rs`: a private clipboard if possible, the real menu structure plus an activation (submenus, check marks, roles, a window's own menus), an alert answered through its real button, and a cancelled file dialog.
+- **Your real services** aren't exercised by app tests, which use a scripted fake. Copy `mitsuami-appkit/tests/services.rs`: a private clipboard if possible, the real menu structure plus an activation (submenus, check marks, roles, a window's own menus), an alert answered through its real button, a cancelled file dialog, and a file of the test's own moved to the user's trash (and deleted from there).
 - **Type-check what you can't run.** The GTK, Kirigami and WinUI backends type-check from macOS (CLAUDE.md has the commands); say in ARCHITECTURE.md what has only been type-checked.
 
 ## 18. Suggested order

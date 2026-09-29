@@ -198,6 +198,17 @@ enum Widget {
     },
     /// A glyph of Segoe Fluent Icons (the theme's symbol font).
     Icon(w::FontIcon),
+    /// A file's icon in an `Image`, what the app gave (the image has only
+    /// pixels), and its loads: the latest one asked for, and the latest
+    /// one shown.
+    FileIcon {
+        image: w::Image,
+        file: Option<std::path::PathBuf>,
+        thumbnail: Option<bool>,
+        size: Option<f32>,
+        asked: Rc<Cell<u64>>,
+        shown: Rc<Cell<u64>>,
+    },
     GpuSurface(SurfaceHost),
     Scroll(w::ScrollViewer),
     List(crate::list::List),

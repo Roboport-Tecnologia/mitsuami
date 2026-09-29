@@ -6,6 +6,7 @@ use objc2_app_kit::NSView;
 use objc2_foundation::{NSPoint, NSRect, NSSize};
 
 use super::group::group_natural_size;
+use super::images::FILE_ICON_SIZE;
 use super::{State, Widget};
 
 pub(super) fn measure(state: &State, id: NodeId, request: MeasureRequest) -> Size {
@@ -55,6 +56,11 @@ pub(super) fn measure(state: &State, id: NodeId, request: MeasureRequest) -> Siz
         Widget::TextArea(area) => area.natural_size(state.mtm),
         // The image's size in points; nothing shown, none.
         Widget::Image(view) | Widget::Icon(view) => view.image().map_or(Size::ZERO, |image| ceil_size(image.size())),
+        // A square, whatever the file.
+        Widget::FileIcon(_) => {
+            let side = node.icon_size.unwrap_or(FILE_ICON_SIZE);
+            Size::new(side, side)
+        }
         Widget::Progress(p) => intrinsic(p),
         Widget::Spinner { indicator, .. } => intrinsic(indicator),
         // As thick as AppKit makes it (a 1-point line); the layout

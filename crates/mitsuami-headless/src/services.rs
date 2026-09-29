@@ -8,7 +8,7 @@ use std::rc::Rc;
 
 use mitsuami_core::NodeId;
 use mitsuami_core::services::{
-    Alert, MenuBarData, MenuItemData, OpenFile, Reply, SaveFile, ServiceError, Services, find_menu_item,
+    Alert, Launch, MenuBarData, MenuItemData, OpenFile, Reply, SaveFile, ServiceError, Services, find_menu_item,
 };
 
 /// A request waiting for the test to answer it.
@@ -29,6 +29,10 @@ impl<Request, Answer> Pending<Request, Answer> {
 pub type PendingAlert = Pending<Alert, usize>;
 pub type PendingOpen = Pending<OpenFile, Option<Vec<PathBuf>>>;
 pub type PendingSave = Pending<SaveFile, Option<PathBuf>>;
+/// Items to move to the trash; the test moves them (or not) and answers.
+pub type PendingTrash = Pending<Vec<PathBuf>, Result<(), ServiceError>>;
+/// A file, folder or URL to open in another app.
+pub type PendingLaunch = Pending<Launch, Result<(), ServiceError>>;
 
 #[derive(Default)]
 struct State {
@@ -36,6 +40,8 @@ struct State {
     alerts: VecDeque<PendingAlert>,
     opens: VecDeque<PendingOpen>,
     saves: VecDeque<PendingSave>,
+    trashes: VecDeque<PendingTrash>,
+    launches: VecDeque<PendingLaunch>,
     menu: Option<MenuBarData>,
     window_menus: BTreeMap<NodeId, MenuBarData>,
     activate: Option<Rc<dyn Fn(u32)>>,
@@ -84,10 +90,21 @@ impl FakeServicesHandle {
         self.state.borrow_mut().saves.pop_front()
     }
 
+    /// The oldest request to trash items. Nothing has been moved: the
+    /// test does what it wants the platform to have done, then answers.
+    pub fn take_trash(&self) -> Option<PendingTrash> {
+        self.state.borrow_mut().trashes.pop_front()
+    }
+
+    /// The oldest request to open something in another app.
+    pub fn take_launch(&self) -> Option<PendingLaunch> {
+        self.state.borrow_mut().launches.pop_front()
+    }
+
     /// Requests of any kind still waiting for an answer.
     pub fn pending_requests(&self) -> usize {
         let state = self.state.borrow();
-        state.alerts.len() + state.opens.len() + state.saves.len()
+        state.alerts.len() + state.opens.len() + state.saves.len() + state.trashes.len() + state.launches.len()
     }
 
     /// The menus the app installed.
@@ -146,6 +163,14 @@ impl Services for FakeServices {
 
     fn save_file(&mut self, parent: Option<NodeId>, request: &SaveFile, reply: Reply<Option<PathBuf>>) {
         self.state.borrow_mut().saves.push_back(Pending { request: request.clone(), parent, reply });
+    }
+
+    fn trash(&mut self, parent: Option<NodeId>, paths: &[PathBuf], reply: Reply<Result<(), ServiceError>>) {
+        self.state.borrow_mut().trashes.push_back(Pending { request: paths.to_vec(), parent, reply });
+    }
+
+    fn launch(&mut self, parent: Option<NodeId>, target: &Launch, reply: Reply<Result<(), ServiceError>>) {
+        self.state.borrow_mut().launches.push_back(Pending { request: target.clone(), parent, reply });
     }
 
     fn set_menu(&mut self, window: Option<NodeId>, menu: &MenuBarData, activate: Rc<dyn Fn(u32)>) {

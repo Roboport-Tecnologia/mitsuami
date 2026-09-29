@@ -3,8 +3,6 @@
 
 #[path = "../examples/files/browser.rs"]
 mod browser;
-#[path = "../examples/files/file_icon/mod.rs"]
-mod file_icon;
 #[path = "../examples/files/fs.rs"]
 mod fs;
 #[path = "../examples/files/path_bar/mod.rs"]
@@ -12,25 +10,14 @@ mod path_bar;
 #[path = "../examples/files/screen.rs"]
 mod screen;
 
-use std::cell::RefCell;
 use std::path::{Path, PathBuf};
 
 use mitsuami::prelude::*;
 use mitsuami_test::prelude::*;
 
-use browser::{Browser, Outside};
-use fs::Trash;
+use browser::Browser;
 use path_bar::PathBar;
 use screen::Finder;
-
-thread_local! {
-    static LAUNCHED: RefCell<Vec<PathBuf>> = const { RefCell::new(Vec::new()) };
-}
-
-fn launch(path: &Path) -> Result<(), String> {
-    LAUNCHED.with(|l| l.borrow_mut().push(path.to_owned()));
-    Ok(())
-}
 
 /// A folder of the test's own, with `files` in it (a trailing `/` makes a
 /// folder), and a trash beside it.
@@ -70,16 +57,29 @@ impl Fixture {
             options.read(true);
             options.open(root.join(file)).unwrap().set_modified(date).unwrap();
         }
-        LAUNCHED.with(|l| l.borrow_mut().clear());
         Fixture { root, trash }
     }
 
     fn mount(&self, app: &TestApp) {
-        let (root, trash) = (self.root.clone(), self.trash.clone());
+        let root = self.root.clone();
         app.mount(move || {
-            provide(Browser::at(root, Outside { trash: Trash::Folder(trash), launch }));
+            provide(Browser::at(root));
             Finder::new()
         });
+    }
+}
+
+impl Fixture {
+    /// Does what the platform's trash would: moves the items asked for
+    /// into the fixture's trash folder, then answers.
+    async fn trash_as_asked(&self, app: &TestApp) {
+        app.settle().await;
+        let trash = app.services().take_trash().expect("a request to trash");
+        std::fs::create_dir_all(&self.trash).unwrap();
+        for path in &trash.request {
+            std::fs::rename(path, self.trash.join(path.file_name().unwrap())).unwrap();
+        }
+        trash.respond(Ok(()));
     }
 }
 
@@ -191,7 +191,16 @@ async fn files_open_in_their_apps(app: TestApp) {
     fixture.mount(&app);
     listed(&app, &["todo.txt"]).await;
     row(&app, "todo.txt").click().await;
-    LAUNCHED.with(|l| assert_eq!(*l.borrow(), [fixture.root.join("todo.txt")]));
+    let launch = app.services().take_launch().expect("the file is opened");
+    assert_eq!(launch.request, Launch::Path(fixture.root.join("todo.txt")));
+
+    // Where no app opens it and the platform says nothing, the app does.
+    launch.respond(Err(ServiceError::Unavailable));
+    app.settle().await;
+    let warning = app.services().take_alert().expect("a warning");
+    assert_eq!(warning.request.title, "\u{201C}todo.txt\u{201D} couldn't be opened.");
+    assert_eq!(warning.request.message.as_deref(), Some("No app is set to open it."));
+    warning.respond(0);
 }
 
 #[mitsuami_test::test]
@@ -256,6 +265,7 @@ async fn duplicates_and_trash(app: TestApp) {
     // A row's menu acts on that row when it isn't in the selection.
     row(&app, "Old").select().await;
     row(&app, "Old copy").choose_menu_item(&["Move to Trash"]).await;
+    fixture.trash_as_asked(&app).await;
     listed(&app, &["Old", "report copy.txt", "report.txt"]).await;
     assert!(fixture.trash.join("Old copy/draft.txt").is_file());
 }
@@ -350,6 +360,23 @@ async fn dropped_files_are_copied_in(app: TestApp) {
     app.get_by_label("Contents").drop_files(&dropped).await;
     listed(&app, &["notes.txt", "photo.png"]).await;
     assert!(fixture.root.join("elsewhere/notes.txt").is_file(), "copied, not moved");
+}
+
+/// Rows drag their files out (the selection's, from a selected row);
+/// dropped back where they are, they stay as they are.
+#[mitsuami_test::test]
+async fn items_drag_out_as_their_files(app: TestApp) {
+    let fixture = Fixture::new(&app, &["notes.txt", "photo.png", "Stuff/one"]);
+    fixture.mount(&app);
+    listed(&app, &["notes.txt", "photo.png", "Stuff"]).await;
+
+    assert_eq!(row(&app, "Stuff").dragged_files(), [fixture.root.join("Stuff")]);
+    row(&app, "photo.png").select().await;
+    assert_eq!(row(&app, "photo.png").dragged_files(), [fixture.root.join("photo.png")]);
+
+    let dragged = row(&app, "notes.txt").dragged_files();
+    app.get_by_label("Contents").drop_files(&dragged).await;
+    listed(&app, &["notes.txt", "photo.png", "Stuff"]).await;
 }
 
 #[mitsuami_test::test]

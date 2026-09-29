@@ -1,5 +1,6 @@
-//! Platform services: clipboard, dialogs and the menu bar. Widgets'
-//! context menus are made of the same menus.
+//! Platform services: clipboard, dialogs, the menu bar, the trash and
+//! opening files in other apps.
+//! Widgets' context menus are made of the same menus.
 //!
 //! [`Services`] is the contract each platform implements, separately from
 //! the widget [`Backend`](crate::Backend). Tests install a scripted fake in
@@ -14,9 +15,11 @@ mod menu;
 mod menu_collect;
 mod menu_data;
 
-pub use dialogs::{Alert, AlertStyle, FileFilter, OpenFile, SaveFile, existing_folder};
+pub use dialogs::{Alert, AlertStyle, FileFilter, Launch, OpenFile, SaveFile, existing_folder};
 pub(crate) use futures::reply_future;
-pub use futures::{alert, clipboard_text, open_file, save_file, set_clipboard_text, set_menu};
+pub use futures::{
+    alert, clipboard_text, launch, launch_url, open_file, save_file, set_clipboard_text, set_menu, trash,
+};
 pub use menu::{Menu, MenuBar, MenuEntries, MenuItem, MenuSeparator, Menus};
 #[doc(hidden)]
 pub use menu_collect::install_button_menu;
@@ -38,6 +41,8 @@ pub type Reply<T> = Box<dyn FnOnce(T)>;
 pub enum ServiceError {
     /// The platform doesn't offer this service (or not right now).
     Unavailable,
+    /// The user said no to a question the platform asked.
+    Cancelled,
     Failed(String),
 }
 
@@ -45,6 +50,7 @@ impl std::fmt::Display for ServiceError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
             ServiceError::Unavailable => f.write_str("the service is not available"),
+            ServiceError::Cancelled => f.write_str("the user cancelled"),
             ServiceError::Failed(why) => write!(f, "the service failed: {why}"),
         }
     }
@@ -66,6 +72,21 @@ pub trait Services {
     /// Replies with the chosen paths, or `None` if cancelled.
     fn open_file(&mut self, parent: Option<NodeId>, request: &OpenFile, reply: Reply<Option<Vec<PathBuf>>>);
     fn save_file(&mut self, parent: Option<NodeId>, request: &SaveFile, reply: Reply<Option<PathBuf>>);
+
+    /// Moves files and folders to the user's trash, as the platform's file
+    /// manager does, so they can be put back from there. Items go one after
+    /// another; the reply comes once all have gone, or with the first
+    /// failure, and those before it stay in the trash. `Unavailable`: the
+    /// item's disk has no trash. `Cancelled`: the user said no where the
+    /// platform asks first (Windows, when its settings say so).
+    fn trash(&mut self, parent: Option<NodeId>, paths: &[PathBuf], reply: Reply<Result<(), ServiceError>>);
+
+    /// Opens a file, folder or URL in the app the platform picks for it,
+    /// as its file manager would on a double-click. The platform may ask
+    /// which app when none is set; `Cancelled` if the user dismissed it,
+    /// `Unavailable` if no app opens it. Replies once the platform has
+    /// handed it over, not when the app has opened it.
+    fn launch(&mut self, parent: Option<NodeId>, target: &Launch, reply: Reply<Result<(), ServiceError>>);
 
     /// Installs a menu bar: the app's (`window` is `None`), or one
     /// window's own menus, which it shows with the app's

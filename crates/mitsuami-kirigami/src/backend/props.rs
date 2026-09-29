@@ -143,6 +143,7 @@ impl State {
                 | Widget::Progress(s)
                 | Widget::Spinner(s)
                 | Widget::Icon(s)
+                | Widget::FileIcon(s)
                 | Widget::Image { item: s, .. },
             ) => {
                 s.set_str("mitsuamiA11yName", t);
@@ -316,7 +317,14 @@ impl State {
                 node.icon_only = true;
             }
             (Prop::Icon(name), Widget::Icon(i)) => i.set_str("mitsuamiName", name),
-            (Prop::IconSize(points), Widget::Icon(i)) => {
+            (Prop::File(path), Widget::FileIcon(i)) => {
+                let (name, generic) = crate::ffi::mime_icon(path);
+                i.set_str("mitsuamiFile", &path.to_string_lossy());
+                i.set_str("fallback", &generic);
+                i.set_str("source", &name);
+            }
+            (Prop::Thumbnail(on), Widget::FileIcon(i)) => i.set_bool("mitsuamiThumbnail", *on),
+            (Prop::IconSize(points), Widget::Icon(i) | Widget::FileIcon(i)) => {
                 i.set_real("mitsuamiSize", *points as f64);
                 node.icon_size = true;
             }
@@ -371,6 +379,7 @@ impl State {
                     .set(item, entries);
             }
             (Prop::Rows(rows), Widget::List(list)) => list.set_rows(rows.clone()),
+            (Prop::RowFiles(files), Widget::List(list)) => list.set_row_files(files.clone()),
             (Prop::SelectionMode(mode), Widget::List(list)) => list.set_mode(*mode),
             (Prop::ListStyle(style), Widget::List(list)) => list.set_style(*style),
             (Prop::Selected(rows), Widget::List(list)) => list.set_selected(rows),

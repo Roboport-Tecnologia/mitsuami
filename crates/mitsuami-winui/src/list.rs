@@ -20,6 +20,7 @@
 
 use std::cell::{Cell, RefCell};
 use std::collections::{HashMap, HashSet};
+use std::path::PathBuf;
 use std::rc::Rc;
 
 use mitsuami_core::{
@@ -178,6 +179,9 @@ struct Data {
     /// reports selections in between (items removed) that aren't the
     /// user's.
     muted: bool,
+    /// The rows' files, as the app gave them (`Prop::RowFiles`), and by row.
+    files: Option<Vec<(RowKey, PathBuf)>>,
+    file_of: HashMap<RowKey, PathBuf>,
 }
 
 impl Data {
@@ -352,6 +356,42 @@ pub(crate) struct List {
     revokers: RefCell<Vec<EventRevoker>>,
 }
 
+/// The files dragging these rows carries: XAML's dragged items, which are
+/// the selected rows when a selected row is dragged, else that row.
+fn files_of(d: &Data, rows: &[RowKey]) -> Vec<PathBuf> {
+    rows.iter().filter_map(|row| d.file_of.get(row).cloned()).collect()
+}
+
+/// Gives the drop target the dragged files when it asks for them, as
+/// storage items, which Explorer and other apps take: loading them is
+/// asynchronous, so it happens on a thread of its own, and the request
+/// waits (its deferral).
+fn provide_files(request: &w::DataProviderRequest, paths: Vec<PathBuf>) {
+    let (Ok(deferral), request) = (request.GetDeferral(), request.clone()) else { return };
+    std::thread::spawn(move || {
+        let com = unsafe { w::CoInitializeEx(std::ptr::null(), w::COINIT_MULTITHREADED as u32) }.is_ok();
+        // Interfaces go in a vector as options (their default, null).
+        let items: Vec<Option<w::IStorageItem>> = paths
+            .iter()
+            .filter_map(|path| {
+                let name = path.to_string_lossy();
+                if path.is_dir() {
+                    w::StorageFolder::GetFolderFromPathAsync(&name).and_then(|op| op.join()).ok()?.cast().ok()
+                } else {
+                    w::StorageFile::GetFileFromPathAsync(&name).and_then(|op| op.join()).ok()?.cast().ok()
+                }
+            })
+            .map(Some)
+            .collect();
+        let items: windows_collections::IVector<w::IStorageItem> = items.into();
+        _ = items.cast::<IInspectable>().and_then(|items| request.SetData(&items));
+        _ = deferral.Complete();
+        if com {
+            unsafe { w::CoUninitialize() };
+        }
+    });
+}
+
 fn identity(object: &impl Interface) -> usize {
     object.cast::<IUnknown>().map_or(0, |u| u.as_raw() as usize)
 }
@@ -469,6 +509,32 @@ impl List {
                 if let Some(key) = key.filter(|k| data.borrow().index.contains_key(k)) {
                     events.emit(id, UiEvent::RowActivated(key));
                 }
+            }
+        })?);
+        // Rows with files (`Prop::RowFiles`) drag them out, as a copy;
+        // dragging is turned on once there are some.
+        revokers.push(view.cast::<w::IListViewBase>()?.DragItemsStarting({
+            let data = data.clone();
+            move |_, args| {
+                let Some(args) = args.as_ref() else { return };
+                let rows: Vec<RowKey> = args
+                    .Items()
+                    .map(|items| (&items).into_iter().filter_map(|i| key_of(&i)).collect())
+                    .unwrap_or_default();
+                let paths = files_of(&data.borrow(), &rows);
+                let Ok(package) = args.Data() else { return };
+                if paths.is_empty() {
+                    _ = args.SetCancel(true);
+                    return;
+                }
+                _ = package.SetRequestedOperation(w::DataPackageOperation::Copy);
+                let Ok(format) = w::StandardDataFormats::StorageItems() else { return };
+                let provider = w::DataProviderHandler::new(move |request| {
+                    if let Some(request) = request.as_ref() {
+                        provide_files(request, paths.clone());
+                    }
+                });
+                _ = package.SetDataProvider(&format.to_string(), &provider);
             }
         })?);
         revokers.push(view.cast::<w::IUIElement>()?.PreviewKeyDown({
@@ -821,6 +887,27 @@ impl List {
 
     pub(crate) fn selected(&self) -> Vec<RowKey> {
         selected(&self.view, &self.data.borrow())
+    }
+
+    pub(crate) fn set_row_files(&self, files: Vec<(RowKey, PathBuf)>) -> R<()> {
+        self.view.cast::<w::IListViewBase>()?.SetCanDragItems(!files.is_empty())?;
+        let mut data = self.data.borrow_mut();
+        data.file_of = files.iter().cloned().collect();
+        data.files = Some(files);
+        Ok(())
+    }
+
+    pub(crate) fn row_files(&self) -> Option<Vec<(RowKey, PathBuf)>> {
+        self.data.borrow().files.clone()
+    }
+
+    /// What dragging `row` carries: the rows XAML drags (the selection if
+    /// the row is in it, else the row), as `DragItemsStarting` has them.
+    pub(crate) fn dragged_files(&self, row: RowKey) -> Option<Vec<PathBuf>> {
+        let selected = self.selected();
+        let rows = if selected.contains(&row) { selected } else { vec![row] };
+        let files = files_of(&self.data.borrow(), &rows);
+        (!files.is_empty()).then_some(files)
     }
 
     /// Selects a row as the user would, reporting it.

@@ -124,6 +124,17 @@ impl KirigamiBackend {
                 props.push(Prop::Running(s.bool("running")));
             }
             Widget::Separator(_) => props.extend(node.orientation.map(Prop::Orientation)),
+            Widget::FileIcon(i) => {
+                props.extend(node.a11y_label.clone().map(Prop::Label));
+                let file = i.str("mitsuamiFile");
+                if !file.is_empty() {
+                    props.push(Prop::File(file.into()));
+                }
+                props.push(Prop::Thumbnail(i.bool("mitsuamiThumbnail")));
+                if node.icon_size {
+                    props.push(Prop::IconSize(i.real("implicitWidth") as f32));
+                }
+            }
             Widget::Icon(i) => {
                 props.extend(node.a11y_label.clone().map(Prop::Label));
                 props.push(Prop::Icon(i.str("mitsuamiShownName")));
@@ -181,6 +192,7 @@ impl KirigamiBackend {
                 props.push(Prop::SelectionMode(list.mode()));
                 props.extend(list.style().map(Prop::ListStyle));
                 props.push(Prop::Selected(list.selected()));
+                props.extend(list.row_files().map(Prop::RowFiles));
             }
             Widget::Host(_) => props.extend(node.row.map(|row| match node.column {
                 Some(column) => Prop::Cell(mitsuami_core::CellKey { row, column }),

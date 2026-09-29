@@ -171,6 +171,7 @@ impl State {
             WidgetKind::Spinner => Widget::Spinner(QmlObject::load(&qml::spinner())),
             WidgetKind::Separator => Widget::Separator(QmlObject::load(&qml::separator())),
             WidgetKind::Icon => Widget::Icon(QmlObject::load(&qml::icon())),
+            WidgetKind::FileIcon => Widget::FileIcon(QmlObject::load(&qml::file_icon())),
             WidgetKind::GpuSurface => Widget::GpuSurface(SurfaceItem::new(id, events.clone())),
             WidgetKind::Image => {
                 let item = QmlObject::load(&qml::image());

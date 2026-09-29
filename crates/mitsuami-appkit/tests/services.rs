@@ -1,5 +1,5 @@
 //! The real AppKit services, end to end: clipboard (on a private
-//! pasteboard), the menu bar, alert sheets and file panels. App tests use
+//! pasteboard), the menu bar, alert sheets, file panels and the trash. App tests use
 //! scripted services instead, so this is where the native ones are checked.
 //!
 //! A plain `main` (harness = false): AppKit has to run on the main thread.
@@ -10,7 +10,7 @@ mod checks {
     use std::rc::Rc;
 
     use mitsuami_appkit::{AppKitBackend, AppKitHandle, BackendOptions, NativeView};
-    use mitsuami_core::services::{Alert, Menu, MenuBar, MenuItem, MenuRole, OpenFile, Shortcut};
+    use mitsuami_core::services::{Alert, Menu, MenuBar, MenuItem, MenuRole, OpenFile, ServiceError, Shortcut};
     use mitsuami_core::{Key, Size, Ui, View};
     use objc2::rc::Retained;
     use objc2::runtime::AnyObject;
@@ -278,6 +278,33 @@ mod checks {
         f.ui.destroy(window);
         f.ui.tick();
     }
+
+    /// Trashes a file of its own into the user's trash, then deletes it
+    /// from there: this terminal may not list `~/.Trash`, but the name is
+    /// unique, so the trashed file keeps it.
+    pub fn trash_moves_files_to_the_users_trash(f: &Fixture) {
+        let name = format!("mitsuami-trash-check-{}.txt", std::process::id());
+        let file = std::env::temp_dir().join(&name);
+        std::fs::write(&file, b"trash me").unwrap();
+        let answer = Rc::new(RefCell::new(None));
+        let a = answer.clone();
+        let reply = f.ui.trash(None, vec![file.clone()]);
+        f.ui.spawn_local(async move { *a.borrow_mut() = Some(reply.await) });
+        pump(&f.ui);
+
+        assert_eq!(*answer.borrow(), Some(Ok(())));
+        assert!(!file.exists(), "the file left its folder");
+        let trashed = std::env::home_dir().unwrap().join(".Trash").join(&name);
+        assert!(trashed.exists(), "it's in the trash, where Put Back finds it");
+        std::fs::remove_file(trashed).unwrap();
+
+        // A missing item fails with AppKit's reason.
+        let a = answer.clone();
+        let reply = f.ui.trash(None, vec![file]);
+        f.ui.spawn_local(async move { *a.borrow_mut() = Some(reply.await) });
+        pump(&f.ui);
+        assert!(matches!(*answer.borrow(), Some(Err(ServiceError::Failed(_)))), "{:?}", answer.borrow());
+    }
 }
 
 #[cfg(target_os = "macos")]
@@ -285,13 +312,14 @@ fn main() {
     use std::panic::{AssertUnwindSafe, catch_unwind};
 
     type Check = (&'static str, fn(&checks::Fixture));
-    let checks: [Check; 6] = [
+    let checks: [Check; 7] = [
         ("clipboard_round_trips", checks::clipboard_round_trips),
         ("menus_are_installed_and_activate", checks::menus_are_installed_and_activate),
         ("submenus_check_marks_and_roles", checks::submenus_check_marks_and_roles),
         ("window_menus_are_there_while_it_is_main", checks::window_menus_are_there_while_it_is_main),
         ("alerts_are_answered_through_their_sheet", checks::alerts_are_answered_through_their_sheet),
         ("open_panels_report_cancellation", checks::open_panels_report_cancellation),
+        ("trash_moves_files_to_the_users_trash", checks::trash_moves_files_to_the_users_trash),
     ];
     let filter: Vec<String> = std::env::args().skip(1).filter(|a| !a.starts_with('-')).collect();
     let fixture = checks::fixture();

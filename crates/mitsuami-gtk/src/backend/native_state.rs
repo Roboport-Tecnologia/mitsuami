@@ -171,6 +171,15 @@ impl GtkBackend {
                     props.push(Prop::IconSize(if shown == size.round() { *size } else { shown }));
                 }
             }
+            Widget::FileIcon { image, file, thumbnail, size } => {
+                props.extend(node.a11y_label.clone().map(Prop::Label));
+                props.extend(file.clone().map(Prop::File));
+                props.extend(thumbnail.map(Prop::Thumbnail));
+                if let Some(size) = size {
+                    let shown = image.pixel_size() as f32;
+                    props.push(Prop::IconSize(if shown == size.round() { *size } else { shown }));
+                }
+            }
             Widget::GpuSurface(surface) => {
                 props.extend(node.a11y_label.clone().map(Prop::Label));
                 props.extend(surface.props());
@@ -197,6 +206,7 @@ impl GtkBackend {
                 props.push(Prop::SelectionMode(list.mode()));
                 props.extend(list.style().map(Prop::ListStyle));
                 props.push(Prop::Selected(list.selected()));
+                props.extend(list.row_files().map(Prop::RowFiles));
             }
             Widget::Host(_) => props.extend(node.row.map(|row| match node.column {
                 Some(column) => Prop::Cell(mitsuami_core::CellKey { row, column }),

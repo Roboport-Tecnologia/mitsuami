@@ -266,7 +266,19 @@ impl State {
                 image.set_pixel_size(points.round() as i32);
                 *size = Some(*points);
             }
-            (Prop::Label(t), Widget::Icon { image, .. }) => {
+            (Prop::File(_) | Prop::Thumbnail(_), Widget::FileIcon { image, file, thumbnail, .. }) => {
+                match prop {
+                    Prop::File(path) => *file = Some(path.clone()),
+                    Prop::Thumbnail(on) => *thumbnail = Some(*on),
+                    _ => {}
+                }
+                super::file_icon::show(image, file.as_deref(), *thumbnail == Some(true));
+            }
+            (Prop::IconSize(points), Widget::FileIcon { image, size, .. }) => {
+                image.set_pixel_size(points.round() as i32);
+                *size = Some(*points);
+            }
+            (Prop::Label(t), Widget::Icon { image, .. } | Widget::FileIcon { image, .. }) => {
                 image.update_property(&[gtk::accessible::Property::Label(t)]);
                 node.a11y_label = Some(t.clone());
             }
@@ -430,6 +442,7 @@ impl State {
                     .set(&focus, entries);
             }
             (Prop::Rows(rows), Widget::List(list)) => list.set_rows(rows.clone()),
+            (Prop::RowFiles(files), Widget::List(list)) => list.set_row_files(files.clone()),
             (Prop::SelectionMode(mode), Widget::List(list)) => list.set_mode(*mode),
             (Prop::ListStyle(style), Widget::List(list)) => list.set_style(*style),
             (Prop::Selected(rows), Widget::List(list)) => list.set_selected(rows),

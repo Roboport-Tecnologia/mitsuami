@@ -168,6 +168,21 @@ impl mitsuami_core::TestHooks for HeadlessHandle {
         HeadlessHandle::node_count(self)
     }
 
+    /// The selected rows' files if the row is selected, else its own, as
+    /// platforms' lists drag.
+    fn dragged_files(&self, node: NodeId) -> Option<Vec<std::path::PathBuf>> {
+        let state = self.state.borrow();
+        let host = state.nodes.get(&node)?;
+        let row = find_prop!(host.props, Row).or_else(|| find_prop!(host.props, Cell).map(|cell| cell.row))?;
+        let list = &state.nodes[&host.parent?];
+        let files = find_prop!(list.props, RowFiles)?;
+        let selected = find_prop!(list.props, Selected).unwrap_or_default();
+        let rows = if selected.contains(&row) { selected } else { vec![row] };
+        let dragged: Vec<_> =
+            rows.iter().filter_map(|r| files.iter().find(|(f, _)| f == r).map(|(_, path)| path.clone())).collect();
+        (!dragged.is_empty()).then_some(dragged)
+    }
+
     /// All of it, as every platform has a place for some of it; the icon's
     /// size from its PNG header.
     fn app_info(&self, _window: NodeId) -> NativeAppInfo {

@@ -4,7 +4,7 @@ use mitsuami_core::{Command, NativeAppInfo, NativeIcon, NodeId, Size, WidgetKind
 use objc2::Message;
 use objc2::rc::Retained;
 use objc2_app_kit::{NSApplication, NSView};
-use objc2_foundation::{NSBundle, NSDefaultRunLoopMode, NSProcessInfo, NSRunLoop};
+use objc2_foundation::{NSBundle, NSDate, NSDefaultRunLoopMode, NSProcessInfo, NSRunLoop};
 
 use super::{AppKitHandle, State, Widget};
 
@@ -40,6 +40,15 @@ impl AppKitHandle {
 impl mitsuami_core::TestHooks for AppKitHandle {
     fn name(&self) -> &'static str {
         "appkit"
+    }
+
+    fn dragged_files(&self, node: NodeId) -> Option<Vec<std::path::PathBuf>> {
+        let state = self.state.borrow();
+        let host = state.nodes.get(&node)?;
+        match &state.nodes.get(&host.parent?)?.widget {
+            Widget::List(list) => list.dragged_files(host.row?),
+            _ => None,
+        }
     }
 
     fn resize_window(&self, window: NodeId, size: Size) {
@@ -82,6 +91,13 @@ impl mitsuami_core::TestHooks for AppKitHandle {
     fn settle(&self) {
         if self.state.borrow().nodes.values().any(|n| n.kind == WidgetKind::SearchInput) {
             NSRunLoop::currentRunLoop().limitDateForMode(unsafe { NSDefaultRunLoopMode });
+        }
+        // Thumbnails arrive through the main queue: run the run loop until
+        // they're shown, as the app's would, so captures have them.
+        let deadline = std::time::Instant::now() + std::time::Duration::from_secs(2);
+        while super::images::thumbnails_pending() && std::time::Instant::now() < deadline {
+            let until = NSDate::dateWithTimeIntervalSinceNow(0.01);
+            NSRunLoop::currentRunLoop().runMode_beforeDate(unsafe { NSDefaultRunLoopMode }, &until);
         }
         let state = self.state.borrow();
         state.layout_lists();
