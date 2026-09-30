@@ -30,6 +30,7 @@ impl State {
             match &node.widget {
                 // The table or text view, not the scroll view around it.
                 Widget::List(list) => run(&list.table),
+                Widget::Sidebar(sidebar) => run(&sidebar.table),
                 Widget::TextArea(area) => run(&area.text),
                 // The box, not the layout host its children are in.
                 Widget::Group { frame, .. } => run(frame),

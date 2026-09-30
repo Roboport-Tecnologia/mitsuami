@@ -3,7 +3,8 @@
 use std::rc::Rc;
 
 use mitsuami_core::{
-    CurrentWindow, EventValue, NodeId, Prop, SidebarItemData, SidebarSectionData, Ui, UiEvent, View, WidgetKind,
+    CurrentWindow, Element, EventValue, NodeId, Prop, SidebarItemData, SidebarSectionData, Tweak, Ui, UiEvent, View,
+    WidgetKind,
 };
 use mitsuami_reactive::{IntoValue, Signal, Value, effect, inject, on_cleanup};
 
@@ -47,11 +48,12 @@ pub struct Sidebar<T: 'static> {
     selection: Signal<T>,
     sections: Vec<SidebarSection<T>>,
     shown: Option<Signal<bool>>,
+    tweak: Option<Tweak<Sidebar<T>>>,
 }
 
 impl<T: PartialEq + Clone + 'static> Sidebar<T> {
     pub fn new(selection: Signal<T>) -> Sidebar<T> {
-        Sidebar { selection, sections: Vec::new(), shown: None }
+        Sidebar { selection, sections: Vec::new(), shown: None, tweak: None }
     }
 
     /// Shown beside the window's content while `shown` is true, hidden
@@ -61,6 +63,13 @@ impl<T: PartialEq + Clone + 'static> Sidebar<T> {
     /// in a wide window (GTK), it's the page shown in a narrow one.
     pub fn shown(mut self, shown: Signal<bool>) -> Sidebar<T> {
         self.shown = Some(shown);
+        self
+    }
+
+    /// Raw platform settings: see [`Tweak`]. How wide a sidebar is, say,
+    /// is each platform's own.
+    pub fn native(mut self, tweak: Tweak<Sidebar<T>>) -> Sidebar<T> {
+        self.tweak = Some(tweak);
         self
     }
 
@@ -88,10 +97,14 @@ impl<T: PartialEq + Clone + 'static> View for Sidebar<T> {
         let Some(CurrentWindow(window)) = inject::<CurrentWindow>() else {
             panic!("a Sidebar goes in a window's content");
         };
-        let Sidebar { selection, sections, shown: showing } = self;
+        let Sidebar { selection, sections, shown: showing, tweak } = self;
         let values: Rc<Vec<T>> =
             Rc::new(sections.iter().flat_map(|s| s.items.iter().map(|i| i.value.clone())).collect());
-        let sidebar = ui.create(WidgetKind::Sidebar, Vec::new());
+        let mut element = Element::new(WidgetKind::Sidebar);
+        if let Some(tweak) = tweak {
+            tweak.apply(&mut element);
+        }
+        let sidebar = element.build(ui);
         ui.append_child(window, sidebar);
         // The items first: the selection is an index into them.
         let shown = ui.clone();

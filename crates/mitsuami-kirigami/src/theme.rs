@@ -20,6 +20,12 @@ pub(crate) fn theme() -> QmlObject {
     THEME.with(|t| *t)
 }
 
+/// Kirigami's grid unit (`Kirigami.Units.gridUnit`), in which KDE's apps
+/// size columns and panes: for tweaks.
+pub fn grid_unit() -> f64 {
+    theme().real("gridUnit")
+}
+
 /// An RGBA color in 0…1.
 pub(crate) type Rgba = [f32; 4];
 

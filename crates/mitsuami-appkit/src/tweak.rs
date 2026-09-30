@@ -4,6 +4,7 @@ use std::rc::Rc;
 
 use mitsuami_core::reactive::{IntoValue, Value};
 use mitsuami_core::{List, Opaque, Table, Tweak};
+use mitsuami_widgets::Sidebar;
 use mitsuami_widgets::{
     Button, Checkbox, FileIcon, Group, Icon, Image, MenuButton, NumberInput, PasswordInput, Progress, RadioGroup,
     ScrollView, SearchInput, Select, Separator, Slider, Spinner, Switch, Text, TextArea, TextInput, ToggleButton,
@@ -115,6 +116,12 @@ impl Tweakable for List {
 
 /// The table view, not the scroll view around it.
 impl Tweakable for Table {
+    type Native = NSTableView;
+}
+
+/// The source list's table view, not the scroll view around it: the split
+/// view that sizes it is the window's.
+impl<T> Tweakable for Sidebar<T> {
     type Native = NSTableView;
 }
 

@@ -83,6 +83,9 @@ impl State {
                     root.window.set_object("mitsuamiSidebar", Some(page));
                     root.window.invoke("mitsuamiShowSidebar");
                     root.sidebar.set(Some((*child, page)));
+                    // Again now the page has its row (`mitsuamiStack`), which
+                    // sizes its column, and before the window grows by it.
+                    self.run_tweak(*child);
                     // The content keeps its size: the window grows by the
                     // sidebar's column.
                     let size = root.size.get();

@@ -59,4 +59,6 @@ pub use ffi::{IMPORTS, QmlObject};
 #[cfg(all(target_os = "linux", feature = "qt"))]
 pub use services::KirigamiServices;
 #[cfg(all(target_os = "linux", feature = "qt"))]
+pub use theme::grid_unit;
+#[cfg(all(target_os = "linux", feature = "qt"))]
 pub use tweak::{Tweakable, tweak, tweak_with};

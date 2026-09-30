@@ -4,6 +4,7 @@ use std::rc::Rc;
 
 use mitsuami_core::reactive::{IntoValue, Value};
 use mitsuami_core::{List, Opaque, Table, Tweak};
+use mitsuami_widgets::Sidebar;
 use mitsuami_widgets::{
     Button, Checkbox, FileIcon, Group, Icon, Image, MenuButton, NumberInput, PasswordInput, Progress, RadioGroup,
     ScrollView, SearchInput, Select, Separator, Slider, Spinner, Switch, Text, TextArea, TextInput, ToggleButton,
@@ -89,6 +90,11 @@ impl Tweakable for Table {}
 
 /// A `QQC2.Label`.
 impl Tweakable for Text {}
+
+/// The `Kirigami.ScrollablePage` in the window's page row, whose column
+/// is as wide as `Kirigami.ColumnView.preferredWidth` asks, or the row's
+/// default column. Its QML `ListView` is its `mitsuamiSidebarList` child.
+impl<T> Tweakable for Sidebar<T> {}
 
 /// Settings as the backend runs them, on the node's item.
 pub(crate) type TweakFn = Rc<dyn Fn(QmlObject)>;

@@ -56,10 +56,23 @@ fn Places() -> impl View {
         let item = SidebarItem::new(title, path);
         if icon.is_empty() { item } else { item.icon(icon) }
     };
-    Sidebar::new(place).children((
-        SidebarSection::new("Favorites").children(fs::favourites().into_iter().map(item).collect::<Vec<_>>()),
-        SidebarSection::new("Locations").children(item(fs::computer())),
-    ))
+    Sidebar::new(place)
+        .native(platform! {
+            // Narrower than Kirigami's default column (20 grid units), as
+            // Dolphin's places are. KDE's apps set their page row's; the
+            // window gives the page its row once it's in it, and the tweak
+            // runs again as the items come.
+            kde => mitsuami::kirigami::tweak(|page: &mitsuami::kirigami::QmlObject| {
+                if let Some(row) = page.object("mitsuamiStack") {
+                    row.set_int("defaultColumnWidth", (mitsuami::kirigami::grid_unit() * 12.0).round() as i32);
+                }
+            }),
+            _ => Tweak::none(),
+        })
+        .children((
+            SidebarSection::new("Favorites").children(fs::favourites().into_iter().map(item).collect::<Vec<_>>()),
+            SidebarSection::new("Locations").children(item(fs::computer())),
+        ))
 }
 
 #[component]

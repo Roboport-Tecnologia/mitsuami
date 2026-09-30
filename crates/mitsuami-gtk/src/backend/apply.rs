@@ -50,6 +50,7 @@ impl State {
             match &node.widget {
                 // The list or text view, not the scrolled window around it.
                 Widget::List(list) => run(&list.view),
+                Widget::Sidebar(sidebar) => run(sidebar.list.upcast_ref()),
                 Widget::TextArea { view, .. } => run(view.upcast_ref()),
                 // The card, not the host the children are in.
                 Widget::Group(group) => run(group.card.upcast_ref()),

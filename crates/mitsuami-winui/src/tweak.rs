@@ -4,6 +4,7 @@ use std::rc::Rc;
 
 use mitsuami_core::reactive::{IntoValue, Value};
 use mitsuami_core::{List, Opaque, Table, Tweak};
+use mitsuami_widgets::Sidebar;
 use mitsuami_widgets::{
     Button, Checkbox, FileIcon, Group, Icon, Image, MenuButton, NumberInput, PasswordInput, Progress, RadioGroup,
     ScrollView, SearchInput, Select, Separator, Slider, Spinner, Switch, Text, TextArea, TextInput, ToggleButton,
@@ -112,6 +113,11 @@ impl Tweakable for List {
 /// The list view under the header.
 impl Tweakable for Table {
     type Native = w::ListView;
+}
+
+/// The `NavigationView` whose pane it is.
+impl<T> Tweakable for Sidebar<T> {
+    type Native = w::NavigationView;
 }
 
 impl Tweakable for Text {

@@ -2,6 +2,9 @@
 //! window shows. The platform draws, places and sizes it; the window's
 //! content is what's beside it.
 
+use std::cell::RefCell;
+use std::rc::Rc;
+
 use mitsuami::core::{Prop, WidgetKind};
 use mitsuami::prelude::*;
 use mitsuami_test::prelude::*;
@@ -241,6 +244,45 @@ async fn it_is_first_in_the_tab_order(app: TestApp) {
 
     let order = app.ui().focus_order(app.window());
     assert_eq!(order, vec![sidebar(&app).unwrap(), app.get_by_role(Role::Button, "Apply").id()]);
+}
+
+/// Logs each run of the tweak, on the platform's own sidebar: whether it
+/// could reach what sizes it (on Kirigami, the page row the window gives
+/// the page; elsewhere, just that it ran).
+fn log_runs(log: Rc<RefCell<Vec<bool>>>) -> Tweak<Sidebar<Page>> {
+    platform! {
+        macos => mitsuami::appkit::tweak(move |_: &mitsuami::appkit::objc2_app_kit::NSTableView| {
+            log.borrow_mut().push(true)
+        }),
+        gtk => mitsuami::gtk::tweak(move |_: &mitsuami::gtk::gtk::ListBox| log.borrow_mut().push(true)),
+        kde => mitsuami::kirigami::tweak(move |page: &mitsuami::kirigami::QmlObject| {
+            log.borrow_mut().push(page.object("mitsuamiStack").is_some())
+        }),
+        windows => mitsuami::winui::tweak(move |_: &mitsuami::winui::bindings::NavigationView| {
+            log.borrow_mut().push(true);
+            Ok(())
+        }),
+    }
+}
+
+#[mitsuami_test::test]
+async fn a_tweak_reaches_the_native_sidebar_in_its_window(app: TestApp) {
+    let log = Rc::new(RefCell::new(Vec::new()));
+    let tweak = log_runs(log.clone());
+    let page = signal(Page::General);
+    app.mount(move || {
+        Column::new().grow(1.0).children((
+            Sidebar::new(page).native(tweak).item(SidebarItem::new("General", Page::General)),
+            Text::new("General settings"),
+        ))
+    });
+    let props = app.ui().native_state(sidebar(&app).unwrap()).unwrap().props;
+    assert!(props.iter().any(|p| matches!(p, Prop::Tweak(_))));
+    if app.is_headless() {
+        assert!(log.borrow().is_empty());
+        return;
+    }
+    assert_eq!(log.borrow().last(), Some(&true), "{:?}", log.borrow());
 }
 
 #[mitsuami_test::test]
