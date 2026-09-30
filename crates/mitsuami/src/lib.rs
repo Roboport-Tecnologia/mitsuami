@@ -49,7 +49,8 @@ pub use mitsuami_core as core;
 /// The `raw-window-handle` a [`SurfaceHandle`](prelude::SurfaceHandle) implements.
 pub use mitsuami_core::raw_window_handle;
 pub use mitsuami_core::unicode_segmentation;
-pub use mitsuami_macros::{IntoValue, component, view};
+pub use mitsuami_core::{t, tr};
+pub use mitsuami_macros::{IntoValue, component, locales, view};
 pub use mitsuami_reactive as reactive;
 pub use mitsuami_widgets as widgets;
 
@@ -77,8 +78,9 @@ compile_error!("mitsuami: pick a Linux toolkit with the `gtk` (default) or `kde`
 pub use mitsuami_winui as winui;
 
 pub mod prelude {
-    pub use crate::{App, IntoValue, component, platform, view};
+    pub use crate::{App, IntoValue, component, locales, platform, t, tr, view};
     pub use mitsuami_core::draw::DisplayList;
+    pub use mitsuami_core::l10n::{self, Locales};
     pub use mitsuami_core::services::{
         Alert, AlertStyle, FileFilter, Launch, Menu, MenuBar, MenuItem, MenuRole, MenuSeparator, OpenFile, SaveFile,
         ServiceError, Shortcut, alert, clipboard_text, launch, launch_url, open_file, save_file, set_clipboard_text,

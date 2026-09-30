@@ -1,0 +1,37 @@
+app-title = 言語
+language = 言語
+system-language = システム
+name = 名前
+greeting = こんにちは、{ $name }さん！
+files = { $count } 個のファイル
+today = 今日は{ DATETIME($date, dateStyle: "full") }です。
+now = 時刻: { DATETIME($date, timeStyle: "short") }
+size = { $bytes } バイト
+done = { NUMBER($fraction, style: "percent") } 完了
+price = 価格: { NUMBER($amount, style: "currency", currency: "EUR") }
+remember = ログイン状態を保持
+plan = プラン
+plan-free = 無料
+plan-pro = プロ
+save = 保存
+saved = { $count } 個のファイルを保存しました。
+menu-help = ヘルプ
+about = 言語について
+
+# mitsuami's own strings: the app gives them in its languages.
+mitsuami-menu-about = { $app }について
+mitsuami-menu-settings = 設定…
+mitsuami-menu-hide = { $app }を非表示
+mitsuami-menu-quit-app = { $app }を終了
+mitsuami-menu-file = ファイル
+mitsuami-menu-edit = 編集
+mitsuami-menu-undo = 取り消す
+mitsuami-menu-redo = やり直す
+mitsuami-menu-cut = カット
+mitsuami-menu-copy = コピー
+mitsuami-menu-paste = ペースト
+mitsuami-menu-select-all = すべてを選択
+mitsuami-menu-quit = 終了
+mitsuami-main-menu = メインメニュー
+mitsuami-quit-reason = 終了する前に確認しています
+mitsuami-alert-ok = OK

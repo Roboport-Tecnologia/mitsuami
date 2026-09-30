@@ -24,6 +24,8 @@ mod keys;
 #[cfg(target_os = "macos")]
 mod list;
 #[cfg(target_os = "macos")]
+mod locale;
+#[cfg(target_os = "macos")]
 mod number_field;
 #[cfg(target_os = "macos")]
 mod radio;

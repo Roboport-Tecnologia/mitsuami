@@ -11,8 +11,9 @@
 //!   the Files pages)
 //!   fill the page when it's taller than they need.
 //! - Leaving a page drops it and its state, as closing its window would;
-//!   the Menus page takes the app's menus with it, the GPU surface page
-//!   its render thread.
+//!   the Menus and Languages pages take the app's menus with them (and
+//!   Languages its translations and language), the GPU surface page its
+//!   render thread.
 
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
@@ -31,20 +32,20 @@ mod checkbox;
 #[path = "../../../crates/mitsuami/examples/context_menu.rs"]
 mod context_menu;
 #[allow(dead_code, unused_attributes)]
+#[path = "../../../crates/mitsuami/examples/file_drag.rs"]
+mod file_drag;
+#[allow(dead_code, unused_attributes)]
 #[path = "../../../crates/mitsuami/examples/file_drop.rs"]
 mod file_drop;
+#[allow(dead_code, unused_attributes)]
+#[path = "../../../crates/mitsuami/examples/file_icon.rs"]
+mod file_icon;
 #[allow(dead_code, unused_attributes)]
 #[path = "../../../crates/mitsuami/examples/focus.rs"]
 mod focus;
 #[allow(dead_code, unused_attributes)]
 #[path = "../../gpu-surface/src/main.rs"]
 mod gpu_surface;
-#[allow(dead_code, unused_attributes)]
-#[path = "../../../crates/mitsuami/examples/file_drag.rs"]
-mod file_drag;
-#[allow(dead_code, unused_attributes)]
-#[path = "../../../crates/mitsuami/examples/file_icon.rs"]
-mod file_icon;
 #[allow(dead_code, unused_attributes)]
 #[path = "../../../crates/mitsuami/examples/group.rs"]
 mod group;
@@ -57,6 +58,9 @@ mod image;
 #[allow(dead_code, unused_attributes)]
 #[path = "../../../crates/mitsuami/examples/keys.rs"]
 mod keys;
+#[allow(dead_code, unused_attributes)]
+#[path = "../../../crates/mitsuami/examples/l10n/main.rs"]
+mod languages;
 #[allow(dead_code, unused_attributes)]
 #[path = "../../../crates/mitsuami/examples/launch.rs"]
 mod launch;
@@ -169,6 +173,7 @@ const SECTIONS: [(&str, &[Example]); 7] = [
             example("Password input", || AnyView::new(password_input::page())),
             example("Search input", || AnyView::new(search_input::page())),
             example("Text area", || AnyView::new(text_area::page())),
+            example("Languages", || AnyView::new(languages::page())),
         ],
     ),
     (
@@ -239,9 +244,18 @@ fn showcase() -> impl View {
             Show::new(
                 move || chosen.get() == title,
                 move || {
-                    if title == "Menus" {
+                    if title == "Menus" || title == "Languages" {
                         // The page installs the app's menus; they go with it.
                         on_cleanup(|| set_menu(MenuBar::new()));
+                    }
+                    if title == "Languages" {
+                        // Its translations, and the language it chose,
+                        // are the whole app's while it's shown.
+                        l10n::set_locales(locales!("../../../crates/mitsuami/examples/l10n/locales"));
+                        on_cleanup(|| {
+                            l10n::set_language(None);
+                            l10n::set_locales(Locales::new());
+                        });
                     }
                     // At least as tall as the scroll view, so pages that
                     // fill their window fill it, and scroll once they

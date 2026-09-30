@@ -192,6 +192,13 @@ impl Ui {
         self.changed();
     }
 
+    /// Changes part of a node's semantics.
+    pub fn update_a11y(&self, id: NodeId, f: impl FnOnce(&mut A11yProps)) {
+        let Some(mut a11y) = self.inner.borrow().nodes.get(&id).map(|n| n.a11y.clone()) else { return };
+        f(&mut a11y);
+        self.set_a11y(id, a11y);
+    }
+
     pub fn set_test_id(&self, id: NodeId, test_id: impl Into<String>) {
         if let Some(node) = self.inner.borrow_mut().nodes.get_mut(&id) {
             node.test_id = Some(test_id.into());

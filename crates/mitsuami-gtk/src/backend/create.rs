@@ -274,6 +274,7 @@ impl State {
                 context_menu: None,
                 file_drop: None,
                 keys: None,
+                align: None,
             },
         );
     }

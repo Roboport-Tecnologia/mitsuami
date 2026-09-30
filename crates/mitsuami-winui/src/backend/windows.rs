@@ -55,6 +55,15 @@ pub(super) const WINDOW_ROOT: &str = r#"
   <Canvas Grid.Row="3" Background="{ThemeResource SolidBackgroundFillColorBaseBrush}"/>
 </Grid>"#;
 
+/// A window's direction: its title bar, menu bar and toolbar follow the
+/// root; the content host stays left to right, as the core mirrored the
+/// frames it places. The caption buttons are the system's.
+pub(super) fn set_window_direction(root: &w::Grid, host: &w::Canvas, right_to_left: bool) -> windows_core::Result<()> {
+    let flow = if right_to_left { w::FlowDirection::RightToLeft } else { w::FlowDirection::LeftToRight };
+    root.cast::<w::IFrameworkElement>()?.SetFlowDirection(flow)?;
+    host.cast::<w::IFrameworkElement>()?.SetFlowDirection(w::FlowDirection::LeftToRight)
+}
+
 /// Where the menu bar goes in `WINDOW_ROOT`.
 pub(super) const MENU_ROW: i32 = 1;
 

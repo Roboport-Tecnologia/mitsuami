@@ -3,7 +3,7 @@
 use std::cell::Cell;
 use std::rc::Rc;
 
-use mitsuami_core::{Command, ImageFit, ImageSource, NodeId, Pixels, Prop, TextStyle, UiEvent};
+use mitsuami_core::{Command, ImageFit, ImageSource, LayoutDirection, NodeId, Pixels, Prop, TextStyle, UiEvent};
 use mitsuami_core::{HorizontalAlign, InputPurpose};
 use windows_core::{IInspectable, Interface};
 
@@ -471,11 +471,10 @@ impl State {
             } else {
                 w::FontStyle::Normal
             })?,
-            (Prop::TextAlign(align), Widget::Label(l)) => l.cast::<w::ITextBlock>()?.SetTextAlignment(match align {
-                HorizontalAlign::Left => w::TextAlignment::Left,
-                HorizontalAlign::Center => w::TextAlignment::Center,
-                HorizontalAlign::Right => w::TextAlignment::Right,
-            })?,
+            (Prop::TextAlign(align), Widget::Label(l)) => {
+                node.align = Some(*align);
+                align_label(l, *align)?;
+            }
             (Prop::TextStyle(text_style), _) if is_control(&node.widget) => {
                 let control: w::IControl = node.element.cast()?;
                 control.SetFontSize(font_size(*text_style))?;
@@ -550,6 +549,35 @@ impl State {
                     node.keys = Some(super::keys::Keys::new(id, self.emitter.clone(), &node.element, keys.clone())?);
                 }
             },
+            // XAML mirrors a panel's children, which the core placed for
+            // their direction already, and a scroll viewer's or list's
+            // offsets: they stay left to right, and so what they hold
+            // doesn't inherit it. Controls mirror their own drawing.
+            (Prop::LayoutDirection(direction), widget) => {
+                node.direction = Some(*direction);
+                let holds_ours = node.element.cast::<w::Canvas>().is_ok()
+                    || matches!(widget, Widget::Scroll(_) | Widget::List(_) | Widget::Tabs(_) | Widget::Group(_));
+                let flow = match direction {
+                    LayoutDirection::RightToLeft if !holds_ours => w::FlowDirection::RightToLeft,
+                    _ => w::FlowDirection::LeftToRight,
+                };
+                let control = node.inner.as_ref().unwrap_or(&node.element);
+                control.cast::<w::IFrameworkElement>()?.SetFlowDirection(flow)?;
+                if let Widget::Label(l) = widget
+                    && let Some(align) = node.align
+                {
+                    align_label(l, align)?;
+                }
+                // A tab view's bar is a control of its own.
+                if let Widget::Tabs(tabs) = widget {
+                    let flow = if *direction == LayoutDirection::RightToLeft {
+                        w::FlowDirection::RightToLeft
+                    } else {
+                        w::FlowDirection::LeftToRight
+                    };
+                    tabs.bar.cast::<w::IFrameworkElement>()?.SetFlowDirection(flow)?;
+                }
+            }
             (Prop::Tooltip(text), _) => {
                 // On the control itself, not the Border a native render sits in.
                 let control = node.inner.as_ref().unwrap_or(&node.element);
@@ -630,4 +658,16 @@ fn writeable_bitmap(pixels: &Pixels) -> R<w::WriteableBitmap> {
 fn file_uri(path: &std::path::Path) -> R<w::Uri> {
     let path = std::path::absolute(path).unwrap_or_else(|_| path.to_path_buf());
     w::Uri::CreateUri(&format!("file:///{}", path.display().to_string().replace('\\', "/")))
+}
+
+/// XAML's left is the start of the text's flow: the right in a
+/// right-to-left label. The core resolved the direction, so left is left.
+fn align_label(l: &w::TextBlock, align: HorizontalAlign) -> R<()> {
+    let rtl = l.cast::<w::IFrameworkElement>()?.FlowDirection()? == w::FlowDirection::RightToLeft;
+    l.cast::<w::ITextBlock>()?.SetTextAlignment(match (align, rtl) {
+        (HorizontalAlign::Center, _) => w::TextAlignment::Center,
+        (HorizontalAlign::Left, false) | (HorizontalAlign::Right, true) => w::TextAlignment::Left,
+        (HorizontalAlign::Right, false) | (HorizontalAlign::Left, true) => w::TextAlignment::Right,
+    })?;
+    Ok(())
 }

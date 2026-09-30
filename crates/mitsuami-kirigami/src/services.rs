@@ -15,6 +15,7 @@ use std::fmt::Write;
 use std::path::PathBuf;
 use std::rc::Rc;
 
+use mitsuami_core::l10n::tr;
 use mitsuami_core::services::{
     Alert, AlertStyle, FileFilter, Launch, MenuBarData, MenuCheck, MenuData, MenuEntry, MenuItemData, MenuRole,
     OpenFile, Reply, SaveFile, ServiceError, Services, Shortcut, existing_folder,
@@ -267,15 +268,15 @@ pub(crate) fn drawer_qml(menu: &MenuBarData, dialog: bool) -> Option<String> {
     // shortcuts warn about.
     match quit {
         Some(item) => {
-            let item = MenuItemData { title: "Quit".into(), ..item };
+            let item = MenuItemData { title: tr("mitsuami-menu-quit", &[]), ..item };
             actions.push(item_qml(&item, Some(Shortcut::primary('q')), Some("application-exit"), None, Form::Drawer));
         }
         None if dialog => {}
-        None => actions.push(
-            "Kirigami.Action { objectName: \"mitsuamiQuit\"; text: \"Quit\"; icon.name: \"application-exit\"; \
-             shortcut: \"Ctrl+Q\" }"
-                .into(),
-        ),
+        None => actions.push(format!(
+            "Kirigami.Action {{ objectName: \"mitsuamiQuit\"; text: {}; icon.name: \"application-exit\"; \
+             shortcut: \"Ctrl+Q\" }}",
+            js_string(&tr("mitsuami-menu-quit", &[]))
+        )),
     }
     Some(format!(
         "Kirigami.GlobalDrawer {{ isMenu: true\n{}\nactions: [\n{}\n] }}",

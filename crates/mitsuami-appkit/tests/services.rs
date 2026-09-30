@@ -121,8 +121,14 @@ mod checks {
         NSApplication::sharedApplication(mtm).mainMenu().expect("a main menu")
     }
 
+    /// As people see them: without the marks the app's language isolates
+    /// the app's name with (U+2068, U+2069).
     fn titles(menu: &NSMenu) -> Vec<String> {
-        menu.itemArray().iter().map(|i| if i.isSeparatorItem() { "-".into() } else { i.title().to_string() }).collect()
+        let visible = |title: String| title.chars().filter(|c| !('\u{2066}'..='\u{2069}').contains(c)).collect();
+        menu.itemArray()
+            .iter()
+            .map(|i| if i.isSeparatorItem() { "-".into() } else { visible(i.title().to_string()) })
+            .collect()
     }
 
     fn submenu(menu: &NSMenu, title: &str) -> Retained<NSMenu> {

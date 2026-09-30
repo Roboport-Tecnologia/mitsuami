@@ -26,6 +26,9 @@ pub(crate) struct TestContext {
     /// it ends rather than stopping it, so one run writes every snapshot
     /// pending review.
     pub snapshot_failures: Rc<RefCell<Vec<String>>>,
+    /// Messages missing from every language, or that failed to format.
+    /// They fail the test when it ends, unless it takes them.
+    pub l10n_errors: Rc<RefCell<Vec<String>>>,
 }
 
 impl TestContext {
@@ -243,7 +246,31 @@ impl TestApp {
                 break;
             }
         }
+        self.context.l10n_errors.borrow_mut().extend(self.ui.take_l10n_errors());
         self.check_mirror();
+    }
+
+    /// The app's translations, as `App::locales` gives them. Set them
+    /// before mounting.
+    pub fn set_locales(&self, locales: mitsuami_core::l10n::Locales) {
+        self.ui.set_locales(locales);
+    }
+
+    /// The user's languages, most preferred first, for the rest of the
+    /// test: the app's language is chosen from them. Tests start with
+    /// US English, whatever the machine's, and numbers and dates written
+    /// as US English writes them.
+    pub async fn set_languages(&self, languages: &[&str]) {
+        self.ui.set_languages(Some(languages.iter().map(|l| l.to_string()).collect()));
+        self.settle().await;
+    }
+
+    /// Messages missing from every language, and messages that failed to
+    /// format, so far. The test fails on those it doesn't take.
+    pub fn take_l10n_errors(&self) -> Vec<String> {
+        let mut errors = std::mem::take(&mut *self.context.l10n_errors.borrow_mut());
+        errors.extend(self.ui.take_l10n_errors());
+        errors
     }
 
     /// Simulates the user resizing the window.

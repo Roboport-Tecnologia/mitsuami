@@ -1,7 +1,7 @@
 //! Reading back what native widgets show.
 
 use mitsuami_core::backend::NativeState;
-use mitsuami_core::{HorizontalAlign, InputPurpose};
+use mitsuami_core::{HorizontalAlign, InputPurpose, LayoutDirection};
 use mitsuami_core::{NodeId, Orientation, Point, Prop, Rect, WidgetKind};
 use windows_core::{IInspectable, Interface};
 
@@ -20,6 +20,14 @@ impl WinUiBackend {
         let state = self.state.borrow();
         let node = state.nodes.get(&id)?;
         let mut props = Vec::new();
+        // What XAML shows for controls; what the core gave for the rest,
+        // which stay left to right (see `Prop::LayoutDirection`).
+        let flow = node.control().cast::<w::IFrameworkElement>().ok()?.FlowDirection().ok()?;
+        props.push(Prop::LayoutDirection(match (node.direction, flow) {
+            (Some(direction), w::FlowDirection::LeftToRight) => direction,
+            (_, w::FlowDirection::RightToLeft) => LayoutDirection::RightToLeft,
+            _ => LayoutDirection::LeftToRight,
+        }));
         match &node.widget {
             Widget::Window(parts) => {
                 props.push(Prop::Title(parts.window.cast::<w::IWindow>().ok()?.Title().ok()?));
@@ -49,9 +57,11 @@ impl WinUiBackend {
                 props.push(Prop::FontWeight(weight_of(text.FontWeight().ok()?.weight)));
                 props.push(Prop::Italic(text.FontStyle().ok()? == w::FontStyle::Italic));
                 props.push(Prop::Selectable(text.IsTextSelectionEnabled().ok()?));
-                props.push(Prop::TextAlign(match text.TextAlignment().ok()? {
-                    w::TextAlignment::Center => HorizontalAlign::Center,
-                    w::TextAlignment::Right => HorizontalAlign::Right,
+                // Left and right are the start and end of its flow.
+                let rtl = flow == w::FlowDirection::RightToLeft;
+                props.push(Prop::TextAlign(match (text.TextAlignment().ok()?, rtl) {
+                    (w::TextAlignment::Center, _) => HorizontalAlign::Center,
+                    (w::TextAlignment::Right, false) | (w::TextAlignment::Left, true) => HorizontalAlign::Right,
                     _ => HorizontalAlign::Left,
                 }));
                 // Its brush is a theme resource in its style, which can't

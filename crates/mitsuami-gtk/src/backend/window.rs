@@ -197,7 +197,7 @@ impl State {
         let header = adw::HeaderBar::new();
         let menu_button = gtk::MenuButton::new();
         menu_button.set_icon_name("open-menu-symbolic");
-        menu_button.set_tooltip_text(Some("Main Menu"));
+        menu_button.set_tooltip_text(Some(&mitsuami_core::l10n::tr("mitsuami-main-menu", &[])));
         menu_button.set_primary(true);
         header.pack_end(&menu_button);
         window.set_titlebar(Some(&header));

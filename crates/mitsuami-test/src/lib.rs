@@ -47,7 +47,7 @@ pub use mitsuami_headless::{
     FakeServicesHandle, Pending, PendingAlert, PendingLaunch, PendingOpen, PendingSave, PendingTrash,
 };
 pub use mitsuami_test_macros::{story, test};
-pub use query::{Query, by_label, by_role, by_test_id, by_text};
+pub use query::{Query, by_label, by_role, by_test_id, by_text, visible_text};
 pub use story::Variant;
 pub use visual::VisualOptions;
 

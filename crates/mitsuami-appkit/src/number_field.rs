@@ -4,7 +4,7 @@
 use objc2::rc::Retained;
 use objc2::runtime::AnyObject;
 use objc2::{DefinedClass, MainThreadMarker, MainThreadOnly, define_class, msg_send, sel};
-use objc2_app_kit::{NSControl, NSStepper, NSTextField, NSView};
+use objc2_app_kit::{NSControl, NSStepper, NSTextField, NSUserInterfaceLayoutDirection, NSView};
 use objc2_foundation::{NSPoint, NSRect, NSSize};
 
 use mitsuami_core::{EventSink, EventValue, NodeId, Size, UiEvent};
@@ -155,6 +155,7 @@ impl NumberField {
 
     /// The field takes the width the stepper leaves; both are centred
     /// vertically, by their alignment rects, as Auto Layout places them.
+    /// The stepper is on the trailing side: the left in right-to-left.
     fn place_parts(&self) {
         let NumberFieldIvars { field, stepper, .. } = self.ivars();
         let bounds = self.bounds().size;
@@ -162,13 +163,26 @@ impl NumberField {
         let field_height = field.intrinsicContentSize().height;
         let field_width = (bounds.width - GAP - stepper_size.width).max(0.0);
         let centred = |height: f64| ((bounds.height - height) / 2.0).round();
+        let rtl = self.userInterfaceLayoutDirection() == NSUserInterfaceLayoutDirection::RightToLeft;
+        let (field_x, stepper_x) = if rtl { (stepper_size.width + GAP, 0.0) } else { (0.0, field_width + GAP) };
         field.setFrame(field.frameForAlignmentRect(NSRect::new(
-            NSPoint::new(0.0, centred(field_height)),
+            NSPoint::new(field_x, centred(field_height)),
             NSSize::new(field_width, field_height),
         )));
-        stepper.setFrame(stepper.frameForAlignmentRect(NSRect::new(
-            NSPoint::new(field_width + GAP, centred(stepper_size.height)),
-            stepper_size,
-        )));
+        stepper.setFrame(
+            stepper.frameForAlignmentRect(NSRect::new(
+                NSPoint::new(stepper_x, centred(stepper_size.height)),
+                stepper_size,
+            )),
+        );
+    }
+
+    /// Its parts' direction, and their places.
+    pub(crate) fn set_direction(&self, direction: NSUserInterfaceLayoutDirection) {
+        self.setUserInterfaceLayoutDirection(direction);
+        self.field().setUserInterfaceLayoutDirection(direction);
+        self.stepper().setUserInterfaceLayoutDirection(direction);
+        self.field().setAlignment(crate::backend::field_alignment(direction));
+        self.place_parts();
     }
 }

@@ -1,11 +1,12 @@
 //! Starting an app on the native backend of the target platform.
 
-use mitsuami_core::{AnyView, AppIcon, AppInfo, CurrentWindow, Ui, UiEvent, View, WindowSize, provide_stores};
-use mitsuami_reactive::{Owner, provide};
+use mitsuami_core::l10n::Locales;
+use mitsuami_core::{AnyView, AppIcon, AppInfo, CurrentWindow, Prop, Ui, UiEvent, View, WindowSize, provide_stores};
+use mitsuami_reactive::{IntoValue, Owner, Value, effect, provide};
 use mitsuami_widgets::Window;
 
 struct WindowSpec {
-    title: String,
+    title: Value<String>,
     size: WindowSize,
     content: Box<dyn FnOnce() -> AnyView>,
 }
@@ -23,12 +24,14 @@ enum Startup {
 ///     .id("org.example.Counter")
 ///     .name("Counter")
 ///     .icon(AppIcon::bytes(include_bytes!("../icon.png")))
-///     .window("Counter", Size::new(360.0, 200.0), || counter(0))
+///     .locales(locales!("../locales"))
+///     .window(t!("counter-title"), Size::new(360.0, 200.0), || counter(0))
 ///     .run();
 /// ```
 #[derive(Default)]
 pub struct App {
     info: AppInfo,
+    locales: Option<Locales>,
     windows: Vec<Startup>,
 }
 
@@ -59,18 +62,26 @@ impl App {
         self
     }
 
+    /// Its translations, usually `locales!("../locales")`: Fluent files per
+    /// language. The app's language is the first of the user's it has,
+    /// and `t!` and `tr!` show its messages. See [`mitsuami_core::l10n`].
+    pub fn locales(mut self, locales: Locales) -> App {
+        self.locales = Some(locales);
+        self
+    }
+
     /// Adds a window, opened at startup. `size` is the content size: a
     /// [`Size`](mitsuami_core::Size), [`WindowSize::FitHeight`] to fit
     /// the height to the content, or [`WindowSize::FollowHeight`] to follow
     /// it as it changes.
     pub fn window<V: View>(
         mut self,
-        title: impl Into<String>,
+        title: impl IntoValue<String>,
         size: impl Into<WindowSize>,
         content: impl FnOnce() -> V + 'static,
     ) -> App {
         let content = Box::new(move || AnyView::new(content()));
-        self.windows.push(Startup::Spec(WindowSpec { title: title.into(), size: size.into(), content }));
+        self.windows.push(Startup::Spec(WindowSpec { title: title.into_value(), size: size.into(), content }));
         self
     }
 
@@ -97,8 +108,12 @@ impl App {
 
     /// Runs until the last window closes.
     pub fn run(self) {
-        let (info, windows) = (self.info, self.windows);
+        let (info, locales, windows) = (self.info, self.locales, self.windows);
         let setup = move |ui: &Ui| {
+            // Before any window, so the first is in the app's language.
+            if let Some(locales) = locales {
+                ui.set_locales(locales);
+            }
             // The app scope makes the Ui available to every component
             // (`inject::<Ui>()`, `spawn_local`, `sleep`) and holds the
             // stores; it lives as long as the app.
@@ -137,11 +152,16 @@ impl App {
 }
 
 fn open(ui: &Ui, app: Owner, spec: WindowSpec) {
-    let window = ui.create_window(spec.title, spec.size);
+    let title = spec.title;
+    let window = ui.create_window(mitsuami_reactive::untrack(|| title.get()), spec.size);
     // Each window owns its reactive state; closing it disposes everything,
     // including the tasks it started.
     let owner = app.child();
     let root = owner.with(|| {
+        if let Value::Dynamic(_) = title {
+            let ui = ui.clone();
+            effect(move || ui.set_prop(window, Prop::Title(title.get())));
+        }
         provide(CurrentWindow(window));
         (spec.content)().build(ui)
     });

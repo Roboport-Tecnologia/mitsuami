@@ -34,7 +34,8 @@ Microsoft.UI.WindowId
 Microsoft.UI.IconId
 Microsoft.UI.Xaml.UIElement::{}
 Microsoft.UI.Xaml.IUIElement::{UpdateLayout, put_Clip, get_FocusState, put_TabIndex, put_IsTabStop, Measure, get_DesiredSize, get_XamlRoot, put_XamlRoot, Focus, put_TabFocusNavigation, get_KeyboardAccelerators, add_GotFocus, remove_GotFocus, add_LostFocus, remove_LostFocus, add_KeyDown, remove_KeyDown, add_PreviewKeyDown, remove_PreviewKeyDown, add_PointerPressed, remove_PointerPressed, add_PointerReleased, remove_PointerReleased, add_PointerWheelChanged, remove_PointerWheelChanged, add_PointerMoved, remove_PointerMoved, add_PointerExited, remove_PointerExited, add_KeyUp, remove_KeyUp, CapturePointer, add_DoubleTapped, remove_DoubleTapped, TransformToVisual, get_Visibility, put_Visibility, get_ContextFlyout, put_ContextFlyout, put_AllowDrop, get_AllowDrop, add_DragEnter, remove_DragEnter, add_DragOver, remove_DragOver, add_DragLeave, remove_DragLeave, add_Drop, remove_Drop}
-Microsoft.UI.Xaml.IFrameworkElement::{get_Width, put_Width, get_Height, put_Height, put_HorizontalAlignment, put_VerticalAlignment, put_RequestedTheme, put_Style, get_ActualWidth, get_ActualHeight, put_MinWidth, add_SizeChanged, remove_SizeChanged, add_Loaded, remove_Loaded, get_IsLoaded, put_Margin}
+Microsoft.UI.Xaml.IFrameworkElement::{get_Width, put_Width, get_Height, put_Height, put_HorizontalAlignment, put_VerticalAlignment, put_RequestedTheme, put_Style, get_ActualWidth, get_ActualHeight, put_MinWidth, add_SizeChanged, remove_SizeChanged, add_Loaded, remove_Loaded, get_IsLoaded, put_Margin, get_FlowDirection, put_FlowDirection}
+Microsoft.UI.Xaml.FlowDirection
 Microsoft.UI.Xaml.ISizeChangedEventArgs::get_NewSize
 Microsoft.UI.Xaml.IRoutedEventArgs::get_OriginalSource
 Microsoft.UI.Xaml.RoutedEventHandler
@@ -497,3 +498,23 @@ Windows.ApplicationModel.DataTransfer.DataProviderDeferral::{}
 Windows.ApplicationModel.DataTransfer.IDataProviderDeferral::Complete
 Windows.Storage.StorageFile::GetFileFromPathAsync
 Windows.Storage.StorageFolder::GetFolderFromPathAsync
+
+Windows.Win32.GetUserPreferredUILanguages
+Windows.Win32.MUI_LANGUAGE_NAME
+Windows.Win32.GetLocaleInfoEx
+Windows.Win32.LOCALE_SDECIMAL
+Windows.Win32.LOCALE_STHOUSAND
+Windows.Win32.LOCALE_SGROUPING
+Windows.Win32.LOCALE_SMONDECIMALSEP
+Windows.Win32.LOCALE_SMONTHOUSANDSEP
+Windows.Win32.LOCALE_SMONGROUPING
+Windows.Win32.LOCALE_ICURRENCY
+Windows.Win32.LOCALE_IPOSITIVEPERCENT
+Windows.Win32.LOCALE_RETURN_NUMBER
+Windows.Win32.GetDateFormatEx
+Windows.Win32.GetTimeFormatEx
+Windows.Win32.DATE_SHORTDATE
+Windows.Win32.DATE_LONGDATE
+Windows.Win32.TIME_NOSECONDS
+Windows.Win32.FileTimeToSystemTime
+Windows.Win32.SystemTimeToTzSpecificLocalTime

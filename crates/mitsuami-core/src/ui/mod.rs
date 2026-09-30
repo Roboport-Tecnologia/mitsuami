@@ -145,6 +145,10 @@ struct Inner {
     focused: BTreeMap<NodeId, NodeId>,
     commit_scheduler: Option<Rc<dyn Fn()>>,
     commit_scheduled: bool,
+    /// The app's language last given to the backend.
+    language: Option<crate::l10n::LanguageIdentifier>,
+    /// Its direction, which windows' content inherits.
+    rtl: bool,
     /// Sizes views watch (`use_size`, `use_viewport`).
     observers: BTreeMap<u64, Observer>,
     next_observer: u64,
@@ -166,6 +170,9 @@ pub struct Ui {
     executor: Rc<Executor>,
     /// Kept apart too: replies may arrive at any time.
     services: Rc<RefCell<Box<dyn Services>>>,
+    /// Kept apart too: messages are formatted while the tree is borrowed
+    /// (backends title menus in `apply`).
+    l10n: Rc<crate::l10n::Localization>,
 }
 
 /// Non-owning [`Ui`] handle, for closures stored inside the tree itself.
@@ -174,6 +181,7 @@ pub struct WeakUi {
     inner: Weak<RefCell<Inner>>,
     executor: Weak<Executor>,
     services: Weak<RefCell<Box<dyn Services>>>,
+    l10n: Weak<crate::l10n::Localization>,
 }
 
 impl WeakUi {
@@ -182,6 +190,7 @@ impl WeakUi {
             inner: self.inner.upgrade()?,
             executor: self.executor.upgrade()?,
             services: self.services.upgrade()?,
+            l10n: self.l10n.upgrade()?,
         })
     }
 }
@@ -205,9 +214,11 @@ impl Ui {
         backend.init(events.clone());
         let metrics = backend.metrics();
         let services = Rc::new(RefCell::new(backend.services()));
-        Ui {
+        let l10n = crate::l10n::Localization::new(backend.locale());
+        let ui = Ui {
             executor: Rc::default(),
             services,
+            l10n,
             inner: Rc::new(RefCell::new(Inner {
                 backend,
                 events,
@@ -230,10 +241,20 @@ impl Ui {
                 quit_items: BTreeMap::new(),
                 commit_scheduler: None,
                 commit_scheduled: false,
+                language: None,
+                rtl: false,
                 observers: BTreeMap::new(),
                 next_observer: 1,
             })),
-        }
+        };
+        // The next commit gives the backend the new language.
+        let weak = ui.downgrade();
+        ui.l10n.set_on_change(move |_, _| {
+            if let Some(ui) = weak.upgrade() {
+                ui.changed();
+            }
+        });
+        ui
     }
 
     pub fn downgrade(&self) -> WeakUi {
@@ -241,6 +262,7 @@ impl Ui {
             inner: Rc::downgrade(&self.inner),
             executor: Rc::downgrade(&self.executor),
             services: Rc::downgrade(&self.services),
+            l10n: Rc::downgrade(&self.l10n),
         }
     }
 
@@ -307,6 +329,33 @@ impl Ui {
 
     pub fn metrics(&self) -> PlatformMetrics {
         self.inner.borrow().metrics.clone()
+    }
+
+    // --------------------------------------------------------- localization
+
+    /// The app's translations (`locales!`). Set them before the app's
+    /// first window; `App` does. The language is chosen from them again.
+    pub fn set_locales(&self, locales: crate::l10n::Locales) {
+        self.l10n.set_locales(locales);
+    }
+
+    /// The languages to choose the app's from, most wanted first, in place
+    /// of the user's: an app's own language setting, or a test's. `None`:
+    /// the user's, as the platform lists them.
+    pub fn set_languages(&self, languages: Option<Vec<String>>) {
+        self.l10n.set_requested(languages);
+    }
+
+    /// The app's language: the first of the user's it has translations
+    /// for, else its fallback. Tracked.
+    pub fn language(&self) -> crate::l10n::LanguageIdentifier {
+        self.l10n.current()
+    }
+
+    /// Messages missing from every language, and messages that failed to
+    /// format, since the last call. Tests fail on them.
+    pub fn take_l10n_errors(&self) -> Vec<String> {
+        self.l10n.take_errors()
     }
 
     /// Native backends call this to learn when a commit is needed. The

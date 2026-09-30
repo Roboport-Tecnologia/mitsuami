@@ -75,6 +75,7 @@ fn describe_props(props: &[Prop]) -> String {
             Prop::FontWeight(w) => extra.push(format!("weight={w:?}")),
             Prop::Italic(b) => extra.push(format!("italic={b}")),
             Prop::TextAlign(a) => extra.push(format!("align={a:?}")),
+            Prop::LayoutDirection(d) => extra.push(format!("dir={d:?}")),
             Prop::ButtonRole(r) => extra.push(format!("role={r:?}")),
             Prop::ButtonStyle(s) => extra.push(format!("button_style={s:?}")),
             Prop::ScrollAxes(a) => extra.push(format!("scroll={a:?}")),

@@ -32,6 +32,8 @@ mod keys;
 #[cfg(target_os = "linux")]
 mod list;
 #[cfg(target_os = "linux")]
+mod locale;
+#[cfg(target_os = "linux")]
 mod radio;
 #[cfg(target_os = "linux")]
 mod services;

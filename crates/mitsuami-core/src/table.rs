@@ -55,7 +55,7 @@ impl<S> Sort<S> {
 ///     .sort_key(SortBy::Size)
 /// ```
 pub struct TableColumn<T: 'static> {
-    title: String,
+    title: Value<String>,
     width: Option<f32>,
     expand: bool,
     sort_key: Option<Rc<dyn Any>>,
@@ -63,9 +63,10 @@ pub struct TableColumn<T: 'static> {
 }
 
 impl<T: 'static> TableColumn<T> {
-    pub fn new<V: View>(title: impl Into<String>, render: impl Fn(T) -> V + 'static) -> TableColumn<T> {
+    /// `title` can be a message (`t!`), which follows the language.
+    pub fn new<V: View>(title: impl IntoValue<String>, render: impl Fn(T) -> V + 'static) -> TableColumn<T> {
         TableColumn {
-            title: title.into(),
+            title: title.into_value(),
             width: None,
             expand: false,
             sort_key: None,
@@ -298,21 +299,31 @@ impl<T: Clone + 'static, K: Eq + Hash + Clone + 'static> View for Table<T, K> {
             handle,
             files,
         } = self;
-        let data: Vec<ColumnData> = columns
+        let data: Vec<(Value<String>, ColumnData)> = columns
             .iter()
             .map(|column| {
                 let sortable = match (&sort, &column.sort_key) {
                     (Some(sort), Some(key)) if (sort.is_key)(&**key) => true,
                     (Some(sort), Some(_)) => panic!(
                         "mitsuami: the sort key of the table's column \"{}\" isn't a {}, the type of its sort",
-                        column.title, sort.type_name
+                        mitsuami_reactive::untrack(|| column.title.get()),
+                        sort.type_name
                     ),
                     _ => false,
                 };
-                ColumnData { title: column.title.clone(), width: column.width, expand: column.expand, sortable }
+                let data = ColumnData { title: String::new(), width: column.width, expand: column.expand, sortable };
+                (column.title.clone(), data)
             })
             .collect();
-        element.prop(Value::Static(data), Prop::Columns);
+        let titled = move || -> Vec<ColumnData> {
+            data.iter().map(|(title, data)| ColumnData { title: title.get(), ..data.clone() }).collect()
+        };
+        // Sent again only when a title changes (a message, with the language).
+        if columns.iter().any(|c| matches!(c.title, Value::Dynamic(_))) {
+            element.prop(Value::Dynamic(Rc::new(titled)), Prop::Columns);
+        } else {
+            element.prop(Value::Static(titled()), Prop::Columns);
+        }
         let keys: SortKeys = columns.iter().map(|c| c.sort_key.clone()).collect();
         let renders: Vec<Rc<dyn Fn(T) -> AnyView>> = columns.into_iter().map(|c| c.render).collect();
         let mount: Mount<T> = Rc::new(move |ui: &Ui, row, item: T| {

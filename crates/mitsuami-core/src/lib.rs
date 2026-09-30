@@ -15,6 +15,7 @@ mod flow;
 pub mod geometry;
 pub mod graphemes;
 mod input;
+pub mod l10n;
 mod list;
 mod measure;
 mod resource;
@@ -57,9 +58,9 @@ pub use units::{Length, LengthExt, Spacing};
 pub use view::{AnyView, Callback, Children, Slot, View};
 pub use widget::{
     ButtonRole, ButtonStyle, CellKey, ColumnData, ColumnSort, CurrentWindow, Cursor, FileDrop, FontWeight,
-    HorizontalAlign, ImageFit, ImageSource, InputPurpose, ListStyle, Modality, NodeId, Orientation, Pixels, Prop,
-    RowKey, ScrollAxes, SelectionMode, SidebarItemData, SidebarSectionData, SortOrder, TabsStyle, TextAlign, TextStyle,
-    WidgetKind,
+    HorizontalAlign, ImageFit, ImageSource, InputPurpose, LayoutDirection, ListStyle, Modality, NodeId, Orientation,
+    Pixels, Prop, RowKey, ScrollAxes, SelectionMode, SidebarItemData, SidebarSectionData, SortOrder, TabsStyle,
+    TextAlign, TextStyle, WidgetKind,
 };
 
 pub use mitsuami_reactive as reactive;

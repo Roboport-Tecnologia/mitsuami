@@ -102,9 +102,11 @@ impl<'a> Locator<'a> {
         self.all().into_iter().map(|n| n.frame).collect()
     }
 
-    /// Accessible name (for text: its content).
+    /// Accessible name (for text: its content), as people see it: without
+    /// the marks Fluent isolates a message's values with
+    /// ([`visible_text`](crate::visible_text)).
     pub fn text(&self) -> Option<String> {
-        self.node().name
+        self.node().name.map(|name| crate::query::visible_text(&name))
     }
 
     pub fn value(&self) -> Option<String> {
@@ -449,8 +451,12 @@ impl<'a> Expectation<'a> {
 
     pub async fn to_have_text(&self, text: &str) {
         self.check(|l| {
-            let actual = l.try_node()?.name;
-            if actual.as_deref() == Some(text) { Ok(()) } else { Err(format!("to have text {text:?}, got {actual:?}")) }
+            let actual = l.try_node()?.name.map(|name| crate::query::visible_text(&name));
+            if actual.as_deref() == Some(crate::query::visible_text(text).as_str()) {
+                Ok(())
+            } else {
+                Err(format!("to have text {text:?}, got {actual:?}"))
+            }
         })
         .await;
     }

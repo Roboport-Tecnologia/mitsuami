@@ -76,6 +76,12 @@ mitsuami-test = { version = "0.0.1", features = ["kde"] }
   styles. The platform decides what they look like.
 - **Accessibility**: every widget has a role, name and value. Tests find
   widgets through them.
+- **Localization** with [Project Fluent](https://projectfluent.org):
+  `locales!("../locales")` builds the app's translations in, and
+  `t!("files", count = n)` shows a message in the first of the user's
+  languages the app has. Numbers and dates are written by the platform,
+  as the user's region writes them, and a right-to-left language mirrors
+  the app, native controls and window chrome included.
 - **Escape hatches**, when the shared widgets aren't enough:
   - `platform!` picks per-platform code, from one detail to a whole screen,
     while stores stay shared.
@@ -120,6 +126,9 @@ Whole apps:
 - `files`: a simplified Finder on the real file system: sidebar places,
   the platform's list, a preview, menus, rename, trash and drops, with a
   path bar and file icons that are the platform's own where it has them.
+- `l10n`: an app in five languages, switched while it runs: Fluent
+  messages and plural forms, the platform's numbers and dates, and Arabic
+  laid out right to left.
 
 Two are crates of their own, so the workspace doesn't build wgpu:
 

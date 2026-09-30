@@ -112,6 +112,9 @@ impl Ui {
         let (ui, services) = (self.clone(), self.services.clone());
         let mut ids = Vec::new();
         let effect = mitsuami_reactive::effect(move || {
+            // Backends title some items themselves (AppKit's Quit, GNOME's
+            // and KDE's), in the app's language.
+            crate::l10n::track();
             let mut new_id = || {
                 let mut inner = ui.inner.borrow_mut();
                 inner.next_menu_id += 1;

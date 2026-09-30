@@ -61,6 +61,21 @@ impl Element {
         }
     }
 
+    /// Sets a text of the node's semantics (its label, its description)
+    /// from a static or reactive value: a message follows the language.
+    pub fn a11y_text(&mut self, value: Value<String>, apply: impl Fn(&mut A11yProps, String) + 'static) {
+        match value {
+            Value::Static(text) => apply(&mut self.a11y, text),
+            Value::Dynamic(f) => self.binders.push(Box::new(move |ui, id| {
+                let ui = ui.clone();
+                effect(move || {
+                    let text = f();
+                    ui.update_a11y(id, |a11y| apply(a11y, text));
+                });
+            })),
+        }
+    }
+
     /// Sets part of the style from a static or reactive value.
     pub fn style_prop<T: Clone + 'static>(&mut self, value: Value<T>, apply: impl Fn(&mut Style, T) + 'static) {
         match value {
@@ -259,12 +274,12 @@ pub trait ElementBuilder: Sized {
         self
     }
 
-    fn a11y_label(mut self, label: impl Into<String>) -> Self {
-        self.element().a11y.label = Some(label.into());
+    fn a11y_label(mut self, label: impl IntoValue<String>) -> Self {
+        self.element().a11y_text(label.into_value(), |a11y, label| a11y.label = Some(label));
         self
     }
-    fn a11y_description(mut self, description: impl Into<String>) -> Self {
-        self.element().a11y.description = Some(description.into());
+    fn a11y_description(mut self, description: impl IntoValue<String>) -> Self {
+        self.element().a11y_text(description.into_value(), |a11y, text| a11y.description = Some(text));
         self
     }
     fn a11y_role(mut self, role: Role) -> Self {

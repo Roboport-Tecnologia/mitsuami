@@ -6,7 +6,8 @@ use std::time::Duration;
 use gtk::prelude::*;
 use gtk::{gdk, glib, pango};
 use mitsuami_core::{
-    ButtonStyle, Color, Command, HorizontalAlign, ImageFit, ImageSource, InputPurpose, NodeId, Prop, UiEvent,
+    ButtonStyle, Color, Command, HorizontalAlign, ImageFit, ImageSource, InputPurpose, LayoutDirection, NodeId, Prop,
+    UiEvent,
 };
 
 use crate::custom::NativePayload;
@@ -127,17 +128,22 @@ impl State {
                 let style = if *italic { pango::Style::Italic } else { pango::Style::Normal };
                 replace_attrs(l, &[pango::AttrType::Style], vec![pango::AttrInt::new_style(style).into()]);
             }
-            // The core resolved the direction, so left is left: GTK mirrors
-            // `xalign` and `justify` in right-to-left widgets.
             (Prop::TextAlign(align), Widget::Label(l)) => {
-                l.set_direction(gtk::TextDirection::Ltr);
-                let (xalign, justify) = match align {
-                    HorizontalAlign::Left => (0.0, gtk::Justification::Left),
-                    HorizontalAlign::Center => (0.5, gtk::Justification::Center),
-                    HorizontalAlign::Right => (1.0, gtk::Justification::Right),
+                node.align = Some(*align);
+                align_label(l, *align);
+            }
+            // A widget GTK hasn't been told takes GTK's default, not its
+            // parent's: every node is told (see `locale::set_app_locale`).
+            (Prop::LayoutDirection(direction), widget) => {
+                let direction = match direction {
+                    LayoutDirection::LeftToRight => gtk::TextDirection::Ltr,
+                    LayoutDirection::RightToLeft => gtk::TextDirection::Rtl,
                 };
-                l.set_xalign(xalign);
-                l.set_justify(justify);
+                widget.widget().set_direction(direction);
+                widget.focus_widget().set_direction(direction);
+                if let (Widget::Label(l), Some(align)) = (widget, node.align) {
+                    align_label(l, align);
+                }
             }
             (Prop::Label(t), Widget::Button(b)) => {
                 node.button.label = t.clone();
@@ -501,4 +507,17 @@ impl State {
             _ => {}
         }
     }
+}
+
+/// The core resolved the direction, so left is left: GTK mirrors `xalign`
+/// and `justify` in a right-to-left label, so they're mirrored back.
+fn align_label(l: &gtk::Label, align: HorizontalAlign) {
+    let rtl = l.direction() == gtk::TextDirection::Rtl;
+    let (xalign, justify) = match (align, rtl) {
+        (HorizontalAlign::Center, _) => (0.5, gtk::Justification::Center),
+        (HorizontalAlign::Left, false) | (HorizontalAlign::Right, true) => (0.0, gtk::Justification::Left),
+        (HorizontalAlign::Right, false) | (HorizontalAlign::Left, true) => (1.0, gtk::Justification::Right),
+    };
+    l.set_xalign(xalign);
+    l.set_justify(justify);
 }

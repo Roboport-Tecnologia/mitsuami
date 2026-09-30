@@ -12,6 +12,8 @@
 #include <QIcon>
 #include <QImage>
 #include <QKeyEvent>
+#include <QLibraryInfo>
+#include <QLocale>
 #include <QMimeData>
 #include <QMimeDatabase>
 #include <QMouseEvent>
@@ -22,6 +24,7 @@
 #include <QPointer>
 #include <QQmlComponent>
 #include <QQmlEngine>
+#include <QQmlProperty>
 #include <QMutex>
 #include <QQuickImageProvider>
 #include <QQuickItem>
@@ -30,6 +33,8 @@
 #include <QScreen>
 #include <QSessionManager>
 #include <QThread>
+#include <QTimeZone>
+#include <QTranslator>
 #include <QWheelEvent>
 #include <qpa/qplatformnativeinterface.h>
 #include <QUrl>
@@ -886,6 +891,66 @@ char* mq_mime_icon(const char* path) {
 int32_t mq_open_url(const char* target, int32_t is_path) {
     QString text = QString::fromUtf8(target);
     return QDesktopServices::openUrl(is_path ? QUrl::fromLocalFile(text) : QUrl(text));
+}
+
+// ------------------------------------------------------------ locale
+
+static QLocale locale_named(const char* name) { return name ? QLocale(QString::fromUtf8(name)) : QLocale::system(); }
+
+char* mq_ui_languages(const char* locale) { return dup(locale_named(locale).uiLanguages().join(QLatin1Char('\n'))); }
+
+char* mq_format_number(const char* locale, double value, int32_t decimals, int32_t grouping, const char* currency) {
+    QLocale l = locale_named(locale);
+    l.setNumberOptions(grouping ? QLocale::DefaultNumberOptions : QLocale::OmitGroupSeparator);
+    if (currency) return dup(l.toCurrencyString(value, QString::fromUtf8(currency), decimals));
+    return dup(l.toString(value, 'f', decimals));
+}
+
+char* mq_format_date_time(const char* locale, int64_t msecs, int32_t date, int32_t time, int32_t utc) {
+    QLocale l = locale_named(locale);
+    QDateTime at = utc ? QDateTime::fromMSecsSinceEpoch(msecs, QTimeZone::utc()) : QDateTime::fromMSecsSinceEpoch(msecs);
+    auto type = [](int32_t style) { return style == 2 ? QLocale::LongFormat : QLocale::ShortFormat; };
+    if (date && time) return dup(l.toString(at, type(date > time ? date : time)));
+    if (time) return dup(l.toString(at.time(), type(time)));
+    return dup(l.toString(at.date(), type(date)));
+}
+
+// As KDE apps' ECMQmLoader does: Qt's own strings (its dialogs' buttons,
+// text fields' menus) in the app's language, not only the system's.
+void mq_set_app_locale(const char* language, int32_t rtl) {
+    static QTranslator* translator = nullptr;
+    if (translator) {
+        QCoreApplication::removeTranslator(translator);
+        delete translator;
+        translator = nullptr;
+    }
+    auto* loaded = new QTranslator();
+    if (loaded->load(QLocale(QString::fromUtf8(language)), QStringLiteral("qt"), QStringLiteral("_"),
+                     QLibraryInfo::path(QLibraryInfo::TranslationsPath))) {
+        QCoreApplication::installTranslator(loaded);
+        translator = loaded;
+    } else {
+        delete loaded;
+    }
+    QGuiApplication::setLayoutDirection(rtl ? Qt::RightToLeft : Qt::LeftToRight);
+}
+
+// `LayoutMirroring` is an attached property: set by name, through the
+// item's context, which imports QtQuick. Its children inherit it, so a
+// control's own parts (a spin box's field) follow; each node's own wins.
+int32_t mq_set_mirrored(QObject* item, int32_t on) {
+    QQmlContext* context = qmlContext(item);
+    QQmlProperty enabled(item, QStringLiteral("LayoutMirroring.enabled"), context);
+    if (!context || !enabled.isValid()) return 0;
+    enabled.write(on != 0);
+    QQmlProperty(item, QStringLiteral("LayoutMirroring.childrenInherit"), context).write(on != 0);
+    return 1;
+}
+
+int32_t mq_mirrored(QObject* item) {
+    auto* quick = qobject_cast<QQuickItem*>(item);
+    if (!quick) return 0;
+    return QQmlProperty(item, QStringLiteral("LayoutMirroring.enabled"), qmlContext(item)).read().toBool();
 }
 }
 

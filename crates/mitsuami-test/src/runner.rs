@@ -170,11 +170,13 @@ pub fn run_main() {
             continue;
         }
         let snapshot_failures = Rc::new(RefCell::new(Vec::new()));
+        let l10n_errors = Rc::new(RefCell::new(Vec::new()));
         let context = TestContext {
             name: name.clone(),
             file_prefix: job.file_prefix,
             manifest_dir: job.manifest_dir,
             snapshot_failures: snapshot_failures.clone(),
+            l10n_errors: l10n_errors.clone(),
         };
         let result = panic::catch_unwind(AssertUnwindSafe(|| {
             with_pool(|| match job.kind {
@@ -196,6 +198,13 @@ pub fn run_main() {
             messages.push(PANIC_MESSAGE.with(|m| m.borrow_mut().take()).unwrap_or_else(|| payload_text(&*payload)));
         }
         messages.extend(snapshot_failures.take());
+        let l10n_errors = l10n_errors.take();
+        if !l10n_errors.is_empty() {
+            messages.push(format!(
+                "localization errors (take them with `app.take_l10n_errors()` if expected):\n  {}",
+                l10n_errors.join("\n  ")
+            ));
+        }
         if messages.is_empty() {
             println!("ok");
         } else {

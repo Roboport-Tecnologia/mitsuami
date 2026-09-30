@@ -64,11 +64,20 @@ pub struct BackendOptions {
     pub appearance: Option<Appearance>,
     /// Use a private pasteboard instead of the system clipboard (tests).
     pub private_clipboard: bool,
+    /// Take this as the user's language, and write numbers and dates as
+    /// its region does, in UTC, whatever the system's settings (tests).
+    pub locale: Option<String>,
 }
 
 impl Default for BackendOptions {
     fn default() -> Self {
-        BackendOptions { show_windows: true, record_commands: false, appearance: None, private_clipboard: false }
+        BackendOptions {
+            show_windows: true,
+            record_commands: false,
+            appearance: None,
+            private_clipboard: false,
+            locale: None,
+        }
     }
 }
 
@@ -317,7 +326,29 @@ pub struct AppKitHandle {
     state: Rc<RefCell<State>>,
 }
 
-fn ns(s: &str) -> Retained<NSString> {
+/// Where a checkbox or radio button puts its box: on the reading side,
+/// which AppKit takes from the app's direction, not the button's.
+pub(crate) fn toggle_image_position(
+    direction: objc2_app_kit::NSUserInterfaceLayoutDirection,
+) -> objc2_app_kit::NSCellImagePosition {
+    match direction {
+        objc2_app_kit::NSUserInterfaceLayoutDirection::RightToLeft => objc2_app_kit::NSCellImagePosition::ImageRight,
+        _ => objc2_app_kit::NSCellImagePosition::ImageLeft,
+    }
+}
+
+/// A field's text starts on its reading side; natural alignment would
+/// take the app's direction, not the field's.
+pub(crate) fn field_alignment(
+    direction: objc2_app_kit::NSUserInterfaceLayoutDirection,
+) -> objc2_app_kit::NSTextAlignment {
+    match direction {
+        objc2_app_kit::NSUserInterfaceLayoutDirection::RightToLeft => objc2_app_kit::NSTextAlignment::Right,
+        _ => objc2_app_kit::NSTextAlignment::Left,
+    }
+}
+
+pub(crate) fn ns(s: &str) -> Retained<NSString> {
     NSString::from_str(s)
 }
 
@@ -415,6 +446,14 @@ impl Backend for AppKitBackend {
         if let Some(image) = image {
             unsafe { NSApplication::sharedApplication(state.mtm).setApplicationIconImage(Some(&image)) };
         }
+    }
+
+    fn locale(&self) -> std::rc::Rc<dyn mitsuami_core::l10n::PlatformLocale> {
+        std::rc::Rc::new(crate::locale::AppKitLocale::new(self.state.borrow().options.locale.as_deref()))
+    }
+
+    fn set_locale(&mut self, language: &mitsuami_core::l10n::LanguageIdentifier, right_to_left: bool) {
+        crate::locale::set_app_locale(language, right_to_left);
     }
 
     fn services(&self) -> Box<dyn mitsuami_core::services::Services> {

@@ -266,6 +266,8 @@ impl State {
                 file_drop: None,
                 file_drop_given: false,
                 keys: None,
+                align: None,
+                direction: None,
             },
         );
     }

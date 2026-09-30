@@ -170,9 +170,10 @@ impl Menus {
         if let Some(about) = &about {
             last.append_item(&builder.item(about, &about.title, about.shortcut));
         }
+        let quit_title = mitsuami_core::l10n::tr("mitsuami-menu-quit", &[]);
         match &quit {
             // The app's own Quit, in place of ours.
-            Some(quit) => last.append_item(&builder.item(quit, "Quit", Some(Shortcut::primary('q')))),
+            Some(quit) => last.append_item(&builder.item(quit, &quit_title, Some(Shortcut::primary('q')))),
             None if modal => {}
             None => {
                 let action = gio::SimpleAction::new("quit", None);
@@ -183,7 +184,7 @@ impl Menus {
                     }
                 });
                 builder.actions.add_action(&action);
-                let item = gio::MenuItem::new(Some("Quit"), Some(&format!("{GROUP}.quit")));
+                let item = gio::MenuItem::new(Some(&quit_title), Some(&format!("{GROUP}.quit")));
                 item.set_attribute_value("accel", Some(&"<Control>q".to_variant()));
                 last.append_item(&item);
                 builder.shortcuts.push(("<Control>q".into(), format!("{GROUP}.quit"), None));

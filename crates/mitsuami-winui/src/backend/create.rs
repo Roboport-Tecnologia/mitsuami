@@ -492,6 +492,8 @@ impl State {
                 file_drop: None,
                 file_drop_sent: false,
                 keys: None,
+                direction: None,
+                align: None,
                 password_all: Cell::new(false),
                 button_menu: None,
                 caption: String::new(),

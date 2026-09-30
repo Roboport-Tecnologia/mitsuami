@@ -253,3 +253,7 @@ harness = false
 
 [lints]
 workspace = true
+
+[[test]]
+name = "l10n"
+harness = false

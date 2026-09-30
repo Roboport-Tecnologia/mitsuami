@@ -209,6 +209,22 @@ char* mq_mime_icon(const char* path);
 // Opens a local path (is_path) or a URL in its app; 0 if nothing did.
 int32_t mq_open_url(const char* target, int32_t is_path);
 
+// Languages and formats: the system locale's (KDE's region settings), or
+// the locale named, if any. The user's languages, "a\nb" (free with
+// mq_free); a number with this many fraction digits, as a currency when
+// `currency` isn't null; a date and time (styles: 0 none, 1 short, 2 long)
+// in UTC or local time.
+char* mq_ui_languages(const char* locale);
+char* mq_format_number(const char* locale, double value, int32_t decimals, int32_t grouping, const char* currency);
+char* mq_format_date_time(const char* locale, int64_t msecs, int32_t date, int32_t time, int32_t utc);
+// The app's language: Qt's layout direction (which Kirigami's own items
+// follow) and Qt's translations of its own strings.
+void mq_set_app_locale(const char* language, int32_t rtl);
+// An item's LayoutMirroring, for it and what it's made of; 0 for an item
+// made without QML (a drawn item), which has none.
+int32_t mq_set_mirrored(QObject* item, int32_t on);
+int32_t mq_mirrored(QObject* item);
+
 // GPU surfaces: on Wayland Qt's wl_display, a window's wl_surface (both
 // null on other platforms, or before the window has one); an item's
 // window, and a window's scale, decoration margins and whether it's the

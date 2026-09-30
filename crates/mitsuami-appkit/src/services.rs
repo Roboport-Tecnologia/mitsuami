@@ -1,5 +1,6 @@
 //! Clipboard, dialogs, the trash, launching and the menu bar on macOS.
 
+use mitsuami_core::l10n::{ToArg, tr};
 use std::cell::{Cell, RefCell};
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
@@ -609,41 +610,46 @@ pub(crate) fn find_tagged(menu: &NSMenu, id: u32) -> Option<(Retained<NSMenuItem
 /// The app menu, the app's File menu (if any), Edit (what makes ⌘C/⌘V/⌘Z
 /// work in text fields), then the app's other menus. Items with a role go
 /// to the app menu, with AppKit's titles and shortcuts, as Qt puts them.
+/// Titles of our own are in the app's language (`mitsuami.ftl`), and so
+/// is the File menu's, which the app's File menu is known by.
 fn menu_bar(mtm: MainThreadMarker, mut menus: MenuBarData, name: &str, target: &MenuTarget) -> Retained<NSMenu> {
     let target = ItemTarget::from(target);
     let bar = NSMenu::new(mtm);
     let command = |key| Some(Shortcut::primary(key));
+    let app = |id: &str| tr(id, &[("app", name.to_arg())]);
     let mut app_menu = Vec::new();
     if let Some(about) = menus.take_role(MenuRole::About) {
-        app_menu.push(app_item(mtm, &about, &format!("About {name}"), None, target));
+        app_menu.push(app_item(mtm, &about, &app("mitsuami-menu-about"), None, target));
         app_menu.push(NSMenuItem::separatorItem(mtm));
     }
     if let Some(settings) = menus.take_role(MenuRole::Settings) {
-        app_menu.push(app_item(mtm, &settings, "Settings…", command(','), target));
+        app_menu.push(app_item(mtm, &settings, &tr("mitsuami-menu-settings", &[]), command(','), target));
         app_menu.push(NSMenuItem::separatorItem(mtm));
     }
-    app_menu.push(item(mtm, &format!("Hide {name}"), Some(sel!(hide:)), "h"));
+    app_menu.push(item(mtm, &app("mitsuami-menu-hide"), Some(sel!(hide:)), "h"));
     app_menu.push(NSMenuItem::separatorItem(mtm));
+    let quit = app("mitsuami-menu-quit-app");
     app_menu.push(match menus.take_role(MenuRole::Quit) {
-        Some(quit) => app_item(mtm, &quit, &format!("Quit {name}"), command('q'), target),
-        None => item(mtm, &format!("Quit {name}"), Some(sel!(terminate:)), "q"),
+        Some(item) => app_item(mtm, &item, &quit, command('q'), target),
+        None => item(mtm, &quit, Some(sel!(terminate:)), "q"),
     });
     bar.addItem(&menu_of(mtm, name, app_menu, true));
-    let (file, others): (Vec<_>, Vec<_>) = menus.menus.iter().partition(|m| m.title == "File");
+    let file_title = tr("mitsuami-menu-file", &[]);
+    let (file, others): (Vec<_>, Vec<_>) = menus.menus.iter().partition(|m| m.title == file_title);
     for menu in file {
         bar.addItem(&menu_of(mtm, &menu.title, app_items(mtm, &menu.entries, target), false));
     }
     bar.addItem(&menu_of(
         mtm,
-        "Edit",
+        &tr("mitsuami-menu-edit", &[]),
         vec![
-            item(mtm, "Undo", Some(sel!(undo:)), "z"),
-            item(mtm, "Redo", Some(sel!(redo:)), "Z"),
+            item(mtm, &tr("mitsuami-menu-undo", &[]), Some(sel!(undo:)), "z"),
+            item(mtm, &tr("mitsuami-menu-redo", &[]), Some(sel!(redo:)), "Z"),
             NSMenuItem::separatorItem(mtm),
-            item(mtm, "Cut", Some(sel!(cut:)), "x"),
-            item(mtm, "Copy", Some(sel!(copy:)), "c"),
-            item(mtm, "Paste", Some(sel!(paste:)), "v"),
-            item(mtm, "Select All", Some(sel!(selectAll:)), "a"),
+            item(mtm, &tr("mitsuami-menu-cut", &[]), Some(sel!(cut:)), "x"),
+            item(mtm, &tr("mitsuami-menu-copy", &[]), Some(sel!(copy:)), "c"),
+            item(mtm, &tr("mitsuami-menu-paste", &[]), Some(sel!(paste:)), "v"),
+            item(mtm, &tr("mitsuami-menu-select-all", &[]), Some(sel!(selectAll:)), "a"),
         ],
         true,
     ));

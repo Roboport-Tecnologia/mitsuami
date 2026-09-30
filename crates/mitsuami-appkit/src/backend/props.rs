@@ -1,11 +1,14 @@
 //! Setting props on the native widgets.
 
-use mitsuami_core::{ButtonRole, ButtonStyle, Command, HorizontalAlign, ImageFit, InputPurpose, NodeId, Prop, UiEvent};
+use mitsuami_core::{
+    ButtonRole, ButtonStyle, Command, HorizontalAlign, ImageFit, InputPurpose, LayoutDirection, NodeId, Prop, UiEvent,
+};
 use objc2::{MainThreadOnly, sel};
 use objc2_app_kit::{
     NSAccessibility, NSControlStateValueMixed, NSControlStateValueOff, NSControlStateValueOn, NSImageScaling,
     NSMenuItem, NSProgressIndicatorStyle, NSSlider, NSTextAlignment, NSTextContent, NSTextContentType,
-    NSTextContentTypeEmailAddress, NSTextContentTypeTelephoneNumber, NSTextContentTypeURL, NSView, NSWindowStyleMask,
+    NSTextContentTypeEmailAddress, NSTextContentTypeTelephoneNumber, NSTextContentTypeURL,
+    NSUserInterfaceLayoutDirection, NSView, NSWindowStyleMask,
 };
 
 use crate::classes::ClosureTarget;
@@ -379,6 +382,7 @@ impl State {
                 b.setBordered(*style != ButtonStyle::Borderless);
                 node.button_style = Some(*style);
             }
+            (Prop::LayoutDirection(direction), widget) => set_direction(widget, *direction),
             (Prop::Tooltip(t), widget) => {
                 let text = (!t.is_empty()).then(|| ns(t));
                 // On the views the pointer rests on, which cover the node's.
@@ -490,4 +494,36 @@ pub(super) fn input_purpose(shown: Option<&NSTextContentType>) -> InputPurpose {
         .into_iter()
         .find(|p| shown.zip(content_type(*p)).is_some_and(|(shown, t)| shown.isEqualToString(t)))
         .unwrap_or_default()
+}
+
+/// Mirrors a widget's own drawing, and the parts it places itself. A view's
+/// direction mirrors what reads it (sliders, stack views, tables, scroll
+/// views' scrollers); a checkbox's box and a field's text are placed by
+/// the app's direction, so they get theirs here too (see
+/// `locale::set_app_locale`).
+fn set_direction(widget: &Widget, direction: LayoutDirection) {
+    let direction = match direction {
+        LayoutDirection::LeftToRight => NSUserInterfaceLayoutDirection::LeftToRight,
+        LayoutDirection::RightToLeft => NSUserInterfaceLayoutDirection::RightToLeft,
+    };
+    widget.view().setUserInterfaceLayoutDirection(direction);
+    match widget {
+        Widget::Checkbox(b) => b.setImagePosition(super::toggle_image_position(direction)),
+        Widget::RadioGroup(group) => group.set_direction(direction),
+        Widget::Field(f) => f.setAlignment(super::field_alignment(direction)),
+        Widget::NumberInput(n) => n.set_direction(direction),
+        Widget::TextArea(area) => {
+            area.text.setUserInterfaceLayoutDirection(direction);
+            area.text.setAlignment(super::field_alignment(direction));
+        }
+        Widget::List(list) => list.table.setUserInterfaceLayoutDirection(direction),
+        Widget::Sidebar(sidebar) => sidebar.table.setUserInterfaceLayoutDirection(direction),
+        // Its title is laid out again only when the box is: a title set
+        // just before kept the old side, cut at the old width.
+        Widget::Group { frame, .. } => {
+            frame.setUserInterfaceLayoutDirection(direction);
+            frame.setNeedsLayout(true);
+        }
+        _ => {}
+    }
 }

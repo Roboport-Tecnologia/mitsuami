@@ -19,6 +19,11 @@ impl KirigamiBackend {
         let node = state.nodes.get(&id)?;
         let mut props = Vec::new();
         let item = node.widget.item();
+        props.push(Prop::LayoutDirection(match node.direction {
+            Some(kept) => kept,
+            None if item.mirrored() => mitsuami_core::LayoutDirection::RightToLeft,
+            None => mitsuami_core::LayoutDirection::LeftToRight,
+        }));
         match &node.widget {
             Widget::Window { root } => {
                 props.push(Prop::Title(root.window.str("title")));

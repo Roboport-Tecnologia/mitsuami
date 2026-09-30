@@ -36,6 +36,13 @@ png = "0.18"
 raw-window-handle = "0.6"
 unicode-segmentation = "1.13"
 cc = "1.2"
+# Localization (docs/ARCHITECTURE.md §8): Project Fluent, the version
+# fluent-bundle builds on, and its language identifiers.
+fluent-bundle = "0.16"
+fluent-syntax = "0.12"
+fluent-langneg = { version = "0.13", features = ["cldr"] }
+unic-langid = "0.9"
+intl-memoizer = "0.5"
 pkg-config = "0.3"
 
 objc2 = "0.6"

@@ -57,6 +57,8 @@ mod later;
 #[cfg(all(windows, target_env = "msvc"))]
 mod list;
 #[cfg(all(windows, target_env = "msvc"))]
+mod locale;
+#[cfg(all(windows, target_env = "msvc"))]
 mod runtime;
 #[cfg(all(windows, target_env = "msvc"))]
 mod services;

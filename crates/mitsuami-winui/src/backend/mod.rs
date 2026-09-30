@@ -31,8 +31,9 @@ use mitsuami_core::backend::{
 use mitsuami_core::services::{MenuBarData, MenuCheck, MenuEntry, Reply};
 use mitsuami_core::units::SpacingScale;
 use mitsuami_core::{
-    AnyValue, AppInfo, ButtonRole, ButtonStyle, Command, CustomProps, ImageFit, ImageSource, Insets, Modality, NodeId,
-    Opaque, Orientation, Point, RowKey, Size, TabsStyle, TextStyle, UiEvent, WidgetKind,
+    AnyValue, AppInfo, ButtonRole, ButtonStyle, Command, CustomProps, HorizontalAlign, ImageFit, ImageSource, Insets,
+    LayoutDirection, Modality, NodeId, Opaque, Orientation, Point, RowKey, Size, TabsStyle, TextStyle, UiEvent,
+    WidgetKind,
 };
 use windows_core::{EventRevoker, HSTRING, IInspectable, IUnknown, Interface};
 
@@ -58,11 +59,20 @@ pub struct BackendOptions {
     pub appearance: Option<Appearance>,
     /// Keep clipboard text in memory instead of the system clipboard (tests).
     pub private_clipboard: bool,
+    /// Take this as the user's language, and write numbers and dates as
+    /// its region does, in UTC, whatever the system's settings (tests).
+    pub locale: Option<String>,
 }
 
 impl Default for BackendOptions {
     fn default() -> Self {
-        BackendOptions { show_windows: true, record_commands: false, appearance: None, private_clipboard: false }
+        BackendOptions {
+            show_windows: true,
+            record_commands: false,
+            appearance: None,
+            private_clipboard: false,
+            locale: None,
+        }
     }
 }
 
@@ -328,6 +338,11 @@ struct Node {
     /// Containers, groups, lists and tables: the keys they take, once the
     /// core sent some.
     keys: Option<keys::Keys>,
+    /// The direction the core gave, for what stays left to right because
+    /// XAML would mirror what it holds, whose frames are mirrored already.
+    direction: Option<LayoutDirection>,
+    /// Labels: where the core aligned the text.
+    align: Option<HorizontalAlign>,
     /// Password boxes: all their text is selected (`SelectText`), which
     /// XAML can't tell, so typing replaces it.
     password_all: Cell<bool>,
@@ -421,6 +436,9 @@ pub(crate) struct State {
     tab_bar: crate::tabs::BarHeight,
     /// A group's heading height, once one is measured (`titled_group_insets`).
     group_heading: crate::group::HeadingHeight,
+    /// The app's language is right to left: windows' own rows (the title
+    /// bar, menu bar and toolbar) are mirrored.
+    right_to_left: bool,
 }
 
 /// The app's icon, as windows take it.
@@ -487,6 +505,7 @@ impl WinUiBackend {
                 icon: None,
                 tab_bar: Rc::default(),
                 group_heading: Rc::default(),
+                right_to_left: false,
             })),
         }
     }
@@ -612,6 +631,22 @@ impl Backend for WinUiBackend {
         }
         if let Some(WindowIcon::Handle(old)) = state.icon.replace(icon) {
             unsafe { _ = w::DestroyIcon(old) };
+        }
+    }
+
+    fn locale(&self) -> Rc<dyn mitsuami_core::l10n::PlatformLocale> {
+        Rc::new(crate::locale::WinLocale::new(self.state.borrow().options.locale.as_deref()))
+    }
+
+    /// Windows' own rows mirror; the content host doesn't, since the core
+    /// mirrored the frames.
+    fn set_locale(&mut self, _language: &mitsuami_core::l10n::LanguageIdentifier, right_to_left: bool) {
+        let mut state = self.state.borrow_mut();
+        state.right_to_left = right_to_left;
+        for node in state.nodes.values() {
+            if let Widget::Window(parts) = &node.widget {
+                _ = windows::set_window_direction(&parts.root, &parts.host, right_to_left);
+            }
         }
     }
 

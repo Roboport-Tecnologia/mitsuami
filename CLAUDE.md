@@ -24,7 +24,9 @@ bends to each platform's native controls, never the other way around:
 ## Layout
 
 - `crates/mitsuami-core`: node tree, props (`widget.rs`), the `Command`
-  protocol, the `Ui` (`ui/`: layout with Taffy, accessibility tree).
+  protocol, the `Ui` (`ui/`: layout with Taffy, accessibility tree),
+  localization (`l10n/`: Project Fluent; mitsuami's own strings, which
+  backends show with `l10n::tr`, are in `locales/en-US/mitsuami.ftl`).
 - `crates/mitsuami-widgets`: the built-in widgets' builder API.
 - `crates/mitsuami-headless`: in-memory backend with fixed metrics; it
   validates the protocol and stands in for a platform in tests.

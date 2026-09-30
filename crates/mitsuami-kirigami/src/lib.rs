@@ -36,6 +36,8 @@ mod keys;
 #[cfg(all(target_os = "linux", feature = "qt"))]
 mod list;
 #[cfg(all(target_os = "linux", feature = "qt"))]
+mod locale;
+#[cfg(all(target_os = "linux", feature = "qt"))]
 mod qml;
 #[cfg(all(target_os = "linux", feature = "qt"))]
 mod services;

@@ -120,6 +120,9 @@ impl State {
         let title_bar: w::TitleBar = children.GetAt(0)?.cast()?;
         let host: w::Canvas = children.GetAt(1)?.cast()?;
         let host_element: w::UIElement = host.cast()?;
+        if self.right_to_left {
+            super::windows::set_window_direction(&root, &host, true)?;
+        }
         let text_probe = text_area_probe()?;
         children.Append(&text_probe.cast::<w::UIElement>()?)?;
         if let Some(appearance) = self.options.appearance {

@@ -90,8 +90,10 @@ fn block(hwnd: w::HWND) {
     if BLOCKING.get().is_some() {
         return;
     }
-    let reason = windows_core::w!("Asking before it quits");
-    if unsafe { w::ShutdownBlockReasonCreate(hwnd, reason) }.as_bool() {
+    // In the app's language: Windows shows it on its "preventing shutdown"
+    // screen.
+    let reason = windows_core::HSTRING::from(mitsuami_core::l10n::tr("mitsuami-quit-reason", &[]));
+    if unsafe { w::ShutdownBlockReasonCreate(hwnd, windows_core::PCWSTR(reason.as_ptr())) }.as_bool() {
         BLOCKING.set(Some(hwnd as isize));
     }
 }

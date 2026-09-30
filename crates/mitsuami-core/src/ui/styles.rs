@@ -3,7 +3,7 @@
 use crate::geometry::Size;
 use crate::style::{Align, Display, FlexDirection, GridPlacement, TextDirection, Track};
 use crate::units::{Length, ResolveContext};
-use crate::widget::{HorizontalAlign, NodeId, Prop, TextAlign, WidgetKind};
+use crate::widget::{HorizontalAlign, LayoutDirection, NodeId, Prop, TextAlign, WidgetKind};
 
 use super::{Fit, Inner};
 
@@ -13,7 +13,8 @@ impl Inner {
         let body = self.metrics.font_sizes.body;
         for window in self.windows.clone() {
             let viewport = self.nodes[&window].window_size;
-            self.resolve_node(window, body, false, viewport, false);
+            let rtl = self.rtl;
+            self.resolve_node(window, body, rtl, viewport, false);
         }
     }
 
@@ -130,6 +131,7 @@ impl Inner {
         if node.kind == WidgetKind::Text {
             self.resolve_text_align(id, rtl);
         }
+        self.resolve_direction(id, rtl);
         let node = &self.nodes[&id];
         // Nodes without a layout box pass their parent's context through.
         let in_stretching_column = match node.taffy {
@@ -146,12 +148,36 @@ impl Inner {
         }
     }
 
+    /// Sends a native node its direction where it's right to left, and in
+    /// an app whose language is, so the platform's own direction for the
+    /// app (GTK's default, Qt's) doesn't decide it.
+    fn resolve_direction(&mut self, id: NodeId, rtl: bool) {
+        let node = &self.nodes[&id];
+        if !node.kind.is_native() {
+            return;
+        }
+        let had = crate::find_prop!(node.props, LayoutDirection).is_some();
+        if !(rtl || self.rtl || had) {
+            return;
+        }
+        let prop = Prop::LayoutDirection(if rtl { LayoutDirection::RightToLeft } else { LayoutDirection::LeftToRight });
+        if node.prop(&prop) != Some(&prop) {
+            let node = self.nodes.get_mut(&id).unwrap();
+            node.props.retain(|p| p.key() != prop.key());
+            node.props.push(prop.clone());
+            self.queue_prop(id, prop);
+        }
+    }
+
     /// Sends a `Text`'s alignment as left or right for its direction, once
-    /// the app has set one.
+    /// the app has set one or the text is right to left.
     fn resolve_text_align(&mut self, id: NodeId, rtl: bool) {
         let node = &self.nodes[&id];
         let had = crate::find_prop!(node.props, TextAlign).is_some();
-        let Some(align) = node.style.text_align.or(had.then_some(TextAlign::Start)) else { return };
+        // Right-to-left text starts on the right even where the app didn't
+        // align it: not every platform's label takes its direction from
+        // the widget (AppKit's takes the app's).
+        let Some(align) = node.style.text_align.or((had || rtl).then_some(TextAlign::Start)) else { return };
         let align = match (align, rtl) {
             (TextAlign::Center, _) => HorizontalAlign::Center,
             (TextAlign::Start, false) | (TextAlign::End, true) => HorizontalAlign::Left,

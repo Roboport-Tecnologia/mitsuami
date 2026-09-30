@@ -22,6 +22,7 @@ windows_core::link!("user32.dll" "system" fn DispatchMessageW(lpmsg : *const MSG
 windows_core::link!("user32.dll" "system" fn EnableWindow(hwnd : HWND, benable : windows_core::BOOL) -> windows_core::BOOL);
 windows_core::link!("user32.dll" "system" fn EnumChildWindows(hwndparent : HWND, lpenumfunc : WNDENUMPROC, lparam : LPARAM) -> windows_core::BOOL);
 windows_core::link!("user32.dll" "system" fn EnumWindows(lpenumfunc : WNDENUMPROC, lparam : LPARAM) -> windows_core::BOOL);
+windows_core::link!("kernel32.dll" "system" fn FileTimeToSystemTime(lpfiletime : *const FILETIME, lpsystemtime : *mut SYSTEMTIME) -> windows_core::BOOL);
 windows_core::link!("user32.dll" "system" fn GetActiveWindow() -> HWND);
 windows_core::link!("user32.dll" "system" fn GetAncestor(hwnd : HWND, gaflags : u32) -> HWND);
 windows_core::link!("user32.dll" "system" fn GetClassNameW(hwnd : HWND, lpclassname : windows_core::PWSTR, nmaxcount : i32) -> i32);
@@ -31,6 +32,7 @@ windows_core::link!("kernel32.dll" "system" fn GetCurrentProcessId() -> u32);
 windows_core::link!("kernel32.dll" "system" fn GetCurrentThreadId() -> u32);
 windows_core::link!("user32.dll" "system" fn GetCursorPos(lppoint : *mut POINT) -> windows_core::BOOL);
 windows_core::link!("gdi32.dll" "system" fn GetDIBits(hdc : HDC, hbm : HBITMAP, start : u32, clines : u32, lpvbits : *mut core::ffi::c_void, lpbmi : *mut BITMAPINFO, usage : u32) -> i32);
+windows_core::link!("kernel32.dll" "system" fn GetDateFormatEx(lplocalename : windows_core::PCWSTR, dwflags : u32, lpdate : *const SYSTEMTIME, lpformat : windows_core::PCWSTR, lpdatestr : windows_core::PWSTR, cchdate : i32, lpcalendar : windows_core::PCWSTR) -> i32);
 windows_core::link!("user32.dll" "system" fn GetDpiForSystem() -> u32);
 windows_core::link!("user32.dll" "system" fn GetDpiForWindow(hwnd : HWND) -> u32);
 windows_core::link!("user32.dll" "system" fn GetFocus() -> HWND);
@@ -38,11 +40,14 @@ windows_core::link!("user32.dll" "system" fn GetForegroundWindow() -> HWND);
 windows_core::link!("user32.dll" "system" fn GetIconInfo(hicon : HICON, piconinfo : *mut ICONINFO) -> windows_core::BOOL);
 windows_core::link!("user32.dll" "system" fn GetKeyState(nvirtkey : i32) -> i16);
 windows_core::link!("kernel32.dll" "system" fn GetLastError() -> u32);
+windows_core::link!("kernel32.dll" "system" fn GetLocaleInfoEx(lplocalename : windows_core::PCWSTR, lctype : LCTYPE, lplcdata : windows_core::PWSTR, cchdata : i32) -> i32);
 windows_core::link!("kernel32.dll" "system" fn GetModuleHandleW(lpmodulename : windows_core::PCWSTR) -> HMODULE);
 windows_core::link!("user32.dll" "system" fn GetMonitorInfoW(hmonitor : HMONITOR, lpmi : *mut MONITORINFO) -> windows_core::BOOL);
 windows_core::link!("gdi32.dll" "system" fn GetObjectW(h : HANDLE, c : i32, pv : *mut core::ffi::c_void) -> i32);
 windows_core::link!("kernel32.dll" "system" fn GetProcessHeap() -> HANDLE);
 windows_core::link!("user32.dll" "system" fn GetRawInputData(hrawinput : HRAWINPUT, uicommand : u32, pdata : *mut core::ffi::c_void, pcbsize : *mut u32, cbsizeheader : u32) -> u32);
+windows_core::link!("kernel32.dll" "system" fn GetTimeFormatEx(lplocalename : windows_core::PCWSTR, dwflags : u32, lptime : *const SYSTEMTIME, lpformat : windows_core::PCWSTR, lptimestr : windows_core::PWSTR, cchtime : i32) -> i32);
+windows_core::link!("kernel32.dll" "system" fn GetUserPreferredUILanguages(dwflags : u32, pulnumlanguages : *mut u32, pwszlanguagesbuffer : *mut u16, pcchlanguagesbuffer : *mut u32) -> windows_core::BOOL);
 windows_core::link!("user32.dll" "system" fn GetWindowLongW(hwnd : HWND, nindex : i32) -> i32);
 windows_core::link!("user32.dll" "system" fn GetWindowTextW(hwnd : HWND, lpstring : windows_core::PWSTR, nmaxcount : i32) -> i32);
 windows_core::link!("user32.dll" "system" fn GetWindowThreadProcessId(hwnd : HWND, lpdwprocessid : *mut u32) -> u32);
@@ -82,6 +87,7 @@ windows_core::link!("shell32.dll" "system" fn ShellExecuteExW(pexecinfo : *mut S
 windows_core::link!("user32.dll" "system" fn ShowCursor(bshow : windows_core::BOOL) -> i32);
 windows_core::link!("user32.dll" "system" fn ShutdownBlockReasonCreate(hwnd : HWND, pwszreason : windows_core::PCWSTR) -> windows_core::BOOL);
 windows_core::link!("user32.dll" "system" fn ShutdownBlockReasonDestroy(hwnd : HWND) -> windows_core::BOOL);
+windows_core::link!("kernel32.dll" "system" fn SystemTimeToTzSpecificLocalTime(lptimezoneinformation : *const TIME_ZONE_INFORMATION, lpuniversaltime : *const SYSTEMTIME, lplocaltime : *mut SYSTEMTIME) -> windows_core::BOOL);
 windows_core::link!("user32.dll" "system" fn TrackMouseEvent(lpeventtrack : *mut TRACKMOUSEEVENT) -> windows_core::BOOL);
 windows_core::link!("user32.dll" "system" fn TranslateMessage(lpmsg : *const MSG) -> windows_core::BOOL);
 windows_core::link!("api-ms-win-appmodel-runtime-l1-1-5.dll" "system" fn TryCreatePackageDependency(user : PSID, packagefamilyname : windows_core::PCWSTR, minversion : PACKAGE_VERSION, packagedependencyprocessorarchitectures : PackageDependencyProcessorArchitectures, lifetimekind : PackageDependencyLifetimeKind, lifetimeartifact : windows_core::PCWSTR, options : CreatePackageDependencyOptions, packagedependencyid : *mut windows_core::PWSTR) -> windows_core::HRESULT);
@@ -1594,6 +1600,8 @@ impl windows_core::RuntimeType for CornerRadius {
         windows_core::imp::ConstBuffer::from_slice(b"struct(Microsoft.UI.Xaml.CornerRadius;f8;f8;f8;f8)");
 }
 pub type CreatePackageDependencyOptions = u32;
+pub const DATE_LONGDATE: i32 = 2;
+pub const DATE_SHORTDATE: i32 = 1;
 pub const DIB_RGB_COLORS: i32 = 0;
 pub type DPI_AWARENESS_CONTEXT = *mut core::ffi::c_void;
 pub const DPI_AWARENESS_CONTEXT_PER_MONITOR_AWARE_V2: DPI_AWARENESS_CONTEXT = -4 as _;
@@ -2495,6 +2503,12 @@ impl<F: Fn(windows_core::Ref<windows_core::IInspectable>, windows_core::Ref<Exce
         }
     }
 }
+#[repr(C)]
+#[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
+pub struct FILETIME {
+    pub dwLowDateTime: u32,
+    pub dwHighDateTime: u32,
+}
 pub const FOFX_RECYCLEONDELETE: i32 = 524288;
 pub const FOF_ALLOWUNDO: i32 = 64;
 #[repr(transparent)]
@@ -2584,6 +2598,20 @@ impl windows_core::RuntimeName for FileSavePicker {
 }
 unsafe impl Send for FileSavePicker {}
 unsafe impl Sync for FileSavePicker {}
+#[repr(transparent)]
+#[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
+pub struct FlowDirection(pub i32);
+impl FlowDirection {
+    pub const LeftToRight: Self = Self(0);
+    pub const RightToLeft: Self = Self(1);
+}
+impl windows_core::imp::TypeKind for FlowDirection {
+    type TypeKind = windows_core::imp::CopyType;
+}
+impl windows_core::RuntimeType for FlowDirection {
+    const SIGNATURE: windows_core::imp::ConstBuffer =
+        windows_core::imp::ConstBuffer::from_slice(b"enum(Microsoft.UI.Xaml.FlowDirection;i4)");
+}
 #[repr(transparent)]
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct FlyoutBase(windows_core::IUnknown);
@@ -5968,6 +5996,18 @@ impl IFrameworkElement {
                 .ok()
         }
     }
+    pub fn FlowDirection(&self) -> windows_core::Result<FlowDirection> {
+        unsafe {
+            let mut result__ = core::mem::zeroed();
+            (windows_core::Interface::vtable(self).FlowDirection)(windows_core::Interface::as_raw(self), &mut result__)
+                .map(|| result__)
+        }
+    }
+    pub fn SetFlowDirection(&self, value: FlowDirection) -> windows_core::Result<()> {
+        unsafe {
+            (windows_core::Interface::vtable(self).SetFlowDirection)(windows_core::Interface::as_raw(self), value).ok()
+        }
+    }
     pub fn SetRequestedTheme(&self, value: ElementTheme) -> windows_core::Result<()> {
         unsafe {
             (windows_core::Interface::vtable(self).SetRequestedTheme)(windows_core::Interface::as_raw(self), value).ok()
@@ -6087,8 +6127,8 @@ pub struct IFrameworkElement_Vtbl {
     Style: usize,
     pub SetStyle: unsafe extern "system" fn(*mut core::ffi::c_void, *mut core::ffi::c_void) -> windows_core::HRESULT,
     Parent: usize,
-    FlowDirection: usize,
-    SetFlowDirection: usize,
+    pub FlowDirection: unsafe extern "system" fn(*mut core::ffi::c_void, *mut FlowDirection) -> windows_core::HRESULT,
+    pub SetFlowDirection: unsafe extern "system" fn(*mut core::ffi::c_void, FlowDirection) -> windows_core::HRESULT,
     RequestedTheme: usize,
     pub SetRequestedTheme: unsafe extern "system" fn(*mut core::ffi::c_void, ElementTheme) -> windows_core::HRESULT,
     pub IsLoaded: unsafe extern "system" fn(*mut core::ffi::c_void, *mut bool) -> windows_core::HRESULT,
@@ -13106,8 +13146,18 @@ impl windows_core::RuntimeType for KeyboardNavigationMode {
     const SIGNATURE: windows_core::imp::ConstBuffer =
         windows_core::imp::ConstBuffer::from_slice(b"enum(Microsoft.UI.Xaml.Input.KeyboardNavigationMode;i4)");
 }
+pub type LCTYPE = u32;
 pub const LLKHF_EXTENDED: i32 = 1;
 pub const LLKHF_UP: i32 = 128;
+pub const LOCALE_ICURRENCY: i32 = 27;
+pub const LOCALE_IPOSITIVEPERCENT: i32 = 117;
+pub const LOCALE_RETURN_NUMBER: i32 = 536870912;
+pub const LOCALE_SDECIMAL: i32 = 14;
+pub const LOCALE_SGROUPING: i32 = 16;
+pub const LOCALE_SMONDECIMALSEP: i32 = 22;
+pub const LOCALE_SMONGROUPING: i32 = 24;
+pub const LOCALE_SMONTHOUSANDSEP: i32 = 23;
+pub const LOCALE_STHOUSAND: i32 = 15;
 pub type LPARAM = isize;
 pub type LRESULT = isize;
 pub const LR_DEFAULTCOLOR: i32 = 0;
@@ -13294,6 +13344,7 @@ pub struct MSG {
     pub time: u32,
     pub pt: POINT,
 }
+pub const MUI_LANGUAGE_NAME: i32 = 8;
 pub const MWMO_INPUTAVAILABLE: i32 = 4;
 #[repr(transparent)]
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -15364,6 +15415,18 @@ pub const SWP_HIDEWINDOW: i32 = 128;
 pub const SWP_NOACTIVATE: i32 = 16;
 pub const SWP_SHOWWINDOW: i32 = 64;
 pub const SW_SHOWNORMAL: i32 = 1;
+#[repr(C)]
+#[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
+pub struct SYSTEMTIME {
+    pub wYear: u16,
+    pub wMonth: u16,
+    pub wDayOfWeek: u16,
+    pub wDay: u16,
+    pub wHour: u16,
+    pub wMinute: u16,
+    pub wSecond: u16,
+    pub wMilliseconds: u16,
+}
 #[repr(transparent)]
 #[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
 pub struct ScrollBarVisibility(pub i32);
@@ -16385,6 +16448,23 @@ impl windows_core::RuntimeName for SymbolIcon {
 }
 unsafe impl Send for SymbolIcon {}
 unsafe impl Sync for SymbolIcon {}
+pub const TIME_NOSECONDS: i32 = 2;
+#[repr(C)]
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub struct TIME_ZONE_INFORMATION {
+    pub Bias: i32,
+    pub StandardName: [u16; 32],
+    pub StandardDate: SYSTEMTIME,
+    pub StandardBias: i32,
+    pub DaylightName: [u16; 32],
+    pub DaylightDate: SYSTEMTIME,
+    pub DaylightBias: i32,
+}
+impl Default for TIME_ZONE_INFORMATION {
+    fn default() -> Self {
+        unsafe { core::mem::zeroed() }
+    }
+}
 pub const TME_LEAVE: i32 = 2;
 #[repr(C)]
 #[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]

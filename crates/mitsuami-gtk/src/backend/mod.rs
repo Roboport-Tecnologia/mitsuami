@@ -61,6 +61,9 @@ pub struct BackendOptions {
     /// regardless of system settings. GTK's settings are per display, so
     /// this applies to every window on it.
     pub appearance: Option<Appearance>,
+    /// Take this as the user's language, and write numbers and dates as
+    /// its region does, in UTC, whatever the system's settings (tests).
+    pub locale: Option<String>,
 }
 
 /// Native widget → node. Shared with the windows' focus observers.
@@ -302,6 +305,9 @@ struct Node {
     /// Hosts, groups and lists: the controller of their keys, once the
     /// app gave some.
     keys: Option<gtk::ShortcutController>,
+    /// Labels: where the app aligned the text, which GTK mirrors in a
+    /// right-to-left label.
+    align: Option<mitsuami_core::HorizontalAlign>,
 }
 
 pub(crate) struct State {
@@ -470,6 +476,21 @@ impl Backend for GtkBackend {
 
     fn services(&self) -> Box<dyn mitsuami_core::services::Services> {
         Box::new(GtkServices::new(self.handle()))
+    }
+
+    fn locale(&self) -> Rc<dyn mitsuami_core::l10n::PlatformLocale> {
+        Rc::new(crate::locale::GtkLocale::new(self.state.borrow().options.locale.as_deref()))
+    }
+
+    /// And the windows' own strings, in the new language.
+    fn set_locale(&mut self, language: &mitsuami_core::l10n::LanguageIdentifier, right_to_left: bool) {
+        crate::locale::set_app_locale(language, right_to_left);
+        let tooltip = mitsuami_core::l10n::tr("mitsuami-main-menu", &[]);
+        for node in self.state.borrow().nodes.values() {
+            if let Widget::Window(parts) = &node.widget {
+                parts.menu_button.set_tooltip_text(Some(&tooltip));
+            }
+        }
     }
 
     /// Without a `GtkApplication`, GTK takes the Wayland app id and the X11

@@ -35,6 +35,11 @@ impl RadioGroup {
         let stack = NSStackView::stackViewWithViews(&NSArray::new(), mtm);
         stack.setOrientation(NSUserInterfaceLayoutOrientation::Vertical);
         stack.setAlignment(NSLayoutAttribute::Leading);
+        // A stack view sizes itself to fit in AppKit's layout passes (a
+        // window's display, a capture) unless its frame is its size: the
+        // core's frame, whose leading edge is the right one in
+        // right-to-left. Measuring (`fittingSize`) is the same either way.
+        stack.setTranslatesAutoresizingMaskIntoConstraints(true);
         stack.setAccessibilityElement(true);
         stack.setAccessibilityRole(Some(unsafe { NSAccessibilityRadioGroupRole }));
         let chosen: Rc<Cell<Option<usize>>> = Rc::default();
@@ -74,11 +79,23 @@ impl RadioGroup {
             };
             button.setTag(index as isize);
             button.setEnabled(self.enabled.get());
+            button.setUserInterfaceLayoutDirection(self.stack.userInterfaceLayoutDirection());
+            button.setImagePosition(crate::backend::toggle_image_position(self.stack.userInterfaceLayoutDirection()));
             self.stack.addArrangedSubview(&button);
             buttons.push(button);
         }
         if self.chosen.get().is_some_and(|i| i >= buttons.len()) {
             self.chosen.set(None);
+        }
+    }
+
+    /// The stack lines the buttons up on its leading edge, the right one
+    /// in right-to-left; each button puts its circle on that side.
+    pub(crate) fn set_direction(&self, direction: objc2_app_kit::NSUserInterfaceLayoutDirection) {
+        self.stack.setUserInterfaceLayoutDirection(direction);
+        for button in self.buttons.borrow().iter() {
+            button.setUserInterfaceLayoutDirection(direction);
+            button.setImagePosition(crate::backend::toggle_image_position(direction));
         }
     }
 

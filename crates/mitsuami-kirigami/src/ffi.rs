@@ -101,6 +101,19 @@ unsafe extern "C" {
     fn mq_open_url(target: *const c_char, is_path: i32) -> i32;
     fn mq_mime_icon(path: *const c_char) -> *mut c_char;
 
+    fn mq_ui_languages(locale: *const c_char) -> *mut c_char;
+    fn mq_format_number(
+        locale: *const c_char,
+        value: f64,
+        decimals: i32,
+        grouping: i32,
+        currency: *const c_char,
+    ) -> *mut c_char;
+    fn mq_format_date_time(locale: *const c_char, msecs: i64, date: i32, time: i32, utc: i32) -> *mut c_char;
+    fn mq_set_app_locale(language: *const c_char, rtl: i32);
+    fn mq_set_mirrored(item: Raw, on: i32) -> i32;
+    fn mq_mirrored(item: Raw) -> i32;
+
     fn mq_platform_has_surfaces() -> i32;
     fn mq_wayland_display() -> Raw;
     fn mq_window_wl_surface(window: Raw) -> Raw;
@@ -357,6 +370,41 @@ pub(crate) fn open_url(target: &str, is_path: bool) -> bool {
     unsafe { mq_open_url(c(target).as_ptr(), i32::from(is_path)) != 0 }
 }
 
+/// The user's languages, from the system locale (KDE's settings) or the
+/// one named.
+pub(crate) fn ui_languages(locale: Option<&str>) -> Vec<String> {
+    let locale = locale.map(c);
+    let languages = owned(unsafe { mq_ui_languages(locale.as_ref().map_or(std::ptr::null(), |l| l.as_ptr())) });
+    languages.lines().map(str::to_owned).filter(|l| !l.is_empty()).collect()
+}
+
+/// A number with this many fraction digits, as the locale writes one:
+/// an amount of `currency` (its symbol or code) when there's one.
+pub(crate) fn format_number(
+    locale: Option<&str>,
+    value: f64,
+    decimals: usize,
+    grouping: bool,
+    currency: Option<&str>,
+) -> String {
+    let (locale, currency) = (locale.map(c), currency.map(c));
+    let ptr = |s: &Option<CString>| s.as_ref().map_or(std::ptr::null(), |s| s.as_ptr());
+    owned(unsafe { mq_format_number(ptr(&locale), value, decimals as i32, i32::from(grouping), ptr(&currency)) })
+}
+
+/// A date and time as the locale writes them; styles are 0 (none), 1
+/// (short) and 2 (long).
+pub(crate) fn format_date_time(locale: Option<&str>, msecs: i64, date: i32, time: i32, utc: bool) -> String {
+    let locale = locale.map(c);
+    let locale = locale.as_ref().map_or(std::ptr::null(), |l| l.as_ptr());
+    owned(unsafe { mq_format_date_time(locale, msecs, date, time, i32::from(utc)) })
+}
+
+/// Qt's layout direction and its own strings' language.
+pub(crate) fn set_app_locale(language: &str, rtl: bool) {
+    unsafe { mq_set_app_locale(c(language).as_ptr(), i32::from(rtl)) }
+}
+
 // ---------------------------------------------------------------- objects
 
 fn c(s: &str) -> CString {
@@ -459,6 +507,16 @@ impl QmlObject {
     /// positions); the cursor goes to `end`.
     pub(crate) fn select_text(self, start: i32, end: i32) {
         unsafe { mq_select_text(self.raw(), start, end) }
+    }
+
+    /// Mirrors an item and what it's made of (`LayoutMirroring`); `false`
+    /// for an item made without QML, which has none.
+    pub fn set_mirrored(self, on: bool) -> bool {
+        unsafe { mq_set_mirrored(self.raw(), i32::from(on)) != 0 }
+    }
+
+    pub fn mirrored(self) -> bool {
+        unsafe { mq_mirrored(self.raw()) != 0 }
     }
 
     pub fn set_str(self, name: &str, value: &str) {

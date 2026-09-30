@@ -889,6 +889,32 @@ async fn agree(app: &TestApp) {
     app.expect(by_role(Role::Button, "Sign up")).to_be_enabled().await;
 }
 
+/// A form in Arabic: laid out right to left, each control mirrored the
+/// platform's way (the group's heading, the text field's text, the
+/// checkbox's box and the radio buttons', the slider, the stepper) and its
+/// text starting on the right.
+#[mitsuami_test::story(sizes = [(280, fit)])]
+fn form_right_to_left() -> impl View {
+    l10n::set_locales(locales!("locales"));
+    l10n::set_language(Some("ar"));
+    let count = signal(2);
+    Column::new().padding(16).gap(8).align(Align::Stretch).children((
+        Group::new().title(t!("greeting", name = "Ada")).child(
+            Column::new().gap(8).align(Align::Stretch).children((
+                TextInput::new().a11y_label(t!("name")).placeholder(t!("name")),
+                Checkbox::new(t!("remember")),
+                RadioGroup::new(t!("files", count = count))
+                    .options(move || vec![tr!("files", count = 1), tr!("files", count = 2)])
+                    .selected(Some(0)),
+            )),
+        ),
+        Text::new(t!("files", count = count)),
+        Slider::new(t!("files", count = count)).range(0.0, 10.0).value(move || f64::from(count.get())),
+        NumberInput::new(t!("files", count = count)).range(0, 10).bind(count),
+        Row::new().justify(Justify::End).child(Button::new(t!("save")).role(ButtonRole::Default)),
+    ))
+}
+
 #[derive(Clone)]
 struct Contact {
     id: u32,

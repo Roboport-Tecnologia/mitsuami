@@ -21,6 +21,12 @@ impl HeadlessHandle {
         std::mem::take(&mut self.state.borrow_mut().log)
     }
 
+    /// The app's language as the core last gave it (`Backend::set_locale`),
+    /// and whether it's right to left.
+    pub fn app_locale(&self) -> Option<(String, bool)> {
+        self.state.borrow().locale.as_ref().map(|(language, rtl)| (language.to_string(), *rtl))
+    }
+
     /// Simulates the user resizing a window, which goes no smaller than
     /// its minimum size, and keeps its height if its content sets it. A
     /// window that isn't resizable keeps its size.

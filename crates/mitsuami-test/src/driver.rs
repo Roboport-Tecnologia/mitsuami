@@ -89,9 +89,15 @@ pub(crate) fn show_windows() -> bool {
     std::env::var("MITSUAMI_SHOW_WINDOWS").is_ok_and(|v| v == "1")
 }
 
+/// The user's language in every test, and how numbers and dates are
+/// written (in UTC), whatever the machine's: `TestApp::set_languages`
+/// changes the language.
+const TEST_LOCALE: &str = "en-US";
+
 // One `native()` per platform: create the backend configured for tests
 // (offscreen unless MITSUAMI_SHOW_WINDOWS=1, recording commands, the
-// test's appearance whatever the system's, a private clipboard) and return its test hooks.
+// test's appearance and locale whatever the system's, a private
+// clipboard) and return its test hooks.
 
 #[cfg(target_os = "macos")]
 fn native(appearance: Appearance) -> (Ui, Box<dyn TestHooks>) {
@@ -104,6 +110,7 @@ fn native(appearance: Appearance) -> (Ui, Box<dyn TestHooks>) {
             record_commands: true,
             appearance: Some(appearance),
             private_clipboard: true,
+            locale: Some(TEST_LOCALE.into()),
         },
     );
     let hooks = backend.handle();
@@ -118,7 +125,11 @@ fn native(appearance: Appearance) -> (Ui, Box<dyn TestHooks>) {
     use mitsuami_gtk::{BackendOptions, GtkBackend};
     let _ = show_windows;
     mitsuami_gtk::init_for_tests();
-    let backend = GtkBackend::new(BackendOptions { record_commands: true, appearance: Some(appearance) });
+    let backend = GtkBackend::new(BackendOptions {
+        record_commands: true,
+        appearance: Some(appearance),
+        locale: Some(TEST_LOCALE.into()),
+    });
     let hooks = backend.handle();
     (Ui::new(backend), Box::new(hooks))
 }
@@ -130,7 +141,11 @@ fn native(appearance: Appearance) -> (Ui, Box<dyn TestHooks>) {
     use mitsuami_kirigami::{BackendOptions, KirigamiBackend};
     let _ = show_windows;
     mitsuami_kirigami::init_for_tests();
-    let backend = KirigamiBackend::new(BackendOptions { record_commands: true, appearance: Some(appearance) });
+    let backend = KirigamiBackend::new(BackendOptions {
+        record_commands: true,
+        appearance: Some(appearance),
+        locale: Some(TEST_LOCALE.into()),
+    });
     let hooks = backend.handle();
     (Ui::new(backend), Box::new(hooks))
 }
@@ -146,6 +161,7 @@ fn native(appearance: Appearance) -> (Ui, Box<dyn TestHooks>) {
         record_commands: true,
         appearance: Some(appearance),
         private_clipboard: true,
+        locale: Some(TEST_LOCALE.into()),
     });
     let hooks = backend.handle();
     (Ui::new(backend), Box::new(hooks))

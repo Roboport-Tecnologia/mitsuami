@@ -22,6 +22,10 @@ impl GtkBackend {
         let node = state.nodes.get(&id)?;
         let mut props = Vec::new();
         let text = |s: Option<glib::GString>| s.map(|s| s.to_string()).unwrap_or_default();
+        props.push(Prop::LayoutDirection(match node.widget.widget().direction() {
+            gtk::TextDirection::Rtl => mitsuami_core::LayoutDirection::RightToLeft,
+            _ => mitsuami_core::LayoutDirection::LeftToRight,
+        }));
         match &node.widget {
             Widget::Window(parts) => {
                 props.push(Prop::Title(text(parts.window.title())));

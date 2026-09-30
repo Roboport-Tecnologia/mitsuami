@@ -13,6 +13,10 @@ mitsuami-reactive.workspace = true
 taffy.workspace = true
 raw-window-handle.workspace = true
 unicode-segmentation.workspace = true
+fluent-bundle.workspace = true
+fluent-langneg.workspace = true
+unic-langid.workspace = true
+intl-memoizer.workspace = true
 
 [lints]
 workspace = true

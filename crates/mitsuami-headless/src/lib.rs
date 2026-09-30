@@ -30,6 +30,7 @@ use mitsuami_core::a11y::{A11yAction, A11yProps, ActionError};
 use mitsuami_core::backend::{
     Backend, CaptureError, EventSink, Image, MeasureRequest, NativeState, PlatformMetrics, SyntheticInput,
 };
+use mitsuami_core::l10n::{DateTimeFormat, LanguageIdentifier, NumberFormat, PlatformLocale};
 use mitsuami_core::raw_window_handle::{HandleError, RawDisplayHandle, RawWindowHandle};
 use mitsuami_core::{
     AppInfo, Command, NativeSurface, NodeId, Point, Prop, Rect, RowKey, Size, SurfaceHandle, WidgetKind,
@@ -59,6 +60,25 @@ struct HeadlessNode {
     windowed: Option<Size>,
     /// Maximized windows only: their size before, to go back to.
     restored: Option<Size>,
+}
+
+/// A user who reads US English, and numbers and dates written as
+/// mitsuami writes them (US English, dates in UTC), whatever the machine's
+/// settings: tests ask for other languages with `Ui::set_languages`.
+struct HeadlessLocale;
+
+impl PlatformLocale for HeadlessLocale {
+    fn languages(&self) -> Vec<String> {
+        vec!["en-US".into()]
+    }
+
+    fn format_number(&self, _: f64, _: &NumberFormat) -> Option<String> {
+        None
+    }
+
+    fn format_date_time(&self, _: std::time::SystemTime, _: &DateTimeFormat) -> Option<String> {
+        None
+    }
 }
 
 /// A `GpuSurface` with nothing to present to: the app gets it, and its
@@ -96,6 +116,8 @@ struct State {
     app: AppInfo,
     /// The node files being dragged are over, if it takes them.
     drop_hover: Option<NodeId>,
+    /// The app's language and whether it's right to left, as the core set it.
+    locale: Option<(LanguageIdentifier, bool)>,
 }
 
 /// The backend. Hand it to [`Ui::new`](mitsuami_core::Ui::new); keep a
@@ -129,6 +151,7 @@ impl HeadlessBackend {
                 drop_hover: None,
                 focus_orders: BTreeMap::new(),
                 app: AppInfo::default(),
+                locale: None,
             })),
         }
     }
@@ -165,6 +188,14 @@ impl Backend for HeadlessBackend {
 
     fn native_state(&self, id: NodeId) -> Option<NativeState> {
         self.read_native_state(id)
+    }
+
+    fn locale(&self) -> Rc<dyn PlatformLocale> {
+        Rc::new(HeadlessLocale)
+    }
+
+    fn set_locale(&mut self, language: &LanguageIdentifier, right_to_left: bool) {
+        self.state.borrow_mut().locale = Some((language.clone(), right_to_left));
     }
 
     fn capture(&mut self, _id: NodeId, reply: mitsuami_core::services::Reply<Result<Image, CaptureError>>) {

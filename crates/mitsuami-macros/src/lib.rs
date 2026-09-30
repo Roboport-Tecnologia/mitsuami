@@ -7,7 +7,31 @@
 use proc_macro::TokenStream;
 
 mod component;
+mod locales;
 mod view;
+
+/// The app's translations, from a folder of Fluent files: one folder per
+/// language, named by its tag, with any number of `.ftl` files.
+///
+/// ```ignore
+/// // locales/en-US/app.ftl, locales/pt-BR/app.ftl, …, beside Cargo.toml;
+/// // in src/main.rs:
+/// App::new().locales(locales!("../locales"))
+/// App::new().locales(locales!("../locales", fallback = "pt-BR"))
+/// ```
+///
+/// The path is from the file that calls it, as `include_str!`'s. The
+/// files are built into the app, and checked as it's compiled: a syntax error, or the same
+/// message in two files of a language, is a compile error. The fallback
+/// (the language shown when the user reads none of the app's, and where
+/// a message missing from one is looked up) is `en-US` when there is one,
+/// else the only language. A new file needs a rebuild of the crate to be
+/// seen (touch the file that calls `locales!`); edits to a file don't.
+#[proc_macro]
+pub fn locales(input: TokenStream) -> TokenStream {
+    let file = proc_macro::Span::call_site().local_file();
+    locales::expand(input.into(), file).unwrap_or_else(syn::Error::into_compile_error).into()
+}
 
 /// JSX-like views, expanded to builder calls.
 ///

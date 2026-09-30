@@ -30,7 +30,7 @@ You also touch three places outside your crate:
 
 1. **`crates/mitsuami/Cargo.toml`, `crates/mitsuami/src/app.rs`:** `App::run` calls your `run`, behind a `cfg(target_os = …)`.
 2. **`crates/mitsuami-test/Cargo.toml`, `crates/mitsuami-test/src/driver.rs`:**
-   - Add a `native(appearance)` that builds your backend for tests: offscreen unless `MITSUAMI_SHOW_WINDOWS=1`, recording commands, the appearance the test asks for (light, or a story's dark variant) whatever the system's, and a private clipboard if the platform allows it.
+   - Add a `native(appearance)` that builds your backend for tests: offscreen unless `MITSUAMI_SHOW_WINDOWS=1`, recording commands, the appearance the test asks for (light, or a story's dark variant) whatever the system's, the test locale (§6.1), and a private clipboard if the platform allows it.
    - Add your platform to `native_available()`.
 3. **`crates/mitsuami-<name>/Cargo.toml`:** put native dependencies under `[target.'cfg(target_os = "…")'.dependencies]`, so the workspace still builds everywhere.
 
@@ -132,7 +132,7 @@ A prop the app didn't give isn't sent ("sent only if the app chose"), so the pla
 | `TextColor` | Text, Icon | The label's or icon's colour; an icon in full colour keeps its own. Symbolic icons take it: AppKit `contentTintColor`, GTK's CSS `color` (the labels' classes, and a class with a display-wide rule for a fixed colour, since an image has no Pango attributes), `Kirigami.Icon`'s `color`, the `FontIcon`'s `Foreground`. A semantic one is the platform's own, so it follows dark mode, high contrast and the accent without the core sending it again: AppKit's catalogue colours; GTK's style classes (`dim-label`, `accent`, `error`, `warning`, `success`); `Kirigami.Theme` bindings; XAML `{ThemeResource}` brushes. `Rgba` is fixed. Report the colour sent where the shown one can't be told apart (a resolved brush, a class-less theme colour). |
 | `FontWeight` | Text | The weight, in place of the text style's: Regular, Medium, Semibold, Bold (400 to 700), or the nearest the font has. Keep it when `TextStyle` changes, whichever comes first. Report it as the nearest of the four. |
 | `Italic` | Text | Italics, kept when `TextStyle` changes. |
-| `TextAlign` | Text | Left, center or right across the frame. The core has resolved the app's start and end against the text's direction, so don't mirror it: GTK flips `xalign` in a right-to-left widget, so an aligned label is set left-to-right. |
+| `TextAlign` | Text | Left, center or right across the frame. The core has resolved the app's start and end against the text's direction, and sends it for every right-to-left label, so don't mirror it: where the platform mirrors a right-to-left label's alignment (GTK's `xalign`, Qt's under `LayoutMirroring`, XAML's `Left`, which is the start), set the other side. Keep the alignment on the node, and set it again when `LayoutDirection` changes. Report it as shown. |
 
 **Buttons**
 
@@ -216,6 +216,7 @@ A prop the app didn't give isn't sent ("sent only if the app chose"), so the pla
 
 | Prop | Applies to | Notes |
 |---|---|---|
+| `LayoutDirection` | any node | Which way the widget lays itself out and draws, left to right or right to left, resolved by the core (the node's own direction, its parent's, or the app's language's), and sent only where it's right to left or the app's language is: an app that's only left to right gets none. Frames are already mirrored, so a container must not mirror what it holds. AppKit: `userInterfaceLayoutDirection`, and where the view's direction doesn't reach (AppKit places a checkbox's box and a field's text by the app's direction), `imagePosition` and the field's alignment; its own number field's stepper moves to the left. GTK: `set_direction` on the widget and its focus widget (a widget without one takes GTK's default, not its parent's). Qt: `LayoutMirroring.enabled` and `childrenInherit` on the item. WinUI: `FlowDirection` on controls, never on a `Canvas`, `ScrollViewer` or `ListView`, which would mirror their children again: they stay left to right, and report the direction the core gave. Report it. |
 | `Tooltip` | any node | The platform's tooltip on the view the pointer rests on (`toolTip`, `set_tooltip_text`, `ToolTipService`, the attached `QQC2.ToolTip` on hover); empty removes it. Make it reach assistive technology as the description unless the node has its own (AppKit and GTK do that themselves). Report it for every node, `""` when none. |
 | `ContextMenu` | any node | The platform's context menu, on the view the pointer rests on (as `Tooltip`), shown its own way: a right-click, a long press, the menu key (§8.1). Empty removes it. A view without one lets its container's show, as the platform does. A control whose native menu is taken (AppKit's pop-up button: its menu is its options) keeps it on the node. Report it once the core has sent one, read back where you can. |
 
@@ -315,6 +316,17 @@ Where one node's differ from the metrics', say so per node: `group_insets(id)` f
 
 Emit `MetricsChanged` when any of these change, including when a strip or heading you estimated before one loaded (WinUI's `SelectorBar`, a group's heading) measures differently.
 
+### 6.1 Languages, formats and direction
+
+- **`locale()`**, called once when the backend is attached, returns a `PlatformLocale`: the user's languages, most preferred first, as BCP 47 tags (the core chooses the app's language from them against the app's translations, with Fluent's negotiation), and numbers and dates written as the user's region writes them, with the user's own changes to its formats. Return `None` from a formatter to have mitsuami write it.
+  - AppKit: `NSLocale.preferredLanguages` (read at creation: the backend then lists the app's language first), `NSNumberFormatter` and `NSDateFormatter` in `autoupdatingCurrentLocale`.
+  - GTK: GLib's `language_names` (POSIX names; the core's `parse_tag` reads them), the C library's `localeconv` symbols through the core's `format_number_with`, and `GDateTime`'s `%x` and `%X`.
+  - Qt: `QLocale::system()`'s `uiLanguages`, `toString` with the digits the core rounded to (`l10n::rounded`), `toCurrencyString`, and its short and long date formats.
+  - WinUI: `GetUserPreferredUILanguages`, `GetLocaleInfoEx`'s symbols through `format_number_with`, `GetDateFormatEx` and `GetTimeFormatEx`.
+- **`BackendOptions::locale`**: tests fix the user's language and region (`en-US`), with dates in UTC, whatever the machine's, as they fix the appearance. Where the platform may not have that locale (a C library without it), return `None` and mitsuami writes it.
+- **`set_locale(language, right_to_left)`** comes at the first commit, before the first window, and again when the app changes its language. Make the toolkit's own chrome follow it where the platform lets an app: AppKit's argument domain (`AppleLanguages`, `AppleTextDirection`, read once, by the first window), GTK's default direction, Qt's layout direction and its translations of its own strings, WinUI's window rows (title bar, menu bar, toolbar) with the content host left to right. Native widgets get their direction as `LayoutDirection` (§3.2).
+- **Strings a backend shows itself** (menu items it adds, a menu button's tooltip, a default button, the reason given for holding a log out) are messages in `crates/mitsuami-core/locales/en-US/mitsuami.ftl`, shown with `mitsuami_core::l10n::tr`, so they're in the app's language and apps can translate them. Add new ones there.
+
 ## 7. Test hooks: perform, synthesize, native_state, capture
 
 These make one test suite run against every backend.
@@ -398,7 +410,7 @@ Implement `Services`. **Never block**: reply later, from the platform's completi
 | menus | the global `NSMenu` bar: the app menu, the app's File, Edit, the rest; a window's own menus while it's main | the header bar's primary menu (a `gio::Menu` section per menu) in each window | a `MenuBar` in each window | a `Kirigami.GlobalDrawer` shown as a menu (`isMenu`) in each window |
 | submenus | `NSMenuItem.submenu` | `gio::Menu::append_submenu` | `MenuFlyoutSubItem` | nested `Kirigami.Action`s |
 | check / radio items | `NSMenuItem.state` | a stateful action (boolean; a radio item's holds its id, its target) | `ToggleMenuFlyoutItem` / `RadioMenuFlyoutItem` (`GroupName`) | `checkable` actions; a radio group in one `QQC2.ActionGroup` |
-| roles (About, Settings, Quit) | the app menu, AppKit's titles and shortcuts | the last section: Settings, About, Quit | where the app put them | the end of the drawer: Settings, About, Quit |
+| roles (About, Settings, Quit) | the app menu, AppKit's titles and shortcuts (mitsuami's strings) | the last section: Settings, About, Quit | where the app put them | the end of the drawer: Settings, About, Quit |
 
 - **`parent: None`** means the focused window: AppKit uses the key window, then the main window. Only fall back to app-modal if there is no window. Qt's `active` is true for a focused window's transient parents too, and so for their other dialogs; Kirigami tracks `QGuiApplication::focusWindow()` instead, and WinUI `GetActiveWindow`.
 - **A file dialog's `start_folder`** is where it opens: take `services::existing_folder(&request.start_folder)`, which is `None` for a folder that isn't there, and leave the choice to the platform then. **A `FileFilter` with no extensions** (`FileFilter::all`, `is_all`) lets every file through: a filter of its own where the platform offers a choice of filters, and no restriction at all where it only has one list of allowed types (AppKit). `OpenFile::directories` opens folders.
@@ -409,7 +421,7 @@ Implement `Services`. **Never block**: reply later, from the platform's completi
 
 - **`set_menu(None, …)` is the app's menus; `set_menu(Some(window), …)` is that window's own,** shown with the app's (`MenuBarData::merged`), and an empty bar removes them. Menus in each window show `MenuBarData::for_window`: a modal window (a dialog, `Prop::Modal` in its `Create`) shows only its own, without your Quit. A window's menus usually arrive before its `Create` is applied, and may arrive after it's destroyed: keep them by `NodeId`.
 - **Menus inside the window** (GTK without a global menu, WinUI): the menu bar takes space the core doesn't know about. Put it above your content host, and report the **remaining** content size in `WindowResized`.
-- **Keep the platform's standard menus** (Quit, Edit with Cut, Copy, Paste and Undo) and leave their enabling to the platform. The app's own items follow its `enabled` state.
+- **Keep the platform's standard menus** (Quit, Edit with Cut, Copy, Paste and Undo) and leave their enabling to the platform. The app's own items follow its `enabled` state. Titles you give them are mitsuami's strings (§6.1): the core sends the menus again when the language changes. AppKit's File menu, which goes before Edit, is the app's menu titled like `mitsuami-menu-file`.
 - **Update in place when you can:** if `MenuBarData::same_structure` holds, only enabled and checked states changed; rebuilding would close an open menu.
 - **Items with a role** (`MenuRole::{About, Settings, Quit}`) go where the platform puts them: `MenuBarData::take_role` takes them out of the app's menus, tidying separators. A Quit item replaces your own Quit. Where the platform has no place for them, leave them.
 - **Check and radio items** are drawn by the platform, radio groups named by `MenuData::radio_groups`. If it toggles an item itself on a click, put the app's state back: the core sends the new state when the app changes it, and only the user's choice may call `activate`.

@@ -41,9 +41,10 @@ impl Alert {
         self
     }
 
-    /// The buttons to show: "OK" when none were given.
+    /// The buttons to show: "OK", in the app's language, when none were
+    /// given.
     pub fn effective_buttons(&self) -> Vec<String> {
-        if self.buttons.is_empty() { vec!["OK".to_string()] } else { self.buttons.clone() }
+        if self.buttons.is_empty() { vec![crate::l10n::tr("mitsuami-alert-ok", &[])] } else { self.buttons.clone() }
     }
 }
 

@@ -52,8 +52,18 @@ impl Ui {
 
     /// Brings the native tree up to date: styles, structure, props, layout.
     pub fn commit(&self) {
+        let language = self.l10n.language();
         let mut inner = self.inner.borrow_mut();
         inner.commit_scheduled = false;
+        if inner.language.as_ref() != Some(&language) {
+            let rtl = crate::l10n::is_rtl(&language);
+            inner.backend.set_locale(&language, rtl);
+            inner.language = Some(language);
+            if inner.rtl != rtl {
+                inner.rtl = rtl;
+                inner.styles_dirty = true;
+            }
+        }
         if inner.styles_dirty {
             inner.resolve_styles();
         }

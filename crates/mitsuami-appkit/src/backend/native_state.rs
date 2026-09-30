@@ -291,6 +291,10 @@ pub(super) fn native_state(state: &State, id: NodeId) -> Option<NativeState> {
     props.extend(node.tabs_style.map(Prop::TabsStyle));
     props.extend(node.tweak.clone().map(Prop::Tweak));
     let view = node.widget.view();
+    props.push(Prop::LayoutDirection(match view.userInterfaceLayoutDirection() {
+        objc2_app_kit::NSUserInterfaceLayoutDirection::RightToLeft => mitsuami_core::LayoutDirection::RightToLeft,
+        _ => mitsuami_core::LayoutDirection::LeftToRight,
+    }));
     props.push(Prop::Tooltip(view.toolTip().map(|t| t.to_string()).unwrap_or_default()));
     if let Some((sent, _)) = &node.context_menu {
         props.push(Prop::ContextMenu(match (&node.widget, view.menu()) {

@@ -1,12 +1,12 @@
 //! Setting a prop on a node's widget.
 
 use mitsuami_core::{
-    ButtonRole, ButtonStyle, Color, Command, HorizontalAlign, ImageFit, ImageSource, Modality, NodeId, Prop,
-    ScrollAxes, TabsStyle, UiEvent, WidgetKind,
+    ButtonRole, ButtonStyle, Color, Command, HorizontalAlign, ImageFit, ImageSource, LayoutDirection, Modality, NodeId,
+    Prop, ScrollAxes, TabsStyle, UiEvent, WidgetKind,
 };
 
 use crate::custom::{NativePayload, flatten};
-use crate::ffi;
+use crate::ffi::{self, QmlObject};
 use crate::qml;
 use crate::services::ContextMenu;
 
@@ -121,17 +121,20 @@ impl State {
             }
             (Prop::FontWeight(weight), Widget::Label(l)) => l.set_int("mitsuamiWeight", qml::font_weight(*weight)),
             (Prop::Italic(italic), Widget::Label(l)) => l.set_bool("mitsuamiItalic", *italic),
-            // Set, it's what shows: Qt mirrors it only under
-            // `LayoutMirroring`, which nothing enables, and aligns by the
-            // text's own direction only while it's unset.
-            (Prop::TextAlign(align), Widget::Label(l)) => l.set_int(
-                "horizontalAlignment",
-                match align {
-                    HorizontalAlign::Left => ALIGN_LEFT,
-                    HorizontalAlign::Center => ALIGN_H_CENTER,
-                    HorizontalAlign::Right => ALIGN_RIGHT,
-                },
-            ),
+            (Prop::TextAlign(align), Widget::Label(l)) => {
+                node.align = Some(*align);
+                align_label(*l, *align);
+            }
+            // Each node is told, over what it inherits: the window mirrors
+            // everything in a right-to-left app, as Kirigami's windows
+            // follow Qt's layout direction.
+            (Prop::LayoutDirection(direction), widget) => {
+                let mirrored = widget.item().set_mirrored(*direction == LayoutDirection::RightToLeft);
+                node.direction = (!mirrored).then_some(*direction);
+                if let (Widget::Label(l), Some(align)) = (widget, node.align) {
+                    align_label(*l, align);
+                }
+            }
             (Prop::Label(t), Widget::Button(b) | Widget::MenuButton(b) | Widget::Checkbox(b)) => b.set_str("text", t),
             (
                 Prop::Label(t),
@@ -435,4 +438,19 @@ impl State {
             }
         }
     }
+}
+
+/// Set, it's what shows (Qt aligns by the text's own direction only while
+/// it's unset), but mirrored under `LayoutMirroring`: the core resolved
+/// the direction, so it's mirrored back.
+fn align_label(l: QmlObject, align: HorizontalAlign) {
+    let mirrored = l.mirrored();
+    l.set_int(
+        "horizontalAlignment",
+        match (align, mirrored) {
+            (HorizontalAlign::Center, _) => ALIGN_H_CENTER,
+            (HorizontalAlign::Left, false) | (HorizontalAlign::Right, true) => ALIGN_LEFT,
+            (HorizontalAlign::Right, false) | (HorizontalAlign::Left, true) => ALIGN_RIGHT,
+        },
+    );
 }

@@ -304,6 +304,16 @@ pub enum HorizontalAlign {
     Right,
 }
 
+/// Which way a native widget lays itself out, as backends get it: the
+/// core has resolved the node's direction (its own, its parent's, or the
+/// app's language's).
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Hash)]
+pub enum LayoutDirection {
+    #[default]
+    LeftToRight,
+    RightToLeft,
+}
+
 /// What a `TextInput` is for, which the platform uses as it uses one: to
 /// pick an on-screen keyboard, to offer autofill, to check what's typed.
 /// Only the purposes every platform has.
@@ -705,6 +715,14 @@ pub enum Prop {
     /// app's `TextAlign` against the text's direction, so it's left or
     /// right here.
     TextAlign(HorizontalAlign),
+    /// Which way a widget lays itself out and draws: a checkbox's box on
+    /// the right of its caption, a slider's minimum on the right, a text
+    /// field's text starting on the right. The core resolves it for every
+    /// native node, and sends it to those that are right to left, and to
+    /// every node of an app whose language is (never to an app that is
+    /// only left to right). Frames are already mirrored: containers don't
+    /// mirror what they hold.
+    LayoutDirection(LayoutDirection),
     /// A `Text`'s text can be selected and copied by the user. Sent when
     /// the text is created, and never changed: Qt's selectable label is
     /// another item.

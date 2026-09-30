@@ -17,8 +17,11 @@ use gtk::{gio, glib};
 /// window is left).
 pub(crate) type Quit = Rc<dyn Fn() -> bool>;
 
-/// What gnome-session and the portal show for an app holding the end.
-const REASON: &str = "It asked before quitting";
+/// What gnome-session and the portal show for an app holding the end, in
+/// the app's language.
+fn reason() -> String {
+    mitsuami_core::l10n::tr("mitsuami-quit-reason", &[])
+}
 
 const SM: &str = "org.gnome.SessionManager";
 const SM_PATH: &str = "/org/gnome/SessionManager";
@@ -106,7 +109,7 @@ fn gnome_session(
                     match signal.signal_name {
                         "QueryEndSession" => {
                             let ok = quit();
-                            respond(ok, if ok { "" } else { REASON });
+                            respond(ok, &if ok { String::new() } else { reason() });
                         }
                         // The session ends whatever the app says now.
                         "EndSession" => respond(true, ""),
@@ -157,7 +160,7 @@ fn portal(bus: gio::DBusConnection, quit: Quit, subs: Rc<RefCell<Vec<gio::Signal
                             "".to_variant(),
                             // Logout.
                             1u32.to_variant(),
-                            options(&[("reason", REASON), ("handle_token", "mitsuami_inhibit")]),
+                            options(&[("reason", &reason()), ("handle_token", "mitsuami_inhibit")]),
                         ]);
                         let request = format!("{PORTAL_PATH}/request/{sender}/mitsuami_inhibit");
                         call(&b, PORTAL, PORTAL_PATH, INHIBIT, "Inhibit", args);

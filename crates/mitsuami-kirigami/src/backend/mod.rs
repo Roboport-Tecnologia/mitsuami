@@ -11,9 +11,9 @@ use mitsuami_core::backend::{
 };
 use mitsuami_core::services::{MenuBarData, Reply};
 use mitsuami_core::{
-    AppInfo, ButtonRole, ButtonStyle, Command, CustomProps, DisplayList, ImageFit, ImageSource, InputPurpose, Modality,
-    NodeId, Opaque, Orientation, Point, Rect, RowKey, ScrollAxes, SidebarSectionData, Size, TabsStyle, TextStyle,
-    UiEvent, WidgetKind,
+    AppInfo, ButtonRole, ButtonStyle, Command, CustomProps, DisplayList, HorizontalAlign, ImageFit, ImageSource,
+    InputPurpose, LayoutDirection, Modality, NodeId, Opaque, Orientation, Point, Rect, RowKey, ScrollAxes,
+    SidebarSectionData, Size, TabsStyle, TextStyle, UiEvent, WidgetKind,
 };
 
 use crate::custom::ErasedRender;
@@ -48,6 +48,9 @@ pub struct BackendOptions {
     /// comparable across machines whatever the desktop's color scheme. The
     /// scheme is the application's, so it applies to every window.
     pub appearance: Option<Appearance>,
+    /// Take this as the user's language, and write numbers and dates as
+    /// its region does, in UTC, whatever the system's settings (tests).
+    pub locale: Option<String>,
 }
 
 /// `Qt::AlignLeft`, `Qt::AlignRight` and `Qt::AlignHCenter`.
@@ -253,6 +256,12 @@ struct Node {
     /// Hosts, groups, lists and tables: the keys they take, once the app
     /// gave them.
     keys: Option<crate::keys::NodeKeys>,
+    /// Labels: where the app aligned the text, which Qt mirrors in a
+    /// mirrored label.
+    align: Option<HorizontalAlign>,
+    /// The direction the core gave an item made without QML (a drawn
+    /// item), which has no `LayoutMirroring` to hold it.
+    direction: Option<LayoutDirection>,
 }
 
 pub(crate) struct State {
@@ -470,6 +479,14 @@ impl Backend for KirigamiBackend {
 
     fn native_state(&self, id: NodeId) -> Option<NativeState> {
         self.read_native_state(id)
+    }
+
+    fn locale(&self) -> std::rc::Rc<dyn mitsuami_core::l10n::PlatformLocale> {
+        std::rc::Rc::new(crate::locale::QtLocale::new(self.state.borrow().options.locale.as_deref()))
+    }
+
+    fn set_locale(&mut self, language: &mitsuami_core::l10n::LanguageIdentifier, right_to_left: bool) {
+        crate::locale::set_app_locale(language, right_to_left);
     }
 
     fn services(&self) -> Box<dyn mitsuami_core::services::Services> {

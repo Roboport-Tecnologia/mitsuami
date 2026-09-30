@@ -31,17 +31,28 @@ pub fn by_test_id(id: impl Into<String>) -> Query {
     Query::TestId(id.into())
 }
 
+/// Text as people see it: without the invisible marks Fluent isolates
+/// the values in a message with (U+2066 to U+2069), which keep a
+/// right-to-left name in a left-to-right sentence from reordering it.
+pub fn visible_text(text: &str) -> String {
+    text.chars().filter(|c| !('\u{2066}'..='\u{2069}').contains(c)).collect()
+}
+
+fn same_text(name: Option<&String>, text: &str) -> bool {
+    name.is_some_and(|name| name == text || visible_text(name) == visible_text(text))
+}
+
 impl Query {
     pub fn matches(&self, node: &A11yNode) -> bool {
         match self {
             Query::Role(role, name) => {
-                node.role == *role && name.as_ref().is_none_or(|n| node.name.as_ref() == Some(n))
+                node.role == *role && name.as_ref().is_none_or(|n| same_text(node.name.as_ref(), n))
             }
             Query::Text(text) => {
                 matches!(node.role, Role::StaticText | Role::Heading | Role::Button | Role::Checkbox | Role::Switch)
-                    && node.name.as_ref() == Some(text)
+                    && same_text(node.name.as_ref(), text)
             }
-            Query::Label(label) => node.role != Role::StaticText && node.name.as_ref() == Some(label),
+            Query::Label(label) => node.role != Role::StaticText && same_text(node.name.as_ref(), label),
             Query::TestId(id) => node.test_id.as_ref() == Some(id),
         }
     }

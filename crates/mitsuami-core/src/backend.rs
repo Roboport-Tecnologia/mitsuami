@@ -280,4 +280,16 @@ pub trait Backend {
     /// perhaps again later (tests). Apply what the platform has a place
     /// for, to the windows there are and those to come.
     fn set_app_info(&mut self, info: &AppInfo);
+
+    /// The user's languages, and how the user's region writes numbers
+    /// and dates. Called once, when the backend is attached.
+    fn locale(&self) -> std::rc::Rc<dyn crate::l10n::PlatformLocale>;
+
+    /// The app's language, which the core chose from the user's, and
+    /// whether it's written right to left: set before the app's first
+    /// window, and again when the app changes it. Make the toolkit's own
+    /// chrome follow it where the platform lets an app choose (the
+    /// direction of title bars, menus and dialogs). Native widgets get
+    /// their direction as `Prop::LayoutDirection`.
+    fn set_locale(&mut self, language: &crate::l10n::LanguageIdentifier, right_to_left: bool);
 }
