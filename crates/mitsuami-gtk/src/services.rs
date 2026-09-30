@@ -812,31 +812,50 @@ impl Services for GtkServices {
         trash_each(paths.iter().rev().cloned().collect(), reply);
     }
 
-    /// GTK's launchers, through the portal where there is one: GNOME asks
-    /// which app when none is set for the type.
+    /// The default app for the type, as Nautilus opens files: GIO goes
+    /// through the portal itself in a sandbox. GTK's launchers always use
+    /// the portal, which asks which app until the same one was chosen a
+    /// few times; they're kept for types with no default, where it asks.
     fn launch(&mut self, parent: Option<NodeId>, target: &Launch, reply: Reply<Result<(), ServiceError>>) {
         let window = dialog_parent(&self.backend, parent);
-        let done = move |result: Result<(), glib::Error>| {
-            reply(result.map_err(|error| {
-                if error.matches(gtk::DialogError::Dismissed) || error.matches(gtk::DialogError::Cancelled) {
-                    ServiceError::Cancelled
-                } else if error.matches(gio::IOErrorEnum::NotSupported) {
-                    ServiceError::Unavailable
-                } else {
-                    ServiceError::Failed(error.message().to_owned())
-                }
-            }))
+        let uri = match target {
+            Launch::Path(path) => gio::File::for_path(path).uri().to_string(),
+            Launch::Url(url) => url.clone(),
         };
-        let cancellable = None::<&gio::Cancellable>;
-        match target {
-            Launch::Path(path) => {
-                gtk::FileLauncher::new(Some(&gio::File::for_path(path))).launch(window.as_ref(), cancellable, done)
+        // For startup notification, as GTK's launchers do.
+        let context = gdk::Display::default().map(|display| display.app_launch_context());
+        let target = target.clone();
+        gio::AppInfo::launch_default_for_uri_async(&uri, context.as_ref(), None::<&gio::Cancellable>, move |result| {
+            match result {
+                Err(error) if error.matches(gio::IOErrorEnum::NotSupported) => ask(window, &target, reply),
+                result => reply(result.map_err(|error| ServiceError::Failed(error.message().to_owned()))),
             }
-            Launch::Url(url) => gtk::UriLauncher::new(url).launch(window.as_ref(), cancellable, done),
-        }
+        });
     }
 
     fn set_menu(&mut self, window: Option<NodeId>, menu: &MenuBarData, activate: Rc<dyn Fn(u32)>) {
         self.backend.set_menu(window, menu, activate);
+    }
+}
+
+/// Opens the target through GTK's launchers, which ask which app.
+fn ask(window: Option<gtk::Window>, target: &Launch, reply: Reply<Result<(), ServiceError>>) {
+    let done = move |result: Result<(), glib::Error>| {
+        reply(result.map_err(|error| {
+            if error.matches(gtk::DialogError::Dismissed) || error.matches(gtk::DialogError::Cancelled) {
+                ServiceError::Cancelled
+            } else if error.matches(gio::IOErrorEnum::NotSupported) {
+                ServiceError::Unavailable
+            } else {
+                ServiceError::Failed(error.message().to_owned())
+            }
+        }))
+    };
+    let cancellable = None::<&gio::Cancellable>;
+    match target {
+        Launch::Path(path) => {
+            gtk::FileLauncher::new(Some(&gio::File::for_path(path))).launch(window.as_ref(), cancellable, done)
+        }
+        Launch::Url(url) => gtk::UriLauncher::new(url).launch(window.as_ref(), cancellable, done),
     }
 }
