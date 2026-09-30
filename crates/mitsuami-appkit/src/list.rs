@@ -33,11 +33,14 @@ use objc2_app_kit::{
     NSTableViewStyle, NSView,
 };
 use objc2_foundation::{
-    NSArray, NSIndexSet, NSInteger, NSMutableIndexSet, NSNotFound, NSNotification, NSSize, NSSortDescriptor, NSString,
-    NSURL,
+    NSArray, NSIndexSet, NSInteger, NSKeyValueObservingOptions, NSMutableIndexSet, NSNotFound, NSNotification,
+    NSObjectNSKeyValueObserverRegistration, NSSize, NSSortDescriptor, NSString, NSURL,
 };
 
 use crate::classes::{HostView, zero_rect};
+
+/// The key path of a table column's width, which the list watches.
+const WIDTH: &str = "width";
 
 /// A cell: its row, and its column (a list's is 0).
 type Slot = (RowKey, usize);
@@ -132,6 +135,26 @@ define_class!(
     pub(crate) struct ListSource;
 
     impl ListSource {
+        /// A column's width changed (KVO). The table posts its resize
+        /// notification only once the user lets go of the divider, and the
+        /// cells should follow it on the way.
+        #[unsafe(method(observeValueForKeyPath:ofObject:change:context:))]
+        fn observe_value(
+            &self,
+            _key_path: Option<&NSString>,
+            object: Option<&AnyObject>,
+            _change: Option<&AnyObject>,
+            _context: *mut std::ffi::c_void,
+        ) {
+            let Some(table) = object.and_then(|o| o.downcast_ref::<NSTableColumn>()).and_then(|c| c.tableView())
+            else {
+                return;
+            };
+            if !self.ivars().data.borrow().muted {
+                self.ivars().report_widths(&table);
+            }
+        }
+
         #[unsafe(method(activated:))]
         fn activated(&self, sender: &AnyObject) {
             let Some(table) = sender.downcast_ref::<NSTableView>() else { return };
@@ -711,6 +734,7 @@ impl List {
         let sort = sort_of(&self.table);
         self.data.borrow_mut().muted = true;
         for column in self.table.tableColumns().iter() {
+            self.unwatch(&column);
             self.table.removeTableColumn(&column);
         }
         for (index, data) in columns.iter().enumerate() {
@@ -730,6 +754,14 @@ impl List {
                 column.setSortDescriptorPrototype(Some(&prototype));
             }
             self.table.addTableColumn(&column);
+            unsafe {
+                column.addObserver_forKeyPath_options_context(
+                    &self._source,
+                    &NSString::from_str(WIDTH),
+                    NSKeyValueObservingOptions::New,
+                    std::ptr::null_mut(),
+                );
+            }
         }
         self.data.borrow_mut().columns = columns.to_vec();
         self.table.sizeToFit();
@@ -796,8 +828,17 @@ impl List {
         }
     }
 
+    fn unwatch(&self, column: &NSTableColumn) {
+        if self.data.borrow().table {
+            unsafe { column.removeObserver_forKeyPath(&self._source, &NSString::from_str(WIDTH)) };
+        }
+    }
+
     /// Stops the table from calling its data source, which goes with the list.
     pub(crate) fn detach(&self) {
+        for column in self.table.tableColumns().iter() {
+            self.unwatch(&column);
+        }
         unsafe {
             self.table.setDataSource(None);
             self.table.setDelegate(None);
