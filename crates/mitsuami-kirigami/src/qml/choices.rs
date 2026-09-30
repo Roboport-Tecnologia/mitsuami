@@ -14,11 +14,16 @@ QQC2.ComboBox {{
     readonly property string mitsuamiOptionTexts: mitsuamiOptions.join("\u001f")
     property int mitsuamiChoice: -1
     model: mitsuamiOptions
-    // A window of its own (a Wayland popup), as GTK's is: drawn in the
-    // window, it went under a GPU surface's subsurface. `popupType` is Qt
-    // 6.8's, and a binding to it wouldn't load before that, so it's set
-    // where Qt has it; older ones keep the list in the window.
-    Component.onCompleted: if (popup.popupType !== undefined) popup.popupType = QQC2.Popup.Window
+    // The list is drawn in the window, as Qt's default is, but that puts
+    // it under a GPU surface's subsurface, so in a window with a surface
+    // it's a window of its own (a Wayland popup). Only there: on sway, Qt
+    // 6.11's popup windows close as the pointer moves over them.
+    // `popupType` is Qt 6.8's, and a binding to it wouldn't load before
+    // that, so it's bound where Qt has it; older ones keep the list in
+    // the window.
+    readonly property bool mitsuamiOverSurface: !!(Window.window && Window.window.mitsuamiSurfaces > 0)
+    Component.onCompleted: if (popup.popupType !== undefined)
+        popup.popupType = Qt.binding(() => mitsuamiOverSurface ? QQC2.Popup.Window : QQC2.Popup.Item)
     onMitsuamiChoiceChanged: if (mitsuamiChoice >= 0) {{
         currentIndex = mitsuamiChoice
         mitsuamiChoice = -1

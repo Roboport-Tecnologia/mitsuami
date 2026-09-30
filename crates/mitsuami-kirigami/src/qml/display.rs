@@ -79,7 +79,25 @@ pub(crate) fn separator() -> String {
 
 /// What keeps a GPU surface's space; the surface is over it, and takes
 /// no input. A focus scope: the input item in it (`mq_surface_input_new`)
-/// takes the focus it's given.
+/// takes the focus it's given. Its window counts it (`mitsuamiSurfaces`),
+/// for a select's list to open above it (see `qml::select`).
 pub(crate) fn gpu_surface() -> String {
-    format!("FocusScope {{ Accessible.role: Accessible.Graphic; {} }}", a11y_hover("\"\""))
+    format!(
+        r#"
+FocusScope {{
+    Accessible.role: Accessible.Graphic
+    property QtObject mitsuamiCounted: null
+    function mitsuamiCountIn(window) {{
+        if (mitsuamiCounted) mitsuamiCounted.mitsuamiSurfaces--
+        mitsuamiCounted = window && window.mitsuamiSurfaces !== undefined ? window : null
+        if (mitsuamiCounted) mitsuamiCounted.mitsuamiSurfaces++
+    }}
+    Window.onWindowChanged: mitsuamiCountIn(Window.window)
+    Component.onCompleted: mitsuamiCountIn(Window.window)
+    Component.onDestruction: mitsuamiCountIn(null)
+    {}
+}}
+"#,
+        a11y_hover("\"\"")
+    )
 }

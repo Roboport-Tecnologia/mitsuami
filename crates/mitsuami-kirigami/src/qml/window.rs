@@ -28,6 +28,8 @@ Kirigami.ApplicationWindow {{
     property bool mitsuamiFocused: false
     // The context menu last shown in the window (see `qml::CONTEXT_MENU`).
     property QtObject mitsuamiShownMenu: null
+    // How many GPU surfaces are in the window (see `qml::gpu_surface`).
+    property int mitsuamiSurfaces: 0
     Shortcut {{
         sequences: [StandardKey.Cancel]
         enabled: mitsuamiWindow.mitsuamiModal && mitsuamiWindow.mitsuamiFocused
