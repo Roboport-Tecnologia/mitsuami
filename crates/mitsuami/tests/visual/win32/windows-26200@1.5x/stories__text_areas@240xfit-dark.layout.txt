@@ -1,8 +1,0 @@
-Window "mitsuami test" [0,0 240×72]
-  Container [0,0 240×72]
-    TextArea lines=3 placeholder="Comments" [16,16 208×0]
-    TextArea lines=3 value="A note that runs past the edge of the area, and wraps.\nAnd a second paragraph." [16,24 208×0]
-    TextArea lines=2 value="Line 1\nLine 2\nLine 3\nLine 4\nLine 5\nLine 6\nLine 7\nLine 8" [16,32 208×0]
-    TextArea lines=3 read_only=true value="A note that runs past the edge of the area, and wraps.\nAnd a second paragraph." [16,40 208×0]
-    TextArea enabled=false lines=3 value="A note that runs past the edge of the area, and wraps.\nAnd a second paragraph." [16,48 208×0]
-    TextArea lines=3 tweak value="A note that runs past the edge of the area, and wraps.\nAnd a second paragraph." [16,56 208×0]

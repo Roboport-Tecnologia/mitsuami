@@ -1,7 +1,0 @@
-Window "mitsuami test" [0,0 200×127]
-  Container [0,0 200×127]
-    Checkbox "Unchecked" [16,16 76×21]
-    Checkbox "Checked" checked=true [16,45 63×21]
-    Checkbox "Disabled" enabled=false [16,74 64×21]
-    Switch "Off" [16,103 0×0]
-    Switch "On" checked=true [16,111 0×0]

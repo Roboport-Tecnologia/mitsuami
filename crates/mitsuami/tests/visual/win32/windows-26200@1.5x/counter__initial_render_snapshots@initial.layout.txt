@@ -1,7 +1,0 @@
-Window "mitsuami test" [0,0 800×600]
-  Container [0,0 800×112]
-    Text "Count: 5" [16,16 45×17]
-    Container [16,41 176×30]
-      Button "Increment" role=Default [16,41 84×30]
-      Button "Reset" [108,41 84×30]
-    Text "That's a lot of clicks" [16,79 103×17]

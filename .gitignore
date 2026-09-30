@@ -13,3 +13,5 @@ crates/mitsuami/tests/*/appkit/*
 # Windows machines' captures: only CI's image (windows-2025) is kept
 crates/mitsuami/tests/*/winui/*
 !crates/mitsuami/tests/*/winui/windows-2025/
+crates/mitsuami/tests/*/win32/*
+!crates/mitsuami/tests/*/win32/windows-2025/
