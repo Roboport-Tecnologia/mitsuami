@@ -30,11 +30,11 @@ use objc2_app_kit::{
     NSAnimationContext, NSBorderType, NSControlTextEditingDelegate, NSDragOperation, NSEvent, NSEventModifierFlags,
     NSImage, NSMenu, NSPasteboardWriting, NSResponder, NSScrollView, NSTableColumn, NSTableColumnResizingOptions,
     NSTableRowView, NSTableView, NSTableViewColumnAutoresizingStyle, NSTableViewDataSource, NSTableViewDelegate,
-    NSTableViewStyle, NSView,
+    NSTableViewStyle, NSView, NSViewBoundsDidChangeNotification,
 };
 use objc2_foundation::{
     NSArray, NSIndexSet, NSInteger, NSKeyValueObservingOptions, NSMutableIndexSet, NSNotFound, NSNotification,
-    NSObjectNSKeyValueObserverRegistration, NSSize, NSSortDescriptor, NSString, NSURL,
+    NSNotificationCenter, NSObjectNSKeyValueObserverRegistration, NSPoint, NSSize, NSSortDescriptor, NSString, NSURL,
 };
 
 use crate::classes::{HostView, zero_rect};
@@ -56,6 +56,9 @@ pub(crate) struct ListData {
     /// The rows' heights: a list's from its hosts' sizes, a table's from
     /// its highest cell's and its row height.
     heights: HashMap<RowKey, f64>,
+    /// The heights the table was given, which it keeps until told a row's
+    /// changed.
+    answered: HashMap<RowKey, f64>,
     /// Tables only: their cells' hosts' heights.
     cell_heights: HashMap<Slot, f64>,
     estimate: Option<f64>,
@@ -135,6 +138,17 @@ define_class!(
     pub(crate) struct ListSource;
 
     impl ListSource {
+        /// The table scrolled: rows coming near are built before they're
+        /// in view.
+        #[unsafe(method(clipBoundsChanged:))]
+        fn clip_bounds_changed(&self, notification: &NSNotification) {
+            let clip = notification.object().and_then(|o| o.downcast::<NSView>().ok());
+            let document = clip.and_then(|c| c.subviews().firstObject());
+            if let Some(table) = document.and_then(|d| d.downcast::<NSTableView>().ok()) {
+                self.ivars().report_shown(&table);
+            }
+        }
+
         /// A column's width changed (KVO). The table posts its resize
         /// notification only once the user lets go of the divider, and the
         /// cells should follow it on the way.
@@ -199,11 +213,16 @@ define_class!(
     unsafe impl NSTableViewDelegate for ListSource {
         #[unsafe(method(tableView:heightOfRow:))]
         fn height_of_row(&self, table: &NSTableView, row: NSInteger) -> f64 {
-            let data = self.ivars().data.borrow();
-            let height = data.rows.get(row as usize).and_then(|key| data.heights.get(key).copied());
-            let estimate = || if data.table { data.estimate().max(table.rowHeight()) } else { data.estimate() };
+            let mut data = self.ivars().data.borrow_mut();
+            let key = data.rows.get(row as usize).copied();
+            let height = key.and_then(|key| data.heights.get(&key).copied());
+            let estimate = if data.table { data.estimate().max(table.rowHeight()) } else { data.estimate() };
             // AppKit wants rows at least a point high.
-            height.unwrap_or_else(estimate).max(1.0)
+            let height = height.unwrap_or(estimate).max(1.0);
+            if let Some(key) = key {
+                data.answered.insert(key, height);
+            }
+            height
         }
 
         #[unsafe(method_id(tableView:viewForTableColumn:row:))]
@@ -234,25 +253,23 @@ define_class!(
         }
 
         #[unsafe(method(tableView:didAddRowView:forRow:))]
-        fn did_add_row_view(&self, _table: &NSTableView, row_view: &NSTableRowView, row: NSInteger) {
-            let ListIvars { id, events, data } = self.ivars();
-            let mut data = data.borrow_mut();
-            let Some(key) = data.rows.get(row as usize).copied() else { return };
-            data.row_views.insert(row_view as *const _ as usize, key);
-            if !data.reloading && data.shown.insert(key) {
-                events.emit(*id, UiEvent::RowShown(key));
+        fn did_add_row_view(&self, table: &NSTableView, row_view: &NSTableRowView, row: NSInteger) {
+            {
+                let mut data = self.ivars().data.borrow_mut();
+                let Some(key) = data.rows.get(row as usize).copied() else { return };
+                data.row_views.insert(row_view as *const _ as usize, key);
             }
+            self.ivars().report_shown(table);
         }
 
         #[unsafe(method(tableView:didRemoveRowView:forRow:))]
-        fn did_remove_row_view(&self, _table: &NSTableView, row_view: &NSTableRowView, _row: NSInteger) {
-            let ListIvars { id, events, data } = self.ivars();
-            let mut data = data.borrow_mut();
-            let Some(key) = data.row_views.remove(&(row_view as *const _ as usize)) else { return };
-            data.cells.retain(|(row, _), _| *row != key);
-            if !data.reloading && data.shown.remove(&key) {
-                events.emit(*id, UiEvent::RowHidden(key));
+        fn did_remove_row_view(&self, table: &NSTableView, row_view: &NSTableRowView, _row: NSInteger) {
+            {
+                let mut data = self.ivars().data.borrow_mut();
+                let Some(key) = data.row_views.remove(&(row_view as *const _ as usize)) else { return };
+                data.cells.retain(|(row, _), _| *row != key);
             }
+            self.ivars().report_shown(table);
         }
 
         #[unsafe(method(tableView:shouldSelectRow:))]
@@ -272,7 +289,49 @@ define_class!(
     }
 );
 
+/// How far past the visible rows a list builds rows, in screenfuls on
+/// each side, and how far it keeps rows it built. AppKit's table makes row
+/// views only for what's in view, which a fast scroll replaces all at
+/// once, so they'd show empty until built; GTK's, Qt's and WinUI's lists
+/// keep rows past the view themselves.
+const AHEAD: usize = 1;
+const KEPT: usize = 2;
+
 impl ListIvars {
+    /// Reports the rows shown and let go since the last report: the rows
+    /// the table has row views for, the rows within `AHEAD` screenfuls of
+    /// the view, and the rows shown before that are still within `KEPT`.
+    fn report_shown(&self, table: &NSTableView) {
+        if self.data.borrow().reloading {
+            return;
+        }
+        // Counted in rows, not points: asking where rows out of view are
+        // has the table measure them, which moves a scroll under way.
+        let visible = table.rowsInRect(table.visibleRect());
+        let around = |pages: usize| {
+            let margin = visible.length * pages;
+            visible.location.saturating_sub(margin)..visible.location + visible.length + margin
+        };
+        let (ahead, kept) = (around(AHEAD), around(KEPT));
+        let ListIvars { id, events, data } = self;
+        let mut data = data.borrow_mut();
+        let index = |key: &RowKey| data.index.get(key).copied();
+        let mut now: HashSet<RowKey> = data.row_views.values().copied().collect();
+        now.extend(data.rows.get(ahead.start.min(data.rows.len())..ahead.end.min(data.rows.len())).unwrap_or(&[]));
+        now.extend(data.shown.iter().filter(|k| index(k).is_some_and(|i| kept.contains(&i))));
+        let mut hidden: Vec<RowKey> = data.shown.difference(&now).copied().collect();
+        let mut shown: Vec<RowKey> = now.difference(&data.shown).copied().collect();
+        hidden.sort_by_key(|k| data.index.get(k).copied());
+        shown.sort_by_key(|k| data.index.get(k).copied());
+        for row in hidden {
+            events.emit(*id, UiEvent::RowHidden(row));
+        }
+        for row in shown {
+            events.emit(*id, UiEvent::RowShown(row));
+        }
+        data.shown = now;
+    }
+
     /// Reports the widths a table's columns give their cells, when they
     /// change: a column's less the space between cells.
     fn report_widths(&self, table: &NSTableView) {
@@ -498,6 +557,16 @@ impl List {
         // the title bar on top of that.
         scroll.setAutomaticallyAdjustsContentInsets(false);
         scroll.setDocumentView(Some(&table));
+        let clip = scroll.contentView();
+        clip.setPostsBoundsChangedNotifications(true);
+        unsafe {
+            NSNotificationCenter::defaultCenter().addObserver_selector_name_object(
+                &source,
+                sel!(clipBoundsChanged:),
+                Some(NSViewBoundsDidChangeNotification),
+                Some(&clip),
+            );
+        }
         // Keys the table passes on reach the list's own keys first. The
         // table's superview (its next responder) stays put from here.
         let keys: Retained<ListKeys> = unsafe { msg_send![super(ListKeys::alloc(mtm).set_ivars(ivars())), init] };
@@ -528,6 +597,8 @@ impl List {
             let index: HashMap<RowKey, usize> = rows.iter().enumerate().map(|(i, r)| (*r, i)).collect();
             data.heights.retain(|key, _| index.contains_key(key));
             data.cell_heights.retain(|(key, _), _| index.contains_key(key));
+            // The table asks again as it reloads.
+            data.answered.clear();
             data.index = index;
             data.rows = rows;
             data.muted = true;
@@ -551,25 +622,7 @@ impl List {
         if kept != selected {
             self.report_selection();
         }
-        self.report_shown();
-    }
-
-    /// Reports the rows shown and let go since the last report.
-    fn report_shown(&self) {
-        let ListIvars { id, events, data } = self.table.ivars();
-        let mut data = data.borrow_mut();
-        let now: HashSet<RowKey> = data.row_views.values().copied().collect();
-        let mut hidden: Vec<RowKey> = data.shown.difference(&now).copied().collect();
-        let mut shown: Vec<RowKey> = now.difference(&data.shown).copied().collect();
-        hidden.sort_by_key(|k| data.index.get(k).copied());
-        shown.sort_by_key(|k| data.index.get(k).copied());
-        for row in hidden {
-            events.emit(*id, UiEvent::RowHidden(row));
-        }
-        for row in shown {
-            events.emit(*id, UiEvent::RowShown(row));
-        }
-        data.shown = now;
+        self.table.ivars().report_shown(&self.table);
     }
 
     pub(crate) fn set_keys(&self, keys: Vec<Shortcut>) {
@@ -689,6 +742,13 @@ impl List {
             if data.estimate.is_none() && data.learned.is_none() {
                 data.learned = Some(height);
                 index_set(0..data.rows.len())
+            } else if !data.row_views.values().any(|k| *k == key)
+                && data.answered.get(&key).is_none_or(|answered| *answered == height.max(1.0))
+            {
+                // Out of view (see `AHEAD`), and the table has it right or
+                // will ask when it needs it: told about it, it places the
+                // rows again, which moves what's in view.
+                return;
             } else {
                 match data.index.get(&key) {
                     Some(index) => index_set([*index]),
@@ -702,7 +762,7 @@ impl List {
         without_animation(|| self.table.noteHeightOfRowsWithIndexesChanged(&changed));
         if at_end {
             let end = (self.table.frame().size.height - clip.bounds().size.height).max(0.0);
-            clip.scrollToPoint(objc2_foundation::NSPoint::new(clip.bounds().origin.x, end));
+            clip.scrollToPoint(NSPoint::new(clip.bounds().origin.x, end));
             self.scroll.reflectScrolledClipView(&clip);
         }
     }
@@ -836,6 +896,7 @@ impl List {
 
     /// Stops the table from calling its data source, which goes with the list.
     pub(crate) fn detach(&self) {
+        unsafe { NSNotificationCenter::defaultCenter().removeObserver(&self._source) };
         for column in self.table.tableColumns().iter() {
             self.unwatch(&column);
         }
