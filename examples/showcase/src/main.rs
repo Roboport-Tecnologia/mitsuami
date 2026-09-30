@@ -291,6 +291,8 @@ fn full_screen() -> Signal<bool> {
 
 fn main() {
     App::new()
+        // Its AppImages' desktop entry and icon are named after it.
+        .id("br.com.roboport.mitsuami.Showcase")
         .open(|| {
             let full = signal(false);
             Window::new("mitsuami showcase").size(Size::new(760.0, 640.0)).full_screen(full).bind(signal(true)).content(

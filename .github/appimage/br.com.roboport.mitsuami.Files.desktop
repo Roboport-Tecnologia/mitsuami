@@ -1,0 +1,7 @@
+[Desktop Entry]
+Type=Application
+Name=Files
+Comment=A file browser made with mitsuami
+Exec=files
+Icon=br.com.roboport.mitsuami.Files
+Categories=System;FileTools;FileManager;

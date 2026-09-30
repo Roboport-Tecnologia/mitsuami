@@ -5,7 +5,7 @@ use mitsuami::core::{NativeAppInfo, NativeIcon};
 use mitsuami::prelude::*;
 use mitsuami_test::prelude::*;
 
-const ID: &str = "org.mitsuami.Tests";
+const ID: &str = "br.com.roboport.mitsuami.Tests";
 const NAME: &str = "Mitsuami Tests";
 
 fn icon_file() -> std::path::PathBuf {

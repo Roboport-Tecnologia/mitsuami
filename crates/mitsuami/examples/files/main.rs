@@ -45,7 +45,7 @@ use browser::Browser;
 
 fn main() {
     App::new()
-        .id("org.mitsuami.Files")
+        .id("br.com.roboport.mitsuami.Files")
         .name("Files")
         .open(|| {
             let browser = use_store::<Browser>();

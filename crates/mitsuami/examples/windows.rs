@@ -206,7 +206,7 @@ pub fn page() -> impl View {
 
 fn main() {
     App::new()
-        .id("org.mitsuami.Machines")
+        .id("br.com.roboport.mitsuami.Machines")
         .name("Machines")
         .icon(AppIcon::bytes(include_bytes!("../tests/assets/blue-red-20x10.png").as_slice()))
         .window("Machines", WindowSize::FitHeight(420.0), page)

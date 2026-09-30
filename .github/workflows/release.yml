@@ -60,7 +60,6 @@ jobs:
     strategy:
       matrix:
         include:
-          - { name: linux-x86_64, os: ubuntu-24.04 }
           - { name: macos-universal, os: macos-15 }
           - { name: windows-x86_64, os: windows-2025 }
     runs-on: ${{ matrix.os }}
@@ -77,20 +76,9 @@ jobs:
       - name: Install the toolchain from rust-toolchain.toml
         run: rustup toolchain install
 
-      - name: Install GTK 4 and libadwaita
-        if: runner.os == 'Linux'
-        run: sudo apt-get update && sudo apt-get install -y libgtk-4-dev libadwaita-1-dev
-
       - name: Build
-        if: runner.os != 'macOS'
+        if: runner.os == 'Windows'
         run: cargo build --release --manifest-path "$MANIFEST"
-
-      - name: Package (Linux)
-        if: runner.os == 'Linux'
-        run: |
-          mkdir "$ARCHIVE"
-          cp "$BUILT/release/showcase" "$ARCHIVE/"
-          tar -czf "$ARCHIVE.tar.gz" "$ARCHIVE"
 
       # One binary for Apple silicon and Intel Macs.
       - name: Build and package (macOS)
@@ -118,47 +106,77 @@ jobs:
           name: ${{ env.ARCHIVE }}
           path: ${{ env.ARCHIVE }}.*
 
-  # The showcase on Qt Quick and Kirigami (the `kde` feature, without GTK),
-  # in an Arch Linux container as in the KDE tests: Kirigami 6 isn't
-  # packaged for Ubuntu 24.04.
-  showcase-kde:
-    name: Build the showcase (linux-x86_64-kde)
+  # The showcase and the Files example as AppImages, on GTK and on Qt
+  # Quick and Kirigami (the `kde` feature, without GTK). An AppImage
+  # brings the toolkit, but not glibc: each is built on the oldest
+  # distribution with a toolkit new enough, whose glibc is then the oldest
+  # it runs on. Ubuntu 24.04 is the first with GTK 4.10 and libadwaita
+  # 1.4. Fedora 42 has Kirigami 6.25 on glibc 2.41: Debian 13, on the
+  # same glibc, has 6.13, older than the backend (it has no
+  # `Theme.fixedWidthFont`), and Arch (the KDE tests') would ask for this
+  # month's glibc. GTK's headers are in both: `mitsuami-test`, which the
+  # Files example can use (a dev-dependency), has the GTK backend on
+  # Linux; the KDE binary doesn't link it.
+  appimage:
+    name: Build the AppImages (${{ matrix.toolkit }})
     needs: test
+    strategy:
+      matrix:
+        include:
+          - toolkit: gtk
+            image: ubuntu:noble-20260911
+            features: ""
+            install: >-
+              apt-get update && DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends
+              curl ca-certificates git build-essential pkg-config file patchelf libgtk-4-dev libadwaita-1-dev
+          - toolkit: kde
+            image: fedora:42
+            features: --no-default-features --features kde
+            qmake: /usr/lib64/qt6/bin/qmake
+            install: >-
+              dnf install -y gcc gcc-c++ pkgconf curl git file findutils patchelf gtk4-devel libadwaita-devel
+              qt6-qtbase-devel qt6-qtbase-private-devel qt6-qtdeclarative-devel qt6-qtwayland qt6-qtsvg
+              kf6-kirigami-devel kf6-qqc2-desktop-style plasma-breeze plasma-integration
     runs-on: ubuntu-24.04
-    container: archlinux:base-devel-20260920.0.596911
+    container: ${{ matrix.image }}
     defaults:
       run:
         shell: bash
     env:
-      ARCHIVE: mitsuami-showcase-${{ github.ref_name }}-linux-x86_64-kde
+      SUFFIX: ${{ github.ref_name }}-linux-x86_64-${{ matrix.toolkit }}
+      QMAKE: ${{ matrix.qmake }}
     steps:
-      - name: Install Qt and Kirigami
-        run: |
-          echo 'Server = https://archive.archlinux.org/repos/2026/09/20/$repo/os/$arch' > /etc/pacman.d/mirrorlist
-          pacman -Syu --noconfirm --needed git rustup zip qt6-declarative kirigami qqc2-desktop-style
+      - name: Install the toolkit
+        run: ${{ matrix.install }}
 
       - uses: actions/checkout@v5
 
       - name: Install the toolchain from rust-toolchain.toml
-        run: rustup toolchain install
+        run: |
+          curl -sSf https://sh.rustup.rs | sh -s -- -y --default-toolchain none
+          echo "$HOME/.cargo/bin" >> "$GITHUB_PATH"
+          "$HOME/.cargo/bin/rustup" toolchain install
 
       - name: Build
-        run: cargo build --release --manifest-path examples/showcase/Cargo.toml --no-default-features --features kde
+        run: |
+          cargo build --release -p mitsuami --example files ${{ matrix.features }}
+          cargo build --release --manifest-path examples/showcase/Cargo.toml ${{ matrix.features }}
 
       - name: Package
         run: |
-          mkdir "$ARCHIVE"
-          cp examples/showcase/target/release/showcase "$ARCHIVE/"
-          zip -r "$ARCHIVE.zip" "$ARCHIVE"
+          .github/scripts/appimage.sh ${{ matrix.toolkit }} examples/showcase/target/release/showcase \
+            br.com.roboport.mitsuami.Showcase "mitsuami-showcase-$SUFFIX.AppImage"
+          .github/scripts/appimage.sh ${{ matrix.toolkit }} target/release/examples/files \
+            br.com.roboport.mitsuami.Files "mitsuami-files-$SUFFIX.AppImage"
 
       - uses: actions/upload-artifact@v5
         with:
-          name: ${{ env.ARCHIVE }}
-          path: ${{ env.ARCHIVE }}.zip
+          name: appimages-${{ matrix.toolkit }}
+          path: "*.AppImage"
 
   release:
     name: Create the GitHub release
-    needs: [publish, showcase, showcase-kde]
+    needs: [publish, showcase, appimage]
     runs-on: ubuntu-24.04
     permissions:
       contents: write
@@ -177,8 +195,11 @@ jobs:
 
           - **Windows** (x86_64): needs the [Windows App Runtime 2.4 or later](https://aka.ms/windowsappsdk/2.5/latest/windowsappruntimeinstall-x64.exe).
           - **macOS** (Apple silicon and Intel): the binary isn't signed. Run `xattr -dr com.apple.quarantine <folder>` after extracting, or allow it in System Settings → Privacy & Security.
-          - **Linux** (x86_64): needs GTK 4.10 or later, libadwaita 1.4 or later (1.7 for its tabs as a view switcher) and glibc 2.39 or later (Ubuntu 24.04 and newer).
-          - **Linux, KDE Plasma** (x86_64, the `-kde` archive): the same showcase on Qt Quick and Kirigami. Built on Arch Linux as of 20 September 2026, so it needs Qt 6, Kirigami and qqc2-desktop-style at least as new as Arch's then, and a glibc to match.
+          - **Linux** (x86_64): AppImages, on GTK (`-gtk`) and on Qt Quick and Kirigami, as KDE Plasma's apps are (`-kde`). They bring their toolkit: the GTK one needs glibc 2.39 or later (Ubuntu 24.04 and newer), the KDE one glibc 2.41 or later (Debian 13, Fedora 42, Ubuntu 25.04 and newer). Make one executable (`chmod +x`) and run it.
+
+          ## The Files example
+
+          A file browser on the real file system, as AppImages for Linux like the showcase's (`mitsuami-files-…`).
           EOF
           gh release create "$GITHUB_REF_NAME" dist/* --repo "$GITHUB_REPOSITORY" \
             --title "$GITHUB_REF_NAME" --notes-file notes.md --generate-notes

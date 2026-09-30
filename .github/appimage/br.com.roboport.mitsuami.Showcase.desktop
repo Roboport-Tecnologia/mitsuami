@@ -1,0 +1,7 @@
+[Desktop Entry]
+Type=Application
+Name=mitsuami showcase
+Comment=Every mitsuami example in one window
+Exec=showcase
+Icon=br.com.roboport.mitsuami.Showcase
+Categories=Development;

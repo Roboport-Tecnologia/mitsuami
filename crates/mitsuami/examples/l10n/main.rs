@@ -111,7 +111,7 @@ pub fn page() -> impl View {
 
 fn main() {
     App::new()
-        .id("org.mitsuami.Languages")
+        .id("br.com.roboport.mitsuami.Languages")
         .name("Languages")
         .locales(locales!("locales"))
         .window(t!("app-title"), WindowSize::FitHeight(420.0), page)
