@@ -7,9 +7,8 @@
 //! The `sidebar` example isn't one of them, as the showcase is one.
 //!
 //! - Every page scrolls when it's taller than the window. The ones sized
-//!   to fill theirs (File drop, GPU surface, Icon, Measurements, Tabs, and
-//!   the Files pages)
-//!   fill the page when it's taller than they need.
+//!   to fill theirs (GPU surface, Icon, Measurements, Tabs, and the Files
+//!   pages) fill the page when it's taller than they need.
 //! - Leaving a page drops it and its state, as closing its window would;
 //!   the Menus and Languages pages take the app's menus with them (and
 //!   Languages its translations and language), the GPU surface page its
@@ -206,7 +205,6 @@ const SECTIONS: [(&str, &[Example]); 7] = [
             example("Context menu", || AnyView::new(context_menu::page())),
             example("Tooltip", || AnyView::new(tooltip::page())),
             example("Windows", || AnyView::new(windows::page())),
-            example("File drop", || AnyView::new(file_drop::window())),
         ],
     ),
     (
@@ -224,6 +222,7 @@ const SECTIONS: [(&str, &[Example]); 7] = [
             example("Trash", || AnyView::new(trash::page())),
             example("Open in another app", || AnyView::new(launch::page())),
             example("Dragging files out", || AnyView::new(file_drag::page())),
+            example("File drop", || AnyView::new(file_drop::window())),
         ],
     ),
 ];
