@@ -22,6 +22,10 @@ pub(super) fn group_box(mtm: MainThreadMarker, size: NSSize) -> Retained<NSBox> 
 pub(super) fn set_group_title(frame: &NSBox, title: &str) {
     frame.setTitle(&ns(title));
     frame.setTitlePosition(if title.is_empty() { NSTitlePosition::NoTitle } else { NSTitlePosition::AtTop });
+    // The label that draws it keeps its size until the box is laid out
+    // again: a longer title was cut at the first one's width.
+    frame.setNeedsLayout(true);
+    frame.layoutSubtreeIfNeeded();
 }
 
 /// Where a box puts its content: its content view's place, with or

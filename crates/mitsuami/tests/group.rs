@@ -177,6 +177,33 @@ async fn a_tweak_that_moves_the_heading_moves_its_room(app: TestApp) {
     assert!(g.y() + g.height() - (text.y() + text.height()) > metrics.group_insets.bottom, "{text:?} in {g:?}");
 }
 
+/// A longer heading is drawn whole. AppKit's box draws its title with a
+/// label that keeps its size until the box is laid out again, while
+/// `titleRect` says the new size at once: read the label.
+#[cfg(target_os = "macos")]
+#[mitsuami_test::test]
+async fn a_longer_heading_is_drawn_whole(app: TestApp) {
+    use mitsuami::appkit::objc2::rc::Retained;
+    use mitsuami::appkit::objc2_app_kit::{NSBox, NSTextField};
+    let shown: Rc<RefCell<Option<Retained<NSBox>>>> = Rc::default();
+    let keep = shown.clone();
+    let tweak = mitsuami::appkit::tweak(move |b: &NSBox| *keep.borrow_mut() = Some(Retained::from(b)));
+    let title = signal("Hello, Ada!".to_owned());
+    app.mount(move || {
+        Column::new().align(Align::Stretch).child(Group::new().title(title).native(tweak).child(Text::new("Disc")))
+    });
+    app.expect(by_text("Disc")).to_be_visible().await;
+    if app.is_headless() {
+        return;
+    }
+
+    title.set("Hello, Ada Lovelace, Countess of Lovelace!".to_owned());
+    app.settle().await;
+    let frame = shown.borrow().clone().expect("the box");
+    let label = frame.subviews().iter().find_map(|v| v.downcast::<NSTextField>().ok()).expect("a title label");
+    assert!(label.frame().size.width >= frame.titleRect().size.width, "{:?} in {:?}", label.frame(), frame.titleRect());
+}
+
 #[mitsuami_test::test]
 async fn works_in_view_macros(app: TestApp) {
     app.mount(|| view! { <Group title="CD drive" gap=Spacing::Sm><Text>"Disc"</Text></Group> });
