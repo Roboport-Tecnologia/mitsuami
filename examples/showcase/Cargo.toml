@@ -24,4 +24,5 @@ kde = ["mitsuami/kde"]
 [dependencies]
 mitsuami = { path = "../../crates/mitsuami", default-features = false }
 wgpu = "30"
+glam = "0.33"
 pollster = "0.4"

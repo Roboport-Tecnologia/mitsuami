@@ -14,4 +14,5 @@ publish = false
 [dependencies]
 mitsuami = { path = "../../crates/mitsuami" }
 wgpu = "30"
+glam = "0.33"
 pollster = "0.4"

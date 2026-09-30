@@ -463,6 +463,12 @@ dependencies = [
 ]
 
 [[package]]
+name = "glam"
+version = "0.33.11"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "35b4e837a1d133645d1dcf283e146a4b9901e390a1c13545f959cfed3a72f24f"
+
+[[package]]
 name = "glib"
 version = "0.22.10"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -555,6 +561,7 @@ dependencies = [
 name = "gpu-surface-example"
 version = "0.0.0"
 dependencies = [
+ "glam",
  "mitsuami",
  "pollster",
  "wgpu",

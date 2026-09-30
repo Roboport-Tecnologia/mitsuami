@@ -136,7 +136,8 @@ Two are crates of their own, so the workspace doesn't build wgpu:
   picked from its sidebar.
   `cargo run --manifest-path examples/showcase/Cargo.toml`
 - [`examples/gpu-surface`](examples/gpu-surface): a `GpuSurface` presented
-  to with wgpu from a thread of its own.
+  to with wgpu from a thread of its own: a cube in space to spin, and to
+  fly around with the pointer captured.
   `cargo run --manifest-path examples/gpu-surface/Cargo.toml`
 
 ## Testing your app
