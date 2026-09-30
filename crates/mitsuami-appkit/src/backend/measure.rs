@@ -92,6 +92,20 @@ pub(super) fn measure(state: &State, id: NodeId, request: MeasureRequest) -> Siz
         | Widget::List(_)
         | Widget::Sidebar(_) => Size::ZERO,
     };
+    // A toolbar's control is as big as its toolbar makes it: its glass
+    // capsule on macOS 26, larger than a button asks for. A field keeps
+    // its width.
+    if let Some(item) = state.toolbar_item_of(id)
+        && let Some(Widget::Window { window, toolbar: Some(toolbar), .. }) =
+            state.nodes[&item].parent.and_then(|w| state.nodes.get(&w)).map(|w| &w.widget)
+        && toolbar.adopted(item)
+    {
+        window.layoutIfNeeded();
+        if let Some(size) = toolbar.adopted_size(item) {
+            let width = if toolbar.sizes_width(item) { size.width as f32 } else { natural.width };
+            return Size::new(request.known_width.unwrap_or(width), size.height as f32);
+        }
+    }
     Size::new(request.known_width.unwrap_or(natural.width), request.known_height.unwrap_or(natural.height))
 }
 

@@ -1,7 +1,7 @@
 //! Applying the core's commands: the tree, frames, focus and scrolling.
 
 use mitsuami_core::a11y::A11yProps;
-use mitsuami_core::{Command, NodeId, Size, WidgetKind};
+use mitsuami_core::{ButtonStyle, Command, NodeId, Size, WidgetKind};
 use objc2::Message;
 use objc2::rc::Retained;
 use objc2_app_kit::{NSAccessibility, NSApplication, NSView, NSWindowOrderingMode};
@@ -39,6 +39,62 @@ impl State {
         }
     }
 
+    /// The toolbar item a node is a child of.
+    pub(super) fn toolbar_item_of(&self, id: NodeId) -> Option<NodeId> {
+        self.nodes.get(&id)?.parent.filter(|p| self.nodes[p].kind == WidgetKind::ToolbarItem)
+    }
+
+    /// The item shows its button as its view (see `toolbar`).
+    pub(super) fn toolbar_adopted(&self, item: NodeId) -> bool {
+        let window = self.nodes[&item].parent.and_then(|w| self.nodes.get(&w));
+        matches!(window.map(|w| &w.widget), Some(Widget::Window { toolbar: Some(toolbar), .. }) if toolbar.adopted(item))
+    }
+
+    fn release_toolbar_item(&mut self, item: NodeId) {
+        if let Some(window) = self.nodes[&item].parent
+            && let Some(Widget::Window { toolbar: Some(toolbar), .. }) =
+                self.nodes.get_mut(&window).map(|n| &mut n.widget)
+        {
+            toolbar.release(item);
+        }
+    }
+
+    /// An item whose only child is a button or a search field shows the
+    /// control itself, as AppKit's toolbars have them; any other shows
+    /// its host.
+    fn sync_toolbar_item(&mut self, item: NodeId) {
+        enum Shown {
+            Button(Retained<objc2_app_kit::NSButton>, bool),
+            Field(Retained<objc2_app_kit::NSSearchField>),
+            Host,
+        }
+        let Some(window) = self.nodes[&item].parent else { return };
+        let mut children = self.nodes.values().filter(|n| n.parent == Some(item));
+        let shown = match (children.next(), children.next()) {
+            (Some(only), None) => {
+                let bordered = only.button_style != Some(ButtonStyle::Borderless);
+                match &only.widget {
+                    Widget::Button(button) => Shown::Button(button.clone(), bordered),
+                    Widget::MenuButton { popup, .. } => Shown::Button(popup.clone().into_super(), bordered),
+                    widget => match widget.view().downcast_ref::<objc2_app_kit::NSSearchField>() {
+                        Some(field) => Shown::Field(field.retain()),
+                        None => Shown::Host,
+                    },
+                }
+            }
+            _ => Shown::Host,
+        };
+        let Some(Widget::Window { toolbar: Some(toolbar), .. }) = self.nodes.get_mut(&window).map(|n| &mut n.widget)
+        else {
+            return;
+        };
+        match shown {
+            Shown::Button(button, bordered) => toolbar.adopt_button(item, &button, bordered),
+            Shown::Field(field) => toolbar.adopt_field(item, &field),
+            Shown::Host => toolbar.release(item),
+        }
+    }
+
     pub(super) fn apply(&mut self, command: &Command) {
         match command {
             Command::Create { id, kind, props } => {
@@ -53,6 +109,10 @@ impl State {
             }
             Command::SetProp { id, prop } => {
                 self.set_prop(*id, prop, command);
+                // A toolbar's button keeps the toolbar's bezel.
+                if let Some(item) = self.toolbar_item_of(*id) {
+                    self.sync_toolbar_item(item);
+                }
                 self.run_tweak(*id);
             }
             Command::Insert { parent, child, index } => {
@@ -128,6 +188,7 @@ impl State {
                         index,
                     );
                     self.nodes.get_mut(child).unwrap().parent = Some(*parent);
+                    self.sync_toolbar_item(*child);
                     return;
                 }
                 if let Widget::Tabs(tabs) = &self.nodes[parent].widget {
@@ -143,6 +204,11 @@ impl State {
                     self.nodes.get_mut(child).unwrap().parent = Some(*parent);
                     return;
                 }
+                // Back in its host first, among the children it's placed.
+                let item = (self.nodes[parent].kind == WidgetKind::ToolbarItem).then_some(*parent);
+                if let Some(item) = item {
+                    self.release_toolbar_item(item);
+                }
                 let siblings = parent_view.subviews();
                 // A group's box is behind its children.
                 let index = &(index + usize::from(matches!(self.nodes[parent].widget, Widget::Group { .. })));
@@ -157,6 +223,9 @@ impl State {
                     );
                 }
                 self.nodes.get_mut(child).unwrap().parent = Some(*parent);
+                if let Some(item) = item {
+                    self.sync_toolbar_item(item);
+                }
             }
             Command::Remove { parent, child } => {
                 if self.nodes.get(child).and_then(|n| n.parent) != Some(*parent) {
@@ -185,6 +254,10 @@ impl State {
                     self.nodes.get_mut(child).unwrap().parent = None;
                     return;
                 }
+                let item = (self.nodes[parent].kind == WidgetKind::ToolbarItem).then_some(*parent);
+                if let Some(item) = item {
+                    self.release_toolbar_item(item);
+                }
                 match &mut self.nodes.get_mut(parent).unwrap().widget {
                     Widget::Window { toolbar: Some(toolbar), .. } if toolbar.contains(*child) => toolbar.remove(*child),
                     Widget::Scroll(scroll) => scroll.setDocumentView(None),
@@ -193,6 +266,9 @@ impl State {
                     _ => self.view(*child, command).removeFromSuperview(),
                 }
                 self.nodes.get_mut(child).unwrap().parent = None;
+                if let Some(item) = item {
+                    self.sync_toolbar_item(item);
+                }
             }
             Command::Destroy { id } => {
                 let Some(node) = self.nodes.remove(id) else { violation(command, "node does not exist") };
@@ -253,6 +329,10 @@ impl State {
                 // A row fills its cell, and the table makes the row as high;
                 // a table's cell sits centred in its cell, and the table
                 // makes the row as high as its highest.
+                // A toolbar's control is the toolbar's to size and place.
+                if self.toolbar_item_of(*id).is_some_and(|item| self.toolbar_adopted(item)) {
+                    return;
+                }
                 let parent = self.nodes.get(id).and_then(|n| n.parent).map(|p| &self.nodes[&p].widget);
                 // A page is where its tab view puts it, at this size.
                 if let Some(Widget::Tabs(tabs)) = parent {

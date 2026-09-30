@@ -4,6 +4,14 @@
 //! flexible space ahead of them puts them at the trailing end. Beside a
 //! sidebar, the sidebar's tracking separator comes first, so the items and
 //! the title are over the content.
+//!
+//! An item that is one button is that button, in the toolbar's bezel
+//! style: AppKit draws a button that is an item's view as it draws its own
+//! items (tinted, lit under the pointer, the glass capsule its own on
+//! macOS 26), and doesn't one inside another view. An item that is one
+//! search field is an `NSSearchToolbarItem` with that field, which gets
+//! its own glass; in another view, macOS 26 put it in the glass of the
+//! button before it, and as the item's view in none.
 
 use std::cell::{Cell, RefCell};
 use std::sync::atomic::{AtomicU32, Ordering};
@@ -13,11 +21,11 @@ use objc2::rc::Retained;
 use objc2::runtime::{NSObject, NSObjectProtocol, ProtocolObject};
 use objc2::{DefinedClass, MainThreadMarker, MainThreadOnly, Message, define_class, msg_send};
 use objc2_app_kit::{
-    NSAnimationContext, NSLayoutConstraint, NSToolbar, NSToolbarDelegate, NSToolbarDisplayMode,
-    NSToolbarFlexibleSpaceItemIdentifier, NSToolbarItem, NSToolbarItemIdentifier,
-    NSToolbarSidebarTrackingSeparatorItemIdentifier, NSView, NSWindow,
+    NSAnimationContext, NSBezelStyle, NSButton, NSLayoutConstraint, NSSearchField, NSSearchToolbarItem, NSToolbar,
+    NSToolbarDelegate, NSToolbarDisplayMode, NSToolbarFlexibleSpaceItemIdentifier, NSToolbarItem,
+    NSToolbarItemIdentifier, NSToolbarSidebarTrackingSeparatorItemIdentifier, NSView, NSWindow,
 };
-use objc2_foundation::{NSArray, NSOperatingSystemVersion, NSProcessInfo, NSRect, NSString};
+use objc2_foundation::{NSArray, NSOperatingSystemVersion, NSProcessInfo, NSRect, NSSize, NSString};
 
 pub(crate) struct DelegateIvars {
     /// The items the toolbar shows after its flexible space, in order.
@@ -93,10 +101,24 @@ fn glass() -> bool {
     NSProcessInfo::processInfo().isOperatingSystemAtLeastVersion(version)
 }
 
+/// A control shown as its item's view.
+struct Adopted {
+    view: Retained<NSView>,
+    /// A button, and what it was like in its host.
+    button: Option<(Retained<NSButton>, NSBezelStyle, bool)>,
+    /// A search field is as wide as the core made it.
+    width: Option<Retained<NSLayoutConstraint>>,
+    /// The item a search item stands in for.
+    replaced: Option<Retained<NSToolbarItem>>,
+}
+
 struct Item {
     id: NodeId,
     item: Retained<NSToolbarItem>,
+    /// The item's view while it shows its host.
+    view: Retained<NSView>,
     host: Retained<NSView>,
+    adopted: Option<Adopted>,
     width: Retained<NSLayoutConstraint>,
     height: Retained<NSLayoutConstraint>,
     /// Empty items are out of the toolbar: AppKit can hide an item only
@@ -161,12 +183,119 @@ impl Toolbar {
         }
         item.setView(Some(&view));
         let host = host.retain();
-        self.items.insert(index.min(self.items.len()), Item { id, item, host, width, height, empty: true });
+        let at = index.min(self.items.len());
+        self.items.insert(at, Item { id, item, view, host, adopted: None, width, height, empty: true });
         self.sync();
+    }
+
+    /// Shows an item as its only child, a button, in the toolbar's bezel
+    /// style. `bordered` is how its own style has it, for when it's back
+    /// in its host.
+    pub(crate) fn adopt_button(&mut self, id: NodeId, button: &NSButton, bordered: bool) {
+        let Some(item) = self.items.iter_mut().find(|i| i.id == id) else { return };
+        if let Some(Adopted { view, button: Some(kept), .. }) = &mut item.adopted
+            && std::ptr::eq(&**view, &***button)
+        {
+            // Its props may have been set again since.
+            kept.2 = bordered;
+        } else {
+            let bezel = button.bezelStyle();
+            self.adopt(id, button, Some((button.retain(), bezel, bordered)));
+        }
+        button.setBordered(true);
+        button.setBezelStyle(NSBezelStyle::Toolbar);
+    }
+
+    /// Shows an item as its only child, a search field, in a search item.
+    pub(crate) fn adopt_field(&mut self, id: NodeId, field: &NSSearchField) {
+        let shown = self.items.iter().find(|i| i.id == id).and_then(|i| i.adopted.as_ref());
+        if shown.is_none_or(|a| !std::ptr::eq(&*a.view, &****field)) {
+            self.adopt(id, field, None);
+        }
+    }
+
+    fn adopt(&mut self, id: NodeId, view: &NSView, button: Option<(Retained<NSButton>, NSBezelStyle, bool)>) {
+        self.release(id);
+        let Some(item) = self.items.iter_mut().find(|i| i.id == id) else { return };
+        view.removeFromSuperview();
+        view.setTranslatesAutoresizingMaskIntoConstraints(false);
+        // The toolbar sizes a button; a field has no width of its own.
+        let width = button.is_none().then(|| {
+            // Not empty until the core sizes it: the toolbar measures
+            // the view as it takes it, and warns about an empty one.
+            let sized = item.width.constant();
+            let sized = if sized > 0.0 { sized } else { view.fittingSize().width.max(1.0) };
+            let width = view.widthAnchor().constraintEqualToConstant(sized);
+            width.setActive(true);
+            width
+        });
+        let replaced = match view.downcast_ref::<NSSearchField>() {
+            Some(field) => {
+                let mtm = MainThreadMarker::from(field);
+                let search = NSSearchToolbarItem::initWithItemIdentifier(
+                    NSSearchToolbarItem::alloc(mtm),
+                    &item.item.itemIdentifier(),
+                );
+                search.setSearchField(field);
+                Some(std::mem::replace(&mut item.item, search.into_super()))
+            }
+            None => {
+                item.item.setView(Some(view));
+                None
+            }
+        };
+        item.adopted = Some(Adopted { view: view.retain(), button, width, replaced });
+        // Shown before the core sizes it: the toolbar says how big it is.
+        item.empty = false;
+        self.place(true);
+    }
+
+    /// Puts an item's control back in its host, as it was.
+    pub(crate) fn release(&mut self, id: NodeId) {
+        let Some(item) = self.items.iter_mut().find(|i| i.id == id) else { return };
+        let Some(Adopted { view, button, width, replaced }) = item.adopted.take() else { return };
+        if let Some(replaced) = replaced {
+            item.item = replaced;
+        }
+        item.item.setView(Some(&item.view));
+        if let Some(width) = width {
+            width.setActive(false);
+        }
+        view.setTranslatesAutoresizingMaskIntoConstraints(true);
+        if let Some((button, bezel, bordered)) = button {
+            button.setBezelStyle(bezel);
+            button.setBordered(bordered);
+        }
+        item.host.addSubview(&view);
+        self.resync();
+    }
+
+    /// The item shows its control as its view.
+    pub(crate) fn adopted(&self, id: NodeId) -> bool {
+        self.adopted_view(id).is_some()
+    }
+
+    /// The control an item shows as its view.
+    pub(crate) fn adopted_view(&self, id: NodeId) -> Option<&NSView> {
+        Some(&self.items.iter().find(|i| i.id == id)?.adopted.as_ref()?.view)
+    }
+
+    /// The toolbar makes it as wide as it likes: a button, not a field.
+    pub(crate) fn sizes_width(&self, id: NodeId) -> bool {
+        self.items.iter().any(|i| i.id == id && i.adopted.as_ref().is_some_and(|a| a.button.is_some()))
+    }
+
+    /// How big the toolbar made an item's control, once it's shown: in
+    /// whole points, as the core lays out (the toolbar gave 39.5).
+    pub(crate) fn adopted_size(&self, id: NodeId) -> Option<NSSize> {
+        let view = self.adopted_view(id).filter(|v| v.window().is_some())?;
+        let size = view.alignmentRectForFrame(view.bounds()).size;
+        Some(NSSize::new(size.width.ceil(), size.height.ceil()))
     }
 
     pub(crate) fn remove(&mut self, id: NodeId) {
         let Some(index) = self.items.iter().position(|i| i.id == id) else { return };
+        self.release(id);
         let item = self.items.remove(index);
         item.host.removeFromSuperview();
         item.width.setActive(false);
@@ -180,6 +309,11 @@ impl Toolbar {
         let Some(item) = self.items.iter_mut().find(|i| i.id == id) else { return };
         item.width.setConstant(width);
         item.height.setConstant(height);
+        if let Some(Adopted { width: Some(adopted), .. }) = &item.adopted
+            && width > 0.0
+        {
+            adopted.setConstant(width);
+        }
         item.empty = width <= 0.0 || height <= 0.0;
         self.sync();
     }
@@ -207,13 +341,33 @@ impl Toolbar {
     /// content view (above it, so at negative y); `None` while it's empty.
     pub(crate) fn frame(&self, id: NodeId, content: &NSView) -> Option<NSRect> {
         let item = self.items.iter().find(|i| i.id == id).filter(|i| !i.empty)?;
-        item.host.window()?;
-        Some(item.host.convertRect_toView(item.host.bounds(), Some(content)))
+        let shown: &NSView = match &item.adopted {
+            Some(adopted) => &adopted.view,
+            None => &item.host,
+        };
+        shown.window()?;
+        let mut frame = shown.convertRect_toView(shown.alignmentRectForFrame(shown.bounds()), Some(content));
+        if let Some(size) = self.adopted_size(id) {
+            frame.size = size;
+        }
+        Some(frame)
+    }
+
+    /// Has the toolbar take a shown item's new view: it keeps the one the
+    /// item had when it was inserted.
+    fn resync(&self) {
+        if self.toolbar.items().len() > self.delegate.system_items().len() {
+            self.place(true);
+        }
     }
 
     /// Makes the toolbar show the non-empty items, in order: after the
     /// system's items, which are always first.
     fn sync(&self) {
+        self.place(false);
+    }
+
+    fn place(&self, again: bool) {
         let wanted: Vec<Retained<NSToolbarItem>> =
             self.items.iter().filter(|i| !i.empty).map(|i| i.item.clone()).collect();
         let shown = self.toolbar.items();
@@ -221,7 +375,7 @@ impl Toolbar {
         let same = shown.len() == wanted.len() + system.len()
             && shown.iter().zip(&system).all(|(a, b)| a.itemIdentifier().isEqualToString(b))
             && shown.iter().skip(system.len()).zip(&wanted).all(|(a, b)| std::ptr::eq(&*a, &**b));
-        if same {
+        if same && !again {
             return;
         }
         *self.delegate.ivars().shown.borrow_mut() = wanted.clone();

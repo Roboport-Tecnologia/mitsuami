@@ -323,6 +323,14 @@ pub(super) fn native_state(state: &State, id: NodeId) -> Option<NativeState> {
     if let Some(Widget::Tabs(tabs)) = node.parent.and_then(|p| state.nodes.get(&p)).map(|p| &p.widget) {
         frame = tabs.page_frame(id).unwrap_or(frame);
     }
+    // A toolbar's button is its item, all of it.
+    if let Some(item) = state.toolbar_item_of(id)
+        && let Some(Widget::Window { toolbar: Some(toolbar), .. }) =
+            state.nodes[&item].parent.and_then(|w| state.nodes.get(&w)).map(|w| &w.widget)
+        && let Some(size) = toolbar.adopted_size(item)
+    {
+        frame = Rect::new(0.0, 0.0, size.width as f32, size.height as f32);
+    }
     // So is a toolbar item, by the toolbar; an empty one isn't shown.
     if let Some(Widget::Window { host, toolbar: Some(toolbar), .. }) = node
         .parent
@@ -367,6 +375,14 @@ pub(super) fn native_state(state: &State, id: NodeId) -> Option<NativeState> {
             }
             if let Widget::Window { split: Some(split), .. } = &node.widget {
                 children.push(split.sidebar);
+            }
+            // An item's button is its view, not in its host.
+            if node.kind == WidgetKind::ToolbarItem
+                && let Some(Widget::Window { toolbar: Some(toolbar), .. }) =
+                    node.parent.and_then(|w| state.nodes.get(&w)).map(|w| &w.widget)
+                && let Some(button) = toolbar.adopted_view(id)
+            {
+                children.extend(by_view.get(&key(button)).copied());
             }
             (children, None)
         }
