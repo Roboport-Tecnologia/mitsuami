@@ -72,6 +72,17 @@ fn Places() -> impl View {
             windows => mitsuami::winui::tweak(|view: &mitsuami::winui::bindings::NavigationView| {
                 view.SetOpenPaneLength(224.0)
             }),
+            // Wider than AppKit's narrowest sidebar (140), as the
+            // showcase's is. The split view is the window's, which the
+            // table is in once the window takes it.
+            macos => mitsuami::appkit::tweak(|table: &mitsuami::appkit::objc2_app_kit::NSTableView| {
+                use mitsuami::appkit::objc2_app_kit::NSSplitViewController;
+                let split = table.window().and_then(|w| w.contentViewController());
+                let split = split.and_then(|c| c.downcast::<NSSplitViewController>().ok());
+                if let Some(item) = split.and_then(|s| s.splitViewItems().firstObject()) {
+                    item.setMinimumThickness(184.0);
+                }
+            }),
             _ => Tweak::none(),
         })
         .children((

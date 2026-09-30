@@ -93,10 +93,15 @@ impl State {
                     }
                     *split = Some(made);
                     _delegate.set_detail(Some(host));
-                    window.setContentSize(
-                        _delegate.at_least_min(window, Size::new(size.width as f32, size.height as f32)),
-                    );
+                    let (window, delegate) = (window.clone(), _delegate.clone());
                     self.nodes.get_mut(child).unwrap().parent = Some(*parent);
+                    // Again, now that it's in the window's split view,
+                    // which its props came before: a width it sets is in
+                    // the window's.
+                    self.run_tweak(*child);
+                    window.setContentSize(
+                        delegate.at_least_min(&window, Size::new(size.width as f32, size.height as f32)),
+                    );
                     return;
                 }
                 if self.nodes[child].kind == WidgetKind::ToolbarItem {
