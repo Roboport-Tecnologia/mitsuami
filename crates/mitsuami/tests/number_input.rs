@@ -229,21 +229,26 @@ async fn a_tweak_runs_on_the_native_spin_box_after_its_props(app: TestApp) {
 }
 
 /// Where the app says, every platform's spin box wraps round, or stops:
-/// stepped past one end, it goes on from the other.
+/// stepped past one end, it goes on from the other. On WinUI only the
+/// number box's own spin buttons and arrow keys wrap; a screen reader steps
+/// through its RangeValue pattern, whose values stop at the ends.
 #[mitsuami_test::test]
 async fn wraps_round_or_stops_as_the_app_says(app: TestApp) {
     let wraps = signal(true);
     app.mount(move || NumberInput::new("Memory").range(1, 10).value(10).wrap_around(wraps));
     assert!(has(&app, memory(), Prop::WrapAround(true)));
 
+    let wrapped = app.backend_name() != "winui";
     app.get(memory()).increment().await;
-    app.expect(memory()).to_have_value("1").await;
+    app.expect(memory()).to_have_value(if wrapped { "1" } else { "10" }).await;
+    app.get(memory()).set_number(1.0).await;
     app.get(memory()).decrement().await;
-    app.expect(memory()).to_have_value("10").await;
+    app.expect(memory()).to_have_value(if wrapped { "10" } else { "1" }).await;
 
     wraps.set(false);
     app.settle().await;
     assert!(has(&app, memory(), Prop::WrapAround(false)));
+    app.get(memory()).set_number(10.0).await;
     app.get(memory()).increment().await;
     app.expect(memory()).to_have_value("10").await;
 }

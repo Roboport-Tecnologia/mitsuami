@@ -178,7 +178,7 @@ async fn folders_open_in_place_and_history_goes_back(app: TestApp) {
     row(&app, "mitsuami").click().await;
     listed(&app, &["README.md"]).await;
     // The path bar has every folder up to this one.
-    let here = fixture.root.join("Projects/mitsuami");
+    let here = fixture.root.join("Projects").join("mitsuami");
     if PathBar::renderer().is_native() {
         app.expect(by_label("Path")).to_have_value(&here.display().to_string()).await;
     } else {

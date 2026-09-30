@@ -104,14 +104,17 @@ async fn only_the_rows_near_the_viewport_are_mounted(app: TestApp) {
     assert!(rows[0].starts_with("File 0 "));
     assert!(!rows.iter().any(|r| r.starts_with("File 500 ")));
 
+    // XAML's list view keeps one more container, the first row's, where
+    // keyboard focus would come back to: the rows after it go.
     app.get_by_test_id("table").scroll_by(0.0, 10_000.0).await;
-    assert!(!row_names(&app).iter().any(|r| r.starts_with("File 0 ")) || row_names(&app).len() > 200);
+    assert!(!row_names(&app).iter().any(|r| r.starts_with("File 1 ")) || row_names(&app).len() > 200);
     assert!(row_names(&app).iter().any(|r| r.split(' ').nth(1).and_then(|n| n.parse::<u32>().ok()) > Some(200)));
 }
 
 /// Cells are as wide as their column's cells, as the platform reports
 /// them: a fixed column keeps the width the app gave it (less the room
-/// between cells, where the platform takes it from the column), and the
+/// between cells, where the platform takes it from the column: WinUI's 12
+/// on each side, as its DataGrid's cells have), and the
 /// expanding one takes the room left, so it grows with the table.
 #[mitsuami_test::test]
 async fn cells_are_as_wide_as_their_columns(app: TestApp) {
@@ -121,7 +124,7 @@ async fn cells_are_as_wide_as_their_columns(app: TestApp) {
     app.resize(400.0, 300.0).await;
 
     let (name, size) = (cell(&app, "File 0").frame(), cell(&app, "0 KB").frame());
-    assert!(size.width() <= 80.0 && size.width() >= 60.0, "size column: {size:?}");
+    assert!(size.width() <= 80.0 && size.width() >= 56.0, "size column: {size:?}");
     assert!(name.width() > 100.0, "the name column expands: {name:?}");
     // Every cell of a column is as wide.
     assert_eq!(cell(&app, "File 2").frame().width(), name.width());

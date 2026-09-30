@@ -115,7 +115,8 @@ impl WinUiBackend {
                 self.state.borrow().report_value(id);
             }
             // What a screen reader does: NumberBox's RangeValue pattern. Its
-            // steps stop at the ends, as its own spin buttons' do.
+            // values stop at the ends, even where the box's own spin buttons
+            // wrap round (`IsWrapEnabled`).
             (A11yAction::Increment | A11yAction::Decrement | A11yAction::SetValue(_), WidgetKind::NumberInput) => {
                 let range: w::IRangeValueProvider = peer()?
                     .GetPattern(w::PatternInterface::RangeValue)

@@ -6,7 +6,7 @@ use mitsuami_core::{NodeId, Orientation, Point, Prop, Rect, WidgetKind};
 use windows_core::{IInspectable, Interface};
 
 use super::controls::{button_content, option_texts, radio_options};
-use super::fields::box_text;
+use super::fields::{box_text, search_text};
 use super::focus::is_control;
 use super::menus::read_menu;
 use super::scroll::{scroll_axes, scroll_bars};
@@ -93,7 +93,7 @@ impl WinUiBackend {
             }
             Widget::Search(s) => {
                 let search: w::IAutoSuggestBox = s.cast().ok()?;
-                props.push(Prop::Value(search.Text().ok()?));
+                props.push(Prop::Value(search_text(s)?));
                 let placeholder = search.PlaceholderText().ok()?;
                 if !placeholder.is_empty() {
                     props.push(Prop::Placeholder(placeholder));

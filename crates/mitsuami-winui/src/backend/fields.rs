@@ -78,6 +78,16 @@ pub(super) fn report_text_changes(
     })
 }
 
+/// What a search box shows: the text box in its template has it at once,
+/// the search box itself only once its TextChanged comes, later (not
+/// before a test's settle is over).
+pub(super) fn search_text(search: &w::AutoSuggestBox) -> Option<String> {
+    match search.cast::<w::UIElement>().ok().and_then(|s| inner_text_box(&s)) {
+        Some(field) => field.Text().ok(),
+        None => search.cast::<w::IAutoSuggestBox>().and_then(|s| s.Text()).ok(),
+    }
+}
+
 /// The text box in a search box's template, once it's applied.
 pub(super) fn inner_text_box(search: &w::UIElement) -> Option<w::ITextBox> {
     let mut queue = std::collections::VecDeque::from([search.cast::<w::DependencyObject>().ok()?]);

@@ -183,17 +183,18 @@ pub(super) fn remove_sidebar(parts: &mut WindowParts) -> R<()> {
 }
 
 /// Where the sidebar's pane is, in the content host's coordinates (beside
-/// it, so at negative x): open, icons only, or closed (none).
+/// it, so at negative x): open, icons only, or closed (none). Placed by
+/// its width, not as laid out: the view slides the pane open, and the
+/// content with it.
 pub(super) fn sidebar_frame(parts: &WindowParts) -> Option<Rect> {
     let (_, view) = parts.sidebar.as_ref()?;
     let width = crate::sidebar::Sidebar::pane_width(view);
     if width <= 0.0 {
         return Some(Rect::ZERO);
     }
-    let transform = view.cast::<w::IUIElement>().ok()?.TransformToVisual(&parts.host).ok()?;
-    let origin = transform.cast::<w::IGeneralTransform>().ok()?.TransformPoint(w::Point { x: 0.0, y: 0.0 }).ok()?;
+    let border = content_border(parts);
     let height = view.cast::<w::IFrameworkElement>().ok()?.ActualHeight().ok()? as f32;
-    Some(Rect::new(origin.x, origin.y, width, height))
+    Some(Rect::new(-(width + border), -border, width, height))
 }
 
 pub(super) fn remove_toolbar_item(parts: &mut WindowParts, id: NodeId) -> R<()> {
@@ -270,11 +271,14 @@ pub(super) fn resize_client_with(parts: &WindowParts, size: Size, (inset_w, inse
     let size = Size::new(size.width.max(min.width), size.height.max(min.height));
     let scale = scale_of(parts);
     let chrome = chrome_height(parts);
-    // Beside a sidebar, the window is wider by its pane.
+    // Beside a sidebar, the window is wider by its pane, and the content
+    // is inside the view's border.
     let side = parts.sidebar.as_ref().map_or(0.0, |(_, view)| crate::sidebar::Sidebar::extra_width(view, size.width));
+    let border_h = content_border(parts);
+    let border_w = if side > 0.0 { border_h } else { 0.0 };
     let want = w::SizeInt32 {
-        width: ((size.width + side) as f64 * scale).round() as i32 + inset_w,
-        height: ((size.height as f64 + chrome) * scale).round() as i32 + inset_h,
+        width: ((size.width + side + border_w) as f64 * scale).round() as i32 + inset_w,
+        height: ((size.height as f64 + border_h as f64 + chrome) * scale).round() as i32 + inset_h,
     };
     if let Some(before) = parts.size.get() {
         parts.aimed.set(Some((size, before)));
@@ -293,24 +297,44 @@ pub(super) fn resize_client_with(parts: &WindowParts, size: Size, (inset_w, inse
     }
     // What the window actually got (it may refuse), in logical units.
     if let Ok(got) = app_window.ClientSize() {
-        let width = ((got.width - inset_w) as f64 / scale) as f32 - side;
-        let height = ((got.height - inset_h) as f64 / scale - chrome).max(0.0) as f32;
+        let width = ((got.width - inset_w) as f64 / scale) as f32 - side - border_w;
+        let height = ((got.height - inset_h) as f64 / scale - chrome).max(0.0) as f32 - border_h;
         parts.report_size(Size::new(width, height));
     }
 }
 
 /// Windows keeps a resize border inside the client area of windows with
 /// extended title bars (1 px along the top): measured off the live root.
+/// A root XAML hasn't laid out at the window's size yet is off by more
+/// than a border, and the last measure stands.
 pub(super) fn client_insets(parts: &WindowParts, scale: f64) -> (i32, i32) {
-    let inset = |client: i32, root: R<f64>| match root {
-        Ok(root) if root > 0.0 => (client - (root * scale).round() as i32).clamp(0, 8),
-        _ => 0,
+    let inset = |client: i32, root: R<f64>, last: i32| match root {
+        Ok(root) if root > 0.0 => {
+            Some(client - (root * scale).round() as i32).filter(|i| (0..=8).contains(i)).unwrap_or(last)
+        }
+        _ => last,
     };
     let client = parts.app_window.cast::<w::IAppWindow2>().and_then(|a| a.ClientSize());
-    match (client, parts.root.cast::<w::IFrameworkElement>()) {
-        (Ok(client), Ok(root)) => (inset(client.width, root.ActualWidth()), inset(client.height, root.ActualHeight())),
-        _ => (0, 0),
-    }
+    let (last_w, last_h) = parts.insets.get();
+    let insets = match (client, parts.root.cast::<w::IFrameworkElement>()) {
+        (Ok(client), Ok(root)) => {
+            (inset(client.width, root.ActualWidth(), last_w), inset(client.height, root.ActualHeight(), last_h))
+        }
+        _ => (last_w, last_h),
+    };
+    parts.insets.set(insets);
+    insets
+}
+
+/// The line a sidebar's view draws along the content's top, and its
+/// leading side while the pane shows (1 at 100%, laid out at 1.33 at
+/// 150%): the view as laid out, less the content host.
+pub(super) fn content_border(parts: &WindowParts) -> f32 {
+    let Some((_, view)) = &parts.sidebar else { return 0.0 };
+    let height = |e: R<w::IFrameworkElement>| e.and_then(|e| e.ActualHeight()).unwrap_or(0.0) as f32;
+    let (outer, inner) = (height(view.cast()), height(parts.host.cast()));
+    let border = outer - inner;
+    if outer > 0.0 && inner > 0.0 && (0.0..=4.0).contains(&border) { border } else { 0.0 }
 }
 
 pub(super) fn in_full_screen(app_window: &w::AppWindow) -> bool {
@@ -443,7 +467,8 @@ pub(super) fn apply_min_size(parts: &WindowParts) {
     let insets = client_insets(parts, scale);
     let (frame_w, frame_h) = frame_pixels(parts, scale);
     let chrome = chrome_height(parts);
-    let outer_height = |height: f32| ((height as f64 + chrome) * scale).round() as i32 + frame_h;
+    let border = content_border(parts) as f64;
+    let outer_height = |height: f32| ((height as f64 + border + chrome) * scale).round() as i32 + frame_h;
     _ = presenter.SetPreferredMinimumWidth(min.map(|m| (m.width as f64 * scale).round() as i32 + frame_w));
     _ = presenter.SetPreferredMinimumHeight(locked.or(min.map(|m| m.height)).map(outer_height));
     _ = presenter.SetPreferredMaximumHeight(locked.map(outer_height));

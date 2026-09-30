@@ -629,7 +629,9 @@ async fn its_minimum_goes_no_larger_than_the_screen(app: TestApp) {
 
 /// Maximized follows the app, and the window comes back to its size. A
 /// window shows it the platform's way: headless fills its work area,
-/// AppKit zooms it to its screen's.
+/// AppKit zooms it to its screen's. Windows maximizes a window by showing
+/// it, so WinUI keeps the state until the window shows (test windows
+/// never do), and the size meanwhile.
 #[mitsuami_test::test]
 async fn maximized_follows_the_app(app: TestApp) {
     let zoomed = signal(false);
@@ -643,7 +645,11 @@ async fn maximized_follows_the_app(app: TestApp) {
     app.settle().await;
     assert!(native_props(&app, window).contains(&Prop::Maximized(true)));
     let size = app.ui().window_size(window).expect("sized");
-    assert!(size.width > restored.width && size.height > restored.height, "{size:?} from {restored:?}");
+    if app.backend_name() == "winui" {
+        assert_eq!(size, restored);
+    } else {
+        assert!(size.width > restored.width && size.height > restored.height, "{size:?} from {restored:?}");
+    }
     if app.is_headless() {
         assert_eq!(size, app.headless().work_area());
     }

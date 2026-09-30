@@ -1,0 +1,8 @@
+Window "mitsuami test" [0,0 320×88]
+  Container [0,0 320×88]
+    Container [16,16 8×0]
+      Image "Pixels" Pixels(48×48 @1x) [16,16 0×0]
+      Image "File" file="C:\\Users\\david\\work\\mitsuami\\crates\\mitsuami\\tests/assets/blue-red-20x10.png" [24,16 0×0]
+    Container [16,24 248×48]
+      Image "Contain" Pixels(48×48 @1x) fit=Contain [16,24 120×48]
+      Image "Stretch" Pixels(48×48 @1x) fit=Stretch [144,24 120×48]

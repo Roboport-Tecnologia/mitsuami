@@ -1,0 +1,4 @@
+Window "mitsuami test" [0,0 800×600]
+  Container [0,0 800×78]
+    Text "Last synced" style=Headline [16,16 86×21]
+    Text "10:00" #clock [16,45 80×17]

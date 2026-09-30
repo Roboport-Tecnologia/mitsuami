@@ -346,6 +346,7 @@ impl State {
             emitter,
             size,
             aimed,
+            insets: Cell::new((0, 0)),
             focus,
             tab_order,
             wanted_focus: RefCell::default(),

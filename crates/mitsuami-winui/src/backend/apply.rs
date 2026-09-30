@@ -4,7 +4,7 @@ use mitsuami_core::a11y::A11yProps;
 use mitsuami_core::{Command, EventValue, NodeId, UiEvent, WidgetKind};
 use windows_core::{IInspectable, Interface};
 
-use super::fields::box_text;
+use super::fields::{box_text, search_text};
 use super::scroll::{scroll_now, shift_wheel};
 use super::windows::{
     CONTENT_ROW, apply_min_size, client_insets, in_full_screen, insert_toolbar_item, remove_sidebar,
@@ -447,7 +447,7 @@ impl State {
                     EventValue::Text(text)
                 })
             }),
-            Widget::Search(s) => s.cast::<w::IAutoSuggestBox>().and_then(|s| s.Text()).ok().and_then(|text| {
+            Widget::Search(s) => search_text(s).and_then(|text| {
                 let mut shown = node.shown_text.borrow_mut();
                 (*shown != text).then(|| {
                     *shown = text.clone();

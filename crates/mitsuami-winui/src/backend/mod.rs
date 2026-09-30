@@ -107,6 +107,9 @@ pub(crate) struct WindowParts {
     /// A content size `resize_client` aimed for, and the size before it,
     /// until XAML lays the content out at the window's new size.
     aimed: Rc<Cell<Option<(Size, Size)>>>,
+    /// The resize border inside the client area, in pixels, as last
+    /// measured (see `client_insets`).
+    insets: Cell<(i32, i32)>,
     /// The node that has keyboard focus, as last reported.
     focus: Rc<Cell<Option<NodeId>>>,
     /// The Tab order sent by the core.

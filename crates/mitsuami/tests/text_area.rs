@@ -148,7 +148,11 @@ async fn read_only_and_enabled_follow_their_signals(app: TestApp) {
     read_only.set(false);
     app.settle().await;
     app.get_by_label("Note").type_text("!").await;
-    assert!(has(&app, "Note", Prop::Value("two!".into())));
+    // Typing goes in at the caret. XAML focuses the first control as the
+    // window activates, and text set while it has focus puts the caret at
+    // the start.
+    let typed = if app.backend_name() == "winui" { "!two" } else { "two!" };
+    assert!(has(&app, "Note", Prop::Value(typed.into())));
 }
 
 #[mitsuami_test::test]
