@@ -270,12 +270,18 @@ fn Files(preview: Signal<bool>) -> impl View {
                 },
             ),
             Show::new(empty, move || {
-                Text::new(move || if browser.query.get().is_empty() { "No items" } else { "No matches" }.to_owned())
-                    .text_style(TextStyle::Caption)
-                    .padding(Spacing::Lg)
+                hint(move || if browser.query.get().is_empty() { "No items" } else { "No matches" }.to_owned())
             }),
             table,
         ))
+}
+
+/// A message in place of content, larger and dimmer than body text and
+/// in the middle of the room, as file managers show an empty folder.
+fn hint(text: impl IntoValue<String>) -> impl View {
+    Column::new().grow(1.0).justify(Justify::Center).align(Align::Center).padding(Spacing::Lg).children(
+        Text::new(text).text_style(TextStyle::Title).color(Color::SecondaryLabel).text_align(TextAlign::Center),
+    )
 }
 
 /// Name, taking the room left, then Finder's columns.
@@ -367,7 +373,7 @@ fn Preview() -> impl View {
         _ => "--".into(),
     };
     let summary = move || match chosen.get().len() {
-        0 => browser.title(),
+        0 => "Select an item".into(),
         n => format!("{n} items selected"),
     };
     let info = |label: &'static str, value: Box<dyn Fn() -> String>| {
@@ -389,27 +395,29 @@ fn Preview() -> impl View {
         Row::new().justify(Justify::Center).children(FileIcon::new(path).icon_size(64.0).thumbnail(true))
     };
     view! {
-        <ScrollView width=240 a11y_label="Preview">
-            <Show when=move || one.get().is_some()
-                fallback=move || view! { <Text padding=Spacing::Lg text_style=TextStyle::Caption>{summary}</Text> }>
-                <Column padding=Spacing::Lg gap=Spacing::Md>
-                    <Show when=move || one.get().is_some_and(|e| e.is_image()) fallback=icon>
-                        {picture()}
-                    </Show>
-                    <Text text_style=TextStyle::Headline max_lines=3 selectable=true>{field(|e| e.name.clone())}</Text>
-                    <Column gap=Spacing::Xs>
-                        {info("Kind", Box::new(field(Entry::kind)))}
-                        {info("Size", Box::new(size))}
-                        {info("Modified", Box::new(field(|e| e.modified.map(fs::civil).unwrap_or_default())))}
-                        {info("Where", Box::new(field(|e| e.path.parent().map(|p| p.display().to_string()).unwrap_or_default())))}
+        // The message outside the scroll view, to be in the pane's middle.
+        <Column width=240 a11y_label="Preview">
+            <Show when=move || one.get().is_some() fallback=move || hint(summary)>
+                <ScrollView grow=1.0 basis=0 min_height=0>
+                    <Column padding=Spacing::Lg gap=Spacing::Md>
+                        <Show when=move || one.get().is_some_and(|e| e.is_image()) fallback=icon>
+                            {picture()}
+                        </Show>
+                        <Text text_style=TextStyle::Headline max_lines=3 selectable=true>{field(|e| e.name.clone())}</Text>
+                        <Column gap=Spacing::Xs>
+                            {info("Kind", Box::new(field(Entry::kind)))}
+                            {info("Size", Box::new(size))}
+                            {info("Modified", Box::new(field(|e| e.modified.map(fs::civil).unwrap_or_default())))}
+                            {info("Where", Box::new(field(|e| e.path.parent().map(|p| p.display().to_string()).unwrap_or_default())))}
+                        </Column>
+                        <Show when=move || text.data().flatten().is_some()>
+                            <Separator/>
+                            <Text text_style=TextStyle::Monospace max_lines=16>{move || text.data().flatten().unwrap_or_default()}</Text>
+                        </Show>
                     </Column>
-                    <Show when=move || text.data().flatten().is_some()>
-                        <Separator/>
-                        <Text text_style=TextStyle::Monospace max_lines=16>{move || text.data().flatten().unwrap_or_default()}</Text>
-                    </Show>
-                </Column>
+                </ScrollView>
             </Show>
-        </ScrollView>
+        </Column>
     }
 }
 

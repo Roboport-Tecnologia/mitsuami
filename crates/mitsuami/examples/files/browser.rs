@@ -94,6 +94,8 @@ impl Browser {
     }
 
     /// The window's title: the folder's name.
+    // Only `main.rs` makes the window; the tests mount its content.
+    #[allow(dead_code)]
     pub fn title(&self) -> String {
         let folder = self.folder.get();
         folder.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_else(|| folder.display().to_string())

@@ -389,10 +389,9 @@ async fn the_preview_shows_the_selection(app: TestApp) {
     let fixture = Fixture::new(&app, &["readme.txt", "Stuff/one", "Stuff/two"]);
     fixture.mount(&app);
     listed(&app, &["readme.txt", "Stuff"]).await;
-    // With nothing selected, the preview names the folder (as the composed
-    // path bar does too).
+    // With nothing selected, the preview asks for a selection.
     let preview = app.get_by_label("Preview").node();
-    assert!(preview.walk().iter().any(|n| n.role == Role::StaticText && n.name.as_deref() == Some("Home")));
+    assert!(preview.walk().iter().any(|n| n.role == Role::StaticText && n.name.as_deref() == Some("Select an item")));
 
     row(&app, "readme.txt").select().await;
     app.expect(by_text("This is readme.txt.\nSecond line.")).to_exist().await;
