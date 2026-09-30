@@ -449,8 +449,9 @@ QQC2.ScrollView {{
 /// (`display`, a field per column), made again when the columns change. A cell delegate holds
 /// its cell's host (`mitsuamiHost`) in a slot centred in its row once the
 /// backend puts it there, and is as high as it and its padding, at least
-/// as high as the style's item delegates (the rows of its lists), or the
-/// estimate until then. `TableView` makes a row as high as its highest
+/// as high as the style's item delegates (the rows of its lists). Until
+/// then it's as high as the last row with its hosts (the estimate before
+/// any), so rows keep the height they're placed at. `TableView` makes a row as high as its highest
 /// cell; hosts that change height lay the view out again. Rows show the
 /// selection across their cells, and the style's alternate colour when
 /// `alternatingRows` is set.
@@ -574,6 +575,16 @@ Item {{
             }}
             readonly property real mitsuamiPadding: Kirigami.Units.smallSpacing
             readonly property real mitsuamiMinRow: rowProbe.implicitHeight
+            // The height of the last row whose cells got their hosts: its
+            // highest cell's.
+            property real mitsuamiLastRowHeight: -1
+            property int mitsuamiLastRow: -1
+            function mitsuamiLearn(row, height) {{
+                if (row !== mitsuamiLastRow) {{
+                    mitsuamiLastRow = row
+                    mitsuamiLastRowHeight = height
+                }} else mitsuamiLastRowHeight = Math.max(mitsuamiLastRowHeight, height)
+            }}
             signal mitsuamiRowsChanged()
             signal mitsuamiSelectionChanged()
             signal mitsuamiActivate()
@@ -733,8 +744,15 @@ Item {{
                 property string mitsuamiKey: display
                 property int mitsuamiColumn: column
                 property Item mitsuamiHost: null
-                implicitHeight: Math.max(view.mitsuamiMinRow,
-                    (mitsuamiHost ? mitsuamiHost.height : view.mitsuamiEstimate) + 2 * view.mitsuamiPadding)
+                // Without its host yet, as high as the last row with its
+                // hosts: `TableView` loses track of its extent when rows
+                // it placed change height, and the scroll range shrank
+                // each time rows were scrolled past quickly.
+                implicitHeight: mitsuamiHost
+                    ? Math.max(view.mitsuamiMinRow, mitsuamiHost.height + 2 * view.mitsuamiPadding)
+                    : Math.max(view.mitsuamiMinRow, view.mitsuamiLastRowHeight >= 0 ? view.mitsuamiLastRowHeight
+                        : view.mitsuamiEstimate)
+                onMitsuamiHostChanged: if (mitsuamiHost) view.mitsuamiLearn(row, implicitHeight)
                 color: view.mitsuamiSelected.indexOf(display) >= 0 ? Kirigami.Theme.highlightColor
                     : view.alternatingRows && row % 2 === 1 ? Kirigami.Theme.alternateBackgroundColor : "transparent"
                 // The host, centred in the row's height.
