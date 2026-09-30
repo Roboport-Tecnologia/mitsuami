@@ -1,25 +1,30 @@
 <?xml version="1.0" encoding="utf-8"?>
 <!--
-  The showcase's MSIX package: `scripts\package-msix.ps1` builds it.
-  The script fills in the version and architecture; the identity is the
-  Store's (Partner Center, Product identity).
+  The files example's MSIX package: `scripts\package-msix.ps1 -App files`
+  builds it. The script fills in the version and architecture; the
+  identity is the Store's (Partner Center, Product identity).
 -->
 <Package
   xmlns="http://schemas.microsoft.com/appx/manifest/foundation/windows10"
   xmlns:uap="http://schemas.microsoft.com/appx/manifest/uap/windows10"
   xmlns:rescap="http://schemas.microsoft.com/appx/manifest/foundation/windows10/restrictedcapabilities"
-  IgnorableNamespaces="uap rescap">
+  xmlns:desktop6="http://schemas.microsoft.com/appx/manifest/desktop/windows10/6"
+  IgnorableNamespaces="uap rescap desktop6">
 
   <Identity
-    Name="PLACEHOLDER.MitsuamiShowcase"
+    Name="PLACEHOLDER.MitsuamiFiles"
     Publisher="CN=00000000-0000-0000-0000-000000000000"
     Version="$(Version)"
     ProcessorArchitecture="$(Architecture)" />
 
   <Properties>
-    <DisplayName>mitsuami showcase</DisplayName>
+    <DisplayName>Files</DisplayName>
     <PublisherDisplayName>PLACEHOLDER</PublisherDisplayName>
     <Logo>Assets\StoreLogo.png</Logo>
+    <!-- A file manager's folders and files are the user's: without this,
+         what it makes under AppData would go to the package's private copy,
+         which only it sees and which goes with it when it's uninstalled. -->
+    <desktop6:FileSystemWriteVirtualization>disabled</desktop6:FileSystemWriteVirtualization>
   </Properties>
 
   <!-- 17763 (Windows 10 1809): the Windows App Runtime 2.x's own floor. -->
@@ -37,10 +42,10 @@
   </Resources>
 
   <Applications>
-    <Application Id="Showcase" Executable="showcase.exe" EntryPoint="Windows.FullTrustApplication">
+    <Application Id="Files" Executable="files.exe" EntryPoint="Windows.FullTrustApplication">
       <uap:VisualElements
-        DisplayName="mitsuami showcase"
-        Description="Every mitsuami example in one window, in the platform's own controls."
+        DisplayName="Files"
+        Description="A file browser made with mitsuami, in the platform's own controls."
         BackgroundColor="transparent"
         Square150x150Logo="Assets\Square150x150Logo.png"
         Square44x44Logo="Assets\Square44x44Logo.png">
@@ -49,7 +54,11 @@
     </Application>
   </Applications>
 
+  <!-- runFullTrust runs it outside the app container, so it reads and
+       writes wherever the user can; unvirtualizedResources allows turning
+       off the AppData redirection above. -->
   <Capabilities>
     <rescap:Capability Name="runFullTrust" />
+    <rescap:Capability Name="unvirtualizedResources" />
   </Capabilities>
 </Package>

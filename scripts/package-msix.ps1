@@ -1,24 +1,29 @@
 <#
-Builds the showcase (examples/showcase) and packs it as an MSIX for the
-Microsoft Store:
+Builds an app and packs it as an MSIX for the Microsoft Store:
 
-  examples\showcase\target\msix\mitsuami-showcase_<version>_<arch>.msix
+  showcase  examples\showcase\target\msix\mitsuami-showcase_<version>_<arch>.msix
+  files     target\msix\mitsuami-files_<version>_<arch>.msix
 
-Usage: scripts\package-showcase.ps1 [-Version 1.0.0.0] [-Arch x64|arm64] [-Register]
+Usage: scripts\package-msix.ps1 [-App showcase|files] [-Version 1.0.0.0] [-Arch x64|arm64] [-Register]
 
-- The identity is in examples\showcase\msix\AppxManifest.xml; the script
-  fills in the version and architecture. The Store wants the last part of
-  the version to be 0, and each submission's version higher than the last.
+- The identity is in the app's msix\AppxManifest.xml (the showcase's in
+  examples\showcase, the files example's in crates\mitsuami\examples\files);
+  the script fills in the version and architecture. The Store wants the
+  last part of the version to be 0, and each submission's version higher
+  than the last.
+- Both use the showcase's logos (examples\showcase\msix\Assets).
 - The package is unsigned: the Store signs what it publishes.
 - `-Register` installs the unpacked layout for this user instead of
   packing it (needs Developer Mode), so the packaged app can be tried as
   the Store would install it. `Get-AppxPackage *MitsuamiShowcase* |
-  Remove-AppxPackage` removes it.
+  Remove-AppxPackage` (or `*MitsuamiFiles*`) removes it.
 
 Needs the Windows SDK (makeappx.exe, makepri.exe) and the MSVC build of
 the pinned toolchain, as scripts\build-examples.ps1 does.
 #>
 param(
+    [ValidateSet('showcase', 'files')]
+    [string]$App = 'showcase',
     [string]$Version = '1.0.0.0',
     [ValidateSet('x64', 'arm64')]
     [string]$Arch = 'x64',
@@ -27,7 +32,6 @@ param(
 $ErrorActionPreference = 'Stop'
 
 $root = Split-Path -Parent $PSScriptRoot
-$showcase = Join-Path $root 'examples\showcase'
 Set-Location $root
 
 if ($Version -notmatch '^\d+\.\d+\.\d+\.0$') {
@@ -47,17 +51,35 @@ if (-not $sdk) { throw "No Windows SDK with makeappx.exe under $kits" }
 $makeappx = Join-Path $sdk.FullName 'x64\makeappx.exe'
 $makepri = Join-Path $sdk.FullName 'x64\makepri.exe'
 
-Write-Host "==> Building the showcase for $target (release)"
-& cargo $toolchain build --release --manifest-path (Join-Path $showcase 'Cargo.toml') --target $target
-if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+$showcase = Join-Path $root 'examples\showcase'
+$assets = Join-Path $showcase 'msix\Assets'
 
-$out = Join-Path $showcase 'target\msix'
-$layout = Join-Path $out "layout-$Arch"
+# The showcase is its own crate; the files example is one of mitsuami's.
+Write-Host "==> Building $App for $target (release)"
+if ($App -eq 'showcase') {
+    & cargo $toolchain build --release --manifest-path (Join-Path $showcase 'Cargo.toml') --target $target
+    if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+    $exe = Join-Path $showcase "target\$target\release\showcase.exe"
+    $manifestIn = Join-Path $showcase 'msix\AppxManifest.xml'
+    $out = Join-Path $showcase 'target\msix'
+    $displayName = 'mitsuami showcase'
+} else {
+    & cargo $toolchain build --release --package mitsuami --example files --target $target
+    if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+    $targetDir = (cargo $toolchain metadata --format-version 1 --no-deps | ConvertFrom-Json).target_directory
+    if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+    $exe = Join-Path $targetDir "$target\release\examples\files.exe"
+    $manifestIn = Join-Path $root 'crates\mitsuami\examples\files\msix\AppxManifest.xml'
+    $out = Join-Path $targetDir 'msix'
+    $displayName = 'Files'
+}
+
+$layout = Join-Path $out "layout-$App-$Arch"
 if (Test-Path $layout) { Remove-Item -Recurse -Force $layout }
 New-Item -ItemType Directory -Force $layout | Out-Null
-Copy-Item (Join-Path $showcase "target\$target\release\showcase.exe") $layout
-Copy-Item -Recurse (Join-Path $showcase 'msix\Assets') $layout
-$manifest = (Get-Content -Raw (Join-Path $showcase 'msix\AppxManifest.xml')).
+Copy-Item $exe $layout
+Copy-Item -Recurse $assets $layout
+$manifest = (Get-Content -Raw $manifestIn).
     Replace('$(Version)', $Version).Replace('$(Architecture)', $Arch)
 [IO.File]::WriteAllText((Join-Path $layout 'AppxManifest.xml'), $manifest)
 
@@ -73,11 +95,11 @@ if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 if ($Register) {
     Write-Host '==> Registering the layout for this user'
     Add-AppxPackage -Register (Join-Path $layout 'AppxManifest.xml') -ForceApplicationShutdown
-    Write-Host '    Start it from the Start menu: mitsuami showcase'
+    Write-Host "    Start it from the Start menu: $displayName"
     exit 0
 }
 
-$msix = Join-Path $out "mitsuami-showcase_${Version}_$Arch.msix"
+$msix = Join-Path $out "mitsuami-${App}_${Version}_$Arch.msix"
 Write-Host '==> Packing'
 & $makeappx pack /d $layout /p $msix /o | Out-Null
 if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
