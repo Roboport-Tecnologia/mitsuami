@@ -50,7 +50,7 @@ fn a11y_hover(default_name: &str) -> String {
 
 /// What shows an item's context menu with the pointer: a right-click, on
 /// the press as KDE's menus open, and a long press on touch. `owner` is the
-/// item with the menu (`mitsuamiContextMenu`), which the handlers' own
+/// item with the menu (`mitsuamiHasContextMenu`), which the handlers' own
 /// item is or is in. They're off while it has none, so a press goes on to
 /// the items under it: a child without a menu shows its container's. A
 /// right press is taken whole (`WithinBounds`), so only the innermost menu
@@ -61,12 +61,12 @@ fn context_menu_handlers(owner: &str) -> String {
     TapHandler {{
         acceptedButtons: Qt.RightButton
         gesturePolicy: TapHandler.WithinBounds
-        enabled: {owner}.mitsuamiContextMenu !== null
+        enabled: {owner}.mitsuamiHasContextMenu
         onPressedChanged: if (pressed) {owner}.mitsuamiPopupContextMenu(parent, point.position.x, point.position.y)
     }}
     TapHandler {{
         acceptedDevices: PointerDevice.TouchScreen | PointerDevice.Stylus
-        enabled: {owner}.mitsuamiContextMenu !== null
+        enabled: {owner}.mitsuamiHasContextMenu
         onLongPressed: {owner}.mitsuamiPopupContextMenu(parent, point.position.x, point.position.y)
     }}
 "#
@@ -94,9 +94,9 @@ fn a11y_with(default_name: &str, hovered: &str) -> String {
     )
 }
 
-/// The context menu: a `QQC2.Menu` the backend makes from the app's (see
-/// `ContextMenu` in `services.rs`), whose parent is this item, popped up at
-/// a point of `item`. The Menu key and Shift+F10 show it at the item's
+/// The context menu: a `QQC2.Menu` the backend makes from the app's when
+/// it's first wanted (see `ContextMenu` in `services.rs`), whose parent is
+/// this item, popped up at a point of `item`. The Menu key and Shift+F10 show it at the item's
 /// centre, as Qt's widgets do, when the item or a child without a menu has
 /// the focus: keys a child doesn't take come to its parent.
 ///
@@ -111,11 +111,18 @@ fn a11y_with(default_name: &str, hovered: &str) -> String {
 /// `context_menu_qml` in `services.rs`).
 const CONTEXT_MENU: &str = r#"
     property QtObject mitsuamiContextMenu: null
+    property bool mitsuamiHasContextMenu: false
+    signal mitsuamiContextMenuWanted()
+    // The backend makes the menu when it's first wanted.
+    function mitsuamiEnsureContextMenu() {
+        if (!mitsuamiContextMenu && mitsuamiHasContextMenu) mitsuamiContextMenuWanted()
+        return mitsuamiContextMenu
+    }
     function mitsuamiIsMenuKey(event) {
         return event.key === Qt.Key_Menu || (event.key === Qt.Key_F10 && (event.modifiers & Qt.ShiftModifier))
     }
     function mitsuamiPopupContextMenu(item, x, y) {
-        const menu = mitsuamiContextMenu
+        const menu = mitsuamiEnsureContextMenu()
         const window = Window.window
         if (!menu || (window && window.mitsuamiShownMenu && window.mitsuamiShownMenu.visible)) return
         if (window) window.mitsuamiShownMenu = menu
@@ -128,8 +135,9 @@ const CONTEXT_MENU: &str = r#"
         menu.popup(at.x, at.y)
     }
     Keys.onPressed: (event) => {
-        if (mitsuamiContextMenu && mitsuamiIsMenuKey(event)) {
-            mitsuamiPopupContextMenu(mitsuamiContextMenu.parent, width / 2, height / 2)
+        const menu = mitsuamiIsMenuKey(event) ? mitsuamiEnsureContextMenu() : null
+        if (menu) {
+            mitsuamiPopupContextMenu(menu.parent, width / 2, height / 2)
             event.accepted = true
         }
     }

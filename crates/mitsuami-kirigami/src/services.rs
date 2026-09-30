@@ -303,23 +303,36 @@ fn context_menu_qml(menu: &MenuData) -> Option<String> {
 }
 
 /// A node's context menu: the app's entries (as the one menu of a bar, for
-/// [`MenuBarData`]'s helpers), and the `QQC2.Menu` that shows them, made
-/// as they come so it's whole before it's shown. Its parent is the node's
-/// item, whose `mitsuamiContextMenu` it is (see `qml::CONTEXT_MENU`). A
-/// menu button's menu is one too, its `mitsuamiButtonMenu` (see
-/// `qml::menu_button`).
+/// [`MenuBarData`]'s helpers), and the `QQC2.Menu` that shows them. Its
+/// parent is the node's item, whose `mitsuamiContextMenu` it is (see
+/// `qml::CONTEXT_MENU`). A context menu is made when it's first wanted
+/// (`mitsuamiContextMenuWanted()`, as it's about to open, or an item
+/// chosen from code): a table's rows each have one per cell, and making a
+/// `QQC2.Menu` and its items took most of the time rows took to scroll in.
+/// A menu button's menu is one too, its `mitsuamiButtonMenu` (see
+/// `qml::menu_button`), made as its entries come.
 pub(crate) struct ContextMenu {
     entries: Rc<RefCell<MenuBarData>>,
-    menu: Option<QmlObject>,
+    menu: Rc<Cell<Option<QmlObject>>>,
     /// Reports the item chosen.
     choose: Rc<dyn Fn(u32)>,
     /// The item's property that holds the menu.
     property: &'static str,
+    /// Context menus: the item that asks for it, once connected.
+    item: Cell<Option<QmlObject>>,
 }
+
+const CONTEXT_MENU_PROPERTY: &str = "mitsuamiContextMenu";
 
 impl ContextMenu {
     pub(crate) fn new(choose: impl Fn(u32) + 'static) -> ContextMenu {
-        ContextMenu { entries: Rc::default(), menu: None, choose: Rc::new(choose), property: "mitsuamiContextMenu" }
+        ContextMenu {
+            entries: Rc::default(),
+            menu: Rc::default(),
+            choose: Rc::new(choose),
+            property: CONTEXT_MENU_PROPERTY,
+            item: Cell::new(None),
+        }
     }
 
     /// A menu button's menu, which a click on it shows.
@@ -327,14 +340,18 @@ impl ContextMenu {
         ContextMenu { property: "mitsuamiButtonMenu", ..ContextMenu::new(choose) }
     }
 
+    fn lazy(&self) -> bool {
+        self.property == CONTEXT_MENU_PROPERTY
+    }
+
     /// Shows `entries` on `item`, or only keeps them if the item can't
     /// show a menu (`None`). In place when only enabled and checked states
     /// changed, which keeps an open menu open.
     pub(crate) fn set(&mut self, item: Option<QmlObject>, entries: &[MenuEntry]) {
         let data = MenuBarData { menus: vec![MenuData { title: String::new(), entries: entries.to_vec() }] };
-        let same = self.menu.is_some() && self.entries.borrow().same_structure(&data);
+        let same = self.menu.get().is_some() && self.entries.borrow().same_structure(&data);
         self.entries.replace(data);
-        if let Some(menu) = self.menu.filter(|_| same) {
+        if let Some(menu) = self.menu.get().filter(|_| same) {
             return apply_states(menu, &self.entries.borrow());
         }
         if let Some(old) = self.menu.take() {
@@ -344,29 +361,39 @@ impl ContextMenu {
             retire(old);
         }
         let Some(item) = item else { return };
-        let Some(qml) = context_menu_qml(&self.entries.borrow().menus[0]) else { return };
-        let menu = QmlObject::load_in(&qml, item);
-        // As in the drawer, Qt checks a checkable action itself when it's
-        // triggered: the menu goes back to what the app shows first.
-        for entry in self.entries.borrow().items() {
-            let Some(action) = menu.child(&item_name(entry.id)) else { continue };
-            let (entries, choose, id) = (self.entries.clone(), self.choose.clone(), entry.id);
-            action.connect("triggered(QObject*)", move || {
-                apply_states(menu, &entries.borrow());
-                choose(id);
+        if !self.lazy() {
+            self.menu.set(build(item, self.property, &self.entries, &self.choose));
+            return;
+        }
+        item.set_bool("mitsuamiHasContextMenu", !self.entries.borrow().menus[0].entries.is_empty());
+        if self.item.replace(Some(item)) != Some(item) {
+            let (menu, entries, choose) = (self.menu.clone(), self.entries.clone(), self.choose.clone());
+            item.connect("mitsuamiContextMenuWanted()", move || {
+                if menu.get().is_none() {
+                    menu.set(build(item, CONTEXT_MENU_PROPERTY, &entries, &choose));
+                }
             });
         }
-        item.set_object(self.property, Some(menu));
-        self.menu = Some(menu);
+    }
+
+    /// The menu, made now if it's wanted and not made yet.
+    fn menu(&self) -> Option<QmlObject> {
+        if self.menu.get().is_none()
+            && let Some(item) = self.item.get()
+        {
+            self.menu.set(build(item, self.property, &self.entries, &self.choose));
+        }
+        self.menu.get()
     }
 
     /// The action of the item with this id, if the menu is shown.
     pub(crate) fn action(&self, id: u32) -> Option<QmlObject> {
-        self.menu?.child(&item_name(id))
+        self.menu()?.child(&item_name(id))
     }
 
     /// The entries as the menu shows them: items' titles, enabled and
-    /// checked states from their actions, the rest as the app gave it.
+    /// checked states from their actions, the rest as the app gave it
+    /// (all of it, before the menu is made).
     pub(crate) fn shown(&self) -> Vec<MenuEntry> {
         fn read(menu: QmlObject, entries: &[MenuEntry]) -> Vec<MenuEntry> {
             entries
@@ -396,7 +423,7 @@ impl ContextMenu {
         }
         let entries = self.entries.borrow();
         let entries = entries.menus.first().map(|m| m.entries.as_slice()).unwrap_or_default();
-        match self.menu {
+        match self.menu.get() {
             Some(menu) => read(menu, entries),
             None => entries.to_vec(),
         }
@@ -404,10 +431,34 @@ impl ContextMenu {
 
     /// The menu goes with its node.
     pub(crate) fn delete_later(&self) {
-        if let Some(menu) = self.menu {
+        if let Some(menu) = self.menu.get() {
             menu.delete_later();
         }
     }
+}
+
+/// Makes the `QQC2.Menu` for `entries` in `item`, as its `property`, or
+/// none without entries.
+fn build(
+    item: QmlObject,
+    property: &str,
+    entries: &Rc<RefCell<MenuBarData>>,
+    choose: &Rc<dyn Fn(u32)>,
+) -> Option<QmlObject> {
+    let qml = context_menu_qml(&entries.borrow().menus[0])?;
+    let menu = QmlObject::load_in(&qml, item);
+    // As in the drawer, Qt checks a checkable action itself when it's
+    // triggered: the menu goes back to what the app shows first.
+    for entry in entries.borrow().items() {
+        let Some(action) = menu.child(&item_name(entry.id)) else { continue };
+        let (entries, choose, id) = (entries.clone(), choose.clone(), entry.id);
+        action.connect("triggered(QObject*)", move || {
+            apply_states(menu, &entries.borrow());
+            choose(id);
+        });
+    }
+    item.set_object(property, Some(menu));
+    Some(menu)
 }
 
 /// A menu that's been replaced: an open one stays until it closes, as an

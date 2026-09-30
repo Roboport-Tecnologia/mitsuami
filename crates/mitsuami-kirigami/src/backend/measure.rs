@@ -64,15 +64,20 @@ impl KirigamiBackend {
 /// Implicit sizes, except text: it wraps to the space it's offered, down to
 /// its longest word.
 fn measure_item(item: QmlObject, wraps: bool, request: MeasureRequest) -> Size {
-    let natural = Size::new(item.real("implicitWidth") as f32, item.real("implicitHeight") as f32);
     if !wraps {
+        let natural = Size::new(item.real("implicitWidth") as f32, item.real("implicitHeight") as f32);
         return Size::new(
             request.known_width.unwrap_or(natural.width.ceil()),
             request.known_height.unwrap_or(natural.height.ceil()),
         );
     }
-    // Word-wrapped at width 1, a label is as wide as its longest word.
+    // Its whole text's width, on one line: Qt's implicit width is the
+    // text's at the label's width, wrapped or elided to it (and 0 for an
+    // eliding label 0 wide whose font changed, a caption's).
     let frame_width = item.real("width");
+    item.set_real("width", f32::MAX as f64);
+    let natural = Size::new(item.real("implicitWidth") as f32, item.real("implicitHeight") as f32);
+    // Word-wrapped at width 1, a label is as wide as its longest word.
     let min_content = || {
         item.set_real("width", 1.0);
         item.real("contentWidth").ceil() as f32

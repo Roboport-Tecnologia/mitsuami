@@ -392,7 +392,7 @@ QQC2.ScrollView {{
             }}
             // The Menu key shows the current row's menu, as in Dolphin.
             else if (scroll.mitsuamiIsMenuKey(event) && currentItem && currentItem.mitsuamiHost
-                     && currentItem.mitsuamiHost.mitsuamiContextMenu) {{
+                     && currentItem.mitsuamiHost.mitsuamiHasContextMenu) {{
                 const host = currentItem.mitsuamiHost
                 host.mitsuamiPopupContextMenu(host, host.width / 2, host.height / 2)
                 event.accepted = true
