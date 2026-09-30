@@ -16,10 +16,12 @@ impl State {
     /// Leaves with an empty frame (hidden ones, or not laid out yet) are
     /// kept out of GTK's allocation: controls can't be allocated smaller
     /// than their padding. Containers stay, since content may overflow them,
-    /// except tab views, which can't be smaller than their tabs either.
+    /// except tab views, which can't be smaller than their tabs either, and
+    /// lists and tables, which scroll their rows and can't be smaller than
+    /// their scroll bars and header.
     fn update_child_visible(&self, id: NodeId) {
         let Some(node) = self.nodes.get(&id) else { return };
-        if node.widget.is_leaf() || matches!(node.widget, Widget::Tabs(_)) {
+        if node.widget.is_leaf() || matches!(node.widget, Widget::Tabs(_) | Widget::List(_)) {
             let widget = node.widget.widget();
             let empty = self.frames.borrow().get(widget).is_none_or(|f| f.size.is_empty());
             widget.set_child_visible(!empty);
