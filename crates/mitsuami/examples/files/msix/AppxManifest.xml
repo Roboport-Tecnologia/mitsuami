@@ -12,14 +12,14 @@
   IgnorableNamespaces="uap rescap desktop6">
 
   <Identity
-    Name="PLACEHOLDER.MitsuamiFiles"
-    Publisher="CN=00000000-0000-0000-0000-000000000000"
+    Name="RoboportTecnologia.MitsuamiFiles"
+    Publisher="CN=8FF5577D-629B-4660-A180-2F881DE36F4E"
     Version="$(Version)"
     ProcessorArchitecture="$(Architecture)" />
 
   <Properties>
-    <DisplayName>Files</DisplayName>
-    <PublisherDisplayName>PLACEHOLDER</PublisherDisplayName>
+    <DisplayName>Mitsuami Files</DisplayName>
+    <PublisherDisplayName>Roboport Tecnologia</PublisherDisplayName>
     <Logo>Assets\StoreLogo.png</Logo>
     <!-- A file manager's folders and files are the user's: without this,
          what it makes under AppData would go to the package's private copy,
@@ -44,7 +44,7 @@
   <Applications>
     <Application Id="Files" Executable="files.exe" EntryPoint="Windows.FullTrustApplication">
       <uap:VisualElements
-        DisplayName="Files"
+        DisplayName="Mitsuami Files"
         Description="A file browser made with mitsuami, in the platform's own controls."
         BackgroundColor="transparent"
         Square150x150Logo="Assets\Square150x150Logo.png"

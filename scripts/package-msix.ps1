@@ -15,8 +15,8 @@ Usage: scripts\package-msix.ps1 [-App showcase|files] [-Version 1.0.0.0] [-Arch 
 - The package is unsigned: the Store signs what it publishes.
 - `-Register` installs the unpacked layout for this user instead of
   packing it (needs Developer Mode), so the packaged app can be tried as
-  the Store would install it. `Get-AppxPackage *MitsuamiShowcase* |
-  Remove-AppxPackage` (or `*MitsuamiFiles*`) removes it.
+  the Store would install it. `Get-AppxPackage RoboportTecnologia.Mitsuami |
+  Remove-AppxPackage` (or `RoboportTecnologia.MitsuamiFiles`) removes it.
 
 Needs the Windows SDK (makeappx.exe, makepri.exe) and the MSVC build of
 the pinned toolchain, as scripts\build-examples.ps1 does.
@@ -71,7 +71,7 @@ if ($App -eq 'showcase') {
     $exe = Join-Path $targetDir "$target\release\examples\files.exe"
     $manifestIn = Join-Path $root 'crates\mitsuami\examples\files\msix\AppxManifest.xml'
     $out = Join-Path $targetDir 'msix'
-    $displayName = 'Files'
+    $displayName = 'Mitsuami Files'
 }
 
 $layout = Join-Path $out "layout-$App-$Arch"

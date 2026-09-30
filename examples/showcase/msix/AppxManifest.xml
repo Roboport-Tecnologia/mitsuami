@@ -11,14 +11,14 @@
   IgnorableNamespaces="uap rescap">
 
   <Identity
-    Name="PLACEHOLDER.MitsuamiShowcase"
-    Publisher="CN=00000000-0000-0000-0000-000000000000"
+    Name="RoboportTecnologia.Mitsuami"
+    Publisher="CN=8FF5577D-629B-4660-A180-2F881DE36F4E"
     Version="$(Version)"
     ProcessorArchitecture="$(Architecture)" />
 
   <Properties>
     <DisplayName>mitsuami showcase</DisplayName>
-    <PublisherDisplayName>PLACEHOLDER</PublisherDisplayName>
+    <PublisherDisplayName>Roboport Tecnologia</PublisherDisplayName>
     <Logo>Assets\StoreLogo.png</Logo>
   </Properties>
 
