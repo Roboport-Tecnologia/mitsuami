@@ -7458,6 +7458,11 @@ impl INavigationView {
                 .map(|| result__)
         }
     }
+    pub fn SetOpenPaneLength(&self, value: f64) -> windows_core::Result<()> {
+        unsafe {
+            (windows_core::Interface::vtable(self).SetOpenPaneLength)(windows_core::Interface::as_raw(self), value).ok()
+        }
+    }
     pub fn SelectedItem(&self) -> windows_core::Result<windows_core::IInspectable> {
         unsafe {
             let mut result__ = core::mem::zeroed();
@@ -7574,7 +7579,7 @@ pub struct INavigationView_Vtbl {
     pub CompactPaneLength: unsafe extern "system" fn(*mut core::ffi::c_void, *mut f64) -> windows_core::HRESULT,
     SetCompactPaneLength: usize,
     pub OpenPaneLength: unsafe extern "system" fn(*mut core::ffi::c_void, *mut f64) -> windows_core::HRESULT,
-    SetOpenPaneLength: usize,
+    pub SetOpenPaneLength: unsafe extern "system" fn(*mut core::ffi::c_void, f64) -> windows_core::HRESULT,
     PaneToggleButtonStyle: usize,
     SetPaneToggleButtonStyle: usize,
     pub SelectedItem:

@@ -67,6 +67,11 @@ fn Places() -> impl View {
                     row.set_int("defaultColumnWidth", (mitsuami::kirigami::grid_unit() * 12.0).round() as i32);
                 }
             }),
+            // 70% of NavigationView's default pane (320), closer to File
+            // Explorer's.
+            windows => mitsuami::winui::tweak(|view: &mitsuami::winui::bindings::NavigationView| {
+                view.SetOpenPaneLength(224.0)
+            }),
             _ => Tweak::none(),
         })
         .children((
