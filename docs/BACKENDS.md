@@ -557,10 +557,10 @@ The conformance tests use three controls arranged so that reading order and posi
 
 | Step | AppKit | GTK 4 | WinUI 3 | Kirigami |
 |---|---|---|---|---|
-| tick before sleeping | `CFRunLoopObserver` (BeforeWaiting, common modes) | an idle source at `HIGH_IDLE` (`glib::idle_add_local_full`), ahead of GTK's layout and drawing, guarded by a "scheduled" flag | our own `PeekMessage` loop (no `Application::Start`) ticks before it sleeps; ticks are also scheduled with `DispatcherQueue.TryEnqueue`, which runs inside modal loops (live resizing) | the event dispatcher's `aboutToBlock` |
-| thread-safe wake | `CFRunLoopWakeUp` | `glib::MainContext::default().invoke(...)` to schedule the tick | `PostThreadMessageW(WM_NULL)` to the UI thread | `QAbstractEventDispatcher::wakeUp` |
-| timer | one `CFRunLoopTimer`, armed again | a `glib::timeout_add_local_once` replaced when armed again | the timeout of `MsgWaitForMultipleObjectsEx` | one single-shot `QTimer`, armed again |
-| stop | `stop:` **plus an empty posted event** (otherwise it waits for the next real event) | `glib::MainLoop::quit` (there's no `gtk::Application`) | leave the loop, then release XAML objects while XAML still runs | `QCoreApplication::quit` (`quitOnLastWindowClosed` off: the core decides) |
+| tick before sleeping | `CFRunLoopObserver` (BeforeWaiting, common modes) | an idle source at `HIGH_IDLE` (`glib::idle_add_local_full`), ahead of GTK's layout and drawing, guarded by a "scheduled" flag | XAML's own event loop (`DispatcherQueue.RunEventLoop`, no `Application::Start`); ticks are scheduled with `DispatcherQueue.TryEnqueue`, guarded by a "scheduled" flag, which also runs inside modal loops (live resizing) | the event dispatcher's `aboutToBlock` |
+| thread-safe wake | `CFRunLoopWakeUp` | `glib::MainContext::default().invoke(...)` to schedule the tick | `DispatcherQueue.TryEnqueue` (the queue is agile) to schedule the tick | `QAbstractEventDispatcher::wakeUp` |
+| timer | one `CFRunLoopTimer`, armed again | a `glib::timeout_add_local_once` replaced when armed again | one `DispatcherQueueTimer`, armed again | one single-shot `QTimer`, armed again |
+| stop | `stop:` **plus an empty posted event** (otherwise it waits for the next real event) | `glib::MainLoop::quit` (there's no `gtk::Application`) | `EnqueueEventLoopExit`, then release XAML objects while XAML still runs | `QCoreApplication::quit` (`quitOnLastWindowClosed` off: the core decides) |
 
 Never call `tick()` from inside a widget callback; the loop calls it.
 

@@ -378,8 +378,8 @@ struct Menus {
 /// Native element (by COM identity) → node, shared with focus handlers.
 type ElementMap = Rc<RefCell<HashMap<usize, NodeId>>>;
 
-/// Emits events and wakes the run loop so they get handled soon, even from
-/// modal loops (live resizing) that our own loop doesn't see.
+/// Emits events and schedules a tick so they get handled soon, even from
+/// modal loops (live resizing).
 #[derive(Clone)]
 pub(crate) struct Events {
     sink: EventSink,

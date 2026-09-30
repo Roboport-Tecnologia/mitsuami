@@ -1,7 +1,7 @@
 //! The Windows App Runtime and XAML on the current thread, without
-//! `Application::Start`: we compose the `Application`, initialize XAML for
-//! the thread and pump its messages ourselves, so the run loop (and tests)
-//! decide when to tick, exactly as on AppKit.
+//! `Application::Start`: we compose the `Application` and initialize XAML
+//! for the thread. Apps run XAML's event loop (`app.rs`); tests pump its
+//! messages themselves, so they decide when to tick.
 
 use std::cell::Cell;
 use std::time::Duration;
@@ -20,6 +20,8 @@ thread_local! {
     /// Set while the backend pumps messages from inside a `Ui` call (waiting
     /// for a window to come alive); scheduled ticks must not run then.
     static NESTED: Cell<u32> = const { Cell::new(0) };
+    /// A tick came while nested, and waits for the pump to end.
+    static TICK_AFTER: Cell<bool> = const { Cell::new(false) };
 }
 
 /// Makes the Windows App Runtime and XAML available on this thread. Idempotent.
@@ -111,6 +113,14 @@ pub(crate) fn pump_nested() {
     NESTED.set(NESTED.get() + 1);
     pump();
     NESTED.set(NESTED.get() - 1);
+    if NESTED.get() == 0 && TICK_AFTER.replace(false) {
+        crate::app::schedule_tick();
+    }
+}
+
+/// Holds a scheduled tick back until the nested pump ends.
+pub(crate) fn tick_after_nested() {
+    TICK_AFTER.set(true);
 }
 
 pub(crate) fn nested() -> bool {

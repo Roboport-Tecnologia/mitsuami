@@ -87,6 +87,7 @@ windows-link = "0.100"
 windows-collections = "0.100"
 windows-future = "0.100"
 windows-reference = "0.100"
+windows-time = "0.100"
 
 [profile.dev]
 # Full debuginfo made every example and test binary over 100MB, nearly all of

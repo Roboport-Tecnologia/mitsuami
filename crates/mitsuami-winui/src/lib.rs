@@ -10,8 +10,8 @@
 //! - Escape hatches: [`tweak`] for raw settings of built-in controls,
 //!   [`NativeRender`] for custom widgets, [`NativeView`] for any XAML
 //!   element, and XAML shapes for drawn custom widgets.
-//! - [`run`] owns the message loop: XAML runs without `Application::Start`,
-//!   and the loop ticks the UI before it sleeps.
+//! - [`run`] runs XAML's event loop, without `Application::Start`, and
+//!   ticks the UI from its dispatcher queue.
 //!
 //! Needs the Windows App Runtime 2.4 or later installed, and the MSVC
 //! toolchain (`x86_64-pc-windows-msvc` or `aarch64-pc-windows-msvc`).

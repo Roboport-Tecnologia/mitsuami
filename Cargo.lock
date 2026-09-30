@@ -858,6 +858,7 @@ dependencies = [
  "windows-future",
  "windows-link 0.100.0",
  "windows-reference",
+ "windows-time",
 ]
 
 [[package]]

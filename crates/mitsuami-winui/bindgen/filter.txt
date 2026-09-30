@@ -12,8 +12,10 @@ Windows.UI.Xaml.Interop.TypeName
 Microsoft.UI.Xaml.Hosting.WindowsXamlManager::InitializeForCurrentThread
 Microsoft.UI.Dispatching.DispatcherQueueController::CreateOnCurrentThread
 Microsoft.UI.Dispatching.DispatcherQueue::GetForCurrentThread
-Microsoft.UI.Dispatching.IDispatcherQueue::TryEnqueue
+Microsoft.UI.Dispatching.IDispatcherQueue::{TryEnqueue, CreateTimer}
+Microsoft.UI.Dispatching.IDispatcherQueueTimer::{put_Interval, put_IsRepeating, Start, Stop, add_Tick, remove_Tick}
 Microsoft.UI.Dispatching.DispatcherQueueHandler
+Microsoft.UI.Dispatching.IDispatcherQueue3::{RunEventLoop, EnqueueEventLoopExit}
 
 Microsoft.UI.Xaml.Window::CreateInstance
 Microsoft.UI.Xaml.IWindow::{add_Activated, remove_Activated, Activate, Close, get_Content, put_Content, get_Title, put_Title, put_ExtendsContentIntoTitleBar, SetTitleBar}

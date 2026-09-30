@@ -2099,6 +2099,29 @@ impl<F: Fn() + 'static> DispatcherQueueHandlerBox<F> {
         }
     }
 }
+#[repr(transparent)]
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct DispatcherQueueTimer(windows_core::IUnknown);
+windows_core::imp::interface_hierarchy!(DispatcherQueueTimer, windows_core::IUnknown, windows_core::IInspectable);
+impl windows_core::RuntimeType for DispatcherQueueTimer {
+    const SIGNATURE: windows_core::imp::ConstBuffer =
+        windows_core::imp::ConstBuffer::for_class::<Self, IDispatcherQueueTimer>();
+}
+unsafe impl windows_core::Interface for DispatcherQueueTimer {
+    type Vtable = <IDispatcherQueueTimer as windows_core::Interface>::Vtable;
+    const IID: windows_core::GUID = <IDispatcherQueueTimer as windows_core::Interface>::IID;
+}
+impl core::ops::Deref for DispatcherQueueTimer {
+    type Target = IDispatcherQueueTimer;
+    fn deref(&self) -> &Self::Target {
+        unsafe { core::mem::transmute(self) }
+    }
+}
+impl windows_core::RuntimeName for DispatcherQueueTimer {
+    const NAME: &'static str = "Microsoft.UI.Dispatching.DispatcherQueueTimer";
+}
+unsafe impl Send for DispatcherQueueTimer {}
+unsafe impl Sync for DispatcherQueueTimer {}
 windows_core::imp::define_interface!(
     DoubleTappedEventHandler,
     DoubleTappedEventHandler_Vtbl,
@@ -5210,6 +5233,13 @@ impl windows_core::RuntimeType for IDispatcherQueue {
     const SIGNATURE: windows_core::imp::ConstBuffer = windows_core::imp::ConstBuffer::for_interface::<Self>();
 }
 impl IDispatcherQueue {
+    pub fn CreateTimer(&self) -> windows_core::Result<DispatcherQueueTimer> {
+        unsafe {
+            let mut result__ = core::mem::zeroed();
+            (windows_core::Interface::vtable(self).CreateTimer)(windows_core::Interface::as_raw(self), &mut result__)
+                .and_then(|| windows_core::imp::Type::from_abi(result__))
+        }
+    }
     pub fn TryEnqueue<P0>(&self, callback: P0) -> windows_core::Result<bool>
     where
         P0: windows_core::Param<DispatcherQueueHandler>,
@@ -5228,9 +5258,31 @@ impl IDispatcherQueue {
 #[repr(C)]
 pub struct IDispatcherQueue_Vtbl {
     pub base__: windows_core::IInspectable_Vtbl,
-    CreateTimer: usize,
+    pub CreateTimer:
+        unsafe extern "system" fn(*mut core::ffi::c_void, *mut *mut core::ffi::c_void) -> windows_core::HRESULT,
     pub TryEnqueue:
         unsafe extern "system" fn(*mut core::ffi::c_void, *mut core::ffi::c_void, *mut bool) -> windows_core::HRESULT,
+}
+windows_core::imp::define_interface!(IDispatcherQueue3, IDispatcherQueue3_Vtbl, 0x14a7a175_5c27_5a35_b079_21960cf764a8);
+impl windows_core::RuntimeType for IDispatcherQueue3 {
+    const SIGNATURE: windows_core::imp::ConstBuffer = windows_core::imp::ConstBuffer::for_interface::<Self>();
+}
+impl IDispatcherQueue3 {
+    pub fn EnqueueEventLoopExit(&self) -> windows_core::Result<()> {
+        unsafe {
+            (windows_core::Interface::vtable(self).EnqueueEventLoopExit)(windows_core::Interface::as_raw(self)).ok()
+        }
+    }
+    pub fn RunEventLoop(&self) -> windows_core::Result<()> {
+        unsafe { (windows_core::Interface::vtable(self).RunEventLoop)(windows_core::Interface::as_raw(self)).ok() }
+    }
+}
+#[repr(C)]
+pub struct IDispatcherQueue3_Vtbl {
+    pub base__: windows_core::IInspectable_Vtbl,
+    pub EnqueueEventLoopExit: unsafe extern "system" fn(*mut core::ffi::c_void) -> windows_core::HRESULT,
+    EnsureSystemDispatcherQueue: usize,
+    pub RunEventLoop: unsafe extern "system" fn(*mut core::ffi::c_void) -> windows_core::HRESULT,
 }
 windows_core::imp::define_interface!(
     IDispatcherQueueController,
@@ -5272,6 +5324,70 @@ pub struct IDispatcherQueueStatics_Vtbl {
     pub base__: windows_core::IInspectable_Vtbl,
     pub GetForCurrentThread:
         unsafe extern "system" fn(*mut core::ffi::c_void, *mut *mut core::ffi::c_void) -> windows_core::HRESULT,
+}
+windows_core::imp::define_interface!(
+    IDispatcherQueueTimer,
+    IDispatcherQueueTimer_Vtbl,
+    0xad4d63fd_88fe_541f_ac11_bf2dc1ed2ce5
+);
+impl windows_core::RuntimeType for IDispatcherQueueTimer {
+    const SIGNATURE: windows_core::imp::ConstBuffer = windows_core::imp::ConstBuffer::for_interface::<Self>();
+}
+impl IDispatcherQueueTimer {
+    pub fn SetInterval(&self, value: windows_time::TimeSpan) -> windows_core::Result<()> {
+        unsafe {
+            (windows_core::Interface::vtable(self).SetInterval)(windows_core::Interface::as_raw(self), value).ok()
+        }
+    }
+    pub fn SetIsRepeating(&self, value: bool) -> windows_core::Result<()> {
+        unsafe {
+            (windows_core::Interface::vtable(self).SetIsRepeating)(windows_core::Interface::as_raw(self), value).ok()
+        }
+    }
+    pub fn Start(&self) -> windows_core::Result<()> {
+        unsafe { (windows_core::Interface::vtable(self).Start)(windows_core::Interface::as_raw(self)).ok() }
+    }
+    pub fn Stop(&self) -> windows_core::Result<()> {
+        unsafe { (windows_core::Interface::vtable(self).Stop)(windows_core::Interface::as_raw(self)).ok() }
+    }
+    pub fn Tick<F>(&self, handler: F) -> windows_core::Result<windows_core::EventRevoker>
+    where
+        F: Fn(windows_core::Ref<DispatcherQueueTimer>, windows_core::Ref<windows_core::IInspectable>) + 'static,
+    {
+        let handler: TypedEventHandler<DispatcherQueueTimer, windows_core::IInspectable> = {
+            let com = windows_core::imp::DelegateBox::<
+                TypedEventHandler<DispatcherQueueTimer, windows_core::IInspectable>,
+                F,
+            >::new(
+                &TypedEventHandlerBox::<DispatcherQueueTimer, windows_core::IInspectable, F>::VTABLE, handler
+            );
+            unsafe { core::mem::transmute(windows_core::imp::box_new(com)) }
+        };
+        unsafe {
+            let mut result__ = core::mem::zeroed();
+            let token__ = (windows_core::Interface::vtable(self).Tick)(
+                windows_core::Interface::as_raw(self),
+                windows_core::Interface::as_raw(&handler),
+                &mut result__,
+            )
+            .map(|| result__)?;
+            Ok(windows_core::EventRevoker::new(self.clone(), token__, windows_core::Interface::vtable(self).RemoveTick))
+        }
+    }
+}
+#[repr(C)]
+pub struct IDispatcherQueueTimer_Vtbl {
+    pub base__: windows_core::IInspectable_Vtbl,
+    Interval: usize,
+    pub SetInterval: unsafe extern "system" fn(*mut core::ffi::c_void, windows_time::TimeSpan) -> windows_core::HRESULT,
+    IsRunning: usize,
+    IsRepeating: usize,
+    pub SetIsRepeating: unsafe extern "system" fn(*mut core::ffi::c_void, bool) -> windows_core::HRESULT,
+    pub Start: unsafe extern "system" fn(*mut core::ffi::c_void) -> windows_core::HRESULT,
+    pub Stop: unsafe extern "system" fn(*mut core::ffi::c_void) -> windows_core::HRESULT,
+    pub Tick:
+        unsafe extern "system" fn(*mut core::ffi::c_void, *mut core::ffi::c_void, *mut i64) -> windows_core::HRESULT,
+    pub RemoveTick: unsafe extern "system" fn(*mut core::ffi::c_void, i64) -> windows_core::HRESULT,
 }
 windows_core::imp::define_interface!(
     IDoubleTappedRoutedEventArgs,
