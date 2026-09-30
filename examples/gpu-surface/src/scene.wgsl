@@ -293,7 +293,7 @@ fn trail(@builtin(position) at: vec4<f32>) -> @location(0) vec4<f32> {
     let n_left = noise3(vec3<f32>(q.x - e, q.y, time * 0.2));
     let flow = vec2<f32>(n_up - n_down, n_left - n_right) / (2.0 * e) * 45.0;
     let drifted = uv - flow * dt * scale / params.size.xy;
-    var color = textureSampleLevel(ink, smooth_sampler, drifted, 0.0).rgb * exp(-dt * 1.3);
+    var color = textureSampleLevel(ink, smooth_sampler, drifted, 0.0).rgb * exp(-dt * 2.6);
     if params.forward.w > 0.5 {
         let p = uv * params.size.xy;
         let a = params.stroke.xy;
