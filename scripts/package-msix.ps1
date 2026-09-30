@@ -62,7 +62,7 @@ if ($App -eq 'showcase') {
     $exe = Join-Path $showcase "target\$target\release\showcase.exe"
     $manifestIn = Join-Path $showcase 'msix\AppxManifest.xml'
     $out = Join-Path $showcase 'target\msix'
-    $displayName = 'mitsuami showcase'
+    $displayName = 'Mitsuami Showcase'
 } else {
     & cargo $toolchain build --release --package mitsuami --example files --target $target
     if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }

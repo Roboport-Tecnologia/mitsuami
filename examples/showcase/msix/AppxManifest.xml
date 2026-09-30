@@ -17,7 +17,7 @@
     ProcessorArchitecture="$(Architecture)" />
 
   <Properties>
-    <DisplayName>mitsuami showcase</DisplayName>
+    <DisplayName>Mitsuami Showcase</DisplayName>
     <PublisherDisplayName>Roboport Tecnologia</PublisherDisplayName>
     <Logo>Assets\StoreLogo.png</Logo>
   </Properties>
@@ -39,7 +39,7 @@
   <Applications>
     <Application Id="Showcase" Executable="showcase.exe" EntryPoint="Windows.FullTrustApplication">
       <uap:VisualElements
-        DisplayName="mitsuami showcase"
+        DisplayName="Mitsuami Showcase"
         Description="Every mitsuami example in one window, in the platform's own controls."
         BackgroundColor="transparent"
         Square150x150Logo="Assets\Square150x150Logo.png"
