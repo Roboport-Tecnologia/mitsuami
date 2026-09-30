@@ -210,6 +210,11 @@ pub fn preview_key() -> Option<Shortcut> {
 fn Files(preview: Signal<bool>) -> impl View {
     let browser = use_store::<Browser>();
     let handle = ListHandle::new();
+    // Focused as the window opens, as Finder's, Nautilus's and Dolphin's
+    // views are. GTK would focus the sidebar, and its list selects the row
+    // it focuses: the first place, which would go there.
+    let items = node_ref();
+    items.focus();
     let entries = computed(move || browser.entries());
     // Keep the selection in view as it changes from the app's side.
     let follow = handle.clone();
@@ -231,6 +236,7 @@ fn Files(preview: Signal<bool>) -> impl View {
         .selected(browser.selected)
         .selection_mode(SelectionMode::Multiple)
         .handle(handle)
+        .node_ref(items)
         .estimated_row_height(28)
         .on_activate(move |path: PathBuf| browser.open_path(&path))
         // To the file manager, Mail, another folder: a copy.

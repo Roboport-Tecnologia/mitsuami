@@ -169,6 +169,7 @@ async fn folders_open_in_place_and_history_goes_back(app: TestApp) {
         app.expect(by_label("Path")).to_have_value(&here.display().to_string()).await;
     } else {
         app.expect(by_role(Role::Button, "Projects")).to_exist().await;
+        assert!(!app.get_by_role(Role::Button, "mitsuami").is_enabled());
     }
 
     app.get_by_role(Role::Button, "Back").click().await;

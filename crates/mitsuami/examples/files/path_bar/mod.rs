@@ -62,7 +62,9 @@ pub fn name(path: &Path) -> String {
 const SHOWN: usize = 4;
 
 /// Nautilus's and Dolphin's: the folders as buttons, the one shown as a
-/// label, and a menu for the ones before the last few.
+/// disabled one (a label wouldn't have a button's padding, so the
+/// separators would sit unevenly), and a menu for the ones before the
+/// last few.
 fn composed(widget: Composed<PathBar>) -> impl View {
     let label = widget.label().unwrap_or_default();
     let split = {
@@ -107,7 +109,7 @@ fn composed(widget: Composed<PathBar>) -> impl View {
                 };
                 let here = {
                     let folder = folder.clone();
-                    move || Text::new(name(&folder)).weight(FontWeight::Semibold).max_lines(1).padding_x(Spacing::Sm)
+                    move || Button::new(name(&folder)).button_style(ButtonStyle::Borderless).enabled(false)
                 };
                 let button = move || {
                     let (widget, folder) = (widget.clone(), folder.clone());
