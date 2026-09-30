@@ -12,6 +12,7 @@ mod screen;
 
 use std::path::{Path, PathBuf};
 
+use mitsuami::core::services::MenuCheck;
 use mitsuami::prelude::*;
 use mitsuami_test::prelude::*;
 
@@ -89,35 +90,28 @@ impl Drop for Fixture {
     }
 }
 
-/// The rows the list shows, in order: each item's name, and the row's
-/// own name (its columns' text, the item's name first). An empty folder
-/// hides the list.
-fn rows(app: &TestApp) -> Vec<(String, String)> {
-    let list = app.get_by_role(Role::List, "Items");
-    if !list.exists() {
+/// The items the table shows, in order: their Name cells' text. An empty
+/// folder hides the table.
+fn names(app: &TestApp) -> Vec<String> {
+    let table = app.get_by_role(Role::Table, "Items");
+    if !table.exists() {
         return Vec::new();
     }
-    let list = list.node();
-    list.walk()
+    let table = table.node();
+    table
+        .walk()
         .into_iter()
-        .filter(|n| n.role == Role::ListItem)
-        .filter_map(|n| {
-            let text = n.children.iter().find(|c| c.role == Role::StaticText)?;
-            Some((text.name.clone()?, n.name.clone()?))
-        })
+        .filter(|n| n.role == Role::Row)
+        .filter_map(|n| n.children.iter().find(|c| c.role == Role::Cell)?.name.clone())
         .collect()
 }
 
-fn names(app: &TestApp) -> Vec<String> {
-    rows(app).into_iter().map(|(name, _)| name).collect()
-}
-
-/// The row of the item named `name`.
+/// The Name cell of the item named `name`, which acts for its row.
 fn row<'a>(app: &'a TestApp, name: &str) -> Locator<'a> {
-    let Some((_, row)) = rows(app).into_iter().find(|(n, _)| n == name) else {
+    if !names(app).iter().any(|n| n == name) {
         panic!("no row for {name:?} in {:?}", names(app))
-    };
-    app.get_by_role(Role::ListItem, row)
+    }
+    app.get_by_role(Role::Cell, name)
 }
 
 /// Chooses a folder in the path bar as a user would: the platform's own
@@ -146,12 +140,16 @@ async fn lists_the_folder_as_people_count_hiding_dot_files(app: TestApp) {
     app.get_by_label("View Options").choose_menu_item(&["Show Hidden Files"]).await;
     listed(&app, &[".secret", "a.rs", "notes 2.txt", "notes 10.txt", "Photos"]).await;
 
-    // Sorted by kind, then by the Name column's title the other way round.
+    // Sorted by kind, then by the Name column's header the other way round,
+    // which the menus follow.
     app.get_by_label("View Options").choose_menu_item(&["Sort By", "Kind"]).await;
     listed(&app, &[".secret", "Photos", "notes 2.txt", "notes 10.txt", "a.rs"]).await;
-    app.get_by_role(Role::Button, "Name").click().await;
-    app.get_by_role(Role::Button, "Name").click().await;
+    app.get_by_role(Role::ColumnHeader, "Name").click().await;
+    app.get_by_role(Role::ColumnHeader, "Name").click().await;
     listed(&app, &["Photos", "notes 10.txt", "notes 2.txt", "a.rs", ".secret"]).await;
+    let check = |path: &[&str]| app.services().menu_item(path).map(|item| item.check);
+    assert_eq!(check(&["View", "Sort By", "Name"]), Some(MenuCheck::Radio(true)));
+    assert_eq!(check(&["View", "Sort By", "Reversed"]), Some(MenuCheck::Check(true)));
 }
 
 #[mitsuami_test::test]
@@ -296,20 +294,26 @@ async fn menus_have_the_file_manager_s_shortcuts(app: TestApp) {
     listed(&app, &["Projects"]).await;
 }
 
-/// Space on the list shows and hides the preview, where the platform's
-/// file manager has it there and its list doesn't keep Space (Finder).
+/// Space on the table shows and hides the preview, where the platform's
+/// file manager has it there and its table doesn't keep Space (Finder).
+/// The toolbar's toggle does everywhere.
 #[mitsuami_test::test]
 async fn the_preview_key_shows_and_hides_the_preview(app: TestApp) {
-    let Some(key) = screen::preview_key() else { return };
     let fixture = Fixture::new(&app, &["notes.txt"]);
     fixture.mount(&app);
     listed(&app, &["notes.txt"]).await;
     row(&app, "notes.txt").select().await;
     assert!(app.get_by_label("Preview").exists());
-
-    app.get_by_role(Role::List, "Items").press(key).await;
+    app.get_by_role(Role::ToggleButton, "Show Preview").click().await;
     assert!(!app.get_by_label("Preview").exists());
-    app.get_by_role(Role::List, "Items").press(key).await;
+    app.get_by_role(Role::ToggleButton, "Show Preview").click().await;
+    app.expect(by_text("This is notes.txt.\nSecond line.")).to_exist().await;
+
+    let Some(key) = screen::preview_key() else { return };
+    app.get_by_role(Role::Table, "Items").press(key).await;
+    assert!(!app.get_by_label("Preview").exists());
+    assert!(!app.get_by_role(Role::ToggleButton, "Show Preview").is_checked());
+    app.get_by_role(Role::Table, "Items").press(key).await;
     app.expect(by_text("This is notes.txt.\nSecond line.")).to_exist().await;
 }
 
@@ -323,14 +327,14 @@ async fn go_to_folder_starts_from_the_path_typed_last(app: TestApp) {
     let projects = fixture.root.join("Projects").display().to_string();
 
     assert!(app.services().choose_menu_item(&["Go", "Go to Folder…"]));
-    app.expect(by_label("Folder")).to_be_focused().await;
-    app.get_by_label("Folder").type_text(&projects).await;
-    app.get_by_label("Folder").press(Key::Enter).await;
+    app.expect(by_role(Role::TextField, "Folder")).to_be_focused().await;
+    app.get_by_role(Role::TextField, "Folder").type_text(&projects).await;
+    app.get_by_role(Role::TextField, "Folder").press(Key::Enter).await;
     listed(&app, &["todo.txt"]).await;
 
     assert!(app.services().choose_menu_item(&["Go", "Go to Folder…"]));
-    app.expect(by_label("Folder")).to_be_focused().await;
-    assert_eq!(app.get_by_label("Folder").text_selection(), Some(0..projects.chars().count()));
+    app.expect(by_role(Role::TextField, "Folder")).to_be_focused().await;
+    assert_eq!(app.get_by_role(Role::TextField, "Folder").text_selection(), Some(0..projects.chars().count()));
 }
 
 #[mitsuami_test::test]
@@ -384,7 +388,10 @@ async fn the_preview_shows_the_selection(app: TestApp) {
     let fixture = Fixture::new(&app, &["readme.txt", "Stuff/one", "Stuff/two"]);
     fixture.mount(&app);
     listed(&app, &["readme.txt", "Stuff"]).await;
-    app.expect(by_role(Role::StaticText, "Home")).to_exist().await;
+    // With nothing selected, the preview names the folder (as the composed
+    // path bar does too).
+    let preview = app.get_by_label("Preview").node();
+    assert!(preview.walk().iter().any(|n| n.role == Role::StaticText && n.name.as_deref() == Some("Home")));
 
     row(&app, "readme.txt").select().await;
     app.expect(by_text("This is readme.txt.\nSecond line.")).to_exist().await;

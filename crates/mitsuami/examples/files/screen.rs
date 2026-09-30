@@ -1,9 +1,10 @@
 //! The window: places down the sidebar, the folder's items in the
-//! platform's list, the selection's preview beside them, and the path to
+//! platform's table, the selection's preview beside them, and the path to
 //! the folder along the bottom.
 
 use std::path::{Path, PathBuf};
 
+use mitsuami::core::services::MenuEntries;
 use mitsuami::prelude::*;
 use mitsuami::unicode_segmentation::UnicodeSegmentation;
 
@@ -11,7 +12,7 @@ use crate::browser::{Browser, SortBy};
 use crate::fs::{self, Entry};
 use crate::path_bar::{PathBar, PathBarEvent, PathBarProps};
 
-/// The columns' widths, shared by the header and the rows.
+/// The columns' widths, where they start.
 const MODIFIED: f32 = 136.0;
 const SIZE: f32 = 76.0;
 const KIND: f32 = 104.0;
@@ -22,7 +23,7 @@ pub fn Finder() -> impl View {
     view! {
         <Column grow=1.0>
             <Places/>
-            <Tools/>
+            <Tools preview=preview/>
             <Menus preview=preview going_to=going_to/>
             <Row grow=1.0 basis=0 min_height=0>
                 <Files preview=preview/>
@@ -62,7 +63,7 @@ fn Places() -> impl View {
 }
 
 #[component]
-fn Tools() -> impl View {
+fn Tools(preview: Signal<bool>) -> impl View {
     let browser = use_store::<Browser>();
     let back = platform! { macos => "chevron.left", gtk => "go-previous-symbolic", kde => "go-previous", windows => "\u{E72B}" };
     let forward =
@@ -72,6 +73,9 @@ fn Tools() -> impl View {
     };
     let view_options = platform! {
         macos => "list.bullet", gtk => "view-list-symbolic", kde => "view-list-details", windows => "\u{E8FD}",
+    };
+    let show_preview = platform! {
+        macos => "sidebar.right", gtk => "sidebar-show-right-symbolic", kde => "dialog-information", windows => "\u{E8A0}",
     };
     view! {
         <Toolbar>
@@ -89,6 +93,9 @@ fn Tools() -> impl View {
                 MenuSeparator,
                 MenuItem::new("Show Hidden Files").bind(browser.show_hidden),
             )>"View Options"</MenuButton>
+            <ToggleButton icon=show_preview icon_only=true button_style=ButtonStyle::Borderless bind=preview>
+                "Show Preview"
+            </ToggleButton>
             <SearchInput placeholder="Search" a11y_label="Search" width=180
                 value=browser.query @search=move |q| browser.query.set(q)/>
         </Toolbar>
@@ -102,7 +109,11 @@ fn sort_items(browser: Browser) -> Menu {
         .item(MenuItem::new("Size").radio((browser.sort_by, SortBy::Size)))
         .item(MenuItem::new("Date Modified").radio((browser.sort_by, SortBy::Modified)))
         .separator()
-        .item(MenuItem::new("Reversed").bind(browser.descending))
+        .item(
+            MenuItem::new("Reversed")
+                .checked(move || browser.sort.get().order == SortOrder::Descending)
+                .on_select(move || browser.reverse()),
+        )
 }
 
 /// The shortcuts the platform's file manager has for these items: Finder,
@@ -185,16 +196,16 @@ fn copy_paths(paths: Vec<PathBuf>) {
 }
 
 /// The key that shows the selection larger: Finder's Quick Look is on
-/// Space. Nautilus's previewer is too, but GTK's list keeps Space (it
+/// Space. Nautilus's previewer is too, but GTK's table keeps Space (it
 /// selects the focused row), as XAML's does; Dolphin and File Explorer
 /// have no such key.
 pub fn preview_key() -> Option<Shortcut> {
     platform! { macos => Some(Shortcut::new(' ')), _ => None }
 }
 
-/// The folder's items: a header to sort by, and the platform's list.
+/// The folder's items, in the platform's table: its header sorts them.
 /// Files dropped on it are copied in. The preview key shows or hides the
-/// preview, where the list doesn't use it itself.
+/// preview, where the table doesn't use it itself.
 #[component]
 fn Files(preview: Signal<bool>) -> impl View {
     let browser = use_store::<Browser>();
@@ -214,8 +225,9 @@ fn Files(preview: Signal<bool>) -> impl View {
         let loaded = browser.listing.data().is_some();
         loaded && entries.with(Vec::is_empty)
     };
-    let row = move |entry: Entry| file_row(browser, entry);
-    let mut list = List::new(entries, |e: &Entry| e.path.clone(), row)
+    let mut table = Table::new(entries, |e: &Entry| e.path.clone())
+        .columns(columns(browser))
+        .sort(browser.sort)
         .selected(browser.selected)
         .selection_mode(SelectionMode::Multiple)
         .handle(handle)
@@ -228,7 +240,7 @@ fn Files(preview: Signal<bool>) -> impl View {
         .grow(1.0)
         .basis(0);
     if let Some(key) = preview_key() {
-        list = list.on_key(key, move || preview.update(|p| *p = !*p));
+        table = table.on_key(key, move || preview.update(|p| *p = !*p));
     }
     Column::new()
         .grow(1.0)
@@ -243,8 +255,6 @@ fn Files(preview: Signal<bool>) -> impl View {
             MenuItem::new("Show Hidden Files").bind(browser.show_hidden),
         ))
         .children((
-            header(browser),
-            Separator::new(),
             Show::new(
                 move || browser.listing.error().is_some(),
                 move || {
@@ -258,79 +268,66 @@ fn Files(preview: Signal<bool>) -> impl View {
                     .text_style(TextStyle::Caption)
                     .padding(Spacing::Lg)
             }),
-            list,
+            table,
         ))
 }
 
-/// Column titles that sort by their column; again, the other way round.
-fn header(browser: Browser) -> impl View {
-    let title = move |title: &'static str, by: SortBy| {
-        move || match (browser.sort_by.get() == by, browser.descending.get()) {
-            (false, _) => title.to_owned(),
-            (true, false) => format!("{title} \u{25B4}"),
-            (true, true) => format!("{title} \u{25BE}"),
-        }
-    };
-    let sort = move |by: SortBy| {
-        move || {
-            if browser.sort_by.get_untracked() == by {
-                browser.descending.update(|d| *d = !*d);
-            } else {
-                batch(|| {
-                    browser.sort_by.set(by);
-                    browser.descending.set(false);
-                });
-            }
-        }
-    };
-    let column = move |name: &'static str, by: SortBy| {
-        Button::new(title(name, by)).button_style(ButtonStyle::Borderless).a11y_label(name).on_click(sort(by))
-    };
-    Row::new().padding_x(Spacing::Sm).align(Align::Center).children((
-        Row::new().grow(1.0).children(column("Name", SortBy::Name)),
-        Row::new().width(MODIFIED).children(column("Date Modified", SortBy::Modified)),
-        Row::new().width(SIZE).children(column("Size", SortBy::Size)),
-        Row::new().width(KIND).children(column("Kind", SortBy::Kind)),
-    ))
+/// Name, taking the room left, then Finder's columns.
+fn columns(browser: Browser) -> Vec<TableColumn<Entry>> {
+    let caption = |text: String| Text::new(text).text_style(TextStyle::Caption).max_lines(1);
+    vec![
+        TableColumn::new("Name", move |e: Entry| {
+            let name = Row::new().gap(Spacing::Sm).align(Align::Center).children((
+                FileIcon::new(&e.path),
+                Text::new(e.name.clone()).max_lines(1).grow(1.0).shrink(1.0).basis(0),
+            ));
+            cell(browser, e.path.clone(), name)
+        })
+        .expand()
+        .sort_key(SortBy::Name),
+        TableColumn::new("Date Modified", move |e: Entry| {
+            cell(browser, e.path.clone(), caption(e.modified.map(fs::civil).unwrap_or_default()))
+        })
+        .width(MODIFIED)
+        .sort_key(SortBy::Modified),
+        TableColumn::new("Size", move |e: Entry| {
+            cell(browser, e.path.clone(), caption(e.size.map(fs::human_size).unwrap_or_else(|| "--".into())))
+        })
+        .width(SIZE)
+        .sort_key(SortBy::Size),
+        TableColumn::new("Kind", move |e: Entry| cell(browser, e.path.clone(), caption(e.kind())))
+            .width(KIND)
+            .sort_key(SortBy::Kind),
+    ]
 }
 
-fn file_row(browser: Browser, entry: Entry) -> impl View {
-    let path = entry.path.clone();
-    // A row's menu acts on the selection when the row is in it, on the
-    // row alone when it isn't.
-    let targets = move || {
+/// A cell, with its row's menu: a right-click lands on a cell.
+fn cell(browser: Browser, path: PathBuf, content: impl View) -> impl View {
+    Row::new().align(Align::Center).context_menu(row_menu(browser, path)).children(content)
+}
+
+/// A row's menu acts on the selection when the row is in it, on the row
+/// alone when it isn't.
+fn row_menu(browser: Browser, path: PathBuf) -> impl MenuEntries {
+    let rename = path.clone();
+    let targets = std::rc::Rc::new(move || {
         let selected = browser.selected.get_untracked();
         if selected.contains(&path) { selected } else { vec![path.clone()] }
-    };
-    let targets = std::rc::Rc::new(targets);
-    let (open, rename, duplicate, trash, copy) =
-        (targets.clone(), entry.path.clone(), targets.clone(), targets.clone(), targets);
-    let caption = |text: String, width: f32| Text::new(text).text_style(TextStyle::Caption).max_lines(1).width(width);
-    Row::new()
-        .padding_x(Spacing::Sm)
-        .padding_y(Spacing::Xs)
-        .gap(Spacing::Sm)
-        .align(Align::Center)
-        .children((
-            FileIcon::new(&entry.path),
-            Text::new(entry.name.clone()).max_lines(1).grow(1.0).shrink(1.0).basis(0),
-            caption(entry.modified.map(fs::civil).unwrap_or_default(), MODIFIED),
-            caption(entry.size.map(fs::human_size).unwrap_or_else(|| "--".into()), SIZE),
-            caption(entry.kind(), KIND),
-        ))
-        .context_menu((
-            MenuItem::new("Open").on_select(move || {
-                let paths = open();
-                let entries = browser.listing.data().unwrap_or_default();
-                browser.open(entries.into_iter().filter(|e| paths.contains(&e.path)).collect());
-            }),
-            MenuSeparator,
-            MenuItem::new("Rename…").on_select(move || browser.renaming.set(Some(rename.clone()))),
-            MenuItem::new("Duplicate").on_select(move || browser.duplicate(duplicate())),
-            MenuItem::new("Move to Trash").on_select(move || browser.trash(trash())),
-            MenuSeparator,
-            MenuItem::new("Copy as Pathname").on_select(move || copy_paths(copy())),
-        ))
+    });
+    let (open, duplicate, trash, copy) = (targets.clone(), targets.clone(), targets.clone(), targets);
+    (
+        MenuItem::new("Open").on_select(move || {
+            let paths = open();
+            let entries = browser.listing.data().unwrap_or_default();
+            browser.open(entries.into_iter().filter(|e| paths.contains(&e.path)).collect());
+        }),
+        MenuSeparator,
+        MenuItem::new("Rename…").on_select(move || browser.renaming.set(Some(rename.clone()))),
+        MenuItem::new("Duplicate").on_select(move || browser.duplicate(duplicate())),
+        MenuItem::new("Move to Trash").on_select(move || browser.trash(trash())),
+        MenuSeparator,
+        MenuItem::new("Copy as Pathname").on_select(move || copy_paths(copy())),
+    )
 }
 
 /// The selection, larger: a picture's pixels, a text file's first lines,

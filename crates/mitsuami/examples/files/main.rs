@@ -4,11 +4,13 @@
 //!
 //! - The sidebar's places (home, Desktop, Documents…, the disk) choose the
 //!   folder; it follows along as you go elsewhere, choosing none.
-//! - The folder's items are in the platform's own list: select several,
-//!   double-click (or Return) a folder to go in, a file to open it in its
-//!   app. The column titles sort; again, the other way round.
+//! - The folder's items are in the platform's own table (mitsuami's
+//!   `Table`): select several, double-click (or Return) a folder to go in,
+//!   a file to open it in its app. Its headers sort; again, the other way
+//!   round. The View menu's Sort By follows them.
 //! - The toolbar goes back and forward, makes folders, has the view
-//!   options (sort, hidden files) and searches the folder as you type.
+//!   options (sort, hidden files), shows or hides the preview (a
+//!   `ToggleButton`) and searches the folder as you type.
 //! - Right-click an item to open, rename, duplicate, trash it, or copy its
 //!   path; right-click the list's background to make a folder.
 //! - Drop files from another file manager on the list: they're copied in.
@@ -25,7 +27,7 @@
 //! - The window's menus have it all again, with the platform's file
 //!   manager's shortcuts (⌘⌫ and ⌘↑ in Finder; Delete, F2 and Alt+↑
 //!   elsewhere), and Go to Folder… (⌘⇧G, Ctrl+Shift+G) for a typed path.
-//! - Space on the list shows or hides the preview on macOS, where Quick
+//! - Space on the table shows or hides the preview on macOS, where Quick
 //!   Look is on Space.
 //!
 //! Reading folders and changing them happen off the UI thread.

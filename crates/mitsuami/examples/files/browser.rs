@@ -24,8 +24,10 @@ pub struct Browser {
     pub selected: Signal<Vec<PathBuf>>,
     pub query: Signal<String>,
     pub show_hidden: Signal<bool>,
+    /// The column and order, as the table's header shows them.
+    pub sort: Signal<Sort<SortBy>>,
+    /// The column alone, for the menus' choices.
     pub sort_by: Signal<SortBy>,
-    pub descending: Signal<bool>,
     /// The item whose name is being edited.
     pub renaming: Signal<Option<PathBuf>>,
     /// Items made or copied by the last action, to select once the folder
@@ -51,8 +53,8 @@ impl Browser {
             selected: signal(Vec::new()),
             query: signal(String::new()),
             show_hidden: signal(false),
+            sort: signal(Sort::ascending(SortBy::Name)),
             sort_by: signal(SortBy::Name),
-            descending: signal(false),
             renaming: signal(None),
             fresh: signal(Vec::new()),
         };
@@ -67,7 +69,28 @@ impl Browser {
                 });
             }
         });
+        // The header sets the column and order, the menus the column: another
+        // one sorts ascending, as its header does.
+        watch(move || browser.sort.get().by, move |by, _| browser.sort_by.set(*by));
+        watch(
+            move || browser.sort_by.get(),
+            move |by, _| {
+                if browser.sort.get_untracked().by != *by {
+                    browser.sort.set(Sort::ascending(*by));
+                }
+            },
+        );
         browser
+    }
+
+    /// Sorts the other way round, as the menus' Reversed does.
+    pub fn reverse(&self) {
+        self.sort.update(|s| {
+            s.order = match s.order {
+                SortOrder::Ascending => SortOrder::Descending,
+                SortOrder::Descending => SortOrder::Ascending,
+            }
+        });
     }
 
     /// The window's title: the folder's name.
@@ -85,14 +108,15 @@ impl Browser {
             (show_hidden || !e.is_hidden()) && (query.is_empty() || e.name.to_lowercase().contains(&query))
         });
         let by_name = |a: &Entry, b: &Entry| natural(&a.name, &b.name);
-        match self.sort_by.get() {
+        let Sort { by, order } = self.sort.get();
+        match by {
             SortBy::Name => entries.sort_by(by_name),
             SortBy::Kind => entries.sort_by(|a, b| a.kind().cmp(&b.kind()).then_with(|| by_name(a, b))),
-            // Largest and newest first, as file managers sort them.
-            SortBy::Size => entries.sort_by(|a, b| b.size.cmp(&a.size).then_with(|| by_name(a, b))),
-            SortBy::Modified => entries.sort_by(|a, b| b.modified.cmp(&a.modified).then_with(|| by_name(a, b))),
+            // Folders have no size: they come first.
+            SortBy::Size => entries.sort_by(|a, b| a.size.cmp(&b.size).then_with(|| by_name(a, b))),
+            SortBy::Modified => entries.sort_by(|a, b| a.modified.cmp(&b.modified).then_with(|| by_name(a, b))),
         }
-        if self.descending.get() {
+        if order == SortOrder::Descending {
             entries.reverse();
         }
         entries
