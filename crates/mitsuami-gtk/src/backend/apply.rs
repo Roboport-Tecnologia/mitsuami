@@ -280,8 +280,9 @@ impl State {
                 widget.queue_resize();
                 if let Some(Widget::List(list)) =
                     self.nodes[id].parent.and_then(|p| self.nodes.get(&p)).map(|p| &p.widget)
+                    && let Some(row) = self.nodes[id].row
                 {
-                    list.row_measured(frame.height());
+                    list.row_measured(row, frame.height());
                 }
                 if let Some((scrolled, viewport)) = self.scroll_of(&widget) {
                     sync_scroll(&self.frames, &scrolled, &viewport);

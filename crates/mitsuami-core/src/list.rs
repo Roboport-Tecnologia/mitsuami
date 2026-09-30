@@ -198,7 +198,15 @@ impl<T: 'static, K: 'static, R> ElementBuilder for List<T, K, R> {
 
 /// Scrolls a [`List`] from code: create one, pass it to
 /// [`List::handle`], and call [`scroll_to`](ListHandle::scroll_to).
-pub struct ListHandle<K: 'static>(Rc<RefCell<Option<Connection<K>>>>);
+pub struct ListHandle<K: 'static>(Rc<RefCell<HandleState<K>>>);
+
+struct HandleState<K> {
+    connection: Option<Connection<K>>,
+    /// A key asked for before the list had it: an app's effect can run
+    /// before the list's own takes the items. Scrolled to when the rows
+    /// next change, if it's among them.
+    pending: Option<K>,
+}
 
 struct Connection<K> {
     ui: WeakUi,
@@ -208,20 +216,30 @@ struct Connection<K> {
 
 impl<K: 'static> ListHandle<K> {
     pub fn new() -> ListHandle<K> {
-        ListHandle(Rc::default())
+        ListHandle(Rc::new(RefCell::new(HandleState { connection: None, pending: None })))
     }
 
     /// The list's node, once it's built.
     pub fn id(&self) -> Option<NodeId> {
-        self.0.borrow().as_ref().map(|c| c.id)
+        self.0.borrow().connection.as_ref().map(|c| c.id)
     }
 
     /// Scrolls just enough to show the row with this key, mounted or not.
-    pub fn scroll_to(&self, key: &K) {
-        let connection = self.0.borrow();
-        let Some(Connection { ui, id, row_of }) = connection.as_ref() else { return };
-        if let (Some(ui), Some(row)) = (ui.upgrade(), row_of(key)) {
-            ui.scroll_to_row(*id, row);
+    /// A key whose item the list doesn't have yet, arriving with the same
+    /// change, is scrolled to once the list has it.
+    pub fn scroll_to(&self, key: &K)
+    where
+        K: Clone,
+    {
+        let mut state = self.0.borrow_mut();
+        let found = state.connection.as_ref().and_then(|Connection { ui, id, row_of }| Some((ui.upgrade()?, *id, row_of(key)?)));
+        match found {
+            Some((ui, id, row)) => {
+                state.pending = None;
+                drop(state);
+                ui.scroll_to_row(id, row);
+            }
+            None => state.pending = Some(key.clone()),
         }
     }
 }
@@ -371,6 +389,7 @@ pub(crate) fn build_rows<T: Clone + 'static, K: Eq + Hash + Clone + 'static>(
     // theirs, and dispose the rows of items that went.
     {
         let (ui, rows) = (ui.clone(), rows.clone());
+        let pending = handle.as_ref().map(|h| h.0.clone());
         effect(move || {
             let items = each.get();
             untrack(|| {
@@ -416,8 +435,14 @@ pub(crate) fn build_rows<T: Clone + 'static, K: Eq + Hash + Clone + 'static>(
                 if files.is_some() {
                     ui.set_prop(id, Prop::RowFiles(row_files));
                 }
+                // A key scrolled to before its item came.
+                let pending = pending.as_ref().and_then(|state| state.borrow_mut().pending.take());
+                let scroll = pending.and_then(|k| rows.borrow().row_keys.get(&k).copied());
                 let Some(selected) = selected else {
                     ui.set_prop(id, Prop::Rows(order));
+                    if let Some(row) = scroll {
+                        ui.scroll_to_row(id, row);
+                    }
                     return arrange();
                 };
                 // Selected rows that go are deselected here, before the
@@ -436,6 +461,9 @@ pub(crate) fn build_rows<T: Clone + 'static, K: Eq + Hash + Clone + 'static>(
                 ui.set_prop(id, Prop::Rows(order));
                 // With the rows in, keys selected before theirs came.
                 ui.set_prop(id, Prop::Selected(shown));
+                if let Some(row) = scroll {
+                    ui.scroll_to_row(id, row);
+                }
                 if kept.len() != keys.len() {
                     selected.set(kept);
                 }
@@ -480,7 +508,7 @@ pub(crate) fn build_rows<T: Clone + 'static, K: Eq + Hash + Clone + 'static>(
     }
     if let Some(handle) = handle {
         let rows = rows.clone();
-        *handle.0.borrow_mut() = Some(Connection {
+        handle.0.borrow_mut().connection = Some(Connection {
             ui: ui.downgrade(),
             id,
             row_of: Rc::new(move |k| rows.borrow().row_keys.get(k).copied()),

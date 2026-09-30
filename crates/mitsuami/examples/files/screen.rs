@@ -226,6 +226,22 @@ fn Files(preview: Signal<bool>) -> impl View {
             }
         },
     );
+    // A folder opened shows its top once its items arrive, unless the
+    // folder come back up from is to be selected, which is scrolled to.
+    let to_top = signal(false);
+    watch(move || browser.folder.get(), move |_, _| to_top.set(browser.fresh.get_untracked().is_empty()));
+    let top = handle.clone();
+    watch(
+        move || entries.with(|e| e.first().map(|e| e.path.clone())),
+        move |first, _| {
+            if let Some(first) = first
+                && to_top.get_untracked()
+            {
+                to_top.set(false);
+                top.scroll_to(first);
+            }
+        },
+    );
     let empty = move || {
         let loaded = browser.listing.data().is_some();
         loaded && entries.with(Vec::is_empty)

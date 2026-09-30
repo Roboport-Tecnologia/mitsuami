@@ -32,7 +32,7 @@ pub struct Browser {
     pub renaming: Signal<Option<PathBuf>>,
     /// Items made or copied by the last action, to select once the folder
     /// is read again.
-    fresh: Signal<Vec<PathBuf>>,
+    pub fresh: Signal<Vec<PathBuf>>,
 }
 
 impl Store for Browser {

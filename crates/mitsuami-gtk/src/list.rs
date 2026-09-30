@@ -55,6 +55,9 @@ struct Data {
     estimate: Option<i32>,
     /// Without the app's estimate: the first row measured.
     learned: Option<i32>,
+    /// A row scrolled to before its host had its size: GTK places it by
+    /// the size it had, so it's scrolled to again once it's measured.
+    scrolling_to: Option<RowKey>,
     mode: SelectionMode,
     /// GTK can't tell `Automatic` from `Plain`.
     style: Option<ListStyle>,
@@ -128,6 +131,7 @@ fn new_data() -> Rc<RefCell<Data>> {
         report_queued: false,
         estimate: None,
         learned: None,
+        scrolling_to: None,
         mode: SelectionMode::None,
         style: None,
         row_width: None,
@@ -627,11 +631,18 @@ impl List {
         }
     }
 
-    /// Without the app's estimate, the first row measured sets it.
-    pub(crate) fn row_measured(&self, height: f32) {
-        let mut data = self.data.borrow_mut();
-        if data.estimate.is_none() && data.learned.is_none() && height > 0.0 {
-            data.learned = Some(height.round() as i32);
+    /// Without the app's estimate, the first row measured sets it. A row
+    /// scrolled to before it had its size is scrolled to again.
+    pub(crate) fn row_measured(&self, key: RowKey, height: f32) {
+        let again = {
+            let mut data = self.data.borrow_mut();
+            if data.estimate.is_none() && data.learned.is_none() && height > 0.0 {
+                data.learned = Some(height.round() as i32);
+            }
+            data.scrolling_to.take_if(|k| *k == key).is_some()
+        };
+        if again {
+            self.scroll_to_row(key);
         }
     }
 
@@ -654,7 +665,11 @@ impl List {
     }
 
     pub(crate) fn scroll_to_row(&self, key: RowKey) {
-        let index = self.data.borrow().index.get(&key).copied();
+        let index = {
+            let mut data = self.data.borrow_mut();
+            data.scrolling_to = (!data.hosts.contains_key(&(key, 0))).then_some(key);
+            data.index.get(&key).copied()
+        };
         if let (Some(index), Some(view)) = (index, self.list_view()) {
             let _ = view.activate_action("list.scroll-to-item", Some(&(index as u32).to_variant()));
         }

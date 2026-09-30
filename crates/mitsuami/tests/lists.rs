@@ -283,6 +283,26 @@ async fn a_handle_scrolls_to_rows_that_arent_mounted(app: TestApp) {
 }
 
 #[mitsuami_test::test]
+async fn a_handle_scrolls_to_rows_coming_in_the_same_change(app: TestApp) {
+    let data = signal(items(10));
+    let handle = ListHandle::new();
+    let h = handle.clone();
+    app.mount(move || simple_list(data).handle(h));
+    app.settle().await;
+
+    // Before the list's effect takes the items, as an app's effect
+    // reacting to the same change can be.
+    batch(|| {
+        data.set(items(1000));
+        handle.scroll_to(&500);
+    });
+    app.settle().await;
+    let row = app.get_by_role(Role::ListItem, "Item 500");
+    assert!(row.is_visible());
+    assert!((row.frame().y() - 80.0).abs() < 0.01, "at {}", row.frame().y());
+}
+
+#[mitsuami_test::test]
 async fn rows_are_as_high_as_their_content(app: TestApp) {
     // Every third row is twice as high.
     let data = signal(items(30));

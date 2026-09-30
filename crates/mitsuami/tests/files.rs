@@ -153,6 +153,20 @@ async fn lists_the_folder_as_people_count_hiding_dot_files(app: TestApp) {
 }
 
 #[mitsuami_test::test]
+async fn a_folder_opens_at_its_top(app: TestApp) {
+    let files: Vec<String> = (0..60).flat_map(|i| [format!("a{i:02}.txt"), format!("Sub/b{i:02}.txt")]).collect();
+    let fixture = Fixture::new(&app, &files.iter().map(String::as_str).collect::<Vec<_>>());
+    fixture.mount(&app);
+    app.wait_for_tasks().await;
+    // Down to the subfolder, listed last, and into it.
+    app.get_by_role(Role::Table, "Items").scroll_by(0.0, 1e6).await;
+    assert!(!app.get_by_role(Role::Cell, "a00.txt").is_visible());
+    row(&app, "Sub").click().await;
+    app.wait_for_tasks().await;
+    assert!(app.get_by_role(Role::Cell, "b00.txt").is_visible());
+}
+
+#[mitsuami_test::test]
 async fn folders_open_in_place_and_history_goes_back(app: TestApp) {
     let fixture = Fixture::new(&app, &["Projects/mitsuami/README.md", "todo.txt"]);
     fixture.mount(&app);
