@@ -2,8 +2,9 @@
 
 use mitsuami_core::backend::{AvailableSpace, MeasureRequest};
 use mitsuami_core::{NodeId, Orientation, Size};
-use objc2_app_kit::NSView;
-use objc2_foundation::{NSPoint, NSRect, NSSize};
+use objc2::AnyThread;
+use objc2_app_kit::{NSAttributedStringNSStringDrawing, NSCell, NSTextField, NSView};
+use objc2_foundation::{NSAttributedString, NSPoint, NSRect, NSSize, NSString};
 
 use super::group::group_natural_size;
 use super::images::FILE_ICON_SIZE;
@@ -13,17 +14,14 @@ pub(super) fn measure(state: &State, id: NodeId, request: MeasureRequest) -> Siz
     let Some(node) = state.nodes.get(&id) else { return Size::ZERO };
     let natural = match &node.widget {
         Widget::Label(label) => {
-            // TODO: min-content (longest word) — until then text never
-            // shrinks below its single-line width in flex rows.
+            let Some(cell) = label.cell() else { return Size::ZERO };
             let width = request.known_width.map(f64::from).or(match request.available_width {
                 AvailableSpace::Definite(w) => Some(w as f64),
-                AvailableSpace::MinContent | AvailableSpace::MaxContent => None,
+                AvailableSpace::MinContent => Some(min_content_width(label, &cell)),
+                AvailableSpace::MaxContent => None,
             });
             let bounds = NSRect::new(NSPoint::new(0.0, 0.0), NSSize::new(width.unwrap_or(1.0e7), 1.0e7));
-            match label.cell() {
-                Some(cell) => ceil_size(cell.cellSizeForBounds(bounds)),
-                None => Size::ZERO,
-            }
+            ceil_size(cell.cellSizeForBounds(bounds))
         }
         Widget::Field(field) => {
             let intrinsic = field.intrinsicContentSize();
@@ -107,6 +105,35 @@ pub(super) fn measure(state: &State, id: NodeId, request: MeasureRequest) -> Siz
         }
     }
     Size::new(request.known_width.unwrap_or(natural.width), request.known_height.unwrap_or(natural.height))
+}
+
+/// How narrow text can be: a line the cell cuts off, its ellipsis; text
+/// that wraps, its longest word, as GTK's and Qt's labels measure. AppKit
+/// has no such measure, and wraps a word wider than the cell by letters.
+fn min_content_width(label: &NSTextField, cell: &NSCell) -> f64 {
+    let text = label.attributedStringValue();
+    let one_line = NSRect::new(NSPoint::new(0.0, 0.0), NSSize::new(1.0e7, 1.0e7));
+    // The cell's own insets, around the text.
+    let padding = (cell.cellSizeForBounds(one_line).width - text.size().width).max(0.0);
+    if text.length() == 0 {
+        return padding.ceil();
+    }
+    let attributes = unsafe { text.attributesAtIndex_effectiveRange(0, std::ptr::null_mut()) };
+    let piece = |part: &str| unsafe {
+        NSAttributedString::initWithString_attributes(
+            NSAttributedString::alloc(),
+            &NSString::from_str(part),
+            Some(&attributes),
+        )
+        .size()
+        .width
+    };
+    let widest = if label.maximumNumberOfLines() == 1 {
+        piece("…")
+    } else {
+        text.string().to_string().split_whitespace().map(piece).fold(0.0, f64::max)
+    };
+    (widest + padding).ceil()
 }
 
 fn ceil_size(size: NSSize) -> Size {

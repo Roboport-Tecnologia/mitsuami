@@ -162,7 +162,7 @@ This is the React Native and Yoga model:
 
 Pros: the same layout semantics on every backend, the CSS mental model, and one layout engine to test headless. Cons: we give up native auto-layout, and measuring crosses into native code synchronously.
 
-**Known gap: min-content text** falls back to max-content on AppKit and WinUI, so text never shrinks below one line inside flex rows there. It still wraps under a definite width (columns, fixed widths). GTK and Kirigami measure it properly.
+**Known gap: min-content text** falls back to max-content on WinUI, so text never shrinks below one line inside flex rows there. It still wraps under a definite width (columns, fixed widths). GTK and Kirigami measure it properly. AppKit has no such measure (a cell narrower than a word wraps it by letters), so its backend measures the longest word, or the ellipsis for a label cut off at one line (`max_lines(1)`), in the text's own attributes, plus the cell's insets: a long name in the `files` example ran over the dates beside it (`long_names_are_cut_off_in_their_column`).
 
 ### Scroll views and lists
 

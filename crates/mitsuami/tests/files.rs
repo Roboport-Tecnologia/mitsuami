@@ -416,6 +416,16 @@ async fn the_preview_shows_the_selection(app: TestApp) {
 }
 
 #[mitsuami_test::test]
+async fn long_names_are_cut_off_in_their_column(app: TestApp) {
+    let long = "a name much too long for its column, which goes on and on and on.txt";
+    let fixture = Fixture::new(&app, &[long]);
+    fixture.mount(&app);
+    listed(&app, &[long]).await;
+    let (cell, name) = (row(&app, long).frame(), app.get_by_text(long).frame());
+    assert!(name.max_x() <= cell.max_x(), "{name:?} runs out of its cell, {cell:?}");
+}
+
+#[mitsuami_test::test]
 async fn looks_like_a_file_browser(app: TestApp) {
     let fixture = Fixture::new(&app, &["Documents/", "Pictures/", "notes.txt", "todo.md", "build.rs"]);
     fixture.mount(&app);
