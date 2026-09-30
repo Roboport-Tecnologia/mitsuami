@@ -273,9 +273,19 @@ fn showcase() -> impl View {
     // No minimum height: by default a column is at least as tall as its
     // content, and the page's scroll view would grow past the window
     // instead of scrolling.
+    let sidebar = Sidebar::new(chosen)
+        .native(platform! {
+            // 70% of NavigationView's default pane (320): the examples'
+            // titles are short.
+            windows => mitsuami::winui::tweak(|view: &mitsuami::winui::bindings::NavigationView| {
+                view.SetOpenPaneLength(224.0)
+            }),
+            _ => Tweak::none(),
+        })
+        .children(sections);
     view! {
         <Column grow=1.0 min_height=0>
-            <Sidebar selection=chosen>{sections}</Sidebar>
+            {sidebar}
             {pages}
         </Column>
     }
@@ -295,7 +305,11 @@ fn main() {
         .id("br.com.roboport.mitsuami.Showcase")
         .open(|| {
             let full = signal(false);
-            Window::new("mitsuami showcase").size(Size::new(760.0, 640.0)).full_screen(full).bind(signal(true)).content(
+            // On Windows the page takes what the narrower sidebar left:
+            // the window is as wide as before, 1080, and NavigationView
+            // keeps its pane open from 1008.
+            let width = platform! { windows => 856.0, _ => 760.0 };
+            Window::new("mitsuami showcase").size(Size::new(width, 640.0)).full_screen(full).bind(signal(true)).content(
                 move || {
                     provide(FullScreen(full));
                     showcase()
