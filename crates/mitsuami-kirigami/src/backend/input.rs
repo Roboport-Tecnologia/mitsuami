@@ -56,6 +56,16 @@ fn key_in(window: QmlObject, code: i32, modifiers: i32, text: &str) {
 
 impl KirigamiBackend {
     pub(super) fn synthesize_input(&mut self, id: NodeId, input: &SyntheticInput) -> Result<(), ActionError> {
+        // What the hover handler's signal runs, with the state let go.
+        if let SyntheticInput::PointerEnter | SyntheticInput::PointerLeave = input {
+            let report = {
+                let state = self.state.borrow();
+                let node = state.nodes.get(&id).ok_or(ActionError::UnknownNode)?;
+                node.hover.as_ref().map(|hover| hover.report()).ok_or(ActionError::Unsupported)?
+            };
+            report(*input == SyntheticInput::PointerEnter);
+            return Ok(());
+        }
         let (widget_item, kind, window) = {
             let state = self.state.borrow();
             let node = state.nodes.get(&id).ok_or(ActionError::UnknownNode)?;
@@ -93,7 +103,11 @@ impl KirigamiBackend {
         }
         match input {
             // Handled above.
-            SyntheticInput::DragFiles(_) | SyntheticInput::DragLeave | SyntheticInput::DropFiles(_) => unreachable!(),
+            SyntheticInput::DragFiles(_)
+            | SyntheticInput::DragLeave
+            | SyntheticInput::DropFiles(_)
+            | SyntheticInput::PointerEnter
+            | SyntheticInput::PointerLeave => unreachable!(),
             // Text fields take keys with modifiers as editing commands,
             // which aren't simulated.
             SyntheticInput::Shortcut(_)
@@ -293,7 +307,9 @@ impl KirigamiBackend {
             SyntheticInput::Shortcut(_)
             | SyntheticInput::DragFiles(_)
             | SyntheticInput::DragLeave
-            | SyntheticInput::DropFiles(_) => {
+            | SyntheticInput::DropFiles(_)
+            | SyntheticInput::PointerEnter
+            | SyntheticInput::PointerLeave => {
                 return Err(ActionError::Unsupported);
             }
         }

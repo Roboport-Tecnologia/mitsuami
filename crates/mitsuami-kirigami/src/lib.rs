@@ -32,6 +32,8 @@ mod ffi;
 #[cfg(all(target_os = "linux", feature = "qt"))]
 mod file_drop;
 #[cfg(all(target_os = "linux", feature = "qt"))]
+mod hover;
+#[cfg(all(target_os = "linux", feature = "qt"))]
 mod keys;
 #[cfg(all(target_os = "linux", feature = "qt"))]
 mod list;

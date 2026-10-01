@@ -327,7 +327,9 @@ impl SurfaceHost {
             SyntheticInput::Shortcut(_)
             | SyntheticInput::DragFiles(_)
             | SyntheticInput::DragLeave
-            | SyntheticInput::DropFiles(_) => {}
+            | SyntheticInput::DropFiles(_)
+            | SyntheticInput::PointerEnter
+            | SyntheticInput::PointerLeave => {}
         }
     }
 }

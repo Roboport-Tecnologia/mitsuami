@@ -356,6 +356,14 @@ impl State {
                     }
                 }
             }
+            (Prop::Hover(on), widget @ (Widget::Host(_) | Widget::Group { .. })) => {
+                if let Some(hover) = node.hover.take() {
+                    hover.remove();
+                }
+                if *on {
+                    node.hover = Some(crate::hover::Hover::new(widget.item(), id, events));
+                }
+            }
             (Prop::Keys(keys), Widget::Host(_) | Widget::Group { .. } | Widget::List(_)) => {
                 let item = node.widget.item();
                 node.keys.get_or_insert_with(|| crate::keys::NodeKeys::new(item, id, events)).set(keys);

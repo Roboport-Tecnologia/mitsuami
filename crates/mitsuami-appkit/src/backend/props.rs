@@ -396,6 +396,17 @@ impl State {
                 }
                 widget.view().setToolTip(text.as_deref());
             }
+            // On the host: tracking areas are geometric, so its subviews
+            // count too.
+            (Prop::Hover(on), widget @ (Widget::Host(_) | Widget::Group { .. })) => {
+                let view = widget.view();
+                if let Some((_, area)) = node.hover.take() {
+                    view.removeTrackingArea(&area);
+                }
+                if *on {
+                    node.hover = Some(crate::classes::HoverTracker::track(mtm, view, id, events));
+                }
+            }
             (Prop::ContextMenu(entries), widget) => {
                 let target = match node.context_menu.take() {
                     Some((_, target)) => target,

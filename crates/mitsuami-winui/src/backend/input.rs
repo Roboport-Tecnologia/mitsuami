@@ -16,6 +16,15 @@ use crate::runtime;
 
 impl WinUiBackend {
     pub(super) fn synthesize_input(&mut self, id: NodeId, input: &SyntheticInput) -> Result<(), ActionError> {
+        if let SyntheticInput::PointerEnter | SyntheticInput::PointerLeave = input {
+            let hover = {
+                let state = self.state.borrow();
+                let node = state.nodes.get(&id).ok_or(ActionError::UnknownNode)?;
+                node.hover.as_ref().map(|h| h.input()).ok_or(ActionError::Unsupported)?
+            };
+            hover.set(*input == SyntheticInput::PointerEnter);
+            return Ok(());
+        }
         if let SyntheticInput::DragFiles(_) | SyntheticInput::DragLeave | SyntheticInput::DropFiles(_) = input {
             let state = self.state.borrow();
             let node = state.nodes.get(&id).ok_or(ActionError::UnknownNode)?;

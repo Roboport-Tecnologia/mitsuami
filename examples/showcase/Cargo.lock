@@ -989,6 +989,7 @@ version = "0.0.1"
 dependencies = [
  "mitsuami-core",
  "mitsuami-widgets",
+ "unicode-segmentation",
  "windows-collections 0.100.0",
  "windows-core 0.100.0",
  "windows-future 0.100.0",

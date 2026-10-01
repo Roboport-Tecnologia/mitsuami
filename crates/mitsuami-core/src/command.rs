@@ -166,6 +166,9 @@ pub enum UiEvent {
     Custom(AnyValue),
     /// The item of the node's context menu with this id was chosen.
     ContextMenuItem(u32),
+    /// The pointer came over a node that reports it (`Prop::Hover`), or
+    /// over anything inside it (`true`), or left it (`false`).
+    Hover(bool),
     /// The item of a `MenuButton`'s menu with this id was chosen.
     MenuItem(u32),
     /// A key the node takes (`Prop::Keys`) was pressed while it, or a

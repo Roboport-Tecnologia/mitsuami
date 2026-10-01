@@ -14,6 +14,13 @@ impl HeadlessBackend {
     pub(super) fn synthesize_input(&mut self, id: NodeId, input: &SyntheticInput) -> Result<(), ActionError> {
         let mut state = self.state.borrow_mut();
         let node = state.nodes.get(&id).ok_or(ActionError::UnknownNode)?;
+        if let SyntheticInput::PointerEnter | SyntheticInput::PointerLeave = input {
+            if find_prop!(node.props, Hover) != Some(true) {
+                return Err(ActionError::Unsupported);
+            }
+            state.emit(id, UiEvent::Hover(*input == SyntheticInput::PointerEnter));
+            return Ok(());
+        }
         if find_prop!(node.props, Enabled) == Some(false) {
             return Err(ActionError::Disabled);
         }
@@ -106,7 +113,11 @@ impl HeadlessBackend {
                 return Ok(());
             }
             // Handled above.
-            SyntheticInput::DragFiles(_) | SyntheticInput::DragLeave | SyntheticInput::DropFiles(_) => unreachable!(),
+            SyntheticInput::DragFiles(_)
+            | SyntheticInput::DragLeave
+            | SyntheticInput::DropFiles(_)
+            | SyntheticInput::PointerEnter
+            | SyntheticInput::PointerLeave => unreachable!(),
         };
         // Nothing can be typed into a read-only field (AppKit's can't even
         // take focus from the keyboard).
@@ -273,7 +284,9 @@ impl State {
             SyntheticInput::Shortcut(_)
             | SyntheticInput::DragFiles(_)
             | SyntheticInput::DragLeave
-            | SyntheticInput::DropFiles(_) => {
+            | SyntheticInput::DropFiles(_)
+            | SyntheticInput::PointerEnter
+            | SyntheticInput::PointerLeave => {
                 return Err(ActionError::Unsupported);
             }
         }

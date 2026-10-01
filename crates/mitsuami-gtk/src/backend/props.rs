@@ -440,6 +440,23 @@ impl State {
             (Prop::Tooltip(t), widget) => {
                 widget.focus_widget().set_tooltip_text(Some(t.as_str()).filter(|t| !t.is_empty()))
             }
+            // A motion controller reports the pointer entering the host
+            // or any of its children, and leaving them all, not moving
+            // between them.
+            (Prop::Hover(on), widget @ (Widget::Host(_) | Widget::Group(_))) => {
+                if let Some(motion) = node.hover.take() {
+                    widget.widget().remove_controller(&motion);
+                }
+                if *on {
+                    let motion = gtk::EventControllerMotion::new();
+                    let events = self.events.clone();
+                    motion.connect_enter(move |_, _, _| events.emit(id, UiEvent::Hover(true)));
+                    let events = self.events.clone();
+                    motion.connect_leave(move |_| events.emit(id, UiEvent::Hover(false)));
+                    widget.widget().add_controller(motion.clone());
+                    node.hover = Some(motion);
+                }
+            }
             // On the widget the pointer rests on, as the tooltip is, and
             // for its children without one of their own.
             (Prop::ContextMenu(entries), widget) => {

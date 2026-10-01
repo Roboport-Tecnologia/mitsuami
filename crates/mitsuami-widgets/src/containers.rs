@@ -70,6 +70,17 @@ impl Container {
         self
     }
 
+    /// Called with `true` when the pointer comes over it, or over anything
+    /// inside it, and `false` when it leaves, as the platform tracks it:
+    /// to show a row's buttons while it's hovered. Keyboards and
+    /// assistive technology never hover, so whatever it shows must be
+    /// reachable another way too (a context menu, a selected row's
+    /// toolbar).
+    pub fn on_hover(mut self, handler: impl Fn(bool) + 'static) -> Container {
+        self.0.on_hover(handler);
+        self
+    }
+
     /// Runs `handler` when `key` is pressed while it, or a control
     /// inside it, has keyboard focus, and the focused control doesn't use
     /// the key itself: Space for a preview, Delete for Move to Trash.
@@ -253,6 +264,17 @@ impl Group {
                 handler(*over);
             }
         });
+        self
+    }
+
+    /// Called with `true` when the pointer comes over it, or over anything
+    /// inside it, and `false` when it leaves, as the platform tracks it:
+    /// to show a row's buttons while it's hovered. Keyboards and
+    /// assistive technology never hover, so whatever it shows must be
+    /// reachable another way too (a context menu, a selected row's
+    /// toolbar).
+    pub fn on_hover(mut self, handler: impl Fn(bool) + 'static) -> Group {
+        self.0.on_hover(handler);
         self
     }
 

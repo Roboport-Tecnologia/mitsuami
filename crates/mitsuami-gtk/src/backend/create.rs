@@ -272,6 +272,7 @@ impl State {
                 modal: None,
                 settings_handlers,
                 context_menu: None,
+                hover: None,
                 file_drop: None,
                 keys: None,
                 align: None,

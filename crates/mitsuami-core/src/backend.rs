@@ -98,6 +98,11 @@ pub enum SyntheticInput {
     /// coordinates. Backends support it on drawn custom widgets, whose
     /// pointer handling is ours.
     Click(Point),
+    /// The pointer comes over a node with a `Prop::Hover`, through the
+    /// platform's own hover handling where it can be reached.
+    PointerEnter,
+    /// The pointer leaves a node with a `Prop::Hover`.
+    PointerLeave,
     /// Files dragged from the file manager, over a node with a
     /// `Prop::FileDrop`: what the platform's drag handling does when they
     /// enter it, through the same path.

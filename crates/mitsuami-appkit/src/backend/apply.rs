@@ -278,6 +278,11 @@ impl State {
                 if let Some(target) = &node._target {
                     unsafe { NSNotificationCenter::defaultCenter().removeObserver(target) };
                 }
+                // A tracking area doesn't retain its owner, and the view may
+                // outlive the node (the app's native view, a surface).
+                if let Some((_, area)) = &node.hover {
+                    node.widget.view().removeTrackingArea(area);
+                }
                 match &node.widget {
                     Widget::Window { window, _delegate, .. } => {
                         // Out of the sheet, or of the modal loop, first.

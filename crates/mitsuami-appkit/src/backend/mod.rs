@@ -301,6 +301,9 @@ struct Node {
     /// radio items from check items, nor keep roles), and the target of
     /// its items, which only hold weak references to it.
     context_menu: Option<(Vec<MenuEntry>, Retained<ClosureTarget>)>,
+    /// The owner of the tracking area that reports hover, and the area,
+    /// once the core asked for it.
+    hover: Option<(Retained<crate::classes::HoverTracker>, Retained<objc2_app_kit::NSTrackingArea>)>,
 }
 
 struct State {

@@ -306,6 +306,9 @@ pub(super) fn native_state(state: &State, id: NodeId) -> Option<NativeState> {
         _ => mitsuami_core::LayoutDirection::LeftToRight,
     }));
     props.push(Prop::Tooltip(view.toolTip().map(|t| t.to_string()).unwrap_or_default()));
+    if let Some((_, area)) = &node.hover {
+        props.push(Prop::Hover(view.trackingAreas().iter().any(|a| *a == **area)));
+    }
     if let Some((sent, _)) = &node.context_menu {
         props.push(Prop::ContextMenu(match (&node.widget, view.menu()) {
             (Widget::Select(_) | Widget::MenuButton { .. }, _) => sent.clone(),

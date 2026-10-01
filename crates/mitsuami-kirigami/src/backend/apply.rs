@@ -179,9 +179,13 @@ impl State {
                 self.nodes.get_mut(child).unwrap().parent = None;
             }
             Command::Destroy { id } => {
-                let Some(node) = self.nodes.remove(id) else { violation(command, "node does not exist") };
+                let Some(mut node) = self.nodes.remove(id) else { violation(command, "node does not exist") };
                 self.pending_show.retain(|w| w != id);
                 self.menus.forget(*id);
+                // Before its item, which it's registered on.
+                if let Some(hover) = node.hover.take() {
+                    hover.remove();
+                }
                 // Not the item's child: a popup only has it as its parent.
                 if let Some(menu) = &node.context_menu {
                     menu.delete_later();

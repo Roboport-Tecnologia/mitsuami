@@ -923,6 +923,11 @@ pub enum Prop {
     /// `DropHover(true)`, then `DropHover(false)`; a drop reports the ones
     /// it takes as `FilesDropped`.
     FileDrop(Option<FileDrop>),
+    /// A `Container` or `Group` reports the pointer coming over it, or
+    /// over anything inside it, and leaving, as
+    /// [`UiEvent::Hover`](crate::UiEvent::Hover). Sent only if the app
+    /// asked (`on_hover`).
+    Hover(bool),
     /// A `List`'s or `Table`'s rows' files: dragging a row carries its
     /// file out of the app (to the file manager, another app, a folder),
     /// and dragging a selected row carries every selected row's, as the

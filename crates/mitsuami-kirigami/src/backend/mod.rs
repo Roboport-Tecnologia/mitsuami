@@ -247,6 +247,8 @@ struct Node {
     modal: Option<(Option<NodeId>, Modality)>,
     /// The context menu, once the app gave one.
     context_menu: Option<ContextMenu>,
+    /// The handler that reports hover, once the core asked for it.
+    hover: Option<crate::hover::Hover>,
     /// Menu buttons: their menu, once the app gave one.
     button_menu: Option<ContextMenu>,
     /// Hosts: the drop area over them while they take files, and whether

@@ -6,7 +6,8 @@ use std::time::{Duration, Instant};
 use mitsuami_core::task::ManualClock;
 
 use mitsuami_core::{
-    A11yNode, Appearance, Command, CurrentWindow, NativeAppInfo, NodeId, NodeInfo, Role, Size, Ui, View, WindowSize,
+    A11yNode, Appearance, Command, CurrentWindow, NativeAppInfo, NodeId, NodeInfo, Role, Size, SyntheticInput, Ui,
+    View, WindowSize, find_prop,
 };
 use mitsuami_headless::{FakeServices, FakeServicesHandle, HeadlessHandle};
 use mitsuami_reactive::{Owner, provide};
@@ -58,6 +59,9 @@ pub struct TestApp {
     mounted: Cell<Option<Owner>>,
     window: Cell<Option<NodeId>>,
     window_size: WindowSize,
+    /// The nodes reporting hover that the pointer is over, outermost
+    /// first.
+    hovered: RefCell<Vec<NodeId>>,
     pub(crate) context: TestContext,
 }
 
@@ -94,6 +98,7 @@ impl TestApp {
             mounted: Cell::new(None),
             window: Cell::new(None),
             window_size,
+            hovered: RefCell::new(Vec::new()),
             context,
         }
     }
@@ -294,6 +299,41 @@ impl TestApp {
         self.settle().await;
     }
 
+    /// Moves the pointer out of the window: the nodes it was over that
+    /// report hover (`on_hover`) hear it leave.
+    pub async fn move_pointer_away(&self) {
+        self.move_pointer(None).await;
+    }
+
+    /// Moves the pointer over `to`, or out of the window, as a real
+    /// pointer moves: the nodes reporting hover that it leaves hear so
+    /// first, innermost first, then the ones it comes over, outermost
+    /// first. Over a node, it's over every node around it too.
+    pub(crate) async fn move_pointer(&self, to: Option<NodeId>) {
+        self.settle().await;
+        let mut over = Vec::new();
+        let mut at = to;
+        while let Some(id) = at {
+            if find_prop!(self.ui.props(id), Hover) == Some(true) {
+                over.push(id);
+            }
+            at = self.ui.parent(id);
+        }
+        over.reverse();
+        let before = self.hovered.replace(over.clone());
+        let left = before.iter().rev().filter(|id| !over.contains(id) && self.ui.exists(**id));
+        let entered = over.iter().filter(|id| !before.contains(id));
+        let moves = left
+            .map(|id| (*id, SyntheticInput::PointerLeave))
+            .chain(entered.map(|id| (*id, SyntheticInput::PointerEnter)));
+        for (id, input) in moves.collect::<Vec<_>>() {
+            if let Err(e) = self.ui.synthesize(id, &input) {
+                panic!("cannot move the pointer ({input:?}) on node {id}: {e}");
+            }
+        }
+        self.settle().await;
+    }
+
     /// The open window with this title, other than the test window.
     pub fn window_titled(&self, title: &str) -> Option<NodeId> {
         self.ui.windows().into_iter().find(|w| self.ui.a11y_tree(*w).and_then(|n| n.name).as_deref() == Some(title))
@@ -407,6 +447,7 @@ impl TestApp {
         if let Some(window) = self.window.take() {
             self.ui.destroy(window);
         }
+        self.hovered.take();
         self.settle_now();
     }
 

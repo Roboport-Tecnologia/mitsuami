@@ -114,6 +114,17 @@ impl Element {
         });
     }
 
+    /// Reports the pointer coming over the node (`Prop::Hover`), and runs
+    /// `handler` with whether it's over it. For containers and groups.
+    pub fn on_hover(&mut self, handler: impl Fn(bool) + 'static) {
+        self.prop(Value::Static(true), Prop::Hover);
+        self.on(move |event| {
+            if let UiEvent::Hover(over) = event {
+                handler(*over);
+            }
+        });
+    }
+
     /// Runs `f` right after the node is created, in the building scope.
     pub fn after_build(&mut self, f: impl FnOnce(&Ui, NodeId) + 'static) {
         self.binders.push(Box::new(f));

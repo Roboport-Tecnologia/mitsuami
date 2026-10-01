@@ -49,6 +49,9 @@ mod gpu_surface;
 #[path = "../../../crates/mitsuami/examples/group.rs"]
 mod group;
 #[allow(dead_code, unused_attributes)]
+#[path = "../../../crates/mitsuami/examples/hover.rs"]
+mod hover;
+#[allow(dead_code, unused_attributes)]
 #[path = "../../../crates/mitsuami/examples/icon.rs"]
 mod icon;
 #[allow(dead_code, unused_attributes)]
@@ -204,6 +207,7 @@ const SECTIONS: [(&str, &[Example]); 7] = [
             example("Menus", || AnyView::new(menus::launcher())),
             example("Context menu", || AnyView::new(context_menu::page())),
             example("Tooltip", || AnyView::new(tooltip::page())),
+            example("Hover", || AnyView::new(hover::page())),
             example("Windows", || AnyView::new(windows::page())),
         ],
     ),

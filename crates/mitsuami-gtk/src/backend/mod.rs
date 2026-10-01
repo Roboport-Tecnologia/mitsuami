@@ -299,6 +299,8 @@ struct Node {
     settings_handlers: Vec<(glib::Object, glib::SignalHandlerId)>,
     /// The context menu, once the app gave one.
     context_menu: Option<ContextMenu>,
+    /// The controller that reports hover, once the core asked for it.
+    hover: Option<gtk::EventControllerMotion>,
     /// Hosts: what they take when files are dropped on them, once the app
     /// said (`None` inside: nothing).
     file_drop: Option<Option<FileDropTarget>>,

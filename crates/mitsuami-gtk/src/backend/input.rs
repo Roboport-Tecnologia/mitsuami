@@ -11,6 +11,19 @@ use super::{GtkBackend, Widget, owning_node};
 
 impl GtkBackend {
     pub(super) fn synthesize_input(&mut self, id: NodeId, input: &SyntheticInput) -> Result<(), ActionError> {
+        // Through the motion controller's own signals: GTK can't move the
+        // pointer.
+        if let SyntheticInput::PointerEnter | SyntheticInput::PointerLeave = input {
+            let motion = match self.state.borrow().nodes.get(&id) {
+                Some(node) => node.hover.clone().ok_or(ActionError::Unsupported)?,
+                None => return Err(ActionError::UnknownNode),
+            };
+            match input {
+                SyntheticInput::PointerEnter => motion.emit_by_name::<()>("enter", &[&0.0f64, &0.0f64]),
+                _ => motion.emit_by_name::<()>("leave", &[]),
+            }
+            return Ok(());
+        }
         // Its controllers report what it takes.
         if let Some(Widget::GpuSurface(surface)) = self.state.borrow().nodes.get(&id).map(|n| &n.widget) {
             return surface.synthesize(input);

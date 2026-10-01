@@ -551,6 +551,17 @@ impl State {
                 }
                 set_hit_testable(node)?;
             }
+            // The host's `Canvas` gets a clear background meanwhile, to
+            // get the pointer over its empty areas.
+            (Prop::Hover(on), Widget::Host(_) | Widget::Group(_)) => {
+                if let Some(hover) = node.hover.take() {
+                    hover.remove();
+                }
+                if *on {
+                    node.hover = Some(crate::hover::HoverTracker::new(id, self.emitter.clone(), &node.element)?);
+                }
+                set_hit_testable(node)?;
+            }
             (Prop::Keys(keys), Widget::Host(_) | Widget::Group(_) | Widget::List(_)) => match &node.keys {
                 Some(taken) => taken.set(keys.clone()),
                 None => {

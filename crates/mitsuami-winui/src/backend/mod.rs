@@ -347,6 +347,8 @@ struct Node {
     /// they take some, and whether the core ever sent `FileDrop`.
     file_drop: Option<crate::drop::DropTarget>,
     file_drop_sent: bool,
+    /// What reports hover, once the core asked for it.
+    hover: Option<crate::hover::HoverTracker>,
     /// Containers, groups, lists and tables: the keys they take, once the
     /// core sent some.
     keys: Option<keys::Keys>,
@@ -547,13 +549,14 @@ impl State {
 fn set_hit_testable(node: &Node) -> R<()> {
     let panel = match &node.widget {
         Widget::Host(canvas) => canvas.cast::<w::IPanel>()?,
-        Widget::Group(group) if node.file_drop_sent => group.canvas.cast::<w::IPanel>()?,
+        Widget::Group(group) if node.file_drop_sent || node.hover.is_some() => group.canvas.cast::<w::IPanel>()?,
         _ => return Ok(()),
     };
     if node.tooltip.is_empty()
         && !node.scroll_content
         && !ContextMenu::has_items(&node.context_menu)
         && node.file_drop.is_none()
+        && node.hover.is_none()
     {
         panel.SetBackground(None::<&w::Brush>)
     } else {

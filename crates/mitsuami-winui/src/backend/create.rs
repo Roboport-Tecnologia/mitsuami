@@ -491,6 +491,7 @@ impl State {
                 context_menu: None,
                 file_drop: None,
                 file_drop_sent: false,
+                hover: None,
                 keys: None,
                 direction: None,
                 align: None,

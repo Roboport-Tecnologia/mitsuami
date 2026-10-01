@@ -295,6 +295,8 @@ impl WinUiBackend {
         props.extend(node.tweak.clone().map(Prop::Tweak));
         // "" when it has none.
         props.push(Prop::Tooltip(unboxed(w::ToolTipService::GetToolTip(node.control())).unwrap_or_default()));
+        // XAML can't list an element's handlers.
+        props.extend(node.hover.as_ref().map(|_| Prop::Hover(true)));
         if node.file_drop_sent {
             props.push(Prop::FileDrop(node.file_drop.as_ref().map(|t| t.file_drop())));
         }

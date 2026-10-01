@@ -272,6 +272,14 @@ impl<'a> Locator<'a> {
         self.app.settle().await;
     }
 
+    /// Moves the pointer over the node, as a mouse does: it and the nodes
+    /// around it that report hover (`on_hover`) hear it come, and the ones
+    /// it was over before, elsewhere, hear it leave.
+    /// [`TestApp::move_pointer_away`] moves it out of the window.
+    pub async fn hover(&self) {
+        self.app.move_pointer(Some(self.node().id)).await;
+    }
+
     /// The files dragging this row (a list item, or a table's row) out of
     /// the app would carry, as the platform's drag source gives them: the
     /// selected rows' if it's selected, else its own. Empty if it doesn't

@@ -160,6 +160,10 @@ name = "tooltip"
 harness = false
 
 [[test]]
+name = "hover"
+harness = false
+
+[[test]]
 name = "context_menu"
 harness = false
 

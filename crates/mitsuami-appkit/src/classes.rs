@@ -12,12 +12,15 @@ use mitsuami_core::{
 };
 use objc2::rc::Retained;
 use objc2::runtime::{AnyObject, NSObject, NSObjectProtocol, ProtocolObject, Sel};
-use objc2::{ClassType, DefinedClass, MainThreadMarker, MainThreadOnly, Message, define_class, msg_send, sel};
+use objc2::{
+    AnyThread, ClassType, DefinedClass, MainThreadMarker, MainThreadOnly, Message, define_class, msg_send, sel,
+};
 use objc2_app_kit::{
     NSButton, NSColor, NSControl, NSControlStateValueOn, NSControlTextEditingDelegate, NSDragOperation, NSDraggingInfo,
-    NSEvent, NSPasteboardTypeFileURL, NSPopUpButton, NSRectFill, NSScreen, NSSearchFieldDelegate, NSSlider, NSSwitch,
-    NSText, NSTextDelegate, NSTextField, NSTextFieldDelegate, NSTextView, NSTextViewDelegate, NSView,
-    NSViewFrameDidChangeNotification, NSWindow, NSWindowDelegate, NSWindowStyleMask,
+    NSEvent, NSEventModifierFlags, NSEventType, NSPasteboardTypeFileURL, NSPopUpButton, NSRectFill, NSScreen,
+    NSSearchFieldDelegate, NSSlider, NSSwitch, NSText, NSTextDelegate, NSTextField, NSTextFieldDelegate, NSTextView,
+    NSTextViewDelegate, NSTrackingArea, NSTrackingAreaOptions, NSView, NSViewFrameDidChangeNotification, NSWindow,
+    NSWindowDelegate, NSWindowStyleMask,
 };
 use objc2_foundation::{
     NSArray, NSKeyValueObservingOptions, NSNotification, NSNotificationCenter, NSObjectNSKeyValueObserverRegistration,
@@ -809,6 +812,88 @@ impl ClosureTarget {
     pub(crate) fn new(mtm: MainThreadMarker, handler: impl Fn(&AnyObject) + 'static) -> Retained<ClosureTarget> {
         let this = ClosureTarget::alloc(mtm).set_ivars(ClosureIvars { handler: Box::new(handler) });
         unsafe { msg_send![super(this), init] }
+    }
+}
+
+pub(crate) struct HoverIvars {
+    id: NodeId,
+    events: EventSink,
+}
+
+define_class!(
+    /// The owner of a node's tracking area: reports the pointer coming
+    /// over the view and leaving. Tracking areas cover their view's
+    /// visible rect, its subviews' too, so moving onto a child doesn't
+    /// leave.
+    #[unsafe(super(NSObject))]
+    #[thread_kind = MainThreadOnly]
+    #[ivars = HoverIvars]
+    pub(crate) struct HoverTracker;
+
+    impl HoverTracker {
+        #[unsafe(method(mouseEntered:))]
+        fn mouse_entered(&self, _event: &NSEvent) {
+            self.ivars().events.emit(self.ivars().id, UiEvent::Hover(true));
+        }
+
+        #[unsafe(method(mouseExited:))]
+        fn mouse_exited(&self, _event: &NSEvent) {
+            self.ivars().events.emit(self.ivars().id, UiEvent::Hover(false));
+        }
+    }
+
+    unsafe impl NSObjectProtocol for HoverTracker {}
+);
+
+impl HoverTracker {
+    /// Tracks the pointer over `view` while the app is active, as AppKit's
+    /// own controls track it for their hover looks.
+    pub(crate) fn track(
+        mtm: MainThreadMarker,
+        view: &NSView,
+        id: NodeId,
+        events: EventSink,
+    ) -> (Retained<HoverTracker>, Retained<NSTrackingArea>) {
+        let this = HoverTracker::alloc(mtm).set_ivars(HoverIvars { id, events });
+        let tracker: Retained<HoverTracker> = unsafe { msg_send![super(this), init] };
+        let options = NSTrackingAreaOptions::MouseEnteredAndExited
+            | NSTrackingAreaOptions::ActiveInActiveApp
+            | NSTrackingAreaOptions::InVisibleRect;
+        let area = unsafe {
+            NSTrackingArea::initWithRect_options_owner_userInfo(
+                NSTrackingArea::alloc(),
+                zero_rect(),
+                options,
+                Some(&tracker),
+                None,
+            )
+        };
+        view.addTrackingArea(&area);
+        (tracker, area)
+    }
+
+    /// What AppKit sends it when the pointer comes over its view
+    /// (`entered`) or leaves.
+    pub(crate) fn send(&self, view: &NSView, entered: bool) -> Option<()> {
+        let window = view.window()?;
+        let kind = if entered { NSEventType::MouseEntered } else { NSEventType::MouseExited };
+        let event = unsafe {
+            NSEvent::enterExitEventWithType_location_modifierFlags_timestamp_windowNumber_context_eventNumber_trackingNumber_userData(
+                kind,
+                NSPoint::new(0.0, 0.0),
+                NSEventModifierFlags::empty(),
+                0.0,
+                window.windowNumber(),
+                None,
+                0,
+                0,
+                std::ptr::null_mut(),
+            )
+        }?;
+        let _: () = unsafe {
+            if entered { msg_send![self, mouseEntered: &*event] } else { msg_send![self, mouseExited: &*event] }
+        };
+        Some(())
     }
 }
 

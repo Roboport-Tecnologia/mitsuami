@@ -53,6 +53,8 @@ mod file_icon;
 #[cfg(all(windows, target_env = "msvc"))]
 mod group;
 #[cfg(all(windows, target_env = "msvc"))]
+mod hover;
+#[cfg(all(windows, target_env = "msvc"))]
 mod later;
 #[cfg(all(windows, target_env = "msvc"))]
 mod list;

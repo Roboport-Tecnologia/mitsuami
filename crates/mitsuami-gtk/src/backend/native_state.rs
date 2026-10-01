@@ -251,6 +251,7 @@ impl GtkBackend {
         props.extend(node.tweak.clone().map(Prop::Tweak));
         props.push(Prop::Tooltip(text(node.widget.focus_widget().tooltip_text())));
         props.extend(node.context_menu.as_ref().map(|m| Prop::ContextMenu(m.entries(&node.widget.focus_widget()))));
+        props.extend(node.hover.as_ref().map(|motion| Prop::Hover(motion.widget().as_ref() == Some(widget))));
         let frame = match &node.widget {
             Widget::Window(parts) => {
                 let size = parts.host.window_root().expect("window hosts have a root").size.get();

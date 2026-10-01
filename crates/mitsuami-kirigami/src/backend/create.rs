@@ -262,6 +262,7 @@ impl State {
                 scroll_axes: None,
                 a11y_label: None,
                 context_menu: None,
+                hover: None,
                 button_menu: None,
                 file_drop: None,
                 file_drop_given: false,

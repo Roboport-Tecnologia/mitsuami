@@ -4,7 +4,7 @@ use mitsuami_core::a11y::{A11yAction, ActionError};
 use mitsuami_core::backend::{Backend, Key, SyntheticInput};
 use mitsuami_core::services::Shortcut;
 use mitsuami_core::{NodeId, ScrollAxes, WidgetKind};
-use objc2::{msg_send, sel};
+use objc2::{Message, msg_send, sel};
 use objc2_app_kit::{
     NSEvent, NSEventModifierFlags, NSEventType, NSStandardKeyBindingResponding, NSTextField, NSTextView, NSView,
 };
@@ -15,6 +15,15 @@ use super::{AppKitBackend, Widget, ns};
 
 impl AppKitBackend {
     pub(super) fn synthesize_input(&mut self, id: NodeId, input: &SyntheticInput) -> Result<(), ActionError> {
+        // Through the tracker's own methods, with the event AppKit sends.
+        if let SyntheticInput::PointerEnter | SyntheticInput::PointerLeave = input {
+            let state = self.state.borrow();
+            let node = state.nodes.get(&id).ok_or(ActionError::UnknownNode)?;
+            let (tracker, _) = node.hover.as_ref().ok_or(ActionError::Unsupported)?;
+            let (tracker, view) = (tracker.clone(), node.widget.view().retain());
+            drop(state);
+            return tracker.send(&view, *input == SyntheticInput::PointerEnter).ok_or(ActionError::Unsupported);
+        }
         let surface = match self.state.borrow().nodes.get(&id).map(|n| &n.widget) {
             Some(Widget::GpuSurface(view)) => Some(view.clone()),
             _ => None,

@@ -71,6 +71,7 @@ fn describe_props(props: &[Prop]) -> String {
             Prop::MaxLines(n) => extra.push(format!("max_lines={}", n.map_or("none".to_owned(), |n| n.to_string()))),
             Prop::Truncation(t) => extra.push(format!("truncation={t:?}")),
             Prop::Enabled(b) => extra.push(format!("enabled={b}")),
+            Prop::Hover(b) => extra.push(format!("hover={b}")),
             Prop::TextStyle(s) => extra.push(format!("style={s:?}")),
             Prop::TextColor(c) => extra.push(format!("color={c:?}")),
             Prop::FontWeight(w) => extra.push(format!("weight={w:?}")),
