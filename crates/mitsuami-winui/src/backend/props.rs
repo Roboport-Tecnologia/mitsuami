@@ -228,9 +228,13 @@ impl State {
             }
             (Prop::Options(options), Widget::Select(combo)) => {
                 // Items are `ComboBoxItem`s, so options with the same text
-                // stay apart. Replacing them moves the selection; the chosen
+                // stay apart. Changing them moves the selection; the chosen
                 // index stays if it can, else the first option is chosen,
                 // as the core does. It sends the index when that changes it.
+                // Items are retitled in place, and only the extra ones added
+                // or removed: XAML fails fast when the items are replaced
+                // while the drop-down closes after the user's pick, as when
+                // the pick changes the app's language.
                 let selector: w::ISelector = combo.cast()?;
                 let chosen = selector.SelectedIndex()?;
                 let count = options.len() as i32;
@@ -243,13 +247,20 @@ impl State {
                 };
                 node.shown_index.set(index);
                 let items = combo.cast::<w::IItemsControl>()?.Items()?;
-                items.Clear()?;
-                for option in options {
-                    let item = w::ComboBoxItem::new()?;
-                    item.cast::<w::IContentControl>()?.SetContent(&boxed(option))?;
-                    items.Append(&item.cast::<IInspectable>()?)?;
+                for (i, option) in options.iter().enumerate() {
+                    if (i as u32) < items.Size()? {
+                        items.GetAt(i as u32)?.cast::<w::IContentControl>()?.SetContent(&boxed(option))?;
+                    } else {
+                        let item = w::ComboBoxItem::new()?;
+                        item.cast::<w::IContentControl>()?.SetContent(&boxed(option))?;
+                        items.Append(&item.cast::<IInspectable>()?)?;
+                    }
                 }
+                // Chosen before the rest go, so the chosen one isn't removed.
                 selector.SetSelectedIndex(index)?;
+                while items.Size()? > count as u32 {
+                    items.RemoveAtEnd()?;
+                }
             }
             (Prop::Range { min, max }, Widget::Slider { slider, .. }) => {
                 let range: w::IRangeBase = slider.cast()?;
