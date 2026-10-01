@@ -1022,18 +1022,34 @@ impl List {
     /// Finds where rows' content starts in their containers, from a row
     /// realised: XAML's `ListViewItem` puts a check box before it with
     /// multiple selection. The header and columns (a list's rows' width)
-    /// follow it.
+    /// follow it. Where layout put it, not where it's drawn: a container
+    /// realised with the check boxes showing slides its content in from
+    /// the left, and the header followed it there and stayed.
     fn measure_inset(&self) {
         let inset = {
             let d = self.data.borrow();
             let Some((key, cell)) = d.cells.iter().next() else { return };
             let Some(item) = d.index.get(key).and_then(|i| d.items.get(*i)) else { return };
-            let measured = (|| -> R<f32> {
-                let container = self.view.cast::<w::IItemContainerMapping>()?.ContainerFromItem(item)?;
-                let transform = cell.cast::<w::IUIElement>()?.TransformToVisual(&container.cast::<w::UIElement>()?)?;
-                Ok(transform.cast::<w::IGeneralTransform>()?.TransformPoint(w::Point { x: 0.0, y: 0.0 })?.x)
+            let measured = (|| -> R<Option<f32>> {
+                let container: w::UIElement =
+                    self.view.cast::<w::IItemContainerMapping>()?.ContainerFromItem(item)?.cast()?;
+                // Each element's slot in its parent, up to the container.
+                // One not laid out yet has an empty slot: not measured.
+                let (mut element, mut x): (w::DependencyObject, f32) = (cell.cast()?, 0.0);
+                loop {
+                    let slot = w::LayoutInformation::GetLayoutSlot(&element.cast::<w::FrameworkElement>()?)?;
+                    if slot.width <= 0.0 {
+                        return Ok(None);
+                    }
+                    x += slot.x;
+                    let parent = w::VisualTreeHelper::GetParent(&element)?;
+                    if parent.cast::<w::UIElement>()? == container {
+                        return Ok(Some(x));
+                    }
+                    element = parent;
+                }
             })();
-            let Ok(inset) = measured else { return };
+            let Ok(Some(inset)) = measured else { return };
             f64::from(inset.max(0.0).round())
         };
         if std::mem::replace(&mut self.data.borrow_mut().inset, inset) != inset {
