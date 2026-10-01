@@ -324,6 +324,7 @@ impl State {
                 italic: None,
                 text_color: None,
                 align: false,
+                truncation: None,
                 role: None,
                 button_style: None,
                 tabs_style: None,

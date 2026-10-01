@@ -1,7 +1,8 @@
 //! Static or reactive text.
 
 use mitsuami_core::{
-    Color, Element, ElementBuilder, FontWeight, NodeId, Prop, TextAlign, TextStyle, Tweak, Ui, View, WidgetKind,
+    Color, Element, ElementBuilder, FontWeight, NodeId, Prop, TextAlign, TextStyle, Truncation, Tweak, Ui, View,
+    WidgetKind,
 };
 use mitsuami_reactive::{IntoValue, Value};
 
@@ -26,6 +27,16 @@ impl Text {
     /// them all. It's still read out in full.
     pub fn max_lines(mut self, lines: impl IntoValue<u32>) -> Text {
         self.0.prop(lines.into_value(), |n| Prop::MaxLines((n > 0).then_some(n)));
+        self
+    }
+
+    /// Where the ellipsis goes when it's cut off at `max_lines`: in place
+    /// of its start, its middle (to keep a path's file name, say) or its
+    /// end, the default. AppKit, Qt and WinUI cut off a single line's
+    /// start or middle only, and the end of more lines, as their own
+    /// labels do. A selectable label on WinUI or KDE cuts off its end.
+    pub fn truncation(mut self, truncation: impl IntoValue<Truncation>) -> Text {
+        self.0.prop(truncation.into_value(), Prop::Truncation);
         self
     }
 

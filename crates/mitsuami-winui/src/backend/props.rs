@@ -16,6 +16,7 @@ use super::scroll::{scroll_axes, scroll_bars, set_scrolling};
 use super::styles::{
     MONOSPACE, font_size, font_weight, foreground_style, separator_style, set_label_style, weight_value,
 };
+use super::truncate;
 use super::windows::{apply_full_screen, apply_maximized, apply_min_size, in_full_screen, overlapped};
 use super::{ContextMenu, R, State, Widget, boxed, set_help_text, set_hit_testable, violation};
 use crate::bindings as w;
@@ -170,18 +171,13 @@ impl State {
                 parts.window.cast::<w::IWindow>()?.SetTitle(t)?;
                 parts.title_bar.cast::<w::ITitleBar>()?.SetTitle(t)?;
             }
-            (Prop::Text(t), Widget::Label(l)) => l.cast::<w::ITextBlock>()?.SetText(t)?,
+            (Prop::Text(t), Widget::Label(_)) => node.label.text = t.clone(),
             (Prop::Selectable(on), Widget::Label(l)) => l.cast::<w::ITextBlock>()?.SetIsTextSelectionEnabled(*on)?,
             // 0 is XAML's "no limit"; trimming puts an ellipsis at the end
-            // of the last line shown.
+            // of the last line shown, or `truncate` at a line's start or
+            // middle (`show_text`, below).
             (Prop::MaxLines(lines), Widget::Label(l)) => {
-                let text: w::ITextBlock = l.cast()?;
-                text.SetMaxLines(lines.map_or(0, |n| n as i32))?;
-                text.SetTextTrimming(if lines.is_some() {
-                    w::TextTrimming::CharacterEllipsis
-                } else {
-                    w::TextTrimming::None
-                })?;
+                l.cast::<w::ITextBlock>()?.SetMaxLines(lines.map_or(0, |n| n as i32))?
             }
             (Prop::Label(t), Widget::Button(_) | Widget::Toggle(_) | Widget::MenuButton(_)) => {
                 node.caption = t.clone();
@@ -482,6 +478,7 @@ impl State {
             } else {
                 w::FontStyle::Normal
             })?,
+            (Prop::Truncation(truncation), Widget::Label(_)) => node.truncation = Some(*truncation),
             (Prop::TextAlign(align), Widget::Label(l)) => {
                 node.align = Some(*align);
                 align_label(l, *align)?;
@@ -640,6 +637,20 @@ impl State {
                 }
             }
             _ => {}
+        }
+        // What a label shows depends on its text, font and limit.
+        let shows_text = matches!(
+            prop,
+            Prop::Text(_)
+                | Prop::MaxLines(_)
+                | Prop::Truncation(_)
+                | Prop::Selectable(_)
+                | Prop::TextStyle(_)
+                | Prop::FontWeight(_)
+                | Prop::Italic(_)
+        );
+        if shows_text && matches!(node.widget, Widget::Label(_)) {
+            truncate::show(node)?;
         }
         Ok(())
     }

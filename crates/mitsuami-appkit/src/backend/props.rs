@@ -1,13 +1,14 @@
 //! Setting props on the native widgets.
 
 use mitsuami_core::{
-    ButtonRole, ButtonStyle, Command, HorizontalAlign, ImageFit, InputPurpose, LayoutDirection, NodeId, Prop, UiEvent,
+    ButtonRole, ButtonStyle, Command, HorizontalAlign, ImageFit, InputPurpose, LayoutDirection, NodeId, Prop,
+    Truncation, UiEvent,
 };
 use objc2::{MainThreadOnly, sel};
 use objc2_app_kit::{
     NSAccessibility, NSControlStateValueMixed, NSControlStateValueOff, NSControlStateValueOn, NSImageScaling,
-    NSMenuItem, NSProgressIndicatorStyle, NSSlider, NSTextAlignment, NSTextContent, NSTextContentType,
-    NSTextContentTypeEmailAddress, NSTextContentTypeTelephoneNumber, NSTextContentTypeURL,
+    NSLineBreakMode, NSMenuItem, NSProgressIndicatorStyle, NSSlider, NSTextAlignment, NSTextContent, NSTextContentType,
+    NSTextContentTypeEmailAddress, NSTextContentTypeTelephoneNumber, NSTextContentTypeURL, NSTextField,
     NSUserInterfaceLayoutDirection, NSView, NSWindowStyleMask,
 };
 
@@ -66,13 +67,11 @@ impl State {
             }
             (Prop::Text(t), Widget::Label(l)) => l.setStringValue(&ns(t)),
             (Prop::Selectable(on), Widget::Label(l)) => l.setSelectable(*on),
-            // 0 is AppKit's "no limit"; the cell puts an ellipsis at the
-            // end of the last line it shows.
-            (Prop::MaxLines(lines), Widget::Label(l)) => {
-                l.setMaximumNumberOfLines(lines.map_or(0, |n| n as isize));
-                if let Some(cell) = l.cell() {
-                    cell.setTruncatesLastVisibleLine(lines.is_some());
-                }
+            (Prop::MaxLines(lines), Widget::Label(l)) => set_line_limit(l, *lines, node.truncation.unwrap_or_default()),
+            (Prop::Truncation(truncation), Widget::Label(l)) => {
+                node.truncation = Some(*truncation);
+                let lines = l.maximumNumberOfLines();
+                set_line_limit(l, (lines > 0).then_some(lines as u32), *truncation);
             }
             (Prop::Label(t), Widget::Checkbox(b)) => b.setTitle(&ns(t)),
             // A new title puts the image back beside it: an icon shown
@@ -525,5 +524,21 @@ fn set_direction(widget: &Widget, direction: LayoutDirection) {
             frame.setNeedsLayout(true);
         }
         _ => {}
+    }
+}
+
+/// 0 is AppKit's "no limit". A truncating line-break mode makes a label
+/// one line, so only a single line has its start or middle cut off; more
+/// lines wrap at words, and the cell cuts off the end of the last one it
+/// shows, the only truncation AppKit wraps with.
+fn set_line_limit(label: &NSTextField, lines: Option<u32>, truncation: Truncation) {
+    label.setMaximumNumberOfLines(lines.map_or(0, |n| n as isize));
+    label.setLineBreakMode(match (lines, truncation) {
+        (Some(1), Truncation::Start) => NSLineBreakMode::ByTruncatingHead,
+        (Some(1), Truncation::Middle) => NSLineBreakMode::ByTruncatingMiddle,
+        _ => NSLineBreakMode::ByWordWrapping,
+    });
+    if let Some(cell) = label.cell() {
+        cell.setTruncatesLastVisibleLine(lines.is_some());
     }
 }

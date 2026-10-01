@@ -3,7 +3,7 @@
 use gtk::prelude::*;
 use gtk::{glib, pango};
 use mitsuami_core::backend::NativeState;
-use mitsuami_core::{HorizontalAlign, ImageFit, InputPurpose, NodeId, Orientation, Prop, Rect, WidgetKind};
+use mitsuami_core::{HorizontalAlign, ImageFit, InputPurpose, NodeId, Orientation, Prop, Rect, Truncation, WidgetKind};
 
 use crate::file_drop::FileDropTarget;
 
@@ -44,6 +44,14 @@ impl GtkBackend {
                 props.push(Prop::Selectable(l.is_selectable()));
                 let limited = l.ellipsize() != pango::EllipsizeMode::None && l.lines() > 0;
                 props.push(Prop::MaxLines(limited.then(|| l.lines() as u32)));
+                if let Some(given) = node.truncation {
+                    props.push(Prop::Truncation(match l.ellipsize() {
+                        pango::EllipsizeMode::Start => Truncation::Start,
+                        pango::EllipsizeMode::Middle => Truncation::Middle,
+                        pango::EllipsizeMode::End => Truncation::End,
+                        _ => given,
+                    }));
+                }
                 props.extend(label_color(l, node.text_color).map(Prop::TextColor));
                 let int =
                     |type_| find_attr(l, type_).and_then(|a| a.downcast_ref::<pango::AttrInt>().map(|a| a.value()));

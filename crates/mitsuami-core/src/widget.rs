@@ -294,6 +294,19 @@ pub enum TextAlign {
     End,
 }
 
+/// Where a `Text` cut off at its line limit puts its ellipsis: in place
+/// of its start, its middle (a path's folders, keeping its file name) or
+/// its end. Start and end are the text's, so in right-to-left text the
+/// start is on the right. Platforms that can't put one there cut off the
+/// end, as their labels do.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Hash)]
+pub enum Truncation {
+    Start,
+    Middle,
+    #[default]
+    End,
+}
+
 /// A [`TextAlign`] the core has resolved against the text's direction, as
 /// backends get it.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Hash)]
@@ -702,6 +715,10 @@ pub enum Prop {
     /// How many lines a `Text` shows at most, the last one cut off with an
     /// ellipsis, as the platform draws one. `None`: all of them.
     MaxLines(Option<u32>),
+    /// Where a `Text` cut off at its line limit puts its ellipsis. AppKit,
+    /// Qt and WinUI cut off a single line's start or middle only. Sent
+    /// only if the app chose.
+    Truncation(Truncation),
     /// A `Text`'s or `Icon`'s colour. Semantic colours follow the
     /// appearance (dark mode, high contrast, the accent colour); `Rgba` is
     /// fixed. Icons in full colour keep their own; symbolic ones take it.
@@ -951,6 +968,7 @@ impl Prop {
             self,
             Prop::Text(_)
                 | Prop::MaxLines(_)
+                | Prop::Truncation(_)
                 | Prop::FontWeight(_)
                 | Prop::Italic(_)
                 | Prop::Label(_)
@@ -998,6 +1016,7 @@ static_value!(
     TextStyle,
     FontWeight,
     TextAlign,
+    Truncation,
     crate::draw::Color,
     ButtonRole,
     ButtonStyle,

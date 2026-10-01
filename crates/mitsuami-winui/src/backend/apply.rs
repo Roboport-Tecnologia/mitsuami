@@ -264,6 +264,11 @@ impl State {
                 if let Widget::List(list) = &self.nodes[id].widget {
                     list.set_width(frame.width());
                 }
+                let node = self.nodes.get_mut(id).unwrap();
+                if matches!(node.widget, Widget::Label(_)) && node.label.width != Some(frame.width()) {
+                    node.label.width = Some(frame.width());
+                    super::truncate::show(node)?;
+                }
                 if let Widget::Group(group) = &self.nodes[id].widget {
                     group.place(frame.width() as f64, frame.height() as f64)?;
                 }
@@ -289,10 +294,15 @@ impl State {
                         | Widget::Progress(_)
                         | Widget::Spinner(_)
                 );
-                if !named_by_label || label.is_some() {
+                let node = self.nodes.get_mut(id).unwrap();
+                // A label cut off at its start or middle is named by its
+                // whole text, unless the app named it.
+                if let Widget::Label(_) = node.widget {
+                    node.label.name = label.clone();
+                    super::truncate::show(node)?;
+                } else if !named_by_label || label.is_some() {
                     w::AutomationProperties::SetName(&element, label.as_deref().unwrap_or(""))?;
                 }
-                let node = self.nodes.get_mut(id).unwrap();
                 node.description = description.clone();
                 set_help_text(node)?;
                 w::AutomationProperties::SetAccessibilityView(

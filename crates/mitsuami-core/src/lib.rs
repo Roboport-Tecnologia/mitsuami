@@ -60,7 +60,7 @@ pub use widget::{
     ButtonRole, ButtonStyle, CellKey, ColumnData, ColumnSort, CurrentWindow, Cursor, FileDrop, FontWeight,
     HorizontalAlign, ImageFit, ImageSource, InputPurpose, LayoutDirection, ListStyle, Modality, NodeId, Orientation,
     Pixels, Prop, RowKey, ScrollAxes, SelectionMode, SidebarItemData, SidebarSectionData, SortOrder, TabsStyle,
-    TextAlign, TextStyle, WidgetKind,
+    TextAlign, TextStyle, Truncation, WidgetKind,
 };
 
 pub use mitsuami_reactive as reactive;

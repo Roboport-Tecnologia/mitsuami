@@ -494,6 +494,8 @@ impl State {
                 keys: None,
                 direction: None,
                 align: None,
+                truncation: None,
+                label: Default::default(),
                 password_all: Cell::new(false),
                 button_menu: None,
                 caption: String::new(),

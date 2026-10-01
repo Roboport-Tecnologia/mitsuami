@@ -1,11 +1,13 @@
 //! Reading back what the native widgets show, for the mirror check.
 
 use mitsuami_core::backend::NativeState;
-use mitsuami_core::{Color, HorizontalAlign, ImageFit, NodeId, Orientation, Point, Prop, Rect, ScrollAxes, WidgetKind};
+use mitsuami_core::{
+    Color, HorizontalAlign, ImageFit, NodeId, Orientation, Point, Prop, Rect, ScrollAxes, Truncation, WidgetKind,
+};
 use objc2_app_kit::{
     NSAccessibility, NSCellImagePosition, NSColor, NSColorSpace, NSControlStateValueMixed, NSControlStateValueOn,
-    NSFontDescriptorSymbolicTraits, NSImageScaling, NSTextAlignment, NSTextContent, NSTitlePosition, NSView,
-    NSWindowStyleMask,
+    NSFontDescriptorSymbolicTraits, NSImageScaling, NSLineBreakMode, NSTextAlignment, NSTextContent, NSTitlePosition,
+    NSView, NSWindowStyleMask,
 };
 use objc2_foundation::NSObjectProtocol;
 
@@ -33,6 +35,14 @@ pub(super) fn native_state(state: &State, id: NodeId) -> Option<NativeState> {
             props.push(Prop::Selectable(l.isSelectable()));
             let lines = l.maximumNumberOfLines();
             props.push(Prop::MaxLines((lines > 0).then_some(lines as u32)));
+            // Wrapping, it shows only the end cut off.
+            if let Some(given) = node.truncation {
+                props.push(Prop::Truncation(match l.lineBreakMode() {
+                    NSLineBreakMode::ByTruncatingHead => Truncation::Start,
+                    NSLineBreakMode::ByTruncatingMiddle => Truncation::Middle,
+                    _ => given,
+                }));
+            }
             if let Some(font) = l.font() {
                 if node.weight.is_some() {
                     props.push(Prop::FontWeight(font_weight(&font)));

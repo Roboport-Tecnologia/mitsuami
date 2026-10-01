@@ -24,6 +24,7 @@ windows-collections.workspace = true
 windows-future.workspace = true
 windows-reference.workspace = true
 windows-time.workspace = true
+unicode-segmentation.workspace = true
 
 [target.'cfg(all(windows, target_env = "msvc"))'.dev-dependencies]
 mitsuami-reactive.workspace = true

@@ -28,7 +28,7 @@ use mitsuami_core::backend::{
 use mitsuami_core::services::MenuEntry;
 use mitsuami_core::{
     AppIcon, AppInfo, ButtonRole, ButtonStyle, Color, Command, CustomProps, FontWeight, ImageFit, ImageSource,
-    Modality, NodeId, Opaque, Orientation, RowKey, ScrollAxes, Size, TabsStyle, TextStyle, WidgetKind,
+    Modality, NodeId, Opaque, Orientation, RowKey, ScrollAxes, Size, TabsStyle, TextStyle, Truncation, WidgetKind,
 };
 use objc2::rc::Retained;
 use objc2::{AnyThread, MainThreadMarker, Message};
@@ -257,6 +257,9 @@ struct Node {
     italic: Option<bool>,
     text_color: Option<Color>,
     align: bool,
+    /// Labels: where the app cut them off, which a label of several lines
+    /// doesn't show.
+    truncation: Option<Truncation>,
     role: Option<ButtonRole>,
     button_style: Option<ButtonStyle>,
     /// Tabs: the style the app chose, which this platform doesn't have,

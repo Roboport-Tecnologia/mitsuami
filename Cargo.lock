@@ -853,6 +853,7 @@ dependencies = [
  "mitsuami-core",
  "mitsuami-reactive",
  "mitsuami-widgets",
+ "unicode-segmentation",
  "windows-collections",
  "windows-core",
  "windows-future",

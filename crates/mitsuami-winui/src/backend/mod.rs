@@ -17,6 +17,7 @@ mod props;
 mod scroll;
 mod selection;
 mod styles;
+mod truncate;
 mod windows;
 
 use std::cell::{Cell, RefCell};
@@ -32,8 +33,8 @@ use mitsuami_core::services::{MenuBarData, MenuCheck, MenuEntry, Reply};
 use mitsuami_core::units::SpacingScale;
 use mitsuami_core::{
     AnyValue, AppInfo, ButtonRole, ButtonStyle, Command, CustomProps, HorizontalAlign, ImageFit, ImageSource, Insets,
-    LayoutDirection, Modality, NodeId, Opaque, Orientation, Point, RowKey, Size, TabsStyle, TextStyle, UiEvent,
-    WidgetKind,
+    LayoutDirection, Modality, NodeId, Opaque, Orientation, Point, RowKey, Size, TabsStyle, TextStyle, Truncation,
+    UiEvent, WidgetKind,
 };
 use windows_core::{EventRevoker, HSTRING, IInspectable, IUnknown, Interface};
 
@@ -354,6 +355,12 @@ struct Node {
     direction: Option<LayoutDirection>,
     /// Labels: where the core aligned the text.
     align: Option<HorizontalAlign>,
+    /// Labels: where the app cut them off, which XAML can't (its trimming
+    /// is always at the end).
+    truncation: Option<Truncation>,
+    /// Labels: the text the app gave, which they show cut off at its
+    /// start or middle (`truncate`).
+    label: truncate::LabelText,
     /// Password boxes: all their text is selected (`SelectText`), which
     /// XAML can't tell, so typing replaces it.
     password_all: Cell<bool>,

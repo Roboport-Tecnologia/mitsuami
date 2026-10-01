@@ -1,5 +1,5 @@
 //! Text options: a line limit, the last line cut off with the platform's
-//! ellipsis, colour, weight, italics, alignment, and raw platform settings. How text wraps and is measured is
+//! ellipsis at its start, middle or end, colour, weight, italics, alignment, and raw platform settings. How text wraps and is measured is
 //! in the conformance and layout suites.
 
 use std::cell::RefCell;
@@ -79,6 +79,61 @@ async fn a_line_limit_lets_text_shrink_below_its_longest_word(app: TestApp) {
     let (limited, unlimited) = (app.get_by_test_id("limited").frame(), app.get_by_test_id("unlimited").frame());
     assert!(limited.width() <= 120.0, "the limited text didn't shrink: {limited:?}");
     assert!(unlimited.width() > 120.0, "the unlimited text shrank below its word: {unlimited:?}");
+}
+
+/// Cut off at its start or middle, a line is as big as one cut off at its
+/// end, and still read out in full. AppKit, Qt and WinUI show it on a
+/// single line only; GTK, where Pango does, at every limit. The mirror check reads it back after every
+/// settle.
+#[mitsuami_test::test]
+async fn truncation_cuts_off_the_start_middle_or_end(app: TestApp) {
+    const PATH: &str = "/Users/someone/Documents/Projects/mitsuami/crates/mitsuami/examples/files/screen.rs";
+    app.mount(|| {
+        Column::new().width(160).align(Align::Stretch).children((
+            Text::new(PATH).max_lines(1).truncation(Truncation::Start).test_id("start"),
+            Text::new(PATH).max_lines(1).truncation(Truncation::Middle).test_id("middle"),
+            Text::new(PATH).max_lines(1).truncation(Truncation::End).test_id("end"),
+            Text::new(PATH).max_lines(1).test_id("default"),
+            Text::new(LONG).max_lines(2).truncation(Truncation::Middle).test_id("two"),
+            Text::new(LONG).max_lines(2).test_id("two_at_end"),
+        ))
+    });
+    let end = app.get_by_test_id("end").frame().size;
+    for id in ["start", "middle", "default"] {
+        assert_eq!(app.get_by_test_id(id).frame().size, end, "{id} isn't as big as a line cut off at its end");
+    }
+    assert_eq!(height(&app, "two"), height(&app, "two_at_end"));
+    assert!(has(&app, "start", Prop::Truncation(Truncation::Start)));
+    assert!(has(&app, "middle", Prop::Truncation(Truncation::Middle)));
+    assert!(has(&app, "two", Prop::Truncation(Truncation::Middle)));
+    assert_eq!(app.get_by_test_id("middle").text().as_deref(), Some(PATH));
+}
+
+/// The truncation follows its signal, and so does the limit under it: a
+/// line cut off in the middle wraps again without a limit.
+#[mitsuami_test::test]
+async fn truncation_follows_its_signal(app: TestApp) {
+    let truncation = signal(Truncation::Middle);
+    let lines = signal(1u32);
+    app.mount(move || {
+        Column::new().width(160).child(Text::new(LONG).max_lines(lines).truncation(truncation).test_id("text"))
+    });
+    let one = height(&app, "text");
+
+    truncation.set(Truncation::Start);
+    app.settle().await;
+    assert!(has(&app, "text", Prop::Truncation(Truncation::Start)));
+    assert_eq!(height(&app, "text"), one);
+
+    lines.set(0);
+    app.settle().await;
+    assert!(height(&app, "text") > one, "the unlimited text didn't wrap");
+
+    lines.set(1);
+    truncation.set(Truncation::End);
+    app.settle().await;
+    assert!(has(&app, "text", Prop::Truncation(Truncation::End)));
+    assert_eq!(height(&app, "text"), one);
 }
 
 /// Logs the text the native label shows, each time the tweak runs.

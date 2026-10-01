@@ -275,6 +275,7 @@ impl State {
                 file_drop: None,
                 keys: None,
                 align: None,
+                truncation: None,
             },
         );
     }

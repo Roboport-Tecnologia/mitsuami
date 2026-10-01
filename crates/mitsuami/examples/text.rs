@@ -61,6 +61,9 @@ const WEIGHTS: [(&str, FontWeight); 4] = [
 const ALIGNMENTS: [(&str, TextAlign); 3] =
     [("Start", TextAlign::Start), ("Center", TextAlign::Center), ("End", TextAlign::End)];
 
+const TRUNCATIONS: [(&str, Truncation); 3] =
+    [("Start", Truncation::Start), ("Middle", Truncation::Middle), ("End", Truncation::End)];
+
 /// A paragraph and every option it takes.
 fn playground() -> impl View {
     let lines = signal(2.0_f64);
@@ -68,6 +71,7 @@ fn playground() -> impl View {
     let color = signal(0_usize);
     let weight = signal(0_usize);
     let align = signal(0_usize);
+    let truncation = signal(2_usize);
     let italic = signal(false);
     let rtl = signal(false);
     view! {
@@ -86,6 +90,8 @@ fn playground() -> impl View {
                     }}
                 </Text>
                 <Slider label="Lines" range_with=(0.0, 6.0) step=1.0 bind=lines/>
+                <Text>"Cut off at"</Text>
+                <Row><Select label="Cut off at" options=TRUNCATIONS.map(|(name, _)| name) bind=truncation/></Row>
                 <Text>{move || format!("Width ({:.0})", width.get())}</Text>
                 <Slider label="Width" range_with=(120.0, 480.0) bind=width/>
                 <Text>"Colour"</Text>
@@ -101,6 +107,7 @@ fn playground() -> impl View {
             </Grid>
             <Text
                 max_lines=move || lines.get() as u32
+                truncation=move || TRUNCATIONS[truncation.get()].1
                 width=move || Length::Px(width.get() as f32)
                 color=move || COLORS[color.get()].1
                 weight=move || WEIGHTS[weight.get()].1

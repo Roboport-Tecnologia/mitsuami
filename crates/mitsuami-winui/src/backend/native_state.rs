@@ -51,9 +51,12 @@ impl WinUiBackend {
             }
             Widget::Label(l) => {
                 let text: w::ITextBlock = l.cast().ok()?;
-                props.push(Prop::Text(text.Text().ok()?));
+                // A label cut off at its start or middle shows less, and
+                // holds the whole text.
+                props.push(Prop::Text(if node.label.cut { node.label.text.clone() } else { text.Text().ok()? }));
                 let lines = text.MaxLines().ok()?;
                 props.push(Prop::MaxLines((lines > 0).then_some(lines as u32)));
+                props.extend(node.truncation.map(Prop::Truncation));
                 props.push(Prop::FontWeight(weight_of(text.FontWeight().ok()?.weight)));
                 props.push(Prop::Italic(text.FontStyle().ok()? == w::FontStyle::Italic));
                 props.push(Prop::Selectable(text.IsTextSelectionEnabled().ok()?));

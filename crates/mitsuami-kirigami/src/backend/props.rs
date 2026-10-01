@@ -2,7 +2,7 @@
 
 use mitsuami_core::{
     ButtonRole, ButtonStyle, Color, Command, HorizontalAlign, ImageFit, ImageSource, LayoutDirection, Modality, NodeId,
-    Prop, ScrollAxes, TabsStyle, UiEvent, WidgetKind,
+    Prop, ScrollAxes, TabsStyle, Truncation, UiEvent, WidgetKind,
 };
 
 use crate::custom::{NativePayload, flatten};
@@ -17,8 +17,14 @@ use super::{
 };
 
 // `Text.elide` values (`Qt::TextElideMode`).
+pub(super) const ELIDE_LEFT: i32 = 0;
 const ELIDE_RIGHT: i32 = 1;
+pub(super) const ELIDE_MIDDLE: i32 = 2;
 const ELIDE_NONE: i32 = 3;
+
+// `Text.wrapMode` values.
+const TEXT_NO_WRAP: i32 = 0;
+const TEXT_WORD_WRAP: i32 = 1;
 
 /// `Image.FillMode`.
 const FILL_STRETCH: i32 = 0;
@@ -108,10 +114,14 @@ impl State {
                 }
             }
             (Prop::Text(t), Widget::Label(l)) => l.set_str("text", t),
-            // Qt elides the last line it shows.
             (Prop::MaxLines(lines), Widget::Label(l)) => {
                 l.set_int("maximumLineCount", lines.map_or(i32::MAX, |n| n as i32));
-                l.set_int("elide", if lines.is_some() { ELIDE_RIGHT } else { ELIDE_NONE });
+                set_elide(*l, *lines, node.truncation.unwrap_or_default());
+            }
+            (Prop::Truncation(truncation), Widget::Label(l)) => {
+                node.truncation = Some(*truncation);
+                let lines = l.int("maximumLineCount");
+                set_elide(*l, (lines != i32::MAX).then_some(lines as u32), *truncation);
             }
             (Prop::TextColor(color), Widget::Label(l) | Widget::Icon(l)) => {
                 if let Color::Rgba(r, g, b, a) = *color {
@@ -453,4 +463,23 @@ fn align_label(l: QmlObject, align: HorizontalAlign) {
             (HorizontalAlign::Right, false) | (HorizontalAlign::Left, true) => ALIGN_RIGHT,
         },
     );
+}
+
+/// Qt elides the last line it shows. It elides a line's start or middle
+/// only when the whole text is that line, unwrapped (a wrapped line is cut
+/// off with no ellipsis), so a label of one line stops wrapping for them;
+/// more lines elide their end, the only elision Qt wraps with. A
+/// selectable label has no elision, and keeps wrapping.
+fn set_elide(label: QmlObject, lines: Option<u32>, truncation: Truncation) {
+    let elide = match (lines, truncation) {
+        (None, _) => ELIDE_NONE,
+        (Some(1), Truncation::Start) => ELIDE_LEFT,
+        (Some(1), Truncation::Middle) => ELIDE_MIDDLE,
+        (Some(_), _) => ELIDE_RIGHT,
+    };
+    label.set_int("elide", elide);
+    if !label.bool("mitsuamiSelectable") {
+        let unwrapped = matches!(elide, ELIDE_LEFT | ELIDE_MIDDLE);
+        label.set_int("wrapMode", if unwrapped { TEXT_NO_WRAP } else { TEXT_WORD_WRAP });
+    }
 }

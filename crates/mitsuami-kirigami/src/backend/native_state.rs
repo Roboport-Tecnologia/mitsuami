@@ -2,11 +2,13 @@
 
 use mitsuami_core::backend::NativeState;
 use mitsuami_core::{
-    HorizontalAlign, InputPurpose, Modality, NodeId, Orientation, Point, Prop, Rect, TabsStyle, WidgetKind,
+    HorizontalAlign, InputPurpose, Modality, NodeId, Orientation, Point, Prop, Rect, TabsStyle, Truncation, WidgetKind,
 };
 
 use crate::events::{node_from_key, node_key};
 use crate::qml;
+
+use super::props::{ELIDE_LEFT, ELIDE_MIDDLE};
 
 use super::{
     ALIGN_H_CENTER, ALIGN_RIGHT, KirigamiBackend, PARTIALLY_CHECKED, QT_VERTICAL, TEXT_EDIT_NO_WRAP, Widget, frame_of,
@@ -47,6 +49,13 @@ impl KirigamiBackend {
                 props.push(Prop::Selectable(l.bool("mitsuamiSelectable")));
                 let lines = l.int("maximumLineCount");
                 props.push(Prop::MaxLines((lines != i32::MAX).then_some(lines as u32)));
+                if let Some(given) = node.truncation {
+                    props.push(Prop::Truncation(match l.int("elide") {
+                        ELIDE_LEFT => Truncation::Start,
+                        ELIDE_MIDDLE => Truncation::Middle,
+                        _ => given,
+                    }));
+                }
                 props
                     .extend(qml::color_from(l.int("mitsuamiColor"), l.int("mitsuamiRgba") as u32).map(Prop::TextColor));
                 props.push(Prop::FontWeight(qml::font_weight_from(l.int("mitsuamiShownWeight"))));

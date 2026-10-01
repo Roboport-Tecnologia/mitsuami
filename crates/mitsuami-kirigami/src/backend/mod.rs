@@ -13,7 +13,7 @@ use mitsuami_core::services::{MenuBarData, Reply};
 use mitsuami_core::{
     AppInfo, ButtonRole, ButtonStyle, Command, CustomProps, DisplayList, HorizontalAlign, ImageFit, ImageSource,
     InputPurpose, LayoutDirection, Modality, NodeId, Opaque, Orientation, Point, Rect, RowKey, ScrollAxes,
-    SidebarSectionData, Size, TabsStyle, TextStyle, UiEvent, WidgetKind,
+    SidebarSectionData, Size, TabsStyle, TextStyle, Truncation, UiEvent, WidgetKind,
 };
 
 use crate::custom::ErasedRender;
@@ -259,6 +259,9 @@ struct Node {
     /// Labels: where the app aligned the text, which Qt mirrors in a
     /// mirrored label.
     align: Option<HorizontalAlign>,
+    /// Labels: where the app cut them off, which Qt shows only on a single
+    /// line.
+    truncation: Option<Truncation>,
     /// The direction the core gave an item made without QML (a drawn
     /// item), which has no `LayoutMirroring` to hold it.
     direction: Option<LayoutDirection>,

@@ -14,7 +14,7 @@ use mitsuami_core::backend::{
 use mitsuami_core::services::Reply;
 use mitsuami_core::{
     AppInfo, ButtonRole, ButtonStyle, Color, Command, CustomProps, ImageFit, ImageSource, Modality, NodeId, Opaque,
-    Orientation, RowKey, Size, TextStyle, WidgetKind,
+    Orientation, RowKey, Size, TextStyle, Truncation, WidgetKind,
 };
 
 use crate::custom::{DrawnArea, ErasedRender};
@@ -308,6 +308,9 @@ struct Node {
     /// Labels: where the app aligned the text, which GTK mirrors in a
     /// right-to-left label.
     align: Option<mitsuami_core::HorizontalAlign>,
+    /// Labels: where the app cut them off, which GTK doesn't keep without
+    /// a line limit.
+    truncation: Option<Truncation>,
 }
 
 pub(crate) struct State {

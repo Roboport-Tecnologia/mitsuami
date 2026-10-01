@@ -66,15 +66,10 @@ fn clear_button(field: &w::ITextBox) -> Option<w::IUIElement> {
 /// no such measure: a text block measured narrower than a word wraps it by
 /// letters, and asks for no more than it's given. So the pieces are
 /// measured on their own, in a text block with the label's font.
-fn min_content_width(label: &w::TextBlock) -> R<f32> {
+fn min_content_width(label: &w::TextBlock, whole: &str) -> R<f32> {
     let text: w::ITextBlock = label.cast()?;
-    let probe = w::TextBlock::new()?;
+    let probe = super::truncate::probe(label)?;
     let piece: w::ITextBlock = probe.cast()?;
-    piece.SetFontFamily(&text.FontFamily()?)?;
-    piece.SetFontSize(text.FontSize()?)?;
-    piece.SetFontWeight(text.FontWeight()?)?;
-    piece.SetFontStyle(text.FontStyle()?)?;
-    piece.SetCharacterSpacing(text.CharacterSpacing()?)?;
     let element: w::UIElement = probe.cast()?;
     let infinite = w::Size { width: f32::INFINITY, height: f32::INFINITY };
     let width = |part: &str| -> R<f32> {
@@ -85,7 +80,7 @@ fn min_content_width(label: &w::TextBlock) -> R<f32> {
         return width("\u{2026}");
     }
     let mut widest = 0.0f32;
-    for word in text.Text()?.split_whitespace() {
+    for word in whole.split_whitespace() {
         widest = widest.max(width(word)?);
     }
     Ok(widest)
@@ -104,10 +99,22 @@ impl WinUiBackend {
             Widget::Label(label) => {
                 let width = request.known_width.or(match request.available_width {
                     AvailableSpace::Definite(w) => Some(w),
-                    AvailableSpace::MinContent => min_content_width(label).ok(),
+                    AvailableSpace::MinContent => min_content_width(label, &node.label.text).ok(),
                     AvailableSpace::MaxContent => None,
                 });
-                ceil(measure_element(&node.element, w::Size { width: width.unwrap_or(f32::INFINITY), ..infinite }))
+                // A label cut off at its start or middle is measured whole,
+                // as its own text.
+                let block: Option<w::ITextBlock> = node.label.cut.then(|| label.cast().ok()).flatten();
+                let shown = block.as_ref().and_then(|b| b.Text().ok());
+                if let Some(block) = &block {
+                    _ = block.SetText(&node.label.text);
+                }
+                let size =
+                    ceil(measure_element(&node.element, w::Size { width: width.unwrap_or(f32::INFINITY), ..infinite }));
+                if let (Some(block), Some(shown)) = (&block, shown) {
+                    _ = block.SetText(&shown);
+                }
+                size
             }
             Widget::Field(_) | Widget::Password(_) | Widget::Search(_) => {
                 // Text boxes have no useful intrinsic width.

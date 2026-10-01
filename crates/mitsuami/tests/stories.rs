@@ -96,16 +96,21 @@ fn text_options() -> impl View {
 }
 
 /// A paragraph cut off at two lines and at one, with the platform's
-/// ellipsis, and a tweaked label: underlined on GTK, Markdown on Qt, spread
+/// ellipsis, a path cut off at its start, middle and end, and a tweaked
+/// label: underlined on GTK, Markdown on Qt, spread
 /// letters on WinUI. AppKit's tweak shows the whole text in a tooltip,
 /// which a still capture doesn't show.
 #[mitsuami_test::story(sizes = [(240, fit)])]
 fn text_tweaked() -> impl View {
     let paragraph = "Widgets behave, size, animate and respond as the platform's own controls do, \
                      and text wraps as the platform wraps it.";
+    let path = "/Users/someone/Documents/Projects/mitsuami/examples/files/screen.rs";
     Column::new().padding(16).gap(8).children((
         Text::new(paragraph).max_lines(2),
         Text::new(paragraph).max_lines(1),
+        Text::new(path).max_lines(1).truncation(Truncation::Start),
+        Text::new(path).max_lines(1).truncation(Truncation::Middle),
+        Text::new(path).max_lines(1).truncation(Truncation::End),
         // Markup only where the tweak renders it; cut off where it has a
         // tooltip.
         Text::new(platform! {

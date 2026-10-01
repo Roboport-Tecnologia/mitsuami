@@ -7,7 +7,7 @@ use gtk::prelude::*;
 use gtk::{gdk, glib, pango};
 use mitsuami_core::{
     ButtonStyle, Color, Command, HorizontalAlign, ImageFit, ImageSource, InputPurpose, LayoutDirection, NodeId, Prop,
-    UiEvent,
+    Truncation, UiEvent,
 };
 
 use crate::custom::NativePayload;
@@ -88,7 +88,12 @@ impl State {
             // GTK limits the lines of wrapping labels that ellipsize.
             (Prop::MaxLines(lines), Widget::Label(l)) => {
                 l.set_lines(lines.map_or(-1, |n| n as i32));
-                l.set_ellipsize(if lines.is_some() { pango::EllipsizeMode::End } else { pango::EllipsizeMode::None });
+                l.set_ellipsize(ellipsize_mode(*lines, node.truncation.unwrap_or_default()));
+            }
+            (Prop::Truncation(truncation), Widget::Label(l)) => {
+                node.truncation = Some(*truncation);
+                let lines = (l.ellipsize() != pango::EllipsizeMode::None).then_some(l.lines() as u32);
+                l.set_ellipsize(ellipsize_mode(lines, *truncation));
             }
             (Prop::TextColor(color), Widget::Label(l)) => {
                 for (class, _) in COLOR_CLASSES {
@@ -520,4 +525,16 @@ fn align_label(l: &gtk::Label, align: HorizontalAlign) {
     };
     l.set_xalign(xalign);
     l.set_justify(justify);
+}
+
+/// Pango cuts off the last line it shows where the app asked, whatever the
+/// limit: in the middle, it keeps the start of that line and the end of
+/// the text.
+fn ellipsize_mode(lines: Option<u32>, truncation: Truncation) -> pango::EllipsizeMode {
+    match (lines, truncation) {
+        (None, _) => pango::EllipsizeMode::None,
+        (Some(_), Truncation::Start) => pango::EllipsizeMode::Start,
+        (Some(_), Truncation::Middle) => pango::EllipsizeMode::Middle,
+        (Some(_), Truncation::End) => pango::EllipsizeMode::End,
+    }
 }
