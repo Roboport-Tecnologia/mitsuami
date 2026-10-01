@@ -7,7 +7,8 @@
 //! - The folder's items are in the platform's own table (mitsuami's
 //!   `Table`): select several, double-click (or Return) a folder to go in,
 //!   a file to open it in its app. Its headers sort; again, the other way
-//!   round. The View menu's Sort By follows them.
+//!   round. The View menu's Sort By follows them. A name's tooltip is its
+//!   whole path.
 //! - The toolbar goes back and forward, makes folders, has the view
 //!   options (sort, hidden files), shows or hides the preview (a
 //!   `ToggleButton`) and searches the folder as you type.

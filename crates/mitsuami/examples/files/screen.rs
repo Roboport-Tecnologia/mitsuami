@@ -336,7 +336,14 @@ fn columns(browser: Browser) -> Vec<TableColumn<Entry>> {
         TableColumn::new("Name", move |e: Entry| {
             let name = Row::new().gap(Spacing::Sm).align(Align::Center).children((
                 FileIcon::new(&e.path),
-                Text::new(e.name.clone()).max_lines(1).grow(1.0).shrink(1.0).basis(0),
+                // The whole path, which the cell cuts off and the path bar
+                // shows only for the folder.
+                Text::new(e.name.clone())
+                    .max_lines(1)
+                    .tooltip(e.path.display().to_string())
+                    .grow(1.0)
+                    .shrink(1.0)
+                    .basis(0),
             ));
             cell(browser, e.path.clone(), name)
         })

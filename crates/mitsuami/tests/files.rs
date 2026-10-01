@@ -425,6 +425,19 @@ async fn long_names_are_cut_off_in_their_column(app: TestApp) {
     assert!(name.max_x() <= cell.max_x(), "{name:?} runs out of its cell, {cell:?}");
 }
 
+/// A name's tooltip is the item's whole path, cut off or not.
+#[mitsuami_test::test]
+async fn names_show_their_path_in_a_tooltip(app: TestApp) {
+    let fixture = Fixture::new(&app, &["notes.txt"]);
+    fixture.mount(&app);
+    listed(&app, &["notes.txt"]).await;
+    let tooltip = app.get_by_text("notes.txt").native_state().props.into_iter().find_map(|p| match p {
+        mitsuami::core::Prop::Tooltip(t) => Some(t),
+        _ => None,
+    });
+    assert_eq!(tooltip, Some(fixture.root.join("notes.txt").display().to_string()));
+}
+
 #[mitsuami_test::test]
 async fn looks_like_a_file_browser(app: TestApp) {
     let fixture = Fixture::new(&app, &["Documents/", "Pictures/", "notes.txt", "todo.md", "build.rs"]);
