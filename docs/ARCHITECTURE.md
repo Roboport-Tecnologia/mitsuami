@@ -377,6 +377,18 @@ NativeView::appkit(|cx: &mut AppKitCx| {
 
 - It takes part in layout, accessibility and events like any other node. The core sees `WidgetKind::Native`.
 - The factory and the current value of every `update` travel as one `Prop::Native` payload (an `Opaque`: compared by identity, printed as its label). When any value changes, the payload is sent again and every update applied again. One payload, because a factory prop and update props sharing a key had the first update replace the factory in `Create`.
+- A view that lays out something of its own inside (a child it sizes by hand) learns its size as any node does, from a `NodeRef` on itself. Sizes come in the same turn as the layout (§4, Responsive and adaptive), so the child never shows at the old size, and no backend is involved:
+
+  ```rust
+  let host = node_ref();
+  let size = use_size(host);
+  NativeView::xaml(|cx| /* a Canvas holding the child */)
+      .update(size, |canvas, size| /* the child at size.width × size.height */)
+      .node_ref(host)
+      .grow(1.0)
+  ```
+
+  A custom widget's native render gets it in its props instead: `Rating::view(move || RatingProps { size: size.get(), … })`. Where the platform's own container would stretch the child (a XAML `Grid`, a QML anchor), let it.
 - Native callbacks never touch signals directly; they `emit` events that are queued and dispatched on the next turn, like any native event.
 - Accessibility actions (`Activate`, `Increment`, `Decrement`) go to the view's accessibility element, as a screen reader's would: an `NSStepper` isn't an accessibility element, its cell is, so the backend walks down to it.
 - Headless tests show a native view as an empty box sized by its styles.
