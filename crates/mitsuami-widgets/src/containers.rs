@@ -81,6 +81,16 @@ impl Container {
         self
     }
 
+    /// Called when it's double-clicked, or anything inside it that isn't
+    /// a control, as the platform counts a double click: to rename what a
+    /// row shows in place. Keyboards and assistive technology don't
+    /// double-click, so what it does must be reachable another way too (a
+    /// context menu, a button).
+    pub fn on_double_click(mut self, handler: impl Fn() + 'static) -> Container {
+        self.0.on_double_click(handler);
+        self
+    }
+
     /// Runs `handler` when `key` is pressed while it, or a control
     /// inside it, has keyboard focus, and the focused control doesn't use
     /// the key itself: Space for a preview, Delete for Move to Trash.
@@ -275,6 +285,16 @@ impl Group {
     /// toolbar).
     pub fn on_hover(mut self, handler: impl Fn(bool) + 'static) -> Group {
         self.0.on_hover(handler);
+        self
+    }
+
+    /// Called when it's double-clicked, or anything inside it that isn't
+    /// a control, as the platform counts a double click: to rename what a
+    /// row shows in place. Keyboards and assistive technology don't
+    /// double-click, so what it does must be reachable another way too (a
+    /// context menu, a button).
+    pub fn on_double_click(mut self, handler: impl Fn() + 'static) -> Group {
+        self.0.on_double_click(handler);
         self
     }
 

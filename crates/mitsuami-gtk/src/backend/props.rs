@@ -457,6 +457,28 @@ impl State {
                     node.hover = Some(motion);
                 }
             }
+            // A click gesture counts the presses; a control under the
+            // pointer claims its own, and a label's aren't ours to take.
+            (Prop::DoubleClick(on), widget @ (Widget::Host(_) | Widget::Group(_))) => {
+                if let Some((click, _)) = node.double_click.take() {
+                    widget.widget().remove_controller(&click);
+                }
+                if *on {
+                    let click = gtk::GestureClick::new();
+                    let events = self.events.clone();
+                    let report: Rc<dyn Fn()> = Rc::new(move || events.emit(id, UiEvent::DoubleClick));
+                    let fire = report.clone();
+                    click.connect_pressed(move |click, presses, x, y| {
+                        let Some(host) = click.widget() else { return };
+                        if presses != 2 || on_control(&host, x, y) {
+                            return;
+                        }
+                        fire();
+                    });
+                    widget.widget().add_controller(click.clone());
+                    node.double_click = Some((click, report));
+                }
+            }
             // On the widget the pointer rests on, as the tooltip is, and
             // for its children without one of their own.
             (Prop::ContextMenu(entries), widget) => {
@@ -554,4 +576,17 @@ fn ellipsize_mode(lines: Option<u32>, truncation: Truncation) -> pango::Ellipsiz
         (Some(_), Truncation::Middle) => pango::EllipsizeMode::Middle,
         (Some(_), Truncation::End) => pango::EllipsizeMode::End,
     }
+}
+
+/// Whether the point, in `host`'s coordinates, is on a control inside it:
+/// one that takes focus (a button, a field), unlike a label.
+fn on_control(host: &gtk::Widget, x: f64, y: f64) -> bool {
+    let mut at = host.pick(x, y, gtk::PickFlags::DEFAULT);
+    while let Some(widget) = at.filter(|w| w != host) {
+        if widget.is_focusable() {
+            return true;
+        }
+        at = widget.parent();
+    }
+    false
 }

@@ -16,7 +16,7 @@ use objc2::{
     AnyThread, ClassType, DefinedClass, MainThreadMarker, MainThreadOnly, Message, define_class, msg_send, sel,
 };
 use objc2_app_kit::{
-    NSButton, NSColor, NSControl, NSControlStateValueOn, NSControlTextEditingDelegate, NSDragOperation, NSDraggingInfo,
+    NSButton, NSClickGestureRecognizer, NSColor, NSControl, NSControlStateValueOn, NSControlTextEditingDelegate, NSDragOperation, NSDraggingInfo,
     NSEvent, NSEventModifierFlags, NSEventType, NSPasteboardTypeFileURL, NSPopUpButton, NSRectFill, NSScreen,
     NSSearchFieldDelegate, NSSlider, NSSwitch, NSText, NSTextDelegate, NSTextField, NSTextFieldDelegate, NSTextView,
     NSTextViewDelegate, NSTrackingArea, NSTrackingAreaOptions, NSView, NSViewFrameDidChangeNotification, NSWindow,
@@ -894,6 +894,72 @@ impl HoverTracker {
             if entered { msg_send![self, mouseEntered: &*event] } else { msg_send![self, mouseExited: &*event] }
         };
         Some(())
+    }
+}
+
+pub(crate) struct DoubleClickIvars {
+    id: NodeId,
+    events: EventSink,
+}
+
+define_class!(
+    /// The target of a node's double-click recognizer: reports a double
+    /// click on the view, or on what's in it that isn't a control (a
+    /// button or field keeps its own clicks).
+    #[unsafe(super(NSObject))]
+    #[thread_kind = MainThreadOnly]
+    #[ivars = DoubleClickIvars]
+    pub(crate) struct DoubleClicker;
+
+    impl DoubleClicker {
+        #[unsafe(method(clicked:))]
+        fn clicked(&self, recognizer: &NSClickGestureRecognizer) {
+            let Some(view) = recognizer.view() else { return };
+            let at = recognizer.locationInView(unsafe { view.superview() }.as_deref());
+            let mut hit = view.hitTest(at);
+            while let Some(v) = hit.filter(|v| **v != *view) {
+                // A label is a text field too, one that takes no input.
+                let label = v.downcast_ref::<NSTextField>().is_some_and(|f| !f.isEditable() && !f.isSelectable());
+                if (v.isKindOfClass(NSControl::class()) && !label) || v.isKindOfClass(NSText::class()) {
+                    return;
+                }
+                hit = unsafe { v.superview() };
+            }
+            self.fire();
+        }
+    }
+
+    unsafe impl NSObjectProtocol for DoubleClicker {}
+);
+
+impl DoubleClicker {
+    /// Recognizes double clicks on `view`, its subviews' too, without
+    /// holding back the clicks its controls get.
+    pub(crate) fn track(
+        mtm: MainThreadMarker,
+        view: &NSView,
+        id: NodeId,
+        events: EventSink,
+    ) -> (Retained<DoubleClicker>, Retained<NSClickGestureRecognizer>) {
+        let this = DoubleClicker::alloc(mtm).set_ivars(DoubleClickIvars { id, events });
+        let target: Retained<DoubleClicker> = unsafe { msg_send![super(this), init] };
+        let recognizer = unsafe {
+            NSClickGestureRecognizer::initWithTarget_action(
+                NSClickGestureRecognizer::alloc(mtm),
+                Some(&target),
+                Some(sel!(clicked:)),
+            )
+        };
+        recognizer.setNumberOfClicksRequired(2);
+        recognizer.setDelaysPrimaryMouseButtonEvents(false);
+        view.addGestureRecognizer(&recognizer);
+        (target, recognizer)
+    }
+
+    /// What a recognized double click reports, for `synthesize` too:
+    /// AppKit can't be sent clicks without a window on screen.
+    pub(crate) fn fire(&self) {
+        self.ivars().events.emit(self.ivars().id, UiEvent::DoubleClick);
     }
 }
 

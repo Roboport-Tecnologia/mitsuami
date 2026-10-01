@@ -256,6 +256,7 @@ impl KirigamiBackend {
         }
         props.extend(node.keys.as_ref().map(|keys| Prop::Keys(keys.keys())));
         props.extend(node.hover.as_ref().map(|hover| Prop::Hover(hover.is_on(node.widget.item()))));
+        props.extend(node.double_click.as_ref().map(|d| Prop::DoubleClick(d.is_on(node.widget.item()))));
         props.push(Prop::Tooltip(if node.widget.has_tooltip() {
             node.widget.item().str("mitsuamiTooltip")
         } else {

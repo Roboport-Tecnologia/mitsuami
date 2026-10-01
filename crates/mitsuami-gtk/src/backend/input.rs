@@ -24,6 +24,16 @@ impl GtkBackend {
             }
             return Ok(());
         }
+        // What the gesture reports for two presses: GTK can't be sent
+        // clicks.
+        if *input == SyntheticInput::DoubleClick {
+            let report = match self.state.borrow().nodes.get(&id) {
+                Some(node) => node.double_click.as_ref().map(|(_, r)| r.clone()).ok_or(ActionError::Unsupported)?,
+                None => return Err(ActionError::UnknownNode),
+            };
+            report();
+            return Ok(());
+        }
         // Its controllers report what it takes.
         if let Some(Widget::GpuSurface(surface)) = self.state.borrow().nodes.get(&id).map(|n| &n.widget) {
             return surface.synthesize(input);

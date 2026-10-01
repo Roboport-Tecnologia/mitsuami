@@ -25,6 +25,15 @@ impl WinUiBackend {
             hover.set(*input == SyntheticInput::PointerEnter);
             return Ok(());
         }
+        if *input == SyntheticInput::DoubleClick {
+            let report = {
+                let state = self.state.borrow();
+                let node = state.nodes.get(&id).ok_or(ActionError::UnknownNode)?;
+                node.double_click.as_ref().map(|d| d.report()).ok_or(ActionError::Unsupported)?
+            };
+            report();
+            return Ok(());
+        }
         if let SyntheticInput::DragFiles(_) | SyntheticInput::DragLeave | SyntheticInput::DropFiles(_) = input {
             let state = self.state.borrow();
             let node = state.nodes.get(&id).ok_or(ActionError::UnknownNode)?;

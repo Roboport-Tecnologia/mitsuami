@@ -273,6 +273,7 @@ impl State {
                 settings_handlers,
                 context_menu: None,
                 hover: None,
+                double_click: None,
                 file_drop: None,
                 keys: None,
                 align: None,

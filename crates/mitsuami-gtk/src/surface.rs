@@ -241,7 +241,8 @@ impl SurfaceArea {
             | SyntheticInput::DragLeave
             | SyntheticInput::DropFiles(_)
             | SyntheticInput::PointerEnter
-            | SyntheticInput::PointerLeave => {
+            | SyntheticInput::PointerLeave
+            | SyntheticInput::DoubleClick => {
                 return Err(ActionError::Unsupported);
             }
         }

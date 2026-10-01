@@ -24,6 +24,16 @@ impl AppKitBackend {
             drop(state);
             return tracker.send(&view, *input == SyntheticInput::PointerEnter).ok_or(ActionError::Unsupported);
         }
+        // What the recognizer's target does once it counted two clicks.
+        if *input == SyntheticInput::DoubleClick {
+            let clicker = {
+                let state = self.state.borrow();
+                let node = state.nodes.get(&id).ok_or(ActionError::UnknownNode)?;
+                node.double_click.as_ref().map(|(clicker, _)| clicker.clone()).ok_or(ActionError::Unsupported)?
+            };
+            clicker.fire();
+            return Ok(());
+        }
         let surface = match self.state.borrow().nodes.get(&id).map(|n| &n.widget) {
             Some(Widget::GpuSurface(view)) => Some(view.clone()),
             _ => None,

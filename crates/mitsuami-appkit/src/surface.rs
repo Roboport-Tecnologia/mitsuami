@@ -920,7 +920,8 @@ pub(crate) fn synthesize(view: &SurfaceView, input: &SyntheticInput) -> Result<(
         | SyntheticInput::DragLeave
         | SyntheticInput::DropFiles(_)
         | SyntheticInput::PointerEnter
-        | SyntheticInput::PointerLeave => {
+        | SyntheticInput::PointerLeave
+        | SyntheticInput::DoubleClick => {
             return Err(ActionError::Unsupported);
         }
     }

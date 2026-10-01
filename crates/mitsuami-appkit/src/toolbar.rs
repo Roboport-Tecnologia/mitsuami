@@ -12,19 +12,29 @@
 //! search field is an `NSSearchToolbarItem` with that field, which gets
 //! its own glass; in another view, macOS 26 put it in the glass of the
 //! button before it, and as the item's view in none.
+//!
+//! An item that is a row of buttons is one segmented control, as AppKit's
+//! own item groups are: macOS 26 puts adjacent buttons with a title each
+//! in a capsule of their own, and only image buttons in a shared one. An
+//! item with no control in it (a progress bar, a label) has no glass: it
+//! sits on the bar, as a status does.
 
 use std::cell::{Cell, RefCell};
+use std::rc::Rc;
 use std::sync::atomic::{AtomicU32, Ordering};
 
 use mitsuami_core::NodeId;
 use objc2::rc::Retained;
-use objc2::runtime::{NSObject, NSObjectProtocol, ProtocolObject};
-use objc2::{DefinedClass, MainThreadMarker, MainThreadOnly, Message, define_class, msg_send};
+use objc2::runtime::{AnyObject, NSObject, NSObjectProtocol, ProtocolObject};
+use objc2::{DefinedClass, MainThreadMarker, MainThreadOnly, Message, define_class, msg_send, sel};
 use objc2_app_kit::{
-    NSAnimationContext, NSBezelStyle, NSButton, NSLayoutConstraint, NSSearchField, NSSearchToolbarItem, NSToolbar,
-    NSToolbarDelegate, NSToolbarDisplayMode, NSToolbarFlexibleSpaceItemIdentifier, NSToolbarItem,
-    NSToolbarItemIdentifier, NSToolbarSidebarTrackingSeparatorItemIdentifier, NSView, NSWindow,
+    NSAnimationContext, NSBezelStyle, NSButton, NSLayoutConstraint, NSSearchField, NSSearchToolbarItem,
+    NSSegmentDistribution, NSSegmentStyle, NSSegmentSwitchTracking, NSSegmentedControl, NSToolbar, NSToolbarDelegate, NSToolbarDisplayMode,
+    NSToolbarFlexibleSpaceItemIdentifier, NSToolbarItem, NSToolbarItemIdentifier,
+    NSToolbarSidebarTrackingSeparatorItemIdentifier, NSView, NSWindow,
 };
+
+use crate::classes::ClosureTarget;
 use objc2_foundation::{NSArray, NSOperatingSystemVersion, NSProcessInfo, NSRect, NSSize, NSString};
 
 pub(crate) struct DelegateIvars {
@@ -101,6 +111,9 @@ fn glass() -> bool {
     NSProcessInfo::processInfo().isOperatingSystemAtLeastVersion(version)
 }
 
+/// The buttons a group's segments click, in order.
+type Segments = Rc<RefCell<Vec<Retained<NSButton>>>>;
+
 /// A control shown as its item's view.
 struct Adopted {
     view: Retained<NSView>,
@@ -110,6 +123,9 @@ struct Adopted {
     width: Option<Retained<NSLayoutConstraint>>,
     /// The item a search item stands in for.
     replaced: Option<Retained<NSToolbarItem>>,
+    /// A row of buttons, shown as the segments of `view`: the buttons a
+    /// segment clicks, which stay in their host, and the control's target.
+    group: Option<(Segments, Retained<ClosureTarget>)>,
 }
 
 struct Item {
@@ -121,9 +137,30 @@ struct Item {
     adopted: Option<Adopted>,
     width: Retained<NSLayoutConstraint>,
     height: Retained<NSLayoutConstraint>,
+    /// The host's distance from the view's sides.
+    insets: [Retained<NSLayoutConstraint>; 2],
+    /// The host is in a capsule, as a view item is on macOS 26 until it's
+    /// set borderless (though `bordered` reads false until then).
+    glass: bool,
     /// Empty items are out of the toolbar: AppKit can hide an item only
     /// from macOS 15.
     empty: bool,
+}
+
+impl Item {
+    /// Puts the item in a capsule or takes it out, and says if that
+    /// changed. Before macOS 26 (`inset` 0) there's no capsule.
+    fn set_glass(&mut self, glass: bool, inset: f64) -> bool {
+        if self.glass == glass || inset == 0.0 {
+            return false;
+        }
+        self.glass = glass;
+        self.item.setBordered(glass);
+        for constraint in &self.insets {
+            constraint.setConstant(if glass { inset } else { 0.0 });
+        }
+        true
+    }
 }
 
 /// A window's toolbar, made when its first item arrives.
@@ -171,11 +208,15 @@ impl Toolbar {
         view.addSubview(host);
         let width = host.widthAnchor().constraintEqualToConstant(0.0);
         let height = host.heightAnchor().constraintEqualToConstant(0.0);
+        let insets = [
+            host.leadingAnchor().constraintEqualToAnchor_constant(&view.leadingAnchor(), self.inset),
+            view.trailingAnchor().constraintEqualToAnchor_constant(&host.trailingAnchor(), self.inset),
+        ];
         for constraint in [
             &width,
             &height,
-            &host.leadingAnchor().constraintEqualToAnchor_constant(&view.leadingAnchor(), self.inset),
-            &view.trailingAnchor().constraintEqualToAnchor_constant(&host.trailingAnchor(), self.inset),
+            &insets[0],
+            &insets[1],
             &host.topAnchor().constraintEqualToAnchor(&view.topAnchor()),
             &host.bottomAnchor().constraintEqualToAnchor(&view.bottomAnchor()),
         ] {
@@ -184,7 +225,7 @@ impl Toolbar {
         item.setView(Some(&view));
         let host = host.retain();
         let at = index.min(self.items.len());
-        self.items.insert(at, Item { id, item, view, host, adopted: None, width, height, empty: true });
+        self.items.insert(at, Item { id, item, view, host, adopted: None, width, height, insets, glass: true, empty: true });
         self.sync();
     }
 
@@ -206,6 +247,78 @@ impl Toolbar {
         button.setBezelStyle(NSBezelStyle::Toolbar);
     }
 
+    /// Shows an item's host, in a capsule only if it has a control in it.
+    pub(crate) fn show_host(&mut self, id: NodeId, glass: bool) {
+        self.release(id);
+        let inset = self.inset;
+        let Some(item) = self.items.iter_mut().find(|i| i.id == id) else { return };
+        if item.set_glass(glass, inset) {
+            self.resync();
+        }
+    }
+
+    /// Shows an item whose only child is a row of buttons as one
+    /// segmented control, a segment per button, in one capsule. A segment
+    /// clicks its button, which stays in its host, out of the window.
+    pub(crate) fn adopt_group(&mut self, mtm: MainThreadMarker, id: NodeId, buttons: Vec<Retained<NSButton>>) {
+        let shown = self.items.iter().find(|i| i.id == id).and_then(|i| i.adopted.as_ref());
+        let (control, kept) = match shown {
+            Some(Adopted { view, group: Some((kept, _)), .. }) => {
+                (view.downcast_ref::<NSSegmentedControl>().expect("a group's view").retain(), kept.clone())
+            }
+            _ => {
+                self.release(id);
+                let control = NSSegmentedControl::new(mtm);
+                control.setTrackingMode(NSSegmentSwitchTracking::Momentary);
+                control.setSegmentStyle(NSSegmentStyle::Separated);
+                control.setSegmentDistribution(NSSegmentDistribution::Fill);
+                // As wide as the core lays the row out, its buttons side by
+                // side; as tall as the toolbar makes it.
+                control.setTranslatesAutoresizingMaskIntoConstraints(false);
+                let kept: Segments = Rc::default();
+                let clicked = kept.clone();
+                let target = ClosureTarget::new(mtm, move |sender: &AnyObject| {
+                    let Some(control) = sender.downcast_ref::<NSSegmentedControl>() else { return };
+                    let button = usize::try_from(control.selectedSegment()).ok().and_then(|i| clicked.borrow().get(i).cloned());
+                    if let Some(button) = button {
+                        unsafe { button.performClick(None) };
+                    }
+                });
+                unsafe {
+                    control.setTarget(Some(&target));
+                    control.setAction(Some(sel!(fire:)));
+                }
+                let inset = self.inset;
+                let Some(item) = self.items.iter_mut().find(|i| i.id == id) else { return };
+                item.set_glass(true, inset);
+                let sized = item.width.constant();
+                let sized = if sized > 0.0 { sized } else { control.fittingSize().width.max(1.0) };
+                let width = control.widthAnchor().constraintEqualToConstant(sized);
+                width.setActive(true);
+                item.item.setView(Some(&control));
+                item.adopted = Some(Adopted {
+                    view: control.clone().into_super().into_super(),
+                    button: None,
+                    width: Some(width),
+                    replaced: None,
+                    group: Some((kept.clone(), target)),
+                });
+                item.empty = false;
+                (control, kept)
+            }
+        };
+        control.setSegmentCount(buttons.len() as isize);
+        for (index, button) in buttons.iter().enumerate() {
+            let segment = index as isize;
+            control.setLabel_forSegment(&button.title(), segment);
+            control.setImage_forSegment(button.image().as_deref(), segment);
+            control.setEnabled_forSegment(button.isEnabled(), segment);
+            control.setToolTip_forSegment(button.toolTip().as_deref(), segment);
+        }
+        *kept.borrow_mut() = buttons;
+        self.place(true);
+    }
+
     /// Shows an item as its only child, a search field, in a search item.
     pub(crate) fn adopt_field(&mut self, id: NodeId, field: &NSSearchField) {
         let shown = self.items.iter().find(|i| i.id == id).and_then(|i| i.adopted.as_ref());
@@ -216,7 +329,9 @@ impl Toolbar {
 
     fn adopt(&mut self, id: NodeId, view: &NSView, button: Option<(Retained<NSButton>, NSBezelStyle, bool)>) {
         self.release(id);
+        let inset = self.inset;
         let Some(item) = self.items.iter_mut().find(|i| i.id == id) else { return };
+        item.set_glass(true, inset);
         view.removeFromSuperview();
         view.setTranslatesAutoresizingMaskIntoConstraints(false);
         // The toolbar sizes a button; a field has no width of its own.
@@ -244,7 +359,7 @@ impl Toolbar {
                 None
             }
         };
-        item.adopted = Some(Adopted { view: view.retain(), button, width, replaced });
+        item.adopted = Some(Adopted { view: view.retain(), button, width, replaced, group: None });
         // Shown before the core sizes it: the toolbar says how big it is.
         item.empty = false;
         self.place(true);
@@ -253,7 +368,16 @@ impl Toolbar {
     /// Puts an item's control back in its host, as it was.
     pub(crate) fn release(&mut self, id: NodeId) {
         let Some(item) = self.items.iter_mut().find(|i| i.id == id) else { return };
-        let Some(Adopted { view, button, width, replaced }) = item.adopted.take() else { return };
+        let Some(Adopted { view, button, width, replaced, group }) = item.adopted.take() else { return };
+        if group.is_some() {
+            // The buttons never left their host.
+            if let Some(width) = width {
+                width.setActive(false);
+            }
+            item.item.setView(Some(&item.view));
+            self.resync();
+            return;
+        }
         if let Some(replaced) = replaced {
             item.item = replaced;
         }
@@ -280,9 +404,15 @@ impl Toolbar {
         Some(&self.items.iter().find(|i| i.id == id)?.adopted.as_ref()?.view)
     }
 
-    /// The toolbar makes it as wide as it likes: a button, not a field.
+    /// The toolbar makes it as wide as it likes: a button, not a field or
+    /// a group.
     pub(crate) fn sizes_width(&self, id: NodeId) -> bool {
         self.items.iter().any(|i| i.id == id && i.adopted.as_ref().is_some_and(|a| a.button.is_some()))
+    }
+
+    /// The item shows a row of buttons as one control.
+    pub(crate) fn is_group(&self, id: NodeId) -> bool {
+        self.items.iter().any(|i| i.id == id && i.adopted.as_ref().is_some_and(|a| a.group.is_some()))
     }
 
     /// How big the toolbar made an item's control, once it's shown: in

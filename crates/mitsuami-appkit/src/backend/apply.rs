@@ -59,31 +59,81 @@ impl State {
         }
     }
 
+    /// The toolbar item a node is in, as its child or its grandchild (a
+    /// button in a row of them).
+    fn toolbar_item_above(&self, id: NodeId) -> Option<NodeId> {
+        self.toolbar_item_of(id).or_else(|| self.toolbar_item_of(self.nodes.get(&id)?.parent?))
+    }
+
+    /// A node's children, in order.
+    fn ordered_children(&self, id: NodeId) -> Vec<NodeId> {
+        let by_view = self.by_view.borrow();
+        self.nodes[&id].widget.view().subviews().iter().filter_map(|v| by_view.get(&key(&v)).copied()).collect()
+    }
+
+    /// A node or any node in it takes input: a toolbar item with none (a
+    /// label, a progress bar) has no capsule.
+    fn has_control(&self, id: NodeId) -> bool {
+        let Some(node) = self.nodes.get(&id) else { return false };
+        match node.kind {
+            WidgetKind::Container | WidgetKind::ToolbarItem => {
+                self.nodes.iter().any(|(child, n)| n.parent == Some(id) && self.has_control(*child))
+            }
+            WidgetKind::Text
+            | WidgetKind::Progress
+            | WidgetKind::Spinner
+            | WidgetKind::Separator
+            | WidgetKind::Image
+            | WidgetKind::Icon
+            | WidgetKind::FileIcon => false,
+            _ => true,
+        }
+    }
+
     /// An item whose only child is a button or a search field shows the
-    /// control itself, as AppKit's toolbars have them; any other shows
-    /// its host.
+    /// control itself, as AppKit's toolbars have them; one whose only
+    /// child is a row of two or more buttons shows them as one segmented
+    /// control; any other shows its host, in a capsule only if there's a
+    /// control in it.
     fn sync_toolbar_item(&mut self, item: NodeId) {
         enum Shown {
             Button(Retained<objc2_app_kit::NSButton>, bool),
             Field(Retained<objc2_app_kit::NSSearchField>),
-            Host,
+            Group(Vec<Retained<objc2_app_kit::NSButton>>),
+            Host(bool),
         }
         let Some(window) = self.nodes[&item].parent else { return };
-        let mut children = self.nodes.values().filter(|n| n.parent == Some(item));
+        let mut children = self.nodes.iter().filter(|(_, n)| n.parent == Some(item));
         let shown = match (children.next(), children.next()) {
-            (Some(only), None) => {
+            (Some((&only_id, only)), None) => {
                 let bordered = only.button_style != Some(ButtonStyle::Borderless);
                 match &only.widget {
                     Widget::Button(button) => Shown::Button(button.clone(), bordered),
                     Widget::MenuButton { popup, .. } => Shown::Button(popup.clone().into_super(), bordered),
+                    Widget::Host(_) if only.kind == WidgetKind::Container => {
+                        let row = self.ordered_children(only_id);
+                        let buttons: Vec<_> = row
+                            .iter()
+                            .filter_map(|c| match (&self.nodes[c].kind, &self.nodes[c].widget) {
+                                (WidgetKind::Button, Widget::Button(button)) => Some(button.clone()),
+                                _ => None,
+                            })
+                            .collect();
+                        if buttons.len() >= 2 && buttons.len() == row.len() {
+                            Shown::Group(buttons)
+                        } else {
+                            Shown::Host(self.has_control(item))
+                        }
+                    }
                     widget => match widget.view().downcast_ref::<objc2_app_kit::NSSearchField>() {
                         Some(field) => Shown::Field(field.retain()),
-                        None => Shown::Host,
+                        None => Shown::Host(self.has_control(item)),
                     },
                 }
             }
-            _ => Shown::Host,
+            _ => Shown::Host(self.has_control(item)),
         };
+        let mtm = self.mtm;
         let Some(Widget::Window { toolbar: Some(toolbar), .. }) = self.nodes.get_mut(&window).map(|n| &mut n.widget)
         else {
             return;
@@ -91,7 +141,8 @@ impl State {
         match shown {
             Shown::Button(button, bordered) => toolbar.adopt_button(item, &button, bordered),
             Shown::Field(field) => toolbar.adopt_field(item, &field),
-            Shown::Host => toolbar.release(item),
+            Shown::Group(buttons) => toolbar.adopt_group(mtm, item, buttons),
+            Shown::Host(glass) => toolbar.show_host(item, glass),
         }
     }
 
@@ -109,8 +160,9 @@ impl State {
             }
             Command::SetProp { id, prop } => {
                 self.set_prop(*id, prop, command);
-                // A toolbar's button keeps the toolbar's bezel.
-                if let Some(item) = self.toolbar_item_of(*id) {
+                // A toolbar's button keeps the toolbar's bezel, and a
+                // group's segment shows its button.
+                if let Some(item) = self.toolbar_item_above(*id) {
                     self.sync_toolbar_item(item);
                 }
                 self.run_tweak(*id);
@@ -223,7 +275,8 @@ impl State {
                     );
                 }
                 self.nodes.get_mut(child).unwrap().parent = Some(*parent);
-                if let Some(item) = item {
+                // A button in a row of them changes the group.
+                if let Some(item) = item.or_else(|| self.toolbar_item_of(*parent)) {
                     self.sync_toolbar_item(item);
                 }
             }
@@ -266,7 +319,7 @@ impl State {
                     _ => self.view(*child, command).removeFromSuperview(),
                 }
                 self.nodes.get_mut(child).unwrap().parent = None;
-                if let Some(item) = item {
+                if let Some(item) = item.or_else(|| self.toolbar_item_of(*parent)) {
                     self.sync_toolbar_item(item);
                 }
             }
@@ -282,6 +335,9 @@ impl State {
                 // outlive the node (the app's native view, a surface).
                 if let Some((_, area)) = &node.hover {
                     node.widget.view().removeTrackingArea(area);
+                }
+                if let Some((_, recognizer)) = &node.double_click {
+                    node.widget.view().removeGestureRecognizer(recognizer);
                 }
                 match &node.widget {
                     Widget::Window { window, _delegate, .. } => {

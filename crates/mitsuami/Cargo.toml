@@ -164,6 +164,10 @@ name = "hover"
 harness = false
 
 [[test]]
+name = "double_click"
+harness = false
+
+[[test]]
 name = "context_menu"
 harness = false
 

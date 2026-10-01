@@ -492,6 +492,7 @@ impl State {
                 file_drop: None,
                 file_drop_sent: false,
                 hover: None,
+                double_click: None,
                 keys: None,
                 direction: None,
                 align: None,

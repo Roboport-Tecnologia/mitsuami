@@ -562,6 +562,15 @@ impl State {
                 }
                 set_hit_testable(node)?;
             }
+            // Clear too, so a double tap on its empty areas is heard.
+            (Prop::DoubleClick(on), Widget::Host(_) | Widget::Group(_)) => {
+                node.double_click = None;
+                if *on {
+                    node.double_click =
+                        Some(crate::double_click::DoubleClicker::new(id, self.emitter.clone(), &node.element)?);
+                }
+                set_hit_testable(node)?;
+            }
             (Prop::Keys(keys), Widget::Host(_) | Widget::Group(_) | Widget::List(_)) => match &node.keys {
                 Some(taken) => taken.set(keys.clone()),
                 None => {

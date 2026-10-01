@@ -309,6 +309,9 @@ pub(super) fn native_state(state: &State, id: NodeId) -> Option<NativeState> {
     if let Some((_, area)) = &node.hover {
         props.push(Prop::Hover(view.trackingAreas().iter().any(|a| *a == **area)));
     }
+    if let Some((_, recognizer)) = &node.double_click {
+        props.push(Prop::DoubleClick(view.gestureRecognizers().iter().any(|r| *r == ***recognizer)));
+    }
     if let Some((sent, _)) = &node.context_menu {
         props.push(Prop::ContextMenu(match (&node.widget, view.menu()) {
             (Widget::Select(_) | Widget::MenuButton { .. }, _) => sent.clone(),

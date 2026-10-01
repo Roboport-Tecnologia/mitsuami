@@ -364,6 +364,14 @@ impl State {
                     node.hover = Some(crate::hover::Hover::new(widget.item(), id, events));
                 }
             }
+            (Prop::DoubleClick(on), widget @ (Widget::Host(_) | Widget::Group { .. })) => {
+                if let Some(double_click) = node.double_click.take() {
+                    double_click.remove();
+                }
+                if *on {
+                    node.double_click = Some(crate::double_click::DoubleClick::new(widget.item(), id, events));
+                }
+            }
             (Prop::Keys(keys), Widget::Host(_) | Widget::Group { .. } | Widget::List(_)) => {
                 let item = node.widget.item();
                 node.keys.get_or_insert_with(|| crate::keys::NodeKeys::new(item, id, events)).set(keys);

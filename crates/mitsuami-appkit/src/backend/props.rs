@@ -407,6 +407,16 @@ impl State {
                     node.hover = Some(crate::classes::HoverTracker::track(mtm, view, id, events));
                 }
             }
+            // On the host, so a click on any of its subviews counts.
+            (Prop::DoubleClick(on), widget @ (Widget::Host(_) | Widget::Group { .. })) => {
+                let view = widget.view();
+                if let Some((_, recognizer)) = node.double_click.take() {
+                    view.removeGestureRecognizer(&recognizer);
+                }
+                if *on {
+                    node.double_click = Some(crate::classes::DoubleClicker::track(mtm, view, id, events));
+                }
+            }
             (Prop::ContextMenu(entries), widget) => {
                 let target = match node.context_menu.take() {
                     Some((_, target)) => target,

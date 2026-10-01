@@ -346,6 +346,7 @@ impl State {
                 file_drop: false,
                 context_menu: None,
                 hover: None,
+                double_click: None,
             },
         );
     }

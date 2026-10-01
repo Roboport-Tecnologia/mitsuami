@@ -104,6 +104,18 @@ pub(super) fn measure(state: &State, id: NodeId, request: MeasureRequest) -> Siz
             return Size::new(request.known_width.unwrap_or(width), size.height as f32);
         }
     }
+    // A button in a row shown as one control is as wide as it asks, and
+    // as tall as the toolbar makes the control.
+    if let Some(item) = state.nodes[&id].parent.and_then(|row| state.toolbar_item_of(row))
+        && let Some(Widget::Window { window, toolbar: Some(toolbar), .. }) =
+            state.nodes[&item].parent.and_then(|w| state.nodes.get(&w)).map(|w| &w.widget)
+        && toolbar.is_group(item)
+    {
+        window.layoutIfNeeded();
+        if let Some(size) = toolbar.adopted_size(item) {
+            return Size::new(request.known_width.unwrap_or(natural.width), size.height as f32);
+        }
+    }
     Size::new(request.known_width.unwrap_or(natural.width), request.known_height.unwrap_or(natural.height))
 }
 

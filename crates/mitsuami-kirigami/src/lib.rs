@@ -26,6 +26,8 @@ mod backend;
 #[cfg(all(target_os = "linux", feature = "qt"))]
 mod custom;
 #[cfg(all(target_os = "linux", feature = "qt"))]
+mod double_click;
+#[cfg(all(target_os = "linux", feature = "qt"))]
 mod events;
 #[cfg(all(target_os = "linux", feature = "qt"))]
 mod ffi;

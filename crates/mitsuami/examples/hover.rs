@@ -6,6 +6,8 @@
 //! - A box that stays hovered while the pointer is on the button inside.
 //! - A list whose rows show their Start button while hovered, as 2ksbox's
 //!   machines do; their context menu has Start too, for the keyboard.
+//! - A label that turns into a field when double-clicked, as a name is
+//!   renamed in place (the button beside it keeps its own clicks).
 
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
@@ -75,11 +77,33 @@ fn rows() -> impl View {
     }
 }
 
+fn rename() -> impl View {
+    let name = signal("Windows 98".to_owned());
+    let editing = signal(false);
+    view! {
+        <Column gap=Spacing::Md>
+            {heading("Double-click to rename")}
+            <Row gap=Spacing::Md align=Align::Center @double_click=move || editing.set(true)>
+                <Show when=editing fallback=move || view! { <Text>{name}</Text> }>
+                    <TextInput
+                        a11y_label="Name"
+                        value=name
+                        @input=move |text| name.set(text)
+                        @submit=move || editing.set(false)
+                    />
+                </Show>
+                <Button>"Inside"</Button>
+            </Row>
+        </Column>
+    }
+}
+
 pub fn page() -> impl View {
     view! {
         <Column padding=Spacing::Xl gap=Spacing::Xl>
             {a_box()}
             {rows()}
+            {rename()}
         </Column>
     }
 }

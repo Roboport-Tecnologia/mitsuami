@@ -103,6 +103,9 @@ pub enum SyntheticInput {
     PointerEnter,
     /// The pointer leaves a node with a `Prop::Hover`.
     PointerLeave,
+    /// A double click on a node with a `Prop::DoubleClick`, through the
+    /// platform's own handling where it can be reached.
+    DoubleClick,
     /// Files dragged from the file manager, over a node with a
     /// `Prop::FileDrop`: what the platform's drag handling does when they
     /// enter it, through the same path.

@@ -301,6 +301,9 @@ struct Node {
     context_menu: Option<ContextMenu>,
     /// The controller that reports hover, once the core asked for it.
     hover: Option<gtk::EventControllerMotion>,
+    /// The gesture that reports double clicks, and what it reports, once
+    /// the core asked for it.
+    double_click: Option<(gtk::GestureClick, std::rc::Rc<dyn Fn()>)>,
     /// Hosts: what they take when files are dropped on them, once the app
     /// said (`None` inside: nothing).
     file_drop: Option<Option<FileDropTarget>>,

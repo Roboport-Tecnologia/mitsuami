@@ -125,6 +125,17 @@ impl Element {
         });
     }
 
+    /// Reports a double click on the node (`Prop::DoubleClick`), and runs
+    /// `handler` for it. For containers and groups.
+    pub fn on_double_click(&mut self, handler: impl Fn() + 'static) {
+        self.prop(Value::Static(true), Prop::DoubleClick);
+        self.on(move |event| {
+            if *event == UiEvent::DoubleClick {
+                handler();
+            }
+        });
+    }
+
     /// Runs `f` right after the node is created, in the building scope.
     pub fn after_build(&mut self, f: impl FnOnce(&Ui, NodeId) + 'static) {
         self.binders.push(Box::new(f));

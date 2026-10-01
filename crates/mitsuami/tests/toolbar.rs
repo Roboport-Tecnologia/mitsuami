@@ -126,6 +126,49 @@ async fn its_controls_work(app: TestApp) {
     app.expect(by_text("2 machines")).to_exist().await;
 }
 
+/// A row of buttons is one item: on macOS 26 one capsule, a segment per
+/// button. Each button still does what it does, and follows its props.
+#[mitsuami_test::test]
+async fn a_row_of_buttons_is_one_item(app: TestApp) {
+    let (shelf, shaders) = (signal(0), signal(0));
+    let enabled = signal(true);
+    app.mount(move || {
+        Column::new().children((
+            Toolbar::new().children((
+                Button::new("New"),
+                Row::new().children((
+                    Button::new("Shelf").on_click(move || shelf.update(|c| *c += 1)),
+                    Button::new("Shaders").enabled(enabled).on_click(move || shaders.update(|c| *c += 1)),
+                )),
+            )),
+            Text::new(move || format!("{} {}", shelf.get(), shaders.get())),
+        ))
+    });
+    assert_eq!(items(&app).len(), 2);
+    app.expect(by_role(Role::Button, "Shaders")).to_be_visible().await;
+
+    app.get_by_role(Role::Button, "Shelf").click().await;
+    app.get_by_role(Role::Button, "Shaders").click().await;
+    app.get_by_role(Role::Button, "Shaders").click().await;
+    app.expect(by_text("1 2")).to_exist().await;
+
+    enabled.set(false);
+    app.settle().await;
+    app.expect(by_role(Role::Button, "Shaders")).to_be_disabled().await;
+}
+
+/// An item with no control in it (a status, a progress bar) shows as the
+/// others do, at its size: macOS 26 leaves it out of the glass.
+#[mitsuami_test::test]
+async fn an_item_without_controls_keeps_its_size(app: TestApp) {
+    app.mount(|| Toolbar::new().children((Progress::new("Downloading").width(160), Button::new("Add"))));
+
+    let bar = app.get_by_role(Role::ProgressBar, "Downloading").frame();
+    assert_eq!(bar.width(), 160.0, "{bar:?}");
+    assert_eq!(app.ui().frame(items(&app)[0]).unwrap().size, bar.size);
+    assert!(bar.max_x() <= app.get_by_role(Role::Button, "Add").frame().x(), "{bar:?}");
+}
+
 /// Whether Tab reaches the toolbar is the platform's call: the core's
 /// order is the content's.
 #[mitsuami_test::test]

@@ -280,6 +280,16 @@ impl<'a> Locator<'a> {
         self.app.move_pointer(Some(self.node().id)).await;
     }
 
+    /// Double-clicks the node, as a mouse does, where it reports double
+    /// clicks (`on_double_click`). Panics where it doesn't.
+    pub async fn double_click(&self) {
+        let id = self.node().id;
+        if let Err(e) = self.app.ui().synthesize(id, &SyntheticInput::DoubleClick) {
+            panic!("cannot double-click node {id}: {e}");
+        }
+        self.app.settle().await;
+    }
+
     /// The files dragging this row (a list item, or a table's row) out of
     /// the app would carry, as the platform's drag source gives them: the
     /// selected rows' if it's selected, else its own. Empty if it doesn't

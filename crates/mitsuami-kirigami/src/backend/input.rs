@@ -66,6 +66,15 @@ impl KirigamiBackend {
             report(*input == SyntheticInput::PointerEnter);
             return Ok(());
         }
+        if *input == SyntheticInput::DoubleClick {
+            let report = {
+                let state = self.state.borrow();
+                let node = state.nodes.get(&id).ok_or(ActionError::UnknownNode)?;
+                node.double_click.as_ref().map(|d| d.report()).ok_or(ActionError::Unsupported)?
+            };
+            report();
+            return Ok(());
+        }
         let (widget_item, kind, window) = {
             let state = self.state.borrow();
             let node = state.nodes.get(&id).ok_or(ActionError::UnknownNode)?;
@@ -107,7 +116,8 @@ impl KirigamiBackend {
             | SyntheticInput::DragLeave
             | SyntheticInput::DropFiles(_)
             | SyntheticInput::PointerEnter
-            | SyntheticInput::PointerLeave => unreachable!(),
+            | SyntheticInput::PointerLeave
+            | SyntheticInput::DoubleClick => unreachable!(),
             // Text fields take keys with modifiers as editing commands,
             // which aren't simulated.
             SyntheticInput::Shortcut(_)
@@ -309,7 +319,8 @@ impl KirigamiBackend {
             | SyntheticInput::DragLeave
             | SyntheticInput::DropFiles(_)
             | SyntheticInput::PointerEnter
-            | SyntheticInput::PointerLeave => {
+            | SyntheticInput::PointerLeave
+            | SyntheticInput::DoubleClick => {
                 return Err(ActionError::Unsupported);
             }
         }

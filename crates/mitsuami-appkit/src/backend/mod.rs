@@ -304,6 +304,9 @@ struct Node {
     /// The owner of the tracking area that reports hover, and the area,
     /// once the core asked for it.
     hover: Option<(Retained<crate::classes::HoverTracker>, Retained<objc2_app_kit::NSTrackingArea>)>,
+    /// The target of the recognizer that reports double clicks, and the
+    /// recognizer, once the core asked for it.
+    double_click: Option<(Retained<crate::classes::DoubleClicker>, Retained<objc2_app_kit::NSClickGestureRecognizer>)>,
 }
 
 struct State {

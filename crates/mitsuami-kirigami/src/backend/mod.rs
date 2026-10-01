@@ -249,6 +249,8 @@ struct Node {
     context_menu: Option<ContextMenu>,
     /// The handler that reports hover, once the core asked for it.
     hover: Option<crate::hover::Hover>,
+    /// The handler that reports double clicks, once the core asked for it.
+    double_click: Option<crate::double_click::DoubleClick>,
     /// Menu buttons: their menu, once the app gave one.
     button_menu: Option<ContextMenu>,
     /// Hosts: the drop area over them while they take files, and whether

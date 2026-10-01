@@ -169,6 +169,8 @@ pub enum UiEvent {
     /// The pointer came over a node that reports it (`Prop::Hover`), or
     /// over anything inside it (`true`), or left it (`false`).
     Hover(bool),
+    /// A node that reports it (`Prop::DoubleClick`) was double-clicked.
+    DoubleClick,
     /// The item of a `MenuButton`'s menu with this id was chosen.
     MenuItem(u32),
     /// A key the node takes (`Prop::Keys`) was pressed while it, or a
