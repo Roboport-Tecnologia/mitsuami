@@ -25,7 +25,8 @@
 //! sets its own: the XAML window, and the windows in it, are subclassed,
 //! and over a surface with a cursor of the app's they set that one instead
 //! of letting XAML set its arrow. An `InputCursor` can't be made from
-//! pixels, and `UIElement.ProtectedCursor` is only a subclass's.
+//! pixels, so `UIElement.ProtectedCursor` (set from outside for a table's
+//! grippers) only has the system's shapes.
 
 use std::cell::RefCell;
 use std::collections::{HashMap, HashSet};

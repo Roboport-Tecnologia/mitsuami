@@ -610,8 +610,12 @@ impl List {
             let gripper: w::Border = w::XamlReader::Load(GRIPPER_MARKUP)?.cast()?;
             revokers.extend(self.resizes(&gripper, column)?);
             children.Append(&button.cast::<w::UIElement>()?)?;
-            children.Append(&gripper.cast::<w::UIElement>()?)?;
             parts.push((button, icon, gripper));
+        }
+        // Over the buttons: a gripper straddles its column's edge, and the
+        // next column's button took the half past it.
+        for (_, _, gripper) in &parts {
+            children.Append(&gripper.cast::<w::UIElement>()?)?;
         }
         {
             let mut d = self.data.borrow_mut();
@@ -630,6 +634,11 @@ impl List {
     /// column keeps the width the user gave it from then on.
     fn resizes(&self, gripper: &w::Border, column: usize) -> R<Vec<EventRevoker>> {
         let element: w::IUIElement = gripper.cast()?;
+        // The sizing cursor over it, as over the Files app's grippers and
+        // Win32 list views' dividers. `ProtectedCursor` is meant for
+        // subclasses, but the element takes it all the same.
+        let cursor = w::InputSystemCursor::Create(w::InputSystemCursorShape::SizeWestEast)?;
+        gripper.cast::<w::IUIElementProtected>()?.SetProtectedCursor(&cursor)?;
         let (id, events) = (self.id, self.events.clone());
         // Where the pointer is along the header, which doesn't move.
         let x = |data: &Rc<RefCell<Data>>, args: &windows_core::Ref<w::PointerRoutedEventArgs>| -> Option<f64> {
