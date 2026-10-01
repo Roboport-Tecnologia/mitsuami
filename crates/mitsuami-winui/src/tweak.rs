@@ -147,3 +147,24 @@ pub fn tweak_with<W: Tweakable, T: Clone + 'static>(
         Opaque::new("xaml tweak", run)
     })
 }
+
+/// A list's or table's rows without XAML's item animations: `ListView`
+/// slides and fades rows in as they're added, and again when they're all
+/// replaced, as a file manager's are on every folder it opens. An app whose
+/// rows change wholesale may prefer them to just show, as File Explorer's
+/// do: `.native(winui::without_item_animations())`.
+pub fn without_item_animations<W: Tweakable<Native = w::ListView>>() -> Tweak<W> {
+    tweak(remove_item_animations)
+}
+
+/// What [`without_item_animations`] does, for a tweak of the app's own
+/// that does more.
+pub fn remove_item_animations(list: &w::ListView) -> windows_core::Result<()> {
+    // An empty one of the list's own: the default style's collection is
+    // shared by every list view. Set even when the list has none yet: the
+    // first time, before the list is in the window, its style hasn't
+    // given it its transitions, and a local value wins over the style's.
+    let none: w::TransitionCollection =
+        windows_core::factory::<w::TransitionCollection, windows_core::imp::IGenericFactory>()?.ActivateInstance()?;
+    list.cast::<w::IItemsControl>()?.SetItemContainerTransitions(&none)
+}

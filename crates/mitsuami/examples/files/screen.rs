@@ -287,6 +287,12 @@ fn Files(preview: Signal<bool>) -> impl View {
         // To the file manager, Mail, another folder: a copy.
         .drag_files(|e: &Entry| Some(e.path.clone()))
         .a11y_label("Items")
+        // A folder's items just show, as File Explorer's do: XAML's list
+        // slid and faded every folder's in.
+        .native(platform! {
+            windows => mitsuami::winui::without_item_animations(),
+            _ => Tweak::none(),
+        })
         .hidden(move || browser.listing.error().is_some() || empty())
         .grow(1.0)
         .basis(0);

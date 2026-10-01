@@ -6746,6 +6746,28 @@ impl IItemsControl {
             .ok()
         }
     }
+    pub fn ItemContainerTransitions(&self) -> windows_core::Result<TransitionCollection> {
+        unsafe {
+            let mut result__ = core::mem::zeroed();
+            (windows_core::Interface::vtable(self).ItemContainerTransitions)(
+                windows_core::Interface::as_raw(self),
+                &mut result__,
+            )
+            .and_then(|| windows_core::imp::Type::from_abi(result__))
+        }
+    }
+    pub fn SetItemContainerTransitions<P0>(&self, value: P0) -> windows_core::Result<()>
+    where
+        P0: windows_core::Param<TransitionCollection>,
+    {
+        unsafe {
+            (windows_core::Interface::vtable(self).SetItemContainerTransitions)(
+                windows_core::Interface::as_raw(self),
+                value.param().abi(),
+            )
+            .ok()
+        }
+    }
 }
 #[repr(C)]
 pub struct IItemsControl_Vtbl {
@@ -6765,6 +6787,13 @@ pub struct IItemsControl_Vtbl {
     ItemsPanelRoot: usize,
     ItemContainerStyle: usize,
     pub SetItemContainerStyle:
+        unsafe extern "system" fn(*mut core::ffi::c_void, *mut core::ffi::c_void) -> windows_core::HRESULT,
+    ItemContainerStyleSelector: usize,
+    SetItemContainerStyleSelector: usize,
+    ItemContainerGenerator: usize,
+    pub ItemContainerTransitions:
+        unsafe extern "system" fn(*mut core::ffi::c_void, *mut *mut core::ffi::c_void) -> windows_core::HRESULT,
+    pub SetItemContainerTransitions:
         unsafe extern "system" fn(*mut core::ffi::c_void, *mut core::ffi::c_void) -> windows_core::HRESULT,
 }
 windows_core::imp::define_interface!(
@@ -6927,6 +6956,33 @@ impl windows_core::RuntimeType for ILaunchActivatedEventArgs {
 #[repr(C)]
 pub struct ILaunchActivatedEventArgs_Vtbl {
     pub base__: windows_core::IInspectable_Vtbl,
+}
+windows_core::imp::define_interface!(
+    ILayoutInformation,
+    ILayoutInformation_Vtbl,
+    0xceea0a8c_5a4f_5d7a_8fea_77b5e0e0230c
+);
+impl windows_core::RuntimeType for ILayoutInformation {
+    const SIGNATURE: windows_core::imp::ConstBuffer = windows_core::imp::ConstBuffer::for_interface::<Self>();
+}
+#[repr(C)]
+pub struct ILayoutInformation_Vtbl {
+    pub base__: windows_core::IInspectable_Vtbl,
+}
+windows_core::imp::define_interface!(
+    ILayoutInformationStatics,
+    ILayoutInformationStatics_Vtbl,
+    0x8ddb192d_b7ff_5307_acf4_d4e547da5815
+);
+impl windows_core::RuntimeType for ILayoutInformationStatics {
+    const SIGNATURE: windows_core::imp::ConstBuffer = windows_core::imp::ConstBuffer::for_interface::<Self>();
+}
+#[repr(C)]
+pub struct ILayoutInformationStatics_Vtbl {
+    pub base__: windows_core::IInspectable_Vtbl,
+    GetLayoutExceptionElement: usize,
+    pub GetLayoutSlot:
+        unsafe extern "system" fn(*mut core::ffi::c_void, *mut core::ffi::c_void, *mut Rect) -> windows_core::HRESULT,
 }
 windows_core::imp::define_interface!(IListView, IListView_Vtbl, 0xf6015db1_df63_52fd_a164_0df44715ee0a);
 impl windows_core::RuntimeType for IListView {
@@ -11415,6 +11471,14 @@ pub struct IToolTipServiceStatics_Vtbl {
         *mut core::ffi::c_void,
     ) -> windows_core::HRESULT,
 }
+windows_core::imp::define_interface!(ITransition, ITransition_Vtbl, 0xe5b71956_8e44_5a38_b41e_274d706102bf);
+impl windows_core::RuntimeType for ITransition {
+    const SIGNATURE: windows_core::imp::ConstBuffer = windows_core::imp::ConstBuffer::for_interface::<Self>();
+}
+#[repr(C)]
+pub struct ITransition_Vtbl {
+    pub base__: windows_core::IInspectable_Vtbl,
+}
 windows_core::imp::define_interface!(IUIElement, IUIElement_Vtbl, 0xc3c01020_320c_5cf6_9d24_d396bbfa4d8b);
 impl windows_core::RuntimeType for IUIElement {
     const SIGNATURE: windows_core::imp::ConstBuffer = windows_core::imp::ConstBuffer::for_interface::<Self>();
@@ -13509,6 +13573,52 @@ impl windows_core::RuntimeName for LaunchActivatedEventArgs {
 }
 unsafe impl Send for LaunchActivatedEventArgs {}
 unsafe impl Sync for LaunchActivatedEventArgs {}
+#[repr(transparent)]
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct LayoutInformation(windows_core::IUnknown);
+windows_core::imp::interface_hierarchy!(LayoutInformation, windows_core::IUnknown, windows_core::IInspectable);
+impl LayoutInformation {
+    pub fn GetLayoutSlot<P0>(element: P0) -> windows_core::Result<Rect>
+    where
+        P0: windows_core::Param<FrameworkElement>,
+    {
+        Self::ILayoutInformationStatics(|this| unsafe {
+            let mut result__ = core::mem::zeroed();
+            (windows_core::Interface::vtable(this).GetLayoutSlot)(
+                windows_core::Interface::as_raw(this),
+                element.param().abi(),
+                &mut result__,
+            )
+            .map(|| result__)
+        })
+    }
+    fn ILayoutInformationStatics<R, F: FnOnce(&ILayoutInformationStatics) -> windows_core::Result<R>>(
+        callback: F,
+    ) -> windows_core::Result<R> {
+        static SHARED: windows_core::imp::FactoryCache<LayoutInformation, ILayoutInformationStatics> =
+            windows_core::imp::FactoryCache::new();
+        SHARED.call(callback)
+    }
+}
+impl windows_core::RuntimeType for LayoutInformation {
+    const SIGNATURE: windows_core::imp::ConstBuffer =
+        windows_core::imp::ConstBuffer::for_class::<Self, ILayoutInformation>();
+}
+unsafe impl windows_core::Interface for LayoutInformation {
+    type Vtable = <ILayoutInformation as windows_core::Interface>::Vtable;
+    const IID: windows_core::GUID = <ILayoutInformation as windows_core::Interface>::IID;
+}
+impl core::ops::Deref for LayoutInformation {
+    type Target = ILayoutInformation;
+    fn deref(&self) -> &Self::Target {
+        unsafe { core::mem::transmute(self) }
+    }
+}
+impl windows_core::RuntimeName for LayoutInformation {
+    const NAME: &'static str = "Microsoft.UI.Xaml.Controls.Primitives.LayoutInformation";
+}
+unsafe impl Send for LayoutInformation {}
+unsafe impl Sync for LayoutInformation {}
 #[repr(transparent)]
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct ListView(windows_core::IUnknown);
@@ -17286,6 +17396,57 @@ impl windows_core::RuntimeName for ToolTipService {
 }
 unsafe impl Send for ToolTipService {}
 unsafe impl Sync for ToolTipService {}
+#[repr(transparent)]
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct Transition(windows_core::IUnknown);
+windows_core::imp::interface_hierarchy!(Transition, windows_core::IUnknown, windows_core::IInspectable);
+windows_core::imp::required_hierarchy!(Transition, DependencyObject);
+impl windows_core::RuntimeType for Transition {
+    const SIGNATURE: windows_core::imp::ConstBuffer = windows_core::imp::ConstBuffer::for_class::<Self, ITransition>();
+}
+unsafe impl windows_core::Interface for Transition {
+    type Vtable = <ITransition as windows_core::Interface>::Vtable;
+    const IID: windows_core::GUID = <ITransition as windows_core::Interface>::IID;
+}
+impl core::ops::Deref for Transition {
+    type Target = ITransition;
+    fn deref(&self) -> &Self::Target {
+        unsafe { core::mem::transmute(self) }
+    }
+}
+impl windows_core::RuntimeName for Transition {
+    const NAME: &'static str = "Microsoft.UI.Xaml.Media.Animation.Transition";
+}
+unsafe impl Send for Transition {}
+unsafe impl Sync for Transition {}
+#[repr(transparent)]
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct TransitionCollection(windows_core::IUnknown);
+windows_core::imp::interface_hierarchy!(
+    TransitionCollection,
+    windows_core::IUnknown,
+    windows_core::IInspectable,
+    windows_collections::IVector<Transition>
+);
+impl windows_core::RuntimeType for TransitionCollection {
+    const SIGNATURE: windows_core::imp::ConstBuffer =
+        windows_core::imp::ConstBuffer::for_class::<Self, windows_collections::IVector<Transition>>();
+}
+unsafe impl windows_core::Interface for TransitionCollection {
+    type Vtable = <windows_collections::IVector<Transition> as windows_core::Interface>::Vtable;
+    const IID: windows_core::GUID = <windows_collections::IVector<Transition> as windows_core::Interface>::IID;
+}
+impl core::ops::Deref for TransitionCollection {
+    type Target = windows_collections::IVector<Transition>;
+    fn deref(&self) -> &Self::Target {
+        unsafe { core::mem::transmute(self) }
+    }
+}
+impl windows_core::RuntimeName for TransitionCollection {
+    const NAME: &'static str = "Microsoft.UI.Xaml.Media.Animation.TransitionCollection";
+}
+unsafe impl Send for TransitionCollection {}
+unsafe impl Sync for TransitionCollection {}
 #[repr(transparent)]
 #[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
 pub struct TypeKind(pub i32);

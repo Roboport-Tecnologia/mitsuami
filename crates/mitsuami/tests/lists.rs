@@ -403,4 +403,47 @@ async fn a_tweak_runs_on_the_native_list_view_after_its_rows(app: TestApp) {
     assert_eq!(log.borrow().last(), Some(&4));
 }
 
+/// WinUI's list view animates rows in; an app can turn that off for one
+/// list, and the others keep theirs. The other platforms' lists don't
+/// animate rows in.
+#[mitsuami_test::test]
+async fn winui_item_animations_can_be_turned_off(app: TestApp) {
+    let log = Rc::new(RefCell::new(Vec::new()));
+    let (still, animated) = (signal(items(3)), signal(items(3)));
+    let transitions = |log: Rc<RefCell<Vec<(&'static str, u32)>>>, list: &'static str, off: bool| -> Tweak<List> {
+        platform! {
+            windows => mitsuami::winui::tweak(move |v: &mitsuami::winui::bindings::ListView| {
+                use mitsuami::winui::windows_core::Interface;
+                if off {
+                    mitsuami::winui::remove_item_animations(v)?;
+                }
+                let items = v.cast::<mitsuami::winui::bindings::IItemsControl>()?;
+                log.borrow_mut().push((list, items.ItemContainerTransitions()?.Size()?));
+                Ok(())
+            }),
+            _ => Tweak::none(),
+        }
+    };
+    let (a, b) = (transitions(log.clone(), "still", true), transitions(log.clone(), "animated", false));
+    app.mount(move || {
+        Column::new().children((
+            List::new(still, |i: &Item| i.id, |i| row(i.name, 20.0)).height(100).native(a),
+            List::new(animated, |i: &Item| i.id, |i| row(i.name, 20.0)).height(100).native(b),
+        ))
+    });
+    app.settle().await;
+    if app.is_headless() || !cfg!(windows) {
+        return;
+    }
+    // Read again once the lists are in the window, with their style's
+    // transitions: the tweaks run again as the rows change.
+    for list in [still, animated] {
+        list.update(|d| d.push(Item { id: 3, name: "Item 3".into() }));
+    }
+    app.settle().await;
+    let last = |list| log.borrow().iter().rev().find(|(l, _)| *l == list).map(|(_, n)| *n);
+    assert_eq!(last("still"), Some(0));
+    assert!(last("animated").is_some_and(|n| n > 0), "{:?}", log.borrow());
+}
+
 mitsuami_test::main!();
