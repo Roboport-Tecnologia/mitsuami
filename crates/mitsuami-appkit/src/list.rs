@@ -294,8 +294,8 @@ define_class!(
 /// views only for what's in view, which a fast scroll replaces all at
 /// once, so they'd show empty until built; GTK's, Qt's and WinUI's lists
 /// keep rows past the view themselves.
-const AHEAD: usize = 1;
-const KEPT: usize = 2;
+const AHEAD: usize = 2;
+const KEPT: usize = 4;
 
 impl ListIvars {
     /// Reports the rows shown and let go since the last report: the rows
