@@ -78,7 +78,7 @@ Microsoft.UI.Xaml.Controls.Canvas::{CreateInstance, SetLeft, SetTop, GetLeft, Ge
 Microsoft.UI.Xaml.Controls.IPanel::{get_Children, put_Background}
 Microsoft.UI.Xaml.Controls.UIElementCollection::{}
 Microsoft.UI.Xaml.Controls.TextBlock::CreateInstance
-Microsoft.UI.Xaml.Controls.ITextBlock::{get_Text, put_Text, put_TextWrapping, get_MaxLines, put_MaxLines, put_TextTrimming, put_CharacterSpacing, put_FontSize, get_FontWeight, put_FontWeight, put_FontFamily, get_FontStyle, put_FontStyle, get_TextAlignment, put_TextAlignment, get_IsTextSelectionEnabled, put_IsTextSelectionEnabled}
+Microsoft.UI.Xaml.Controls.ITextBlock::{get_Text, put_Text, put_TextWrapping, get_MaxLines, put_MaxLines, put_TextTrimming, get_CharacterSpacing, put_CharacterSpacing, get_FontSize, put_FontSize, get_FontWeight, put_FontWeight, get_FontFamily, put_FontFamily, get_FontStyle, put_FontStyle, get_TextAlignment, put_TextAlignment, get_IsTextSelectionEnabled, put_IsTextSelectionEnabled}
 Microsoft.UI.Xaml.Media.FontFamily::CreateInstanceWithName
 Windows.UI.Text.FontWeight
 Windows.UI.Text.FontStyle
@@ -524,3 +524,7 @@ Windows.Win32.DATE_LONGDATE
 Windows.Win32.TIME_NOSECONDS
 Windows.Win32.FileTimeToSystemTime
 Windows.Win32.SystemTimeToTzSpecificLocalTime
+Microsoft.UI.Xaml.IUIElementProtected::put_ProtectedCursor
+Microsoft.UI.Input.InputSystemCursor::Create
+Microsoft.UI.Input.InputSystemCursorShape
+Microsoft.UI.Input.InputCursor::{}

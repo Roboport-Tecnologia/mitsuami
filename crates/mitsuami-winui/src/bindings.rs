@@ -6500,6 +6500,14 @@ impl windows_core::RuntimeType for IImageSource {
 pub struct IImageSource_Vtbl {
     pub base__: windows_core::IInspectable_Vtbl,
 }
+windows_core::imp::define_interface!(IInputCursor, IInputCursor_Vtbl, 0x359b15f9_19c2_5714_8432_75176826406b);
+impl windows_core::RuntimeType for IInputCursor {
+    const SIGNATURE: windows_core::imp::ConstBuffer = windows_core::imp::ConstBuffer::for_interface::<Self>();
+}
+#[repr(C)]
+pub struct IInputCursor_Vtbl {
+    pub base__: windows_core::IInspectable_Vtbl,
+}
 windows_core::imp::define_interface!(
     IInputFocusController,
     IInputFocusController_Vtbl,
@@ -6596,6 +6604,35 @@ pub struct IInputScopeName_Vtbl {
     pub base__: windows_core::IInspectable_Vtbl,
     pub NameValue: unsafe extern "system" fn(*mut core::ffi::c_void, *mut InputScopeNameValue) -> windows_core::HRESULT,
     pub SetNameValue: unsafe extern "system" fn(*mut core::ffi::c_void, InputScopeNameValue) -> windows_core::HRESULT,
+}
+windows_core::imp::define_interface!(
+    IInputSystemCursor,
+    IInputSystemCursor_Vtbl,
+    0x59f538e7_c500_59ab_8b54_0bc6100fd49e
+);
+impl windows_core::RuntimeType for IInputSystemCursor {
+    const SIGNATURE: windows_core::imp::ConstBuffer = windows_core::imp::ConstBuffer::for_interface::<Self>();
+}
+#[repr(C)]
+pub struct IInputSystemCursor_Vtbl {
+    pub base__: windows_core::IInspectable_Vtbl,
+}
+windows_core::imp::define_interface!(
+    IInputSystemCursorStatics,
+    IInputSystemCursorStatics_Vtbl,
+    0xd3860bb6_698a_5814_aedd_c2fa8bba5a02
+);
+impl windows_core::RuntimeType for IInputSystemCursorStatics {
+    const SIGNATURE: windows_core::imp::ConstBuffer = windows_core::imp::ConstBuffer::for_interface::<Self>();
+}
+#[repr(C)]
+pub struct IInputSystemCursorStatics_Vtbl {
+    pub base__: windows_core::IInspectable_Vtbl,
+    pub Create: unsafe extern "system" fn(
+        *mut core::ffi::c_void,
+        InputSystemCursorShape,
+        *mut *mut core::ffi::c_void,
+    ) -> windows_core::HRESULT,
 }
 windows_core::imp::define_interface!(IInvokeProvider, IInvokeProvider_Vtbl, 0x02481105_3378_544d_b4e1_a1b368afbc02);
 impl windows_core::RuntimeType for IInvokeProvider {
@@ -10493,9 +10530,23 @@ impl windows_core::RuntimeType for ITextBlock {
     const SIGNATURE: windows_core::imp::ConstBuffer = windows_core::imp::ConstBuffer::for_interface::<Self>();
 }
 impl ITextBlock {
+    pub fn FontSize(&self) -> windows_core::Result<f64> {
+        unsafe {
+            let mut result__ = core::mem::zeroed();
+            (windows_core::Interface::vtable(self).FontSize)(windows_core::Interface::as_raw(self), &mut result__)
+                .map(|| result__)
+        }
+    }
     pub fn SetFontSize(&self, value: f64) -> windows_core::Result<()> {
         unsafe {
             (windows_core::Interface::vtable(self).SetFontSize)(windows_core::Interface::as_raw(self), value).ok()
+        }
+    }
+    pub fn FontFamily(&self) -> windows_core::Result<FontFamily> {
+        unsafe {
+            let mut result__ = core::mem::zeroed();
+            (windows_core::Interface::vtable(self).FontFamily)(windows_core::Interface::as_raw(self), &mut result__)
+                .and_then(|| windows_core::imp::Type::from_abi(result__))
         }
     }
     pub fn SetFontFamily<P0>(&self, value: P0) -> windows_core::Result<()>
@@ -10532,6 +10583,16 @@ impl ITextBlock {
     pub fn SetFontStyle(&self, value: FontStyle) -> windows_core::Result<()> {
         unsafe {
             (windows_core::Interface::vtable(self).SetFontStyle)(windows_core::Interface::as_raw(self), value).ok()
+        }
+    }
+    pub fn CharacterSpacing(&self) -> windows_core::Result<i32> {
+        unsafe {
+            let mut result__ = core::mem::zeroed();
+            (windows_core::Interface::vtable(self).CharacterSpacing)(
+                windows_core::Interface::as_raw(self),
+                &mut result__,
+            )
+            .map(|| result__)
         }
     }
     pub fn SetCharacterSpacing(&self, value: i32) -> windows_core::Result<()> {
@@ -10617,9 +10678,10 @@ impl ITextBlock {
 #[repr(C)]
 pub struct ITextBlock_Vtbl {
     pub base__: windows_core::IInspectable_Vtbl,
-    FontSize: usize,
+    pub FontSize: unsafe extern "system" fn(*mut core::ffi::c_void, *mut f64) -> windows_core::HRESULT,
     pub SetFontSize: unsafe extern "system" fn(*mut core::ffi::c_void, f64) -> windows_core::HRESULT,
-    FontFamily: usize,
+    pub FontFamily:
+        unsafe extern "system" fn(*mut core::ffi::c_void, *mut *mut core::ffi::c_void) -> windows_core::HRESULT,
     pub SetFontFamily:
         unsafe extern "system" fn(*mut core::ffi::c_void, *mut core::ffi::c_void) -> windows_core::HRESULT,
     pub FontWeight: unsafe extern "system" fn(*mut core::ffi::c_void, *mut FontWeight) -> windows_core::HRESULT,
@@ -10628,7 +10690,7 @@ pub struct ITextBlock_Vtbl {
     pub SetFontStyle: unsafe extern "system" fn(*mut core::ffi::c_void, FontStyle) -> windows_core::HRESULT,
     FontStretch: usize,
     SetFontStretch: usize,
-    CharacterSpacing: usize,
+    pub CharacterSpacing: unsafe extern "system" fn(*mut core::ffi::c_void, *mut i32) -> windows_core::HRESULT,
     pub SetCharacterSpacing: unsafe extern "system" fn(*mut core::ffi::c_void, i32) -> windows_core::HRESULT,
     Foreground: usize,
     SetForeground: usize,
@@ -12135,6 +12197,35 @@ pub struct IUIElement_Vtbl {
     TryInvokeKeyboardAccelerator: usize,
     pub Focus: unsafe extern "system" fn(*mut core::ffi::c_void, FocusState, *mut bool) -> windows_core::HRESULT,
 }
+windows_core::imp::define_interface!(
+    IUIElementProtected,
+    IUIElementProtected_Vtbl,
+    0x8f69b9e9_1f00_5834_9bf1_a9257bed39f0
+);
+impl windows_core::RuntimeType for IUIElementProtected {
+    const SIGNATURE: windows_core::imp::ConstBuffer = windows_core::imp::ConstBuffer::for_interface::<Self>();
+}
+impl IUIElementProtected {
+    pub fn SetProtectedCursor<P0>(&self, value: P0) -> windows_core::Result<()>
+    where
+        P0: windows_core::Param<InputCursor>,
+    {
+        unsafe {
+            (windows_core::Interface::vtable(self).SetProtectedCursor)(
+                windows_core::Interface::as_raw(self),
+                value.param().abi(),
+            )
+            .ok()
+        }
+    }
+}
+#[repr(C)]
+pub struct IUIElementProtected_Vtbl {
+    pub base__: windows_core::IInspectable_Vtbl,
+    ProtectedCursor: usize,
+    pub SetProtectedCursor:
+        unsafe extern "system" fn(*mut core::ffi::c_void, *mut core::ffi::c_void) -> windows_core::HRESULT,
+}
 windows_core::imp::define_interface!(IUISettings, IUISettings_Vtbl, 0x85361600_1c63_4627_bcb1_3a89e0bc9c55);
 impl windows_core::RuntimeType for IUISettings {
     const SIGNATURE: windows_core::imp::ConstBuffer = windows_core::imp::ConstBuffer::for_interface::<Self>();
@@ -12856,6 +12947,28 @@ unsafe impl Send for ImageSource {}
 unsafe impl Sync for ImageSource {}
 #[repr(transparent)]
 #[derive(Clone, Debug, Eq, PartialEq)]
+pub struct InputCursor(windows_core::IUnknown);
+windows_core::imp::interface_hierarchy!(InputCursor, windows_core::IUnknown, windows_core::IInspectable);
+impl windows_core::RuntimeType for InputCursor {
+    const SIGNATURE: windows_core::imp::ConstBuffer = windows_core::imp::ConstBuffer::for_class::<Self, IInputCursor>();
+}
+unsafe impl windows_core::Interface for InputCursor {
+    type Vtable = <IInputCursor as windows_core::Interface>::Vtable;
+    const IID: windows_core::GUID = <IInputCursor as windows_core::Interface>::IID;
+}
+impl core::ops::Deref for InputCursor {
+    type Target = IInputCursor;
+    fn deref(&self) -> &Self::Target {
+        unsafe { core::mem::transmute(self) }
+    }
+}
+impl windows_core::RuntimeName for InputCursor {
+    const NAME: &'static str = "Microsoft.UI.Input.InputCursor";
+}
+unsafe impl Send for InputCursor {}
+unsafe impl Sync for InputCursor {}
+#[repr(transparent)]
+#[derive(Clone, Debug, Eq, PartialEq)]
 pub struct InputFocusController(windows_core::IUnknown);
 windows_core::imp::interface_hierarchy!(InputFocusController, windows_core::IUnknown, windows_core::IInspectable);
 windows_core::imp::required_hierarchy!(InputFocusController, InputObject);
@@ -13048,6 +13161,74 @@ impl windows_core::imp::TypeKind for InputScopeNameValue {
 impl windows_core::RuntimeType for InputScopeNameValue {
     const SIGNATURE: windows_core::imp::ConstBuffer =
         windows_core::imp::ConstBuffer::from_slice(b"enum(Microsoft.UI.Xaml.Input.InputScopeNameValue;i4)");
+}
+#[repr(transparent)]
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct InputSystemCursor(windows_core::IUnknown);
+windows_core::imp::interface_hierarchy!(InputSystemCursor, windows_core::IUnknown, windows_core::IInspectable);
+windows_core::imp::required_hierarchy!(InputSystemCursor, InputCursor);
+impl InputSystemCursor {
+    pub fn Create(r#type: InputSystemCursorShape) -> windows_core::Result<Self> {
+        Self::IInputSystemCursorStatics(|this| unsafe {
+            let mut result__ = core::mem::zeroed();
+            (windows_core::Interface::vtable(this).Create)(windows_core::Interface::as_raw(this), r#type, &mut result__)
+                .and_then(|| windows_core::imp::Type::from_abi(result__))
+        })
+    }
+    fn IInputSystemCursorStatics<R, F: FnOnce(&IInputSystemCursorStatics) -> windows_core::Result<R>>(
+        callback: F,
+    ) -> windows_core::Result<R> {
+        static SHARED: windows_core::imp::FactoryCache<InputSystemCursor, IInputSystemCursorStatics> =
+            windows_core::imp::FactoryCache::new();
+        SHARED.call(callback)
+    }
+}
+impl windows_core::RuntimeType for InputSystemCursor {
+    const SIGNATURE: windows_core::imp::ConstBuffer =
+        windows_core::imp::ConstBuffer::for_class::<Self, IInputSystemCursor>();
+}
+unsafe impl windows_core::Interface for InputSystemCursor {
+    type Vtable = <IInputSystemCursor as windows_core::Interface>::Vtable;
+    const IID: windows_core::GUID = <IInputSystemCursor as windows_core::Interface>::IID;
+}
+impl core::ops::Deref for InputSystemCursor {
+    type Target = IInputSystemCursor;
+    fn deref(&self) -> &Self::Target {
+        unsafe { core::mem::transmute(self) }
+    }
+}
+impl windows_core::RuntimeName for InputSystemCursor {
+    const NAME: &'static str = "Microsoft.UI.Input.InputSystemCursor";
+}
+unsafe impl Send for InputSystemCursor {}
+unsafe impl Sync for InputSystemCursor {}
+#[repr(transparent)]
+#[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
+pub struct InputSystemCursorShape(pub i32);
+impl InputSystemCursorShape {
+    pub const Arrow: Self = Self(0);
+    pub const Cross: Self = Self(1);
+    pub const Hand: Self = Self(3);
+    pub const Help: Self = Self(4);
+    pub const IBeam: Self = Self(5);
+    pub const SizeAll: Self = Self(6);
+    pub const SizeNortheastSouthwest: Self = Self(7);
+    pub const SizeNorthSouth: Self = Self(8);
+    pub const SizeNorthwestSoutheast: Self = Self(9);
+    pub const SizeWestEast: Self = Self(10);
+    pub const UniversalNo: Self = Self(11);
+    pub const UpArrow: Self = Self(12);
+    pub const Wait: Self = Self(13);
+    pub const Pin: Self = Self(14);
+    pub const Person: Self = Self(15);
+    pub const AppStarting: Self = Self(16);
+}
+impl windows_core::imp::TypeKind for InputSystemCursorShape {
+    type TypeKind = windows_core::imp::CopyType;
+}
+impl windows_core::RuntimeType for InputSystemCursorShape {
+    const SIGNATURE: windows_core::imp::ConstBuffer =
+        windows_core::imp::ConstBuffer::from_slice(b"enum(Microsoft.UI.Input.InputSystemCursorShape;i4)");
 }
 #[repr(transparent)]
 #[derive(Clone, Debug, Eq, PartialEq)]

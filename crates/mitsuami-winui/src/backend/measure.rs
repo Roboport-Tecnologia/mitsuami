@@ -5,7 +5,7 @@ use mitsuami_core::{ImageSource, NodeId, Size};
 use windows_core::Interface;
 
 use super::fields::{inner_text_box, measure_lines};
-use super::{Widget, WinUiBackend, ok};
+use super::{R, Widget, WinUiBackend, ok};
 use crate::bindings as w;
 
 const NAN_SIZE: f64 = f64::NAN;
@@ -61,6 +61,36 @@ fn clear_button(field: &w::ITextBox) -> Option<w::IUIElement> {
     None
 }
 
+/// How narrow text can be: a line cut off at one line, its ellipsis; text
+/// that wraps, its longest word, as GTK's and Qt's labels measure. XAML has
+/// no such measure: a text block measured narrower than a word wraps it by
+/// letters, and asks for no more than it's given. So the pieces are
+/// measured on their own, in a text block with the label's font.
+fn min_content_width(label: &w::TextBlock) -> R<f32> {
+    let text: w::ITextBlock = label.cast()?;
+    let probe = w::TextBlock::new()?;
+    let piece: w::ITextBlock = probe.cast()?;
+    piece.SetFontFamily(&text.FontFamily()?)?;
+    piece.SetFontSize(text.FontSize()?)?;
+    piece.SetFontWeight(text.FontWeight()?)?;
+    piece.SetFontStyle(text.FontStyle()?)?;
+    piece.SetCharacterSpacing(text.CharacterSpacing()?)?;
+    let element: w::UIElement = probe.cast()?;
+    let infinite = w::Size { width: f32::INFINITY, height: f32::INFINITY };
+    let width = |part: &str| -> R<f32> {
+        piece.SetText(part)?;
+        Ok(measure_element(&element, infinite).width)
+    };
+    if text.MaxLines()? == 1 {
+        return width("\u{2026}");
+    }
+    let mut widest = 0.0f32;
+    for word in text.Text()?.split_whitespace() {
+        widest = widest.max(width(word)?);
+    }
+    Ok(widest)
+}
+
 fn ceil(size: w::Size) -> Size {
     Size::new(size.width.ceil(), size.height.ceil())
 }
@@ -71,12 +101,11 @@ impl WinUiBackend {
         let Some(node) = state.nodes.get(&id) else { return Size::ZERO };
         let infinite = w::Size { width: f32::INFINITY, height: f32::INFINITY };
         let natural = match &node.widget {
-            Widget::Label(_) => {
-                // TODO: min-content (longest word). XAML wraps per character
-                // at width 0, so min-content uses max-content for now.
+            Widget::Label(label) => {
                 let width = request.known_width.or(match request.available_width {
                     AvailableSpace::Definite(w) => Some(w),
-                    AvailableSpace::MinContent | AvailableSpace::MaxContent => None,
+                    AvailableSpace::MinContent => min_content_width(label).ok(),
+                    AvailableSpace::MaxContent => None,
                 });
                 ceil(measure_element(&node.element, w::Size { width: width.unwrap_or(f32::INFINITY), ..infinite }))
             }
