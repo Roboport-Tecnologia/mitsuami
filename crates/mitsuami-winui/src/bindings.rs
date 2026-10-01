@@ -3083,6 +3083,19 @@ impl Grid {
             .ok()
         })
     }
+    pub fn SetColumn<P0>(element: P0, value: i32) -> windows_core::Result<()>
+    where
+        P0: windows_core::Param<FrameworkElement>,
+    {
+        Self::IGridStatics(|this| unsafe {
+            (windows_core::Interface::vtable(this).SetColumn)(
+                windows_core::Interface::as_raw(this),
+                element.param().abi(),
+                value,
+            )
+            .ok()
+        })
+    }
     fn IGridStatics<R, F: FnOnce(&IGridStatics) -> windows_core::Result<R>>(callback: F) -> windows_core::Result<R> {
         static SHARED: windows_core::imp::FactoryCache<Grid, IGridStatics> = windows_core::imp::FactoryCache::new();
         SHARED.call(callback)
@@ -6363,6 +6376,10 @@ pub struct IGridStatics_Vtbl {
     RowProperty: usize,
     GetRow: usize,
     pub SetRow: unsafe extern "system" fn(*mut core::ffi::c_void, *mut core::ffi::c_void, i32) -> windows_core::HRESULT,
+    ColumnProperty: usize,
+    GetColumn: usize,
+    pub SetColumn:
+        unsafe extern "system" fn(*mut core::ffi::c_void, *mut core::ffi::c_void, i32) -> windows_core::HRESULT,
 }
 windows_core::imp::define_interface!(IIconElement, IIconElement_Vtbl, 0x18f69350_279e_50ea_8d23_138e717ed939);
 impl windows_core::RuntimeType for IIconElement {

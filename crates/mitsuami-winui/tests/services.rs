@@ -72,10 +72,16 @@ mod checks {
         window
     }
 
-    /// The window's root grid: the menu bar row, then the content.
+    /// The window's root grid: the title bar, the menu bar and toolbar's
+    /// row, then the content.
     fn root(f: &Fixture, window: NodeId) -> w::DependencyObject {
         let xaml = f.handle.xaml_window(window).expect("a XAML window");
         xaml.cast::<w::IWindow>().unwrap().Content().unwrap().cast().unwrap()
+    }
+
+    /// The window's menu bar, in the row it shares with the toolbar.
+    fn find_menu_bar(f: &Fixture, window: NodeId) -> Option<w::MenuBar> {
+        children(&root(f, window)).iter().flat_map(children).find_map(|c| c.cast().ok())
     }
 
     pub fn clipboard_round_trips(f: &Fixture) {
@@ -110,8 +116,7 @@ mod checks {
         );
         f.ui.tick();
 
-        let bar: w::MenuBar =
-            children(&root(f, window)).into_iter().find_map(|c| c.cast().ok()).expect("a MenuBar in the window");
+        let bar = find_menu_bar(f, window).expect("a MenuBar in the window");
         let menus = bar.cast::<w::IMenuBar>().unwrap().Items().unwrap();
         let titles: Vec<String> = (0..menus.Size().unwrap())
             .map(|i| menus.GetAt(i).unwrap().cast::<w::IMenuBarItem>().unwrap().Title().unwrap())
@@ -137,7 +142,7 @@ mod checks {
     }
 
     fn menu_bar(f: &Fixture, window: NodeId) -> Option<windows_collections::IVector<w::MenuBarItem>> {
-        let bar: w::MenuBar = children(&root(f, window)).into_iter().find_map(|c| c.cast().ok())?;
+        let bar = find_menu_bar(f, window)?;
         bar.cast::<w::IMenuBar>().unwrap().Items().ok()
     }
 
@@ -215,8 +220,7 @@ mod checks {
         f.ui.set_menu(MenuBar::new().menu(Menu::new("File").item(MenuItem::new("New"))));
         f.ui.set_window_menu(dialog, MenuBar::new().menu(Menu::new("Format").item(MenuItem::new("Bold"))));
         f.ui.tick();
-        let bar: w::MenuBar =
-            children(&root(f, dialog)).into_iter().find_map(|c| c.cast().ok()).expect("the dialog's own MenuBar");
+        let bar = find_menu_bar(f, dialog).expect("the dialog's own MenuBar");
         let menus = bar.cast::<w::IMenuBar>().unwrap().Items().unwrap();
         let titles: Vec<String> = (0..menus.Size().unwrap())
             .map(|i| menus.GetAt(i).unwrap().cast::<w::IMenuBarItem>().unwrap().Title().unwrap().to_string())

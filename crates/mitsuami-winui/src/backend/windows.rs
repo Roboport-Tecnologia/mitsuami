@@ -7,7 +7,7 @@ use mitsuami_core::{NodeId, Rect, Size, UiEvent};
 use windows_core::{IInspectable, Interface};
 
 use super::measure::measure_element;
-use super::{Events, R, WindowParts, ok};
+use super::{Events, R, SPACING, WindowParts, ok};
 use crate::bindings as w;
 
 impl WindowParts {
@@ -39,20 +39,25 @@ pub(super) fn clip_to_size(host: &w::IUIElement, size: w::Size) -> windows_core:
 }
 
 /// A window's content: the title bar (content extends into it, the Windows
-/// 11 way), a row for the menu bar, one for the toolbar, then the content
-/// host. The root and the host carry the window background (window captures
-/// render the host).
+/// 11 way), a row for the menu bar and the toolbar (the bars), then the
+/// content host. The root and the host carry the window background (window
+/// captures render the host).
 pub(super) const WINDOW_ROOT: &str = r#"
 <Grid xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
       Background="{ThemeResource SolidBackgroundFillColorBaseBrush}">
   <Grid.RowDefinitions>
     <RowDefinition Height="Auto"/>
     <RowDefinition Height="Auto"/>
-    <RowDefinition Height="Auto"/>
     <RowDefinition Height="*"/>
   </Grid.RowDefinitions>
   <TitleBar Grid.Row="0" IsTabStop="False"/>
-  <Canvas Grid.Row="3" Background="{ThemeResource SolidBackgroundFillColorBaseBrush}"/>
+  <Grid Grid.Row="1">
+    <Grid.ColumnDefinitions>
+      <ColumnDefinition Width="Auto"/>
+      <ColumnDefinition Width="*"/>
+    </Grid.ColumnDefinitions>
+  </Grid>
+  <Canvas Grid.Row="2" Background="{ThemeResource SolidBackgroundFillColorBaseBrush}"/>
 </Grid>"#;
 
 /// A window's direction: its title bar, menu bar and toolbar follow the
@@ -64,16 +69,13 @@ pub(super) fn set_window_direction(root: &w::Grid, host: &w::Canvas, right_to_le
     host.cast::<w::IFrameworkElement>()?.SetFlowDirection(w::FlowDirection::LeftToRight)
 }
 
-/// Where the menu bar goes in `WINDOW_ROOT`.
-pub(super) const MENU_ROW: i32 = 1;
-
 /// Where the content host goes in `WINDOW_ROOT`, or the sidebar's
 /// navigation view holding it.
-pub(super) const CONTENT_ROW: i32 = 3;
+pub(super) const CONTENT_ROW: i32 = 2;
 
-/// Where the toolbar goes in `WINDOW_ROOT`: under the menu bar, as Windows
-/// apps put their command bars.
-const TOOLBAR_ROW: i32 = 2;
+/// Where the toolbar goes in the bars: after the menu bar, at the
+/// trailing end, in the room the menu bar leaves.
+const TOOLBAR_COLUMN: i32 = 1;
 
 /// Layered, click-through and almost fully transparent: the window is alive
 /// (XAML lays out, renders and takes focus) but can't be seen or clicked.
@@ -101,7 +103,8 @@ pub(super) fn scale_of(parts: &WindowParts) -> f64 {
         .unwrap_or_else(|_| unsafe { w::GetDpiForWindow(parts.hwnd) } as f64 / 96.0)
 }
 
-/// Height of what sits above the content: the title bar and the menu bar.
+/// Height of what sits above the content: the title bar, and the menu bar
+/// and toolbar beside each other.
 fn chrome_height(parts: &WindowParts) -> f64 {
     let infinite = w::Size { width: f32::INFINITY, height: f32::INFINITY };
     // As laid out, which can differ from the desired size (the title bar's
@@ -117,31 +120,42 @@ fn chrome_height(parts: &WindowParts) -> f64 {
         bar.cast::<w::IUIElement>().and_then(|e| e.Visibility()).is_ok_and(|v| v == w::Visibility::Visible)
     };
     let toolbar = parts.toolbar.as_ref().filter(shown).map_or(0.0, |t| height(ok(t.cast(), "toolbar element")));
-    title + menu + toolbar
+    // Side by side, on one row.
+    title + menu.max(toolbar)
 }
 
 /// Adds an item's host to the window's toolbar at `index` among its items,
-/// making the toolbar if it's the first.
+/// making the toolbar if it's the first. The bar is on the menu bar's row,
+/// at its trailing end, in the room the menu bar leaves: past that, its
+/// items go to its overflow menu.
 pub(super) fn insert_toolbar_item(parts: &mut WindowParts, id: NodeId, host: &w::UIElement, index: usize) -> R<()> {
     if parts.toolbar.is_none() {
         let bar = w::CommandBar::new()?;
         let element: w::UIElement = bar.cast()?;
-        w::Grid::SetRow(&element.cast::<w::FrameworkElement>()?, TOOLBAR_ROW)?;
-        // The bar ends at the window's edge: its "More" button, last,
-        // spaces itself from it, and with no secondary commands it doesn't
-        // show. Inset the items as far from that edge as the title bar
-        // insets the title from the other (2 + 14). The bar has no
-        // background, and its padding only reaches its content area.
-        let margin = w::Thickness { left: 0.0, top: 0.0, right: 16.0, bottom: 0.0 };
-        bar.cast::<w::IFrameworkElement>()?.SetMargin(margin)?;
+        let fe: w::IFrameworkElement = element.cast()?;
+        w::Grid::SetColumn(&element.cast::<w::FrameworkElement>()?, TOOLBAR_COLUMN)?;
+        // Only as wide as its items, at the end. The bar keeps a little
+        // room after its last item, and the item's half gap adds to it:
+        // about as far from the edge as the sidebar's items are.
+        fe.SetHorizontalAlignment(w::HorizontalAlignment::Right)?;
         // Hidden until an item has something to show.
         element.cast::<w::IUIElement>()?.SetVisibility(w::Visibility::Collapsed)?;
-        parts.root.cast::<w::IPanel>()?.Children()?.Append(&element)?;
+        parts.bars.cast::<w::IPanel>()?.Children()?.Append(&element)?;
         parts.toolbar = Some(bar);
     }
     let bar: w::IUIElement = parts.toolbar.as_ref().expect("made above").cast()?;
     let container = w::AppBarElementContainer::new()?;
     container.cast::<w::IContentControl>()?.SetContent(host)?;
+    // The bar puts its own buttons edge to edge, and items that aren't
+    // buttons ran into each other: Fluent's small gap between them, half
+    // on each side.
+    let half = SPACING.sm as f64 / 2.0;
+    container.cast::<w::IFrameworkElement>()?.SetMargin(w::Thickness {
+        left: half,
+        top: 0.0,
+        right: half,
+        bottom: 0.0,
+    })?;
     // Centred in the bar, as the bar's own buttons are: the container is
     // the bar's height, and puts its content at the top by default.
     container.cast::<w::IControl>()?.SetVerticalContentAlignment(w::VerticalAlignment::Center)?;

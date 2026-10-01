@@ -73,7 +73,7 @@ Microsoft.UI.Xaml.Media.IRectangleGeometry::put_Rect
 Microsoft.UI.Xaml.Media.Geometry::{}
 Windows.Foundation.Rect
 Windows.UI.Color
-Microsoft.UI.Xaml.Controls.Grid::SetRow
+Microsoft.UI.Xaml.Controls.Grid::{SetRow, SetColumn}
 Microsoft.UI.Xaml.Controls.Canvas::{CreateInstance, SetLeft, SetTop, GetLeft, GetTop}
 Microsoft.UI.Xaml.Controls.IPanel::{get_Children, put_Background}
 Microsoft.UI.Xaml.Controls.UIElementCollection::{}

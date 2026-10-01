@@ -9,7 +9,7 @@ use mitsuami_core::services::{MenuBarData, MenuCheck, MenuData, MenuEntry, MenuI
 use mitsuami_core::{Key, NodeId};
 use windows_core::{EventRevoker, Interface};
 
-use super::windows::{MENU_ROW, apply_min_size, resize_client};
+use super::windows::{apply_min_size, resize_client};
 use super::{ContextMenu, MenuItems, Menus, R, WinUiBackend, WindowParts, key, ok};
 use crate::bindings as w;
 
@@ -100,7 +100,7 @@ fn show_check(item: &w::MenuFlyoutItemBase, check: MenuCheck) {
 }
 
 fn install_menu(parts: &mut WindowParts, menu: &MenuBarData, activate: &Rc<dyn Fn(u32)>) {
-    let children = ok(parts.root.cast::<w::IPanel>().and_then(|p| p.Children()), "root children");
+    let children = ok(parts.bars.cast::<w::IPanel>().and_then(|p| p.Children()), "bars' children");
     if let Some(old) = parts.menu_bar.take() {
         let old: w::UIElement = ok(old.cast(), "menu bar element");
         let mut index = 0;
@@ -119,7 +119,6 @@ fn install_menu(parts: &mut WindowParts, menu: &MenuBarData, activate: &Rc<dyn F
         };
         let menu_bar = ok(built.menu_bar(menu), "building the menu bar");
         let element: w::UIElement = ok(menu_bar.cast(), "menu bar element");
-        _ = w::Grid::SetRow(&ok(element.cast::<w::FrameworkElement>(), "menu bar element"), MENU_ROW);
         _ = children.Append(&element);
         parts.menu_bar = Some(menu_bar);
     }

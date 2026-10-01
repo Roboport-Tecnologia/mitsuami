@@ -118,7 +118,8 @@ impl State {
         let root: w::Grid = w::XamlReader::Load(WINDOW_ROOT)?.cast()?;
         let children = root.cast::<w::IPanel>()?.Children()?;
         let title_bar: w::TitleBar = children.GetAt(0)?.cast()?;
-        let host: w::Canvas = children.GetAt(1)?.cast()?;
+        let bars: w::Grid = children.GetAt(1)?.cast()?;
+        let host: w::Canvas = children.GetAt(2)?.cast()?;
         let host_element: w::UIElement = host.cast()?;
         if self.right_to_left {
             super::windows::set_window_direction(&root, &host, true)?;
@@ -331,6 +332,7 @@ impl State {
         let mut parts = WindowParts {
             window,
             root,
+            bars,
             host,
             text_probe,
             title_bar,

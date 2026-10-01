@@ -48,6 +48,10 @@ use new_window::{set_icon, window_icon};
 use styles::font_sizes;
 pub(crate) use styles::style;
 
+/// Fluent's spacing ramp: 4, 8, 12, 16, 24 epx. The spacing tokens, and
+/// the space the backend puts in its own chrome.
+pub(crate) const SPACING: SpacingScale = SpacingScale { xs: 4.0, sm: 8.0, md: 12.0, lg: 16.0, xl: 24.0 };
+
 /// How the backend behaves; apps and tests want different things.
 #[derive(Clone, Debug)]
 pub struct BackendOptions {
@@ -77,11 +81,14 @@ impl Default for BackendOptions {
     }
 }
 
-/// The parts of a window: XAML's `Window`, a root grid with a menu bar row
-/// and the content host (a `Canvas`) below it.
+/// The parts of a window: XAML's `Window`, a root grid with a row for the
+/// menu bar and toolbar and the content host (a `Canvas`) below it.
 pub(crate) struct WindowParts {
     pub(crate) window: w::Window,
     root: w::Grid,
+    /// The menu bar and toolbar's row: the menu bar leading, the toolbar in
+    /// the room left.
+    bars: w::Grid,
     host: w::Canvas,
     /// An empty text box, collapsed, that text areas measure their lines
     /// by: XAML measures text boxes only in a live tree.
@@ -125,8 +132,8 @@ pub(crate) struct WindowParts {
     disabled: Vec<w::HWND>,
     /// Dialogs (modal windows): the Escape accelerator's handler.
     escape: Option<EventRevoker>,
-    /// The toolbar, made when its first item arrives: a `CommandBar` whose
-    /// primary commands hold the items' hosts, in order.
+    /// The toolbar, made when its first item arrives: a `CommandBar` in the
+    /// bars, whose primary commands hold the items' hosts, in order.
     toolbar: Option<w::CommandBar>,
     toolbar_items: Vec<(NodeId, w::AppBarElementContainer)>,
     /// Its sidebar's node and navigation view, while it has one: the
@@ -568,8 +575,7 @@ impl Backend for WinUiBackend {
         let (group_insets, titled_group_insets) = crate::group::insets(heading);
         PlatformMetrics {
             scale_factor: unsafe { w::GetDpiForSystem() } as f32 / 96.0,
-            // Fluent's spacing ramp: 4, 8, 12, 16, 24 epx.
-            spacing: SpacingScale { xs: 4.0, sm: 8.0, md: 12.0, lg: 16.0, xl: 24.0 },
+            spacing: SPACING,
             font_sizes: font_sizes(),
             dark_mode: dark,
             high_contrast: w::AccessibilitySettings::new()
