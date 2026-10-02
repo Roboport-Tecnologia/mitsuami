@@ -92,6 +92,7 @@ impl WindowRoot {
         let states = self.window.window_states();
         let wanted = if on { states | MAXIMIZED } else { states & !MAXIMIZED };
         if wanted != states {
+            self.state_changed.set(true);
             self.window.set_window_states(wanted);
         }
     }
@@ -122,6 +123,7 @@ impl WindowRoot {
         let states = self.window.window_states();
         let wanted = if on { states | FULL_SCREEN } else { states & !FULL_SCREEN };
         if wanted != states {
+            self.state_changed.set(true);
             self.window.set_window_states(wanted);
         }
     }
@@ -132,10 +134,12 @@ impl WindowRoot {
     fn states_changed(&self) {
         let now = self.in_full_screen();
         if self.full_screen.replace(now) != now {
+            self.state_changed.set(true);
             self.events.emit(self.id, UiEvent::FullScreenChanged(now));
         }
         let now = self.is_maximized();
         if self.maximized.replace(now) != now {
+            self.state_changed.set(true);
             self.events.emit(self.id, UiEvent::MaximizedChanged(now));
         }
     }
@@ -237,6 +241,16 @@ impl WindowRoot {
         }
         self.header.set(Some(now));
         self.apply_min();
+        // In full screen, maximized, or just out of either, the window's
+        // size is the platform's, which wouldn't grow it: the content takes
+        // the change. A menu bar back after full screen otherwise asked for
+        // a taller window, which a tiled one never got, and the content's
+        // size was never reported.
+        if self.state_changed.replace(false) || self.in_full_screen() || self.is_maximized() {
+            self.requested.set(None);
+            self.host_resized();
+            return;
+        }
         match self.requested.get() {
             Some(size) => self.place(size),
             None => self.request(self.size.get()),
@@ -306,6 +320,7 @@ impl State {
             focused_first: Cell::new(false),
             full_screen: Cell::new(false),
             maximized: Cell::new(false),
+            state_changed: Cell::new(false),
             resizable: Cell::new(true),
             min: Cell::new(None),
             height_locked: Cell::new(false),

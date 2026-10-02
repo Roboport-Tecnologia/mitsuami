@@ -83,6 +83,11 @@ pub(crate) struct WindowRoot {
     full_screen: Cell<bool>,
     /// Maximized as the app wants it, and the user.
     maximized: Cell<bool>,
+    /// Full screen or maximized changed, and the toolbar's height hasn't
+    /// since: when it does (a GPU surface window's menu bar, gone in full
+    /// screen), the window's size is the platform's (see
+    /// `WindowRoot::toolbar_resized`).
+    state_changed: Cell<bool>,
     /// The user can resize it: without, its minimum and maximum are its
     /// size, which moves with every size the app gives it.
     resizable: Cell<bool>,

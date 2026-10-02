@@ -67,11 +67,23 @@ Kirigami.ApplicationWindow {{
         target: mitsuamiWindow.globalDrawer; property: "handleVisible"; value: false
         when: mitsuamiWindow.mitsuamiBarWanted; restoreMode: Binding.RestoreNone
     }}
-    onMitsuamiBarWantedChanged: mitsuamiApplyMenuBar()
+    // Full screen is the picture alone, as a video player's is: the bar is
+    // taken down, and made again as the window leaves it. Taken down, not
+    // hidden: with the bar's items hidden, their shortcuts, the actions'
+    // own and the window's (below) were all on at once, and Qt runs none of
+    // an ambiguous sequence. With no bar the drawer's actions have their
+    // shortcuts to themselves, as with Kirigami's menu button, the way out
+    // of full screen among them.
+    readonly property bool mitsuamiBarShown: mitsuamiBarWanted && visibility !== Window.FullScreen
+    onMitsuamiBarShownChanged: mitsuamiApplyMenuBar()
     onGlobalDrawerChanged: mitsuamiApplyMenuBar()
+    // The bar's shortcuts (see `mitsuamiMakeMenuBar`), made with it.
+    property var mitsuamiBarShortcuts: []
     function mitsuamiApplyMenuBar() {{
         const old = menuBar
-        menuBar = mitsuamiBarWanted && globalDrawer ? mitsuamiMakeMenuBar(globalDrawer.actions) : null
+        for (const shortcut of mitsuamiBarShortcuts) shortcut.destroy()
+        mitsuamiBarShortcuts = []
+        menuBar = mitsuamiBarShown && globalDrawer ? mitsuamiMakeMenuBar(globalDrawer.actions) : null
         if (old) old.destroy()
     }}
     function mitsuamiMakeMenuBar(actions) {{
@@ -118,12 +130,13 @@ Kirigami.ApplicationWindow {{
         // while the menus are closed: Qt left Ctrl+Q to close the window
         // instead of running Quit. So the window has a shortcut of its own
         // for each, while the action's work in an open menu.
-        for (const action of keyed) {{
-            const shortcut = Qt.createQmlObject("import QtQuick\nShortcut {{ }}", bar)
+        mitsuamiBarShortcuts = keyed.map(action => {{
+            const shortcut = Qt.createQmlObject("import QtQuick\nShortcut {{ }}", mitsuamiWindow)
             shortcut.sequence = action.shortcut
             shortcut.enabled = Qt.binding(() => action.enabled)
             shortcut.activated.connect(() => action.trigger())
-        }}
+            return shortcut
+        }})
         return bar
     }}
     Shortcut {{
