@@ -163,6 +163,8 @@ async fn draws_the_file_s_icon(app: TestApp) {
 /// the platform makes thumbnails: AppKit's QuickLook and the Windows shell,
 /// soon after its icon. GTK shows only those the desktop has made, and
 /// Kirigami none (Dolphin's are KIO's), so there it's only passed through.
+/// Windows shows none where the user has Explorer show icons only, which
+/// WinUI follows too.
 #[mitsuami_test::test]
 async fn a_thumbnail_shows_what_is_in_the_file(app: TestApp) {
     let files = Files::new(&app);
@@ -175,7 +177,7 @@ async fn a_thumbnail_shows_what_is_in_the_file(app: TestApp) {
     });
     app.expect(icon("Picture")).to_be_visible().await;
     assert!(has(&app, icon("Picture"), Prop::Thumbnail(true)));
-    if !matches!(app.backend_name(), "appkit" | "winui") {
+    if !matches!(app.backend_name(), "appkit" | "winui") || (app.backend_name() == "winui" && icons_only()) {
         return;
     }
 
@@ -195,6 +197,19 @@ async fn a_thumbnail_shows_what_is_in_the_file(app: TestApp) {
         std::thread::sleep(Duration::from_millis(50));
         app.settle().await;
     }
+}
+
+/// Whether Explorer shows icons, never thumbnails (Folder Options, or
+/// "Show thumbnails instead of icons" off in Performance Options), as a
+/// Windows Server may have it.
+fn icons_only() -> bool {
+    let key = r"HKCU\Software\Microsoft\Windows\CurrentVersion\Explorer\Advanced";
+    let Ok(out) = std::process::Command::new("reg").args(["query", key, "/v", "IconsOnly"]).output() else {
+        return false;
+    };
+    // `    IconsOnly    REG_DWORD    0x1`
+    let out = String::from_utf8_lossy(&out.stdout);
+    out.lines().any(|l| l.trim_start().starts_with("IconsOnly") && l.split_whitespace().last() != Some("0x0"))
 }
 
 mitsuami_test::main!();

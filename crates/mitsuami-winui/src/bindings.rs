@@ -61,6 +61,7 @@ windows_core::link!("user32.dll" "system" fn MsgWaitForMultipleObjectsEx(ncount 
 windows_core::link!("user32.dll" "system" fn PeekMessageW(lpmsg : *mut MSG, hwnd : HWND, wmsgfiltermin : u32, wmsgfiltermax : u32, wremovemsg : u32) -> windows_core::BOOL);
 windows_core::link!("user32.dll" "system" fn PostMessageW(hwnd : HWND, msg : u32, wparam : WPARAM, lparam : LPARAM) -> windows_core::BOOL);
 windows_core::link!("user32.dll" "system" fn PostThreadMessageW(idthread : u32, msg : u32, wparam : WPARAM, lparam : LPARAM) -> windows_core::BOOL);
+windows_core::link!("advapi32.dll" "system" fn RegGetValueW(hkey : HKEY, lpsubkey : windows_core::PCWSTR, lpvalue : windows_core::PCWSTR, dwflags : u32, pdwtype : *mut u32, pvdata : *mut core::ffi::c_void, pcbdata : *mut u32) -> LSTATUS);
 windows_core::link!("user32.dll" "system" fn RegisterClassExW(param0 : *const WNDCLASSEXW) -> ATOM);
 windows_core::link!("user32.dll" "system" fn RegisterRawInputDevices(prawinputdevices : *const RAWINPUTDEVICE, uinumdevices : u32, cbsize : u32) -> windows_core::BOOL);
 windows_core::link!("user32.dll" "system" fn ReleaseCapture() -> windows_core::BOOL);
@@ -3210,6 +3211,7 @@ pub type HHOOK = *mut core::ffi::c_void;
 pub type HICON = *mut core::ffi::c_void;
 pub type HINSTANCE = *mut core::ffi::c_void;
 pub type HKEY = *mut core::ffi::c_void;
+pub const HKEY_CURRENT_USER: HKEY = -2147483647 as _;
 pub type HMENU = *mut core::ffi::c_void;
 pub type HMODULE = HINSTANCE;
 pub type HMONITOR = *mut core::ffi::c_void;
@@ -13798,6 +13800,7 @@ pub const LOCALE_STHOUSAND: i32 = 15;
 pub type LPARAM = isize;
 pub type LRESULT = isize;
 pub const LR_DEFAULTCOLOR: i32 = 0;
+pub type LSTATUS = i32;
 pub const LWA_ALPHA: i32 = 2;
 #[repr(transparent)]
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -15553,6 +15556,7 @@ pub const RIDEV_REMOVE: i32 = 1;
 pub const RID_INPUT: i32 = 268435459;
 pub const RIM_TYPEMOUSE: i32 = 0;
 pub const RPC_E_CHANGED_MODE: windows_core::HRESULT = windows_core::HRESULT(0x80010106_u32 as _);
+pub const RRF_RT_REG_DWORD: i32 = 16;
 #[repr(transparent)]
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct RadioButtons(windows_core::IUnknown);

@@ -24,8 +24,10 @@ pub(crate) fn load(
     done: impl FnOnce(Option<ShellImage>) + Send + 'static,
 ) {
     std::thread::spawn(move || {
-        let com = unsafe { w::CoInitializeEx(std::ptr::null(), w::COINIT_MULTITHREADED as u32) }.is_ok();
-        let image = read(&path, pixels, thumbnail);
+        // Single-threaded, as Microsoft's image factory sample has it: the
+        // shell's objects and thumbnail handlers are apartment-threaded.
+        let com = unsafe { w::CoInitializeEx(std::ptr::null(), w::COINIT_APARTMENTTHREADED as u32) }.is_ok();
+        let image = read(&path, pixels, thumbnail && !icons_only());
         if com {
             unsafe { w::CoUninitialize() };
         }
@@ -33,7 +35,32 @@ pub(crate) fn load(
     });
 }
 
+/// Whether the user has Explorer show icons, never thumbnails (Folder
+/// Options, or "Show thumbnails instead of icons" off in Performance
+/// Options), as a Windows Server may have it. Explorer shows the icon
+/// then, so this does too.
+fn icons_only() -> bool {
+    let (key, value) =
+        (HSTRING::from(r"Software\Microsoft\Windows\CurrentVersion\Explorer\Advanced"), HSTRING::from("IconsOnly"));
+    let (mut data, mut size) = (0u32, size_of::<u32>() as u32);
+    let read = unsafe {
+        w::RegGetValueW(
+            w::HKEY_CURRENT_USER,
+            windows_core::PCWSTR(key.as_ptr()),
+            windows_core::PCWSTR(value.as_ptr()),
+            w::RRF_RT_REG_DWORD as u32,
+            std::ptr::null_mut(),
+            (&raw mut data).cast(),
+            &mut size,
+        )
+    };
+    read == 0 && data != 0
+}
+
 fn read(path: &Path, pixels: i32, thumbnail: bool) -> Option<ShellImage> {
+    // The shell parses only backslashes, which Rust's paths needn't have
+    // (`dir.join("tests/assets")`): made absolute, they do.
+    let path = std::path::absolute(path).ok()?;
     let name = HSTRING::from(path.as_os_str());
     let mut raw = std::ptr::null_mut();
     unsafe {

@@ -502,6 +502,9 @@ Windows.Win32.DeleteDC
 Windows.Win32.DeleteObject
 Windows.Win32.COINIT_MULTITHREADED
 Windows.Win32.CoUninitialize
+Windows.Win32.RegGetValueW
+Windows.Win32.HKEY_CURRENT_USER
+Windows.Win32.RRF_RT_REG_DWORD
 Microsoft.UI.Xaml.Controls.DragItemsStartingEventHandler
 Microsoft.UI.Xaml.Controls.DragItemsStartingEventArgs::{}
 Microsoft.UI.Xaml.Controls.IDragItemsStartingEventArgs::{get_Items, get_Data, put_Cancel}

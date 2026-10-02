@@ -47,6 +47,19 @@ jobs:
           & $env:RUNNER_TEMP\appruntime.exe --quiet
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 
+      # The runner's display is 1024 × 768, and Windows makes a window no
+      # wider than its display: the sidebar tests' window, 800 of content
+      # beside NavigationView's open pane, doesn't fit (ARCHITECTURE §14.4).
+      # Kirigami's offscreen screen is 1920 × 1080 for the same reason.
+      - name: Widen the display
+        if: runner.os == 'Windows'
+        continue-on-error: true
+        shell: pwsh
+        run: |
+          Set-DisplayResolution -Width 1920 -Height 1080 -Force
+          Add-Type -AssemblyName System.Windows.Forms
+          [System.Windows.Forms.Screen]::PrimaryScreen.Bounds
+
       - name: Build
         run: cargo build --workspace --all-targets
 
