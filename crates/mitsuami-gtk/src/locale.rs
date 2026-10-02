@@ -118,7 +118,8 @@ impl Locale {
         let name = CString::new(format!("{}.UTF-8", tag.replace('-', "_"))).ok()?;
         // SAFETY: a fresh locale object, freed on drop.
         let locale = unsafe { libc::newlocale(libc::LC_ALL_MASK, name.as_ptr(), std::ptr::null_mut()) };
-        (!locale.is_null()).then_some(Locale(locale))
+        // Lazily: a `Locale` made and dropped would free the null one.
+        (!locale.is_null()).then(|| Locale(locale))
     }
 
     fn with<R>(&self, f: impl FnOnce() -> R) -> R {
