@@ -94,8 +94,12 @@ impl State {
                     let Widget::Sidebar(list) = &sidebar.widget else { unreachable!() };
                     parts.split = Some(Split::new(&parts.window, &parts.header, &parts.host, *child, list));
                     // The content keeps its size: the window grows by the
-                    // sidebar.
-                    let size = parts.host.window_root().expect("window hosts have a root").size.get();
+                    // sidebar, which a shown window does at a later frame.
+                    let root = parts.host.window_root().expect("window hosts have a root");
+                    let size = root.size.get();
+                    if parts.window.is_mapped() {
+                        root.resizing.set(Some(size));
+                    }
                     let (width, height) = parts.extra(size);
                     resize(&parts.window, size.width as i32 + width, size.height as i32 + height);
                     self.nodes.insert(*child, sidebar);
@@ -174,7 +178,11 @@ impl State {
                 {
                     // The content keeps its size: the window loses the
                     // sidebar's.
-                    let size = parts.host.window_root().expect("window hosts have a root").size.get();
+                    let root = parts.host.window_root().expect("window hosts have a root");
+                    let size = root.size.get();
+                    if parts.window.is_mapped() {
+                        root.resizing.set(Some(size));
+                    }
                     parts.split.take().unwrap().remove(&parts.window, &parts.header, &parts.host);
                     resize(&parts.window, size.width as i32, size.height as i32 + parts.header_height);
                     self.nodes.get_mut(child).unwrap().parent = None;
