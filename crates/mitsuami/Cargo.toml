@@ -7,6 +7,9 @@ rust-version.workspace = true
 license.workspace = true
 authors.workspace = true
 repository.workspace = true
+# The Files example's Store package: its manifest and logos, for
+# scripts/package-msix.ps1. Nothing builds with them.
+exclude = ["examples/files/msix"]
 
 [features]
 default = ["gtk"]

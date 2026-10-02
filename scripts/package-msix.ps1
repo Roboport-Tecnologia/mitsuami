@@ -11,7 +11,8 @@ Usage: scripts\package-msix.ps1 [-App showcase|files] [-Version 1.0.0.0] [-Arch 
   the script fills in the version and architecture. The Store wants the
   last part of the version to be 0, and each submission's version higher
   than the last.
-- Both use the showcase's logos (examples\showcase\msix\Assets).
+- Each has its own logos (msix\Assets), rendered from its logo SVGs by
+  scripts/msix-logos.py.
 - The package is unsigned: the Store signs what it publishes.
 - `-Register` installs the unpacked layout for this user instead of
   packing it (needs Developer Mode), so the packaged app can be tried as
@@ -52,7 +53,6 @@ $makeappx = Join-Path $sdk.FullName 'x64\makeappx.exe'
 $makepri = Join-Path $sdk.FullName 'x64\makepri.exe'
 
 $showcase = Join-Path $root 'examples\showcase'
-$assets = Join-Path $showcase 'msix\Assets'
 
 # The showcase is its own crate; the files example is one of mitsuami's.
 Write-Host "==> Building $App for $target (release)"
@@ -62,6 +62,7 @@ if ($App -eq 'showcase') {
     $exe = Join-Path $showcase "target\$target\release\showcase.exe"
     $manifestIn = Join-Path $showcase 'msix\AppxManifest.xml'
     $out = Join-Path $showcase 'target\msix'
+    $assets = Join-Path $showcase 'msix\Assets'
     $displayName = 'Mitsuami Showcase'
 } else {
     & cargo $toolchain build --release --package mitsuami --example files --target $target
@@ -71,6 +72,7 @@ if ($App -eq 'showcase') {
     $exe = Join-Path $targetDir "$target\release\examples\files.exe"
     $manifestIn = Join-Path $root 'crates\mitsuami\examples\files\msix\AppxManifest.xml'
     $out = Join-Path $targetDir 'msix'
+    $assets = Join-Path $root 'crates\mitsuami\examples\files\msix\Assets'
     $displayName = 'Mitsuami Files'
 }
 
