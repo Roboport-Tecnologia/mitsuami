@@ -12,7 +12,7 @@ use mitsuami_core::backend::{
 use mitsuami_core::services::{MenuBarData, Reply};
 use mitsuami_core::{
     AppInfo, ButtonRole, ButtonStyle, Command, CustomProps, DisplayList, HorizontalAlign, ImageFit, ImageSource,
-    InputPurpose, LayoutDirection, Modality, NodeId, Opaque, Orientation, Point, Rect, RowKey, ScrollAxes,
+    InputPurpose, Insets, LayoutDirection, Modality, NodeId, Opaque, Orientation, Point, Rect, RowKey, ScrollAxes,
     SidebarSectionData, Size, TabsStyle, TextStyle, Truncation, UiEvent, WidgetKind,
 };
 
@@ -396,6 +396,15 @@ fn sync_scroll(flickable: QmlObject) {
         if flickable.real(offset) > max {
             flickable.set_real(offset, max);
         }
+    }
+}
+
+/// Where a scroll view's flickable is in it.
+fn viewport_insets(view: QmlObject) -> Insets {
+    let insets: Vec<f32> = view.str("mitsuamiInsets").split(',').filter_map(|v| v.parse().ok()).collect();
+    match insets[..] {
+        [top, right, bottom, left] => Insets::new(top, right, bottom, left),
+        _ => Insets::ZERO,
     }
 }
 

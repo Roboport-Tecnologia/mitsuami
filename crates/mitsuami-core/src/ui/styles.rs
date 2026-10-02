@@ -83,18 +83,20 @@ impl Inner {
                 } else {
                     self.metrics.group_insets
                 });
-                let add = |side: &mut taffy::LengthPercentage, inset: f32| {
-                    let own = side.into_raw();
-                    *side = match own.tag() {
-                        taffy::CompactLength::LENGTH_TAG => taffy::LengthPercentage::length(own.value() + inset),
-                        _ => taffy::LengthPercentage::length(inset),
-                    };
-                };
                 add(&mut style.padding.left, insets.left);
                 add(&mut style.padding.right, insets.right);
                 add(&mut style.padding.top, insets.top);
                 add(&mut style.padding.bottom, insets.bottom);
                 tab_strip_minimum(&mut style, node.strip);
+            }
+            // Its content is laid out in the viewport the platform leaves
+            // inside its scroll bars. Content frames are relative to the
+            // viewport, so that room comes off the far edges, whichever
+            // side the bars are on.
+            if node.kind == WidgetKind::ScrollView {
+                let insets = node.viewport_insets;
+                add(&mut style.padding.right, insets.left + insets.right);
+                add(&mut style.padding.bottom, insets.top + insets.bottom);
             }
             // Toggles have a fixed natural size, like CSS replaced elements:
             // stretched, some platforms draw them centered in the extra
@@ -204,4 +206,13 @@ fn tab_strip_minimum(style: &mut taffy::Style, strip: Size) {
     };
     at_least(&mut style.min_size.width, strip.width);
     at_least(&mut style.min_size.height, strip.height);
+}
+
+/// Adds an inset to the app's padding on one side: its length, or none.
+fn add(side: &mut taffy::LengthPercentage, inset: f32) {
+    let own = side.into_raw();
+    *side = match own.tag() {
+        taffy::CompactLength::LENGTH_TAG => taffy::LengthPercentage::length(own.value() + inset),
+        _ => taffy::LengthPercentage::length(inset),
+    };
 }

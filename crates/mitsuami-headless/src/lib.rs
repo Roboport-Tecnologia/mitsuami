@@ -33,7 +33,7 @@ use mitsuami_core::backend::{
 use mitsuami_core::l10n::{DateTimeFormat, LanguageIdentifier, NumberFormat, PlatformLocale};
 use mitsuami_core::raw_window_handle::{HandleError, RawDisplayHandle, RawWindowHandle};
 use mitsuami_core::{
-    AppInfo, Command, NativeSurface, NodeId, Point, Prop, Rect, RowKey, Size, SurfaceHandle, WidgetKind,
+    AppInfo, Command, Insets, NativeSurface, NodeId, Point, Prop, Rect, RowKey, Size, SurfaceHandle, WidgetKind,
 };
 
 struct HeadlessNode {
@@ -44,6 +44,10 @@ struct HeadlessNode {
     parent: Option<NodeId>,
     children: Vec<NodeId>,
     scroll_offset: Point,
+    /// Scroll views only: the room their scroll bars take, as a test set it
+    /// (`HeadlessHandle::set_viewport_insets`). None otherwise: headless
+    /// scroll bars overlay the content.
+    viewport_insets: Insets,
     /// Lists only: the rows realised, as reported.
     shown: BTreeSet<RowKey>,
     /// Lists only: where the rows are, and each row's index in it.

@@ -477,12 +477,16 @@ async fn horizontal_scroll_views_scroll_sideways_only(app: TestApp) {
             .test_id("scroller")
             .children((0..10).map(|i| Container::new().width(30).test_id(format!("col{i}"))).collect::<Vec<_>>())
     });
-    assert_eq!(scroll_content(&app, "scroller").size, Size::new(300.0, 40.0));
+    // As high as the viewport: the whole view where the scroll bar
+    // overlays the content, less its row where it doesn't (Breeze's).
+    let scroller = app.get_by_test_id("scroller").id();
+    let viewport = app.ui().viewport(scroller).unwrap();
+    assert!(viewport.height() <= 40.0);
+    assert_eq!(scroll_content(&app, "scroller").size, Size::new(300.0, viewport.height()));
 
     app.get_by_test_id("scroller").scroll_by(1000.0, 1000.0).await;
 
-    let scroller = app.get_by_test_id("scroller").id();
-    assert_eq!(app.ui().scroll_offset(scroller), Some(Point::new(200.0, 0.0)));
+    assert_eq!(app.ui().scroll_offset(scroller), Some(Point::new(300.0 - viewport.width(), 0.0)));
     assert!(app.get_by_test_id("col9").is_visible());
 }
 

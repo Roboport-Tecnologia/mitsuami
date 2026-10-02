@@ -230,7 +230,10 @@ Item {{
 }
 
 /// Our content goes in the flickable's content item; the scroll bars follow
-/// `mitsuamiAxes` (1 horizontal, 2 vertical, 3 both).
+/// `mitsuamiAxes` (1 horizontal, 2 vertical, 3 both). The flickable is
+/// inside the view's padding, where the style makes room for classic
+/// scroll bars (not overlay ones) and a frame: `mitsuamiInsets` (top,
+/// right, bottom, left).
 pub(crate) fn scroll_view() -> String {
     format!(
         r#"
@@ -241,6 +244,7 @@ QQC2.ScrollView {{
     property bool mitsuamiBars: true
     QQC2.ScrollBar.horizontal.policy: mitsuamiBars && (mitsuamiAxes & 1) ? QQC2.ScrollBar.AsNeeded : QQC2.ScrollBar.AlwaysOff
     QQC2.ScrollBar.vertical.policy: mitsuamiBars && (mitsuamiAxes & 2) ? QQC2.ScrollBar.AsNeeded : QQC2.ScrollBar.AlwaysOff
+    readonly property string mitsuamiInsets: [topPadding, rightPadding, bottomPadding, leftPadding].join(",")
     Flickable {{
         objectName: "mitsuamiFlickable"
         boundsBehavior: Flickable.StopAtBounds

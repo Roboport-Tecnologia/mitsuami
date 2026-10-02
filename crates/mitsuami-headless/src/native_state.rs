@@ -37,6 +37,7 @@ impl HeadlessBackend {
             children: node.children.clone(),
             focused: state.focused == Some(id),
             scroll_offset: node.kind.scrolls().then_some(node.scroll_offset),
+            viewport_insets: (node.kind == WidgetKind::ScrollView).then_some(node.viewport_insets),
             selection: (state.focused == Some(id)
                 && matches!(
                     node.kind,

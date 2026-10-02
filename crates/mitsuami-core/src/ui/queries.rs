@@ -1,7 +1,7 @@
 //! Reading the tree: nodes, their frames and windows, and inspection.
 
 use crate::backend::NativeState;
-use crate::geometry::{Point, Rect, Size};
+use crate::geometry::{Insets, Point, Rect, Size};
 use crate::services::reply_future;
 use crate::widget::{NodeId, Prop, WidgetKind};
 
@@ -53,8 +53,23 @@ impl Ui {
         Some(inner.placed_frame(id).offset(inner.window_origin(id)?))
     }
 
+    /// Where a `ScrollView` shows its content, in window coordinates: its
+    /// frame less the room its scroll bars take, if the platform's do.
+    pub fn viewport(&self, id: NodeId) -> Option<Rect> {
+        let insets = self.inner.borrow().nodes.get(&id)?.viewport_insets;
+        Some(self.window_frame(id)?.inset(insets))
+    }
+
+    /// Where a `ScrollView`'s viewport is in its frame, as the platform
+    /// last reported it.
+    pub fn viewport_insets(&self, id: NodeId) -> Option<Insets> {
+        let inner = self.inner.borrow();
+        let node = inner.nodes.get(&id)?;
+        (node.kind == WidgetKind::ScrollView).then_some(node.viewport_insets)
+    }
+
     /// The part of a node that can be seen: its window frame, clipped by
-    /// every enclosing scroll view and by the window (or, in the toolbar,
+    /// every enclosing scroll view's viewport and by the window (or, in the toolbar,
     /// by its toolbar item; the sidebar, by itself). `None` if nothing is.
     pub fn visible_rect(&self, id: NodeId) -> Option<Rect> {
         let window = self.window_of(id)?;
@@ -65,7 +80,7 @@ impl Ui {
         while let Some(node) = current {
             match self.kind(node)? {
                 kind if in_chrome(kind) => clip = self.window_frame(node)?,
-                kind if kind.scrolls() && node != id => visible = visible.intersection(&self.window_frame(node)?)?,
+                kind if kind.scrolls() && node != id => visible = visible.intersection(&self.viewport(node)?)?,
                 _ => {}
             }
             current = self.inner.borrow().nodes.get(&node)?.native_parent;
@@ -118,15 +133,15 @@ impl Inner {
     }
 
     /// Window coordinates of the point `id`'s children are positioned
-    /// from: its own top-left, moved by its scroll offset.
+    /// from: its own top-left (a scroll view's viewport's), moved by its
+    /// scroll offset.
     fn content_origin(&self, id: NodeId) -> Point {
         let node = &self.nodes[&id];
         if node.kind == WidgetKind::Window {
             return Point::ZERO;
         }
         let parent = node.native_parent.map_or(Point::ZERO, |p| self.content_origin(p));
-        let origin = self.placed_frame(id).origin;
-        Point::new(parent.x + origin.x - node.scroll_offset.x, parent.y + origin.y - node.scroll_offset.y)
+        Inner::child_origin(node, self.placed_frame(id).offset(parent))
     }
 
     /// Window coordinates of the origin `id`'s frame is relative to.
@@ -168,7 +183,13 @@ impl Inner {
     pub(super) fn child_origin(node: &Node, frame: Rect) -> Point {
         match node.kind {
             WidgetKind::Window => Point::ZERO,
-            _ => Point::new(frame.origin.x - node.scroll_offset.x, frame.origin.y - node.scroll_offset.y),
+            _ => {
+                let insets = node.viewport_insets;
+                Point::new(
+                    frame.origin.x + insets.left - node.scroll_offset.x,
+                    frame.origin.y + insets.top - node.scroll_offset.y,
+                )
+            }
         }
     }
 

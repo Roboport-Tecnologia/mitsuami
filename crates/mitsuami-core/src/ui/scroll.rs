@@ -72,7 +72,7 @@ impl Ui {
                 target = scroll_view;
                 continue;
             }
-            let (Some(rect), Some(viewport)) = (self.window_frame(target), self.window_frame(scroll_view)) else {
+            let (Some(rect), Some(viewport)) = (self.window_frame(target), self.viewport(scroll_view)) else {
                 return;
             };
             let offset = self.scroll_offset(scroll_view).unwrap_or_default();
@@ -115,7 +115,7 @@ impl Inner {
             WidgetKind::Table => (crate::ScrollAxes::Both, Size::new(f32::INFINITY, f32::INFINITY)),
             _ => return None,
         };
-        let viewport = node.frame.size;
+        let viewport = node.frame.inset(node.viewport_insets).size;
         let clamp = |v: f32, content: f32, viewport: f32, enabled: bool| {
             if enabled { v.clamp(0.0, (content - viewport).max(0.0)) } else { 0.0 }
         };

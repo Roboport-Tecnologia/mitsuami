@@ -390,6 +390,10 @@ impl WinUiBackend {
             children,
             focused,
             scroll_offset,
+            viewport_insets: match &node.widget {
+                Widget::Scroll(s) => Some(s.cast().map(|s| super::scroll::viewport_insets(&s)).unwrap_or_default()),
+                _ => None,
+            },
             selection,
         })
     }

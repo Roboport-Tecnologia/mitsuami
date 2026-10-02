@@ -3,11 +3,35 @@
 use std::cell::Cell;
 use std::time::{Duration, Instant};
 
-use mitsuami_core::{NodeId, Point, ScrollAxes, UiEvent};
+use mitsuami_core::{Insets, NodeId, Point, ScrollAxes, UiEvent};
 use windows_core::{EventRevoker, Interface};
 
 use super::{Events, R, ok};
 use crate::bindings as w;
+
+/// Where a scroll viewer's viewport is in it. XAML's template overlays its
+/// scroll bars on the content (its presenter spans their row and column),
+/// so this is zero unless a template or style changes that; the viewport
+/// is at the top left, scroll viewers being left to right.
+pub(super) fn viewport_insets(scroll: &w::IScrollViewer) -> Insets {
+    let Ok(element) = scroll.cast::<w::IFrameworkElement>() else { return Insets::ZERO };
+    let (width, height) = (scroll.ViewportWidth().unwrap_or(0.0), scroll.ViewportHeight().unwrap_or(0.0));
+    if width <= 0.0 || height <= 0.0 {
+        return Insets::ZERO;
+    }
+    let right = (element.ActualWidth().unwrap_or(0.0) - width).max(0.0);
+    let bottom = (element.ActualHeight().unwrap_or(0.0) - height).max(0.0);
+    Insets::new(0.0, right as f32, bottom as f32, 0.0)
+}
+
+/// Reports where the viewport is once per change: as the scroll viewer is
+/// resized, and as its view changes.
+pub(super) fn report_viewport(emitter: &Events, id: NodeId, last: &Cell<Insets>, scroll: &w::IScrollViewer) {
+    let insets = viewport_insets(scroll);
+    if last.replace(insets) != insets {
+        emitter.emit(id, UiEvent::ViewportInsets(insets));
+    }
+}
 
 /// Reports a scroll offset once per change, for the same reason.
 pub(super) fn report_offset(emitter: &Events, id: NodeId, last: &Cell<Point>, scroll: &w::IScrollViewer) {

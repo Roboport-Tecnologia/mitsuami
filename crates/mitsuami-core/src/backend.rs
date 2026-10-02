@@ -161,6 +161,9 @@ pub struct NativeState {
     pub focused: bool,
     /// `ScrollView`s and `List`s only: the current scroll offset.
     pub scroll_offset: Option<Point>,
+    /// `ScrollView`s only: where the viewport is in the frame, inside the
+    /// room scroll bars that aren't overlaid take (`UiEvent::ViewportInsets`).
+    pub viewport_insets: Option<Insets>,
     /// A focused text field's or text area's selection, in characters (an
     /// empty one is the caret); `None` for anything else.
     pub selection: Option<std::ops::Range<usize>>,

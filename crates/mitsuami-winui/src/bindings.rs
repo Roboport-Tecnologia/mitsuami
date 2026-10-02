@@ -9740,6 +9740,13 @@ impl IScrollViewer {
             .map(|| result__)
         }
     }
+    pub fn ViewportWidth(&self) -> windows_core::Result<f64> {
+        unsafe {
+            let mut result__ = core::mem::zeroed();
+            (windows_core::Interface::vtable(self).ViewportWidth)(windows_core::Interface::as_raw(self), &mut result__)
+                .map(|| result__)
+        }
+    }
     pub fn ScrollableWidth(&self) -> windows_core::Result<f64> {
         unsafe {
             let mut result__ = core::mem::zeroed();
@@ -9754,6 +9761,13 @@ impl IScrollViewer {
         unsafe {
             let mut result__ = core::mem::zeroed();
             (windows_core::Interface::vtable(self).VerticalOffset)(windows_core::Interface::as_raw(self), &mut result__)
+                .map(|| result__)
+        }
+    }
+    pub fn ViewportHeight(&self) -> windows_core::Result<f64> {
+        unsafe {
+            let mut result__ = core::mem::zeroed();
+            (windows_core::Interface::vtable(self).ViewportHeight)(windows_core::Interface::as_raw(self), &mut result__)
                 .map(|| result__)
         }
     }
@@ -9860,12 +9874,12 @@ pub struct IScrollViewer_Vtbl {
     ZoomSnapPointsType: usize,
     SetZoomSnapPointsType: usize,
     pub HorizontalOffset: unsafe extern "system" fn(*mut core::ffi::c_void, *mut f64) -> windows_core::HRESULT,
-    ViewportWidth: usize,
+    pub ViewportWidth: unsafe extern "system" fn(*mut core::ffi::c_void, *mut f64) -> windows_core::HRESULT,
     pub ScrollableWidth: unsafe extern "system" fn(*mut core::ffi::c_void, *mut f64) -> windows_core::HRESULT,
     ComputedHorizontalScrollBarVisibility: usize,
     ExtentWidth: usize,
     pub VerticalOffset: unsafe extern "system" fn(*mut core::ffi::c_void, *mut f64) -> windows_core::HRESULT,
-    ViewportHeight: usize,
+    pub ViewportHeight: unsafe extern "system" fn(*mut core::ffi::c_void, *mut f64) -> windows_core::HRESULT,
     pub ScrollableHeight: unsafe extern "system" fn(*mut core::ffi::c_void, *mut f64) -> windows_core::HRESULT,
     ComputedVerticalScrollBarVisibility: usize,
     ExtentHeight: usize,

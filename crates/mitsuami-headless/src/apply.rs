@@ -4,7 +4,7 @@ use std::collections::{BTreeMap, BTreeSet};
 
 use mitsuami_core::a11y::A11yProps;
 use mitsuami_core::{
-    Command, NodeId, Point, Prop, Rect, RowKey, SelectionMode, SurfaceHandle, UiEvent, WidgetKind, find_prop,
+    Command, Insets, NodeId, Point, Prop, Rect, RowKey, SelectionMode, SurfaceHandle, UiEvent, WidgetKind, find_prop,
 };
 
 use super::state::violation;
@@ -39,6 +39,7 @@ impl HeadlessBackend {
                             parent: None,
                             children: Vec::new(),
                             scroll_offset: Point::ZERO,
+                            viewport_insets: Insets::ZERO,
                             shown: BTreeSet::new(),
                             placed: Vec::new(),
                             placed_index: Default::default(),

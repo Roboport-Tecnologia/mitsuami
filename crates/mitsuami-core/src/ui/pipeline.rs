@@ -224,6 +224,15 @@ impl Inner {
                     node.row_width = Some(*width);
                 }
             }
+            UiEvent::ViewportInsets(insets) => {
+                if let Some(node) = self.nodes.get_mut(&id)
+                    && node.viewport_insets != *insets
+                {
+                    node.viewport_insets = *insets;
+                    // The style's padding takes them.
+                    self.styles_dirty = true;
+                }
+            }
             UiEvent::ColumnWidths(widths) => {
                 if let Some(node) = self.nodes.get_mut(&id) {
                     node.column_widths = Some(widths.clone());

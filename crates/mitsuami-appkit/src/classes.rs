@@ -8,7 +8,8 @@ use std::rc::Rc;
 
 use mitsuami_core::services::Shortcut;
 use mitsuami_core::{
-    DisplayList, EventSink, EventValue, FileDrop, NodeId, Point, PointerEvent, PointerKind, Size, UiEvent, WidgetKind,
+    DisplayList, EventSink, EventValue, FileDrop, Insets, NodeId, Point, PointerEvent, PointerKind, Size, UiEvent,
+    WidgetKind,
 };
 use objc2::rc::Retained;
 use objc2::runtime::{AnyObject, NSObject, NSObjectProtocol, ProtocolObject, Sel};
@@ -38,6 +39,17 @@ pub(crate) fn zero_rect() -> NSRect {
 pub(crate) fn scrolled(clip: &objc2_app_kit::NSClipView) -> NSPoint {
     let (origin, insets) = (clip.bounds().origin, clip.contentInsets());
     NSPoint::new(origin.x + insets.left, origin.y + insets.top)
+}
+
+/// Where a scroll view's clip view is in it: inside legacy scrollers
+/// (overlay ones take no room) and its border.
+pub(crate) fn viewport_insets(scroll: &objc2_app_kit::NSScrollView) -> Insets {
+    let (outer, clip) = (scroll.bounds(), scroll.contentView().frame());
+    let below = (clip.origin.y - outer.origin.y) as f32;
+    let above = (outer.size.height - clip.size.height) as f32 - below;
+    let (top, bottom) = if scroll.isFlipped() { (below, above) } else { (above, below) };
+    let left = (clip.origin.x - outer.origin.x) as f32;
+    Insets::new(top, (outer.size.width - clip.size.width) as f32 - left, bottom, left)
 }
 
 /// Where a scroll view's clip view goes for this offset from where its
@@ -300,6 +312,23 @@ define_class!(
             let origin = scrolled(clip);
             let offset = Point::new(origin.x as f32, origin.y as f32);
             self.ivars().events.emit(self.ivars().id, UiEvent::Scrolled(offset));
+        }
+
+        /// A scroll view's clip view was resized or moved
+        /// (`NSViewFrameDidChangeNotification`): as it was, or as legacy
+        /// scrollers came or went.
+        #[unsafe(method(viewportChanged:))]
+        fn viewport_changed(&self, notification: &NSNotification) {
+            let Some(object) = notification.object() else { return };
+            let Some(scroll) = object
+                .downcast_ref::<objc2_app_kit::NSClipView>()
+                // SAFETY: the clip view is in its scroll view, on the main thread.
+                .and_then(|clip| unsafe { clip.superview() })
+                .and_then(|s| s.downcast::<objc2_app_kit::NSScrollView>().ok())
+            else {
+                return;
+            };
+            self.ivars().events.emit(self.ivars().id, UiEvent::ViewportInsets(viewport_insets(&scroll)));
         }
     }
 

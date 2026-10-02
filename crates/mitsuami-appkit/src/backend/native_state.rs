@@ -411,6 +411,10 @@ pub(super) fn native_state(state: &State, id: NodeId) -> Option<NativeState> {
         children,
         focused: focused(&node.widget),
         scroll_offset,
+        viewport_insets: match &node.widget {
+            Widget::Scroll(scroll) => Some(crate::classes::viewport_insets(scroll)),
+            _ => None,
+        },
         selection: super::selection::selection(&node.widget, focused(&node.widget)),
     })
 }

@@ -130,6 +130,16 @@ impl Rect {
         Rect { origin: Point::new(self.origin.x + by.x, self.origin.y + by.y), size: self.size }
     }
 
+    /// The rectangle inside these insets, empty if they overlap.
+    pub fn inset(&self, by: Insets) -> Rect {
+        Rect::new(
+            self.x() + by.left,
+            self.y() + by.top,
+            (self.width() - by.left - by.right).max(0.0),
+            (self.height() - by.top - by.bottom).max(0.0),
+        )
+    }
+
     /// The smallest rectangle that holds both.
     pub fn union(&self, other: &Rect) -> Rect {
         let (x, y) = (self.x().min(other.x()), self.y().min(other.y()));

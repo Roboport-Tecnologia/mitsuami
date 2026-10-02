@@ -56,7 +56,7 @@ Validate as you go. Panic on protocol violations such as an unknown node, a doub
 | `Insert { parent, child, index }` | Attach at `index` among the parent's native children. **ScrollView:** its single child is the scrolled content (AppKit: `documentView`). **List:** the child is a row host, put in its row's cell (§10). **Tabs:** the child is a page host, the page at `index` (§11.3). **Window:** a `ToolbarItem` or a `Sidebar` is window chrome (§11). |
 | `Remove { parent, child }` | Detach only. |
 | `Destroy { id }` | Free the widget. It comes for every native node of a removed subtree, children first; the root has already been removed. Drop observers, signal handlers and targets. |
-| `SetFrame { id, frame }` | Place the widget, relative to its native parent's top-left. Never sent for windows or sidebars. A `ScrollView`'s content frame is in content coordinates. A `ToolbarItem`'s, a row host's and a `Tabs` page's frame is only its size: the platform places them (§10, §11). |
+| `SetFrame { id, frame }` | Place the widget, relative to its native parent's top-left. Never sent for windows or sidebars. A `ScrollView`'s content frame is in content coordinates, from the viewport's top-left (`ViewportInsets`). A `ToolbarItem`'s, a row host's and a `Tabs` page's frame is only its size: the platform places them (§10, §11). |
 | `SetA11y { id, a11y }` | Set the accessible label, description and hidden state. |
 | `SetWindowSize { id, size }` | Set the window's **content area** size (without the title bar, menu bar and toolbar, or a sidebar beside it), no smaller than its `MinSize`. Ignore it while the window is in full screen, which keeps the screen's size. The platform reports what it gives as `WindowResized`. |
 | `SetFocusOrder { window, order }` | Make Tab visit `order` in sequence, wrapping around. It's window-wide, across nested containers. The platform still decides *which* controls can take focus (disabled controls, macOS's keyboard navigation setting). See §14. |
@@ -265,6 +265,7 @@ Native callbacks **only** call `events.emit(id, event)` on the `EventSink` given
 | `RowActivated(key)` | a `List` row is double-clicked, or Return is pressed on it without ⌘/Ctrl, ⌥/Alt or ⌃/Meta (those go to the list's keys) | |
 | `Key(shortcut)` | a key in the node's `Keys` comes up from the focused control (the node, or a control inside it) | the focused control used it, or a nearer node took it |
 | `RowWidth(width)` | a `List` gives its rows a width other than its own (legacy scroll bars, insets, a frame): once it's known, and when it changes | |
+| `ViewportInsets(insets)` | a `ScrollView`'s viewport (where its content shows: the clip view, viewport or flickable) moves in its frame: classic scroll bars come or go, or a frame takes room. The core lays the content out inside it, and frames the content relative to the viewport | they didn't change; overlay scroll bars take no room |
 | `ColumnWidths(widths)` | a `Table`'s columns give their cells new widths, in column order: once they're known, and whenever they change (the user resized a column, the table was resized and a column that expands took the room) | they didn't change |
 | `WindowResized(size)` | the window's content area changes size (report the content size, without any menu bar or toolbar you placed in the window) | |
 | `WindowCloseRequested` | the user asks to close a window. **Don't close it**: the app decides, and the core sends `Destroy`. | |
@@ -375,7 +376,7 @@ These make one test suite run against every backend.
 
 ### 7.3 `native_state(id)`: read back what the widget shows
 
-**Read back from the widget** what it actually shows: its props (text, title, value, placeholder, checked, enabled, and every other prop the core has), its frame, its parent and children (in native order), whether it's focused, its scroll offset, and a focused text field's or text area's selection, in characters (the caret when empty). Only keep on the node what the platform can't report. After every settle, the test kit compares this with the core and fails on any difference: the mirror check. It has caught every serious backend bug so far.
+**Read back from the widget** what it actually shows: its props (text, title, value, placeholder, checked, enabled, and every other prop the core has), its frame, its parent and children (in native order), whether it's focused, its scroll offset, a scroll view's viewport insets, and a focused text field's or text area's selection, in characters (the caret when empty). Only keep on the node what the platform can't report. After every settle, the test kit compares this with the core and fails on any difference: the mirror check. It has caught every serious backend bug so far.
 
 - A window's children include its toolbar items, after its content, then its sidebar.
 - A `ToolbarItem` reports the rect the toolbar gave it, in the coordinates of the window's content (above it, so at a negative y), and `Rect::ZERO` while it's hidden, whether it's empty or the toolbar put it in an overflow menu.
@@ -608,7 +609,7 @@ cargo run --manifest-path examples/showcase/Cargo.toml       # look at it: every
 - **Platforms that report asynchronously** do their catching up in `TestHooks::settle` (§7.5): tests call it while settling, and while a test awaits native work (a capture). Report what your backend causes itself right away, rather than waiting for the platform's event, so settles stay deterministic.
 - **On Kirigami**, the backend and the test kit need their features: `MITSUAMI_NATIVE=1 cargo test -p mitsuami -p mitsuami-kirigami --features mitsuami/kde,mitsuami-test/kde,mitsuami-kirigami/qt`.
 - **On Windows**, build with the MSVC toolchain: `cargo +1.96-x86_64-pc-windows-msvc test` if your default host is gnu.
-- **Mirror checks** run after every settle, comparing native and core children, props, frames, focus and scroll offsets (§7.3). A failure names the node and the difference.
+- **Mirror checks** run after every settle, comparing native and core children, props, frames, focus, scroll offsets and viewports (§7.3). A failure names the node and the difference.
 - **Visual baselines** are stored per backend and machine image in `tests/visual/<name>/<image>/` (ARCHITECTURE.md §12). The first run records them on your machine; look at them. CI records its own: a failing run uploads them, and `.github/scripts/accept-snapshots.sh <run id>` accepts them.
 - **Headless-only tests** (`#[mitsuami_test::test(headless)]`: fake metrics, simulated system changes) are skipped in native runs.
 - **Your real services** aren't exercised by app tests, which use a scripted fake. Copy `mitsuami-appkit/tests/services.rs`: a private clipboard if possible, the real menu structure plus an activation (submenus, check marks, roles, a window's own menus), an alert answered through its real button, a cancelled file dialog, and a file of the test's own moved to the user's trash (and deleted from there).

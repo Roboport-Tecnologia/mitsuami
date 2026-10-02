@@ -4,12 +4,12 @@ use std::cell::{Cell, RefCell};
 use std::rc::Rc;
 
 use mitsuami_core::{
-    Command, EventValue, NodeId, Orientation, Point, Prop, ScrollAxes, UiEvent, WidgetKind, find_prop,
+    Command, EventValue, Insets, NodeId, Orientation, Point, Prop, ScrollAxes, UiEvent, WidgetKind, find_prop,
 };
 use windows_core::{IInspectable, Interface};
 
 use super::fields::{report_text_changes, set_later, submit_on_enter};
-use super::scroll::{report_offset, set_scrolling};
+use super::scroll::{report_offset, report_viewport, set_scrolling};
 use super::styles::separator_style;
 use super::{Node, R, State, Widget, key, violation};
 use crate::bindings as w;
@@ -405,11 +405,21 @@ impl State {
                 let scroll = w::ScrollViewer::new()?;
                 let iface: w::IScrollViewer = scroll.cast()?;
                 set_scrolling(&iface, ScrollAxes::default(), true)?;
+                let insets = Rc::new(Cell::new(Insets::ZERO));
                 revokers.push(iface.ViewChanged({
-                    let (emitter, last) = (emitter.clone(), offset.clone());
+                    let (emitter, last, insets) = (emitter.clone(), offset.clone(), insets.clone());
                     move |sender, _| {
                         if let Some(scroll) = sender.as_ref().and_then(|s| s.cast::<w::IScrollViewer>().ok()) {
                             report_offset(&emitter, id, &last, &scroll);
+                            report_viewport(&emitter, id, &insets, &scroll);
+                        }
+                    }
+                })?);
+                revokers.push(scroll.cast::<w::IFrameworkElement>()?.SizeChanged({
+                    let emitter = emitter.clone();
+                    move |sender, _| {
+                        if let Some(scroll) = sender.as_ref().and_then(|s| s.cast::<w::IScrollViewer>().ok()) {
+                            report_viewport(&emitter, id, &insets, &scroll);
                         }
                     }
                 })?);

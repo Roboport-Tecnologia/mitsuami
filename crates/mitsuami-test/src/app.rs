@@ -474,6 +474,13 @@ impl TestApp {
                 node.kind.name(),
                 node.id
             );
+            assert_eq!(
+                native.viewport_insets,
+                self.ui.viewport_insets(node.id),
+                "backend desync: viewport of {} {} (missing ViewportInsets event?)",
+                node.kind.name(),
+                node.id
+            );
             let core_focused = self.ui.focused(window) == Some(node.id);
             assert_eq!(
                 native.focused,

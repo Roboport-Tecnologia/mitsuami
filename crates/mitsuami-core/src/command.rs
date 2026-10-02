@@ -2,7 +2,7 @@
 
 use crate::a11y::A11yProps;
 use crate::any_value::AnyValue;
-use crate::geometry::{Point, Rect, Size};
+use crate::geometry::{Insets, Point, Rect, Size};
 use crate::input::SurfaceInput;
 use crate::services::Shortcut;
 use crate::surface::{SurfaceHandle, SurfaceSize};
@@ -153,6 +153,10 @@ pub enum UiEvent {
     /// width (scroll bars that take room from the rows, list insets). Rows
     /// are laid out at that width.
     RowWidth(f32),
+    /// Where a `ScrollView`'s viewport is in its frame, when its scroll
+    /// bars or frame take room from its content (classic scroll bars, not
+    /// overlay ones). Its content is laid out in what's left.
+    ViewportInsets(Insets),
     /// The widths a `Table`'s columns give their cells, in column order:
     /// once they're known, and whenever they change (the user resized a
     /// column, the table was resized). Cells are laid out at them.

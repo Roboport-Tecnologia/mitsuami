@@ -5,7 +5,7 @@
 use std::cell::RefCell;
 use std::rc::Rc;
 
-use mitsuami::core::{Prop, ScrollAxes};
+use mitsuami::core::{Insets, Prop, ScrollAxes};
 use mitsuami::prelude::*;
 use mitsuami_test::prelude::*;
 
@@ -66,6 +66,56 @@ async fn scroll_bars_follow_their_signal(app: TestApp) {
     bars.set(true);
     app.settle().await;
     assert!(shows(&app, Prop::ScrollBars(true)));
+}
+
+/// The content is laid out in the viewport the platform leaves it: all of
+/// the scroll view where scroll bars overlay the content (GTK's and
+/// AppKit's by default, WinUI's), less a column where they don't
+/// (Breeze's on Kirigami, legacy scrollers on AppKit, GTK without overlay
+/// scrolling). Either way no row reaches under a bar.
+#[mitsuami_test::test]
+async fn content_fills_the_viewport_the_scroll_bars_leave(app: TestApp) {
+    app.mount(|| ScrollView::new().width(200).height(100).test_id("scroller").children(rows(20)));
+    let scroller = app.get_by_test_id("scroller").id();
+    let viewport = app.ui().viewport(scroller).unwrap();
+    let frame = app.get_by_test_id("scroller").frame();
+    assert!(viewport.width() <= frame.width() && viewport.height() <= frame.height());
+    let row = app.get_by_test_id("row0").frame();
+    assert_eq!((row.x(), row.width()), (viewport.x(), viewport.width()));
+
+    // Scrolled to the end, the last row's bottom is the viewport's.
+    app.get_by_test_id("scroller").scroll_by(0.0, 1000.0).await;
+    assert_eq!(app.ui().scroll_offset(scroller), Some(Point::new(0.0, 400.0 - viewport.height())));
+    assert_eq!(app.get_by_test_id("row19").frame().max_y(), viewport.max_y());
+}
+
+/// Where scroll bars take room (simulated headless, as classic scroll bars
+/// on the right and below), the content is narrower, the end of the scroll
+/// is further, and a right-to-left platform's bar on the left moves the
+/// content over.
+#[mitsuami_test::test]
+async fn scroll_bars_that_take_room_narrow_the_content(app: TestApp) {
+    if !app.is_headless() {
+        return;
+    }
+    app.mount(|| ScrollView::new().width(200).height(100).test_id("scroller").children(rows(20)));
+    let scroller = app.get_by_test_id("scroller").id();
+    app.headless().set_viewport_insets(scroller, Insets::new(0.0, 15.0, 0.0, 0.0));
+    app.settle().await;
+    assert_eq!(app.ui().viewport(scroller), Some(Rect::new(0.0, 0.0, 185.0, 100.0)));
+    assert_eq!(app.get_by_test_id("row0").frame(), Rect::new(0.0, 0.0, 185.0, 20.0));
+
+    app.headless().set_viewport_insets(scroller, Insets::new(0.0, 0.0, 15.0, 15.0));
+    app.settle().await;
+    assert_eq!(app.get_by_test_id("row0").frame(), Rect::new(15.0, 0.0, 185.0, 20.0));
+    app.get_by_test_id("scroller").scroll_by(0.0, 1000.0).await;
+    assert_eq!(app.ui().scroll_offset(scroller), Some(Point::new(0.0, 315.0)));
+    assert_eq!(app.get_by_test_id("row19").frame().max_y(), 85.0);
+
+    // Overlay scroll bars again: the content takes the whole view.
+    app.headless().set_viewport_insets(scroller, Insets::ZERO);
+    app.settle().await;
+    assert_eq!(app.get_by_test_id("row0").frame().width(), 200.0);
 }
 
 /// Logs whether the native scroll view shows a vertical scroll bar, each

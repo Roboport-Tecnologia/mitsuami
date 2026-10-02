@@ -27,7 +27,7 @@ use crate::app_info::AppInfo;
 use crate::backend::{Backend, EventSink, PlatformMetrics};
 use crate::command::{Command, UiEvent};
 use crate::custom::CustomProps;
-use crate::geometry::{Point, Rect, Size};
+use crate::geometry::{Insets, Point, Rect, Size};
 use crate::services::Services;
 use crate::style::Style;
 use crate::task::{Clock, Executor, Sleep, TaskHandle};
@@ -70,6 +70,8 @@ struct Node {
     scroll_offset: Point,
     /// Lists only: the width the platform gives their rows, if not their own.
     row_width: Option<f32>,
+    /// ScrollViews only: where the platform's viewport is in the frame.
+    viewport_insets: Insets,
     /// Tables only: the widths the platform gives their columns' cells.
     column_widths: Option<Vec<f32>>,
     /// Tabs and groups only: the size of their tab strip, or heading, and

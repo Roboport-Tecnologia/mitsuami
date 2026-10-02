@@ -12,7 +12,7 @@ use super::props::{ELIDE_LEFT, ELIDE_MIDDLE};
 
 use super::{
     ALIGN_H_CENTER, ALIGN_RIGHT, KirigamiBackend, PARTIALLY_CHECKED, QT_VERTICAL, TEXT_EDIT_NO_WRAP, Widget, frame_of,
-    option_texts, purpose_hint, radio_options, scroll_offset, strip, tab_titles,
+    option_texts, purpose_hint, radio_options, scroll_offset, strip, tab_titles, viewport_insets,
 };
 
 impl KirigamiBackend {
@@ -346,6 +346,10 @@ impl KirigamiBackend {
             children,
             focused,
             scroll_offset,
+            viewport_insets: match &node.widget {
+                Widget::Scroll { view, .. } => Some(viewport_insets(*view)),
+                _ => None,
+            },
             selection,
         })
     }

@@ -108,7 +108,7 @@ impl HeadlessBackend {
                         node.children.first().map_or(Size::ZERO, |c| state.nodes[c].frame.size),
                     ),
                 };
-                let viewport = node.frame.size;
+                let viewport = node.frame.inset(node.viewport_insets).size;
                 let clamp = |v: f32, content: f32, viewport: f32, on: bool| {
                     if on { v.clamp(0.0, (content - viewport).max(0.0)) } else { 0.0 }
                 };

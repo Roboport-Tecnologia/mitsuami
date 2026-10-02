@@ -298,7 +298,7 @@ impl GtkBackend {
         let by_widget = state.by_widget.borrow();
         let (children, scroll_offset) = match &node.widget {
             Widget::List(list) => (list.children(), Some(scroll_offset(&list.scrolled))),
-            Widget::Scroll { scrolled, viewport } => (
+            Widget::Scroll { scrolled, viewport, .. } => (
                 viewport.child().and_then(|c| by_widget.get(&c).copied()).into_iter().collect(),
                 Some(scroll_offset(scrolled)),
             ),
@@ -332,6 +332,12 @@ impl GtkBackend {
             children,
             focused,
             scroll_offset,
+            viewport_insets: match &node.widget {
+                Widget::Scroll { scrolled, viewport, insets } => {
+                    Some(super::scroll::viewport_insets(scrolled, viewport).unwrap_or(insets.get()))
+                }
+                _ => None,
+            },
             selection,
         })
     }

@@ -11,7 +11,8 @@ use objc2_app_kit::{
     NSAppearance, NSAppearanceCustomization, NSAppearanceNameAqua, NSAppearanceNameDarkAqua, NSAutoresizingMaskOptions,
     NSBackingStoreType, NSBox, NSBoxType, NSButton, NSButtonType, NSImageScaling, NSImageView, NSMenuItem,
     NSPopUpButton, NSProgressIndicator, NSProgressIndicatorStyle, NSScrollView, NSSearchField, NSSecureTextField,
-    NSSlider, NSSwitch, NSTextField, NSViewBoundsDidChangeNotification, NSWindow, NSWindowStyleMask,
+    NSSlider, NSSwitch, NSTextField, NSViewBoundsDidChangeNotification, NSViewFrameDidChangeNotification, NSWindow,
+    NSWindowStyleMask,
 };
 use objc2_foundation::{NSNotificationCenter, NSPoint, NSRect, NSSize};
 
@@ -352,17 +353,26 @@ impl State {
     }
 }
 
-/// Reports a scroll view's clip view moving, through the node's target.
+/// Reports a scroll view's clip view moving, and its frame changing (the
+/// core lays out the content in it), through the node's target.
 fn observe_scrolling(scroll: &NSScrollView, target: Option<&ActionTarget>) {
     let clip = scroll.contentView();
     clip.setPostsBoundsChangedNotifications(true);
+    clip.setPostsFrameChangedNotifications(true);
     if let Some(target) = target {
+        let center = NSNotificationCenter::defaultCenter();
         // SAFETY: the target is removed as an observer when the node is destroyed.
         unsafe {
-            NSNotificationCenter::defaultCenter().addObserver_selector_name_object(
+            center.addObserver_selector_name_object(
                 target,
                 sel!(scrolled:),
                 Some(NSViewBoundsDidChangeNotification),
+                Some(&clip),
+            );
+            center.addObserver_selector_name_object(
+                target,
+                sel!(viewportChanged:),
+                Some(NSViewFrameDidChangeNotification),
                 Some(&clip),
             );
         }

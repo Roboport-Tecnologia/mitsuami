@@ -245,7 +245,9 @@ impl State {
                         events.emit(id, UiEvent::Scrolled(Point::new(h.value() as f32, v.value() as f32)))
                     });
                 }
-                Widget::Scroll { scrolled, viewport }
+                let insets = Rc::new(Cell::new(mitsuami_core::Insets::ZERO));
+                super::scroll::report_viewport(id, &events, &scrolled, &viewport, &insets);
+                Widget::Scroll { scrolled, viewport, insets }
             }
             WidgetKind::Fragment => violation(command, "fragments are core-only"),
             WidgetKind::List => Widget::List(crate::list::List::new(id, events.clone())),

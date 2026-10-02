@@ -10,7 +10,7 @@ use crate::ffi::{self, Callback, QmlObject};
 use crate::qml;
 use crate::surface::SurfaceItem;
 
-use super::{Node, State, Widget, scroll_offset, violation};
+use super::{Node, State, Widget, scroll_offset, viewport_insets, violation};
 
 /// `Image.Status`: loaded, or failed.
 const IMAGE_READY: i32 = 1;
@@ -221,6 +221,11 @@ impl State {
                     let events = events.clone();
                     flickable.connect(signal, move || events.emit(id, UiEvent::Scrolled(scroll_offset(flickable))));
                 }
+                // The core lays out the content in the flickable.
+                let events = events.clone();
+                view.connect("mitsuamiInsetsChanged()", move || {
+                    events.emit(id, UiEvent::ViewportInsets(viewport_insets(view)))
+                });
                 Widget::Scroll { view, flickable }
             }
             WidgetKind::Fragment => violation(command, "fragments are core-only"),

@@ -4,7 +4,7 @@ use std::rc::Rc;
 
 use crate::a11y::A11yProps;
 use crate::command::{Command, UiEvent};
-use crate::geometry::{Point, Rect, Size, WindowSize};
+use crate::geometry::{Insets, Point, Rect, Size, WindowSize};
 use crate::style::Style;
 use crate::widget::{NodeId, Prop, WidgetKind};
 
@@ -50,6 +50,7 @@ impl Ui {
                     heights: Vec::new(),
                     scroll_offset: Point::ZERO,
                     row_width: None,
+                    viewport_insets: Insets::ZERO,
                     column_widths: None,
                     strip: Size::ZERO,
                     insets: None,

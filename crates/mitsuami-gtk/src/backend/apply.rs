@@ -285,8 +285,8 @@ impl State {
                 {
                     list.row_measured(row, frame.height());
                 }
-                if let Some((scrolled, viewport)) = self.scroll_of(&widget) {
-                    sync_scroll(&self.frames, &scrolled, &viewport);
+                if let Some((scrolled, viewport, insets)) = self.scroll_of(&widget) {
+                    sync_scroll(&self.frames, &scrolled, &viewport, insets);
                 }
             }
             Command::SetA11y { id, a11y } => {

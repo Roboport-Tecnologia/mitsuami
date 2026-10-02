@@ -3,7 +3,7 @@
 use mitsuami_core::a11y::A11yProps;
 use mitsuami_core::backend::PlatformMetrics;
 use mitsuami_core::{
-    Command, NativeAppInfo, NativeIcon, NodeId, Prop, Size, SurfaceInput, UiEvent, WidgetKind, find_prop,
+    Command, Insets, NativeAppInfo, NativeIcon, NodeId, Prop, Size, SurfaceInput, UiEvent, WidgetKind, find_prop,
 };
 
 use super::HeadlessHandle;
@@ -92,6 +92,19 @@ impl HeadlessHandle {
         }
         state.set_prop(sidebar, Prop::SidebarShown(shown));
         state.emit(sidebar, UiEvent::SidebarShownChanged(shown));
+    }
+
+    /// Simulates a platform whose scroll bars take room from a scroll
+    /// view's content, as classic scroll bars do (the viewport is inside
+    /// these insets).
+    pub fn set_viewport_insets(&self, scroll_view: NodeId, insets: Insets) {
+        let mut state = self.state.borrow_mut();
+        let Some(node) = state.nodes.get_mut(&scroll_view) else { return };
+        if node.kind != WidgetKind::ScrollView || node.viewport_insets == insets {
+            return;
+        }
+        node.viewport_insets = insets;
+        state.emit(scroll_view, UiEvent::ViewportInsets(insets));
     }
 
     /// Simulates a change of system settings (text size, dark mode, …).

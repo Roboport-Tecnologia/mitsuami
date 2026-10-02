@@ -13,8 +13,8 @@ use mitsuami_core::backend::{
 };
 use mitsuami_core::services::Reply;
 use mitsuami_core::{
-    AppInfo, ButtonRole, ButtonStyle, Color, Command, CustomProps, ImageFit, ImageSource, Modality, NodeId, Opaque,
-    Orientation, RowKey, Size, TextStyle, Truncation, WidgetKind,
+    AppInfo, ButtonRole, ButtonStyle, Color, Command, CustomProps, ImageFit, ImageSource, Insets, Modality, NodeId,
+    Opaque, Orientation, RowKey, Size, TextStyle, Truncation, WidgetKind,
 };
 
 use crate::custom::{DrawnArea, ErasedRender};
@@ -160,6 +160,8 @@ enum Widget {
     Scroll {
         scrolled: gtk::ScrolledWindow,
         viewport: gtk::Viewport,
+        /// Where the viewport is in the scrolled window, as last reported.
+        insets: Rc<Cell<Insets>>,
     },
     List(crate::list::List),
     Sidebar(Sidebar),
