@@ -30,6 +30,42 @@ Kirigami.ApplicationWindow {{
     property QtObject mitsuamiShownMenu: null
     // How many GPU surfaces are in the window (see `qml::gpu_surface`).
     property int mitsuamiSurfaces: 0
+    // The window's menus open from the menu button in Kirigami's page
+    // header, as a menu drawn in the window: under a GPU surface's
+    // subsurface. In a window with a surface the menu and its submenus are
+    // windows of their own, as a select's list is (see `qml::select`), set
+    // as the button is about to open it, and the submenus as it opens (they
+    // are made then). The button is Kirigami's private `HandleButton`,
+    // found by its `drawer`, which is this window's global drawer.
+    property var mitsuamiMenuButtons: []
+    property var mitsuamiTypedMenus: []
+    onMitsuamiSurfacesChanged: Qt.callLater(mitsuamiFindMenuButtons)
+    function mitsuamiFindMenuButtons() {{
+        if (!globalDrawer) return
+        const walk = item => {{
+            if (item.drawer === globalDrawer && item.menuAboutToShow !== undefined
+                    && !mitsuamiMenuButtons.includes(item)) {{
+                mitsuamiMenuButtons.push(item)
+                item.menuAboutToShow.connect(() => mitsuamiMenuType(item.menu))
+            }}
+            for (let i = 0; i < item.children.length; i++) walk(item.children[i])
+        }}
+        walk(contentItem.parent)
+    }}
+    function mitsuamiMenuType(menu) {{
+        // `popupType` is Qt 6.8's: before it, the menu stays in the window
+        if (!menu || menu.popupType === undefined) return
+        menu.popupType = mitsuamiSurfaces > 0 ? QQC2.Popup.Window : QQC2.Popup.Item
+        if (mitsuamiTypedMenus.includes(menu)) return
+        mitsuamiTypedMenus.push(menu)
+        // `opened` is also a property, which hides the signal; the items
+        // are made as the menu turns visible, so they're typed after that
+        menu.visibleChanged.connect(() => {{
+            if (menu.visible) Qt.callLater(() => {{
+                for (let i = 0; i < menu.count; i++) mitsuamiMenuType(menu.menuAt(i))
+            }})
+        }})
+    }}
     Shortcut {{
         sequences: [StandardKey.Cancel]
         enabled: mitsuamiWindow.mitsuamiModal && mitsuamiWindow.mitsuamiFocused
