@@ -1,5 +1,6 @@
 .DS_Store
 target/
+target
 # Snapshots and captures pending review, and visual diffs
 *.new
 *.new.png
