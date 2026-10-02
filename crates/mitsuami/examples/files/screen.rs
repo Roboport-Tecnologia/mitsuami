@@ -288,9 +288,16 @@ fn Files(preview: Signal<bool>) -> impl View {
         .drag_files(|e: &Entry| Some(e.path.clone()))
         .a11y_label("Items")
         // A folder's items just show, as File Explorer's do: XAML's list
-        // slid and faded every folder's in.
+        // slid and faded every folder's in. And a click selects one item,
+        // Ctrl- and Shift-clicks more, as in File Explorer: XAML's
+        // multiple selection has a check box on every row instead.
         .native(platform! {
-            windows => mitsuami::winui::without_item_animations(),
+            windows => mitsuami::winui::tweak(|list: &mitsuami::winui::bindings::ListView| {
+                use mitsuami::winui::bindings::{IListViewBase, ListViewSelectionMode};
+                use mitsuami::winui::windows_core::Interface;
+                mitsuami::winui::remove_item_animations(list)?;
+                list.cast::<IListViewBase>()?.SetSelectionMode(ListViewSelectionMode::Extended)
+            }),
             _ => Tweak::none(),
         })
         .hidden(move || browser.listing.error().is_some() || empty())
