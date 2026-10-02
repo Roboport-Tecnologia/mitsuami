@@ -406,6 +406,11 @@ protected:
         if (auto* surface = dynamic_cast<SurfaceInputItem*>(window->activeFocusItem());
             surface && surface->takes && (surface->grabbed || !(key->modifiers() & Qt::ControlModifier)))
             return false;
+        // So does a text area that can be edited, as Qt's does (it types
+        // a tab); Control+Tab and Shift+Tab leave it.
+        if (QQuickItem* focus = window->activeFocusItem(); forward && focus && focus->inherits("QQuickTextEdit")
+            && !focus->property("readOnly").toBool() && !(key->modifiers() & Qt::ControlModifier))
+            return false;
         int n = order.size(), at = -1;
         for (QQuickItem* f = window->activeFocusItem(); f && at < 0; f = f->parentItem())
             for (int i = 0; i < n; i++)

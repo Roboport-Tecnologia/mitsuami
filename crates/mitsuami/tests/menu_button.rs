@@ -179,20 +179,26 @@ async fn follows_its_menu(app: TestApp) {
 /// as its caption either way, and takes focus from Tab as buttons do.
 #[mitsuami_test::test]
 async fn shows_an_icon_before_its_caption_or_alone(app: TestApp) {
+    // The same caption with and without the icon (captions of the same
+    // length aren't as wide in proportional fonts), long enough that the
+    // button is wider than Breeze's minimum (80 points), which a short
+    // caption and its icon both fit within.
+    const CAPTION: &str = "Add to the library";
     app.mount(|| {
         Column::new().align(Align::Start).gap(8).children((
-            MenuButton::new("Add").menu(MenuItem::new("Folder…")),
-            MenuButton::new("Put").icon(plus()).menu(MenuItem::new("Folder…")),
+            MenuButton::new(CAPTION).menu(MenuItem::new("Folder…")).test_id("caption"),
+            MenuButton::new(CAPTION).icon(plus()).menu(MenuItem::new("Folder…")).test_id("icon and caption"),
             MenuButton::new("New").icon(plus()).icon_only(true).menu(MenuItem::new("Folder…")),
         ))
     });
     app.expect(add("New")).to_be_visible().await;
 
-    let width = |label: &str| app.get(add(label)).frame().width();
-    // "Add", "Put" and "New" are the same length.
-    assert!(width("Put") > width("Add"), "{} > {}", width("Put"), width("Add"));
-    assert!(width("New") < width("Add"), "{} < {}", width("New"), width("Add"));
-    assert!(app.get(add("Put")).native_state().props.contains(&Prop::Icon(plus())));
+    let width = |query: Query| app.get(query).frame().width();
+    let (caption, both) = (width(by_test_id("caption")), width(by_test_id("icon and caption")));
+    let alone = width(add("New"));
+    assert!(both > caption, "{both} > {caption}");
+    assert!(alone < caption, "{alone} < {caption}");
+    assert!(app.get(by_test_id("icon and caption")).native_state().props.contains(&Prop::Icon(plus())));
     assert!(app.get(add("New")).native_state().props.contains(&Prop::IconOnly(true)));
     assert_eq!(app.ui().focus_order(app.window()).len(), 3);
 }

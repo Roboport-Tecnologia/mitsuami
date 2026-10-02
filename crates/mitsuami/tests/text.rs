@@ -64,16 +64,18 @@ async fn max_lines_follows_its_signal(app: TestApp) {
     assert_eq!(height(&app, "text"), one);
 }
 
-/// A text with a line limit shrinks below its longest word (a path), as
-/// ellipsizing labels do on every platform; one without keeps the word's
-/// width and runs past its row.
+/// A text with a line limit shrinks below its longest word (a long
+/// identifier), as ellipsizing labels do on every platform; one without
+/// keeps the word's width and runs past its row. Not a path: Qt (and
+/// Pango) may break a line after a slash, as Unicode's line breaking
+/// allows, so a path is several words there.
 #[mitsuami_test::test]
 async fn a_line_limit_lets_text_shrink_below_its_longest_word(app: TestApp) {
-    const PATH: &str = "/Users/someone/Documents/Projects/mitsuami/crates/mitsuami/examples";
+    const WORD: &str = "someone_documents_projects_mitsuami_crates_mitsuami_examples";
     app.mount(|| {
         Column::new().width(120).align(Align::Stretch).children((
-            Row::new().child(Text::new(PATH).max_lines(1).shrink(1.0).test_id("limited")),
-            Row::new().child(Text::new(PATH).shrink(1.0).test_id("unlimited")),
+            Row::new().child(Text::new(WORD).max_lines(1).shrink(1.0).test_id("limited")),
+            Row::new().child(Text::new(WORD).shrink(1.0).test_id("unlimited")),
         ))
     });
     let (limited, unlimited) = (app.get_by_test_id("limited").frame(), app.get_by_test_id("unlimited").frame());

@@ -38,6 +38,10 @@ fn icon(label: &str) -> Query {
     by_role(Role::Image, label)
 }
 
+/// A caption long enough that its button is wider than Breeze's minimum
+/// (80 points), which a short caption and its icon both fit within.
+const LONG_CAPTION: &str = "Delete these files";
+
 #[mitsuami_test::test]
 async fn shows_the_named_icon(app: TestApp) {
     app.mount(|| Column::new().align(Align::Start).child(Icon::new(trash()).label("Delete")));
@@ -128,10 +132,14 @@ async fn takes_the_colour_it_is_given(app: TestApp) {
 /// where an icon has the platform's own colour.
 #[mitsuami_test::test]
 async fn draws_in_its_colour(app: TestApp) {
-    app.mount(|| {
+    // Kirigami recolours only an icon's parts in the text colour, and
+    // Breeze draws its trash in the negative (red) one: a save icon is
+    // all text colour.
+    let name = platform! { kde => "document-save".to_owned(), _ => trash() };
+    app.mount(move || {
         Row::new().align(Align::Start).padding(10).gap(10).children((
-            Icon::new(trash()).label("Red").color(Color::rgb(255, 0, 0)).icon_size(32.0),
-            Icon::new(trash()).label("Plain").icon_size(32.0),
+            Icon::new(name.clone()).label("Red").color(Color::rgb(255, 0, 0)).icon_size(32.0),
+            Icon::new(name.clone()).label("Plain").icon_size(32.0),
         ))
     });
     app.expect(icon("Plain")).to_be_visible().await;
@@ -164,18 +172,21 @@ async fn a_button_shows_an_icon_before_its_caption_or_alone(app: TestApp) {
     let clicks = signal(0);
     app.mount(move || {
         Column::new().align(Align::Start).gap(8).children((
-            Button::new("Remove"),
-            Button::new("Delete").icon(trash()),
+            Button::new(LONG_CAPTION).test_id("caption"),
+            Button::new(LONG_CAPTION).icon(trash()).test_id("icon and caption"),
             Button::new("Discard").icon(trash()).icon_only(true).on_click(move || clicks.update(|c| *c += 1)),
         ))
     });
     app.expect(by_role(Role::Button, "Discard")).to_be_visible().await;
 
-    let width = |label: &str| app.get(by_role(Role::Button, label)).frame().width();
-    // "Remove" and "Delete" are the same length.
-    assert!(width("Delete") > width("Remove"), "{} > {}", width("Delete"), width("Remove"));
-    assert!(width("Discard") < width("Remove"), "{} < {}", width("Discard"), width("Remove"));
-    assert!(has(&app, by_role(Role::Button, "Delete"), Prop::Icon(trash())));
+    // The same caption with and without the icon: captions of the same
+    // length aren't as wide in GTK's and Qt's proportional fonts.
+    let width = |query: Query| app.get(query).frame().width();
+    let (caption, both) = (width(by_test_id("caption")), width(by_test_id("icon and caption")));
+    let alone = width(by_role(Role::Button, "Discard"));
+    assert!(both > caption, "{both} > {caption}");
+    assert!(alone < caption, "{alone} < {caption}");
+    assert!(has(&app, by_test_id("icon and caption"), Prop::Icon(trash())));
     assert!(has(&app, by_role(Role::Button, "Discard"), Prop::IconOnly(true)));
 
     app.get_by_role(Role::Button, "Discard").click().await;
@@ -203,9 +214,9 @@ async fn a_borderless_icon_button_holds_its_icon(app: TestApp) {
 async fn a_button_follows_its_icon(app: TestApp) {
     let name = signal(String::new());
     let only = signal(false);
-    app.mount(move || Column::new().align(Align::Start).child(Button::new("Delete").icon(name).icon_only(only)));
-    app.expect(by_role(Role::Button, "Delete")).to_be_visible().await;
-    let width = || app.get(by_role(Role::Button, "Delete")).frame().width();
+    app.mount(move || Column::new().align(Align::Start).child(Button::new(LONG_CAPTION).icon(name).icon_only(only)));
+    app.expect(by_role(Role::Button, LONG_CAPTION)).to_be_visible().await;
+    let width = || app.get(by_role(Role::Button, LONG_CAPTION)).frame().width();
     let plain = width();
 
     name.set(trash());
@@ -216,7 +227,7 @@ async fn a_button_follows_its_icon(app: TestApp) {
     only.set(true);
     app.settle().await;
     assert!(width() < plain, "{} < {plain}", width());
-    assert!(has(&app, by_role(Role::Button, "Delete"), Prop::IconOnly(true)));
+    assert!(has(&app, by_role(Role::Button, LONG_CAPTION), Prop::IconOnly(true)));
 
     only.set(false);
     app.settle().await;
@@ -225,7 +236,7 @@ async fn a_button_follows_its_icon(app: TestApp) {
     name.set(String::new());
     app.settle().await;
     assert_eq!(width(), plain);
-    assert!(has(&app, by_role(Role::Button, "Delete"), Prop::Label("Delete".into())));
+    assert!(has(&app, by_role(Role::Button, LONG_CAPTION), Prop::Label(LONG_CAPTION.into())));
 }
 
 /// A new caption keeps an icon shown alone so: AppKit puts a button's
