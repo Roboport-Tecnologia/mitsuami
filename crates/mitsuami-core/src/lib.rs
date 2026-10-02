@@ -1,7 +1,8 @@
 //! mitsuami core: the retained node tree, styles and units, layout,
 //! accessibility model, control flow and the backend contract.
 //!
-//! See `docs/ARCHITECTURE.md` for the design.
+//! See [`docs/ARCHITECTURE.md`](https://github.com/Roboport-Tecnologia/mitsuami/blob/main/docs/ARCHITECTURE.md)
+//! for the design.
 
 pub mod a11y;
 mod any_value;

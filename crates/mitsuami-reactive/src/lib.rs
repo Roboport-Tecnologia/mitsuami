@@ -12,8 +12,8 @@
 //! | `onUnmounted` / `onScopeDispose` | [`on_cleanup`] |
 //!
 //! All handles are `Copy` indexes into a thread-local arena. They belong to
-//! the [`Owner`] that was current when they were created and stop working
-//! once that owner is disposed.
+//! the [`Owner`] that was current when they were created; reading or
+//! writing one after that owner is disposed panics.
 //!
 //! Effects run synchronously: immediately when created, then whenever a
 //! dependency changes. Group several writes with [`batch`] so dependents run

@@ -44,6 +44,9 @@ pub fn signal<T: 'static>(value: T) -> Signal<T> {
 
 impl<T: 'static> Signal<T> {
     /// Returns a clone of the value and subscribes the running observer.
+    ///
+    /// # Panics
+    /// If the signal's owner was disposed.
     pub fn get(&self) -> T
     where
         T: Clone,
@@ -54,7 +57,8 @@ impl<T: 'static> Signal<T> {
     /// Borrows the value and subscribes the running observer.
     ///
     /// # Panics
-    /// If `f` writes to this same signal.
+    /// If `f` writes to this same signal, or if the signal's owner was
+    /// disposed.
     pub fn with<R>(&self, f: impl FnOnce(&T) -> R) -> R {
         with_runtime(|rt| rt.track(self.key));
         self.with_untracked(f)
@@ -76,11 +80,17 @@ impl<T: 'static> Signal<T> {
     }
 
     /// Replaces the value and notifies subscribers.
+    ///
+    /// # Panics
+    /// If the signal's owner was disposed.
     pub fn set(&self, value: T) {
         self.update(|v| *v = value);
     }
 
     /// Mutates the value in place and notifies subscribers.
+    ///
+    /// # Panics
+    /// If the signal's owner was disposed.
     pub fn update(&self, f: impl FnOnce(&mut T)) {
         let slot = with_runtime(|rt| rt.slot(self.key, "signal"));
         {

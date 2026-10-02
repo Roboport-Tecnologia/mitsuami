@@ -95,7 +95,7 @@ mitsuami-test = { version = "1.0", features = ["kde"] }
 Built-in widgets: `Text`, `Button`, `ToggleButton`, `TextInput`,
 `PasswordInput`, `SearchInput`, `TextArea`, `Checkbox`, `Switch`,
 `RadioGroup`, `Slider`, `NumberInput`, `Select`, `Progress`, `Spinner`,
-`Separator`, `Image`, `Icon`, `ScrollView`, `List` and `Table` (virtualised), `Group`,
+`Separator`, `Image`, `Icon`, `FileIcon`, `ScrollView`, `List` and `Table` (virtualised), `Group`,
 `Sidebar`, `Tabs`, `Toolbar`, `MenuButton`, menus, context menus, tooltips,
 windows and dialogs. [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md) §13
 lists the native control each one is on every platform.
@@ -110,11 +110,13 @@ cargo run -p mitsuami --example button
 ```
 
 The others in [`crates/mitsuami/examples`](crates/mitsuami/examples) run the
-same way: `checkbox`, `context_menu`, `file_drop`, `group`, `icon`, `image`,
-`list`, `measurements`, `menu_button`, `menus`, `number_input`,
-`password_input`, `progress`, `radio_group`, `scroll_view`, `search_input`,
-`select`, `separator`, `sidebar`, `slider`, `spinner`, `switch`, `table`,
-`tabs`, `text`, `text_area`, `text_input`, `toolbar`, `tooltip`, `windows`.
+same way: `checkbox`, `context_menu`, `file_drag`, `file_drop`, `file_icon`,
+`focus`, `group`, `hover`, `icon`, `image`, `keys`, `launch`, `list`,
+`measurements`, `menu_button`, `menus`, `number_input`, `password_input`,
+`progress`, `radio_group`, `scroll_view`, `search_input`, `select`,
+`separator`, `shortcuts`, `sidebar`, `slider`, `spinner`, `switch`, `table`,
+`tabs`, `text`, `text_area`, `text_input`, `toolbar`, `tooltip`, `trash`,
+`windows`.
 
 Whole apps:
 
@@ -176,7 +178,8 @@ the clock `sleep` uses) and answer dialogs through scripted services
 clipboard. The kit also has tree, layout and wireframe snapshots, and
 stories (`#[mitsuami_test::story]`) that capture a view at each size, in
 light and dark. [`crates/mitsuami/tests`](crates/mitsuami/tests) has plenty
-of examples.
+of examples. `cargo install cargo-mitsuami`, then `cargo mitsuami visual
+review` shows the changed captures in the browser.
 
 ## Crates
 
@@ -186,9 +189,11 @@ of examples.
 | `mitsuami-reactive` | Signals, computed values, effects, ownership, context |
 | `mitsuami-core` | Node tree, styles and units, Taffy layout, a11y model, `Show`/`For`, backend contract |
 | `mitsuami-widgets` | Built-in widgets |
-| `mitsuami-macros` | `view!` and `#[component]` |
+| `mitsuami-macros` | `view!`, `#[component]` and `locales!` |
 | `mitsuami-headless` | In-memory backend with deterministic metrics that validates the protocol |
 | `mitsuami-test` | Test runner, a11y queries, actions, assertions, snapshots, stories |
+| `mitsuami-test-macros` | `#[mitsuami_test::test]` and `#[mitsuami_test::story]` |
+| `cargo-mitsuami` | The CLI: `cargo mitsuami visual` runs the native tests, then `review` and `accept` the visual baselines |
 | `mitsuami-appkit` | AppKit backend (macOS) |
 | `mitsuami-gtk` | GTK 4 backend (Linux) |
 | `mitsuami-kirigami` | Qt Quick and Kirigami backend (Linux, KDE Plasma; the `kde` feature) |

@@ -1,8 +1,10 @@
-//! `view!`, `#[component]` and `#[derive(IntoValue)]`. Use them through
-//! `mitsuami`, not directly.
+//! `view!`, `#[component]`, `locales!` and `#[derive(IntoValue)]`. Use them
+//! through `mitsuami`, not directly.
 //!
-//! Both are sugar over the builder API: they expand to builder calls, so
-//! anything they write can be written by hand.
+//! `view!` and `#[component]` are sugar over the builder API: they expand to
+//! builder calls, so anything they write can be written by hand. `locales!`
+//! builds the app's Fluent files in, and `IntoValue` lets a type be passed
+//! where a reactive value is taken.
 
 use proc_macro::TokenStream;
 
@@ -86,10 +88,10 @@ pub fn view(input: TokenStream) -> TokenStream {
 ///     title: Value<String>,                // static or reactive
 ///     on_change: Callback<i32>,            // `@change=…`, optional
 ///     children: Slot,                      // what goes between the tags
-/// ) -> impl View { … }
+/// ) -> impl View { /* … */ }
 ///
-/// view! { <Counter initial=3 label="Clicks" title={move || …} @change=…/> }
-/// Counter::new().initial(3).label("Clicks").title(move || …).on_change(…)   // the same, as a builder
+/// view! { <Counter initial=3 label="Clicks" title={move || /* … */} @change=move |n| { /* … */ }/> }
+/// Counter::new().initial(3).label("Clicks").title(move || /* … */).on_change(move |n| { /* … */ })   // the same, as a builder
 /// ```
 ///
 /// - Parameters are required unless they have `#[prop(default)]`,

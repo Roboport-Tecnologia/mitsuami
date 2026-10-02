@@ -52,6 +52,9 @@ pub fn computed<T: PartialEq + 'static>(f: impl Fn() -> T + 'static) -> Computed
 
 impl<T: 'static> Computed<T> {
     /// Returns a clone of the value and subscribes the running observer.
+    ///
+    /// # Panics
+    /// If the computed value's owner was disposed.
     pub fn get(&self) -> T
     where
         T: Clone,

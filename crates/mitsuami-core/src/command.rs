@@ -84,7 +84,7 @@ pub enum Command {
         id: NodeId,
         range: std::ops::Range<usize>,
     },
-    /// Scrolls a `List` just enough to show a row, as the platform's own
+    /// Scrolls a `List` or `Table` just enough to show a row, as the platform's own
     /// "scroll to row" does. The platform then reports `Scrolled`, and the
     /// rows it shows.
     ScrollToRow {
@@ -147,7 +147,8 @@ pub enum UiEvent {
     RowShown(RowKey),
     /// A `List` or `Table` let go of a row it had shown. The core disposes it.
     RowHidden(RowKey),
-    /// A `List`'s row was activated: double-clicked, or Enter pressed on it.
+    /// A `List`'s or `Table`'s row was activated: double-clicked, or Enter
+    /// pressed on it.
     RowActivated(RowKey),
     /// The width a `List` gives its rows, when it isn't the list's own
     /// width (scroll bars that take room from the rows, list insets). Rows

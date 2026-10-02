@@ -7,8 +7,8 @@
 //! let width = use_size(sidebar);
 //! view! {
 //!     <Row>
-//!         <Column node_ref=sidebar grow=1.0>…</Column>
-//!         <Show when=move || viewport.get().width >= 600.0>…</Show>
+//!         <Column node_ref=sidebar grow=1.0>/* … */</Column>
+//!         <Show when=move || viewport.get().width >= 600.0>/* … */</Show>
 //!     </Row>
 //! }
 //! ```

@@ -9,8 +9,8 @@ use mitsuami_reactive::{IntoValue, Signal, Value};
 
 /// A slider: a number in a range, as the platform's slider shows it,
 /// horizontal or vertical. Its label is its accessible name. What its step does is the platform's:
-/// AppKit shows it as tick marks the knob stops at, WinUI snaps to it, GTK
-/// and Qt move by it from the keyboard.
+/// AppKit shows it as tick marks the knob stops at, WinUI and GTK snap the
+/// user's moves to it, and Qt moves by it from the keyboard.
 ///
 /// ```ignore
 /// let volume = signal(50.0);

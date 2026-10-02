@@ -286,6 +286,10 @@ pub(crate) fn current_ui() -> Ui {
 /// scope (e.g. the component that started it) is disposed. A store's action
 /// is called in its caller's scope: it spawns with
 /// [`Store::spawn`](crate::Store::spawn) instead.
+///
+/// # Panics
+/// Outside a `Ui`: call it from a mounted view or a task, or use
+/// [`Ui::spawn_local`].
 pub fn spawn_local(future: impl Future<Output = ()> + 'static) -> TaskHandle {
     let handle = current_ui().spawn_in(future, Owner::current());
     let cancel = handle.clone();
@@ -326,6 +330,10 @@ pub fn spawn_blocking<T: Send + 'static>(work: impl FnOnce() -> T + Send + 'stat
 }
 
 /// Waits `duration` on the current `Ui`'s clock.
+///
+/// # Panics
+/// Outside a `Ui`: call it from a mounted view or a task, or use
+/// [`Ui::sleep`].
 pub fn sleep(duration: Duration) -> Sleep {
     current_ui().sleep(duration)
 }

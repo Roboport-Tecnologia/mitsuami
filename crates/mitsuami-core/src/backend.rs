@@ -159,7 +159,7 @@ pub struct NativeState {
     pub children: Vec<NodeId>,
     /// Has keyboard focus (for text fields: is being edited).
     pub focused: bool,
-    /// `ScrollView`s and `List`s only: the current scroll offset.
+    /// `ScrollView`s, `List`s and `Table`s only: the current scroll offset.
     pub scroll_offset: Option<Point>,
     /// `ScrollView`s only: where the viewport is in the frame, inside the
     /// room scroll bars that aren't overlaid take (`UiEvent::ViewportInsets`).

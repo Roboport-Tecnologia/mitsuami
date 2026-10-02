@@ -119,7 +119,7 @@ fn schedule_tick() {
 
 /// Initializes GTK for tests, once per process. Unless
 /// `MITSUAMI_SHOW_WINDOWS=1`, windows go to a private Broadway display (see
-/// [`crate::display`]).
+/// the crate's `display` module).
 pub fn init_for_tests() {
     if gtk::is_initialized_main_thread() {
         return;

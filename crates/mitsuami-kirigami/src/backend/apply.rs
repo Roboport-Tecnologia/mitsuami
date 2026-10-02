@@ -328,7 +328,7 @@ impl State {
                     flickable.set_real("contentY", offset.y as f64);
                 }
                 Some(Widget::List(list)) => list.scroll_to(*offset),
-                _ => violation(command, "not a ScrollView or List"),
+                _ => violation(command, "not a ScrollView, List or Table"),
             },
             Command::Focus { id } => {
                 let widget = self.widget(*id, command);

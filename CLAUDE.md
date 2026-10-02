@@ -23,18 +23,27 @@ bends to each platform's native controls, never the other way around:
 
 ## Layout
 
+- `crates/mitsuami-reactive`: signals, computed values, effects, owners,
+  context.
 - `crates/mitsuami-core`: node tree, props (`widget.rs`), the `Command`
   protocol, the `Ui` (`ui/`: layout with Taffy, accessibility tree),
   localization (`l10n/`: Project Fluent; mitsuami's own strings, which
   backends show with `l10n::tr`, are in `locales/en-US/mitsuami.ftl`).
 - `crates/mitsuami-widgets`: the built-in widgets' builder API.
+- `crates/mitsuami-macros`: `view!`, `#[component]`, `locales!` and
+  `#[derive(IntoValue)]`.
 - `crates/mitsuami-headless`: in-memory backend with fixed metrics; it
   validates the protocol and stands in for a platform in tests.
 - Backends: `mitsuami-appkit`, `mitsuami-gtk` (Linux only),
   `mitsuami-winui` (Windows only), `mitsuami-kirigami` (Linux, `qt` feature).
   `mitsuami-linux` is GTK's and Kirigami's `GpuSurface` (Wayland subsurface,
   X11 child window, pointer locks).
-- `crates/mitsuami-test`: the test kit (queries, actions, snapshots, stories).
+- `crates/mitsuami-test`: the test kit (queries, actions, snapshots, stories);
+  `crates/mitsuami-test-macros`: its `#[test]` and `#[story]`.
+- `crates/cargo-mitsuami`: `cargo mitsuami visual` runs the native tests,
+  then reviews and accepts visual baselines.
+- Packaging: `scripts/` builds the examples and the MSIX packages,
+  `.github/scripts/` and `.github/apps/` the AppImages and macOS bundles.
 - `docs/BACKENDS.md` is the backend contract; `docs/ARCHITECTURE.md` has the
   design (§1–§12), a section per widget (§13) and per window and shell
   feature (§14), each ending with where it has run, what each backend
@@ -71,7 +80,8 @@ Backend rules the tests enforce:
   `mitsuami_test::main!();`.
 - `cargo test --workspace` runs headless; `MITSUAMI_NATIVE=1 cargo test
   --workspace` runs on this machine's native backend (AppKit on macOS, GTK
-  on Linux). Kirigami needs CI's features: `-p mitsuami -p mitsuami-kirigami
+  on Linux, WinUI on Windows). Kirigami needs CI's features:
+  `-p mitsuami -p mitsuami-kirigami
   --features mitsuami/kde,mitsuami-test/kde,mitsuami-kirigami/qt`; without
   `mitsuami-test/kde` the tests still run on GTK.
 - Native snapshots and visual baselines are per machine image
@@ -79,7 +89,8 @@ Backend rules the tests enforce:
   committed; this machine's (`macos-26@2x`) is recorded on first run and
   ignored by git. Don't set `MITSUAMI_IMAGE` locally, or you'd record into
   CI's image directory.
-- CI runs only by hand: `gh workflow run test.yml --ref <branch>`. Baselines
+- CI runs by hand (`gh workflow run test.yml --ref <branch>`), and
+  `release.yml` runs `test.yml` (headless only) on every `v*` tag. Baselines
   for new stories, on every platform, come from a failed CI run:
   `.github/scripts/accept-snapshots.sh <run id>`.
 - Don't run CI for now, for the same reason as visual baselines below:

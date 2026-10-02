@@ -86,7 +86,10 @@ pkg-config. No `cxx-qt`, no CMake.
   package) it falls back to Fusion: right structure and colors, older
   look. CI would install `breeze` and the Kirigami packages.
 
-## Still open
+## Open when the spike ended
+
+All of these are done in the backend, `crates/mitsuami-kirigami` (see
+`docs/ARCHITECTURE.md` §15, Kirigami).
 
 - Menus (a `Kirigami.GlobalDrawer` or hamburger `QQC2.Menu` in the page
   toolbar), alerts (`Kirigami.PromptDialog`) and file dialogs

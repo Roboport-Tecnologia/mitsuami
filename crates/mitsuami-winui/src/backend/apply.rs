@@ -339,7 +339,7 @@ impl State {
                     scroll_now(&self.emitter, *id, &node.offset, &scroll.cast()?, *offset)?;
                 }
                 Some(Widget::List(list)) => list.scroll_to(*offset)?,
-                _ => violation(command, "not a ScrollView or List"),
+                _ => violation(command, "not a ScrollView, List or Table"),
             },
             Command::Focus { id } => {
                 self.element(*id, command);

@@ -25,8 +25,8 @@ use mitsuami_reactive::{IntoValue, Signal, Value};
 /// ```ignore
 /// let page = signal(Page::General);
 /// Tabs::new(page).children((
-///     Tab::new("General", Page::General).padding(16).children((…)),
-///     Tab::new("Advanced", Page::Advanced).padding(16).children((…)),
+///     Tab::new("General", Page::General).padding(16).children((/* … */)),
+///     Tab::new("Advanced", Page::Advanced).padding(16).children((/* … */)),
 /// ))
 /// ```
 ///

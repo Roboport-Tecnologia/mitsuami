@@ -256,6 +256,8 @@ impl Window {
 }
 
 impl Window<()> {
+    /// The title `view!` sets, which makes the window a `View`.
+    #[doc(hidden)]
     pub fn title(self, title: impl IntoValue<String>) -> Window {
         self.retitled(title.into_value())
     }

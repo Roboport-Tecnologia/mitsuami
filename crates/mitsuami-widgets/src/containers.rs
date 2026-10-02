@@ -166,7 +166,8 @@ impl Container {
     }
 }
 
-/// Vertical flex container.
+/// Vertical flex container. `new()` returns a [`Container`]: chain its
+/// methods, and the style setters of [`ElementBuilder`].
 pub struct Column;
 
 impl Column {
@@ -176,7 +177,8 @@ impl Column {
     }
 }
 
-/// Horizontal flex container.
+/// Horizontal flex container. `new()` returns a [`Container`]: chain its
+/// methods, and the style setters of [`ElementBuilder`].
 pub struct Row;
 
 impl Row {
@@ -186,7 +188,8 @@ impl Row {
     }
 }
 
-/// Grid container.
+/// Grid container. `new()` returns a [`Container`]: chain its methods
+/// (`columns`, `rows`), and the style setters of [`ElementBuilder`].
 pub struct Grid;
 
 impl Grid {

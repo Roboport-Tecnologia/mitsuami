@@ -338,7 +338,7 @@ impl State {
             Command::ScrollTo { id, offset } => match self.nodes.get(id).map(|n| &n.widget) {
                 Some(Widget::Scroll { scrolled, .. }) => scroll_to(scrolled, *offset),
                 Some(Widget::List(list)) => scroll_to(&list.scrolled, *offset),
-                _ => violation(command, "not a ScrollView or List"),
+                _ => violation(command, "not a ScrollView, List or Table"),
             },
             Command::Focus { id } => match self.nodes.get(id) {
                 Some(node) => {

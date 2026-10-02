@@ -475,7 +475,7 @@ impl State {
             Command::ScrollTo { id, offset } => match self.nodes.get(id).map(|n| &n.widget) {
                 Some(Widget::Scroll(scroll)) => scroll_to(scroll, NSPoint::new(offset.x as f64, offset.y as f64)),
                 Some(Widget::List(list)) => scroll_to(&list.scroll, NSPoint::new(offset.x as f64, offset.y as f64)),
-                _ => violation(command, "not a ScrollView or List"),
+                _ => violation(command, "not a ScrollView, List or Table"),
             },
             Command::ScrollToRow { id, row } => match self.nodes.get(id).map(|n| &n.widget) {
                 Some(Widget::List(list)) => list.scroll_to_row(*row),

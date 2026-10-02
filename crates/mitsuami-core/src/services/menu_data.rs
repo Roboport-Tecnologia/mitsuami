@@ -106,7 +106,7 @@ pub enum MenuCheck {
 pub enum MenuRole {
     #[default]
     None,
-    /// "About <app>".
+    /// `About <app>`.
     About,
     /// The app's settings (preferences).
     Settings,

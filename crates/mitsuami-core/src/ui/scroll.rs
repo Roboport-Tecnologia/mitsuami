@@ -7,15 +7,16 @@ use crate::widget::{NodeId, RowKey, WidgetKind};
 use super::{Inner, Ui};
 
 impl Ui {
-    /// Current scroll offset of a `ScrollView` or `List`.
+    /// Current scroll offset of a `ScrollView`, `List` or `Table`.
     pub fn scroll_offset(&self, id: NodeId) -> Option<Point> {
         let inner = self.inner.borrow();
         let node = inner.nodes.get(&id)?;
         node.kind.scrolls().then_some(node.scroll_offset)
     }
 
-    /// Scrolls a `ScrollView` or `List`, clamping to its content (a list
-    /// clamps it itself: its content is the platform's).
+    /// Scrolls a `ScrollView`, `List` or `Table`. A scroll view's offset is
+    /// clamped to its content; a list's or table's isn't, since its rows
+    /// are the platform's: the backend clamps it.
     pub fn scroll_to(&self, id: NodeId, offset: Point) {
         {
             let mut inner = self.inner.borrow_mut();
@@ -30,7 +31,7 @@ impl Ui {
         self.changed();
     }
 
-    /// Scrolls every enclosing `ScrollView` and `List` just enough to show
+    /// Scrolls every enclosing `ScrollView`, `List` and `Table` just enough to show
     /// the node.
     pub fn scroll_into_view(&self, id: NodeId) {
         let mut target = id;
@@ -88,7 +89,7 @@ impl Ui {
         }
     }
 
-    /// Scrolls a `List` just enough to show a row, mounted or not. The
+    /// Scrolls a `List` or `Table` just enough to show a row, mounted or not. The
     /// platform scrolls and reports it.
     pub(crate) fn scroll_to_row(&self, id: NodeId, row: RowKey) {
         {

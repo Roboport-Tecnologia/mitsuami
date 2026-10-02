@@ -172,7 +172,7 @@ impl HeadlessBackend {
                 }
                 Command::ScrollTo { id, offset } => {
                     if !state.node(*id, command).kind.scrolls() {
-                        violation(command, "not a ScrollView or List");
+                        violation(command, "not a ScrollView, List or Table");
                     }
                     state.scroll(*id, *offset);
                 }

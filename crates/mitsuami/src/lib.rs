@@ -29,17 +29,24 @@
 //!
 //! The platform backend is chosen by target OS: AppKit on macOS, WinUI 3 on
 //! Windows, and on Linux GTK 4, or Qt Quick and Kirigami (KDE Plasma) with
-//! the `kde` feature.
+//! the `kde` feature. The [README](https://github.com/Roboport-Tecnologia/mitsuami#getting-started)
+//! lists what each platform needs; with `kde`, turn on `mitsuami-test`'s own
+//! `kde` feature too.
 //!
 //! Escape hatches, for when the shared widgets aren't enough:
 //! - [`platform!`] picks per-platform code (a whole screen, a detail) at
 //!   compile time, while stores and composables stay shared.
+//! - `.native(tweak(…))` sets something on the native widget directly, with
+//!   each backend's `tweak` (`appkit::tweak` on macOS, say).
 //! - `NativeView` embeds any native view in the shared tree
 //!   (`appkit::NativeView` on macOS, `gtk::NativeView` or
 //!   `kirigami::NativeView` on Linux, `winui::NativeView` on Windows).
 //! - Custom widgets: one [`CustomWidget`](core::CustomWidget) definition,
 //!   rendered natively per platform or drawn with the
 //!   [`Canvas`](core::Canvas) API.
+//! - [`GpuSurface`](prelude::GpuSurface) is a surface the app presents to
+//!   with its own GPU API (wgpu, Metal, Vulkan, Direct3D), from its own
+//!   thread.
 
 // On docs.rs, each backend module says which platform has it.
 #![cfg_attr(docsrs, feature(doc_cfg))]

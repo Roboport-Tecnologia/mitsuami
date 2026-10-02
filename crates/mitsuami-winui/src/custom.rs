@@ -65,7 +65,7 @@ impl WinUiCx {
     /// windows-rs unsubscribes when an `EventRevoker` is dropped.
     ///
     /// ```ignore
-    /// cx.keep(rating.ValueChanged(move |sender, _| { … })?);
+    /// cx.keep(rating.ValueChanged(move |sender, _| { /* … */ })?);
     /// ```
     pub fn keep(&mut self, revoker: EventRevoker) {
         self.revokers.push(revoker);
@@ -78,7 +78,7 @@ impl WinUiCx {
     /// It runs synchronously, so the backend's own prop updates are muted.
     ///
     /// ```ignore
-    /// cx.observe(&rating, &RatingControl::ValueProperty()?, move |rating| { … })?;
+    /// cx.observe(&rating, &RatingControl::ValueProperty()?, move |rating| { /* … */ })?;
     /// ```
     pub fn observe<E: Interface>(
         &mut self,
@@ -253,7 +253,7 @@ type Create<E> = Box<dyn FnOnce(&mut WinUiCx) -> R<E>>;
 /// NativeView::xaml(|cx| {
 ///     let slider = bindings::Slider::new()?;
 ///     let emitter = cx.emitter();
-///     cx.keep(slider.cast::<bindings::IRangeBase>()?.ValueChanged(move |sender, _| { … })?);
+///     cx.keep(slider.cast::<bindings::IRangeBase>()?.ValueChanged(move |sender, _| { /* … */ })?);
 ///     Ok(slider)
 /// })
 /// .update(value, |slider, value| slider.cast::<bindings::IRangeBase>()?.SetValue(*value))
