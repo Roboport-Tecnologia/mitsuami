@@ -30,41 +30,78 @@ Kirigami.ApplicationWindow {{
     property QtObject mitsuamiShownMenu: null
     // How many GPU surfaces are in the window (see `qml::gpu_surface`).
     property int mitsuamiSurfaces: 0
-    // The window's menus open from the menu button in Kirigami's page
-    // header, as a menu drawn in the window: under a GPU surface's
-    // subsurface. In a window with a surface the menu and its submenus are
-    // windows of their own, as a select's list is (see `qml::select`), set
-    // as the button is about to open it, and the submenus as it opens (they
-    // are made then). The button is Kirigami's private `HandleButton`,
-    // found by its `drawer`, which is this window's global drawer.
-    property var mitsuamiMenuButtons: []
-    property var mitsuamiTypedMenus: []
-    onMitsuamiSurfacesChanged: Qt.callLater(mitsuamiFindMenuButtons)
-    function mitsuamiFindMenuButtons() {{
-        if (!globalDrawer) return
-        const walk = item => {{
-            if (item.drawer === globalDrawer && item.menuAboutToShow !== undefined
-                    && !mitsuamiMenuButtons.includes(item)) {{
-                mitsuamiMenuButtons.push(item)
-                item.menuAboutToShow.connect(() => mitsuamiMenuType(item.menu))
-            }}
-            for (let i = 0; i < item.children.length; i++) walk(item.children[i])
-        }}
-        walk(contentItem.parent)
+    // The window's menus. Kirigami's desktop way is the global drawer as a
+    // menu, opened by the menu button in the page header and drawn in the
+    // window: under a GPU surface's subsurface. A window with a surface
+    // shows them in a classic menu bar instead, whose menus are windows of
+    // their own, above the surface, as a select's list is (see
+    // `qml::select`). As a window, the drawer's menu showed at the height
+    // of an empty menu about half the time: a popup window takes its size
+    // when it opens, and that menu makes its items only as it opens. The
+    // bar's menus have theirs from the start. They hold the drawer's own
+    // actions, so states and shortcuts stay the drawer's; the role items
+    // (Settings, About, Quit) end the first menu. The drawer stops being a
+    // menu meanwhile, and closed and disabled, so Kirigami hides its menu
+    // button (shown for a menu, or for an enabled drawer with its handle);
+    // the bindings give the drawer Kirigami's own rules back when the bar
+    // goes. mitsuami's drawers are always menus.
+    readonly property bool mitsuamiBarWanted:
+        mitsuamiSurfaces > 0 && !!globalDrawer
+    Binding {{
+        target: mitsuamiWindow.globalDrawer; property: "isMenu"; value: false
+        when: mitsuamiWindow.mitsuamiBarWanted; restoreMode: Binding.RestoreBindingOrValue
     }}
-    function mitsuamiMenuType(menu) {{
-        // `popupType` is Qt 6.8's: before it, the menu stays in the window
-        if (!menu || menu.popupType === undefined) return
-        menu.popupType = mitsuamiSurfaces > 0 ? QQC2.Popup.Window : QQC2.Popup.Item
-        if (mitsuamiTypedMenus.includes(menu)) return
-        mitsuamiTypedMenus.push(menu)
-        // `opened` is also a property, which hides the signal; the items
-        // are made as the menu turns visible, so they're typed after that
-        menu.visibleChanged.connect(() => {{
-            if (menu.visible) Qt.callLater(() => {{
-                for (let i = 0; i < menu.count; i++) mitsuamiMenuType(menu.menuAt(i))
-            }})
-        }})
+    Binding {{
+        target: mitsuamiWindow.globalDrawer; property: "enabled"; value: false
+        when: mitsuamiWindow.mitsuamiBarWanted; restoreMode: Binding.RestoreBindingOrValue
+    }}
+    Binding {{
+        target: mitsuamiWindow.globalDrawer; property: "handleVisible"; value: false
+        when: mitsuamiWindow.mitsuamiBarWanted; restoreMode: Binding.RestoreBindingOrValue
+    }}
+    onMitsuamiBarWantedChanged: mitsuamiApplyMenuBar()
+    onGlobalDrawerChanged: mitsuamiApplyMenuBar()
+    function mitsuamiApplyMenuBar() {{
+        const old = menuBar
+        menuBar = mitsuamiBarWanted ? mitsuamiMakeMenuBar(globalDrawer.actions) : null
+        if (old) old.destroy()
+    }}
+    function mitsuamiMakeMenuBar(actions) {{
+        const make = (qml, parent) => Qt.createQmlObject("import QtQuick.Controls as QQC2\n" + qml, parent)
+        const bar = make("QQC2.MenuBar {{ }}", mitsuamiWindow)
+        const menu = title => {{
+            const m = make("QQC2.Menu {{ }}", bar)
+            m.title = title
+            // `popupType` is Qt 6.8's: before it, the menus are in the window
+            if (m.popupType !== undefined) m.popupType = QQC2.Popup.Window
+            return m
+        }}
+        const fill = (into, list) => {{
+            for (let i = 0; i < list.length; i++) {{
+                const action = list[i]
+                if (action.separator) into.addItem(make("QQC2.MenuSeparator {{ }}", into))
+                else if (action.children && action.children.length > 0) {{
+                    const sub = menu(action.text)
+                    fill(sub, action.children)
+                    into.addMenu(sub)
+                }} else into.addAction(action)
+            }}
+        }}
+        const roles = []
+        for (let i = 0; i < actions.length; i++) {{
+            const action = actions[i]
+            if (action.children && action.children.length > 0) {{
+                const top = menu(action.text)
+                fill(top, action.children)
+                bar.addMenu(top)
+            }} else roles.push(action)
+        }}
+        if (roles.length > 0 && bar.count > 0) {{
+            const first = bar.menuAt(0)
+            first.addItem(make("QQC2.MenuSeparator {{ }}", first))
+            fill(first, roles)
+        }}
+        return bar
     }}
     Shortcut {{
         sequences: [StandardKey.Cancel]
@@ -108,7 +145,13 @@ Kirigami.ApplicationWindow {{
         mitsuamiSidebar = null
     }}
     {drawer}
+    // With the menu bar and no toolbar items, Kirigami's toolbar would show
+    // only the window's title again, under the bar: it goes, as a KDE app
+    // with a menu bar has no such row.
+    pageStack.globalToolBar.style: mitsuamiBarWanted && mitsuamiContentPage.actions.length === 0
+        ? Kirigami.ApplicationHeaderStyle.None : Kirigami.ApplicationHeaderStyle.Auto
     pageStack.initialPage: Kirigami.Page {{
+        id: mitsuamiContentPage
         objectName: "mitsuamiPage"
         padding: 0
         // Toolbar items are actions of the page, which Kirigami's toolbar
