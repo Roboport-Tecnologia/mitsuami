@@ -1,0 +1,17 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<!-- What macOS says when Files first opens a protected folder. -->
+<dict>
+  <key>NSDesktopFolderUsageDescription</key>
+  <string>Files shows and changes the files on your desktop.</string>
+  <key>NSDocumentsFolderUsageDescription</key>
+  <string>Files shows and changes the files in your Documents folder.</string>
+  <key>NSDownloadsFolderUsageDescription</key>
+  <string>Files shows and changes the files in your Downloads folder.</string>
+  <key>NSRemovableVolumesUsageDescription</key>
+  <string>Files shows and changes the files on removable drives.</string>
+  <key>NSNetworkVolumesUsageDescription</key>
+  <string>Files shows and changes the files on network drives.</string>
+</dict>
+</plist>

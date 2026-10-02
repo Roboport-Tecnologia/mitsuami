@@ -51,11 +51,12 @@ jobs:
         env:
           CARGO_REGISTRY_TOKEN: ${{ secrets.CARGO_REGISTRY_TOKEN }}
 
-  # The showcase, every example in one window, for each platform. A crate
-  # of its own, outside the workspace (it has the GPU surface example,
-  # which needs wgpu), so it builds with `--manifest-path`.
-  showcase:
-    name: Build the showcase (${{ matrix.name }})
+  # The showcase, every example in one window, and the Files example, for
+  # macOS and Windows. The showcase is a crate of its own, outside the
+  # workspace (it has the GPU surface example, which needs wgpu), so it
+  # builds with `--manifest-path`.
+  apps:
+    name: Build the apps (${{ matrix.name }})
     needs: test
     strategy:
       matrix:
@@ -67,44 +68,51 @@ jobs:
       run:
         shell: bash
     env:
-      ARCHIVE: mitsuami-showcase-${{ github.ref_name }}-${{ matrix.name }}
-      MANIFEST: examples/showcase/Cargo.toml
-      BUILT: examples/showcase/target
+      SUFFIX: ${{ github.ref_name }}-${{ matrix.name }}
+      SHOWCASE: examples/showcase/Cargo.toml
+      # The backend's floor (README), for the Intel half too.
+      MACOSX_DEPLOYMENT_TARGET: "11.0"
     steps:
       - uses: actions/checkout@v5
 
       - name: Install the toolchain from rust-toolchain.toml
         run: rustup toolchain install
 
-      - name: Build
-        if: runner.os == 'Windows'
-        run: cargo build --release --manifest-path "$MANIFEST"
-
-      # One binary for Apple silicon and Intel Macs.
+      # One binary for Apple silicon and Intel Macs, in an app bundle.
       - name: Build and package (macOS)
         if: runner.os == 'macOS'
         run: |
           rustup target add aarch64-apple-darwin x86_64-apple-darwin
           for t in aarch64-apple-darwin x86_64-apple-darwin; do
-            cargo build --release --manifest-path "$MANIFEST" --target "$t"
+            cargo build --release --manifest-path "$SHOWCASE" --target "$t"
+            cargo build --release -p mitsuami --example files --target "$t"
           done
-          mkdir "$ARCHIVE"
-          lipo -create -output "$ARCHIVE/showcase" \
-            "$BUILT/aarch64-apple-darwin/release/showcase" \
-            "$BUILT/x86_64-apple-darwin/release/showcase"
-          tar -czf "$ARCHIVE.tar.gz" "$ARCHIVE"
+          mkdir universal
+          lipo -create -output universal/showcase examples/showcase/target/{aarch64,x86_64}-apple-darwin/release/showcase
+          lipo -create -output universal/files target/{aarch64,x86_64}-apple-darwin/release/examples/files
+          .github/scripts/macos-app.sh universal/showcase br.com.roboport.mitsuami.Showcase \
+            "${GITHUB_REF_NAME#v}" "mitsuami-showcase-$SUFFIX.zip"
+          .github/scripts/macos-app.sh universal/files br.com.roboport.mitsuami.Files \
+            "${GITHUB_REF_NAME#v}" "mitsuami-files-$SUFFIX.zip"
 
-      - name: Package (Windows)
+      - name: Build and package (Windows)
         if: runner.os == 'Windows'
         run: |
-          mkdir "$ARCHIVE"
-          cp "$BUILT/release/showcase.exe" "$ARCHIVE/"
-          7z a "$ARCHIVE.zip" "$ARCHIVE"
+          cargo build --release --manifest-path "$SHOWCASE"
+          cargo build --release -p mitsuami --example files
+          for app in showcase files; do
+            mkdir "mitsuami-$app-$SUFFIX"
+          done
+          cp examples/showcase/target/release/showcase.exe "mitsuami-showcase-$SUFFIX/"
+          cp target/release/examples/files.exe "mitsuami-files-$SUFFIX/"
+          for app in showcase files; do
+            7z a "mitsuami-$app-$SUFFIX.zip" "mitsuami-$app-$SUFFIX"
+          done
 
       - uses: actions/upload-artifact@v5
         with:
-          name: ${{ env.ARCHIVE }}
-          path: ${{ env.ARCHIVE }}.*
+          name: apps-${{ matrix.name }}
+          path: "*.zip"
 
   # The showcase and the Files example as AppImages, on GTK and on Qt
   # Quick and Kirigami (the `kde` feature, without GTK). An AppImage
@@ -176,7 +184,7 @@ jobs:
 
   release:
     name: Create the GitHub release
-    needs: [publish, showcase, appimage]
+    needs: [publish, apps, appimage]
     runs-on: ubuntu-24.04
     permissions:
       contents: write
@@ -189,17 +197,13 @@ jobs:
       - name: Create the release
         run: |
           cat > notes.md <<'EOF'
-          ## The showcase
+          ## The showcase and Files
 
-          Every example in one window, picked from its sidebar, built for each platform:
+          The showcase is every example in one window, picked from its sidebar. Files is a file browser on the real file system. Both are built for each platform:
 
+          - **macOS** (Apple silicon and Intel, macOS 11 or later): app bundles, signed ad hoc and not notarized. After unzipping, open the app once from Finder with Control-click → Open, or allow it in System Settings → Privacy & Security; or run `xattr -dr com.apple.quarantine <app>`.
           - **Windows** (x86_64): needs the [Windows App Runtime 2.4 or later](https://aka.ms/windowsappsdk/2.5/latest/windowsappruntimeinstall-x64.exe).
-          - **macOS** (Apple silicon and Intel): the binary isn't signed. Run `xattr -dr com.apple.quarantine <folder>` after extracting, or allow it in System Settings → Privacy & Security.
-          - **Linux** (x86_64): AppImages, on GTK (`-gtk`) and on Qt Quick and Kirigami, as KDE Plasma's apps are (`-kde`). They bring their toolkit: the GTK one needs glibc 2.39 or later (Ubuntu 24.04 and newer), the KDE one glibc 2.41 or later (Debian 13, Fedora 42, Ubuntu 25.04 and newer). Make one executable (`chmod +x`) and run it.
-
-          ## The Files example
-
-          A file browser on the real file system, as AppImages for Linux like the showcase's (`mitsuami-files-…`).
+          - **Linux** (x86_64): AppImages, on GTK (`-gtk`) and on Qt Quick and Kirigami, as KDE Plasma's apps are (`-kde`). They bring their toolkit: the GTK ones need glibc 2.39 or later (Ubuntu 24.04 and newer), the KDE ones glibc 2.41 or later (Debian 13, Fedora 42, Ubuntu 25.04 and newer). Make one executable (`chmod +x`) and run it.
           EOF
           gh release create "$GITHUB_REF_NAME" dist/* --repo "$GITHUB_REPOSITORY" \
             --title "$GITHUB_REF_NAME" --notes-file notes.md --generate-notes

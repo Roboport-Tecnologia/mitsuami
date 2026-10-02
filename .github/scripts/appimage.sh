@@ -3,7 +3,7 @@
 #
 #   appimage.sh <gtk|kde> <binary> <app id> <output.AppImage>
 #
-# The desktop entry and icon are `.github/appimage/<app id>.{desktop,svg}`,
+# The desktop entry and icon are `.github/apps/<app id>.{desktop,svg}`,
 # named after the app's id, as GTK and KDE find an app's icon by it.
 # linuxdeploy bundles what the binary links, and its GTK or Qt plugin what
 # the toolkit loads at run time; glibc and the GPU drivers stay the host's,
@@ -40,8 +40,8 @@ fetch linuxdeploy-x86_64.AppImage \
 
 name=$(basename "$binary")
 install -Dm755 "$binary" "$appdir/usr/bin/$name"
-install -Dm644 "$here/appimage/$id.desktop" "$appdir/usr/share/applications/$id.desktop"
-install -Dm644 "$here/appimage/$id.svg" "$appdir/usr/share/icons/hicolor/scalable/apps/$id.svg"
+install -Dm644 "$here/apps/$id.desktop" "$appdir/usr/share/applications/$id.desktop"
+install -Dm644 "$here/apps/$id.svg" "$appdir/usr/share/icons/hicolor/scalable/apps/$id.svg"
 
 case "$toolkit" in
   gtk)
