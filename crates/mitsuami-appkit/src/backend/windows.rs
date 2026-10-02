@@ -4,7 +4,7 @@ use block2::RcBlock;
 use mitsuami_core::{Modality, NodeId, Size};
 use objc2::rc::Retained;
 use objc2_app_kit::{NSApplication, NSEvent, NSEventModifierFlags, NSEventType, NSWindow, NSWindowStyleMask};
-use objc2_core_foundation::{CFRunLoop, kCFRunLoopDefaultMode};
+use objc2_core_foundation::{CFRunLoop, kCFRunLoopCommonModes};
 use objc2_foundation::{NSPoint, NSSize};
 
 use super::{AppKitHandle, Widget};
@@ -64,7 +64,10 @@ impl AppKitHandle {
     /// Runs the app's modal loop for the window, once the current run-loop
     /// turn is over: it's a nested loop, which mustn't start inside a
     /// tick. The UI keeps ticking in it (the app's observer runs in the
-    /// modal panel mode too). It ends when the window is destroyed.
+    /// modal panel mode too). It ends when the window is destroyed. Queued
+    /// in the common modes: a dialog opened from an app-modal window is
+    /// asked for inside that window's loop, in the modal panel mode, where
+    /// a default-mode block waits until the outer loop ends.
     fn run_modal(&self, id: NodeId, window: Retained<NSWindow>) {
         let state = self.state.clone();
         let block = RcBlock::new(move || {
@@ -76,7 +79,7 @@ impl AppKitHandle {
             NSApplication::sharedApplication(mtm).runModalForWindow(&window);
         });
         if let Some(run_loop) = CFRunLoop::main() {
-            unsafe { run_loop.perform_block(Some(kCFRunLoopDefaultMode.unwrap()), Some(&block)) };
+            unsafe { run_loop.perform_block(kCFRunLoopCommonModes.map(|m| &**m), Some(&block)) };
             run_loop.wake_up();
         }
     }
