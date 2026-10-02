@@ -7,6 +7,7 @@ rust-version.workspace = true
 license.workspace = true
 authors.workspace = true
 repository.workspace = true
+readme = "../../README.md"
 # The Files example's Store package: its manifest and logos, for
 # scripts/package-msix.ps1. Nothing builds with them.
 exclude = ["examples/files/msix"]
@@ -268,3 +269,9 @@ workspace = true
 [[test]]
 name = "l10n"
 harness = false
+
+# docs.rs documents Linux alone unless told otherwise: each platform's
+# backend module shows on its own target.
+[package.metadata.docs.rs]
+targets = ["x86_64-unknown-linux-gnu", "aarch64-apple-darwin", "x86_64-pc-windows-msvc"]
+rustdoc-args = ["--cfg", "docsrs"]

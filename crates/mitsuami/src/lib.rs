@@ -41,6 +41,9 @@
 //!   rendered natively per platform or drawn with the
 //!   [`Canvas`](core::Canvas) API.
 
+// On docs.rs, each backend module says which platform has it.
+#![cfg_attr(docsrs, feature(doc_cfg))]
+
 mod app;
 mod platforms;
 

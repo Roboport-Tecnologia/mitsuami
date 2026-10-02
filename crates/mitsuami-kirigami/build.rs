@@ -14,7 +14,9 @@ fn main() {
     let linux = std::env::var("CARGO_CFG_TARGET_OS").is_ok_and(|os| os == "linux");
     // `MITSUAMI_SKIP_QT=1`: no C++ layer, for type-checking (`cargo check`,
     // `clippy`) where Qt isn't installed, e.g. from macOS. Doesn't link.
-    if !linux || std::env::var_os("CARGO_FEATURE_QT").is_none() || std::env::var_os("MITSUAMI_SKIP_QT").is_some() {
+    // docs.rs (`DOCS_RS`) has no Qt either, and documenting doesn't link.
+    let skip = ["MITSUAMI_SKIP_QT", "DOCS_RS"].iter().any(|var| std::env::var_os(var).is_some());
+    if !linux || std::env::var_os("CARGO_FEATURE_QT").is_none() || skip {
         return;
     }
     let out = PathBuf::from(std::env::var("OUT_DIR").unwrap());

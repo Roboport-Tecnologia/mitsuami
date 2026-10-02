@@ -32,3 +32,8 @@ required-features = ["qt"]
 
 [lints]
 workspace = true
+
+# Without `qt` the crate is empty. docs.rs has no Qt: the build script
+# skips the C++ layer there.
+[package.metadata.docs.rs]
+features = ["qt"]

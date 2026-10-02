@@ -32,3 +32,7 @@ harness = false
 
 [lints]
 workspace = true
+
+# Everything is macOS's: docs.rs's default Linux build would be empty.
+[package.metadata.docs.rs]
+default-target = "aarch64-apple-darwin"
