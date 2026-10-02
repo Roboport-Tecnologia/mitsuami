@@ -197,6 +197,8 @@ jobs:
       - name: Create the release
         run: |
           cat > notes.md <<'EOF'
+          [mitsuami.roboport.com.br](https://mitsuami.roboport.com.br)
+
           ## The showcase and Files
 
           The showcase is every example in one window, picked from its sidebar. Files is a file browser on the real file system. Both are built for each platform:

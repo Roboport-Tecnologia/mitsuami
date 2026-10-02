@@ -7,6 +7,7 @@ rust-version.workspace = true
 license.workspace = true
 authors.workspace = true
 repository.workspace = true
+homepage.workspace = true
 readme = "../../README.md"
 # The Files example's Store package: its manifest and logos, for
 # scripts/package-msix.ps1. Nothing builds with them.

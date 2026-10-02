@@ -1,6 +1,7 @@
 //! mitsuami: native widgets on macOS (AppKit), Windows (WinUI 3) and Linux
 //! (GTK 4, or Qt Quick and Kirigami for KDE Plasma), driven by one
-//! declarative, Vue-inspired layer.
+//! declarative, Vue-inspired layer. More at
+//! [mitsuami.roboport.com.br](https://mitsuami.roboport.com.br).
 //!
 //! ```ignore
 //! use mitsuami::prelude::*;

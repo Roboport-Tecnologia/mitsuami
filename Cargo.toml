@@ -9,6 +9,7 @@ rust-version = "1.95"
 license = "MIT OR Apache-2.0"
 authors = ["David Rios <david.rios.gomes@gmail.com>"]
 repository = "https://github.com/Roboport-Tecnologia/mitsuami"
+homepage = "https://mitsuami.roboport.com.br"
 
 [workspace.dependencies]
 mitsuami = { path = "crates/mitsuami", version = "=1.0.0" }

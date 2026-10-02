@@ -7,6 +7,7 @@ rust-version.workspace = true
 license.workspace = true
 authors.workspace = true
 repository.workspace = true
+homepage.workspace = true
 # The bindings generator and its NuGet cache stay out of the package.
 exclude = ["bindgen"]
 
