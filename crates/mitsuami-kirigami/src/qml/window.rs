@@ -41,29 +41,37 @@ Kirigami.ApplicationWindow {{
     // bar's menus have theirs from the start. They hold the drawer's own
     // actions, so states and shortcuts stay the drawer's; the role items
     // (Settings, About, Quit) end the first menu. The drawer stops being a
-    // menu meanwhile, and closed and disabled, so Kirigami hides its menu
-    // button (shown for a menu, or for an enabled drawer with its handle);
-    // the bindings give the drawer Kirigami's own rules back when the bar
-    // goes. mitsuami's drawers are always menus.
-    readonly property bool mitsuamiBarWanted:
-        mitsuamiSurfaces > 0 && !!globalDrawer
+    // menu, and closed and disabled, so Kirigami hides its menu button
+    // (shown for a menu, or for an enabled drawer with its handle). A window
+    // keeps the bar once it has had a surface: giving the drawer back its
+    // rules as the window closed (its surface counted out first) looped a
+    // binding in Kirigami's button, and a window's menus don't change style
+    // while it's open.
+    property bool mitsuamiBarWanted: false
+    onMitsuamiSurfacesChanged: if (mitsuamiSurfaces > 0) mitsuamiBarWanted = true
     Binding {{
         target: mitsuamiWindow.globalDrawer; property: "isMenu"; value: false
-        when: mitsuamiWindow.mitsuamiBarWanted; restoreMode: Binding.RestoreBindingOrValue
+        when: mitsuamiWindow.mitsuamiBarWanted; restoreMode: Binding.RestoreNone
     }}
     Binding {{
         target: mitsuamiWindow.globalDrawer; property: "enabled"; value: false
-        when: mitsuamiWindow.mitsuamiBarWanted; restoreMode: Binding.RestoreBindingOrValue
+        when: mitsuamiWindow.mitsuamiBarWanted; restoreMode: Binding.RestoreNone
+    }}
+    // Kirigami's own Quit (Ctrl+Q closes the window) would take the bar's
+    // Quit shortcut from the app's.
+    Binding {{
+        target: mitsuamiWindow.quitAction; property: "enabled"; value: false
+        when: mitsuamiWindow.mitsuamiBarWanted; restoreMode: Binding.RestoreNone
     }}
     Binding {{
         target: mitsuamiWindow.globalDrawer; property: "handleVisible"; value: false
-        when: mitsuamiWindow.mitsuamiBarWanted; restoreMode: Binding.RestoreBindingOrValue
+        when: mitsuamiWindow.mitsuamiBarWanted; restoreMode: Binding.RestoreNone
     }}
     onMitsuamiBarWantedChanged: mitsuamiApplyMenuBar()
     onGlobalDrawerChanged: mitsuamiApplyMenuBar()
     function mitsuamiApplyMenuBar() {{
         const old = menuBar
-        menuBar = mitsuamiBarWanted ? mitsuamiMakeMenuBar(globalDrawer.actions) : null
+        menuBar = mitsuamiBarWanted && globalDrawer ? mitsuamiMakeMenuBar(globalDrawer.actions) : null
         if (old) old.destroy()
     }}
     function mitsuamiMakeMenuBar(actions) {{
@@ -76,6 +84,7 @@ Kirigami.ApplicationWindow {{
             if (m.popupType !== undefined) m.popupType = QQC2.Popup.Window
             return m
         }}
+        const keyed = []
         const fill = (into, list) => {{
             for (let i = 0; i < list.length; i++) {{
                 const action = list[i]
@@ -84,7 +93,10 @@ Kirigami.ApplicationWindow {{
                     const sub = menu(action.text)
                     fill(sub, action.children)
                     into.addMenu(sub)
-                }} else into.addAction(action)
+                }} else {{
+                    into.addAction(action)
+                    if (action.shortcut) keyed.push(action)
+                }}
             }}
         }}
         const roles = []
@@ -100,6 +112,17 @@ Kirigami.ApplicationWindow {{
             const first = bar.menuAt(0)
             first.addItem(make("QQC2.MenuSeparator {{ }}", first))
             fill(first, roles)
+        }}
+        // An action's shortcut follows the items that show it, here items
+        // of the menus' own windows, which aren't the window with focus
+        // while the menus are closed: Qt left Ctrl+Q to close the window
+        // instead of running Quit. So the window has a shortcut of its own
+        // for each, while the action's work in an open menu.
+        for (const action of keyed) {{
+            const shortcut = Qt.createQmlObject("import QtQuick\nShortcut {{ }}", bar)
+            shortcut.sequence = action.shortcut
+            shortcut.enabled = Qt.binding(() => action.enabled)
+            shortcut.activated.connect(() => action.trigger())
         }}
         return bar
     }}
