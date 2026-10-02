@@ -16,8 +16,9 @@ use mitsuami_core::{EventValue, NodeId, SidebarItemData, SidebarSectionData, UiE
 
 use crate::host::{Events, Host};
 
-/// A window narrower than this collapses its split view, as libadwaita's
-/// own sidebar example does.
+/// A window narrower than this (in units of the text size) collapses its
+/// split view, as libadwaita's own sidebar example does.
+const COLLAPSE_WIDTH: f64 = 400.0;
 const COLLAPSE: &str = "max-width: 400sp";
 
 /// What the list shows, shared by the backend and its signal handlers.
@@ -160,23 +161,40 @@ impl Sidebar {
         }
     }
 
-    /// New items: the list is filled again, keeping the selected item,
-    /// which the core sends again if it moved.
+    /// New items: rows already there show them in place, and the list
+    /// gains or loses rows at its end, keeping the selected item, which
+    /// the core sends again if it moved. A row that stays keeps the focus
+    /// it has (a new title is a new label): GTK moves focus out of a row
+    /// it removes only at the next frame, and from the start of the window.
     pub(crate) fn set_sections(&self, sections: Vec<SidebarSectionData>) {
-        while let Some(child) = self.list.first_child() {
-            self.list.remove(&child);
-        }
-        let (rows, selected) = {
+        let (rows, added, removed, selected) = {
             let mut data = self.data.borrow_mut();
             data.items = sections.iter().flat_map(|s| s.items.iter().cloned()).collect();
             data.sections = sections;
-            data.rows = data.items.iter().map(row).collect();
-            (data.rows.clone(), data.selected.filter(|i| *i < data.items.len()))
+            let kept = data.rows.len().min(data.items.len());
+            let removed = data.rows.split_off(kept);
+            for (row, item) in data.rows.iter().zip(&data.items) {
+                show_item(row, item);
+            }
+            let added: Vec<gtk::ListBoxRow> = data.items[kept..].iter().map(row).collect();
+            data.rows.extend(added.iter().cloned());
+            (data.rows.clone(), added, removed, data.selected.filter(|i| *i < data.items.len()))
         };
+        // Focus in a row that goes moves to the last that stays.
+        let focus = self.list.root().and_then(|r| r.focus());
+        if let (Some(focus), Some(last)) = (focus, rows.last())
+            && removed.iter().any(|r| focus == *r || focus.is_ancestor(r))
+        {
+            last.grab_focus();
+        }
+        for row in &removed {
+            self.list.remove(row);
+        }
         // Appending runs the header function, which reads the data.
-        for row in &rows {
+        for row in &added {
             self.list.append(row);
         }
+        self.list.invalidate_headers();
         self.set_selected(selected);
         self.data.borrow().title_content();
     }
@@ -217,8 +235,15 @@ impl Sidebar {
     }
 }
 
-/// A row: the item's icon and title.
+/// A row showing an item.
 fn row(item: &SidebarItemData) -> gtk::ListBoxRow {
+    let row = gtk::ListBoxRow::new();
+    show_item(&row, item);
+    row
+}
+
+/// Shows the item's icon and title in a row.
+fn show_item(row: &gtk::ListBoxRow, item: &SidebarItemData) {
     let content = gtk::Box::new(gtk::Orientation::Horizontal, 12);
     if let Some(icon) = &item.icon {
         content.append(&gtk::Image::from_icon_name(icon));
@@ -227,9 +252,7 @@ fn row(item: &SidebarItemData) -> gtk::ListBoxRow {
     label.set_xalign(0.0);
     label.set_ellipsize(gtk::pango::EllipsizeMode::End);
     content.append(&label);
-    let row = gtk::ListBoxRow::new();
     row.set_child(Some(&content));
-    row
 }
 
 /// Titles a page and shows the title in its header bar. libadwaita wants
@@ -365,14 +388,18 @@ impl Split {
     /// How much wider the window is than its content: by the sidebar, whose
     /// width is a fraction of the window's, within limits (libadwaita's
     /// defaults: a quarter, 180 to 280), unless the window is so narrow the
-    /// split collapses. Its units are taken as points, at the default text
-    /// size.
+    /// split collapses. The limits are in units of the text size, which
+    /// libadwaita converts with the display's `gtk-xft-dpi`: a display
+    /// without one (Broadway, an X server without a settings daemon) makes
+    /// them 0, and the sidebar is as narrow as its own minimum.
     pub(crate) fn extra_width(&self, content: f32) -> f32 {
-        let (min, max, fraction) = (
-            self.view.min_sidebar_width() as f32,
-            self.view.max_sidebar_width() as f32,
-            self.view.sidebar_width_fraction() as f32,
-        );
+        let settings = Some(self.view.settings());
+        let unit = self.view.sidebar_width_unit();
+        let to_px = |length: f64| unit.to_px(length, settings.as_ref()).ceil() as f32;
+        let own = self.sidebar_page.measure(gtk::Orientation::Horizontal, -1).0 as f32;
+        let min = own.max(to_px(self.view.min_sidebar_width()));
+        let max = min.max(to_px(self.view.max_sidebar_width()));
+        let fraction = self.view.sidebar_width_fraction() as f32;
         let width = if fraction * (content + min) <= min {
             min
         } else if fraction * (content + max) >= max {
@@ -380,7 +407,8 @@ impl Split {
         } else {
             fraction * content / (1.0 - fraction)
         };
-        let collapsed = content + width <= 400.0;
+        let collapse = adw::LengthUnit::Sp.to_px(COLLAPSE_WIDTH, settings.as_ref()) as f32;
+        let collapsed = content + width <= collapse;
         if collapsed { 0.0 } else { width }
     }
 }

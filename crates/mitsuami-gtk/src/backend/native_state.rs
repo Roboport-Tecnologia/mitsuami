@@ -281,13 +281,17 @@ impl GtkBackend {
                 }
             }
             // A sidebar is its page, beside the content (at negative x); in
-            // a collapsed split view, one of the two isn't shown.
+            // a collapsed split view, one of the two isn't shown. A page
+            // not allocated yet (a sidebar the window just took) isn't
+            // either, as the core has it: it would be placed, but empty.
             (_, Some(Widget::Window(WindowParts { host, split: Some(split), .. })))
                 if node.kind == WidgetKind::Sidebar =>
             {
                 let page = split.sidebar_page();
                 match page.compute_bounds(host) {
-                    Some(b) if page.is_mapped() && host.is_mapped() => Rect::new(b.x(), b.y(), b.width(), b.height()),
+                    Some(b) if page.is_mapped() && host.is_mapped() && b.width() > 0.0 && b.height() > 0.0 => {
+                        Rect::new(b.x(), b.y(), b.width(), b.height())
+                    }
                     _ => Rect::ZERO,
                 }
             }

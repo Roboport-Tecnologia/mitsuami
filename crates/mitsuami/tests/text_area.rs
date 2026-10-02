@@ -234,6 +234,7 @@ async fn is_as_tall_as_its_lines(app: TestApp) {
             TextInput::new().a11y_label("Field"),
             TextArea::new().a11y_label("One").lines(1),
             TextArea::new().a11y_label("Three"),
+            TextArea::new().a11y_label("Four").lines(4),
             TextArea::new().a11y_label("Six").lines(6),
         ))
     });
@@ -241,9 +242,12 @@ async fn is_as_tall_as_its_lines(app: TestApp) {
     let (field, one, three, six) = (height("Field"), height("One"), height("Three"), height("Six"));
     assert!(one > 0.0 && one < three && three < six, "{one} {three} {six}");
     assert!(three > field, "three lines ({three}) are no taller than a text field ({field})");
-    // Each line adds the same height.
+    // Each line adds the same height. Not counted from one line: a GTK
+    // scrolled window is at least as tall as its scroll bar (62 points
+    // with Adwaita, a line of text being 17), so one line is that tall.
     let line = (six - three) / 3.0;
-    assert!(((three - one) / 2.0 - line).abs() <= 1.0, "{one} {three} {six}");
+    let four = height("Four");
+    assert!((four - three - line).abs() <= 1.0, "{three} {four} {six}");
 }
 
 /// Its text doesn't count: with text or without, and as its lines

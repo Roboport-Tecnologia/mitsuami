@@ -3,6 +3,7 @@
 
 use std::cell::{Cell, RefCell};
 use std::rc::Rc;
+use std::time::Duration;
 
 use gtk::prelude::*;
 use gtk::{gdk, glib};
@@ -11,7 +12,7 @@ use mitsuami_core::{NodeId, Prop, Size, UiEvent};
 
 use crate::host::{Host, WindowRoot};
 
-use super::{GtkBackend, State, WindowParts, owning_node};
+use super::{GtkBackend, State, WindowParts, owning_node, pump_until};
 
 impl WindowParts {
     /// How much larger the window is than its content: by the header bar,
@@ -118,13 +119,30 @@ pub(super) struct Maximized {
     wanted: Rc<Cell<bool>>,
     /// Asked for, and not in effect yet.
     pending: Rc<Cell<bool>>,
+    /// The content's size when the app changed a shown window's state:
+    /// GTK lays the window out at its new size at a later frame (Broadway
+    /// resizes it at once, a compositor when it configures it), which
+    /// settles wait for.
+    from: Rc<Cell<Option<(i32, i32)>>>,
 }
 
 impl Maximized {
-    pub(super) fn set(&self, window: &gtk::Window, on: bool) {
+    pub(super) fn set(&self, window: &gtk::Window, host: &Host, on: bool) {
         self.wanted.set(on);
         self.pending.set(window.is_maximized() != on);
+        if window.is_mapped() && window.is_maximized() != on {
+            self.from.set(Some((WidgetExt::width(host), WidgetExt::height(host))));
+        }
         if on { window.maximize() } else { window.unmaximize() }
+    }
+
+    /// Waits for the content to leave the size it had when the app last
+    /// changed the state, no longer than a user's resize is waited for: a
+    /// platform may keep the size (a window as large as the screen).
+    pub(super) fn wait_for_size(&self, host: &Host) {
+        if let Some(from) = self.from.take() {
+            pump_until(Duration::from_secs(2), || (WidgetExt::width(host), WidgetExt::height(host)) != from);
+        }
     }
 
     /// What the window shows, or while a request is pending (or it isn't

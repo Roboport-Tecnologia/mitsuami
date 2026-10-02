@@ -21,7 +21,7 @@ use super::text::{
     COLOR_CLASSES, TEXT_STYLE_CLASSES, buffer_text, color_class, pango_weight, replace_attrs, set_icon_color,
     text_style_class,
 };
-use super::window::{escape_closes, prop_owner};
+use super::window::{escape_closes, prop_owner, resize};
 use super::{State, Widget, violation};
 
 impl State {
@@ -70,6 +70,18 @@ impl State {
             (Prop::MinSize(min), Widget::Window(parts)) => {
                 parts.min_size.app.set(Some(*min));
                 parts.min_size.apply(&parts.window, &parts.host);
+                // A shown window grows to its new minimum when GTK next
+                // sizes it, which Broadway (before GTK 4.16) does only when
+                // it's presented: it's resized to it, as the app would.
+                let grown = parts.host.window_root().and_then(|r| r.resizing.get());
+                if let Some(size) = grown
+                    && parts.window.is_mapped()
+                    && !parts.window.is_maximized()
+                    && !parts.full_screen.in_effect(&parts.window)
+                {
+                    let (width, height) = parts.extra(size);
+                    resize(&parts.window, size.width as i32 + width, size.height as i32 + height);
+                }
             }
             // GTK 4 can't hold one side of a window: the content sets its
             // size, which the user can't change, as GNOME's dialogs that
@@ -82,7 +94,7 @@ impl State {
                 parts.resizable = *on;
                 parts.window.set_resizable(parts.resizable && !parts.height_locked);
             }
-            (Prop::Maximized(on), Widget::Window(parts)) => parts.maximized.set(&parts.window, *on),
+            (Prop::Maximized(on), Widget::Window(parts)) => parts.maximized.set(&parts.window, &parts.host, *on),
             (Prop::Text(t), Widget::Label(l)) => l.set_text(t),
             (Prop::Selectable(on), Widget::Label(l)) => l.set_selectable(*on),
             // GTK limits the lines of wrapping labels that ellipsize.

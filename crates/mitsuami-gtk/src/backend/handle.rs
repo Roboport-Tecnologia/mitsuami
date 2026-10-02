@@ -97,6 +97,19 @@ impl GtkHandle {
     /// frame; a platform that gives another size is waited for no longer
     /// than a user's resize is.
     fn wait_for_resizes(&self) {
+        let maximized: Vec<_> = self
+            .state
+            .borrow()
+            .nodes
+            .values()
+            .filter_map(|n| match &n.widget {
+                Widget::Window(parts) => Some((parts.maximized.clone(), parts.host.clone())),
+                _ => None,
+            })
+            .collect();
+        for (maximized, host) in maximized {
+            maximized.wait_for_size(&host);
+        }
         let ids: Vec<NodeId> = self.windows().into_iter().map(|(id, _)| id).collect();
         for (window, host, _) in ids.into_iter().filter_map(|id| self.window_parts(id)) {
             let Some(root) = host.window_root() else { continue };
