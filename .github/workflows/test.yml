@@ -96,18 +96,19 @@ jobs:
   # one day of the Arch Linux Archive, so native rendering only changes when
   # we move that date (in the image, the mirror and MITSUAMI_IMAGE, together:
   # the baselines live under tests/{snapshots,visual}/kirigami/<image>/).
-  # GTK 4 is there too: the test kit depends on it on Linux.
+  # GTK 4 and libadwaita are there too: the test kit depends on the GTK
+  # backend on Linux.
   kde:
     name: Test (KDE Plasma)
     if: ${{ !inputs.headless_only }}
     runs-on: ubuntu-24.04
     container: archlinux:base-devel-20260920.0.596911
     steps:
-      - name: Install Qt, Kirigami, Breeze and GTK 4
+      - name: Install Qt, Kirigami, Breeze, GTK 4 and libadwaita
         run: |
           echo 'Server = https://archive.archlinux.org/repos/2026/09/20/$repo/os/$arch' > /etc/pacman.d/mirrorlist
           pacman -Syu --noconfirm --needed git rustup qt6-declarative kirigami qqc2-desktop-style \
-            breeze breeze-icons noto-fonts gtk4
+            breeze breeze-icons noto-fonts gtk4 libadwaita
 
       - uses: actions/checkout@v5
 
