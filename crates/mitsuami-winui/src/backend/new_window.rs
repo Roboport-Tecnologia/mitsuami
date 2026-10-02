@@ -13,7 +13,8 @@ use super::fields::text_area_probe;
 use super::focus::{report_focus, resolve, restore_focus, tab};
 use super::menus::refresh_menu;
 use super::windows::{
-    WINDOW_ROOT, clip_to_size, correct_client, in_full_screen, is_maximized, report_size, set_transparent,
+    WINDOW_ROOT, clip_to_size, correct_caption_room, correct_client, in_full_screen, is_maximized, report_size,
+    set_transparent,
 };
 use super::{MenuItems, R, State, Widget, WindowIcon, WindowParts};
 use crate::bindings as w;
@@ -232,6 +233,10 @@ impl State {
                 _ = args.cast::<w::IPointerRoutedEventArgs>().and_then(|a| a.SetHandled(true));
             }
         })?);
+        revokers.push(title_bar.cast::<w::IFrameworkElement>()?.LayoutUpdated({
+            let (title_bar, app_window) = (title_bar.clone(), app_window.clone());
+            move |_, _| _ = correct_caption_room(&title_bar, &app_window)
+        })?);
         // Full screen changed elsewhere (another part of the process): the
         // app hears of it. Our own changes match what it asked for.
         let full_screen = Rc::new(Cell::new(false));
@@ -358,6 +363,7 @@ impl State {
             escape: None,
             toolbar: None,
             toolbar_items: Vec::new(),
+            toolbar_place: self.options.toolbar,
             sidebar: None,
             sidebar_revokers: Vec::new(),
             sidebar_place: None,

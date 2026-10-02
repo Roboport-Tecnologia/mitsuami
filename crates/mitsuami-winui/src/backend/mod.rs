@@ -68,6 +68,8 @@ pub struct BackendOptions {
     /// Take this as the user's language, and write numbers and dates as
     /// its region does, in UTC, whatever the system's settings (tests).
     pub locale: Option<String>,
+    /// Where windows put their toolbar.
+    pub toolbar: ToolbarPlace,
 }
 
 impl Default for BackendOptions {
@@ -78,8 +80,32 @@ impl Default for BackendOptions {
             appearance: None,
             private_clipboard: false,
             locale: None,
+            toolbar: ToolbarPlace::default(),
         }
     }
+}
+
+/// Where a window's toolbar goes: on its own row under the title bar, after
+/// the menu bar (the default), or in the title bar, in the room between the
+/// title and the caption buttons, as in File Explorer and the Microsoft
+/// Store. An app picks it for all its windows with
+/// [`set_toolbar_place`](crate::set_toolbar_place) before [`run`](crate::run).
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub enum ToolbarPlace {
+    #[default]
+    BelowTitleBar,
+    InTitleBar(ToolbarAlign),
+}
+
+/// Where a toolbar in the title bar sits in its room: after the title, in
+/// the middle, or at the end, beside the caption buttons. Start and end
+/// follow the window's direction.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub enum ToolbarAlign {
+    Start,
+    Center,
+    #[default]
+    End,
 }
 
 /// The parts of a window: XAML's `Window`, a root grid with a row for the
@@ -137,6 +163,8 @@ pub(crate) struct WindowParts {
     /// bars, whose primary commands hold the items' hosts, in order.
     toolbar: Option<w::CommandBar>,
     toolbar_items: Vec<(NodeId, w::AppBarElementContainer)>,
+    /// Where the toolbar goes when it's made (`BackendOptions::toolbar`).
+    toolbar_place: ToolbarPlace,
     /// Its sidebar's node and navigation view, while it has one: the
     /// view's content is the host.
     sidebar: Option<(NodeId, w::NavigationView)>,

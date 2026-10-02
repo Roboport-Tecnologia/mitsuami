@@ -36,7 +36,7 @@ Microsoft.UI.WindowId
 Microsoft.UI.IconId
 Microsoft.UI.Xaml.UIElement::{}
 Microsoft.UI.Xaml.IUIElement::{UpdateLayout, put_Clip, get_FocusState, put_TabIndex, put_IsTabStop, Measure, get_DesiredSize, get_XamlRoot, put_XamlRoot, Focus, put_TabFocusNavigation, get_KeyboardAccelerators, add_GotFocus, remove_GotFocus, add_LostFocus, remove_LostFocus, add_KeyDown, remove_KeyDown, add_PreviewKeyDown, remove_PreviewKeyDown, add_PointerPressed, remove_PointerPressed, add_PointerReleased, remove_PointerReleased, add_PointerWheelChanged, remove_PointerWheelChanged, add_PointerMoved, remove_PointerMoved, add_PointerEntered, remove_PointerEntered, add_PointerExited, remove_PointerExited, add_KeyUp, remove_KeyUp, CapturePointer, add_DoubleTapped, remove_DoubleTapped, TransformToVisual, get_Visibility, put_Visibility, get_ContextFlyout, put_ContextFlyout, put_AllowDrop, get_AllowDrop, add_DragEnter, remove_DragEnter, add_DragOver, remove_DragOver, add_DragLeave, remove_DragLeave, add_Drop, remove_Drop}
-Microsoft.UI.Xaml.IFrameworkElement::{get_Width, put_Width, get_Height, put_Height, put_HorizontalAlignment, put_VerticalAlignment, put_RequestedTheme, put_Style, get_ActualWidth, get_ActualHeight, put_MinWidth, add_SizeChanged, remove_SizeChanged, add_Loaded, remove_Loaded, get_IsLoaded, put_Margin, get_FlowDirection, put_FlowDirection}
+Microsoft.UI.Xaml.IFrameworkElement::{get_Width, put_Width, get_Height, put_Height, put_HorizontalAlignment, put_VerticalAlignment, put_RequestedTheme, put_Style, get_ActualWidth, get_ActualHeight, put_MinWidth, add_SizeChanged, remove_SizeChanged, add_Loaded, remove_Loaded, get_IsLoaded, put_Margin, get_FlowDirection, put_FlowDirection, add_LayoutUpdated, remove_LayoutUpdated}
 Microsoft.UI.Xaml.FlowDirection
 Microsoft.UI.Xaml.ISizeChangedEventArgs::get_NewSize
 Microsoft.UI.Xaml.IRoutedEventArgs::get_OriginalSource
@@ -74,6 +74,12 @@ Microsoft.UI.Xaml.Media.Geometry::{}
 Windows.Foundation.Rect
 Windows.UI.Color
 Microsoft.UI.Xaml.Controls.Grid::{SetRow, SetColumn}
+Microsoft.UI.Xaml.Controls.IGrid::get_ColumnDefinitions
+Microsoft.UI.Xaml.Controls.ColumnDefinitionCollection::{}
+Microsoft.UI.Xaml.Controls.ColumnDefinition::{}
+Microsoft.UI.Xaml.Controls.IColumnDefinition::{get_Width, put_Width}
+Microsoft.UI.Xaml.GridLength
+Microsoft.UI.Xaml.GridUnitType
 Microsoft.UI.Xaml.Controls.Canvas::{CreateInstance, SetLeft, SetTop, GetLeft, GetTop}
 Microsoft.UI.Xaml.Controls.IPanel::{get_Children, put_Background}
 Microsoft.UI.Xaml.Controls.UIElementCollection::{}
@@ -260,12 +266,13 @@ Windows.Win32.WM_CLOSE
 Windows.Win32.GetCurrentProcessId
 Windows.Win32.IsWindowVisible
 Windows.Win32.GetWindowTextW
+Microsoft.UI.Windowing.IAppWindowTitleBar::get_RightInset
 Microsoft.UI.Windowing.IAppWindowTitleBar2::put_PreferredHeightOption
 Microsoft.UI.Windowing.IAppWindowTitleBar3::put_PreferredTheme
 Microsoft.UI.Windowing.TitleBarTheme
 Microsoft.UI.Windowing.TitleBarHeightOption
 Microsoft.UI.Xaml.Controls.TitleBar::{}
-Microsoft.UI.Xaml.Controls.ITitleBar::{get_Title, put_Title, put_IsPaneToggleButtonVisible, add_PaneToggleRequested, remove_PaneToggleRequested}
+Microsoft.UI.Xaml.Controls.ITitleBar::{get_Title, put_Title, put_Content, put_IsPaneToggleButtonVisible, add_PaneToggleRequested, remove_PaneToggleRequested}
 Microsoft.UI.Xaml.Input.PointerEventHandler
 Microsoft.UI.Xaml.Input.IPointerRoutedEventArgs::{GetCurrentPoint, get_KeyModifiers, get_Pointer, put_Handled}
 Microsoft.UI.Xaml.Input.Pointer::{}
@@ -439,7 +446,7 @@ Windows.Win32.GetIconInfo
 Windows.Win32.GetObjectW
 Windows.Win32.BITMAP
 Microsoft.UI.Xaml.Controls.NavigationView::CreateInstance
-Microsoft.UI.Xaml.Controls.INavigationView::{get_MenuItems, get_SelectedItem, put_SelectedItem, put_IsSettingsVisible, get_DisplayMode, get_OpenPaneLength, put_OpenPaneLength, get_CompactPaneLength, get_CompactModeThresholdWidth, put_CompactModeThresholdWidth, get_ExpandedModeThresholdWidth, get_IsPaneOpen, put_IsPaneOpen, put_IsPaneToggleButtonVisible, add_DisplayModeChanged, remove_DisplayModeChanged, add_SelectionChanged, remove_SelectionChanged}
+Microsoft.UI.Xaml.Controls.INavigationView::{get_MenuItems, get_SelectedItem, put_SelectedItem, put_IsSettingsVisible, get_DisplayMode, get_OpenPaneLength, put_OpenPaneLength, get_CompactPaneLength, get_CompactModeThresholdWidth, put_CompactModeThresholdWidth, get_ExpandedModeThresholdWidth, put_ExpandedModeThresholdWidth, get_IsPaneOpen, put_IsPaneOpen, put_IsPaneToggleButtonVisible, add_DisplayModeChanged, remove_DisplayModeChanged, add_SelectionChanged, remove_SelectionChanged}
 Microsoft.UI.Xaml.Controls.INavigationView2::{put_IsBackButtonVisible, get_IsPaneVisible, put_IsPaneVisible, add_PaneOpened, remove_PaneOpened, add_PaneClosed, remove_PaneClosed}
 Microsoft.UI.Xaml.Controls.NavigationViewBackButtonVisible
 Microsoft.UI.Xaml.Controls.NavigationViewDisplayMode

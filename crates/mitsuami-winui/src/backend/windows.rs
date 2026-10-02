@@ -7,7 +7,7 @@ use mitsuami_core::{NodeId, Rect, Size, UiEvent};
 use windows_core::{IInspectable, Interface};
 
 use super::measure::measure_element;
-use super::{Events, R, SPACING, WindowParts, ok};
+use super::{Events, R, SPACING, ToolbarAlign, ToolbarPlace, WindowParts, ok};
 use crate::bindings as w;
 
 impl WindowParts {
@@ -41,16 +41,27 @@ pub(super) fn clip_to_size(host: &w::IUIElement, size: w::Size) -> windows_core:
 /// A window's content: the title bar (content extends into it, the Windows
 /// 11 way), a row for the menu bar and the toolbar (the bars), then the
 /// content host. The root and the host carry the window background (window
-/// captures render the host).
+/// captures render the host). The title bar's content (a toolbar placed
+/// there) gets the whole room between the title and the caption buttons,
+/// where the template centres it at its own width, so the toolbar's own
+/// alignment places it (`ToolbarAlign`), and an end-aligned one reaches the
+/// buttons: no 48 epx of drag region kept before them (the title and the
+/// room around it still drag the window).
 pub(super) const WINDOW_ROOT: &str = r#"
 <Grid xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+      xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
       Background="{ThemeResource SolidBackgroundFillColorBaseBrush}">
   <Grid.RowDefinitions>
     <RowDefinition Height="Auto"/>
     <RowDefinition Height="Auto"/>
     <RowDefinition Height="*"/>
   </Grid.RowDefinitions>
-  <TitleBar Grid.Row="0" IsTabStop="False"/>
+  <TitleBar Grid.Row="0" IsTabStop="False">
+    <TitleBar.Resources>
+      <HorizontalAlignment x:Key="TitleBarContentHorizontalAlignment">Stretch</HorizontalAlignment>
+      <x:Double x:Key="TitleBarMinDragRegionWidth">0</x:Double>
+    </TitleBar.Resources>
+  </TitleBar>
   <Grid Grid.Row="1">
     <Grid.ColumnDefinitions>
       <ColumnDefinition Width="Auto"/>
@@ -119,28 +130,57 @@ fn chrome_height(parts: &WindowParts) -> f64 {
     let shown = |bar: &&w::CommandBar| {
         bar.cast::<w::IUIElement>().and_then(|e| e.Visibility()).is_ok_and(|v| v == w::Visibility::Visible)
     };
-    let toolbar = parts.toolbar.as_ref().filter(shown).map_or(0.0, |t| height(ok(t.cast(), "toolbar element")));
+    // In the title bar, it's part of the title bar's height.
+    let toolbar = match parts.toolbar_place {
+        ToolbarPlace::InTitleBar(_) => 0.0,
+        ToolbarPlace::BelowTitleBar => {
+            parts.toolbar.as_ref().filter(shown).map_or(0.0, |t| height(ok(t.cast(), "toolbar element")))
+        }
+    };
     // Side by side, on one row.
     title + menu.max(toolbar)
 }
 
 /// Adds an item's host to the window's toolbar at `index` among its items,
 /// making the toolbar if it's the first. The bar is on the menu bar's row,
-/// at its trailing end, in the room the menu bar leaves: past that, its
-/// items go to its overflow menu.
+/// at its trailing end, in the room the menu bar leaves, or in the title
+/// bar's content, where `ToolbarAlign` puts it (`ToolbarPlace`): past
+/// that, its items go to its
+/// overflow menu.
 pub(super) fn insert_toolbar_item(parts: &mut WindowParts, id: NodeId, host: &w::UIElement, index: usize) -> R<()> {
     if parts.toolbar.is_none() {
         let bar = w::CommandBar::new()?;
         let element: w::UIElement = bar.cast()?;
         let fe: w::IFrameworkElement = element.cast()?;
-        w::Grid::SetColumn(&element.cast::<w::FrameworkElement>()?, TOOLBAR_COLUMN)?;
-        // Only as wide as its items, at the end. The bar keeps a little
-        // room after its last item, and the item's half gap adds to it:
-        // about as far from the edge as the sidebar's items are.
-        fe.SetHorizontalAlignment(w::HorizontalAlignment::Right)?;
         // Hidden until an item has something to show.
         element.cast::<w::IUIElement>()?.SetVisibility(w::Visibility::Collapsed)?;
-        parts.bars.cast::<w::IPanel>()?.Children()?.Append(&element)?;
+        match parts.toolbar_place {
+            ToolbarPlace::BelowTitleBar => {
+                w::Grid::SetColumn(&element.cast::<w::FrameworkElement>()?, TOOLBAR_COLUMN)?;
+                // Only as wide as its items, at the end. The bar keeps a
+                // little room after its last item, and the item's half gap
+                // adds to it: about as far from the edge as the sidebar's
+                // items are.
+                fe.SetHorizontalAlignment(w::HorizontalAlignment::Right)?;
+                parts.bars.cast::<w::IPanel>()?.Children()?.Append(&element)?;
+            }
+            ToolbarPlace::InTitleBar(align) => {
+                // The title bar's content, which fills the room between the
+                // title and the caption buttons and is kept out of the drag
+                // region, so the items take clicks; the bar's background is
+                // the title bar's, and the bar only as wide as its items.
+                // The title bar's root flows with the window's direction,
+                // so left and right here are start and end.
+                fe.SetHorizontalAlignment(match align {
+                    ToolbarAlign::Start => w::HorizontalAlignment::Left,
+                    ToolbarAlign::Center => w::HorizontalAlignment::Center,
+                    ToolbarAlign::End => w::HorizontalAlignment::Right,
+                })?;
+                fe.SetVerticalAlignment(w::VerticalAlignment::Center)?;
+                bar.cast::<w::IControl>()?.SetBackground(None::<&w::Brush>)?;
+                parts.title_bar.cast::<w::ITitleBar>()?.SetContent(&element)?;
+            }
+        }
         parts.toolbar = Some(bar);
     }
     let bar: w::IUIElement = parts.toolbar.as_ref().expect("made above").cast()?;
@@ -233,6 +273,13 @@ pub(super) fn update_toolbar(parts: &mut WindowParts) -> R<()> {
     let before = chrome_height(parts);
     if element.Visibility()? != wanted {
         element.SetVisibility(wanted)?;
+        // A toolbar in the title bar makes it taller: the caption buttons
+        // grow to match, as in Windows' own apps with one.
+        if matches!(parts.toolbar_place, ToolbarPlace::InTitleBar(_)) {
+            let height = if any { w::TitleBarHeightOption::Tall } else { w::TitleBarHeightOption::Standard };
+            let caption = parts.app_window.cast::<w::IAppWindow>()?.TitleBar()?;
+            caption.cast::<w::IAppWindowTitleBar2>()?.SetPreferredHeightOption(height)?;
+        }
     }
     parts.root.cast::<w::IUIElement>()?.UpdateLayout()?;
     if chrome_height(parts) != before {
@@ -240,6 +287,31 @@ pub(super) fn update_toolbar(parts: &mut WindowParts) -> R<()> {
         if let Some(size) = parts.requested {
             resize_client(parts, size);
         }
+    }
+    Ok(())
+}
+
+/// Gives the caption buttons the room they take in the title bar. WinUI's
+/// `TitleBar` keeps it in its last column, and sets that to
+/// `AppWindowTitleBar::RightInset`, which is in pixels, as if it were in
+/// epx: above 100% the room is wider than the buttons by the scale, which
+/// shows as a gap between a toolbar at the end and the buttons (72 epx at
+/// 150%). Called after every layout of the title bar, as it sets the
+/// column again when the window changes; a no-op once right.
+pub(super) fn correct_caption_room(title_bar: &w::TitleBar, app_window: &w::AppWindow) -> R<()> {
+    let layout_root = w::VisualTreeHelper::GetChild(title_bar, 0)?;
+    let columns = layout_root.cast::<w::IGrid>()?.ColumnDefinitions()?;
+    let count = columns.Size()?;
+    if count == 0 {
+        return Ok(());
+    }
+    let column: w::IColumnDefinition = columns.GetAt(count - 1)?.cast()?;
+    let scale = title_bar.cast::<w::IUIElement>()?.XamlRoot()?.RasterizationScale()?;
+    let caption = app_window.cast::<w::IAppWindow>()?.TitleBar()?;
+    let inset = caption.cast::<w::IAppWindowTitleBar>()?.RightInset()? as f64 / scale;
+    let want = w::GridLength { value: inset, grid_unit_type: w::GridUnitType::Pixel };
+    if column.Width()? != want {
+        column.SetWidth(want)?;
     }
     Ok(())
 }

@@ -1175,6 +1175,58 @@ impl windows_core::RuntimeType for Color {
 }
 #[repr(transparent)]
 #[derive(Clone, Debug, Eq, PartialEq)]
+pub struct ColumnDefinition(windows_core::IUnknown);
+windows_core::imp::interface_hierarchy!(ColumnDefinition, windows_core::IUnknown, windows_core::IInspectable);
+windows_core::imp::required_hierarchy!(ColumnDefinition, DependencyObject);
+impl windows_core::RuntimeType for ColumnDefinition {
+    const SIGNATURE: windows_core::imp::ConstBuffer =
+        windows_core::imp::ConstBuffer::for_class::<Self, IColumnDefinition>();
+}
+unsafe impl windows_core::Interface for ColumnDefinition {
+    type Vtable = <IColumnDefinition as windows_core::Interface>::Vtable;
+    const IID: windows_core::GUID = <IColumnDefinition as windows_core::Interface>::IID;
+}
+impl core::ops::Deref for ColumnDefinition {
+    type Target = IColumnDefinition;
+    fn deref(&self) -> &Self::Target {
+        unsafe { core::mem::transmute(self) }
+    }
+}
+impl windows_core::RuntimeName for ColumnDefinition {
+    const NAME: &'static str = "Microsoft.UI.Xaml.Controls.ColumnDefinition";
+}
+unsafe impl Send for ColumnDefinition {}
+unsafe impl Sync for ColumnDefinition {}
+#[repr(transparent)]
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct ColumnDefinitionCollection(windows_core::IUnknown);
+windows_core::imp::interface_hierarchy!(
+    ColumnDefinitionCollection,
+    windows_core::IUnknown,
+    windows_core::IInspectable,
+    windows_collections::IVector<ColumnDefinition>
+);
+impl windows_core::RuntimeType for ColumnDefinitionCollection {
+    const SIGNATURE: windows_core::imp::ConstBuffer =
+        windows_core::imp::ConstBuffer::for_class::<Self, windows_collections::IVector<ColumnDefinition>>();
+}
+unsafe impl windows_core::Interface for ColumnDefinitionCollection {
+    type Vtable = <windows_collections::IVector<ColumnDefinition> as windows_core::Interface>::Vtable;
+    const IID: windows_core::GUID = <windows_collections::IVector<ColumnDefinition> as windows_core::Interface>::IID;
+}
+impl core::ops::Deref for ColumnDefinitionCollection {
+    type Target = windows_collections::IVector<ColumnDefinition>;
+    fn deref(&self) -> &Self::Target {
+        unsafe { core::mem::transmute(self) }
+    }
+}
+impl windows_core::RuntimeName for ColumnDefinitionCollection {
+    const NAME: &'static str = "Microsoft.UI.Xaml.Controls.ColumnDefinitionCollection";
+}
+unsafe impl Send for ColumnDefinitionCollection {}
+unsafe impl Sync for ColumnDefinitionCollection {}
+#[repr(transparent)]
+#[derive(Clone, Debug, Eq, PartialEq)]
 pub struct ComboBox(windows_core::IUnknown);
 windows_core::imp::interface_hierarchy!(ComboBox, windows_core::IUnknown, windows_core::IInspectable);
 windows_core::imp::required_hierarchy!(
@@ -3119,6 +3171,35 @@ impl windows_core::RuntimeName for Grid {
 }
 unsafe impl Send for Grid {}
 unsafe impl Sync for Grid {}
+#[repr(C)]
+#[derive(Clone, Copy, Debug, Default, PartialEq)]
+pub struct GridLength {
+    pub value: f64,
+    pub grid_unit_type: GridUnitType,
+}
+impl windows_core::imp::TypeKind for GridLength {
+    type TypeKind = windows_core::imp::CopyType;
+}
+impl windows_core::RuntimeType for GridLength {
+    const SIGNATURE: windows_core::imp::ConstBuffer = windows_core::imp::ConstBuffer::from_slice(
+        b"struct(Microsoft.UI.Xaml.GridLength;f8;enum(Microsoft.UI.Xaml.GridUnitType;i4))",
+    );
+}
+#[repr(transparent)]
+#[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
+pub struct GridUnitType(pub i32);
+impl GridUnitType {
+    pub const Auto: Self = Self(0);
+    pub const Pixel: Self = Self(1);
+    pub const Star: Self = Self(2);
+}
+impl windows_core::imp::TypeKind for GridUnitType {
+    type TypeKind = windows_core::imp::CopyType;
+}
+impl windows_core::RuntimeType for GridUnitType {
+    const SIGNATURE: windows_core::imp::ConstBuffer =
+        windows_core::imp::ConstBuffer::from_slice(b"enum(Microsoft.UI.Xaml.GridUnitType;i4)");
+}
 pub type HANDLE = *mut core::ffi::c_void;
 pub type HBITMAP = *mut core::ffi::c_void;
 pub type HBRUSH = *mut core::ffi::c_void;
@@ -3513,9 +3594,49 @@ windows_core::imp::define_interface!(
 impl windows_core::RuntimeType for IAppWindowTitleBar {
     const SIGNATURE: windows_core::imp::ConstBuffer = windows_core::imp::ConstBuffer::for_interface::<Self>();
 }
+impl IAppWindowTitleBar {
+    pub fn RightInset(&self) -> windows_core::Result<i32> {
+        unsafe {
+            let mut result__ = core::mem::zeroed();
+            (windows_core::Interface::vtable(self).RightInset)(windows_core::Interface::as_raw(self), &mut result__)
+                .map(|| result__)
+        }
+    }
+}
 #[repr(C)]
 pub struct IAppWindowTitleBar_Vtbl {
     pub base__: windows_core::IInspectable_Vtbl,
+    BackgroundColor: usize,
+    SetBackgroundColor: usize,
+    ButtonBackgroundColor: usize,
+    SetButtonBackgroundColor: usize,
+    ButtonForegroundColor: usize,
+    SetButtonForegroundColor: usize,
+    ButtonHoverBackgroundColor: usize,
+    SetButtonHoverBackgroundColor: usize,
+    ButtonHoverForegroundColor: usize,
+    SetButtonHoverForegroundColor: usize,
+    ButtonInactiveBackgroundColor: usize,
+    SetButtonInactiveBackgroundColor: usize,
+    ButtonInactiveForegroundColor: usize,
+    SetButtonInactiveForegroundColor: usize,
+    ButtonPressedBackgroundColor: usize,
+    SetButtonPressedBackgroundColor: usize,
+    ButtonPressedForegroundColor: usize,
+    SetButtonPressedForegroundColor: usize,
+    ExtendsContentIntoTitleBar: usize,
+    SetExtendsContentIntoTitleBar: usize,
+    ForegroundColor: usize,
+    SetForegroundColor: usize,
+    Height: usize,
+    IconShowOptions: usize,
+    SetIconShowOptions: usize,
+    InactiveBackgroundColor: usize,
+    SetInactiveBackgroundColor: usize,
+    InactiveForegroundColor: usize,
+    SetInactiveForegroundColor: usize,
+    LeftInset: usize,
+    pub RightInset: unsafe extern "system" fn(*mut core::ffi::c_void, *mut i32) -> windows_core::HRESULT,
 }
 windows_core::imp::define_interface!(
     IAppWindowTitleBar2,
@@ -4426,6 +4547,28 @@ pub struct IClipboardStatics_Vtbl {
         unsafe extern "system" fn(*mut core::ffi::c_void, *mut *mut core::ffi::c_void) -> windows_core::HRESULT,
     pub SetContent: unsafe extern "system" fn(*mut core::ffi::c_void, *mut core::ffi::c_void) -> windows_core::HRESULT,
     pub Flush: unsafe extern "system" fn(*mut core::ffi::c_void) -> windows_core::HRESULT,
+}
+windows_core::imp::define_interface!(IColumnDefinition, IColumnDefinition_Vtbl, 0x454cea14_87ec_5890_bb62_f1d82a94758e);
+impl windows_core::RuntimeType for IColumnDefinition {
+    const SIGNATURE: windows_core::imp::ConstBuffer = windows_core::imp::ConstBuffer::for_interface::<Self>();
+}
+impl IColumnDefinition {
+    pub fn Width(&self) -> windows_core::Result<GridLength> {
+        unsafe {
+            let mut result__ = core::mem::zeroed();
+            (windows_core::Interface::vtable(self).Width)(windows_core::Interface::as_raw(self), &mut result__)
+                .map(|| result__)
+        }
+    }
+    pub fn SetWidth(&self, value: GridLength) -> windows_core::Result<()> {
+        unsafe { (windows_core::Interface::vtable(self).SetWidth)(windows_core::Interface::as_raw(self), value).ok() }
+    }
+}
+#[repr(C)]
+pub struct IColumnDefinition_Vtbl {
+    pub base__: windows_core::IInspectable_Vtbl,
+    pub Width: unsafe extern "system" fn(*mut core::ffi::c_void, *mut GridLength) -> windows_core::HRESULT,
+    pub SetWidth: unsafe extern "system" fn(*mut core::ffi::c_void, GridLength) -> windows_core::HRESULT,
 }
 windows_core::imp::define_interface!(IComboBox, IComboBox_Vtbl, 0xc77da58b_4fd7_51e0_a431_f84658a83e9e);
 impl windows_core::RuntimeType for IComboBox {
@@ -6206,6 +6349,32 @@ impl IFrameworkElement {
             ))
         }
     }
+    pub fn LayoutUpdated<F>(&self, handler: F) -> windows_core::Result<windows_core::EventRevoker>
+    where
+        F: Fn(windows_core::Ref<windows_core::IInspectable>, windows_core::Ref<windows_core::IInspectable>) + 'static,
+    {
+        let handler: EventHandler<windows_core::IInspectable> = {
+            let com = windows_core::imp::DelegateBox::<EventHandler<windows_core::IInspectable>, F>::new(
+                &EventHandlerBox::<windows_core::IInspectable, F>::VTABLE,
+                handler,
+            );
+            unsafe { core::mem::transmute(windows_core::imp::box_new(com)) }
+        };
+        unsafe {
+            let mut result__ = core::mem::zeroed();
+            let token__ = (windows_core::Interface::vtable(self).LayoutUpdated)(
+                windows_core::Interface::as_raw(self),
+                windows_core::Interface::as_raw(&handler),
+                &mut result__,
+            )
+            .map(|| result__)?;
+            Ok(windows_core::EventRevoker::new(
+                self.clone(),
+                token__,
+                windows_core::Interface::vtable(self).RemoveLayoutUpdated,
+            ))
+        }
+    }
 }
 #[repr(C)]
 pub struct IFrameworkElement_Vtbl {
@@ -6277,6 +6446,9 @@ pub struct IFrameworkElement_Vtbl {
     pub SizeChanged:
         unsafe extern "system" fn(*mut core::ffi::c_void, *mut core::ffi::c_void, *mut i64) -> windows_core::HRESULT,
     pub RemoveSizeChanged: unsafe extern "system" fn(*mut core::ffi::c_void, i64) -> windows_core::HRESULT,
+    pub LayoutUpdated:
+        unsafe extern "system" fn(*mut core::ffi::c_void, *mut core::ffi::c_void, *mut i64) -> windows_core::HRESULT,
+    pub RemoveLayoutUpdated: unsafe extern "system" fn(*mut core::ffi::c_void, i64) -> windows_core::HRESULT,
 }
 windows_core::imp::define_interface!(
     IFrameworkElementAutomationPeer,
@@ -6355,9 +6527,24 @@ windows_core::imp::define_interface!(IGrid, IGrid_Vtbl, 0xc4496219_9014_58a1_b4a
 impl windows_core::RuntimeType for IGrid {
     const SIGNATURE: windows_core::imp::ConstBuffer = windows_core::imp::ConstBuffer::for_interface::<Self>();
 }
+impl IGrid {
+    pub fn ColumnDefinitions(&self) -> windows_core::Result<ColumnDefinitionCollection> {
+        unsafe {
+            let mut result__ = core::mem::zeroed();
+            (windows_core::Interface::vtable(self).ColumnDefinitions)(
+                windows_core::Interface::as_raw(self),
+                &mut result__,
+            )
+            .and_then(|| windows_core::imp::Type::from_abi(result__))
+        }
+    }
+}
 #[repr(C)]
 pub struct IGrid_Vtbl {
     pub base__: windows_core::IInspectable_Vtbl,
+    RowDefinitions: usize,
+    pub ColumnDefinitions:
+        unsafe extern "system" fn(*mut core::ffi::c_void, *mut *mut core::ffi::c_void) -> windows_core::HRESULT,
 }
 windows_core::imp::define_interface!(IGridStatics, IGridStatics_Vtbl, 0xef9cf81d_a431_50f4_abf5_3023fe447704);
 impl windows_core::RuntimeType for IGridStatics {
@@ -7534,6 +7721,15 @@ impl INavigationView {
             .map(|| result__)
         }
     }
+    pub fn SetExpandedModeThresholdWidth(&self, value: f64) -> windows_core::Result<()> {
+        unsafe {
+            (windows_core::Interface::vtable(self).SetExpandedModeThresholdWidth)(
+                windows_core::Interface::as_raw(self),
+                value,
+            )
+            .ok()
+        }
+    }
     pub fn DisplayMode(&self) -> windows_core::Result<NavigationViewDisplayMode> {
         unsafe {
             let mut result__ = core::mem::zeroed();
@@ -7673,7 +7869,7 @@ pub struct INavigationView_Vtbl {
     pub SetCompactModeThresholdWidth: unsafe extern "system" fn(*mut core::ffi::c_void, f64) -> windows_core::HRESULT,
     pub ExpandedModeThresholdWidth:
         unsafe extern "system" fn(*mut core::ffi::c_void, *mut f64) -> windows_core::HRESULT,
-    SetExpandedModeThresholdWidth: usize,
+    pub SetExpandedModeThresholdWidth: unsafe extern "system" fn(*mut core::ffi::c_void, f64) -> windows_core::HRESULT,
     FooterMenuItems: usize,
     FooterMenuItemsSource: usize,
     SetFooterMenuItemsSource: usize,
@@ -11122,6 +11318,18 @@ impl ITitleBar {
             .ok()
         }
     }
+    pub fn SetContent<P0>(&self, value: P0) -> windows_core::Result<()>
+    where
+        P0: windows_core::Param<UIElement>,
+    {
+        unsafe {
+            (windows_core::Interface::vtable(self).SetContent)(
+                windows_core::Interface::as_raw(self),
+                value.param().abi(),
+            )
+            .ok()
+        }
+    }
     pub fn SetIsPaneToggleButtonVisible(&self, value: bool) -> windows_core::Result<()> {
         unsafe {
             (windows_core::Interface::vtable(self).SetIsPaneToggleButtonVisible)(
@@ -11170,7 +11378,7 @@ pub struct ITitleBar_Vtbl {
     LeftHeader: usize,
     SetLeftHeader: usize,
     Content: usize,
-    SetContent: usize,
+    pub SetContent: unsafe extern "system" fn(*mut core::ffi::c_void, *mut core::ffi::c_void) -> windows_core::HRESULT,
     RightHeader: usize,
     SetRightHeader: usize,
     IsBackButtonVisible: usize,

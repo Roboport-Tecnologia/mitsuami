@@ -9,13 +9,22 @@ use mitsuami_core::services::MenuBar;
 use mitsuami_core::{AppInfo, Ui};
 use windows_core::Interface;
 
-use crate::backend::{BackendOptions, WinUiBackend, WinUiHandle};
+use crate::backend::{BackendOptions, ToolbarPlace, WinUiBackend, WinUiHandle};
 use crate::bindings as w;
 use crate::runtime;
 
 thread_local! {
     /// Schedules a tick; set while an app runs.
     static SCHEDULE: RefCell<Option<Rc<dyn Fn()>>> = const { RefCell::new(None) };
+    /// Where `run`'s windows put their toolbar (`set_toolbar_place`).
+    static TOOLBAR: Cell<ToolbarPlace> = const { Cell::new(ToolbarPlace::BelowTitleBar) };
+}
+
+/// Where the app's windows put their toolbar: called before [`run`], on
+/// the thread that runs it. A WinUI-only choice, so an app makes it in a
+/// `platform!` arm: `windows => mitsuami::winui::set_toolbar_place(ToolbarPlace::InTitleBar(ToolbarAlign::End))`.
+pub fn set_toolbar_place(place: ToolbarPlace) {
+    TOOLBAR.with(|t| t.set(place));
 }
 
 /// Starts the app: `setup` creates the windows, then XAML's event loop
@@ -31,7 +40,7 @@ thread_local! {
 /// the next `sleep` deadline. Ticks keep working inside modal loops (window
 /// moves and live resizing), which run the queue too.
 pub fn run(info: AppInfo, setup: impl FnOnce(&Ui)) {
-    let backend = WinUiBackend::new(BackendOptions::default());
+    let backend = WinUiBackend::new(BackendOptions { toolbar: TOOLBAR.with(Cell::get), ..BackendOptions::default() });
     let handle = backend.handle();
     let ui = Ui::new(backend);
     // Before any window: the AppUserModelID must be set before the app
