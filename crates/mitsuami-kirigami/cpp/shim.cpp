@@ -537,8 +537,12 @@ void mq_set_app_font(const char* family, double point_size) {
 void mq_set_color_scheme(const char* path) {
     qApp->setProperty("KDE_COLOR_SCHEME_PATH", QString::fromUtf8(path));
     QPalette palette = QGuiApplication::palette();
-    // A palette that differs, so the change is delivered.
-    palette.setColor(QPalette::ToolTipBase, palette.color(QPalette::ToolTipBase).lighter(101));
+    // A palette that differs, so the change is delivered. A bit flips
+    // rather than the colour drifting: lightening it each time reaches
+    // white, and from then on the palette doesn't change.
+    QColor tip = palette.color(QPalette::ToolTipBase);
+    tip.setBlue(tip.blue() ^ 1);
+    palette.setColor(QPalette::ToolTipBase, tip);
     QGuiApplication::setPalette(palette);
 }
 
