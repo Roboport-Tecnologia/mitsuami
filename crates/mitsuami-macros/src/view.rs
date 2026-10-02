@@ -34,7 +34,7 @@ fn tuple(mut nodes: Vec<TokenStream>) -> TokenStream {
 
 enum Attr {
     /// `name=value`, or `@event=handler` (already renamed to `on_event`).
-    Value(Ident, Expr),
+    Value(Ident, Box<Expr>),
     /// A bare `name`.
     Flag(Ident),
 }
@@ -139,7 +139,7 @@ impl Cursor {
                 let event = self.expect_ident("an event name after `@`")?;
                 self.expect_punct('=')?;
                 let method = format_ident!("on_{}", event, span = event.span());
-                attrs.push(Attr::Value(method, self.value()?));
+                attrs.push(Attr::Value(method, Box::new(self.value()?)));
                 continue;
             }
             let name = self.expect_ident("an attribute, `>` or `/>`")?;
@@ -149,7 +149,7 @@ impl Cursor {
                 let_pattern = Some(pattern);
             } else if self.is_punct(0, '=') {
                 self.pos += 1;
-                attrs.push(Attr::Value(name, self.value()?));
+                attrs.push(Attr::Value(name, Box::new(self.value()?)));
             } else {
                 attrs.push(Attr::Flag(name));
             }

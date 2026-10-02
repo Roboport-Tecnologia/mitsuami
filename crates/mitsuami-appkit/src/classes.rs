@@ -17,11 +17,11 @@ use objc2::{
     AnyThread, ClassType, DefinedClass, MainThreadMarker, MainThreadOnly, Message, define_class, msg_send, sel,
 };
 use objc2_app_kit::{
-    NSButton, NSClickGestureRecognizer, NSColor, NSControl, NSControlStateValueOn, NSControlTextEditingDelegate, NSDragOperation, NSDraggingInfo,
-    NSEvent, NSEventModifierFlags, NSEventType, NSPasteboardTypeFileURL, NSPopUpButton, NSRectFill, NSScreen,
-    NSSearchFieldDelegate, NSSlider, NSSwitch, NSText, NSTextDelegate, NSTextField, NSTextFieldDelegate, NSTextView,
-    NSTextViewDelegate, NSTrackingArea, NSTrackingAreaOptions, NSView, NSViewFrameDidChangeNotification, NSWindow,
-    NSWindowDelegate, NSWindowStyleMask,
+    NSButton, NSClickGestureRecognizer, NSColor, NSControl, NSControlStateValueOn, NSControlTextEditingDelegate,
+    NSDragOperation, NSDraggingInfo, NSEvent, NSEventModifierFlags, NSEventType, NSPasteboardTypeFileURL,
+    NSPopUpButton, NSRectFill, NSScreen, NSSearchFieldDelegate, NSSlider, NSSwitch, NSText, NSTextDelegate,
+    NSTextField, NSTextFieldDelegate, NSTextView, NSTextViewDelegate, NSTrackingArea, NSTrackingAreaOptions, NSView,
+    NSViewFrameDidChangeNotification, NSWindow, NSWindowDelegate, NSWindowStyleMask,
 };
 use objc2_foundation::{
     NSArray, NSKeyValueObservingOptions, NSNotification, NSNotificationCenter, NSObjectNSKeyValueObserverRegistration,

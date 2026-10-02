@@ -29,8 +29,8 @@ use objc2::runtime::{AnyObject, NSObject, NSObjectProtocol, ProtocolObject};
 use objc2::{DefinedClass, MainThreadMarker, MainThreadOnly, Message, define_class, msg_send, sel};
 use objc2_app_kit::{
     NSAnimationContext, NSBezelStyle, NSButton, NSLayoutConstraint, NSSearchField, NSSearchToolbarItem,
-    NSSegmentDistribution, NSSegmentStyle, NSSegmentSwitchTracking, NSSegmentedControl, NSToolbar, NSToolbarDelegate, NSToolbarDisplayMode,
-    NSToolbarFlexibleSpaceItemIdentifier, NSToolbarItem, NSToolbarItemIdentifier,
+    NSSegmentDistribution, NSSegmentStyle, NSSegmentSwitchTracking, NSSegmentedControl, NSToolbar, NSToolbarDelegate,
+    NSToolbarDisplayMode, NSToolbarFlexibleSpaceItemIdentifier, NSToolbarItem, NSToolbarItemIdentifier,
     NSToolbarSidebarTrackingSeparatorItemIdentifier, NSView, NSWindow,
 };
 
@@ -225,7 +225,8 @@ impl Toolbar {
         item.setView(Some(&view));
         let host = host.retain();
         let at = index.min(self.items.len());
-        self.items.insert(at, Item { id, item, view, host, adopted: None, width, height, insets, glass: true, empty: true });
+        self.items
+            .insert(at, Item { id, item, view, host, adopted: None, width, height, insets, glass: true, empty: true });
         self.sync();
     }
 
@@ -279,7 +280,8 @@ impl Toolbar {
                 let clicked = kept.clone();
                 let target = ClosureTarget::new(mtm, move |sender: &AnyObject| {
                     let Some(control) = sender.downcast_ref::<NSSegmentedControl>() else { return };
-                    let button = usize::try_from(control.selectedSegment()).ok().and_then(|i| clicked.borrow().get(i).cloned());
+                    let button =
+                        usize::try_from(control.selectedSegment()).ok().and_then(|i| clicked.borrow().get(i).cloned());
                     if let Some(button) = button {
                         unsafe { button.performClick(None) };
                     }

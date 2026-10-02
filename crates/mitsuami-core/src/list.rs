@@ -232,7 +232,10 @@ impl<K: 'static> ListHandle<K> {
         K: Clone,
     {
         let mut state = self.0.borrow_mut();
-        let found = state.connection.as_ref().and_then(|Connection { ui, id, row_of }| Some((ui.upgrade()?, *id, row_of(key)?)));
+        let found = state
+            .connection
+            .as_ref()
+            .and_then(|Connection { ui, id, row_of }| Some((ui.upgrade()?, *id, row_of(key)?)));
         match found {
             Some((ui, id, row)) => {
                 state.pending = None;

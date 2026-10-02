@@ -421,7 +421,10 @@ async fn winui_item_animations_can_be_turned_off(app: TestApp) {
                 log.borrow_mut().push((list, items.ItemContainerTransitions()?.Size()?));
                 Ok(())
             }),
-            _ => Tweak::none(),
+            _ => {
+                let _ = (log, list, off);
+                Tweak::none()
+            }
         }
     };
     let (a, b) = (transitions(log.clone(), "still", true), transitions(log.clone(), "animated", false));

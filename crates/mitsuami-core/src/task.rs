@@ -117,11 +117,8 @@ impl Wake for TaskWaker {
     }
 
     fn wake_by_ref(self: &Arc<Self>) {
-        let queue = if std::thread::current().id() == self.queue.ui_thread {
-            &self.queue.ready
-        } else {
-            &self.queue.remote
-        };
+        let queue =
+            if std::thread::current().id() == self.queue.ui_thread { &self.queue.ready } else { &self.queue.remote };
         queue.lock().unwrap().push_back(self.id);
         let wake_ui = self.queue.wake_ui.lock().unwrap().clone();
         if let Some(wake_ui) = wake_ui {
