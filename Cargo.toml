@@ -3,7 +3,7 @@ resolver = "3"
 members = ["crates/*"]
 
 [workspace.package]
-version = "0.0.1"
+version = "1.0.0"
 edition = "2024"
 rust-version = "1.95"
 license = "MIT OR Apache-2.0"
@@ -11,19 +11,19 @@ authors = ["David Rios <david.rios.gomes@gmail.com>"]
 repository = "https://github.com/Roboport-Tecnologia/mitsuami"
 
 [workspace.dependencies]
-mitsuami = { path = "crates/mitsuami", version = "=0.0.1" }
-mitsuami-reactive = { path = "crates/mitsuami-reactive", version = "=0.0.1" }
-mitsuami-core = { path = "crates/mitsuami-core", version = "=0.0.1" }
-mitsuami-widgets = { path = "crates/mitsuami-widgets", version = "=0.0.1" }
-mitsuami-headless = { path = "crates/mitsuami-headless", version = "=0.0.1" }
-mitsuami-test = { path = "crates/mitsuami-test", version = "=0.0.1" }
-mitsuami-test-macros = { path = "crates/mitsuami-test-macros", version = "=0.0.1" }
-mitsuami-macros = { path = "crates/mitsuami-macros", version = "=0.0.1" }
-mitsuami-appkit = { path = "crates/mitsuami-appkit", version = "=0.0.1" }
-mitsuami-gtk = { path = "crates/mitsuami-gtk", version = "=0.0.1" }
-mitsuami-winui = { path = "crates/mitsuami-winui", version = "=0.0.1" }
-mitsuami-kirigami = { path = "crates/mitsuami-kirigami", version = "=0.0.1" }
-mitsuami-linux = { path = "crates/mitsuami-linux", version = "=0.0.1" }
+mitsuami = { path = "crates/mitsuami", version = "=1.0.0" }
+mitsuami-reactive = { path = "crates/mitsuami-reactive", version = "=1.0.0" }
+mitsuami-core = { path = "crates/mitsuami-core", version = "=1.0.0" }
+mitsuami-widgets = { path = "crates/mitsuami-widgets", version = "=1.0.0" }
+mitsuami-headless = { path = "crates/mitsuami-headless", version = "=1.0.0" }
+mitsuami-test = { path = "crates/mitsuami-test", version = "=1.0.0" }
+mitsuami-test-macros = { path = "crates/mitsuami-test-macros", version = "=1.0.0" }
+mitsuami-macros = { path = "crates/mitsuami-macros", version = "=1.0.0" }
+mitsuami-appkit = { path = "crates/mitsuami-appkit", version = "=1.0.0" }
+mitsuami-gtk = { path = "crates/mitsuami-gtk", version = "=1.0.0" }
+mitsuami-winui = { path = "crates/mitsuami-winui", version = "=1.0.0" }
+mitsuami-kirigami = { path = "crates/mitsuami-kirigami", version = "=1.0.0" }
+mitsuami-linux = { path = "crates/mitsuami-linux", version = "=1.0.0" }
 
 slotmap = "1.1"
 taffy = "0.14"

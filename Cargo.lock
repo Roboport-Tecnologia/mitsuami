@@ -66,7 +66,7 @@ dependencies = [
 
 [[package]]
 name = "cargo-mitsuami"
-version = "0.0.1"
+version = "1.0.0"
 dependencies = [
  "getrandom",
  "similar",
@@ -705,7 +705,7 @@ dependencies = [
 
 [[package]]
 name = "mitsuami"
-version = "0.0.1"
+version = "1.0.0"
 dependencies = [
  "mitsuami-appkit",
  "mitsuami-core",
@@ -720,7 +720,7 @@ dependencies = [
 
 [[package]]
 name = "mitsuami-appkit"
-version = "0.0.1"
+version = "1.0.0"
 dependencies = [
  "block2",
  "dispatch2",
@@ -738,7 +738,7 @@ dependencies = [
 
 [[package]]
 name = "mitsuami-core"
-version = "0.0.1"
+version = "1.0.0"
 dependencies = [
  "fluent-bundle",
  "fluent-langneg",
@@ -752,7 +752,7 @@ dependencies = [
 
 [[package]]
 name = "mitsuami-gtk"
-version = "0.0.1"
+version = "1.0.0"
 dependencies = [
  "gtk4",
  "libadwaita",
@@ -765,14 +765,14 @@ dependencies = [
 
 [[package]]
 name = "mitsuami-headless"
-version = "0.0.1"
+version = "1.0.0"
 dependencies = [
  "mitsuami-core",
 ]
 
 [[package]]
 name = "mitsuami-kirigami"
-version = "0.0.1"
+version = "1.0.0"
 dependencies = [
  "cc",
  "mitsuami-core",
@@ -784,7 +784,7 @@ dependencies = [
 
 [[package]]
 name = "mitsuami-linux"
-version = "0.0.1"
+version = "1.0.0"
 dependencies = [
  "mitsuami-core",
  "wayland-backend",
@@ -795,7 +795,7 @@ dependencies = [
 
 [[package]]
 name = "mitsuami-macros"
-version = "0.0.1"
+version = "1.0.0"
 dependencies = [
  "fluent-syntax",
  "proc-macro2",
@@ -806,14 +806,14 @@ dependencies = [
 
 [[package]]
 name = "mitsuami-reactive"
-version = "0.0.1"
+version = "1.0.0"
 dependencies = [
  "slotmap",
 ]
 
 [[package]]
 name = "mitsuami-test"
-version = "0.0.1"
+version = "1.0.0"
 dependencies = [
  "inventory",
  "mitsuami-appkit",
@@ -831,7 +831,7 @@ dependencies = [
 
 [[package]]
 name = "mitsuami-test-macros"
-version = "0.0.1"
+version = "1.0.0"
 dependencies = [
  "proc-macro2",
  "quote",
@@ -840,7 +840,7 @@ dependencies = [
 
 [[package]]
 name = "mitsuami-widgets"
-version = "0.0.1"
+version = "1.0.0"
 dependencies = [
  "mitsuami-core",
  "mitsuami-reactive",
@@ -848,7 +848,7 @@ dependencies = [
 
 [[package]]
 name = "mitsuami-winui"
-version = "0.0.1"
+version = "1.0.0"
 dependencies = [
  "mitsuami-core",
  "mitsuami-reactive",
