@@ -30,7 +30,7 @@ use objc2_app_kit::{
     NSAnimationContext, NSBorderType, NSControlTextEditingDelegate, NSDragOperation, NSEvent, NSEventModifierFlags,
     NSImage, NSMenu, NSPasteboardWriting, NSResponder, NSScrollView, NSTableColumn, NSTableColumnResizingOptions,
     NSTableRowView, NSTableView, NSTableViewColumnAutoresizingStyle, NSTableViewDataSource, NSTableViewDelegate,
-    NSTableViewStyle, NSView, NSViewBoundsDidChangeNotification,
+    NSTableViewStyle, NSView, NSViewBoundsDidChangeNotification, NSViewFrameDidChangeNotification,
 };
 use objc2_foundation::{
     NSArray, NSIndexSet, NSInteger, NSKeyValueObservingOptions, NSMutableIndexSet, NSNotFound, NSNotification,
@@ -87,6 +87,8 @@ pub(crate) struct ListData {
     /// The rows' files, as the app gave them (`Prop::RowFiles`), and by row.
     files: Option<Vec<(RowKey, PathBuf)>>,
     file_of: HashMap<RowKey, PathBuf>,
+    /// Lists only: the row width last reported.
+    row_width: Option<f32>,
 }
 
 impl ListData {
@@ -146,6 +148,21 @@ define_class!(
             let document = clip.and_then(|c| c.subviews().firstObject());
             if let Some(table) = document.and_then(|d| d.downcast::<NSTableView>().ok()) {
                 self.ivars().report_shown(&table);
+            }
+        }
+
+        /// The table's clip view was resized: as the list was, or as legacy
+        /// scrollers came or went, which the list's frame doesn't show
+        /// (its vertical scroller appears once the rows are taller than
+        /// it).
+        #[unsafe(method(clipFrameChanged:))]
+        fn clip_frame_changed(&self, notification: &NSNotification) {
+            let clip = notification.object().and_then(|o| o.downcast::<NSView>().ok());
+            // SAFETY: the clip view is in its scroll view, on the main thread.
+            let scroll = clip.as_ref().and_then(|c| unsafe { c.superview() }).and_then(|s| s.downcast::<NSScrollView>().ok());
+            let document = clip.and_then(|c| c.subviews().firstObject());
+            if let (Some(scroll), Some(table)) = (scroll, document.and_then(|d| d.downcast::<NSTableView>().ok())) {
+                self.ivars().fit_rows(&scroll, &table);
             }
         }
 
@@ -298,6 +315,23 @@ const AHEAD: usize = 2;
 const KEPT: usize = 4;
 
 impl ListIvars {
+    /// Sizes a list's one column to the width its rows get, and reports it
+    /// when it changes: legacy scroll bars and a border take room from the
+    /// rows. A table sizes its columns itself, and reports their widths.
+    fn fit_rows(&self, scroll: &NSScrollView, table: &NSTableView) {
+        if self.data.borrow().table {
+            self.report_widths(table);
+            return;
+        }
+        let Some(column) = table.tableColumns().firstObject() else { return };
+        let width = scroll.contentSize().width;
+        column.setWidth(width);
+        let width = width as f32;
+        if self.data.borrow_mut().row_width.replace(width) != Some(width) {
+            self.events.emit(self.id, UiEvent::RowWidth(width));
+        }
+    }
+
     /// Reports the rows shown and let go since the last report: the rows
     /// the table has row views for, the rows within `AHEAD` screenfuls of
     /// the view, and the rows shown before that are still within `KEPT`.
@@ -494,14 +528,10 @@ fn without_animation(f: impl FnOnce()) {
 pub(crate) struct List {
     pub scroll: Retained<NSScrollView>,
     pub table: Retained<ListTable>,
-    /// A list's one column; a table has the app's.
-    column: Option<Retained<NSTableColumn>>,
     _source: Retained<ListSource>,
     /// The table's next responder, which the table doesn't retain.
     _keys: Retained<ListKeys>,
     data: SharedList,
-    /// The row width last reported.
-    reported_width: Cell<Option<f32>>,
     /// AppKit can't tell `Automatic` from `Plain`.
     style: Cell<Option<ListStyle>>,
 }
@@ -518,14 +548,13 @@ impl List {
             unsafe { msg_send![super(ListTable::alloc(mtm).set_ivars(ivars())), initWithFrame: zero_rect()] };
         table.setUsesAutomaticRowHeights(false);
         table.setAllowsEmptySelection(true);
-        let column = if columns {
+        if columns {
             // The table's own header, style and spacing; the columns that
             // expand share its width.
             if table.headerView().is_none() {
                 table.setHeaderView(Some(&objc2_app_kit::NSTableHeaderView::new(mtm)));
             }
             table.setColumnAutoresizingStyle(NSTableViewColumnAutoresizingStyle::UniformColumnAutoresizingStyle);
-            None
         } else {
             table.setHeaderView(None);
             // Rows exactly as high as their hosts, one right below the other.
@@ -535,8 +564,7 @@ impl List {
             let column = NSTableColumn::initWithIdentifier(NSTableColumn::alloc(mtm), &NSString::from_str("row"));
             column.setResizingMask(NSTableColumnResizingOptions::AutoresizingMask);
             table.addTableColumn(&column);
-            Some(column)
-        };
+        }
         // Rows dragged out (`Prop::RowFiles`) are copied, as from apps that
         // aren't the file manager; the table offers nothing outside the app
         // by default.
@@ -559,11 +587,19 @@ impl List {
         scroll.setDocumentView(Some(&table));
         let clip = scroll.contentView();
         clip.setPostsBoundsChangedNotifications(true);
+        clip.setPostsFrameChangedNotifications(true);
         unsafe {
-            NSNotificationCenter::defaultCenter().addObserver_selector_name_object(
+            let center = NSNotificationCenter::defaultCenter();
+            center.addObserver_selector_name_object(
                 &source,
                 sel!(clipBoundsChanged:),
                 Some(NSViewBoundsDidChangeNotification),
+                Some(&clip),
+            );
+            center.addObserver_selector_name_object(
+                &source,
+                sel!(clipFrameChanged:),
+                Some(NSViewFrameDidChangeNotification),
                 Some(&clip),
             );
         }
@@ -576,16 +612,7 @@ impl List {
             keys.setNextResponder(table.nextResponder().as_deref());
             table.setNextResponder(Some(&keys));
         }
-        List {
-            scroll,
-            table,
-            column,
-            _source: source,
-            _keys: keys,
-            data,
-            reported_width: Cell::new(None),
-            style: Cell::new(None),
-        }
+        List { scroll, table, _source: source, _keys: keys, data, style: Cell::new(None) }
     }
 
     /// New rows: the table reloads, keeps the selected rows that stayed
@@ -767,23 +794,10 @@ impl List {
         }
     }
 
-    /// Sizes the list, and its one column to the width rows get, which it
-    /// reports when it changes: legacy scroll bars and a border take room
-    /// from the rows. A table sizes its columns itself, and reports their
-    /// widths.
+    /// Sizes the list, and its rows (`ListIvars::fit_rows`).
     pub(crate) fn set_frame(&self, frame: objc2_foundation::NSRect) {
         self.scroll.setFrame(frame);
-        let ListIvars { id, events, .. } = self.table.ivars();
-        let Some(column) = &self.column else {
-            self.table.ivars().report_widths(&self.table);
-            return;
-        };
-        let width = self.scroll.contentSize().width;
-        column.setWidth(width);
-        let width = width as f32;
-        if self.reported_width.replace(Some(width)) != Some(width) {
-            events.emit(*id, UiEvent::RowWidth(width));
-        }
+        self.table.ivars().fit_rows(&self.scroll, &self.table);
     }
 
     /// A table's columns: their titles, the widths they start at, the ones

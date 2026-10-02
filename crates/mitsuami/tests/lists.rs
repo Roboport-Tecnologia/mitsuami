@@ -449,4 +449,21 @@ async fn winui_item_animations_can_be_turned_off(app: TestApp) {
     assert!(last("animated").is_some_and(|n| n > 0), "{:?}", log.borrow());
 }
 
+/// A list that grows taller than itself gets its vertical scroll bar. Where
+/// the platform's scroll bars take room (AppKit's legacy scrollers, with no
+/// trackpad), the rows get narrower though the list's frame doesn't change:
+/// the mirror check after each settle compares the rows' frames.
+#[mitsuami_test::test]
+async fn rows_make_room_for_a_scroll_bar_that_comes_later(app: TestApp) {
+    let data = signal(items(2));
+    app.mount(move || simple_list(data));
+    app.settle().await;
+    data.set(items(50));
+    app.settle().await;
+
+    let list = app.get_by_test_id("list").frame();
+    let row = app.get_by_role(Role::ListItem, "Item 0").frame();
+    assert!(row.width() <= list.width(), "row {row:?} in list {list:?}");
+}
+
 mitsuami_test::main!();
