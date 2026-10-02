@@ -89,7 +89,7 @@ pub fn view(input: TokenStream) -> TokenStream {
 /// ) -> impl View { … }
 ///
 /// view! { <Counter initial=3 label="Clicks" title={move || …} @change=…/> }
-/// Counter::new().initial(3).label("Clicks")   // the same, as a builder
+/// Counter::new().initial(3).label("Clicks").title(move || …).on_change(…)   // the same, as a builder
 /// ```
 ///
 /// - Parameters are required unless they have `#[prop(default)]`,

@@ -12,18 +12,18 @@ try to make platforms look the same.
 ```rust
 use mitsuami::prelude::*;
 
+fn hello() -> impl View {
+    let clicks = signal(0);
+    view! {
+        <Column padding=Spacing::Xl gap=Spacing::Md>
+            <Text>{move || format!("Clicked {} times", clicks.get())}</Text>
+            <Button @click=move || clicks.update(|c| *c += 1)>"Click me"</Button>
+        </Column>
+    }
+}
+
 fn main() {
-    App::new()
-        .window("Hello", Size::new(320.0, 160.0), || {
-            let clicks = signal(0);
-            view! {
-                <Column padding=Spacing::Xl gap=Spacing::Md>
-                    <Text>{move || format!("Clicked {} times", clicks.get())}</Text>
-                    <Button @click=move || clicks.update(|c| *c += 1)>"Click me"</Button>
-                </Column>
-            }
-        })
-        .run();
+    App::new().window("Hello", Size::new(320.0, 160.0), hello).run();
 }
 ```
 
@@ -47,9 +47,9 @@ The backend is picked by the target OS; there's nothing to configure. Rust
 | Platform | Backend | Needs |
 |---|---|---|
 | macOS 11+ | AppKit | Nothing else |
-| Windows | WinUI 3 | The MSVC toolchain, and the Windows App Runtime 2.4 or later installed |
+| Windows 10 1809+ (packaged apps) or 11 | WinUI 3 | The MSVC toolchain, and the Windows App Runtime 2.4 or later installed |
 | Linux (default) | GTK 4 | GTK 4.10+ and libadwaita 1.4+ development files |
-| Linux (KDE Plasma) | Qt Quick + Kirigami | Qt 6.5+ development files (Qt Quick, Qt Quick Controls, Qt Widgets); at run time Kirigami 6 and `qqc2-desktop-style`, with Breeze for Plasma's look (without it, Fusion) |
+| Linux (KDE Plasma) | Qt Quick + Kirigami | Qt 6.5+ development files (Qt Quick, Qt Quick Controls, Qt Widgets); at run time Kirigami 6.14+ and `qqc2-desktop-style`, with Breeze for Plasma's look (without it, Fusion) |
 
 For KDE Plasma, turn on the `kde` feature (with `gtk` on too, `kde` wins),
 and the test kit's own `kde` feature:

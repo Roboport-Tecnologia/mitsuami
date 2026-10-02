@@ -318,6 +318,7 @@ fn main() {
     App::new()
         // Its AppImages' desktop entry and icon are named after it.
         .id("br.com.roboport.mitsuami.Showcase")
+        .name("mitsuami showcase")
         .open(|| {
             let full = signal(false);
             // On Windows the page takes what the narrower sidebar left:

@@ -17,9 +17,13 @@ type SendFn = Box<dyn FnOnce(&mut Element)>;
 /// itself; pick one per platform with `platform!`:
 ///
 /// ```ignore
+/// use mitsuami::{appkit, gtk};
+///
 /// Button::new("Share").native(platform! {
-///     macos => appkit::tweak(|b: &NSButton| b.setControlSize(NSControlSize::Large)),
-///     gtk => gtk::tweak(|b: &gtk::Button| b.add_css_class("circular")),
+///     macos => appkit::tweak(|b: &appkit::objc2_app_kit::NSButton| {
+///         b.setControlSize(appkit::objc2_app_kit::NSControlSize::Large)
+///     }),
+///     gtk => gtk::tweak(|b: &gtk::gtk::Button| b.add_css_class("circular")),
 ///     _ => Tweak::none(),
 /// })
 /// ```

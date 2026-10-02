@@ -74,7 +74,7 @@ pub trait Drawn: CustomWidget {
 /// impl Render for Rating {
 ///     fn renderer() -> Renderer<Self> {
 ///         platform! {
-///             macos => mitsuami_appkit::native::<Self>().with_drawn(),
+///             macos => mitsuami::appkit::native::<Self>().with_drawn(),
 ///             _ => Renderer::drawn(),
 ///         }
 ///     }

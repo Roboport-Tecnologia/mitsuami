@@ -1,12 +1,12 @@
 //! Testing for mitsuami apps: one API for headless integration tests and
-//! (from M1) end-to-end tests on the native backends.
+//! end-to-end tests on the native backends.
 //!
 //! ```ignore
 //! use mitsuami_test::prelude::*;
 //!
 //! #[mitsuami_test::test]
 //! async fn increments(app: TestApp) {
-//!     app.mount(|| Counter(0));
+//!     app.mount(|| Counter::new().initial(0));
 //!     app.get_by_role(Role::Button, "Increment").click().await;
 //!     app.expect(by_text("Count: 1")).to_be_visible().await;
 //! }
@@ -20,12 +20,15 @@
 //! ```ignore
 //! #[mitsuami_test::story(sizes = [(320, fit)], variants = [Light, Dark])]
 //! fn counter_big_number() -> impl View {
-//!     Counter(42)
+//!     Counter::new().initial(42)
 //! }
 //! ```
 //!
-//! Test targets use `harness = false`: native UI must own the main thread,
-//! so mitsuami runs tests itself. Controls are found through the
+//! Test targets use `harness = false` (a `[[test]]` with
+//! `harness = false` in Cargo.toml): native UI must own the main thread, so
+//! mitsuami runs tests itself. `cargo test` runs them headless;
+//! `MITSUAMI_NATIVE=1 cargo test` runs them on this machine's native
+//! backend. Controls are found through the
 //! accessibility tree, and driven with accessibility actions or synthesized
 //! input, the way users and assistive technology reach them.
 
