@@ -19,6 +19,7 @@ use std::pin::Pin;
 use std::rc::Rc;
 use std::sync::{Arc, Mutex};
 use std::task::{Context, Poll, Wake, Waker};
+use std::thread::ThreadId;
 use std::time::{Duration, Instant};
 
 use mitsuami_reactive::Owner;
@@ -91,9 +92,16 @@ impl Clock for Rc<ManualClock> {
 }
 
 /// Where wakers put ready tasks. Shared with other threads.
-#[derive(Default)]
 struct ReadyQueue {
+    /// Woken on the UI thread: by events, other tasks, timers, spawns.
     ready: Mutex<VecDeque<u64>>,
+    /// Woken on another thread. A tick takes these in once, at its start,
+    /// so a task another thread wakes again while it runs (a frame
+    /// published during a draw that waits for vsync) waits for the run
+    /// loop's next turn, after the platform's input, instead of running
+    /// back to back and holding every event until it pauses.
+    remote: Mutex<VecDeque<u64>>,
+    ui_thread: ThreadId,
     /// Asks the UI thread's run loop to turn (thread-safe).
     wake_ui: Mutex<Option<Arc<dyn Fn() + Send + Sync>>>,
 }
@@ -109,7 +117,12 @@ impl Wake for TaskWaker {
     }
 
     fn wake_by_ref(self: &Arc<Self>) {
-        self.queue.ready.lock().unwrap().push_back(self.id);
+        let queue = if std::thread::current().id() == self.queue.ui_thread {
+            &self.queue.ready
+        } else {
+            &self.queue.remote
+        };
+        queue.lock().unwrap().push_back(self.id);
         let wake_ui = self.queue.wake_ui.lock().unwrap().clone();
         if let Some(wake_ui) = wake_ui {
             wake_ui();
@@ -133,7 +146,12 @@ impl Default for Executor {
         Executor {
             tasks: RefCell::default(),
             next_task: Cell::new(0),
-            queue: Arc::default(),
+            queue: Arc::new(ReadyQueue {
+                ready: Mutex::default(),
+                remote: Mutex::default(),
+                ui_thread: std::thread::current().id(),
+                wake_ui: Mutex::default(),
+            }),
             clock: RefCell::new(Rc::new(SystemClock::default())),
             timers: RefCell::default(),
             next_timer: Cell::new(0),
@@ -187,9 +205,17 @@ impl Executor {
         self.timers.borrow().keys().next().map(|(deadline, _)| *deadline)
     }
 
-    /// Fires due timers and polls ready tasks until nothing is ready.
-    /// Returns whether any task ran.
-    pub(crate) fn run_ready(&self, ui: &Ui) -> bool {
+    /// Fires due timers and polls ready tasks until nothing is ready;
+    /// with `remote`, the tasks other threads woke first. Returns whether
+    /// any task ran.
+    pub(crate) fn run_ready(&self, ui: &Ui, remote: bool) -> bool {
+        if remote {
+            let mut woken = std::mem::take(&mut *self.queue.remote.lock().unwrap());
+            // A task woken several times meanwhile runs once.
+            let mut seen = std::collections::BTreeSet::new();
+            woken.retain(|id| seen.insert(*id));
+            self.queue.ready.lock().unwrap().extend(woken);
+        }
         with_current(ui, || self.poll_ready())
     }
 

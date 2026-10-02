@@ -325,6 +325,7 @@ What the contract gives us:
 - **Threading:** all UI work runs on the main thread, and the reactive runtime is `!Send`.
   - `spawn_local` runs futures on the UI thread.
   - `spawn_blocking` runs work on another thread and resumes the task on the UI thread, through standard `Waker`s that call the run loop's thread-safe waker.
+  - A task another thread wakes runs on the tick's first turn only; woken again while the tick runs, it waits for the run loop's next turn. Otherwise a task that a thread wakes faster than it runs (2ksbox's player: a frame published while each draw waits about 16 ms for vsync) runs back to back and the platform's input waits for it: a locked mouse on macOS reached the guest in bursts every 300 ms. Wakes on the UI thread still settle in the same tick.
   - `sleep` uses the `Ui`'s clock, which tests replace with a manual one (`app.advance(…)`).
 - **Scopes:** tasks and event handlers run in the reactive scope of the component that created them, so `inject`, `spawn_local` and `sleep` work inside them, and disposing the component cancels its tasks.
 - **Order in a batch:** a node is created with its initial props, reactive ones included, before it's inserted; frames come in a second `apply` after structure and props, since layout measures widgets that must exist; focus requests come at the end of the batch's structure, once the node is in a window where a toolkit can focus it.

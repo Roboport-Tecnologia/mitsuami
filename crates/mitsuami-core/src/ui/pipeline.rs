@@ -103,8 +103,10 @@ impl Ui {
         // so a view that never settles doesn't hold the run loop.
         const MAX_SIZE_REPORTS: usize = 8;
         let mut reports = 0;
-        for _ in 0..MAX_TURNS {
-            self.executor.run_ready(self);
+        for turn in 0..MAX_TURNS {
+            // Tasks other threads woke run on the first turn only; one they
+            // wake again meanwhile waits for the next tick (`task.rs`).
+            self.executor.run_ready(self, turn == 0);
             self.process_events();
             self.commit();
             // Views change with their sizes before anything is shown.
