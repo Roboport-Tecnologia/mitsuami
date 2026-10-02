@@ -616,17 +616,15 @@ void mq_set_geometry(QObject* item, double x, double y, double w, double h) {
     quick->setSize(QSizeF(w, h));
 }
 
-static void polish(QQuickItem* item) {
-    item->ensurePolished();
-    for (QQuickItem* child : item->childItems()) polish(child);
-}
-
-// Twice: a layout polished late can change what an earlier one saw.
+// A frame, drawn now rather than at the render loop's next tick, as tests
+// don't wait for one: it polishes until nothing asks to be (a layout
+// polished late changes what an earlier one saw) and syncs the scene. A
+// table view whose rows moved took a frame to move them: polishing alone,
+// however many times, left them where they were.
 void mq_polish_items(QObject* window) {
     auto* quick = qobject_cast<QQuickWindow*>(window);
     if (!quick) return;
-    polish(quick->contentItem());
-    polish(quick->contentItem());
+    (void)quick->grabWindow();
 }
 
 void mq_map_to_scene(QObject* item, double* x, double* y) {
