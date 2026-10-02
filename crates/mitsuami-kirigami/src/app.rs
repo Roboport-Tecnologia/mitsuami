@@ -117,6 +117,13 @@ pub fn init_for_tests() {
         std::env::remove_var("QT_QPA_PLATFORMTHEME");
         std::env::remove_var("QT_QUICK_CONTROLS_STYLE");
         std::env::set_var("XDG_CONFIG_HOME", &config);
+        // Every desktop session names its desktop, and KDE's colour schemes
+        // colour icons only in one: a container without a session (CI's)
+        // would draw them all in the icon's own colours. Empty is no
+        // desktop in particular, as an unset one is to Qt.
+        if std::env::var_os("XDG_CURRENT_DESKTOP").is_none() {
+            std::env::set_var("XDG_CURRENT_DESKTOP", "");
+        }
     }
     init();
     crate::theme::use_default_font();
