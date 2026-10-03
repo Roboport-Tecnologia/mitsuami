@@ -84,12 +84,15 @@ impl State {
                     parts.sidebar_revokers = revokers;
                     parts.sidebar_place = Some(place);
                     parts.sidebar = Some((*child, view));
-                    parts.root.cast::<w::IUIElement>()?.UpdateLayout()?;
                     // The content keeps its size: the window grows by the
-                    // pane.
+                    // pane. First, so the view is first laid out wide: laid
+                    // out at the window's old width, `Auto` closed the pane
+                    // (minimal), and one shown again in a shown window
+                    // could stay closed once the window was wide.
                     if let Some(size) = parts.requested.or(parts.size.get()) {
                         resize_client(parts, size);
                     }
+                    parts.root.cast::<w::IUIElement>()?.UpdateLayout()?;
                     self.nodes.get_mut(child).unwrap().parent = Some(*parent);
                     return Ok(());
                 }
