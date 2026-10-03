@@ -1,0 +1,7 @@
+Window "mitsuami test" [0,0 240×184]
+  Container [0,0 240×184]
+    SearchInput [16,16 208×24]
+    SearchInput placeholder="Find in page" [16,48 208×24]
+    SearchInput value="apricot" [16,80 208×24]
+    SearchInput enabled=false value="apricot" [16,112 208×24]
+    SearchInput tweak value="apricot" [16,144 208×24]

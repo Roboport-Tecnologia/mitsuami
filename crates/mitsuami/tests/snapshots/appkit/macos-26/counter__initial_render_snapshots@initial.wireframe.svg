@@ -1,0 +1,14 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="800" height="600" viewBox="0 0 800 600" font-family="monospace" font-size="9">
+  <rect width="100%" height="100%" fill="white"/>
+  <rect x="0" y="0" width="800" height="600" fill="none" stroke="#8a8f98"/>
+  <rect x="0" y="0" width="800" height="104" fill="none" stroke="#b5bac2" stroke-dasharray="4 3"/>
+  <rect x="16" y="16" width="56" height="16" fill="none" stroke="#3f7f5f"/>
+  <text x="18" y="26" fill="#3f7f5f">Text &quot;Count: 5&quot;</text>
+  <rect x="16" y="40" width="152" height="24" fill="none" stroke="#b5bac2" stroke-dasharray="4 3"/>
+  <rect x="16" y="40" width="85" height="24" fill="none" stroke="#2f6fdf"/>
+  <text x="18" y="50" fill="#2f6fdf">Button &quot;Increment&quot; role=Default</text>
+  <rect x="109" y="40" width="59" height="24" fill="none" stroke="#2f6fdf"/>
+  <text x="111" y="50" fill="#2f6fdf">Button &quot;Reset&quot;</text>
+  <rect x="16" y="72" width="126" height="16" fill="none" stroke="#3f7f5f"/>
+  <text x="18" y="82" fill="#3f7f5f">Text &quot;That's a lot of clicks&quot;</text>
+</svg>

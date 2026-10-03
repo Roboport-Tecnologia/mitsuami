@@ -1,0 +1,7 @@
+Window "mitsuami test" [0,0 420×102]
+  Container [0,0 420×102]
+    Tabs selected=0 tab_icons=["gearshape", "network"] tabs=["General", "Network"] [16,16 388×70]
+      Container [19,43 382×40]
+        Text "Name" [31,55 358×16]
+      Container [16,16 0×0]
+        Text "Nothing here yet." [28,28 358×16]

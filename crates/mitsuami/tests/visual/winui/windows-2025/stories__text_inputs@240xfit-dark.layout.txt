@@ -1,0 +1,6 @@
+Window "mitsuami test" [0,0 240×184]
+  Container [0,0 240×184]
+    TextInput placeholder="Your name" [16,16 208×32]
+    TextInput value="Ada Lovelace" [16,56 208×32]
+    TextInput read_only=true value="ABCD-1234" [16,96 208×32]
+    TextInput enabled=false value="Ada Lovelace" [16,136 208×32]

@@ -1,0 +1,3 @@
+Window "mitsuami test" [0,0 800×600]
+  Container [0,0 240×36]
+    Progress "Upload" progress=0.5 [16,16 208×4]

@@ -1,0 +1,4 @@
+Window "mitsuami test" [0,0 250×66]
+  Container [0,0 250×66]
+    Button "Plain" [16,16 72×34]
+    Button "Tweaked" tweak [96,16 68×34]

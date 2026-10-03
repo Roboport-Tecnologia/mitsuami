@@ -1,0 +1,8 @@
+Window "mitsuami test" [0,0 240×184]
+  Container [0,0 240×184]
+    Text "Widgets behave, size, animate and respond as the platform's own controls do, and text wraps as the platform wraps it." max_lines=2 [16,16 208×32]
+    Text "Widgets behave, size, animate and respond as the platform's own controls do, and text wraps as the platform wraps it." max_lines=1 [16,56 208×16]
+    Text "/Users/someone/Documents/Projects/mitsuami/examples/files/screen.rs" max_lines=1 truncation=Start [16,80 208×16]
+    Text "/Users/someone/Documents/Projects/mitsuami/examples/files/screen.rs" max_lines=1 truncation=Middle [16,104 208×16]
+    Text "/Users/someone/Documents/Projects/mitsuami/examples/files/screen.rs" max_lines=1 truncation=End [16,128 208×16]
+    Text "Tweaked: a line too long for the story, whole in its tooltip" max_lines=1 tweak [16,152 208×16]

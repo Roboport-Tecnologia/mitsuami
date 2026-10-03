@@ -1,0 +1,7 @@
+Window "mitsuami test" [0,0 250×208]
+  Container [0,0 250×208]
+    Slider "Volume" value=30 range=0..100 [16,16 218×34]
+    Slider "Rating" value=4 range=0..5 step=1 [16,62 218×52]
+    Slider "Disabled" enabled=false value=70 range=0..100 [16,126 218×34]
+    Progress "Upload" progress=0.6 [16,172 218×4]
+    Progress "Done" progress=1 [16,188 218×4]

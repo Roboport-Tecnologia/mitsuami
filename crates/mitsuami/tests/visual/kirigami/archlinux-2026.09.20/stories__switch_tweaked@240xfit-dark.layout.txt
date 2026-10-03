@@ -1,0 +1,4 @@
+Window "mitsuami test" [0,0 240×82]
+  Container [0,0 240×82]
+    Switch "Plain" checked=true [16,16 42×21]
+    Switch "Tweaked" checked=true tweak [16,45 97×21]

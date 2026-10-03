@@ -1,0 +1,5 @@
+Window "mitsuami test" [0,0 240×256]
+  Container [0,0 240×256]
+    RadioGroup "Size" options=["Small", "Medium", "Extra large"] selected=none [16,16 87×64]
+    RadioGroup "Size, chosen" options=["Small", "Medium", "Extra large"] selected=2 [16,96 87×64]
+    RadioGroup "Size, disabled" enabled=false options=["Small", "Medium", "Extra large"] selected=1 [16,176 87×64]

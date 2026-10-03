@@ -1,0 +1,5 @@
+Window "mitsuami test" [0,0 250×150]
+  Container [0,0 250×150]
+    Select "Size" options=["Small", "Medium", "Extra large"] selected=0 [16,16 85×34]
+    Select "Size, chosen" options=["Small", "Medium", "Extra large"] selected=2 [16,58 127×34]
+    Select "Size, disabled" enabled=false options=["Small", "Medium", "Extra large"] selected=1 [16,100 102×34]

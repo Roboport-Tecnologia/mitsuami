@@ -1,0 +1,5 @@
+Window "mitsuami test" [0,0 420×280]
+  Container [0,0 420×80]
+    Text "Appearance" style=Title [16,16 388×22]
+    Text "Light, dark, or following the time of day." [16,46 388×18]
+  Sidebar sections=[General, Appearance, Network [Wi-Fi, Bluetooth]] selected=1 [-360,0 360×280]

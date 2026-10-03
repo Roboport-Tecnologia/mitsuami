@@ -1,0 +1,4 @@
+Window "mitsuami test" [0,0 240×104]
+  Container [0,0 240×104]
+    Select "Plain" options=["Small", "Medium", "Large"] selected=1 [16,16 113×32]
+    Select "Tweaked" options=["Small", "Medium", "Large"] selected=1 tweak [16,56 113×32]

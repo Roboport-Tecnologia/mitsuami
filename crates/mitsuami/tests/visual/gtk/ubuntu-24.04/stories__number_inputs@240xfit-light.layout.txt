@@ -1,0 +1,5 @@
+Window "mitsuami test" [0,0 250×150]
+  Container [0,0 250×150]
+    NumberInput "Copies" value=2 range=1..99 [16,16 112×34]
+    NumberInput "Memory" value=512 range=16..4096 step=16 [16,58 112×34]
+    NumberInput "Disabled" enabled=false value=7 range=0..100 [16,100 112×34]

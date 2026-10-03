@@ -1,0 +1,4 @@
+Window "mitsuami test" [0,0 250×64]
+  Container [0,0 250×64]
+    Progress "Plain" progress=0.6 [16,16 218×4]
+    Progress "Tweaked" progress=0.6 tweak [16,32 218×16]

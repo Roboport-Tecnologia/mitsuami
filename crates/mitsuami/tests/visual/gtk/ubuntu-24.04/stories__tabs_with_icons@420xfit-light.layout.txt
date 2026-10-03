@@ -1,0 +1,7 @@
+Window "mitsuami test" [0,0 420×112]
+  Container [0,0 420×112]
+    Tabs selected=0 tab_icons=["emblem-system-symbolic", "network-wired-symbolic"] tabs=["General", "Network"] [16,16 388×80]
+      Container [17,54 386×41]
+        Text "Name" [29,66 362×17]
+      Container [16,16 0×0]
+        Text "Nothing here yet." [28,28 362×17]

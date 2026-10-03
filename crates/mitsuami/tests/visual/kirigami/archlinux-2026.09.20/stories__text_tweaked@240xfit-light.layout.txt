@@ -1,0 +1,8 @@
+Window "mitsuami test" [0,0 240×216]
+  Container [0,0 240×216]
+    Text "Widgets behave, size, animate and respond as the platform's own controls do, and text wraps as the platform wraps it." max_lines=2 [16,16 208×36]
+    Text "Widgets behave, size, animate and respond as the platform's own controls do, and text wraps as the platform wraps it." max_lines=1 [16,60 208×18]
+    Text "/Users/someone/Documents/Projects/mitsuami/examples/files/screen.rs" max_lines=1 truncation=Start [16,86 208×18]
+    Text "/Users/someone/Documents/Projects/mitsuami/examples/files/screen.rs" max_lines=1 truncation=Middle [16,112 208×18]
+    Text "/Users/someone/Documents/Projects/mitsuami/examples/files/screen.rs" max_lines=1 truncation=End [16,138 208×18]
+    Text "Tweaked, with **some** of it _marked up_" max_lines=1 tweak [16,164 208×36]
