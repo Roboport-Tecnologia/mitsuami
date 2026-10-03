@@ -770,6 +770,7 @@ fn counter_big_number() -> impl View { Counter::new().initial(42) }
 **Diffing.**
 
 - A perceptual diff, pixelmatch's: colours are compared by their distance in YIQ, and pixels that differ only by anti-aliasing don't count. `VisualOptions` sets the `threshold` for how different a colour must look (0.1 by default), `max_changed` for the fraction of pixels that may change (0.1% by default), and regions to leave out: nodes found by a query, where they are at capture time (`ignore(by_test_id("clock"))`; a node whose content changes needs a fixed size, so the baseline's content is in the same region), or rects in window coordinates (`ignore_rect`). A story takes `threshold`, `max_changed` and `ignore = [query, …]` as attributes. The `.diff.png` shows changes in red, anti-aliasing in yellow and ignored regions in blue.
+- A capture is taken again, 50 ms apart, until two in a row look alike by the same diff (for at most 2 s): controls animate into a new state, and WinUI's did after the commit that changed them (a progress bar paused, a button enabled again), so one capture caught them at any point of the way.
 - A **layout diff** says *why* pixels moved: a layout change or a native rendering change. Each baseline has the layout it was captured with next to it, `<name>.layout.txt` (the tree snapshot's format), recorded and accepted with the PNG. When pixels change, the failure lists the nodes whose layout or props differ, or says the layout is the same and the platform draws it differently. A layout change alone doesn't fail.
 
 **Review.**

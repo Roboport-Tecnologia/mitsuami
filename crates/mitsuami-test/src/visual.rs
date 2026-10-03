@@ -267,6 +267,18 @@ pub(crate) fn assert(
 
 /// The pixels to leave out, from regions in window coordinates: each is
 /// rounded outwards to whole physical pixels.
+/// Whether two captures look the same, as a baseline is compared: within
+/// the options' thresholds, leaving out the ignored regions.
+pub(crate) fn alike(a: &Image, b: &Image, options: &VisualOptions, ignored: &[Rect]) -> bool {
+    if (a.width, a.height) != (b.width, b.height) {
+        return false;
+    }
+    let mask = Mask::new(a.width, a.height, a.scale_factor, ignored);
+    let diff = compare(&a.rgba, &b.rgba, a.width, a.height, options.threshold, &mask);
+    let considered = mask.considered();
+    considered == 0 || diff.changed as f64 / considered as f64 <= options.max_changed
+}
+
 struct Mask {
     width: u32,
     ignored: Vec<bool>,

@@ -427,9 +427,24 @@ impl TestApp {
             assert!(!frames.is_empty(), "a visual snapshot ignores {query}, which finds nothing");
             ignored.extend(frames);
         }
-        let capture = self.ui.capture(self.window());
-        match self.drive(capture) {
-            Ok(image) => {
+        let capture = || self.drive(self.ui.capture(self.window()));
+        match capture() {
+            Ok(mut image) => {
+                // Controls animate into a new state (a WinUI progress bar
+                // paused, a button enabled again): captures are taken until
+                // two in a row look alike, for no longer than an animation
+                // runs.
+                let deadline = Instant::now() + Duration::from_secs(2);
+                while Instant::now() < deadline {
+                    std::thread::sleep(Duration::from_millis(50));
+                    self.settle_now();
+                    let Ok(next) = capture() else { break };
+                    let same = visual::alike(&image, &next, options, &ignored);
+                    image = next;
+                    if same {
+                        break;
+                    }
+                }
                 let machine = self.machine_dir().expect("only native backends capture");
                 let layout = format::tree(&self.inspect());
                 visual::assert(&self.context, &machine, name, &image, &layout, options, &ignored)
