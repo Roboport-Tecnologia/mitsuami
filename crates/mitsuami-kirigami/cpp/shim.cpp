@@ -23,6 +23,7 @@
 #include <QPixmap>
 #include <QPointer>
 #include <QQmlComponent>
+#include <QQmlContext>
 #include <QQmlEngine>
 #include <QQmlProperty>
 #include <QMutex>
@@ -608,6 +609,11 @@ int32_t mq_child_count(QObject* item) {
 
 QObject* mq_child_at(QObject* item, int32_t index) {
     return qobject_cast<QQuickItem*>(item)->childItems().value(index);
+}
+
+bool mq_has_context(QObject* object) {
+    QQmlContext* context = QQmlEngine::contextForObject(object);
+    return context && context->isValid();
 }
 
 void mq_set_geometry(QObject* item, double x, double y, double w, double h) {

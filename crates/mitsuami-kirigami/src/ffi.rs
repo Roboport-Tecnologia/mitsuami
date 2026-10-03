@@ -41,6 +41,7 @@ unsafe extern "C" {
     fn mq_set_parent_item(item: Raw, parent: Raw, index: i32);
     fn mq_child_count(item: Raw) -> i32;
     fn mq_child_at(item: Raw, index: i32) -> Raw;
+    fn mq_has_context(object: Raw) -> bool;
     fn mq_set_geometry(item: Raw, x: f64, y: f64, w: f64, h: f64);
     fn mq_polish_items(window: Raw);
     fn mq_map_to_scene(item: Raw, x: *mut f64, y: *mut f64);
@@ -616,6 +617,12 @@ impl QmlObject {
     pub fn child_items(self) -> Vec<QmlObject> {
         let count = unsafe { mq_child_count(self.raw()) };
         (0..count).filter_map(|i| QmlObject::from_raw(unsafe { mq_child_at(self.raw(), i) })).collect()
+    }
+
+    /// Whether it still has its QML context: a view's delegate it let go
+    /// has none, until it's deleted.
+    pub(crate) fn has_context(self) -> bool {
+        unsafe { mq_has_context(self.raw()) }
     }
 
     pub(crate) fn set_geometry(self, x: f64, y: f64, width: f64, height: f64) {

@@ -468,11 +468,15 @@ fn selected(view: QmlObject) -> Vec<RowKey> {
 }
 
 /// The delegates the view has, and their rows (and a table's, columns).
+/// A table jumping far lets its delegates go for deleting later, and
+/// takes their QML context at once, so they never say they went
+/// (`Component.onDestruction`): they're left out from then on.
 fn delegates(view: QmlObject) -> Vec<(Slot, QmlObject)> {
     let Some(content) = view.object("contentItem") else { return Vec::new() };
     content
         .child_items()
         .into_iter()
+        .filter(|d| d.has_context())
         .filter_map(|d| {
             let column = usize::try_from(d.int("mitsuamiColumn")).unwrap_or(0);
             Some(((parse(&d.str("mitsuamiKey"))?, column), d))

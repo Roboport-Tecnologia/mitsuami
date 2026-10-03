@@ -114,6 +114,7 @@ QObject* mq_find_by_str(QObject* object, const char* property, const char* value
 void mq_set_parent_item(QObject* item, QObject* parent, int32_t index);
 int32_t mq_child_count(QObject* item);
 QObject* mq_child_at(QObject* item, int32_t index);
+bool mq_has_context(QObject* object);
 void mq_set_geometry(QObject* item, double x, double y, double w, double h);
 void mq_polish_items(QObject* window);
 void mq_map_to_scene(QObject* item, double* x, double* y);
