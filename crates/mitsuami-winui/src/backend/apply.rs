@@ -83,16 +83,22 @@ impl State {
                     children.Append(&view.cast::<w::UIElement>()?)?;
                     parts.sidebar_revokers = revokers;
                     parts.sidebar_place = Some(place);
-                    parts.sidebar = Some((*child, view));
-                    // The content keeps its size: the window grows by the
-                    // pane. First, so the view is first laid out wide: laid
-                    // out at the window's old width, `Auto` closed the pane
+                    parts.sidebar = Some((*child, view.clone()));
+                    // Laid out first at the width the window will have:
+                    // laid out at its old width, `Auto` closed the pane
                     // (minimal), and one shown again in a shown window
                     // could stay closed once the window was wide.
-                    if let Some(size) = parts.requested.or(parts.size.get()) {
-                        resize_client(parts, size);
+                    let size = parts.requested.or(parts.size.get());
+                    if let Some(size) = size {
+                        fe.SetWidth((size.width + crate::sidebar::Sidebar::extra_width(&view, size.width)) as f64)?;
                     }
                     parts.root.cast::<w::IUIElement>()?.UpdateLayout()?;
+                    // The content keeps its size: the window grows by the
+                    // pane, and the view fills it.
+                    if let Some(size) = size {
+                        resize_client(parts, size);
+                    }
+                    fe.SetWidth(f64::NAN)?;
                     self.nodes.get_mut(child).unwrap().parent = Some(*parent);
                     return Ok(());
                 }
