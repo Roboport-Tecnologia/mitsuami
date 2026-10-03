@@ -8,7 +8,7 @@ use mitsuami_core::{
 };
 use windows_core::{IInspectable, Interface};
 
-use super::fields::{report_text_changes, set_later, submit_on_enter};
+use super::fields::{report_text_changes, search_text, set_later, submit_on_enter};
 use super::scroll::{report_offset, report_viewport, set_scrolling};
 use super::styles::separator_style;
 use super::{Node, R, State, Widget, key, violation};
@@ -377,11 +377,14 @@ impl State {
                 )?;
                 // TextChanged also fires (later) for programmatic sets: only
                 // text the core doesn't know about is a user edit. It's a
-                // search too, at once: XAML doesn't wait for a pause.
+                // search too, at once: XAML doesn't wait for a pause. The
+                // text is the field's, as it shows it: the box's own `Text`
+                // follows it later, and a late event read the text from
+                // before the last edit (the contacts search went back).
                 revokers.push(iface.TextChanged({
                     let (emitter, shown) = (emitter.clone(), shown_text.clone());
                     move |sender, _| {
-                        let Some(text) = sender.as_ref().and_then(|s| s.Text().ok()) else { return };
+                        let Some(text) = sender.as_ref().and_then(search_text) else { return };
                         if *shown.borrow() != text {
                             *shown.borrow_mut() = text.clone();
                             emitter.emit(id, UiEvent::Changed(EventValue::Text(text.clone())));

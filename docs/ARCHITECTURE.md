@@ -1039,7 +1039,7 @@ A label, in a text style (§5), wrapping at words.
 - **WinUI edits through its template's `TextBox`,** found in the visual tree once loaded: keys go through its selection, as a `TextInput`'s, `SetValue` sets its text, and focus goes to it. A synthesized Return reports the search itself, since only a real key raises `QuerySubmitted`.
 - **AppKit's tests fire due timers** (`limitDateForMode:` in the backend's `settle`) while a search field is shown, or its searches would never come: offscreen test windows get no run loop. Not always yet: tables and tab views have timers too, which change what their stories capture.
 - **The example's tweaks** are each platform's timing: searching on every keystroke on AppKit (`sendsSearchStringImmediately`), a one-second `search-delay` on GTK, `delaySearch` on Kirigami, and a header on WinUI.
-- **Where it has run:** every backend and headless, tried by hand in the showcase and checked by eye.
+- **Where it has run:** every backend and headless, tried by hand in the showcase and checked by eye. WinUI's `TextChanged` reads the text box's text, as `native_state` does, not the search box's `Text`, which follows it later: a late event from the edit before read the old text as a user's and put it back in the core (`contacts::searching_filters_and_keeps_the_selection` on CI). That change is only type-checked.
 
 ### 13.17 TextArea
 
