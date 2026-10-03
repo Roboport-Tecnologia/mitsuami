@@ -123,7 +123,8 @@ async fn containers_and_groups_report_it(app: TestApp) {
                 |name: &&str| *name,
                 |name| Container::new().height(24).test_id("list row").on_hover(|_| {}).child(Text::new(name)),
             )
-            .height(60),
+            // Taller than GTK's scroll bar, which no list is shorter than.
+            .height(80),
             Row::new().test_id("plain").child(Text::new("Not asked")),
         ))
     });

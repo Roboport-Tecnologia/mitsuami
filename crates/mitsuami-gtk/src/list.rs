@@ -40,7 +40,7 @@ struct Data {
     index: HashMap<RowKey, usize>,
     /// The mounted hosts: a list's rows', a table's cells'.
     hosts: HashMap<Slot, (NodeId, gtk::Widget)>,
-    /// The cells bound (a list's boxes, a table's `TableCell`s), and how
+    /// The cells bound (`ItemCell`s), and how
     /// many item widgets each is bound to (briefly two, while GTK moves a
     /// row between them).
     cells: HashMap<Slot, gtk::Widget>,
@@ -183,23 +183,17 @@ fn view_model(cell: &gtk::Widget) -> Option<gtk::SelectionModel> {
     cell.ancestor(gtk::ColumnView::static_type()).and_downcast::<gtk::ColumnView>()?.model()
 }
 
-/// Puts a host in its cell: a list's box, or a table's cell.
+/// Puts a host in its cell.
 fn attach(cell: &gtk::Widget, host: &gtk::Widget) {
     host.unparent();
-    match cell.downcast_ref::<gtk::Box>() {
-        Some(cell) => cell.append(host),
-        None => host.set_parent(cell),
-    }
+    host.set_parent(cell);
     cell.set_height_request(-1);
 }
 
 /// Takes the hosts out of a cell, which waits at the estimate's height.
 fn detach(cell: &gtk::Widget) {
     while let Some(child) = cell.first_child() {
-        match cell.downcast_ref::<gtk::Box>() {
-            Some(cell) => cell.remove(&child),
-            None => child.unparent(),
-        }
+        child.unparent();
     }
 }
 
@@ -264,7 +258,7 @@ impl List {
     pub(crate) fn new(id: NodeId, events: Events) -> List {
         install_css();
         let data = new_data();
-        let factory = factory(&data, &events, id, 0, || gtk::Box::new(gtk::Orientation::Vertical, 0).upcast());
+        let factory = factory(&data, &events, id, 0, || ItemCell::new(0, None).upcast());
         let view = gtk::ListView::new(None::<gtk::NoSelection>, Some(factory));
         view.add_css_class("mitsuami-list");
         // Activation is double-click or Enter, as in Files.
@@ -363,7 +357,7 @@ impl List {
             let data = self.data.clone();
             let report = self.width_reporter();
             let make = move || {
-                let cell = TableCell::new(index, report.clone());
+                let cell = ItemCell::new(index, Some(report.clone()));
                 // Empty until its host comes, at the estimate's height.
                 cell.set_height_request(data.borrow().estimate());
                 cell.upcast()
@@ -843,24 +837,25 @@ fn sort_of(view: &gtk::ColumnView) -> Option<ColumnSort> {
 mod imp {
     use super::*;
 
-    /// A table's cell: it holds its host at the host's size, centred in
-    /// the row's height, and asks for no width, so the column's width is
-    /// the column's (the host's width follows it, as the core lays it out
-    /// at the width reported).
+    /// A list's row, or a table's cell: it holds its host at the host's
+    /// size, centred in the row's height, and asks for no width, so the
+    /// list's or the column's width is its own (the host's width follows
+    /// it, as the core lays it out at the width reported). A host asking
+    /// for its width would hold the list at the width it had.
     #[derive(Default)]
-    pub(crate) struct TableCell {
+    pub(crate) struct ItemCell {
         pub(super) column: Cell<usize>,
         pub(super) report: RefCell<Option<WidthReport>>,
     }
 
     #[glib::object_subclass]
-    impl ObjectSubclass for TableCell {
-        const NAME: &'static str = "MitsuamiTableCell";
-        type Type = super::TableCell;
+    impl ObjectSubclass for ItemCell {
+        const NAME: &'static str = "MitsuamiItemCell";
+        type Type = super::ItemCell;
         type ParentType = gtk::Widget;
     }
 
-    impl ObjectImpl for TableCell {
+    impl ObjectImpl for ItemCell {
         fn dispose(&self) {
             while let Some(child) = self.obj().first_child() {
                 child.unparent();
@@ -868,7 +863,7 @@ mod imp {
         }
     }
 
-    impl WidgetImpl for TableCell {
+    impl WidgetImpl for ItemCell {
         fn measure(&self, orientation: gtk::Orientation, _for_size: i32) -> (i32, i32, i32, i32) {
             if orientation == gtk::Orientation::Horizontal {
                 return (0, 0, -1, -1);
@@ -894,16 +889,17 @@ mod imp {
 }
 
 glib::wrapper! {
-    pub(crate) struct TableCell(ObjectSubclass<imp::TableCell>)
+    pub(crate) struct ItemCell(ObjectSubclass<imp::ItemCell>)
         @extends gtk::Widget,
         @implements gtk::Accessible, gtk::Buildable, gtk::ConstraintTarget;
 }
 
-impl TableCell {
-    fn new(column: usize, report: WidthReport) -> TableCell {
-        let cell: TableCell = glib::Object::new();
+impl ItemCell {
+    /// A cell in `column`, which reports its width to `report` (a table's).
+    fn new(column: usize, report: Option<WidthReport>) -> ItemCell {
+        let cell: ItemCell = glib::Object::new();
         cell.imp().column.set(column);
-        *cell.imp().report.borrow_mut() = Some(report);
+        *cell.imp().report.borrow_mut() = report;
         cell
     }
 }

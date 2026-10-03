@@ -260,6 +260,15 @@ impl GtkBackend {
                 let size = parts.host.window_root().expect("window hosts have a root").size.get();
                 Rect::new(0.0, 0.0, size.width, size.height)
             }
+            // A list is as large as GTK allocated it, which is never less
+            // than its minimum.
+            Widget::List(list) if list.scrolled.is_mapped() => {
+                let frame = state.frames.borrow().get(widget).copied().unwrap_or_default();
+                match list.scrolled.compute_bounds(&list.scrolled) {
+                    Some(b) => Rect::new(frame.x(), frame.y(), b.width(), b.height()),
+                    None => frame,
+                }
+            }
             _ => state.frames.borrow().get(widget).copied().unwrap_or_default(),
         };
         // A row is where the list view put it, and a cell where the column

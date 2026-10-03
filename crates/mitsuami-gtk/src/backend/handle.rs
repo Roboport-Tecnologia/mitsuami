@@ -85,9 +85,13 @@ impl GtkHandle {
                 .collect()
         };
         for (scrolled, frame) in lists {
-            scrolled.measure(gtk::Orientation::Horizontal, -1);
+            // No smaller than its minimum, as its host allocates it.
+            let (min_width, ..) = scrolled.measure(gtk::Orientation::Horizontal, -1);
+            let width = (frame.width().round() as i32).max(min_width);
+            let (min_height, ..) = scrolled.measure(gtk::Orientation::Vertical, width);
+            let height = (frame.height().round() as i32).max(min_height);
             let transform = gsk::Transform::new().translate(&graphene::Point::new(frame.x(), frame.y()));
-            scrolled.allocate(frame.width().round() as i32, frame.height().round() as i32, -1, Some(transform));
+            scrolled.allocate(width, height, -1, Some(transform));
         }
         self.pump();
     }

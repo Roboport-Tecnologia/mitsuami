@@ -466,4 +466,21 @@ async fn rows_make_room_for_a_scroll_bar_that_comes_later(app: TestApp) {
     assert!(row.width() <= list.width(), "row {row:?} in list {list:?}");
 }
 
+/// Rows follow the list's width as the window gets narrower, as well as
+/// wider: they never hold the list at a width it had.
+#[mitsuami_test::test]
+async fn rows_follow_the_list_as_the_window_narrows(app: TestApp) {
+    let data = signal(items(3));
+    app.mount(move || List::new(data, |i: &Item| i.id, |i| row(i.name, 20.0)).height(100).test_id("list"));
+    app.resize(600.0, 300.0).await;
+    app.resize(300.0, 300.0).await;
+
+    let list = app.get_by_test_id("list").frame();
+    let row = app.get_by_role(Role::ListItem, "Item 0").frame();
+    let native = app.get_by_test_id("list").native_state().frame;
+    assert!(list.width() <= 300.0, "list {list:?}");
+    assert_eq!(native.size, list.size);
+    assert!(row.width() <= list.width(), "row {row:?} in list {list:?}");
+}
+
 mitsuami_test::main!();
