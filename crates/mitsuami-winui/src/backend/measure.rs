@@ -79,8 +79,10 @@ fn min_content_width(label: &w::TextBlock, whole: &str) -> R<f32> {
     if text.MaxLines()? == 1 {
         return width("\u{2026}");
     }
+    // Each word once: a word that comes again is as wide.
     let mut widest = 0.0f32;
-    for word in whole.split_whitespace() {
+    let mut seen = std::collections::HashSet::new();
+    for word in whole.split_whitespace().filter(|word| seen.insert(*word)) {
         widest = widest.max(width(word)?);
     }
     Ok(widest)
@@ -99,7 +101,15 @@ impl WinUiBackend {
             Widget::Label(label) => {
                 let width = request.known_width.or(match request.available_width {
                     AvailableSpace::Definite(w) => Some(w),
-                    AvailableSpace::MinContent => min_content_width(label, &node.label.text).ok(),
+                    AvailableSpace::MinContent => node.label.min_width.get().or_else(|| {
+                        let width = min_content_width(label, &node.label.text).ok();
+                        // Kept once in a window: its font may come from the
+                        // theme, which applies only there.
+                        if label.cast::<w::IFrameworkElement>().and_then(|f| f.IsLoaded()).unwrap_or(false) {
+                            node.label.min_width.set(width);
+                        }
+                        width
+                    }),
                     AvailableSpace::MaxContent => None,
                 });
                 // A label cut off at its start or middle is measured whole,

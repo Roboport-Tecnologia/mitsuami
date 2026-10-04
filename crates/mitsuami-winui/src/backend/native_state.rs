@@ -342,7 +342,7 @@ impl WinUiBackend {
             _ => frame,
         };
         let by_element = state.by_element.borrow();
-        let known = |element: &IInspectable| by_element.get(&key(element)).copied();
+        let known = |element: &IInspectable| by_element.id(key(element));
         let (children, scroll_offset) = match &node.widget {
             Widget::List(list) => (list.children(), Some(list.scroll_offset())),
             Widget::Scroll(s) => {

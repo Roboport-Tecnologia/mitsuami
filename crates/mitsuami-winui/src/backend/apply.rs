@@ -10,7 +10,7 @@ use super::windows::{
     CONTENT_ROW, apply_min_size, client_insets, in_full_screen, insert_toolbar_item, remove_sidebar,
     remove_toolbar_item, resize_client, resize_client_with, scale_of, update_toolbar,
 };
-use super::{R, State, Widget, WindowParts, key, set_help_text, set_hit_testable, violation};
+use super::{R, State, Widget, WindowParts, set_help_text, set_hit_testable, violation};
 use crate::bindings as w;
 
 impl State {
@@ -216,7 +216,7 @@ impl State {
                     parts.focus.set(None);
                 }
                 let Some(node) = self.nodes.remove(id) else { violation(command, "node does not exist") };
-                self.by_element.borrow_mut().remove(&key(&node.element));
+                self.by_element.borrow_mut().remove(*id, &node.element);
                 self.pending_show.retain(|w| w != id);
                 self.menus.windows.remove(id);
                 drop(node.revokers);

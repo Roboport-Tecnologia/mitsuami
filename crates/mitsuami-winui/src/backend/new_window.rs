@@ -309,8 +309,8 @@ impl State {
             }
         })?);
         revokers.push(root_element.PreviewKeyDown({
-            let (emitter, by_element, focus, tab_order, root) =
-                (emitter.clone(), self.by_element.clone(), focus.clone(), tab_order.clone(), root.clone());
+            let (emitter, by_element, focus, tab_order) =
+                (emitter.clone(), self.by_element.clone(), focus.clone(), tab_order.clone());
             move |_, args| {
                 let Some(args) = args.as_ref().and_then(|a| a.cast::<w::IKeyRoutedEventArgs>().ok()) else { return };
                 if args.Key().ok() != Some(w::VirtualKey::Tab) {
@@ -323,7 +323,7 @@ impl State {
                 }
                 let backwards = unsafe { w::GetKeyState(w::VK_SHIFT) } < 0;
                 if let Some(next) =
-                    tab(&root, &by_element, focus.get(), &tab_order.borrow(), backwards, w::FocusState::Keyboard)
+                    tab(&by_element, focus.get(), &tab_order.borrow(), backwards, w::FocusState::Keyboard)
                 {
                     report_focus(&emitter, &focus, Some(next));
                     _ = args.SetHandled(true);

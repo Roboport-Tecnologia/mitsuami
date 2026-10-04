@@ -96,18 +96,22 @@ const COLUMN_MIN: f64 = 2.0 * CELL_PADDING + 16.0;
 /// The gripper at a header's trailing edge that resizes its column.
 const GRIPPER: f64 = 8.0;
 
+/// How many rows a change must touch, at least, to replace a list's items
+/// at once (`set_rows`): fewer keep their containers.
+const REPLACE_ALL_FROM: usize = 64;
+
 /// Glyphs of Segoe Fluent Icons: the sort's chevron, up or down.
 const ASCENDING: &str = "\u{E70E}";
 const DESCENDING: &str = "\u{E70D}";
 
 /// A column's header: a borderless button with its title and the sort's
-/// glyph, as Fluent tables have.
-fn header_markup(title: &str) -> String {
-    let title = title.replace('&', "&amp;").replace('<', "&lt;").replace('>', "&gt;").replace('"', "&quot;");
+/// glyph, as Fluent tables have. The title is set as text, not markup: one
+/// starting with `{` would be read as a markup extension, and fail.
+fn header_markup() -> String {
     format!(
         r#"<Button xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation" Background="Transparent" BorderThickness="0" CornerRadius="0" Padding="{CELL_PADDING},0,{CELL_PADDING},0" HorizontalContentAlignment="Stretch" VerticalContentAlignment="Center" HorizontalAlignment="Stretch" VerticalAlignment="Stretch">
     <Grid>
-        <TextBlock Text="{title}" TextTrimming="CharacterEllipsis" Margin="0,0,16,0" VerticalAlignment="Center"/>
+        <TextBlock TextTrimming="CharacterEllipsis" Margin="0,0,16,0" VerticalAlignment="Center"/>
         <FontIcon Glyph="" FontSize="10" HorizontalAlignment="Right" VerticalAlignment="Center"/>
     </Grid>
 </Button>"#
@@ -154,6 +158,9 @@ struct Data {
     /// The mounted hosts (a list's rows', a table's cells'), and their
     /// heights.
     hosts: HashMap<Slot, (NodeId, w::UIElement)>,
+    /// One past the highest column hosted, which a row's hosts are looked
+    /// up to (`row_hosts`): cells may come before their columns do.
+    host_columns: usize,
     heights: HashMap<Slot, f64>,
     /// The cells of the rows realised, with how many containers each is
     /// realised in.
@@ -476,8 +483,7 @@ impl List {
                     release(&mut d, old, &cell);
                 }
                 if !recycled {
-                    let hosts: Vec<w::UIElement> =
-                        d.hosts.iter().filter(|((row, _), _)| *row == key).map(|(_, (_, host))| host.clone()).collect();
+                    let hosts: Vec<w::UIElement> = row_hosts(&d, key).cloned().collect();
                     for host in hosts {
                         if let Some(old) = d.cells.get(&key).filter(|c| **c != cell) {
                             take_out(old, &host);
@@ -597,9 +603,11 @@ impl List {
         let mut parts = Vec::new();
         let mut revokers = Vec::new();
         for (column, data) in columns.iter().enumerate() {
-            let button: w::Button = w::XamlReader::Load(&header_markup(&data.title))?.cast()?;
+            let button: w::Button = w::XamlReader::Load(&header_markup())?.cast()?;
             let content: w::Grid = button.cast::<w::IContentControl>()?.Content()?.cast()?;
-            let icon: w::FontIcon = content.cast::<w::IPanel>()?.Children()?.GetAt(1)?.cast()?;
+            let inside = content.cast::<w::IPanel>()?.Children()?;
+            inside.GetAt(0)?.cast::<w::ITextBlock>()?.SetText(&data.title)?;
+            let icon: w::FontIcon = inside.GetAt(1)?.cast()?;
             w::AutomationProperties::SetName(&button.cast::<w::UIElement>()?, &data.title)?;
             revokers.push(button.cast::<w::IButtonBase>()?.Click({
                 let (data, events) = (self.data.clone(), events.clone());
@@ -763,7 +771,12 @@ impl List {
             (prefix, old.len() - prefix - suffix, rows[prefix..rows.len() - suffix].to_vec())
         };
         let new_items: Vec<IInspectable> = added.iter().map(|k| boxed(&k.0.to_string())).collect();
-        {
+        // Most of a long list changed (a sort): replaced in one go. Item by
+        // item, the view handles each change and each removal shifts the
+        // rest, which took seconds for thousands of rows.
+        let changed = removed + new_items.len();
+        let replace_all = changed > REPLACE_ALL_FROM && changed > rows.len() / 2;
+        let all = {
             let mut d = self.data.borrow_mut();
             d.items.splice(prefix..prefix + removed, new_items.iter().cloned());
             d.index = rows.iter().enumerate().map(|(i, r)| (*r, i)).collect();
@@ -771,12 +784,17 @@ impl List {
             d.heights.retain(|(k, _), _| index.contains_key(k));
             d.index = index;
             d.rows = rows;
-        }
+            replace_all.then(|| d.items.iter().cloned().map(Some).collect::<Vec<_>>())
+        };
         let items = self.items()?;
         self.data.borrow_mut().muted = true;
         let spliced = (|| -> R<()> {
-            for _ in 0..removed {
-                items.RemoveAt(prefix as u32)?;
+            if let Some(all) = &all {
+                return items.ReplaceAll(all);
+            }
+            // From the end, so the rows still to go don't move.
+            for i in (prefix..prefix + removed).rev() {
+                items.RemoveAt(i as u32)?;
             }
             for (i, item) in new_items.iter().enumerate() {
                 items.InsertAt((prefix + i) as u32, item)?;
@@ -878,6 +896,14 @@ impl List {
             let mut d = self.data.borrow_mut();
             d.selection = keys.to_vec();
             let indexes: Vec<usize> = keys.iter().filter_map(|k| d.index.get(k).copied()).collect();
+            // Already shown (every change of rows sets it again): a multiple
+            // selection would be cleared and made again, row by row.
+            let mut wanted = indexes.clone();
+            wanted.sort_unstable();
+            let wanted: Vec<RowKey> = wanted.iter().map(|i| d.rows[*i]).collect();
+            if selected(&self.view, &d) == wanted {
+                return Ok(());
+            }
             let items: Vec<IInspectable> = indexes.iter().map(|i| d.items[*i].clone()).collect();
             (indexes, items, d.mode)
         };
@@ -953,6 +979,7 @@ impl List {
     pub(crate) fn insert(&self, key: RowKey, column: usize, id: NodeId, host: w::UIElement) {
         let mut d = self.data.borrow_mut();
         d.hosts.insert((key, column), (id, host.clone()));
+        d.host_columns = d.host_columns.max(column + 1);
         if let Some(cell) = d.cells.get(&key).cloned() {
             put_in(&cell, &host);
             place_row(&d, key);
@@ -1234,12 +1261,16 @@ fn find_scroll_viewer(root: &w::DependencyObject) -> Option<w::IScrollViewer> {
     None
 }
 
+/// A row's mounted hosts (a table's cells), looked up by column: scanning
+/// every host for each container realised was slow in long lists.
+fn row_hosts(d: &Data, key: RowKey) -> impl Iterator<Item = &w::UIElement> {
+    (0..d.host_columns).filter_map(move |column| d.hosts.get(&(key, column)).map(|(_, host)| host))
+}
+
 /// A container lets go of a row: its host leaves the cell.
 fn release(d: &mut Data, key: RowKey, cell: &w::Canvas) {
-    for ((row, _), (_, host)) in &d.hosts {
-        if *row == key {
-            take_out(cell, host);
-        }
+    for host in row_hosts(d, key) {
+        take_out(cell, host);
     }
     if d.cells.get(&key) == Some(cell) {
         d.cells.remove(&key);

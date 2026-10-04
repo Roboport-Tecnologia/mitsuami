@@ -8,10 +8,10 @@ use mitsuami_core::{
 };
 use windows_core::{IInspectable, Interface};
 
-use super::fields::{report_text_changes, search_text, set_later, submit_on_enter};
+use super::fields::{report_text_changes, search_text_with, set_later, submit_on_enter};
 use super::scroll::{report_offset, report_viewport, set_scrolling};
 use super::styles::separator_style;
-use super::{Node, R, State, Widget, key, violation};
+use super::{Node, R, State, Widget, violation};
 use crate::bindings as w;
 use crate::custom::{DrawnView, ErasedRender, NativePayload, WinUiCx};
 use crate::surface::SurfaceHost;
@@ -382,9 +382,9 @@ impl State {
                 // follows it later, and a late event read the text from
                 // before the last edit (the contacts search went back).
                 revokers.push(iface.TextChanged({
-                    let (emitter, shown) = (emitter.clone(), shown_text.clone());
+                    let (emitter, shown, field) = (emitter.clone(), shown_text.clone(), RefCell::new(None));
                     move |sender, _| {
-                        let Some(text) = sender.as_ref().and_then(search_text) else { return };
+                        let Some(text) = sender.as_ref().and_then(|s| search_text_with(s, &field)) else { return };
                         if *shown.borrow() != text {
                             *shown.borrow_mut() = text.clone();
                             emitter.emit(id, UiEvent::Changed(EventValue::Text(text.clone())));
@@ -466,10 +466,9 @@ impl State {
             fe.SetWidth(0.0)?;
             fe.SetHeight(0.0)?;
         }
-        self.by_element.borrow_mut().insert(key(&element), id);
-        if let Widget::Window(parts) = &widget {
-            // Focus on the window's own parts resolves to no node.
-            self.by_element.borrow_mut().remove(&key(&parts.host));
+        // Focus on a window's own parts (its host) resolves to no node.
+        if !matches!(widget, Widget::Window(_)) {
+            self.by_element.borrow_mut().insert(id, &element);
         }
         self.nodes.insert(
             id,

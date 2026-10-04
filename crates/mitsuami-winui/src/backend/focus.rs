@@ -1,12 +1,10 @@
 //! Focus: reporting it, the Tab order, and focus going back to a window.
 
 use std::cell::Cell;
-use std::collections::HashMap;
 
 use mitsuami_core::{NodeId, UiEvent};
 use windows_core::{IInspectable, Interface};
 
-use super::native_state::elements;
 use super::{ElementMap, Events, State, Widget, WinUiBackend, key};
 use crate::bindings as w;
 
@@ -33,8 +31,8 @@ pub(super) fn resolve(by_element: &ElementMap, element: Option<IInspectable>) ->
     let mut current: Option<w::DependencyObject> = element?.cast().ok();
     let map = by_element.borrow();
     while let Some(object) = current {
-        if let Some(id) = map.get(&key(&object)) {
-            return Some(*id);
+        if let Some(id) = map.id(key(&object)) {
+            return Some(id);
         }
         current = w::VisualTreeHelper::GetParent(&object).ok();
     }
@@ -122,15 +120,14 @@ pub(super) fn restore_focus(
     let how = w::FocusState::Programmatic;
     let last = focus.get().filter(|id| order.contains(id));
     let now = last
-        .and_then(|id| tab(root, by_element, None, &[id], false, how))
-        .or_else(|| tab(root, by_element, None, order, false, how));
+        .and_then(|id| tab(by_element, None, &[id], false, how))
+        .or_else(|| tab(by_element, None, order, false, how));
     report_focus(emitter, focus, now);
 }
 
 /// Moves focus along the core's Tab order, skipping controls that can't
 /// take focus now, focusing it `how`. Returns the node that took it.
 pub(super) fn tab(
-    root: &w::Grid,
     by_element: &ElementMap,
     from: Option<NodeId>,
     order: &[NodeId],
@@ -140,7 +137,6 @@ pub(super) fn tab(
     if order.is_empty() {
         return None;
     }
-    let elements: HashMap<NodeId, usize> = by_element.borrow().iter().map(|(k, v)| (*v, *k)).collect();
     let start = from.and_then(|f| order.iter().position(|id| *id == f));
     let n = order.len();
     for step in 1..=n {
@@ -150,7 +146,11 @@ pub(super) fn tab(
             (None, false) => step - 1,
             (None, true) => n - step,
         };
-        let Some(element) = elements.get(&order[i]).and_then(|k| find_element(root, *k)) else { continue };
+        // The order is the window's own; one out of XAML's tree doesn't
+        // take focus.
+        let Some(element) = by_element.borrow().element(order[i]).and_then(|e| e.cast::<w::IUIElement>().ok()) else {
+            continue;
+        };
         // A navigation view and a selector bar take focus on their
         // selected item.
         let element = match (element.cast::<w::NavigationView>(), crate::tabs::Tabs::bar_in(&element)) {
@@ -171,32 +171,6 @@ pub(super) fn tab(
     None
 }
 
-/// The element with COM identity `key` under `root`.
-fn find_element(root: &w::Grid, key_: usize) -> Option<w::IUIElement> {
-    fn walk(object: w::DependencyObject, key_: usize, depth: usize) -> Option<w::IUIElement> {
-        if key(&object) == key_ {
-            return object.cast().ok();
-        }
-        if depth > 64 {
-            return None;
-        }
-        let panel = object.cast::<w::IPanel>().ok();
-        if let Some(children) = panel.and_then(|p| p.Children().ok()) {
-            for child in elements(&children) {
-                if let Some(found) = child.cast().ok().and_then(|c| walk(c, key_, depth + 1)) {
-                    return Some(found);
-                }
-            }
-        }
-        let content = object.cast::<w::IContentControl>().ok().and_then(|c| c.Content().ok());
-        if let Some(found) = content.and_then(|c| c.cast().ok()).and_then(|c| walk(c, key_, depth + 1)) {
-            return Some(found);
-        }
-        None
-    }
-    walk(root.cast().ok()?, key_, 0)
-}
-
 impl WinUiBackend {
     /// Tab pressed in `id`: move along its window's order.
     pub(super) fn tab_from(&self, id: NodeId) {
@@ -206,9 +180,7 @@ impl WinUiBackend {
             let node = &state.nodes[&current];
             if let Widget::Window(parts) = &node.widget {
                 let order = parts.tab_order.borrow().clone();
-                if let Some(next) =
-                    tab(&parts.root, &state.by_element, Some(id), &order, false, w::FocusState::Keyboard)
-                {
+                if let Some(next) = tab(&state.by_element, Some(id), &order, false, w::FocusState::Keyboard) {
                     report_focus(&state.emitter, &parts.focus, Some(next));
                 }
                 return;

@@ -241,7 +241,8 @@ impl Services for WinUiServices {
         let owner = self.backend.window_parts(parent, |p| p.hwnd as isize);
         let target: HSTRING = match target {
             Launch::Path(path) => path.as_os_str().into(),
-            Launch::Url(url) => url.into(),
+            Launch::Url(url) if is_url(url) => url.into(),
+            Launch::Url(url) => return reply(Err(ServiceError::Failed(format!("\u{201C}{url}\u{201D} isn't a URL")))),
         };
         let ticket = later::park(reply);
         later::on_ui(&self.queue, move || {
@@ -254,6 +255,18 @@ impl Services for WinUiServices {
     fn set_menu(&mut self, window: Option<NodeId>, menu: &MenuBarData, activate: Rc<dyn Fn(u32)>) {
         self.backend.set_menu(window, menu, activate);
     }
+}
+
+/// Whether `ShellExecuteExW` may take `url` as a URL: it runs anything else
+/// as a path, programs included, where AppKit and GTK only open URLs. A
+/// scheme of one letter is a drive (`C:\…`), and `file:` URLs run programs
+/// too: files go through `Launch::Path`.
+fn is_url(url: &str) -> bool {
+    let Some((scheme, _)) = url.split_once(':') else { return false };
+    let mut chars = scheme.chars();
+    let well_formed = chars.next().is_some_and(|c| c.is_ascii_alphabetic())
+        && chars.all(|c| c.is_ascii_alphanumeric() || matches!(c, '+' | '-' | '.'));
+    well_formed && scheme.len() > 1 && !scheme.eq_ignore_ascii_case("file") && w::Uri::CreateUri(url).is_ok()
 }
 
 fn shell_open(owner: Option<w::HWND>, target: &HSTRING) -> Result<(), ServiceError> {

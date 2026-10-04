@@ -481,13 +481,32 @@ fn geometry(shape: &Shape) -> String {
     d
 }
 
+/// Whether every number in a shape is finite: markup with `NaN` or `inf`
+/// fails to parse, and the drawing with it.
+fn finite(shape: &Shape) -> bool {
+    let rect = |r: &Rect| [r.x(), r.y(), r.width(), r.height()].iter().all(|v| v.is_finite());
+    let point = |p: &Point| p.x.is_finite() && p.y.is_finite();
+    match shape {
+        Shape::Rect(r) | Shape::Ellipse(r) => rect(r),
+        Shape::RoundedRect(r, radius) => rect(r) && radius.is_finite(),
+        Shape::Path(path) => path.elements().iter().all(|element| match element {
+            PathElement::MoveTo(p) | PathElement::LineTo(p) => point(p),
+            PathElement::CurveTo { c1, c2, to } => point(c1) && point(c2) && point(to),
+            PathElement::Close => true,
+        }),
+    }
+}
+
 /// The display list as XAML markup: a canvas of paths, in paint order.
+/// Shapes with numbers that aren't finite (a chart's 0/0) are left out.
 fn markup(drawing: &DisplayList) -> String {
     let mut xaml = String::from(
         r#"<Canvas xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation" IsHitTestVisible="False">"#,
     );
     for op in drawing.ops() {
         let _ = match op {
+            DrawOp::Fill { shape, .. } | DrawOp::Stroke { shape, .. } if !finite(shape) => Ok(()),
+            DrawOp::Stroke { width, .. } if !width.is_finite() => Ok(()),
             DrawOp::Fill { shape, color } => {
                 write!(xaml, r#"<Path Data="{}" Fill="{}"/>"#, geometry(shape), brush(*color))
             }

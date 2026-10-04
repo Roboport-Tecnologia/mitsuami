@@ -24,7 +24,6 @@ pub(super) fn set_later(number: &w::INumberBox, from: f64, to: f64) {
     });
 }
 
-/// A text box's text with its lines ending in `\n`: XAML ends them in
 /// A text box made as text areas are, to measure their lines by: out of
 /// sight, out of the Tab order and of the accessibility tree.
 pub(super) fn text_area_probe() -> R<w::TextBox> {
@@ -53,9 +52,25 @@ pub(super) fn measure_lines(field: &w::TextBox, probe: &w::TextBox, lines: u32) 
     Ok(size)
 }
 
-/// `\r`, whatever they were set with.
+/// A text box's text with its lines ending in `\n`: XAML ends them in
+/// `\r`, whatever they were set with. In one pass, and none without a
+/// line break: it runs on every keystroke, over the whole text.
 pub(super) fn box_text(field: &w::ITextBox) -> windows_core::Result<String> {
-    Ok(field.Text()?.replace("\r\n", "\n").replace('\r', "\n"))
+    let text = field.Text()?;
+    if !text.contains('\r') {
+        return Ok(text);
+    }
+    let mut lines = String::with_capacity(text.len());
+    let mut chars = text.chars().peekable();
+    while let Some(c) = chars.next() {
+        if c == '\r' {
+            chars.next_if_eq(&'\n');
+            lines.push('\n');
+        } else {
+            lines.push(c);
+        }
+    }
+    Ok(lines)
 }
 
 /// Reports a text box's user edits. TextChanged also fires (later) for
@@ -84,6 +99,21 @@ pub(super) fn report_text_changes(
 pub(super) fn search_text(search: &w::AutoSuggestBox) -> Option<String> {
     match search.cast::<w::UIElement>().ok().and_then(|s| inner_text_box(&s)) {
         Some(field) => field.Text().ok(),
+        None => search.cast::<w::IAutoSuggestBox>().and_then(|s| s.Text()).ok(),
+    }
+}
+
+/// What a search box shows, as `search_text`, with the text box in its
+/// template kept in `field`: its edits come a keystroke at a time, and
+/// finding it walks the template. Found again once it leaves the tree (a
+/// new template).
+pub(super) fn search_text_with(search: &w::AutoSuggestBox, field: &RefCell<Option<w::ITextBox>>) -> Option<String> {
+    let loaded = |f: &w::ITextBox| f.cast::<w::IFrameworkElement>().and_then(|f| f.IsLoaded()).unwrap_or(false);
+    let kept = field.borrow().clone().filter(loaded);
+    let found = kept.or_else(|| search.cast::<w::UIElement>().ok().and_then(|s| inner_text_box(&s)));
+    *field.borrow_mut() = found.clone();
+    match found {
+        Some(found) => found.Text().ok(),
         None => search.cast::<w::IAutoSuggestBox>().and_then(|s| s.Text()).ok(),
     }
 }

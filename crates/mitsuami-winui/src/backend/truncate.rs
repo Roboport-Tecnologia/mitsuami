@@ -26,6 +26,10 @@ pub(super) struct LabelText {
     pub(super) name: Option<String>,
     /// Whether the label shows less than the whole text.
     pub(super) cut: bool,
+    /// Its min-content width, once measured: a measure per word, which
+    /// layout asks for again and again. Cleared when the text, its font
+    /// or its limit changes.
+    pub(super) min_width: std::cell::Cell<Option<f32>>,
 }
 
 /// Shows a label's text: whole, cut off at its end by XAML, or cut off at

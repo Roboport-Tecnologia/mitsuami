@@ -213,6 +213,9 @@ impl SurfaceHost {
         state.input.clear();
         TAKES_TAB.with(|t| t.borrow_mut().remove(&state.id));
         CHILDREN.with(|c| c.borrow_mut().remove(&(state.hwnd as isize)));
+        // Gone ones too: every `WM_SETCURSOR` goes through the list.
+        let me = state.me.clone();
+        HOSTS.with(|h| h.borrow_mut().retain(|host| host.strong_count() > 0 && !host.ptr_eq(&me)));
         if state.child.take().is_some() {
             unsafe {
                 _ = w::SetWindowPos(state.hwnd, w::HWND_TOP, 0, 0, 0, 0, w::SWP_HIDEWINDOW as u32);
@@ -1012,23 +1015,21 @@ unsafe extern "system" fn window_proc(hwnd: w::HWND, message: u32, wparam: w::WP
         let cursor = app.unwrap_or_else(|| unsafe { w::LoadCursorW(std::ptr::null_mut(), w::IDC_ARROW) });
         unsafe { w::SetCursor(cursor) };
         return 1;
-    } else if let Some(host) = host
+    } else if let Some(host) = &host
         && let Ok(mut state) = host.try_borrow_mut()
         && state.mouse(message, wparam, lparam)
     {
         // The X buttons' messages answer `TRUE`.
         return (message == w::WM_XBUTTONDOWN as u32 || message == w::WM_XBUTTONUP as u32) as w::LRESULT;
     }
-    if message == w::WM_INPUT as u32 {
-        let host = HOSTS.with(|h| {
-            h.borrow().iter().filter_map(Weak::upgrade).find(|s| s.try_borrow().is_ok_and(|s| s.hwnd == hwnd))
-        });
-        if let Some(host) = host
-            && let Ok(state) = host.try_borrow()
-            && state.locked
-        {
-            state.raw_input(lparam as w::HRAWINPUT);
-        }
+    // The surface found above: a locked mouse sends up to a thousand a
+    // second.
+    if message == w::WM_INPUT as u32
+        && let Some(host) = &host
+        && let Ok(state) = host.try_borrow()
+        && state.locked
+    {
+        state.raw_input(lparam as w::HRAWINPUT);
     }
     unsafe { w::DefWindowProcW(hwnd, message, wparam, lparam) }
 }

@@ -425,8 +425,38 @@ struct Menus {
     activate: Option<Rc<dyn Fn(u32)>>,
 }
 
-/// Native element (by COM identity) → node, shared with focus handlers.
-type ElementMap = Rc<RefCell<HashMap<usize, NodeId>>>;
+/// Native elements (by COM identity) → nodes, and back, shared with focus
+/// handlers. Windows aren't in it: focus on their own parts is no node's.
+#[derive(Default)]
+struct Elements {
+    ids: HashMap<usize, NodeId>,
+    /// Tab looks elements up here: walking the window's tree for each
+    /// candidate made every Tab press cost the whole tree.
+    of: HashMap<NodeId, w::UIElement>,
+}
+
+impl Elements {
+    fn insert(&mut self, id: NodeId, element: &w::UIElement) {
+        self.ids.insert(key(element), id);
+        self.of.insert(id, element.clone());
+    }
+
+    fn remove(&mut self, id: NodeId, element: &w::UIElement) {
+        self.ids.remove(&key(element));
+        self.of.remove(&id);
+    }
+
+    /// The node of the element with COM identity `key`.
+    fn id(&self, key: usize) -> Option<NodeId> {
+        self.ids.get(&key).copied()
+    }
+
+    fn element(&self, id: NodeId) -> Option<&w::UIElement> {
+        self.of.get(&id)
+    }
+}
+
+type ElementMap = Rc<RefCell<Elements>>;
 
 /// Emits events and schedules a tick so they get handled soon, even from
 /// modal loops (live resizing).

@@ -670,6 +670,7 @@ impl State {
                 | Prop::Italic(_)
         );
         if shows_text && matches!(node.widget, Widget::Label(_)) {
+            node.label.min_width.set(None);
             truncate::show(node)?;
         }
         Ok(())
