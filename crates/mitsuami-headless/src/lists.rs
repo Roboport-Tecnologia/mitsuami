@@ -192,7 +192,6 @@ impl State {
             if node.kind != WidgetKind::List {
                 continue;
             }
-            let rows = self.rows(*id);
             let mut last = None;
             for child in &node.children {
                 let child = &self.nodes[child];
@@ -202,7 +201,7 @@ impl State {
                         &format!("list {id} has a child that isn't a row host (a Container with a Prop::Row)"),
                     );
                 };
-                let Some(index) = rows.iter().position(|r| r.key == key) else {
+                let Some(index) = node.placed_index.get(&key).copied() else {
                     violation(command, &format!("list {id} hosts row {key:?}, which isn't in its Prop::Rows"));
                 };
                 if last.is_some_and(|last| last >= index) {
@@ -218,7 +217,6 @@ impl State {
     fn check_table(&self, command: &Command, id: NodeId) {
         let node = &self.nodes[&id];
         let columns = find_prop!(node.props, Columns).unwrap_or_default().len();
-        let rows = self.rows(id);
         let mut last = None;
         for child in &node.children {
             let child = &self.nodes[child];
@@ -228,7 +226,7 @@ impl State {
                     &format!("table {id} has a child that isn't a cell host (a Container with a Prop::Cell)"),
                 );
             };
-            let Some(index) = rows.iter().position(|r| r.key == cell.row) else {
+            let Some(index) = node.placed_index.get(&cell.row).copied() else {
                 violation(
                     command,
                     &format!("table {id} hosts a cell of row {:?}, which isn't in its Prop::Rows", cell.row),

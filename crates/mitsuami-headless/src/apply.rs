@@ -88,6 +88,8 @@ impl HeadlessBackend {
                     // Like native lists, removing rows deselects them.
                     if let Prop::Rows(rows) = prop {
                         let selected = find_prop!(state.nodes[id].props, Selected).unwrap_or_default();
+                        let rows: BTreeSet<RowKey> =
+                            if selected.is_empty() { BTreeSet::new() } else { rows.iter().copied().collect() };
                         let kept: Vec<RowKey> = selected.iter().copied().filter(|k| rows.contains(k)).collect();
                         if kept != selected {
                             state.select(*id, kept);
