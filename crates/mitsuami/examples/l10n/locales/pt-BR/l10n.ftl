@@ -4,6 +4,7 @@ system-language = Sistema
 name = Nome
 greeting = Olá, { $name }!
 files = { $count ->
+    [0] { $count } arquivos
     [one] { $count } arquivo
    *[other] { $count } arquivos
 }
@@ -18,6 +19,7 @@ plan-free = Gratuito
 plan-pro = Pro
 save = Salvar
 saved = { $count ->
+    [0] { $count } arquivos salvos.
     [one] Um arquivo salvo.
    *[other] { $count } arquivos salvos.
 }

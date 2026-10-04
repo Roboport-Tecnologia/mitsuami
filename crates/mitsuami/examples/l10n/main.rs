@@ -3,8 +3,8 @@
 //! - The app is in the first of your languages it has (English, German,
 //!   Brazilian Portuguese, Arabic or Japanese), else in English. The
 //!   Language select switches it while it runs, as an in-app setting does.
-//! - Plural forms follow each language's rules: move the slider in Arabic,
-//!   which has six.
+//! - Plural forms follow each language's rules: the list counts files from
+//!   0 to 7, then 11, which in Arabic takes five of its six forms.
 //! - Dates, times and numbers are the platform's, written as your region
 //!   settings write them, whatever the language.
 //! - Arabic lays the window out right to left, and each control mirrors
@@ -42,14 +42,13 @@ fn language_select() -> impl View {
 
 fn messages() -> impl View {
     let name = signal("Ada".to_string());
-    let count = signal(3.0f64);
-    let files = move || count.get().round() as i64;
     view! {
         <Group title=t!("greeting", name = name)>
             <Column gap=Spacing::Sm align=Align::Stretch>
                 <TextInput a11y_label=t!("name") placeholder=t!("name") bind=name/>
-                <Text>{t!("files", count = files())}</Text>
-                <Slider label=t!("files", count = files()) range_with=(0.0, 12.0) bind=count/>
+                <Column gap=Spacing::Xs>
+                    {(0..=7).chain([11]).map(|n: i64| view! { <Text>{t!("files", count = n)}</Text> }).collect::<Vec<_>>()}
+                </Column>
             </Column>
         </Group>
     }
