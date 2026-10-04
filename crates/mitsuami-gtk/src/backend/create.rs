@@ -162,7 +162,7 @@ impl State {
             WidgetKind::Separator => Widget::Separator(gtk::Separator::new(gtk::Orientation::Horizontal)),
             WidgetKind::Icon => Widget::Icon { image: gtk::Image::new(), size: None },
             WidgetKind::FileIcon => {
-                Widget::FileIcon { image: gtk::Image::new(), file: None, thumbnail: None, size: None }
+                Widget::FileIcon { image: gtk::Image::new(), file: None, thumbnail: None, size: None, loading: None }
             }
             WidgetKind::Image => Widget::Picture { picture: gtk::Picture::new(), source: None, fit: None },
             WidgetKind::GpuSurface => Widget::GpuSurface(SurfaceArea::new(id, events.clone())),

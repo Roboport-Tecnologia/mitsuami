@@ -155,6 +155,8 @@ enum Widget {
         file: Option<std::path::PathBuf>,
         thumbnail: Option<bool>,
         size: Option<f32>,
+        /// The icon being read, cancelled by a new one or the node going.
+        loading: Option<gtk::gio::Cancellable>,
     },
     GpuSurface(SurfaceArea),
     Scroll {
@@ -338,6 +340,8 @@ pub(crate) struct State {
     lists_dirty: Cell<bool>,
     /// How many lists and tables there are, so a batch needn't look.
     lists: usize,
+    /// File icons being read, which tests' settles wait for.
+    loads: file_icon::Loads,
 }
 
 impl Drop for State {
@@ -430,6 +434,7 @@ impl GtkBackend {
             menus: Menus::default(),
             lists_dirty: Cell::new(false),
             lists: 0,
+            loads: file_icon::Loads::default(),
         }));
         state.borrow_mut().menus.backend = Rc::downgrade(&state);
         GtkBackend { state }

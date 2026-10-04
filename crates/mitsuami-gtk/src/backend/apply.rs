@@ -260,6 +260,10 @@ impl State {
                 if let Some(Widget::Tabs(tabs)) = node.parent.and_then(|p| self.nodes.get(&p)).map(|n| &n.widget) {
                     tabs.remove(&widget);
                 }
+                // What it was reading isn't shown.
+                if let Widget::FileIcon { loading: Some(loading), .. } = &node.widget {
+                    loading.cancel();
+                }
                 // The app's handle may keep its surface: it just stops showing.
                 if let Widget::GpuSurface(surface) = &node.widget {
                     surface.detach();

@@ -206,6 +206,13 @@ impl GtkHandle {
         self.pump();
     }
 
+    /// Waits for file icons being read, as a user would see them come: they
+    /// finish on GIO's threads, then on the main context.
+    fn wait_for_loads(&self) {
+        let loads = self.state.borrow().loads.clone();
+        pump_until(Duration::from_secs(5), || loads.get() == 0);
+    }
+
     /// Dispatches whatever the GTK main context has ready, without waiting.
     pub fn pump(&self) {
         let context = glib::MainContext::default();
@@ -337,6 +344,7 @@ impl mitsuami_core::TestHooks for GtkHandle {
     fn settle(&self) {
         self.show_pending_windows();
         self.pump();
+        self.wait_for_loads();
         self.layout_lists();
         self.layout_headers();
         self.layout_tabs();

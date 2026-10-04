@@ -183,7 +183,7 @@ impl GtkBackend {
                     props.push(Prop::IconSize(if shown == size.round() { *size } else { shown }));
                 }
             }
-            Widget::FileIcon { image, file, thumbnail, size } => {
+            Widget::FileIcon { image, file, thumbnail, size, .. } => {
                 props.extend(node.a11y_label.clone().map(Prop::Label));
                 props.extend(file.clone().map(Prop::File));
                 props.extend(thumbnail.map(Prop::Thumbnail));

@@ -289,13 +289,21 @@ impl State {
                 image.set_pixel_size(points.round() as i32);
                 *size = Some(*points);
             }
-            (Prop::File(_) | Prop::Thumbnail(_), Widget::FileIcon { image, file, thumbnail, .. }) => {
+            (Prop::File(_) | Prop::Thumbnail(_), Widget::FileIcon { image, file, thumbnail, loading, .. }) => {
                 match prop {
                     Prop::File(path) => *file = Some(path.clone()),
                     Prop::Thumbnail(on) => *thumbnail = Some(*on),
                     _ => {}
                 }
-                super::file_icon::show(image, file.as_deref(), *thumbnail == Some(true));
+                if let Some(old) = loading.take() {
+                    old.cancel();
+                }
+                // A new image may have another natural size (a thumbnail
+                // isn't square): the core measures it again.
+                let events = self.events.clone();
+                let shown = move || events.emit(id, UiEvent::Remeasure);
+                let thumbnail = *thumbnail == Some(true);
+                *loading = super::file_icon::show(image, file.as_deref(), thumbnail, &self.loads, shown);
             }
             (Prop::IconSize(points), Widget::FileIcon { image, size, .. }) => {
                 image.set_pixel_size(points.round() as i32);
