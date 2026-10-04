@@ -4,7 +4,7 @@
 //!   Brazilian Portuguese, Arabic or Japanese), else in English. The
 //!   Language select switches it while it runs, as an in-app setting does.
 //! - Plural forms follow each language's rules: the list counts files from
-//!   0 to 8, which in Arabic takes four of its six forms.
+//!   0 to 8, then 11, which in Arabic takes five of its six forms.
 //! - Dates, times and numbers are the platform's, written as your region
 //!   settings write them, whatever the language.
 //! - Arabic lays the window out right to left, and each control mirrors
@@ -47,7 +47,7 @@ fn messages() -> impl View {
             <Column gap=Spacing::Sm align=Align::Stretch>
                 <TextInput a11y_label=t!("name") placeholder=t!("name") bind=name/>
                 <Column gap=Spacing::Xs>
-                    {(0..=8).map(|n: i64| view! { <Text>{t!("files", count = n)}</Text> }).collect::<Vec<_>>()}
+                    {(0..=8).chain([11]).map(|n: i64| view! { <Text>{t!("files", count = n)}</Text> }).collect::<Vec<_>>()}
                 </Column>
             </Column>
         </Group>
