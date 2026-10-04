@@ -80,7 +80,8 @@ type RenderFn<T> = Rc<dyn Fn(T) -> AnyView>;
 /// Items are matched by key between updates: existing rows keep their nodes
 /// and state (and are moved if needed), new keys render new rows, and rows
 /// whose key disappeared are disposed. A row is rendered once per key; put
-/// signals inside items for per-row updates.
+/// signals inside items for per-row updates. Keys should be unique: a key
+/// that comes again renders its later rows anew on every update.
 pub struct For<T: 'static, K: 'static> {
     each: Value<Vec<T>>,
     key: KeyFn<T, K>,
@@ -109,8 +110,13 @@ impl<T: Clone + 'static, K: Eq + Hash + 'static> View for For<T, K> {
         effect(move || {
             let items = each.get();
             untrack(|| {
-                let mut old: HashMap<K, (NodeId, Owner)> =
-                    rows.borrow_mut().drain(..).map(|(k, id, owner)| (k, (id, owner))).collect();
+                let mut old: HashMap<K, (NodeId, Owner)> = HashMap::new();
+                // Rows of a key that came twice: one is kept, and the others
+                // are let go of with the rows that went, not leaked.
+                let mut gone = Vec::new();
+                for (k, id, owner) in rows.borrow_mut().drain(..) {
+                    gone.extend(old.insert(k, (id, owner)));
+                }
                 let mut next = Vec::with_capacity(items.len());
                 for item in items {
                     let k = key(&item);
@@ -124,11 +130,13 @@ impl<T: Clone + 'static, K: Eq + Hash + 'static> View for For<T, K> {
                     };
                     next.push((k, id, owner));
                 }
-                for (_, (id, owner)) in old {
+                // Rows that went are out of the fragment before they're
+                // destroyed, so each needn't be looked for among the others.
+                ui.set_children(fragment, next.iter().map(|(_, id, _)| *id).collect());
+                for (id, owner) in gone.into_iter().chain(old.into_values()) {
                     owner.dispose();
                     ui.destroy(id);
                 }
-                ui.set_children(fragment, next.iter().map(|(_, id, _)| *id).collect());
                 *rows.borrow_mut() = next;
             });
         });

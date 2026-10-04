@@ -185,4 +185,21 @@ async fn tests_can_provide_fake_stores(app: TestApp) {
     app.expect(by_text("Signed out")).to_exist().await;
 }
 
+#[mitsuami_test::test]
+async fn for_lets_go_of_rows_whose_key_came_twice(app: TestApp) {
+    let items = signal(vec![item(1, "Milk"), item(1, "Eggs")]);
+    let disposed = Rc::new(Cell::new(0));
+    let d = disposed.clone();
+    app.mount(move || list(items, d.clone()));
+    app.expect(by_text("Eggs")).to_be_visible().await;
+    let shown = app.native_node_count();
+    for _ in 0..3 {
+        items.set(vec![item(1, "Milk"), item(1, "Eggs")]);
+        app.settle().await;
+    }
+    // Each update renders the second row again; the one it replaces goes.
+    assert_eq!(app.native_node_count(), shown, "no rows were left behind");
+    assert_eq!(disposed.get(), 3);
+}
+
 mitsuami_test::main!();

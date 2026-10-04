@@ -148,4 +148,32 @@ async fn timers_fire_in_deadline_order(app: TestApp) {
     assert_eq!(log.get_untracked(), ["fast", "medium", "slow"]);
 }
 
+#[mitsuami_test::test]
+async fn a_task_that_keeps_yielding_lets_the_ui_run(app: TestApp) {
+    // Wakes itself and returns once, as `yield_now` does.
+    struct Yield(bool);
+    impl std::future::Future for Yield {
+        type Output = ();
+        fn poll(mut self: std::pin::Pin<&mut Self>, cx: &mut std::task::Context) -> std::task::Poll<()> {
+            if std::mem::replace(&mut self.0, true) {
+                return std::task::Poll::Ready(());
+            }
+            cx.waker().wake_by_ref();
+            std::task::Poll::Pending
+        }
+    }
+    let clicks = signal(0);
+    let handle = app.ui().spawn_local(async move {
+        loop {
+            Yield(false).await;
+        }
+    });
+    app.mount(move || {
+        Button::new(move || format!("Clicked {}", clicks.get())).on_click(move || clicks.update(|n| *n += 1))
+    });
+    app.get(by_role(Role::Button, "Clicked 0")).click().await;
+    app.expect(by_text("Clicked 1")).to_exist().await;
+    handle.cancel();
+}
+
 mitsuami_test::main!();

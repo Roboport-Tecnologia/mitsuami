@@ -202,9 +202,8 @@ impl Executor {
         self.timers.borrow().keys().next().map(|(deadline, _)| *deadline)
     }
 
-    /// Fires due timers and polls ready tasks until nothing is ready;
-    /// with `remote`, the tasks other threads woke first. Returns whether
-    /// any task ran.
+    /// Fires due timers and polls the tasks ready then; with `remote`,
+    /// the tasks other threads woke first. Returns whether any task ran.
     pub(crate) fn run_ready(&self, ui: &Ui, remote: bool) -> bool {
         if remote {
             let mut woken = std::mem::take(&mut *self.queue.remote.lock().unwrap());
@@ -227,7 +226,10 @@ impl Executor {
             waker.wake();
         }
         let mut ran = false;
-        loop {
+        // Only the tasks ready now: one that wakes itself (a `yield_now`
+        // loop) runs again on the tick's next turn, not forever in this one.
+        let ready = self.queue.ready.lock().unwrap().len();
+        for _ in 0..ready {
             let Some(id) = self.queue.ready.lock().unwrap().pop_front() else { break };
             // Take the task out while polling: it may spawn or cancel tasks.
             let Some(mut task) = self.tasks.borrow_mut().remove(&id) else { continue };

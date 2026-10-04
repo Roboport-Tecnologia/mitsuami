@@ -341,10 +341,11 @@ pub(crate) fn build_rows<T: Clone + 'static, K: Eq + Hash + Clone + 'static>(
     // they survive re-runs of the list's effects.
     let rows_scope = Owner::current().map(|o| o.child()).unwrap_or_else(Owner::new_root);
 
+    // Both take the `Ui`: the row handler, kept in the tree, holds it weakly.
     // Puts the mounted rows' hosts in row order.
     let arrange = {
-        let (ui, rows) = (ui.clone(), rows.clone());
-        move || {
+        let rows = rows.clone();
+        move |ui: &Ui| {
             let rows = rows.borrow();
             let mut mounted: Vec<(usize, &Vec<NodeId>)> =
                 rows.mounted.iter().map(|(row, (hosts, _))| (rows.position[row], hosts)).collect();
@@ -352,21 +353,19 @@ pub(crate) fn build_rows<T: Clone + 'static, K: Eq + Hash + Clone + 'static>(
             ui.set_children(id, mounted.into_iter().flat_map(|(_, hosts)| hosts.iter().copied()).collect());
         }
     };
-    let unmount = {
-        let ui = ui.clone();
-        move |rows: &mut Rows<T, K>, row: RowKey| {
-            if let Some((hosts, owner)) = rows.mounted.remove(&row) {
-                owner.dispose();
-                for host in hosts {
-                    ui.destroy(host);
-                }
+    let unmount = move |ui: &Ui, rows: &mut Rows<T, K>, row: RowKey| {
+        if let Some((hosts, owner)) = rows.mounted.remove(&row) {
+            owner.dispose();
+            for host in hosts {
+                ui.destroy(host);
             }
         }
     };
     // The platform shows and lets go of rows: mount and dispose them.
     {
-        let (ui_, rows, arrange, unmount) = (ui.clone(), rows.clone(), arrange.clone(), unmount.clone());
+        let (weak, rows, arrange, unmount) = (ui.downgrade(), rows.clone(), arrange.clone(), unmount);
         ui.on_event(id, move |event| {
+            let Some(ui) = weak.upgrade() else { return };
             match event {
                 UiEvent::RowShown(row) => {
                     let item = {
@@ -378,13 +377,13 @@ pub(crate) fn build_rows<T: Clone + 'static, K: Eq + Hash + Clone + 'static>(
                         item
                     };
                     let owner = rows_scope.child();
-                    let hosts = owner.with(|| mount(&ui_, *row, item));
+                    let hosts = owner.with(|| mount(&ui, *row, item));
                     rows.borrow_mut().mounted.insert(*row, (hosts, owner));
                 }
-                UiEvent::RowHidden(row) => unmount(&mut rows.borrow_mut(), *row),
+                UiEvent::RowHidden(row) => unmount(&ui, &mut rows.borrow_mut(), *row),
                 _ => return,
             }
-            arrange();
+            arrange(&ui);
         });
     }
 
@@ -430,7 +429,7 @@ pub(crate) fn build_rows<T: Clone + 'static, K: Eq + Hash + Clone + 'static>(
                     let gone: Vec<RowKey> =
                         rows.mounted.keys().filter(|row| !rows.items.contains_key(row)).copied().collect();
                     for row in gone {
-                        unmount(rows, row);
+                        unmount(&ui, rows, row);
                     }
                     (order, was)
                 };
@@ -446,7 +445,7 @@ pub(crate) fn build_rows<T: Clone + 'static, K: Eq + Hash + Clone + 'static>(
                     if let Some(row) = scroll {
                         ui.scroll_to_row(id, row);
                     }
-                    return arrange();
+                    return arrange(&ui);
                 };
                 // Selected rows that go are deselected here, before the
                 // rows change: the platform would report it later, after
@@ -470,7 +469,7 @@ pub(crate) fn build_rows<T: Clone + 'static, K: Eq + Hash + Clone + 'static>(
                 if kept.len() != keys.len() {
                     selected.set(kept);
                 }
-                arrange();
+                arrange(&ui);
             });
         });
     }

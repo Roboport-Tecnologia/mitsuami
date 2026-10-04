@@ -114,11 +114,13 @@ impl NumberFormat {
                 },
             },
             grouping: options.use_grouping,
-            minimum_integer_digits: options.minimum_integer_digits,
-            minimum_fraction_digits: options.minimum_fraction_digits,
-            maximum_fraction_digits: options.maximum_fraction_digits,
-            minimum_significant_digits: options.minimum_significant_digits,
-            maximum_significant_digits: options.maximum_significant_digits,
+            // In the ranges `Intl.NumberFormat` takes, so a translation
+            // can't ask for a billion digits.
+            minimum_integer_digits: options.minimum_integer_digits.map(|n| n.clamp(1, 21)),
+            minimum_fraction_digits: options.minimum_fraction_digits.map(|n| n.min(100)),
+            maximum_fraction_digits: options.maximum_fraction_digits.map(|n| n.min(100)),
+            minimum_significant_digits: options.minimum_significant_digits.map(|n| n.clamp(1, 21)),
+            maximum_significant_digits: options.maximum_significant_digits.map(|n| n.clamp(1, 21)),
         }
     }
 }

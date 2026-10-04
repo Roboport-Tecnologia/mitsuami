@@ -82,6 +82,7 @@ impl Ui {
             inner.pending.push(Command::SelectText { id, range });
         }
         let batch = std::mem::take(&mut inner.pending);
+        inner.created.clear();
         if !batch.is_empty() {
             inner.backend.apply(&batch);
         }

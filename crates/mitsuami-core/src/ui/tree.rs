@@ -1,6 +1,8 @@
 //! The tree's structure, and keeping the backend's native children and
 //! props in step with it.
 
+use std::collections::HashSet;
+
 use crate::command::Command;
 use crate::widget::{NodeId, Prop, WidgetKind};
 
@@ -37,9 +39,14 @@ impl Ui {
             if !inner.nodes.contains_key(&parent) {
                 return;
             }
-            let old = inner.nodes[&parent].children.clone();
-            for child in old.iter().filter(|c| !children.contains(c)) {
-                inner.detach(*child);
+            // The parent's children are replaced below, so the ones that go
+            // only lose their parent: detaching each would scan them all.
+            let staying: HashSet<NodeId> = children.iter().copied().collect();
+            let old = std::mem::take(&mut inner.nodes.get_mut(&parent).unwrap().children);
+            for child in old.iter().filter(|c| !staying.contains(c)) {
+                if let Some(node) = inner.nodes.get_mut(child) {
+                    node.parent = None;
+                }
             }
             for child in &children {
                 if inner.nodes.get(child).and_then(|n| n.parent) != Some(parent) {
@@ -110,6 +117,10 @@ impl Inner {
     }
 
     fn queue_prop_now(&mut self, id: NodeId, prop: Prop) {
+        if !self.created.contains(&id) {
+            self.pending.push(Command::SetProp { id, prop });
+            return;
+        }
         let create = self.pending.iter_mut().rev().find_map(|command| match command {
             Command::Create { id: created, props, .. } if *created == id => Some(props),
             _ => None,
@@ -207,7 +218,8 @@ impl Inner {
     fn resync_node(&mut self, parent: NodeId) {
         let desired = self.flattened_children(parent);
         let current = self.nodes[&parent].native_children.clone();
-        for child in current.iter().filter(|c| !desired.contains(c)) {
+        let staying: HashSet<NodeId> = desired.iter().copied().collect();
+        for child in current.iter().filter(|c| !staying.contains(c)) {
             self.detach_native(*child);
         }
         let mut working: Vec<NodeId> = self.nodes[&parent].native_children.clone();

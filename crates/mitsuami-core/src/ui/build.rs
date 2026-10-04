@@ -28,6 +28,7 @@ impl Ui {
             };
             if kind.is_native() {
                 inner.pending.push(Command::Create { id, kind, props: props.clone() });
+                inner.created.insert(id);
             }
             inner.nodes.insert(
                 id,

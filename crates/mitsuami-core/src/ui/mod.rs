@@ -123,6 +123,9 @@ struct Inner {
     taffy: TaffyTree<NodeId>,
     next_id: u32,
     pending: Vec<Command>,
+    /// The nodes whose `Create` is in `pending`, so props set on the others
+    /// don't look for theirs.
+    created: std::collections::HashSet<NodeId>,
     /// Focus requests, sent after the structure of the batch: a node focused
     /// right after it's built isn't in a window yet.
     pending_focus: Vec<NodeId>,
@@ -229,6 +232,7 @@ impl Ui {
                 taffy: TaffyTree::new(),
                 next_id: 1,
                 pending: Vec::new(),
+                created: Default::default(),
                 pending_focus: Vec::new(),
                 pending_selections: Vec::new(),
                 windows: Vec::new(),
