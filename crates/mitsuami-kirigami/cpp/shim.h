@@ -20,6 +20,9 @@ typedef void (*mq_callback)(uint64_t key, int32_t kind, double x, double y);
 // (its native virtual key) in `x`.
 typedef void (*mq_input_callback)(uint64_t key, int32_t kind, int32_t code, int32_t flags, double x, double y);
 
+// An object handed to Rust is being destroyed: its handles die.
+typedef void (*mq_gone_callback)(QObject* object);
+
 // Input kinds.
 enum {
     MQ_KEY_DOWN = 0,
@@ -161,6 +164,11 @@ void mq_key(QObject* window, int32_t key, int32_t modifiers, const char* text);
 QObject* mq_key_filter_new(QObject* item, uint64_t key);
 void mq_key_filter_set(QObject* filter, const int32_t* keys, const int32_t* modifiers, int32_t count);
 void mq_click(QObject* window, double x, double y);
+
+// Handles' liveness: `object` reports to the gone callback when it's
+// destroyed (`QObject::destroyed`, after its own class's destructor).
+void mq_set_gone_callback(mq_gone_callback callback);
+void mq_watch_gone(QObject* object);
 
 // Drawn items and capture.
 QObject* mq_drawn_new(uint64_t key);

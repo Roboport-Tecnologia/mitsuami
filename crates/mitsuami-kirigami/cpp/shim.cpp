@@ -44,6 +44,7 @@
 
 static mq_callback g_callback = nullptr;
 static mq_input_callback g_input = nullptr;
+static mq_gone_callback g_gone = nullptr;
 static QQmlEngine* g_engine = nullptr;
 
 // Pixels the app has in memory, for QML `Image`s: `image://mitsuami/<key>`.
@@ -733,6 +734,16 @@ int32_t mq_connect(QObject* object, const char* signal, uint64_t key) {
 
 int32_t mq_connect_once(QObject* object, const char* signal, uint64_t key) {
     return connect_receiver(object, signal, key, true);
+}
+
+void mq_set_gone_callback(mq_gone_callback callback) { g_gone = callback; }
+
+// Reported even while the process exits (`g_exiting`): a handle must never
+// outlive its object. Rust only touches its thread-locals' if they're there.
+void mq_watch_gone(QObject* object) {
+    QObject::connect(object, &QObject::destroyed, [](QObject* gone) {
+        if (g_gone) g_gone(gone);
+    });
 }
 
 void mq_watch_close(QObject* window, uint64_t key) { window->installEventFilter(new CloseFilter(window, key)); }
