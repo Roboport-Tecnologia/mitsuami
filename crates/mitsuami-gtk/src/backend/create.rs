@@ -160,7 +160,7 @@ impl State {
             WidgetKind::Progress => Widget::Progress { bar: gtk::ProgressBar::new(), pulsing: Rc::default() },
             WidgetKind::Spinner => Widget::Spinner(gtk::Spinner::new()),
             WidgetKind::Separator => Widget::Separator(gtk::Separator::new(gtk::Orientation::Horizontal)),
-            WidgetKind::Icon => Widget::Icon { image: gtk::Image::new(), size: None },
+            WidgetKind::Icon => Widget::Icon { image: gtk::Image::new(), size: None, color: None },
             WidgetKind::FileIcon => {
                 Widget::FileIcon { image: gtk::Image::new(), file: None, thumbnail: None, size: None, loading: None }
             }

@@ -21,6 +21,8 @@ fn font_size(style: TextStyle) -> f32 {
 }
 
 pub(super) fn metrics() -> PlatformMetrics {
+    // Asked for when the metrics changed (and at the start).
+    crate::group::forget_heading_height();
     let settings = gtk::Settings::default();
     let theme = settings.as_ref().and_then(|s| s.gtk_theme_name()).unwrap_or_default().to_lowercase();
     let scale = gdk::Display::default()

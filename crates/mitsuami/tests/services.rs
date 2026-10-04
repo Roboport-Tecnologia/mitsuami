@@ -119,6 +119,42 @@ async fn file_dialogs_return_paths_or_nothing(app: TestApp) {
     app.expect(by_text("importing 2 file(s)")).to_exist().await;
 }
 
+/// A window the app closes while it asks something: its alert and file
+/// dialog close with it, and the app hears what Escape would have said.
+/// The answers are awaited in the launcher's scope, which outlives the
+/// window, as a store's action would be.
+#[mitsuami_test::test]
+async fn dialogs_close_with_their_window(app: TestApp) {
+    let open = signal(true);
+    let answers = signal(Vec::<String>::new());
+    app.mount(move || {
+        let launcher = Owner::current().expect("a scope");
+        Window::new("Machine").open(open).content(move || {
+            let ui = inject::<mitsuami::core::Ui>().expect("a Ui");
+            let mitsuami::core::CurrentWindow(window) = inject().expect("in a window");
+            Button::new("Reset…").on_click(move || {
+                let choice = ui.alert(Some(window), Alert::new("Reset the machine?").button("Reset").button("Cancel"));
+                let file = ui.open_file(Some(window), OpenFile::new());
+                launcher.with(|| {
+                    spawn_local(async move {
+                        let choice = choice.await;
+                        answers.update(|a| a.push(format!("alert {choice}")));
+                        let file = file.await;
+                        answers.update(|a| a.push(format!("file {file:?}")));
+                    });
+                });
+            })
+        })
+    });
+    app.get_by_role(Role::Button, "Reset…").click().await;
+    assert_eq!(app.services().pending_requests(), 2);
+
+    open.set(false);
+    app.settle().await;
+    assert_eq!(app.services().pending_requests(), 0, "both closed");
+    assert_eq!(answers.get_untracked(), ["alert 1", "file None"]);
+}
+
 #[mitsuami_test::test]
 async fn menus_run_their_handlers_and_follow_reactive_state(app: TestApp) {
     app.mount(editor);

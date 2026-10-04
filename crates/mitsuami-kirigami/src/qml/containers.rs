@@ -263,11 +263,12 @@ QQC2.ScrollView {{
     )
 }
 
-/// A list: a `ListView` over the row keys (as strings), in a scroll view,
-/// whose delegates are Qt Quick Controls' item delegates, drawn by the
-/// style with its own highlight. A delegate holds its row's host
-/// (`mitsuamiHost`) once the backend puts it there, and is as high as it,
-/// or the estimate until then.
+/// A list: a `ListView` over the row keys, in a scroll view, whose
+/// delegates are Qt Quick Controls' item delegates, drawn by the style with
+/// its own highlight. Its model is Rust's (`mq_rows_new`), which gives each
+/// row its key (`mitsuamiKey`, as a string) and is changed a run of rows at
+/// a time. A delegate holds its row's host (`mitsuamiHost`) once the backend
+/// puts it there, and is as high as it, or the estimate until then.
 ///
 /// The scroll view is the style's: Breeze's gives its scroll bar a column
 /// of its own, so rows are narrower than the list, and draws its frame when
@@ -275,7 +276,8 @@ QQC2.ScrollView {{
 /// `background` is that frame; setting it directly works on styles from
 /// before `Kirigami.StyleHints.showFramedBackground`.
 ///
-/// Rust sets, on the list view (`mitsuamiListView`), `mitsuamiKeys`,
+/// Rust sets, on the list view (`mitsuamiListView`), `model`,
+/// `mitsuamiKeys` (the keys as strings, for the selection to go through),
 /// `mitsuamiSelected`, `mitsuamiMode` (0 none, 1 single, 2 multiple),
 /// `mitsuamiEstimate` and `mitsuamiScrollTo` (an index), and listens to
 /// `mitsuamiRowsChanged()` (delegates came or went, coalesced to once per
@@ -344,7 +346,6 @@ QQC2.ScrollView {{
         signal mitsuamiRowsChanged()
         signal mitsuamiSelectionChanged()
         signal mitsuamiActivate()
-        model: mitsuamiKeys
         clip: true
         boundsBehavior: Flickable.StopAtBounds
         keyNavigationEnabled: true
@@ -437,9 +438,8 @@ QQC2.ScrollView {{
         }}
         delegate: QQC2.ItemDelegate {{
             id: mitsuamiRow
-            required property string modelData
-            property string mitsuamiKey: modelData
-            readonly property string mitsuamiSlot: modelData + ":0"
+            required property string mitsuamiKey
+            readonly property string mitsuamiSlot: mitsuamiKey + ":0"
             property Item mitsuamiHost: null
             width: view.width
             height: mitsuamiHost ? mitsuamiHost.height : view.mitsuamiEstimate
@@ -448,29 +448,29 @@ QQC2.ScrollView {{
             topInset: 0
             bottomInset: 0
             focusPolicy: Qt.NoFocus
-            highlighted: view.mitsuamiSelectedSet[modelData] === true
+            highlighted: view.mitsuamiSelectedSet[mitsuamiKey] === true
             contentItem: Item {{ }}
             // `clicked` doesn't say which modifiers were held.
             TapHandler {{
-                onTapped: view.mitsuamiPick(modelData, point.modifiers)
+                onTapped: view.mitsuamiPick(mitsuamiKey, point.modifiers)
             }}
             // Dragging a row with a file carries it (or the selection's)
             // out as a copy, as a platform drag (`Drag.Automatic`). With
             // the mouse only: a touch drag scrolls. The list can't take the
             // drag over once it's begun.
-            readonly property var mitsuamiDragUrls: view.mitsuamiDragUrls(modelData)
+            readonly property var mitsuamiDragUrls: view.mitsuamiDragUrls(mitsuamiKey)
             DragHandler {{
                 id: mitsuamiDrag
                 target: null
-                enabled: view.mitsuamiFiles[modelData] !== undefined
+                enabled: view.mitsuamiFiles[mitsuamiKey] !== undefined
                 acceptedDevices: PointerDevice.Mouse
                 grabPermissions: PointerHandler.CanTakeOverFromAnything | PointerHandler.ApprovesTakeOverByHandlersOfSameType
             }}
             Drag.active: mitsuamiDrag.active
             Drag.dragType: Drag.Automatic
             Drag.supportedActions: Qt.CopyAction
-            Drag.mimeData: ({{ "text/uri-list": view.mitsuamiUriList(modelData) }})
-            onDoubleClicked: view.mitsuamiOpen(modelData)
+            Drag.mimeData: ({{ "text/uri-list": view.mitsuamiUriList(mitsuamiKey) }})
+            onDoubleClicked: view.mitsuamiOpen(mitsuamiKey)
             Component.onCompleted: view.mitsuamiAdd(mitsuamiRow)
             Component.onDestruction: view.mitsuamiForget(mitsuamiRow)
         }}
@@ -483,10 +483,9 @@ QQC2.ScrollView {{
 }
 
 /// A table: a QML `TableView` over the row keys, in the style's scroll
-/// view, under a `QQC2.HorizontalHeaderView` synced to it. Its model is a
-/// `TableModel` with a column per table column, each showing the row's key
-/// (`display`, a field per column), made again when the columns change. A cell delegate holds
-/// its cell's host (`mitsuamiHost`) in a slot centred in its row once the
+/// view, under a `QQC2.HorizontalHeaderView` synced to it. Its model is
+/// Rust's, as a list's, with a column per table column, each cell showing
+/// its row's key (`mitsuamiKey`). A cell delegate holds its cell's host (`mitsuamiHost`) in a slot centred in its row once the
 /// backend puts it there, and is as high as it and its padding, at least
 /// as high as the style's item delegates (the rows of its lists). Until
 /// then it's as high as the last row with its hosts (the estimate before
@@ -501,8 +500,9 @@ QQC2.ScrollView {{
 /// widths cells get are `mitsuamiCellWidths` (comma-separated), updated
 /// each time the view lays out.
 ///
-/// Rust sets, on the table view (`mitsuamiTableView`), `mitsuamiColumns`
-/// (JSON: `title`, `width`, `expand`, `sortable`), `mitsuamiKeys`,
+/// Rust sets, on the table view (`mitsuamiTableView`), `model`,
+/// `mitsuamiColumnsJson` (JSON: `title`, `width`, `expand`, `sortable`),
+/// `mitsuamiKeys`,
 /// `mitsuamiSelected`, `mitsuamiMode` (0 none, 1 single, 2 multiple),
 /// `mitsuamiEstimate`, `mitsuamiScrollTo` (an index), `mitsuamiSortColumn`
 /// and `mitsuamiDescending` (the sort shown), and `mitsuamiPressed` (a
@@ -512,7 +512,6 @@ QQC2.ScrollView {{
 pub(crate) fn table() -> String {
     format!(
         r#"
-import Qt.labs.qmlmodels
 Item {{
     id: table
     property bool mitsuamiFramed: false
@@ -668,36 +667,9 @@ Item {{
                 mitsuamiNotify()
             }}
             function mitsuamiRelayout() {{ Qt.callLater(view.forceLayout) }}
-            // A model with a column per column, each showing the row's key.
-            // A `TableModel` made without rows never learns its columns,
-            // so there's none until there are rows, and a new one when the
-            // columns change.
-            property QtObject mitsuamiModel: null
-            function mitsuamiBuild(columnsChanged) {{
-                // Each column shows a field of its own, all the row's key.
-                const rows = mitsuamiKeys.map(k => {{
-                    const row = {{}}
-                    for (let i = 0; i < mitsuamiColumns.length; i++) row["k" + i] = k
-                    return row
-                }})
-                if (mitsuamiModel && !columnsChanged && rows.length > 0) {{
-                    mitsuamiModel.rows = rows
-                    return
-                }}
-                const old = mitsuamiModel
-                if (mitsuamiColumns.length > 0 && rows.length > 0) {{
-                    let text = "import Qt.labs.qmlmodels\nTableModel {{\n"
-                    for (let i = 0; i < mitsuamiColumns.length; i++) text += "TableModelColumn {{ display: \"k" + i + "\" }}\n"
-                    mitsuamiModel = Qt.createQmlObject(text + "}}", view)
-                    mitsuamiModel.rows = rows
-                }} else {{
-                    mitsuamiModel = null
-                }}
-                model = mitsuamiModel
-                if (old) old.destroy()
-            }}
-            onMitsuamiColumnsChanged: mitsuamiBuild(true)
-            onMitsuamiKeysChanged: mitsuamiBuild(false)
+            // The model is Rust's (a column per column, each cell showing
+            // its row's key); the columns' widths go with the columns.
+            onMitsuamiColumnsChanged: mitsuamiRelayout()
             function mitsuamiBaseWidth(column) {{
                 const width = mitsuamiColumns[column].width
                 return width >= 0 ? width : Kirigami.Units.gridUnit * 6
@@ -812,10 +784,9 @@ Item {{
                 id: cell
                 required property int row
                 required property int column
-                required property string display
-                property string mitsuamiKey: display
+                required property string mitsuamiKey
                 property int mitsuamiColumn: column
-                readonly property string mitsuamiSlot: display + ":" + column
+                readonly property string mitsuamiSlot: mitsuamiKey + ":" + column
                 property Item mitsuamiHost: null
                 // Without its host yet, as high as the last row with its
                 // hosts: `TableView` loses track of its extent when rows
@@ -826,7 +797,7 @@ Item {{
                     : Math.max(view.mitsuamiMinRow, view.mitsuamiLastRowHeight >= 0 ? view.mitsuamiLastRowHeight
                         : view.mitsuamiEstimate)
                 onMitsuamiHostChanged: if (mitsuamiHost) view.mitsuamiLearn(row, implicitHeight)
-                color: view.mitsuamiSelectedSet[display] === true ? Kirigami.Theme.highlightColor
+                color: view.mitsuamiSelectedSet[mitsuamiKey] === true ? Kirigami.Theme.highlightColor
                     : view.alternatingRows && row % 2 === 1 ? Kirigami.Theme.alternateBackgroundColor : "transparent"
                 // The host, centred in the row's height.
                 Item {{
@@ -838,25 +809,25 @@ Item {{
                 }}
                 // `tapped` says which modifiers were held.
                 TapHandler {{
-                    onTapped: view.mitsuamiPick(cell.display, point.modifiers)
-                    onDoubleTapped: view.mitsuamiOpen(cell.display)
+                    onTapped: view.mitsuamiPick(cell.mitsuamiKey, point.modifiers)
+                    onDoubleTapped: view.mitsuamiOpen(cell.mitsuamiKey)
                 }}
                 // Dragging a row's cell with a file carries it (or the selection's)
                 // out as a copy, as a platform drag (`Drag.Automatic`). With
                 // the mouse only: a touch drag scrolls. The table can't take the
                 // drag over once it's begun.
-                readonly property var mitsuamiDragUrls: view.mitsuamiDragUrls(cell.display)
+                readonly property var mitsuamiDragUrls: view.mitsuamiDragUrls(cell.mitsuamiKey)
                 DragHandler {{
                     id: mitsuamiDrag
                     target: null
-                    enabled: view.mitsuamiFiles[cell.display] !== undefined
+                    enabled: view.mitsuamiFiles[cell.mitsuamiKey] !== undefined
                     acceptedDevices: PointerDevice.Mouse
                     grabPermissions: PointerHandler.CanTakeOverFromAnything | PointerHandler.ApprovesTakeOverByHandlersOfSameType
                 }}
                 Drag.active: mitsuamiDrag.active
                 Drag.dragType: Drag.Automatic
                 Drag.supportedActions: Qt.CopyAction
-                Drag.mimeData: ({{ "text/uri-list": view.mitsuamiUriList(cell.display) }})
+                Drag.mimeData: ({{ "text/uri-list": view.mitsuamiUriList(cell.mitsuamiKey) }})
                 onImplicitHeightChanged: view.mitsuamiRelayout()
                 Component.onCompleted: view.mitsuamiAdd(cell)
                 Component.onDestruction: view.mitsuamiForget(cell)

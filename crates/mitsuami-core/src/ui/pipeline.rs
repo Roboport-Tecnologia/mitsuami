@@ -28,16 +28,18 @@ impl Ui {
             }
             let next = self.inner.borrow().events.pop();
             let Some((id, event)) = next else { break };
-            let (handlers, meaning) = {
+            let (handlers, drawn) = {
                 let mut inner = self.inner.borrow_mut();
                 inner.absorb(id, &event);
                 let node = inner.nodes.get(&id);
-                // A drawn widget decides what a pointer event means.
-                let meaning = match (&event, node.and_then(|n| n.drawn().map(|c| (c, n.frame.size)))) {
-                    (UiEvent::Pointer(pointer), Some((custom, size))) => custom.pointer(size, pointer),
-                    _ => None,
-                };
-                (node.map(|n| n.handlers.clone()).unwrap_or_default(), meaning)
+                let drawn = node.and_then(|n| n.drawn().map(|c| (c.clone(), n.frame.size)));
+                (node.map(|n| n.handlers.clone()).unwrap_or_default(), drawn)
+            };
+            // A drawn widget decides what a pointer event means, with the
+            // tree free to borrow.
+            let meaning = match (&event, drawn) {
+                (UiEvent::Pointer(pointer), Some((custom, size))) => custom.pointer(size, pointer),
+                _ => None,
             };
             self.changed();
             for event in std::iter::once(event).chain(meaning.map(UiEvent::Custom)) {
@@ -52,6 +54,12 @@ impl Ui {
 
     /// Brings the native tree up to date: styles, structure, props, layout.
     pub fn commit(&self) {
+        // Dialogs on windows that are going close first, while their
+        // windows are still there; their replies only wake tasks.
+        let gone = std::mem::take(&mut self.inner.borrow_mut().destroyed_windows);
+        for window in gone {
+            self.services.borrow_mut().window_destroyed(window);
+        }
         let language = self.l10n.language();
         let mut inner = self.inner.borrow_mut();
         inner.commit_scheduled = false;
@@ -134,19 +142,21 @@ impl Ui {
     /// Custom widgets the backend can't act on get the event their shared
     /// definition gives the action (e.g. `Increment` → a new value).
     pub fn perform(&self, id: NodeId, action: &A11yAction) -> Result<(), ActionError> {
-        let result = {
+        let (result, custom) = {
             let mut inner = self.inner.borrow_mut();
             let result = inner.backend.perform(id, action);
-            match (result, inner.nodes.get(&id).and_then(|n| n.custom())) {
-                (Err(ActionError::Unsupported), Some(custom)) => match custom.action(action) {
-                    Some(event) => {
-                        inner.events.emit(id, UiEvent::Custom(event));
-                        Ok(())
-                    }
-                    None => Err(ActionError::Unsupported),
-                },
-                (result, _) => result,
-            }
+            (result, inner.nodes.get(&id).and_then(|n| n.custom()).cloned())
+        };
+        // The widget's definition runs with the tree free to borrow.
+        let result = match (result, custom) {
+            (Err(ActionError::Unsupported), Some(custom)) => match custom.action(action) {
+                Some(event) => {
+                    self.inner.borrow().events.emit(id, UiEvent::Custom(event));
+                    Ok(())
+                }
+                None => Err(ActionError::Unsupported),
+            },
+            (result, _) => result,
         };
         self.process_events();
         result

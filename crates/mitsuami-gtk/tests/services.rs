@@ -301,6 +301,33 @@ mod checks {
         f.ui.tick();
     }
 
+    /// Destroying their window cancels both: the alert answers its cancel
+    /// button, the file dialog no paths, and both windows go.
+    pub fn dialogs_close_with_their_window(f: &Fixture) {
+        let window = f.ui.create_window("dialog host", Size::new(600.0, 400.0));
+        f.ui.tick();
+        let answers = Rc::new(RefCell::new((None, None)));
+        let (a, b) = (answers.clone(), answers.clone());
+        let alert = f.ui.alert(Some(window), Alert::new("Proceed?").button("Yes").button("No"));
+        let open = f.ui.open_file(Some(window), OpenFile::new());
+        f.ui.spawn_local(async move { a.borrow_mut().0 = Some(alert.await) });
+        f.ui.spawn_local(async move { b.borrow_mut().1 = Some(open.await) });
+        let dialogs = || {
+            let ours = f.handle_windows();
+            gtk::Window::list_toplevels()
+                .into_iter()
+                .filter_map(|w| w.downcast::<gtk::Window>().ok())
+                .filter(|w| w.is_visible() && !ours.contains(w))
+                .count()
+        };
+        pump_until(f, "both dialogs", || dialogs() == 2);
+
+        f.ui.destroy(window);
+        f.ui.tick();
+        pump_until(f, "the answers", || *answers.borrow() == (Some(1), Some(None)));
+        pump_until(f, "the dialogs to close", || dialogs() == 0);
+    }
+
     #[allow(deprecated)] // GtkFileChooser: what GtkFileDialog shows without a portal
     pub fn file_dialogs_start_in_their_folder_and_offer_every_file(f: &Fixture) {
         let window = f.ui.create_window("dialog host", Size::new(600.0, 400.0));
@@ -363,7 +390,7 @@ fn main() {
     use std::panic::{AssertUnwindSafe, catch_unwind};
 
     type Check = (&'static str, fn(&checks::Fixture));
-    let checks: [Check; 9] = [
+    let checks: [Check; 10] = [
         ("clipboard_round_trips", checks::clipboard_round_trips),
         ("menus_are_installed_and_activate", checks::menus_are_installed_and_activate),
         ("items_check_nest_and_take_roles", checks::items_check_nest_and_take_roles),
@@ -371,6 +398,7 @@ fn main() {
         ("dialogs_show_only_their_own_menus", checks::dialogs_show_only_their_own_menus),
         ("alerts_are_answered_through_their_buttons", checks::alerts_are_answered_through_their_buttons),
         ("file_dialogs_report_cancellation", checks::file_dialogs_report_cancellation),
+        ("dialogs_close_with_their_window", checks::dialogs_close_with_their_window),
         (
             "file_dialogs_start_in_their_folder_and_offer_every_file",
             checks::file_dialogs_start_in_their_folder_and_offer_every_file,

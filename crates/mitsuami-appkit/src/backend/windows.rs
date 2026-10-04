@@ -24,10 +24,12 @@ impl AppKitHandle {
         }
         let (window, extra) = (window.clone(), _delegate.extra(window));
         drop(state);
+        // Not `clamp`, which panics on a maximum below the minimum (a
+        // tweak's): the minimum wins, as it does in `at_least_min`.
         let (min, max) = (window.contentMinSize(), window.contentMaxSize());
         window.setContentSize(NSSize::new(
-            (size.width as f64 + extra.width).clamp(min.width, max.width),
-            (size.height as f64 + extra.height).clamp(min.height, max.height),
+            (size.width as f64 + extra.width).min(max.width).max(min.width),
+            (size.height as f64 + extra.height).min(max.height).max(min.height),
         ));
     }
 

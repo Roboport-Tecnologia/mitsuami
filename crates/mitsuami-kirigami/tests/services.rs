@@ -238,6 +238,27 @@ mod checks {
         f.ui.tick();
     }
 
+    /// Destroying their window rejects both, as Escape would: the alert
+    /// answers its cancel button, the file dialog no paths.
+    pub fn dialogs_close_with_their_window(f: &Fixture) {
+        let window = f.ui.create_window("dialog host", Size::new(600.0, 400.0));
+        f.ui.tick();
+        let answers = Rc::new(RefCell::new((None, None)));
+        let (a, b) = (answers.clone(), answers.clone());
+        let alert = f.ui.alert(Some(window), Alert::new("Proceed?").button("Yes").button("No"));
+        let open = f.ui.open_file(Some(window), OpenFile::new());
+        f.ui.spawn_local(async move { a.borrow_mut().0 = Some(alert.await) });
+        f.ui.spawn_local(async move { b.borrow_mut().1 = Some(open.await) });
+        pump_until(f, "both dialogs", || f.handle.open_dialogs().len() == 2);
+        let alert = f.handle.open_dialogs()[0];
+        pump_until(f, "the alert to open", || alert.bool("opened"));
+
+        f.ui.destroy(window);
+        f.ui.tick();
+        pump_until(f, "the answers", || *answers.borrow() == (Some(1), Some(None)));
+        assert!(f.handle.open_dialogs().is_empty());
+    }
+
     pub fn file_dialogs_start_in_their_folder_and_offer_every_file(f: &Fixture) {
         let window = f.ui.create_window("dialog host", Size::new(600.0, 400.0));
         f.ui.tick();
@@ -294,7 +315,7 @@ fn main() {
     use std::panic::{AssertUnwindSafe, catch_unwind};
 
     type Check = (&'static str, fn(&checks::Fixture));
-    let checks: [Check; 10] = [
+    let checks: [Check; 11] = [
         ("clipboard_round_trips", checks::clipboard_round_trips),
         ("menus_are_installed_and_activate", checks::menus_are_installed_and_activate),
         ("submenus_check_marks_and_radio_groups", checks::submenus_check_marks_and_radio_groups),
@@ -303,6 +324,7 @@ fn main() {
         ("dialogs_show_only_their_own_menus", checks::dialogs_show_only_their_own_menus),
         ("alerts_are_answered_through_their_buttons", checks::alerts_are_answered_through_their_buttons),
         ("file_dialogs_report_cancellation", checks::file_dialogs_report_cancellation),
+        ("dialogs_close_with_their_window", checks::dialogs_close_with_their_window),
         (
             "file_dialogs_start_in_their_folder_and_offer_every_file",
             checks::file_dialogs_start_in_their_folder_and_offer_every_file,

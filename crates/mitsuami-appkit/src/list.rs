@@ -29,12 +29,14 @@ use objc2::{DefinedClass, MainThreadMarker, MainThreadOnly, define_class, msg_se
 use objc2_app_kit::{
     NSAnimationContext, NSBorderType, NSControlTextEditingDelegate, NSDragOperation, NSEvent, NSEventModifierFlags,
     NSImage, NSMenu, NSPasteboardWriting, NSResponder, NSScrollView, NSTableColumn, NSTableColumnResizingOptions,
-    NSTableRowView, NSTableView, NSTableViewColumnAutoresizingStyle, NSTableViewDataSource, NSTableViewDelegate,
-    NSTableViewStyle, NSView, NSViewBoundsDidChangeNotification, NSViewFrameDidChangeNotification,
+    NSTableRowView, NSTableView, NSTableViewAnimationOptions, NSTableViewColumnAutoresizingStyle,
+    NSTableViewDataSource, NSTableViewDelegate, NSTableViewStyle, NSView, NSViewBoundsDidChangeNotification,
+    NSViewFrameDidChangeNotification,
 };
 use objc2_foundation::{
     NSArray, NSIndexSet, NSInteger, NSKeyValueObservingOptions, NSMutableIndexSet, NSNotFound, NSNotification,
-    NSNotificationCenter, NSObjectNSKeyValueObserverRegistration, NSPoint, NSSize, NSSortDescriptor, NSString, NSURL,
+    NSNotificationCenter, NSObjectNSKeyValueObserverRegistration, NSPoint, NSRect, NSSize, NSSortDescriptor, NSString,
+    NSURL,
 };
 
 use crate::classes::{HostView, zero_rect};
@@ -66,8 +68,9 @@ pub(crate) struct ListData {
     learned: Option<f64>,
     /// The mounted rows' hosts: a list's row hosts, a table's cell hosts.
     hosts: HashMap<Slot, (NodeId, Retained<NSView>)>,
-    /// The cells of the rows the table shows.
-    cells: HashMap<Slot, Retained<HostView>>,
+    /// The cells of the rows the table shows, by row and then column, so
+    /// a row view's going lets go of its cells without a walk.
+    cells: HashMap<RowKey, HashMap<usize, Retained<HostView>>>,
     /// Tables only: the columns as the app sent them, and the widths last
     /// reported.
     columns: Vec<ColumnData>,
@@ -82,6 +85,11 @@ pub(crate) struct ListData {
     /// Set while the table reloads: rows come and go, and only the
     /// difference is reported at the end.
     reloading: bool,
+    /// How deep the table is in its own layout, where it adds and removes
+    /// row views in a run: they're reported once, as it finishes.
+    laying_out: usize,
+    /// A row view came or went while laying out.
+    shown_stale: bool,
     /// The keys the app gave it (`Prop::Keys`), if any.
     keys: Option<Vec<Shortcut>>,
     /// The rows' files, as the app gave them (`Prop::RowFiles`), and by row.
@@ -258,7 +266,7 @@ define_class!(
                 if let Some((_, host)) = data.hosts.get(&(key, column)) {
                     cell.addSubview(host);
                 }
-                data.cells.insert((key, column), cell.clone());
+                data.cells.entry(key).or_default().insert(column, cell.clone());
             }
             Some(Retained::into_super(cell))
         }
@@ -276,7 +284,7 @@ define_class!(
                 let Some(key) = data.rows.get(row as usize).copied() else { return };
                 data.row_views.insert(row_view as *const _ as usize, key);
             }
-            self.ivars().report_shown(table);
+            self.ivars().row_views_changed(table);
         }
 
         #[unsafe(method(tableView:didRemoveRowView:forRow:))]
@@ -284,9 +292,9 @@ define_class!(
             {
                 let mut data = self.ivars().data.borrow_mut();
                 let Some(key) = data.row_views.remove(&(row_view as *const _ as usize)) else { return };
-                data.cells.retain(|(row, _), _| *row != key);
+                data.cells.remove(&key);
             }
-            self.ivars().report_shown(table);
+            self.ivars().row_views_changed(table);
         }
 
         #[unsafe(method(tableView:shouldSelectRow:))]
@@ -329,6 +337,35 @@ impl ListIvars {
         let width = width as f32;
         if self.data.borrow_mut().row_width.replace(width) != Some(width) {
             self.events.emit(self.id, UiEvent::RowWidth(width));
+        }
+    }
+
+    /// A row view came or went: reported now, or once the table's layout
+    /// that adds and removes them is done. A scroll jump replaces every
+    /// row view in one pass, and reporting after each made it quadratic.
+    fn row_views_changed(&self, table: &NSTableView) {
+        {
+            let mut data = self.data.borrow_mut();
+            if data.laying_out > 0 {
+                data.shown_stale = true;
+                return;
+            }
+        }
+        self.report_shown(table);
+    }
+
+    /// Runs the table's own layout (or preparing content past its view),
+    /// reporting the rows it showed or let go once, at the end.
+    fn batching_row_views(&self, table: &NSTableView, layout: impl FnOnce()) {
+        self.data.borrow_mut().laying_out += 1;
+        layout();
+        let stale = {
+            let mut data = self.data.borrow_mut();
+            data.laying_out -= 1;
+            data.laying_out == 0 && std::mem::take(&mut data.shown_stale)
+        };
+        if stale {
+            self.report_shown(table);
         }
     }
 
@@ -398,6 +435,17 @@ define_class!(
     pub(crate) struct ListTable;
 
     impl ListTable {
+        #[unsafe(method(layout))]
+        fn layout(&self) {
+            self.ivars().batching_row_views(self, || unsafe { msg_send![super(self), layout] });
+        }
+
+        /// Where responsive scrolling adds rows past the view.
+        #[unsafe(method(prepareContentInRect:))]
+        fn prepare_content_in_rect(&self, rect: NSRect) {
+            self.ivars().batching_row_views(self, || unsafe { msg_send![super(self), prepareContentInRect: rect] });
+        }
+
         #[unsafe(method(keyDown:))]
         fn key_down(&self, event: &NSEvent) {
             // Return, and Enter on the keypad, without ⌘, ⌥ or ⌃.
@@ -524,6 +572,120 @@ fn without_animation(f: impl FnOnce()) {
     NSAnimationContext::endGrouping();
 }
 
+/// A change of rows as the table takes it, in order: rows removed (by
+/// their old index), rows moved (each by where it is at that point, to
+/// where it goes), then rows inserted (by their new index). The table
+/// keeps the row views, heights and selection of the rows that stay, where
+/// a reload asks every row's height again and makes every row view anew.
+struct RowChange {
+    removed: Vec<usize>,
+    moved: Vec<(usize, usize)>,
+    inserted: Vec<usize>,
+    /// The moved rows' new indexes, whose heights the table is told of.
+    moved_to: Vec<usize>,
+}
+
+/// Past this many rows changed, and half the list, the table reloads, as
+/// WinUI's lists replace their items: one pass beats many small ones.
+const RELOAD_PAST: usize = 64;
+/// Past this many moves (each a call, and a walk here) the table reloads.
+const MOVES_PAST: usize = 64;
+
+impl RowChange {
+    /// The change from `old` to `new`, or `None` for a reload: a first
+    /// fill, or a change too large. Keys are unique in each.
+    fn between(
+        old: &[RowKey],
+        old_index: &HashMap<RowKey, usize>,
+        new: &[RowKey],
+        new_index: &HashMap<RowKey, usize>,
+    ) -> Option<RowChange> {
+        if old.is_empty() || new.is_empty() || old_index.len() != old.len() || new_index.len() != new.len() {
+            return None;
+        }
+        let removed: Vec<usize> = (0..old.len()).filter(|i| !new_index.contains_key(&old[*i])).collect();
+        let inserted: Vec<usize> = (0..new.len()).filter(|i| !old_index.contains_key(&new[*i])).collect();
+        let changed = removed.len() + inserted.len();
+        if changed > RELOAD_PAST && changed * 2 > new.len() {
+            return None;
+        }
+        // The rows that stay, as they were and as they'll be. The longest
+        // run of them already in order stays put; the others move, each
+        // just after the row before it in the new order.
+        let mut working: Vec<RowKey> = old.iter().copied().filter(|k| new_index.contains_key(k)).collect();
+        let kept: Vec<RowKey> = new.iter().copied().filter(|k| old_index.contains_key(k)).collect();
+        let still = in_order(&kept.iter().map(|k| old_index[k]).collect::<Vec<_>>());
+        if kept.len() - still.len() > MOVES_PAST {
+            return None;
+        }
+        let still: HashSet<RowKey> = still.into_iter().map(|i| kept[i]).collect();
+        let (mut moved, mut moved_to) = (Vec::new(), Vec::new());
+        for (i, key) in kept.iter().enumerate() {
+            if still.contains(key) {
+                continue;
+            }
+            let from = working.iter().position(|k| k == key)?;
+            let after = match i {
+                0 => 0,
+                _ => working.iter().position(|k| *k == kept[i - 1])? + 1,
+            };
+            let to = if from < after { after - 1 } else { after };
+            if from != to {
+                working.remove(from);
+                working.insert(to, *key);
+                moved.push((from, to));
+                moved_to.push(new_index[key]);
+            }
+        }
+        debug_assert_eq!(working, kept);
+        Some(RowChange { removed, moved, inserted, moved_to })
+    }
+
+    /// Tells the table, which asks for the new rows' heights and views.
+    fn apply(&self, table: &NSTableView) {
+        let none = NSTableViewAnimationOptions::EffectNone;
+        table.beginUpdates();
+        if !self.removed.is_empty() {
+            table.removeRowsAtIndexes_withAnimation(&index_set(self.removed.iter().copied()), none);
+        }
+        for (from, to) in &self.moved {
+            table.moveRowAtIndex_toIndex(*from as NSInteger, *to as NSInteger);
+        }
+        if !self.inserted.is_empty() {
+            table.insertRowsAtIndexes_withAnimation(&index_set(self.inserted.iter().copied()), none);
+        }
+        table.endUpdates();
+        if !self.moved_to.is_empty() {
+            table.noteHeightOfRowsWithIndexesChanged(&index_set(self.moved_to.iter().copied()));
+        }
+    }
+}
+
+/// The positions in `values` of a longest increasing run of them
+/// (patience sorting, O(n log n)).
+fn in_order(values: &[usize]) -> Vec<usize> {
+    // `tails[l]`: the position of the smallest value ending a run of l + 1.
+    let mut tails: Vec<usize> = Vec::new();
+    let mut before: Vec<Option<usize>> = vec![None; values.len()];
+    for (i, value) in values.iter().enumerate() {
+        let l = tails.partition_point(|t| values[*t] < *value);
+        before[i] = l.checked_sub(1).map(|l| tails[l]);
+        if l == tails.len() {
+            tails.push(i);
+        } else {
+            tails[l] = i;
+        }
+    }
+    let mut run = Vec::with_capacity(tails.len());
+    let mut at = tails.last().copied();
+    while let Some(i) = at {
+        run.push(i);
+        at = before[i];
+    }
+    run.reverse();
+    run
+}
+
 /// A list's native parts.
 pub(crate) struct List {
     pub scroll: Retained<NSScrollView>,
@@ -615,23 +777,34 @@ impl List {
         List { scroll, table, _source: source, _keys: keys, data, style: Cell::new(None) }
     }
 
-    /// New rows: the table reloads, keeps the selected rows that stayed
-    /// (reporting it if some went), and reports the rows it shows now.
+    /// New rows: the table takes the change (rows removed, moved and
+    /// inserted, or a reload for a large one), keeps the selected rows that
+    /// stayed (reporting it if some went), and reports the rows it shows
+    /// now.
     pub(crate) fn set_rows(&self, rows: Vec<RowKey>) {
         let selected = self.selected();
-        {
+        let change = {
             let mut data = self.data.borrow_mut();
             let index: HashMap<RowKey, usize> = rows.iter().enumerate().map(|(i, r)| (*r, i)).collect();
+            let change = RowChange::between(&data.rows, &data.index, &rows, &index);
             data.heights.retain(|key, _| index.contains_key(key));
             data.cell_heights.retain(|(key, _), _| index.contains_key(key));
-            // The table asks again as it reloads.
-            data.answered.clear();
+            match &change {
+                // The table asks again as it reloads.
+                None => data.answered.clear(),
+                // It keeps the heights of the rows that stay.
+                Some(_) => data.answered.retain(|key, _| index.contains_key(key)),
+            }
             data.index = index;
             data.rows = rows;
             data.muted = true;
             data.reloading = true;
+            change
+        };
+        match change {
+            Some(change) => without_animation(|| change.apply(&self.table)),
+            None => self.table.reloadData(),
         }
-        self.table.reloadData();
         // The table adds its row views back at its next layout: have it
         // now, so rows that stay are seen to stay (and keep their state).
         self.table.setNeedsLayout(true);
@@ -730,7 +903,7 @@ impl List {
     /// shows it.
     pub(crate) fn insert(&self, key: RowKey, column: usize, id: NodeId, view: Retained<NSView>) {
         let mut data = self.data.borrow_mut();
-        if let Some(cell) = data.cells.get(&(key, column)) {
+        if let Some(cell) = data.cells.get(&key).and_then(|cells| cells.get(&column)) {
             cell.addSubview(&view);
             if data.table {
                 cell.center_subviews();
@@ -756,7 +929,7 @@ impl List {
             let height = height as f64;
             if data.table {
                 data.cell_heights.insert((key, column), height);
-                if let Some(cell) = data.cells.get(&(key, column)) {
+                if let Some(cell) = data.cells.get(&key).and_then(|cells| cells.get(&column)) {
                     cell.center_subviews();
                 }
             }

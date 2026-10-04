@@ -684,11 +684,43 @@ fn parse_trigger(accel: &str) -> Option<Shortcut> {
 
 pub struct GtkServices {
     backend: GtkHandle,
+    dialogs: Rc<RefCell<OpenDialogs>>,
+}
+
+/// Alerts and file dialogs waiting for an answer, by the window they're on,
+/// with what cancels them when it goes.
+#[derive(Default)]
+struct OpenDialogs {
+    next: u64,
+    open: Vec<(u64, NodeId, gio::Cancellable)>,
 }
 
 impl GtkServices {
     pub(crate) fn new(backend: GtkHandle) -> GtkServices {
-        GtkServices { backend }
+        GtkServices { backend, dialogs: Rc::default() }
+    }
+
+    /// The window a dialog goes on, and the cancellable that closes it with
+    /// that window. `done` forgets the dialog once it has answered.
+    fn open_dialog(&self, parent: Option<NodeId>) -> (Option<gtk::Window>, gio::Cancellable, Box<dyn Fn()>) {
+        let cancellable = gio::Cancellable::new();
+        let Some((node, window)) = dialog_parent(&self.backend, parent) else {
+            return (None, cancellable, Box::new(|| {}));
+        };
+        let ticket = {
+            let mut dialogs = self.dialogs.borrow_mut();
+            dialogs.next += 1;
+            let ticket = dialogs.next;
+            dialogs.open.push((ticket, node, cancellable.clone()));
+            ticket
+        };
+        let dialogs = Rc::downgrade(&self.dialogs);
+        let done = move || {
+            if let Some(dialogs) = dialogs.upgrade() {
+                dialogs.borrow_mut().open.retain(|(t, ..)| *t != ticket);
+            }
+        };
+        (Some(window), cancellable, Box::new(done))
     }
 }
 
@@ -750,8 +782,10 @@ impl Services for GtkServices {
         // convention is the least committal one (Cancel).
         let cancel = buttons.len() - 1;
         dialog.set_cancel_button(cancel as i32);
-        let window = dialog_parent(&self.backend, parent);
-        dialog.choose(window.as_ref(), None::<&gio::Cancellable>, move |result| {
+        let (window, cancellable, done) = self.open_dialog(parent);
+        // Cancelled (its window went): an error, so the cancel button.
+        dialog.choose(window.as_ref(), Some(&cancellable), move |result| {
+            done();
             reply(result.map_or(cancel, |i| (i.max(0) as usize).min(cancel)))
         });
     }
@@ -767,8 +801,11 @@ impl Services for GtkServices {
         if let Some(folder) = existing_folder(&request.start_folder) {
             dialog.set_initial_folder(Some(&gio::File::for_path(folder)));
         }
-        let window = dialog_parent(&self.backend, parent);
-        let reply = Rc::new(once(reply));
+        let (window, cancellable, done) = self.open_dialog(parent);
+        let reply = Rc::new(once(Box::new(move |paths| {
+            done();
+            reply(paths)
+        })));
         let many =
             {
                 let reply = reply.clone();
@@ -780,7 +817,7 @@ impl Services for GtkServices {
             };
         let one =
             move |result: Result<gio::File, glib::Error>| reply(result.ok().and_then(|f| path(&f)).map(|p| vec![p]));
-        let cancellable = None::<&gio::Cancellable>;
+        let cancellable = Some(&cancellable);
         match (request.directories, request.multiple) {
             (false, false) => dialog.open(window.as_ref(), cancellable, one),
             (false, true) => dialog.open_multiple(window.as_ref(), cancellable, many),
@@ -803,9 +840,11 @@ impl Services for GtkServices {
         if let Some(folder) = existing_folder(&request.start_folder) {
             dialog.set_initial_folder(Some(&gio::File::for_path(folder)));
         }
-        let window = dialog_parent(&self.backend, parent);
-        dialog
-            .save(window.as_ref(), None::<&gio::Cancellable>, move |result| reply(result.ok().and_then(|f| path(&f))));
+        let (window, cancellable, done) = self.open_dialog(parent);
+        dialog.save(window.as_ref(), Some(&cancellable), move |result| {
+            done();
+            reply(result.ok().and_then(|f| path(&f)))
+        });
     }
 
     fn trash(&mut self, _parent: Option<NodeId>, paths: &[PathBuf], reply: Reply<Result<(), ServiceError>>) {
@@ -817,7 +856,7 @@ impl Services for GtkServices {
     /// the portal, which asks which app until the same one was chosen a
     /// few times; they're kept for types with no default, where it asks.
     fn launch(&mut self, parent: Option<NodeId>, target: &Launch, reply: Reply<Result<(), ServiceError>>) {
-        let window = dialog_parent(&self.backend, parent);
+        let window = dialog_parent(&self.backend, parent).map(|(_, window)| window);
         let uri = match target {
             Launch::Path(path) => gio::File::for_path(path).uri().to_string(),
             Launch::Url(url) => url.clone(),
@@ -831,6 +870,31 @@ impl Services for GtkServices {
                 result => reply(result.map_err(|error| ServiceError::Failed(error.message().to_owned()))),
             }
         });
+    }
+
+    /// GTK's dialogs take a cancellable for this: cancelled, they close and
+    /// answer with an error, which is the cancel answer.
+    fn window_destroyed(&mut self, window: NodeId) {
+        let gone: Vec<gio::Cancellable> = {
+            let dialogs = self.dialogs.borrow();
+            dialogs.open.iter().filter(|(_, w, _)| *w == window).map(|(.., c)| c.clone()).collect()
+        };
+        if gone.is_empty() {
+            return;
+        }
+        // An alert's window is transient for its parent and destroyed with
+        // it, before the cancelled alert answers (from an idle) and destroys
+        // that window again, through a pointer it doesn't hold a reference
+        // on. Leave it to the answer.
+        if let Some(parent) = self.backend.gtk_window(window) {
+            let ours: Vec<gtk::Window> = self.backend.windows().into_iter().map(|(_, w)| w).collect();
+            for dialog in gtk::Window::list_toplevels().into_iter().filter_map(|w| w.downcast::<gtk::Window>().ok()) {
+                if dialog.transient_for().as_ref() == Some(&parent) && !ours.contains(&dialog) {
+                    dialog.set_destroy_with_parent(false);
+                }
+            }
+        }
+        gone.iter().for_each(|c| c.cancel());
     }
 
     fn set_menu(&mut self, window: Option<NodeId>, menu: &MenuBarData, activate: Rc<dyn Fn(u32)>) {

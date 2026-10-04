@@ -176,6 +176,42 @@ async fn unmounting_releases_every_row(app: TestApp) {
 }
 
 #[mitsuami_test::test]
+async fn a_row_that_removes_its_own_item_goes(app: TestApp) {
+    // Item 3's row takes its item out of the data as it's built, before
+    // the list has put it in place.
+    let data = signal(items(20));
+    let disposed = Rc::new(Cell::new(0));
+    let d = disposed.clone();
+    app.mount(move || {
+        List::new(
+            data,
+            |i: &Item| i.id,
+            move |i| {
+                if i.id == 3 {
+                    untrack(|| data.update(|items| items.retain(|i| i.id != 3)));
+                    let d = d.clone();
+                    on_cleanup(move || d.set(d.get() + 1));
+                }
+                row(i.name, 20.0)
+            },
+        )
+        .height(100)
+    });
+    app.settle().await;
+
+    assert!(!mounted(&app, 3));
+    assert_eq!(disposed.get(), 1, "its row was disposed");
+    assert!(shows(&app, 4));
+
+    data.update(|items| {
+        items.remove(0);
+    });
+    app.settle().await;
+    assert!(!mounted(&app, 0));
+    assert!(shows(&app, 5));
+}
+
+#[mitsuami_test::test]
 async fn the_selection_binds_both_ways(app: TestApp) {
     let data = signal(items(1000));
     let selected = signal(Vec::<u32>::new());

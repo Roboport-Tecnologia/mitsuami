@@ -30,7 +30,7 @@ use mitsuami_linux::x11::ChildWindow;
 use mitsuami_linux::{LockEvent, LockSink, NoSurface};
 
 use crate::events::Events;
-use crate::ffi::{self, Callback, QmlObject, SurfaceEvent};
+use crate::ffi::{self, Callback, Connection, QmlObject, SurfaceEvent};
 use crate::qml;
 
 /// The item that keeps the surface's space, and what it reports.
@@ -96,8 +96,10 @@ struct ItemState {
     native: Option<Native>,
     /// Given up when the node is destroyed; the app may keep its own.
     handle: Option<SurfaceHandle>,
-    /// The windows followed, and the window surface it's over, if shown.
-    windows: Vec<QmlObject>,
+    /// The window followed, and its signals' connections, let go when the
+    /// item moves to another window or the node goes; and the window
+    /// surface it's over, if shown.
+    window: Option<(QmlObject, Vec<Connection>)>,
     parent: Option<Parent>,
     live: bool,
     /// The props, as the core last set them (`None`: never). A lock or
@@ -158,7 +160,7 @@ impl SurfaceItem {
             number,
             native: None,
             handle: None,
-            windows: Vec::new(),
+            window: None,
             parent: None,
             live: true,
             takes_input: None,
@@ -205,6 +207,7 @@ impl SurfaceItem {
         state.live = false;
         state.handle = None;
         state.hide();
+        state.unfollow();
         SURFACES.with(|s| s.borrow_mut().remove(&state.number));
     }
 
@@ -278,19 +281,21 @@ impl ItemState {
         }
         let Some(window) = state.item.item_window() else {
             state.hide();
+            state.unfollow();
             return;
         };
-        if !state.windows.contains(&window) {
-            state.windows.push(window);
+        if state.window.as_ref().is_none_or(|(w, _)| *w != window) {
+            state.unfollow();
+            let mut connections = Vec::new();
             for signal in ["afterAnimating()", "visibleChanged(bool)"] {
                 let s = Rc::downgrade(&this);
-                window.connect(signal, move || ItemState::sync(&s));
+                connections.extend(window.connection(signal, move || ItemState::sync(&s)));
             }
             // The platform ends the lock and grab when the window stops
             // being the active one, and keys held are let go (active focus
             // leaving the input item does it too).
             let s = Rc::downgrade(&this);
-            window.connect("activeChanged()", move || {
+            connections.extend(window.connection("activeChanged()", move || {
                 if let Some(s) = s.upgrade()
                     && let Ok(mut state) = s.try_borrow_mut()
                     && !window.is_active()
@@ -299,7 +304,8 @@ impl ItemState {
                     state.end_lock();
                     state.end_grab();
                 }
-            });
+            }));
+            state.window = Some((window, connections));
         }
         let parent = match window.wl_surface() {
             _ if !ffi::platform_has_surfaces() => Some(Parent::Other),
@@ -359,6 +365,13 @@ impl ItemState {
         }
         if state.keyboard_grab == Some(true) && state.grab.is_none() {
             state.grab_keyboard();
+        }
+    }
+
+    /// Stops following its window's signals.
+    fn unfollow(&mut self) {
+        for connection in self.window.take().into_iter().flat_map(|(_, c)| c) {
+            connection.disconnect();
         }
     }
 

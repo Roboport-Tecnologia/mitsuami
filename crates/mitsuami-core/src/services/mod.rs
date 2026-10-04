@@ -72,6 +72,13 @@ pub trait Services {
     /// Replies with the chosen paths, or `None` if cancelled.
     fn open_file(&mut self, parent: Option<NodeId>, request: &OpenFile, reply: Reply<Option<Vec<PathBuf>>>);
     fn save_file(&mut self, parent: Option<NodeId>, request: &SaveFile, reply: Reply<Option<PathBuf>>);
+    /// A window is about to be destroyed: close the alerts and file
+    /// dialogs open on it (asked for with it as `parent`, or shown on it as
+    /// the focused window) and reply as their cancel would, the alert's last
+    /// button or no paths. Called before the window's `Destroy` goes to the
+    /// backend, outside `apply`, so the dialogs close while their window is
+    /// still there.
+    fn window_destroyed(&mut self, window: NodeId);
 
     /// Moves files and folders to the user's trash, as the platform's file
     /// manager does, so they can be put back from there. Items go one after

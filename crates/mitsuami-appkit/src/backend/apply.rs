@@ -41,7 +41,7 @@ impl State {
 
     /// The toolbar item a node is a child of.
     pub(super) fn toolbar_item_of(&self, id: NodeId) -> Option<NodeId> {
-        self.nodes.get(&id)?.parent.filter(|p| self.nodes[p].kind == WidgetKind::ToolbarItem)
+        self.nodes.get(&id)?.parent.filter(|p| self.nodes.get(p).is_some_and(|n| n.kind == WidgetKind::ToolbarItem))
     }
 
     /// The item shows its button as its view (see `toolbar`).
@@ -61,8 +61,30 @@ impl State {
 
     /// The toolbar item a node is in, as its child or its grandchild (a
     /// button in a row of them).
-    fn toolbar_item_above(&self, id: NodeId) -> Option<NodeId> {
+    pub(super) fn toolbar_item_above(&self, id: NodeId) -> Option<NodeId> {
         self.toolbar_item_of(id).or_else(|| self.toolbar_item_of(self.nodes.get(&id)?.parent?))
+    }
+
+    /// A node's children, in no particular order.
+    fn children_of(&self, id: NodeId) -> &[NodeId] {
+        self.children.get(&id).map_or(&[], |c| c.as_slice())
+    }
+
+    /// Records a child's parent both ways: a toolbar item looks down its
+    /// tree on every change, which a scan of every node made slow.
+    fn attach(&mut self, child: NodeId, parent: NodeId) {
+        self.nodes.get_mut(&child).unwrap().parent = Some(parent);
+        self.children.entry(parent).or_default().push(child);
+    }
+
+    fn detach(&mut self, child: NodeId) {
+        let Some(parent) = self.nodes.get_mut(&child).and_then(|n| n.parent.take()) else { return };
+        if let Some(siblings) = self.children.get_mut(&parent) {
+            siblings.retain(|c| *c != child);
+            if siblings.is_empty() {
+                self.children.remove(&parent);
+            }
+        }
     }
 
     /// A node's children, in order.
@@ -74,22 +96,10 @@ impl State {
     /// A node or any node in it takes input: a toolbar item with none (a
     /// label, a progress bar) has no capsule.
     fn has_control(&self, id: NodeId) -> bool {
-        // Indexed by parent once: scanning every node for each container on
-        // the way down cost a pass per level.
-        let mut children: std::collections::HashMap<NodeId, Vec<NodeId>> = std::collections::HashMap::new();
-        for (child, node) in &self.nodes {
-            if let Some(parent) = node.parent {
-                children.entry(parent).or_default().push(*child);
-            }
-        }
-        self.has_control_in(id, &children)
-    }
-
-    fn has_control_in(&self, id: NodeId, children: &std::collections::HashMap<NodeId, Vec<NodeId>>) -> bool {
         let Some(node) = self.nodes.get(&id) else { return false };
         match node.kind {
             WidgetKind::Container | WidgetKind::ToolbarItem => {
-                children.get(&id).is_some_and(|c| c.iter().any(|child| self.has_control_in(*child, children)))
+                self.children_of(id).iter().any(|c| self.has_control(*c))
             }
             WidgetKind::Text
             | WidgetKind::Progress
@@ -115,9 +125,9 @@ impl State {
             Host(bool),
         }
         let Some(window) = self.nodes[&item].parent else { return };
-        let mut children = self.nodes.iter().filter(|(_, n)| n.parent == Some(item));
-        let shown = match (children.next(), children.next()) {
-            (Some((&only_id, only)), None) => {
+        let shown = match *self.children_of(item) {
+            [only_id] => {
+                let only = &self.nodes[&only_id];
                 let bordered = only.button_style != Some(ButtonStyle::Borderless);
                 match &only.widget {
                     Widget::Button(button) => Shown::Button(button.clone(), bordered),
@@ -191,7 +201,7 @@ impl State {
                         violation(command, "a ScrollView has a single native child (its content)");
                     }
                     scroll.setDocumentView(Some(&child_view));
-                    self.nodes.get_mut(child).unwrap().parent = Some(*parent);
+                    self.attach(*child, *parent);
                     return;
                 }
                 if self.nodes[child].kind == WidgetKind::Sidebar {
@@ -219,7 +229,7 @@ impl State {
                     *split = Some(made);
                     _delegate.set_detail(Some(host));
                     let (window, delegate) = (window.clone(), _delegate.clone());
-                    self.nodes.get_mut(child).unwrap().parent = Some(*parent);
+                    self.attach(*child, *parent);
                     // Again, now that it's in the window's split view,
                     // which its props came before: a width it sets is in
                     // the window's.
@@ -232,12 +242,9 @@ impl State {
                 if self.nodes[child].kind == WidgetKind::ToolbarItem {
                     // Items come after the window's content, and before its sidebar.
                     let content = self
-                        .nodes
-                        .values()
-                        .filter(|n| {
-                            n.parent == Some(*parent)
-                                && !matches!(n.kind, WidgetKind::ToolbarItem | WidgetKind::Sidebar)
-                        })
+                        .children_of(*parent)
+                        .iter()
+                        .filter(|c| !matches!(self.nodes[c].kind, WidgetKind::ToolbarItem | WidgetKind::Sidebar))
                         .count();
                     let (mtm, animate) = (self.mtm, self.options.show_windows);
                     let Widget::Window { window, toolbar, .. } = &mut self.nodes.get_mut(parent).unwrap().widget else {
@@ -252,13 +259,13 @@ impl State {
                         &child_view,
                         index,
                     );
-                    self.nodes.get_mut(child).unwrap().parent = Some(*parent);
+                    self.attach(*child, *parent);
                     self.sync_toolbar_item(*child);
                     return;
                 }
                 if let Widget::Tabs(tabs) = &self.nodes[parent].widget {
                     tabs.insert(self.mtm, *child, child_view, *index);
-                    self.nodes.get_mut(child).unwrap().parent = Some(*parent);
+                    self.attach(*child, *parent);
                     return;
                 }
                 if let Widget::List(list) = &self.nodes[parent].widget {
@@ -266,7 +273,7 @@ impl State {
                         violation(command, "a List's children are row hosts, a Table's cell hosts")
                     };
                     list.insert(row, self.nodes[child].column.unwrap_or(0), *child, child_view);
-                    self.nodes.get_mut(child).unwrap().parent = Some(*parent);
+                    self.attach(*child, *parent);
                     return;
                 }
                 // Back in its host first, among the children it's placed.
@@ -287,7 +294,7 @@ impl State {
                         Some(&before),
                     );
                 }
-                self.nodes.get_mut(child).unwrap().parent = Some(*parent);
+                self.attach(*child, *parent);
                 // A button in a row of them changes the group.
                 if let Some(item) = item.or_else(|| self.toolbar_item_of(*parent)) {
                     self.sync_toolbar_item(item);
@@ -317,7 +324,7 @@ impl State {
                     window.setContentSize(
                         _delegate.at_least_min(window, Size::new(size.width as f32, size.height as f32)),
                     );
-                    self.nodes.get_mut(child).unwrap().parent = None;
+                    self.detach(*child);
                     return;
                 }
                 let item = (self.nodes[parent].kind == WidgetKind::ToolbarItem).then_some(*parent);
@@ -331,13 +338,20 @@ impl State {
                     Widget::Tabs(tabs) => tabs.remove(*child),
                     _ => self.view(*child, command).removeFromSuperview(),
                 }
-                self.nodes.get_mut(child).unwrap().parent = None;
+                self.detach(*child);
                 if let Some(item) = item.or_else(|| self.toolbar_item_of(*parent)) {
                     self.sync_toolbar_item(item);
                 }
             }
             Command::Destroy { id } => {
-                let Some(mut node) = self.nodes.remove(id) else { violation(command, "node does not exist") };
+                if !self.nodes.contains_key(id) {
+                    violation(command, "node does not exist");
+                }
+                // Out of its parent's children, if it wasn't removed first
+                // (a sidebar destroyed with its window).
+                self.detach(*id);
+                self.children.remove(id);
+                let mut node = self.nodes.remove(id).unwrap();
                 self.by_view.borrow_mut().remove(&key(node.widget.view()));
                 self.pending_show.retain(|w| w != id);
                 self.focus_orders.remove(id);

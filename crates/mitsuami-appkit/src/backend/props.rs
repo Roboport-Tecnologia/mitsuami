@@ -156,11 +156,11 @@ impl State {
             (Prop::Range { min, max }, Widget::Slider { slider, step }) => {
                 slider.setMinValue(*min);
                 slider.setMaxValue(*max);
-                set_ticks(slider, *step);
+                set_ticks(slider, *step, node._target.as_deref());
             }
             (Prop::Step(new), Widget::Slider { slider, step }) => {
                 *step = *new;
-                set_ticks(slider, *new);
+                set_ticks(slider, *new, node._target.as_deref());
             }
             (Prop::Number(n), Widget::Slider { slider, .. }) => slider.setDoubleValue(*n),
             (Prop::Orientation(o), Widget::Separator(_)) => node.orientation = Some(*o),
@@ -495,19 +495,30 @@ impl State {
     }
 }
 
-/// AppKit's steps are tick marks, which the knob then only stops at.
-fn set_ticks(slider: &NSSlider, step: Option<f64>) {
+/// Tick marks kept at most. More would be closer than a point on any
+/// screen, so a drag couldn't stop at each anyway, and AppKit draws (and
+/// lays out) every one: a step of 0.001 on 0 to 1,000,000 made a billion.
+const MAX_TICKS: f64 = 4096.0;
+
+/// AppKit's steps are tick marks, which the knob then only stops at. A
+/// step finer than `MAX_TICKS` allows has none, and the action rounds to
+/// it instead, as AppKit apps round a fine slider's value in theirs.
+fn set_ticks(slider: &NSSlider, step: Option<f64>, target: Option<&crate::classes::ActionTarget>) {
     let range = slider.maxValue() - slider.minValue();
-    match step.filter(|s| *s > 0.0 && range > 0.0) {
-        Some(step) => {
-            // Saturating: a step tiny beside the range overflowed.
-            slider.setNumberOfTickMarks(((range / step).round() as isize).saturating_add(1));
+    let step = step.filter(|s| *s > 0.0 && range > 0.0);
+    let ticks = step.map(|step| (range / step).round() + 1.0).filter(|ticks| *ticks <= MAX_TICKS);
+    match ticks {
+        Some(ticks) => {
+            slider.setNumberOfTickMarks(ticks as isize);
             slider.setAllowsTickMarkValuesOnly(true);
         }
         None => {
             slider.setNumberOfTickMarks(0);
             slider.setAllowsTickMarkValuesOnly(false);
         }
+    }
+    if let Some(target) = target {
+        target.set_snap(step.filter(|_| ticks.is_none()));
     }
 }
 

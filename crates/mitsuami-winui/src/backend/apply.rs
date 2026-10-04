@@ -1,5 +1,7 @@
 //! Applying commands, and what the backend does after a batch.
 
+use std::collections::HashSet;
+
 use mitsuami_core::a11y::A11yProps;
 use mitsuami_core::{Command, EventValue, NodeId, UiEvent, WidgetKind};
 use windows_core::{IInspectable, Interface};
@@ -41,6 +43,12 @@ impl State {
                     violation(command, "node already exists");
                 }
                 self.create(*id, *kind, command)?;
+                match &self.nodes[id].widget {
+                    Widget::Window(_) => self.windows.push(*id),
+                    Widget::GpuSurface(_) => self.unattached_surfaces.push(*id),
+                    Widget::List(_) => _ = self.lists.insert(*id),
+                    _ => {}
+                }
                 for prop in props {
                     self.set_prop(*id, prop, command)?;
                 }
@@ -152,6 +160,9 @@ impl State {
                         fe.SetHorizontalAlignment(w::HorizontalAlignment::Left)?;
                         fe.SetVerticalAlignment(w::VerticalAlignment::Top)?;
                         content.SetContent(&child_element)?;
+                        if !self.unconnected_scrolls.contains(parent) {
+                            self.unconnected_scrolls.push(*parent);
+                        }
                         let wheel = shift_wheel(scroll, &child_element)?;
                         self.nodes.get_mut(parent).unwrap().shift_wheel = Some(wheel);
                         let child_node = self.nodes.get_mut(child).unwrap();
@@ -176,6 +187,7 @@ impl State {
                     && let Some(Widget::Window(parts)) = self.nodes.get_mut(parent).map(|n| &mut n.widget)
                 {
                     remove_toolbar_item(parts, *child)?;
+                    self.toolbar_changed(*parent);
                     self.nodes.get_mut(child).unwrap().parent = None;
                     return Ok(());
                 }
@@ -218,6 +230,7 @@ impl State {
                 let Some(node) = self.nodes.remove(id) else { violation(command, "node does not exist") };
                 self.by_element.borrow_mut().remove(*id, &node.element);
                 self.pending_show.retain(|w| w != id);
+                self.forget(*id);
                 self.menus.windows.remove(id);
                 drop(node.revokers);
                 // The app's handle may keep its child window: it just stops
@@ -257,7 +270,7 @@ impl State {
                         let visibility = if empty { w::Visibility::Collapsed } else { w::Visibility::Visible };
                         container.cast::<w::IUIElement>()?.SetVisibility(visibility)?;
                     }
-                    update_toolbar(parts)?;
+                    self.toolbar_changed(window);
                     return Ok(());
                 }
                 // A page goes where its tab view shows pages, at this size.
@@ -381,58 +394,145 @@ impl State {
         Ok(())
     }
 
-    /// Lets list views lay out now rather than at XAML's next layout pass:
-    /// they realise the containers of the rows in view, and the rows they
-    /// report are built in the same run-loop turn. Their handlers only
-    /// touch their own data and emit.
-    /// Brings scroll views' content into XAML's live tree. A new
-    /// `ScrollViewer` shows its content only once a layout pass has applied
-    /// its template, and XAML measures only elements in the live tree: until
-    /// then, controls in it measured as if untemplated (buttons 0 wide).
-    /// Scroll views inside scroll views connect one level per pass.
-    pub(super) fn connect_scroll_content(&self) {
-        let live = |element: &w::UIElement| {
-            element.cast::<w::IUIElement>().and_then(|e| e.XamlRoot()).is_ok_and(|r| !r.as_raw().is_null())
+    /// Notes what a command names, for the work after the batch.
+    pub(super) fn touch(&mut self, command: &Command) {
+        let (first, second) = match command {
+            Command::Create { id, .. }
+            | Command::SetProp { id, .. }
+            | Command::SetFrame { id, .. }
+            | Command::SetWindowSize { id, .. }
+            | Command::ScrollTo { id, .. }
+            | Command::ScrollToRow { id, .. } => (Some(*id), None),
+            Command::Insert { parent, child, .. } | Command::Remove { parent, child } => (Some(*parent), Some(*child)),
+            _ => (None, None),
         };
-        loop {
-            let waiting = self.nodes.values().find_map(|node| {
-                let Widget::Scroll(scroll) = &node.widget else { return None };
-                let content = scroll.cast::<w::IContentControl>().ok()?.Content().ok()?;
-                let content: w::UIElement = content.cast().ok()?;
-                (live(&node.element) && !live(&content)).then(|| node.element.clone())
-            });
-            let Some(scroll) = waiting else { break };
-            _ = scroll.cast::<w::IUIElement>().and_then(|e| e.UpdateLayout());
-            let content = scroll.cast::<w::IContentControl>().and_then(|c| c.Content()).and_then(|c| c.cast());
-            if !content.is_ok_and(|c: w::UIElement| live(&c)) {
-                // Nothing more to do this batch; don't spin.
-                break;
+        self.touched.extend(first.into_iter().chain(second));
+    }
+
+    /// Drops a destroyed node from what the work after a batch looks at.
+    fn forget(&mut self, id: NodeId) {
+        self.windows.retain(|w| *w != id);
+        self.unattached_surfaces.retain(|s| *s != id);
+        self.unconnected_scrolls.retain(|s| *s != id);
+        self.lists.remove(&id);
+        if self.pending_icon_set.remove(&id) {
+            self.pending_icons.retain(|i| *i != id);
+        }
+    }
+
+    /// A window's toolbar items changed: its toolbar is updated once,
+    /// after the batch, since each update lays out the whole window.
+    fn toolbar_changed(&mut self, window: NodeId) {
+        if !self.pending_toolbars.contains(&window) {
+            self.pending_toolbars.push(window);
+        }
+    }
+
+    pub(super) fn update_toolbars(&mut self) {
+        for window in std::mem::take(&mut self.pending_toolbars) {
+            if let Some(Widget::Window(parts)) = self.nodes.get_mut(&window).map(|n| &mut n.widget)
+                && let Err(error) = update_toolbar(parts)
+            {
+                panic!("winui backend: updating window {window}'s toolbar failed: {error}");
             }
         }
     }
 
-    pub(super) fn layout_lists(&self) {
-        for node in self.nodes.values() {
-            if let Widget::List(list) = &node.widget {
+    /// Brings scroll views' content into XAML's live tree. A new
+    /// `ScrollViewer` shows its content only once a layout pass has applied
+    /// its template, and XAML measures only elements in the live tree: until
+    /// then, controls in it measured as if untemplated (buttons 0 wide).
+    /// Scroll views inside scroll views connect one level per pass. Only
+    /// those given content that isn't live yet are looked at: a templated
+    /// one keeps its content live wherever it goes.
+    pub(super) fn connect_scroll_content(&mut self) {
+        let live = |element: &w::UIElement| {
+            element.cast::<w::IUIElement>().and_then(|e| e.XamlRoot()).is_ok_and(|r| !r.as_raw().is_null())
+        };
+        let content_of = |scroll: &w::UIElement| -> Option<w::UIElement> {
+            let content = scroll.cast::<w::IContentControl>().ok()?.Content().ok()?;
+            if content.as_raw().is_null() { None } else { content.cast().ok() }
+        };
+        loop {
+            let waiting = self.unconnected_scrolls.iter().find_map(|id| {
+                let node = self.nodes.get(id)?;
+                let content = content_of(&node.element)?;
+                (live(&node.element) && !live(&content)).then(|| node.element.clone())
+            });
+            let Some(scroll) = waiting else { break };
+            _ = scroll.cast::<w::IUIElement>().and_then(|e| e.UpdateLayout());
+            if !content_of(&scroll).is_some_and(|c| live(&c)) {
+                // Nothing more to do this batch; don't spin.
+                break;
+            }
+        }
+        let nodes = &self.nodes;
+        self.unconnected_scrolls.retain(|id| {
+            nodes.get(id).and_then(|node| content_of(&node.element)).is_some_and(|content| !live(&content))
+        });
+    }
+
+    /// The lists and tables the batch touched: a command named them, one
+    /// of their rows or cells (or what's in them), or a node they're in.
+    pub(super) fn touched_lists(&mut self) -> Vec<NodeId> {
+        let touched = std::mem::take(&mut self.touched);
+        let parent = |id: NodeId| self.nodes.get(&id).and_then(|n| n.parent);
+        let mut lists = HashSet::new();
+        // The lists a touched node is in (or is).
+        for id in &touched {
+            let mut current = Some(*id);
+            while let Some(id) = current {
+                if self.lists.contains(&id) {
+                    lists.insert(id);
+                }
+                current = parent(id);
+            }
+        }
+        // The lists in a touched node.
+        for list in &self.lists {
+            let mut current = parent(*list);
+            while let Some(id) = current {
+                if touched.contains(&id) {
+                    lists.insert(*list);
+                    break;
+                }
+                current = parent(id);
+            }
+        }
+        lists.into_iter().collect()
+    }
+
+    /// Lets list views lay out now rather than at XAML's next layout pass:
+    /// they realise the containers of the rows in view, and the rows they
+    /// report are built in the same run-loop turn. Their handlers only
+    /// touch their own data and emit. Rows XAML realises later, the lists
+    /// report themselves.
+    pub(super) fn layout_lists(&self, lists: &[NodeId]) {
+        for id in lists {
+            if let Some(Widget::List(list)) = self.nodes.get(id).map(|n| &n.widget) {
                 list.layout();
             }
         }
     }
 
-    /// The window `id` is in (or is).
     /// Gives GPU surfaces that are now in a window their child windows.
-    pub(super) fn attach_surfaces(&self) {
-        for (id, node) in &self.nodes {
-            if let Widget::GpuSurface(surface) = &node.widget
-                && !surface.is_attached()
-                && let Some(parts) = self.window_of(*id)
-                && let Err(error) = surface.attach(parts.hwnd)
-            {
+    pub(super) fn attach_surfaces(&mut self) {
+        let mut waiting = std::mem::take(&mut self.unattached_surfaces);
+        waiting.retain(|id| {
+            let Some(Widget::GpuSurface(surface)) = self.nodes.get(id).map(|n| &n.widget) else { return false };
+            if surface.is_attached() {
+                return false;
+            }
+            let Some(parts) = self.window_of(*id) else { return true };
+            if let Err(error) = surface.attach(parts.hwnd) {
                 panic!("winui backend: a GpuSurface's child window: {error}");
             }
-        }
+            false
+        });
+        self.unattached_surfaces = waiting;
     }
 
+    /// The window `id` is in (or is).
     pub(super) fn window_of(&self, id: NodeId) -> Option<&WindowParts> {
         let mut current = Some(id);
         while let Some(id) = current {

@@ -7,7 +7,7 @@ use mitsuami_core::{Command, NodeId, Point, WidgetKind};
 
 use crate::ffi::QmlObject;
 
-use super::window::hide_sidebar;
+use super::window::{hide_sidebar, remove_toolbar_item};
 use super::{State, Widget, WindowRoot, sync_scroll, violation};
 
 impl State {
@@ -165,14 +165,7 @@ impl State {
                         root.invoke("mitsuamiShow");
                     }
                     (Widget::Window { root }, Widget::ToolbarItem { host, action }) => {
-                        // Out of the toolbar's item first, which goes with
-                        // the action.
-                        host.set_parent_item(None, 0);
-                        let page = root.window.child("mitsuamiPage").expect("windows have a page");
-                        page.set_object("mitsuamiAction", Some(*action));
-                        page.invoke("mitsuamiRemove");
-                        page.set_object("mitsuamiAction", None);
-                        root.toolbar.borrow_mut().retain(|i| i != child);
+                        remove_toolbar_item(root, *child, *host, *action)
                     }
                     _ => self.widget(*child, command).item().set_parent_item(None, 0),
                 }
@@ -208,7 +201,15 @@ impl State {
                         }
                         root.window.destroy()
                     }
+                    // Out of its window's page first, if it's still in it
+                    // (the window goes too): the page's `actions` would
+                    // hold an action that's gone.
                     Widget::ToolbarItem { host, action } => {
+                        if let Some(Widget::Window { root }) =
+                            node.parent.and_then(|p| self.nodes.get(&p)).map(|n| &n.widget)
+                        {
+                            remove_toolbar_item(root, *id, *host, *action);
+                        }
                         host.destroy();
                         action.destroy();
                     }

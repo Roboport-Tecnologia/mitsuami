@@ -12,7 +12,18 @@ use super::metrics::{SCREEN, WORK_AREA};
 use super::windows::at_least_min;
 
 impl HeadlessHandle {
-    /// Every command applied so far, in order.
+    /// Records the commands applied from now on, for `command_log` and
+    /// `take_command_log`, or stops and drops them.
+    pub fn record_commands(&self, on: bool) {
+        let mut state = self.state.borrow_mut();
+        state.recording = on;
+        if !on {
+            state.log = Vec::new();
+        }
+    }
+
+    /// Every command applied since recording started (`record_commands`),
+    /// in order.
     pub fn command_log(&self) -> Vec<Command> {
         self.state.borrow().log.clone()
     }

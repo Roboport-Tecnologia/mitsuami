@@ -280,9 +280,9 @@ impl Sidebar {
             let place = Rc::downgrade(&place);
             move |_, _| {
                 let Ok(queue) = w::DispatcherQueue::GetForCurrentThread() else { return };
-                let ticket = crate::later::park(place.clone());
-                crate::later::on_ui(&queue, move || {
-                    if let Some(place) = crate::later::take::<Weak<dyn Fn()>>(ticket).and_then(|p| p.upgrade()) {
+                let ticket = crate::later::park_until(&queue, place.clone());
+                crate::later::on_ui_take(&queue, ticket, |place: Weak<dyn Fn()>| {
+                    if let Some(place) = place.upgrade() {
                         place();
                     }
                 });

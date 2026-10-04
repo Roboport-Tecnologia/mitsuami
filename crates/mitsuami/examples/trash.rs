@@ -1,12 +1,12 @@
 //! Moving files to the trash: `cargo run -p mitsuami --example trash`.
 //!
 //! - The window makes a few files and a folder in a folder of its own
-//!   (`mitsuami trash example`, in the system's temporary folder) and
-//!   lists them. Select some and press Move to Trash: they go to the
-//!   platform's trash, as its file manager's would, and Finder's Put Back,
-//!   Files' and Dolphin's Restore, or the Recycle Bin's Restore bring them
-//!   back. Refresh lists what's there again; Make Files puts back any that
-//!   are missing.
+//!   (`mitsuami trash example`, in the user's cache folder on Linux, the
+//!   temporary folder elsewhere) and lists them. Select some and press
+//!   Move to Trash: they go to the platform's trash, as its file manager's
+//!   would, and Finder's Put Back, Files' and Dolphin's Restore, or the
+//!   Recycle Bin's Restore bring them back. Refresh lists what's there
+//!   again; Make Files puts back any that are missing.
 //! - Where the disk has no trash, the app asks whether to delete them
 //!   right away, as Finder and Files do.
 //! - On Windows the shell asks first when the Recycle Bin's settings say
@@ -18,8 +18,20 @@ use std::path::PathBuf;
 
 use mitsuami::prelude::*;
 
-fn folder() -> PathBuf {
-    std::env::temp_dir().join("mitsuami trash example")
+/// The folder the example's files go in. Linux's temporary folder is shared
+/// by every user, who could make this folder first and plant links in it,
+/// so there it's the user's cache folder, which is usually on the disk with
+/// the home trash (gio won't trash in `$XDG_RUNTIME_DIR`, a system mount);
+/// macOS's and Windows' are per user.
+pub fn folder() -> PathBuf {
+    #[cfg(not(any(target_os = "macos", windows)))]
+    let base = std::env::var_os("XDG_CACHE_HOME")
+        .map(PathBuf::from)
+        .filter(|path| path.is_absolute())
+        .unwrap_or_else(|| PathBuf::from(std::env::var_os("HOME").expect("HOME is set")).join(".cache"));
+    #[cfg(any(target_os = "macos", windows))]
+    let base = std::env::temp_dir();
+    base.join("mitsuami trash example")
 }
 
 /// What's in the folder, by name.

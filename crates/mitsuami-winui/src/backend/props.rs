@@ -129,7 +129,7 @@ impl State {
                     shown.set(ticket);
                     return Ok(());
                 }
-                if !self.pending_icons.contains(&id) {
+                if self.pending_icon_set.insert(id) {
                     self.pending_icons.push(id);
                 }
             }
@@ -672,6 +672,7 @@ impl State {
     /// the latest ticket. The image comes back on the UI thread, unless a
     /// later load replaced it by then.
     pub(super) fn load_file_icons(&mut self) {
+        self.pending_icon_set.clear();
         for id in std::mem::take(&mut self.pending_icons) {
             let Some(Widget::FileIcon { image, file: Some(path), thumbnail, size, asked, shown, latest }) =
                 self.nodes.get(&id).map(|n| &n.widget)
@@ -687,7 +688,7 @@ impl State {
                 .unwrap_or(1.0);
             let pixels = (f64::from(size.unwrap_or(FILE_ICON_SIZE)) * scale).round() as i32;
             let Ok(queue) = w::DispatcherQueue::GetForCurrentThread() else { continue };
-            let parked = crate::later::park((image.clone(), asked.clone(), shown.clone()));
+            let parked = crate::later::park_until(&queue, (image.clone(), asked.clone(), shown.clone()));
             let request = crate::file_icon::Request {
                 path: path.clone(),
                 pixels,
@@ -696,12 +697,8 @@ impl State {
                 latest: latest.clone(),
             };
             crate::file_icon::load(request, move |loaded| {
-                crate::later::on_ui(&queue, move || {
-                    let Some((image, asked, shown)) =
-                        crate::later::take::<(w::Image, Rc<Cell<u64>>, Rc<Cell<u64>>)>(parked)
-                    else {
-                        return;
-                    };
+                type Parked = (w::Image, Rc<Cell<u64>>, Rc<Cell<u64>>);
+                crate::later::on_ui_take(&queue, parked, move |(image, asked, shown): Parked| {
                     // A later load replaces this one.
                     if asked.get() != ticket {
                         return;

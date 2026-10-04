@@ -13,6 +13,7 @@
 
 use std::any::{Any, TypeId};
 use std::cell::{Cell, RefCell};
+use std::collections::HashSet;
 use std::rc::Rc;
 
 use slotmap::{SlotMap, new_key_type};
@@ -50,6 +51,9 @@ struct Node {
     sources: Vec<(NodeKey, usize)>,
     /// Each observer, and where this node is in its `sources`.
     observers: Vec<(NodeKey, usize)>,
+    /// While a run has read many sources, the set of them, so each new read
+    /// checks for a repeat in constant time. Dropped when the run ends.
+    tracked: Option<HashSet<NodeKey>>,
     owner: Option<NodeKey>,
     owned: Vec<NodeKey>,
     /// Nodes in `owned` disposed on their own and not yet taken out: a
@@ -63,6 +67,8 @@ struct Node {
 }
 
 const MAX_FLUSH_PASSES: usize = 10_000;
+/// Up to this many sources, a read looks for a repeat by scanning them.
+const SCAN_SOURCES: usize = 16;
 
 #[derive(Default)]
 pub(crate) struct Runtime {
@@ -81,6 +87,12 @@ thread_local! {
 
 pub(crate) fn with_runtime<R>(f: impl FnOnce(&Runtime) -> R) -> R {
     RUNTIME.with(f)
+}
+
+/// `None` once the thread's runtime is gone: in thread-local destructors,
+/// where a scope dropped with its holder has nothing left to dispose.
+pub(crate) fn try_with_runtime<R>(f: impl FnOnce(&Runtime) -> R) -> Option<R> {
+    RUNTIME.try_with(f).ok()
 }
 
 /// Restores a `Cell` to its previous value on drop, so panics inside user
@@ -113,6 +125,7 @@ impl Runtime {
             state,
             sources: Vec::new(),
             observers: Vec::new(),
+            tracked: None,
             owner,
             owned: Vec::new(),
             disposed_owned: 0,
@@ -171,8 +184,16 @@ impl Runtime {
         let mut nodes = self.nodes.borrow_mut();
         let Some(at_source) = nodes.get(source).map(|s| s.observers.len()) else { return };
         let Some(obs) = nodes.get_mut(observer) else { return };
-        if obs.sources.iter().any(|(s, _)| *s == source) {
-            return;
+        if obs.tracked.is_none() && obs.sources.len() < SCAN_SOURCES {
+            if obs.sources.iter().any(|(s, _)| *s == source) {
+                return;
+            }
+        } else {
+            let sources = &obs.sources;
+            let tracked = obs.tracked.get_or_insert_with(|| sources.iter().map(|(s, _)| *s).collect());
+            if !tracked.insert(source) {
+                return;
+            }
         }
         let at_observer = obs.sources.len();
         obs.sources.push((source, at_source));
@@ -181,25 +202,47 @@ impl Runtime {
 
     /// Brings a computed or effect up to date, re-running it only if one of
     /// its sources actually changed.
+    ///
+    /// A `Check` node brings its computed sources up to date first, in the
+    /// order it read them, and stops at the first that changed. That walk
+    /// keeps its own stack, so a long chain of computeds can't overflow the
+    /// thread's.
     pub(crate) fn update_if_necessary(&self, key: NodeKey) {
-        if self.state(key) == State::Check {
-            let sources = match self.nodes.borrow().get(key) {
-                Some(node) => node.sources.iter().map(|(s, _)| *s).collect::<Vec<_>>(),
-                None => return,
-            };
-            for source in sources {
-                if matches!(self.kind(source), Some(Kind::Computed(_))) {
-                    self.update_if_necessary(source);
+        struct Frame {
+            key: NodeKey,
+            /// The sources still to check, taken when the walk reaches it.
+            sources: Option<std::vec::IntoIter<NodeKey>>,
+        }
+        let mut stack = vec![Frame { key, sources: None }];
+        while let Some(frame) = stack.last_mut() {
+            let node = frame.key;
+            let next = match self.state(node) {
+                State::Check => {
+                    let sources = frame.sources.get_or_insert_with(|| {
+                        let nodes = self.nodes.borrow();
+                        nodes
+                            .get(node)
+                            .map(|n| n.sources.iter().map(|(s, _)| *s).collect::<Vec<_>>())
+                            .unwrap_or_default()
+                            .into_iter()
+                    });
+                    sources.find(|&source| {
+                        matches!(self.kind(source), Some(Kind::Computed(_))) && self.state(source) != State::Clean
+                    })
                 }
-                if self.state(key) == State::Dirty {
-                    break;
+                State::Clean | State::Dirty => None,
+            };
+            match next {
+                Some(source) => stack.push(Frame { key: source, sources: None }),
+                None => {
+                    if self.state(node) == State::Dirty {
+                        self.run(node);
+                    }
+                    self.set_state(node, State::Clean);
+                    stack.pop();
                 }
             }
         }
-        if self.state(key) == State::Dirty {
-            self.run(key);
-        }
-        self.set_state(key, State::Clean);
     }
 
     fn run(&self, key: NodeKey) {
@@ -226,7 +269,10 @@ impl Runtime {
                 Kind::Signal | Kind::Owner => {}
             }
         }
-        self.set_state(key, State::Clean);
+        if let Some(node) = self.nodes.borrow_mut().get_mut(key) {
+            node.state = State::Clean;
+            node.tracked = None;
+        }
     }
 
     // --------------------------------------------------------------- writes
@@ -240,26 +286,21 @@ impl Runtime {
         self.flush_if_idle();
     }
 
+    /// Marks `key` stale and everything downstream `Check`, with a stack of
+    /// its own so a long chain can't overflow the thread's.
     fn stale(&self, key: NodeKey, state: State) {
-        let (was_clean, is_effect, observers) = {
+        let mut stack = vec![(key, state)];
+        while let Some((key, state)) = stack.pop() {
             let mut nodes = self.nodes.borrow_mut();
-            let Some(node) = nodes.get_mut(key) else { return };
+            let Some(node) = nodes.get_mut(key) else { continue };
             if node.state >= state {
-                return;
+                continue;
             }
-            let was_clean = node.state == State::Clean;
+            if node.state == State::Clean && matches!(node.kind, Kind::Effect(_)) {
+                self.pending.borrow_mut().push(key);
+            }
             node.state = state;
-            (
-                was_clean,
-                matches!(node.kind, Kind::Effect(_)),
-                node.observers.iter().map(|(o, _)| *o).collect::<Vec<_>>(),
-            )
-        };
-        if was_clean && is_effect {
-            self.pending.borrow_mut().push(key);
-        }
-        for observer in observers {
-            self.stale(observer, State::Check);
+            stack.extend(node.observers.iter().map(|&(o, _)| (o, State::Check)));
         }
     }
 
@@ -348,6 +389,7 @@ impl Runtime {
         let mut nodes = self.nodes.borrow_mut();
         let Some(node) = nodes.get_mut(key) else { return };
         let sources = std::mem::take(&mut node.sources);
+        node.tracked = None;
         for (source, at) in sources {
             let Some(source) = nodes.get_mut(source) else { continue };
             debug_assert_eq!(source.observers[at].0, key);

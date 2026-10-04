@@ -216,6 +216,32 @@ impl Ui {
         }
     }
 
+    /// The current owner, or, with none, a scope of its own that goes when
+    /// node `id` is destroyed, so what a view built straight on a `Ui` (a
+    /// `For`, a `List`) hangs off it is freed with its node.
+    pub(crate) fn owner_or_node_scope(&self, id: NodeId) -> mitsuami_reactive::Owner {
+        use mitsuami_reactive::Owner;
+        if let Some(owner) = Owner::current() {
+            return owner;
+        }
+        struct DisposeOnDrop(Owner);
+        impl Drop for DisposeOnDrop {
+            fn drop(&mut self) {
+                self.0.dispose();
+            }
+        }
+        let scope = Owner::new_root();
+        let guard = DisposeOnDrop(scope);
+        // Kept by a handler that does nothing: the node drops its handlers
+        // when it's destroyed (after the tree's borrow, `destroy`).
+        if let Some(node) = self.inner.borrow_mut().nodes.get_mut(&id) {
+            node.handlers.push(Rc::new(move |_: &UiEvent| {
+                let _ = &guard;
+            }));
+        }
+        scope
+    }
+
     /// Adds an event handler. It runs in the reactive scope that is current
     /// now (usually the component being built), so `inject`, `spawn_local`
     /// and friends work inside it.

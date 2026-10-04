@@ -151,6 +151,10 @@ double mq_font_px(QObject* object, const char* name);
 int32_t mq_connect(QObject* object, const char* signal, uint64_t key);
 // The first time the signal fires only.
 int32_t mq_connect_once(QObject* object, const char* signal, uint64_t key);
+// Like mq_connect, returning the receiver (null if there's no such signal)
+// for mq_disconnect, which ends the connection and frees the receiver.
+QObject* mq_connect_receiver(QObject* object, const char* signal, uint64_t key);
+void mq_disconnect(QObject* receiver);
 void mq_watch_close(QObject* window, uint64_t key);
 QObject* mq_focus_item(QObject* window);
 void mq_force_focus(QObject* item);
@@ -257,4 +261,15 @@ void mq_window_margins(QObject* window, int32_t* left, int32_t* top);
 uint64_t mq_window_xid(QObject* window);
 int32_t mq_window_keyboard_grab(QObject* window, int32_t on);
 int32_t mq_window_active(QObject* window);
+
+// A list's or table's model: its rows' keys, with `columns` columns (a
+// list's 1), each cell showing its row's key (roles `mitsuamiKey` and `display`). Rows are
+// inserted, removed and moved as runs; `to` is where a moved run's first
+// row ends up. A reset replaces them all.
+QObject* mq_rows_new(QObject* parent, int32_t columns);
+void mq_rows_insert(QObject* model, int32_t at, const uint64_t* keys, int32_t count);
+void mq_rows_remove(QObject* model, int32_t at, int32_t count);
+void mq_rows_move(QObject* model, int32_t from, int32_t count, int32_t to);
+void mq_rows_reset(QObject* model, const uint64_t* keys, int32_t count);
+void mq_rows_set_columns(QObject* model, int32_t count);
 }

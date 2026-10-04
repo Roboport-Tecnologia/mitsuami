@@ -12,7 +12,13 @@ use mitsuami_core::{Command, NativeAppInfo, NativeIcon, NodeId, Rect, Size, UiEv
 use crate::host::Host;
 
 use super::window::{requested, resize};
-use super::{GtkHandle, State, Widget, pump_until};
+use super::{GtkHandle, State, WeakGtkHandle, Widget, pump_until};
+
+impl WeakGtkHandle {
+    pub(crate) fn upgrade(&self) -> Option<GtkHandle> {
+        Some(GtkHandle { state: self.state.upgrade()? })
+    }
+}
 
 impl GtkHandle {
     pub fn command_log(&self) -> Vec<Command> {
@@ -26,6 +32,10 @@ impl GtkHandle {
     /// Number of live native nodes.
     pub fn node_count(&self) -> usize {
         self.state.borrow().nodes.len()
+    }
+
+    pub(crate) fn downgrade(&self) -> WeakGtkHandle {
+        WeakGtkHandle { state: Rc::downgrade(&self.state) }
     }
 
     /// Called after every native event, so the run loop ticks.

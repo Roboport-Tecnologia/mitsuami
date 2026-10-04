@@ -338,8 +338,10 @@ pub(crate) fn build_rows<T: Clone + 'static, K: Eq + Hash + Clone + 'static>(
         mounted: HashMap::new(),
     }));
     // Row scopes hang off a scope of their own in the building owner, so
-    // they survive re-runs of the list's effects.
-    let rows_scope = Owner::current().map(|o| o.child()).unwrap_or_else(Owner::new_root);
+    // they survive re-runs of the list's effects. With no owner, the rows
+    // and the effects go with the list's node.
+    let scope = ui.owner_or_node_scope(id);
+    let rows_scope = scope.child();
 
     // Both take the `Ui`: the row handler, kept in the tree, holds it weakly.
     // Puts the mounted rows' hosts in row order.
@@ -378,7 +380,25 @@ pub(crate) fn build_rows<T: Clone + 'static, K: Eq + Hash + Clone + 'static>(
                     };
                     let owner = rows_scope.child();
                     let hosts = owner.with(|| mount(&ui, *row, item));
-                    rows.borrow_mut().mounted.insert(*row, (hosts, owner));
+                    // The row's own code may have changed the data so that
+                    // its item went: it's let go of, as the data's effect
+                    // lets go of rows that go, not left for `arrange`.
+                    let gone = {
+                        let mut rows = rows.borrow_mut();
+                        match rows.items.contains_key(row) {
+                            true => {
+                                rows.mounted.insert(*row, (hosts, owner));
+                                None
+                            }
+                            false => Some(hosts),
+                        }
+                    };
+                    if let Some(hosts) = gone {
+                        owner.dispose();
+                        for host in hosts {
+                            ui.destroy(host);
+                        }
+                    }
                 }
                 UiEvent::RowHidden(row) => unmount(&ui, &mut rows.borrow_mut(), *row),
                 _ => return,
@@ -392,7 +412,7 @@ pub(crate) fn build_rows<T: Clone + 'static, K: Eq + Hash + Clone + 'static>(
     {
         let (ui, rows) = (ui.clone(), rows.clone());
         let pending = handle.as_ref().map(|h| h.0.clone());
-        effect(move || {
+        let update = move || {
             let items = each.get();
             untrack(|| {
                 let mut row_files = Vec::new();
@@ -474,13 +494,14 @@ pub(crate) fn build_rows<T: Clone + 'static, K: Eq + Hash + Clone + 'static>(
                 }
                 arrange(&ui);
             });
-        });
+        };
+        scope.with(|| effect(update));
     }
 
     // The selection, both ways.
     if let Some(selected) = selected {
         let (ui_, rows_) = (ui.clone(), rows.clone());
-        effect(move || {
+        let update = move || {
             let keys = selected.get();
             let rows = rows_.borrow();
             // In row order, as platforms report their selection.
@@ -488,7 +509,8 @@ pub(crate) fn build_rows<T: Clone + 'static, K: Eq + Hash + Clone + 'static>(
             selection.sort_by_key(|row| rows.position[row]);
             drop(rows);
             untrack(|| ui_.set_prop(id, Prop::Selected(selection)));
-        });
+        };
+        scope.with(|| effect(update));
         let rows = rows.clone();
         ui.on_event(id, move |event| {
             if let UiEvent::Changed(EventValue::Rows(selection)) = event {

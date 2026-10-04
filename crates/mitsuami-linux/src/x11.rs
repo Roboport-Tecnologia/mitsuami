@@ -18,8 +18,8 @@ use x11rb::protocol::Event;
 use x11rb::protocol::shape::{self, ConnectionExt as _};
 use x11rb::protocol::xinput::{self, ConnectionExt as _};
 use x11rb::protocol::xproto::{
-    AtomEnum, ButtonPressEvent, ClientMessageEvent, ConfigureWindowAux, ConnectionExt as _, CreateWindowAux, EventMask,
-    GrabMode, GrabStatus, Gravity, KeyButMask, StackMode, WindowClass,
+    AtomEnum, ButtonPressEvent, ChangeWindowAttributesAux, ClientMessageEvent, ConfigureWindowAux, ConnectionExt as _,
+    CreateWindowAux, EventMask, GrabMode, GrabStatus, Gravity, KeyButMask, NotifyMode, StackMode, WindowClass,
 };
 use x11rb::xcb_ffi::XCBConnection;
 
@@ -104,6 +104,7 @@ impl ChildWindow {
             *current = Some(parent);
             let _ = self.0.conn.flush();
         }
+        self.0.drain();
     }
 
     /// Hides it, and takes it out of the toolkit's window, which would
@@ -116,6 +117,7 @@ impl ChildWindow {
             let _ = self.0.conn.reparent_window(self.0.window, self.0.root, 0, 0);
         }
         let _ = self.0.conn.flush();
+        self.0.drain();
     }
 
     /// Where it sits in its parent, and its size, in pixels: hidden while
@@ -145,6 +147,8 @@ impl ChildWindow {
             }
         }
         let _ = conn.flush();
+        drop(placed);
+        self.0.drain();
         true
     }
 
@@ -171,6 +175,29 @@ impl ChildWindow {
 impl Inner {
     fn locked(&self, number: u32) -> bool {
         self.lock.load(Ordering::Acquire) == number
+    }
+
+    /// Reads what came on the connection while no lock thread reads it:
+    /// the errors of requests sent without waiting for a reply (a parent
+    /// gone before its child was placed), and a lock's events and wake
+    /// after it ended. xcb would keep them all. Not while a lock is in
+    /// effect, or a thread may still read: they'd take its events.
+    fn drain(&self) {
+        if self.lock.load(Ordering::Acquire) == 0 && self.readers.load(Ordering::Acquire) == 0 {
+            while let Ok(Some(_)) = self.conn.poll_for_event() {}
+        }
+    }
+
+    /// Selects what tells a lock its grab is gone: the server lets a grab
+    /// go when its window can't be seen (it, or the toolkit's window, is
+    /// unmapped), and a grab's end is a leave of mode `Ungrab` from its
+    /// window to the one the pointer is in. Without the shape extension
+    /// the window takes input, the pointer is in it and there's no leave,
+    /// so its unmapping is watched too.
+    /// Turned off before an ungrab of our own, whose leave isn't a loss.
+    fn watch_grab(&self, on: bool) {
+        let mask = if on { EventMask::LEAVE_WINDOW | EventMask::STRUCTURE_NOTIFY } else { EventMask::NO_EVENT };
+        let _ = self.conn.change_window_attributes(self.window, &ChangeWindowAttributesAux::new().event_mask(mask));
     }
 
     /// The middle of the window, in its own pixels.
@@ -232,6 +259,7 @@ impl Inner {
         // Counted before the lock is looked at again, so a newer lock's
         // thread either waits for this one or this one sees it's dropped.
         self.readers.fetch_add(1, Ordering::AcqRel);
+        self.watch_grab(true);
         let _ = self.conn.free_cursor(cursor);
         let raw = self.select_raw_motion(true);
         // Dropped while the grab was on its way: the drop's ungrab may have
@@ -255,14 +283,16 @@ impl Inner {
     /// lock keeps them, as its own.
     fn let_go(&self) {
         if self.lock.load(Ordering::Acquire) == 0 {
+            self.watch_grab(false);
             let _ = self.conn.ungrab_pointer(x11rb::CURRENT_TIME);
             self.select_raw_motion(false);
             let _ = self.conn.flush();
         }
     }
 
-    /// Reports the grab's events until the lock is dropped. An earlier
-    /// lock's wake, left unread, is just another event.
+    /// Reports the grab's events until the lock is dropped, or the server
+    /// lets the grab go. An earlier lock's wake, left unread, is just
+    /// another event, as are errors.
     fn report(&self, number: u32, scale: f32, sink: &LockSink) {
         let point = |x: i16, y: i16| Point::new(x as f32 / scale, y as f32 / scale);
         loop {
@@ -296,9 +326,24 @@ impl Inner {
                         sink(LockEvent::Input(input));
                     }
                 }
+                Event::LeaveNotify(leave) if leave.mode == NotifyMode::UNGRAB && leave.event == self.window => {
+                    return self.lost(sink);
+                }
+                Event::UnmapNotify(unmap) if unmap.window == self.window => return self.lost(sink),
                 _ => {}
             }
         }
+    }
+
+    /// The server let the grab go: what went with it is let go too, while
+    /// this thread is still counted, so a newer lock's grab comes after.
+    /// The lock stays in effect until the app lets go of it.
+    fn lost(&self, sink: &LockSink) {
+        self.watch_grab(false);
+        let _ = self.conn.ungrab_pointer(x11rb::CURRENT_TIME);
+        self.select_raw_motion(false);
+        let _ = self.conn.flush();
+        sink(LockEvent::Ended);
     }
 
     /// Raw motion comes only to the root window, and to a client that
@@ -400,6 +445,7 @@ impl Drop for PointerLock {
         if inner.lock.compare_exchange(self.number, 0, Ordering::AcqRel, Ordering::Acquire).is_err() {
             return;
         }
+        inner.watch_grab(false);
         let _ = inner.conn.ungrab_pointer(x11rb::CURRENT_TIME);
         inner.select_raw_motion(false);
         // Wakes the lock's thread, which sees it's no longer locked. An

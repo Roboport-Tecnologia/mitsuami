@@ -2,7 +2,7 @@
 
 use crate::a11y::{A11yNode, Role};
 use crate::geometry::{Point, Rect};
-use crate::widget::{NodeId, RowKey, WidgetKind};
+use crate::widget::{NodeId, Prop, RowKey, WidgetKind};
 
 use super::{Inner, Ui};
 
@@ -125,7 +125,14 @@ impl Inner {
             });
         let selected = row.map(|key| {
             let list = node.native_parent.and_then(|p| self.nodes.get(&p));
-            list.and_then(|l| crate::find_prop!(l.props, Selected)).is_some_and(|s| s.contains(&key))
+            // Looked at in place: a copy per row of a long selection adds up.
+            list.and_then(|l| {
+                l.props.iter().find_map(|p| match p {
+                    Prop::Selected(selected) => Some(selected.contains(&key)),
+                    _ => None,
+                })
+            })
+            .unwrap_or(false)
         });
         vec![A11yNode {
             id,

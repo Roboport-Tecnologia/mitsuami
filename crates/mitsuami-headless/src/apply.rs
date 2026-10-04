@@ -1,6 +1,6 @@
 //! Applying commands, checking each against the protocol.
 
-use std::collections::{BTreeMap, BTreeSet};
+use std::collections::{BTreeMap, BTreeSet, HashSet};
 
 use mitsuami_core::a11y::A11yProps;
 use mitsuami_core::{
@@ -13,8 +13,21 @@ use super::{HeadlessBackend, HeadlessNode, HeadlessSurface, State};
 impl HeadlessBackend {
     pub(super) fn apply_batch(&mut self, batch: &[Command]) {
         let mut state = self.state.borrow_mut();
+        // The nodes the batch named, and their parents: the lists to place
+        // again and the nodes to check after it are among them.
+        let mut touched = BTreeSet::new();
+        // Children removed or destroyed, taken out of their parents'
+        // lists together once a run of them ends: one at a time scanned
+        // the siblings for each (`unlink`).
+        let mut unlinked: BTreeMap<NodeId, HashSet<NodeId>> = BTreeMap::new();
         for command in batch {
-            state.log.push(command.clone());
+            if state.recording {
+                state.log.push(command.clone());
+            }
+            if !matches!(command, Command::Remove { .. } | Command::Destroy { .. }) {
+                state.unlink(&mut unlinked);
+            }
+            state.touch(command, &mut touched);
             match command {
                 Command::Create { id, kind, props } => {
                     if state.nodes.contains_key(id) {
@@ -125,17 +138,19 @@ impl HeadlessBackend {
                     state.node(*child, command).parent = Some(*parent);
                 }
                 Command::Remove { parent, child } => {
-                    let siblings = &mut state.node(*parent, command).children;
-                    let Some(pos) = siblings.iter().position(|c| c == child) else {
+                    state.node(*parent, command);
+                    // Both sides of a link are kept together, so the child
+                    // says whether it's in the parent's list.
+                    if state.node(*child, command).parent != Some(*parent) {
                         violation(command, "not a child of this parent");
-                    };
-                    siblings.remove(pos);
+                    }
                     state.node(*child, command).parent = None;
+                    unlinked.entry(*parent).or_default().insert(*child);
                 }
                 Command::Destroy { id } => {
                     let node = state.nodes.remove(id).unwrap_or_else(|| violation(command, "node does not exist"));
-                    if let Some(parent) = node.parent.and_then(|p| state.nodes.get_mut(&p)) {
-                        parent.children.retain(|c| c != id);
+                    if let Some(parent) = node.parent.filter(|p| state.nodes.contains_key(p)) {
+                        unlinked.entry(parent).or_default().insert(*id);
                     }
                     for child in node.children {
                         if let Some(child) = state.nodes.get_mut(&child) {
@@ -211,18 +226,21 @@ impl HeadlessBackend {
                 }
             }
         }
+        state.unlink(&mut unlinked);
+        touched.retain(|id| state.nodes.contains_key(id));
         if let Some(last) = batch.last() {
-            // New data, sizes or rows: what's in view may have changed.
-            let lists: Vec<NodeId> = state.nodes.iter().filter(|(_, n)| n.kind.has_rows()).map(|(id, _)| *id).collect();
+            // New data, sizes or rows: what's in view may have changed. Only
+            // in the lists the batch touched: the others are as they were.
+            let lists: Vec<NodeId> = touched.iter().copied().filter(|id| state.nodes[id].kind.has_rows()).collect();
             for list in &lists {
                 if state.nodes[list].kind == WidgetKind::Table {
                     state.size_columns(*list);
                 }
                 state.place_rows(*list);
             }
-            state.check_lists(last);
-            state.check_toolbars(last);
-            state.check_tabs(last);
+            state.check_lists(last, &touched);
+            state.check_toolbars(last, &touched);
+            state.check_tabs(last, &touched);
             for list in lists {
                 let offset = state.nodes[&list].scroll_offset;
                 let y = state.clamp_list(list, offset.y);
@@ -236,11 +254,39 @@ impl HeadlessBackend {
 }
 
 impl State {
+    /// Adds the nodes a command names, and their parents (a list, for its
+    /// hosts' frames and props), to `touched`.
+    fn touch(&self, command: &Command, touched: &mut BTreeSet<NodeId>) {
+        let ids = match command {
+            Command::Create { id, .. }
+            | Command::SetProp { id, .. }
+            | Command::Destroy { id }
+            | Command::SetFrame { id, .. }
+            | Command::ScrollToRow { id, .. } => [Some(*id), None],
+            Command::Insert { parent, child, .. } | Command::Remove { parent, child } => [Some(*parent), Some(*child)],
+            _ => [None, None],
+        };
+        for id in ids.into_iter().flatten() {
+            touched.insert(id);
+            touched.extend(self.nodes.get(&id).and_then(|n| n.parent));
+        }
+    }
+
+    /// Takes children removed or destroyed out of their parents' lists,
+    /// each parent's once.
+    fn unlink(&mut self, unlinked: &mut BTreeMap<NodeId, HashSet<NodeId>>) {
+        for (parent, gone) in std::mem::take(unlinked) {
+            if let Some(node) = self.nodes.get_mut(&parent) {
+                node.children.retain(|c| !gone.contains(c));
+            }
+        }
+    }
+
     /// Checks that toolbar items are in windows, after their content, and
     /// that a window has at most one sidebar, after them, whose selection
-    /// is one of its items.
-    pub(super) fn check_toolbars(&self, command: &Command) {
-        for (id, node) in &self.nodes {
+    /// is one of its items. Only `touched` nodes can have changed.
+    pub(super) fn check_toolbars(&self, command: &Command, touched: &BTreeSet<NodeId>) {
+        for (id, node) in touched.iter().map(|id| (id, &self.nodes[id])) {
             let kind = |c: &NodeId| self.nodes[c].kind;
             let sidebars = node.children.iter().filter(|c| kind(c) == WidgetKind::Sidebar).count();
             if sidebars > 0 && node.kind != WidgetKind::Window {
@@ -273,8 +319,8 @@ impl State {
 
     /// Checks that a tab view's children are page hosts, one per title,
     /// and that it shows one of them (none only without pages).
-    pub(super) fn check_tabs(&self, command: &Command) {
-        for (id, node) in &self.nodes {
+    pub(super) fn check_tabs(&self, command: &Command, touched: &BTreeSet<NodeId>) {
+        for (id, node) in touched.iter().map(|id| (id, &self.nodes[id])) {
             if node.kind != WidgetKind::Tabs {
                 continue;
             }

@@ -135,6 +135,9 @@ struct Inner {
     /// Text selections asked for, sent after the focus requests.
     pending_selections: Vec<(NodeId, std::ops::Range<usize>)>,
     windows: Vec<NodeId>,
+    /// Windows destroyed since the last commit, whose dialogs the services
+    /// close before the batch goes out.
+    destroyed_windows: Vec<NodeId>,
     styles_dirty: bool,
     resync: BTreeSet<NodeId>,
     /// Each menu bar's item handlers: the app's (`None`) and windows'.
@@ -243,6 +246,7 @@ impl Ui {
                 pending_focus: Vec::new(),
                 pending_selections: Vec::new(),
                 windows: Vec::new(),
+                destroyed_windows: Vec::new(),
                 styles_dirty: true,
                 resync: BTreeSet::new(),
                 focus_orders: BTreeMap::new(),

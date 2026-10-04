@@ -18,9 +18,9 @@ use objc2::runtime::{AnyObject, NSObject, NSObjectProtocol, Sel};
 use objc2::{DefinedClass, MainThreadMarker, MainThreadOnly, Message, define_class, msg_send, sel};
 use objc2_app_kit::{
     NSAlert, NSAlertFirstButtonReturn, NSAlertStyle, NSApplication, NSControlStateValueOff, NSControlStateValueOn,
-    NSEventModifierFlags, NSMenu, NSMenuItem, NSModalResponse, NSModalResponseOK, NSOpenPanel, NSPasteboard,
-    NSPasteboardTypeString, NSRunningApplication, NSSavePanel, NSWindow, NSWindowDidBecomeMainNotification,
-    NSWindowDidResignMainNotification, NSWorkspace, NSWorkspaceOpenConfiguration,
+    NSEventModifierFlags, NSMenu, NSMenuItem, NSModalResponse, NSModalResponseCancel, NSModalResponseOK, NSOpenPanel,
+    NSPasteboard, NSPasteboardTypeString, NSRunningApplication, NSSavePanel, NSWindow,
+    NSWindowDidBecomeMainNotification, NSWindowDidResignMainNotification, NSWorkspace, NSWorkspaceOpenConfiguration,
 };
 use objc2_core_foundation::{CFRunLoop, kCFRunLoopCommonModes};
 use objc2_foundation::{
@@ -133,6 +133,23 @@ pub struct AppKitServices {
     menus: Rc<RefCell<Menus>>,
     /// Menu items only hold weak references to their target.
     menu_target: Retained<MenuTarget>,
+    sheets: Rc<RefCell<Sheets>>,
+}
+
+/// Alerts and panels shown as sheets, until they answer: the window each is
+/// on, and the response that cancels it.
+#[derive(Default)]
+struct Sheets {
+    next: u64,
+    open: Vec<Sheet>,
+}
+
+struct Sheet {
+    ticket: u64,
+    window: NodeId,
+    parent: Retained<NSWindow>,
+    sheet: Retained<NSWindow>,
+    cancel: NSModalResponse,
 }
 
 impl Drop for AppKitServices {
@@ -274,7 +291,25 @@ impl AppKitServices {
                 None,
             );
         }
-        AppKitServices { mtm, backend, pasteboard, menus, menu_target }
+        AppKitServices { mtm, backend, pasteboard, menus, menu_target, sheets: Rc::default() }
+    }
+
+    /// Remembers a sheet on `parent` until it answers, so it ends with its
+    /// window; returns what forgets it.
+    fn track_sheet(&self, parent: &NSWindow, sheet: &NSWindow, cancel: NSModalResponse) -> impl Fn() + 'static {
+        let ticket = self.backend.window_node(parent).map(|window| {
+            let mut sheets = self.sheets.borrow_mut();
+            sheets.next += 1;
+            let ticket = sheets.next;
+            sheets.open.push(Sheet { ticket, window, parent: parent.retain(), sheet: sheet.retain(), cancel });
+            ticket
+        });
+        let sheets = Rc::downgrade(&self.sheets);
+        move || {
+            if let (Some(ticket), Some(sheets)) = (ticket, sheets.upgrade()) {
+                sheets.borrow_mut().open.retain(|s| s.ticket != ticket);
+            }
+        }
     }
 
     /// The window a dialog belongs to: the requested one, or the active one.
@@ -307,15 +342,22 @@ impl Services for AppKitServices {
             AlertStyle::Warning => NSAlertStyle::Warning,
             AlertStyle::Critical => NSAlertStyle::Critical,
         });
-        for button in alert.effective_buttons() {
-            ns_alert.addButtonWithTitle(&ns(&button));
+        let buttons = alert.effective_buttons();
+        for button in &buttons {
+            ns_alert.addButtonWithTitle(&ns(button));
         }
         let reply = once(reply);
         let answer = move |response: NSModalResponse| reply((response - NSAlertFirstButtonReturn).max(0) as usize);
         match self.parent(parent) {
             // A sheet on the window it belongs to.
             Some(window) => {
-                let done = RcBlock::new(answer);
+                // The last button is the cancel one, as Escape chooses.
+                let cancel = NSAlertFirstButtonReturn + buttons.len() as NSModalResponse - 1;
+                let forget = self.track_sheet(&window, &ns_alert.window(), cancel);
+                let done = RcBlock::new(move |response| {
+                    forget();
+                    answer(response)
+                });
                 ns_alert.beginSheetModalForWindow_completionHandler(&window, Some(&done));
             }
             // No window: an app-modal alert, run once the caller has returned.
@@ -337,12 +379,19 @@ impl Services for AppKitServices {
         start_in(&panel, &request.start_folder);
         let reply = once(reply);
         let chosen = panel.clone();
-        let done = RcBlock::new(move |response: NSModalResponse| {
+        let answer = move |response: NSModalResponse| {
             reply((response == NSModalResponseOK).then(|| chosen.URLs().iter().filter_map(|u| path(&u)).collect()));
-        });
+        };
         match self.parent(parent) {
-            Some(window) => panel.beginSheetModalForWindow_completionHandler(&window, &done),
-            None => panel.beginWithCompletionHandler(&done),
+            Some(window) => {
+                let forget = self.track_sheet(&window, &panel, NSModalResponseCancel);
+                let done = RcBlock::new(move |response| {
+                    forget();
+                    answer(response)
+                });
+                panel.beginSheetModalForWindow_completionHandler(&window, &done)
+            }
+            None => panel.beginWithCompletionHandler(&RcBlock::new(answer)),
         }
     }
 
@@ -360,12 +409,19 @@ impl Services for AppKitServices {
         start_in(&panel, &request.start_folder);
         let reply = once(reply);
         let chosen = panel.clone();
-        let done = RcBlock::new(move |response: NSModalResponse| {
+        let answer = move |response: NSModalResponse| {
             reply(if response == NSModalResponseOK { chosen.URL().and_then(|u| path(&u)) } else { None });
-        });
+        };
         match self.parent(parent) {
-            Some(window) => panel.beginSheetModalForWindow_completionHandler(&window, &done),
-            None => panel.beginWithCompletionHandler(&done),
+            Some(window) => {
+                let forget = self.track_sheet(&window, &panel, NSModalResponseCancel);
+                let done = RcBlock::new(move |response| {
+                    forget();
+                    answer(response)
+                });
+                panel.beginSheetModalForWindow_completionHandler(&window, &done)
+            }
+            None => panel.beginWithCompletionHandler(&RcBlock::new(answer)),
         }
     }
 
@@ -397,6 +453,19 @@ impl Services for AppKitServices {
         });
         let configuration = NSWorkspaceOpenConfiguration::configuration();
         NSWorkspace::sharedWorkspace().openURL_configuration_completionHandler(&url, &configuration, Some(&done));
+    }
+
+    /// Each sheet on the window ends with its cancel response, as Escape
+    /// would end it, while the window is still there to end it on.
+    fn window_destroyed(&mut self, window: NodeId) {
+        let gone: Vec<(Retained<NSWindow>, Retained<NSWindow>, NSModalResponse)> = {
+            let sheets = self.sheets.borrow();
+            let on = sheets.open.iter().filter(|s| s.window == window);
+            on.map(|s| (s.parent.clone(), s.sheet.clone(), s.cancel)).collect()
+        };
+        for (parent, sheet, cancel) in gone {
+            parent.endSheet_returnCode(&sheet, cancel);
+        }
     }
 
     fn set_menu(&mut self, window: Option<NodeId>, menu: &MenuBarData, activate: Rc<dyn Fn(u32)>) {

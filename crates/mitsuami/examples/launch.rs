@@ -2,9 +2,10 @@
 //!
 //! - The window makes a text file, a web page, a file of a type no app
 //!   opens, and a folder, in a folder of its own (`mitsuami launch
-//!   example`, in the system's temporary folder). Each Open button opens
-//!   one in the app the platform picks for it, as a double-click in its
-//!   file manager would: the text editor, the browser, the file manager.
+//!   example`, in the user's cache folder on Linux, the temporary folder
+//!   elsewhere). Each Open button opens one in the app the platform picks
+//!   for it, as a double-click in its file manager would: the text editor,
+//!   the browser, the file manager.
 //! - The platform decides what happens when no app is set for a type:
 //!   macOS says so and offers to choose one, GNOME and Windows ask which
 //!   app. Dismissing that is reported as cancelled.
@@ -17,8 +18,18 @@ use std::path::PathBuf;
 
 use mitsuami::prelude::*;
 
-fn folder() -> PathBuf {
-    std::env::temp_dir().join("mitsuami launch example")
+/// The folder the example's files go in. Linux's temporary folder is shared
+/// by every user, who could make this folder first and plant links in it,
+/// so there it's the user's cache folder; macOS's and Windows' are per user.
+pub fn folder() -> PathBuf {
+    #[cfg(not(any(target_os = "macos", windows)))]
+    let base = std::env::var_os("XDG_CACHE_HOME")
+        .map(PathBuf::from)
+        .filter(|path| path.is_absolute())
+        .unwrap_or_else(|| PathBuf::from(std::env::var_os("HOME").expect("HOME is set")).join(".cache"));
+    #[cfg(any(target_os = "macos", windows))]
+    let base = std::env::temp_dir();
+    base.join("mitsuami launch example")
 }
 
 /// The things to open, made if they're missing: title and path.

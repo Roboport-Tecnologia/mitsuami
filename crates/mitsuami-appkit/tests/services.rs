@@ -294,6 +294,30 @@ mod checks {
         f.ui.tick();
     }
 
+    /// Destroying their window ends both sheets with their cancel
+    /// response: the alert answers its cancel button, the panel no paths.
+    /// A window shows one sheet at a time, so each has its own.
+    pub fn sheets_end_with_their_window(f: &Fixture) {
+        let first = f.ui.create_window("alert host", Size::new(400.0, 300.0));
+        let second = f.ui.create_window("panel host", Size::new(600.0, 400.0));
+        f.ui.tick();
+        let answers = Rc::new(RefCell::new((None, None)));
+        let (a, b) = (answers.clone(), answers.clone());
+        let alert = f.ui.alert(Some(first), Alert::new("Proceed?").button("Yes").button("No"));
+        let open = f.ui.open_file(Some(second), OpenFile::new());
+        f.ui.spawn_local(async move { a.borrow_mut().0 = Some(alert.await) });
+        f.ui.spawn_local(async move { b.borrow_mut().1 = Some(open.await) });
+        pump(&f.ui);
+        sheet_of(&f.handle.ns_window(first).unwrap());
+        sheet_of(&f.handle.ns_window(second).unwrap());
+
+        f.ui.destroy(first);
+        f.ui.destroy(second);
+        f.ui.tick();
+        pump_until(&f.ui, || *answers.borrow() == (Some(1), Some(None)));
+        assert_eq!(*answers.borrow(), (Some(1), Some(None)));
+    }
+
     /// Trashes a file of its own into the user's trash, then deletes it
     /// from there: this terminal may not list `~/.Trash`, but the name is
     /// unique, so the trashed file keeps it.
@@ -328,13 +352,14 @@ fn main() {
     use std::panic::{AssertUnwindSafe, catch_unwind};
 
     type Check = (&'static str, fn(&checks::Fixture));
-    let checks: [Check; 7] = [
+    let checks: [Check; 8] = [
         ("clipboard_round_trips", checks::clipboard_round_trips),
         ("menus_are_installed_and_activate", checks::menus_are_installed_and_activate),
         ("submenus_check_marks_and_roles", checks::submenus_check_marks_and_roles),
         ("window_menus_are_there_while_it_is_main", checks::window_menus_are_there_while_it_is_main),
         ("alerts_are_answered_through_their_sheet", checks::alerts_are_answered_through_their_sheet),
         ("open_panels_report_cancellation", checks::open_panels_report_cancellation),
+        ("sheets_end_with_their_window", checks::sheets_end_with_their_window),
         ("trash_moves_files_to_the_users_trash", checks::trash_moves_files_to_the_users_trash),
     ];
     let filter: Vec<String> = std::env::args().skip(1).filter(|a| !a.starts_with('-')).collect();

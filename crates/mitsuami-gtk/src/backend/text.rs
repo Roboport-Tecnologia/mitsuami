@@ -1,6 +1,7 @@
 //! Text: style classes, Pango attributes, label and icon colours, text areas.
 
 use std::cell::RefCell;
+use std::collections::BTreeMap;
 
 use gtk::pango;
 use gtk::prelude::*;
@@ -106,35 +107,84 @@ const ICON_COLOR_CLASS: &str = "mitsuami-color-";
 /// by the label's style class, which follows the theme; `Label` by none;
 /// others (fixed, or theme colours without a class, resolved now) by a
 /// class of their own, whose rule goes in a style sheet for the display.
-pub(super) fn set_icon_color(image: &gtk::Image, color: Color) {
+/// The rule stays while the returned value is kept.
+pub(super) fn set_icon_color(image: &gtk::Image, color: Color) -> Option<IconColorRule> {
     for class in image.css_classes() {
         if class.starts_with(ICON_COLOR_CLASS) || COLOR_CLASSES.iter().any(|(c, _)| *c == class.as_str()) {
             image.remove_css_class(&class);
         }
     }
     match color_class(color) {
-        Some(class) => image.add_css_class(class),
-        None if color == Color::Label => {}
+        Some(class) => {
+            image.add_css_class(class);
+            None
+        }
+        None if color == Color::Label => None,
         None => {
             let rgba = crate::custom::rgba(image.upcast_ref(), color);
             let byte = |v: f32| (v.clamp(0.0, 1.0) * 255.0).round() as u8;
             let [r, g, b, a] = [rgba.red(), rgba.green(), rgba.blue(), rgba.alpha()].map(byte);
-            let class = format!("{ICON_COLOR_CLASS}{r:02x}{g:02x}{b:02x}{a:02x}");
-            install_icon_color(&class, (r, g, b, a));
-            image.add_css_class(&class);
+            let rule = IconColorRule::new((r, g, b, a));
+            image.add_css_class(&rule.0);
+            Some(rule)
         }
     }
 }
 
-/// Adds a colour class's rule to the display's style sheet, once.
-fn install_icon_color(class: &str, (r, g, b, a): (u8, u8, u8, u8)) {
-    thread_local!(static SHEET: RefCell<(Option<gtk::CssProvider>, String)> = RefCell::default());
-    SHEET.with_borrow_mut(|(provider, css)| {
-        if css.contains(&format!(".{class} ")) {
+/// The colour classes' rules in the display's style sheet, each with the
+/// number of icons using it. A colour no icon uses leaves the sheet, so
+/// an animated colour doesn't grow it, and the sheet is loaded again once
+/// per batch of commands, not once per colour.
+#[derive(Default)]
+struct IconSheet {
+    provider: Option<gtk::CssProvider>,
+    rules: BTreeMap<String, (usize, String)>,
+    changed: bool,
+}
+
+thread_local!(static SHEET: RefCell<IconSheet> = RefCell::default());
+
+/// An icon's use of a colour class's rule.
+pub(super) struct IconColorRule(String);
+
+impl IconColorRule {
+    fn new((r, g, b, a): (u8, u8, u8, u8)) -> Self {
+        let class = format!("{ICON_COLOR_CLASS}{r:02x}{g:02x}{b:02x}{a:02x}");
+        SHEET.with_borrow_mut(|sheet| {
+            let (count, _) = sheet.rules.entry(class.clone()).or_insert_with(|| {
+                sheet.changed = true;
+                (0, format!("image.{class} {{ color: rgba({r}, {g}, {b}, {}); }}\n", a as f32 / 255.0))
+            });
+            *count += 1;
+        });
+        IconColorRule(class)
+    }
+}
+
+impl Drop for IconColorRule {
+    fn drop(&mut self) {
+        // Not after the thread's sheet is gone, as it is when the thread ends.
+        let _ = SHEET.try_with(|sheet| {
+            let mut sheet = sheet.borrow_mut();
+            if let Some((count, _)) = sheet.rules.get_mut(&self.0) {
+                *count -= 1;
+                if *count == 0 {
+                    sheet.rules.remove(&self.0);
+                    sheet.changed = true;
+                }
+            }
+        });
+    }
+}
+
+/// Loads the colour classes' rules again if a batch changed them.
+pub(super) fn flush_icon_colors() {
+    SHEET.with_borrow_mut(|sheet| {
+        if !std::mem::take(&mut sheet.changed) {
             return;
         }
-        css.push_str(&format!("image.{class} {{ color: rgba({r}, {g}, {b}, {}); }}\n", a as f32 / 255.0));
-        let provider = provider.get_or_insert_with(|| {
+        let css: String = sheet.rules.values().map(|(_, rule)| rule.as_str()).collect();
+        let provider = sheet.provider.get_or_insert_with(|| {
             let provider = gtk::CssProvider::new();
             if let Some(display) = gtk::gdk::Display::default() {
                 gtk::style_context_add_provider_for_display(
@@ -145,7 +195,7 @@ fn install_icon_color(class: &str, (r, g, b, a): (u8, u8, u8, u8)) {
             }
             provider
         });
-        provider.load_from_data(css);
+        provider.load_from_data(&css);
     });
 }
 

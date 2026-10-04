@@ -14,7 +14,7 @@
 //! reported: rows that stay keep their state.
 
 use std::cell::{Cell, RefCell};
-use std::collections::{HashMap, HashSet};
+use std::collections::{BTreeMap, HashMap, HashSet};
 use std::path::PathBuf;
 use std::rc::Rc;
 
@@ -722,18 +722,15 @@ impl List {
         let height =
             |key: &RowKey| host_of(key).and_then(|h| frames.get(h)).map_or(data.estimate() as f32, |f| f.height());
         let index = *data.index.get(&key)?;
-        let size = host_of(&key).and_then(|h| frames.get(h)).copied()?.size;
-        let placed = |i: usize| data.rows.get(i).and_then(host_of).and_then(|h| self.placed(h));
-        let y = match placed(index) {
+        let host = host_of(&key)?;
+        let size = frames.get(host).copied()?.size;
+        let y = match self.placed(host) {
             Some(y) => y,
-            None => (1..=data.rows.len()).find_map(|d| {
-                if let Some(above) = index.checked_sub(d).and_then(|i| Some((i, placed(i)?))) {
-                    return Some(above.1 + data.rows[above.0..index].iter().map(height).sum::<f32>());
-                }
-                let below = index + d;
-                let y = placed(below)?;
-                Some(y - data.rows[index..below].iter().map(height).sum::<f32>())
-            })?,
+            None => {
+                let hosted =
+                    data.hosts.keys().filter(|(_, c)| *c == 0).filter_map(|(k, _)| Some((*data.index.get(k)?, *k)));
+                beside_placed(&data, index, hosted.collect(), |k| host_of(k).and_then(|h| self.placed(h)), height)?
+            }
         };
         Some(Rect { origin: Point::new(0.0, y), size })
     }
@@ -761,17 +758,11 @@ impl List {
                 .reduce(f32::max)
                 .unwrap_or(data.estimate() as f32)
         };
-        let placed = |i: usize| data.rows.get(i).and_then(|k| hosts(k).find_map(|h| self.placed_at(h)));
+        let placed = |k: &RowKey| hosts(k).find_map(|h| self.placed(h));
         let x = data.hosts.iter().filter(|((_, c), _)| *c == column).find_map(|(_, (_, h))| self.placed_at(h))?.x;
         let index = *data.index.get(&key)?;
-        let y = (1..=data.rows.len()).find_map(|d| {
-            if let Some((i, p)) = index.checked_sub(d).and_then(|i| Some((i, placed(i)?))) {
-                return Some(p.y + data.rows[i..index].iter().map(height).sum::<f32>());
-            }
-            let below = index + d;
-            let p = placed(below)?;
-            Some(p.y - data.rows[index..below].iter().map(height).sum::<f32>())
-        })?;
+        let hosted = data.hosts.keys().filter_map(|(k, _)| Some((*data.index.get(k)?, *k)));
+        let y = beside_placed(&data, index, hosted.collect(), placed, height)?;
         Some(Rect { origin: Point::new(x, y), size })
     }
 
@@ -785,6 +776,43 @@ impl List {
             .collect();
         hosts.sort();
         hosts.into_iter().map(|(_, id)| id).collect()
+    }
+}
+
+/// Where an unplaced row at `index` is: beside the hosted row placed
+/// nearest it (above, when two are as near), the rows between at their
+/// heights. Only hosted rows can be placed, and rows between without a host
+/// are at the estimate, so this walks the hosts, not every row.
+fn beside_placed(
+    data: &Data,
+    index: usize,
+    hosted: BTreeMap<usize, RowKey>,
+    placed: impl Fn(&RowKey) -> Option<f32>,
+    height: impl Fn(&RowKey) -> f32,
+) -> Option<f32> {
+    let between = |from: usize, to: usize| {
+        let (sum, count) = hosted.range(from..to).fold((0.0, 0), |(sum, count), (_, k)| (sum + height(k), count + 1));
+        sum + (to - from - count) as f32 * data.estimate() as f32
+    };
+    let mut above = hosted.range(..index).rev().peekable();
+    let mut below = hosted.range(index + 1..).peekable();
+    loop {
+        let up = match (above.peek(), below.peek()) {
+            (None, None) => return None,
+            (Some((a, _)), Some((b, _))) => index - **a <= **b - index,
+            (up, _) => up.is_some(),
+        };
+        if up {
+            let (&i, k) = above.next()?;
+            if let Some(y) = placed(k) {
+                return Some(y + between(i, index));
+            }
+        } else {
+            let (&i, k) = below.next()?;
+            if let Some(y) = placed(k) {
+                return Some(y - between(index, i));
+            }
+        }
     }
 }
 

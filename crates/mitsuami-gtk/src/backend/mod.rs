@@ -144,9 +144,11 @@ enum Widget {
         fit: Option<ImageFit>,
     },
     /// A themed icon, and the size the app gave: GTK holds whole pixels.
+    /// A colour without a theme class keeps its rule in the style sheet.
     Icon {
         image: gtk::Image,
         size: Option<f32>,
+        color: Option<text::IconColorRule>,
     },
     /// A file's icon, what the app gave (GTK shows a GIcon, not a path),
     /// and its size, as `Icon`'s.
@@ -369,6 +371,13 @@ pub struct GtkHandle {
     state: Rc<RefCell<State>>,
 }
 
+/// A [`GtkHandle`] that doesn't keep the backend: for closures the backend
+/// itself holds.
+#[derive(Clone)]
+pub(crate) struct WeakGtkHandle {
+    state: std::rc::Weak<RefCell<State>>,
+}
+
 fn violation(command: &Command, problem: &str) -> ! {
     panic!("gtk backend: protocol violation in {command:?}: {problem}")
 }
@@ -474,6 +483,7 @@ impl Backend for GtkBackend {
                 state.apply(command);
             }
         });
+        text::flush_icon_colors();
         if state.lists > 0 {
             state.lists_dirty.set(true);
         }

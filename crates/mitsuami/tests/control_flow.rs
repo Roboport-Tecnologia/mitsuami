@@ -118,6 +118,59 @@ async fn reordering_keeps_row_identity_and_state(app: TestApp) {
 }
 
 #[mitsuami_test::test]
+async fn any_reorder_keeps_every_row_in_its_new_place(app: TestApp) {
+    // Reversed, rotated, a row moved each way, and moves mixed with rows
+    // coming and going: the backend gets a valid sequence each time.
+    let items = signal((0..40).collect::<Vec<u32>>());
+    app.mount(move || Column::new().child(For::new(items, |n: &u32| *n, |n| Text::new(format!("{n}")))));
+    let first = app.get_by_text("1").id();
+    let changes: [fn(&mut Vec<u32>); 6] = [
+        |v| v.reverse(),
+        |v| v.rotate_left(7),
+        |v| {
+            let n = v.remove(0);
+            v.push(n);
+        },
+        |v| {
+            let n = v.pop().unwrap();
+            v.insert(0, n);
+        },
+        |v| {
+            v.retain(|n| n % 3 != 0);
+            v.swap(2, 20);
+            v.extend(100..105);
+            v.rotate_right(4);
+        },
+        |v| v.sort_by_key(|n| (n % 5, std::cmp::Reverse(*n))),
+    ];
+    for change in changes {
+        let mut want = items.get_untracked();
+        change(&mut want);
+        items.set(want.clone());
+        app.settle().await;
+        assert_eq!(texts(&app), want.iter().map(|n| n.to_string()).collect::<Vec<_>>());
+    }
+    assert_eq!(app.get_by_text("1").id(), first, "rows that stay keep their widget");
+}
+
+#[mitsuami_test::test]
+async fn a_for_built_without_an_owner_lets_go_of_its_rows_with_its_node(app: TestApp) {
+    assert!(Owner::current().is_none(), "the test body runs without an owner");
+    let disposed = Rc::new(Cell::new(0));
+    let d = disposed.clone();
+    let items = signal(vec![item(1, "a"), item(2, "b")]);
+    let id = For::new(items, |i: &Item| i.id, move |i| row(i, d.clone())).build(app.ui());
+
+    app.ui().destroy(id);
+
+    assert_eq!(disposed.get(), 2);
+    // Its effect went too: a change builds nothing.
+    items.set(vec![item(3, "c")]);
+    assert_eq!(disposed.get(), 2);
+    assert_eq!(app.native_node_count(), 0);
+}
+
+#[mitsuami_test::test]
 async fn removed_rows_are_disposed_and_new_rows_rendered(app: TestApp) {
     let items = signal(vec![item(1, "a"), item(2, "b")]);
     let disposed = Rc::new(Cell::new(0));

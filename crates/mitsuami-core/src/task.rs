@@ -13,7 +13,7 @@
 //! [`Ui::tick`]: crate::Ui::tick
 
 use std::cell::{Cell, RefCell};
-use std::collections::{BTreeMap, VecDeque};
+use std::collections::{BTreeMap, HashSet, VecDeque};
 use std::future::Future;
 use std::pin::Pin;
 use std::rc::Rc;
@@ -42,10 +42,17 @@ thread_local! {
 
 /// Runs `f` with `ui` as the current Ui.
 pub(crate) fn with_current<R>(ui: &Ui, f: impl FnOnce() -> R) -> R {
-    let previous = CURRENT.with(|c| c.replace(Some(ui.downgrade())));
-    let result = f();
-    CURRENT.with(|c| *c.borrow_mut() = previous);
-    result
+    /// Puts the previous Ui back even if `f` panics, so a caught panic in a
+    /// handler doesn't leave this one current.
+    struct Restore(Option<crate::ui::WeakUi>);
+    impl Drop for Restore {
+        fn drop(&mut self) {
+            let previous = self.0.take();
+            let _ = CURRENT.try_with(|c| *c.borrow_mut() = previous);
+        }
+    }
+    let _restore = Restore(CURRENT.with(|c| c.replace(Some(ui.downgrade()))));
+    f()
 }
 
 /// Time as the UI sees it. Apps use real time; tests use a manual clock.
@@ -91,16 +98,38 @@ impl Clock for Rc<ManualClock> {
     }
 }
 
+/// Tasks to poll, in the order they were woken. A task woken again while
+/// it waits keeps its place: it's polled once.
+#[derive(Default)]
+struct Queue {
+    order: VecDeque<u64>,
+    queued: HashSet<u64>,
+}
+
+impl Queue {
+    fn push(&mut self, id: u64) {
+        if self.queued.insert(id) {
+            self.order.push_back(id);
+        }
+    }
+
+    fn pop(&mut self) -> Option<u64> {
+        let id = self.order.pop_front()?;
+        self.queued.remove(&id);
+        Some(id)
+    }
+}
+
 /// Where wakers put ready tasks. Shared with other threads.
 struct ReadyQueue {
     /// Woken on the UI thread: by events, other tasks, timers, spawns.
-    ready: Mutex<VecDeque<u64>>,
+    ready: Mutex<Queue>,
     /// Woken on another thread. A tick takes these in once, at its start,
     /// so a task another thread wakes again while it runs (a frame
     /// published during a draw that waits for vsync) waits for the run
     /// loop's next turn, after the platform's input, instead of running
     /// back to back and holding every event until it pauses.
-    remote: Mutex<VecDeque<u64>>,
+    remote: Mutex<Queue>,
     ui_thread: ThreadId,
     /// Asks the UI thread's run loop to turn (thread-safe).
     wake_ui: Mutex<Option<Arc<dyn Fn() + Send + Sync>>>,
@@ -119,7 +148,7 @@ impl Wake for TaskWaker {
     fn wake_by_ref(self: &Arc<Self>) {
         let queue =
             if std::thread::current().id() == self.queue.ui_thread { &self.queue.ready } else { &self.queue.remote };
-        queue.lock().unwrap().push_back(self.id);
+        queue.lock().unwrap().push(self.id);
         let wake_ui = self.queue.wake_ui.lock().unwrap().clone();
         if let Some(wake_ui) = wake_ui {
             wake_ui();
@@ -164,7 +193,7 @@ impl Executor {
         let id = self.next_task.get();
         self.next_task.set(id + 1);
         self.tasks.borrow_mut().insert(id, Task { future, owner });
-        self.queue.ready.lock().unwrap().push_back(id);
+        self.queue.ready.lock().unwrap().push(id);
         id
     }
 
@@ -206,11 +235,11 @@ impl Executor {
     /// the tasks other threads woke first. Returns whether any task ran.
     pub(crate) fn run_ready(&self, ui: &Ui, remote: bool) -> bool {
         if remote {
-            let mut woken = std::mem::take(&mut *self.queue.remote.lock().unwrap());
-            // A task woken several times meanwhile runs once.
-            let mut seen = std::collections::BTreeSet::new();
-            woken.retain(|id| seen.insert(*id));
-            self.queue.ready.lock().unwrap().extend(woken);
+            let woken = std::mem::take(&mut *self.queue.remote.lock().unwrap());
+            let mut ready = self.queue.ready.lock().unwrap();
+            for id in woken.order {
+                ready.push(id);
+            }
         }
         with_current(ui, || self.poll_ready())
     }
@@ -228,9 +257,9 @@ impl Executor {
         let mut ran = false;
         // Only the tasks ready now: one that wakes itself (a `yield_now`
         // loop) runs again on the tick's next turn, not forever in this one.
-        let ready = self.queue.ready.lock().unwrap().len();
+        let ready = self.queue.ready.lock().unwrap().order.len();
         for _ in 0..ready {
-            let Some(id) = self.queue.ready.lock().unwrap().pop_front() else { break };
+            let Some(id) = self.queue.ready.lock().unwrap().pop() else { break };
             // Take the task out while polling: it may spawn or cancel tasks.
             let Some(mut task) = self.tasks.borrow_mut().remove(&id) else { continue };
             ran = true;
@@ -249,7 +278,7 @@ impl Executor {
     }
 
     pub(crate) fn has_ready(&self) -> bool {
-        !self.queue.ready.lock().unwrap().is_empty()
+        !self.queue.ready.lock().unwrap().order.is_empty()
     }
 
     pub(crate) fn task_count(&self) -> usize {

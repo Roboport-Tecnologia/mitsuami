@@ -75,8 +75,9 @@ pub(super) fn font_weight(font: &NSFont) -> FontWeight {
     let weight = unsafe { descriptor.objectForKey(NSFontTraitsAttribute) }
         .and_then(|traits| {
             let traits: Retained<NSDictionary> = traits.downcast().ok()?;
-            let weight: Retained<AnyObject> = unsafe { msg_send![&*traits, objectForKey: NSFontWeightTrait] };
-            Some(unsafe { msg_send![&*weight, doubleValue] })
+            // A font's traits may leave its weight out.
+            let weight: Option<Retained<AnyObject>> = unsafe { msg_send![&*traits, objectForKey: NSFontWeightTrait] };
+            Some(unsafe { msg_send![&*weight?, doubleValue] })
         })
         .unwrap_or(0.0_f64);
     let weights = unsafe {

@@ -6,12 +6,9 @@
 #[path = "../examples/launch.rs"]
 mod example;
 
+use example::folder;
 use mitsuami::prelude::*;
 use mitsuami_test::prelude::*;
-
-fn folder() -> std::path::PathBuf {
-    std::env::temp_dir().join("mitsuami launch example")
-}
 
 #[mitsuami_test::test]
 async fn files_and_folders_open_in_their_apps(app: TestApp) {

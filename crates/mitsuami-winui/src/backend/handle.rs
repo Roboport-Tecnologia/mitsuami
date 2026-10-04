@@ -31,8 +31,8 @@ impl WinUiHandle {
     /// number box's text box): the node is the nearest one up from there.
     pub(crate) fn sync_focus(&self) {
         let state = self.state.borrow();
-        for node in state.nodes.values() {
-            let Widget::Window(parts) = &node.widget else { continue };
+        for id in &state.windows {
+            let Some(Widget::Window(parts)) = state.nodes.get(id).map(|n| &n.widget) else { continue };
             let element = parts
                 .host
                 .cast::<w::IUIElement>()
@@ -91,8 +91,8 @@ impl WinUiHandle {
         }
         // Windows moved to another display since.
         let state = self.state.borrow();
-        for node in state.nodes.values() {
-            if let Widget::Window(parts) = &node.widget
+        for id in &state.windows {
+            if let Some(Widget::Window(parts)) = state.nodes.get(id).map(|n| &n.widget)
                 && parts.moved.replace(false)
             {
                 apply_min_size(parts);
@@ -321,7 +321,10 @@ impl mitsuami_core::TestHooks for WinUiHandle {
             runtime::wait(Some(Duration::from_millis(5)));
             runtime::pump();
         }
-        self.state.borrow().layout_lists();
+        // Every list: XAML may have laid out any of them meanwhile.
+        let state = self.state.borrow();
+        state.layout_lists(&state.lists.iter().copied().collect::<Vec<_>>());
+        drop(state);
         // GPU surfaces follow their frames at XAML's next frame, which a
         // settle doesn't wait for: place them now, so the app has the size.
         for node in self.state.borrow().nodes.values() {

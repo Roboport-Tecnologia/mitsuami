@@ -43,11 +43,21 @@ fn rings(size: u32, phase: f64) -> Pixels {
 }
 
 /// The PNG is built in and written out, so a released binary shows it away
-/// from the source tree.
+/// from the source tree. Linux's temporary folder is shared by every user,
+/// who could plant a link at this name, so there it goes in the user's cache
+/// folder; macOS's and Windows' are per user.
 fn file() -> std::path::PathBuf {
-    let path = std::env::temp_dir().join("mitsuami-example-blue-red-20x10.png");
-    std::fs::write(&path, include_bytes!("../tests/assets/blue-red-20x10.png"))
-        .expect("the temporary directory is writable");
+    #[cfg(not(any(target_os = "macos", windows)))]
+    let folder = std::env::var_os("XDG_CACHE_HOME")
+        .map(std::path::PathBuf::from)
+        .filter(|path| path.is_absolute())
+        .unwrap_or_else(|| std::path::PathBuf::from(std::env::var_os("HOME").expect("HOME is set")).join(".cache"));
+    #[cfg(any(target_os = "macos", windows))]
+    let folder = std::env::temp_dir();
+    let path = folder.join("mitsuami-example-blue-red-20x10.png");
+    std::fs::create_dir_all(&folder)
+        .and_then(|()| std::fs::write(&path, include_bytes!("../tests/assets/blue-red-20x10.png")))
+        .expect("the folder is writable");
     path
 }
 

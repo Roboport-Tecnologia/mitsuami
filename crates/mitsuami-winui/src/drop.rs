@@ -158,15 +158,16 @@ fn read_paths(state: &Rc<DropState>, args: &w::DragEventArgs, then_drop: Option<
     }
     let Ok(operation) = view.GetStorageItemsAsync() else { return };
     let Ok(queue) = w::DispatcherQueue::GetForCurrentThread() else { return };
-    let ticket = later::park::<Weak<DropState>>(Rc::downgrade(state));
+    let ticket = later::park_until::<Weak<DropState>>(&queue, Rc::downgrade(state));
+    let id = ticket.id();
     let drag = state.drag.get();
     let watched = operation.when(move |items| {
         let paths: Vec<PathBuf> = items
             .ok()
             .map(|items| (&items).into_iter().filter_map(|item| item.Path().ok()).map(PathBuf::from).collect())
             .unwrap_or_default();
-        later::on_ui(&queue, move || {
-            let Some(state) = later::take::<Weak<DropState>>(ticket).and_then(|s| s.upgrade()) else { return };
+        later::on_ui_take(&queue, ticket, move |state: Weak<DropState>| {
+            let Some(state) = state.upgrade() else { return };
             if state.drag.get() != drag {
                 return;
             }
@@ -180,6 +181,6 @@ fn read_paths(state: &Rc<DropState>, args: &w::DragEventArgs, then_drop: Option<
         });
     });
     if watched.is_err() {
-        later::take::<Weak<DropState>>(ticket);
+        later::take::<Weak<DropState>>(id);
     }
 }

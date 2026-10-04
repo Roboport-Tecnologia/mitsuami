@@ -1,7 +1,7 @@
 //! The tree's structure, and keeping the backend's native children and
 //! props in step with it.
 
-use std::collections::{BTreeMap, HashSet};
+use std::collections::{BTreeMap, HashMap, HashSet};
 
 use crate::command::Command;
 use crate::widget::{NodeId, Prop, WidgetKind};
@@ -53,13 +53,21 @@ impl Ui {
             // And leave their native parent together, so destroying them
             // next (as `For` does) doesn't look for each among the others.
             inner.detach_native_all(&roots);
+            // Children coming from other parents leave each together: one
+            // at a time scanned its siblings for each.
+            let mut moving: BTreeMap<NodeId, HashSet<NodeId>> = BTreeMap::new();
             for child in &children {
-                if inner.nodes.get(child).and_then(|n| n.parent) != Some(parent) {
-                    inner.detach(*child);
+                let Some(node) = inner.nodes.get_mut(child) else { continue };
+                if let Some(other) = node.parent.filter(|p| *p != parent) {
+                    moving.entry(other).or_default().insert(*child);
                 }
-                if let Some(node) = inner.nodes.get_mut(child) {
-                    node.parent = Some(parent);
+                node.parent = Some(parent);
+            }
+            for (other, gone) in moving {
+                if let Some(node) = inner.nodes.get_mut(&other) {
+                    node.children.retain(|c| !gone.contains(c));
                 }
+                inner.mark_resync(other);
             }
             inner.nodes.get_mut(&parent).unwrap().children = children;
             inner.mark_resync(parent);
@@ -70,6 +78,9 @@ impl Ui {
 
     /// Removes a node and its whole subtree, natively too.
     pub fn destroy(&self, id: NodeId) {
+        // Dropped after the borrow: a handler's drop may dispose a scope
+        // (`owner_or_node_scope`) whose cleanups use the `Ui`.
+        let mut removed = Vec::new();
         {
             let mut inner = self.inner.borrow_mut();
             if !inner.nodes.contains_key(&id) {
@@ -93,14 +104,19 @@ impl Ui {
             for node_id in subtree {
                 let node = inner.nodes.remove(&node_id).expect("in subtree");
                 inner.resync.remove(&node_id);
-                inner.windows.retain(|w| *w != node_id);
+                if node.kind == WidgetKind::Window {
+                    inner.windows.retain(|w| *w != node_id);
+                    inner.destroyed_windows.push(node_id);
+                }
                 inner.focus_orders.remove(&node_id);
                 inner.focused.retain(|window, focused| *window != node_id && *focused != node_id);
                 if node.kind.is_native() {
                     inner.pending.push(Command::Destroy { id: node_id });
                 }
+                removed.push(node);
             }
         }
+        drop(removed);
         self.changed();
     }
 }
@@ -233,30 +249,38 @@ impl Inner {
     }
 
     /// Makes the backend's children of `parent` match the core tree.
+    ///
+    /// The children that stay in the same order (the longest run of them)
+    /// stay put; the others that stay are removed, and then every child
+    /// not in place is inserted, in order, each at its final index. A
+    /// reorder costs one pass, and the fewest moves, where moving each
+    /// child into place in turn was quadratic for a list reversed.
     fn resync_node(&mut self, parent: NodeId) {
         let desired = self.flattened_children(parent);
         let current = self.nodes[&parent].native_children.clone();
         let staying: HashSet<NodeId> = desired.iter().copied().collect();
-        let leaving: Vec<NodeId> = current.into_iter().filter(|c| !staying.contains(c)).collect();
+        let leaving: Vec<NodeId> = current.iter().copied().filter(|c| !staying.contains(c)).collect();
         self.detach_native_all(&leaving);
-        let mut working: Vec<NodeId> = self.nodes[&parent].native_children.clone();
-        // New children aren't looked for among the others: a thousand
-        // appended would scan them a thousand times.
-        let present: HashSet<NodeId> = working.iter().copied().collect();
+        let at: HashMap<NodeId, usize> =
+            current.iter().filter(|c| staying.contains(c)).enumerate().map(|(i, c)| (*c, i)).collect();
+        let kept = in_order(&desired, &at);
+        for child in current.iter().filter(|c| at.contains_key(c) && !kept.contains(c)) {
+            self.pending.push(Command::Remove { parent, child: *child });
+        }
+        // Children coming from other parents leave them together, so each
+        // parent's children are scanned once.
+        let adopted: Vec<NodeId> = desired
+            .iter()
+            .copied()
+            .filter(|c| !at.contains_key(c) && self.nodes[c].native_parent.is_some_and(|other| other != parent))
+            .collect();
+        self.detach_native_all(&adopted);
+        // Everything before `index` is in place by now: the kept children
+        // are in their order, and the others went in in theirs.
         for (index, child) in desired.iter().enumerate() {
-            if working.get(index) == Some(child) {
-                continue;
+            if !kept.contains(child) {
+                self.pending.push(Command::Insert { parent, child: *child, index });
             }
-            if let Some(pos) = present.contains(child).then(|| working.iter().position(|c| c == child)).flatten() {
-                working.remove(pos);
-                self.pending.push(Command::Remove { parent, child: *child });
-            } else if let Some(other) = self.nodes[child].native_parent
-                && other != parent
-            {
-                self.detach_native_all(&[*child]);
-            }
-            working.insert(index, *child);
-            self.pending.push(Command::Insert { parent, child: *child, index });
         }
         for child in &desired {
             self.nodes.get_mut(child).unwrap().native_parent = Some(parent);
@@ -287,4 +311,28 @@ impl Inner {
         let shown = crate::find_prop!(tabs.props, SelectedIndex).flatten();
         shown.and_then(|i| tabs.children.get(i)) != Some(&id)
     }
+}
+
+/// The longest run of `children` already in order: those whose positions
+/// in `at` (where they are now) increase, found by patience sorting.
+fn in_order(children: &[NodeId], at: &HashMap<NodeId, usize>) -> HashSet<NodeId> {
+    let present: Vec<(NodeId, usize)> = children.iter().filter_map(|c| Some((*c, *at.get(c)?))).collect();
+    // `tails[n]`: the child ending the best run of length n + 1 so far.
+    let mut tails: Vec<usize> = Vec::new();
+    let mut previous: Vec<Option<usize>> = Vec::with_capacity(present.len());
+    for (i, (_, position)) in present.iter().enumerate() {
+        let n = tails.partition_point(|&t| present[t].1 < *position);
+        previous.push(n.checked_sub(1).map(|n| tails[n]));
+        match tails.get_mut(n) {
+            Some(tail) => *tail = i,
+            None => tails.push(i),
+        }
+    }
+    let mut kept = HashSet::with_capacity(tails.len());
+    let mut next = tails.last().copied();
+    while let Some(i) = next {
+        kept.insert(present[i].0);
+        next = previous[i];
+    }
+    kept
 }

@@ -6,13 +6,15 @@ use mitsuami_core::NodeId;
 
 use super::GtkHandle;
 
-/// Opens `files` dialogs and alerts on this window, or the active one.
-pub(crate) fn dialog_parent(handle: &GtkHandle, parent: Option<NodeId>) -> Option<gtk::Window> {
+/// Opens `files` dialogs and alerts on this window, or the active one,
+/// and says which window that is.
+pub(crate) fn dialog_parent(handle: &GtkHandle, parent: Option<NodeId>) -> Option<(NodeId, gtk::Window)> {
     let windows = handle.windows();
     parent
-        .and_then(|id| windows.iter().find(|(w, _)| *w == id).map(|(_, window)| window.clone()))
-        .or_else(|| windows.iter().find(|(_, w)| w.is_active()).map(|(_, w)| w.clone()))
-        .or_else(|| windows.first().map(|(_, w)| w.clone()))
+        .and_then(|id| windows.iter().find(|(w, _)| *w == id))
+        .or_else(|| windows.iter().find(|(_, w)| w.is_active()))
+        .or_else(|| windows.first())
+        .cloned()
 }
 
 pub(crate) fn file_filters(filters: &[mitsuami_core::services::FileFilter]) -> Option<gio::ListStore> {

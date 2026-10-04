@@ -69,6 +69,8 @@ unsafe extern "C" {
 
     fn mq_connect(object: Raw, signal: *const c_char, key: u64) -> i32;
     fn mq_connect_once(object: Raw, signal: *const c_char, key: u64) -> i32;
+    fn mq_connect_receiver(object: Raw, signal: *const c_char, key: u64) -> Raw;
+    fn mq_disconnect(receiver: Raw);
     fn mq_watch_close(window: Raw, key: u64);
     fn mq_focus_item(window: Raw) -> Raw;
     fn mq_force_focus(item: Raw);
@@ -126,6 +128,13 @@ unsafe extern "C" {
     fn mq_window_xid(window: Raw) -> u64;
     fn mq_window_keyboard_grab(window: Raw, on: i32) -> i32;
     fn mq_window_active(window: Raw) -> i32;
+
+    fn mq_rows_new(parent: Raw, columns: i32) -> Raw;
+    fn mq_rows_insert(model: Raw, at: i32, keys: *const u64, count: i32);
+    fn mq_rows_remove(model: Raw, at: i32, count: i32);
+    fn mq_rows_move(model: Raw, from: i32, count: i32, to: i32);
+    fn mq_rows_reset(model: Raw, keys: *const u64, count: i32);
+    fn mq_rows_set_columns(model: Raw, count: i32);
 
     fn mq_set_input_callback(callback: extern "C" fn(u64, i32, i32, i32, f64, f64));
     fn mq_set_gone_callback(callback: extern "C" fn(Raw));
@@ -271,6 +280,30 @@ pub(crate) fn watch_session_end(keep: impl Fn() -> bool + 'static) {
 /// Makes the event loop turn. Callable from any thread.
 pub(crate) fn wake() {
     unsafe { mq_wake() }
+}
+
+/// A signal's connection to a Rust closure (its receiver, which goes with
+/// the object that has the signal).
+#[derive(Clone, Copy, PartialEq)]
+pub(crate) struct Connection(QmlObject);
+
+impl Connection {
+    /// Ends the connection, and frees its closure; nothing if the object
+    /// is gone, which ended it.
+    pub(crate) fn disconnect(self) {
+        let Some(raw) = self.0.live() else { return };
+        unsafe { mq_disconnect(raw) }
+    }
+}
+
+/// A change to a row model: keys are row keys; `to` is where a moved
+/// run's first row ends up.
+pub(crate) enum RowEdit<'a> {
+    Insert { at: usize, keys: &'a [u64] },
+    Remove { at: usize, count: usize },
+    Move { from: usize, count: usize, to: usize },
+    Reset { keys: &'a [u64] },
+    Columns(usize),
 }
 
 /// A single-shot timer. Stopped and freed when dropped.
@@ -716,6 +749,18 @@ impl QmlObject {
         connected
     }
 
+    /// Like [`connect`](Self::connect), until the connection returned is
+    /// disconnected. `None` if the object has no such signal.
+    pub(crate) fn connection(self, signal: &str, f: impl Fn() + 'static) -> Option<Connection> {
+        let raw = self.live()?;
+        let key = register(move |_| f());
+        let receiver = QmlObject::from_raw(unsafe { mq_connect_receiver(raw, c(signal).as_ptr(), key) });
+        if receiver.is_none() {
+            unregister(key);
+        }
+        receiver.map(Connection)
+    }
+
     /// Calls `f` the first time the signal fires; the connection goes then.
     pub(crate) fn connect_once(self, signal: &str, f: impl FnOnce() + 'static) -> bool {
         let Some(raw) = self.live() else { return Default::default() };
@@ -808,6 +853,26 @@ impl QmlObject {
     pub(crate) fn is_active(self) -> bool {
         let Some(raw) = self.live() else { return Default::default() };
         unsafe { mq_window_active(raw) != 0 }
+    }
+
+    /// A list's or table's model, owned by `self`: see `mq_rows_new`.
+    pub(crate) fn row_model(self, columns: usize) -> QmlObject {
+        let Some(raw) = self.live() else { return QmlObject::dead() };
+        QmlObject::from_raw(unsafe { mq_rows_new(raw, columns as i32) }).expect("a row model")
+    }
+
+    /// Changes a row model (one made with [`row_model`](Self::row_model)).
+    pub(crate) fn edit_rows(self, edit: RowEdit<'_>) {
+        let Some(raw) = self.live() else { return };
+        unsafe {
+            match edit {
+                RowEdit::Insert { at, keys } => mq_rows_insert(raw, at as i32, keys.as_ptr(), keys.len() as i32),
+                RowEdit::Remove { at, count } => mq_rows_remove(raw, at as i32, count as i32),
+                RowEdit::Move { from, count, to } => mq_rows_move(raw, from as i32, count as i32, to as i32),
+                RowEdit::Reset { keys } => mq_rows_reset(raw, keys.as_ptr(), keys.len() as i32),
+                RowEdit::Columns(count) => mq_rows_set_columns(raw, count as i32),
+            }
+        }
     }
 
     /// A GPU surface's input item, filling `self` (a focus scope), which

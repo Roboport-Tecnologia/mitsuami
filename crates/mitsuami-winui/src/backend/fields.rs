@@ -14,11 +14,9 @@ use crate::bindings as w;
 /// unless something else has changed it from `from` by then.
 pub(super) fn set_later(number: &w::INumberBox, from: f64, to: f64) {
     let Ok(queue) = w::DispatcherQueue::GetForCurrentThread() else { return };
-    let ticket = crate::later::park(number.clone());
-    crate::later::on_ui(&queue, move || {
-        if let Some(number) = crate::later::take::<w::INumberBox>(ticket)
-            && number.Value().is_ok_and(|v| v.to_bits() == from.to_bits())
-        {
+    let ticket = crate::later::park_until(&queue, number.clone());
+    crate::later::on_ui_take(&queue, ticket, move |number: w::INumberBox| {
+        if number.Value().is_ok_and(|v| v.to_bits() == from.to_bits()) {
             let _ = number.SetValue(to);
         }
     });

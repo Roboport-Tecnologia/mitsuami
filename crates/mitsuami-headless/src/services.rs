@@ -34,6 +34,16 @@ pub type PendingTrash = Pending<Vec<PathBuf>, Result<(), ServiceError>>;
 /// A file, folder or URL to open in another app.
 pub type PendingLaunch = Pending<Launch, Result<(), ServiceError>>;
 
+/// Takes out the requests asked for on `window`, keeping the others' order.
+fn take_on<Request, Answer>(
+    requests: &mut VecDeque<Pending<Request, Answer>>,
+    window: NodeId,
+) -> VecDeque<Pending<Request, Answer>> {
+    let (taken, kept) = std::mem::take(requests).into_iter().partition(|p| p.parent == Some(window));
+    *requests = kept;
+    taken
+}
+
 #[derive(Default)]
 struct State {
     clipboard: Option<String>,
@@ -171,6 +181,22 @@ impl Services for FakeServices {
 
     fn launch(&mut self, parent: Option<NodeId>, target: &Launch, reply: Reply<Result<(), ServiceError>>) {
         self.state.borrow_mut().launches.push_back(Pending { request: target.clone(), parent, reply });
+    }
+
+    /// Alerts and file dialogs asked for on the window answer as their
+    /// cancel would. Those without a parent stay: the fake doesn't know
+    /// which window is focused.
+    fn window_destroyed(&mut self, window: NodeId) {
+        let (alerts, opens, saves) = {
+            let mut state = self.state.borrow_mut();
+            (take_on(&mut state.alerts, window), take_on(&mut state.opens, window), take_on(&mut state.saves, window))
+        };
+        for alert in alerts {
+            let cancel = alert.request.effective_buttons().len() - 1;
+            alert.respond(cancel);
+        }
+        opens.into_iter().for_each(|open| open.respond(None));
+        saves.into_iter().for_each(|save| save.respond(None));
     }
 
     fn set_menu(&mut self, window: Option<NodeId>, menu: &MenuBarData, activate: Rc<dyn Fn(u32)>) {

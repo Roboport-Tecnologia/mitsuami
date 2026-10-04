@@ -28,7 +28,24 @@ struct QueuedAlert {
 #[derive(Default)]
 struct AlertQueue {
     showing: bool,
+    /// The one showing: the window it's on, and whether that window went,
+    /// which makes its answer the cancel one.
+    shown: Option<ShownAlert>,
     waiting: VecDeque<QueuedAlert>,
+}
+
+struct ShownAlert {
+    window: NodeId,
+    operation: windows_future::IAsyncOperation<w::ContentDialogResult>,
+    cancelled: bool,
+}
+
+/// A picker waiting for its answer: the window it was made for, its reply's
+/// ticket, and what cancels it.
+struct OpenPicker {
+    window: NodeId,
+    ticket: u64,
+    cancel: Box<dyn Fn()>,
 }
 
 pub struct WinUiServices {
@@ -38,6 +55,7 @@ pub struct WinUiServices {
     /// Tests keep clipboard text here instead of the system clipboard.
     private_clipboard: Option<String>,
     alerts: Rc<RefCell<AlertQueue>>,
+    pickers: Vec<OpenPicker>,
 }
 
 impl WinUiServices {
@@ -47,8 +65,31 @@ impl WinUiServices {
             queue: w::DispatcherQueue::GetForCurrentThread().expect("a dispatcher queue on the UI thread"),
             private_clipboard: private_clipboard.then(String::new),
             alerts: Rc::default(),
+            pickers: Vec::new(),
         }
     }
+
+    /// Keeps a picker until its window goes, forgetting those that answered.
+    fn track_picker(&mut self, window: NodeId, ticket: u64, cancel: Box<dyn Fn()>) {
+        self.pickers.retain(|p| later::is_parked(p.ticket));
+        self.pickers.push(OpenPicker { window, ticket, cancel });
+    }
+}
+
+/// Answers a parked reply with `None`, if it's still waiting, and cancels
+/// the picker's operation.
+fn cancel_picker<T, A>(operation: &windows_future::IAsyncOperation<T>, ticket: u64) -> Box<dyn Fn()>
+where
+    T: windows_core::RuntimeType + 'static,
+    A: 'static,
+{
+    let operation = operation.clone();
+    Box::new(move || {
+        if let Some(reply) = later::take::<Reply<Option<A>>>(ticket) {
+            reply(None);
+        }
+        _ = operation.Cancel();
+    })
 }
 
 fn failed(error: windows_core::Error) -> ServiceError {
@@ -82,18 +123,15 @@ impl Services for WinUiServices {
         })();
         match read {
             Ok(Some(operation)) => {
-                let ticket = later::park(reply);
                 let queue = self.queue.clone();
+                let ticket = later::park_until(&queue, reply);
+                let id = ticket.id();
                 let watched = operation.when(move |text| {
                     let text = text.ok().map(|t| t.to_string_lossy());
-                    later::on_ui(&queue, move || {
-                        if let Some(reply) = later::take::<Reply<Option<String>>>(ticket) {
-                            reply(text);
-                        }
-                    });
+                    later::on_ui_take(&queue, ticket, move |reply: Reply<Option<String>>| reply(text));
                 });
                 if watched.is_err()
-                    && let Some(reply) = later::take::<Reply<Option<String>>>(ticket)
+                    && let Some(reply) = later::take::<Reply<Option<String>>>(id)
                 {
                     reply(None);
                 }
@@ -124,7 +162,7 @@ impl Services for WinUiServices {
     }
 
     fn open_file(&mut self, parent: Option<NodeId>, request: &OpenFile, reply: Reply<Option<Vec<PathBuf>>>) {
-        let Some(window) = self.backend.window_parts(parent, |p| p.id) else { return reply(None) };
+        let Some((window, node)) = self.backend.window_parts(parent, |p| (p.id, p.node)) else { return reply(None) };
         let ticket = later::park(reply);
         let queue = self.queue.clone();
         let finish = move |paths: Option<Vec<PathBuf>>| {
@@ -135,15 +173,18 @@ impl Services for WinUiServices {
             });
         };
         let path = |result: &w::PickFileResult| result.Path().ok().map(PathBuf::from);
-        let started: R<()> = (|| {
+        type Paths = Vec<PathBuf>;
+        let started: R<Box<dyn Fn()>> = (|| {
             if request.directories {
                 let picker = w::FolderPicker::CreateInstance(window)?;
                 if let Some(folder) = folder_path(&request.start_folder) {
                     picker.cast::<w::IFolderPicker2>()?.SetSuggestedFolder(&folder)?;
                 }
-                picker.PickSingleFolderAsync()?.when(move |folder| {
+                let operation = picker.PickSingleFolderAsync()?;
+                operation.when(move |folder| {
                     finish(folder.ok().and_then(|f| f.Path().ok()).map(|p| vec![PathBuf::from(p)]));
-                })
+                })?;
+                Ok(cancel_picker::<_, Paths>(&operation, ticket))
             } else {
                 let picker = w::FileOpenPicker::CreateInstance(window)?;
                 let picker2 = picker.cast::<w::IFileOpenPicker2>()?;
@@ -164,29 +205,34 @@ impl Services for WinUiServices {
                     }
                 }
                 if request.multiple {
-                    picker.PickMultipleFilesAsync()?.when(move |files| {
+                    let operation = picker.PickMultipleFilesAsync()?;
+                    operation.when(move |files| {
                         let paths: Option<Vec<PathBuf>> =
                             files.ok().map(|files| (&files).into_iter().filter_map(|f| path(&f)).collect());
                         finish(paths.filter(|p| !p.is_empty()));
-                    })
+                    })?;
+                    Ok(cancel_picker::<_, Paths>(&operation, ticket))
                 } else {
-                    picker
-                        .PickSingleFileAsync()?
-                        .when(move |file| finish(file.ok().and_then(|f| path(&f)).map(|p| vec![p])))
+                    let operation = picker.PickSingleFileAsync()?;
+                    operation.when(move |file| finish(file.ok().and_then(|f| path(&f)).map(|p| vec![p])))?;
+                    Ok(cancel_picker::<_, Paths>(&operation, ticket))
                 }
             }
         })();
-        if started.is_err()
-            && let Some(reply) = later::take::<Reply<Option<Vec<PathBuf>>>>(ticket)
-        {
-            reply(None);
+        match started {
+            Ok(cancel) => self.track_picker(node, ticket, cancel),
+            Err(_) => {
+                if let Some(reply) = later::take::<Reply<Option<Vec<PathBuf>>>>(ticket) {
+                    reply(None);
+                }
+            }
         }
     }
 
     fn save_file(&mut self, parent: Option<NodeId>, request: &SaveFile, reply: Reply<Option<PathBuf>>) {
-        let Some(window) = self.backend.window_parts(parent, |p| p.id) else { return reply(None) };
+        let Some((window, node)) = self.backend.window_parts(parent, |p| (p.id, p.node)) else { return reply(None) };
         let ticket = later::park(reply);
-        let started: R<()> = (|| {
+        let started: R<Box<dyn Fn()>> = (|| {
             let picker = w::FileSavePicker::CreateInstance(window)?;
             if let Some(name) = &request.default_name {
                 picker.SetSuggestedFileName(name)?;
@@ -202,19 +248,24 @@ impl Services for WinUiServices {
                 choices.Insert(&HSTRING::from(&filter.name), &windows_collections::IVector::from(extensions))?;
             }
             let queue = self.queue.clone();
-            picker.PickSaveFileAsync()?.when(move |file| {
+            let operation = picker.PickSaveFileAsync()?;
+            operation.when(move |file| {
                 let path = file.ok().and_then(|f| f.Path().ok()).map(PathBuf::from);
                 later::on_ui(&queue, move || {
                     if let Some(reply) = later::take::<Reply<Option<PathBuf>>>(ticket) {
                         reply(path);
                     }
                 });
-            })
+            })?;
+            Ok(cancel_picker::<_, PathBuf>(&operation, ticket))
         })();
-        if started.is_err()
-            && let Some(reply) = later::take::<Reply<Option<PathBuf>>>(ticket)
-        {
-            reply(None);
+        match started {
+            Ok(cancel) => self.track_picker(node, ticket, cancel),
+            Err(_) => {
+                if let Some(reply) = later::take::<Reply<Option<PathBuf>>>(ticket) {
+                    reply(None);
+                }
+            }
         }
     }
 
@@ -225,12 +276,14 @@ impl Services for WinUiServices {
     /// outside the `Ui`'s call.
     fn trash(&mut self, parent: Option<NodeId>, paths: &[PathBuf], reply: Reply<Result<(), ServiceError>>) {
         let owner = self.backend.window_parts(parent, |p| p.hwnd as isize);
-        let ticket = later::park((paths.to_vec(), reply));
-        later::on_ui(&self.queue, move || {
-            if let Some((paths, reply)) = later::take::<(Vec<PathBuf>, Reply<Result<(), ServiceError>>)>(ticket) {
+        let ticket = later::park_until(&self.queue, (paths.to_vec(), reply));
+        later::on_ui_take(
+            &self.queue,
+            ticket,
+            move |(paths, reply): (Vec<PathBuf>, Reply<Result<(), ServiceError>>)| {
                 reply(recycle(owner.map(|hwnd| hwnd as w::HWND), &paths));
-            }
-        });
+            },
+        );
     }
 
     /// The shell's default verb, as a double-click in Explorer: it asks
@@ -248,15 +301,41 @@ impl Services for WinUiServices {
                 Ok(path) => path.as_os_str().into(),
                 Err(error) => return reply(Err(ServiceError::Failed(error.to_string()))),
             },
+            Launch::Url(url) if refused(url) => return reply(Err(ServiceError::Unavailable)),
             Launch::Url(url) if is_url(url) => url.into(),
             Launch::Url(url) => return reply(Err(ServiceError::Failed(format!("\u{201C}{url}\u{201D} isn't a URL")))),
         };
-        let ticket = later::park(reply);
-        later::on_ui(&self.queue, move || {
-            if let Some(reply) = later::take::<Reply<Result<(), ServiceError>>>(ticket) {
-                reply(shell_open(owner.map(|hwnd| hwnd as w::HWND), &target));
-            }
+        let ticket = later::park_until(&self.queue, reply);
+        later::on_ui_take(&self.queue, ticket, move |reply: Reply<Result<(), ServiceError>>| {
+            reply(shell_open(owner.map(|hwnd| hwnd as w::HWND), &target));
         });
+    }
+
+    /// The alert showing on the window is cancelled (`Cancel` on its
+    /// `ShowAsync` closes a `ContentDialog`) and answers its close button;
+    /// alerts waiting for the window answer that at once. Its pickers
+    /// answer no paths right away, and their operations are cancelled.
+    fn window_destroyed(&mut self, window: NodeId) {
+        let (waiting, shown) = {
+            let mut queue = self.alerts.borrow_mut();
+            let (waiting, kept): (VecDeque<_>, _) =
+                std::mem::take(&mut queue.waiting).into_iter().partition(|a| a.parent == Some(window));
+            queue.waiting = kept;
+            let shown = queue.shown.as_mut().filter(|s| s.window == window).map(|shown| {
+                shown.cancelled = true;
+                shown.operation.clone()
+            });
+            (waiting, shown)
+        };
+        for QueuedAlert { alert, reply, .. } in waiting {
+            reply(alert.effective_buttons().len() - 1);
+        }
+        if let Some(operation) = shown {
+            _ = operation.Cancel();
+        }
+        let (gone, kept): (Vec<_>, _) = std::mem::take(&mut self.pickers).into_iter().partition(|p| p.window == window);
+        self.pickers = kept;
+        gone.iter().for_each(|picker| (picker.cancel)());
     }
 
     fn set_menu(&mut self, window: Option<NodeId>, menu: &MenuBarData, activate: Rc<dyn Fn(u32)>) {
@@ -274,6 +353,21 @@ fn is_url(url: &str) -> bool {
     let well_formed = chars.next().is_some_and(|c| c.is_ascii_alphabetic())
         && chars.all(|c| c.is_ascii_alphanumeric() || matches!(c, '+' | '-' | '.'));
     well_formed && scheme.len() > 1 && !scheme.eq_ignore_ascii_case("file") && w::Uri::CreateUri(url).is_ok()
+}
+
+/// Schemes Microsoft disabled or warned against after attacks used them
+/// from links and documents: `ms-msdt:` (Follina, CVE-2022-30190),
+/// `search-ms:` and `search:` (Explorer searches of remote shares that
+/// pass for folders), `ms-officecmd:` (Office's launcher, which ran
+/// commands from a link) and `ms-appinstaller:` (installs apps; off by
+/// default since December 2023).
+/// Refused as no app opening them, as Windows answers once a scheme's
+/// handler is turned off.
+const REFUSED_SCHEMES: [&str; 5] = ["ms-msdt", "search-ms", "search", "ms-officecmd", "ms-appinstaller"];
+
+fn refused(url: &str) -> bool {
+    let scheme = url.split_once(':').map_or("", |(scheme, _)| scheme);
+    REFUSED_SCHEMES.iter().any(|refused| scheme.eq_ignore_ascii_case(refused))
 }
 
 fn shell_open(owner: Option<w::HWND>, target: &HSTRING) -> Result<(), ServiceError> {
@@ -357,6 +451,7 @@ fn show_next_alert(backend: WinUiHandle, queue: Rc<RefCell<AlertQueue>>) {
     };
     let QueuedAlert { parent, alert, reply } = next;
     let buttons = alert.effective_buttons();
+    let window = backend.window_parts(parent, |p| p.node);
     let shown: R<_> = (|| {
         let root = backend.xaml_root(parent).ok_or_else(|| windows_core::Error::from_hresult(w::E_FAIL))?;
         let dialog = w::ContentDialog::new()?;
@@ -385,11 +480,16 @@ fn show_next_alert(backend: WinUiHandle, queue: Rc<RefCell<AlertQueue>>) {
     };
     match shown {
         Ok(operation) => {
+            if let Some(window) = window {
+                queue.borrow_mut().shown = Some(ShownAlert { window, operation: operation.clone(), cancelled: false });
+            }
             let ticket = later::park((reply, backend, queue));
             let watched = operation.when(move |result| {
                 type Parked = (Reply<usize>, WinUiHandle, Rc<RefCell<AlertQueue>>);
                 if let Some((reply, backend, queue)) = later::take::<Parked>(ticket) {
-                    reply(answer(result.ok()));
+                    // Its window went: what Escape would have answered.
+                    let shown = queue.borrow_mut().shown.take();
+                    reply(if shown.is_some_and(|s| s.cancelled) { count - 1 } else { answer(result.ok()) });
                     queue.borrow_mut().showing = false;
                     show_next_alert(backend, queue);
                 }
@@ -397,7 +497,10 @@ fn show_next_alert(backend: WinUiHandle, queue: Rc<RefCell<AlertQueue>>) {
             if watched.is_err() {
                 type Parked = (Reply<usize>, WinUiHandle, Rc<RefCell<AlertQueue>>);
                 if let Some((reply, _, queue)) = later::take::<Parked>(ticket) {
-                    queue.borrow_mut().showing = false;
+                    let mut queue = queue.borrow_mut();
+                    queue.showing = false;
+                    queue.shown = None;
+                    drop(queue);
                     reply(answer(None));
                 }
             }

@@ -33,6 +33,14 @@ use crate::view::{AnyView, View};
 use crate::widget::{NodeId, Prop, WidgetKind};
 
 /// The shared, platform-free definition of a custom widget.
+///
+/// Its functions answer from their arguments alone. [`a11y`](Self::a11y),
+/// [`Drawn::measure`] and [`Drawn::draw`] run while the `Ui` holds its
+/// tree (building the accessibility tree, laying out, drawing), so one
+/// that reaches a `Ui` (builds nodes, sets props, commits, reads a query)
+/// panics with a `RefCell` borrow error. [`action`](Self::action) and
+/// [`Drawn::pointer`] run with the tree free, but their job is to return
+/// an event, which the app handles in [`Custom::on_event`].
 pub trait CustomWidget: Sized + 'static {
     /// Shown in trees, logs and snapshots.
     const NAME: &'static str;

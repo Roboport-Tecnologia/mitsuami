@@ -1,4 +1,4 @@
-use crate::runtime::{NodeKey, with_runtime};
+use crate::runtime::{NodeKey, try_with_runtime, with_runtime};
 
 /// A node in the ownership tree: a scope that disposes everything created
 /// inside it. Vue's `effectScope`.
@@ -40,8 +40,10 @@ impl Owner {
     }
 
     /// Disposes the scope, everything it owns, and runs its cleanups.
+    /// Does nothing once the thread's runtime is gone, so a `Drop` can
+    /// call it while the thread's locals are torn down.
     pub fn dispose(self) {
-        with_runtime(|rt| rt.dispose(self.key));
+        try_with_runtime(|rt| rt.dispose(self.key));
     }
 
     pub fn is_alive(&self) -> bool {

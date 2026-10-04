@@ -31,21 +31,27 @@ pub(crate) fn capture(element: w::UIElement, reply: CaptureReply) {
         Ok(started) => started,
         Err(error) => return reply(Err(failed(error))),
     };
-    let ticket = later::park(Pending { bitmap, scale, reply });
+    // XAML completes renders on the UI thread, where the tickets are taken.
+    let Ok(queue) = w::DispatcherQueue::GetForCurrentThread() else {
+        return reply(Err(CaptureError::Failed("no dispatcher queue on this thread".into())));
+    };
+    let ticket = later::park_until(&queue, Pending { bitmap, scale, reply });
+    let id = ticket.id();
     let watched = render.when(move |rendered| {
-        let Some(pending) = later::take::<Pending>(ticket) else { return };
+        let Some(pending) = ticket.take::<Pending>() else { return };
         let pixels = rendered.and_then(|()| pending.bitmap.cast::<w::IRenderTargetBitmap>()?.GetPixelsAsync());
         match pixels {
             Ok(pixels) => {
-                let ticket = later::park(pending);
+                let ticket = later::park_until(&queue, pending);
+                let id = ticket.id();
                 let watched = pixels.when(move |buffer| {
-                    if let Some(pending) = later::take::<Pending>(ticket) {
+                    if let Some(pending) = ticket.take::<Pending>() {
                         let image = buffer.and_then(|buffer| image(&pending, &buffer)).map_err(failed);
                         (pending.reply)(image);
                     }
                 });
                 if let Err(error) = watched
-                    && let Some(pending) = later::take::<Pending>(ticket)
+                    && let Some(pending) = later::take::<Pending>(id)
                 {
                     (pending.reply)(Err(failed(error)));
                 }
@@ -54,7 +60,7 @@ pub(crate) fn capture(element: w::UIElement, reply: CaptureReply) {
         }
     });
     if let Err(error) = watched
-        && let Some(pending) = later::take::<Pending>(ticket)
+        && let Some(pending) = later::take::<Pending>(id)
     {
         (pending.reply)(Err(failed(error)));
     }

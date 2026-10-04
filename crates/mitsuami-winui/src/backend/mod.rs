@@ -21,7 +21,7 @@ mod truncate;
 mod windows;
 
 use std::cell::{Cell, RefCell};
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::rc::Rc;
 
 use mitsuami_core::Color;
@@ -135,7 +135,7 @@ pub(crate) struct WindowParts {
     /// changes height.
     requested: Option<Size>,
     /// The window's node and how to report its events.
-    node: NodeId,
+    pub(crate) node: NodeId,
     emitter: Events,
     /// The content size, as last reported.
     size: Rc<Cell<Option<Size>>>,
@@ -512,8 +512,22 @@ pub(crate) struct State {
     log: Vec<Command>,
     pending_show: Vec<NodeId>,
     /// File icons whose file, size or thumbnail changed in this batch:
-    /// loaded once each after it (`load_file_icons`).
+    /// loaded once each after it (`load_file_icons`), in that order.
     pending_icons: Vec<NodeId>,
+    pending_icon_set: HashSet<NodeId>,
+    /// What the work after a batch looks at, so it doesn't walk every
+    /// node: the windows, the GPU surfaces without their child window yet,
+    /// the scroll views whose content isn't in the live tree yet, and the
+    /// lists and tables.
+    windows: Vec<NodeId>,
+    unattached_surfaces: Vec<NodeId>,
+    unconnected_scrolls: Vec<NodeId>,
+    lists: HashSet<NodeId>,
+    /// The nodes this batch's commands named (`layout_lists`).
+    touched: HashSet<NodeId>,
+    /// Windows whose toolbar items changed in this batch: their toolbar is
+    /// shown or hidden, and laid out, once after it (`update_toolbars`).
+    pending_toolbars: Vec<NodeId>,
     menus: Menus,
     /// The app's icon, which every window gets.
     icon: Option<WindowIcon>,
@@ -587,6 +601,13 @@ impl WinUiBackend {
                 log: Vec::new(),
                 pending_show: Vec::new(),
                 pending_icons: Vec::new(),
+                pending_icon_set: HashSet::new(),
+                windows: Vec::new(),
+                unattached_surfaces: Vec::new(),
+                unconnected_scrolls: Vec::new(),
+                lists: HashSet::new(),
+                touched: HashSet::new(),
+                pending_toolbars: Vec::new(),
                 menus: Menus::default(),
                 icon: None,
                 tab_bar: Rc::default(),
@@ -675,6 +696,7 @@ impl Backend for WinUiBackend {
             if state.options.record_commands {
                 state.log.push(command.clone());
             }
+            state.touch(command);
             if let Err(error) = state.apply(command) {
                 panic!("winui backend: {command:?} failed: {error}");
             }
@@ -682,7 +704,9 @@ impl Backend for WinUiBackend {
         state.attach_surfaces();
         state.load_file_icons();
         state.connect_scroll_content();
-        state.layout_lists();
+        state.update_toolbars();
+        let lists = state.touched_lists();
+        state.layout_lists(&lists);
     }
 
     fn measure(&mut self, id: NodeId, request: MeasureRequest) -> Size {
@@ -714,8 +738,8 @@ impl Backend for WinUiBackend {
         }
         let Some(icon) = info.icon.as_ref().and_then(window_icon) else { return };
         let mut state = self.state.borrow_mut();
-        for node in state.nodes.values() {
-            if let Widget::Window(parts) = &node.widget {
+        for id in &state.windows {
+            if let Some(Widget::Window(parts)) = state.nodes.get(id).map(|n| &n.widget) {
                 _ = set_icon(&parts.app_window, &icon);
             }
         }
@@ -733,8 +757,8 @@ impl Backend for WinUiBackend {
     fn set_locale(&mut self, _language: &mitsuami_core::l10n::LanguageIdentifier, right_to_left: bool) {
         let mut state = self.state.borrow_mut();
         state.right_to_left = right_to_left;
-        for node in state.nodes.values() {
-            if let Widget::Window(parts) = &node.widget {
+        for id in &state.windows {
+            if let Some(Widget::Window(parts)) = state.nodes.get(id).map(|n| &n.widget) {
                 _ = windows::set_window_direction(&parts.root, &parts.host, right_to_left);
             }
         }

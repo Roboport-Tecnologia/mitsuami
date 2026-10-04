@@ -1,7 +1,7 @@
 //! Lists and tables: placing, showing, selecting and scrolling rows, sizing
 //! tables' columns, and checking row and cell hosts.
 
-use std::collections::{BTreeMap, BTreeSet};
+use std::collections::{BTreeMap, BTreeSet, HashSet};
 
 use mitsuami_core::{
     CellKey, Command, EventValue, NodeId, Point, Prop, Rect, RowKey, Size, UiEvent, WidgetKind, find_prop,
@@ -9,7 +9,19 @@ use mitsuami_core::{
 
 use super::metrics::{COLUMN_SPACING, COLUMN_WIDTH, TABLE_HEADER_HEIGHT, TABLE_ROW_HEIGHT};
 use super::state::violation;
-use super::{Placed, State};
+use super::{HeadlessNode, Placed, State};
+
+/// A list's rows, looked at in place: a copy of ten thousand keys per batch
+/// adds up.
+fn row_keys(node: &HeadlessNode) -> &[RowKey] {
+    node.props
+        .iter()
+        .find_map(|p| match p {
+            Prop::Rows(rows) => Some(rows.as_slice()),
+            _ => None,
+        })
+        .unwrap_or_default()
+}
 
 impl State {
     /// Moves a scroll view, reporting it like a platform would. Lists then
@@ -88,7 +100,7 @@ impl State {
     /// two lines of text).
     pub(super) fn place_rows(&mut self, list: NodeId) {
         let node = &self.nodes[&list];
-        let rows: BTreeSet<RowKey> = find_prop!(node.props, Rows).unwrap_or_default().into_iter().collect();
+        let rows: HashSet<RowKey> = row_keys(node).iter().copied().collect();
         let mut measured: BTreeMap<RowKey, f32> = BTreeMap::new();
         for host in &node.children {
             let host = &self.nodes[host];
@@ -121,10 +133,9 @@ impl State {
             n => (heights.values().sum::<f32>() / n as f32).round(),
         });
         let mut top = 0.0;
-        find_prop!(node.props, Rows)
-            .unwrap_or_default()
-            .into_iter()
-            .map(|key| {
+        row_keys(node)
+            .iter()
+            .map(|&key| {
                 let height = heights.get(&key).copied().unwrap_or(estimate);
                 top += height;
                 Placed { key, top: top - height, height }
@@ -183,9 +194,10 @@ impl State {
         self.scroll(list, Point::new(offset.x, y));
     }
 
-    /// Checks what a native list needs of its row hosts, once a batch is in.
-    pub(super) fn check_lists(&self, command: &Command) {
-        for (id, node) in &self.nodes {
+    /// Checks what a native list needs of its row hosts, once a batch is
+    /// in. Only `touched` lists can have changed.
+    pub(super) fn check_lists(&self, command: &Command, touched: &BTreeSet<NodeId>) {
+        for (id, node) in touched.iter().map(|id| (id, &self.nodes[id])) {
             if node.kind == WidgetKind::Table {
                 self.check_table(command, *id);
             }

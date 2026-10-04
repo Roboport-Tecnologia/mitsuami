@@ -391,6 +391,18 @@ impl State {
     }
 }
 
+/// Takes a toolbar item out of its window's page: its host out of the
+/// toolbar's item first, which goes with the action, then the action out
+/// of the page's `actions`.
+pub(super) fn remove_toolbar_item(root: &WindowRoot, id: NodeId, host: QmlObject, action: QmlObject) {
+    host.set_parent_item(None, 0);
+    let page = root.window.child("mitsuamiPage").expect("windows have a page");
+    page.set_object("mitsuamiAction", Some(action));
+    page.invoke("mitsuamiRemove");
+    page.set_object("mitsuamiAction", None);
+    root.toolbar.borrow_mut().retain(|i| *i != id);
+}
+
 /// Takes a window's sidebar out of its page row: the content's page is
 /// titled after the window again, and the content keeps its size.
 pub(super) fn hide_sidebar(root: &WindowRoot) {
@@ -436,13 +448,15 @@ pub(super) fn sections_json(sections: &[SidebarSectionData]) -> String {
     format!("[{}]", sections.join(","))
 }
 
-/// Opens dialogs on this window, or the active one.
-pub(crate) fn dialog_parent(handle: &KirigamiHandle, parent: Option<NodeId>) -> Option<Rc<WindowRoot>> {
+/// Opens dialogs on this window, or the active one, and says which window
+/// that is.
+pub(crate) fn dialog_parent(handle: &KirigamiHandle, parent: Option<NodeId>) -> Option<(NodeId, Rc<WindowRoot>)> {
     let windows = handle.windows();
     // Not by `active`: a modal window's owner, which it blocks, reports it
     // too, and so do the owner's other dialogs.
     parent
-        .and_then(|id| windows.iter().find(|(w, _)| *w == id).map(|(_, root)| root.clone()))
-        .or_else(|| windows.iter().find(|(_, root)| root.window.bool("mitsuamiFocused")).map(|(_, root)| root.clone()))
-        .or_else(|| windows.first().map(|(_, root)| root.clone()))
+        .and_then(|id| windows.iter().find(|(w, _)| *w == id))
+        .or_else(|| windows.iter().find(|(_, root)| root.window.bool("mitsuamiFocused")))
+        .or_else(|| windows.first())
+        .cloned()
 }

@@ -543,6 +543,15 @@ fn answer_once<T: 'static>(dialog: QmlObject, backend: &KirigamiHandle, reply: R
     })
 }
 
+/// Closes a dialog as Escape would, and answers `value` if Qt didn't
+/// (`reject` on a dialog that never opened).
+fn reject_with<T: Clone + 'static>(dialog: QmlObject, answer: Rc<dyn Fn(T)>, value: T) -> Rc<dyn Fn()> {
+    Rc::new(move || {
+        dialog.invoke("reject");
+        answer(value.clone());
+    })
+}
+
 /// `Images (*.png *.jpg)`, as Qt's name filters read; `All files (*)`
 /// for every file.
 fn name_filters(filters: &[FileFilter]) -> Vec<String> {
@@ -560,11 +569,12 @@ fn name_filters(filters: &[FileFilter]) -> Vec<String> {
 }
 
 impl KirigamiServices {
-    fn open_dialog(&self, dialog: QmlObject, parent: Option<NodeId>) {
-        if let Some(root) = dialog_parent(&self.backend, parent) {
+    fn open_dialog(&self, dialog: QmlObject, parent: Option<NodeId>, cancel: Rc<dyn Fn()>) {
+        let window = dialog_parent(&self.backend, parent).map(|(id, root)| {
             dialog.set_object("parentWindow", Some(root.window));
-        }
-        self.backend.remember_dialog(dialog);
+            id
+        });
+        self.backend.remember_dialog(OpenDialog { dialog, window, cancel });
         dialog.invoke("open");
     }
 }
@@ -581,7 +591,7 @@ impl Services for KirigamiServices {
     }
 
     fn alert(&mut self, parent: Option<NodeId>, alert: &Alert, reply: Reply<usize>) {
-        let Some(root) = dialog_parent(&self.backend, parent) else {
+        let Some((window, root)) = dialog_parent(&self.backend, parent) else {
             // No window to show it in: the least committal answer.
             return reply(alert.effective_buttons().len() - 1);
         };
@@ -631,8 +641,10 @@ impl Services for KirigamiServices {
         // Escape (or closing the dialog) chooses the last button, which by
         // convention is the least committal one (Cancel).
         let cancel = buttons.len() - 1;
-        dialog.connect("rejected()", move || answer(cancel));
-        self.backend.remember_dialog(dialog);
+        let rejected = answer.clone();
+        dialog.connect("rejected()", move || rejected(cancel));
+        let cancel = reject_with(dialog, answer, cancel);
+        self.backend.remember_dialog(OpenDialog { dialog, window: Some(window), cancel });
         // Opened in a window that hasn't been laid out and drawn yet (an
         // alert as the app starts), Kirigami's dialog loops over its
         // position: it waits for the window's first frame.
@@ -664,8 +676,9 @@ impl Services for KirigamiServices {
         let accepted = answer.clone();
         let property = if request.directories { "selectedFolder" } else { "selectedFiles" };
         dialog.connect("accepted()", move || accepted(Some(dialog.paths(property)).filter(|p| !p.is_empty())));
-        dialog.connect("rejected()", move || answer(None));
-        self.open_dialog(dialog, parent);
+        let rejected = answer.clone();
+        dialog.connect("rejected()", move || rejected(None));
+        self.open_dialog(dialog, parent, reject_with(dialog, answer, None));
     }
 
     fn save_file(&mut self, parent: Option<NodeId>, request: &SaveFile, reply: Reply<Option<PathBuf>>) {
@@ -688,8 +701,9 @@ impl Services for KirigamiServices {
         let answer = answer_once(dialog, &self.backend, reply);
         let accepted = answer.clone();
         dialog.connect("accepted()", move || accepted(dialog.paths("selectedFile").into_iter().next()));
-        dialog.connect("rejected()", move || answer(None));
-        self.open_dialog(dialog, parent);
+        let rejected = answer.clone();
+        dialog.connect("rejected()", move || rejected(None));
+        self.open_dialog(dialog, parent, reject_with(dialog, answer, None));
     }
 
     /// Qt's trash (`QFile::moveToTrash`) is the freedesktop.org one KIO
@@ -708,6 +722,15 @@ impl Services for KirigamiServices {
             Launch::Url(url) => ffi::open_url(url, false),
         };
         reply(if opened { Ok(()) } else { Err(ServiceError::Unavailable) });
+    }
+
+    /// Rejected as Escape would, while the window (whose overlay holds an
+    /// alert) is still there: Qt would only clear the dialog's parent, and
+    /// it would stay open, unseen, with its reply.
+    fn window_destroyed(&mut self, window: NodeId) {
+        let gone: Vec<Rc<dyn Fn()>> = DIALOGS
+            .with(|d| d.borrow().iter().filter(|o| o.window == Some(window)).map(|o| o.cancel.clone()).collect());
+        gone.iter().for_each(|cancel| cancel());
     }
 
     fn set_menu(&mut self, window: Option<NodeId>, menu: &MenuBarData, activate: Rc<dyn Fn(u32)>) {
@@ -736,23 +759,30 @@ impl Services for KirigamiServices {
     }
 }
 
+/// A dialog the services opened and that hasn't answered yet: the window
+/// it's on, and what cancels it when that window goes.
+struct OpenDialog {
+    dialog: QmlObject,
+    window: Option<NodeId>,
+    cancel: Rc<dyn Fn()>,
+}
+
 thread_local! {
-    /// Dialogs the services opened and haven't answered yet.
-    static DIALOGS: RefCell<Vec<QmlObject>> = const { RefCell::new(Vec::new()) };
+    static DIALOGS: RefCell<Vec<OpenDialog>> = const { RefCell::new(Vec::new()) };
 }
 
 impl KirigamiHandle {
-    fn remember_dialog(&self, dialog: QmlObject) {
+    fn remember_dialog(&self, dialog: OpenDialog) {
         DIALOGS.with(|d| d.borrow_mut().push(dialog));
     }
 
     fn forget_dialog(&self, dialog: QmlObject) {
-        DIALOGS.with(|d| d.borrow_mut().retain(|o| *o != dialog));
+        DIALOGS.with(|d| d.borrow_mut().retain(|o| o.dialog != dialog));
     }
 
     /// Alerts and file dialogs that are open, oldest first: an escape hatch
     /// for tests that answer them.
     pub fn open_dialogs(&self) -> Vec<QmlObject> {
-        DIALOGS.with(|d| d.borrow().clone())
+        DIALOGS.with(|d| d.borrow().iter().map(|o| o.dialog).collect())
     }
 }

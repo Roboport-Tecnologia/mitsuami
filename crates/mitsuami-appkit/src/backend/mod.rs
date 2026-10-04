@@ -18,7 +18,7 @@ mod selection;
 mod windows;
 
 use std::cell::RefCell;
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::rc::Rc;
 
 use mitsuami_core::a11y::{A11yAction, ActionError};
@@ -326,6 +326,19 @@ struct State {
     /// Where tab views put their pages, from the last metrics: measuring
     /// one would otherwise make a tab view to probe each time.
     tab_insets: std::cell::Cell<Option<mitsuami_core::Insets>>,
+    /// Where group boxes put their content, by how they're set up, from
+    /// probes made since the last metrics (see `group_probe_like`).
+    group_probes: RefCell<HashMap<group::ProbeKey, (mitsuami_core::Insets, f32)>>,
+    /// Each node's children, in no particular order (`Node::parent` the
+    /// other way).
+    children: HashMap<NodeId, Vec<NodeId>>,
+    /// The lists and windows the batch being applied touched, which are
+    /// laid out at its end (see `layout_touched`), and whether it touched
+    /// something that can bring any list into view (a tab view's page, a
+    /// scroll view's offset).
+    touched_lists: HashSet<NodeId>,
+    touched_windows: HashSet<NodeId>,
+    touched_all_lists: bool,
 }
 
 pub struct AppKitBackend {
@@ -386,6 +399,11 @@ impl AppKitBackend {
                 focus_orders: HashMap::new(),
                 app_name: None,
                 tab_insets: std::cell::Cell::new(None),
+                group_probes: RefCell::default(),
+                children: HashMap::new(),
+                touched_lists: HashSet::new(),
+                touched_windows: HashSet::new(),
+                touched_all_lists: false,
             })),
         }
     }
@@ -405,13 +423,15 @@ impl Backend for AppKitBackend {
     fn group_insets(&self, id: NodeId) -> Option<mitsuami_core::Insets> {
         let state = self.state.borrow();
         let Widget::Group { frame, .. } = &state.nodes.get(&id)?.widget else { return None };
-        Some(group_probe_like(frame).0)
+        Some(group_probe_like(&state.group_probes, frame).0)
     }
 
     fn metrics(&self) -> PlatformMetrics {
         let state = self.state.borrow();
         let metrics = metrics(state.mtm, state.options.appearance);
         state.tab_insets.set(Some(metrics.tab_insets));
+        // Fonts, and so titles, may have changed.
+        state.group_probes.borrow_mut().clear();
         metrics
     }
 
@@ -422,9 +442,9 @@ impl Backend for AppKitBackend {
                 state.log.push(command.clone());
             }
             state.apply(command);
+            state.note_touched(command);
         }
-        state.layout_lists();
-        state.layout_toolbars();
+        state.layout_touched();
     }
 
     fn measure(&mut self, id: NodeId, request: MeasureRequest) -> Size {

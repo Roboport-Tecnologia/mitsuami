@@ -176,4 +176,28 @@ async fn a_task_that_keeps_yielding_lets_the_ui_run(app: TestApp) {
     handle.cancel();
 }
 
+#[mitsuami_test::test]
+async fn a_task_woken_several_times_runs_once(app: TestApp) {
+    // Wakes itself three times on its first poll, then waits for good.
+    struct WakeThrice(std::rc::Rc<std::cell::Cell<u32>>);
+    impl std::future::Future for WakeThrice {
+        type Output = ();
+        fn poll(self: std::pin::Pin<&mut Self>, cx: &mut std::task::Context) -> std::task::Poll<()> {
+            self.0.set(self.0.get() + 1);
+            if self.0.get() == 1 {
+                for _ in 0..3 {
+                    cx.waker().wake_by_ref();
+                }
+            }
+            std::task::Poll::Pending
+        }
+    }
+    let polls = std::rc::Rc::new(std::cell::Cell::new(0));
+    let handle = app.ui().spawn_local(WakeThrice(polls.clone()));
+    app.mount(|| Text::new("idle"));
+    app.settle().await;
+    assert_eq!(polls.get(), 2, "polled when spawned, then once for the three wakes");
+    handle.cancel();
+}
+
 mitsuami_test::main!();

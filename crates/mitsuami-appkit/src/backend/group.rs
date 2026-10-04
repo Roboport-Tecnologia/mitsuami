@@ -1,5 +1,8 @@
 //! Groups: the `NSBox` behind a group's children, and where it puts them.
 
+use std::cell::RefCell;
+use std::collections::HashMap;
+
 use mitsuami_core::Size;
 use objc2::rc::Retained;
 use objc2::{MainThreadMarker, MainThreadOnly};
@@ -43,10 +46,48 @@ fn group_probe(mtm: MainThreadMarker, title: &str) -> (mitsuami_core::Insets, f3
     probe_insets(&frame)
 }
 
+/// What a group's probe is made of: its box type, title, title font
+/// (name and size), title position, border width and content margins.
+#[derive(PartialEq, Eq, Hash)]
+pub(super) struct ProbeKey(usize, String, String, u64, usize, u64, u64, u64);
+
+/// Probes kept at most, so titles that keep changing (a count) don't pile
+/// up between metrics changes.
+const PROBES_KEPT: usize = 256;
+
 /// A group's own box, as its tweaks left it: a probe set up as it is
 /// (where the title goes, its font, the border and margins), since the box
-/// itself may be too small to say.
-pub(super) fn group_probe_like(shown: &NSBox) -> (mitsuami_core::Insets, f32) {
+/// itself may be too small to say. Boxes set up alike share a probe until
+/// the metrics change.
+pub(super) fn group_probe_like(
+    probes: &RefCell<HashMap<ProbeKey, (mitsuami_core::Insets, f32)>>,
+    shown: &NSBox,
+) -> (mitsuami_core::Insets, f32) {
+    let font = shown.titleFont();
+    let margins = shown.contentViewMargins();
+    let key = ProbeKey(
+        shown.boxType().0,
+        shown.title().to_string(),
+        font.fontName().to_string(),
+        font.pointSize().to_bits(),
+        shown.titlePosition().0,
+        shown.borderWidth().to_bits(),
+        margins.width.to_bits(),
+        margins.height.to_bits(),
+    );
+    if let Some(probe) = probes.borrow().get(&key) {
+        return *probe;
+    }
+    let probe = probe_like(shown);
+    let mut probes = probes.borrow_mut();
+    if probes.len() >= PROBES_KEPT {
+        probes.clear();
+    }
+    probes.insert(key, probe);
+    probe
+}
+
+fn probe_like(shown: &NSBox) -> (mitsuami_core::Insets, f32) {
     let frame = group_box(MainThreadMarker::from(shown), NSSize::new(10000.0, 300.0));
     frame.setBoxType(shown.boxType());
     frame.setTitle(&shown.title());
@@ -73,7 +114,10 @@ fn probe_insets(frame: &NSBox) -> (mitsuami_core::Insets, f32) {
 
 /// A box's size with nothing in it: its border, and as wide as its title
 /// needs.
-pub(super) fn group_natural_size(frame: &NSBox) -> Size {
-    let (insets, heading) = group_probe_like(frame);
+pub(super) fn group_natural_size(
+    probes: &RefCell<HashMap<ProbeKey, (mitsuami_core::Insets, f32)>>,
+    frame: &NSBox,
+) -> Size {
+    let (insets, heading) = group_probe_like(probes, frame);
     Size::new(heading.max(insets.left + insets.right).ceil(), insets.top + insets.bottom)
 }

@@ -297,6 +297,28 @@ mod checks {
         f.ui.destroy(window);
         f.ui.tick();
     }
+
+    /// Destroying their window cancels both: the alert answers its close
+    /// button, the picker no paths, and the picker's window goes.
+    pub fn dialogs_close_with_their_window(f: &Fixture) {
+        let window = window(f, "dialog host");
+        let answers = Rc::new(RefCell::new((None, None)));
+        let (a, b) = (answers.clone(), answers.clone());
+        let alert = f.ui.alert(Some(window), Alert::new("Proceed?").button("Yes").button("No"));
+        let open = f.ui.open_file(Some(window), OpenFile::new());
+        f.ui.spawn_local(async move { a.borrow_mut().0 = Some(alert.await) });
+        f.ui.spawn_local(async move { b.borrow_mut().1 = Some(open.await) });
+        let xaml_root = root(f, window).cast::<w::IUIElement>().unwrap().XamlRoot().unwrap();
+        pump_until(&f.ui, "the alert", || {
+            w::VisualTreeHelper::GetOpenPopupsForXamlRoot(&xaml_root).is_ok_and(|p| p.Size().unwrap_or(0) > 0)
+        });
+        pump_until(&f.ui, "the file dialog", || file_dialog().is_some());
+
+        f.ui.destroy(window);
+        f.ui.tick();
+        pump_until(&f.ui, "the answers", || *answers.borrow() == (Some(1), Some(None)));
+        pump_until(&f.ui, "the file dialog to close", || file_dialog().is_none());
+    }
 }
 
 #[cfg(all(windows, target_env = "msvc"))]
@@ -304,13 +326,14 @@ fn main() {
     use std::panic::{AssertUnwindSafe, catch_unwind};
 
     type Check = (&'static str, fn(&checks::Fixture));
-    let checks: [Check; 6] = [
+    let checks: [Check; 7] = [
         ("clipboard_round_trips", checks::clipboard_round_trips),
         ("menus_are_installed_and_activate", checks::menus_are_installed_and_activate),
         ("window_menus_nest_and_check", checks::window_menus_nest_and_check),
         ("dialogs_show_only_their_own_menus", checks::dialogs_show_only_their_own_menus),
         ("alerts_are_answered_through_their_dialog", checks::alerts_are_answered_through_their_dialog),
         ("open_pickers_report_cancellation", checks::open_pickers_report_cancellation),
+        ("dialogs_close_with_their_window", checks::dialogs_close_with_their_window),
     ];
     let filter: Vec<String> = std::env::args().skip(1).filter(|a| !a.starts_with('-')).collect();
     let fixture = checks::fixture();

@@ -1,5 +1,8 @@
 //! Fluent styles and brushes, text styles and fonts.
 
+use std::cell::RefCell;
+use std::collections::HashMap;
+
 use mitsuami_core::backend::FontSizes;
 use mitsuami_core::{Color, FontWeight};
 use mitsuami_core::{Orientation, TextStyle};
@@ -51,23 +54,46 @@ pub(super) fn font_size(style: TextStyle) -> f64 {
 /// is a setter, so a theme brush follows the theme live, as
 /// `{ThemeResource}` does in a style.
 pub(super) fn set_label_style(label: &w::TextBlock, text_style: Option<TextStyle>, color: Option<Color>) -> R<()> {
-    let base = text_style.map(|s| style(text_style_resource(s)));
+    let base = text_style.map(text_style_resource);
     let style = match (color, base) {
-        (None, Some(base)) => base,
+        (None, Some(base)) => style(base),
         (None, None) => return Ok(()),
-        (Some(color), base) => {
-            let colored = foreground_style("TextBlock", color)?;
-            if let Some(base) = base {
-                colored.cast::<w::IStyle>()?.SetBasedOn(&base)?;
-            }
-            colored
-        }
+        (Some(color), base) => made_style(foreground_markup("TextBlock", color), base)?,
     };
     label.cast::<w::IFrameworkElement>()?.SetStyle(&style)
 }
 
-/// A style that sets a `target`'s foreground to a colour, as markup, so a
-/// theme resource keeps following the theme once set.
+thread_local! {
+    /// Styles made from markup, by their markup and the style they're
+    /// based on, so each coloured label and separator doesn't parse XAML
+    /// again. One style serves every element with that look, as a
+    /// resource dictionary's do (a style can't change once applied).
+    static MADE_STYLES: RefCell<HashMap<(String, Option<&'static str>), w::Style>> = RefCell::default();
+}
+
+/// Past this many looks, the made styles start over (an app animating a
+/// colour makes one a frame).
+const MADE_STYLES_LIMIT: usize = 256;
+
+fn made_style(markup: String, based_on: Option<&'static str>) -> R<w::Style> {
+    let key = (markup, based_on);
+    if let Some(made) = MADE_STYLES.with(|m| m.borrow().get(&key).cloned()) {
+        return Ok(made);
+    }
+    let made: w::Style = w::XamlReader::Load(&key.0)?.cast()?;
+    if let Some(base) = based_on {
+        made.cast::<w::IStyle>()?.SetBasedOn(&style(base))?;
+    }
+    MADE_STYLES.with(|m| {
+        let mut m = m.borrow_mut();
+        if m.len() >= MADE_STYLES_LIMIT {
+            m.clear();
+        }
+        m.insert(key, made.clone());
+    });
+    Ok(made)
+}
+
 /// A separator's look: a line in the divider brush, 1 epx across, as
 /// Fluent apps draw one between groups of content. The layout gives its
 /// length.
@@ -76,15 +102,20 @@ pub(super) fn separator_style(orientation: Orientation) -> R<w::Style> {
     let markup = format!(
         r#"<Style xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation" TargetType="Border"><Setter Property="Background" Value="{{ThemeResource DividerStrokeColorDefaultBrush}}"/><Setter Property="{across}" Value="1"/></Style>"#
     );
-    w::XamlReader::Load(&markup)?.cast()
+    made_style(markup, None)
 }
 
+/// A style that sets a `target`'s foreground to a colour, as markup, so a
+/// theme resource keeps following the theme once set.
 pub(super) fn foreground_style(target: &str, color: Color) -> R<w::Style> {
-    let markup = format!(
+    made_style(foreground_markup(target, color), None)
+}
+
+fn foreground_markup(target: &str, color: Color) -> String {
+    format!(
         r#"<Style xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation" TargetType="{target}"><Setter Property="Foreground" Value="{}"/></Style>"#,
         crate::custom::text_brush(color)
-    );
-    w::XamlReader::Load(&markup)?.cast()
+    )
 }
 
 /// Fluent's weights (Segoe UI Variable has each of them).

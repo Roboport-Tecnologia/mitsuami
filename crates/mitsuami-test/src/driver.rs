@@ -23,6 +23,8 @@ impl Driver {
             Mode::Headless => {
                 let backend = HeadlessBackend::new();
                 let handle = backend.handle();
+                // Tests read the commands, as native backends keep them.
+                handle.record_commands(true);
                 handle.set_metrics(mitsuami_core::PlatformMetrics {
                     dark_mode: appearance == Appearance::Dark,
                     ..mitsuami_headless::metrics()

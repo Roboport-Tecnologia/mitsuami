@@ -57,8 +57,8 @@ impl State {
     /// laid out. Tried again each turn until the control has loaded, and
     /// before a window first shown focuses the first in the Tab order.
     pub(super) fn focus_wanted(&self) {
-        for node in self.nodes.values() {
-            let Widget::Window(parts) = &node.widget else { continue };
+        for window in &self.windows {
+            let Some(Widget::Window(parts)) = self.nodes.get(window).map(|n| &n.widget) else { continue };
             let Some((id, range)) = parts.wanted_focus.borrow().clone() else { continue };
             if let Some(target) = self.nodes.get(&id) {
                 if self.focus(id, w::FocusState::Programmatic) {

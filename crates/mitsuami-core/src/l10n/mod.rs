@@ -350,6 +350,8 @@ pub(crate) struct Localization {
     /// Bumped when the language or the translations change: every message
     /// read in an effect tracks it.
     version: Signal<u64>,
+    /// `version`'s scope, disposed with the `Ui`.
+    scope: Owner,
     /// Tells the `Ui` the language changed.
     on_change: RefCell<Option<OnChange>>,
 }
@@ -368,7 +370,8 @@ pub(crate) struct State {
 
 impl Localization {
     pub(crate) fn new(platform: Rc<dyn PlatformLocale>) -> Rc<Localization> {
-        let version = Owner::new_root().with(|| signal(0));
+        let scope = Owner::new_root();
+        let version = scope.with(|| signal(0));
         let mut state = State {
             locales: Locales::new(),
             requested: None,
@@ -379,8 +382,13 @@ impl Localization {
         };
         state.chain = negotiate(&state, &*platform);
         state.bundles = bundles(&mut state);
-        let l10n =
-            Rc::new(Localization { platform, state: RefCell::new(state), version, on_change: RefCell::new(None) });
+        let l10n = Rc::new(Localization {
+            platform,
+            state: RefCell::new(state),
+            version,
+            scope,
+            on_change: RefCell::new(None),
+        });
         ACTIVE.with(|a| *a.borrow_mut() = Rc::downgrade(&l10n));
         l10n
     }
@@ -473,6 +481,12 @@ impl Localization {
             eprintln!("mitsuami: {error}");
             state.errors.push(error);
         }
+    }
+}
+
+impl Drop for Localization {
+    fn drop(&mut self) {
+        self.scope.dispose();
     }
 }
 

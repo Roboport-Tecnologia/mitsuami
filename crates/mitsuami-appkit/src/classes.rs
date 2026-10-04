@@ -252,6 +252,9 @@ pub(crate) struct TargetIvars {
     id: NodeId,
     kind: WidgetKind,
     events: EventSink,
+    /// Sliders whose step is too fine for tick marks: the step their
+    /// action rounds to (see `set_ticks`).
+    snap: Cell<Option<f64>>,
 }
 
 define_class!(
@@ -265,7 +268,7 @@ define_class!(
     impl ActionTarget {
         #[unsafe(method(fire:))]
         fn fire(&self, sender: &AnyObject) {
-            let TargetIvars { id, kind, events } = self.ivars();
+            let TargetIvars { id, kind, events, snap } = self.ivars();
             let event = match kind {
                 WidgetKind::Button => UiEvent::Click,
                 WidgetKind::Checkbox => match sender.downcast_ref::<NSButton>() {
@@ -286,7 +289,17 @@ define_class!(
                     None => return,
                 },
                 WidgetKind::Slider => match sender.downcast_ref::<NSSlider>() {
-                    Some(s) => UiEvent::Changed(EventValue::Number(s.doubleValue())),
+                    Some(s) => {
+                        // Rounded to the step from the minimum, kept in
+                        // range without `clamp` (a range may come upside
+                        // down), and shown where it landed.
+                        if let Some(step) = snap.get() {
+                            let (min, max) = (s.minValue(), s.maxValue());
+                            let value = min + ((s.doubleValue() - min) / step).round() * step;
+                            s.setDoubleValue(value.min(max).max(min));
+                        }
+                        UiEvent::Changed(EventValue::Number(s.doubleValue()))
+                    }
                     None => return,
                 },
                 WidgetKind::Select => match sender.downcast_ref::<NSPopUpButton>().map(|p| p.indexOfSelectedItem()) {
@@ -389,8 +402,13 @@ impl ActionTarget {
         kind: WidgetKind,
         events: EventSink,
     ) -> Retained<ActionTarget> {
-        let this = ActionTarget::alloc(mtm).set_ivars(TargetIvars { id, kind, events });
+        let this = ActionTarget::alloc(mtm).set_ivars(TargetIvars { id, kind, events, snap: Cell::new(None) });
         unsafe { msg_send![super(this), init] }
+    }
+
+    /// A slider's action rounds what it reports to this step.
+    pub(crate) fn set_snap(&self, step: Option<f64>) {
+        self.ivars().snap.set(step);
     }
 }
 

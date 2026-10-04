@@ -258,7 +258,8 @@ pub(super) fn remove_toolbar_item(parts: &mut WindowParts, id: NodeId) -> R<()> 
         bar.PrimaryCommands()?.RemoveAt(index as u32)?;
     }
     container.cast::<w::IContentControl>()?.SetContent(None::<&IInspectable>)?;
-    update_toolbar(parts)
+    // The toolbar is updated after the batch (`update_toolbars`).
+    Ok(())
 }
 
 /// Shows an item while it has a size (and the toolbar while any item

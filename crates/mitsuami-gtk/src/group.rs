@@ -3,6 +3,9 @@
 //! core places the children inside the card (`insets`); the heading and
 //! card are the host's first two children, sized with it.
 
+use std::cell::RefCell;
+
+use gtk::glib;
 use gtk::prelude::*;
 use mitsuami_core::{Insets, Rect};
 
@@ -74,12 +77,32 @@ impl Group {
     }
 }
 
+thread_local! {
+    /// The heading's height, and the font, theme and text scale it was
+    /// measured with.
+    static HEADING: RefCell<Option<(HeadingKey, f32)>> = const { RefCell::new(None) };
+}
+
+type HeadingKey = (Option<glib::GString>, Option<glib::GString>, i32);
+
 /// The heading's line height, from a throwaway label, as a preferences
-/// group's heading is.
+/// group's heading is: measured once for each font, theme and text scale.
 fn heading_height() -> f32 {
+    let settings = gtk::Settings::default();
+    let key = settings.as_ref().map_or((None, None, 0), |s| (s.gtk_font_name(), s.gtk_theme_name(), s.gtk_xft_dpi()));
+    if let Some(height) = HEADING.with_borrow(|h| h.as_ref().filter(|(k, _)| *k == key).map(|(_, h)| *h)) {
+        return height;
+    }
     let label = gtk::Label::new(Some("Heading"));
     label.add_css_class("heading");
-    label.measure(gtk::Orientation::Vertical, -1).1 as f32
+    let height = label.measure(gtk::Orientation::Vertical, -1).1 as f32;
+    HEADING.set(Some((key, height)));
+    height
+}
+
+/// The metrics changed: the heading is measured again.
+pub(crate) fn forget_heading_height() {
+    HEADING.set(None);
 }
 
 /// Where the content goes: inside the card's margins, and below the

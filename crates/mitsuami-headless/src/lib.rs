@@ -112,6 +112,9 @@ struct State {
     nodes: BTreeMap<NodeId, HeadlessNode>,
     events: Option<EventSink>,
     metrics: PlatformMetrics,
+    /// Whether commands go into `log`: only once a test asks for them
+    /// (`HeadlessHandle::record_commands`), so it doesn't grow without end.
+    recording: bool,
     log: Vec<Command>,
     focused: Option<NodeId>,
     /// The focused text field's selection, in characters; `None` is the
@@ -150,6 +153,7 @@ impl HeadlessBackend {
                 nodes: BTreeMap::new(),
                 events: None,
                 metrics: metrics(),
+                recording: false,
                 log: Vec::new(),
                 focused: None,
                 selection: None,

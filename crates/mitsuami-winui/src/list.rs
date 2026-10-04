@@ -391,11 +391,14 @@ fn provide_files(request: &w::DataProviderRequest, paths: Vec<PathBuf>) {
         let items: Vec<Option<w::IStorageItem>> = paths
             .iter()
             .filter_map(|path| {
-                let name = path.to_string_lossy();
+                // The bindings take a path as `&str`: a name with an
+                // unpaired surrogate (which NTFS allows) can't be given,
+                // and a lossy one would name another file. It's left out.
+                let name = path.to_str()?;
                 if path.is_dir() {
-                    w::StorageFolder::GetFolderFromPathAsync(&name).and_then(|op| op.join()).ok()?.cast().ok()
+                    w::StorageFolder::GetFolderFromPathAsync(name).and_then(|op| op.join()).ok()?.cast().ok()
                 } else {
-                    w::StorageFile::GetFileFromPathAsync(&name).and_then(|op| op.join()).ok()?.cast().ok()
+                    w::StorageFile::GetFileFromPathAsync(name).and_then(|op| op.join()).ok()?.cast().ok()
                 }
             })
             .map(Some)
@@ -1322,10 +1325,6 @@ fn queue_report(data: &Rc<RefCell<Data>>, d: &mut Data, events: &Events, id: Nod
     d.report_queued = true;
     let Ok(queue) = w::DispatcherQueue::GetForCurrentThread() else { return };
     let (data, events) = (data.clone(), events.clone());
-    let ticket = later::park(Box::new(move || report(&data, &events, id)) as Box<dyn FnOnce()>);
-    later::on_ui(&queue, move || {
-        if let Some(report) = later::take::<Box<dyn FnOnce()>>(ticket) {
-            report();
-        }
-    });
+    let ticket = later::park_until(&queue, Box::new(move || report(&data, &events, id)) as Box<dyn FnOnce()>);
+    later::on_ui_take(&queue, ticket, |report: Box<dyn FnOnce()>| report());
 }

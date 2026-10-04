@@ -4,12 +4,20 @@
 //! them with a delegate per cell, under a header (see
 //! [`qml::table`](crate::qml::table)).
 //!
-//! The list view virtualises: it creates delegates for the rows in view
-//! (and its cache buffer) and destroys them when they scroll away. The
+//! Both views' model is a Qt model of the shim's (`mq_rows_new`), which
+//! new rows change as a Qt model of a Kirigami app's would: the runs of
+//! rows that went, came or moved (`edits`), so a list view keeps the
+//! delegates of the rows that stay, and places the rest as `ListView`
+//! does. Too many changes reset it (its scroll position is put back). A
+//! `TableView` makes the cells in view again on any change of rows, as it
+//! does for every model, but keeps its scroll position.
+//!
+//! The views virtualise: they create delegates for the rows in view
+//! (and the cache buffer) and destroy them when they scroll away. The
 //! delegates say so, coalesced to once per event loop turn, and the rows
 //! with a delegate are compared with the rows reported: only the difference
 //! is reported (`RowShown`, `RowHidden`), so a row whose delegate is
-//! recreated (a data change resets the view) keeps its state. Each row's
+//! recreated (a reset, or a table's new rows) keeps its state. Each row's
 //! host goes in its delegate; a table's cells' hosts in their delegates,
 //! and a row is shown while any of its cells has one.
 //!
@@ -26,7 +34,7 @@ use mitsuami_core::{
 };
 
 use crate::events::Events;
-use crate::ffi::QmlObject;
+use crate::ffi::{QmlObject, RowEdit};
 use crate::qml;
 
 /// A cell: its row, and its column (a list's is 0).
@@ -64,6 +72,8 @@ pub(crate) struct List {
     pub root: QmlObject,
     /// The list or table view in it.
     pub view: QmlObject,
+    /// The view's model, the view's child.
+    model: QmlObject,
     id: NodeId,
     events: Events,
     data: Rc<RefCell<Data>>,
@@ -120,6 +130,9 @@ impl List {
             let root = QmlObject::load(&qml::list());
             (root, root.child("mitsuamiListView").expect("lists have a list view"))
         };
+        // A table's columns come with `set_columns`; a list has one.
+        let model = view.row_model(if table { 0 } else { 1 });
+        view.set_object("model", Some(model));
         let data = Rc::new(RefCell::new(Data { table, ..Data::default() }));
         if table {
             {
@@ -178,23 +191,51 @@ impl List {
             let events = events.clone();
             view.connect(signal, move || events.emit(id, UiEvent::Scrolled(scroll_offset(view))));
         }
-        List { root, view, id, events, data }
+        List { root, view, model, id, events, data }
     }
 
-    /// New rows. The view resets, so its scroll position is put back, and
-    /// the selected rows that stayed stay selected (reporting it if some
+    /// New rows: the model takes the rows that came, went and moved, as a
+    /// Qt model reports them, so a list view keeps the delegates of the
+    /// rows that stay, where `ListView` puts them. Too many changes reset
+    /// it instead, which, as a table's new rows, keeps its scroll position.
+    /// The selected rows that stayed stay selected (reporting it if some
     /// went).
     pub(crate) fn set_rows(&self, rows: Vec<RowKey>) {
         let offset = scroll_offset(self.view);
         let selected = self.selected();
-        {
+        let (old, table) = {
             let mut data = self.data.borrow_mut();
             data.index = rows.iter().enumerate().map(|(i, r)| (*r, i)).collect();
-            data.rows = rows.clone();
-        }
+            (std::mem::replace(&mut data.rows, rows.clone()), data.table)
+        };
         let keys: Vec<String> = rows.iter().map(|k| k.0.to_string()).collect();
         self.view.set_str_list("mitsuamiKeys", &keys);
-        self.scroll_to(offset);
+        // A list's current row moves with its row, or goes with it: not
+        // the user's doing, and it's set again below.
+        if !table {
+            self.view.set_bool("mitsuamiMuted", true);
+        }
+        let raw: Vec<u64> = rows.iter().map(|k| k.0).collect();
+        let edits = edits(&old, &rows);
+        let reset = edits.is_none();
+        match edits {
+            Some(edits) => {
+                for edit in edits {
+                    self.model.edit_rows(match edit {
+                        Edit::Insert { at, count } => RowEdit::Insert { at, keys: &raw[at..at + count] },
+                        Edit::Remove { at, count } => RowEdit::Remove { at, count },
+                        Edit::Move { from, count, to } => RowEdit::Move { from, count, to },
+                    });
+                }
+            }
+            None => self.model.edit_rows(RowEdit::Reset { keys: &raw }),
+        }
+        if reset || table {
+            self.scroll_to(offset);
+        }
+        if !table {
+            self.view.set_bool("mitsuamiMuted", false);
+        }
         let kept: Vec<RowKey> = {
             let data = self.data.borrow();
             selected.iter().copied().filter(|k| data.index.contains_key(k)).collect()
@@ -333,10 +374,11 @@ impl List {
         self.view.set_real("contentY", offset.y as f64 + self.view.real("originY"));
     }
 
-    /// A table's columns, as JSON for its view, which makes its model and
-    /// header again.
+    /// A table's columns: as many in the model, and as JSON for the view,
+    /// which makes its header again.
     pub(crate) fn set_columns(&self, columns: &[ColumnData]) {
         self.data.borrow_mut().columns = columns.to_vec();
+        self.model.edit_rows(RowEdit::Columns(columns.len()));
         let json: Vec<String> = columns
             .iter()
             .map(|c| {
@@ -409,7 +451,7 @@ impl List {
 
     pub(crate) fn rows(&self) -> Vec<RowKey> {
         let data = self.data.borrow();
-        // A table without columns has no model to show its rows.
+        // A table without columns has no cells to show its rows.
         let count = match data.table {
             true if data.columns.is_empty() => data.rows.len(),
             true => self.view.int("rows").max(0) as usize,
@@ -534,4 +576,83 @@ fn rows_changed(view: QmlObject, data: &Rc<RefCell<Data>>, events: &Events, id: 
     for row in shown {
         events.emit(id, UiEvent::RowShown(row));
     }
+}
+
+/// How many changes `edits` makes before a reset is cheaper: each one goes
+/// through the rows, and has the view move its delegates.
+const MAX_EDITS: usize = 64;
+
+/// A change to the model's rows, in its rows as they are by then: `to` is
+/// where a moved run's first row ends up; the rows inserted are the new
+/// rows at `at`.
+enum Edit {
+    Remove { at: usize, count: usize },
+    Insert { at: usize, count: usize },
+    Move { from: usize, count: usize, to: usize },
+}
+
+/// The changes that make `old` into `new`, as runs of rows: the rows that
+/// went, from the end, then from the start the rows that came or moved.
+/// `None` for too many, or for rows that repeat, which a model can't follow
+/// by key.
+fn edits(old: &[RowKey], new: &[RowKey]) -> Option<Vec<Edit>> {
+    let wanted: HashSet<RowKey> = new.iter().copied().collect();
+    if wanted.len() != new.len() {
+        return None;
+    }
+    let mut edits = Vec::new();
+    let mut rows = old.to_vec();
+    let mut end = rows.len();
+    while end > 0 {
+        if wanted.contains(&rows[end - 1]) {
+            end -= 1;
+            continue;
+        }
+        let mut at = end - 1;
+        while at > 0 && !wanted.contains(&rows[at - 1]) {
+            at -= 1;
+        }
+        rows.drain(at..end);
+        edits.push(Edit::Remove { at, count: end - at });
+        end = at;
+        if edits.len() > MAX_EDITS {
+            return None;
+        }
+    }
+    let kept: HashSet<RowKey> = rows.iter().copied().collect();
+    if kept.len() != rows.len() {
+        return None;
+    }
+    let mut i = 0;
+    while i < new.len() {
+        if rows.get(i) == Some(&new[i]) {
+            i += 1;
+            continue;
+        }
+        // The rows before `i` are in place: a row kept is further on.
+        let count = if kept.contains(&new[i]) {
+            let from = i + rows[i..].iter().position(|k| *k == new[i])?;
+            let mut count = 1;
+            while from + count < rows.len() && i + count < new.len() && rows[from + count] == new[i + count] {
+                count += 1;
+            }
+            let moved: Vec<RowKey> = rows.drain(from..from + count).collect();
+            rows.splice(i..i, moved);
+            edits.push(Edit::Move { from, count, to: i });
+            count
+        } else {
+            let mut count = 1;
+            while i + count < new.len() && !kept.contains(&new[i + count]) {
+                count += 1;
+            }
+            rows.splice(i..i, new[i..i + count].iter().copied());
+            edits.push(Edit::Insert { at: i, count });
+            count
+        };
+        if edits.len() > MAX_EDITS {
+            return None;
+        }
+        i += count;
+    }
+    Some(edits)
 }

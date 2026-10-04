@@ -12,7 +12,7 @@ use mitsuami_test::prelude::*;
 
 /// The example's folder, as it starts.
 fn fresh(app: &TestApp) -> std::path::PathBuf {
-    let folder = std::env::temp_dir().join("mitsuami trash example");
+    let folder = example::folder();
     _ = std::fs::remove_dir_all(&folder);
     app.mount(example::page);
     folder

@@ -111,11 +111,7 @@ impl State {
     /// make its toolbar's views before.
     pub(super) fn layout_toolbars(&self) {
         for node in self.nodes.values() {
-            if let Widget::Window { window, toolbar, split, .. } = &node.widget
-                && (toolbar.is_some() || split.is_some())
-            {
-                window.layoutIfNeeded();
-            }
+            layout_toolbar(&node.widget);
         }
     }
 
@@ -125,12 +121,91 @@ impl State {
     /// emit.
     pub(super) fn layout_lists(&self) {
         for node in self.nodes.values() {
-            if let Widget::List(list) = &node.widget {
-                // Scrolling doesn't mark the table as needing layout; its
-                // rows follow at the next display.
-                list.table.setNeedsLayout(true);
-                list.scroll.layoutSubtreeIfNeeded();
+            layout_list(&node.widget);
+        }
+    }
+
+    /// Notes the lists and windows a command touched: a list made, given
+    /// props, sized, given or losing rows, or scrolled; a window made,
+    /// given props or sized, or its toolbar items or sidebar changed.
+    /// Anything that can bring a list into view without touching it (a tab
+    /// view's page, a scroll view's offset) touches every list.
+    pub(super) fn note_touched(&mut self, command: &Command) {
+        let ids = match command {
+            Command::Create { id, .. }
+            | Command::SetProp { id, .. }
+            | Command::SetFrame { id, .. }
+            | Command::SetWindowSize { id, .. }
+            | Command::ScrollTo { id, .. }
+            | Command::ScrollToRow { id, .. } => [Some(*id), None],
+            Command::Insert { parent, child, .. } | Command::Remove { parent, child } => [Some(*parent), Some(*child)],
+            _ => return,
+        };
+        for id in ids.into_iter().flatten() {
+            let Some(node) = self.nodes.get(&id) else { continue };
+            match &node.widget {
+                Widget::List(_) => {
+                    self.touched_lists.insert(id);
+                }
+                Widget::Window { .. } => {
+                    self.touched_windows.insert(id);
+                }
+                Widget::Tabs(_) | Widget::Scroll(_) => self.touched_all_lists = true,
+                _ => {}
+            }
+            let parent = node.parent.and_then(|p| Some((p, &self.nodes.get(&p)?.widget)));
+            match parent {
+                // A row or cell host: its height is its row's.
+                Some((list, Widget::List(_))) => {
+                    self.touched_lists.insert(list);
+                }
+                // A sidebar or toolbar item.
+                Some((window, Widget::Window { .. })) => {
+                    self.touched_windows.insert(window);
+                }
+                _ => {}
+            }
+            // In a toolbar item, as its child or grandchild.
+            if let Some(window) = self.toolbar_item_above(id).and_then(|item| self.nodes[&item].parent) {
+                self.touched_windows.insert(window);
             }
         }
+    }
+
+    /// Lays out the lists and toolbars the batch touched (see
+    /// `layout_lists` and `layout_toolbars`): every one, after every
+    /// batch, forced each table to lay out again.
+    pub(super) fn layout_touched(&mut self) {
+        if std::mem::take(&mut self.touched_all_lists) {
+            self.touched_lists.clear();
+            self.layout_lists();
+        }
+        for id in std::mem::take(&mut self.touched_lists) {
+            if let Some(node) = self.nodes.get(&id) {
+                layout_list(&node.widget);
+            }
+        }
+        for id in std::mem::take(&mut self.touched_windows) {
+            if let Some(node) = self.nodes.get(&id) {
+                layout_toolbar(&node.widget);
+            }
+        }
+    }
+}
+
+fn layout_toolbar(widget: &Widget) {
+    if let Widget::Window { window, toolbar, split, .. } = widget
+        && (toolbar.is_some() || split.is_some())
+    {
+        window.layoutIfNeeded();
+    }
+}
+
+fn layout_list(widget: &Widget) {
+    if let Widget::List(list) = widget {
+        // Scrolling doesn't mark the table as needing layout; its rows
+        // follow at the next display.
+        list.table.setNeedsLayout(true);
+        list.scroll.layoutSubtreeIfNeeded();
     }
 }

@@ -102,12 +102,14 @@ impl<T: Clone + 'static, K: Eq + Hash + 'static> View for For<T, K> {
     fn build(self, ui: &Ui) -> NodeId {
         let fragment = ui.create(WidgetKind::Fragment, Vec::new());
         // Row scopes hang off a dedicated scope in the *building* owner, so
-        // they survive re-runs of the list effect.
-        let rows_scope = Owner::current().map(|o| o.child()).unwrap_or_else(Owner::new_root);
+        // they survive re-runs of the list effect. With no owner, the rows
+        // and the effect go with the fragment.
+        let scope = ui.owner_or_node_scope(fragment);
+        let rows_scope = scope.child();
         let rows: Rc<RefCell<Vec<(K, NodeId, Owner)>>> = Rc::default();
         let For { each, key, render } = self;
         let ui = ui.clone();
-        effect(move || {
+        let update = move || {
             let items = each.get();
             untrack(|| {
                 let mut old: HashMap<K, (NodeId, Owner)> = HashMap::new();
@@ -139,7 +141,8 @@ impl<T: Clone + 'static, K: Eq + Hash + 'static> View for For<T, K> {
                 }
                 *rows.borrow_mut() = next;
             });
-        });
+        };
+        scope.with(|| effect(update));
         fragment
     }
 }

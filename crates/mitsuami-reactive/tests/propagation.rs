@@ -201,3 +201,44 @@ fn values_accept_literals_signals_and_closures() {
     assert_eq!(from_signal.get(), "mitsuami");
     assert_eq!(derived.get(), "hello mitsuami");
 }
+
+#[test]
+fn a_long_chain_of_computeds_updates_without_overflowing() {
+    // Each link is read as it's made, so only the update walks the chain.
+    let source = signal(0u64);
+    let mut last = computed(move || source.get());
+    for _ in 0..100_000 {
+        let previous = last;
+        last = computed(move || previous.get() + 1);
+        last.get();
+    }
+    let seen = Rc::new(RefCell::new(Vec::new()));
+    let push = seen.clone();
+    effect(move || push.borrow_mut().push(last.get()));
+
+    source.set(1);
+
+    assert_eq!(*seen.borrow(), [100_000, 100_001]);
+}
+
+#[test]
+fn a_computed_reading_many_signals_reads_each_once() {
+    let signals: Vec<_> = (0..1_000).map(signal).collect();
+    let runs = Rc::new(RefCell::new(0));
+    let sum = computed({
+        let signals = signals.clone();
+        let runs = runs.clone();
+        move || {
+            *runs.borrow_mut() += 1;
+            // Every signal twice: the second read must not subscribe again.
+            signals.iter().chain(&signals).map(|s| s.get()).sum::<i32>()
+        }
+    });
+    assert_eq!(sum.get(), 2 * (0..1_000).sum::<i32>());
+
+    signals[500].set(0);
+    signals[999].set(0);
+
+    assert_eq!(sum.get(), 2 * ((0..1_000).sum::<i32>() - 500 - 999));
+    assert_eq!(*runs.borrow(), 2);
+}

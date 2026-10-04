@@ -47,11 +47,13 @@ pub fn run(info: AppInfo, setup: impl FnOnce(&Ui)) {
 
     // One pending tick at a time, as an idle source that runs ahead of GTK's
     // own layout and drawing (those have lower priorities). After each tick,
-    // one timer is re-armed for the next `sleep` deadline.
+    // one timer is re-armed for the next `sleep` deadline. The backend holds
+    // it (as its wake), so it holds the backend weakly: the `Ui`, which owns
+    // the backend, is upgraded first.
     let scheduled = Rc::new(Cell::new(false));
     let timer: Rc<Cell<Option<glib::SourceId>>> = Rc::default();
     let schedule: Rc<dyn Fn()> = {
-        let (weak, handle, main_loop) = (ui.downgrade(), handle.clone(), main_loop.clone());
+        let (weak, handle, main_loop) = (ui.downgrade(), handle.downgrade(), main_loop.clone());
         Rc::new(move || {
             if scheduled.replace(true) {
                 return;
@@ -60,7 +62,9 @@ pub fn run(info: AppInfo, setup: impl FnOnce(&Ui)) {
                 (weak.clone(), handle.clone(), main_loop.clone(), scheduled.clone(), timer.clone());
             glib::idle_add_local_full(glib::Priority::HIGH_IDLE, move || {
                 scheduled.set(false);
-                let Some(ui) = weak.upgrade() else { return glib::ControlFlow::Break };
+                let (Some(ui), Some(handle)) = (weak.upgrade(), handle.upgrade()) else {
+                    return glib::ControlFlow::Break;
+                };
                 ui.tick();
                 handle.show_pending_windows();
                 if let Some(old) = timer.take() {

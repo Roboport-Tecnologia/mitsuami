@@ -297,13 +297,9 @@ impl State {
                     let restore: Box<dyn FnOnce()> =
                         Box::new(move || restore_focus(&root, &by_element, &focus, &tab_order.borrow(), &emitter));
                     // After XAML's own restore, which follows `Activated`.
-                    let ticket = crate::later::park(restore);
                     if let Ok(queue) = w::DispatcherQueue::GetForCurrentThread() {
-                        crate::later::on_ui(&queue, move || {
-                            if let Some(restore) = crate::later::take::<Box<dyn FnOnce()>>(ticket) {
-                                restore();
-                            }
-                        });
+                        let ticket = crate::later::park_until(&queue, restore);
+                        crate::later::on_ui_take(&queue, ticket, |restore: Box<dyn FnOnce()>| restore());
                     }
                 }
             }

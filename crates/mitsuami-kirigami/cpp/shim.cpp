@@ -1,6 +1,7 @@
 #include "shim.h"
 
 #include <QAbstractEventDispatcher>
+#include <QAbstractTableModel>
 #include <QAccessible>
 #include <QApplication>
 #include <QClipboard>
@@ -448,6 +449,81 @@ private:
     QQuickWindow* window;
 };
 
+// ------------------------------------------------------------- row models
+
+// A list's or table's rows: their keys, with a column per table column (a
+// list's one), each cell showing its row's key as `mitsuamiKey` (and
+// `display`, which a table's header looks for). Rust changes it a run of
+// rows at a time, as a Qt model does, so the view keeps the delegates of
+// the rows that stay.
+class RowModel : public QAbstractTableModel {
+public:
+    RowModel(QObject* parent, int columns) : QAbstractTableModel(parent), columns(columns) {}
+    int rowCount(const QModelIndex& parent = QModelIndex()) const override {
+        return parent.isValid() ? 0 : keys.size();
+    }
+    int columnCount(const QModelIndex& parent = QModelIndex()) const override {
+        return parent.isValid() ? 0 : columns;
+    }
+    QVariant data(const QModelIndex& index, int role) const override {
+        if ((role != Qt::DisplayRole && role != KeyRole) || !checkIndex(index, CheckIndexOption::IndexIsValid))
+            return QVariant();
+        return keys.at(index.row());
+    }
+    QHash<int, QByteArray> roleNames() const override {
+        return {{Qt::DisplayRole, "display"}, {KeyRole, "mitsuamiKey"}};
+    }
+
+    static QStringList strings(const uint64_t* keys, int32_t count) {
+        QStringList list;
+        list.reserve(count);
+        for (int i = 0; i < count; i++) list << QString::number(keys[i]);
+        return list;
+    }
+    void insert(int at, const uint64_t* added, int32_t count) {
+        beginInsertRows(QModelIndex(), at, at + count - 1);
+        QStringList list = strings(added, count);
+        for (int i = 0; i < count; i++) keys.insert(at + i, list.at(i));
+        endInsertRows();
+    }
+    void remove(int at, int count) {
+        beginRemoveRows(QModelIndex(), at, at + count - 1);
+        keys.remove(at, count);
+        endRemoveRows();
+    }
+    // `to`: where the first row is after the move. Qt's destination is
+    // the row they go before, before the move.
+    void move(int from, int count, int to) {
+        int before = to > from ? to + count : to;
+        if (!beginMoveRows(QModelIndex(), from, from + count - 1, QModelIndex(), before)) return;
+        QStringList moved = keys.mid(from, count);
+        keys.remove(from, count);
+        for (int i = 0; i < count; i++) keys.insert(to + i, moved.at(i));
+        endMoveRows();
+    }
+    void reset(const uint64_t* all, int32_t count) {
+        beginResetModel();
+        keys = strings(all, count);
+        endResetModel();
+    }
+    void setColumns(int count) {
+        if (count > columns) {
+            beginInsertColumns(QModelIndex(), columns, count - 1);
+            columns = count;
+            endInsertColumns();
+        } else if (count < columns) {
+            beginRemoveColumns(QModelIndex(), count, columns - 1);
+            columns = count;
+            endRemoveColumns();
+        }
+    }
+
+private:
+    static constexpr int KeyRole = Qt::UserRole;
+    QStringList keys;
+    int columns;
+};
+
 extern "C" {
 
 // ------------------------------------------------------------ application
@@ -728,20 +804,30 @@ double mq_font_px(QObject* o, const char* name) {
 
 // ------------------------------------------------------ events and input
 
-static int32_t connect_receiver(QObject* object, const char* signal, uint64_t key, bool once) {
+static Receiver* connect_receiver(QObject* object, const char* signal, uint64_t key, bool once) {
     // String-based: QML controls' signals live on private types.
     QByteArray sig = QByteArray("2") + signal;
-    if (object->metaObject()->indexOfSignal(QMetaObject::normalizedSignature(signal)) < 0) return 0;
+    if (object->metaObject()->indexOfSignal(QMetaObject::normalizedSignature(signal)) < 0) return nullptr;
     auto* receiver = new Receiver(object, key, once);
-    return QObject::connect(object, sig.constData(), receiver, SLOT(fire())) ? 1 : 0;
+    return QObject::connect(object, sig.constData(), receiver, SLOT(fire())) ? receiver : nullptr;
 }
 
 int32_t mq_connect(QObject* object, const char* signal, uint64_t key) {
-    return connect_receiver(object, signal, key, false);
+    return connect_receiver(object, signal, key, false) ? 1 : 0;
 }
 
 int32_t mq_connect_once(QObject* object, const char* signal, uint64_t key) {
-    return connect_receiver(object, signal, key, true);
+    return connect_receiver(object, signal, key, true) ? 1 : 0;
+}
+
+QObject* mq_connect_receiver(QObject* object, const char* signal, uint64_t key) {
+    return connect_receiver(object, signal, key, false);
+}
+
+// Later: the receiver may be the one firing now.
+void mq_disconnect(QObject* receiver) {
+    if (receiver->parent()) QObject::disconnect(receiver->parent(), nullptr, receiver, nullptr);
+    receiver->deleteLater();
 }
 
 void mq_set_gone_callback(mq_gone_callback callback) { g_gone = callback; }
@@ -1146,4 +1232,24 @@ int32_t mq_window_active(QObject* window) {
     auto* w = qobject_cast<QWindow*>(window);
     return w && w->isActive();
 }
+
+// ------------------------------------------------------------- row models
+
+QObject* mq_rows_new(QObject* parent, int32_t columns) { return new RowModel(parent, columns); }
+
+void mq_rows_insert(QObject* model, int32_t at, const uint64_t* keys, int32_t count) {
+    static_cast<RowModel*>(model)->insert(at, keys, count);
+}
+
+void mq_rows_remove(QObject* model, int32_t at, int32_t count) { static_cast<RowModel*>(model)->remove(at, count); }
+
+void mq_rows_move(QObject* model, int32_t from, int32_t count, int32_t to) {
+    static_cast<RowModel*>(model)->move(from, count, to);
+}
+
+void mq_rows_reset(QObject* model, const uint64_t* keys, int32_t count) {
+    static_cast<RowModel*>(model)->reset(keys, count);
+}
+
+void mq_rows_set_columns(QObject* model, int32_t count) { static_cast<RowModel*>(model)->setColumns(count); }
 }

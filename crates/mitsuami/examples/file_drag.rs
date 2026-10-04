@@ -1,11 +1,11 @@
 //! Dragging files out: `cargo run -p mitsuami --example file_drag`.
 //!
 //! - The window makes a few files and a folder in a folder of its own
-//!   (`mitsuami drag example`, in the system's temporary folder) and lists
-//!   them, in a list and in a table. Drag a row to the file manager, the
-//!   desktop, Mail or another app: it gets a copy of the file. Select
-//!   several and drag one of them to drag them all, as a file manager
-//!   drags a selection.
+//!   (`mitsuami drag example`, in the user's cache folder on Linux, the
+//!   temporary folder elsewhere) and lists them, in a list and in a table.
+//!   Drag a row to the file manager, the desktop, Mail or another app: it
+//!   gets a copy of the file. Select several and drag one of them to drag
+//!   them all, as a file manager drags a selection.
 //! - "Notes (no file)" has no file, so it doesn't drag.
 //! - Dragging isn't reachable from the keyboard or a screen reader, so Copy
 //!   Paths puts the selection's paths on the clipboard, as another way out.
@@ -16,8 +16,18 @@ use std::path::PathBuf;
 
 use mitsuami::prelude::*;
 
+/// The folder the example's files go in. Linux's temporary folder is shared
+/// by every user, who could make this folder first and plant links in it,
+/// so there it's the user's cache folder; macOS's and Windows' are per user.
 fn folder() -> PathBuf {
-    std::env::temp_dir().join("mitsuami drag example")
+    #[cfg(not(any(target_os = "macos", windows)))]
+    let base = std::env::var_os("XDG_CACHE_HOME")
+        .map(PathBuf::from)
+        .filter(|path| path.is_absolute())
+        .unwrap_or_else(|| PathBuf::from(std::env::var_os("HOME").expect("HOME is set")).join(".cache"));
+    #[cfg(any(target_os = "macos", windows))]
+    let base = std::env::temp_dir();
+    base.join("mitsuami drag example")
 }
 
 #[derive(Clone, Debug, PartialEq)]

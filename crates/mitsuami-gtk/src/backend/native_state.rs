@@ -173,7 +173,7 @@ impl GtkBackend {
                     }));
                 }
             }
-            Widget::Icon { image, size } => {
+            Widget::Icon { image, size, .. } => {
                 props.extend(node.a11y_label.clone().map(Prop::Label));
                 props.extend(icon_color(image, node.text_color).map(Prop::TextColor));
                 props.push(Prop::Icon(image.icon_name().map(|n| n.to_string()).unwrap_or_default()));

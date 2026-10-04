@@ -281,11 +281,11 @@ impl State {
                 image.set_icon_name(Some(name.as_str()).filter(|n| !n.is_empty()))
             }
             // Unsized, GTK's normal icon size (16 px in Adwaita and Breeze).
-            (Prop::TextColor(color), Widget::Icon { image, .. }) => {
-                set_icon_color(image, *color);
+            (Prop::TextColor(color), Widget::Icon { image, color: rule, .. }) => {
+                *rule = set_icon_color(image, *color);
                 node.text_color = Some(*color);
             }
-            (Prop::IconSize(points), Widget::Icon { image, size }) => {
+            (Prop::IconSize(points), Widget::Icon { image, size, .. }) => {
                 image.set_pixel_size(points.round() as i32);
                 *size = Some(*points);
             }

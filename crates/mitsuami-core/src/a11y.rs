@@ -204,9 +204,13 @@ pub struct A11yNode {
 impl A11yNode {
     /// Depth-first iteration over this node and all descendants.
     pub fn walk(&self) -> Vec<&A11yNode> {
-        let mut out = vec![self];
-        for child in &self.children {
-            out.extend(child.walk());
+        // One list, filled from a stack: a list per subtree, appended to
+        // its parent's, copied each node once per level above it.
+        let mut out = Vec::new();
+        let mut stack = vec![self];
+        while let Some(node) = stack.pop() {
+            out.push(node);
+            stack.extend(node.children.iter().rev());
         }
         out
     }
