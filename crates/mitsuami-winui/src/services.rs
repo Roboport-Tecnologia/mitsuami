@@ -77,8 +77,9 @@ impl WinUiServices {
 }
 
 /// Answers a parked reply with `None`, if it's still waiting, and cancels
-/// the picker's operation.
-fn cancel_picker<T, A>(operation: &windows_future::IAsyncOperation<T>, ticket: u64) -> Box<dyn Fn()>
+/// the picker's operation. Cancelling leaves the picker's dialog open, so
+/// the dialogs `owner` owns are closed as their Cancel button would.
+fn cancel_picker<T, A>(operation: &windows_future::IAsyncOperation<T>, ticket: u64, owner: w::HWND) -> Box<dyn Fn()>
 where
     T: windows_core::RuntimeType + 'static,
     A: 'static,
@@ -89,7 +90,29 @@ where
             reply(None);
         }
         _ = operation.Cancel();
+        close_owned_dialogs(owner);
     })
+}
+
+/// Sends `WM_CLOSE` to this process's dialog windows (`#32770`, what the
+/// shell's file dialogs are) that `owner` owns. They run on the picker's
+/// own thread, so they're found among every top-level window.
+fn close_owned_dialogs(owner: w::HWND) {
+    unsafe extern "system" fn visit(hwnd: w::HWND, owner: w::LPARAM) -> windows_core::BOOL {
+        let mut pid = 0;
+        unsafe { w::GetWindowThreadProcessId(hwnd, &mut pid) };
+        if pid == unsafe { w::GetCurrentProcessId() }
+            && unsafe { w::GetWindow(hwnd, w::GW_OWNER as u32) } == owner as w::HWND
+        {
+            let mut class = [0u16; 64];
+            let len = unsafe { w::GetClassNameW(hwnd, windows_core::PWSTR(class.as_mut_ptr()), 64) };
+            if String::from_utf16_lossy(&class[..len.max(0) as usize]) == "#32770" {
+                unsafe { _ = w::PostMessageW(hwnd, w::WM_CLOSE as u32, 0, 0) };
+            }
+        }
+        true.into()
+    }
+    unsafe { _ = w::EnumWindows(Some(visit), owner as w::LPARAM) };
 }
 
 fn failed(error: windows_core::Error) -> ServiceError {
@@ -162,7 +185,9 @@ impl Services for WinUiServices {
     }
 
     fn open_file(&mut self, parent: Option<NodeId>, request: &OpenFile, reply: Reply<Option<Vec<PathBuf>>>) {
-        let Some((window, node)) = self.backend.window_parts(parent, |p| (p.id, p.node)) else { return reply(None) };
+        let Some((window, node, hwnd)) = self.backend.window_parts(parent, |p| (p.id, p.node, p.hwnd)) else {
+            return reply(None);
+        };
         let ticket = later::park(reply);
         let queue = self.queue.clone();
         let finish = move |paths: Option<Vec<PathBuf>>| {
@@ -184,7 +209,7 @@ impl Services for WinUiServices {
                 operation.when(move |folder| {
                     finish(folder.ok().and_then(|f| f.Path().ok()).map(|p| vec![PathBuf::from(p)]));
                 })?;
-                Ok(cancel_picker::<_, Paths>(&operation, ticket))
+                Ok(cancel_picker::<_, Paths>(&operation, ticket, hwnd))
             } else {
                 let picker = w::FileOpenPicker::CreateInstance(window)?;
                 let picker2 = picker.cast::<w::IFileOpenPicker2>()?;
@@ -211,11 +236,11 @@ impl Services for WinUiServices {
                             files.ok().map(|files| (&files).into_iter().filter_map(|f| path(&f)).collect());
                         finish(paths.filter(|p| !p.is_empty()));
                     })?;
-                    Ok(cancel_picker::<_, Paths>(&operation, ticket))
+                    Ok(cancel_picker::<_, Paths>(&operation, ticket, hwnd))
                 } else {
                     let operation = picker.PickSingleFileAsync()?;
                     operation.when(move |file| finish(file.ok().and_then(|f| path(&f)).map(|p| vec![p])))?;
-                    Ok(cancel_picker::<_, Paths>(&operation, ticket))
+                    Ok(cancel_picker::<_, Paths>(&operation, ticket, hwnd))
                 }
             }
         })();
@@ -230,7 +255,9 @@ impl Services for WinUiServices {
     }
 
     fn save_file(&mut self, parent: Option<NodeId>, request: &SaveFile, reply: Reply<Option<PathBuf>>) {
-        let Some((window, node)) = self.backend.window_parts(parent, |p| (p.id, p.node)) else { return reply(None) };
+        let Some((window, node, hwnd)) = self.backend.window_parts(parent, |p| (p.id, p.node, p.hwnd)) else {
+            return reply(None);
+        };
         let ticket = later::park(reply);
         let started: R<Box<dyn Fn()>> = (|| {
             let picker = w::FileSavePicker::CreateInstance(window)?;
@@ -257,7 +284,7 @@ impl Services for WinUiServices {
                     }
                 });
             })?;
-            Ok(cancel_picker::<_, PathBuf>(&operation, ticket))
+            Ok(cancel_picker::<_, PathBuf>(&operation, ticket, hwnd))
         })();
         match started {
             Ok(cancel) => self.track_picker(node, ticket, cancel),

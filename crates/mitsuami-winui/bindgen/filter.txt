@@ -266,6 +266,8 @@ Windows.Win32.WM_CLOSE
 Windows.Win32.GetCurrentProcessId
 Windows.Win32.IsWindowVisible
 Windows.Win32.GetWindowTextW
+Windows.Win32.GetWindow
+Windows.Win32.GW_OWNER
 Microsoft.UI.Windowing.IAppWindowTitleBar::get_RightInset
 Microsoft.UI.Windowing.IAppWindowTitleBar2::put_PreferredHeightOption
 Microsoft.UI.Windowing.IAppWindowTitleBar3::put_PreferredTheme
