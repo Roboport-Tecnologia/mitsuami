@@ -139,8 +139,8 @@ impl State {
                 let image = w::Image::new()?;
                 image.SetStretch(w::Stretch::Uniform)?;
                 let element = image.cast()?;
-                let (asked, shown) = (Rc::default(), Rc::default());
-                (Widget::FileIcon { image, file: None, thumbnail: None, size: None, asked, shown }, element)
+                let (asked, shown, latest) = (Rc::default(), Rc::default(), Default::default());
+                (Widget::FileIcon { image, file: None, thumbnail: None, size: None, asked, shown, latest }, element)
             }
             WidgetKind::Icon => {
                 let icon = w::FontIcon::new()?;

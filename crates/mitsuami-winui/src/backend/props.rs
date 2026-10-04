@@ -2,6 +2,7 @@
 
 use std::cell::Cell;
 use std::rc::Rc;
+use std::sync::atomic::Ordering;
 
 use mitsuami_core::{Command, ImageFit, ImageSource, LayoutDirection, NodeId, Pixels, Prop, TextStyle, UiEvent};
 use mitsuami_core::{HorizontalAlign, InputPurpose};
@@ -99,9 +100,11 @@ impl State {
                 }
                 *source = Some(new.clone());
             }
+            // Loaded once after the batch (`load_file_icons`): a new icon
+            // comes with its file, size and thumbnail together.
             (
                 Prop::File(_) | Prop::IconSize(_) | Prop::Thumbnail(_),
-                Widget::FileIcon { image, file, thumbnail, size, asked, shown },
+                Widget::FileIcon { image, file, thumbnail, size, asked, shown, latest },
             ) => {
                 match prop {
                     Prop::File(path) => *file = Some(path.clone()),
@@ -115,36 +118,15 @@ impl State {
                 element.SetHeight(f64::from(side))?;
                 let ticket = asked.get() + 1;
                 asked.set(ticket);
-                let Some(path) = file.clone() else {
+                latest.store(ticket, Ordering::Relaxed);
+                if file.is_none() {
                     image.SetSource(None::<&w::ImageSource>)?;
                     shown.set(ticket);
                     return Ok(());
-                };
-                // In the window's pixels, so the shell's image isn't scaled.
-                let scale =
-                    image.cast::<w::IUIElement>()?.XamlRoot().and_then(|r| r.RasterizationScale()).unwrap_or(1.0);
-                let pixels = (f64::from(side) * scale).round() as i32;
-                let queue = w::DispatcherQueue::GetForCurrentThread()?;
-                let parked = crate::later::park((image.clone(), asked.clone(), shown.clone()));
-                crate::file_icon::load(path, pixels, *thumbnail == Some(true), move |loaded| {
-                    crate::later::on_ui(&queue, move || {
-                        let Some((image, asked, shown)) =
-                            crate::later::take::<(w::Image, Rc<Cell<u64>>, Rc<Cell<u64>>)>(parked)
-                        else {
-                            return;
-                        };
-                        // A later load replaces this one.
-                        if asked.get() != ticket {
-                            return;
-                        }
-                        let source = loaded.and_then(|l| crate::file_icon::bitmap(&l).ok());
-                        _ = match source.and_then(|b| b.cast::<w::ImageSource>().ok()) {
-                            Some(source) => image.SetSource(&source),
-                            None => image.SetSource(None::<&w::ImageSource>),
-                        };
-                        shown.set(ticket);
-                    });
-                });
+                }
+                if !self.pending_icons.contains(&id) {
+                    self.pending_icons.push(id);
+                }
             }
             (Prop::ImageFit(new), Widget::Image { image, fit, .. }) => {
                 image.SetStretch(match new {
@@ -679,6 +661,57 @@ impl State {
 
 /// A file icon's side when the app gives none: Explorer's details view's.
 pub(super) const FILE_ICON_SIZE: f32 = 16.0;
+
+impl State {
+    /// Starts the loads of the file icons the batch changed, one each, at
+    /// the latest ticket. The image comes back on the UI thread, unless a
+    /// later load replaced it by then.
+    pub(super) fn load_file_icons(&mut self) {
+        for id in std::mem::take(&mut self.pending_icons) {
+            let Some(Widget::FileIcon { image, file: Some(path), thumbnail, size, asked, shown, latest }) =
+                self.nodes.get(&id).map(|n| &n.widget)
+            else {
+                continue;
+            };
+            let ticket = asked.get();
+            // In the window's pixels, so the shell's image isn't scaled.
+            let scale = image
+                .cast::<w::IUIElement>()
+                .and_then(|e| e.XamlRoot())
+                .and_then(|r| r.RasterizationScale())
+                .unwrap_or(1.0);
+            let pixels = (f64::from(size.unwrap_or(FILE_ICON_SIZE)) * scale).round() as i32;
+            let Ok(queue) = w::DispatcherQueue::GetForCurrentThread() else { continue };
+            let parked = crate::later::park((image.clone(), asked.clone(), shown.clone()));
+            let request = crate::file_icon::Request {
+                path: path.clone(),
+                pixels,
+                thumbnail: *thumbnail == Some(true),
+                ticket,
+                latest: latest.clone(),
+            };
+            crate::file_icon::load(request, move |loaded| {
+                crate::later::on_ui(&queue, move || {
+                    let Some((image, asked, shown)) =
+                        crate::later::take::<(w::Image, Rc<Cell<u64>>, Rc<Cell<u64>>)>(parked)
+                    else {
+                        return;
+                    };
+                    // A later load replaces this one.
+                    if asked.get() != ticket {
+                        return;
+                    }
+                    let source = loaded.and_then(|l| crate::file_icon::bitmap(&l).ok());
+                    _ = match source.and_then(|b| b.cast::<w::ImageSource>().ok()) {
+                        Some(source) => image.SetSource(&source),
+                        None => image.SetSource(None::<&w::ImageSource>),
+                    };
+                    shown.set(ticket);
+                });
+            });
+        }
+    }
+}
 
 /// A bitmap of the pixels, as XAML takes them: premultiplied BGRA.
 fn writeable_bitmap(pixels: &Pixels) -> R<w::WriteableBitmap> {

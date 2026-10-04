@@ -250,7 +250,8 @@ enum Widget {
     Icon(w::FontIcon),
     /// A file's icon in an `Image`, what the app gave (the image has only
     /// pixels), and its loads: the latest one asked for, and the latest
-    /// one shown.
+    /// one shown. `latest` is `asked` for the loading thread, which skips
+    /// loads asked for since.
     FileIcon {
         image: w::Image,
         file: Option<std::path::PathBuf>,
@@ -258,6 +259,7 @@ enum Widget {
         size: Option<f32>,
         asked: Rc<Cell<u64>>,
         shown: Rc<Cell<u64>>,
+        latest: std::sync::Arc<std::sync::atomic::AtomicU64>,
     },
     GpuSurface(SurfaceHost),
     Scroll(w::ScrollViewer),
@@ -509,6 +511,9 @@ pub(crate) struct State {
     emitter: Events,
     log: Vec<Command>,
     pending_show: Vec<NodeId>,
+    /// File icons whose file, size or thumbnail changed in this batch:
+    /// loaded once each after it (`load_file_icons`).
+    pending_icons: Vec<NodeId>,
     menus: Menus,
     /// The app's icon, which every window gets.
     icon: Option<WindowIcon>,
@@ -581,6 +586,7 @@ impl WinUiBackend {
                 emitter: Events { sink: EventSink::default(), wake: Rc::default(), muted: Rc::default() },
                 log: Vec::new(),
                 pending_show: Vec::new(),
+                pending_icons: Vec::new(),
                 menus: Menus::default(),
                 icon: None,
                 tab_bar: Rc::default(),
@@ -674,6 +680,7 @@ impl Backend for WinUiBackend {
             }
         }
         state.attach_surfaces();
+        state.load_file_icons();
         state.connect_scroll_content();
         state.layout_lists();
     }

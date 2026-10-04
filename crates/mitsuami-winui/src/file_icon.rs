@@ -1,8 +1,11 @@
 //! Files' icons: the image the shell gives a file, as Explorer shows it
 //! (its icon, or with a thumbnail the preview in its place), read on a
-//! thread of its own, since the shell may read the file to make it.
+//! thread of their own, since the shell may read the file to make it.
 
 use std::path::{Path, PathBuf};
+use std::sync::atomic::{AtomicU64, Ordering};
+use std::sync::mpsc::{self, Sender};
+use std::sync::{Arc, OnceLock};
 
 use windows_core::{HSTRING, Interface};
 
@@ -15,24 +18,45 @@ pub(crate) struct ShellImage {
     pub bgra: Vec<u8>,
 }
 
-/// Reads `path`'s image at `pixels` square, then calls `done` on that
-/// thread.
-pub(crate) fn load(
-    path: PathBuf,
-    pixels: i32,
-    thumbnail: bool,
-    done: impl FnOnce(Option<ShellImage>) + Send + 'static,
-) {
-    std::thread::spawn(move || {
-        // Single-threaded, as Microsoft's image factory sample has it: the
-        // shell's objects and thumbnail handlers are apartment-threaded.
-        let com = unsafe { w::CoInitializeEx(std::ptr::null(), w::COINIT_APARTMENTTHREADED as u32) }.is_ok();
-        let image = read(&path, pixels, thumbnail && !icons_only());
-        if com {
-            unsafe { w::CoUninitialize() };
-        }
-        done(image);
-    });
+/// A file's image to read, at `pixels` square, for a load the UI thread
+/// asked for (`ticket`); `latest` is the one it wants now.
+pub(crate) struct Request {
+    pub path: PathBuf,
+    pub pixels: i32,
+    pub thumbnail: bool,
+    pub ticket: u64,
+    pub latest: Arc<AtomicU64>,
+}
+
+type Job = (Request, Box<dyn FnOnce(Option<ShellImage>) + Send>);
+
+/// Reads a file's image on the loading thread, then calls `done` there:
+/// with none if a later load was asked for meanwhile, which replaces it.
+pub(crate) fn load(request: Request, done: impl FnOnce(Option<ShellImage>) + Send + 'static) {
+    _ = worker().send((request, Box::new(done)));
+}
+
+/// The one thread loads run on, in turn, started with the first: a thread
+/// each, a file table scrolling started them without end.
+fn worker() -> &'static Sender<Job> {
+    static WORKER: OnceLock<Sender<Job>> = OnceLock::new();
+    WORKER.get_or_init(|| {
+        let (sender, jobs) = mpsc::channel::<Job>();
+        std::thread::spawn(move || {
+            // Single-threaded, as Microsoft's image factory sample has it:
+            // the shell's objects and thumbnail handlers are
+            // apartment-threaded. The thread lives as long as the process.
+            _ = unsafe { w::CoInitializeEx(std::ptr::null(), w::COINIT_APARTMENTTHREADED as u32) };
+            for (request, done) in jobs {
+                if request.latest.load(Ordering::Relaxed) != request.ticket {
+                    done(None);
+                    continue;
+                }
+                done(read(&request.path, request.pixels, request.thumbnail && !icons_only()));
+            }
+        });
+        sender
+    })
 }
 
 /// Whether the user has Explorer show icons, never thumbnails (Folder
