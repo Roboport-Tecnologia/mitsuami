@@ -16,7 +16,12 @@ use raw_window_handle::{
 /// is gone, so a GPU surface made on it never outlives it. It may be
 /// dropped on any thread: a backend whose native objects must be freed on
 /// the UI thread sends them there.
-pub trait NativeSurface: Send + Sync + 'static {
+///
+/// # Safety
+///
+/// The handles it returns stay valid for as long as it lives:
+/// [`SurfaceHandle`] lends them to GPU APIs on that promise.
+pub unsafe trait NativeSurface: Send + Sync + 'static {
     fn window_handle(&self) -> Result<RawWindowHandle, HandleError>;
     fn display_handle(&self) -> Result<RawDisplayHandle, HandleError>;
 }

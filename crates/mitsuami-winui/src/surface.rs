@@ -1059,7 +1059,9 @@ fn create_child(parent: w::HWND) -> R<w::HWND> {
 /// thread: the last handle asks it to close, from wherever it's dropped.
 struct ChildWindow(isize);
 
-impl NativeSurface for ChildWindow {
+// SAFETY: the child window leaves its window for a message-only parent
+// when its widget goes (`detach`), and is closed only once this is dropped.
+unsafe impl NativeSurface for ChildWindow {
     fn window_handle(&self) -> Result<RawWindowHandle, HandleError> {
         let mut handle = Win32WindowHandle::new(NonZeroIsize::new(self.0).ok_or(HandleError::Unavailable)?);
         handle.hinstance = NonZeroIsize::new(unsafe { w::GetModuleHandleW(PCWSTR::null()) } as isize);

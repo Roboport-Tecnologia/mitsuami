@@ -937,7 +937,8 @@ struct AppKitSurface(Option<Retained<NSView>>);
 unsafe impl Send for AppKitSurface {}
 unsafe impl Sync for AppKitSurface {}
 
-impl NativeSurface for AppKitSurface {
+// SAFETY: it retains the view, released only when it's dropped.
+unsafe impl NativeSurface for AppKitSurface {
     fn window_handle(&self) -> Result<RawWindowHandle, HandleError> {
         let view = self.0.as_ref().ok_or(HandleError::Unavailable)?;
         Ok(RawWindowHandle::AppKit(AppKitWindowHandle::new(NonNull::from(&**view).cast())))

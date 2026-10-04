@@ -89,7 +89,8 @@ impl PlatformLocale for HeadlessLocale {
 /// sizes, but no window handle.
 struct HeadlessSurface;
 
-impl NativeSurface for HeadlessSurface {
+// SAFETY: it returns no handles.
+unsafe impl NativeSurface for HeadlessSurface {
     fn window_handle(&self) -> Result<RawWindowHandle, HandleError> {
         Err(HandleError::NotSupported)
     }

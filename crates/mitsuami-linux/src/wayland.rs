@@ -178,7 +178,9 @@ impl Drop for Inner {
     }
 }
 
-impl NativeSurface for Subsurface {
+// SAFETY: it owns the surface and its display connection, destroyed only
+// when it's dropped.
+unsafe impl NativeSurface for Subsurface {
     fn window_handle(&self) -> Result<RawWindowHandle, HandleError> {
         let surface = NonNull::new(self.0.surface.id().as_ptr().cast()).ok_or(HandleError::Unavailable)?;
         Ok(RawWindowHandle::Wayland(WaylandWindowHandle::new(surface)))

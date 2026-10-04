@@ -43,7 +43,8 @@ impl NoSurface {
     }
 }
 
-impl NativeSurface for NoSurface {
+// SAFETY: it returns no handles.
+unsafe impl NativeSurface for NoSurface {
     fn window_handle(&self) -> Result<RawWindowHandle, HandleError> {
         Err(HandleError::NotSupported)
     }

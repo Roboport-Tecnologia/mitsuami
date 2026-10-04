@@ -417,7 +417,9 @@ impl Drop for Inner {
     }
 }
 
-impl NativeSurface for ChildWindow {
+// SAFETY: it owns the window and its connection, destroyed only when it's
+// dropped.
+unsafe impl NativeSurface for ChildWindow {
     fn window_handle(&self) -> Result<RawWindowHandle, HandleError> {
         let window = NonZeroU32::new(self.0.window).ok_or(HandleError::Unavailable)?;
         Ok(RawWindowHandle::Xcb(XcbWindowHandle::new(window)))
