@@ -31,6 +31,7 @@ fn init() {
 /// Starts the app: `setup` creates the windows, then GLib's main loop takes
 /// over. Returns when the last window closes.
 pub fn run(info: AppInfo, setup: impl FnOnce(&Ui)) {
+    let startup_id = crate::session::take_startup_id();
     // GDK's X11 backend takes the windows' class from it as it starts.
     if let Some(id) = &info.id {
         glib::set_prgname(Some(id.as_str()));
@@ -83,8 +84,16 @@ pub fn run(info: AppInfo, setup: impl FnOnce(&Ui)) {
     let on_commit = schedule.clone();
     ui.set_commit_scheduler(move || on_commit());
     handle.set_wake(move || schedule());
-    // Tasks woken from other threads (background work finishing).
-    ui.set_waker(Arc::new(|| glib::MainContext::default().invoke(schedule_tick)));
+    // Tasks woken from other threads (background work finishing). A source
+    // on the default context, which runs on this thread: `invoke` would
+    // run it on the waking thread while this one isn't in the main loop
+    // (during `setup`), where `SCHEDULE_TICK` is empty.
+    ui.set_waker(Arc::new(|| {
+        glib::idle_add_full(glib::Priority::DEFAULT, || {
+            schedule_tick();
+            glib::ControlFlow::Break
+        });
+    }));
 
     setup(&ui);
     ui.tick();
@@ -101,6 +110,7 @@ pub fn run(info: AppInfo, setup: impl FnOnce(&Ui)) {
                 ui.windows().is_empty()
             }),
             Rc::new(move || main_loop.quit()),
+            startup_id,
         )
     };
     schedule_tick();

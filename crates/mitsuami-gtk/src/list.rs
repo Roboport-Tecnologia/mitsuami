@@ -298,11 +298,13 @@ impl List {
         scrolled.set_policy(gtk::PolicyType::Automatic, gtk::PolicyType::Automatic);
         let list = List::finish(scrolled, View::Table(view.clone()), id, events, data);
         // Pressing a sortable header changes the view's sorter: the app
-        // sorts.
+        // sorts. The view owns its sorter, so it's held weakly here, or it
+        // would never be freed.
         if let Some(sorter) = view.sorter() {
-            let (view, events, muted) = (view.clone(), list.events.clone(), list.muted.clone());
+            let (view, events, muted) = (view.downgrade(), list.events.clone(), list.muted.clone());
             sorter.connect_changed(move |_, _| {
                 if !muted.get()
+                    && let Some(view) = view.upgrade()
                     && let Some(sort) = sort_of(&view)
                 {
                     events.emit(id, UiEvent::Changed(EventValue::Sort(sort)));
@@ -318,17 +320,21 @@ impl List {
             View::Table(v) => v.clone().upcast(),
         };
         scrolled.set_child(Some(&view));
-        let v = scrolled.vadjustment();
+        // Each adjustment's handler reads the other one weakly: a table's
+        // would otherwise hold each other.
+        let (h, v) = (scrolled.hadjustment(), scrolled.vadjustment());
         {
-            let (events, h) = (events.clone(), scrolled.hadjustment());
+            let (events, h) = (events.clone(), h.downgrade());
             v.connect_value_changed(move |v| {
-                events.emit(id, UiEvent::Scrolled(Point::new(h.value() as f32, v.value() as f32)))
+                let x = h.upgrade().map_or(0.0, |h| h.value());
+                events.emit(id, UiEvent::Scrolled(Point::new(x as f32, v.value() as f32)))
             });
         }
         if matches!(typed, View::Table(_)) {
-            let (events, v) = (events.clone(), v.clone());
-            scrolled.hadjustment().connect_value_changed(move |h| {
-                events.emit(id, UiEvent::Scrolled(Point::new(h.value() as f32, v.value() as f32)))
+            let (events, v) = (events.clone(), v.downgrade());
+            h.connect_value_changed(move |h| {
+                let y = v.upgrade().map_or(0.0, |v| v.value());
+                events.emit(id, UiEvent::Scrolled(Point::new(h.value() as f32, y as f32)))
             });
         }
         let store = gio::ListStore::new::<gtk::StringObject>();

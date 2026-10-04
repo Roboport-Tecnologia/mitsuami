@@ -178,7 +178,7 @@ impl SurfaceArea {
                 let gdk_cursor = match cursor {
                     Cursor::Default => None,
                     Cursor::Hidden => gdk::Cursor::from_name("none", None),
-                    Cursor::Image { pixels, hotspot } => Some(cursor_image(pixels, *hotspot)),
+                    Cursor::Image { pixels, hotspot } => cursor_image(pixels, *hotspot),
                 };
                 self.area.set_cursor(gdk_cursor.as_ref());
                 self.state.borrow_mut().cursor = Some(cursor.clone());
@@ -401,8 +401,15 @@ impl AreaState {
     fn lock_pointer(&mut self, area: &gtk::DrawingArea) -> Result<Lock, String> {
         self.locks += 1;
         let (key, number) = (self.key, self.locks);
+        // Always a source on the default context, which the UI thread runs:
+        // `MainContext::invoke` runs it on the calling thread when the UI
+        // thread isn't holding the context (between iterations), where
+        // `AREAS` is empty.
         let sink = Box::new(move |event: LockEvent| {
-            glib::MainContext::default().invoke(move || AreaState::from_lock(key, number, event));
+            glib::idle_add_full(glib::Priority::DEFAULT, move || {
+                AreaState::from_lock(key, number, event);
+                glib::ControlFlow::Break
+            });
         });
         match self.native.as_ref().ok_or("no surface")? {
             Native::Wayland(_) => {
@@ -581,9 +588,14 @@ fn key_code(keys: &gtk::EventControllerKey, keycode: u32) -> KeyCode {
 /// point (GTK 4.16's `Cursor::from_callback` is the scale-aware way): an
 /// image made at another scale is resampled to its size in points, so it
 /// shows at the size the app meant.
-fn cursor_image(pixels: &Pixels, hotspot: Point) -> gdk::Cursor {
+fn cursor_image(pixels: &Pixels, hotspot: Point) -> Option<gdk::Cursor> {
     let scale = pixels.scale_factor();
     let (width, height) = (pixels.width(), pixels.height());
+    // An image without pixels shows nothing, as a hidden cursor does; GDK
+    // makes no texture of it.
+    if width == 0 || height == 0 {
+        return gdk::Cursor::from_name("none", None);
+    }
     let (w, h) = if scale == 1.0 {
         (width, height)
     } else {
@@ -613,7 +625,7 @@ fn cursor_image(pixels: &Pixels, hotspot: Point) -> gdk::Cursor {
         w as usize * 4,
     );
     let (x, y) = (hotspot.x.round() as i32, hotspot.y.round() as i32);
-    gdk::Cursor::from_texture(&texture, x.clamp(0, w as i32 - 1), y.clamp(0, h as i32 - 1), None)
+    Some(gdk::Cursor::from_texture(&texture, x.clamp(0, w as i32 - 1), y.clamp(0, h as i32 - 1), None))
 }
 
 /// The widget's controllers: they report while it takes input.

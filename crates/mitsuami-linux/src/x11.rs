@@ -44,6 +44,11 @@ struct Inner {
     /// The pointer lock in effect, by its number; 0 for none.
     lock: AtomicU32,
     locks: AtomicU32,
+    /// Lock threads reading the connection's events. A new lock's thread
+    /// waits for an earlier one to see its wake and end: xcb hands each
+    /// event to one of the threads waiting, so two would take each
+    /// other's.
+    readers: AtomicU32,
 }
 
 impl ChildWindow {
@@ -79,6 +84,7 @@ impl ChildWindow {
             placed: Mutex::new(None),
             lock: AtomicU32::new(0),
             locks: AtomicU32::new(0),
+            readers: AtomicU32::new(0),
         })))
     }
 
@@ -175,6 +181,12 @@ impl Inner {
 
     /// A lock's thread: grabs, then reports until the lock is dropped.
     fn hold_pointer(&self, number: u32, scale: f32, sink: LockSink) {
+        // An earlier lock's thread ends at its wake, which it's the only
+        // one reading. Not for long: a lock dropped wakes its thread.
+        let waited = Instant::now();
+        while self.readers.load(Ordering::Acquire) > 0 && waited.elapsed() < Duration::from_secs(1) {
+            std::thread::sleep(Duration::from_millis(5));
+        }
         let cursor = match self.blank_cursor() {
             Ok(cursor) => cursor,
             Err(_) => return sink(LockEvent::Ended),
@@ -184,6 +196,7 @@ impl Inner {
         loop {
             if !self.locked(number) {
                 let _ = self.conn.free_cursor(cursor);
+                let _ = self.conn.flush();
                 return;
             }
             let window = self.window;
@@ -216,12 +229,41 @@ impl Inner {
                 }
             }
         }
+        // Counted before the lock is looked at again, so a newer lock's
+        // thread either waits for this one or this one sees it's dropped.
+        self.readers.fetch_add(1, Ordering::AcqRel);
         let _ = self.conn.free_cursor(cursor);
         let raw = self.select_raw_motion(true);
+        // Dropped while the grab was on its way: the drop's ungrab may have
+        // come first, and the grab would stay with no one reading it.
+        if !self.locked(number) {
+            self.readers.fetch_sub(1, Ordering::AcqRel);
+            return self.let_go();
+        }
         if !raw {
             eprintln!("mitsuami: no XInput 2 on this X server: no raw motion while the pointer is locked");
         }
         self.warp_to_middle();
+        self.report(number, scale, &sink);
+        self.readers.fetch_sub(1, Ordering::AcqRel);
+        if !self.locked(number) {
+            self.let_go();
+        }
+    }
+
+    /// Lets the grab and raw motion go once no lock wants them: a newer
+    /// lock keeps them, as its own.
+    fn let_go(&self) {
+        if self.lock.load(Ordering::Acquire) == 0 {
+            let _ = self.conn.ungrab_pointer(x11rb::CURRENT_TIME);
+            self.select_raw_motion(false);
+            let _ = self.conn.flush();
+        }
+    }
+
+    /// Reports the grab's events until the lock is dropped. An earlier
+    /// lock's wake, left unread, is just another event.
+    fn report(&self, number: u32, scale: f32, sink: &LockSink) {
         let point = |x: i16, y: i16| Point::new(x as f32 / scale, y as f32 / scale);
         loop {
             let Ok(event) = self.conn.wait_for_event() else { return };

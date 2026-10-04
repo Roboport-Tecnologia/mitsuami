@@ -314,6 +314,10 @@ impl State {
             (Prop::Image(new), Widget::Picture { picture, source, .. }) => {
                 match new {
                     ImageSource::File(path) => picture.set_filename(Some(path)),
+                    // GDK makes no texture without pixels: it shows nothing.
+                    ImageSource::Pixels(pixels) if pixels.width() == 0 || pixels.height() == 0 => {
+                        picture.set_paintable(None::<&gdk::Paintable>)
+                    }
                     ImageSource::Pixels(pixels) => {
                         let texture = gdk::MemoryTexture::new(
                             pixels.width() as i32,

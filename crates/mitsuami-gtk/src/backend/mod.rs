@@ -318,6 +318,9 @@ struct Node {
     /// Labels: where the app cut them off, which GTK doesn't keep without
     /// a line limit.
     truncation: Option<Truncation>,
+    /// The children `Insert` put in its widget, in order (not counting a
+    /// group's heading and card, or a context menu's popover).
+    children: usize,
 }
 
 pub(crate) struct State {
@@ -333,6 +336,8 @@ pub(crate) struct State {
     /// A list changed (its rows, a row's size, its scroll position): the
     /// list view must lay out again before its rows are known.
     lists_dirty: Cell<bool>,
+    /// How many lists and tables there are, so a batch needn't look.
+    lists: usize,
 }
 
 impl Drop for State {
@@ -424,6 +429,7 @@ impl GtkBackend {
             pending_show: Vec::new(),
             menus: Menus::default(),
             lists_dirty: Cell::new(false),
+            lists: 0,
         }));
         state.borrow_mut().menus.backend = Rc::downgrade(&state);
         GtkBackend { state }
@@ -463,7 +469,7 @@ impl Backend for GtkBackend {
                 state.apply(command);
             }
         });
-        if state.nodes.values().any(|n| matches!(n.widget, Widget::List(_))) {
+        if state.lists > 0 {
             state.lists_dirty.set(true);
         }
     }

@@ -36,15 +36,27 @@ pub(crate) struct Session {
     _subscriptions: Rc<RefCell<Vec<gio::SignalSubscription>>>,
 }
 
+/// gnome-session's id for the process, which it gives an app it autostarts
+/// in `DESKTOP_AUTOSTART_ID`. Taken out of the environment, so the
+/// processes the app starts don't register with it: before GTK starts, as
+/// changing the environment races threads reading it.
+pub(crate) fn take_startup_id() -> String {
+    let startup_id = std::env::var("DESKTOP_AUTOSTART_ID").unwrap_or_default();
+    // SAFETY: called first thing in `run`, before GTK or the app start
+    // threads.
+    unsafe { std::env::remove_var("DESKTOP_AUTOSTART_ID") };
+    startup_id
+}
+
 /// `quit` asks the app; `stop` ends the run once the session tells the app
-/// to go.
-pub(crate) fn watch(quit: Quit, stop: Rc<dyn Fn()>) -> Session {
+/// to go. `startup_id` is [`take_startup_id`]'s.
+pub(crate) fn watch(quit: Quit, stop: Rc<dyn Fn()>, startup_id: String) -> Session {
     let subscriptions: Rc<RefCell<Vec<gio::SignalSubscription>>> = Rc::default();
     let subs = subscriptions.clone();
     let sandboxed = std::path::Path::new("/.flatpak-info").exists();
     gio::bus_get(gio::BusType::Session, None::<&gio::Cancellable>, move |bus| {
         let Ok(bus) = bus else { return };
-        if sandboxed { portal(bus, quit, subs) } else { gnome_session(bus, quit, stop, subs) }
+        if sandboxed { portal(bus, quit, subs) } else { gnome_session(bus, quit, stop, subs, startup_id) }
     });
     Session { _subscriptions: subscriptions }
 }
@@ -72,13 +84,9 @@ fn gnome_session(
     quit: Quit,
     stop: Rc<dyn Fn()>,
     subs: Rc<RefCell<Vec<gio::SignalSubscription>>>,
+    startup_id: String,
 ) {
     let app_id = glib::prgname().map_or_else(|| "mitsuami".to_owned(), |name| name.to_string());
-    // Given to the process by gnome-session when it autostarts it; not for
-    // the processes this one starts.
-    let startup_id = std::env::var("DESKTOP_AUTOSTART_ID").unwrap_or_default();
-    // SAFETY: at startup, before the app starts threads of its own.
-    unsafe { std::env::remove_var("DESKTOP_AUTOSTART_ID") };
     let b = bus.clone();
     bus.call(
         Some(SM),

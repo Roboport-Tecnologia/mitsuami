@@ -238,10 +238,13 @@ impl State {
                 scrolled.set_policy(gtk::PolicyType::Never, gtk::PolicyType::Automatic);
                 let viewport = gtk::Viewport::new(None::<&gtk::Adjustment>, None::<&gtk::Adjustment>);
                 scrolled.set_child(Some(&viewport));
+                // Weakly: an adjustment holding itself through its own
+                // handler would never be freed.
                 let (h, v) = (scrolled.hadjustment(), scrolled.vadjustment());
                 for adjustment in [&h, &v] {
-                    let (events, h, v) = (events.clone(), h.clone(), v.clone());
+                    let (events, h, v) = (events.clone(), h.downgrade(), v.downgrade());
                     adjustment.connect_value_changed(move |_| {
+                        let (Some(h), Some(v)) = (h.upgrade(), v.upgrade()) else { return };
                         events.emit(id, UiEvent::Scrolled(Point::new(h.value() as f32, v.value() as f32)))
                     });
                 }
@@ -253,6 +256,9 @@ impl State {
             WidgetKind::List => Widget::List(crate::list::List::new(id, events.clone())),
             WidgetKind::Table => Widget::List(crate::list::List::new_table(id, events.clone())),
         };
+        if matches!(widget, Widget::List(_)) {
+            self.lists += 1;
+        }
         self.by_widget.borrow_mut().insert(widget.widget().clone(), id);
         self.nodes.insert(
             id,
@@ -280,6 +286,7 @@ impl State {
                 keys: None,
                 align: None,
                 truncation: None,
+                children: 0,
             },
         );
     }

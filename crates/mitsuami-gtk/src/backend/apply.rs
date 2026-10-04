@@ -159,11 +159,20 @@ impl State {
                             0
                         };
                         let parent_widget = self.widget(*parent, command);
-                        let mut before = parent_widget.first_child();
-                        for _ in 0..*index + own {
-                            before = before.and_then(|w| w.next_sibling());
-                        }
+                        // Appended without a walk: the core inserts most
+                        // children at the end, and the walk is as long as
+                        // the children before.
+                        let before = if *index >= self.nodes[parent].children {
+                            None
+                        } else {
+                            let mut before = parent_widget.first_child();
+                            for _ in 0..*index + own {
+                                before = before.and_then(|w| w.next_sibling());
+                            }
+                            before
+                        };
                         child_widget.insert_before(&parent_widget, before.as_ref());
+                        self.nodes.get_mut(parent).unwrap().children += 1;
                     }
                 }
                 self.nodes.get_mut(child).unwrap().parent = Some(*parent);
@@ -203,7 +212,10 @@ impl State {
                         self.nodes[child].column.unwrap_or(0),
                     ),
                     Widget::Tabs(tabs) => tabs.remove(&self.widget(*child, command)),
-                    _ => self.widget(*child, command).unparent(),
+                    _ => {
+                        self.widget(*child, command).unparent();
+                        self.nodes.get_mut(parent).unwrap().children -= 1;
+                    }
                 }
                 self.nodes.get_mut(child).unwrap().parent = None;
             }
@@ -213,6 +225,16 @@ impl State {
                     menu.close();
                 }
                 let widget = node.widget.widget().clone();
+                if matches!(node.widget, Widget::List(_)) {
+                    self.lists -= 1;
+                }
+                // Destroyed in its parent, which goes too: it's still counted
+                // in a host it's in.
+                if let Some(parent) = node.parent.and_then(|p| self.nodes.get_mut(&p))
+                    && in_widget(&parent.widget, node.kind)
+                {
+                    parent.children -= 1;
+                }
                 self.by_widget.borrow_mut().remove(&widget);
                 self.frames.borrow_mut().remove(&widget);
                 self.pending_show.retain(|w| w != id);
@@ -370,4 +392,12 @@ impl State {
             },
         }
     }
+}
+
+/// Whether a child of this kind goes among its parent widget's own children,
+/// as `Insert` puts them, in order: not a scroll view's content, a list's
+/// rows, a tab view's pages, a window's toolbar items or its sidebar.
+fn in_widget(parent: &Widget, kind: WidgetKind) -> bool {
+    !matches!(parent, Widget::Scroll { .. } | Widget::List(_) | Widget::Tabs(_))
+        && !matches!(kind, WidgetKind::ToolbarItem | WidgetKind::Sidebar)
 }
