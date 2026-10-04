@@ -31,12 +31,18 @@ if command -v patchelf >/dev/null; then
 fi
 export NO_STRIP=1
 
+# Release assets can be replaced under the same tag, so each tool is
+# checked against the hash it had when it was pinned before it runs.
 fetch() {
-  [ -x "$tools/$1" ] || { curl -fsSL -o "$tools/$1" "$2" && chmod +x "$tools/$1"; }
+  [ -x "$tools/$1" ] && return
+  curl -fsSL -o "$tools/$1.part" "$2"
+  echo "$3  $tools/$1.part" | sha256sum -c --quiet - || { rm -f "$tools/$1.part"; exit 1; }
+  mv "$tools/$1.part" "$tools/$1" && chmod +x "$tools/$1"
 }
 mkdir -p "$tools"
 fetch linuxdeploy-x86_64.AppImage \
-  https://github.com/linuxdeploy/linuxdeploy/releases/download/1-alpha-20251107-1/linuxdeploy-x86_64.AppImage
+  https://github.com/linuxdeploy/linuxdeploy/releases/download/1-alpha-20251107-1/linuxdeploy-x86_64.AppImage \
+  c20cd71e3a4e3b80c3483cef793cda3f4e990aca14014d23c544ca3ce1270b4d
 
 name=$(basename "$binary")
 install -Dm755 "$binary" "$appdir/usr/bin/$name"
@@ -46,7 +52,8 @@ install -Dm644 "$here/apps/$id.svg" "$appdir/usr/share/icons/hicolor/scalable/ap
 case "$toolkit" in
   gtk)
     fetch linuxdeploy-plugin-gtk.sh \
-      https://raw.githubusercontent.com/linuxdeploy/linuxdeploy-plugin-gtk/7a3fbc31a9e5075073ff8790f26effbac5f84453/linuxdeploy-plugin-gtk.sh
+      https://raw.githubusercontent.com/linuxdeploy/linuxdeploy-plugin-gtk/7a3fbc31a9e5075073ff8790f26effbac5f84453/linuxdeploy-plugin-gtk.sh \
+      b0f4cbc684a0103a9651f0955b635eaea0096b3a66c0f5a2c2aa337960375171
     export DEPLOY_GTK_VERSION=4
     "$tools/linuxdeploy-x86_64.AppImage" --appdir "$appdir" --plugin gtk
     # The plugin's hook puts GTK on X11 and on Adwaita whatever the
@@ -61,7 +68,8 @@ case "$toolkit" in
     ;;
   kde)
     fetch linuxdeploy-plugin-qt-x86_64.AppImage \
-      https://github.com/linuxdeploy/linuxdeploy-plugin-qt/releases/download/1-alpha-20250213-1/linuxdeploy-plugin-qt-x86_64.AppImage
+      https://github.com/linuxdeploy/linuxdeploy-plugin-qt/releases/download/1-alpha-20250213-1/linuxdeploy-plugin-qt-x86_64.AppImage \
+      15106be885c1c48a021198e7e1e9a48ce9d02a86dd0a1848f00bdbf3c1c92724
     qmake=${QMAKE:-$(command -v qmake6 || echo /usr/lib/qt6/bin/qmake)}
     export QMAKE=$qmake
     plugins=$("$qmake" -query QT_INSTALL_PLUGINS)

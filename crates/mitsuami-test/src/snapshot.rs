@@ -96,9 +96,10 @@ pub(crate) fn sanitize(s: &str) -> String {
     s.chars().map(|c| if c.is_ascii_alphanumeric() || c == '-' || c == '_' { c } else { '_' }).collect()
 }
 
-/// Like [`sanitize`], keeping dots for versions (`ubuntu-24.04`).
+/// Like [`sanitize`], keeping dots for versions (`ubuntu-24.04`), but not
+/// empty segments, so `..` can't climb out of the backend's folder.
 fn sanitize_image(s: &str) -> String {
-    s.split('.').map(sanitize).collect::<Vec<_>>().join(".")
+    s.split('.').map(|part| if part.is_empty() { "_".to_owned() } else { sanitize(part) }).collect::<Vec<_>>().join(".")
 }
 
 /// `machine` is `<backend>/<image>` for the native backends' snapshots.

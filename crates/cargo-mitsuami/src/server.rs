@@ -4,8 +4,9 @@
 //! Every request needs the token from the page's URL, so other pages open
 //! in the browser can't act on the baselines.
 
-use std::io::{self, BufRead, BufReader, Write};
+use std::io::{self, BufRead, BufReader, Read, Write};
 use std::net::{TcpListener, TcpStream};
+use std::time::Duration;
 
 use crate::changes::Change;
 use crate::report::{self, Mode};
@@ -41,13 +42,19 @@ pub fn serve(changes: &[Change], port: u16, ready: impl FnOnce(&str)) -> io::Res
     Ok(())
 }
 
+/// Requests have no body, so their line and headers fit in this.
+const MAX_REQUEST: u64 = 16 * 1024;
+
 enum Flow {
     Continue,
     Done,
 }
 
 fn handle(mut stream: TcpStream, changes: &[Change], token: &str) -> io::Result<Flow> {
-    let mut reader = BufReader::new(stream.try_clone()?);
+    // Requests are handled one at a time, so a connection that sends
+    // nothing, or never ends a line, mustn't hold up the review.
+    stream.set_read_timeout(Some(Duration::from_secs(5)))?;
+    let mut reader = BufReader::new(stream.try_clone()?.take(MAX_REQUEST));
     let mut request = String::new();
     reader.read_line(&mut request)?;
     // Skip the headers; no request has a body.

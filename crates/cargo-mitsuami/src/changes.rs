@@ -124,7 +124,8 @@ fn walk(root: &Path, dir: &Path, out: &mut Vec<Change>) {
     for entry in entries.flatten() {
         let path = entry.path();
         let name = entry.file_name().to_string_lossy().into_owned();
-        if path.is_dir() {
+        // Not following links, which could lead back up the tree.
+        if entry.file_type().is_ok_and(|t| t.is_dir()) {
             if !name.starts_with('.') && name != "target" && name != "node_modules" {
                 walk(root, &path, out);
             }
