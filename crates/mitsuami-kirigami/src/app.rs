@@ -1,6 +1,10 @@
 //! Running an app: Qt initialization and the event loop hook.
 
 use std::cell::{Cell, RefCell};
+use std::fs;
+use std::io::{self, Write};
+use std::os::unix::fs::{DirBuilderExt, OpenOptionsExt};
+use std::path::{Path, PathBuf};
 use std::rc::Rc;
 use std::sync::Arc;
 
@@ -87,6 +91,33 @@ pub fn run(info: AppInfo, setup: impl FnOnce(&Ui)) {
     *running.borrow_mut() = false;
 }
 
+/// A new directory of this process's own, only it can read, for files Qt
+/// reads: in the user's runtime directory if there is one. Never one that
+/// was there already: another user could have made it, with links in it
+/// that we'd write through, or settings of theirs for us to read.
+pub(crate) fn private_dir(name: &str) -> io::Result<PathBuf> {
+    let base = std::env::var_os("XDG_RUNTIME_DIR")
+        .map(PathBuf::from)
+        .filter(|dir| dir.is_absolute())
+        .unwrap_or_else(std::env::temp_dir);
+    let pid = std::process::id();
+    let mut taken = None;
+    for attempt in 0..100 {
+        let dir = base.join(format!("{name}-{pid}-{attempt}"));
+        match fs::DirBuilder::new().mode(0o700).create(&dir) {
+            Ok(()) => return Ok(dir),
+            Err(e) if e.kind() == io::ErrorKind::AlreadyExists => taken = Some(e),
+            Err(e) => return Err(e),
+        }
+    }
+    Err(taken.expect("tried at least once"))
+}
+
+/// Writes a file that mustn't be there yet, in a [`private_dir`].
+pub(crate) fn write_new(path: &Path, contents: &str) -> io::Result<()> {
+    fs::OpenOptions::new().write(true).create_new(true).mode(0o600).open(path)?.write_all(contents.as_bytes())
+}
+
 /// Initializes Qt for tests, once per process. Unless
 /// `MITSUAMI_SHOW_WINDOWS=1`, windows go to Qt's offscreen platform: they
 /// get exactly the size they ask for, on a 1920×1080 screen, and nothing
@@ -99,16 +130,16 @@ pub fn init_for_tests() {
     if ffi::is_initialized() {
         return;
     }
-    let config = std::env::temp_dir().join(format!("mitsuami-kirigami-config-{}", std::process::id()));
-    let _ = std::fs::create_dir_all(&config);
-    let _ = std::fs::write(config.join("kdeglobals"), "[KDE]\nAnimationDurationFactor=0\n");
+    let config = private_dir("mitsuami-kirigami-config").expect("mitsuami: a directory for Qt's test settings");
+    write_new(&config.join("kdeglobals"), "[KDE]\nAnimationDurationFactor=0\n").expect("mitsuami: kdeglobals");
     // The offscreen screen is 800×600 unless told otherwise, too small for
     // a sidebar beside a content's minimum: a common desktop's instead.
     let screens = config.join("offscreen.json");
-    let _ = std::fs::write(
+    write_new(
         &screens,
         r#"{"screens": [{"name": "Offscreen", "x": 0, "y": 0, "width": 1920, "height": 1080, "logicalDpi": 96}]}"#,
-    );
+    )
+    .expect("mitsuami: the offscreen screen's settings");
     // SAFETY: before Qt starts, while the test runner is single-threaded.
     unsafe {
         if !std::env::var("MITSUAMI_SHOW_WINDOWS").is_ok_and(|v| v == "1") {

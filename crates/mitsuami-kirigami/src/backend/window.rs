@@ -304,7 +304,10 @@ impl State {
         }
         let menu = self.menus.of(id);
         let drawer = drawer_qml(&menu, self.menus.modal.contains(&id));
-        let window = QmlObject::load(&qml::window(drawer.as_deref()));
+        let window = QmlObject::load(&qml::window(drawer.as_ref().map(|d| d.qml.as_str())));
+        if let (Some(drawer), Some(object)) = (&drawer, window.object("globalDrawer")) {
+            drawer.label(object);
+        }
         let host = window.child("mitsuamiHost").expect("windows have a content host");
         let root = Rc::new(WindowRoot {
             id,

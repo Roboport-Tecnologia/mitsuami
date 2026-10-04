@@ -84,7 +84,8 @@ impl Wiring {
         }
         let Some(qml) = drawer_qml(&root.menu.borrow(), dialog) else { return };
         let Some(overlay) = root.window.object("overlay") else { return };
-        let drawer = QmlObject::load_in(&qml, overlay);
+        let drawer = QmlObject::load_in(&qml.qml, overlay);
+        qml.label(drawer);
         root.window.set_object("globalDrawer", Some(drawer));
         root.drawer.set(Some(drawer));
         self.connect(root);
@@ -164,6 +165,34 @@ fn sequence(shortcut: &Shortcut) -> String {
     keys
 }
 
+/// A menu's QML, and the text its actions and submenus show. The text is
+/// set once the menu is made, not written into the QML: Qt compiles each
+/// distinct QML text once and keeps it, so titles in it (a file's name, a
+/// language's own) would make a new component for every menu.
+pub(crate) struct MenuQml {
+    pub(crate) qml: String,
+    /// Object names, the property, and its text.
+    labels: Vec<(String, &'static str, String)>,
+}
+
+impl MenuQml {
+    /// Gives the menu's actions and submenus, under `root`, their text.
+    pub(crate) fn label(&self, root: QmlObject) {
+        for (name, property, text) in &self.labels {
+            if let Some(object) = root.child(name) {
+                object.set_str(property, text);
+            }
+        }
+    }
+
+    /// A name for a submenu (or an action of ours), whose text is `text`.
+    fn name(&mut self, property: &'static str, text: &str) -> String {
+        let name = format!("mitsuamiLabel{}", self.labels.len());
+        self.labels.push((name.clone(), property, text.into()));
+        name
+    }
+}
+
 /// Where a menu's QML goes: the global drawer, whose submenus and
 /// separators are Kirigami actions too, or a context menu (`QQC2.Menu`).
 #[derive(Clone, Copy, PartialEq)]
@@ -186,13 +215,11 @@ fn item_qml(
     icon: Option<&str>,
     group: Option<u32>,
     form: Form,
+    out: &mut MenuQml,
 ) -> String {
-    let mut qml = format!(
-        "Kirigami.Action {{ objectName: {}; text: {}; enabled: {}",
-        js_string(&item_name(item.id)),
-        js_string(&item.title),
-        item.enabled
-    );
+    out.labels.push((item_name(item.id), "text", item.title.clone()));
+    let mut qml =
+        format!("Kirigami.Action {{ objectName: {}; enabled: {}", js_string(&item_name(item.id)), item.enabled);
     if let Some(shortcut) = shortcut {
         let keys = js_string(&sequence(&shortcut));
         match form {
@@ -214,7 +241,7 @@ fn item_qml(
 }
 
 /// A menu's entries. `groups` collects the radio groups' `ActionGroup`s.
-fn entries_qml(menu: &MenuData, groups: &mut Vec<String>, form: Form) -> String {
+fn entries_qml(menu: &MenuData, groups: &mut Vec<String>, form: Form, out: &mut MenuQml) -> String {
     let entries: Vec<String> = menu
         .entries
         .iter()
@@ -224,9 +251,9 @@ fn entries_qml(menu: &MenuData, groups: &mut Vec<String>, form: Form) -> String 
                 if group == Some(item.id) {
                     groups.push(format!("QQC2.ActionGroup {{ id: mitsuamiGroup{} }}", item.id));
                 }
-                item_qml(item, item.shortcut, None, group, form)
+                item_qml(item, item.shortcut, None, group, form, out)
             }
-            MenuEntry::Submenu(submenu) => menu_qml(submenu, groups, form),
+            MenuEntry::Submenu(submenu) => menu_qml(submenu, groups, form, out),
             MenuEntry::Separator if form == Form::Drawer => "Kirigami.Action { separator: true }".into(),
             MenuEntry::Separator => "QQC2.MenuSeparator { }".into(),
         })
@@ -236,10 +263,11 @@ fn entries_qml(menu: &MenuData, groups: &mut Vec<String>, form: Form) -> String 
 
 /// A menu, or a submenu: in the drawer an action whose children are its
 /// entries, in a context menu a `QQC2.Menu`.
-fn menu_qml(menu: &MenuData, groups: &mut Vec<String>, form: Form) -> String {
-    let entries = entries_qml(menu, groups, form);
-    let kind = if form == Form::Drawer { "Kirigami.Action { text" } else { "QQC2.Menu { title" };
-    format!("{kind}: {}\n{entries}\n}}", js_string(&menu.title))
+fn menu_qml(menu: &MenuData, groups: &mut Vec<String>, form: Form, out: &mut MenuQml) -> String {
+    let (kind, property) = if form == Form::Drawer { ("Kirigami.Action", "text") } else { ("QQC2.Menu", "title") };
+    let name = out.name(property, &menu.title);
+    let entries = entries_qml(menu, groups, form, out);
+    format!("{kind} {{ objectName: \"{name}\"\n{entries}\n}}")
 }
 
 /// The global drawer's QML for a window's menus, or none without menus.
@@ -247,7 +275,7 @@ fn menu_qml(menu: &MenuData, groups: &mut Vec<String>, form: Form) -> String {
 /// Ctrl+Shift+, unless it has a shortcut), About, then Quit. The app's
 /// Quit item replaces ours, with our title and shortcut; a dialog has none
 /// of ours, only its own menus.
-pub(crate) fn drawer_qml(menu: &MenuBarData, dialog: bool) -> Option<String> {
+pub(crate) fn drawer_qml(menu: &MenuBarData, dialog: bool) -> Option<MenuQml> {
     if menu.menus.is_empty() {
         return None;
     }
@@ -255,52 +283,67 @@ pub(crate) fn drawer_qml(menu: &MenuBarData, dialog: bool) -> Option<String> {
     let settings = menu.take_role(MenuRole::Settings);
     let about = menu.take_role(MenuRole::About);
     let quit = menu.take_role(MenuRole::Quit);
+    let mut out = MenuQml { qml: String::new(), labels: Vec::new() };
     let mut groups = Vec::new();
-    let mut actions: Vec<String> = menu.menus.iter().map(|m| menu_qml(m, &mut groups, Form::Drawer)).collect();
+    let mut actions: Vec<String> =
+        menu.menus.iter().map(|m| menu_qml(m, &mut groups, Form::Drawer, &mut out)).collect();
     if let Some(item) = settings {
         let shortcut = item.shortcut.unwrap_or(Shortcut::primary(',').shift());
-        actions.push(item_qml(&item, Some(shortcut), Some("settings-configure"), None, Form::Drawer));
+        actions.push(item_qml(&item, Some(shortcut), Some("settings-configure"), None, Form::Drawer, &mut out));
     }
     if let Some(item) = about {
-        actions.push(item_qml(&item, item.shortcut, Some("help-about"), None, Form::Drawer));
+        actions.push(item_qml(&item, item.shortcut, Some("help-about"), None, Form::Drawer, &mut out));
     }
     // Plasma's binding; `StandardKey.Quit` maps to several, which Qt's
     // shortcuts warn about.
     match quit {
         Some(item) => {
             let item = MenuItemData { title: tr("mitsuami-menu-quit", &[]), ..item };
-            actions.push(item_qml(&item, Some(Shortcut::primary('q')), Some("application-exit"), None, Form::Drawer));
+            actions.push(item_qml(
+                &item,
+                Some(Shortcut::primary('q')),
+                Some("application-exit"),
+                None,
+                Form::Drawer,
+                &mut out,
+            ));
         }
         None if dialog => {}
-        None => actions.push(format!(
-            "Kirigami.Action {{ objectName: \"mitsuamiQuit\"; text: {}; icon.name: \"application-exit\"; \
-             shortcut: \"Ctrl+Q\" }}",
-            js_string(&tr("mitsuami-menu-quit", &[]))
-        )),
+        None => {
+            out.labels.push(("mitsuamiQuit".into(), "text", tr("mitsuami-menu-quit", &[])));
+            actions.push(
+                "Kirigami.Action { objectName: \"mitsuamiQuit\"; icon.name: \"application-exit\"; \
+                 shortcut: \"Ctrl+Q\" }"
+                    .into(),
+            )
+        }
     }
-    Some(format!(
+    out.qml = format!(
         "Kirigami.GlobalDrawer {{ isMenu: true\n{}\nactions: [\n{}\n] }}",
         groups.join("\n"),
         actions.join(",\n")
-    ))
+    );
+    Some(out)
 }
 
 /// A context menu's QML, or none without entries: a `QQC2.Menu`, which the
 /// desktop style draws, of the same actions as the drawer's, with
 /// `QQC2.MenuSeparator`s and submenus. `mitsuamiOwner` is its item while
 /// it's open in the window's overlay (see `qml::CONTEXT_MENU`).
-fn context_menu_qml(menu: &MenuData) -> Option<String> {
+fn context_menu_qml(menu: &MenuData) -> Option<MenuQml> {
     if menu.entries.is_empty() {
         return None;
     }
+    let mut out = MenuQml { qml: String::new(), labels: Vec::new() };
     let mut groups = Vec::new();
-    let entries = entries_qml(menu, &mut groups, Form::ContextMenu);
-    Some(format!(
+    let entries = entries_qml(menu, &mut groups, Form::ContextMenu, &mut out);
+    out.qml = format!(
         "QQC2.Menu {{ id: mitsuamiMenu\n\
          property Item mitsuamiOwner: null\n\
          onClosed: if (mitsuamiOwner) {{ parent = mitsuamiOwner; mitsuamiOwner = null }}\n{}\n{entries}\n}}",
         groups.join("\n")
-    ))
+    );
+    Some(out)
 }
 
 /// A node's context menu: the app's entries (as the one menu of a bar, for
@@ -447,7 +490,8 @@ fn build(
     choose: &Rc<dyn Fn(u32)>,
 ) -> Option<QmlObject> {
     let qml = context_menu_qml(&entries.borrow().menus[0])?;
-    let menu = QmlObject::load_in(&qml, item);
+    let menu = QmlObject::load_in(&qml.qml, item);
+    qml.label(menu);
     // As in the drawer, Qt checks a checkable action itself when it's
     // triggered: the menu goes back to what the app shows first.
     for entry in entries.borrow().items() {
@@ -545,9 +589,7 @@ impl Services for KirigamiServices {
         let actions: Vec<String> = buttons
             .iter()
             .enumerate()
-            .map(|(i, label)| {
-                format!("Kirigami.Action {{ objectName: \"mitsuamiButton{i}\"; text: {} }}", js_string(label))
-            })
+            .map(|(i, _)| format!("Kirigami.Action {{ objectName: \"mitsuamiButton{i}\" }}"))
             .collect();
         let dialog_type = match alert.style {
             AlertStyle::Info => "None",
@@ -574,8 +616,11 @@ impl Services for KirigamiServices {
         dialog.set_str("title", &alert.title);
         dialog.set_str("subtitle", alert.message.as_deref().unwrap_or_default());
         let answer = answer_once(dialog, &self.backend, reply);
-        for i in 0..buttons.len() {
+        // The labels are set, not in the QML, which Qt keeps compiled per
+        // text (see `MenuQml`).
+        for (i, label) in buttons.iter().enumerate() {
             if let Some(action) = dialog.child(&format!("mitsuamiButton{i}")) {
+                action.set_str("text", label);
                 let answer = answer.clone();
                 action.connect("triggered(QObject*)", move || {
                     dialog.invoke("close");
@@ -594,12 +639,7 @@ impl Services for KirigamiServices {
         if root.has_rendered() {
             dialog.invoke("open");
         } else {
-            let pending = Cell::new(true);
-            root.window.connect("frameSwapped()", move || {
-                if pending.replace(false) {
-                    dialog.invoke("open");
-                }
-            });
+            root.window.connect_once("frameSwapped()", move || _ = dialog.invoke("open"));
         }
     }
 

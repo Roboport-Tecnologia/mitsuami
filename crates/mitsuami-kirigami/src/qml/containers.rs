@@ -305,6 +305,12 @@ QQC2.ScrollView {{
         property var mitsuamiKeys: []
         property var mitsuamiSelected: []
         readonly property string mitsuamiSelectedKeys: mitsuamiSelected.join(",")
+        // The selection by key, for delegates to look rows up in.
+        readonly property var mitsuamiSelectedSet: {{
+            const set = {{}}
+            for (const key of mitsuamiSelected) set[key] = true
+            return set
+        }}
         property int mitsuamiMode: 0
         property real mitsuamiEstimate: 24
         property int mitsuamiScrollTo: -1
@@ -319,10 +325,17 @@ QQC2.ScrollView {{
             return files
         }}
         // What dragging a row carries: the selected rows' files when it's
-        // selected, as Dolphin drags a selection, else its own.
+        // selected, as Dolphin drags a selection, else its own. The
+        // selection's are made once here, not by each row.
+        readonly property var mitsuamiSelectedUrls: mitsuamiSelected.map(k => mitsuamiFiles[k]).filter(u => u !== undefined)
+        readonly property string mitsuamiSelectedUriList: mitsuamiSelectedUrls.join("\r\n")
         function mitsuamiDragUrls(key) {{
-            const keys = mitsuamiSelected.indexOf(key) >= 0 ? mitsuamiSelected : [key]
-            return keys.map(k => mitsuamiFiles[k]).filter(u => u !== undefined)
+            if (mitsuamiSelectedSet[key] === true) return mitsuamiSelectedUrls
+            return mitsuamiFiles[key] !== undefined ? [mitsuamiFiles[key]] : []
+        }}
+        // The same, as `text/uri-list`.
+        function mitsuamiUriList(key) {{
+            return mitsuamiSelectedSet[key] === true ? mitsuamiSelectedUriList : (mitsuamiFiles[key] ?? "")
         }}
         // At the end, a list stays there as rows turn out taller than estimated.
         property bool mitsuamiAtEnd: false
@@ -338,6 +351,26 @@ QQC2.ScrollView {{
         currentIndex: -1
         activeFocusOnTab: true
         function mitsuamiNotify() {{ Qt.callLater(view.mitsuamiRowsChanged) }}
+        // The delegates by slot ("key:column"), so the backend finds one
+        // without going through them all: it sets `mitsuamiLookup`, calls
+        // `mitsuamiFind()` and reads `mitsuamiFound`. Delegates the view let go
+        // read as null once they're deleted.
+        property var mitsuamiDelegates: ({{}})
+        property string mitsuamiLookup: ""
+        property Item mitsuamiFound: null
+        function mitsuamiFind() {{
+            const found = mitsuamiDelegates[mitsuamiLookup] ?? null
+            if (!found) delete mitsuamiDelegates[mitsuamiLookup]
+            mitsuamiFound = found
+        }}
+        function mitsuamiAdd(delegate) {{
+            mitsuamiDelegates[delegate.mitsuamiSlot] = delegate
+            mitsuamiNotify()
+        }}
+        function mitsuamiForget(delegate) {{
+            if (mitsuamiDelegates[delegate.mitsuamiSlot] === delegate) delete mitsuamiDelegates[delegate.mitsuamiSlot]
+            mitsuamiNotify()
+        }}
         function mitsuamiShow(index) {{
             if (index >= 0) positionViewAtIndex(index, ListView.Contain)
         }}
@@ -353,8 +386,8 @@ QQC2.ScrollView {{
                 const index = mitsuamiKeys.indexOf(key)
                 mitsuamiSelected = mitsuamiKeys.slice(Math.min(anchor, index), Math.max(anchor, index) + 1)
             }} else if (mitsuamiMode === 2 && (modifiers & Qt.ControlModifier)) {{
-                const on = mitsuamiSelected.indexOf(key) < 0
-                mitsuamiSelected = mitsuamiKeys.filter(k => k === key ? on : mitsuamiSelected.indexOf(k) >= 0)
+                const on = mitsuamiSelectedSet[key] !== true
+                mitsuamiSelected = mitsuamiKeys.filter(k => k === key ? on : mitsuamiSelectedSet[k] === true)
                 mitsuamiAnchor = key
             }} else {{
                 mitsuamiSelected = [key]
@@ -403,8 +436,10 @@ QQC2.ScrollView {{
             }}
         }}
         delegate: QQC2.ItemDelegate {{
+            id: mitsuamiRow
             required property string modelData
             property string mitsuamiKey: modelData
+            readonly property string mitsuamiSlot: modelData + ":0"
             property Item mitsuamiHost: null
             width: view.width
             height: mitsuamiHost ? mitsuamiHost.height : view.mitsuamiEstimate
@@ -413,7 +448,7 @@ QQC2.ScrollView {{
             topInset: 0
             bottomInset: 0
             focusPolicy: Qt.NoFocus
-            highlighted: view.mitsuamiSelected.indexOf(modelData) >= 0
+            highlighted: view.mitsuamiSelectedSet[modelData] === true
             contentItem: Item {{ }}
             // `clicked` doesn't say which modifiers were held.
             TapHandler {{
@@ -434,10 +469,10 @@ QQC2.ScrollView {{
             Drag.active: mitsuamiDrag.active
             Drag.dragType: Drag.Automatic
             Drag.supportedActions: Qt.CopyAction
-            Drag.mimeData: ({{ "text/uri-list": mitsuamiDragUrls.join("\r\n") }})
+            Drag.mimeData: ({{ "text/uri-list": view.mitsuamiUriList(modelData) }})
             onDoubleClicked: view.mitsuamiOpen(modelData)
-            Component.onCompleted: view.mitsuamiNotify()
-            Component.onDestruction: view.mitsuamiNotify()
+            Component.onCompleted: view.mitsuamiAdd(mitsuamiRow)
+            Component.onDestruction: view.mitsuamiForget(mitsuamiRow)
         }}
     }}
 }}
@@ -554,6 +589,12 @@ Item {{
             property var mitsuamiKeys: []
             property var mitsuamiSelected: []
             readonly property string mitsuamiSelectedKeys: mitsuamiSelected.join(",")
+            // The selection by key, for cells to look rows up in.
+            readonly property var mitsuamiSelectedSet: {{
+                const set = {{}}
+                for (const key of mitsuamiSelected) set[key] = true
+                return set
+            }}
             property int mitsuamiMode: 0
             property real mitsuamiEstimate: 24
             property int mitsuamiScrollTo: -1
@@ -572,10 +613,17 @@ Item {{
                 return files
             }}
             // What dragging a row carries: the selected rows' files when it's
-            // selected, as Dolphin drags a selection, else its own.
+            // selected, as Dolphin drags a selection, else its own. The
+            // selection's are made once here, not by each cell.
+            readonly property var mitsuamiSelectedUrls: mitsuamiSelected.map(k => mitsuamiFiles[k]).filter(u => u !== undefined)
+            readonly property string mitsuamiSelectedUriList: mitsuamiSelectedUrls.join("\r\n")
             function mitsuamiDragUrls(key) {{
-                const keys = mitsuamiSelected.indexOf(key) >= 0 ? mitsuamiSelected : [key]
-                return keys.map(k => mitsuamiFiles[k]).filter(u => u !== undefined)
+                if (mitsuamiSelectedSet[key] === true) return mitsuamiSelectedUrls
+                return mitsuamiFiles[key] !== undefined ? [mitsuamiFiles[key]] : []
+            }}
+            // The same, as `text/uri-list`.
+            function mitsuamiUriList(key) {{
+                return mitsuamiSelectedSet[key] === true ? mitsuamiSelectedUriList : (mitsuamiFiles[key] ?? "")
             }}
             readonly property real mitsuamiPadding: Kirigami.Units.smallSpacing
             readonly property real mitsuamiMinRow: rowProbe.implicitHeight
@@ -599,6 +647,26 @@ Item {{
             resizableColumns: true
             activeFocusOnTab: true
             function mitsuamiNotify() {{ Qt.callLater(view.mitsuamiRowsChanged) }}
+            // The delegates by slot ("key:column"), so the backend finds one
+            // without going through them all: it sets `mitsuamiLookup`, calls
+            // `mitsuamiFind()` and reads `mitsuamiFound`. Delegates the view let go
+            // read as null once they're deleted.
+            property var mitsuamiDelegates: ({{}})
+            property string mitsuamiLookup: ""
+            property Item mitsuamiFound: null
+            function mitsuamiFind() {{
+                const found = mitsuamiDelegates[mitsuamiLookup] ?? null
+                if (!found) delete mitsuamiDelegates[mitsuamiLookup]
+                mitsuamiFound = found
+            }}
+            function mitsuamiAdd(delegate) {{
+                mitsuamiDelegates[delegate.mitsuamiSlot] = delegate
+                mitsuamiNotify()
+            }}
+            function mitsuamiForget(delegate) {{
+                if (mitsuamiDelegates[delegate.mitsuamiSlot] === delegate) delete mitsuamiDelegates[delegate.mitsuamiSlot]
+                mitsuamiNotify()
+            }}
             function mitsuamiRelayout() {{ Qt.callLater(view.forceLayout) }}
             // A model with a column per column, each showing the row's key.
             // A `TableModel` made without rows never learns its columns,
@@ -697,8 +765,8 @@ Item {{
                     const index = mitsuamiKeys.indexOf(key)
                     mitsuamiSelected = mitsuamiKeys.slice(Math.min(anchor, index), Math.max(anchor, index) + 1)
                 }} else if (mitsuamiMode === 2 && (modifiers & Qt.ControlModifier)) {{
-                    const on = mitsuamiSelected.indexOf(key) < 0
-                    mitsuamiSelected = mitsuamiKeys.filter(k => k === key ? on : mitsuamiSelected.indexOf(k) >= 0)
+                    const on = mitsuamiSelectedSet[key] !== true
+                    mitsuamiSelected = mitsuamiKeys.filter(k => k === key ? on : mitsuamiSelectedSet[k] === true)
                     mitsuamiAnchor = key
                 }} else {{
                     mitsuamiSelected = [key]
@@ -747,6 +815,7 @@ Item {{
                 required property string display
                 property string mitsuamiKey: display
                 property int mitsuamiColumn: column
+                readonly property string mitsuamiSlot: display + ":" + column
                 property Item mitsuamiHost: null
                 // Without its host yet, as high as the last row with its
                 // hosts: `TableView` loses track of its extent when rows
@@ -757,7 +826,7 @@ Item {{
                     : Math.max(view.mitsuamiMinRow, view.mitsuamiLastRowHeight >= 0 ? view.mitsuamiLastRowHeight
                         : view.mitsuamiEstimate)
                 onMitsuamiHostChanged: if (mitsuamiHost) view.mitsuamiLearn(row, implicitHeight)
-                color: view.mitsuamiSelected.indexOf(display) >= 0 ? Kirigami.Theme.highlightColor
+                color: view.mitsuamiSelectedSet[display] === true ? Kirigami.Theme.highlightColor
                     : view.alternatingRows && row % 2 === 1 ? Kirigami.Theme.alternateBackgroundColor : "transparent"
                 // The host, centred in the row's height.
                 Item {{
@@ -787,10 +856,10 @@ Item {{
                 Drag.active: mitsuamiDrag.active
                 Drag.dragType: Drag.Automatic
                 Drag.supportedActions: Qt.CopyAction
-                Drag.mimeData: ({{ "text/uri-list": mitsuamiDragUrls.join("\r\n") }})
+                Drag.mimeData: ({{ "text/uri-list": view.mitsuamiUriList(cell.display) }})
                 onImplicitHeightChanged: view.mitsuamiRelayout()
-                Component.onCompleted: view.mitsuamiNotify()
-                Component.onDestruction: view.mitsuamiNotify()
+                Component.onCompleted: view.mitsuamiAdd(cell)
+                Component.onDestruction: view.mitsuamiForget(cell)
             }}
         }}
     }}

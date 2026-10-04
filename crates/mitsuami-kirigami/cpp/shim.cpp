@@ -110,7 +110,16 @@ static char* dup(const QString& s) {
     return out;
 }
 
-void Receiver::fire() { call(key, MQ_SIGNAL); }
+void Receiver::fire() {
+    // Disconnected before the call, which may delete the sender (and so
+    // this); the key is copied for the same reason.
+    uint64_t k = key;
+    if (once) {
+        QObject::disconnect(sender(), nullptr, this, nullptr);
+        deleteLater();
+    }
+    call(k, MQ_SIGNAL);
+}
 Receiver::~Receiver() { call(key, MQ_DROPPED); }
 
 // ------------------------------------------------------------ drawn items
@@ -710,12 +719,20 @@ double mq_font_px(QObject* o, const char* name) {
 
 // ------------------------------------------------------ events and input
 
-int32_t mq_connect(QObject* object, const char* signal, uint64_t key) {
+static int32_t connect_receiver(QObject* object, const char* signal, uint64_t key, bool once) {
     // String-based: QML controls' signals live on private types.
     QByteArray sig = QByteArray("2") + signal;
     if (object->metaObject()->indexOfSignal(QMetaObject::normalizedSignature(signal)) < 0) return 0;
-    auto* receiver = new Receiver(object, key);
+    auto* receiver = new Receiver(object, key, once);
     return QObject::connect(object, sig.constData(), receiver, SLOT(fire())) ? 1 : 0;
+}
+
+int32_t mq_connect(QObject* object, const char* signal, uint64_t key) {
+    return connect_receiver(object, signal, key, false);
+}
+
+int32_t mq_connect_once(QObject* object, const char* signal, uint64_t key) {
+    return connect_receiver(object, signal, key, true);
 }
 
 void mq_watch_close(QObject* window, uint64_t key) { window->installEventFilter(new CloseFilter(window, key)); }

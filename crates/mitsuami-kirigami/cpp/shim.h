@@ -54,16 +54,17 @@ enum {
 };
 
 // Forwards one signal of one object to Rust. A child of the object, so it
-// goes (and reports MQ_DROPPED) with it.
+// goes (and reports MQ_DROPPED) with it; a `once` one goes after it fires.
 class Receiver : public QObject {
     Q_OBJECT
 public:
-    Receiver(QObject* parent, uint64_t key) : QObject(parent), key(key) {}
+    Receiver(QObject* parent, uint64_t key, bool once) : QObject(parent), key(key), once(once) {}
     ~Receiver() override;
 public slots:
     void fire();
 private:
     uint64_t key;
+    bool once;
 };
 
 // A drawn custom widget: paints a flattened display list with QPainter and
@@ -145,6 +146,8 @@ double mq_font_px(QObject* object, const char* name);
 
 // Events, focus and input.
 int32_t mq_connect(QObject* object, const char* signal, uint64_t key);
+// The first time the signal fires only.
+int32_t mq_connect_once(QObject* object, const char* signal, uint64_t key);
 void mq_watch_close(QObject* window, uint64_t key);
 QObject* mq_focus_item(QObject* window);
 void mq_force_focus(QObject* item);

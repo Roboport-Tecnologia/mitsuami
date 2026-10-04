@@ -8,6 +8,7 @@ use mitsuami_core::Insets;
 use mitsuami_core::backend::{Appearance, FontSizes, PlatformMetrics};
 use mitsuami_core::units::SpacingScale;
 
+use crate::app::{private_dir, write_new};
 use crate::ffi::{self, QmlObject};
 use crate::qml;
 
@@ -141,10 +142,9 @@ pub(crate) fn use_default_font() {
 pub(crate) fn force(appearance: Appearance) {
     static DIR: OnceLock<PathBuf> = OnceLock::new();
     let dir = DIR.get_or_init(|| {
-        let dir = std::env::temp_dir().join(format!("mitsuami-kirigami-{}", std::process::id()));
-        let _ = std::fs::create_dir_all(&dir);
+        let dir = private_dir("mitsuami-kirigami").expect("mitsuami: a directory for the color schemes");
         for (name, scheme) in [("BreezeLight.colors", BREEZE_LIGHT), ("BreezeDark.colors", BREEZE_DARK)] {
-            let _ = std::fs::write(dir.join(name), scheme);
+            write_new(&dir.join(name), scheme).expect("mitsuami: a color scheme");
         }
         dir
     });

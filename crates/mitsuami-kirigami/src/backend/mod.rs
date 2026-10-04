@@ -327,6 +327,43 @@ fn violation(command: &Command, problem: &str) -> ! {
     panic!("kirigami backend: protocol violation in {command:?}: {problem}")
 }
 
+thread_local! {
+    /// The backends that hear theme changes. The theme lives as long as
+    /// the thread, so it's connected once, not once per backend.
+    static THEME_WATCHERS: RefCell<Option<Vec<std::rc::Weak<RefCell<State>>>>> = const { RefCell::new(None) };
+}
+
+/// Theme and font changes are metrics changes, for every window of every
+/// backend alive.
+fn watch_theme(state: std::rc::Weak<RefCell<State>>) {
+    let first = THEME_WATCHERS.with(|w| {
+        let mut watchers = w.borrow_mut();
+        let first = watchers.is_none();
+        let watchers = watchers.get_or_insert_default();
+        watchers.retain(|s| s.strong_count() > 0);
+        watchers.push(state);
+        first
+    });
+    if !first {
+        return;
+    }
+    for signal in ["backgroundColorChanged()", "textColorChanged()", "defaultFontChanged()"] {
+        theme::theme().connect(signal, || {
+            // Not borrowed while they run: a window's handler may make a
+            // backend.
+            let alive: Vec<KirigamiHandle> = THEME_WATCHERS.with(|w| {
+                let mut watchers = w.borrow_mut();
+                let watchers = watchers.get_or_insert_default();
+                watchers.retain(|s| s.strong_count() > 0);
+                watchers.iter().filter_map(KirigamiHandle::from_weak).collect()
+            });
+            for handle in alive {
+                handle.emit_to_windows(UiEvent::MetricsChanged);
+            }
+        });
+    }
+}
+
 /// Runs Qt's event loop until `done` holds or `timeout` passes.
 fn pump_until(timeout: Duration, mut done: impl FnMut() -> bool) -> bool {
     let started = Instant::now();
@@ -370,16 +407,7 @@ impl KirigamiBackend {
             pending_show: Vec::new(),
             menus: Menus::default(),
         }));
-        // Theme and font changes are metrics changes, for every window.
-        let weak = Rc::downgrade(&state);
-        for signal in ["backgroundColorChanged()", "textColorChanged()", "defaultFontChanged()"] {
-            let weak = weak.clone();
-            theme::theme().connect(signal, move || {
-                if let Some(handle) = KirigamiHandle::from_weak(&weak) {
-                    handle.emit_to_windows(UiEvent::MetricsChanged);
-                }
-            });
-        }
+        watch_theme(Rc::downgrade(&state));
         KirigamiBackend { state }
     }
 

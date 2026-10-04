@@ -68,6 +68,7 @@ unsafe extern "C" {
     fn mq_font_px(o: Raw, name: *const c_char) -> f64;
 
     fn mq_connect(object: Raw, signal: *const c_char, key: u64) -> i32;
+    fn mq_connect_once(object: Raw, signal: *const c_char, key: u64) -> i32;
     fn mq_watch_close(window: Raw, key: u64);
     fn mq_focus_item(window: Raw) -> Raw;
     fn mq_force_focus(item: Raw);
@@ -598,6 +599,21 @@ impl QmlObject {
     pub fn connect(self, signal: &str, f: impl Fn() + 'static) -> bool {
         let key = register(move |_| f());
         let connected = unsafe { mq_connect(self.raw(), c(signal).as_ptr(), key) != 0 };
+        if !connected {
+            unregister(key);
+        }
+        connected
+    }
+
+    /// Calls `f` the first time the signal fires; the connection goes then.
+    pub(crate) fn connect_once(self, signal: &str, f: impl FnOnce() + 'static) -> bool {
+        let f = Cell::new(Some(f));
+        let key = register(move |_| {
+            if let Some(f) = f.take() {
+                f()
+            }
+        });
+        let connected = unsafe { mq_connect_once(self.raw(), c(signal).as_ptr(), key) != 0 };
         if !connected {
             unregister(key);
         }

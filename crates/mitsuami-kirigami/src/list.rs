@@ -484,8 +484,15 @@ fn delegates(view: QmlObject) -> Vec<(Slot, QmlObject)> {
         .collect()
 }
 
-fn delegate_of(view: QmlObject, slot: Slot) -> Option<QmlObject> {
-    delegates(view).into_iter().find(|(s, _)| *s == slot).map(|(_, d)| d)
+/// A slot's delegate, looked up in the view's own map: going through
+/// every delegate for each row mounted took time in the square of the
+/// rows in view.
+fn delegate_of(view: QmlObject, (key, column): Slot) -> Option<QmlObject> {
+    view.set_str("mitsuamiLookup", &format!("{}:{column}", key.0));
+    view.invoke("mitsuamiFind");
+    let found = view.object("mitsuamiFound");
+    view.set_object("mitsuamiFound", None);
+    found.filter(|d| d.has_context())
 }
 
 /// The delegate a host is in: its parent, or a table cell's slot's.
