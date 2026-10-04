@@ -918,6 +918,9 @@ impl List {
             self.table.setDataSource(None);
             self.table.setDelegate(None);
             self.table.setTarget(None);
+            // The table doesn't retain `_keys`, which goes with the list:
+            // it gets its own next responder back.
+            self.table.setNextResponder(self._keys.nextResponder().as_deref());
         }
     }
 

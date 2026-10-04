@@ -263,9 +263,9 @@ impl Toolbar {
     /// clicks its button, which stays in its host, out of the window.
     pub(crate) fn adopt_group(&mut self, mtm: MainThreadMarker, id: NodeId, buttons: Vec<Retained<NSButton>>) {
         let shown = self.items.iter().find(|i| i.id == id).and_then(|i| i.adopted.as_ref());
-        let (control, kept) = match shown {
+        let (control, kept, made) = match shown {
             Some(Adopted { view, group: Some((kept, _)), .. }) => {
-                (view.downcast_ref::<NSSegmentedControl>().expect("a group's view").retain(), kept.clone())
+                (view.downcast_ref::<NSSegmentedControl>().expect("a group's view").retain(), kept.clone(), false)
             }
             _ => {
                 self.release(id);
@@ -306,9 +306,10 @@ impl Toolbar {
                     group: Some((kept.clone(), target)),
                 });
                 item.empty = false;
-                (control, kept)
+                (control, kept, true)
             }
         };
+        let resized = control.segmentCount() != buttons.len() as isize;
         control.setSegmentCount(buttons.len() as isize);
         for (index, button) in buttons.iter().enumerate() {
             let segment = index as isize;
@@ -318,7 +319,12 @@ impl Toolbar {
             control.setToolTip_forSegment(button.toolTip().as_deref(), segment);
         }
         *kept.borrow_mut() = buttons;
-        self.place(true);
+        // Only a new or resized control needs the toolbar to take it again:
+        // placing takes every item out and back in, and the buttons' props
+        // change often (a back button's enabled state).
+        if made || resized {
+            self.place(true);
+        }
     }
 
     /// Shows an item as its only child, a search field, in a search item.

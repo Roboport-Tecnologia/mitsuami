@@ -79,7 +79,9 @@ pub(super) fn measure(state: &State, id: NodeId, request: MeasureRequest) -> Siz
             Some(measure) => measure(view, &request),
             None => intrinsic(view),
         },
-        Widget::Tabs(tabs) => tabs.natural_size(crate::tabs::insets(state.mtm)),
+        Widget::Tabs(tabs) => {
+            tabs.natural_size(state.tab_insets.get().unwrap_or_else(|| crate::tabs::insets(state.mtm)))
+        }
         // Its title and border, empty.
         Widget::Group { frame, .. } => group_natural_size(frame),
         // Measured by the core, or never (the sidebar is the window's).

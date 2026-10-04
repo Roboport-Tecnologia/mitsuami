@@ -95,16 +95,15 @@ pub(crate) fn ns_image(source: &ImageSource) -> Option<Retained<NSImage>> {
 pub(crate) const FILE_ICON_SIZE: f32 = 16.0;
 
 /// A thumbnail on its way from QuickLook, whose handler runs on another
-/// thread and hops to the main one: `NSImageView`s aren't `Send`.
-struct Sendable<T>(T);
+/// thread and hops to the main one, where the image views are.
+struct Sendable(Option<Retained<QLThumbnailRepresentation>>);
 // SAFETY: a representation is immutable once made; it's only read on the
-// main thread.
-unsafe impl<T> Send for Sendable<T> {}
-unsafe impl<T> Sync for Sendable<T> {}
+// main thread. Only sent, never shared.
+unsafe impl Send for Sendable {}
 
-impl<T> Sendable<T> {
+impl Sendable {
     /// Takes it out whole, so closures capture the wrapper, not its field.
-    fn into_inner(self) -> T {
+    fn into_inner(self) -> Option<Retained<QLThumbnailRepresentation>> {
         self.0
     }
 }

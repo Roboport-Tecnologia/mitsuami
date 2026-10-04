@@ -323,6 +323,9 @@ struct State {
     focus_orders: HashMap<NodeId, Vec<NodeId>>,
     /// The app's name, for the app menu.
     app_name: Option<String>,
+    /// Where tab views put their pages, from the last metrics: measuring
+    /// one would otherwise make a tab view to probe each time.
+    tab_insets: std::cell::Cell<Option<mitsuami_core::Insets>>,
 }
 
 pub struct AppKitBackend {
@@ -382,6 +385,7 @@ impl AppKitBackend {
                 pending_show: Vec::new(),
                 focus_orders: HashMap::new(),
                 app_name: None,
+                tab_insets: std::cell::Cell::new(None),
             })),
         }
     }
@@ -406,7 +410,9 @@ impl Backend for AppKitBackend {
 
     fn metrics(&self) -> PlatformMetrics {
         let state = self.state.borrow();
-        metrics(state.mtm, state.options.appearance)
+        let metrics = metrics(state.mtm, state.options.appearance);
+        state.tab_insets.set(Some(metrics.tab_insets));
+        metrics
     }
 
     fn apply(&mut self, batch: &[Command]) {

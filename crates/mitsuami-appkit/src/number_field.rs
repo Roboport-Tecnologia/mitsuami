@@ -61,7 +61,9 @@ define_class!(
             let typed = field.stringValue().to_string().trim().parse::<f64>().ok().filter(|v| v.is_finite());
             let before = stepper.doubleValue();
             if let Some(typed) = typed {
-                stepper.setDoubleValue(typed.round().clamp(stepper.minValue(), stepper.maxValue()));
+                // Not `clamp`, which panics on a range the app gave upside
+                // down, here inside AppKit's action.
+                stepper.setDoubleValue(typed.round().max(stepper.minValue()).min(stepper.maxValue()));
             }
             self.show_number();
             if stepper.doubleValue() != before {

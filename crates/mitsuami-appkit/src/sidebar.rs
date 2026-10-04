@@ -268,6 +268,15 @@ impl Sidebar {
         }
     }
 
+    /// Stops the table from calling its data source, which goes with the
+    /// sidebar, while the split may still hold the table.
+    pub(crate) fn detach(&self) {
+        unsafe {
+            self.table.setDataSource(None);
+            self.table.setDelegate(None);
+        }
+    }
+
     /// The item the table shows selected.
     pub(crate) fn selected(&self) -> Option<usize> {
         self.data.borrow().item_at(self.table.selectedRow())
@@ -397,9 +406,15 @@ impl Split {
         }
     }
 
+    /// Stops watching the item: KVO doesn't retain the watch, which goes
+    /// with the split while the item may live on in the window.
+    pub(crate) fn detach(&self) {
+        unsafe { self.item.removeObserver_forKeyPath(&self.watch, &NSString::from_str(COLLAPSED)) };
+    }
+
     /// Gives the window its content back, as it was before the split.
     pub(crate) fn remove(self, window: &NSWindow, host: &NSView) {
-        unsafe { self.item.removeObserver_forKeyPath(&self.watch, &NSString::from_str(COLLAPSED)) };
+        self.detach();
         window.setContentViewController(None);
         host.removeFromSuperview();
         host.setTranslatesAutoresizingMaskIntoConstraints(true);

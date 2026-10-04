@@ -74,10 +74,22 @@ impl State {
     /// A node or any node in it takes input: a toolbar item with none (a
     /// label, a progress bar) has no capsule.
     fn has_control(&self, id: NodeId) -> bool {
+        // Indexed by parent once: scanning every node for each container on
+        // the way down cost a pass per level.
+        let mut children: std::collections::HashMap<NodeId, Vec<NodeId>> = std::collections::HashMap::new();
+        for (child, node) in &self.nodes {
+            if let Some(parent) = node.parent {
+                children.entry(parent).or_default().push(*child);
+            }
+        }
+        self.has_control_in(id, &children)
+    }
+
+    fn has_control_in(&self, id: NodeId, children: &std::collections::HashMap<NodeId, Vec<NodeId>>) -> bool {
         let Some(node) = self.nodes.get(&id) else { return false };
         match node.kind {
             WidgetKind::Container | WidgetKind::ToolbarItem => {
-                self.nodes.iter().any(|(child, n)| n.parent == Some(id) && self.has_control(*child))
+                children.get(&id).is_some_and(|c| c.iter().any(|child| self.has_control_in(*child, children)))
             }
             WidgetKind::Text
             | WidgetKind::Progress
@@ -324,7 +336,7 @@ impl State {
                 }
             }
             Command::Destroy { id } => {
-                let Some(node) = self.nodes.remove(id) else { violation(command, "node does not exist") };
+                let Some(mut node) = self.nodes.remove(id) else { violation(command, "node does not exist") };
                 self.by_view.borrow_mut().remove(&key(node.widget.view()));
                 self.pending_show.retain(|w| w != id);
                 self.focus_orders.remove(id);
@@ -339,8 +351,8 @@ impl State {
                 if let Some((_, recognizer)) = &node.double_click {
                     node.widget.view().removeGestureRecognizer(recognizer);
                 }
-                match &node.widget {
-                    Widget::Window { window, _delegate, .. } => {
+                match &mut node.widget {
+                    Widget::Window { window, _delegate, split, .. } => {
                         // Out of the sheet, or of the modal loop, first.
                         if let Some(parent) = window.sheetParent() {
                             parent.endSheet(window);
@@ -354,8 +366,17 @@ impl State {
                             post_empty_event(&app);
                         }
                         _delegate.stop_observing_focus(window);
+                        // Its sidebar was destroyed without a Remove: the
+                        // split's item outlives the node, with the window.
+                        if let Some(split) = split.take() {
+                            split.detach();
+                        }
                         window.setDelegate(None);
                         window.close();
+                    }
+                    Widget::Sidebar(sidebar) => {
+                        sidebar.detach();
+                        sidebar.scroll.removeFromSuperview();
                     }
                     Widget::List(list) => {
                         list.detach();
