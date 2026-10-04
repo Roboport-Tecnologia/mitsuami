@@ -7,6 +7,7 @@ use std::path::{Path, PathBuf};
 use std::rc::{Rc, Weak};
 
 use block2::RcBlock;
+use dispatch2::{DispatchQoS, DispatchQueue, GlobalQueueIdentifier};
 use mitsuami_core::services::{
     Alert, AlertStyle, FileFilter, Launch, MenuBarData, MenuCheck, MenuData, MenuEntry, MenuItemData, MenuRole,
     OpenFile, Reply, SaveFile, ServiceError, Services, Shortcut, existing_folder, menu_item_by_id,
@@ -184,10 +185,26 @@ fn trash_item(path: &Path) -> Result<(), ServiceError> {
 }
 
 thread_local! {
-    /// Replies waiting for `NSWorkspace`, whose completion handlers run on
-    /// another thread, by ticket.
-    static LAUNCHES: RefCell<HashMap<u64, Reply<Result<(), ServiceError>>>> = RefCell::new(HashMap::new());
-    static NEXT_LAUNCH: Cell<u64> = const { Cell::new(0) };
+    /// Replies waiting for work done on another thread (`NSWorkspace`'s
+    /// completion handlers, the trash), by ticket.
+    static WAITING: RefCell<HashMap<u64, Reply<Result<(), ServiceError>>>> = RefCell::new(HashMap::new());
+    static NEXT_TICKET: Cell<u64> = const { Cell::new(0) };
+}
+
+/// Keeps a reply, which stays on the main thread, until [`answer`].
+fn wait(reply: Reply<Result<(), ServiceError>>) -> u64 {
+    let ticket = NEXT_TICKET.replace(NEXT_TICKET.get() + 1);
+    WAITING.with(|w| w.borrow_mut().insert(ticket, reply));
+    ticket
+}
+
+/// Answers a kept reply from any thread, on the main one.
+fn answer(ticket: u64, result: Result<(), ServiceError>) {
+    DispatchQueue::main().exec_async(move || {
+        if let Some(reply) = WAITING.with(|w| w.borrow_mut().remove(&ticket)) {
+            reply(result);
+        }
+    });
 }
 
 /// Launch Services' "no application" and "the user cancelled".
@@ -352,9 +369,15 @@ impl Services for AppKitServices {
         }
     }
 
-    /// `NSFileManager` trashes synchronously: within a disk it's a move.
+    /// `NSFileManager` trashes synchronously, so on a queue of its own, as
+    /// Finder does: within a disk it's a move, but each item on a network
+    /// disk is a round trip to the server, which would stall the window.
     fn trash(&mut self, _parent: Option<NodeId>, paths: &[PathBuf], reply: Reply<Result<(), ServiceError>>) {
-        reply(paths.iter().try_for_each(|path| trash_item(path)));
+        let (ticket, paths) = (wait(reply), paths.to_vec());
+        let queue = GlobalQueueIdentifier::QualityOfService(DispatchQoS::UserInitiated);
+        // The shared file manager is safe to use from any thread.
+        DispatchQueue::global_queue(queue)
+            .exec_async(move || answer(ticket, paths.iter().try_for_each(|path| trash_item(path))));
     }
 
     /// `NSWorkspace` opens it as Finder would, asking which app (or
@@ -367,16 +390,10 @@ impl Services for AppKitServices {
                 None => return reply(Err(ServiceError::Failed(format!("\u{201C}{url}\u{201D} isn't a URL")))),
             },
         };
-        let ticket = NEXT_LAUNCH.replace(NEXT_LAUNCH.get() + 1);
-        LAUNCHES.with(|l| l.borrow_mut().insert(ticket, reply));
+        let ticket = wait(reply);
         let done = RcBlock::new(move |_app: *mut NSRunningApplication, error: *mut NSError| {
             // SAFETY: AppKit passes a valid error or null.
-            let result = unsafe { error.as_ref() }.map_or(Ok(()), |error| Err(launch_error(error)));
-            dispatch2::DispatchQueue::main().exec_async(move || {
-                if let Some(reply) = LAUNCHES.with(|l| l.borrow_mut().remove(&ticket)) {
-                    reply(result);
-                }
-            });
+            answer(ticket, unsafe { error.as_ref() }.map_or(Ok(()), |error| Err(launch_error(error))));
         });
         let configuration = NSWorkspaceOpenConfiguration::configuration();
         NSWorkspace::sharedWorkspace().openURL_configuration_completionHandler(&url, &configuration, Some(&done));

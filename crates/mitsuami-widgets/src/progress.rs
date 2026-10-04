@@ -27,12 +27,13 @@ impl ElementBuilder for Progress {
 
 impl View for Progress {
     fn build(mut self, ui: &Ui) -> NodeId {
+        // A fraction that isn't a number (`sent / total` with nothing to
+        // send) is no progress yet: native progress bars don't take it.
+        let fraction = |v: f64| if v.is_nan() { 0.0 } else { v.clamp(0.0, 1.0) };
         let progress = match (self.value, self.indeterminate) {
             (None, _) => Value::Static(None),
-            (Some(Value::Static(v)), Value::Static(unknown)) => Value::Static((!unknown).then_some(v.clamp(0.0, 1.0))),
-            (Some(value), unknown) => {
-                Value::Dynamic(Rc::new(move || (!unknown.get()).then(|| value.get().clamp(0.0, 1.0))))
-            }
+            (Some(Value::Static(v)), Value::Static(unknown)) => Value::Static((!unknown).then_some(fraction(v))),
+            (Some(value), unknown) => Value::Dynamic(Rc::new(move || (!unknown.get()).then(|| fraction(value.get())))),
         };
         self.element.prop(progress, Prop::Progress);
         self.element.build(ui)

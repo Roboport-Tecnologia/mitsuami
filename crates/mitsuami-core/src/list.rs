@@ -406,9 +406,12 @@ pub(crate) fn build_rows<T: Clone + 'static, K: Eq + Hash + Clone + 'static>(
                     let mut order = Vec::with_capacity(items.len());
                     for item in items {
                         let k = key(&item);
+                        // A key that came before in these items gets a row
+                        // of its own, as `For` renders it: the same row twice
+                        // in `Prop::Rows` would show one mounted row twice.
                         let row = match rows.row_keys.get(&k) {
-                            Some(row) => *row,
-                            None => {
+                            Some(row) if !row_keys.contains_key(&k) => *row,
+                            _ => {
                                 rows.next_key += 1;
                                 RowKey(rows.next_key - 1)
                             }
@@ -416,7 +419,7 @@ pub(crate) fn build_rows<T: Clone + 'static, K: Eq + Hash + Clone + 'static>(
                         if let Some(path) = files.as_ref().and_then(|file| file(&item)) {
                             row_files.push((row, path));
                         }
-                        row_keys.insert(k.clone(), row);
+                        row_keys.entry(k.clone()).or_insert(row);
                         keys.insert(row, k);
                         by_key.insert(row, item);
                         order.push(row);

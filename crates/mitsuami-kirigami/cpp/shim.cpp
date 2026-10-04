@@ -34,11 +34,13 @@
 #include <QScreen>
 #include <QSessionManager>
 #include <QThread>
+#include <QThreadPool>
 #include <QTimeZone>
 #include <QTranslator>
 #include <QWheelEvent>
 #include <qpa/qplatformnativeinterface.h>
 #include <QUrl>
+#include <atomic>
 #include <cstring>
 #include <optional>
 
@@ -91,7 +93,7 @@ static QHash<QString, QQmlComponent*> g_components;
 // Created after Qt's, so destroyed before it. Qt would deliver the events
 // still queued (a `deleteLater`) while its thread data goes, when objects
 // can't be deleted safely any more: they're dropped instead.
-static bool g_exiting = false;
+static std::atomic<bool> g_exiting = false;
 struct ExitSentinel {
     ~ExitSentinel() {
         g_exiting = true;
@@ -618,7 +620,8 @@ int32_t mq_child_count(QObject* item) {
 }
 
 QObject* mq_child_at(QObject* item, int32_t index) {
-    return qobject_cast<QQuickItem*>(item)->childItems().value(index);
+    auto* quick = qobject_cast<QQuickItem*>(item);
+    return quick ? quick->childItems().value(index) : nullptr;
 }
 
 bool mq_has_context(QObject* object) {
@@ -626,8 +629,11 @@ bool mq_has_context(QObject* object) {
     return context && context->isValid();
 }
 
+// Items only, here and below: a native view or custom render can be any
+// object the app made, and only items have a place, a scene or focus.
 void mq_set_geometry(QObject* item, double x, double y, double w, double h) {
     auto* quick = qobject_cast<QQuickItem*>(item);
+    if (!quick) return;
     quick->setPosition(QPointF(x, y));
     quick->setSize(QSizeF(w, h));
 }
@@ -644,7 +650,9 @@ void mq_polish_items(QObject* window) {
 }
 
 void mq_map_to_scene(QObject* item, double* x, double* y) {
-    QPointF p = qobject_cast<QQuickItem*>(item)->mapToScene(QPointF(*x, *y));
+    auto* quick = qobject_cast<QQuickItem*>(item);
+    if (!quick) return;
+    QPointF p = quick->mapToScene(QPointF(*x, *y));
     *x = p.x();
     *y = p.y();
 }
@@ -765,7 +773,9 @@ void mq_key_filter_set(QObject* filter, const int32_t* keys, const int32_t* modi
     for (int i = 0; i < count; i++) f->keys.append({keys[i], qt_modifiers(modifiers[i])});
 }
 
-void mq_force_focus(QObject* item) { qobject_cast<QQuickItem*>(item)->forceActiveFocus(Qt::OtherFocusReason); }
+void mq_force_focus(QObject* item) {
+    if (auto* quick = qobject_cast<QQuickItem*>(item)) quick->forceActiveFocus(Qt::OtherFocusReason);
+}
 
 void mq_set_tab_order(QObject* window, QObject* const* items, int32_t count) {
     auto* quick = qobject_cast<QQuickWindow*>(window);
@@ -921,12 +931,41 @@ char* mq_trash(const char* path) {
     return dup(file.errorString());
 }
 
-// What Dolphin shows without a thumbnail: the MIME type's icon, found by
-// name and content, and its generic one for themes without it.
-char* mq_mime_icon(const char* path) {
-    QMimeType type = QMimeDatabase().mimeTypeForFile(QString::fromUtf8(path));
-    return dup(type.iconName() + QLatin1Char('\n') + type.genericIconName());
+// File icons' loads in progress, and the pool they run in, made once and
+// never deleted: the pool's destructor would wait for loads at exit.
+static std::atomic<int> g_icon_loads = 0;
+static QThreadPool* icon_pool() {
+    static QThreadPool* pool = new QThreadPool();
+    return pool;
 }
+
+// What Dolphin shows without a thumbnail: the MIME type's icon, found by
+// name and content, and its generic one for themes without it. Found on a
+// pool thread, as Dolphin finds types in the background: it stats the
+// file and may read its first bytes, which on a network mount can take
+// seconds. The names go to the icon's `source` and `fallback` on the main
+// thread, unless it's gone or was given another file since.
+void mq_file_icon(QObject* icon, const char* path) {
+    const quint64 serial = icon->property("_mitsuamiIconLoad").toULongLong() + 1;
+    icon->setProperty("_mitsuamiIconLoad", serial);
+    QPointer<QObject> target(icon);
+    QString file = QString::fromUtf8(path);
+    g_icon_loads++;
+    icon_pool()->start([target, serial, file]() {
+        // QMimeDatabase is thread-safe.
+        QMimeType type = QMimeDatabase().mimeTypeForFile(file);
+        QString name = type.iconName(), generic = type.genericIconName();
+        if (g_exiting) return;
+        QMetaObject::invokeMethod(qApp, [target, serial, name, generic]() {
+            g_icon_loads--;
+            if (!target || target->property("_mitsuamiIconLoad").toULongLong() != serial) return;
+            target->setProperty("fallback", generic);
+            target->setProperty("source", name);
+        }, Qt::QueuedConnection);
+    });
+}
+
+int32_t mq_file_icon_loads(void) { return g_icon_loads; }
 
 // kde-open (or xdg-open, or the portal), as KDE apps open files and links.
 int32_t mq_open_url(const char* target, int32_t is_path) {

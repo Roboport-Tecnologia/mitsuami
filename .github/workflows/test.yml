@@ -29,7 +29,9 @@ jobs:
       - name: Install the toolchain from rust-toolchain.toml
         run: rustup toolchain install
 
-      - uses: Swatinem/rust-cache@v2
+      # The one action from outside GitHub, pinned to its commit (v2.9.2):
+      # a tag can be moved to other code, which would run with the job.
+      - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6
 
       # GTK 4 and libadwaita headers to build, gtk4-broadwayd for the native
       # tests' private display.
@@ -128,7 +130,7 @@ jobs:
       - name: Install the toolchain from rust-toolchain.toml
         run: rustup toolchain install
 
-      - uses: Swatinem/rust-cache@v2
+      - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6  # v2.9.2, pinned as above
 
       - name: Test (native, Kirigami)
         shell: bash

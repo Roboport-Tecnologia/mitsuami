@@ -9,9 +9,12 @@ impl Ui {
     /// Moves a control ahead in the Tab order: controls with a tab index
     /// come first, lowest index first, then everything else in tree order.
     pub fn set_tab_index(&self, id: NodeId, index: Option<u32>) {
-        if let Some(node) = self.inner.borrow_mut().nodes.get_mut(&id) {
+        let mut inner = self.inner.borrow_mut();
+        if let Some(node) = inner.nodes.get_mut(&id) {
             node.tab_index = index;
+            inner.focus_dirty = true;
         }
+        drop(inner);
         self.changed();
     }
 

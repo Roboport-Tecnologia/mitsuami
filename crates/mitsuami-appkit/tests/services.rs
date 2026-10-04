@@ -43,6 +43,15 @@ mod checks {
         }
     }
 
+    /// Pumps until `done`, for work on another thread (the trash), for up
+    /// to five seconds.
+    fn pump_until(ui: &Ui, done: impl Fn() -> bool) {
+        let deadline = std::time::Instant::now() + std::time::Duration::from_secs(5);
+        while !done() && std::time::Instant::now() < deadline {
+            pump(ui);
+        }
+    }
+
     fn find_button(view: &NSView, title: &str) -> Option<Retained<NSButton>> {
         for sub in view.subviews().iter() {
             if let Some(button) = sub.downcast_ref::<NSButton>()
@@ -296,7 +305,7 @@ mod checks {
         let a = answer.clone();
         let reply = f.ui.trash(None, vec![file.clone()]);
         f.ui.spawn_local(async move { *a.borrow_mut() = Some(reply.await) });
-        pump(&f.ui);
+        pump_until(&f.ui, || answer.borrow().is_some());
 
         assert_eq!(*answer.borrow(), Some(Ok(())));
         assert!(!file.exists(), "the file left its folder");
@@ -306,9 +315,10 @@ mod checks {
 
         // A missing item fails with AppKit's reason.
         let a = answer.clone();
+        *answer.borrow_mut() = None;
         let reply = f.ui.trash(None, vec![file]);
         f.ui.spawn_local(async move { *a.borrow_mut() = Some(reply.await) });
-        pump(&f.ui);
+        pump_until(&f.ui, || answer.borrow().is_some());
         assert!(matches!(*answer.borrow(), Some(Err(ServiceError::Failed(_)))), "{:?}", answer.borrow());
     }
 }

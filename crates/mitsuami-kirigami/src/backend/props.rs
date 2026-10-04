@@ -330,11 +330,12 @@ impl State {
                 node.icon_only = true;
             }
             (Prop::Icon(name), Widget::Icon(i)) => i.set_str("mitsuamiName", name),
+            // Not the last file's icon while this one's type is found.
             (Prop::File(path), Widget::FileIcon(i)) => {
-                let (name, generic) = crate::ffi::mime_icon(path);
                 i.set_str("mitsuamiFile", &path.to_string_lossy());
-                i.set_str("fallback", &generic);
-                i.set_str("source", &name);
+                i.set_str("fallback", "");
+                i.set_str("source", "");
+                i.load_file_icon(path);
             }
             (Prop::Thumbnail(on), Widget::FileIcon(i)) => i.set_bool("mitsuamiThumbnail", *on),
             (Prop::IconSize(points), Widget::Icon(i) | Widget::FileIcon(i)) => {

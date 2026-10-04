@@ -40,6 +40,26 @@ async fn a_selection_selects_part_of_a_field(app: TestApp) {
     assert_eq!(name.get_untracked(), "todo.txt");
 }
 
+/// Filling a field drops its selection, so what's typed next goes at the
+/// end of the new text. Headless only: where each platform leaves the
+/// caret after its text is set is its own business.
+#[mitsuami_test::test(headless)]
+async fn filling_a_field_drops_its_selection(app: TestApp) {
+    let name = signal("notes.txt".to_owned());
+    app.mount(move || {
+        let field = node_ref();
+        Column::new().children((
+            TextInput::new().bind(name).a11y_label("Name").node_ref(field),
+            Button::new("Rename").on_click(move || field.select_text(0..5)),
+        ))
+    });
+    app.get_by_role(Role::Button, "Rename").click().await;
+    let field = app.get_by_label("Name");
+    field.fill("a").await;
+    field.type_text("b").await;
+    assert_eq!(name.get_untracked(), "ab");
+}
+
 /// Characters as people see them, not bytes nor UTF-16 units: an emoji is
 /// one; a range past the end is cut to it; a text area selects too.
 #[mitsuami_test::test]

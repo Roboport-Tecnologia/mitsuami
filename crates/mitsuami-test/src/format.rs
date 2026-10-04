@@ -13,7 +13,8 @@ fn describe_props(props: &[Prop]) -> String {
     let mut quoted = None;
     let mut extra = Vec::new();
     let mut sorted: Vec<&Prop> = props.iter().collect();
-    sorted.sort_by_key(|p| format!("{p:?}"));
+    // Formatted once each: a list's props hold every row.
+    sorted.sort_by_cached_key(|p| format!("{p:?}"));
     for prop in sorted {
         match prop {
             Prop::Title(s) | Prop::Text(s) | Prop::Label(s) => quoted = Some(format!("{s:?}")),

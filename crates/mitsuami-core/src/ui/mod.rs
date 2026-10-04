@@ -80,6 +80,9 @@ struct Node {
     /// Groups only: where the backend puts their content, if not where
     /// the metrics say.
     insets: Option<crate::Insets>,
+    /// Drawn custom widgets only: the size their drawing was made at, until
+    /// their props or the metrics change.
+    drawn_at: Option<Size>,
 }
 
 /// How a window's height follows its content (`WindowSize`).
@@ -146,6 +149,10 @@ struct Inner {
     quit_items: BTreeMap<Option<NodeId>, u32>,
     /// Last focus order sent, per window.
     focus_orders: BTreeMap<NodeId, Vec<NodeId>>,
+    /// Whether a tab index, or what a page shown or a surface taking input
+    /// changed since. The Tab order changes only with them, the tree and
+    /// styles, so other commits don't walk every window for it.
+    focus_dirty: bool,
     /// The focused control of each window, as reported by the backend.
     focused: BTreeMap<NodeId, NodeId>,
     commit_scheduler: Option<Rc<dyn Fn()>>,
@@ -239,6 +246,7 @@ impl Ui {
                 styles_dirty: true,
                 resync: BTreeSet::new(),
                 focus_orders: BTreeMap::new(),
+                focus_dirty: true,
                 focused: BTreeMap::new(),
                 menu_handlers: BTreeMap::new(),
                 menu_effects: BTreeMap::new(),

@@ -95,6 +95,13 @@ impl FileDropArea {
         self.area.delete_later();
     }
 
+    /// Deletes it now, without reporting: its host is going. Qt doesn't
+    /// delete an item's child items with it (it only lets go of them), and
+    /// the area isn't the host's QObject child.
+    pub(crate) fn destroy(self) {
+        self.area.destroy();
+    }
+
     /// The drag handling the QML signals run, for `synthesize` to run
     /// with the backend's state let go (reports may wake the run loop).
     pub(crate) fn input(&self) -> DropInput {

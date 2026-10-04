@@ -293,9 +293,22 @@ pub(crate) fn current_ui() -> Ui {
 /// Outside a `Ui`: call it from a mounted view or a task, or use
 /// [`Ui::spawn_local`].
 pub fn spawn_local(future: impl Future<Output = ()> + 'static) -> TaskHandle {
-    let handle = current_ui().spawn_in(future, Owner::current());
-    let cancel = handle.clone();
-    mitsuami_reactive::on_cleanup(move || cancel.cancel());
+    let owner = Owner::current();
+    // The cancel waits in a scope of its own, let go of when the task ends:
+    // in the scope itself, a long-lived one (a store's) would keep one for
+    // every task it ever ran.
+    let guard = owner.map(|owner| owner.child());
+    let future = async move {
+        future.await;
+        if let Some(guard) = guard {
+            guard.dispose();
+        }
+    };
+    let handle = current_ui().spawn_in(future, owner);
+    if let Some(guard) = guard {
+        let cancel = handle.clone();
+        guard.with(|| mitsuami_reactive::on_cleanup(move || cancel.cancel()));
+    }
     handle
 }
 
@@ -349,7 +362,8 @@ pub struct Sleep {
 
 impl Sleep {
     pub(crate) fn new(ui: Ui, duration: Duration) -> Sleep {
-        let deadline = ui.executor().now() + duration;
+        // Saturating: `Duration::MAX`, sleeping for good, would overflow.
+        let deadline = ui.executor().now().saturating_add(duration);
         Sleep { ui, deadline, timer: None }
     }
 }

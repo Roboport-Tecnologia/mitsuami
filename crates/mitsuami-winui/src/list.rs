@@ -1200,6 +1200,17 @@ impl List {
     }
 }
 
+/// A table's header holds its buttons' and grippers' handlers, which hold
+/// the data the header is in (and a gripper's, the gripper): a cycle that
+/// kept every destroyed table's rows, cells and header alive. It goes
+/// with the list, outside the borrow, as revoking drops the handlers.
+impl Drop for List {
+    fn drop(&mut self) {
+        let header = self.data.borrow_mut().header.take();
+        drop(header);
+    }
+}
+
 /// How far a list is scrolled: down, and a table's also sideways.
 fn offset_of(scroll: &w::IScrollViewer, sideways: bool) -> Point {
     let x = if sideways { scroll.HorizontalOffset().unwrap_or(0.0) as f32 } else { 0.0 };

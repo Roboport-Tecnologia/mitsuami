@@ -208,8 +208,12 @@ impl State {
                     Prop::Thumbnail(on) => node.thumbnail = Some(*on),
                     _ => {}
                 }
-                let side = node.icon_size.unwrap_or(FILE_ICON_SIZE);
-                show_file_icon(mtm, view, node.file.as_deref(), side, node.thumbnail == Some(true));
+                // A new icon loads once its props are all in (`load_file_icon`):
+                // each would read the file's icon again, and ask QuickLook again.
+                if !matches!(command, Command::Create { .. }) {
+                    let side = node.icon_size.unwrap_or(FILE_ICON_SIZE);
+                    show_file_icon(mtm, view, node.file.as_deref(), side, node.thumbnail == Some(true));
+                }
             }
             (Prop::Icon(name), Widget::Icon(view)) => {
                 node.icon = Some(name.clone());
@@ -480,12 +484,24 @@ impl State {
     }
 }
 
+impl State {
+    /// Shows a new file icon's file, at its size, once its props are set.
+    pub(super) fn load_file_icon(&self, id: NodeId) {
+        let Some(node) = self.nodes.get(&id) else { return };
+        if let Widget::FileIcon(view) = &node.widget {
+            let side = node.icon_size.unwrap_or(FILE_ICON_SIZE);
+            show_file_icon(self.mtm, view, node.file.as_deref(), side, node.thumbnail == Some(true));
+        }
+    }
+}
+
 /// AppKit's steps are tick marks, which the knob then only stops at.
 fn set_ticks(slider: &NSSlider, step: Option<f64>) {
     let range = slider.maxValue() - slider.minValue();
     match step.filter(|s| *s > 0.0 && range > 0.0) {
         Some(step) => {
-            slider.setNumberOfTickMarks((range / step).round() as isize + 1);
+            // Saturating: a step tiny beside the range overflowed.
+            slider.setNumberOfTickMarks(((range / step).round() as isize).saturating_add(1));
             slider.setAllowsTickMarkValuesOnly(true);
         }
         None => {

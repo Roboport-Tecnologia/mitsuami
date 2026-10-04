@@ -64,6 +64,14 @@ impl Group {
         drop(frames);
         self.host.queue_allocate();
     }
+
+    /// The node is gone: the shared frames let go of the heading and
+    /// card, which only the core's nodes' frames are removed with.
+    pub(crate) fn forget(&self) {
+        let mut frames = self.frames.borrow_mut();
+        frames.remove(self.heading.upcast_ref::<gtk::Widget>());
+        frames.remove(self.card.upcast_ref::<gtk::Widget>());
+    }
 }
 
 /// The heading's line height, from a throwaway label, as a preferences

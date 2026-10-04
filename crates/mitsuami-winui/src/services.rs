@@ -240,7 +240,14 @@ impl Services for WinUiServices {
     fn launch(&mut self, parent: Option<NodeId>, target: &Launch, reply: Reply<Result<(), ServiceError>>) {
         let owner = self.backend.window_parts(parent, |p| p.hwnd as isize);
         let target: HSTRING = match target {
-            Launch::Path(path) => path.as_os_str().into(),
+            // Made absolute: `ShellExecuteExW` searches the path for a
+            // relative name (`notepad` ran Notepad), and runs one with a
+            // scheme (`ms-settings:x`, `search-ms:…`) as a URL, where AppKit
+            // and GTK open the file under the working directory.
+            Launch::Path(path) => match std::path::absolute(path) {
+                Ok(path) => path.as_os_str().into(),
+                Err(error) => return reply(Err(ServiceError::Failed(error.to_string()))),
+            },
             Launch::Url(url) if is_url(url) => url.into(),
             Launch::Url(url) => return reply(Err(ServiceError::Failed(format!("\u{201C}{url}\u{201D} isn't a URL")))),
         };
@@ -311,6 +318,8 @@ fn recycle(owner: Option<w::HWND>, paths: &[PathBuf]) -> Result<(), ServiceError
         }
         for path in paths {
             let mut raw = std::ptr::null_mut();
+            // The shell parses only absolute paths with backslashes.
+            let path = std::path::absolute(path).map_err(|e| ServiceError::Failed(e.to_string()))?;
             let name = HSTRING::from(path.as_os_str());
             w::SHCreateItemFromParsingName(
                 windows_core::PCWSTR(name.as_ptr()),

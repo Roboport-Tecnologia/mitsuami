@@ -132,3 +132,49 @@ fn an_effect_disposed_by_an_earlier_effect_in_the_same_flush_does_not_run() {
 
     assert_eq!(*log.borrow(), ["child created at 0 sees 0", "child created at 1 sees 1"]);
 }
+
+#[test]
+fn effects_keep_their_other_sources_when_one_is_disposed() {
+    // Many effects share signals, and some of the signals go while the
+    // effects stay: the others still reach every effect.
+    let scopes: Vec<Owner> = (0..4).map(|_| Owner::new_root()).collect();
+    let signals: Vec<Signal<u32>> = scopes.iter().map(|scope| scope.with(|| signal(0))).collect();
+    let runs = Rc::new(RefCell::new(0));
+    for _ in 0..20 {
+        let (signals, runs) = (signals.clone(), runs.clone());
+        effect(move || {
+            for s in signals.iter().filter(|s| s.is_alive()) {
+                s.get();
+            }
+            *runs.borrow_mut() += 1;
+        });
+    }
+    scopes[1].dispose();
+    signals[3].set(1);
+    scopes[0].dispose();
+    signals[2].set(1);
+    signals[3].set(2);
+    assert_eq!(*runs.borrow(), 20 * 4);
+}
+
+#[test]
+fn children_disposed_one_by_one_leave_their_scope() {
+    let scope = Owner::new_root();
+    let children: Vec<Owner> = (0..100).map(|_| scope.child()).collect();
+    let log = Rc::new(RefCell::new(Vec::new()));
+    for (i, child) in children.iter().enumerate() {
+        let log = log.clone();
+        child.with(|| on_cleanup(move || log.borrow_mut().push(i)));
+    }
+    // Every other one, then the scope: each cleanup runs once.
+    for child in children.iter().step_by(2) {
+        child.dispose();
+    }
+    scope.dispose();
+    let mut ran = log.borrow().clone();
+    assert_eq!(ran.len(), 100);
+    ran.sort();
+    ran.dedup();
+    assert_eq!(ran.len(), 100);
+    assert!(children.iter().all(|c| !c.is_alive()));
+}

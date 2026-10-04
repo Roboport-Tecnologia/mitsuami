@@ -76,6 +76,22 @@ async fn only_the_rows_near_the_viewport_are_mounted(app: TestApp) {
 }
 
 #[mitsuami_test::test]
+async fn items_sharing_a_key_each_get_a_row(app: TestApp) {
+    // A key that comes twice gets a second row, as `For` does, and keeps it
+    // through later updates instead of the two sharing one.
+    let data = signal(vec![(1u32, "a"), (1, "b"), (2, "c")]);
+    app.mount(move || {
+        List::new(data, |i: &(u32, &'static str)| i.0, |i| Container::new().height(20).child(Text::new(i.1)))
+            .height(100)
+    });
+    app.settle().await;
+    assert_eq!(names(&app), ["a", "b", "c"]);
+    data.set(vec![(1, "a"), (1, "b"), (2, "c"), (3, "d")]);
+    app.settle().await;
+    assert_eq!(names(&app), ["a", "b", "c", "d"]);
+}
+
+#[mitsuami_test::test]
 async fn scrolling_mounts_the_rows_coming_into_view_and_drops_the_rest(app: TestApp) {
     let data = signal(items(1000));
     app.mount(move || simple_list(data));

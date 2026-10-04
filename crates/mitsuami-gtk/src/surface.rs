@@ -89,8 +89,10 @@ struct AreaState {
     /// was reported as (a remapped key's, by its keysym): what makes a
     /// repeat, which releases are the surface's, and what to let go.
     pressed: HashMap<u32, KeyCode>,
-    /// What the app set, which a `gdk::Cursor` can't give back.
+    /// What the app set, which a `gdk::Cursor` can't give back, and the
+    /// widget's cursor for it, which a lock hides until it ends.
     cursor: Option<Cursor>,
+    gdk_cursor: Option<gdk::Cursor>,
 }
 
 struct Grab {
@@ -128,6 +130,7 @@ impl SurfaceArea {
             grab: None,
             pressed: HashMap::new(),
             cursor: None,
+            gdk_cursor: None,
         }));
         AREAS.with(|a| a.borrow_mut().insert(key, Rc::downgrade(&state)));
         let s = state.clone();
@@ -180,8 +183,12 @@ impl SurfaceArea {
                     Cursor::Hidden => gdk::Cursor::from_name("none", None),
                     Cursor::Image { pixels, hotspot } => cursor_image(pixels, *hotspot),
                 };
-                self.area.set_cursor(gdk_cursor.as_ref());
-                self.state.borrow_mut().cursor = Some(cursor.clone());
+                let mut state = self.state.borrow_mut();
+                if state.lock.is_none() {
+                    self.area.set_cursor(gdk_cursor.as_ref());
+                }
+                state.cursor = Some(cursor.clone());
+                state.gdk_cursor = gdk_cursor;
             }
             _ => {}
         }
@@ -456,11 +463,12 @@ impl AreaState {
         }
     }
 
+    /// The app's cursor comes back.
     fn release_lock(&mut self) {
         if self.lock.take().is_some()
             && let Some(area) = self.area.upgrade()
         {
-            area.set_cursor(None);
+            area.set_cursor(self.gdk_cursor.as_ref());
         }
     }
 

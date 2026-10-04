@@ -1,7 +1,7 @@
 //! The tree's structure, and keeping the backend's native children and
 //! props in step with it.
 
-use std::collections::HashSet;
+use std::collections::{BTreeMap, HashSet};
 
 use crate::command::Command;
 use crate::widget::{NodeId, Prop, WidgetKind};
@@ -43,11 +43,16 @@ impl Ui {
             // only lose their parent: detaching each would scan them all.
             let staying: HashSet<NodeId> = children.iter().copied().collect();
             let old = std::mem::take(&mut inner.nodes.get_mut(&parent).unwrap().children);
+            let mut roots = Vec::new();
             for child in old.iter().filter(|c| !staying.contains(c)) {
                 if let Some(node) = inner.nodes.get_mut(child) {
                     node.parent = None;
+                    roots.extend(inner.native_roots(*child));
                 }
             }
+            // And leave their native parent together, so destroying them
+            // next (as `For` does) doesn't look for each among the others.
+            inner.detach_native_all(&roots);
             for child in &children {
                 if inner.nodes.get(child).and_then(|n| n.parent) != Some(parent) {
                     inner.detach(*child);
@@ -71,19 +76,22 @@ impl Ui {
                 return;
             }
             inner.detach(id);
+            inner.focus_dirty = true;
             // Remove the subtree's native roots from their native parent now,
             // so the backend sees Remove before Destroy.
             let roots = inner.native_roots(id);
-            for root in &roots {
-                inner.detach_native(*root);
-            }
+            inner.detach_native_all(&roots);
             let mut subtree = Vec::new();
             inner.collect_subtree(id, &mut subtree);
-            for node_id in subtree {
-                let node = inner.nodes.remove(&node_id).expect("in subtree");
-                if let Some(t) = node.taffy {
+            // Layout boxes go parents first: Taffy takes a box out of its
+            // parent's children by scanning them, unless the parent is gone.
+            for node_id in subtree.iter().rev() {
+                if let Some(t) = inner.nodes[node_id].taffy {
                     let _ = inner.taffy.remove(t);
                 }
+            }
+            for node_id in subtree {
+                let node = inner.nodes.remove(&node_id).expect("in subtree");
                 inner.resync.remove(&node_id);
                 inner.windows.retain(|w| *w != node_id);
                 inner.focus_orders.remove(&node_id);
@@ -161,20 +169,30 @@ impl Inner {
         self.mark_resync(parent);
     }
 
-    /// Removes a native node from its native parent, immediately.
-    fn detach_native(&mut self, child: NodeId) {
-        let Some(parent) = self.nodes.get(&child).and_then(|n| n.native_parent) else { return };
-        self.pending.push(Command::Remove { parent, child });
-        // A list's rows and a window's toolbar items and sidebar aren't in
-        // its layout box (`layout_list`, `layout_toolbar`).
-        let child_taffy = self.nodes[&child].taffy.filter(|_| !in_chrome(self.nodes[&child].kind));
-        if let Some(node) = self.nodes.get_mut(&parent) {
-            node.native_children.retain(|c| *c != child);
-            if let (Some(p), Some(c), false) = (node.taffy, child_taffy, node.kind.has_rows()) {
-                let _ = self.taffy.remove_child(p, c);
+    /// Removes native nodes from their native parents, immediately. Each
+    /// parent's children are scanned once, however many of them go.
+    fn detach_native_all(&mut self, children: &[NodeId]) {
+        let mut gone: BTreeMap<NodeId, HashSet<NodeId>> = BTreeMap::new();
+        for &child in children {
+            let Some(parent) = self.nodes.get(&child).and_then(|n| n.native_parent) else { continue };
+            self.pending.push(Command::Remove { parent, child });
+            self.nodes.get_mut(&child).unwrap().native_parent = None;
+            gone.entry(parent).or_default().insert(child);
+        }
+        for (parent, children) in gone {
+            let Some(node) = self.nodes.get_mut(&parent) else { continue };
+            node.native_children.retain(|c| !children.contains(c));
+            // A list's rows and a window's toolbar items and sidebar aren't
+            // in its layout box (`layout_list`, `layout_toolbar`).
+            let Some(p) = node.taffy.filter(|_| !node.kind.has_rows()) else { continue };
+            let boxes: HashSet<taffy::NodeId> = children.iter().filter_map(|c| self.nodes[c].taffy).collect();
+            let Ok(mut kept) = self.taffy.children(p) else { continue };
+            let before = kept.len();
+            kept.retain(|t| !boxes.contains(t));
+            if kept.len() != before {
+                let _ = self.taffy.set_children(p, &kept);
             }
         }
-        self.nodes.get_mut(&child).unwrap().native_parent = None;
     }
 
     /// The native nodes a subtree contributes to its native parent.
@@ -219,21 +237,23 @@ impl Inner {
         let desired = self.flattened_children(parent);
         let current = self.nodes[&parent].native_children.clone();
         let staying: HashSet<NodeId> = desired.iter().copied().collect();
-        for child in current.iter().filter(|c| !staying.contains(c)) {
-            self.detach_native(*child);
-        }
+        let leaving: Vec<NodeId> = current.into_iter().filter(|c| !staying.contains(c)).collect();
+        self.detach_native_all(&leaving);
         let mut working: Vec<NodeId> = self.nodes[&parent].native_children.clone();
+        // New children aren't looked for among the others: a thousand
+        // appended would scan them a thousand times.
+        let present: HashSet<NodeId> = working.iter().copied().collect();
         for (index, child) in desired.iter().enumerate() {
             if working.get(index) == Some(child) {
                 continue;
             }
-            if let Some(pos) = working.iter().position(|c| c == child) {
+            if let Some(pos) = present.contains(child).then(|| working.iter().position(|c| c == child)).flatten() {
                 working.remove(pos);
                 self.pending.push(Command::Remove { parent, child: *child });
             } else if let Some(other) = self.nodes[child].native_parent
                 && other != parent
             {
-                self.detach_native(*child);
+                self.detach_native_all(&[*child]);
             }
             working.insert(index, *child);
             self.pending.push(Command::Insert { parent, child: *child, index });

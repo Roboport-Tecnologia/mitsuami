@@ -168,6 +168,7 @@ impl State {
                 for prop in props {
                     self.set_prop(*id, prop, command);
                 }
+                self.load_file_icon(*id);
                 self.run_tweak(*id);
             }
             Command::SetProp { id, prop } => {

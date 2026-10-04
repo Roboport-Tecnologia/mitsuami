@@ -101,7 +101,8 @@ unsafe extern "C" {
     fn mq_set_clipboard_text(text: *const c_char);
     fn mq_trash(path: *const c_char) -> *mut c_char;
     fn mq_open_url(target: *const c_char, is_path: i32) -> i32;
-    fn mq_mime_icon(path: *const c_char) -> *mut c_char;
+    fn mq_file_icon(icon: Raw, path: *const c_char);
+    fn mq_file_icon_loads() -> i32;
 
     fn mq_ui_languages(locale: *const c_char) -> *mut c_char;
     fn mq_format_number(
@@ -363,11 +364,10 @@ pub(crate) fn trash(path: &std::path::Path) -> Result<(), String> {
     if why.is_null() { Ok(()) } else { Err(owned(why)) }
 }
 
-/// The icon names of a file's MIME type: its own, and its generic one.
-pub(crate) fn mime_icon(path: &std::path::Path) -> (String, String) {
-    let names = owned(unsafe { mq_mime_icon(c(&path.to_string_lossy()).as_ptr()) });
-    let (name, generic) = names.split_once('\n').unwrap_or((&names, ""));
-    (name.to_owned(), generic.to_owned())
+/// How many file icons' loads are in progress (see
+/// [`QmlObject::load_file_icon`]).
+pub(crate) fn file_icon_loads() -> usize {
+    unsafe { mq_file_icon_loads() }.max(0) as usize
 }
 
 /// Opens a local path or a URL in its app; `false` if nothing did.
@@ -681,6 +681,13 @@ impl QmlObject {
     pub(crate) fn set_url_str(self, name: &str, url: &str) {
         let Some(raw) = self.live() else { return };
         unsafe { mq_set_url_str(raw, c(name).as_ptr(), c(url).as_ptr()) }
+    }
+
+    /// Shows a file's icon in a `Kirigami.Icon` once its MIME type is
+    /// found, off the UI thread; a later file wins.
+    pub(crate) fn load_file_icon(self, path: &std::path::Path) {
+        let Some(raw) = self.live() else { return };
+        unsafe { mq_file_icon(raw, c(&path.to_string_lossy()).as_ptr()) }
     }
 
     /// A `url` or `list<url>` property as local paths.

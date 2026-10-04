@@ -175,6 +175,8 @@ impl mitsuami_core::TestHooks for KirigamiHandle {
     fn settle(&self) {
         self.show_pending_windows();
         self.pump();
+        // File icons whose types are being found.
+        pump_until(Duration::from_secs(5), || ffi::file_icon_loads() == 0);
         // List views place and create delegates when they polish, before
         // a frame: have it now, so rows are where the view says.
         for (_, root) in self.windows() {

@@ -422,7 +422,10 @@ impl Pixels {
     /// Panics unless `rgba` holds `width × height` pixels.
     pub fn new(width: u32, height: u32, rgba: impl Into<Arc<[u8]>>) -> Pixels {
         let rgba = rgba.into();
-        assert_eq!(rgba.len(), width as usize * height as usize * 4, "{width}×{height} RGBA8 pixels");
+        // Checked: a size that wraps could pass with too few bytes, which
+        // backends hand to the platform as the whole image.
+        let len = (width as usize).checked_mul(height as usize).and_then(|n| n.checked_mul(4));
+        assert_eq!(Some(rgba.len()), len, "{width}×{height} RGBA8 pixels");
         Pixels { width, height, scale: 1.0, rgba }
     }
 

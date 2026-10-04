@@ -59,6 +59,11 @@ impl HeadlessBackend {
                 if find_prop!(state.nodes[&id].props, ReadOnly) == Some(true) {
                     return Err(ActionError::ReadOnly);
                 }
+                // New text puts the caret at its end, so a selection of the
+                // old text isn't typed over.
+                if state.focused == Some(id) {
+                    state.selection = None;
+                }
                 state.set_prop(id, Prop::Value(text.clone()));
                 state.emit(id, UiEvent::Changed(EventValue::Text(text.clone())));
                 if kind == WidgetKind::SearchInput {
@@ -82,7 +87,9 @@ impl HeadlessBackend {
                     A11yAction::Increment => value + step,
                     _ => value - step,
                 };
-                let value = value.clamp(min, max);
+                // Not `clamp`, which panics on a range given upside down,
+                // or with an end that isn't a number.
+                let value = value.max(min).min(max);
                 state.set_prop(id, Prop::Number(value));
                 state.emit(id, UiEvent::Changed(EventValue::Number(value)));
             }
@@ -110,7 +117,7 @@ impl HeadlessBackend {
                     A11yAction::Increment => value + step,
                     _ => value - step,
                 };
-                let value = value.clamp(min, max);
+                let value = value.max(min).min(max);
                 state.set_prop(id, Prop::Number(value));
                 state.emit(id, UiEvent::Changed(EventValue::Number(value)));
             }

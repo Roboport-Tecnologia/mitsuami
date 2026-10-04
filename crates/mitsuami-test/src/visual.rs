@@ -204,6 +204,10 @@ pub(crate) fn assert(
     let _ = std::fs::remove_file(&diff_path);
     let problem = if (width, height) != (image.width, image.height) {
         Some(format!("size changed from {width}×{height} to {}×{}", image.width, image.height))
+    } else if expected == image.rgba {
+        // Most captures match their baseline exactly: no need to look at
+        // each pixel.
+        None
     } else {
         let mask = Mask::new(width, height, image.scale_factor, ignored);
         let diff = compare(&expected, &image.rgba, width, height, options.threshold, &mask);
@@ -273,6 +277,10 @@ pub(crate) fn alike(a: &Image, b: &Image, options: &VisualOptions, ignored: &[Re
     if (a.width, a.height) != (b.width, b.height) {
         return false;
     }
+    // A window that has settled captures the same bytes twice.
+    if a.rgba == b.rgba {
+        return true;
+    }
     let mask = Mask::new(a.width, a.height, a.scale_factor, ignored);
     let diff = compare(&a.rgba, &b.rgba, a.width, a.height, options.threshold, &mask);
     let considered = mask.considered();
@@ -293,7 +301,8 @@ impl Mask {
             let (y0, y1) = (px(r.y(), height, f32::floor), px(r.y() + r.height(), height, f32::ceil));
             for y in y0..y1 {
                 let row = (y * width) as usize;
-                ignored[row + x0 as usize..row + x1 as usize].fill(true);
+                // A rect of negative width ignores nothing.
+                ignored[row + x0 as usize..row + x1.max(x0) as usize].fill(true);
             }
         }
         Mask { width, ignored }

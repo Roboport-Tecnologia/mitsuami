@@ -87,7 +87,10 @@ pub(crate) fn expand(input: TokenStream, file: Option<PathBuf>) -> syn::Result<T
                 Ok(resource) => resource,
                 Err((_, errors)) => {
                     let first = &errors[0];
-                    let line = source[..first.pos.start.min(source.len())].lines().count().max(1);
+                    // Counted in bytes: slicing the text panics at a position
+                    // inside a character.
+                    let before = &source.as_bytes()[..first.pos.start.min(source.len())];
+                    let line = before.iter().filter(|b| **b == b'\n').count() + 1;
                     return Err(error(format!(
                         "{}:{line}: {} ({} error{} in all)",
                         path.display(),

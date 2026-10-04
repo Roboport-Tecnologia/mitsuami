@@ -55,6 +55,7 @@ impl Ui {
                     column_widths: None,
                     strip: Size::ZERO,
                     insets: None,
+                    drawn_at: None,
                 },
             );
             inner.styles_dirty = true;
@@ -128,6 +129,9 @@ impl Ui {
             }
             node.props.retain(|p| p.key() != prop.key());
             node.props.push(prop.clone());
+            if matches!(prop, Prop::Custom(_)) {
+                node.drawn_at = None;
+            }
             if prop.affects_measure(node.kind)
                 && let Some(t) = node.taffy
             {
@@ -146,6 +150,11 @@ impl Ui {
             {
                 let _ = inner.taffy.mark_dirty(t);
                 inner.styles_dirty |= node.kind == WidgetKind::Group;
+            }
+            // A tab view's page shown, and a surface taking input, are in
+            // the Tab order.
+            if matches!(prop, Prop::SelectedIndex(_) | Prop::TakesInput(_)) {
+                inner.focus_dirty = true;
             }
             if node.kind.is_native() {
                 inner.queue_prop(id, prop);

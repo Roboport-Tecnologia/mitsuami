@@ -89,6 +89,11 @@ impl State {
                 opened.set(false);
                 *bitmap = None;
                 match new {
+                    // XAML makes no bitmap without pixels, and the batch
+                    // failed with it: it shows nothing, as on GTK.
+                    ImageSource::Pixels(pixels) if pixels.width() == 0 || pixels.height() == 0 => {
+                        image.SetSource(None::<&w::ImageSource>)?
+                    }
                     ImageSource::Pixels(pixels) => {
                         image.SetSource(&writeable_bitmap(pixels)?.cast::<w::ImageSource>()?)?
                     }
@@ -730,10 +735,28 @@ fn writeable_bitmap(pixels: &Pixels) -> R<w::WriteableBitmap> {
     Ok(bitmap)
 }
 
-/// A `file:///` URI for a path, made absolute.
+/// A `file:///` URI for a path, made absolute. A verbatim path (`\\?\C:\…`,
+/// as `fs::canonicalize` gives) loses its prefix, which URIs don't have,
+/// and `%`, `#` and `?` are escaped: a file named `C#.png` was read as
+/// `C` with a fragment.
 fn file_uri(path: &std::path::Path) -> R<w::Uri> {
     let path = std::path::absolute(path).unwrap_or_else(|_| path.to_path_buf());
-    w::Uri::CreateUri(&format!("file:///{}", path.display().to_string().replace('\\', "/")))
+    let text = path.to_string_lossy();
+    let text = match text.strip_prefix(r"\\?\") {
+        Some(rest) => rest.strip_prefix(r"UNC\").map_or_else(|| rest.to_owned(), |unc| format!(r"\\{unc}")),
+        None => text.into_owned(),
+    };
+    let mut uri = String::from("file:///");
+    for c in text.chars() {
+        match c {
+            '\\' => uri.push('/'),
+            '%' => uri.push_str("%25"),
+            '#' => uri.push_str("%23"),
+            '?' => uri.push_str("%3F"),
+            c => uri.push(c),
+        }
+    }
+    w::Uri::CreateUri(&uri)
 }
 
 /// XAML's left is the start of the text's flow: the right in a

@@ -64,11 +64,14 @@ impl Ui {
                 inner.styles_dirty = true;
             }
         }
+        let refocus = std::mem::take(&mut inner.focus_dirty) || inner.styles_dirty || !inner.resync.is_empty();
         if inner.styles_dirty {
             inner.resolve_styles();
         }
         inner.resync_all();
-        inner.sync_focus_orders();
+        if refocus {
+            inner.sync_focus_orders();
+        }
         for id in std::mem::take(&mut inner.pending_focus) {
             if inner.nodes.contains_key(&id) {
                 inner.pending.push(Command::Focus { id });
@@ -191,6 +194,8 @@ impl Inner {
                     node.props.retain(|p| !matches!(p, Prop::Mixed(_)));
                     node.props.push(Prop::Mixed(false));
                 }
+                // A tab view's page shown is in the Tab order.
+                self.focus_dirty |= matches!(prop, Prop::SelectedIndex(_));
                 node.props.retain(|p| p.key() != prop.key());
                 node.props.push(prop);
             }
@@ -272,7 +277,8 @@ impl Inner {
             UiEvent::MetricsChanged => {
                 self.metrics = self.backend.metrics();
                 self.styles_dirty = true;
-                for node in self.nodes.values() {
+                for node in self.nodes.values_mut() {
+                    node.drawn_at = None;
                     if let Some(t) = node.taffy {
                         let _ = self.taffy.mark_dirty(t);
                     }

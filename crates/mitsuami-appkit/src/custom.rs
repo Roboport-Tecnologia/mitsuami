@@ -371,12 +371,22 @@ fn bezier(shape: &Shape) -> Retained<NSBezierPath> {
         Shape::Path(path) => {
             let bezier = NSBezierPath::new();
             for element in path.elements() {
+                // A line or curve with no point to start from raises an
+                // exception, which aborts the app from `drawRect:`: it starts
+                // where cairo starts it, at its first point.
+                match *element {
+                    PathElement::LineTo(p) | PathElement::CurveTo { c1: p, .. } if bezier.isEmpty() => {
+                        bezier.moveToPoint(ns_point(p))
+                    }
+                    _ => {}
+                }
                 match *element {
                     PathElement::MoveTo(p) => bezier.moveToPoint(ns_point(p)),
                     PathElement::LineTo(p) => bezier.lineToPoint(ns_point(p)),
                     PathElement::CurveTo { c1, c2, to } => {
                         bezier.curveToPoint_controlPoint1_controlPoint2(ns_point(to), ns_point(c1), ns_point(c2))
                     }
+                    PathElement::Close if bezier.isEmpty() => {}
                     PathElement::Close => bezier.closePath(),
                 }
             }

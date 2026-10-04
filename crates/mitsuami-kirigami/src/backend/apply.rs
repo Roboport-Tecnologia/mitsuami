@@ -189,6 +189,9 @@ impl State {
                 if let Some(double_click) = node.double_click.take() {
                     double_click.remove();
                 }
+                if let Some(area) = node.file_drop.take() {
+                    area.destroy();
+                }
                 // Not the item's child: a popup only has it as its parent.
                 if let Some(menu) = &node.context_menu {
                     menu.delete_later();

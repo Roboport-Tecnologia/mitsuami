@@ -97,6 +97,11 @@ impl Inner {
                     size.height = height;
                     node.window_size = size;
                     node.heights.push(height);
+                    // A platform may never report some of them (a window
+                    // taller than the screen): keep the latest.
+                    if node.heights.len() > 16 {
+                        node.heights.remove(0);
+                    }
                     // The window's style takes the fitted height, and `vh`
                     // re-resolves against it.
                     self.styles_dirty = true;
@@ -271,12 +276,16 @@ impl Inner {
         }
     }
 
-    /// Redraws drawn custom widgets, sending the display lists that changed
-    /// (new props, a new size, new metrics) along with the frames.
+    /// Redraws drawn custom widgets whose props, size or metrics changed,
+    /// sending the display lists that changed along with the frames.
     fn update_drawings(&mut self) {
         let mut changed = Vec::new();
-        for (id, node) in &self.nodes {
+        for (id, node) in &mut self.nodes {
+            if node.drawn_at == Some(node.frame.size) {
+                continue;
+            }
             let Some(drawing) = node.drawn().and_then(|c| c.draw(node.frame.size, &self.metrics)) else { continue };
+            node.drawn_at = Some(node.frame.size);
             let drawing = Prop::Drawing(drawing);
             if node.prop(&drawing) != Some(&drawing) {
                 changed.push((*id, drawing));

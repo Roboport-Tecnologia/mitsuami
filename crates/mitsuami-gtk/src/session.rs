@@ -155,7 +155,10 @@ fn portal(bus: gio::DBusConnection, quit: Quit, subs: Rc<RefCell<Vec<gio::Signal
         None,
         gio::DBusSignalFlags::NONE,
         move |signal| {
-            if signal.parameters.child_value(0).str() != Some(s.as_str()) {
+            // child_value panics past the end, so check the shape first.
+            if !signal.parameters.is_type(glib::VariantTy::new("(oa{sv})").unwrap())
+                || signal.parameters.child_value(0).str() != Some(s.as_str())
+            {
                 return;
             }
             let state = glib::VariantDict::new(Some(&signal.parameters.child_value(1)));

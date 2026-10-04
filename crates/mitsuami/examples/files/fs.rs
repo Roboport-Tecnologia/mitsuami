@@ -155,7 +155,9 @@ pub fn rename(path: &Path, name: &str) -> Result<PathBuf, String> {
     }
     // Case-only renames are the same file on case-insensitive disks.
     let same_file = to.to_string_lossy().to_lowercase() == path.to_string_lossy().to_lowercase();
-    if to.exists() && !same_file {
+    // A link counts even when what it points at is gone: renaming over it
+    // would replace it.
+    if to.symlink_metadata().is_ok() && !same_file {
         return Err(format!("The name \u{201C}{name}\u{201D} is already taken."));
     }
     std::fs::rename(path, &to).map_err(|e| describe(&e))?;
@@ -186,13 +188,38 @@ pub fn copy_into(paths: &[PathBuf], folder: &Path, suffix: &str) -> Result<Vec<P
 }
 
 fn copy(from: &Path, to: &Path) -> io::Result<()> {
-    if from.is_dir() {
+    // A link is copied as a link, as file managers do. Followed, a link to
+    // a folder above it copied without end, and a Wine prefix's
+    // `dosdevices/z:` the whole disk.
+    let meta = std::fs::symlink_metadata(from)?;
+    if meta.file_type().is_symlink() {
+        return copy_link(from, to);
+    }
+    if meta.is_dir() {
         std::fs::create_dir(to)?;
         for entry in std::fs::read_dir(from)? {
             let entry = entry?;
             copy(&entry.path(), &to.join(entry.file_name()))?;
         }
         Ok(())
+    } else {
+        std::fs::copy(from, to).map(|_| ())
+    }
+}
+
+#[cfg(unix)]
+fn copy_link(from: &Path, to: &Path) -> io::Result<()> {
+    std::os::unix::fs::symlink(std::fs::read_link(from)?, to)
+}
+
+/// Windows makes links only in Developer Mode or for administrators, so a
+/// link to a file is copied as the file. One to a folder is made again,
+/// and fails without them rather than copying what it points at.
+#[cfg(windows)]
+fn copy_link(from: &Path, to: &Path) -> io::Result<()> {
+    use std::os::windows::fs::FileTypeExt;
+    if std::fs::symlink_metadata(from)?.file_type().is_symlink_dir() {
+        std::os::windows::fs::symlink_dir(std::fs::read_link(from)?, to)
     } else {
         std::fs::copy(from, to).map(|_| ())
     }

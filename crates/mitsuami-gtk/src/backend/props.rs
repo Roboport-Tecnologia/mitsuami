@@ -349,8 +349,11 @@ impl State {
             // Stopped, a GTK spinner draws nothing.
             (Prop::Running(r), Widget::Spinner(s)) => s.set_spinning(*r),
             (Prop::Progress(progress), Widget::Progress { bar, pulsing }) => match progress {
+                // Its timer stops at its next tick. A new flag for the next
+                // timer: set again before then, the old one would go on too.
                 Some(fraction) => {
                     pulsing.set(false);
+                    *pulsing = Rc::default();
                     bar.set_fraction(*fraction);
                 }
                 None if !pulsing.replace(true) => {

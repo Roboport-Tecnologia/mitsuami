@@ -874,6 +874,11 @@ fn cursor_pos() -> w::POINT {
 /// pixel), its hotspot in points scaled with it. Straight alpha, as a
 /// 32-bit cursor's colour bitmap has it; the mask is unused.
 fn make_cursor(pixels: &Pixels, hotspot: Point, scale: f64) -> Option<w::HCURSOR> {
+    // No pixels to sample: XAML's cursor stays, as GTK shows none of its
+    // own. Sampling an empty image panicked inside `WM_SETCURSOR`.
+    if pixels.width() == 0 || pixels.height() == 0 {
+        return None;
+    }
     let size = pixels.size();
     let width = ((size.width as f64 * scale).round() as i32).max(1);
     let height = ((size.height as f64 * scale).round() as i32).max(1);
@@ -897,8 +902,10 @@ fn make_cursor(pixels: &Pixels, hotspot: Point, scale: f64) -> Option<w::HCURSOR
     if colour.is_null() || bits.is_null() {
         return None;
     }
-    // SAFETY: the section holds `width × height` 32-bit pixels.
-    let out = unsafe { std::slice::from_raw_parts_mut(bits.cast::<u8>(), (width * height * 4) as usize) };
+    // SAFETY: the section holds `width × height` 32-bit pixels. Counted
+    // in `usize`: in `i32` a large image's count wrapped.
+    let len = width as usize * height as usize * 4;
+    let out = unsafe { std::slice::from_raw_parts_mut(bits.cast::<u8>(), len) };
     let (from_w, from_h) = (pixels.width() as usize, pixels.height() as usize);
     let rgba = pixels.rgba();
     for y in 0..height as usize {

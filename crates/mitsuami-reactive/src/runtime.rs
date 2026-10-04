@@ -45,10 +45,16 @@ struct Node {
     kind: Kind,
     slot: Slot,
     state: State,
-    sources: Vec<NodeKey>,
-    observers: Vec<NodeKey>,
+    /// Each source, and where this node is in its `observers`, so a re-run
+    /// unlinks from a signal thousands of nodes read without a search.
+    sources: Vec<(NodeKey, usize)>,
+    /// Each observer, and where this node is in its `sources`.
+    observers: Vec<(NodeKey, usize)>,
     owner: Option<NodeKey>,
     owned: Vec<NodeKey>,
+    /// Nodes in `owned` disposed on their own and not yet taken out: a
+    /// list's rows go one by one, and taking each out was quadratic.
+    disposed_owned: usize,
     cleanups: Vec<Box<dyn FnOnce()>>,
     contexts: Vec<(TypeId, Rc<dyn Any>)>,
     /// Creation order. Pending effects run in this order, so a parent effect
@@ -109,6 +115,7 @@ impl Runtime {
             observers: Vec::new(),
             owner,
             owned: Vec::new(),
+            disposed_owned: 0,
             cleanups: Vec::new(),
             contexts: Vec::new(),
             seq,
@@ -162,15 +169,14 @@ impl Runtime {
     pub(crate) fn track(&self, source: NodeKey) {
         let Some(observer) = self.observer.get() else { return };
         let mut nodes = self.nodes.borrow_mut();
-        if !nodes.contains_key(source) {
-            return;
-        }
+        let Some(at_source) = nodes.get(source).map(|s| s.observers.len()) else { return };
         let Some(obs) = nodes.get_mut(observer) else { return };
-        if obs.sources.contains(&source) {
+        if obs.sources.iter().any(|(s, _)| *s == source) {
             return;
         }
-        obs.sources.push(source);
-        nodes[source].observers.push(observer);
+        let at_observer = obs.sources.len();
+        obs.sources.push((source, at_source));
+        nodes[source].observers.push((observer, at_observer));
     }
 
     /// Brings a computed or effect up to date, re-running it only if one of
@@ -178,7 +184,7 @@ impl Runtime {
     pub(crate) fn update_if_necessary(&self, key: NodeKey) {
         if self.state(key) == State::Check {
             let sources = match self.nodes.borrow().get(key) {
-                Some(node) => node.sources.clone(),
+                Some(node) => node.sources.iter().map(|(s, _)| *s).collect::<Vec<_>>(),
                 None => return,
             };
             for source in sources {
@@ -207,7 +213,7 @@ impl Runtime {
             match kind {
                 Kind::Computed(compute) => {
                     if compute(&slot) {
-                        let observers = self.nodes.borrow()[key].observers.clone();
+                        let observers = self.observers(key);
                         for observer in observers {
                             self.set_state(observer, State::Dirty);
                         }
@@ -228,11 +234,7 @@ impl Runtime {
     /// Marks everything downstream of a written signal and flushes effects
     /// unless a batch is open.
     pub(crate) fn notify(&self, signal: NodeKey) {
-        let observers = match self.nodes.borrow().get(signal) {
-            Some(node) => node.observers.clone(),
-            None => return,
-        };
-        for observer in observers {
+        for observer in self.observers(signal) {
             self.stale(observer, State::Dirty);
         }
         self.flush_if_idle();
@@ -247,7 +249,11 @@ impl Runtime {
             }
             let was_clean = node.state == State::Clean;
             node.state = state;
-            (was_clean, matches!(node.kind, Kind::Effect(_)), node.observers.clone())
+            (
+                was_clean,
+                matches!(node.kind, Kind::Effect(_)),
+                node.observers.iter().map(|(o, _)| *o).collect::<Vec<_>>(),
+            )
         };
         if was_clean && is_effect {
             self.pending.borrow_mut().push(key);
@@ -255,6 +261,10 @@ impl Runtime {
         for observer in observers {
             self.stale(observer, State::Check);
         }
+    }
+
+    fn observers(&self, key: NodeKey) -> Vec<NodeKey> {
+        self.nodes.borrow().get(key).map(|n| n.observers.iter().map(|(o, _)| *o).collect()).unwrap_or_default()
     }
 
     pub(crate) fn batch<R>(&self, f: impl FnOnce() -> R) -> R {
@@ -323,6 +333,7 @@ impl Runtime {
             let mut nodes = self.nodes.borrow_mut();
             let Some(node) = nodes.get_mut(key) else { return };
             node.contexts.clear();
+            node.disposed_owned = 0;
             (std::mem::take(&mut node.owned), std::mem::take(&mut node.cleanups))
         };
         for child in owned.into_iter().rev() {
@@ -337,9 +348,15 @@ impl Runtime {
         let mut nodes = self.nodes.borrow_mut();
         let Some(node) = nodes.get_mut(key) else { return };
         let sources = std::mem::take(&mut node.sources);
-        for source in sources {
-            if let Some(source) = nodes.get_mut(source) {
-                source.observers.retain(|o| *o != key);
+        for (source, at) in sources {
+            let Some(source) = nodes.get_mut(source) else { continue };
+            debug_assert_eq!(source.observers[at].0, key);
+            // Observers are in no order: the last takes this one's place.
+            source.observers.swap_remove(at);
+            if let Some(&(moved, moved_at)) = source.observers.get(at)
+                && let Some(entry) = nodes.get_mut(moved).and_then(|m| m.sources.get_mut(moved_at))
+            {
+                entry.1 = at;
             }
         }
     }
@@ -349,12 +366,31 @@ impl Runtime {
             Some(node) => node.owner,
             None => return,
         };
-        if let Some(owner) = owner
-            && let Some(node) = self.nodes.borrow_mut().get_mut(owner)
-        {
-            node.owned.retain(|k| *k != key);
+        if let Some(owner) = owner {
+            self.forget_owned(owner, key);
         }
         self.dispose_detached(key);
+    }
+
+    /// Takes `key` out of its owner's list: right away when it's the last,
+    /// else once more than half the list is disposed, so a scope whose
+    /// children come and go keeps a list no longer than twice theirs.
+    fn forget_owned(&self, owner: NodeKey, key: NodeKey) {
+        let mut nodes = self.nodes.borrow_mut();
+        let Some(node) = nodes.get_mut(owner) else { return };
+        if node.owned.last() == Some(&key) {
+            node.owned.pop();
+            return;
+        }
+        node.disposed_owned += 1;
+        if node.disposed_owned * 2 <= node.owned.len() {
+            return;
+        }
+        let mut owned = std::mem::take(&mut node.owned);
+        owned.retain(|k| *k != key && nodes.contains_key(*k));
+        let node = &mut nodes[owner];
+        node.owned = owned;
+        node.disposed_owned = 0;
     }
 
     /// Disposes a node that has already been removed from its owner's list.
@@ -367,9 +403,17 @@ impl Runtime {
         let removed = self.nodes.borrow_mut().remove(key);
         if let Some(node) = removed {
             let mut nodes = self.nodes.borrow_mut();
-            for observer in node.observers {
-                if let Some(observer) = nodes.get_mut(observer) {
-                    observer.sources.retain(|s| *s != key);
+            for (observer, at) in node.observers {
+                let Some(obs) = nodes.get_mut(observer) else { continue };
+                debug_assert_eq!(obs.sources[at].0, key);
+                // Sources keep their order, which reads check them in: the
+                // ones after move up, and their observers are told.
+                obs.sources.remove(at);
+                for i in at..obs.sources.len() {
+                    let (source, source_at) = nodes[observer].sources[i];
+                    if let Some(entry) = nodes.get_mut(source).and_then(|s| s.observers.get_mut(source_at)) {
+                        entry.1 = i;
+                    }
                 }
             }
         }

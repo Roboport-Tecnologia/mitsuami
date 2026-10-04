@@ -54,6 +54,8 @@ fn handle(mut stream: TcpStream, changes: &[Change], token: &str) -> io::Result<
     // Requests are handled one at a time, so a connection that sends
     // nothing, or never ends a line, mustn't hold up the review.
     stream.set_read_timeout(Some(Duration::from_secs(5)))?;
+    // Nor one that asks for a capture and never reads it.
+    stream.set_write_timeout(Some(Duration::from_secs(5)))?;
     let mut reader = BufReader::new(stream.try_clone()?.take(MAX_REQUEST));
     let mut request = String::new();
     reader.read_line(&mut request)?;
