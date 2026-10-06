@@ -42,8 +42,8 @@ bends to each platform's native controls, never the other way around:
   `crates/mitsuami-test-macros`: its `#[test]` and `#[story]`.
 - `crates/cargo-mitsuami`: `cargo mitsuami visual` runs the native tests,
   then reviews and accepts visual baselines.
-- Packaging: `scripts/` builds the examples and the MSIX packages,
-  `.github/scripts/` and `.github/apps/` the AppImages and macOS bundles.
+- Packaging: `scripts/` builds the examples, `.github/scripts/` and
+  `.github/apps/` the AppImages and the signed, notarized macOS bundles.
 - `docs/BACKENDS.md` is the backend contract; `docs/ARCHITECTURE.md` has the
   design (§1–§12), a section per widget (§13) and per window and shell
   feature (§14), each ending with where it has run, what each backend

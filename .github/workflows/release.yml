@@ -78,9 +78,48 @@ jobs:
       - name: Install the toolchain from rust-toolchain.toml
         run: rustup toolchain install
 
-      # One binary for Apple silicon and Intel Macs, in an app bundle.
+      # The Developer ID certificate goes in a keychain of its own, and the
+      # App Store Connect API key in a file, for macos-app.sh to sign and
+      # notarize with.
+      - name: Set up signing and notarization (macOS)
+        if: runner.os == 'macOS'
+        env:
+          CERTIFICATE: ${{ secrets.MACOS_CERTIFICATE }}
+          CERTIFICATE_PASSWORD: ${{ secrets.MACOS_CERTIFICATE_PASSWORD }}
+          NOTARY_KEY: ${{ secrets.MACOS_NOTARY_KEY }}
+        run: |
+          if [ -z "$CERTIFICATE" ] || [ -z "$NOTARY_KEY" ]; then
+            echo "::error::The MACOS_CERTIFICATE and MACOS_NOTARY_KEY secrets are needed to sign and notarize"
+            exit 1
+          fi
+          keychain="$RUNNER_TEMP/signing.keychain-db"
+          password=$(openssl rand -hex 16)
+          security create-keychain -p "$password" "$keychain"
+          security set-keychain-settings -lut 21600 "$keychain"
+          security unlock-keychain -p "$password" "$keychain"
+          echo "$CERTIFICATE" | base64 --decode > "$RUNNER_TEMP/certificate.p12"
+          security import "$RUNNER_TEMP/certificate.p12" -k "$keychain" -P "$CERTIFICATE_PASSWORD" -f pkcs12 \
+            -T /usr/bin/codesign
+          rm "$RUNNER_TEMP/certificate.p12"
+          security set-key-partition-list -S apple-tool:,apple:,codesign: -s -k "$password" "$keychain" >/dev/null
+          security list-keychains -d user -s "$keychain" $(security list-keychains -d user | tr -d '"')
+          identity=$(security find-identity -v -p codesigning "$keychain" \
+            | sed -n 's/.*\([0-9A-F]\{40\}\) "Developer ID Application.*/\1/p' | head -1)
+          if [ -z "$identity" ]; then
+            echo "::error::MACOS_CERTIFICATE has no Developer ID Application identity"
+            exit 1
+          fi
+          echo "$NOTARY_KEY" | base64 --decode > "$RUNNER_TEMP/notary.p8"
+          echo "MACOS_SIGN_IDENTITY=$identity" >> "$GITHUB_ENV"
+          echo "MACOS_NOTARY_KEY=$RUNNER_TEMP/notary.p8" >> "$GITHUB_ENV"
+
+      # One binary for Apple silicon and Intel Macs, in an app bundle,
+      # signed and notarized.
       - name: Build and package (macOS)
         if: runner.os == 'macOS'
+        env:
+          MACOS_NOTARY_KEY_ID: ${{ secrets.MACOS_NOTARY_KEY_ID }}
+          MACOS_NOTARY_ISSUER: ${{ secrets.MACOS_NOTARY_ISSUER }}
         run: |
           rustup target add aarch64-apple-darwin x86_64-apple-darwin
           for t in aarch64-apple-darwin x86_64-apple-darwin; do
@@ -114,9 +153,11 @@ jobs:
           name: apps-${{ matrix.name }}
           path: "*.zip"
 
-  # The showcase and the Files example as AppImages, on GTK and on Qt
-  # Quick and Kirigami (the `kde` feature, without GTK). An AppImage
-  # brings the toolkit, but not glibc: each is built on the oldest
+  # The showcase and the Files example for Linux, on GTK and on Qt Quick
+  # and Kirigami (the `kde` feature, without GTK): as AppImages, which
+  # bring their toolkit, and as the bare binaries, much smaller, for
+  # systems that have it installed. Neither brings glibc: each is built
+  # on the oldest
   # distribution with a toolkit new enough, whose glibc is then the oldest
   # it runs on. Ubuntu 24.04 is the first with GTK 4.10 and libadwaita
   # 1.4. Fedora 42 has Kirigami 6.25 on glibc 2.41: Debian 13, on the
@@ -126,7 +167,7 @@ jobs:
   # Files example can use (a dev-dependency), has the GTK backend on
   # Linux; the KDE binary doesn't link it.
   appimage:
-    name: Build the AppImages (${{ matrix.toolkit }})
+    name: Build for Linux (${{ matrix.toolkit }})
     needs: test
     strategy:
       matrix:
@@ -176,11 +217,21 @@ jobs:
             br.com.roboport.mitsuami.Showcase "mitsuami-showcase-$SUFFIX.AppImage"
           .github/scripts/appimage.sh ${{ matrix.toolkit }} target/release/examples/files \
             br.com.roboport.mitsuami.Files "mitsuami-files-$SUFFIX.AppImage"
+          # The bare binaries, stripped of their symbols; tar keeps them
+          # executable.
+          mkdir bin
+          strip -o bin/showcase examples/showcase/target/release/showcase
+          strip -o bin/files target/release/examples/files
+          for app in showcase files; do
+            tar -C bin -czf "mitsuami-$app-$SUFFIX.tar.gz" "$app"
+          done
 
       - uses: actions/upload-artifact@v5
         with:
-          name: appimages-${{ matrix.toolkit }}
-          path: "*.AppImage"
+          name: linux-${{ matrix.toolkit }}
+          path: |
+            *.AppImage
+            *.tar.gz
 
   release:
     name: Create the GitHub release
@@ -203,9 +254,11 @@ jobs:
 
           The showcase is every example in one window, picked from its sidebar. Files is a file browser on the real file system. Both are built for each platform:
 
-          - **macOS** (Apple silicon and Intel, macOS 11 or later): app bundles, signed ad hoc and not notarized. After unzipping, open the app once from Finder with Control-click → Open, or allow it in System Settings → Privacy & Security; or run `xattr -dr com.apple.quarantine <app>`.
+          - **macOS** (Apple silicon and Intel, macOS 11 or later): app bundles, signed and notarized. Unzip and open.
           - **Windows** (x86_64, Windows 11): needs the [Windows App Runtime 2.4 or later](https://aka.ms/windowsappsdk/2.5/latest/windowsappruntimeinstall-x64.exe). They aren't packaged, and Windows 10 runs WinUI apps only as packages.
-          - **Linux** (x86_64): AppImages, on GTK (`-gtk`) and on Qt Quick and Kirigami, as KDE Plasma's apps are (`-kde`). They bring their toolkit: the GTK ones need glibc 2.39 or later (Ubuntu 24.04 and newer), the KDE ones glibc 2.41 or later (Debian 13, Fedora 42, Ubuntu 25.04 and newer). Make one executable (`chmod +x`) and run it.
+          - **Linux** (x86_64): on GTK (`-gtk`) and on Qt Quick and Kirigami, as KDE Plasma's apps are (`-kde`). The GTK ones need glibc 2.39 or later (Ubuntu 24.04 and newer), the KDE ones glibc 2.41 or later (Debian 13, Fedora 42, Ubuntu 25.04 and newer).
+            - AppImages bring their toolkit. Make one executable (`chmod +x`) and run it.
+            - The `.tar.gz` files are the bare binaries, for a system with the toolkit installed: GTK 4.10 and libadwaita 1.4 or later, or Qt 6.10, Kirigami 6.14 and KDE's desktop style (`qqc2-desktop-style`) or later. Unpack one and run it.
           EOF
           gh release create "$GITHUB_REF_NAME" dist/* --repo "$GITHUB_REPOSITORY" \
             --title "$GITHUB_REF_NAME" --notes-file notes.md --generate-notes

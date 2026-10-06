@@ -1,7 +1,0 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 128 128">
-  <!-- Files' folder, on light and dark backgrounds alike. -->
-  <path d="M10 30a10 10 0 0 1 10-10h30l12 12h46a10 10 0 0 1 10 10v58a10 10 0 0 1-10 10H20a10 10 0 0 1-10-10z" fill="#006CBE"/>
-  <path d="M10 48a10 10 0 0 1 10-10h88a10 10 0 0 1 10 10v52a10 10 0 0 1-10 10H20a10 10 0 0 1-10-10z" fill="#2B95E8"/>
-  <rect x="30" y="62" width="68" height="8" rx="4" fill="#FFFFFF" opacity=".85"/>
-  <rect x="30" y="78" width="48" height="8" rx="4" fill="#FCC624"/>
-</svg>

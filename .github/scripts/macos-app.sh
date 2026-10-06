@@ -6,8 +6,15 @@
 # The bundle's name is the desktop entry's (`.github/apps/<app id>.desktop`)
 # and its icon is made from the same SVG as the AppImage's, so each app has
 # one name and icon everywhere. `<app id>.plist`, when there is one, adds
-# keys to the Info.plist. The bundle is signed ad hoc and not notarized:
-# Gatekeeper asks before the first launch. Unsigned, a downloaded bundle
+# keys to the Info.plist.
+#
+# With MACOS_SIGN_IDENTITY (a Developer ID Application identity in a
+# keychain), the bundle is signed with the hardened runtime and notarized
+# with an App Store Connect API key (MACOS_NOTARY_KEY, the .p8's path;
+# MACOS_NOTARY_KEY_ID; MACOS_NOTARY_ISSUER, for a team key), and the ticket
+# is stapled, so Gatekeeper opens it without asking, even offline. Without
+# it, the bundle is signed ad hoc, for trying locally: Gatekeeper asks
+# before a downloaded one's first launch. Unsigned, a downloaded bundle
 # whose Info.plist and icon its signature doesn't seal is reported as
 # damaged instead.
 set -euo pipefail
@@ -77,7 +84,34 @@ if [ -f "$here/apps/$id.plist" ]; then
 fi
 plutil -lint "$app/Contents/Info.plist" >/dev/null
 
-codesign --force --sign - "$app"
+if [ -z "${MACOS_SIGN_IDENTITY:-}" ]; then
+  codesign --force --sign - "$app"
+  codesign --verify --strict "$app"
+  ditto -c -k --keepParent "$app" "$output"
+  rm -rf "$work"
+  exit 0
+fi
+
+codesign --force --options runtime --timestamp --sign "$MACOS_SIGN_IDENTITY" "$app"
 codesign --verify --strict "$app"
+
+# notarytool takes a zip; the ticket is then stapled to the bundle, which
+# is zipped again with it.
+issuer=()
+if [ -n "${MACOS_NOTARY_ISSUER:-}" ]; then
+  issuer=(--issuer "$MACOS_NOTARY_ISSUER")
+fi
+ditto -c -k --keepParent "$app" "$work/notarize.zip"
+result=$(xcrun notarytool submit "$work/notarize.zip" --key "$MACOS_NOTARY_KEY" \
+  --key-id "$MACOS_NOTARY_KEY_ID" ${issuer[@]+"${issuer[@]}"} --wait --output-format json)
+echo "$result"
+if [ "$(echo "$result" | plutil -extract status raw -)" != Accepted ]; then
+  xcrun notarytool log "$(echo "$result" | plutil -extract id raw -)" --key "$MACOS_NOTARY_KEY" \
+    --key-id "$MACOS_NOTARY_KEY_ID" ${issuer[@]+"${issuer[@]}"} || true
+  echo "macos-app.sh: $name wasn't notarized" >&2
+  exit 1
+fi
+xcrun stapler staple "$app"
+spctl --assess --type execute --verbose "$app"
 ditto -c -k --keepParent "$app" "$output"
 rm -rf "$work"
