@@ -11,10 +11,12 @@
 //! events with deltas, and GameController's `GCMouse` gives the same
 //! moves before the system's acceleration. Its keyboard grab takes every key in that monitor
 //! before AppKit dispatches it, menus' key equivalents too, and turns off
+//! the system's shortcuts with the window server's hot key mode, or only
 //! Command-Tab with the app's presentation options.
 
 use std::cell::{Cell, RefCell};
 use std::collections::HashSet;
+use std::ffi::{c_char, c_void};
 use std::ptr::NonNull;
 
 use block2::RcBlock;
@@ -54,6 +56,75 @@ unsafe extern "C" {
     fn CGWarpMouseCursorPosition(point: CGPoint) -> i32;
 }
 
+unsafe extern "C" {
+    fn dlsym(handle: *mut c_void, symbol: *const c_char) -> *mut c_void;
+}
+
+const RTLD_DEFAULT: *mut c_void = -2isize as *mut c_void;
+
+/// What a grab turned off, to give back when it ends.
+#[derive(Clone, Copy)]
+enum Grab {
+    /// The window server's hot key mode before the grab.
+    HotKeys(i32),
+    /// The app's presentation options before the grab.
+    Presentation(NSApplicationPresentationOptions),
+}
+
+type GetHotKeyMode = unsafe extern "C" fn(conn: i32, mode: *mut i32) -> i32;
+type SetHotKeyMode = unsafe extern "C" fn(conn: i32, mode: i32) -> i32;
+
+/// The window server's hot key mode: its connection, and the getter and
+/// setter. SkyLight's private interface, the one UTM and VirtualBox set
+/// for their keyboard capture; looked up rather than linked, so an app
+/// never imports it and gets the presentation options where it's gone.
+fn hot_key_mode() -> Option<(i32, GetHotKeyMode, SetHotKeyMode)> {
+    // SAFETY: the symbols, when there, have these signatures.
+    unsafe {
+        let conn = dlsym(RTLD_DEFAULT, c"CGSMainConnectionID".as_ptr());
+        let get = dlsym(RTLD_DEFAULT, c"CGSGetGlobalHotKeyOperatingMode".as_ptr());
+        let set = dlsym(RTLD_DEFAULT, c"CGSSetGlobalHotKeyOperatingMode".as_ptr());
+        if conn.is_null() || get.is_null() || set.is_null() {
+            return None;
+        }
+        let conn = std::mem::transmute::<*mut c_void, unsafe extern "C" fn() -> i32>(conn);
+        let get = std::mem::transmute::<*mut c_void, GetHotKeyMode>(get);
+        let set = std::mem::transmute::<*mut c_void, SetHotKeyMode>(set);
+        Some((conn(), get, set))
+    }
+}
+
+/// Every shortcut of the Keyboard settings pane off, the accessibility
+/// ones kept.
+const HOT_KEYS_OFF_BUT_UNIVERSAL_ACCESS: i32 = 2;
+
+/// Turns the system's shortcuts off, returning the mode to give back, if
+/// the window server took it.
+fn hot_keys_off() -> Option<i32> {
+    let (conn, get, set) = hot_key_mode()?;
+    let mut before = -1;
+    // SAFETY: plain calls on our own connection.
+    unsafe {
+        if get(conn, &mut before) != 0 || set(conn, HOT_KEYS_OFF_BUT_UNIVERSAL_ACCESS) != 0 {
+            return None;
+        }
+        let mut now = -1;
+        get(conn, &mut now);
+        if now != HOT_KEYS_OFF_BUT_UNIVERSAL_ACCESS {
+            set(conn, before);
+            return None;
+        }
+    }
+    Some(before)
+}
+
+fn hot_keys_back(before: i32) {
+    if let Some((conn, _, set)) = hot_key_mode() {
+        // SAFETY: as in `hot_keys_off`.
+        unsafe { set(conn, before) };
+    }
+}
+
 type Observer = Retained<ProtocolObject<dyn NSObjectProtocol>>;
 
 pub(crate) struct SurfaceIvars {
@@ -74,8 +145,8 @@ pub(crate) struct SurfaceIvars {
     lock_wanted: Cell<bool>,
     locked: Cell<bool>,
     grab_wanted: Cell<bool>,
-    /// The presentation options before the grab, while it's in effect.
-    grab: Cell<Option<NSApplicationPresentationOptions>>,
+    /// What the grab turned off, while it's in effect.
+    grab: Cell<Option<Grab>>,
     /// Ends the lock and the grab when the window stops being the key one.
     resign_observer: RefCell<Option<Observer>>,
     /// While locked: mice that connect get the raw motion handler too.
@@ -764,26 +835,44 @@ impl SurfaceView {
         if !active(&window) || !ivars.takes_input.get() || !window.makeFirstResponder(Some(self)) {
             return self.end_grab();
         }
-        // Command-Tab and Command-H stay with the app; AppKit allows
-        // turning off process switching only with the Dock hidden or
-        // hiding itself.
-        let app = NSApplication::sharedApplication(MainThreadMarker::from(self));
-        let before = app.presentationOptions();
-        let mut options = before
-            | NSApplicationPresentationOptions::DisableProcessSwitching
-            | NSApplicationPresentationOptions::DisableHideApplication;
-        if !before.contains(NSApplicationPresentationOptions::HideDock) {
-            options |= NSApplicationPresentationOptions::AutoHideDock;
-        }
-        app.setPresentationOptions(options);
-        ivars.grab.set(Some(before));
+        // With the window server's shortcuts off, their keys (Command-Tab,
+        // Command-Space, Control-arrows) come as plain key downs. The
+        // presentation options only stop the window server acting on
+        // Command-Tab, Mission Control and the Spaces arrows: their keys
+        // never come, and a key held for a game can't be pressed again
+        // while Control is.
+        let grab = match hot_keys_off() {
+            Some(before) => Grab::HotKeys(before),
+            None => {
+                // Command-Tab and Command-H stay with the app; AppKit
+                // allows turning off process switching only with the
+                // Dock hidden or hiding itself.
+                let app = NSApplication::sharedApplication(MainThreadMarker::from(self));
+                let before = app.presentationOptions();
+                let mut options = before
+                    | NSApplicationPresentationOptions::DisableProcessSwitching
+                    | NSApplicationPresentationOptions::DisableHideApplication;
+                if !before.contains(NSApplicationPresentationOptions::HideDock) {
+                    options |= NSApplicationPresentationOptions::AutoHideDock;
+                }
+                app.setPresentationOptions(options);
+                Grab::Presentation(before)
+            }
+        };
+        ivars.grab.set(Some(grab));
         self.watch_window(&window);
     }
 
-    /// Returns whether it was grabbed.
+    /// Returns whether it was grabbed. The hot key mode doesn't follow
+    /// focus, so it's given back whenever the grab ends.
     fn ungrab(&self) -> bool {
-        let Some(before) = self.ivars().grab.take() else { return false };
-        NSApplication::sharedApplication(MainThreadMarker::from(self)).setPresentationOptions(before);
+        let Some(grab) = self.ivars().grab.take() else { return false };
+        match grab {
+            Grab::HotKeys(before) => hot_keys_back(before),
+            Grab::Presentation(before) => {
+                NSApplication::sharedApplication(MainThreadMarker::from(self)).setPresentationOptions(before)
+            }
+        }
         self.stop_watching_window();
         true
     }
