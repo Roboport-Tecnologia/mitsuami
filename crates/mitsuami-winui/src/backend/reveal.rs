@@ -72,7 +72,7 @@ pub(super) fn update_reveal(parts: &mut WindowParts) {
 }
 
 /// Moves the menu bar into the popup, the window's width, and opens it.
-fn show_reveal(parts: &mut WindowParts) -> R<()> {
+pub(super) fn show_reveal(parts: &mut WindowParts) -> R<()> {
     if parts.revealed {
         return Ok(());
     }
@@ -128,7 +128,7 @@ fn move_element(element: &w::UIElement, from: &w::Panel, to: &w::Panel, index: O
 }
 
 /// A menu of the bar is open: a popup besides the strip's own.
-fn menu_open(parts: &WindowParts) -> bool {
+pub(super) fn menu_open(parts: &WindowParts) -> bool {
     let root = parts.root.cast::<w::IUIElement>().and_then(|r| r.XamlRoot());
     let open = root.and_then(|r| w::VisualTreeHelper::GetOpenPopupsForXamlRoot(&r)).and_then(|p| p.Size());
     open.is_ok_and(|n| n > u32::from(parts.revealed))

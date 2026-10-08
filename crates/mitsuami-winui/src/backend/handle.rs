@@ -105,6 +105,7 @@ impl WinUiHandle {
                     apply_min_size(parts);
                 }
                 super::reveal::update_reveal(parts);
+                super::menus::rebuild_closed_menu(parts, &state.menus);
             }
         }
     }

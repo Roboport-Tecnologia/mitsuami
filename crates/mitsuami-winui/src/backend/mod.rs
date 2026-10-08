@@ -183,6 +183,9 @@ pub(crate) struct WindowParts {
     menu_shown: MenuBarData,
     /// The bar's items by id, and the check mark each should show.
     menu_items: MenuItems,
+    /// A menu of the bar closed: the bar is built again once none is open
+    /// (`rebuild_closed_menu`).
+    menu_stale: Rc<Cell<bool>>,
     /// The content size the app asked for, re-applied when the menu bar
     /// changes height.
     requested: Option<Size>,

@@ -344,6 +344,7 @@ impl State {
             menu_revokers: Vec::new(),
             menu_shown: MenuBarData::default(),
             menu_items: MenuItems::default(),
+            menu_stale: Rc::new(Cell::new(false)),
             requested: None,
             node: id,
             emitter,

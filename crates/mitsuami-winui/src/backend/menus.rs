@@ -1,6 +1,7 @@
 //! Menus: the menu bar, context menus and menu buttons' menus, built and
 //! read back.
 
+use std::cell::Cell;
 use std::collections::HashMap;
 use std::rc::Rc;
 
@@ -34,8 +35,13 @@ impl ContextMenu {
             self.items.borrow_mut().clear();
             self.flyout = None;
             if !entries.is_empty() {
-                let mut built =
-                    MenuBuild { activate: &self.activate, revokers: &mut self.revokers, items: &self.items, scope };
+                let mut built = MenuBuild {
+                    activate: &self.activate,
+                    revokers: &mut self.revokers,
+                    items: &self.items,
+                    closed: None,
+                    scope,
+                };
                 self.flyout = Some(built.flyout(entries)?);
             }
             true
@@ -100,12 +106,15 @@ fn show_check(item: &w::MenuFlyoutItemBase, check: MenuCheck) {
 }
 
 fn install_menu(parts: &mut WindowParts, menu: &MenuBarData, activate: &Rc<dyn Fn(u32)>) {
-    // Back from the full-screen popup first, where it's replaced.
+    // Back from the full-screen popup first, where it's replaced, and the
+    // new bar back in it after.
+    let revealed = parts.revealed;
     _ = super::reveal::hide_reveal(parts);
     let in_title_bar = parts.menu_bar_place == MenuBarPlace::InTitleBar;
     let parent: R<w::Panel> =
         if in_title_bar { title_content(parts).and_then(|g| g.cast()) } else { parts.bars.cast() };
     let children = ok(parent.and_then(|p| p.cast::<w::IPanel>()?.Children()), "menu bar's parent's children");
+    parts.menu_revokers.clear();
     if let Some(old) = parts.menu_bar.take() {
         let old: w::UIElement = ok(old.cast(), "menu bar element");
         let mut index = 0;
@@ -113,13 +122,13 @@ fn install_menu(parts: &mut WindowParts, menu: &MenuBarData, activate: &Rc<dyn F
             _ = children.RemoveAt(index);
         }
     }
-    parts.menu_revokers.clear();
     parts.menu_items.borrow_mut().clear();
     if !menu.menus.is_empty() {
         let mut built = MenuBuild {
             activate,
             revokers: &mut parts.menu_revokers,
             items: &parts.menu_items,
+            closed: Some(parts.menu_stale.clone()),
             scope: format!("window-{}", parts.node),
         };
         let menu_bar = ok(built.menu_bar(menu), "building the menu bar");
@@ -136,10 +145,30 @@ fn install_menu(parts: &mut WindowParts, menu: &MenuBarData, activate: &Rc<dyn F
     if in_title_bar {
         _ = update_title_bar_height(parts);
     }
+    if revealed {
+        _ = super::reveal::show_reveal(parts);
+    }
     apply_min_size(parts);
     if let Some(size) = parts.requested {
         resize_client(parts, size);
     }
+}
+
+/// Builds the window's bar again, the same menus, once a menu of it has
+/// closed and none is open. XAML's menu widens by about 33 epx from its
+/// second opening on, and a checked toggle item's shortcut keeps the
+/// column of the first, so it no longer lines up with the others (2ksbox's
+/// Send Shortcuts to Guest, checked, with Ctrl+Alt+K); a new bar's menus
+/// open as the first time.
+pub(super) fn rebuild_closed_menu(parts: &mut WindowParts, menus: &Menus) {
+    if !parts.menu_stale.get() || super::reveal::menu_open(parts) {
+        return;
+    }
+    parts.menu_stale.set(false);
+    let shown = menus.shown(parts.node, parts.modal.is_some());
+    let activate = menus.activate.clone().unwrap_or_else(|| Rc::new(|_| {}));
+    install_menu(parts, &shown, &activate);
+    parts.menu_shown = shown;
 }
 
 /// Builds a window's `MenuBar`, or a context menu's `MenuFlyout`: the
@@ -150,6 +179,8 @@ struct MenuBuild<'a> {
     activate: &'a Rc<dyn Fn(u32)>,
     revokers: &'a mut Vec<EventRevoker>,
     items: &'a MenuItems,
+    /// A menu bar's: set when one of its menus closes (`menu_stale`).
+    closed: Option<Rc<Cell<bool>>>,
     /// Where its radio groups' names are unique: XAML's are the thread's,
     /// and ids only the menu's.
     scope: String,
@@ -163,7 +194,16 @@ impl MenuBuild<'_> {
             let item = w::MenuBarItem::new()?;
             let item_iface: w::IMenuBarItem = item.cast()?;
             item_iface.SetTitle(&data.title)?;
-            self.entries(&item_iface.Items()?, data)?;
+            let items = item_iface.Items()?;
+            self.entries(&items, data)?;
+            // Its items unload as its menu closes.
+            if let (Some(closed), Ok(first)) = (&self.closed, items.GetAt(0)) {
+                let closed = closed.clone();
+                self.revokers.push(first.cast::<w::IFrameworkElement>()?.Unloaded(move |_, _| {
+                    closed.set(true);
+                    crate::app::schedule_tick();
+                })?);
+            }
             menus.Append(&item)?;
         }
         Ok(menu_bar)
