@@ -170,11 +170,16 @@ impl EdgeScrollView {
         unsafe { msg_send![super(this), initWithFrame: zero_rect()] }
     }
 
+    /// How far it runs up under the bar.
+    pub(crate) fn under_bar(&self) -> f64 {
+        self.ivars().get()
+    }
+
     /// Runs this far up under the bar (zero: not under it), keeping where
-    /// the core placed it and how far it's scrolled.
-    pub(crate) fn set_under_bar(&self, height: f64) {
+    /// the core placed it and how far it's scrolled. Whether it changed.
+    pub(crate) fn set_under_bar(&self, height: f64) -> bool {
         if self.ivars().get() == height {
-            return;
+            return false;
         }
         let placed = self.alignmentRectForFrame(self.frame());
         let clip = self.contentView();
@@ -184,6 +189,7 @@ impl EdgeScrollView {
         self.setFrame(self.frameForAlignmentRect(placed));
         clip.scrollToPoint(clip_origin(&clip, offset));
         self.reflectScrolledClipView(&clip);
+        true
     }
 }
 

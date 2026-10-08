@@ -194,13 +194,18 @@ impl State {
         self.extend_under_bars();
     }
 
-    /// Runs the scroll views at the top of a window with a sidebar up under
-    /// its title bar and toolbar, as Finder's content does: the content view
-    /// is full size there, and the host below the bar. A scroll view inside
-    /// another one, or a list, moves as that scrolls, so it stays put.
+    /// Runs the scroll views, lists and tables at the top of a window with
+    /// a sidebar up under its title bar and toolbar, as Finder's content
+    /// does: the content view is full size there, and the host below the
+    /// bar. One inside a scroll view or a list moves as that scrolls, so
+    /// it stays put. A list that moved lays out the rows now in view.
     pub(super) fn extend_under_bars(&self) {
         for node in self.nodes.values() {
-            let Widget::Scroll(scroll) = &node.widget else { continue };
+            let scroll = match &node.widget {
+                Widget::Scroll(scroll) => scroll,
+                Widget::List(list) => &list.scroll,
+                _ => continue,
+            };
             let mut host = None;
             let mut parent = node.parent;
             while let Some(node) = parent.and_then(|id| self.nodes.get(&id)) {
@@ -218,7 +223,9 @@ impl State {
                 Some(host) if at_top(scroll, host) => unsafe { host.superview() }.map_or(0.0, |v| v.safeAreaInsets().top),
                 _ => 0.0,
             };
-            scroll.set_under_bar(height);
+            if scroll.set_under_bar(height) {
+                layout_list(&node.widget);
+            }
         }
     }
 }

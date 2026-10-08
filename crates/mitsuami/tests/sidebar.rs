@@ -395,4 +395,88 @@ async fn the_user_shows_and_hides_it_too(app: TestApp) {
     assert!(shown.get_untracked());
 }
 
+/// The pages again, with this beside the sidebar, at the content's top.
+fn beside(page: Signal<Page>, content: impl View + 'static) -> impl View {
+    Column::new().grow(1.0).children((
+        Sidebar::new(page).children((SidebarItem::new("General", Page::General), SidebarItem::new("Wi-Fi", Page::WiFi))),
+        content,
+    ))
+}
+
+fn numbered(n: u32) -> Vec<u32> {
+    (0..n).collect()
+}
+
+/// A list at the top of the content starts there, and scrolls from its
+/// first row to its last, on every platform. On AppKit it runs up under
+/// the title bar and toolbar, as Finder's content does, outside its frame:
+/// its rows still start below the bar and end on its bottom edge.
+#[mitsuami_test::test]
+async fn a_list_at_the_contents_top_scrolls_from_its_first_row_to_its_last(app: TestApp) {
+    let page = signal(Page::General);
+    let data = signal(numbered(100));
+    app.mount(move || {
+        beside(
+            page,
+            List::new(data, |n: &u32| *n, |n| Container::new().height(20).child(Text::new(format!("Item {n}"))))
+                .grow(1.0)
+                .test_id("list"),
+        )
+    });
+    app.settle().await;
+
+    let list = app.get_by_test_id("list").frame();
+    assert_eq!(list.y(), 0.0);
+    assert_eq!(app.get_by_role(Role::ListItem, "Item 0").frame().y(), list.y());
+    app.get_by_test_id("list").scroll_by(0.0, 1e6).await;
+    let last = app.get_by_role(Role::ListItem, "Item 99").frame();
+    assert_eq!(last.max_y(), list.max_y());
+    app.get_by_test_id("list").scroll_by(0.0, -1e6).await;
+    assert_eq!(app.get_by_role(Role::ListItem, "Item 0").frame().y(), list.y());
+}
+
+/// A table there keeps its header at its top, and its rows below it.
+#[mitsuami_test::test]
+async fn a_table_at_the_contents_top_keeps_its_header_above_its_rows(app: TestApp) {
+    let page = signal(Page::General);
+    let data = signal(numbered(100));
+    app.mount(move || {
+        beside(
+            page,
+            Table::new(data, |n: &u32| *n)
+                .column(TableColumn::new("Name", |n: u32| Text::new(format!("File {n}"))).expand())
+                .grow(1.0)
+                .test_id("table"),
+        )
+    });
+    app.settle().await;
+
+    let table = app.get_by_test_id("table").frame();
+    let first = app.get_by_role(Role::Cell, "File 0").frame();
+    assert!(first.y() > table.y() && first.max_y() < table.y() + 60.0, "{first:?} in {table:?}");
+    app.get_by_test_id("table").scroll_by(0.0, 1e6).await;
+    let last = app.get_by_role(Role::Cell, "File 99").frame();
+    assert!(last.max_y() <= table.max_y() && last.max_y() > table.max_y() - 30.0, "{last:?} in {table:?}");
+}
+
+/// A scroll view there scrolls its content from its top to its end, as
+/// far as it would anywhere else.
+#[mitsuami_test::test]
+async fn a_scroll_view_at_the_contents_top_scrolls_from_its_top_to_its_end(app: TestApp) {
+    let page = signal(Page::General);
+    app.mount(move || {
+        let rows = (0..50).map(|_| Container::new().height(20)).collect::<Vec<_>>();
+        beside(page, ScrollView::new().height(200).test_id("scroll").children(rows))
+    });
+    app.settle().await;
+
+    let (scroll, id) = (app.get_by_test_id("scroll").frame(), app.get_by_test_id("scroll").id());
+    assert_eq!(scroll.y(), 0.0);
+    assert_eq!(app.ui().scroll_offset(id), Some(Point::new(0.0, 0.0)));
+    app.get_by_test_id("scroll").scroll_by(0.0, 100.0).await;
+    assert_eq!(app.ui().scroll_offset(id), Some(Point::new(0.0, 100.0)));
+    app.get_by_test_id("scroll").scroll_by(0.0, 1e6).await;
+    assert_eq!(app.ui().scroll_offset(id), Some(Point::new(0.0, 1000.0 - scroll.height())));
+}
+
 mitsuami_test::main!();

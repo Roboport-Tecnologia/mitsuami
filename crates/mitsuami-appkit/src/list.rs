@@ -688,7 +688,7 @@ fn in_order(values: &[usize]) -> Vec<usize> {
 
 /// A list's native parts.
 pub(crate) struct List {
-    pub scroll: Retained<NSScrollView>,
+    pub scroll: Retained<crate::classes::EdgeScrollView>,
     pub table: Retained<ListTable>,
     _source: Retained<ListSource>,
     /// The table's next responder, which the table doesn't retain.
@@ -738,7 +738,7 @@ impl List {
             table.setTarget(Some(&source));
             table.setDoubleAction(Some(sel!(activated:)));
         }
-        let scroll = NSScrollView::initWithFrame(NSScrollView::alloc(mtm), zero_rect());
+        let scroll = crate::classes::EdgeScrollView::new(mtm);
         scroll.setHasVerticalScroller(true);
         // A table's columns can be wider than it.
         scroll.setHasHorizontalScroller(columns);
@@ -892,7 +892,7 @@ impl List {
     pub(crate) fn set_style(&self, style: ListStyle) {
         self.style.set(Some(style));
         self.scroll.setBorderType(if style.framed() { NSBorderType::BezelBorder } else { NSBorderType::NoBorder });
-        self.set_frame(self.scroll.frame());
+        self.set_frame(self.scroll.alignmentRectForFrame(self.scroll.frame()));
     }
 
     pub(crate) fn style(&self) -> Option<ListStyle> {
@@ -967,9 +967,10 @@ impl List {
         }
     }
 
-    /// Sizes the list, and its rows (`ListIvars::fit_rows`).
+    /// Sizes the list, and its rows (`ListIvars::fit_rows`). Its frame
+    /// may run up under the window's bar, outside where the core put it.
     pub(crate) fn set_frame(&self, frame: objc2_foundation::NSRect) {
-        self.scroll.setFrame(frame);
+        self.scroll.setFrame(self.scroll.frameForAlignmentRect(frame));
         self.table.ivars().fit_rows(&self.scroll, &self.table);
     }
 
@@ -1106,7 +1107,8 @@ impl List {
 
     /// Where the table put a cell's host, in the scroll view's content
     /// (below the header, unscrolled): its cell's place, and its own in
-    /// the cell.
+    /// the cell. The part of the list under the window's bar isn't the
+    /// core's.
     pub(crate) fn cell_rect(&self, key: RowKey, column: usize, host: &NSView) -> Option<Rect> {
         let index = *self.data.borrow().index.get(&key)?;
         let cell = self.table.frameOfCellAtColumn_row(column as NSInteger, index as NSInteger);
@@ -1115,7 +1117,7 @@ impl List {
         let f = host.frame();
         Some(Rect::new(
             (origin.x + scrolled.x + f.origin.x) as f32,
-            (origin.y + scrolled.y + f.origin.y) as f32,
+            (origin.y + scrolled.y + f.origin.y - self.scroll.under_bar()) as f32,
             f.size.width as f32,
             f.size.height as f32,
         ))
