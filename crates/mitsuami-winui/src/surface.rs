@@ -61,6 +61,28 @@ thread_local! {
     static GRAB: RefCell<Option<(w::HHOOK, Weak<RefCell<HostState>>)>> = const { RefCell::new(None) };
     /// Windows subclassed for their `WM_SETCURSOR`.
     static SUBCLASSED: RefCell<HashSet<isize>> = RefCell::new(HashSet::new());
+    /// XAML windows showing a `ContentDialog`, whose surfaces hide.
+    static COVERED: RefCell<HashSet<isize>> = RefCell::new(HashSet::new());
+}
+
+/// A `ContentDialog` went up in `window`, or came down. XAML draws nothing
+/// over a child window, so the dialog would be under its surfaces, and,
+/// modal, leave the window darkened with nothing to answer: they hide
+/// while it is up, and come back when it goes.
+pub(crate) fn set_covered(window: w::HWND, covered: bool) {
+    let changed = COVERED.with(|c| {
+        let mut c = c.borrow_mut();
+        if covered { c.insert(window as isize) } else { c.remove(&(window as isize)) }
+    });
+    if !changed {
+        return;
+    }
+    let hosts: Vec<_> = HOSTS.with(|h| h.borrow().iter().filter_map(Weak::upgrade).collect());
+    for host in hosts {
+        if host.try_borrow().is_ok_and(|s| s.window == window) {
+            HostState::place(&Rc::downgrade(&host));
+        }
+    }
 }
 
 /// Whether Tab goes to `focused`, a surface that takes input, rather than
@@ -567,7 +589,8 @@ impl HostState {
     }
 
     /// Puts the child window over the canvas, or hides it while the canvas
-    /// has no size, and reports its size in pixels.
+    /// has no size or a dialog covers its window, and reports its size in
+    /// pixels.
     fn place(this: &Weak<RefCell<HostState>>) {
         let Some(this) = this.upgrade() else { return };
         let Ok(mut state) = this.try_borrow_mut() else { return };
@@ -584,7 +607,8 @@ impl HostState {
         if unsafe { w::GetFocus() } == state.window {
             _ = state.focus_island();
         }
-        let at = state.rect().ok().flatten();
+        let covered = COVERED.with(|c| c.borrow().contains(&(state.window as isize)));
+        let at = if covered { None } else { state.rect().ok().flatten() };
         if at != state.placed {
             state.placed = at;
             let flags = (w::SWP_NOACTIVATE | if at.is_some() { w::SWP_SHOWWINDOW } else { w::SWP_HIDEWINDOW }) as u32;

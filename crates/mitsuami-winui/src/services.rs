@@ -36,8 +36,17 @@ struct AlertQueue {
 
 struct ShownAlert {
     window: NodeId,
+    /// The XAML window: its surfaces hide while the dialog is up, and come
+    /// back when this goes.
+    hwnd: w::HWND,
     operation: windows_future::IAsyncOperation<w::ContentDialogResult>,
     cancelled: bool,
+}
+
+impl Drop for ShownAlert {
+    fn drop(&mut self) {
+        crate::surface::set_covered(self.hwnd, false);
+    }
 }
 
 /// A picker waiting for its answer: the window it was made for, its reply's
@@ -478,7 +487,7 @@ fn show_next_alert(backend: WinUiHandle, queue: Rc<RefCell<AlertQueue>>) {
     };
     let QueuedAlert { parent, alert, reply } = next;
     let buttons = alert.effective_buttons();
-    let window = backend.window_parts(parent, |p| p.node);
+    let window = backend.window_parts(parent, |p| (p.node, p.hwnd));
     let shown: R<_> = (|| {
         let root = backend.xaml_root(parent).ok_or_else(|| windows_core::Error::from_hresult(w::E_FAIL))?;
         let dialog = w::ContentDialog::new()?;
@@ -507,8 +516,12 @@ fn show_next_alert(backend: WinUiHandle, queue: Rc<RefCell<AlertQueue>>) {
     };
     match shown {
         Ok(operation) => {
-            if let Some(window) = window {
-                queue.borrow_mut().shown = Some(ShownAlert { window, operation: operation.clone(), cancelled: false });
+            if let Some((window, hwnd)) = window {
+                // XAML draws nothing over a surface's child window, and the
+                // dialog is in the window's XAML.
+                crate::surface::set_covered(hwnd, true);
+                let operation = operation.clone();
+                queue.borrow_mut().shown = Some(ShownAlert { window, hwnd, operation, cancelled: false });
             }
             let ticket = later::park((reply, backend, queue));
             let watched = operation.when(move |result| {
