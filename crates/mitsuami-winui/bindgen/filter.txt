@@ -268,6 +268,7 @@ Windows.Win32.IsWindowVisible
 Windows.Win32.GetWindowTextW
 Windows.Win32.GetWindow
 Windows.Win32.GW_OWNER
+Windows.Win32.GW_CHILD
 Microsoft.UI.Windowing.IAppWindowTitleBar::get_RightInset
 Microsoft.UI.Windowing.IAppWindowTitleBar2::put_PreferredHeightOption
 Microsoft.UI.Windowing.IAppWindowTitleBar3::put_PreferredTheme
@@ -339,6 +340,8 @@ Windows.Win32.HWND_TOP
 Windows.Win32.SWP_NOACTIVATE
 Windows.Win32.SWP_SHOWWINDOW
 Windows.Win32.SWP_HIDEWINDOW
+Windows.Win32.SWP_NOMOVE
+Windows.Win32.SWP_NOSIZE
 Windows.Win32.WS_CHILD
 Windows.Win32.WS_CLIPSIBLINGS
 Windows.Win32.WM_NCHITTEST

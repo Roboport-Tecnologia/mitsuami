@@ -3071,6 +3071,7 @@ unsafe impl Sync for FrameworkTemplate {}
 pub const GA_ROOT: i32 = 2;
 pub const GWLP_HWNDPARENT: i32 = -8;
 pub const GWL_EXSTYLE: i32 = -20;
+pub const GW_CHILD: i32 = 5;
 pub const GW_OWNER: i32 = 4;
 #[repr(transparent)]
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -16118,6 +16119,8 @@ pub type SUBCLASSPROC = Option<
 >;
 pub const SWP_HIDEWINDOW: i32 = 128;
 pub const SWP_NOACTIVATE: i32 = 16;
+pub const SWP_NOMOVE: i32 = 2;
+pub const SWP_NOSIZE: i32 = 1;
 pub const SWP_SHOWWINDOW: i32 = 64;
 pub const SW_SHOWNORMAL: i32 = 1;
 #[repr(C)]

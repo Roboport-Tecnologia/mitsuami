@@ -630,6 +630,7 @@ impl HostState {
                 Some(_) => {}
             }
         }
+        state.raise();
         state.try_pending();
     }
 
@@ -662,6 +663,7 @@ impl HostState {
                 self.clip();
                 self.warp_to_middle();
                 self.register_raw(true);
+                self.raise();
             } else {
                 self.emitter.emit(self.id, UiEvent::PointerLockEnded);
             }
@@ -676,6 +678,7 @@ impl HostState {
             if focused {
                 self.focused = true;
                 self.hook();
+                self.raise();
             } else {
                 self.emitter.emit(self.id, UiEvent::KeyboardGrabEnded);
             }
@@ -696,6 +699,18 @@ impl HostState {
         }
     }
 
+    /// Puts the child window back above its siblings. XAML raises its
+    /// title bar's input window (`InputNonClientPointerSource`) when the
+    /// window is activated, which a lock does; in full screen that window
+    /// still spans the title bar's old strip across the top, over the
+    /// surface, and took the pointer and the clicks there.
+    fn raise(&self) {
+        if self.placed.is_some() && unsafe { w::GetWindow(self.window, w::GW_CHILD as u32) } != self.hwnd {
+            let flags = (w::SWP_NOMOVE | w::SWP_NOSIZE | w::SWP_NOACTIVATE) as u32;
+            unsafe { _ = w::SetWindowPos(self.hwnd, w::HWND_TOP, 0, 0, 0, 0, flags) };
+        }
+    }
+
     fn warp_to_middle(&self) {
         if let Some(rect) = self.screen_rect() {
             let (x, y) = (rect.left + (rect.right - rect.left) / 2, rect.top + (rect.bottom - rect.top) / 2);
@@ -712,6 +727,7 @@ impl HostState {
                 w::ShowCursor(true.into());
             }
             self.register_raw(false);
+            self.raise();
         }
     }
 
