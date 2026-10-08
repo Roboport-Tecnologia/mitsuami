@@ -7,7 +7,7 @@ use mitsuami_core::{NodeId, Rect, Size, UiEvent};
 use windows_core::{IInspectable, Interface};
 
 use super::measure::measure_element;
-use super::{Events, R, SPACING, ToolbarAlign, ToolbarPlace, WindowParts, ok};
+use super::{Events, MenuBarPlace, R, SPACING, ToolbarAlign, ToolbarPlace, WindowParts, ok};
 use crate::bindings as w;
 
 impl WindowParts {
@@ -125,7 +125,13 @@ fn chrome_height(parts: &WindowParts) -> f64 {
         if actual > 0.0 { actual } else { measure_element(&element, infinite).height as f64 }
     };
     let title = height(ok(parts.title_bar.cast(), "title bar element"));
-    let menu = parts.menu_bar.as_ref().map_or(0.0, |m| height(ok(m.cast(), "menu bar element")));
+    // In the title bar, it's part of the title bar's height.
+    let menu = match parts.menu_bar_place {
+        MenuBarPlace::InTitleBar => 0.0,
+        MenuBarPlace::BelowTitleBar => {
+            parts.menu_bar.as_ref().map_or(0.0, |m| height(ok(m.cast(), "menu bar element")))
+        }
+    };
     // A collapsed toolbar has no height, but may still have a desired one.
     let shown = |bar: &&w::CommandBar| {
         bar.cast::<w::IUIElement>().and_then(|e| e.Visibility()).is_ok_and(|v| v == w::Visibility::Visible)
@@ -178,7 +184,13 @@ pub(super) fn insert_toolbar_item(parts: &mut WindowParts, id: NodeId, host: &w:
                 })?;
                 fe.SetVerticalAlignment(w::VerticalAlignment::Center)?;
                 bar.cast::<w::IControl>()?.SetBackground(None::<&w::Brush>)?;
-                parts.title_bar.cast::<w::ITitleBar>()?.SetContent(&element)?;
+                if parts.menu_bar_place == MenuBarPlace::InTitleBar {
+                    // Sharing the room with the menu bar: in what it leaves.
+                    w::Grid::SetColumn(&element.cast::<w::FrameworkElement>()?, TOOLBAR_COLUMN)?;
+                    title_content(parts)?.cast::<w::IPanel>()?.Children()?.Append(&element)?;
+                } else {
+                    parts.title_bar.cast::<w::ITitleBar>()?.SetContent(&element)?;
+                }
             }
         }
         parts.toolbar = Some(bar);
@@ -274,12 +286,8 @@ pub(super) fn update_toolbar(parts: &mut WindowParts) -> R<()> {
     let before = chrome_height(parts);
     if element.Visibility()? != wanted {
         element.SetVisibility(wanted)?;
-        // A toolbar in the title bar makes it taller: the caption buttons
-        // grow to match, as in Windows' own apps with one.
         if matches!(parts.toolbar_place, ToolbarPlace::InTitleBar(_)) {
-            let height = if any { w::TitleBarHeightOption::Tall } else { w::TitleBarHeightOption::Standard };
-            let caption = parts.app_window.cast::<w::IAppWindow>()?.TitleBar()?;
-            caption.cast::<w::IAppWindowTitleBar2>()?.SetPreferredHeightOption(height)?;
+            update_title_bar_height(parts)?;
         }
     }
     parts.root.cast::<w::IUIElement>()?.UpdateLayout()?;
@@ -290,6 +298,40 @@ pub(super) fn update_toolbar(parts: &mut WindowParts) -> R<()> {
         }
     }
     Ok(())
+}
+
+/// A toolbar or a menu bar in the title bar makes it taller: the caption
+/// buttons grow to match, as in Windows' own apps with one.
+pub(super) fn update_title_bar_height(parts: &WindowParts) -> R<()> {
+    let shown =
+        |element: R<w::IUIElement>| element.and_then(|e| e.Visibility()).is_ok_and(|v| v == w::Visibility::Visible);
+    let toolbar = matches!(parts.toolbar_place, ToolbarPlace::InTitleBar(_))
+        && parts.toolbar.as_ref().is_some_and(|t| shown(t.cast()));
+    let menu = parts.menu_bar_place == MenuBarPlace::InTitleBar && parts.menu_bar.is_some();
+    let height = if toolbar || menu { w::TitleBarHeightOption::Tall } else { w::TitleBarHeightOption::Standard };
+    let caption = parts.app_window.cast::<w::IAppWindow>()?.TitleBar()?;
+    caption.cast::<w::IAppWindowTitleBar2>()?.SetPreferredHeightOption(height)
+}
+
+const TITLE_CONTENT: &str = r#"
+<Grid xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation">
+  <Grid.ColumnDefinitions>
+    <ColumnDefinition Width="Auto"/>
+    <ColumnDefinition Width="*"/>
+  </Grid.ColumnDefinitions>
+</Grid>"#;
+
+/// The title bar's content when the menu bar is in the title bar, made the
+/// first time: a grid of two columns, the menu bar's `Auto` and a toolbar
+/// placed there in the room left, as on the bars' row.
+pub(super) fn title_content(parts: &mut WindowParts) -> R<w::Grid> {
+    if let Some(grid) = &parts.title_content {
+        return Ok(grid.clone());
+    }
+    let grid: w::Grid = w::XamlReader::Load(TITLE_CONTENT)?.cast()?;
+    parts.title_bar.cast::<w::ITitleBar>()?.SetContent(&grid)?;
+    parts.title_content = Some(grid.clone());
+    Ok(grid)
 }
 
 /// Gives the caption buttons the room they take in the title bar. WinUI's

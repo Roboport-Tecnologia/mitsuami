@@ -9,8 +9,8 @@ use mitsuami_core::services::{MenuBarData, MenuCheck, MenuData, MenuEntry, MenuI
 use mitsuami_core::{Key, NodeId};
 use windows_core::{EventRevoker, Interface};
 
-use super::windows::{apply_min_size, resize_client};
-use super::{ContextMenu, MenuItems, Menus, R, WinUiBackend, WindowParts, key, ok};
+use super::windows::{apply_min_size, resize_client, title_content, update_title_bar_height};
+use super::{ContextMenu, MenuBarPlace, MenuItems, Menus, R, WinUiBackend, WindowParts, key, ok};
 use crate::bindings as w;
 
 impl ContextMenu {
@@ -100,7 +100,10 @@ fn show_check(item: &w::MenuFlyoutItemBase, check: MenuCheck) {
 }
 
 fn install_menu(parts: &mut WindowParts, menu: &MenuBarData, activate: &Rc<dyn Fn(u32)>) {
-    let children = ok(parts.bars.cast::<w::IPanel>().and_then(|p| p.Children()), "bars' children");
+    let in_title_bar = parts.menu_bar_place == MenuBarPlace::InTitleBar;
+    let parent: R<w::Panel> =
+        if in_title_bar { title_content(parts).and_then(|g| g.cast()) } else { parts.bars.cast() };
+    let children = ok(parent.and_then(|p| p.cast::<w::IPanel>()?.Children()), "menu bar's parent's children");
     if let Some(old) = parts.menu_bar.take() {
         let old: w::UIElement = ok(old.cast(), "menu bar element");
         let mut index = 0;
@@ -119,8 +122,17 @@ fn install_menu(parts: &mut WindowParts, menu: &MenuBarData, activate: &Rc<dyn F
         };
         let menu_bar = ok(built.menu_bar(menu), "building the menu bar");
         let element: w::UIElement = ok(menu_bar.cast(), "menu bar element");
+        if in_title_bar {
+            // Centred in the title bar's height, on its background.
+            let fe = ok(element.cast::<w::IFrameworkElement>(), "menu bar element");
+            _ = fe.SetVerticalAlignment(w::VerticalAlignment::Center);
+            _ = menu_bar.cast::<w::IControl>().and_then(|c| c.SetBackground(None::<&w::Brush>));
+        }
         _ = children.Append(&element);
         parts.menu_bar = Some(menu_bar);
+    }
+    if in_title_bar {
+        _ = update_title_bar_height(parts);
     }
     apply_min_size(parts);
     if let Some(size) = parts.requested {

@@ -70,6 +70,8 @@ pub struct BackendOptions {
     pub locale: Option<String>,
     /// Where windows put their toolbar.
     pub toolbar: ToolbarPlace,
+    /// Where windows put their menu bar.
+    pub menu_bar: MenuBarPlace,
 }
 
 impl Default for BackendOptions {
@@ -81,6 +83,7 @@ impl Default for BackendOptions {
             private_clipboard: false,
             locale: None,
             toolbar: ToolbarPlace::default(),
+            menu_bar: MenuBarPlace::default(),
         }
     }
 }
@@ -95,6 +98,18 @@ pub enum ToolbarPlace {
     #[default]
     BelowTitleBar,
     InTitleBar(ToolbarAlign),
+}
+
+/// Where a window's menu bar goes: on its own row under the title bar (the
+/// default), or in the title bar, after the title, as in Paint and Visual
+/// Studio, so the content gets the row. An app picks it for all its
+/// windows with [`set_menu_bar_place`](crate::set_menu_bar_place) before
+/// [`run`](crate::run).
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub enum MenuBarPlace {
+    #[default]
+    BelowTitleBar,
+    InTitleBar,
 }
 
 /// Where a toolbar in the title bar sits in its room: after the title, in
@@ -165,6 +180,11 @@ pub(crate) struct WindowParts {
     toolbar_items: Vec<(NodeId, w::AppBarElementContainer)>,
     /// Where the toolbar goes when it's made (`BackendOptions::toolbar`).
     toolbar_place: ToolbarPlace,
+    /// Where the menu bar goes (`BackendOptions::menu_bar`).
+    menu_bar_place: MenuBarPlace,
+    /// The title bar's content while the menu bar is in the title bar: the
+    /// menu bar, then a toolbar placed there too, in the room it leaves.
+    title_content: Option<w::Grid>,
     /// Its sidebar's node and navigation view, while it has one: the
     /// view's content is the host.
     sidebar: Option<(NodeId, w::NavigationView)>,

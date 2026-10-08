@@ -9,7 +9,7 @@ use mitsuami_core::services::MenuBar;
 use mitsuami_core::{AppInfo, Ui};
 use windows_core::Interface;
 
-use crate::backend::{BackendOptions, ToolbarPlace, WinUiBackend, WinUiHandle};
+use crate::backend::{BackendOptions, MenuBarPlace, ToolbarPlace, WinUiBackend, WinUiHandle};
 use crate::bindings as w;
 use crate::runtime;
 
@@ -18,6 +18,8 @@ thread_local! {
     static SCHEDULE: RefCell<Option<Rc<dyn Fn()>>> = const { RefCell::new(None) };
     /// Where `run`'s windows put their toolbar (`set_toolbar_place`).
     static TOOLBAR: Cell<ToolbarPlace> = const { Cell::new(ToolbarPlace::BelowTitleBar) };
+    /// Where `run`'s windows put their menu bar (`set_menu_bar_place`).
+    static MENU_BAR: Cell<MenuBarPlace> = const { Cell::new(MenuBarPlace::BelowTitleBar) };
 }
 
 /// Where the app's windows put their toolbar: called before [`run`], on
@@ -25,6 +27,13 @@ thread_local! {
 /// `platform!` arm: `windows => mitsuami::winui::set_toolbar_place(ToolbarPlace::InTitleBar(ToolbarAlign::End))`.
 pub fn set_toolbar_place(place: ToolbarPlace) {
     TOOLBAR.with(|t| t.set(place));
+}
+
+/// Where the app's windows put their menu bar: called before [`run`], on
+/// the thread that runs it. A WinUI-only choice, as the toolbar's is:
+/// `windows => mitsuami::winui::set_menu_bar_place(MenuBarPlace::InTitleBar)`.
+pub fn set_menu_bar_place(place: MenuBarPlace) {
+    MENU_BAR.with(|m| m.set(place));
 }
 
 /// Starts the app: `setup` creates the windows, then XAML's event loop
@@ -40,7 +49,11 @@ pub fn set_toolbar_place(place: ToolbarPlace) {
 /// the next `sleep` deadline. Ticks keep working inside modal loops (window
 /// moves and live resizing), which run the queue too.
 pub fn run(info: AppInfo, setup: impl FnOnce(&Ui)) {
-    let backend = WinUiBackend::new(BackendOptions { toolbar: TOOLBAR.with(Cell::get), ..BackendOptions::default() });
+    let backend = WinUiBackend::new(BackendOptions {
+        toolbar: TOOLBAR.with(Cell::get),
+        menu_bar: MENU_BAR.with(Cell::get),
+        ..BackendOptions::default()
+    });
     let handle = backend.handle();
     let ui = Ui::new(backend);
     // Before any window: the AppUserModelID must be set before the app
