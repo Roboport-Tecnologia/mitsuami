@@ -5,13 +5,18 @@ use mitsuami_core::backend::{CaptureError, Image};
 use objc2::Message;
 use objc2_app_kit::NSBitmapFormat;
 
-use super::AppKitBackend;
+use super::{AppKitBackend, Widget};
 
 impl AppKitBackend {
     pub(super) fn capture_now(&self, id: NodeId) -> Result<Image, CaptureError> {
-        let view = {
+        let (view, window_host) = {
             let state = self.state.borrow();
-            state.nodes.get(&id).ok_or(CaptureError::UnknownNode)?.widget.view().retain()
+            let widget = &state.nodes.get(&id).ok_or(CaptureError::UnknownNode)?.widget;
+            let host = match widget {
+                Widget::Window { host, .. } => Some(host.retain()),
+                _ => None,
+            };
+            (widget.view().retain(), host)
         };
         // Views that lay out their own subviews (a table's rows) do it in
         // a layout pass, which offscreen windows only get when asked.
@@ -20,7 +25,15 @@ impl AppKitBackend {
         let rep = view
             .bitmapImageRepForCachingDisplayInRect(bounds)
             .ok_or_else(|| CaptureError::Failed("no bitmap for view".into()))?;
+        // The window's background isn't in the capture, so its host paints
+        // one for it.
+        if let Some(host) = &window_host {
+            host.set_fill(true);
+        }
         view.cacheDisplayInRect_toBitmapImageRep(bounds, &rep);
+        if let Some(host) = &window_host {
+            host.set_fill(false);
+        }
         let (width, height) = (rep.pixelsWide() as usize, rep.pixelsHigh() as usize);
         let (samples, bits, row) = (rep.samplesPerPixel() as usize, rep.bitsPerSample(), rep.bytesPerRow() as usize);
         if bits != 8 || !(samples == 3 || samples == 4) {

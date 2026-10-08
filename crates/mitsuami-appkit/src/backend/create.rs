@@ -71,7 +71,7 @@ impl State {
                 // The core owns the Tab order (reading order, not geometry)
                 // and sends it with SetFocusOrder.
                 window.setAutorecalculatesKeyViewLoop(false);
-                let host = HostView::new(mtm, true);
+                let host = HostView::new(mtm);
                 window.setContentView(Some(&host));
                 let delegate = WindowDelegate::new(mtm, id, self.events.clone(), self.by_view.clone());
                 window.setDelegate(Some(ProtocolObject::from_ref(&*delegate)));
@@ -90,9 +90,9 @@ impl State {
             }
             WidgetKind::Sidebar => Widget::Sidebar(Sidebar::new(mtm, id, self.events.clone())),
             WidgetKind::RadioGroup => Widget::RadioGroup(RadioGroup::new(mtm, id, self.events.clone())),
-            WidgetKind::Container | WidgetKind::ToolbarItem => Widget::Host(HostView::new(mtm, false)),
+            WidgetKind::Container | WidgetKind::ToolbarItem => Widget::Host(HostView::new(mtm)),
             WidgetKind::Group => {
-                let host = HostView::new(mtm, false);
+                let host = HostView::new(mtm);
                 let frame = group_box(mtm, NSSize::new(0.0, 0.0));
                 frame.setAutoresizingMask(
                     NSAutoresizingMaskOptions::ViewWidthSizable | NSAutoresizingMaskOptions::ViewHeightSizable,

@@ -60,8 +60,10 @@ pub(crate) fn clip_origin(clip: &objc2_app_kit::NSClipView, offset: NSPoint) -> 
 }
 
 pub(crate) struct HostIvars {
-    /// Paint the window background (window content views only), so
-    /// offscreen captures look like the real window.
+    /// Paint the window background, while a window's capture draws: an
+    /// offscreen capture has no window background behind the host. On
+    /// screen the window draws its own, which on macOS 26 isn't this flat
+    /// colour, so a host painting it there didn't match the title bar.
     fill: Cell<bool>,
     /// The files it takes when they're dropped on it, if any.
     drop: RefCell<Option<Drop>>,
@@ -144,9 +146,9 @@ define_class!(
 );
 
 impl HostView {
-    pub(crate) fn new(mtm: MainThreadMarker, fill: bool) -> Retained<HostView> {
+    pub(crate) fn new(mtm: MainThreadMarker) -> Retained<HostView> {
         let this = HostView::alloc(mtm).set_ivars(HostIvars {
-            fill: Cell::new(fill),
+            fill: Cell::new(false),
             drop: RefCell::new(None),
             centers: Cell::new(false),
             keys: RefCell::new(None),
@@ -154,10 +156,15 @@ impl HostView {
         unsafe { msg_send![super(this), initWithFrame: zero_rect()] }
     }
 
+    /// Paints the window background, for a window's capture.
+    pub(crate) fn set_fill(&self, fill: bool) {
+        self.ivars().fill.set(fill);
+    }
+
     /// A table's cell: its host is centred in its height, now and as the
     /// row's height changes.
     pub(crate) fn new_cell(mtm: MainThreadMarker) -> Retained<HostView> {
-        let cell = HostView::new(mtm, false);
+        let cell = HostView::new(mtm);
         cell.ivars().centers.set(true);
         cell
     }

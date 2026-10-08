@@ -98,7 +98,7 @@ impl Tabs {
     }
 
     pub(crate) fn insert(&self, mtm: MainThreadMarker, id: NodeId, host: Retained<NSView>, index: usize) {
-        let wrapper = HostView::new(mtm, false);
+        let wrapper = HostView::new(mtm);
         wrapper.addSubview(&host);
         let item = NSTabViewItem::new();
         item.setView(Some(&wrapper));

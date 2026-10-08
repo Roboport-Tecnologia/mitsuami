@@ -258,7 +258,7 @@ define_class!(
             row: NSInteger,
         ) -> Option<Retained<NSView>> {
             let table = self.ivars().data.borrow().table;
-            let cell = if table { HostView::new_cell(self.mtm()) } else { HostView::new(self.mtm(), false) };
+            let cell = if table { HostView::new_cell(self.mtm()) } else { HostView::new(self.mtm()) };
             // A table's columns are named by their index; a list's one is 0.
             let column = column.and_then(|c| c.identifier().to_string().parse().ok()).unwrap_or(0);
             let mut data = self.ivars().data.borrow_mut();
