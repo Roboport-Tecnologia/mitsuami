@@ -563,6 +563,26 @@ fn frame_pixels(parts: &WindowParts, scale: f64) -> (i32, i32) {
     }
 }
 
+/// Centres a window on its display's work area as it's first shown, as
+/// AppKit's backend does (`NSWindow::center`). Left where Windows puts a
+/// new window, it cascades: each one opens further down and right than
+/// the last, across launches, until a window sized afterwards runs past
+/// the bottom of the screen. A window larger than the work area keeps its
+/// top left corner in it.
+pub(super) fn centre_on_work_area(parts: &WindowParts) {
+    let Ok(app) = parts.app_window.cast::<w::IAppWindow>() else { return };
+    let monitor = unsafe { w::MonitorFromWindow(parts.hwnd, w::MONITOR_DEFAULTTONEAREST as u32) };
+    let mut info = w::MONITORINFO { cbSize: std::mem::size_of::<w::MONITORINFO>() as u32, ..Default::default() };
+    if monitor.is_null() || !unsafe { w::GetMonitorInfoW(monitor, &mut info) }.as_bool() {
+        return;
+    }
+    let Ok(size) = app.Size() else { return };
+    let work = info.rcWork;
+    let x = work.left + (work.right - work.left - size.width).max(0) / 2;
+    let y = work.top + (work.bottom - work.top - size.height).max(0) / 2;
+    _ = app.Move(w::PointInt32 { x, y });
+}
+
 /// The app's minimum, no larger than the content of a window filling its
 /// display's work area: a machine's mode can be larger than a laptop's
 /// screen, and Windows would make a window as large as its minimum.
