@@ -1,7 +1,10 @@
 #!/usr/bin/env bash
-# Packages a built example as a macOS app bundle, zipped:
+# Packages a built example as a macOS app bundle in a disk image:
 #
-#   macos-app.sh <binary> <app id> <version> <output.zip>
+#   macos-app.sh <binary> <app id> <version> <output.dmg>
+#
+# The disk image opens to the app beside a link to Applications, to drag it
+# into, as Mac apps are installed.
 #
 # The bundle's name is the desktop entry's (`.github/apps/<app id>.desktop`)
 # and its icon is made from the same SVG as the AppImage's, so each app has
@@ -12,9 +15,11 @@
 # keychain), the bundle is signed with the hardened runtime and notarized
 # with an App Store Connect API key (MACOS_NOTARY_KEY, the .p8's path;
 # MACOS_NOTARY_KEY_ID; MACOS_NOTARY_ISSUER, for a team key), and the ticket
-# is stapled, so Gatekeeper opens it without asking, even offline. Without
-# it, the bundle is signed ad hoc, for trying locally: Gatekeeper asks
-# before a downloaded one's first launch. Unsigned, a downloaded bundle
+# is stapled to it; then the disk image is signed, notarized and stapled
+# too. So Gatekeeper opens both without asking, even offline, and the app
+# keeps its ticket once it's copied out of the image. Without it, the
+# bundle is signed ad hoc, for trying locally: Gatekeeper asks before a
+# downloaded one's first launch. Unsigned, a downloaded bundle
 # whose Info.plist and icon its signature doesn't seal is reported as
 # damaged instead.
 set -euo pipefail
@@ -84,34 +89,69 @@ if [ -f "$here/apps/$id.plist" ]; then
 fi
 plutil -lint "$app/Contents/Info.plist" >/dev/null
 
+# The disk image: the app and a link to Applications, compressed.
+make_dmg() {
+  local staging="$work/dmg"
+  mkdir "$staging"
+  ditto "$app" "$staging/$name.app"
+  ln -s /Applications "$staging/Applications"
+  # hdiutil fails now and then on CI's macOS runners ("Resource busy"):
+  # try again a few times before giving up.
+  local try
+  for try in 1 2 3 4 5; do
+    if hdiutil create -volname "$name" -srcfolder "$staging" -fs HFS+ -format UDZO -ov "$output" >/dev/null; then
+      break
+    fi
+    if [ "$try" = 5 ]; then
+      echo "macos-app.sh: couldn't make $name's disk image" >&2
+      exit 1
+    fi
+    sleep $((try * 5))
+  done
+  rm -rf "$staging"
+}
+
 if [ -z "${MACOS_SIGN_IDENTITY:-}" ]; then
   codesign --force --sign - "$app"
   codesign --verify --strict "$app"
-  ditto -c -k --keepParent "$app" "$output"
+  make_dmg
   rm -rf "$work"
   exit 0
 fi
 
-codesign --force --options runtime --timestamp --sign "$MACOS_SIGN_IDENTITY" "$app"
-codesign --verify --strict "$app"
-
-# notarytool takes a zip; the ticket is then stapled to the bundle, which
-# is zipped again with it.
 issuer=()
 if [ -n "${MACOS_NOTARY_ISSUER:-}" ]; then
   issuer=(--issuer "$MACOS_NOTARY_ISSUER")
 fi
+
+# Submits a zip or a disk image and waits; stops the script if Apple
+# doesn't accept it, after printing its log.
+notarize() {
+  local result
+  result=$(xcrun notarytool submit "$1" --key "$MACOS_NOTARY_KEY" \
+    --key-id "$MACOS_NOTARY_KEY_ID" ${issuer[@]+"${issuer[@]}"} --wait --output-format json)
+  echo "$result"
+  if [ "$(echo "$result" | plutil -extract status raw -)" != Accepted ]; then
+    xcrun notarytool log "$(echo "$result" | plutil -extract id raw -)" --key "$MACOS_NOTARY_KEY" \
+      --key-id "$MACOS_NOTARY_KEY_ID" ${issuer[@]+"${issuer[@]}"} || true
+    echo "macos-app.sh: $2 wasn't notarized" >&2
+    exit 1
+  fi
+}
+
+# The app first: notarytool takes it zipped, and the ticket is stapled to
+# the bundle, so the copy in Applications has its own.
+codesign --force --options runtime --timestamp --sign "$MACOS_SIGN_IDENTITY" "$app"
+codesign --verify --strict "$app"
 ditto -c -k --keepParent "$app" "$work/notarize.zip"
-result=$(xcrun notarytool submit "$work/notarize.zip" --key "$MACOS_NOTARY_KEY" \
-  --key-id "$MACOS_NOTARY_KEY_ID" ${issuer[@]+"${issuer[@]}"} --wait --output-format json)
-echo "$result"
-if [ "$(echo "$result" | plutil -extract status raw -)" != Accepted ]; then
-  xcrun notarytool log "$(echo "$result" | plutil -extract id raw -)" --key "$MACOS_NOTARY_KEY" \
-    --key-id "$MACOS_NOTARY_KEY_ID" ${issuer[@]+"${issuer[@]}"} || true
-  echo "macos-app.sh: $name wasn't notarized" >&2
-  exit 1
-fi
+notarize "$work/notarize.zip" "$name"
 xcrun stapler staple "$app"
 spctl --assess --type execute --verbose "$app"
-ditto -c -k --keepParent "$app" "$output"
+
+# Then the disk image around it.
+make_dmg
+codesign --force --timestamp --sign "$MACOS_SIGN_IDENTITY" "$output"
+notarize "$output" "$name's disk image"
+xcrun stapler staple "$output"
+spctl --assess --type open --context context:primary-signature --verbose "$output"
 rm -rf "$work"

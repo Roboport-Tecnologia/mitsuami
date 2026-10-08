@@ -68,7 +68,9 @@ jobs:
       run:
         shell: bash
     env:
-      SUFFIX: ${{ github.ref_name }}-${{ matrix.name }}
+      # No version in the files' names, so the newest release's are always at
+      # releases/latest/download/<name> (the site links them there).
+      SUFFIX: ${{ matrix.name }}
       SHOWCASE: examples/showcase/Cargo.toml
       # The backend's floor (README), for the Intel half too.
       MACOSX_DEPLOYMENT_TARGET: "11.0"
@@ -113,8 +115,8 @@ jobs:
           echo "MACOS_SIGN_IDENTITY=$identity" >> "$GITHUB_ENV"
           echo "MACOS_NOTARY_KEY=$RUNNER_TEMP/notary.p8" >> "$GITHUB_ENV"
 
-      # One binary for Apple silicon and Intel Macs, in an app bundle,
-      # signed and notarized.
+      # One binary for Apple silicon and Intel Macs, in an app bundle in a
+      # disk image, both signed and notarized.
       - name: Build and package (macOS)
         if: runner.os == 'macOS'
         env:
@@ -130,9 +132,9 @@ jobs:
           lipo -create -output universal/showcase examples/showcase/target/{aarch64,x86_64}-apple-darwin/release/showcase
           lipo -create -output universal/files target/{aarch64,x86_64}-apple-darwin/release/examples/files
           .github/scripts/macos-app.sh universal/showcase br.com.roboport.mitsuami.Showcase \
-            "${GITHUB_REF_NAME#v}" "mitsuami-showcase-$SUFFIX.zip"
+            "${GITHUB_REF_NAME#v}" "mitsuami-showcase-$SUFFIX.dmg"
           .github/scripts/macos-app.sh universal/files br.com.roboport.mitsuami.Files \
-            "${GITHUB_REF_NAME#v}" "mitsuami-files-$SUFFIX.zip"
+            "${GITHUB_REF_NAME#v}" "mitsuami-files-$SUFFIX.dmg"
 
       - name: Build and package (Windows)
         if: runner.os == 'Windows'
@@ -151,7 +153,9 @@ jobs:
       - uses: actions/upload-artifact@v5
         with:
           name: apps-${{ matrix.name }}
-          path: "*.zip"
+          path: |
+            *.dmg
+            *.zip
 
   # The showcase and the Files example for Linux, on GTK and on Qt Quick
   # and Kirigami (the `kde` feature, without GTK): as AppImages, which
@@ -192,7 +196,8 @@ jobs:
       run:
         shell: bash
     env:
-      SUFFIX: ${{ github.ref_name }}-linux-x86_64-${{ matrix.toolkit }}
+      # No version in the names, as for the macOS and Windows apps.
+      SUFFIX: linux-x86_64-${{ matrix.toolkit }}
       QMAKE: ${{ matrix.qmake }}
     steps:
       - name: Install the toolkit
@@ -254,7 +259,7 @@ jobs:
 
           The showcase is every example in one window, picked from its sidebar. Files is a file browser on the real file system. Both are built for each platform:
 
-          - **macOS** (Apple silicon and Intel, macOS 11 or later): app bundles, signed and notarized. Unzip and open.
+          - **macOS** (Apple silicon and Intel, macOS 11 or later): disk images, signed and notarized. Open one and drag the app to Applications.
           - **Windows** (x86_64, Windows 11): needs the [Windows App Runtime 2.4 or later](https://aka.ms/windowsappsdk/2.5/latest/windowsappruntimeinstall-x64.exe). They aren't packaged, and Windows 10 runs WinUI apps only as packages.
           - **Linux** (x86_64): on GTK (`-gtk`) and on Qt Quick and Kirigami, as KDE Plasma's apps are (`-kde`). The GTK ones need glibc 2.39 or later (Ubuntu 24.04 and newer), the KDE ones glibc 2.41 or later (Debian 13, Fedora 42, Ubuntu 25.04 and newer).
             - AppImages bring their toolkit. Make one executable (`chmod +x`) and run it.
