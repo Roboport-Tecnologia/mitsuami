@@ -156,7 +156,9 @@ fn native(appearance: Appearance) -> (Ui, Box<dyn TestHooks>) {
 /// MITSUAMI_SHOW_WINDOWS=1: XAML only lays out and renders live windows.
 #[cfg(windows)]
 fn native(appearance: Appearance) -> (Ui, Box<dyn TestHooks>) {
-    use mitsuami_winui::{BackendOptions, MenuBarPlace, ToolbarPlace, WinUiBackend, WindowPlacement};
+    use mitsuami_winui::{
+        BackendOptions, FullScreenMenuBar, MenuBarPlace, ToolbarPlace, WinUiBackend, WindowPlacement,
+    };
     mitsuami_winui::init_for_tests();
     let backend = WinUiBackend::new(BackendOptions {
         show_windows: show_windows(),
@@ -167,6 +169,7 @@ fn native(appearance: Appearance) -> (Ui, Box<dyn TestHooks>) {
         toolbar: ToolbarPlace::default(),
         menu_bar: MenuBarPlace::default(),
         placement: WindowPlacement::default(),
+        full_screen_menu_bar: FullScreenMenuBar::default(),
     });
     let hooks = backend.handle();
     (Ui::new(backend), Box::new(hooks))

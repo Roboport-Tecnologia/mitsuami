@@ -9047,11 +9047,24 @@ impl IPopup {
                 .and_then(|| windows_core::imp::Type::from_abi(result__))
         }
     }
+    pub fn IsOpen(&self) -> windows_core::Result<bool> {
+        unsafe {
+            let mut result__ = core::mem::zeroed();
+            (windows_core::Interface::vtable(self).IsOpen)(windows_core::Interface::as_raw(self), &mut result__)
+                .map(|| result__)
+        }
+    }
+    pub fn SetIsOpen(&self, value: bool) -> windows_core::Result<()> {
+        unsafe { (windows_core::Interface::vtable(self).SetIsOpen)(windows_core::Interface::as_raw(self), value).ok() }
+    }
 }
 #[repr(C)]
 pub struct IPopup_Vtbl {
     pub base__: windows_core::IInspectable_Vtbl,
     pub Child: unsafe extern "system" fn(*mut core::ffi::c_void, *mut *mut core::ffi::c_void) -> windows_core::HRESULT,
+    SetChild: usize,
+    pub IsOpen: unsafe extern "system" fn(*mut core::ffi::c_void, *mut bool) -> windows_core::HRESULT,
+    pub SetIsOpen: unsafe extern "system" fn(*mut core::ffi::c_void, bool) -> windows_core::HRESULT,
 }
 windows_core::imp::define_interface!(IProgressBar, IProgressBar_Vtbl, 0x87555c8c_0aaf_52c1_8390_0db17f40438e);
 impl windows_core::RuntimeType for IProgressBar {

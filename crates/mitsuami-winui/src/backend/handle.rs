@@ -95,13 +95,16 @@ impl WinUiHandle {
                 }
             }
         }
-        // Windows moved to another display since.
-        let state = self.state.borrow();
+        // Windows moved to another display since, and full-screen menu
+        // bars the pointer went to or left (`reveal`).
+        let mut state = self.state.borrow_mut();
+        let state = &mut *state;
         for id in &state.windows {
-            if let Some(Widget::Window(parts)) = state.nodes.get(id).map(|n| &n.widget)
-                && parts.moved.replace(false)
-            {
-                apply_min_size(parts);
+            if let Some(Widget::Window(parts)) = state.nodes.get_mut(id).map(|n| &mut n.widget) {
+                if parts.moved.replace(false) {
+                    apply_min_size(parts);
+                }
+                super::reveal::update_reveal(parts);
             }
         }
     }

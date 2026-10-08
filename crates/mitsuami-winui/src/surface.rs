@@ -473,6 +473,8 @@ impl HostState {
                     }
                 } else {
                     self.report(SurfaceInput::PointerMoved { position, modifiers });
+                    // A full-screen menu bar at the top edge.
+                    crate::backend::reveal::pointer_moved(self.hwnd);
                 }
                 return true;
             }

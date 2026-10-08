@@ -327,7 +327,7 @@ pub(super) fn update_title_bar_height(parts: &WindowParts) -> R<()> {
 
 /// The title bar's height with tall caption buttons
 /// (`TitleBarHeightOption::Tall`), in epx.
-const TALL_TITLE_BAR: f64 = 48.0;
+pub(super) const TALL_TITLE_BAR: f64 = 48.0;
 
 const TITLE_CONTENT: &str = r#"
 <Grid xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation">
@@ -534,6 +534,9 @@ pub(super) fn apply_full_screen(parts: &mut WindowParts) {
         }
     };
     let now = in_full_screen(&parts.app_window);
+    if !now {
+        _ = super::reveal::hide_reveal(parts);
+    }
     show_title_bar(parts, !now);
     if !on {
         apply_min_size(parts);

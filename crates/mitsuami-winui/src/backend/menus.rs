@@ -100,6 +100,8 @@ fn show_check(item: &w::MenuFlyoutItemBase, check: MenuCheck) {
 }
 
 fn install_menu(parts: &mut WindowParts, menu: &MenuBarData, activate: &Rc<dyn Fn(u32)>) {
+    // Back from the full-screen popup first, where it's replaced.
+    _ = super::reveal::hide_reveal(parts);
     let in_title_bar = parts.menu_bar_place == MenuBarPlace::InTitleBar;
     let parent: R<w::Panel> =
         if in_title_bar { title_content(parts).and_then(|g| g.cast()) } else { parts.bars.cast() };

@@ -14,6 +14,7 @@ mod native_state;
 mod new_window;
 mod perform;
 mod props;
+pub(crate) mod reveal;
 mod scroll;
 mod selection;
 mod styles;
@@ -74,6 +75,8 @@ pub struct BackendOptions {
     pub menu_bar: MenuBarPlace,
     /// Where windows open.
     pub placement: WindowPlacement,
+    /// Whether a menu bar in the title bar can be shown in full screen.
+    pub full_screen_menu_bar: FullScreenMenuBar,
 }
 
 impl Default for BackendOptions {
@@ -87,6 +90,7 @@ impl Default for BackendOptions {
             toolbar: ToolbarPlace::default(),
             menu_bar: MenuBarPlace::default(),
             placement: WindowPlacement::default(),
+            full_screen_menu_bar: FullScreenMenuBar::default(),
         }
     }
 }
@@ -128,6 +132,21 @@ pub enum WindowPlacement {
     #[default]
     System,
     Centred,
+}
+
+/// A menu bar in the title bar in full screen, where the title bar is
+/// hidden: hidden with it (the default), or shown over the content while
+/// the pointer is at the top edge of the screen, as macOS shows its menu
+/// bar in full screen and Edge its toolbar, until the pointer moves back
+/// down with no menu open. Only a pointer the window doesn't capture gets
+/// there (a locked pointer stays in the window). An app picks it with
+/// [`set_full_screen_menu_bar`](crate::set_full_screen_menu_bar) before
+/// [`run`](crate::run).
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub enum FullScreenMenuBar {
+    #[default]
+    Hidden,
+    AtTopEdge,
 }
 
 /// Where a toolbar in the title bar sits in its room: after the title, in
@@ -202,6 +221,12 @@ pub(crate) struct WindowParts {
     menu_bar_place: MenuBarPlace,
     /// Where it opens (`BackendOptions::placement`).
     placement: WindowPlacement,
+    /// Its menu bar in full screen (`BackendOptions::full_screen_menu_bar`),
+    /// and the popup that shows it at the top edge, made the first time,
+    /// while the menu bar is in it.
+    full_screen_menu_bar: FullScreenMenuBar,
+    reveal: Option<w::Popup>,
+    revealed: bool,
     /// The title bar's content while the menu bar is in the title bar: the
     /// menu bar, then a toolbar placed there too, in the room it leaves.
     title_content: Option<w::Grid>,

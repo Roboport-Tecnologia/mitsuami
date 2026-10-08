@@ -78,10 +78,13 @@ mod tabs;
 mod tweak;
 
 #[cfg(all(windows, target_env = "msvc"))]
-pub use app::{init_for_tests, pump, run, set_menu_bar_place, set_toolbar_place, set_window_placement};
+pub use app::{
+    init_for_tests, pump, run, set_full_screen_menu_bar, set_menu_bar_place, set_toolbar_place, set_window_placement,
+};
 #[cfg(all(windows, target_env = "msvc"))]
 pub use backend::{
-    BackendOptions, MenuBarPlace, ToolbarAlign, ToolbarPlace, WinUiBackend, WinUiHandle, WindowPlacement,
+    BackendOptions, FullScreenMenuBar, MenuBarPlace, ToolbarAlign, ToolbarPlace, WinUiBackend, WinUiHandle,
+    WindowPlacement,
 };
 #[cfg(all(windows, target_env = "msvc"))]
 pub use custom::{Emitter, NativeRender, NativeView, WinUiCx, ad_hoc, native};

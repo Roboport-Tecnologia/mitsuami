@@ -9,7 +9,9 @@ use mitsuami_core::services::MenuBar;
 use mitsuami_core::{AppInfo, Ui};
 use windows_core::Interface;
 
-use crate::backend::{BackendOptions, MenuBarPlace, ToolbarPlace, WinUiBackend, WinUiHandle, WindowPlacement};
+use crate::backend::{
+    BackendOptions, FullScreenMenuBar, MenuBarPlace, ToolbarPlace, WinUiBackend, WinUiHandle, WindowPlacement,
+};
 use crate::bindings as w;
 use crate::runtime;
 
@@ -22,6 +24,8 @@ thread_local! {
     static MENU_BAR: Cell<MenuBarPlace> = const { Cell::new(MenuBarPlace::BelowTitleBar) };
     /// Where `run`'s windows open (`set_window_placement`).
     static PLACEMENT: Cell<WindowPlacement> = const { Cell::new(WindowPlacement::System) };
+    /// A menu bar in the title bar in full screen (`set_full_screen_menu_bar`).
+    static FULL_SCREEN_MENU_BAR: Cell<FullScreenMenuBar> = const { Cell::new(FullScreenMenuBar::Hidden) };
 }
 
 /// Where the app's windows put their toolbar: called before [`run`], on
@@ -45,6 +49,15 @@ pub fn set_window_placement(placement: WindowPlacement) {
     PLACEMENT.with(|p| p.set(placement));
 }
 
+/// Whether a menu bar in the title bar
+/// ([`set_menu_bar_place`]) shows in full screen when the pointer reaches
+/// the top edge: called before [`run`], on the thread that runs it, as
+/// the menu bar's place is:
+/// `windows => mitsuami::winui::set_full_screen_menu_bar(FullScreenMenuBar::AtTopEdge)`.
+pub fn set_full_screen_menu_bar(menu_bar: FullScreenMenuBar) {
+    FULL_SCREEN_MENU_BAR.with(|m| m.set(menu_bar));
+}
+
 /// Starts the app: `setup` creates the windows, then XAML's event loop
 /// takes over. Returns when the last window closes.
 ///
@@ -62,6 +75,7 @@ pub fn run(info: AppInfo, setup: impl FnOnce(&Ui)) {
         toolbar: TOOLBAR.with(Cell::get),
         menu_bar: MENU_BAR.with(Cell::get),
         placement: PLACEMENT.with(Cell::get),
+        full_screen_menu_bar: FULL_SCREEN_MENU_BAR.with(Cell::get),
         ..BackendOptions::default()
     });
     let handle = backend.handle();
