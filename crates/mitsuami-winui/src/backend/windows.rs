@@ -124,7 +124,13 @@ fn chrome_height(parts: &WindowParts) -> f64 {
         let actual = element.cast::<w::IFrameworkElement>().and_then(|e| e.ActualHeight()).unwrap_or(0.0);
         if actual > 0.0 { actual } else { measure_element(&element, infinite).height as f64 }
     };
-    let title = height(ok(parts.title_bar.cast(), "title bar element"));
+    // Its height when set (`update_title_bar_height`), which it takes in
+    // the next layout pass, as the window is sized now; none while it's
+    // collapsed (full screen).
+    let shown = parts.title_bar.cast::<w::IUIElement>().and_then(|e| e.Visibility());
+    let set = parts.title_bar.cast::<w::IFrameworkElement>().and_then(|e| e.Height()).ok().filter(|h| h.is_finite());
+    let set = set.filter(|_| shown.is_ok_and(|v| v == w::Visibility::Visible));
+    let title = set.unwrap_or_else(|| height(ok(parts.title_bar.cast(), "title bar element")));
     // In the title bar, it's part of the title bar's height.
     let menu = match parts.menu_bar_place {
         MenuBarPlace::InTitleBar => 0.0,
@@ -310,8 +316,18 @@ pub(super) fn update_title_bar_height(parts: &WindowParts) -> R<()> {
     let menu = parts.menu_bar_place == MenuBarPlace::InTitleBar && parts.menu_bar.is_some();
     let height = if toolbar || menu { w::TitleBarHeightOption::Tall } else { w::TitleBarHeightOption::Standard };
     let caption = parts.app_window.cast::<w::IAppWindow>()?.TitleBar()?;
-    caption.cast::<w::IAppWindowTitleBar2>()?.SetPreferredHeightOption(height)
+    caption.cast::<w::IAppWindowTitleBar2>()?.SetPreferredHeightOption(height)?;
+    // The `TitleBar` grows to the tall caption buttons' 48 epx only in a
+    // later layout pass, after a window opening at a size has been sized
+    // around its old 32, and the content then lost the difference: the
+    // height is set here, so the next measure has it.
+    let tall = if toolbar || menu { TALL_TITLE_BAR } else { f64::NAN };
+    parts.title_bar.cast::<w::IFrameworkElement>()?.SetHeight(tall)
 }
+
+/// The title bar's height with tall caption buttons
+/// (`TitleBarHeightOption::Tall`), in epx.
+const TALL_TITLE_BAR: f64 = 48.0;
 
 const TITLE_CONTENT: &str = r#"
 <Grid xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation">
