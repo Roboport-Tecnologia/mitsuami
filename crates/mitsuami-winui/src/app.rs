@@ -9,7 +9,7 @@ use mitsuami_core::services::MenuBar;
 use mitsuami_core::{AppInfo, Ui};
 use windows_core::Interface;
 
-use crate::backend::{BackendOptions, MenuBarPlace, ToolbarPlace, WinUiBackend, WinUiHandle};
+use crate::backend::{BackendOptions, MenuBarPlace, ToolbarPlace, WinUiBackend, WinUiHandle, WindowPlacement};
 use crate::bindings as w;
 use crate::runtime;
 
@@ -20,6 +20,8 @@ thread_local! {
     static TOOLBAR: Cell<ToolbarPlace> = const { Cell::new(ToolbarPlace::BelowTitleBar) };
     /// Where `run`'s windows put their menu bar (`set_menu_bar_place`).
     static MENU_BAR: Cell<MenuBarPlace> = const { Cell::new(MenuBarPlace::BelowTitleBar) };
+    /// Where `run`'s windows open (`set_window_placement`).
+    static PLACEMENT: Cell<WindowPlacement> = const { Cell::new(WindowPlacement::System) };
 }
 
 /// Where the app's windows put their toolbar: called before [`run`], on
@@ -34,6 +36,13 @@ pub fn set_toolbar_place(place: ToolbarPlace) {
 /// `windows => mitsuami::winui::set_menu_bar_place(MenuBarPlace::InTitleBar)`.
 pub fn set_menu_bar_place(place: MenuBarPlace) {
     MENU_BAR.with(|m| m.set(place));
+}
+
+/// Where the app's windows open: called before [`run`], on the thread
+/// that runs it. A WinUI-only choice, as the menu bar's is:
+/// `windows => mitsuami::winui::set_window_placement(WindowPlacement::Centred)`.
+pub fn set_window_placement(placement: WindowPlacement) {
+    PLACEMENT.with(|p| p.set(placement));
 }
 
 /// Starts the app: `setup` creates the windows, then XAML's event loop
@@ -52,6 +61,7 @@ pub fn run(info: AppInfo, setup: impl FnOnce(&Ui)) {
     let backend = WinUiBackend::new(BackendOptions {
         toolbar: TOOLBAR.with(Cell::get),
         menu_bar: MENU_BAR.with(Cell::get),
+        placement: PLACEMENT.with(Cell::get),
         ..BackendOptions::default()
     });
     let handle = backend.handle();

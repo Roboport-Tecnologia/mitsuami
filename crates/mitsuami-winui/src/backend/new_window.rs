@@ -361,6 +361,7 @@ impl State {
             toolbar_items: Vec::new(),
             toolbar_place: self.options.toolbar,
             menu_bar_place: self.options.menu_bar,
+            placement: self.options.placement,
             title_content: None,
             sidebar: None,
             sidebar_revokers: Vec::new(),

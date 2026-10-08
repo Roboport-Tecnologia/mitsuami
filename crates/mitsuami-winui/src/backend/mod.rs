@@ -72,6 +72,8 @@ pub struct BackendOptions {
     pub toolbar: ToolbarPlace,
     /// Where windows put their menu bar.
     pub menu_bar: MenuBarPlace,
+    /// Where windows open.
+    pub placement: WindowPlacement,
 }
 
 impl Default for BackendOptions {
@@ -84,6 +86,7 @@ impl Default for BackendOptions {
             locale: None,
             toolbar: ToolbarPlace::default(),
             menu_bar: MenuBarPlace::default(),
+            placement: WindowPlacement::default(),
         }
     }
 }
@@ -110,6 +113,21 @@ pub enum MenuBarPlace {
     #[default]
     BelowTitleBar,
     InTitleBar,
+}
+
+/// Where a window opens: where Windows puts a new window (the default),
+/// or centred on its display's work area, as AppKit's backend opens
+/// windows. Windows cascades new windows, each further down and right
+/// than the last, across launches; either way a window that would run
+/// past the work area is moved back inside it. An app picks it for all
+/// its windows with [`set_window_placement`](crate::set_window_placement)
+/// before [`run`](crate::run). Dialogs are centred on their owner either
+/// way.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub enum WindowPlacement {
+    #[default]
+    System,
+    Centred,
 }
 
 /// Where a toolbar in the title bar sits in its room: after the title, in
@@ -182,6 +200,8 @@ pub(crate) struct WindowParts {
     toolbar_place: ToolbarPlace,
     /// Where the menu bar goes (`BackendOptions::menu_bar`).
     menu_bar_place: MenuBarPlace,
+    /// Where it opens (`BackendOptions::placement`).
+    placement: WindowPlacement,
     /// The title bar's content while the menu bar is in the title bar: the
     /// menu bar, then a toolbar placed there too, in the room it leaves.
     title_content: Option<w::Grid>,

@@ -11,7 +11,7 @@ use super::focus::{report_focus, resolve, restore_focus};
 use super::menus::refresh_menu;
 use super::new_window::{icon_size, request_close};
 use super::windows::{
-    apply_full_screen, apply_maximized, apply_min_size, centre_on_work_area, resize_client, set_transparent,
+    apply_full_screen, apply_maximized, apply_min_size, place_window, resize_client, set_transparent,
 };
 use super::{State, Widget, WinUiHandle, WindowParts};
 use crate::bindings as w;
@@ -79,7 +79,7 @@ impl WinUiHandle {
             if let Some(Widget::Window(parts)) = state.nodes.get_mut(&id).map(|n| &mut n.widget) {
                 // A dialog is centred on its owner (`make_modal`).
                 if parts.modal.is_none() {
-                    centre_on_work_area(parts);
+                    place_window(parts);
                 }
                 set_transparent(parts.hwnd, false);
                 unsafe { _ = w::SetForegroundWindow(parts.hwnd) };

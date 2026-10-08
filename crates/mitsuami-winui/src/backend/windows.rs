@@ -7,7 +7,7 @@ use mitsuami_core::{NodeId, Rect, Size, UiEvent};
 use windows_core::{IInspectable, Interface};
 
 use super::measure::measure_element;
-use super::{Events, MenuBarPlace, R, SPACING, ToolbarAlign, ToolbarPlace, WindowParts, ok};
+use super::{Events, MenuBarPlace, R, SPACING, ToolbarAlign, ToolbarPlace, WindowParts, WindowPlacement, ok};
 use crate::bindings as w;
 
 impl WindowParts {
@@ -563,24 +563,33 @@ fn frame_pixels(parts: &WindowParts, scale: f64) -> (i32, i32) {
     }
 }
 
-/// Centres a window on its display's work area as it's first shown, as
-/// AppKit's backend does (`NSWindow::center`). Left where Windows puts a
-/// new window, it cascades: each one opens further down and right than
-/// the last, across launches, until a window sized afterwards runs past
-/// the bottom of the screen. A window larger than the work area keeps its
-/// top left corner in it.
-pub(super) fn centre_on_work_area(parts: &WindowParts) {
+/// Places a window as it's first shown, its size applied
+/// (`WindowPlacement`): where Windows put it, or centred on its display's
+/// work area. Windows cascades new windows, each further down and right
+/// than the last, across launches, and places them by the size they were
+/// made at, so one sized afterwards ran past the bottom of the screen: a
+/// window that would is moved back inside the work area either way. A
+/// window larger than the work area keeps its top left corner in it.
+pub(super) fn place_window(parts: &WindowParts) {
     let Ok(app) = parts.app_window.cast::<w::IAppWindow>() else { return };
     let monitor = unsafe { w::MonitorFromWindow(parts.hwnd, w::MONITOR_DEFAULTTONEAREST as u32) };
     let mut info = w::MONITORINFO { cbSize: std::mem::size_of::<w::MONITORINFO>() as u32, ..Default::default() };
     if monitor.is_null() || !unsafe { w::GetMonitorInfoW(monitor, &mut info) }.as_bool() {
         return;
     }
-    let Ok(size) = app.Size() else { return };
+    let (Ok(size), Ok(at)) = (app.Size(), app.Position()) else { return };
     let work = info.rcWork;
-    let x = work.left + (work.right - work.left - size.width).max(0) / 2;
-    let y = work.top + (work.bottom - work.top - size.height).max(0) / 2;
-    _ = app.Move(w::PointInt32 { x, y });
+    let room = (work.right - work.left - size.width, work.bottom - work.top - size.height);
+    let to = match parts.placement {
+        WindowPlacement::Centred => w::PointInt32 { x: work.left + room.0.max(0) / 2, y: work.top + room.1.max(0) / 2 },
+        WindowPlacement::System => w::PointInt32 {
+            x: at.x.min(work.left + room.0).max(work.left),
+            y: at.y.min(work.top + room.1).max(work.top),
+        },
+    };
+    if (to.x, to.y) != (at.x, at.y) {
+        _ = app.Move(to);
+    }
 }
 
 /// The app's minimum, no larger than the content of a window filling its
