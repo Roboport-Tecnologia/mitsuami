@@ -33,12 +33,12 @@ use mitsuami_core::{
 use objc2::rc::Retained;
 use objc2::{AnyThread, MainThreadMarker, Message};
 use objc2_app_kit::{
-    NSApplication, NSBox, NSButton, NSControl, NSImage, NSImageView, NSPopUpButton, NSProgressIndicator, NSScrollView,
+    NSApplication, NSBox, NSButton, NSControl, NSImage, NSImageView, NSPopUpButton, NSProgressIndicator,
     NSSlider, NSSwitch, NSTextField, NSView, NSWindow,
 };
 use objc2_foundation::{NSBundle, NSData, NSString};
 
-use crate::classes::{ActionTarget, ClosureTarget, DrawnView, HostView, ViewMap, WindowDelegate};
+use crate::classes::{ActionTarget, ClosureTarget, DrawnView, EdgeScrollView, HostView, ViewMap, WindowDelegate};
 use crate::custom::ErasedRender;
 use crate::number_field::NumberField;
 use crate::radio::RadioGroup;
@@ -132,7 +132,7 @@ enum Widget {
     Icon(Retained<NSImageView>),
     FileIcon(Retained<NSImageView>),
     GpuSurface(Retained<SurfaceView>),
-    Scroll(Retained<NSScrollView>),
+    Scroll(Retained<EdgeScrollView>),
     List(crate::list::List),
     /// A custom widget with an AppKit render, and the props it last got.
     Custom {

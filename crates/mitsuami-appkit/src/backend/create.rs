@@ -288,7 +288,7 @@ impl State {
                 &font(TextStyle::Body),
             )),
             WidgetKind::ScrollView => {
-                let scroll = NSScrollView::initWithFrame(NSScrollView::alloc(mtm), crate::classes::zero_rect());
+                let scroll = crate::classes::EdgeScrollView::new(mtm);
                 scroll.setDrawsBackground(false);
                 scroll.setAutohidesScrollers(true);
                 // The core places the content; AppKit mustn't inset it for

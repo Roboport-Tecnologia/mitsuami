@@ -377,7 +377,7 @@ pub(super) fn native_state(state: &State, id: NodeId) -> Option<NativeState> {
         }
         Widget::Tabs(tabs) => (tabs.ids(), None),
         Widget::Scroll(scroll) => {
-            let origin = scroll.contentView().bounds().origin;
+            let origin = crate::classes::scrolled(&scroll.contentView());
             (
                 scroll.documentView().and_then(|d| by_view.get(&key(&d)).copied()).into_iter().collect(),
                 Some(Point::new(origin.x as f32, origin.y as f32)),

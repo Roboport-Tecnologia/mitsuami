@@ -89,7 +89,7 @@ impl AppKitBackend {
         }
         if let SyntheticInput::Scroll { dx, dy } = input {
             let (scroll, axes) = match self.state.borrow().nodes.get(&id).map(|n| (&n.widget, n.scroll_axes)) {
-                Some((Widget::Scroll(scroll), axes)) => (scroll.clone(), axes),
+                Some((Widget::Scroll(scroll), axes)) => (objc2::rc::Retained::into_super(scroll.clone()), axes),
                 Some((Widget::List(list), _)) => {
                     let axes =
                         if list.scroll.hasHorizontalScroller() { ScrollAxes::Both } else { ScrollAxes::Vertical };

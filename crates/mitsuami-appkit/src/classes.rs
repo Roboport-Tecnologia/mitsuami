@@ -19,13 +19,13 @@ use objc2::{
 use objc2_app_kit::{
     NSButton, NSClickGestureRecognizer, NSColor, NSControl, NSControlStateValueOn, NSControlTextEditingDelegate,
     NSDragOperation, NSDraggingInfo, NSEvent, NSEventModifierFlags, NSEventType, NSPasteboardTypeFileURL,
-    NSPopUpButton, NSRectFill, NSScreen, NSSearchFieldDelegate, NSSlider, NSSwitch, NSText, NSTextDelegate,
+    NSPopUpButton, NSRectFill, NSScreen, NSScrollView, NSSearchFieldDelegate, NSSlider, NSSwitch, NSText, NSTextDelegate,
     NSTextField, NSTextFieldDelegate, NSTextView, NSTextViewDelegate, NSTrackingArea, NSTrackingAreaOptions, NSView,
     NSViewFrameDidChangeNotification, NSWindow, NSWindowDelegate, NSWindowStyleMask,
 };
 use objc2_foundation::{
     NSArray, NSKeyValueObservingOptions, NSNotification, NSNotificationCenter, NSObjectNSKeyValueObserverRegistration,
-    NSPoint, NSRect, NSSize, NSString, NSURL,
+    NSEdgeInsets, NSPoint, NSRect, NSSize, NSString, NSURL,
 };
 
 use crate::keys::Keys;
@@ -144,6 +144,48 @@ define_class!(
         }
     }
 );
+
+define_class!(
+    /// A scroll view that can run up under its window's title bar and
+    /// toolbar, as Finder's does, so what scrolls under them shows through
+    /// (macOS 26 blurs it at the bar's edge). The part under the bar is
+    /// outside its alignment rect, which is where the core placed it, and
+    /// its content starts below the bar (`contentInsets`).
+    #[unsafe(super(NSScrollView, NSView))]
+    #[thread_kind = MainThreadOnly]
+    #[ivars = Cell<f64>]
+    pub(crate) struct EdgeScrollView;
+
+    impl EdgeScrollView {
+        #[unsafe(method(alignmentRectInsets))]
+        fn alignment_rect_insets(&self) -> NSEdgeInsets {
+            NSEdgeInsets { top: self.ivars().get(), left: 0.0, bottom: 0.0, right: 0.0 }
+        }
+    }
+);
+
+impl EdgeScrollView {
+    pub(crate) fn new(mtm: MainThreadMarker) -> Retained<EdgeScrollView> {
+        let this = EdgeScrollView::alloc(mtm).set_ivars(Cell::new(0.0));
+        unsafe { msg_send![super(this), initWithFrame: zero_rect()] }
+    }
+
+    /// Runs this far up under the bar (zero: not under it), keeping where
+    /// the core placed it and how far it's scrolled.
+    pub(crate) fn set_under_bar(&self, height: f64) {
+        if self.ivars().get() == height {
+            return;
+        }
+        let placed = self.alignmentRectForFrame(self.frame());
+        let clip = self.contentView();
+        let offset = scrolled(&clip);
+        self.ivars().set(height);
+        self.setContentInsets(NSEdgeInsets { top: height, left: 0.0, bottom: 0.0, right: 0.0 });
+        self.setFrame(self.frameForAlignmentRect(placed));
+        clip.scrollToPoint(clip_origin(&clip, offset));
+        self.reflectScrolledClipView(&clip);
+    }
+}
 
 impl HostView {
     pub(crate) fn new(mtm: MainThreadMarker) -> Retained<HostView> {

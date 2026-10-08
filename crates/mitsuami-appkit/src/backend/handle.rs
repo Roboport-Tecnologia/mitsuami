@@ -3,7 +3,7 @@
 use mitsuami_core::{Command, NativeAppInfo, NativeIcon, NodeId, Size, WidgetKind};
 use objc2::Message;
 use objc2::rc::Retained;
-use objc2_app_kit::{NSApplication, NSView};
+use objc2_app_kit::{NSApplication, NSScrollView, NSView};
 use objc2_foundation::{NSBundle, NSDate, NSDefaultRunLoopMode, NSProcessInfo, NSRunLoop};
 
 use super::{AppKitHandle, State, Widget};
@@ -102,6 +102,7 @@ impl mitsuami_core::TestHooks for AppKitHandle {
         let state = self.state.borrow();
         state.layout_lists();
         state.layout_toolbars();
+        state.extend_under_bars();
     }
 }
 
@@ -190,7 +191,43 @@ impl State {
                 layout_toolbar(&node.widget);
             }
         }
+        self.extend_under_bars();
     }
+
+    /// Runs the scroll views at the top of a window with a sidebar up under
+    /// its title bar and toolbar, as Finder's content does: the content view
+    /// is full size there, and the host below the bar. A scroll view inside
+    /// another one, or a list, moves as that scrolls, so it stays put.
+    pub(super) fn extend_under_bars(&self) {
+        for node in self.nodes.values() {
+            let Widget::Scroll(scroll) = &node.widget else { continue };
+            let mut host = None;
+            let mut parent = node.parent;
+            while let Some(node) = parent.and_then(|id| self.nodes.get(&id)) {
+                match &node.widget {
+                    Widget::Window { host: window, split: Some(_), .. } => host = Some(window),
+                    Widget::Window { .. } | Widget::Scroll(_) | Widget::List(_) => {}
+                    _ => {
+                        parent = node.parent;
+                        continue;
+                    }
+                }
+                break;
+            }
+            let height = match host {
+                Some(host) if at_top(scroll, host) => unsafe { host.superview() }.map_or(0.0, |v| v.safeAreaInsets().top),
+                _ => 0.0,
+            };
+            scroll.set_under_bar(height);
+        }
+    }
+}
+
+/// Whether the core put the scroll view at the top of its window's host.
+fn at_top(scroll: &NSScrollView, host: &NSView) -> bool {
+    let Some(superview) = unsafe { scroll.superview() }.filter(|_| scroll.isDescendantOf(host)) else { return false };
+    let placed = superview.convertRect_toView(scroll.alignmentRectForFrame(scroll.frame()), Some(host));
+    placed.origin.y.abs() < 0.5 && placed.size.height > 0.0
 }
 
 fn layout_toolbar(widget: &Widget) {
