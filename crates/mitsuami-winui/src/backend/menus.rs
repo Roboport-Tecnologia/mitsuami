@@ -15,8 +15,13 @@ use super::{ContextMenu, MenuBarPlace, MenuItems, Menus, R, WinUiBackend, Window
 use crate::bindings as w;
 
 impl ContextMenu {
-    pub(super) fn new(activate: Rc<dyn Fn(u32)>, own: Option<w::FlyoutBase>) -> ContextMenu {
+    pub(crate) fn new(activate: Rc<dyn Fn(u32)>, own: Option<w::FlyoutBase>) -> ContextMenu {
         ContextMenu { sent: Vec::new(), flyout: None, items: MenuItems::default(), revokers: Vec::new(), activate, own }
+    }
+
+    /// The flyout showing it, none while it's empty.
+    pub(crate) fn flyout(&self) -> Option<&w::MenuFlyout> {
+        self.flyout.as_ref()
     }
 
     pub(super) fn has_items(menu: &Option<ContextMenu>) -> bool {
@@ -26,7 +31,7 @@ impl ContextMenu {
     /// Shows `entries`: in place when only enabled and checked states
     /// changed, so an open menu stays open, as the menu bar does; else a
     /// new flyout (none for no entries). Whether the flyout was replaced.
-    pub(super) fn update(&mut self, entries: &[MenuEntry], scope: String) -> R<bool> {
+    pub(crate) fn update(&mut self, entries: &[MenuEntry], scope: String) -> R<bool> {
         let replaced = if self.flyout.is_some() && as_menu_bar(entries).same_structure(&as_menu_bar(&self.sent)) {
             update_items(&self.items, &as_menu_bar(entries));
             false
@@ -438,10 +443,19 @@ impl WinUiBackend {
             if node.control().cast::<w::IControl>().and_then(|c| c.IsEnabled()).is_ok_and(|on| !on) {
                 return Err(ActionError::Disabled);
             }
-            let menu = if button { &node.button_menu } else { &node.context_menu };
-            let menu = menu.as_ref().filter(|menu| menu.flyout.is_some()).ok_or(ActionError::Unsupported)?;
-            let element = menu.items.borrow().get(&item).map(|(element, _)| element.clone());
-            (element.ok_or(ActionError::Unsupported)?, menu.items.clone(), menu.activate.clone())
+            // A sidebar's items each have a menu of their own.
+            if let (false, super::Widget::Sidebar(sidebar)) = (button, &node.widget) {
+                let found = sidebar.with_menu(item, |menu| {
+                    let element = menu.items.borrow().get(&item).map(|(element, _)| element.clone());
+                    element.map(|e| (e, menu.items.clone(), menu.activate.clone()))
+                });
+                found.flatten().ok_or(ActionError::Unsupported)?
+            } else {
+                let menu = if button { &node.button_menu } else { &node.context_menu };
+                let menu = menu.as_ref().filter(|menu| menu.flyout.is_some()).ok_or(ActionError::Unsupported)?;
+                let element = menu.items.borrow().get(&item).map(|(element, _)| element.clone());
+                (element.ok_or(ActionError::Unsupported)?, menu.items.clone(), menu.activate.clone())
+            }
         };
         if !element.cast::<w::IControl>().and_then(|c| c.IsEnabled()).unwrap_or(false) {
             return Err(ActionError::Disabled);

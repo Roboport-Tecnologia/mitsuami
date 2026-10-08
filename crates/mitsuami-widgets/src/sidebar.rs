@@ -2,11 +2,12 @@
 
 use std::rc::Rc;
 
+use mitsuami_core::services::{ItemMenus, Menu, MenuEntries};
 use mitsuami_core::{
     CurrentWindow, Element, EventValue, NodeId, Prop, SidebarItemData, SidebarSectionData, Tweak, Ui, UiEvent, View,
     WidgetKind,
 };
-use mitsuami_reactive::{IntoValue, Signal, Value, effect, inject, on_cleanup};
+use mitsuami_reactive::{IntoValue, Signal, Value, effect, inject, on_cleanup, signal};
 
 /// The sidebar of the window it's declared in: the list down its leading
 /// side that picks what the window shows, as in macOS's System Settings
@@ -41,19 +42,49 @@ use mitsuami_reactive::{IntoValue, Signal, Value, effect, inject, on_cleanup};
 /// ))
 /// ```
 ///
+/// Items can be what the window is about rather than its pages, as
+/// Mail's mailboxes or a VM manager's machines are: a `subtitle` under
+/// the title, a `context_menu` each, `on_activate` for a double-click or
+/// Enter, and `children_with` for items that come and go.
+///
 /// In `view!`: `<Sidebar selection=page>`, with
 /// `<SidebarItem value=Page::General>"General"</SidebarItem>`s and
 /// `<SidebarSection title="Network">`s as children.
 pub struct Sidebar<T: 'static> {
     selection: Signal<T>,
     sections: Vec<SidebarSection<T>>,
+    /// Built again whenever what it reads changes, after `sections`.
+    dynamic: Option<Box<dyn Fn() -> Vec<SidebarSection<T>>>>,
     shown: Option<Signal<bool>>,
+    activate: Option<Rc<dyn Fn(T)>>,
     tweak: Option<Tweak<Sidebar<T>>>,
 }
 
 impl<T: PartialEq + Clone + 'static> Sidebar<T> {
     pub fn new(selection: Signal<T>) -> Sidebar<T> {
-        Sidebar { selection, sections: Vec::new(), shown: None, tweak: None }
+        Sidebar { selection, sections: Vec::new(), dynamic: None, shown: None, activate: None, tweak: None }
+    }
+
+    /// Items and sections built by `entries`, and built again whenever what
+    /// it reads changes (a list of documents, of machines), after any
+    /// `children`. An item whose value is gone stops being chosen, and the
+    /// selection is left as it is.
+    pub fn children_with<E: SidebarEntries<T>>(mut self, entries: impl Fn() -> E + 'static) -> Sidebar<T> {
+        self.dynamic = Some(Box::new(move || {
+            let mut sections = Vec::new();
+            entries().add_to(&mut sections);
+            sections
+        }));
+        self
+    }
+
+    /// Called with an item's value when it's activated, where the
+    /// platform's sidebar has that, as a list's row is: double-clicked or
+    /// Enter pressed on it (AppKit, GTK, Kirigami; WinUI's double-tap).
+    /// The item is chosen first.
+    pub fn on_activate(mut self, activate: impl Fn(T) + 'static) -> Sidebar<T> {
+        self.activate = Some(Rc::new(activate));
+        self
     }
 
     /// Shown beside the window's content while `shown` is true, hidden
@@ -97,9 +128,11 @@ impl<T: PartialEq + Clone + 'static> View for Sidebar<T> {
         let Some(CurrentWindow(window)) = inject::<CurrentWindow>() else {
             panic!("a Sidebar goes in a window's content");
         };
-        let Sidebar { selection, sections, shown: showing, tweak } = self;
-        let values: Rc<Vec<T>> =
-            Rc::new(sections.iter().flat_map(|s| s.items.iter().map(|i| i.value.clone())).collect());
+        let Sidebar { selection, sections, dynamic, shown: showing, activate, tweak } = self;
+        // The items' values in order, which an index from the platform
+        // names: they change when `children_with` builds new items.
+        let values: Signal<Vec<T>> = signal(Vec::new());
+        let menus = ItemMenus::new();
         let mut element = Element::new(WidgetKind::Sidebar);
         if let Some(tweak) = tweak {
             tweak.apply(&mut element);
@@ -107,32 +140,54 @@ impl<T: PartialEq + Clone + 'static> View for Sidebar<T> {
         let sidebar = element.build(ui);
         ui.append_child(window, sidebar);
         // The items first: the selection is an index into them.
-        let shown = ui.clone();
+        let (shown, item_menus) = (ui.clone(), menus.clone());
         effect(move || {
-            let data = sections
+            let built = dynamic.as_ref().map(|entries| entries()).unwrap_or_default();
+            let all: Vec<&SidebarSection<T>> = sections.iter().chain(&built).collect();
+            let items = all.iter().flat_map(|s| &s.items);
+            let mut entries =
+                item_menus.collect(&items.clone().map(|i| i.menu.as_ref()).collect::<Vec<_>>()).into_iter();
+            let data = all
                 .iter()
                 .map(|section| SidebarSectionData {
                     title: section.title.as_ref().map(|t| t.get()),
                     items: section
                         .items
                         .iter()
-                        .map(|item| SidebarItemData { title: item.title.get(), icon: item.icon.clone() })
+                        .map(|item| SidebarItemData {
+                            title: item.title.get(),
+                            icon: item.icon.clone(),
+                            subtitle: item.subtitle.as_ref().map(|s| s.get()),
+                            menu: entries.next().unwrap_or_default(),
+                        })
                         .collect(),
                 })
                 .collect();
+            let now: Vec<T> = items.map(|i| i.value.clone()).collect();
+            if values.with_untracked(|v| *v != now) {
+                values.set(now);
+            }
             shown.set_prop(sidebar, Prop::Sections(data));
         });
-        let (chosen, index_of) = (ui.clone(), values.clone());
+        let chosen = ui.clone();
         effect(move || {
-            let index = selection.with(|value| index_of.iter().position(|v| v == value));
+            let index = selection.with(|value| values.with(|v| v.iter().position(|v| v == value)));
             chosen.set_prop(sidebar, Prop::SelectedIndex(index));
         });
-        ui.on_event(sidebar, move |event| {
-            if let UiEvent::Changed(EventValue::Index(index)) = event
-                && let Some(value) = values.get(*index)
-            {
-                selection.set(value.clone());
+        let value_at = move |index: usize| values.with_untracked(|v| v.get(index).cloned());
+        ui.on_event(sidebar, move |event| match event {
+            UiEvent::Changed(EventValue::Index(index)) => {
+                if let Some(value) = value_at(*index) {
+                    selection.set(value);
+                }
             }
+            UiEvent::SidebarItemActivated(index) => {
+                if let (Some(activate), Some(value)) = (&activate, value_at(*index)) {
+                    activate(value);
+                }
+            }
+            UiEvent::ContextMenuItem(_) => menus.handle(event),
+            _ => {}
         });
         if let Some(showing) = showing {
             let shown = ui.clone();
@@ -185,24 +240,44 @@ impl<T: 'static> SidebarSection<T> {
 }
 
 /// An item of a [`Sidebar`]: a title, the value choosing it gives the
-/// sidebar's selection, and optionally an icon.
+/// sidebar's selection, and optionally an icon, a subtitle and a context
+/// menu.
 ///
 /// In `view!`, its text is its title:
 /// `<SidebarItem value=Page::General icon="gearshape">"General"</SidebarItem>`.
 pub struct SidebarItem<T: 'static> {
     title: Value<String>,
     icon: Option<String>,
+    subtitle: Option<Value<String>>,
+    menu: Option<Menu>,
     value: T,
 }
 
 impl<T: 'static> SidebarItem<T> {
     pub fn new(title: impl IntoValue<String>, value: T) -> SidebarItem<T> {
-        SidebarItem { title: title.into_value(), icon: None, value }
+        SidebarItem { title: title.into_value(), icon: None, subtitle: None, menu: None, value }
     }
 
     /// The value choosing it gives the sidebar's selection.
     pub fn value<U: 'static>(self, value: U) -> SidebarItem<U> {
-        SidebarItem { title: self.title, icon: self.icon, value }
+        SidebarItem { title: self.title, icon: self.icon, subtitle: self.subtitle, menu: self.menu, value }
+    }
+
+    /// A second line under the title, in the platform's secondary style
+    /// (a machine's system and state, a mailbox's account). The row is as
+    /// tall as the two lines need.
+    pub fn subtitle(mut self, subtitle: impl IntoValue<String>) -> SidebarItem<T> {
+        self.subtitle = Some(subtitle.into_value());
+        self
+    }
+
+    /// Its context menu, which the platform shows its own way on the item
+    /// (a right-click, a long press, the menu key). Takes what
+    /// [`ElementBuilder::context_menu`](mitsuami_core::ElementBuilder::context_menu)
+    /// takes, with the same reactive titles and states.
+    pub fn context_menu(mut self, entries: impl MenuEntries) -> SidebarItem<T> {
+        self.menu = Some(Menu::new(String::new()).children(entries));
+        self
     }
 
     /// The name of its icon in the platform's own set, picked with

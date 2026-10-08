@@ -7,6 +7,11 @@
 //!
 //! libadwaita 1.9's `AdwSidebar` is the list GNOME apps move to; it needs
 //! a floor above the 1.4 the split view needs (Ubuntu 24.04 has 1.5).
+//!
+//! An item's subtitle is a dimmed caption under its title, as an
+//! `AdwActionRow`'s; its context menu is its row's, as any widget's is
+//! (`ContextMenu`). A click on a row chooses it (and in a collapsed split
+//! view shows the content), so activating an item is a double-click.
 
 use std::cell::{Cell, RefCell};
 use std::rc::Rc;
@@ -15,6 +20,7 @@ use adw::prelude::*;
 use mitsuami_core::{EventValue, NodeId, SidebarItemData, SidebarSectionData, UiEvent};
 
 use crate::host::{Events, Host};
+use crate::services::ContextMenu;
 
 /// A window narrower than this (in units of the text size) collapses its
 /// split view, as libadwaita's own sidebar example does.
@@ -26,8 +32,9 @@ const COLLAPSE: &str = "max-width: 400sp";
 struct Data {
     sections: Vec<SidebarSectionData>,
     items: Vec<SidebarItemData>,
-    /// One row per item, in order.
+    /// One row per item, in order, and its context menu.
     rows: Vec<gtk::ListBoxRow>,
+    menus: Vec<ContextMenu>,
     /// The item shown selected: the list box can't be told "no change".
     selected: Option<usize>,
     /// The window's split view, once the sidebar is in one.
@@ -67,6 +74,7 @@ impl Data {
 
 /// The sidebar node's native parts: the list in its scrolled window.
 pub(crate) struct Sidebar {
+    id: NodeId,
     pub scrolled: gtk::ScrolledWindow,
     pub list: gtk::ListBox,
     data: Rc<RefCell<Data>>,
@@ -128,6 +136,16 @@ impl Sidebar {
                 Some(_) => {}
             }
         });
+        // A double-click on a row activates its item; the first click chose it.
+        let click = gtk::GestureClick::new();
+        click.set_button(gtk::gdk::BUTTON_PRIMARY);
+        let (l, e) = (list.clone(), events.clone());
+        click.connect_released(move |_, presses, _, y| {
+            if let (2, Some(row)) = (presses, l.row_at_y(y as i32)) {
+                e.emit(id, UiEvent::SidebarItemActivated(row.index() as usize));
+            }
+        });
+        list.add_controller(click);
         // Chosen in a collapsed split view, the content shows.
         let (d, e) = (data.clone(), events.clone());
         list.connect_row_activated(move |_, _| {
@@ -138,7 +156,7 @@ impl Sidebar {
         let scrolled = gtk::ScrolledWindow::new();
         scrolled.set_policy(gtk::PolicyType::Never, gtk::PolicyType::Automatic);
         scrolled.set_child(Some(&list));
-        Sidebar { scrolled, list, data, events, shown: Rc::default() }
+        Sidebar { id, scrolled, list, data, events, shown: Rc::default() }
     }
 
     /// Shown or hidden as the app wants: in a collapsed split view, the
@@ -173,11 +191,20 @@ impl Sidebar {
             data.sections = sections;
             let kept = data.rows.len().min(data.items.len());
             let removed = data.rows.split_off(kept);
-            for (row, item) in data.rows.iter().zip(&data.items) {
-                show_item(row, item);
+            data.menus.truncate(kept);
+            let added: Vec<gtk::ListBoxRow> = data.items[kept..].iter().map(|_| gtk::ListBoxRow::new()).collect();
+            for row in &added {
+                let (events, id) = (self.events.clone(), self.id);
+                let activate = move |item| events.emit(id, UiEvent::ContextMenuItem(item));
+                let menu = ContextMenu::new(row.upcast_ref(), Rc::new(activate));
+                data.rows.push(row.clone());
+                data.menus.push(menu);
             }
-            let added: Vec<gtk::ListBoxRow> = data.items[kept..].iter().map(row).collect();
-            data.rows.extend(added.iter().cloned());
+            let Data { rows, menus, items, .. } = &mut *data;
+            for ((row, menu), item) in rows.iter().zip(menus.iter_mut()).zip(items.iter()) {
+                show_item(row, item);
+                menu.set(row.upcast_ref(), &item.menu);
+            }
             (data.rows.clone(), added, removed, data.selected.filter(|i| *i < data.items.len()))
         };
         // Focus in a row that goes moves to the last that stays.
@@ -221,6 +248,22 @@ impl Sidebar {
         self.list.selected_row().map(|r| r.index() as usize)
     }
 
+    /// The actions of the item's menu that has this id, which choosing it
+    /// in the menu activates.
+    pub(crate) fn chooser(&self, id: u32) -> Option<gtk::gio::SimpleActionGroup> {
+        let data = self.data.borrow();
+        let item = data.items.iter().position(|i| mitsuami_core::services::menu_item_by_id(&i.menu, id).is_some())?;
+        data.menus.get(item).map(ContextMenu::chooser)
+    }
+
+    /// Activates the chosen item, as a double-click on it does. `false` if
+    /// none is chosen.
+    pub(crate) fn activate(&self) -> bool {
+        let Some(item) = self.selected() else { return false };
+        self.events.emit(self.id, UiEvent::SidebarItemActivated(item));
+        true
+    }
+
     /// Selects the first item with this title as the user would, which the
     /// list reports: what a screen reader's select does. `false` if there's
     /// none.
@@ -235,23 +278,31 @@ impl Sidebar {
     }
 }
 
-/// A row showing an item.
-fn row(item: &SidebarItemData) -> gtk::ListBoxRow {
-    let row = gtk::ListBoxRow::new();
-    show_item(&row, item);
-    row
-}
-
-/// Shows the item's icon and title in a row.
+/// Shows the item's icon, title and subtitle in a row.
 fn show_item(row: &gtk::ListBoxRow, item: &SidebarItemData) {
     let content = gtk::Box::new(gtk::Orientation::Horizontal, 12);
     if let Some(icon) = &item.icon {
         content.append(&gtk::Image::from_icon_name(icon));
     }
-    let label = gtk::Label::new(Some(&item.title));
-    label.set_xalign(0.0);
-    label.set_ellipsize(gtk::pango::EllipsizeMode::End);
-    content.append(&label);
+    let label = |text: &str| {
+        let label = gtk::Label::new(Some(text));
+        label.set_xalign(0.0);
+        label.set_ellipsize(gtk::pango::EllipsizeMode::End);
+        label
+    };
+    match &item.subtitle {
+        Some(subtitle) => {
+            let lines = gtk::Box::new(gtk::Orientation::Vertical, 0);
+            lines.set_valign(gtk::Align::Center);
+            lines.append(&label(&item.title));
+            let second = label(subtitle);
+            second.add_css_class("caption");
+            second.add_css_class("dim-label");
+            lines.append(&second);
+            content.append(&lines);
+        }
+        None => content.append(&label(&item.title)),
+    }
     row.set_child(Some(&content));
 }
 

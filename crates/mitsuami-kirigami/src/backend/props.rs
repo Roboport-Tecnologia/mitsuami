@@ -73,7 +73,8 @@ impl State {
                     }
                 }
             }
-            (Prop::Sections(new), Widget::Sidebar { page, sections }) => {
+            (Prop::Sections(new), Widget::Sidebar { page, sections, menus }) => {
+                menus.entries.replace(new.iter().flat_map(|s| &s.items).map(|i| i.menu.clone()).collect());
                 page.set_str("mitsuamiSections", &sections_json(new));
                 *sections = new.clone();
             }

@@ -35,7 +35,12 @@ impl GtkBackend {
                 if !node.widget.focus_widget().is_sensitive() {
                     return Err(ActionError::Disabled);
                 }
-                node.context_menu.as_ref().map(ContextMenu::chooser).ok_or(ActionError::Unsupported)?
+                // A sidebar's items each have a menu of their own.
+                let sidebar = match &node.widget {
+                    Widget::Sidebar(sidebar) => sidebar.chooser(*item),
+                    _ => None,
+                };
+                node.context_menu.as_ref().map(ContextMenu::chooser).or(sidebar).ok_or(ActionError::Unsupported)?
             };
             return choose_context_item(&actions, *item);
         }
@@ -69,6 +74,7 @@ impl GtkBackend {
                 return match action {
                     A11yAction::SetValue(title) if sidebar.choose(title) => Ok(()),
                     A11yAction::Focus if sidebar.list.grab_focus() => Ok(()),
+                    A11yAction::Activate if sidebar.activate() => Ok(()),
                     A11yAction::ScrollIntoView => Ok(()),
                     _ => Err(ActionError::Unsupported),
                 };

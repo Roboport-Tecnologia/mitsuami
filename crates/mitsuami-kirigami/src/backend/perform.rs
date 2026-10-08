@@ -99,6 +99,14 @@ impl KirigamiBackend {
                 };
                 item.set_int("mitsuamiChoice", index.ok_or(ActionError::Unsupported)? as i32);
             }
+            // As a double-click on the chosen item.
+            (A11yAction::Activate, WidgetKind::Sidebar) => {
+                let index = item.int("mitsuamiSelected");
+                if index < 0 {
+                    return Err(ActionError::Unsupported);
+                }
+                item.set_int("mitsuamiActivation", index);
+            }
             // As if its tab were clicked.
             (A11yAction::SetValue(title), WidgetKind::Tabs) => {
                 let index = tab_titles(item).iter().position(|t| t == title).ok_or(ActionError::Unsupported)?;
@@ -177,8 +185,15 @@ impl KirigamiBackend {
             if !node.widget.item().bool("enabled") {
                 return Err(ActionError::Disabled);
             }
-            let menu = if button { &node.button_menu } else { &node.context_menu };
-            menu.as_ref().and_then(|menu| menu.action(item)).ok_or(ActionError::Unsupported)?
+            match (&node.widget, button) {
+                // A sidebar's items each have a menu of their own.
+                (Widget::Sidebar { page, menus, .. }, false) => menus.action(*page, item),
+                _ => {
+                    let menu = if button { &node.button_menu } else { &node.context_menu };
+                    menu.as_ref().and_then(|menu| menu.action(item))
+                }
+            }
+            .ok_or(ActionError::Unsupported)?
         };
         if !action.bool("enabled") {
             return Err(ActionError::Disabled);

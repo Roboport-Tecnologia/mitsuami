@@ -15,6 +15,17 @@ use super::{AppKitBackend, Widget, ns};
 
 impl AppKitBackend {
     pub(super) fn perform_action(&mut self, id: NodeId, action: &A11yAction) -> Result<(), ActionError> {
+        // A sidebar's items each have a menu of their own.
+        if let A11yAction::ContextMenuItem(_) | A11yAction::Activate = action {
+            let state = self.state.borrow();
+            if let Some(Widget::Sidebar(sidebar)) = state.nodes.get(&id).map(|n| &n.widget) {
+                return match action {
+                    A11yAction::ContextMenuItem(item) => sidebar.choose_menu_item(*item),
+                    _ if sidebar.activate() => Ok(()),
+                    _ => Err(ActionError::Unsupported),
+                };
+            }
+        }
         if let A11yAction::ContextMenuItem(item) = action {
             return self.choose_context_menu_item(id, *item);
         }

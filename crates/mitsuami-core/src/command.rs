@@ -137,6 +137,10 @@ pub enum UiEvent {
     /// divider dragged away), or the platform did. Not reported for the
     /// app's own `SidebarShown`. The core absorbs it as `SidebarShown`.
     SidebarShownChanged(bool),
+    /// A `Sidebar`'s item was activated, as a list's row is (double-clicked,
+    /// or Enter pressed on it), where the platform's sidebar has that: its
+    /// index across the sections.
+    SidebarItemActivated(usize),
     /// Platform metrics changed (text size, color scheme, …).
     MetricsChanged,
     /// A `ScrollView`'s or `List`'s scroll offset changed (by the user or

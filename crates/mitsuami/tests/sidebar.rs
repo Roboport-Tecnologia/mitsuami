@@ -398,7 +398,8 @@ async fn the_user_shows_and_hides_it_too(app: TestApp) {
 /// The pages again, with this beside the sidebar, at the content's top.
 fn beside(page: Signal<Page>, content: impl View + 'static) -> impl View {
     Column::new().grow(1.0).children((
-        Sidebar::new(page).children((SidebarItem::new("General", Page::General), SidebarItem::new("Wi-Fi", Page::WiFi))),
+        Sidebar::new(page)
+            .children((SidebarItem::new("General", Page::General), SidebarItem::new("Wi-Fi", Page::WiFi))),
         content,
     ))
 }
@@ -477,6 +478,92 @@ async fn a_scroll_view_at_the_contents_top_scrolls_from_its_top_to_its_end(app: 
     assert_eq!(app.ui().scroll_offset(id), Some(Point::new(0.0, 100.0)));
     app.get_by_test_id("scroll").scroll_by(0.0, 1e6).await;
     assert_eq!(app.ui().scroll_offset(id), Some(Point::new(0.0, 1000.0 - scroll.height())));
+}
+
+/// A sidebar of things rather than pages, as a VM manager's machines: a
+/// subtitle each, a context menu each, and double-click to open one.
+fn machines(
+    names: Signal<Vec<&'static str>>,
+    chosen: Signal<Option<&'static str>>,
+    log: Rc<RefCell<Vec<String>>>,
+) -> impl View {
+    let (deleted, started) = (log.clone(), log);
+    Sidebar::new(chosen)
+        .children_with(move || {
+            let deleted = deleted.clone();
+            names
+                .get()
+                .into_iter()
+                .map(|name| {
+                    let deleted = deleted.clone();
+                    SidebarItem::new(name, Some(name)).subtitle(format!("{name} is stopped")).context_menu((
+                        MenuItem::new("Delete").on_select(move || deleted.borrow_mut().push(format!("delete {name}"))),
+                        MenuItem::new("Rename").enabled(false),
+                    ))
+                })
+                .collect::<Vec<_>>()
+        })
+        .on_activate(move |name| started.borrow_mut().push(format!("start {}", name.unwrap_or_default())))
+}
+
+/// Items built by `children_with` follow what it reads, and the chosen
+/// one stays chosen by its value when others come and go before it.
+#[mitsuami_test::test]
+async fn items_built_again_follow_their_data(app: TestApp) {
+    let (names, chosen) = (signal(vec!["Alpha", "Beta"]), signal(Some("Beta")));
+    app.mount(move || machines(names, chosen, Rc::default()));
+    assert_eq!(outline(&app), ["ListItem Alpha", "ListItem Beta *"]);
+
+    names.set(vec!["Aardvark", "Alpha", "Beta", "Gamma"]);
+    app.settle().await;
+    assert_eq!(outline(&app), ["ListItem Aardvark", "ListItem Alpha", "ListItem Beta *", "ListItem Gamma"]);
+
+    names.set(vec!["Gamma"]);
+    app.settle().await;
+    assert_eq!(outline(&app), ["ListItem Gamma"]);
+    assert_eq!(chosen.get(), Some("Beta"));
+
+    app.get_by_role(Role::ListItem, "Gamma").select().await;
+    assert_eq!(chosen.get(), Some("Gamma"));
+}
+
+/// An item's subtitle is its description to a screen reader, as a row's
+/// second line is.
+#[mitsuami_test::test]
+async fn an_items_subtitle_describes_it(app: TestApp) {
+    let (names, chosen) = (signal(vec!["Alpha", "Beta"]), signal(None));
+    app.mount(move || machines(names, chosen, Rc::default()));
+
+    let beta = app.get_by_role(Role::ListItem, "Beta").node();
+    assert_eq!(beta.description.as_deref(), Some("Beta is stopped"));
+}
+
+/// Each item's context menu runs its own handlers, and a disabled item
+/// can't be chosen.
+#[mitsuami_test::test]
+async fn an_items_context_menu_is_its_own(app: TestApp) {
+    let (names, chosen, log) = (signal(vec!["Alpha", "Beta"]), signal(None), Rc::new(RefCell::new(Vec::new())));
+    let shown = log.clone();
+    app.mount(move || machines(names, chosen, shown.clone()));
+
+    app.get_by_role(Role::ListItem, "Beta").choose_menu_item(&["Delete"]).await;
+    app.get_by_role(Role::ListItem, "Alpha").choose_menu_item(&["Delete"]).await;
+    assert_eq!(*log.borrow(), ["delete Beta", "delete Alpha"]);
+    let (_, menu) = app.get_by_role(Role::ListItem, "Alpha").context_menu().expect("a menu");
+    let rename = mitsuami::core::services::find_menu_item(&menu, &["Rename"]).expect("Rename");
+    assert!(!rename.enabled);
+}
+
+/// A double-click on an item chooses it and activates it.
+#[mitsuami_test::test]
+async fn a_double_click_activates_an_item(app: TestApp) {
+    let (names, chosen, log) = (signal(vec!["Alpha", "Beta"]), signal(None), Rc::new(RefCell::new(Vec::new())));
+    let shown = log.clone();
+    app.mount(move || machines(names, chosen, shown.clone()));
+
+    app.get_by_role(Role::ListItem, "Beta").double_click().await;
+    assert_eq!(chosen.get(), Some("Beta"));
+    assert_eq!(*log.borrow(), ["start Beta"]);
 }
 
 mitsuami_test::main!();

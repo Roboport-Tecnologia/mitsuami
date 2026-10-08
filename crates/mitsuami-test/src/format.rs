@@ -106,7 +106,22 @@ fn describe_props(props: &[Prop]) -> String {
                 let sections: Vec<String> = sections
                     .iter()
                     .map(|section| {
-                        let items: Vec<&str> = section.items.iter().map(|i| i.title.as_str()).collect();
+                        // `Name (subtitle)`, and `…` for an item with a
+                        // context menu.
+                        let items: Vec<String> = section
+                            .items
+                            .iter()
+                            .map(|i| {
+                                let mut item = i.title.clone();
+                                if let Some(subtitle) = &i.subtitle {
+                                    item += &format!(" ({subtitle})");
+                                }
+                                if !i.menu.is_empty() {
+                                    item += "…";
+                                }
+                                item
+                            })
+                            .collect();
                         match &section.title {
                             Some(title) => format!("{title} [{}]", items.join(", ")),
                             None => items.join(", "),

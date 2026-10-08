@@ -292,11 +292,11 @@ impl Inner {
     fn sidebar_items(&self, id: NodeId, frame: Rect) -> Vec<A11yNode> {
         let props = &self.nodes[&id].props;
         let selected = crate::find_prop!(props, SelectedIndex).flatten();
-        let node = |role, name: &str, selected| A11yNode {
+        let node = |role, name: &str, description: Option<&str>, selected| A11yNode {
             id,
             role,
             name: Some(name.to_owned()),
-            description: None,
+            description: description.map(str::to_owned),
             value: None,
             checked: None,
             mixed: false,
@@ -311,9 +311,9 @@ impl Inner {
         let mut out = Vec::new();
         let mut index = 0;
         for section in crate::find_prop!(props, Sections).unwrap_or_default() {
-            out.extend(section.title.as_deref().map(|title| node(Role::Heading, title, None)));
+            out.extend(section.title.as_deref().map(|title| node(Role::Heading, title, None, None)));
             for item in &section.items {
-                out.push(node(Role::ListItem, &item.title, Some(selected == Some(index))));
+                out.push(node(Role::ListItem, &item.title, item.subtitle.as_deref(), Some(selected == Some(index))));
                 index += 1;
             }
         }

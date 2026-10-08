@@ -53,7 +53,7 @@ pub(super) fn font_size(style: TextStyle) -> f64 {
 /// A label's style: its text style's, with its colour on top. The colour
 /// is a setter, so a theme brush follows the theme live, as
 /// `{ThemeResource}` does in a style.
-pub(super) fn set_label_style(label: &w::TextBlock, text_style: Option<TextStyle>, color: Option<Color>) -> R<()> {
+pub(crate) fn set_label_style(label: &w::TextBlock, text_style: Option<TextStyle>, color: Option<Color>) -> R<()> {
     let base = text_style.map(text_style_resource);
     let style = match (color, base) {
         (None, Some(base)) => style(base),

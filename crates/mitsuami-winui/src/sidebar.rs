@@ -7,14 +7,18 @@
 //! guidance has it: without, the view goes from open to the menu button,
 //! and a closed pane, which would show as that strip, is hidden whole,
 //! with the menu button in the title bar to bring it back.
+//!
+//! An item's subtitle is a caption under its title, in the secondary text
+//! colour; its context menu is its item's `ContextFlyout`, as any
+//! control's is; a double tap on it activates it.
 
 use std::cell::{Cell, RefCell};
 use std::rc::{Rc, Weak};
 
-use mitsuami_core::{EventValue, NodeId, SidebarSectionData, UiEvent};
+use mitsuami_core::{Color, EventValue, NodeId, SidebarItemData, SidebarSectionData, TextStyle, UiEvent};
 use windows_core::{EventRevoker, IInspectable, IUnknown, Interface};
 
-use crate::backend::{Events, boxed};
+use crate::backend::{ContextMenu, Events, boxed, set_label_style};
 use crate::bindings as w;
 
 type R<T> = windows_core::Result<T>;
@@ -29,7 +33,12 @@ const COMPACT_FROM: f32 = 641.0;
 
 /// The sidebar node's native parts.
 pub(crate) struct Sidebar {
+    id: NodeId,
+    emitter: Events,
     pub view: w::NavigationView,
+    /// Each item's context menu, and its double tap's revoker.
+    menus: RefCell<Vec<ContextMenu>>,
+    taps: RefCell<Vec<EventRevoker>>,
     /// One per item, in order: what the view's selection is compared with.
     items: Rc<RefCell<Vec<w::NavigationViewItem>>>,
     sections: RefCell<Vec<SidebarSectionData>>,
@@ -78,6 +87,7 @@ impl Sidebar {
         view.cast::<w::INavigationView2>()?.SetIsBackButtonVisible(w::NavigationViewBackButtonVisible::Collapsed)?;
         let items = Rc::new(RefCell::new(Vec::<w::NavigationViewItem>::new()));
         let shown = Rc::new(Cell::new(None));
+        let events = emitter.clone();
         let selection = view.SelectionChanged({
             let (items, shown, emitter) = (items.clone(), shown.clone(), emitter.clone());
             move |_, args| {
@@ -110,7 +120,11 @@ impl Sidebar {
         });
         let [opened, closed] = panes;
         Ok(Sidebar {
+            id,
+            emitter: events,
             view,
+            menus: RefCell::new(Vec::new()),
+            taps: RefCell::new(Vec::new()),
             items,
             sections: RefCell::new(Vec::new()),
             shown,
@@ -155,6 +169,7 @@ impl Sidebar {
         let menu = self.view.MenuItems()?;
         menu.Clear()?;
         let mut items = Vec::new();
+        let (mut menus, mut taps) = (Vec::new(), Vec::new());
         for (index, section) in sections.iter().enumerate() {
             match &section.title {
                 Some(title) => {
@@ -167,7 +182,22 @@ impl Sidebar {
             }
             for data in &section.items {
                 let item = w::NavigationViewItem::new()?;
-                item.cast::<w::IContentControl>()?.SetContent(&boxed(&data.title))?;
+                item.cast::<w::IContentControl>()?.SetContent(&content(data)?)?;
+                // UIA reads a panel as nothing: the title names the item.
+                w::AutomationProperties::SetName(&item.cast::<w::DependencyObject>()?, &data.title)?;
+                let index = items.len();
+                let (events, id) = (self.emitter.clone(), self.id);
+                let mut context =
+                    ContextMenu::new(Rc::new(move |chosen| events.emit(id, UiEvent::ContextMenuItem(chosen))), None);
+                context.update(&data.menu, format!("sidebar-{}-{index}", self.id))?;
+                if let Some(flyout) = context.flyout() {
+                    item.cast::<w::IUIElement>()?.SetContextFlyout(flyout)?;
+                }
+                menus.push(context);
+                let (events, id) = (self.emitter.clone(), self.id);
+                taps.push(item.cast::<w::IUIElement>()?.DoubleTapped(move |_, _| {
+                    events.emit(id, UiEvent::SidebarItemActivated(index));
+                })?);
                 if let Some(glyph) = &data.icon {
                     let icon = w::FontIcon::new()?;
                     icon.cast::<w::IFontIcon>()?.SetGlyph(glyph)?;
@@ -185,6 +215,8 @@ impl Sidebar {
         self.view.SetCompactModeThresholdWidth(if all_icons { COMPACT_FROM as f64 } else { expanded })?;
         self.place_again();
         *self.items.borrow_mut() = items;
+        *self.menus.borrow_mut() = menus;
+        *self.taps.borrow_mut() = taps;
         *self.sections.borrow_mut() = sections;
         let kept = self.shown.get().filter(|i| *i < self.items.borrow().len());
         self.set_selected(kept)
@@ -207,6 +239,25 @@ impl Sidebar {
     /// The item the view shows selected.
     pub(crate) fn selected(&self) -> Option<usize> {
         index_of(&self.items.borrow(), self.view.SelectedItem().ok())
+    }
+
+    /// Runs `f` on the item's menu that has this id, if any.
+    pub(crate) fn with_menu<T>(&self, id: u32, f: impl FnOnce(&ContextMenu) -> T) -> Option<T> {
+        let menus = self.menus.borrow();
+        let sections = self.sections.borrow();
+        let item = sections
+            .iter()
+            .flat_map(|s| &s.items)
+            .position(|i| mitsuami_core::services::menu_item_by_id(&i.menu, id).is_some())?;
+        menus.get(item).map(f)
+    }
+
+    /// Activates the chosen item, as a double tap on it does. `false` if
+    /// none is chosen.
+    pub(crate) fn activate(&self) -> bool {
+        let Some(item) = self.selected() else { return false };
+        self.emitter.emit(self.id, UiEvent::SidebarItemActivated(item));
+        true
     }
 
     /// Selects the first item with this title as a click does, which the
@@ -327,4 +378,22 @@ impl Sidebar {
         };
         selected.or_else(first)?.cast().ok()
     }
+}
+
+/// An item's content: its title, or its title over its subtitle, a caption
+/// in the secondary text colour.
+fn content(item: &SidebarItemData) -> R<IInspectable> {
+    let Some(subtitle) = &item.subtitle else { return Ok(boxed(&item.title)) };
+    let panel = w::StackPanel::new()?;
+    let children = panel.cast::<w::IPanel>()?.Children()?;
+    let title = w::TextBlock::new()?;
+    title.cast::<w::ITextBlock>()?.SetText(&item.title)?;
+    let second = w::TextBlock::new()?;
+    second.cast::<w::ITextBlock>()?.SetText(subtitle)?;
+    set_label_style(&second, Some(TextStyle::Caption), Some(Color::SecondaryLabel))?;
+    for line in [&title, &second] {
+        line.cast::<w::ITextBlock>()?.SetTextTrimming(w::TextTrimming::CharacterEllipsis)?;
+        children.Append(&line.cast::<w::UIElement>()?)?;
+    }
+    panel.cast()
 }

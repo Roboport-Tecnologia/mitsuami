@@ -185,6 +185,9 @@ impl<'a> Locator<'a> {
             (Some(WidgetKind::RadioGroup), Role::RadioButton, Some(option)) => {
                 self.act(A11yAction::SetValue(option)).await
             }
+            // A click on a sidebar's item chooses it, as it does a list's
+            // row; activating it is a double-click.
+            (Some(WidgetKind::Sidebar), Role::ListItem, Some(title)) => self.act(A11yAction::SetValue(title)).await,
             (Some(WidgetKind::Table), Role::ColumnHeader, Some(title)) => {
                 let columns = find_prop!(self.app.ui().props(node.id), Columns).unwrap_or_default();
                 let Some(column) = columns.iter().position(|c| c.title == title) else {
@@ -281,9 +284,18 @@ impl<'a> Locator<'a> {
     }
 
     /// Double-clicks the node, as a mouse does, where it reports double
-    /// clicks (`on_double_click`). Panics where it doesn't.
+    /// clicks (`on_double_click`). Panics where it doesn't. A sidebar's
+    /// item is chosen and activated (`Sidebar::on_activate`), as a
+    /// double-click on it does.
     pub async fn double_click(&self) {
-        let id = self.node().id;
+        let node = self.node();
+        if let (Some(WidgetKind::Sidebar), Role::ListItem, Some(title)) =
+            (self.app.ui().kind(node.id), node.role, node.name.clone())
+        {
+            self.act(A11yAction::SetValue(title)).await;
+            return self.act(A11yAction::Activate).await;
+        }
+        let id = node.id;
         if let Err(e) = self.app.ui().synthesize(id, &SyntheticInput::DoubleClick) {
             panic!("cannot double-click node {id}: {e}");
         }
@@ -355,6 +367,13 @@ impl<'a> Locator<'a> {
     /// the nearest container around it with one. `None`: no menu.
     pub fn context_menu(&self) -> Option<(NodeId, Vec<MenuEntry>)> {
         let ui = self.app.ui();
+        // A sidebar's item has its own, in the sidebar's data.
+        let node = self.node();
+        if let (Some(WidgetKind::Sidebar), Role::ListItem, Some(title)) = (ui.kind(node.id), node.role, &node.name) {
+            let sections = find_prop!(ui.props(node.id), Sections).unwrap_or_default();
+            let item = sections.into_iter().flat_map(|s| s.items).find(|i| &i.title == title)?;
+            return item.menu.iter().any(|e| !matches!(e, MenuEntry::Separator)).then_some((node.id, item.menu));
+        }
         let mut id = Some(self.id());
         // A list row's host (a table cell's) holds the row's view, which is
         // what a right-click on the row hits.

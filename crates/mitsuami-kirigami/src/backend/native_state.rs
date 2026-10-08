@@ -213,7 +213,7 @@ impl KirigamiBackend {
                 None => Prop::Row(row),
             })),
             Widget::ToolbarItem { .. } => {}
-            Widget::Sidebar { page, sections } => {
+            Widget::Sidebar { page, sections, .. } => {
                 props.push(Prop::Sections(sections.clone()));
                 props.push(Prop::SelectedIndex(usize::try_from(page.int("mitsuamiSelected")).ok()));
                 // As its window's row has it, or the app wants it before.

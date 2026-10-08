@@ -48,7 +48,7 @@ pub(crate) use measure::measure_element;
 pub(crate) use new_window::packaged;
 use new_window::{set_icon, window_icon};
 use styles::font_sizes;
-pub(crate) use styles::style;
+pub(crate) use styles::{set_label_style, style};
 
 /// Fluent's spacing ramp: 4, 8, 12, 16, 24 epx. The spacing tokens, and
 /// the space the backend puts in its own chrome.
@@ -475,7 +475,7 @@ type MenuItems = Rc<RefCell<HashMap<u32, (w::MenuFlyoutItemBase, MenuCheck)>>>;
 /// A node's context menu, or a menu button's menu: what the core sent, and
 /// the `MenuFlyout` showing it as the control's `ContextFlyout` or the
 /// button's `Flyout` (none while it's empty).
-struct ContextMenu {
+pub(crate) struct ContextMenu {
     sent: Vec<MenuEntry>,
     flyout: Option<w::MenuFlyout>,
     items: MenuItems,

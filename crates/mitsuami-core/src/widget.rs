@@ -686,6 +686,12 @@ pub struct SidebarSectionData {
 pub struct SidebarItemData {
     pub title: String,
     pub icon: Option<String>,
+    /// A second line under the title, in the platform's secondary style.
+    pub subtitle: Option<String>,
+    /// Its context menu (empty: none). The platform shows it its own way,
+    /// on the item, and reports the choice as the sidebar's
+    /// `ContextMenuItem`; ids are unique across the sidebar's items.
+    pub menu: Vec<crate::services::MenuEntry>,
 }
 
 /// A property of a native widget. Which ones apply depends on the kind.

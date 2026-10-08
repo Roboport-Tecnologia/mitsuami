@@ -99,6 +99,72 @@ fn install_menu(
     });
 }
 
+/// The context menus of items a node shows as data, as a `Sidebar` shows
+/// its items: each item's menu as data, sent with the item, and the
+/// handlers of all of them, which the node's `ContextMenuItem` runs. Ids
+/// are unique across the items' menus, and stay the same while their
+/// structure does, as a context menu's do.
+#[doc(hidden)]
+#[derive(Clone)]
+pub struct ItemMenus {
+    state: Rc<RefCell<ItemMenusState>>,
+    /// As menu bars' handlers do, they run in the scope that built them.
+    scope: Option<mitsuami_reactive::Owner>,
+}
+
+#[derive(Default)]
+struct ItemMenusState {
+    ids: Vec<u32>,
+    next_id: u32,
+    handlers: HashMap<u32, Handler>,
+}
+
+impl ItemMenus {
+    pub fn new() -> ItemMenus {
+        ItemMenus { state: Rc::default(), scope: mitsuami_reactive::Owner::current() }
+    }
+
+    /// Each menu's entries as data (empty for an item without one),
+    /// reading their reactive parts, in an effect that sends them.
+    pub fn collect(&self, menus: &[Option<&Menu>]) -> Vec<Vec<MenuEntry>> {
+        let mut state = self.state.borrow_mut();
+        let ItemMenusState { ids, next_id, handlers } = &mut *state;
+        let mut new_id = || {
+            *next_id += 1;
+            *next_id
+        };
+        let mut walk = Walk { ids, position: 0, new_id: &mut new_id, handlers: Vec::new() };
+        let entries = menus
+            .iter()
+            .map(|menu| {
+                let mut out = Vec::new();
+                if let Some(menu) = menu {
+                    walk.entries(&menu.entries, &mut out);
+                }
+                out
+            })
+            .collect();
+        *handlers = walk.handlers.into_iter().collect();
+        entries
+    }
+
+    /// Runs the handler of the item `ContextMenuItem` names, if any.
+    pub fn handle(&self, event: &UiEvent) {
+        let UiEvent::ContextMenuItem(item) = event else { return };
+        let Some(handler) = self.state.borrow().handlers.get(item).cloned() else { return };
+        match self.scope {
+            Some(scope) if scope.is_alive() => scope.with(|| handler()),
+            _ => handler(),
+        }
+    }
+}
+
+impl Default for ItemMenus {
+    fn default() -> ItemMenus {
+        ItemMenus::new()
+    }
+}
+
 struct Walk<'a> {
     ids: &'a mut Vec<u32>,
     position: usize,

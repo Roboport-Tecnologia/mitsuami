@@ -16,6 +16,13 @@ impl HeadlessBackend {
         let kind = node.kind;
         // A menu button's own menu, or any node's context menu.
         let chosen = match action {
+            // A sidebar's items each have theirs, which share its ids.
+            A11yAction::ContextMenuItem(item) if kind == WidgetKind::Sidebar => {
+                let sections = find_prop!(node.props, Sections).unwrap_or_default();
+                let menus = sections.into_iter().flat_map(|s| s.items).map(|i| i.menu);
+                let menu = menus.into_iter().find(|m| menu_item_by_id(m, *item).is_some());
+                Some((menu, *item, UiEvent::ContextMenuItem(*item)))
+            }
             A11yAction::ContextMenuItem(item) => {
                 Some((find_prop!(node.props, ContextMenu), *item, UiEvent::ContextMenuItem(*item)))
             }
@@ -145,6 +152,12 @@ impl HeadlessBackend {
                     state.set_prop(id, Prop::SelectedIndex(Some(index)));
                     state.emit(id, UiEvent::Changed(EventValue::Index(index)));
                 }
+            }
+            // The chosen item, as Enter on it does.
+            (A11yAction::Activate, WidgetKind::Sidebar) => {
+                let index = find_prop!(state.nodes[&id].props, SelectedIndex).flatten();
+                let Some(index) = index else { return Err(ActionError::Unsupported) };
+                state.emit(id, UiEvent::SidebarItemActivated(index));
             }
             // A tab, by its title, as a screen reader picks one.
             (A11yAction::SetValue(title), WidgetKind::Tabs) => {

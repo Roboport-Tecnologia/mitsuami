@@ -1,5 +1,6 @@
 //! Making a node's widget.
 
+use std::cell::RefCell;
 use std::rc::Rc;
 
 use mitsuami_core::{Command, DisplayList, EventValue, NodeId, PointerEvent, UiEvent, WidgetKind, find_prop};
@@ -31,12 +32,32 @@ impl State {
             WidgetKind::Sidebar => {
                 let page = QmlObject::load(&qml::sidebar());
                 // The user's choice only: the app's doesn't emit it.
+                let chosen = events.clone();
                 page.connect("mitsuamiChosen()", move || {
                     if let Ok(index) = usize::try_from(page.int("mitsuamiSelected")) {
-                        events.emit(id, UiEvent::Changed(EventValue::Index(index)));
+                        chosen.emit(id, UiEvent::Changed(EventValue::Index(index)));
                     }
                 });
-                Widget::Sidebar { page, sections: Vec::new() }
+                let activated = events.clone();
+                page.connect("mitsuamiActivated()", move || {
+                    if let Ok(index) = usize::try_from(page.int("mitsuamiActivatedIndex")) {
+                        activated.emit(id, UiEvent::SidebarItemActivated(index));
+                    }
+                });
+                let menus = Rc::new(super::SidebarMenus {
+                    entries: RefCell::default(),
+                    menu: RefCell::new(crate::services::ContextMenu::new(move |chosen| {
+                        events.emit(id, UiEvent::ContextMenuItem(chosen))
+                    })),
+                });
+                // Made for the item right-clicked, before the page pops it up.
+                let wanted = menus.clone();
+                page.connect("mitsuamiItemMenuWanted()", move || {
+                    if let Ok(item) = usize::try_from(page.int("mitsuamiMenuFor")) {
+                        wanted.show_for(page, item);
+                    }
+                });
+                Widget::Sidebar { page, sections: Vec::new(), menus }
             }
             WidgetKind::Tabs => {
                 let root = QmlObject::load(&qml::tabs());

@@ -20,6 +20,7 @@ use crate::custom::ErasedRender;
 use crate::events::Events;
 use crate::ffi::{self, QmlObject};
 use crate::services::{ContextMenu, KirigamiServices, Menus};
+use mitsuami_core::services::MenuEntry;
 use crate::surface::SurfaceItem;
 use crate::theme;
 
@@ -176,10 +177,12 @@ enum Widget {
         group: QmlObject,
         content: QmlObject,
     },
-    /// A window's sidebar page, and the sections it was given.
+    /// A window's sidebar page, the sections it was given, and its items'
+    /// context menus.
     Sidebar {
         page: QmlObject,
         sections: Vec<SidebarSectionData>,
+        menus: Rc<SidebarMenus>,
     },
     /// A custom widget with a KDE render, and the props it last got.
     Custom {
@@ -551,5 +554,30 @@ impl Backend for KirigamiBackend {
 
     fn capture(&mut self, id: NodeId, reply: Reply<Result<Image, CaptureError>>) {
         self.capture_node(id, reply)
+    }
+}
+
+/// A sidebar's items' context menus: one menu on its page (its
+/// `mitsuamiContextMenu`), made again for the item right-clicked, as the
+/// page asks (`mitsuamiItemMenuWanted()`) before it pops it up.
+pub(crate) struct SidebarMenus {
+    pub(crate) entries: RefCell<Vec<Vec<MenuEntry>>>,
+    pub(crate) menu: RefCell<ContextMenu>,
+}
+
+impl SidebarMenus {
+    /// Puts this item's menu on the page. `false` if it has none.
+    pub(crate) fn show_for(&self, page: QmlObject, item: usize) -> bool {
+        let entries = self.entries.borrow().get(item).cloned().unwrap_or_default();
+        self.menu.borrow_mut().set(Some(page), &entries);
+        !entries.is_empty()
+    }
+
+    /// The action of the item with this id in an item's menu, with that
+    /// menu put on the page.
+    pub(crate) fn action(&self, page: QmlObject, id: u32) -> Option<QmlObject> {
+        let item = self.entries.borrow().iter().position(|m| mitsuami_core::services::menu_item_by_id(m, id).is_some())?;
+        self.show_for(page, item);
+        self.menu.borrow().action(id)
     }
 }

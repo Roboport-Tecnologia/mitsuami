@@ -30,6 +30,9 @@ impl WinUiBackend {
                     _ => Err(ActionError::Unsupported),
                 };
             }
+            if let (A11yAction::Activate, Widget::Sidebar(sidebar)) = (action, &node.widget) {
+                return if sidebar.activate() { Ok(()) } else { Err(ActionError::Unsupported) };
+            }
             // A tab, as a click picks it; the same way.
             if let (A11yAction::SetValue(title), Widget::Tabs(tabs)) = (action, &node.widget) {
                 if tabs.bar.cast::<w::IControl>().and_then(|c| c.IsEnabled()).is_ok_and(|on| !on) {

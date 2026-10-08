@@ -217,16 +217,25 @@ Kirigami.ApplicationWindow {{
     )
 }
 
-/// A window's sidebar: a page of `ItemDelegate`s, its sections under
-/// `ListSectionHeader`s, as KDE's settings list their categories. Rust sets
-/// `mitsuamiSections` (JSON: `[{"title": "…" or null, "items": [{"title":
-/// "…", "icon": "…" or null}]}]`), `mitsuamiSelected` (-1: none) and
-/// `mitsuamiContent`, the content's page, which is titled after the item
-/// chosen. The user's choice (a click, the arrow keys) is reported with
-/// `mitsuamiChosen`; setting `mitsuamiChoice` chooses as the user does.
-/// In a narrow window, a choice shows the content's page.
+/// A window's sidebar: a page of `SubtitleDelegate`s (an `ItemDelegate`
+/// whose subtitle shows under its title when it has one), its sections
+/// under `ListSectionHeader`s, as KDE's settings list their categories.
+/// Rust sets `mitsuamiSections` (JSON: `[{"title": "…" or null, "items":
+/// [{"title": "…", "icon": "…" or null, "subtitle": "…" or null, "menu":
+/// bool}]}]`), `mitsuamiSelected` (-1: none) and `mitsuamiContent`, the
+/// content's page, which is titled after the item chosen. The user's
+/// choice (a click, the arrow keys) is reported with `mitsuamiChosen`;
+/// setting `mitsuamiChoice` chooses as the user does. In a narrow window,
+/// a choice shows the content's page.
+///
+/// An item with a menu shows it on a right press or a long press: the page
+/// says which (`mitsuamiMenuFor`, `mitsuamiItemMenuWanted()`), Rust puts
+/// that item's menu on the page, and the page pops it up at the pointer. A
+/// double-click, or Enter on the current item, chooses and activates it
+/// (`mitsuamiActivatedIndex`, `mitsuamiActivated()`); setting
+/// `mitsuamiActivation` does as the user does.
 pub(crate) fn sidebar() -> String {
-    r#"
+    let page = r#"import org.kde.kirigami.delegates as KD
 Kirigami.ScrollablePage {
     id: mitsuamiSidebar
     padding: 0
@@ -239,9 +248,28 @@ Kirigami.ScrollablePage {
     property string mitsuamiSections: "[]"
     property int mitsuamiSelected: -1
     property int mitsuamiChoice: -1
+    property int mitsuamiMenuFor: -1
+    property int mitsuamiActivatedIndex: -1
+    property int mitsuamiActivation: -1
     // Set while the list follows the app, not the user.
     property bool mitsuamiFollowing: false
     signal mitsuamiChosen()
+    signal mitsuamiItemMenuWanted()
+    signal mitsuamiActivated()
+    function mitsuamiItemMenu(item, index, x, y) {
+        mitsuamiMenuFor = index
+        mitsuamiItemMenuWanted()
+        mitsuamiPopupContextMenu(item, x, y)
+    }
+    function mitsuamiActivate(index) {
+        mitsuamiChoose(index)
+        mitsuamiActivatedIndex = index
+        mitsuamiActivated()
+    }
+    onMitsuamiActivationChanged: if (mitsuamiActivation >= 0) {
+        mitsuamiActivate(mitsuamiActivation)
+        mitsuamiActivation = -1
+    }
     function mitsuamiChoose(index) {
         if (index === mitsuamiSelected) return
         mitsuamiSelected = index
@@ -270,6 +298,8 @@ Kirigami.ScrollablePage {
             mitsuamiModel.append({
                 title: item.title,
                 iconName: item.icon ?? "",
+                subtitleText: item.subtitle ?? "",
+                hasMenu: item.menu,
                 section: index + "" + (section.title ?? "")
             })))
         mitsuamiFollowing = false
@@ -284,6 +314,8 @@ Kirigami.ScrollablePage {
         activeFocusOnTab: true
         onCurrentIndexChanged: if (!mitsuamiSidebar.mitsuamiFollowing && currentIndex >= 0)
             mitsuamiSidebar.mitsuamiChoose(currentIndex)
+        Keys.onReturnPressed: if (currentIndex >= 0) mitsuamiSidebar.mitsuamiActivate(currentIndex)
+        Keys.onEnterPressed: if (currentIndex >= 0) mitsuamiSidebar.mitsuamiActivate(currentIndex)
         // Consecutive items of a section share its index and title. One
         // without a title is set apart by the header's line alone, and the
         // first has none. The list shows every section delegate, so it's
@@ -300,20 +332,38 @@ Kirigami.ScrollablePage {
                 visible: text !== "" || !parent.section.startsWith("0")
             }
         }
-        delegate: QQC2.ItemDelegate {
+        delegate: KD.SubtitleDelegate {
+            id: mitsuamiDelegate
             required property int index
             required property string title
             required property string iconName
+            required property string subtitleText
+            required property bool hasMenu
             width: ListView.view.width
             text: title
+            subtitle: subtitleText
             icon.name: iconName
             highlighted: ListView.isCurrentItem
             onClicked: mitsuamiSidebar.mitsuamiChoose(index)
+            onDoubleClicked: mitsuamiSidebar.mitsuamiActivate(index)
+            TapHandler {
+                acceptedButtons: Qt.RightButton
+                gesturePolicy: TapHandler.WithinBounds
+                enabled: mitsuamiDelegate.hasMenu
+                onPressedChanged: if (pressed) mitsuamiSidebar.mitsuamiItemMenu(
+                    mitsuamiDelegate, mitsuamiDelegate.index, point.position.x, point.position.y)
+            }
+            TapHandler {
+                acceptedDevices: PointerDevice.TouchScreen | PointerDevice.Stylus
+                enabled: mitsuamiDelegate.hasMenu
+                onLongPressed: mitsuamiSidebar.mitsuamiItemMenu(
+                    mitsuamiDelegate, mitsuamiDelegate.index, point.position.x, point.position.y)
+            }
         }
     }
-}
-"#
-    .to_owned()
+"#;
+    // The page holds the menu shown (see `super::CONTEXT_MENU`).
+    format!("{page}{}\n}}\n", super::CONTEXT_MENU)
 }
 
 /// A toolbar item: an action the page's toolbar shows as its own item,

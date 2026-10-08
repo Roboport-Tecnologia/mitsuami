@@ -440,7 +440,15 @@ pub(super) fn sections_json(sections: &[SidebarSectionData]) -> String {
             let items: Vec<String> = section
                 .items
                 .iter()
-                .map(|item| format!(r#"{{"title":{},"icon":{}}}"#, string(&item.title), optional(&item.icon)))
+                .map(|item| {
+                    format!(
+                        r#"{{"title":{},"icon":{},"subtitle":{},"menu":{}}}"#,
+                        string(&item.title),
+                        optional(&item.icon),
+                        optional(&item.subtitle),
+                        !item.menu.is_empty()
+                    )
+                })
                 .collect();
             format!(r#"{{"title":{},"items":[{}]}}"#, optional(&section.title), items.join(","))
         })
