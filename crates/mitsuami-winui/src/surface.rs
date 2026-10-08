@@ -513,6 +513,8 @@ impl HostState {
             if let Ok(element) = self.element.cast::<w::IUIElement>() {
                 _ = element.Focus(w::FocusState::Pointer);
             }
+            // As a click outside a menu anywhere else closes it.
+            crate::backend::reveal::dismiss_menus(self.hwnd);
             // Its moves keep coming while a button is held, wherever the
             // pointer goes.
             unsafe { w::SetCapture(self.hwnd) };
@@ -664,6 +666,8 @@ impl HostState {
                 self.warp_to_middle();
                 self.register_raw(true);
                 self.raise();
+                // The pointer can't go to an open menu any more.
+                crate::backend::reveal::dismiss_menus(self.hwnd);
             } else {
                 self.emitter.emit(self.id, UiEvent::PointerLockEnded);
             }

@@ -7,9 +7,14 @@
 //! puts in a window of its own above it, as it does a menu's flyout. The
 //! surface's child window takes the pointer's moves, so it tells where the
 //! pointer is (`pointer_moved`); the window acts on it at its next tick.
+//!
+//! A click on a surface doesn't reach XAML either, so it doesn't close an
+//! open menu, as a click anywhere else outside it does; the surface tells
+//! (`dismiss_menus`), as it does when it locks the pointer, which can't go
+//! to the menu any more, and the window closes its menus at its next tick.
 
 use std::cell::RefCell;
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 
 use windows_core::Interface;
 
@@ -21,6 +26,8 @@ thread_local! {
     /// The pointer's height on screen, in pixels, over a surface of each
     /// top-level window, as last moved and not yet acted on.
     static POINTER: RefCell<HashMap<isize, i32>> = RefCell::new(HashMap::new());
+    /// Top-level windows whose menus a surface's click or lock closes.
+    static DISMISS: RefCell<HashSet<isize>> = RefCell::new(HashSet::new());
 }
 
 /// The popup: a window-wide strip on the title bar's background, as tall
@@ -43,10 +50,39 @@ pub(crate) fn pointer_moved(surface: w::HWND) {
     crate::app::schedule_tick();
 }
 
+/// A surface's child window was clicked, or locked the pointer: its
+/// window's open menus close, at its next tick.
+pub(crate) fn dismiss_menus(surface: w::HWND) {
+    let root = unsafe { w::GetAncestor(surface, w::GA_ROOT as u32) };
+    if root.is_null() {
+        return;
+    }
+    DISMISS.with(|d| d.borrow_mut().insert(root as isize));
+    crate::app::schedule_tick();
+}
+
+/// Closes a window's open menus, a menu bar's or a context menu's (and
+/// their submenus), and the full-screen strip the bar dropped from: the
+/// open popups of its XAML root that show a menu, and no other.
+fn close_menus(parts: &mut WindowParts) -> R<()> {
+    _ = hide_reveal(parts);
+    let root = parts.root.cast::<w::IUIElement>()?.XamlRoot()?;
+    for popup in w::VisualTreeHelper::GetOpenPopupsForXamlRoot(&root)? {
+        let class = popup.Child().and_then(|c| c.cast::<windows_core::IInspectable>()?.GetRuntimeClassName());
+        if class.is_ok_and(|c| c == "Microsoft.UI.Xaml.Controls.MenuFlyoutPresenter") {
+            popup.SetIsOpen(false)?;
+        }
+    }
+    Ok(())
+}
+
 /// Shows or hides the menu bar for where the pointer went: shown at the
 /// screen's top edge, hidden once the pointer is back below it with no
 /// menu open. Hidden too when the window leaves full screen.
 pub(super) fn update_reveal(parts: &mut WindowParts) {
+    if DISMISS.with(|d| d.borrow_mut().remove(&(parts.hwnd as isize))) {
+        _ = close_menus(parts);
+    }
     let moved = POINTER.with(|p| p.borrow_mut().remove(&(parts.hwnd as isize)));
     let wanted = parts.full_screen_menu_bar == FullScreenMenuBar::AtTopEdge
         && parts.menu_bar_place == MenuBarPlace::InTitleBar
