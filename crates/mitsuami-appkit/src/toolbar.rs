@@ -28,7 +28,7 @@ use objc2::rc::Retained;
 use objc2::runtime::{AnyObject, NSObject, NSObjectProtocol, ProtocolObject};
 use objc2::{DefinedClass, MainThreadMarker, MainThreadOnly, Message, define_class, msg_send, sel};
 use objc2_app_kit::{
-    NSAnimationContext, NSBezelStyle, NSButton, NSLayoutConstraint, NSSearchField, NSSearchToolbarItem,
+    NSAnimationContext, NSBezelStyle, NSButton, NSCellImagePosition, NSLayoutConstraint, NSSearchField, NSSearchToolbarItem,
     NSSegmentDistribution, NSSegmentStyle, NSSegmentSwitchTracking, NSSegmentedControl, NSToolbar, NSToolbarDelegate,
     NSToolbarDisplayMode, NSToolbarFlexibleSpaceItemIdentifier, NSToolbarItem, NSToolbarItemIdentifier,
     NSToolbarSidebarTrackingSeparatorItemIdentifier, NSView, NSWindow,
@@ -313,7 +313,12 @@ impl Toolbar {
         control.setSegmentCount(buttons.len() as isize);
         for (index, button) in buttons.iter().enumerate() {
             let segment = index as isize;
-            control.setLabel_forSegment(&button.title(), segment);
+            // An icon-only button is its image alone, its title left to the
+            // tooltip and the image's description, as AppKit's own grouped
+            // items are; a label beside it gets cut to the core's width.
+            let icon_only = button.imagePosition() == NSCellImagePosition::ImageOnly && button.image().is_some();
+            let label = if icon_only { NSString::new() } else { button.title() };
+            control.setLabel_forSegment(&label, segment);
             control.setImage_forSegment(button.image().as_deref(), segment);
             control.setEnabled_forSegment(button.isEnabled(), segment);
             control.setToolTip_forSegment(button.toolTip().as_deref(), segment);
