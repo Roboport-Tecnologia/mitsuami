@@ -758,7 +758,7 @@ fn counter_big_number() -> impl View { Counter::new().initial(42) }
 - Headless has no pixels, so there a story only checks that the view mounts and the script plays.
 - `tests/stories.rs` has every built-in widget as a story.
 
-**Capture** happens in-process and offscreen, so it needs no screen-recording permission and doesn't depend on window placement (`Backend::capture`): AppKit's `cacheDisplayInRect:toBitmapImageRep:`, WinUI's `RenderTargetBitmap`, GTK's `WidgetPaintable` rendered with Cairo, Qt's `QQuickWindow::grabWindow`.
+**Capture** happens in-process and offscreen, so it needs no screen-recording permission and doesn't depend on window placement (`Backend::capture`): AppKit's `cacheDisplayInRect:toBitmapImageRep:`, WinUI's `RenderTargetBitmap`, GTK's `WidgetPaintable` rendered with Cairo, Qt's `QQuickWindow::grabWindow`. A GTK window on its way to another size (`WindowRoot::resizing`, e.g. a sidebar's width changed after it was shown) is captured at that size, once GTK has allocated it (up to 2 s): on a display nobody watches (Broadway) frames are far apart, and the capture otherwise came a frame early and failed its size check.
 
 **Baselines** belong to the machine image that recorded them, since native rendering differs between OS versions and display scales: `tests/visual/<backend>/<image>/<file>__<story>@<width>x<height>-<variant>.png`, and native snapshots likewise in `tests/snapshots/<backend>/<image>/`.
 

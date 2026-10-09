@@ -42,23 +42,36 @@ pub(super) fn render(widget: &gtk::Widget, size: (i32, i32)) -> Result<Image, Ca
     Ok(Image { width: width as u32, height: height as u32, scale_factor: scale as f32, rgba: to_rgba(&bytes) })
 }
 
+/// How long a capture waits for a window's resize to arrive.
+const RESIZE_WAIT: std::time::Duration = std::time::Duration::from_secs(2);
+
 impl GtkBackend {
     pub(super) fn capture_node(&mut self, id: NodeId, reply: Reply<Result<Image, CaptureError>>) {
-        let (widget, size) = {
+        // A window on its way to another size (a sidebar's width changed,
+        // say) is captured at that size: GTK gets there at a later frame,
+        // and on a display nobody watches frames are far apart.
+        let (widget, size, resizing) = {
             let state = self.state.borrow();
             let Some(node) = state.nodes.get(&id) else { return reply(Err(CaptureError::UnknownNode)) };
-            let size = match &node.widget {
-                Widget::Window(parts) => parts.host.window_root().expect("window hosts have a root").size.get(),
-                _ => state.frames.borrow().get(node.widget.widget()).map(|f| f.size).unwrap_or_default(),
+            let (size, resizing) = match &node.widget {
+                Widget::Window(parts) => {
+                    let root = parts.host.window_root().expect("window hosts have a root");
+                    (root.resizing.get().unwrap_or(root.size.get()), root.resizing.get().is_some())
+                }
+                _ => (state.frames.borrow().get(node.widget.widget()).map(|f| f.size).unwrap_or_default(), false),
             };
-            (node.widget.widget().clone(), size)
+            (node.widget.widget().clone(), size, resizing)
         };
         let target = (size.width.round() as i32, size.height.round() as i32);
         let reply = Rc::new(Cell::new(Some(reply)));
+        let started = std::time::Instant::now();
         // Tick callbacks run before layout; paint comes after it, in the
         // same frame.
         widget.add_tick_callback(move |widget, clock| {
             if !widget.is_mapped() {
+                return glib::ControlFlow::Continue;
+            }
+            if resizing && (widget.width(), widget.height()) != target && started.elapsed() < RESIZE_WAIT {
                 return glib::ControlFlow::Continue;
             }
             let handler: Rc<Cell<Option<glib::SignalHandlerId>>> = Rc::default();
