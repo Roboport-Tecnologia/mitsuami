@@ -221,3 +221,30 @@ async fn each_window_has_its_own(app: TestApp) {
 }
 
 mitsuami_test::main!();
+
+/// A table at the top of a window with a toolbar starts there, its header
+/// above its rows, and scrolls to its last row, on every platform. On
+/// AppKit it runs up under the title bar and toolbar, as Finder's content
+/// does, outside its frame, as beside a sidebar (`tests/sidebar.rs`).
+#[mitsuami_test::test]
+async fn a_table_at_the_contents_top_keeps_its_header_above_its_rows(app: TestApp) {
+    let data = signal((0..100).collect::<Vec<u32>>());
+    app.mount(move || {
+        Column::new().grow(1.0).children((
+            Toolbar::new().child(Button::new("Take snapshot")),
+            Table::new(data, |n: &u32| *n)
+                .column(TableColumn::new("Name", |n: u32| Text::new(format!("File {n}"))).expand())
+                .grow(1.0)
+                .test_id("table"),
+        ))
+    });
+    app.settle().await;
+
+    let table = app.get_by_test_id("table").frame();
+    assert_eq!(table.y(), 0.0);
+    let first = app.get_by_role(Role::Cell, "File 0").frame();
+    assert!(first.y() > table.y() && first.max_y() < table.y() + 60.0, "{first:?} in {table:?}");
+    app.get_by_test_id("table").scroll_by(0.0, 1e6).await;
+    let last = app.get_by_role(Role::Cell, "File 99").frame();
+    assert!(last.max_y() <= table.max_y() && last.max_y() > table.max_y() - 30.0, "{last:?} in {table:?}");
+}

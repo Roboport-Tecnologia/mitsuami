@@ -28,10 +28,10 @@ use objc2::rc::Retained;
 use objc2::runtime::{AnyObject, NSObject, NSObjectProtocol, ProtocolObject};
 use objc2::{DefinedClass, MainThreadMarker, MainThreadOnly, Message, define_class, msg_send, sel};
 use objc2_app_kit::{
-    NSAnimationContext, NSBezelStyle, NSButton, NSCellImagePosition, NSLayoutConstraint, NSSearchField, NSSearchToolbarItem,
-    NSSegmentDistribution, NSSegmentStyle, NSSegmentSwitchTracking, NSSegmentedControl, NSToolbar, NSToolbarDelegate,
-    NSToolbarDisplayMode, NSToolbarFlexibleSpaceItemIdentifier, NSToolbarItem, NSToolbarItemIdentifier,
-    NSToolbarSidebarTrackingSeparatorItemIdentifier, NSView, NSWindow,
+    NSAnimationContext, NSBezelStyle, NSButton, NSCellImagePosition, NSLayoutConstraint, NSSearchField,
+    NSSearchToolbarItem, NSSegmentDistribution, NSSegmentStyle, NSSegmentSwitchTracking, NSSegmentedControl, NSToolbar,
+    NSToolbarDelegate, NSToolbarDisplayMode, NSToolbarFlexibleSpaceItemIdentifier, NSToolbarItem,
+    NSToolbarItemIdentifier, NSToolbarSidebarTrackingSeparatorItemIdentifier, NSView, NSWindow,
 };
 
 use crate::classes::ClosureTarget;

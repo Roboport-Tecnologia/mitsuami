@@ -566,3 +566,27 @@ impl Split {
         self.item.isCollapsed()
     }
 }
+
+/// Makes a window's content view full size, under its title bar and
+/// toolbar, as macOS 26's own windows with a toolbar have it: a plain view
+/// fills the window, and the host in it stays below the bar, as beside a
+/// sidebar. A scroll view at the host's top then runs up under the bar
+/// (`extend_under_bars`). Already full size (a sidebar's split), nothing.
+pub(crate) fn content_under_bar(mtm: MainThreadMarker, window: &NSWindow, host: &NSView) {
+    if window.styleMask().contains(NSWindowStyleMask::FullSizeContentView) {
+        return;
+    }
+    let frame = NSView::new(mtm);
+    frame.setFrame(window.contentView().map_or(zero_rect(), |v| v.frame()));
+    window.setStyleMask(window.styleMask() | NSWindowStyleMask::FullSizeContentView);
+    window.setContentView(Some(&frame));
+    host.removeFromSuperview();
+    host.setTranslatesAutoresizingMaskIntoConstraints(false);
+    frame.addSubview(host);
+    NSLayoutConstraint::activateConstraints(&NSArray::from_retained_slice(&[
+        host.topAnchor().constraintEqualToAnchor(&frame.safeAreaLayoutGuide().topAnchor()),
+        host.leadingAnchor().constraintEqualToAnchor(&frame.leadingAnchor()),
+        host.trailingAnchor().constraintEqualToAnchor(&frame.trailingAnchor()),
+        host.bottomAnchor().constraintEqualToAnchor(&frame.bottomAnchor()),
+    ]));
+}

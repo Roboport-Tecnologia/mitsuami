@@ -247,12 +247,25 @@ impl State {
                         .filter(|c| !matches!(self.nodes[c].kind, WidgetKind::ToolbarItem | WidgetKind::Sidebar))
                         .count();
                     let (mtm, animate) = (self.mtm, self.options.show_windows);
-                    let Widget::Window { window, toolbar, .. } = &mut self.nodes.get_mut(parent).unwrap().widget else {
+                    let Widget::Window { window, host, _delegate, toolbar, split } =
+                        &mut self.nodes.get_mut(parent).unwrap().widget
+                    else {
                         violation(command, "toolbar items go in windows")
                     };
                     let Some(index) = index.checked_sub(content) else {
                         violation(command, "toolbar items go after the window's content")
                     };
+                    // The first item: the content goes under the bar, and
+                    // keeps its size, as beside a sidebar.
+                    if toolbar.is_none() && split.is_none() {
+                        let size = host.frame().size;
+                        *toolbar = Some(Toolbar::new(mtm, window, *parent, animate));
+                        crate::sidebar::content_under_bar(mtm, window, host);
+                        _delegate.set_detail(Some(host));
+                        window.setContentSize(
+                            _delegate.at_least_min(window, Size::new(size.width as f32, size.height as f32)),
+                        );
+                    }
                     toolbar.get_or_insert_with(|| Toolbar::new(mtm, window, *parent, animate)).insert(
                         mtm,
                         *child,
@@ -319,6 +332,10 @@ impl State {
                         if bar.is_empty() {
                             window.setToolbar(None);
                             *toolbar = None;
+                        } else {
+                            // Still a toolbar: the content stays under it.
+                            crate::sidebar::content_under_bar(self.mtm, window, host);
+                            _delegate.set_detail(Some(host));
                         }
                     }
                     window.setContentSize(
