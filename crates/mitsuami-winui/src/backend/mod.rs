@@ -108,15 +108,24 @@ pub enum ToolbarPlace {
 }
 
 /// Where a window's menu bar goes: on its own row under the title bar (the
-/// default), or in the title bar, after the title, as in Paint and Visual
-/// Studio, so the content gets the row. An app picks it for all its
-/// windows with [`set_menu_bar_place`](crate::set_menu_bar_place) before
-/// [`run`](crate::run).
+/// default), or in the title bar, so the content gets the row: after the
+/// title, as in Paint and Visual Studio, or at its start, before the icon
+/// and the title (the `TitleBar`'s `LeftHeader`). An app picks it for all
+/// its windows with [`set_menu_bar_place`](crate::set_menu_bar_place)
+/// before [`run`](crate::run).
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub enum MenuBarPlace {
     #[default]
     BelowTitleBar,
     InTitleBar,
+    InTitleBarStart,
+}
+
+impl MenuBarPlace {
+    /// In the title bar, either side of the title.
+    pub(super) fn in_title_bar(self) -> bool {
+        self != MenuBarPlace::BelowTitleBar
+    }
 }
 
 /// Where a window opens: where Windows puts a new window (the default),

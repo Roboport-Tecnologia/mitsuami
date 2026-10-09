@@ -275,7 +275,7 @@ Microsoft.UI.Windowing.IAppWindowTitleBar3::put_PreferredTheme
 Microsoft.UI.Windowing.TitleBarTheme
 Microsoft.UI.Windowing.TitleBarHeightOption
 Microsoft.UI.Xaml.Controls.TitleBar::{}
-Microsoft.UI.Xaml.Controls.ITitleBar::{get_Title, put_Title, put_Content, put_IsPaneToggleButtonVisible, add_PaneToggleRequested, remove_PaneToggleRequested}
+Microsoft.UI.Xaml.Controls.ITitleBar::{get_Title, put_Title, put_LeftHeader, put_Content, put_IsPaneToggleButtonVisible, add_PaneToggleRequested, remove_PaneToggleRequested}
 Microsoft.UI.Xaml.Input.PointerEventHandler
 Microsoft.UI.Xaml.Input.IPointerRoutedEventArgs::{GetCurrentPoint, get_KeyModifiers, get_Pointer, put_Handled}
 Microsoft.UI.Xaml.Input.Pointer::{}

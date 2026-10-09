@@ -133,7 +133,7 @@ fn chrome_height(parts: &WindowParts) -> f64 {
     let title = set.unwrap_or_else(|| height(ok(parts.title_bar.cast(), "title bar element")));
     // In the title bar, it's part of the title bar's height.
     let menu = match parts.menu_bar_place {
-        MenuBarPlace::InTitleBar => 0.0,
+        MenuBarPlace::InTitleBar | MenuBarPlace::InTitleBarStart => 0.0,
         MenuBarPlace::BelowTitleBar => {
             parts.menu_bar.as_ref().map_or(0.0, |m| height(ok(m.cast(), "menu bar element")))
         }
@@ -313,7 +313,7 @@ pub(super) fn update_title_bar_height(parts: &WindowParts) -> R<()> {
         |element: R<w::IUIElement>| element.and_then(|e| e.Visibility()).is_ok_and(|v| v == w::Visibility::Visible);
     let toolbar = matches!(parts.toolbar_place, ToolbarPlace::InTitleBar(_))
         && parts.toolbar.as_ref().is_some_and(|t| shown(t.cast()));
-    let menu = parts.menu_bar_place == MenuBarPlace::InTitleBar && parts.menu_bar.is_some();
+    let menu = parts.menu_bar_place.in_title_bar() && parts.menu_bar.is_some();
     let height = if toolbar || menu { w::TitleBarHeightOption::Tall } else { w::TitleBarHeightOption::Standard };
     let caption = parts.app_window.cast::<w::IAppWindow>()?.TitleBar()?;
     caption.cast::<w::IAppWindowTitleBar2>()?.SetPreferredHeightOption(height)?;
@@ -337,15 +337,23 @@ const TITLE_CONTENT: &str = r#"
   </Grid.ColumnDefinitions>
 </Grid>"#;
 
-/// The title bar's content when the menu bar is in the title bar, made the
-/// first time: a grid of two columns, the menu bar's `Auto` and a toolbar
-/// placed there in the room left, as on the bars' row.
+/// The title bar's panel for the menu bar when it's in the title bar, made
+/// the first time: a grid of two columns, the menu bar's `Auto` and a
+/// toolbar placed there in the room left, as on the bars' row. It's the
+/// title bar's content after the title, or its `LeftHeader` before the
+/// icon (`InTitleBarStart`), where a toolbar in the title bar doesn't
+/// join it but takes the content.
 pub(super) fn title_content(parts: &mut WindowParts) -> R<w::Grid> {
     if let Some(grid) = &parts.title_content {
         return Ok(grid.clone());
     }
     let grid: w::Grid = w::XamlReader::Load(TITLE_CONTENT)?.cast()?;
-    parts.title_bar.cast::<w::ITitleBar>()?.SetContent(&grid)?;
+    let title_bar = parts.title_bar.cast::<w::ITitleBar>()?;
+    if parts.menu_bar_place == MenuBarPlace::InTitleBarStart {
+        title_bar.SetLeftHeader(&grid)?;
+    } else {
+        title_bar.SetContent(&grid)?;
+    }
     parts.title_content = Some(grid.clone());
     Ok(grid)
 }

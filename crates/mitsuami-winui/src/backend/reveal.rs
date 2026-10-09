@@ -19,7 +19,7 @@ use std::collections::{HashMap, HashSet};
 use windows_core::Interface;
 
 use super::windows::{TALL_TITLE_BAR, in_full_screen, scale_of, title_content};
-use super::{FullScreenMenuBar, MenuBarPlace, R, WindowParts};
+use super::{FullScreenMenuBar, R, WindowParts};
 use crate::bindings as w;
 
 thread_local! {
@@ -85,7 +85,7 @@ pub(super) fn update_reveal(parts: &mut WindowParts) {
     }
     let moved = POINTER.with(|p| p.borrow_mut().remove(&(parts.hwnd as isize)));
     let wanted = parts.full_screen_menu_bar == FullScreenMenuBar::AtTopEdge
-        && parts.menu_bar_place == MenuBarPlace::InTitleBar
+        && parts.menu_bar_place.in_title_bar()
         && parts.menu_bar.is_some()
         && in_full_screen(&parts.app_window);
     if !wanted {

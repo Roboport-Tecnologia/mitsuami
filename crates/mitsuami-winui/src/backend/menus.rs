@@ -11,7 +11,7 @@ use mitsuami_core::{Key, NodeId};
 use windows_core::{EventRevoker, Interface};
 
 use super::windows::{apply_min_size, resize_client, title_content, update_title_bar_height};
-use super::{ContextMenu, MenuBarPlace, MenuItems, Menus, R, WinUiBackend, WindowParts, key, ok};
+use super::{ContextMenu, MenuItems, Menus, R, WinUiBackend, WindowParts, key, ok};
 use crate::bindings as w;
 
 impl ContextMenu {
@@ -115,7 +115,7 @@ fn install_menu(parts: &mut WindowParts, menu: &MenuBarData, activate: &Rc<dyn F
     // new bar back in it after.
     let revealed = parts.revealed;
     _ = super::reveal::hide_reveal(parts);
-    let in_title_bar = parts.menu_bar_place == MenuBarPlace::InTitleBar;
+    let in_title_bar = parts.menu_bar_place.in_title_bar();
     let parent: R<w::Panel> =
         if in_title_bar { title_content(parts).and_then(|g| g.cast()) } else { parts.bars.cast() };
     let children = ok(parent.and_then(|p| p.cast::<w::IPanel>()?.Children()), "menu bar's parent's children");

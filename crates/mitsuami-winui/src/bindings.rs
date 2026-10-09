@@ -11363,6 +11363,18 @@ impl ITitleBar {
             .ok()
         }
     }
+    pub fn SetLeftHeader<P0>(&self, value: P0) -> windows_core::Result<()>
+    where
+        P0: windows_core::Param<UIElement>,
+    {
+        unsafe {
+            (windows_core::Interface::vtable(self).SetLeftHeader)(
+                windows_core::Interface::as_raw(self),
+                value.param().abi(),
+            )
+            .ok()
+        }
+    }
     pub fn SetContent<P0>(&self, value: P0) -> windows_core::Result<()>
     where
         P0: windows_core::Param<UIElement>,
@@ -11421,7 +11433,8 @@ pub struct ITitleBar_Vtbl {
     IconSource: usize,
     SetIconSource: usize,
     LeftHeader: usize,
-    SetLeftHeader: usize,
+    pub SetLeftHeader:
+        unsafe extern "system" fn(*mut core::ffi::c_void, *mut core::ffi::c_void) -> windows_core::HRESULT,
     Content: usize,
     pub SetContent: unsafe extern "system" fn(*mut core::ffi::c_void, *mut core::ffi::c_void) -> windows_core::HRESULT,
     RightHeader: usize,
