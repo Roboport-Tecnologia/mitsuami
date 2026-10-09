@@ -92,7 +92,8 @@ impl State {
                         violation(command, "a window has one sidebar");
                     }
                     let Widget::Sidebar(list) = &sidebar.widget else { unreachable!() };
-                    parts.split = Some(Split::new(&parts.window, &parts.header, &parts.host, *child, list));
+                    parts.split =
+                        Some(Split::new(&parts.window, &parts.header, &parts.menu_button, &parts.host, *child, list));
                     // The content keeps its size: the window grows by the
                     // sidebar, which a shown window does at a later frame.
                     let root = parts.host.window_root().expect("window hosts have a root");
@@ -192,7 +193,8 @@ impl State {
                     if parts.window.is_mapped() {
                         root.resizing.set(Some(size));
                     }
-                    parts.split.take().unwrap().remove(&parts.window, &parts.header, &parts.host);
+                    parts.split.take().unwrap().remove(&parts.window, &parts.header, &parts.menu_button, &parts.host);
+                    pack_items(parts);
                     resize(&parts.window, size.width as i32, size.height as i32 + parts.header_height);
                     self.nodes.get_mut(child).unwrap().parent = None;
                     return;
@@ -254,7 +256,8 @@ impl State {
                     node.parent.and_then(|p| self.nodes.get_mut(&p)).map(|n| &mut n.widget)
                     && parts.split.as_ref().is_some_and(|s| s.sidebar == *id)
                 {
-                    parts.split.take().unwrap().remove(&parts.window, &parts.header, &parts.host);
+                    parts.split.take().unwrap().remove(&parts.window, &parts.header, &parts.menu_button, &parts.host);
+                    pack_items(parts);
                 }
                 // A page destroyed without being removed: out of its tab view.
                 if let Some(Widget::Tabs(tabs)) = node.parent.and_then(|p| self.nodes.get(&p)).map(|n| &n.widget) {

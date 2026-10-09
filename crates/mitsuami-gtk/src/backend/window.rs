@@ -156,7 +156,7 @@ impl Maximized {
 /// 4.16) only size a toplevel when its surface is presented, so a mapped
 /// window ignores a new default size until then. `GtkWindow::present`
 /// would only focus it.
-pub(super) fn resize(window: &gtk::Window, width: i32, height: i32) {
+pub(crate) fn resize(window: &gtk::Window, width: i32, height: i32) {
     window.set_default_size(width, height);
     if window.is_mapped()
         && let Some(toplevel) = window.surface().and_downcast::<gdk::Toplevel>()

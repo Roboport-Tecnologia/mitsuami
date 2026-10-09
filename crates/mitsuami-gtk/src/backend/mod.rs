@@ -47,6 +47,7 @@ mod window;
 
 pub(crate) use dialogs::{dialog_parent, file_filters};
 pub(crate) use slider::{STEPS, Steps, update_marks};
+pub(crate) use window::resize;
 
 use button::ButtonFace;
 use metrics::metrics;

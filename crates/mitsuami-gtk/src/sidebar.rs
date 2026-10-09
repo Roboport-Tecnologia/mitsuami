@@ -17,7 +17,7 @@ use std::cell::{Cell, RefCell};
 use std::rc::Rc;
 
 use adw::prelude::*;
-use mitsuami_core::{EventValue, NodeId, SidebarItemData, SidebarSectionData, UiEvent};
+use mitsuami_core::{EventValue, NodeId, SidebarItemData, SidebarSectionData, Size, UiEvent};
 
 use crate::host::{Events, Host};
 use crate::services::ContextMenu;
@@ -319,9 +319,9 @@ fn set_title(page: &adw::NavigationPage, header: &adw::HeaderBar, title: &str) {
     }
 }
 
-/// A window split in two: the sidebar's page, titled after the window, and
-/// the content's, which takes the window's header bar with its toolbar
-/// items and menu button.
+/// A window split in two: the sidebar's page, titled after the window, with
+/// the window's primary menu, and the content's, which takes the window's
+/// header bar with its toolbar items.
 pub(crate) struct Split {
     pub sidebar: NodeId,
     bin: adw::BreakpointBin,
@@ -335,16 +335,21 @@ pub(crate) struct Split {
 
 impl Split {
     /// Takes the window's content and header bar into the split view. The
-    /// window's own title bar gives way to the pages' header bars.
+    /// window's own title bar gives way to the pages' header bars, and its
+    /// primary menu goes to the end of the sidebar's, as GNOME's guidelines
+    /// place it in a window with a sidebar (Files, Settings).
     pub(crate) fn new(
         window: &gtk::Window,
         header: &adw::HeaderBar,
+        menu_button: &gtk::MenuButton,
         host: &Host,
         id: NodeId,
         sidebar: &Sidebar,
     ) -> Split {
         let sidebar_view = adw::ToolbarView::new();
         let sidebar_header = adw::HeaderBar::new();
+        header.remove(menu_button);
+        sidebar_header.pack_end(menu_button);
         sidebar_view.add_top_bar(&sidebar_header);
         sidebar_view.set_content(Some(&sidebar.scrolled));
         let title = window.title().map(|t| t.to_string()).unwrap_or_default();
@@ -361,6 +366,38 @@ impl Split {
         content.set_content(Some(host));
         let content_page = adw::NavigationPage::new(&content, "");
         let view = adw::NavigationSplitView::new();
+        // The content keeps its size when the sidebar's width limits change
+        // (an app's tweak): the window grows or shrinks by the difference.
+        // The content's size is the one before the change, and the window
+        // is resized once GTK is idle: resizing from inside the change,
+        // which a tweak can make while the window is being shown, left the
+        // content laid out for a size it never got.
+        let pending: Rc<Cell<Option<Size>>> = Rc::default();
+        for property in ["min-sidebar-width", "max-sidebar-width", "sidebar-width-fraction", "sidebar-width-unit"] {
+            let (window, host, page, pending) =
+                (window.downgrade(), host.downgrade(), sidebar_page.clone(), pending.clone());
+            view.connect_notify_local(Some(property), move |view, _| {
+                let Some(root) = host.upgrade().and_then(|h| h.window_root().map(|r| r.size.get())) else { return };
+                if pending.replace(Some(root)).is_some() {
+                    return;
+                }
+                let (window, host, page, pending) = (window.clone(), host.clone(), page.clone(), pending.clone());
+                let view = view.downgrade();
+                gtk::glib::idle_add_local_once(move || {
+                    let Some(size) = pending.take() else { return };
+                    let (Some(window), Some(host), Some(view)) = (window.upgrade(), host.upgrade(), view.upgrade())
+                    else {
+                        return;
+                    };
+                    let Some(root) = host.window_root() else { return };
+                    let width = (size.width + extra_width(&view, &page, size.width)).round() as i32;
+                    if window.is_mapped() {
+                        root.resizing.set(Some(size));
+                    }
+                    crate::backend::resize(&window, width, window.default_height());
+                });
+            });
+        }
         // Titled before a shown window realizes it, which libadwaita checks.
         sidebar.data.borrow_mut().split = Some(SplitParts {
             view: view.clone(),
@@ -410,9 +447,18 @@ impl Split {
         }
     }
 
-    /// Gives the window its content and title bar back.
-    pub(crate) fn remove(self, window: &gtk::Window, header: &adw::HeaderBar, host: &Host) {
+    /// Gives the window its content, title bar and primary menu back; the
+    /// caller packs its toolbar items again, inside the menu.
+    pub(crate) fn remove(
+        self,
+        window: &gtk::Window,
+        header: &adw::HeaderBar,
+        menu_button: &gtk::MenuButton,
+        host: &Host,
+    ) {
         self.data.borrow_mut().split = None;
+        self.sidebar_header.remove(menu_button);
+        header.pack_end(menu_button);
         window.set_child(None::<&gtk::Widget>);
         self.bin.set_child(None::<&gtk::Widget>);
         self.content.set_content(None::<&gtk::Widget>);
@@ -444,22 +490,27 @@ impl Split {
     /// without one (Broadway, an X server without a settings daemon) makes
     /// them 0, and the sidebar is as narrow as its own minimum.
     pub(crate) fn extra_width(&self, content: f32) -> f32 {
-        let settings = Some(self.view.settings());
-        let unit = self.view.sidebar_width_unit();
-        let to_px = |length: f64| unit.to_px(length, settings.as_ref()).ceil() as f32;
-        let own = self.sidebar_page.measure(gtk::Orientation::Horizontal, -1).0 as f32;
-        let min = own.max(to_px(self.view.min_sidebar_width()));
-        let max = min.max(to_px(self.view.max_sidebar_width()));
-        let fraction = self.view.sidebar_width_fraction() as f32;
-        let width = if fraction * (content + min) <= min {
-            min
-        } else if fraction * (content + max) >= max {
-            max
-        } else {
-            fraction * content / (1.0 - fraction)
-        };
-        let collapse = adw::LengthUnit::Sp.to_px(COLLAPSE_WIDTH, settings.as_ref()) as f32;
-        let collapsed = content + width <= collapse;
-        if collapsed { 0.0 } else { width }
+        extra_width(&self.view, &self.sidebar_page, content)
     }
+}
+
+/// See [`Split::extra_width`].
+fn extra_width(view: &adw::NavigationSplitView, sidebar_page: &adw::NavigationPage, content: f32) -> f32 {
+    let settings = Some(view.settings());
+    let unit = view.sidebar_width_unit();
+    let to_px = |length: f64| unit.to_px(length, settings.as_ref()).ceil() as f32;
+    let own = sidebar_page.measure(gtk::Orientation::Horizontal, -1).0 as f32;
+    let min = own.max(to_px(view.min_sidebar_width()));
+    let max = min.max(to_px(view.max_sidebar_width()));
+    let fraction = view.sidebar_width_fraction() as f32;
+    let width = if fraction * (content + min) <= min {
+        min
+    } else if fraction * (content + max) >= max {
+        max
+    } else {
+        fraction * content / (1.0 - fraction)
+    };
+    let collapse = adw::LengthUnit::Sp.to_px(COLLAPSE_WIDTH, settings.as_ref()) as f32;
+    let collapsed = content + width <= collapse;
+    if collapsed { 0.0 } else { width }
 }
