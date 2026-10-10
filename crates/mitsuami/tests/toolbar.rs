@@ -242,9 +242,14 @@ async fn a_table_at_the_contents_top_keeps_its_header_above_its_rows(app: TestAp
 
     let table = app.get_by_test_id("table").frame();
     assert_eq!(table.y(), 0.0);
-    let first = app.get_by_role(Role::Cell, "File 0").frame();
-    assert!(first.y() > table.y() && first.max_y() < table.y() + 60.0, "{first:?} in {table:?}");
+    // Rows are as tall as each platform's (WinUI's 40, under a 32 header),
+    // so the first one starts within the header and a row of the top.
+    let cell = |name| app.get_by_role(Role::Cell, name).frame();
+    let (first, second) = (cell("File 0"), cell("File 1"));
+    let pitch = second.y() - first.y();
+    assert!(pitch >= first.height(), "{first:?} {second:?}");
+    assert!(first.y() > table.y() && first.y() < table.y() + 2.0 * pitch, "{first:?} in {table:?}");
     app.get_by_test_id("table").scroll_by(0.0, 1e6).await;
-    let last = app.get_by_role(Role::Cell, "File 99").frame();
-    assert!(last.max_y() <= table.max_y() && last.max_y() > table.max_y() - 30.0, "{last:?} in {table:?}");
+    let last = cell("File 99");
+    assert!(last.max_y() <= table.max_y() && last.max_y() > table.max_y() - pitch, "{last:?} in {table:?}");
 }
