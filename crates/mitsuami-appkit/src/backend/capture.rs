@@ -3,7 +3,9 @@
 use mitsuami_core::NodeId;
 use mitsuami_core::backend::{CaptureError, Image};
 use objc2::Message;
-use objc2_app_kit::NSBitmapFormat;
+use objc2::rc::Retained;
+use objc2::runtime::{AnyClass, NSObjectProtocol};
+use objc2_app_kit::{NSBitmapFormat, NSView};
 
 use super::{AppKitBackend, Widget};
 
@@ -30,7 +32,17 @@ impl AppKitBackend {
         if let Some(host) = &window_host {
             host.set_fill(true);
         }
+        // A scroll view under the toolbar has an edge effect (the bar's
+        // blur, a private NSScrollPocket) that draws nothing offscreen and
+        // blanks the whole capture, so it's left out.
+        let pockets = scroll_pockets(&view);
+        for pocket in &pockets {
+            pocket.setHidden(true);
+        }
         view.cacheDisplayInRect_toBitmapImageRep(bounds, &rep);
+        for pocket in &pockets {
+            pocket.setHidden(false);
+        }
         if let Some(host) = &window_host {
             host.set_fill(false);
         }
@@ -60,4 +72,25 @@ impl AppKitBackend {
         let scale = if bounds.size.width > 0.0 { width as f32 / bounds.size.width as f32 } else { 1.0 };
         Ok(Image { width: width as u32, height: height as u32, scale_factor: scale, rgba })
     }
+}
+
+/// The shown scroll edge effects in this view.
+fn scroll_pockets(view: &NSView) -> Vec<Retained<NSView>> {
+    fn find(view: &NSView, class: &AnyClass, pockets: &mut Vec<Retained<NSView>>) {
+        for subview in view.subviews().iter() {
+            if subview.isKindOfClass(class) {
+                if !subview.isHidden() {
+                    pockets.push(subview.retain());
+                }
+            } else {
+                find(&subview, class, pockets);
+            }
+        }
+    }
+    let mut pockets = Vec::new();
+    // Before macOS 26 there's none.
+    if let Some(class) = AnyClass::get(c"NSScrollPocket") {
+        find(view, class, &mut pockets);
+    }
+    pockets
 }
