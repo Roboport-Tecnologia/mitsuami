@@ -505,7 +505,7 @@ A `Table` is a list whose rows are cells under column headers: everything in §1
 
 ARCHITECTURE.md §13.27 has each platform's table.
 
-## 11. Window chrome: toolbars, sidebars, tab views and document tabs
+## 11. Window chrome: toolbars, sidebars, tab views, headers and document tabs
 
 ### 11.1 Toolbar items
 
