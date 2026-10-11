@@ -879,8 +879,14 @@ impl WindowDelegate {
     }
 
     pub(crate) fn stop_observing_focus(&self, window: &NSWindow) {
-        unsafe { window.removeObserver_forKeyPath(self, &NSString::from_str(FIRST_RESPONDER)) };
+        self.unobserve_focus(window);
         self.set_detail(None);
+    }
+
+    /// Stops watching the window's focus: the node has another window (see
+    /// `document_tabs`).
+    pub(crate) fn unobserve_focus(&self, window: &NSWindow) {
+        unsafe { window.removeObserver_forKeyPath(self, &NSString::from_str(FIRST_RESPONDER)) };
     }
 
     /// The node owning the first responder: the nearest known view among
@@ -898,6 +904,35 @@ impl WindowDelegate {
             view = unsafe { current.superview() };
         }
         None
+    }
+}
+
+/// A window node's native window. It's the same one, except while
+/// document tabs are the window's: it's then the chosen tab's, which the
+/// content moves into (see `document_tabs`).
+#[derive(Clone)]
+pub(crate) struct NodeWindow(Rc<RefCell<Retained<NSWindow>>>);
+
+impl NodeWindow {
+    pub(crate) fn new(window: Retained<NSWindow>) -> NodeWindow {
+        NodeWindow(Rc::new(RefCell::new(window)))
+    }
+
+    pub(crate) fn get(&self) -> Retained<NSWindow> {
+        self.0.borrow().clone()
+    }
+
+    pub(crate) fn set(&self, window: &NSWindow) {
+        *self.0.borrow_mut() = window.retain();
+    }
+
+    pub(crate) fn is(&self, window: &NSWindow) -> bool {
+        std::ptr::eq(&**self.0.borrow(), window)
+    }
+
+    /// The same node's.
+    pub(crate) fn same(&self, other: &NodeWindow) -> bool {
+        Rc::ptr_eq(&self.0, &other.0)
     }
 }
 

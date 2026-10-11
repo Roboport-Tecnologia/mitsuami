@@ -22,6 +22,7 @@ pub(super) fn native_state(state: &State, id: NodeId) -> Option<NativeState> {
     let checked = |s: isize| Prop::Checked(s == NSControlStateValueOn);
     match &node.widget {
         Widget::Window { window, _delegate, .. } => {
+            let window = &*window.get();
             props.push(Prop::Title(window.title().to_string()));
             props.push(Prop::FullScreen(_delegate.full_screen(window)));
             props.push(Prop::MinSize(_delegate.min_size(window)));

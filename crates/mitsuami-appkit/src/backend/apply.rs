@@ -48,7 +48,7 @@ impl State {
     }
 
     /// The window a node is in, and its delegate.
-    fn window_of(&self, id: NodeId) -> Option<(&objc2_app_kit::NSWindow, &crate::classes::WindowDelegate)> {
+    fn window_of(&self, id: NodeId) -> Option<(&crate::classes::NodeWindow, &crate::classes::WindowDelegate)> {
         let mut at = self.nodes.get(&id)?.parent;
         while let Some(parent) = at {
             let node = self.nodes.get(&parent)?;
@@ -247,6 +247,7 @@ impl State {
                     else {
                         violation(command, "a sidebar goes in a window")
                     };
+                    let window = &*window.get();
                     if split.is_some() {
                         violation(command, "a window has one sidebar");
                     }
@@ -261,7 +262,7 @@ impl State {
                     }
                     *split = Some(made);
                     _delegate.set_detail(Some(host));
-                    let (window, delegate) = (window.clone(), _delegate.clone());
+                    let (window, delegate) = (window.retain(), _delegate.clone());
                     self.attach(*child, *parent);
                     // Again, now that it's in the window's split view,
                     // which its props came before: a width it sets is in
@@ -285,6 +286,7 @@ impl State {
                     else {
                         violation(command, "toolbar items go in windows")
                     };
+                    let window = &*window.get();
                     let Some(index) = index.checked_sub(content) else {
                         violation(command, "toolbar items go after the window's content")
                     };
@@ -357,6 +359,7 @@ impl State {
                 {
                     // The window loses the sidebar, and the content keeps
                     // its size.
+                    let window = &*window.get();
                     let size = host.frame().size;
                     split.take().unwrap().remove(window, host);
                     _delegate.set_detail(None);
@@ -426,6 +429,7 @@ impl State {
                 }
                 match &mut node.widget {
                     Widget::Window { window, _delegate, split, .. } => {
+                        let window = &window.get();
                         // Out of the sheet, or of the modal loop, first.
                         if let Some(parent) = window.sheetParent() {
                             parent.endSheet(window);
@@ -537,6 +541,7 @@ impl State {
             // locked height is the user's limit, not the app's.
             Command::SetWindowSize { id, size } => match self.nodes.get(id).map(|n| &n.widget) {
                 Some(Widget::Window { window, _delegate, .. }) => {
+                    let window = &*window.get();
                     if !in_full_screen(window) {
                         window.setContentSize(_delegate.at_least_min(window, *size));
                     }
@@ -545,7 +550,7 @@ impl State {
             },
             Command::SetFocusOrder { window, order } => {
                 let ns_window = match self.nodes.get(window).map(|n| &n.widget) {
-                    Some(Widget::Window { window, .. }) => window.clone(),
+                    Some(Widget::Window { window, .. }) => window.get(),
                     _ => violation(command, "not a window"),
                 };
                 // Unlink the previous chain, then link the new one as a loop.

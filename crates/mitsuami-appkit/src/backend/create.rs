@@ -86,7 +86,13 @@ impl State {
                 if self.options.show_windows {
                     self.pending_show.push(id);
                 }
-                Widget::Window { window, host, _delegate: delegate, toolbar: None, split: None }
+                Widget::Window {
+                    window: crate::classes::NodeWindow::new(window),
+                    host,
+                    _delegate: delegate,
+                    toolbar: None,
+                    split: None,
+                }
             }
             WidgetKind::Sidebar => Widget::Sidebar(Sidebar::new(mtm, id, self.events.clone())),
             WidgetKind::RadioGroup => Widget::RadioGroup(RadioGroup::new(mtm, id, self.events.clone())),

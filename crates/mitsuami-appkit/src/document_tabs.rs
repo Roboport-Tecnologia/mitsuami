@@ -4,12 +4,11 @@
 //! Safari builds its own.
 //!
 //! The app has one content for every tab (a terminal draws its sessions
-//! on one surface), so with window tabs the node's window is always the
-//! chosen tab, and the others are empty placeholder windows in its group.
-//! Picking a placeholder puts the window in its place: placeholders move
-//! across the window until it's where the tab picked was, and every tab
-//! takes its title from where it is. The window the core knows (its
-//! toolbar, sheets, full screen, sidebar) stays the one shown.
+//! on one surface), so with window tabs each tab is a window of the group,
+//! and the content is the chosen one's: as a tab is picked, the content,
+//! toolbar, title bar accessories and the node's delegate move into its
+//! window while AppKit shows it. The switch is AppKit's own, and the
+//! node's window (`NodeWindow`) is the chosen tab's.
 
 use std::cell::{Cell, RefCell};
 use std::ffi::c_void;
@@ -24,8 +23,8 @@ use objc2_app_kit::{
     NSAccessibility, NSAccessibilityElement, NSAccessibilityRadioButtonRole, NSAccessibilityTabButtonSubrole,
     NSAccessibilityTabGroupRole, NSAppearanceCustomization, NSBackingStoreType, NSBezierPath, NSButton, NSColor,
     NSEvent, NSFont, NSImage, NSImageSymbolConfiguration, NSLineBreakMode, NSResponder, NSTextAlignment, NSTextField,
-    NSTrackingArea, NSTrackingAreaOptions, NSUserInterfaceLayoutDirection, NSView, NSWindow, NSWindowDelegate,
-    NSWindowStyleMask, NSWindowTabGroup,
+    NSTextView, NSTrackingArea, NSTrackingAreaOptions, NSUserInterfaceLayoutDirection, NSView, NSWindow,
+    NSWindowDelegate, NSWindowStyleMask, NSWindowTabGroup,
 };
 use objc2_core_foundation::{CFRunLoop, kCFRunLoopCommonModes};
 use objc2_foundation::{
@@ -33,7 +32,7 @@ use objc2_foundation::{
     NSRect, NSSize, NSString,
 };
 
-use crate::classes::{ClosureTarget, WindowDelegate, zero_rect};
+use crate::classes::{ClosureTarget, NodeWindow, WindowDelegate, zero_rect};
 
 fn ns(s: &str) -> Retained<NSString> {
     NSString::from_str(s)
@@ -171,11 +170,11 @@ impl DocumentTabs {
     /// tab group would order its tabs in), and taken down when the app
     /// asks for a strip or the node leaves the window. `window`: the
     /// node's window and its delegate, while it's in one.
-    pub(crate) fn sync_window(&self, mtm: MainThreadMarker, window: Option<(&NSWindow, &WindowDelegate)>) {
-        let wanted = window.filter(|(w, _)| self.window_tabs() && w.isVisible());
+    pub(crate) fn sync_window(&self, mtm: MainThreadMarker, window: Option<(&NodeWindow, &WindowDelegate)>) {
+        let wanted = window.filter(|(w, _)| self.window_tabs() && w.get().isVisible());
         let current = self.window.borrow().clone();
         match (current, wanted) {
-            (Some(tabs), Some((w, _))) if std::ptr::eq(&*tabs.window, w) => {}
+            (Some(tabs), Some((w, _))) if tabs.window.same(w) => {}
             (current, wanted) => {
                 if let Some(tabs) = current {
                     tabs.take_down();
@@ -309,8 +308,9 @@ pub(crate) struct ObserverIvars {
 }
 
 define_class!(
-    /// KVO on the tab group's `windows`: a tab dragged elsewhere among
-    /// them, out to a window of its own, or a window merged in.
+    /// KVO on the tab group's `windows` and `selectedWindow`: a tab
+    /// dragged elsewhere among them, out to a window of its own, or a
+    /// window merged in; a tab picked.
     #[unsafe(super(NSObject))]
     #[thread_kind = MainThreadOnly]
     #[ivars = ObserverIvars]
@@ -332,24 +332,24 @@ define_class!(
     unsafe impl NSObjectProtocol for TabGroupObserver {}
 );
 
-pub(crate) struct PlaceholderIvars {
+pub(crate) struct TabWindowIvars {
     close: Box<dyn Fn(&NSWindow)>,
-    key: Box<dyn Fn()>,
+    shown: Box<dyn Fn(&NSWindow)>,
 }
 
 define_class!(
-    /// The placeholder windows' delegate: closing one asks the app to
-    /// close its tab, and one becoming key (its tab picked, Control-Tab,
-    /// the Window menu) has the group looked at, to put the window in its
-    /// place.
+    /// The delegate of the tabs' windows but the chosen one (which has the
+    /// node's): closing one asks the app to close its tab, and one becoming
+    /// key or main (its tab picked, Control-Tab, the Window menu) takes the
+    /// content.
     #[unsafe(super(NSObject))]
     #[thread_kind = MainThreadOnly]
-    #[ivars = PlaceholderIvars]
-    pub(crate) struct PlaceholderDelegate;
+    #[ivars = TabWindowIvars]
+    pub(crate) struct TabWindowDelegate;
 
-    unsafe impl NSObjectProtocol for PlaceholderDelegate {}
+    unsafe impl NSObjectProtocol for TabWindowDelegate {}
 
-    unsafe impl NSWindowDelegate for PlaceholderDelegate {
+    unsafe impl NSWindowDelegate for TabWindowDelegate {
         #[unsafe(method(windowShouldClose:))]
         fn window_should_close(&self, sender: &NSWindow) -> bool {
             (self.ivars().close)(sender);
@@ -357,8 +357,18 @@ define_class!(
         }
 
         #[unsafe(method(windowDidBecomeKey:))]
-        fn window_did_become_key(&self, _notification: &NSNotification) {
-            (self.ivars().key)();
+        fn window_did_become_key(&self, notification: &NSNotification) {
+            if let Some(window) = notification.object().and_then(|o| o.downcast::<NSWindow>().ok()) {
+                (self.ivars().shown)(&window);
+            }
+        }
+
+        /// Picked while the app isn't active: it's main, not key.
+        #[unsafe(method(windowDidBecomeMain:))]
+        fn window_did_become_main(&self, notification: &NSNotification) {
+            if let Some(window) = notification.object().and_then(|o| o.downcast::<NSWindow>().ok()) {
+                (self.ivars().shown)(&window);
+            }
         }
     }
 );
@@ -399,16 +409,22 @@ define_class!(
 const WINDOWS: &str = "windows";
 const SELECTED: &str = "selectedWindow";
 
-/// The node's window, with placeholder windows for the other tabs in its
-/// tab group.
+/// A window for each tab, in the node's window's tab group. The chosen
+/// tab's is the node's window: the content, toolbar, title bar
+/// accessories and the node's delegate move into a tab's window as it's
+/// picked, while AppKit shows it, so the switch is AppKit's own. The
+/// others are empty.
 pub(crate) struct WindowTabs {
     mtm: MainThreadMarker,
     shared: Rc<Shared>,
-    window: Retained<NSWindow>,
+    /// The node's window: the chosen tab's.
+    window: NodeWindow,
     delegate: Retained<WindowDelegate>,
     group: Retained<NSWindowTabGroup>,
-    placeholders: RefCell<Vec<Retained<NSWindow>>>,
-    placeholder_delegate: Retained<PlaceholderDelegate>,
+    /// The tabs' windows, the node's among them, in no particular order:
+    /// the group's is the tabs'.
+    windows: RefCell<Vec<Retained<NSWindow>>>,
+    tab_delegate: Retained<TabWindowDelegate>,
     observer: Retained<TabGroupObserver>,
     responder: Retained<NewTabResponder>,
     /// The window's next responder before ours went in.
@@ -429,32 +445,32 @@ fn addr(window: &NSWindow) -> usize {
 }
 
 impl WindowTabs {
-    fn new(mtm: MainThreadMarker, shared: Rc<Shared>, window: &NSWindow, delegate: &WindowDelegate) -> Rc<WindowTabs> {
+    fn new(mtm: MainThreadMarker, shared: Rc<Shared>, node: &NodeWindow, delegate: &WindowDelegate) -> Rc<WindowTabs> {
+        let window = node.get();
         let identifier = window.tabbingIdentifier();
         // The node's own: the user's "Prefer tabs" and Merge All Windows
         // don't bring the app's other windows in, nor take these out.
         window.setTabbingIdentifier(&ns(&format!("mitsuami.document-tabs.{}", shared.id.raw())));
         let group = window.tabGroup().expect("a window's tab group is made when asked for");
         let tabs = Rc::new_cyclic(|this: &Weak<WindowTabs>| {
-            let (closing, keyed, observed) = (this.clone(), this.clone(), this.clone());
-            let placeholder_delegate = PlaceholderDelegate::alloc(mtm).set_ivars(PlaceholderIvars {
-                close: Box::new(move |placeholder| {
+            let (closing, shown, observed) = (this.clone(), this.clone(), this.clone());
+            let tab_delegate = TabWindowDelegate::alloc(mtm).set_ivars(TabWindowIvars {
+                close: Box::new(move |window| {
                     if let Some(tabs) = closing.upgrade() {
-                        tabs.close_placeholder(placeholder);
+                        tabs.close_window(window);
                     }
                 }),
-                key: Box::new(move || {
-                    if let Some(tabs) = keyed.upgrade() {
-                        tabs.windows_changed();
+                shown: Box::new(move |window| {
+                    if let Some(tabs) = shown.upgrade() {
+                        tabs.shown(window);
                     }
                 }),
             });
-            let placeholder_delegate: Retained<PlaceholderDelegate> =
-                unsafe { msg_send![super(placeholder_delegate), init] };
+            let tab_delegate: Retained<TabWindowDelegate> = unsafe { msg_send![super(tab_delegate), init] };
             let observer = TabGroupObserver::alloc(mtm).set_ivars(ObserverIvars {
                 handler: Box::new(move || {
                     if let Some(tabs) = observed.upgrade() {
-                        tabs.windows_changed();
+                        tabs.group_changed();
                     }
                 }),
             });
@@ -469,11 +485,11 @@ impl WindowTabs {
             WindowTabs {
                 mtm,
                 shared,
-                window: window.retain(),
+                window: node.clone(),
                 delegate: delegate.retain(),
                 group: group.clone(),
-                placeholders: RefCell::default(),
-                placeholder_delegate,
+                windows: RefCell::new(vec![window.clone()]),
+                tab_delegate,
                 observer,
                 responder,
                 next_responder,
@@ -521,25 +537,34 @@ impl WindowTabs {
         self.muted.set(was);
     }
 
-    fn windows(&self) -> Vec<Retained<NSWindow>> {
-        self.group.windows().to_vec()
+    /// The group's windows that are tabs, in their order.
+    fn tabs(&self) -> Vec<Retained<NSWindow>> {
+        self.group.windows().iter().filter(|w| self.is_ours(w)).collect()
     }
 
     fn index_of(&self, window: &NSWindow) -> Option<usize> {
-        self.windows().iter().position(|w| addr(w) == addr(window))
+        self.tabs().iter().position(|w| addr(w) == addr(window))
     }
 
     fn is_ours(&self, window: &NSWindow) -> bool {
-        addr(window) == addr(&self.window) || self.placeholders.borrow().iter().any(|p| addr(p) == addr(window))
+        self.windows.borrow().iter().any(|w| addr(w) == addr(window))
     }
 
-    /// A placeholder: an empty window set up as the node's, so the tab bar
-    /// and title bar look the same whichever is selected.
-    fn placeholder(&self) -> Retained<NSWindow> {
-        let window = &self.window;
+    /// The node's delegate is still the window's: it's not going.
+    fn attached(&self) -> bool {
+        let delegate = self.window.get().delegate();
+        delegate.is_some_and(|d| {
+            std::ptr::eq(Retained::as_ptr(&d).cast::<AnyObject>(), (&*self.delegate as *const WindowDelegate).cast())
+        })
+    }
+
+    /// A tab's window: empty, set up as the node's, so the tab bar and
+    /// title bar look the same whichever is chosen.
+    fn make_window(&self) -> Retained<NSWindow> {
+        let window = self.window.get();
         let mask = window.styleMask() & !NSWindowStyleMask::FullScreen;
         let content = window.contentRectForFrameRect(window.frame());
-        let placeholder = unsafe {
+        let made = unsafe {
             NSWindow::initWithContentRect_styleMask_backing_defer(
                 NSWindow::alloc(self.mtm),
                 content,
@@ -548,114 +573,198 @@ impl WindowTabs {
                 true,
             )
         };
-        unsafe { placeholder.setReleasedWhenClosed(false) };
-        placeholder.setTabbingIdentifier(&window.tabbingIdentifier());
-        placeholder.setTitlebarAppearsTransparent(window.titlebarAppearsTransparent());
-        placeholder.setToolbarStyle(window.toolbarStyle());
-        placeholder.setAppearance(window.appearance().as_deref());
-        placeholder.setDelegate(Some(ProtocolObject::from_ref(&*self.placeholder_delegate)));
-        unsafe { placeholder.setNextResponder(Some(&self.responder)) };
-        placeholder
+        unsafe { made.setReleasedWhenClosed(false) };
+        made.setAutorecalculatesKeyViewLoop(false);
+        made.setTabbingIdentifier(&window.tabbingIdentifier());
+        made.setTitlebarAppearsTransparent(window.titlebarAppearsTransparent());
+        made.setToolbarStyle(window.toolbarStyle());
+        made.setAppearance(window.appearance().as_deref());
+        made.setDelegate(Some(ProtocolObject::from_ref(&*self.tab_delegate)));
+        unsafe { made.setNextResponder(Some(&self.responder)) };
+        made
     }
 
-    /// The group shows the model: a window per tab, the node's at the
-    /// chosen tab, each tab titled from where it is.
+    /// The content goes into `to`, which becomes the node's window: its
+    /// view or split, toolbar, title bar accessories, the window's settings
+    /// and the node's delegate, and the focus. Done while AppKit shows
+    /// `to` as its tab is picked, nothing is seen to move.
+    fn take_content(&self, to: &NSWindow) {
+        let from = self.window.get();
+        if addr(&from) == addr(to) {
+            return;
+        }
+        // The group gave it the chosen tab's frame. A toolbar coming in
+        // would grow it by the toolbar's height, keeping its content's.
+        let frame = to.frame();
+        let focus = focused_view(&from);
+        // The delegate isn't either's while the content moves, which
+        // resizes both.
+        self.delegate.unobserve_focus(&from);
+        from.setDelegate(Some(ProtocolObject::from_ref(&*self.tab_delegate)));
+        let full_screen = to.styleMask() & NSWindowStyleMask::FullScreen;
+        to.setStyleMask((from.styleMask() & !NSWindowStyleMask::FullScreen) | full_screen);
+        to.setTitle(&from.title());
+        to.setContentMinSize(from.contentMinSize());
+        to.setContentMaxSize(from.contentMaxSize());
+        to.setInitialFirstResponder(from.initialFirstResponder().as_deref());
+        if let Some(controller) = from.contentViewController() {
+            from.setContentViewController(None);
+            to.setContentViewController(Some(&controller));
+        } else if let Some(view) = from.contentView() {
+            from.setContentView(Some(&NSView::new(self.mtm)));
+            to.setContentView(Some(&view));
+        }
+        if let Some(toolbar) = from.toolbar() {
+            from.setToolbar(None);
+            to.setToolbar(Some(&toolbar));
+        }
+        let accessories = from.titlebarAccessoryViewControllers().to_vec();
+        for accessory in accessories {
+            accessory.removeFromParentViewController();
+            to.addTitlebarAccessoryViewController(&accessory);
+        }
+        to.setFrame_display(frame, true);
+        to.setDelegate(Some(ProtocolObject::from_ref(&*self.delegate)));
+        self.delegate.observe_focus(to);
+        self.window.set(to);
+        if let Some(view) = focus {
+            to.makeFirstResponder(Some(&view));
+        }
+    }
+
+    /// The group shows the model: a window per tab, in the tabs' order,
+    /// the chosen one's the node's. A title gone or come in between is a
+    /// tab closed or opened there; the other tabs keep their windows.
     fn sync(&self) {
-        let (count, chosen) = {
+        let (titles, chosen) = {
             let model = self.shared.model.borrow();
-            (model.titles.len(), model.chosen())
+            (model.titles.clone(), model.chosen())
         };
         self.quietly(|| {
-            if self.index_of(&self.window).is_none() {
-                self.group.insertWindow_atIndex(&self.window, 0);
+            let current = self.window.get();
+            if self.index_of(&current).is_none() {
+                self.group.insertWindow_atIndex(&current, 0);
             }
-            let wanted = count.saturating_sub(1);
-            while self.placeholders.borrow().len() < wanted {
-                let placeholder = self.placeholder();
-                self.group.addWindow(&placeholder);
-                self.placeholders.borrow_mut().push(placeholder);
+            let old = self.tabs();
+            let shown: Vec<String> = old.iter().map(|w| w.tab().title().to_string()).collect();
+            let mut target: Vec<Retained<NSWindow>> = Vec::new();
+            for kept in align(&shown, &titles) {
+                let window = match kept {
+                    Some(i) => old[i].clone(),
+                    None => {
+                        // After the tab before it.
+                        let made = self.make_window();
+                        let windows = self.group.windows();
+                        let at = target.last().and_then(|p| windows.iter().position(|w| addr(&w) == addr(p)));
+                        self.group.insertWindow_atIndex(&made, at.map_or(0, |i| i + 1) as isize);
+                        self.windows.borrow_mut().push(made.clone());
+                        made
+                    }
+                };
+                target.push(window);
             }
-            while self.placeholders.borrow().len() > wanted {
-                let placeholder = self.placeholders.borrow_mut().pop().unwrap();
-                self.drop_placeholder(&placeholder);
+            if let Some(wanted) = chosen.and_then(|i| target.get(i))
+                && addr(wanted) != addr(&current)
+            {
+                wanted.setFrame_display(current.frame(), false);
+                self.group.setSelectedWindow(Some(wanted));
+                self.take_content(wanted);
             }
-            self.place(chosen.unwrap_or(0));
+            let current = self.window.get();
+            let dropped: Vec<Retained<NSWindow>> = self
+                .windows
+                .borrow()
+                .iter()
+                .filter(|w| addr(w) != addr(&current) && !target.iter().any(|t| addr(t) == addr(w)))
+                .cloned()
+                .collect();
+            for window in dropped {
+                self.drop_window(&window);
+            }
             self.title_tabs();
-            self.group.setSelectedWindow(Some(&self.window));
+            self.group.setSelectedWindow(Some(&current));
             self.remember_order();
         });
     }
 
-    fn drop_placeholder(&self, placeholder: &NSWindow) {
-        self.group.removeWindow(placeholder);
-        placeholder.setDelegate(None);
-        placeholder.orderOut(None);
-        placeholder.close();
+    fn drop_window(&self, window: &NSWindow) {
+        self.windows.borrow_mut().retain(|w| addr(w) != addr(window));
+        self.group.removeWindow(window);
+        window.setDelegate(None);
+        window.orderOut(None);
+        window.close();
     }
 
-    /// Moves placeholders across the node's window until it's at `index`:
-    /// only windows that aren't shown move, and placeholders are all
-    /// alike, so the tabs only change titles.
-    fn place(&self, index: usize) {
-        // Each step moves the window one place; more steps than windows
-        // means AppKit didn't move them.
-        for _ in 0..=self.group.windows().len() {
-            let windows = self.windows();
-            let Some(at) = windows.iter().position(|w| addr(w) == addr(&self.window)) else { return };
-            let index = index.min(windows.len() - 1);
-            if at == index {
-                return;
-            }
-            if at < index {
-                // The one after it goes first.
-                let next = windows[at + 1].clone();
-                self.group.removeWindow(&next);
-                self.group.insertWindow_atIndex(&next, 0);
-            } else {
-                // The one before it goes last.
-                let previous = windows[at - 1].clone();
-                self.group.removeWindow(&previous);
-                let count = self.group.windows().len();
-                self.group.insertWindow_atIndex(&previous, count as isize);
-            }
-        }
-    }
-
-    /// Each tab shows the title of where it is; placeholders take theirs as
-    /// their windows' titles too (the Window menu lists them). The node's
+    /// Each tab shows its title; the other windows take theirs as their
+    /// windows' titles too (the Window menu lists them). The node's
     /// window keeps the window's title.
     fn title_tabs(&self) {
         let titles = self.shared.model.borrow().titles.clone();
-        for (index, window) in self.windows().iter().enumerate() {
+        for (index, window) in self.tabs().iter().enumerate() {
             let title = titles.get(index).map(|t| ns(t));
             window.tab().setTitle(title.as_deref());
-            if addr(window) != addr(&self.window) {
+            if !self.window.is(window) {
                 window.setTitle(title.as_deref().unwrap_or(&ns("")));
             }
         }
     }
 
     fn remember_order(&self) {
-        *self.order.borrow_mut() = self.windows().iter().map(|w| addr(w)).collect();
+        *self.order.borrow_mut() = self.tabs().iter().map(|w| addr(w)).collect();
     }
 
-    /// A placeholder's close button: the app is asked to close its tab.
-    fn close_placeholder(&self, placeholder: &NSWindow) {
+    /// The app lets the user pick a tab: the tabs are enabled, and the
+    /// window has no sheet, which stays with its window.
+    fn can_pick(&self) -> bool {
+        self.shared.model.borrow().enabled() && self.window.get().attachedSheet().is_none()
+    }
+
+    /// A tab's window became key or main: its tab was picked, and AppKit
+    /// is showing it. The content goes in now, in the same change, and the
+    /// app hears. Put back, if picking isn't allowed, once AppKit is done.
+    fn shown(self: &Rc<Self>, window: &NSWindow) {
+        if self.muted.get() || self.window.is(window) || !self.is_ours(window) || !self.attached() {
+            return;
+        }
+        if !self.can_pick() {
+            self.group_changed();
+            return;
+        }
+        let Some(index) = self.index_of(window) else { return };
+        self.quietly(|| {
+            self.take_content(window);
+            self.title_tabs();
+        });
+        self.picked(index);
+    }
+
+    /// The model has the tab picked, and the app hears.
+    fn picked(&self, index: usize) {
+        let mut model = self.shared.model.borrow_mut();
+        if model.chosen() == Some(index) {
+            return;
+        }
+        model.selected = Some(index);
+        drop(model);
+        self.shared.emit(UiEvent::Changed(EventValue::Index(index)));
+    }
+
+    /// A tab's window's close button: the app is asked to close its tab.
+    fn close_window(&self, window: &NSWindow) {
         if self.muted.get() {
             return;
         }
         let closable = self.shared.model.borrow().closable();
-        if let Some(index) = self.index_of(placeholder).filter(|_| closable) {
+        if let Some(index) = self.index_of(window).filter(|_| closable) {
             self.shared.emit(UiEvent::TabCloseRequested(index));
         }
     }
 
     /// The group's windows or its selected one changed, not by the
     /// backend: looked at once AppKit is done. A drag may still be under
-    /// way, and a tab picked is mid-selection: moving windows in the group
-    /// then throws (`NSWindowStackController`, "expected no items"), which
-    /// leaves the window hidden and the app with no key window.
-    fn windows_changed(self: &Rc<Self>) {
+    /// way, and changing the group in the middle of AppKit's selection
+    /// throws (`NSWindowStackController`'s "expected no items").
+    fn group_changed(self: &Rc<Self>) {
         if self.muted.get() || self.pending.replace(true) {
             return;
         }
@@ -673,23 +782,25 @@ impl WindowTabs {
     }
 
     /// What the user did to the group: a tab moved is reported (or put
-    /// back, if the app doesn't let tabs move); a placeholder picked has
-    /// the window take its place, and is reported; a tab dragged out to a
-    /// window of its own comes back, and a window merged in goes out. The
-    /// tabs are the app's, and the window is always one with them.
+    /// back, if the app doesn't let tabs move); a tab picked that the
+    /// content isn't in yet gets it, or the chosen one is shown again; a
+    /// tab dragged out to a window of its own comes back, and a window
+    /// merged in goes out. The tabs are the app's, and the window is
+    /// always one with them.
     fn reconcile(&self) {
+        if !self.attached() {
+            return;
+        }
         let before = self.order.borrow().clone();
         let mut moved = None;
         let mut picked = None;
-        let mut focus = false;
         self.quietly(|| {
-            for window in self.windows() {
+            for window in self.group.windows().iter() {
                 if !self.is_ours(&window) {
                     self.group.removeWindow(&window);
                 }
             }
-            let mut ours: Vec<Retained<NSWindow>> = vec![self.window.clone()];
-            ours.extend(self.placeholders.borrow().iter().cloned());
+            let ours = self.windows.borrow().clone();
             for window in &ours {
                 if self.index_of(window).is_none() {
                     let at = before.iter().position(|a| *a == addr(window)).unwrap_or(0);
@@ -697,73 +808,117 @@ impl WindowTabs {
                     self.group.insertWindow_atIndex(window, at.min(count) as isize);
                 }
             }
-            let now: Vec<usize> = self.windows().iter().map(|w| addr(w)).collect();
+            let now: Vec<usize> = self.tabs().iter().map(|w| addr(w)).collect();
             if let Some((from, to)) = one_move(&before, &now) {
                 let reorderable = self.shared.model.borrow().reorderable();
                 if reorderable {
                     self.shared.model.borrow_mut().move_tab(from, to);
                     moved = Some((from, to));
-                } else if let Some(window) = self.windows().get(to).cloned() {
+                } else if let Some(window) = self.tabs().get(to).cloned() {
                     self.group.removeWindow(&window);
                     self.group.insertWindow_atIndex(&window, from as isize);
                 }
             }
-            let selected = self.group.selectedWindow().filter(|w| addr(w) != addr(&self.window) && self.is_ours(w));
-            if let Some(placeholder) = selected {
-                focus = placeholder.isKeyWindow();
-                let index = self.index_of(&placeholder);
-                let mut model = self.shared.model.borrow_mut();
-                if let Some(index) = index.filter(|i| model.enabled() && model.chosen() != Some(*i)) {
-                    model.selected = Some(index);
-                    picked = Some(index);
-                }
+            let selected = self.group.selectedWindow().filter(|w| self.is_ours(w) && !self.window.is(w));
+            if let Some(window) = selected.filter(|_| self.can_pick()) {
+                self.take_content(&window);
+                picked = self.index_of(&window);
             }
-            let chosen = self.shared.model.borrow().chosen();
-            self.place(chosen.unwrap_or(0));
             self.title_tabs();
-            self.group.setSelectedWindow(Some(&self.window));
-            if focus {
-                self.window.makeKeyAndOrderFront(None);
-            }
+            self.group.setSelectedWindow(Some(&self.window.get()));
             self.remember_order();
         });
         if let Some((from, to)) = moved {
             self.shared.emit(UiEvent::TabMoved { from, to });
         }
         if let Some(index) = picked {
-            self.shared.emit(UiEvent::Changed(EventValue::Index(index)));
+            self.picked(index);
         }
     }
 
     fn titles(&self) -> Vec<String> {
         let count = self.shared.model.borrow().titles.len();
-        self.windows().iter().take(count).map(|w| w.tab().title().to_string()).collect()
+        self.tabs().iter().take(count).map(|w| w.tab().title().to_string()).collect()
     }
 
     fn selected(&self) -> Option<usize> {
         let count = self.shared.model.borrow().titles.len();
-        self.index_of(&self.window).filter(|_| count > 0)
+        self.index_of(&self.window.get()).filter(|_| count > 0)
     }
 
-    /// The window is a window again: no placeholders, its own title on its
-    /// tab, its own close, responder chain and tabbing identifier.
+    /// The window is a window again: the other tabs' windows go, and it
+    /// has its own title on its tab, its own close, responder chain and
+    /// tabbing identifier.
     fn take_down(&self) {
         for key_path in [WINDOWS, SELECTED] {
             unsafe { self.group.removeObserver_forKeyPath(&self.observer, &ns(key_path)) };
         }
+        let window = self.window.get();
         self.quietly(|| {
-            for placeholder in self.placeholders.borrow_mut().drain(..) {
-                self.drop_placeholder(&placeholder);
+            let others: Vec<Retained<NSWindow>> =
+                self.windows.borrow().iter().filter(|w| addr(w) != addr(&window)).cloned().collect();
+            for other in others {
+                self.drop_window(&other);
             }
-            self.window.tab().setTitle(None);
+            window.tab().setTitle(None);
         });
         self.delegate.set_close_tab(None);
-        let ours = unsafe { self.window.nextResponder() }.is_some_and(|r| std::ptr::eq(&*r, &**self.responder));
+        let ours = unsafe { window.nextResponder() }.is_some_and(|r| std::ptr::eq(&*r, &**self.responder));
         if ours {
-            unsafe { self.window.setNextResponder(self.next_responder.as_deref()) };
+            unsafe { window.setNextResponder(self.next_responder.as_deref()) };
         }
-        self.window.setTabbingIdentifier(&self.identifier);
+        window.setTabbingIdentifier(&self.identifier);
     }
+}
+
+/// The view with the focus: while a field is edited, the field, not the
+/// window's field editor, which stays in its window.
+fn focused_view(window: &NSWindow) -> Option<Retained<NSView>> {
+    let view = window.firstResponder()?.downcast::<NSView>().ok()?;
+    if let Some(text) = view.downcast_ref::<NSTextView>()
+        && text.isFieldEditor()
+    {
+        let field: Option<Retained<AnyObject>> = unsafe { msg_send![text, delegate] };
+        return field.and_then(|f| f.downcast::<NSView>().ok());
+    }
+    Some(view)
+}
+
+/// Which tab each title is, from the titles the tabs show: for each new
+/// title, the old tab it's (`None`: a tab opened there). Titles that
+/// match keep their tabs; with more old ones left than new, an old one
+/// before the next match closed, and with fewer, a new one opened before
+/// it; otherwise a tab was renamed. Old tabs left over closed.
+fn align(old: &[String], new: &[String]) -> Vec<Option<usize>> {
+    let mut plan = Vec::with_capacity(new.len());
+    let (mut i, mut j) = (0, 0);
+    while j < new.len() {
+        if i >= old.len() {
+            plan.push(None);
+            j += 1;
+            continue;
+        }
+        if old[i] == new[j] {
+            plan.push(Some(i));
+            (i, j) = (i + 1, j + 1);
+            continue;
+        }
+        let (old_left, new_left) = (old.len() - i, new.len() - j);
+        if old_left > new_left
+            && let Some(k) = old[i..].iter().take(old_left - new_left + 1).position(|t| *t == new[j])
+        {
+            i += k;
+        } else if new_left > old_left
+            && let Some(k) = new[j..].iter().take(new_left - old_left + 1).position(|t| *t == old[i])
+        {
+            plan.extend(std::iter::repeat_n(None, k));
+            j += k;
+        } else {
+            plan.push(Some(i));
+            (i, j) = (i + 1, j + 1);
+        }
+    }
+    plan
 }
 
 /// The one window that moved between two orders of the same windows, if

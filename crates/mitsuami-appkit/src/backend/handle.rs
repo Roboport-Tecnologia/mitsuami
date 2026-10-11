@@ -218,6 +218,7 @@ impl State {
                 {
                     // As the first toolbar item does: the content keeps its
                     // size, and the window grows by the bar.
+                    let window = &*window.get();
                     let size = host.frame().size;
                     crate::sidebar::content_under_bar(self.mtm, window, host);
                     _delegate.set_detail(Some(host));
@@ -320,7 +321,7 @@ fn layout_toolbar(widget: &Widget) {
     if let Widget::Window { window, toolbar, split, .. } = widget
         && (toolbar.is_some() || split.is_some())
     {
-        window.layoutIfNeeded();
+        window.get().layoutIfNeeded();
     }
 }
 

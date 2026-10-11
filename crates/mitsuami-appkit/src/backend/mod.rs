@@ -34,7 +34,7 @@ use objc2::rc::Retained;
 use objc2::{AnyThread, MainThreadMarker, Message};
 use objc2_app_kit::{
     NSApplication, NSBox, NSButton, NSControl, NSImage, NSImageView, NSPopUpButton, NSProgressIndicator, NSSlider,
-    NSSwitch, NSTextField, NSView, NSWindow,
+    NSSwitch, NSTextField, NSView,
 };
 use objc2_foundation::{NSBundle, NSData, NSString};
 
@@ -83,7 +83,7 @@ impl Default for BackendOptions {
 
 enum Widget {
     Window {
-        window: Retained<NSWindow>,
+        window: crate::classes::NodeWindow,
         host: Retained<HostView>,
         _delegate: Retained<WindowDelegate>,
         /// Made when the first toolbar item arrives, or the sidebar.
