@@ -252,6 +252,8 @@ impl GtkBackend {
         props.push(Prop::Tooltip(text(node.widget.focus_widget().tooltip_text())));
         props.extend(node.context_menu.as_ref().map(|m| Prop::ContextMenu(m.entries(&node.widget.focus_widget()))));
         props.extend(node.hover.as_ref().map(|motion| Prop::Hover(motion.widget().as_ref() == Some(widget))));
+        props.extend(node.header.map(Prop::Header));
+        props.extend(node.header_edge.map(Prop::HeaderEdge));
         props.extend(
             node.double_click.as_ref().map(|(click, _)| Prop::DoubleClick(click.widget().as_ref() == Some(widget))),
         );

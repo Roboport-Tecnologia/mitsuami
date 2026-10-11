@@ -6,8 +6,8 @@ use std::path::PathBuf;
 
 use mitsuami_core::services::Shortcut;
 use mitsuami_core::{
-    Align, Children, Display, Element, ElementBuilder, FileDrop, FlexDirection, Justify, Length, NodeId, Prop, Track,
-    Tweak, Ui, UiEvent, View, WidgetKind,
+    Align, Children, Display, Element, ElementBuilder, FileDrop, FlexDirection, HeaderEdge, Justify, Length, NodeId,
+    Prop, Track, Tweak, Ui, UiEvent, View, WidgetKind,
 };
 use mitsuami_reactive::{IntoValue, Value};
 
@@ -104,6 +104,31 @@ impl Container {
     /// ```
     pub fn on_key(mut self, key: impl Into<Shortcut>, handler: impl Fn() + 'static) -> Container {
         self.0.on_key(key.into(), handler);
+        self
+    }
+
+    /// Makes it its window's header, which stays while what's under it
+    /// scrolls: put it at the top of the window's content, over the scroll
+    /// view it stays above. On macOS it goes in the title bar, in the
+    /// bar's glass, and the scroll view runs up under it, as Safari's and
+    /// Mail's bars do; elsewhere it stays at the content's top as it is.
+    ///
+    /// ```ignore
+    /// Column::new().children((
+    ///     Row::new().header(true).children((Text::new("Library"), add_button())),
+    ///     ScrollView::new(rows()).grow(1.0),
+    /// ))
+    /// ```
+    pub fn header(mut self, header: impl IntoValue<bool>) -> Container {
+        self.0.prop(header.into_value(), Prop::Header);
+        self
+    }
+
+    /// How its window's header meets what scrolls under it (`header`):
+    /// on macOS 26.1 and later, a soft fade or a hard line. Without, the
+    /// platform's own; elsewhere it has no such edge.
+    pub fn header_edge(mut self, edge: impl IntoValue<HeaderEdge>) -> Container {
+        self.0.prop(edge.into_value(), Prop::HeaderEdge);
         self
     }
 

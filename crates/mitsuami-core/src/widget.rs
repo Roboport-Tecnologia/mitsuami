@@ -360,6 +360,21 @@ pub enum ButtonRole {
     Destructive,
 }
 
+/// Where a window's header (`Prop::Header`) meets what scrolls under it,
+/// where the platform blurs it there (AppKit's scroll edge effect, macOS
+/// 26.1 and later). The others have no such edge, and ignore it.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Hash)]
+pub enum HeaderEdge {
+    /// The platform's own: soft on macOS 26.
+    #[default]
+    Automatic,
+    /// What scrolls under it fades into the blur.
+    Soft,
+    /// The header ends at a hard line, opaque down to it, as Finder's and
+    /// Mail's bars on a busy list.
+    Hard,
+}
+
 /// How a `Tabs` shows its tabs, where the platform has more than one way
 /// (GNOME and KDE). The others show theirs, and ignore it.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Hash)]
@@ -882,6 +897,19 @@ pub enum Prop {
     /// backend reports `SidebarShownChanged`, which the core absorbs. Sent
     /// only if the app chose.
     SidebarShown(bool),
+    /// A `Container` at the top of its window's content is the window's
+    /// header, the part that stays while what's under it scrolls: on
+    /// AppKit it goes in the title bar, under the title and toolbar, in
+    /// their glass (a bottom `NSTitlebarAccessoryViewController`), and the
+    /// scroll view right under it runs up under the bar, blurred at its
+    /// edge, as Safari's and Mail's bars have it. The others have no such
+    /// bar and leave it where it is, at the content's top; so does AppKit
+    /// for one that isn't there, or beside a sidebar. Sent only if the app
+    /// chose.
+    Header(bool),
+    /// How a header meets what scrolls under it. Sent only if the app
+    /// chose.
+    HeaderEdge(HeaderEdge),
     /// A `List`'s rows, in order.
     Rows(Vec<RowKey>),
     /// How high a `List`'s rows are likely to be, for platforms that must
@@ -1040,6 +1068,7 @@ static_value!(
     ButtonRole,
     ButtonStyle,
     TabsStyle,
+    HeaderEdge,
     Orientation,
     ScrollAxes,
     SelectionMode,

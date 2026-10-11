@@ -259,6 +259,10 @@ struct Node {
     hover: Option<crate::hover::Hover>,
     /// The handler that reports double clicks, once the core asked for it.
     double_click: Option<crate::double_click::DoubleClick>,
+    /// Hosts: whether the app made it its window's header, and its edge,
+    /// which this platform leaves at the content's top, with no edge.
+    header: Option<bool>,
+    header_edge: Option<mitsuami_core::HeaderEdge>,
     /// Menu buttons: their menu, once the app gave one.
     button_menu: Option<ContextMenu>,
     /// Hosts: the drop area over them while they take files, and whether

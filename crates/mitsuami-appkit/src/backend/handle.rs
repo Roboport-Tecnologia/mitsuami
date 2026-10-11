@@ -3,7 +3,7 @@
 use mitsuami_core::{Command, NativeAppInfo, NativeIcon, NodeId, Size, WidgetKind};
 use objc2::Message;
 use objc2::rc::Retained;
-use objc2_app_kit::{NSApplication, NSScrollView, NSView};
+use objc2_app_kit::{NSApplication, NSView};
 use objc2_foundation::{NSBundle, NSDate, NSDefaultRunLoopMode, NSProcessInfo, NSRunLoop};
 
 use super::{AppKitHandle, State, Widget};
@@ -191,15 +191,85 @@ impl State {
                 layout_toolbar(&node.widget);
             }
         }
+        self.place_headers();
         self.extend_under_bars();
+    }
+
+    /// Puts each header at the top of a window's content in that window's
+    /// title bar, and takes out those that left it (see `header`). Beside a
+    /// sidebar a header stays where it is: the title bar is over the
+    /// sidebar too.
+    fn place_headers(&mut self) {
+        let headers: Vec<NodeId> = self.nodes.iter().filter(|(_, n)| n.header.is_some()).map(|(id, _)| *id).collect();
+        for id in headers {
+            let want = self.header_window(id);
+            let node = &self.nodes[&id];
+            let (header, placeholder) = (node.header.as_ref().unwrap(), node.widget.view());
+            let height = placeholder.frame().size.height;
+            let had = header.window.get();
+            if had != want {
+                let host_of = |w: Option<NodeId>| match w.and_then(|w| self.nodes.get(&w)).map(|n| &n.widget) {
+                    Some(Widget::Window { host, .. }) => Some(host.clone()),
+                    _ => None,
+                };
+                header.detach(placeholder, host_of(had).as_deref().map(|h| &**h));
+                if let Some(w) = want
+                    && let Some(Widget::Window { window, host, _delegate, .. }) = self.nodes.get(&w).map(|n| &n.widget)
+                {
+                    // As the first toolbar item does: the content keeps its
+                    // size, and the window grows by the bar.
+                    let size = host.frame().size;
+                    crate::sidebar::content_under_bar(self.mtm, window, host);
+                    _delegate.set_detail(Some(host));
+                    header.attach(w, window, host, height);
+                    window.setContentSize(
+                        _delegate.at_least_min(window, Size::new(size.width as f32, size.height as f32)),
+                    );
+                }
+            } else if let Some(w) = want
+                && let Some(Widget::Window { host, .. }) = self.nodes.get(&w).map(|n| &n.widget)
+            {
+                header.set_height(host, height);
+            }
+        }
+    }
+
+    /// The window whose title bar a header goes in: the one it's at the
+    /// top of the content of, if that window has no sidebar.
+    fn header_window(&self, id: NodeId) -> Option<NodeId> {
+        let node = self.nodes.get(&id)?;
+        if !node.header.as_ref()?.on.get() {
+            return None;
+        }
+        let mut parent = node.parent;
+        while let Some(p) = parent {
+            let above = self.nodes.get(&p)?;
+            match &above.widget {
+                Widget::Window { host, split: None, .. } => return at_top(node.widget.view(), host, 0.0).then_some(p),
+                Widget::Window { .. } | Widget::Scroll(_) | Widget::List(_) | Widget::Tabs(_) | Widget::Sidebar(_) => {
+                    return None;
+                }
+                _ if above.kind == WidgetKind::ToolbarItem => return None,
+                _ => parent = above.parent,
+            }
+        }
+        None
     }
 
     /// Runs the scroll views, lists and tables at the top of a window with
     /// a sidebar or a toolbar up under its title bar and toolbar, as
     /// Finder's content does: the content view is full size there, and the
     /// host below the bar. One inside a scroll view or a list moves as that scrolls, so
-    /// it stays put. A list that moved lays out the rows now in view.
+    /// it stays put. A list that moved lays out the rows now in view. In a
+    /// window with a header in its title bar, the one right under the
+    /// header runs up under it too.
     pub(super) fn extend_under_bars(&self) {
+        // The windows' headers' heights.
+        let headers: std::collections::HashMap<NodeId, f64> = self
+            .nodes
+            .values()
+            .filter_map(|n| Some((n.header.as_ref()?.window.get()?, n.widget.view().frame().size.height)))
+            .collect();
         for node in self.nodes.values() {
             let scroll = match &node.widget {
                 Widget::Scroll(scroll) => scroll,
@@ -208,11 +278,14 @@ impl State {
             };
             let mut host = None;
             let mut parent = node.parent;
-            while let Some(node) = parent.and_then(|id| self.nodes.get(&id)) {
+            while let Some((id, node)) = parent.and_then(|id| Some((id, self.nodes.get(&id)?))) {
                 match &node.widget {
-                    Widget::Window { host: window, split: Some(_), .. } => host = Some(window),
-                    Widget::Window { host: window, toolbar: Some(_), .. } => host = Some(window),
-                    Widget::Window { .. } | Widget::Scroll(_) | Widget::List(_) => {}
+                    Widget::Window { host: window, split: Some(_), .. } => host = Some((window, 0.0)),
+                    Widget::Window { host: window, toolbar: Some(_), .. } => {
+                        host = Some((window, headers.get(&id).copied().unwrap_or(0.0)))
+                    }
+                    Widget::Window { host: window, .. } => host = headers.get(&id).map(|h| (window, *h)),
+                    Widget::Scroll(_) | Widget::List(_) => {}
                     _ => {
                         parent = node.parent;
                         continue;
@@ -220,8 +293,12 @@ impl State {
                 }
                 break;
             }
+            // From where the core put it to the window's top: past the
+            // header, if it's right under one, and the bar.
             let height = match host {
-                Some(host) if at_top(scroll, host) => unsafe { host.superview() }.map_or(0.0, |v| v.safeAreaInsets().top),
+                Some((host, header)) if at_top(scroll, host, header) => {
+                    unsafe { host.superview() }.map_or(0.0, |v| v.safeAreaInsets().top)
+                }
                 _ => 0.0,
             };
             if scroll.set_under_bar(height) {
@@ -231,11 +308,12 @@ impl State {
     }
 }
 
-/// Whether the core put the scroll view at the top of its window's host.
-fn at_top(scroll: &NSScrollView, host: &NSView) -> bool {
-    let Some(superview) = unsafe { scroll.superview() }.filter(|_| scroll.isDescendantOf(host)) else { return false };
-    let placed = superview.convertRect_toView(scroll.alignmentRectForFrame(scroll.frame()), Some(host));
-    placed.origin.y.abs() < 0.5 && placed.size.height > 0.0
+/// Whether the core put the view at `top` in its window's host: its top
+/// (0), or right under a header that high.
+fn at_top(view: &NSView, host: &NSView, top: f64) -> bool {
+    let Some(superview) = unsafe { view.superview() }.filter(|_| view.isDescendantOf(host)) else { return false };
+    let placed = superview.convertRect_toView(view.alignmentRectForFrame(view.frame()), Some(host));
+    (placed.origin.y - top).abs() < 0.5 && placed.size.height > 0.0
 }
 
 fn layout_toolbar(widget: &Widget) {

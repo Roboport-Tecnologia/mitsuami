@@ -297,6 +297,8 @@ impl WinUiBackend {
         props.push(Prop::Tooltip(unboxed(w::ToolTipService::GetToolTip(node.control())).unwrap_or_default()));
         // XAML can't list an element's handlers.
         props.extend(node.hover.as_ref().map(|_| Prop::Hover(true)));
+        props.extend(node.header.map(Prop::Header));
+        props.extend(node.header_edge.map(Prop::HeaderEdge));
         props.extend(node.double_click.as_ref().map(|_| Prop::DoubleClick(true)));
         if node.file_drop_sent {
             props.push(Prop::FileDrop(node.file_drop.as_ref().map(|t| t.file_drop())));

@@ -311,6 +311,10 @@ struct Node {
     /// The gesture that reports double clicks, and what it reports, once
     /// the core asked for it.
     double_click: Option<(gtk::GestureClick, std::rc::Rc<dyn Fn()>)>,
+    /// Hosts: whether the app made it its window's header, and its edge,
+    /// which this platform leaves at the content's top, with no edge.
+    header: Option<bool>,
+    header_edge: Option<mitsuami_core::HeaderEdge>,
     /// Hosts: what they take when files are dropped on them, once the app
     /// said (`None` inside: nothing).
     file_drop: Option<Option<FileDropTarget>>,

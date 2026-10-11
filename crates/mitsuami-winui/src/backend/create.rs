@@ -505,6 +505,8 @@ impl State {
                 file_drop_sent: false,
                 hover: None,
                 double_click: None,
+                header: None,
+                header_edge: None,
                 keys: None,
                 direction: None,
                 align: None,

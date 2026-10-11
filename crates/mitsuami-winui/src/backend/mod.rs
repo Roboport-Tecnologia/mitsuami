@@ -458,6 +458,10 @@ struct Node {
     hover: Option<crate::hover::HoverTracker>,
     /// What reports double clicks, once the core asked for it.
     double_click: Option<crate::double_click::DoubleClicker>,
+    /// Hosts: whether the app made it its window's header, and its edge,
+    /// which this platform leaves at the content's top, with no edge.
+    header: Option<bool>,
+    header_edge: Option<mitsuami_core::HeaderEdge>,
     /// Containers, groups, lists and tables: the keys they take, once the
     /// core sent some.
     keys: Option<keys::Keys>,

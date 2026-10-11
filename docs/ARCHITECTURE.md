@@ -1590,6 +1590,14 @@ Full screen, maximizing, a minimum size and resizing each come as a `Window` pro
 - **Where it has run:** headless, AppKit through the scripted services, and tried by hand in the showcase on every backend, where files opened in their apps. To verify, with `examples/launch.rs` on each platform: that a type with no app is reported as the platform does (and what Launch Services returns after its own dialog), and GNOME's app chooser, dismissed, is `Cancelled`.
 
 ---
+### 14.12 Headers
+
+- **What it is:** the strip at the top of a window that stays while what's under it scrolls, Safari's tab bar and Mail's filter bar. On macOS 26 that strip is in the title bar's glass, and what scrolls goes under it, blurred at its edge; 2ksbox's disc shelf and About window wanted their headings so (its maintainer, 2026-10-11).
+- **A prop, not a kind** (`Container::header`, `Prop::Header`): only AppKit has a place for it, and where the others have none, a header is the content's top, which it already is. So the core lays it out in the content as any container, and the backends that have nothing to do keep the prop and do nothing.
+- **AppKit:** a bottom `NSTitlebarAccessoryViewController`, the strip AppKit itself gives the title bar. The core's frames stand: the header's own view keeps its place in the content, empty, its children in the accessory's view, and the host runs up under the accessory by the header's height (its top constraint's constant), so what's under the header is where the core put it. The scroll view right under it is extended up under it and the bar by `extend_under_bars`, as one at the top of a toolbar window is, with the header's height as where it starts. A capture draws the accessory's view over the placeholder, as `cacheDisplayInRect:` of the content doesn't reach the title bar. Beside a sidebar the title bar spans the sidebar too, so the header stays in the content there (an `NSSplitViewItemAccessoryViewController` would be the way, unbuilt).
+- **Its edge is a choice** (`Container::header_edge`, `HeaderEdge`): macOS 26.1 lets an accessory say how what scrolls under it meets it, a soft fade (macOS's own) or a hard line, opaque down to it. 2ksbox wanted the hard one (its maintainer, 2026-10-11). objc2 0.3 doesn't bind it, so it's sent by name, and a macOS without it keeps its own.
+- **Ran:** AppKit on macOS 26 (`tests/header.rs`, natively and headless; and 2ksbox's shelf and About window). GTK, WinUI and Kirigami only keep the prop, and were only type-checked from macOS.
+
 ## 15. Backends
 
 What each backend taught us beyond single widgets. Some of it became part of the contract, and [BACKENDS.md](BACKENDS.md) has the rules; this is the why.

@@ -178,6 +178,10 @@ name = "toolbar"
 harness = false
 
 [[test]]
+name = "header"
+harness = false
+
+[[test]]
 name = "windows"
 harness = false
 

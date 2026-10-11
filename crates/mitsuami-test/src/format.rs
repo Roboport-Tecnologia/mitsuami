@@ -47,6 +47,8 @@ fn describe_props(props: &[Prop]) -> String {
             Prop::TabTitles(titles) => extra.push(format!("tabs={titles:?}")),
             Prop::TabIcons(icons) => extra.push(format!("tab_icons={icons:?}")),
             Prop::SidebarShown(b) => extra.push(format!("sidebar_shown={b}")),
+            Prop::Header(b) => extra.push(format!("header={b}")),
+            Prop::HeaderEdge(edge) => extra.push(format!("header_edge={edge:?}")),
             Prop::TabsStyle(style) => extra.push(format!("tabs_style={style:?}")),
             Prop::SelectedIndex(index) => {
                 extra.push(format!("selected={}", index.map_or("none".to_owned(), |i| i.to_string())))

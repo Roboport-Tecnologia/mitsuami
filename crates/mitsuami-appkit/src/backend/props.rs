@@ -411,6 +411,22 @@ impl State {
                     node.hover = Some(crate::classes::HoverTracker::track(mtm, view, id, events));
                 }
             }
+            // Placed after the batch, once laid out (`place_headers`).
+            (Prop::Header(on), Widget::Host(host)) => match &node.header {
+                Some(header) => header.on.set(*on),
+                None => {
+                    let header = crate::header::Header::new(mtm, host);
+                    header.on.set(*on);
+                    header.set_edge(node.header_edge.unwrap_or_default());
+                    node.header = Some(header);
+                }
+            },
+            (Prop::HeaderEdge(edge), Widget::Host(_)) => {
+                node.header_edge = Some(*edge);
+                if let Some(header) = &node.header {
+                    header.set_edge(*edge);
+                }
+            }
             // On the host, so a click on any of its subviews counts.
             (Prop::DoubleClick(on), widget @ (Widget::Host(_) | Widget::Group { .. })) => {
                 let view = widget.view();

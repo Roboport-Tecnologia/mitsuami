@@ -282,6 +282,8 @@ impl State {
                 context_menu: None,
                 hover: None,
                 double_click: None,
+                header: None,
+                header_edge: None,
                 file_drop: None,
                 keys: None,
                 align: None,

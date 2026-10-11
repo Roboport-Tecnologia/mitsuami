@@ -307,6 +307,11 @@ struct Node {
     /// The target of the recognizer that reports double clicks, and the
     /// recognizer, once the core asked for it.
     double_click: Option<(Retained<crate::classes::DoubleClicker>, Retained<objc2_app_kit::NSClickGestureRecognizer>)>,
+    /// Hosts: the app gave `Header`; its children are in the header's
+    /// own view (see `header`).
+    header: Option<crate::header::Header>,
+    /// Hosts: the header's edge, if the app chose one (it may come first).
+    header_edge: Option<mitsuami_core::HeaderEdge>,
 }
 
 struct State {

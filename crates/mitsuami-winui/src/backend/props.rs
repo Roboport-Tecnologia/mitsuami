@@ -643,6 +643,8 @@ impl State {
                     }
                 }
             }
+            (Prop::Header(on), Widget::Host(_)) => node.header = Some(*on),
+            (Prop::HeaderEdge(edge), Widget::Host(_)) => node.header_edge = Some(*edge),
             _ => {}
         }
         // What a label shows depends on its text, font and limit.

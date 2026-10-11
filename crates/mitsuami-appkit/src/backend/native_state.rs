@@ -309,6 +309,8 @@ pub(super) fn native_state(state: &State, id: NodeId) -> Option<NativeState> {
     if let Some((_, area)) = &node.hover {
         props.push(Prop::Hover(view.trackingAreas().iter().any(|a| *a == **area)));
     }
+    props.extend(node.header.as_ref().map(|h| Prop::Header(h.on.get())));
+    props.extend(node.header_edge.map(Prop::HeaderEdge));
     if let Some((_, recognizer)) = &node.double_click {
         props.push(Prop::DoubleClick(view.gestureRecognizers().iter().any(|r| *r == ***recognizer)));
     }
@@ -384,8 +386,9 @@ pub(super) fn native_state(state: &State, id: NodeId) -> Option<NativeState> {
             )
         }
         _ => {
+            let parent: &NSView = node.header.as_ref().map_or(view, |h| &h.content);
             let mut children: Vec<NodeId> =
-                view.subviews().iter().filter_map(|v| by_view.get(&key(&v)).copied()).collect();
+                parent.subviews().iter().filter_map(|v| by_view.get(&key(&v)).copied()).collect();
             if let Widget::Window { toolbar: Some(toolbar), .. } = &node.widget {
                 children.extend(toolbar.ids());
             }

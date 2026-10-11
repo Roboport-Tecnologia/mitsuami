@@ -22,6 +22,14 @@ impl State {
         }
     }
 
+    /// The view a node's children are in: a header's own (see `header`).
+    fn children_view(&self, id: NodeId, command: &Command) -> Retained<NSView> {
+        match self.nodes.get(&id).and_then(|n| n.header.as_ref()) {
+            Some(header) => Retained::into_super(header.content.clone()),
+            None => self.view(id, command),
+        }
+    }
+
     /// Runs the node's raw settings, if the app gave any, after its props:
     /// what they set wins.
     fn run_tweak(&self, id: NodeId) {
@@ -90,7 +98,9 @@ impl State {
     /// A node's children, in order.
     fn ordered_children(&self, id: NodeId) -> Vec<NodeId> {
         let by_view = self.by_view.borrow();
-        self.nodes[&id].widget.view().subviews().iter().filter_map(|v| by_view.get(&key(&v)).copied()).collect()
+        let node = &self.nodes[&id];
+        let view: &NSView = node.header.as_ref().map_or(node.widget.view(), |h| &h.content);
+        view.subviews().iter().filter_map(|v| by_view.get(&key(&v)).copied()).collect()
     }
 
     /// A node or any node in it takes input: a toolbar item with none (a
@@ -191,7 +201,7 @@ impl State {
                 self.run_tweak(*id);
             }
             Command::Insert { parent, child, index } => {
-                let parent_view = self.view(*parent, command);
+                let parent_view = self.children_view(*parent, command);
                 let child_view = self.view(*child, command);
                 if self.nodes[child].parent.is_some() {
                     violation(command, "child is still attached");
@@ -382,6 +392,14 @@ impl State {
                 }
                 if let Some((_, recognizer)) = &node.double_click {
                     node.widget.view().removeGestureRecognizer(recognizer);
+                }
+                // Out of its window's title bar.
+                if let Some(header) = &node.header {
+                    let host = header.window.get().and_then(|w| match self.nodes.get(&w).map(|n| &n.widget) {
+                        Some(Widget::Window { host, .. }) => Some(host.clone()),
+                        _ => None,
+                    });
+                    header.detach(node.widget.view(), host.as_deref().map(|h| &**h));
                 }
                 match &mut node.widget {
                     Widget::Window { window, _delegate, split, .. } => {

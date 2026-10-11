@@ -452,6 +452,8 @@ impl State {
                 }
                 *last = opaque.clone();
             }
+            (Prop::Header(on), Widget::Host(_)) => node.header = Some(*on),
+            (Prop::HeaderEdge(edge), Widget::Host(_)) => node.header_edge = Some(*edge),
             _ => {}
         }
         // A window's sidebar leaves its row or comes back, and the content
