@@ -225,7 +225,7 @@ fn choose(shared: &Shared, index: usize) {
 
 // ------------------------------------------------------------------ strip
 
-/// The geometry of macOS 26's window tab bar, which Safari's shares: a
+/// The geometry of macOS 26's window tab bar (Safari draws its own): a
 /// capsule track, tabs inset in it with a point between them for their
 /// separator, a close button on each tab's leading side, and a round
 /// new-tab button after the track.
