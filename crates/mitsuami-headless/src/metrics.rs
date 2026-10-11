@@ -17,6 +17,11 @@ pub(super) const SIDEBAR_WIDTH: f32 = 200.0;
 /// and each tab this much wider than its title.
 pub(super) const TAB_INSETS: Insets = Insets::new(32.0, 8.0, 8.0, 8.0);
 pub(super) const TAB_PADDING: f32 = 24.0;
+/// Document tabs: a strip this high, each tab this much wider than its
+/// title, with a close button this wide where tabs close, and a new-tab
+/// button this wide after them.
+pub(super) const DOCUMENT_TAB_HEIGHT: f32 = 32.0;
+pub(super) const DOCUMENT_TAB_BUTTON: f32 = 24.0;
 /// A group's border and margins, and room for a heading at the top.
 pub(super) const GROUP_INSETS: Insets = Insets::new(8.0, 8.0, 8.0, 8.0);
 pub(super) const TITLED_GROUP_INSETS: Insets = Insets::new(32.0, 8.0, 8.0, 8.0);

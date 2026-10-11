@@ -75,6 +75,7 @@ macro_rules! text_tag {
 mod buttons;
 mod choices;
 mod containers;
+mod document_tabs;
 mod media;
 mod progress;
 mod ranges;
@@ -91,6 +92,7 @@ mod window;
 pub use buttons::*;
 pub use choices::*;
 pub use containers::*;
+pub use document_tabs::*;
 pub use media::*;
 pub use progress::*;
 pub use ranges::*;

@@ -132,6 +132,9 @@ impl State {
                 if matches!(parent_widget, Widget::Scroll { .. }) && !content.child_items().is_empty() {
                     violation(command, "a ScrollView has a single native child (its content)");
                 }
+                if matches!(parent_widget, Widget::DocumentTabs { .. }) {
+                    violation(command, "document tabs have no children");
+                }
                 if matches!(parent_widget, Widget::Tabs { .. }) && !matches!(self.nodes[child].widget, Widget::Host(_))
                 {
                     violation(command, "a Tabs' children are page hosts (Containers)");
@@ -303,7 +306,7 @@ impl State {
                 let items: Vec<QmlObject> = order
                     .iter()
                     .map(|id| match self.widget(*id, command) {
-                        widget @ Widget::Tabs { .. } => widget.input_item(),
+                        widget @ (Widget::Tabs { .. } | Widget::DocumentTabs { .. }) => widget.input_item(),
                         widget => widget.item(),
                     })
                     .collect();

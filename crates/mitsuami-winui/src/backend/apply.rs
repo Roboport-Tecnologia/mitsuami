@@ -3,14 +3,15 @@
 use std::collections::HashSet;
 
 use mitsuami_core::a11y::A11yProps;
-use mitsuami_core::{Command, EventValue, NodeId, UiEvent, WidgetKind};
+use mitsuami_core::{Command, DocumentTabsStyle, EventValue, NodeId, UiEvent, WidgetKind};
 use windows_core::{IInspectable, Interface};
 
 use super::fields::{box_text, search_text};
 use super::scroll::{scroll_now, shift_wheel};
 use super::windows::{
-    CONTENT_ROW, apply_min_size, client_insets, in_full_screen, insert_toolbar_item, remove_sidebar,
-    remove_toolbar_item, resize_client, resize_client_with, scale_of, update_toolbar,
+    CONTENT_ROW, apply_min_size, client_insets, in_full_screen, insert_toolbar_item, put_tabs_in_title_bar,
+    remove_sidebar, remove_toolbar_item, resize_client, resize_client_with, scale_of, take_tabs_from_title_bar,
+    takes_title_tabs, update_toolbar,
 };
 use super::{R, State, Widget, WindowParts, set_help_text, set_hit_testable, violation};
 use crate::bindings as w;
@@ -237,6 +238,15 @@ impl State {
                 // showing.
                 if let Widget::GpuSurface(surface) = &node.widget {
                     surface.detach();
+                }
+                // Tabs in their window's title bar leave it.
+                if let Widget::DocumentTabs(tabs) = &node.widget {
+                    self.document_tabs.retain(|t| t != id);
+                    if let Some(window) = tabs.window.take()
+                        && let Some(Widget::Window(parts)) = self.nodes.get_mut(&window).map(|n| &mut n.widget)
+                    {
+                        take_tabs_from_title_bar(parts)?;
+                    }
                 }
                 if let Widget::Window(parts) = node.widget {
                     let WindowParts { window, menu_revokers, modal, disabled, .. } = *parts;
@@ -530,6 +540,49 @@ impl State {
             false
         });
         self.unattached_surfaces = waiting;
+    }
+
+    /// Puts document tabs that are the window's in their window's title
+    /// bar, and back in their place in the content when they stop being
+    /// the window's (their style, or another window), or can't be (a
+    /// toolbar or menu bar the app put in the title bar).
+    pub(super) fn place_document_tabs(&mut self) {
+        for id in self.document_tabs.clone() {
+            let Some(Widget::DocumentTabs(tabs)) = self.nodes.get(&id).map(|n| &n.widget) else { continue };
+            let style = tabs.style.get().unwrap_or_default();
+            let window = self.window_of(id).map(|parts| parts.node);
+            let window = window.filter(|_| style != DocumentTabsStyle::Strip).filter(|w| {
+                matches!(self.nodes.get(w).map(|n| &n.widget), Some(Widget::Window(parts)) if takes_title_tabs(parts, id))
+            });
+            let was = tabs.window.get();
+            if was == window {
+                continue;
+            }
+            let view = tabs.view.clone();
+            if let Err(error) = (|| -> R<()> {
+                if let Some(was) = was
+                    && let Some(Widget::Window(parts)) = self.nodes.get_mut(&was).map(|n| &mut n.widget)
+                {
+                    take_tabs_from_title_bar(parts)?;
+                }
+                let Some(Widget::DocumentTabs(tabs)) = self.nodes.get(&id).map(|n| &n.widget) else { return Ok(()) };
+                match window {
+                    Some(_) => tabs.leave_grid()?,
+                    None => tabs.back_to_grid()?,
+                }
+                tabs.window.set(window);
+                if let Some(window) = window
+                    && let Some(Widget::Window(parts)) = self.nodes.get_mut(&window).map(|n| &mut n.widget)
+                {
+                    put_tabs_in_title_bar(parts, id, &view)?;
+                }
+                Ok(())
+            })() {
+                panic!("winui backend: placing document tabs {id}: {error}");
+            }
+            // In the title bar, they take no room in the content.
+            self.emitter().emit(id, UiEvent::Remeasure);
+        }
     }
 
     /// The window `id` is in (or is).

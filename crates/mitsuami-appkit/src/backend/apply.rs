@@ -47,6 +47,29 @@ impl State {
         }
     }
 
+    /// The window a node is in, and its delegate.
+    fn window_of(&self, id: NodeId) -> Option<(&objc2_app_kit::NSWindow, &crate::classes::WindowDelegate)> {
+        let mut at = self.nodes.get(&id)?.parent;
+        while let Some(parent) = at {
+            let node = self.nodes.get(&parent)?;
+            if let Widget::Window { window, _delegate, .. } = &node.widget {
+                return Some((window, _delegate));
+            }
+            at = node.parent;
+        }
+        None
+    }
+
+    /// Document tabs that are their window's make its tabs once it's on
+    /// screen, and take them down when they leave it or become a strip.
+    pub(super) fn sync_document_tabs(&self) {
+        for (id, node) in &self.nodes {
+            if let Widget::DocumentTabs(tabs) = &node.widget {
+                tabs.sync_window(self.mtm, self.window_of(*id));
+            }
+        }
+    }
+
     /// The toolbar item a node is a child of.
     pub(super) fn toolbar_item_of(&self, id: NodeId) -> Option<NodeId> {
         self.nodes.get(&id)?.parent.filter(|p| self.nodes.get(p).is_some_and(|n| n.kind == WidgetKind::ToolbarItem))
@@ -431,6 +454,11 @@ impl State {
                     Widget::List(list) => {
                         list.detach();
                         list.scroll.removeFromSuperview();
+                    }
+                    // Its window's tabs go with it.
+                    Widget::DocumentTabs(tabs) => {
+                        tabs.detach();
+                        tabs.strip.removeFromSuperview();
                     }
                     // The app's handle may keep it: it just stops showing.
                     Widget::GpuSurface(view) => {

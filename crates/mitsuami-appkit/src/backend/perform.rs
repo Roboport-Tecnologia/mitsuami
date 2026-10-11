@@ -53,6 +53,37 @@ impl AppKitBackend {
                 return Ok(());
             }
         }
+        // Document tabs: picked, closed, moved and asked for as the user
+        // does, without a state borrow while the app hears.
+        {
+            let state = self.state.borrow();
+            if let Some(Widget::DocumentTabs(tabs)) = state.nodes.get(&id).map(|n| &n.widget) {
+                if !tabs.enabled() {
+                    return Err(ActionError::Disabled);
+                }
+                let done = match action {
+                    A11yAction::SetValue(title) => tabs.choose(title),
+                    A11yAction::CloseTab(index) => tabs.close(*index),
+                    A11yAction::MoveTab { from, to } => tabs.move_tab(*from, *to),
+                    A11yAction::Activate => tabs.ask_for_tab(),
+                    A11yAction::ScrollIntoView => true,
+                    // The strip takes focus; the window's tabs aren't in
+                    // the key view loop, as on macOS.
+                    A11yAction::Focus if !tabs.window_tabs() => {
+                        let strip = tabs.strip.clone();
+                        drop(state);
+                        let window = strip.window().ok_or(ActionError::Unsupported)?;
+                        return if window.makeFirstResponder(Some(&strip)) {
+                            Ok(())
+                        } else {
+                            Err(ActionError::Unsupported)
+                        };
+                    }
+                    _ => false,
+                };
+                return if done { Ok(()) } else { Err(ActionError::Unsupported) };
+            }
+        }
         if let A11yAction::PressHeader(column) = action {
             let state = self.state.borrow();
             return match state.nodes.get(&id).map(|n| (n.kind, &n.widget)) {

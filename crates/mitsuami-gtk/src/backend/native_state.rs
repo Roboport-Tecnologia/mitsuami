@@ -236,6 +236,14 @@ impl GtkBackend {
                 props.push(Prop::SelectedIndex(tabs.selected()));
                 props.extend(tabs.style().map(Prop::TabsStyle));
             }
+            Widget::DocumentTabs(tabs) => {
+                props.push(Prop::TabTitles(tabs.titles()));
+                props.push(Prop::SelectedIndex(tabs.selected()));
+                props.extend(tabs.closable().map(Prop::TabsClosable));
+                props.extend(tabs.reorderable().map(Prop::TabsReorderable));
+                props.push(Prop::NewTabButton(tabs.has_new_tab_button()));
+                props.extend(tabs.style().map(Prop::DocumentTabsStyle));
+            }
         }
         if let Some(target) = &node.file_drop {
             props.push(Prop::FileDrop(target.as_ref().map(FileDropTarget::file_drop)));

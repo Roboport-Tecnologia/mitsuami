@@ -55,6 +55,11 @@ impl GtkBackend {
                 let size = pixels.size();
                 Size::new(request.known_width.unwrap_or(size.width), request.known_height.unwrap_or(size.height))
             }
+            // Its bar, which hides itself with one tab.
+            Widget::DocumentTabs(tabs) => {
+                let size = tabs.measure();
+                Size::new(request.known_width.unwrap_or(size.width), request.known_height.unwrap_or(size.height))
+            }
             // Its heading and the card's margins, empty.
             Widget::Group(group) => {
                 let title = group.title();

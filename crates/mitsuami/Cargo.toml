@@ -74,6 +74,10 @@ name = "tabs"
 harness = false
 
 [[test]]
+name = "document_tabs"
+harness = false
+
+[[test]]
 name = "contacts"
 harness = false
 

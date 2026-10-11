@@ -83,6 +83,7 @@ impl Inner {
                     | WidgetKind::Table
                     | WidgetKind::Sidebar
                     | WidgetKind::Tabs
+                    | WidgetKind::DocumentTabs
             ) || (node.kind == WidgetKind::GpuSurface && crate::find_prop!(node.props, TakesInput) == Some(true))
             {
                 out.push((node.tab_index, id));

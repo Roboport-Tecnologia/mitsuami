@@ -831,6 +831,27 @@ fn tabs_with_icons() -> impl View {
     )))
 }
 
+/// Document tabs as a strip over the content, the second chosen, with
+/// close buttons and the new-tab button. Each platform draws its own; on
+/// macOS it's the strip the backend builds (the window's tabs are chrome,
+/// outside a capture).
+#[mitsuami_test::story(sizes = [(480, fit)])]
+fn document_tabs() -> impl View {
+    let current = signal(2);
+    Column::new().child(
+        DocumentTabs::new(current)
+            .tabs_style(DocumentTabsStyle::Strip)
+            .children((
+                DocumentTab::new("notes.txt", 1),
+                DocumentTab::new("todo.md", 2),
+                DocumentTab::new("A long title that the strip cuts off.txt", 3),
+            ))
+            .on_close(|_| {})
+            .on_reorder(|_, _| {})
+            .on_new_tab(|| {}),
+    )
+}
+
 fn settings_tabs(style: TabsStyle) -> impl View {
     let page = signal(1);
     Column::new().padding(16).child(

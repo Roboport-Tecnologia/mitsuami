@@ -185,6 +185,8 @@ impl WinUiBackend {
             Widget::Native { measure: None, .. } => ceil(measure_element(&node.element, infinite)),
             // Its bar: the core adds the pages.
             Widget::Tabs(tabs) => ceil(tabs.strip()),
+            // Its strip; nothing where the tabs are the window's.
+            Widget::DocumentTabs(tabs) => ceil(tabs.strip()),
             // Its heading and card: the core adds the content.
             Widget::Group(group) => ceil(group.strip()),
             // Measured by the core, or never (the sidebar is the window's).

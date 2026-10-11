@@ -4,11 +4,11 @@ use std::rc::Rc;
 
 use mitsuami_core::reactive::{IntoValue, Value};
 use mitsuami_core::{List, Opaque, Table, Tweak};
-use mitsuami_widgets::Sidebar;
 use mitsuami_widgets::{
     Button, Checkbox, FileIcon, Group, Icon, Image, MenuButton, NumberInput, PasswordInput, Progress, RadioGroup,
     ScrollView, SearchInput, Select, Separator, Slider, Spinner, Switch, Text, TextArea, TextInput, ToggleButton,
 };
+use mitsuami_widgets::{DocumentTabs, Sidebar};
 use objc2::DowncastTarget;
 use objc2_app_kit::{
     NSBox, NSButton, NSImageView, NSPopUpButton, NSProgressIndicator, NSScrollView, NSSearchField, NSSecureTextField,
@@ -123,6 +123,12 @@ impl Tweakable for Table {
 /// view that sizes it is the window's.
 impl<T> Tweakable for Sidebar<T> {
     type Native = NSTableView;
+}
+
+/// The strip's view. With window tabs it's hidden, and its window is
+/// the node's (`view.window()`).
+impl<T> Tweakable for DocumentTabs<T> {
+    type Native = NSView;
 }
 
 impl Tweakable for Text {

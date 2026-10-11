@@ -318,9 +318,21 @@ impl State {
     }
 
     /// Checks that a tab view's children are page hosts, one per title,
-    /// and that it shows one of them (none only without pages).
+    /// and that it shows one of them (none only without pages); and that
+    /// document tabs have no children and choose one of their tabs.
     pub(super) fn check_tabs(&self, command: &Command, touched: &BTreeSet<NodeId>) {
         for (id, node) in touched.iter().map(|id| (id, &self.nodes[id])) {
+            // Document tabs have no pages: one tab chosen, none only without.
+            if node.kind == WidgetKind::DocumentTabs {
+                if !node.children.is_empty() {
+                    violation(command, &format!("document tabs {id} have children"));
+                }
+                let titles = find_prop!(node.props, TabTitles).unwrap_or_default().len();
+                let chosen = find_prop!(node.props, SelectedIndex).flatten();
+                if chosen.is_none_or(|i| i >= titles) != (titles == 0) {
+                    violation(command, &format!("document tabs {id} choose {chosen:?} of their {titles} tabs"));
+                }
+            }
             if node.kind != WidgetKind::Tabs {
                 continue;
             }

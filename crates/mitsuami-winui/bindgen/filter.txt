@@ -36,7 +36,7 @@ Microsoft.UI.WindowId
 Microsoft.UI.IconId
 Microsoft.UI.Xaml.UIElement::{}
 Microsoft.UI.Xaml.IUIElement::{UpdateLayout, put_Clip, get_FocusState, put_TabIndex, put_IsTabStop, Measure, get_DesiredSize, get_XamlRoot, put_XamlRoot, Focus, put_TabFocusNavigation, get_KeyboardAccelerators, add_GotFocus, remove_GotFocus, add_LostFocus, remove_LostFocus, add_KeyDown, remove_KeyDown, add_PreviewKeyDown, remove_PreviewKeyDown, add_PointerPressed, remove_PointerPressed, add_PointerReleased, remove_PointerReleased, add_PointerWheelChanged, remove_PointerWheelChanged, add_PointerMoved, remove_PointerMoved, add_PointerEntered, remove_PointerEntered, add_PointerExited, remove_PointerExited, add_KeyUp, remove_KeyUp, CapturePointer, add_DoubleTapped, remove_DoubleTapped, TransformToVisual, get_Visibility, put_Visibility, get_ContextFlyout, put_ContextFlyout, put_AllowDrop, get_AllowDrop, add_DragEnter, remove_DragEnter, add_DragOver, remove_DragOver, add_DragLeave, remove_DragLeave, add_Drop, remove_Drop}
-Microsoft.UI.Xaml.IFrameworkElement::{get_Width, put_Width, get_Height, put_Height, put_HorizontalAlignment, put_VerticalAlignment, put_RequestedTheme, put_Style, get_ActualWidth, get_ActualHeight, put_MinWidth, add_SizeChanged, remove_SizeChanged, add_Loaded, remove_Loaded, add_Unloaded, remove_Unloaded, get_IsLoaded, put_Margin, get_FlowDirection, put_FlowDirection, add_LayoutUpdated, remove_LayoutUpdated}
+Microsoft.UI.Xaml.IFrameworkElement::{get_Width, put_Width, get_Height, put_Height, put_HorizontalAlignment, put_VerticalAlignment, put_RequestedTheme, put_Style, get_ActualWidth, get_ActualHeight, put_MinWidth, get_Resources, add_SizeChanged, remove_SizeChanged, add_Loaded, remove_Loaded, add_Unloaded, remove_Unloaded, get_IsLoaded, put_Margin, get_FlowDirection, put_FlowDirection, add_LayoutUpdated, remove_LayoutUpdated}
 Microsoft.UI.Xaml.FlowDirection
 Microsoft.UI.Xaml.ISizeChangedEventArgs::get_NewSize
 Microsoft.UI.Xaml.IRoutedEventArgs::get_OriginalSource
@@ -67,13 +67,14 @@ Microsoft.UI.Xaml.Media.VisualTreeHelper::{GetParent, GetChildrenCount, GetChild
 Microsoft.UI.Xaml.Controls.Primitives.IPopup::{get_Child, get_IsOpen, put_IsOpen}
 Microsoft.UI.Xaml.Controls.Primitives.Popup::{}
 Microsoft.UI.Xaml.Media.SolidColorBrush::CreateInstanceWithColor
+Microsoft.UI.Xaml.Media.ISolidColorBrush::get_Color
 Microsoft.UI.Xaml.Media.Brush::{}
 Microsoft.UI.Xaml.Media.RectangleGeometry::CreateInstance
 Microsoft.UI.Xaml.Media.IRectangleGeometry::put_Rect
 Microsoft.UI.Xaml.Media.Geometry::{}
 Windows.Foundation.Rect
 Windows.UI.Color
-Microsoft.UI.Xaml.Controls.Grid::{SetRow, SetColumn}
+Microsoft.UI.Xaml.Controls.Grid::{CreateInstance, SetRow, SetColumn}
 Microsoft.UI.Xaml.Controls.IGrid::get_ColumnDefinitions
 Microsoft.UI.Xaml.Controls.ColumnDefinitionCollection::{}
 Microsoft.UI.Xaml.Controls.ColumnDefinition::{}
@@ -88,7 +89,7 @@ Microsoft.UI.Xaml.Controls.ITextBlock::{get_Text, put_Text, put_TextWrapping, ge
 Microsoft.UI.Xaml.Media.FontFamily::CreateInstanceWithName
 Windows.UI.Text.FontWeight
 Windows.UI.Text.FontStyle
-Microsoft.UI.Xaml.Controls.IControl::{get_IsEnabled, put_IsEnabled, get_FontSize, put_FontSize, get_FontFamily, put_FontWeight, put_FontFamily, put_Background, put_BorderThickness, get_CornerRadius, put_CornerRadius, put_VerticalContentAlignment}
+Microsoft.UI.Xaml.Controls.IControl::{get_IsEnabled, put_IsEnabled, get_FontSize, put_FontSize, get_FontFamily, put_FontWeight, put_FontFamily, get_Background, put_Background, put_BorderThickness, get_CornerRadius, put_CornerRadius, put_VerticalContentAlignment}
 Microsoft.UI.Xaml.Thickness
 Microsoft.UI.Xaml.Controls.IContentControl::{get_Content, put_Content, get_ContentTemplateRoot}
 Microsoft.UI.Xaml.Controls.Button::CreateInstance
@@ -302,8 +303,11 @@ Microsoft.UI.Xaml.Controls.NumberBoxSpinButtonPlacementMode
 Microsoft.UI.Xaml.Controls.NumberBoxValueChangedEventArgs::{}
 Microsoft.UI.Xaml.Controls.Primitives.IRangeBase::{get_Value, put_Value, get_Minimum, put_Minimum, get_Maximum, put_Maximum, get_SmallChange, put_SmallChange, add_ValueChanged, remove_ValueChanged}
 Microsoft.UI.Xaml.Controls.Border::CreateInstance
-Microsoft.UI.Xaml.Controls.IBorder::{get_Child, put_Child, get_CornerRadius, put_CornerRadius}
-Microsoft.UI.Xaml.IDependencyObject::RegisterPropertyChangedCallback
+Microsoft.UI.Xaml.Controls.IBorder::{get_Child, put_Child, get_CornerRadius, put_CornerRadius, get_Background, put_Background}
+Microsoft.UI.Xaml.Controls.Border::BackgroundProperty
+Microsoft.UI.Xaml.Controls.Control::BackgroundProperty
+Microsoft.UI.Xaml.DependencyProperty::UnsetValue
+Microsoft.UI.Xaml.IDependencyObject::{RegisterPropertyChangedCallback, UnregisterPropertyChangedCallback, ReadLocalValue, ClearValue}
 Microsoft.UI.Xaml.DependencyPropertyChangedCallback
 Microsoft.UI.Xaml.DependencyProperty::{}
 Microsoft.UI.Xaml.Controls.RatingControl::ValueProperty
@@ -470,6 +474,16 @@ Microsoft.UI.Xaml.Controls.ISelectorBar::{get_Items, get_SelectedItem, put_Selec
 Microsoft.UI.Xaml.Controls.SelectorBarSelectionChangedEventArgs::{}
 Microsoft.UI.Xaml.Controls.SelectorBarItem::CreateInstance
 Microsoft.UI.Xaml.Controls.ISelectorBarItem::{get_Text, put_Text, get_Icon, put_Icon}
+Microsoft.UI.Xaml.Controls.TabView::CreateInstance
+Microsoft.UI.Xaml.Controls.ITabView::{get_TabItems, get_SelectedIndex, put_SelectedIndex, get_SelectedItem, put_SelectedItem, get_IsAddTabButtonVisible, put_IsAddTabButtonVisible, get_CanReorderTabs, put_CanReorderTabs, get_CanDragTabs, put_CanDragTabs, get_AllowDropTabs, put_AllowDropTabs, put_TabStripHeader, put_TabStripFooter, add_TabCloseRequested, remove_TabCloseRequested, add_AddTabButtonClick, remove_AddTabButtonClick, add_SelectionChanged, remove_SelectionChanged, add_TabItemsChanged, remove_TabItemsChanged, add_TabDragStarting, remove_TabDragStarting, add_TabDragCompleted, remove_TabDragCompleted}
+Microsoft.UI.Xaml.Controls.TabViewItem::CreateInstance
+Microsoft.UI.Xaml.Controls.ITabViewItem::{get_Header, put_Header, get_IsClosable, put_IsClosable}
+Microsoft.UI.Xaml.Controls.TabViewTabCloseRequestedEventArgs::{}
+Microsoft.UI.Xaml.Controls.ITabViewTabCloseRequestedEventArgs::get_Tab
+Microsoft.UI.Xaml.Controls.TabViewTabDragStartingEventArgs::{}
+Microsoft.UI.Xaml.Controls.TabViewTabDragCompletedEventArgs::{}
+Windows.Foundation.Collections.IVectorChangedEventArgs::{get_CollectionChange, get_Index}
+Windows.Foundation.Collections.CollectionChange
 Microsoft.UI.Xaml.Controls.StackPanel::CreateInstance
 Microsoft.UI.Xaml.Controls.IStackPanel::{put_Orientation, put_Spacing}
 Microsoft.UI.Xaml.Controls.BreadcrumbBar::CreateInstance

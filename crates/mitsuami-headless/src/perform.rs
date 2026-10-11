@@ -2,7 +2,9 @@
 
 use mitsuami_core::a11y::{A11yAction, ActionError};
 use mitsuami_core::services::menu_item_by_id;
-use mitsuami_core::{ColumnSort, EventValue, NodeId, Prop, SelectionMode, SortOrder, UiEvent, WidgetKind, find_prop};
+use mitsuami_core::{
+    ColumnSort, EventValue, NodeId, Prop, SelectionMode, SortOrder, UiEvent, WidgetKind, find_prop, moved_index,
+};
 
 use super::HeadlessBackend;
 
@@ -168,6 +170,49 @@ impl HeadlessBackend {
                     state.emit(id, UiEvent::Changed(EventValue::Index(index)));
                 }
             }
+            // A tab, by its title, as a screen reader picks one.
+            (A11yAction::SetValue(title), WidgetKind::DocumentTabs) => {
+                let titles = find_prop!(state.nodes[&id].props, TabTitles).unwrap_or_default();
+                let index = titles.iter().position(|t| t == title).ok_or(ActionError::Unsupported)?;
+                if find_prop!(state.nodes[&id].props, SelectedIndex).flatten() != Some(index) {
+                    state.set_prop(id, Prop::SelectedIndex(Some(index)));
+                    state.emit(id, UiEvent::Changed(EventValue::Index(index)));
+                }
+            }
+            // Its close button asks; the tab stays.
+            (A11yAction::CloseTab(index), WidgetKind::DocumentTabs) => {
+                let props = &state.nodes[&id].props;
+                let count = find_prop!(props, TabTitles).unwrap_or_default().len();
+                if find_prop!(props, TabsClosable) != Some(true) || *index >= count {
+                    return Err(ActionError::Unsupported);
+                }
+                state.emit(id, UiEvent::TabCloseRequested(*index));
+            }
+            // Dragged there: the strip shows it moved, the chosen tab still
+            // chosen, before the app hears.
+            (A11yAction::MoveTab { from, to }, WidgetKind::DocumentTabs) => {
+                let props = &state.nodes[&id].props;
+                let mut titles = find_prop!(props, TabTitles).unwrap_or_default();
+                if find_prop!(props, TabsReorderable) != Some(true) || *from >= titles.len() || *to >= titles.len() {
+                    return Err(ActionError::Unsupported);
+                }
+                if from == to {
+                    return Ok(());
+                }
+                let chosen = find_prop!(props, SelectedIndex).flatten().map(|i| moved_index(i, *from, *to));
+                let title = titles.remove(*from);
+                titles.insert(*to, title);
+                state.set_prop(id, Prop::TabTitles(titles));
+                state.set_prop(id, Prop::SelectedIndex(chosen));
+                state.emit(id, UiEvent::TabMoved { from: *from, to: *to });
+            }
+            // Its new-tab button.
+            (A11yAction::Activate, WidgetKind::DocumentTabs) => {
+                if find_prop!(state.nodes[&id].props, NewTabButton) != Some(true) {
+                    return Err(ActionError::Unsupported);
+                }
+                state.emit(id, UiEvent::NewTabRequested);
+            }
             (
                 A11yAction::Focus,
                 WidgetKind::Button
@@ -185,7 +230,8 @@ impl HeadlessBackend {
                 | WidgetKind::List
                 | WidgetKind::Table
                 | WidgetKind::Sidebar
-                | WidgetKind::Tabs,
+                | WidgetKind::Tabs
+                | WidgetKind::DocumentTabs,
             ) => state.focus(id),
             // A header sorts by its column: the same one the other way
             // round, another one ascending, as native tables do.

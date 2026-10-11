@@ -19,13 +19,13 @@ use objc2::{
 use objc2_app_kit::{
     NSButton, NSClickGestureRecognizer, NSColor, NSControl, NSControlStateValueOn, NSControlTextEditingDelegate,
     NSDragOperation, NSDraggingInfo, NSEvent, NSEventModifierFlags, NSEventType, NSPasteboardTypeFileURL,
-    NSPopUpButton, NSRectFill, NSScreen, NSScrollView, NSSearchFieldDelegate, NSSlider, NSSwitch, NSText, NSTextDelegate,
-    NSTextField, NSTextFieldDelegate, NSTextView, NSTextViewDelegate, NSTrackingArea, NSTrackingAreaOptions, NSView,
-    NSViewFrameDidChangeNotification, NSWindow, NSWindowDelegate, NSWindowStyleMask,
+    NSPopUpButton, NSRectFill, NSScreen, NSScrollView, NSSearchFieldDelegate, NSSlider, NSSwitch, NSText,
+    NSTextDelegate, NSTextField, NSTextFieldDelegate, NSTextView, NSTextViewDelegate, NSTrackingArea,
+    NSTrackingAreaOptions, NSView, NSViewFrameDidChangeNotification, NSWindow, NSWindowDelegate, NSWindowStyleMask,
 };
 use objc2_foundation::{
-    NSArray, NSKeyValueObservingOptions, NSNotification, NSNotificationCenter, NSObjectNSKeyValueObserverRegistration,
-    NSEdgeInsets, NSPoint, NSRect, NSSize, NSString, NSURL,
+    NSArray, NSEdgeInsets, NSKeyValueObservingOptions, NSNotification, NSNotificationCenter,
+    NSObjectNSKeyValueObserverRegistration, NSPoint, NSRect, NSSize, NSString, NSURL,
 };
 
 use crate::keys::Keys;
@@ -496,6 +496,9 @@ pub(crate) struct WindowIvars {
     /// The window's content (its host), when it's beside a sidebar: the
     /// window's content area is larger by the sidebar and the title bar.
     detail: RefCell<Option<Retained<NSView>>>,
+    /// While the window's tabs are document tabs: takes a close as the
+    /// chosen tab's, when it does (see `document_tabs`).
+    close_tab: RefCell<Option<Rc<dyn Fn() -> bool>>>,
 }
 
 define_class!(
@@ -560,7 +563,10 @@ define_class!(
         /// unsaved changes); the core destroys it if so.
         #[unsafe(method(windowShouldClose:))]
         fn window_should_close(&self, _sender: &NSWindow) -> bool {
-            self.ivars().events.emit(self.ivars().id, UiEvent::WindowCloseRequested);
+            let close_tab = self.ivars().close_tab.borrow().clone();
+            if !close_tab.is_some_and(|close| close()) {
+                self.ivars().events.emit(self.ivars().id, UiEvent::WindowCloseRequested);
+            }
             false
         }
 
@@ -658,8 +664,15 @@ impl WindowDelegate {
             min_size: Cell::new(None),
             height_locked: Cell::new(false),
             detail: RefCell::new(None),
+            close_tab: RefCell::new(None),
         });
         unsafe { msg_send![super(this), init] }
+    }
+
+    /// Takes the window's close as its chosen document tab's while `close`
+    /// says it did.
+    pub(crate) fn set_close_tab(&self, close: Option<Rc<dyn Fn() -> bool>>) {
+        *self.ivars().close_tab.borrow_mut() = close;
     }
 
     pub(crate) fn set_modal(&self, modal: bool) {

@@ -100,6 +100,15 @@ impl State {
                 root.set_int("mitsuamiSelected", index.map_or(-1, |i| i as i32));
                 root.invoke("mitsuamiShow");
             }
+            (Prop::TabTitles(titles), Widget::DocumentTabs { root }) => root.set_str_list("mitsuamiTitles", titles),
+            (Prop::SelectedIndex(index), Widget::DocumentTabs { root }) => {
+                root.set_int("mitsuamiSelected", index.map_or(-1, |i| i as i32));
+            }
+            (Prop::TabsClosable(on), Widget::DocumentTabs { root }) => root.set_bool("mitsuamiClosable", *on),
+            (Prop::TabsReorderable(on), Widget::DocumentTabs { root }) => root.set_bool("mitsuamiReorderable", *on),
+            (Prop::NewTabButton(on), Widget::DocumentTabs { root }) => root.set_bool("mitsuamiNewButton", *on),
+            // A strip in the content, whichever: KDE has no window tabs.
+            (Prop::DocumentTabsStyle(style), Widget::DocumentTabs { .. }) => node.document_tabs_style = Some(*style),
             (Prop::FullScreen(on), Widget::Window { root }) => root.set_full_screen(*on),
             (Prop::HeightFollowsContent(on), Widget::Window { root }) => root.set_height_locked(*on),
             (Prop::Maximized(on), Widget::Window { root }) => root.set_maximized(*on),

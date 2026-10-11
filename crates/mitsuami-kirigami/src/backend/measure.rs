@@ -34,6 +34,15 @@ impl KirigamiBackend {
                     request.known_height.unwrap_or(bar.real("implicitHeight").ceil() as f32),
                 )
             }
+            // Its tabs at their own widths and its new-tab button: Qt sizes
+            // the bar's tabs when it polishes it, before a frame.
+            Widget::DocumentTabs { root } => {
+                root.invoke("mitsuamiPolishStrip");
+                Size::new(
+                    request.known_width.unwrap_or(root.real("mitsuamiStripWidth").ceil() as f32),
+                    request.known_height.unwrap_or(root.real("mitsuamiStripHeight").ceil() as f32),
+                )
+            }
             // Its buttons, down the column: a layout sizes itself when
             // it's polished, before a frame.
             Widget::RadioGroup(group) => {

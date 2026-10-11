@@ -152,6 +152,13 @@ impl State {
             // One way to show tabs: the app's choice is kept, not shown.
             (Prop::TabsStyle(style), Widget::Tabs(_)) => node.tabs_style = Some(*style),
             (Prop::SelectedIndex(index), Widget::Tabs(tabs)) => tabs.set_shown(*index),
+            (Prop::TabTitles(titles), Widget::DocumentTabs(tabs)) => tabs.set_titles(titles.clone()),
+            (Prop::SelectedIndex(index), Widget::DocumentTabs(tabs)) => tabs.set_selected(*index),
+            (Prop::TabsClosable(on), Widget::DocumentTabs(tabs)) => tabs.set_closable(*on),
+            (Prop::TabsReorderable(on), Widget::DocumentTabs(tabs)) => tabs.set_reorderable(*on),
+            (Prop::NewTabButton(on), Widget::DocumentTabs(tabs)) => tabs.set_new_tab(*on),
+            (Prop::DocumentTabsStyle(style), Widget::DocumentTabs(tabs)) => tabs.set_style(*style),
+            (Prop::Enabled(e), Widget::DocumentTabs(tabs)) => tabs.set_enabled(*e),
             (Prop::Label(t), Widget::Slider { slider, .. }) => slider.setAccessibilityLabel(Some(&ns(t))),
             (Prop::Range { min, max }, Widget::Slider { slider, step }) => {
                 slider.setMinValue(*min);
@@ -581,6 +588,8 @@ fn set_direction(widget: &Widget, direction: LayoutDirection) {
         }
         Widget::List(list) => list.table.setUserInterfaceLayoutDirection(direction),
         Widget::Sidebar(sidebar) => sidebar.table.setUserInterfaceLayoutDirection(direction),
+        // Its tabs and buttons are placed from its direction.
+        Widget::DocumentTabs(tabs) => tabs.strip.setNeedsLayout(true),
         // Its title is laid out again only when the box is: a title set
         // just before kept the old side, cut at the old width.
         Widget::Group { frame, .. } => {

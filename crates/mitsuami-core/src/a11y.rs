@@ -71,8 +71,11 @@ pub enum Role {
     /// shown page's content.
     TabGroup,
     /// A tab of a `TabGroup`, named by its title, selected while its page
-    /// shows.
+    /// shows; or of a `TabList`, selected while it's chosen.
     Tab,
+    /// Tabs without pages (`DocumentTabs`): its tabs, then its new-tab
+    /// button, if it has one.
+    TabList,
 }
 
 /// Overrides and additions to the semantics a widget derives on its own.
@@ -128,11 +131,12 @@ impl A11yProps {
 /// Something assistive technology (or a test) can ask a control to do.
 #[derive(Clone, Debug, PartialEq)]
 pub enum A11yAction {
-    /// Press / click / toggle, whatever the control's primary action is.
+    /// Press / click / toggle, whatever the control's primary action is;
+    /// `DocumentTabs`' new-tab button.
     Activate,
     Focus,
     /// Replace a text field's text, choose the `Select` or `RadioGroup`
-    /// option with this text, or move a `Slider` or `NumberInput` to this number.
+    /// option, or the tab, with this text, or move a `Slider` or `NumberInput` to this number.
     SetValue(String),
     /// Step an adjustable control (a slider, a spin button) up or down.
     Increment,
@@ -146,6 +150,17 @@ pub enum A11yAction {
     /// technology presses one: the table sorts by that column, or the
     /// other way round, as the platform does. Only sortable columns.
     PressHeader(usize),
+    /// Close the tab of `DocumentTabs` at this index, as assistive
+    /// technology presses its close button: the app is asked. Only tabs
+    /// that close.
+    CloseTab(usize),
+    /// Move the tab of `DocumentTabs` at `from` to `to`, as the user drags
+    /// it there (assistive technology can't drag; the platform's keys move
+    /// tabs one place at a time). Only tabs that move.
+    MoveTab {
+        from: usize,
+        to: usize,
+    },
     /// Choose the item of the node's context menu with this id, as
     /// assistive technology does once it has shown the menu. The menu
     /// itself never opens.

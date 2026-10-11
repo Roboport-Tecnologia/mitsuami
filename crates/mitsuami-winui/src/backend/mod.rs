@@ -169,6 +169,16 @@ pub enum ToolbarAlign {
     End,
 }
 
+/// Document tabs in a window's title bar.
+pub(crate) struct TitleTabs {
+    id: NodeId,
+    view: w::TabView,
+    /// Gives the view to the title bar again as it grows.
+    _regrow: EventRevoker,
+    /// Paints the band when the view's background changes.
+    background: i64,
+}
+
 /// The parts of a window: XAML's `Window`, a root grid with a row for the
 /// menu bar and toolbar and the content host (a `Canvas`) below it.
 pub(crate) struct WindowParts {
@@ -242,6 +252,11 @@ pub(crate) struct WindowParts {
     /// The title bar's content while the menu bar is in the title bar: the
     /// menu bar, then a toolbar placed there too, in the room it leaves.
     title_content: Option<w::Grid>,
+    /// Document tabs that are the window's, in the title bar's content
+    /// (`put_tabs_in_title_bar`), and the band behind the title bar while
+    /// they are: Mica Alt's solid colour, or the tab view's background.
+    title_tabs: Option<TitleTabs>,
+    tabs_band: w::Border,
     /// Its sidebar's node and navigation view, while it has one: the
     /// view's content is the host.
     sidebar: Option<(NodeId, w::NavigationView)>,
@@ -343,6 +358,7 @@ enum Widget {
     List(crate::list::List),
     Sidebar(crate::sidebar::Sidebar),
     Tabs(crate::tabs::Tabs),
+    DocumentTabs(crate::document_tabs::DocumentTabs),
     Group(crate::group::Group),
     /// A custom widget with a native render, and the props it shows.
     Custom {
@@ -373,6 +389,7 @@ impl Node {
         match &self.widget {
             Widget::Sidebar(sidebar) => crate::sidebar::Sidebar::focus_target(&sidebar.view),
             Widget::Tabs(tabs) => crate::tabs::Tabs::focus_target(&tabs.bar),
+            Widget::DocumentTabs(tabs) => tabs.focus_target(),
             // Its chosen button, or the first, as Tab reaches the group.
             Widget::RadioGroup(group) => group.ContainerFromIndex(group.SelectedIndex().ok()?.max(0)).ok()?.cast().ok(),
             // The text box in its template.
@@ -609,6 +626,9 @@ pub(crate) struct State {
     /// Windows whose toolbar items changed in this batch: their toolbar is
     /// shown or hidden, and laid out, once after it (`update_toolbars`).
     pending_toolbars: Vec<NodeId>,
+    /// Document tabs, which go in their window's title bar when they're
+    /// the window's (`place_document_tabs`).
+    document_tabs: Vec<NodeId>,
     menus: Menus,
     /// The app's icon, which every window gets.
     icon: Option<WindowIcon>,
@@ -661,7 +681,7 @@ pub(crate) fn boxed(text: &str) -> IInspectable {
     ok(w::PropertyValue::CreateString(text), "boxing a string")
 }
 
-fn unboxed(value: R<IInspectable>) -> Option<String> {
+pub(crate) fn unboxed(value: R<IInspectable>) -> Option<String> {
     value.ok()?.cast::<w::IPropertyValue>().ok()?.GetString().ok()
 }
 
@@ -689,6 +709,7 @@ impl WinUiBackend {
                 lists: HashSet::new(),
                 touched: HashSet::new(),
                 pending_toolbars: Vec::new(),
+                document_tabs: Vec::new(),
                 menus: Menus::default(),
                 icon: None,
                 tab_bar: Rc::default(),
@@ -785,6 +806,7 @@ impl Backend for WinUiBackend {
         state.attach_surfaces();
         state.load_file_icons();
         state.connect_scroll_content();
+        state.place_document_tabs();
         state.update_toolbars();
         let lists = state.touched_lists();
         state.layout_lists(&lists);

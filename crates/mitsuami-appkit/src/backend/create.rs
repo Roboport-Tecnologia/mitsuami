@@ -101,6 +101,9 @@ impl State {
                 Widget::Group { host, frame }
             }
             WidgetKind::Tabs => Widget::Tabs(Tabs::new(mtm, id, self.events.clone())),
+            WidgetKind::DocumentTabs => {
+                Widget::DocumentTabs(crate::document_tabs::DocumentTabs::new(mtm, id, self.events.clone()))
+            }
             WidgetKind::Custom(_) => {
                 let Command::Create { props, .. } = command else { unreachable!() };
                 let Some(custom) = find_prop!(props, Custom) else {

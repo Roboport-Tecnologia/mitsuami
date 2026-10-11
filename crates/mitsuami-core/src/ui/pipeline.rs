@@ -192,7 +192,11 @@ impl Inner {
                     (WidgetKind::List | WidgetKind::Table, EventValue::Rows(rows)) => Prop::Selected(rows.clone()),
                     (WidgetKind::Table, EventValue::Sort(sort)) => Prop::Sort(Some(*sort)),
                     (
-                        WidgetKind::Select | WidgetKind::RadioGroup | WidgetKind::Sidebar | WidgetKind::Tabs,
+                        WidgetKind::Select
+                        | WidgetKind::RadioGroup
+                        | WidgetKind::Sidebar
+                        | WidgetKind::Tabs
+                        | WidgetKind::DocumentTabs,
                         EventValue::Index(index),
                     ) => Prop::SelectedIndex(Some(*index)),
                     (WidgetKind::Slider | WidgetKind::NumberInput, EventValue::Number(number)) => Prop::Number(*number),
@@ -225,6 +229,23 @@ impl Inner {
                 };
                 node.props.retain(|p| p.key() != prop.key());
                 node.props.push(prop);
+            }
+            // The platform shows the tab moved: its title goes with it, and
+            // the chosen tab stays chosen wherever it is now.
+            UiEvent::TabMoved { from, to } => {
+                let Some(node) = self.nodes.get_mut(&id) else { return };
+                let Some(mut titles) = crate::find_prop!(node.props, TabTitles) else { return };
+                if *from >= titles.len() || *to >= titles.len() {
+                    return;
+                }
+                let title = titles.remove(*from);
+                titles.insert(*to, title);
+                let chosen = crate::find_prop!(node.props, SelectedIndex)
+                    .flatten()
+                    .map(|i| crate::widget::moved_index(i, *from, *to));
+                node.props.retain(|p| !matches!(p, Prop::TabTitles(_) | Prop::SelectedIndex(_)));
+                node.props.push(Prop::TabTitles(titles));
+                node.props.push(Prop::SelectedIndex(chosen));
             }
             UiEvent::FocusIn => {
                 if let Some(window) = self.window_of(id) {

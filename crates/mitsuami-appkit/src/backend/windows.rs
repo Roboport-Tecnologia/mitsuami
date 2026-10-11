@@ -61,6 +61,8 @@ impl AppKitHandle {
                 _delegate.apply_full_screen(&window);
             }
         }
+        // Window tabs need their window on screen.
+        self.state.borrow().sync_document_tabs();
     }
 
     /// Runs the app's modal loop for the window, once the current run-loop

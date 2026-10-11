@@ -32,6 +32,7 @@ impl Widget {
             | Widget::Drawn { item: i, .. }
             | Widget::Native { item: i, .. }
             | Widget::Tabs { root: i, .. }
+            | Widget::DocumentTabs { root: i }
             | Widget::Group { root: i, .. }
             | Widget::TextArea { root: i, .. }
             | Widget::Sidebar { page: i, .. } => *i,
@@ -71,6 +72,8 @@ impl Widget {
             Widget::TextArea { area, .. } => *area,
             // Its bar, which hands focus to its selected tab.
             Widget::Tabs { root, .. } => strip(*root),
+            // Its bar, which hands focus to its chosen tab.
+            Widget::DocumentTabs { root } => root.child("mitsuamiDocumentTabBar").unwrap_or(*root),
             widget => widget.item(),
         }
     }
@@ -101,6 +104,7 @@ impl Widget {
                 | Widget::RadioGroup(_)
                 | Widget::Slider(_)
                 | Widget::NumberInput(_)
+                | Widget::DocumentTabs { .. }
         )
     }
 
@@ -123,6 +127,7 @@ impl Widget {
                 | Widget::List(_)
                 | Widget::Sidebar { .. }
                 | Widget::Tabs { .. }
+                | Widget::DocumentTabs { .. }
         ) || matches!(self, Widget::GpuSurface(surface) if surface.takes_input())
     }
 

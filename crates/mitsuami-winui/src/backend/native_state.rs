@@ -255,6 +255,15 @@ impl WinUiBackend {
                 props.push(Prop::SelectedIndex(tabs.selected()));
                 props.push(Prop::Enabled(tabs.bar.cast::<w::IControl>().ok()?.IsEnabled().ok()?));
             }
+            Widget::DocumentTabs(tabs) => {
+                props.push(Prop::TabTitles(tabs.titles()));
+                props.push(Prop::SelectedIndex(tabs.selected()));
+                props.push(Prop::TabsClosable(tabs.closable()));
+                props.push(Prop::TabsReorderable(tabs.reorderable()));
+                props.push(Prop::NewTabButton(tabs.new_tab_button()));
+                props.extend(tabs.style.get().map(Prop::DocumentTabsStyle));
+                props.push(Prop::Enabled(tabs.view.cast::<w::IControl>().ok()?.IsEnabled().ok()?));
+            }
             Widget::Scroll(s) => {
                 let scroll: w::IScrollViewer = s.cast().ok()?;
                 props.push(Prop::ScrollAxes(scroll_axes(&scroll).ok()?));

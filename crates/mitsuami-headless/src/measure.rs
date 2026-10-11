@@ -1,10 +1,12 @@
 //! Measuring widgets with fixed metrics, and reading PNG sizes.
 
 use mitsuami_core::backend::{AvailableSpace, MeasureRequest};
-use mitsuami_core::{ImageSource, NodeId, Orientation, Size, TextStyle, WidgetKind, find_prop};
+use mitsuami_core::{DocumentTabsStyle, ImageSource, NodeId, Orientation, Size, TextStyle, WidgetKind, find_prop};
 
 use super::HeadlessBackend;
-use super::metrics::{GROUP_INSETS, RADIO_GAP, TAB_INSETS, TAB_PADDING, TITLED_GROUP_INSETS};
+use super::metrics::{
+    DOCUMENT_TAB_BUTTON, DOCUMENT_TAB_HEIGHT, GROUP_INSETS, RADIO_GAP, TAB_INSETS, TAB_PADDING, TITLED_GROUP_INSETS,
+};
 
 impl HeadlessBackend {
     pub(super) fn measure_node(&mut self, id: NodeId, request: MeasureRequest) -> Size {
@@ -100,6 +102,23 @@ impl HeadlessBackend {
                 let titles = find_prop!(node.props, TabTitles).unwrap_or_default();
                 let tabs: f32 = titles.iter().map(|t| text_size(t, font, None, None).width + TAB_PADDING).sum();
                 Size::new(tabs + TAB_INSETS.left + TAB_INSETS.right, TAB_INSETS.top + TAB_INSETS.bottom)
+            }
+            // Its tabs side by side, each with its close button, then the
+            // new-tab button. The window's tabs take no room in the
+            // content.
+            WidgetKind::DocumentTabs => {
+                if find_prop!(node.props, DocumentTabsStyle) == Some(DocumentTabsStyle::Window) {
+                    Size::ZERO
+                } else {
+                    let titles = find_prop!(node.props, TabTitles).unwrap_or_default();
+                    let close =
+                        if find_prop!(node.props, TabsClosable) == Some(true) { DOCUMENT_TAB_BUTTON } else { 0.0 };
+                    let tabs: f32 =
+                        titles.iter().map(|t| text_size(t, font, None, None).width + TAB_PADDING + close).sum();
+                    let new_tab =
+                        if find_prop!(node.props, NewTabButton) == Some(true) { DOCUMENT_TAB_BUTTON } else { 0.0 };
+                    Size::new(tabs + new_tab, DOCUMENT_TAB_HEIGHT)
+                }
             }
             // Its heading and border, empty.
             WidgetKind::Group => {

@@ -43,6 +43,39 @@ impl WinUiBackend {
                     _ => Err(ActionError::Unsupported),
                 };
             }
+            // A document tab, as a click chooses it, its close button, a
+            // drag, and the new-tab button.
+            if let Widget::DocumentTabs(tabs) = &node.widget {
+                if tabs.view.cast::<w::IControl>().and_then(|c| c.IsEnabled()).is_ok_and(|on| !on) {
+                    return Err(ActionError::Disabled);
+                }
+                let count = tabs.titles().len();
+                let emitter = state.emitter();
+                match action {
+                    A11yAction::SetValue(title) => {
+                        return match tabs.choose(title, &emitter, id) {
+                            Ok(true) => Ok(()),
+                            _ => Err(ActionError::Unsupported),
+                        };
+                    }
+                    A11yAction::CloseTab(index) if tabs.closable() && *index < count => {
+                        emitter.emit(id, UiEvent::TabCloseRequested(*index));
+                        return Ok(());
+                    }
+                    A11yAction::MoveTab { from, to } if tabs.reorderable() && *from < count && *to < count => {
+                        if from != to {
+                            tabs.move_tab(*from, *to).map_err(|_| ActionError::Unsupported)?;
+                        }
+                        return Ok(());
+                    }
+                    A11yAction::Activate if tabs.new_tab_button() => {
+                        emitter.emit(id, UiEvent::NewTabRequested);
+                        return Ok(());
+                    }
+                    A11yAction::Focus | A11yAction::ScrollIntoView => {}
+                    _ => return Err(ActionError::Unsupported),
+                }
+            }
             // A header, as a click presses it.
             if let (A11yAction::PressHeader(column), Widget::List(list)) = (action, &node.widget) {
                 return if list.press_header(*column) { Ok(()) } else { Err(ActionError::Unsupported) };

@@ -18,6 +18,7 @@ use mitsuami_core::{
 };
 
 use crate::custom::{DrawnArea, ErasedRender};
+use crate::document_tabs::DocumentTabs;
 use crate::file_drop::FileDropTarget;
 use crate::host::{Events, Frames, Host};
 use crate::radio::RadioGroup;
@@ -171,6 +172,7 @@ enum Widget {
     List(crate::list::List),
     Sidebar(Sidebar),
     Tabs(Tabs),
+    DocumentTabs(DocumentTabs),
     Group(crate::group::Group),
     /// A custom widget with a GTK render, and the props it last got.
     Custom {
@@ -221,6 +223,7 @@ impl Widget {
             Widget::List(list) => list.scrolled.upcast_ref(),
             Widget::Sidebar(sidebar) => sidebar.scrolled.upcast_ref(),
             Widget::Tabs(tabs) => tabs.root(),
+            Widget::DocumentTabs(tabs) => tabs.root(),
             Widget::Group(group) => group.host.upcast_ref(),
             Widget::Custom { widget, .. } | Widget::Native { widget, .. } => widget,
             Widget::Drawn { drawn, .. } => drawn.area.upcast_ref(),
@@ -244,6 +247,7 @@ impl Widget {
                 | Widget::Slider { .. }
                 | Widget::SpinButton(_)
                 | Widget::TextArea { .. }
+                | Widget::DocumentTabs(_)
         )
     }
 

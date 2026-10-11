@@ -32,3 +32,10 @@ mitsuami-quit-reason = Asking before it quits
 
 # The button of an alert the app gave none.
 mitsuami-alert-ok = OK
+
+## Document tabs.
+
+# The button that asks for a new tab, where the backend makes one.
+mitsuami-tab-new = New Tab
+# A tab's close button, where the backend makes one.
+mitsuami-tab-close = Close Tab

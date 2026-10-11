@@ -5,7 +5,7 @@ use mitsuami_core::{EventValue, NodeId, SelectionMode, UiEvent, WidgetKind};
 
 use crate::custom::Emitter;
 
-use super::{KirigamiBackend, Widget, option_texts, radio_options, set_area_text, tab_titles};
+use super::{KirigamiBackend, Widget, document_tab_titles, option_texts, radio_options, set_area_text, tab_titles};
 
 impl KirigamiBackend {
     pub(super) fn perform_action(&mut self, id: NodeId, action: &A11yAction) -> Result<(), ActionError> {
@@ -111,6 +111,35 @@ impl KirigamiBackend {
             (A11yAction::SetValue(title), WidgetKind::Tabs) => {
                 let index = tab_titles(item).iter().position(|t| t == title).ok_or(ActionError::Unsupported)?;
                 item.set_int("mitsuamiChoice", index as i32);
+            }
+            // As if the tab were clicked.
+            (A11yAction::SetValue(title), WidgetKind::DocumentTabs) => {
+                let index =
+                    document_tab_titles(item).iter().position(|t| t == title).ok_or(ActionError::Unsupported)?;
+                item.set_int("mitsuamiChoice", index as i32);
+            }
+            // As if its close button were pressed: the app is asked.
+            (A11yAction::CloseTab(index), WidgetKind::DocumentTabs) => {
+                if !item.bool("mitsuamiClosable") || *index >= document_tab_titles(item).len() {
+                    return Err(ActionError::Unsupported);
+                }
+                item.set_int("mitsuamiCloseChoice", *index as i32);
+            }
+            // As if the tab were dragged there and let go.
+            (A11yAction::MoveTab { from, to }, WidgetKind::DocumentTabs) => {
+                let count = document_tab_titles(item).len();
+                if !item.bool("mitsuamiReorderable") || *from >= count || *to >= count {
+                    return Err(ActionError::Unsupported);
+                }
+                item.set_int("mitsuamiMoveTo", *to as i32);
+                item.set_int("mitsuamiMoveChoice", *from as i32);
+            }
+            // Its new-tab button's own Press.
+            (A11yAction::Activate, WidgetKind::DocumentTabs) => {
+                let button = item.child("mitsuamiNewTab").filter(|_| item.bool("mitsuamiNewButton"));
+                if !button.is_some_and(|b| b.accessible_action("Press")) {
+                    return Err(ActionError::Unsupported);
+                }
             }
             // As if its button were clicked.
             (A11yAction::SetValue(text), WidgetKind::RadioGroup) => {

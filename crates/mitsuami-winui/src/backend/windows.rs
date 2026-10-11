@@ -2,12 +2,15 @@
 //! the sidebar's place.
 
 use std::cell::Cell;
+use std::rc::Rc;
 
 use mitsuami_core::{NodeId, Rect, Size, UiEvent};
 use windows_core::{IInspectable, Interface};
 
 use super::measure::measure_element;
-use super::{Events, MenuBarPlace, R, SPACING, ToolbarAlign, ToolbarPlace, WindowParts, WindowPlacement, ok};
+use super::{
+    Events, MenuBarPlace, R, SPACING, TitleTabs, ToolbarAlign, ToolbarPlace, WindowParts, WindowPlacement, ok,
+};
 use crate::bindings as w;
 
 impl WindowParts {
@@ -323,6 +326,139 @@ pub(super) fn update_title_bar_height(parts: &WindowParts) -> R<()> {
     // height is set here, so the next measure has it.
     let tall = if toolbar || menu { TALL_TITLE_BAR } else { f64::NAN };
     parts.title_bar.cast::<w::IFrameworkElement>()?.SetHeight(tall)
+}
+
+/// Whether document tabs can be the window's: the title bar's content is
+/// free (no toolbar or menu bar the app put there), and no other tabs
+/// have it.
+pub(super) fn takes_title_tabs(parts: &WindowParts, id: NodeId) -> bool {
+    parts.toolbar_place == ToolbarPlace::BelowTitleBar
+        && !parts.menu_bar_place.in_title_bar()
+        && parts.title_tabs.as_ref().is_none_or(|tabs| tabs.id == id)
+}
+
+/// Puts document tabs' view in the title bar, as Windows Terminal and File
+/// Explorer have their tabs: the title bar's content in the title's place,
+/// at its bottom, only as wide as its tabs so the room after them drags
+/// the window, on a band in Mica Alt's colour, or the view's background if
+/// the app gave it one (a tweak).
+pub(super) fn put_tabs_in_title_bar(parts: &mut WindowParts, id: NodeId, view: &w::TabView) -> R<()> {
+    let before = chrome_height(parts);
+    let fe: w::IFrameworkElement = view.cast()?;
+    fe.SetHorizontalAlignment(w::HorizontalAlignment::Left)?;
+    fe.SetVerticalAlignment(w::VerticalAlignment::Bottom)?;
+    let title_bar: w::ITitleBar = parts.title_bar.cast()?;
+    // The title bar passes its title on to the window, which still names
+    // it in the taskbar and Alt+Tab: it's kept.
+    let window: w::IWindow = parts.window.cast()?;
+    let title = window.Title()?;
+    title_bar.SetTitle("")?;
+    window.SetTitle(&title)?;
+    let element: w::UIElement = view.cast()?;
+    title_bar.SetContent(&element)?;
+    // The title bar keeps its content out of the drag region by the
+    // content's bounds when it's given, and not again as it grows: tabs
+    // laid out after the first were in the drag region, where a press drags
+    // the window and a tab can't be dropped. Given again at each new width,
+    // it takes them in.
+    let width = Cell::new(0.0);
+    let dropped = Rc::new(Cell::new(0.0));
+    let regrow = fe.SizeChanged({
+        let (title_bar, bar, element, dropped) =
+            (title_bar.clone(), parts.title_bar.clone(), element.clone(), dropped.clone());
+        move |_, _| {
+            let now = element.cast::<w::IFrameworkElement>().and_then(|e| e.ActualWidth()).unwrap_or(0.0);
+            if now > 0.0 && width.replace(now) != now {
+                _ = title_bar.SetContent(None::<&w::UIElement>);
+                _ = title_bar.SetContent(&element);
+            }
+            sit_on_bottom(&bar, &element, &dropped);
+        }
+    })?;
+    let band = parts.tabs_band.clone();
+    paint_band(&band, view)?;
+    band.cast::<w::IUIElement>()?.SetVisibility(w::Visibility::Visible)?;
+    let painter = w::DependencyPropertyChangedCallback::new(move |sender, _| {
+        if let Some(view) = sender.as_ref().and_then(|s| s.cast::<w::TabView>().ok()) {
+            _ = paint_band(&band, &view);
+        }
+    });
+    let background = view
+        .cast::<w::IDependencyObject>()?
+        .RegisterPropertyChangedCallback(&w::Control::BackgroundProperty()?, &painter)?;
+    parts.title_tabs = Some(TitleTabs { id, view: view.clone(), _regrow: regrow, background });
+    chrome_changed(parts, before)?;
+    sit_on_bottom(&parts.title_bar, &element, &dropped);
+    Ok(())
+}
+
+/// The band behind the title bar takes the tab view's background where
+/// it shows one (its `TabViewBackground` resource, or a `Background`, an
+/// app's tweak gave it: Terminal's tabs take its terminal's colour), and
+/// Mica Alt's otherwise: the view's own is transparent.
+fn paint_band(band: &w::Border, view: &w::TabView) -> R<()> {
+    let brush = view.cast::<w::IControl>()?.Background().ok();
+    let opaque = brush.as_ref().is_some_and(|b| match b.cast::<w::ISolidColorBrush>() {
+        Ok(solid) => solid.Color().is_ok_and(|c| c.a > 0),
+        // Not a plain colour (a gradient, an acrylic): the app's.
+        Err(_) => true,
+    });
+    // Over the band, which keeps Mica Alt's colour from its markup (a local
+    // value, which clearing would take away).
+    let over: w::Border = band.Child()?.cast()?;
+    over.SetBackground(brush.as_ref().filter(|_| opaque))
+}
+
+/// Tabs sit on the title bar's bottom edge, as Terminal's and Explorer's
+/// do, so the chosen one meets the content below: the title bar keeps a
+/// few epx under its content, which the view's margin takes back.
+fn sit_on_bottom(title_bar: &w::TitleBar, view: &w::UIElement, dropped: &Cell<f64>) {
+    let fit = || -> R<()> {
+        let bar: w::UIElement = title_bar.cast()?;
+        let top = view.cast::<w::IUIElement>()?.TransformToVisual(&bar)?.TransformPoint(w::Point { x: 0.0, y: 0.0 })?.y;
+        let height = view.cast::<w::IFrameworkElement>()?.ActualHeight()?;
+        let room = title_bar.cast::<w::IFrameworkElement>()?.ActualHeight()?;
+        // Where the bottom would be without the margin.
+        let gap = room - (top as f64 + height - dropped.get());
+        if height > 0.0 && (gap - dropped.get()).abs() > 0.25 {
+            dropped.set(gap.max(0.0));
+            let margin = w::Thickness { left: 0.0, top: 0.0, right: 0.0, bottom: -dropped.get() };
+            view.cast::<w::IFrameworkElement>()?.SetMargin(margin)?;
+        }
+        Ok(())
+    };
+    _ = fit();
+}
+
+/// Takes document tabs' view out of the title bar: the title comes back.
+pub(super) fn take_tabs_from_title_bar(parts: &mut WindowParts) -> R<()> {
+    let Some(tabs) = parts.title_tabs.take() else { return Ok(()) };
+    let view = &tabs.view;
+    view.cast::<w::IFrameworkElement>()?.SetMargin(w::Thickness::default())?;
+    view.cast::<w::IDependencyObject>()?
+        .UnregisterPropertyChangedCallback(&w::Control::BackgroundProperty()?, tabs.background)?;
+    let band = &parts.tabs_band;
+    band.cast::<w::IUIElement>()?.SetVisibility(w::Visibility::Collapsed)?;
+    band.Child()?.cast::<w::Border>()?.SetBackground(None::<&w::Brush>)?;
+    let before = chrome_height(parts);
+    let title_bar: w::ITitleBar = parts.title_bar.cast()?;
+    title_bar.SetContent(None::<&w::UIElement>)?;
+    title_bar.SetTitle(&parts.window.cast::<w::IWindow>()?.Title()?)?;
+    chrome_changed(parts, before)
+}
+
+/// The title bar's height follows what's in it, and the content keeps its
+/// size below it.
+fn chrome_changed(parts: &WindowParts, before: f64) -> R<()> {
+    update_title_bar_height(parts)?;
+    parts.root.cast::<w::IUIElement>()?.UpdateLayout()?;
+    if chrome_height(parts) != before {
+        apply_min_size(parts);
+        if let Some(size) = parts.requested {
+            resize_client(parts, size);
+        }
+    }
+    Ok(())
 }
 
 /// The title bar's height with tall caption buttons

@@ -11,8 +11,9 @@ use crate::qml;
 use super::props::{ELIDE_LEFT, ELIDE_MIDDLE};
 
 use super::{
-    ALIGN_H_CENTER, ALIGN_RIGHT, KirigamiBackend, PARTIALLY_CHECKED, QT_VERTICAL, TEXT_EDIT_NO_WRAP, Widget, frame_of,
-    option_texts, purpose_hint, radio_options, scroll_offset, strip, tab_titles, viewport_insets,
+    ALIGN_H_CENTER, ALIGN_RIGHT, KirigamiBackend, PARTIALLY_CHECKED, QT_VERTICAL, TEXT_EDIT_NO_WRAP, Widget,
+    document_tab_titles, frame_of, option_texts, purpose_hint, radio_options, scroll_offset, strip, tab_titles,
+    viewport_insets,
 };
 
 impl KirigamiBackend {
@@ -227,6 +228,18 @@ impl KirigamiBackend {
                 }));
             }
             Widget::Group { group, .. } => props.push(Prop::Title(group.str("title"))),
+            // The flags are the strip's own properties, which its buttons
+            // and handlers follow; there's nothing else to read them from.
+            Widget::DocumentTabs { root } => {
+                props.push(Prop::TabTitles(document_tab_titles(*root)));
+                let bar = root.child("mitsuamiDocumentTabBar").unwrap_or(*root);
+                let shown = (root.int("mitsuamiCount") > 0).then(|| bar.int("currentIndex"));
+                props.push(Prop::SelectedIndex(shown.and_then(|i| usize::try_from(i).ok())));
+                props.push(Prop::TabsClosable(root.bool("mitsuamiClosable")));
+                props.push(Prop::TabsReorderable(root.bool("mitsuamiReorderable")));
+                props.push(Prop::NewTabButton(root.bool("mitsuamiNewButton")));
+                props.extend(node.document_tabs_style.map(Prop::DocumentTabsStyle));
+            }
             Widget::Tabs { root, .. } => {
                 props.push(Prop::TabTitles(tab_titles(*root)));
                 props.push(Prop::TabIcons(root.str("mitsuamiShownIcons").split('\u{1f}').map(str::to_owned).collect()));

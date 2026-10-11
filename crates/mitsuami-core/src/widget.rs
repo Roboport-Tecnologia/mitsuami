@@ -176,6 +176,18 @@ pub enum WidgetKind {
     /// all in the same place, so the view is as big as its biggest page;
     /// the platform places them and shows the chosen one.
     Tabs,
+    /// Native document tabs: a strip of tabs with no pages, for documents
+    /// the app shows in one place of its own (a terminal's sessions drawn
+    /// on one surface). WinUI's TabView with items without content,
+    /// libadwaita's AdwTabBar, a QQC2.TabBar with close buttons, and on
+    /// AppKit the window's own tabs (NSWindow tabbing) or a strip of the
+    /// backend's, as Safari has. Titled by [`Prop::TabTitles`], the chosen
+    /// one [`Prop::SelectedIndex`]; the user closes them
+    /// ([`Prop::TabsClosable`]), moves them ([`Prop::TabsReorderable`]) and
+    /// asks for a new one ([`Prop::NewTabButton`]), where the app lets
+    /// them. Measured by the backend; empty where the tabs are the
+    /// window's ([`DocumentTabsStyle::Window`]).
+    DocumentTabs,
     /// A native box around related content, under an optional heading
     /// ([`Prop::Title`]): an NSBox, libadwaita's card under a heading, a
     /// Fluent card under a heading on WinUI, a QQC2.GroupBox. The core lays
@@ -231,6 +243,7 @@ impl WidgetKind {
             WidgetKind::List => "List",
             WidgetKind::Table => "Table",
             WidgetKind::Tabs => "Tabs",
+            WidgetKind::DocumentTabs => "DocumentTabs",
             WidgetKind::Group => "Group",
             WidgetKind::Fragment => "Fragment",
             WidgetKind::Text => "Text",
@@ -388,6 +401,24 @@ pub enum TabsStyle {
     /// Navigation tabs above the pages: libadwaita's inline view switcher
     /// (a tab bar before libadwaita 1.7), Kirigami's `NavigationTabBar`.
     Navigation,
+}
+
+/// Where `DocumentTabs` show their tabs: in the window's own chrome, or
+/// in the content where they're declared.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Hash)]
+pub enum DocumentTabsStyle {
+    /// The platform's own: the window's on macOS and Windows (window tabs,
+    /// a tab view in the title bar, as Finder and Terminal have them), a
+    /// strip in the content on GNOME and KDE (as Console and Konsole).
+    #[default]
+    Automatic,
+    /// A strip in the content, where they're declared, on every platform:
+    /// on macOS one the backend builds, as Safari's is.
+    Strip,
+    /// The window's own: AppKit's window tabs (each tab an `NSWindow` of
+    /// the window's tab group, all showing the one content), WinUI's tab
+    /// view in the title bar. GTK and Qt have none, so a strip.
+    Window,
 }
 
 /// How a button is drawn, mapped to each platform's native look.
@@ -806,8 +837,8 @@ pub enum Prop {
     Options(Vec<String>),
     /// Which option of a `Select` is chosen: always one, unless it has no
     /// options. Which option of a `RadioGroup` is: `None` for none. Which item of a `Sidebar` is, counting across its sections:
-    /// `None` for none. Which page of a `Tabs` is shown: always one, unless
-    /// it has no pages.
+    /// `None` for none. Which page of a `Tabs` is shown, and which tab of
+    /// `DocumentTabs` is chosen: always one, unless it has none.
     SelectedIndex(Option<usize>),
     /// A `Slider`'s or `NumberInput`'s value, within its range. The core
     /// sends it after the range, which may have clamped it.
@@ -883,13 +914,29 @@ pub enum Prop {
     /// Whether a `ScrollView` shows scroll bars, as the platform shows them.
     /// Without, it still scrolls, by wheel, trackpad and touch.
     ScrollBars(bool),
-    /// A `Tabs`' page titles, in page order.
+    /// A `Tabs`' page titles, in page order; `DocumentTabs`' titles, in
+    /// order.
     TabTitles(Vec<String>),
     /// A `Tabs`' tab icons, in page order: names in the platform's own set,
     /// as `Icon`'s; empty for none. Sent only if a tab has one.
     TabIcons(Vec<String>),
     /// How a `Tabs` shows its tabs. Sent only if the app chose.
     TabsStyle(TabsStyle),
+    /// `DocumentTabs`' tabs have the platform's close buttons (and its
+    /// middle click, where it has one), which report
+    /// `TabCloseRequested`; the app closes the tab. Sent only if the app
+    /// asked (`on_close`).
+    TabsClosable(bool),
+    /// The user can drag `DocumentTabs`' tabs to another place among them
+    /// (and move them from the keyboard, where the platform can), which
+    /// reports `TabMoved`; the core absorbs it. Sent only if the app asked
+    /// (`on_move`).
+    TabsReorderable(bool),
+    /// `DocumentTabs` have the platform's new-tab button, which reports
+    /// `NewTabRequested`. Sent only if the app asked (`on_new`).
+    NewTabButton(bool),
+    /// Where `DocumentTabs` show their tabs. Sent only if the app chose.
+    DocumentTabsStyle(DocumentTabsStyle),
     /// A `Sidebar`'s items, in sections, in order.
     Sections(Vec<SidebarSectionData>),
     /// A `Sidebar` is shown beside the window's content, or hidden, as the
@@ -1011,6 +1058,16 @@ impl Prop {
         if kind == WidgetKind::TextArea && matches!(self, Prop::Lines(_)) {
             return true;
         }
+        // A strip is as wide as its tabs and its new-tab button, and is the
+        // window's or the content's.
+        if kind == WidgetKind::DocumentTabs
+            && matches!(
+                self,
+                Prop::TabTitles(_) | Prop::TabsClosable(_) | Prop::NewTabButton(_) | Prop::DocumentTabsStyle(_)
+            )
+        {
+            return true;
+        }
         matches!(
             self,
             Prop::Text(_)
@@ -1034,6 +1091,20 @@ impl Prop {
                 | Prop::Native(_)
                 | Prop::Tweak(_)
         )
+    }
+}
+
+/// Where the item at `index` of a list is after the one at `from` moved to
+/// `to`: `DocumentTabs`' chosen tab after `TabMoved`.
+pub fn moved_index(index: usize, from: usize, to: usize) -> usize {
+    if index == from {
+        to
+    } else if from < index && index <= to {
+        index - 1
+    } else if to <= index && index < from {
+        index + 1
+    } else {
+        index
     }
 }
 
@@ -1069,6 +1140,7 @@ static_value!(
     ButtonStyle,
     TabsStyle,
     HeaderEdge,
+    DocumentTabsStyle,
     Orientation,
     ScrollAxes,
     SelectionMode,

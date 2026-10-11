@@ -7,8 +7,8 @@
 //! The `sidebar` example isn't one of them, as the showcase is one.
 //!
 //! - Every page scrolls when it's taller than the window. The ones sized
-//!   to fill theirs (GPU surface, Icon, Measurements, Tabs, and the Files
-//!   pages) fill the page when it's taller than they need.
+//!   to fill theirs (GPU surface, Icon, Measurements, Tabs, Document tabs,
+//!   and the Files pages) fill the page when it's taller than they need.
 //! - Leaving a page drops it and its state, as closing its window would;
 //!   the Menus and Languages pages take the app's menus with them (and
 //!   Languages its translations and language), the GPU surface page its
@@ -30,6 +30,9 @@ mod checkbox;
 #[allow(dead_code, unused_attributes)]
 #[path = "../../../crates/mitsuami/examples/context_menu.rs"]
 mod context_menu;
+#[allow(dead_code, unused_attributes)]
+#[path = "../../../crates/mitsuami/examples/document_tabs.rs"]
+mod document_tabs;
 #[allow(dead_code, unused_attributes)]
 #[path = "../../../crates/mitsuami/examples/file_drag.rs"]
 mod file_drag;
@@ -197,6 +200,7 @@ const SECTIONS: [(&str, &[Example]); 7] = [
             example("Table", || AnyView::new(table::page())),
             example("Scroll view", || AnyView::new(scroll_view::page())),
             example("Tabs", || AnyView::new(tabs::preferences())),
+            example("Document tabs", || AnyView::new(document_tabs::notepad())),
             example("Measurements", || AnyView::new(measurements::content())),
         ],
     ),

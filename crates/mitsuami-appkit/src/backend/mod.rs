@@ -33,8 +33,8 @@ use mitsuami_core::{
 use objc2::rc::Retained;
 use objc2::{AnyThread, MainThreadMarker, Message};
 use objc2_app_kit::{
-    NSApplication, NSBox, NSButton, NSControl, NSImage, NSImageView, NSPopUpButton, NSProgressIndicator,
-    NSSlider, NSSwitch, NSTextField, NSView, NSWindow,
+    NSApplication, NSBox, NSButton, NSControl, NSImage, NSImageView, NSPopUpButton, NSProgressIndicator, NSSlider,
+    NSSwitch, NSTextField, NSView, NSWindow,
 };
 use objc2_foundation::{NSBundle, NSData, NSString};
 
@@ -99,6 +99,7 @@ enum Widget {
     },
     Sidebar(Sidebar),
     Tabs(Tabs),
+    DocumentTabs(crate::document_tabs::DocumentTabs),
     Label(Retained<NSTextField>),
     Field(Retained<NSTextField>),
     TextArea(crate::text_area::TextArea),
@@ -177,6 +178,7 @@ impl Widget {
             Widget::List(list) => &list.scroll,
             Widget::Sidebar(sidebar) => &sidebar.scroll,
             Widget::Tabs(tabs) => &tabs.view,
+            Widget::DocumentTabs(tabs) => &tabs.strip,
             Widget::Custom { view, .. } | Widget::Native { view, .. } => view,
             Widget::Drawn { view, .. } => view,
         }
@@ -209,6 +211,7 @@ impl Widget {
             | Widget::List(_)
             | Widget::Sidebar(_)
             | Widget::Tabs(_)
+            | Widget::DocumentTabs(_)
             | Widget::Custom { .. }
             | Widget::Drawn { .. }
             | Widget::Native { .. } => None,
@@ -232,6 +235,7 @@ impl Widget {
     fn enabled(&self) -> Option<bool> {
         match self {
             Widget::TextArea(area) => Some(area.enabled()),
+            Widget::DocumentTabs(tabs) => Some(tabs.enabled()),
             widget => widget.control().map(|c| c.isEnabled()),
         }
     }
@@ -450,6 +454,7 @@ impl Backend for AppKitBackend {
             state.note_touched(command);
         }
         state.layout_touched();
+        state.sync_document_tabs();
     }
 
     fn measure(&mut self, id: NodeId, request: MeasureRequest) -> Size {

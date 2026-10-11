@@ -66,6 +66,12 @@ impl State {
             (Prop::TabsStyle(style), Widget::Tabs(tabs)) => tabs.set_style(*style),
             (Prop::Title(title), Widget::Group(group)) => group.set_title(title),
             (Prop::SelectedIndex(index), Widget::Tabs(tabs)) => tabs.set_selected(*index),
+            (Prop::TabTitles(titles), Widget::DocumentTabs(tabs)) => tabs.set_titles(titles),
+            (Prop::SelectedIndex(index), Widget::DocumentTabs(tabs)) => tabs.set_selected(*index),
+            (Prop::TabsClosable(on), Widget::DocumentTabs(tabs)) => tabs.set_closable(*on),
+            (Prop::TabsReorderable(on), Widget::DocumentTabs(tabs)) => tabs.set_reorderable(*on),
+            (Prop::NewTabButton(on), Widget::DocumentTabs(tabs)) => tabs.set_new_tab_button(*on),
+            (Prop::DocumentTabsStyle(style), Widget::DocumentTabs(tabs)) => tabs.set_style(*style),
             (Prop::FullScreen(on), Widget::Window(parts)) => parts.full_screen.set(&parts.window, *on),
             (Prop::MinSize(min), Widget::Window(parts)) => {
                 parts.min_size.app.set(Some(*min));

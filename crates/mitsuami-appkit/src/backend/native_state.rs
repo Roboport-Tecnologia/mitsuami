@@ -276,6 +276,15 @@ pub(super) fn native_state(state: &State, id: NodeId) -> Option<NativeState> {
                 .map(Prop::SidebarShown),
             );
         }
+        Widget::DocumentTabs(tabs) => {
+            props.push(Prop::TabTitles(tabs.titles()));
+            props.push(Prop::SelectedIndex(tabs.selected()));
+            props.extend(tabs.closable().map(Prop::TabsClosable));
+            props.extend(tabs.reorderable().map(Prop::TabsReorderable));
+            props.extend(tabs.new_tab().map(Prop::NewTabButton));
+            props.extend(tabs.style().map(Prop::DocumentTabsStyle));
+            props.push(Prop::Enabled(tabs.enabled()));
+        }
         Widget::Tabs(tabs) => {
             props.push(Prop::TabTitles(tabs.titles()));
             props.push(Prop::SelectedIndex(tabs.selected()));

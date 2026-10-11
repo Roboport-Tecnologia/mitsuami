@@ -156,7 +156,10 @@ impl State {
             (Prop::Title(t), Widget::Window(parts)) => {
                 // The window's own title still names it in the taskbar and Alt+Tab.
                 parts.window.cast::<w::IWindow>()?.SetTitle(t)?;
-                parts.title_bar.cast::<w::ITitleBar>()?.SetTitle(t)?;
+                // Document tabs in the title bar take the title's place.
+                if parts.title_tabs.is_none() {
+                    parts.title_bar.cast::<w::ITitleBar>()?.SetTitle(t)?;
+                }
             }
             (Prop::Text(t), Widget::Label(_)) => node.label.text = t.clone(),
             (Prop::Selectable(on), Widget::Label(l)) => l.cast::<w::ITextBlock>()?.SetIsTextSelectionEnabled(*on)?,
@@ -355,6 +358,13 @@ impl State {
             // One way to show tabs: the app's choice is kept, not shown.
             (Prop::TabsStyle(style), Widget::Tabs(_)) => node.tabs_style = Some(*style),
             (Prop::Title(title), Widget::Group(group)) => group.set_title(title)?,
+            (Prop::TabTitles(titles), Widget::DocumentTabs(tabs)) => tabs.set_titles(titles)?,
+            (Prop::SelectedIndex(index), Widget::DocumentTabs(tabs)) => tabs.set_selected(*index)?,
+            (Prop::TabsClosable(closable), Widget::DocumentTabs(tabs)) => tabs.set_closable(*closable)?,
+            (Prop::TabsReorderable(on), Widget::DocumentTabs(tabs)) => tabs.set_reorderable(*on)?,
+            (Prop::NewTabButton(on), Widget::DocumentTabs(tabs)) => tabs.view.SetIsAddTabButtonVisible(*on)?,
+            (Prop::DocumentTabsStyle(style), Widget::DocumentTabs(tabs)) => tabs.style.set(Some(*style)),
+            (Prop::Enabled(e), Widget::DocumentTabs(tabs)) => tabs.view.cast::<w::IControl>()?.SetIsEnabled(*e)?,
             (Prop::SelectedIndex(index), Widget::Tabs(tabs)) => tabs.set_selected(*index)?,
             // Its tabs; its pages are the app's.
             (Prop::Enabled(e), Widget::Tabs(tabs)) => tabs.bar.cast::<w::IControl>()?.SetIsEnabled(*e)?,

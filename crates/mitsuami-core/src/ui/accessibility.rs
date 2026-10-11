@@ -48,6 +48,9 @@ impl Inner {
         if node.kind == WidgetKind::RadioGroup {
             children = self.radio_buttons(id, frame);
         }
+        if node.kind == WidgetKind::DocumentTabs {
+            children = self.document_tabs(id, frame);
+        }
         // A table's headers, then its cells in rows.
         if node.kind == WidgetKind::Table {
             children = self.table_children(id, frame, children);
@@ -66,6 +69,7 @@ impl Inner {
             WidgetKind::List | WidgetKind::Sidebar => Role::List,
             WidgetKind::Table => Role::Table,
             WidgetKind::Tabs => Role::TabGroup,
+            WidgetKind::DocumentTabs => Role::TabList,
             // Named by its heading, as a fieldset by its legend.
             WidgetKind::Group => Role::Group,
             WidgetKind::Text => Role::StaticText,
@@ -107,6 +111,7 @@ impl Inner {
                 | WidgetKind::Select
                 | WidgetKind::RadioGroup
                 | WidgetKind::Tabs
+                | WidgetKind::DocumentTabs
                 | WidgetKind::Slider
                 | WidgetKind::NumberInput
                 | WidgetKind::Progress
@@ -204,6 +209,42 @@ impl Inner {
                 children: Vec::new(),
             })
             .collect()
+    }
+
+    /// Document tabs' tabs, which are their data, not nodes: named by
+    /// their titles, the chosen one selected; then the new-tab button, if
+    /// they have one, named as the backends name it. They stand for the
+    /// tabs, where assistive technology acts on them.
+    fn document_tabs(&self, id: NodeId, frame: Rect) -> Vec<A11yNode> {
+        let props = &self.nodes[&id].props;
+        let chosen = crate::find_prop!(props, SelectedIndex).flatten();
+        let enabled = crate::find_prop!(props, Enabled).unwrap_or(true);
+        let titles = crate::find_prop!(props, TabTitles).unwrap_or_default();
+        let node = |role, name, selected| A11yNode {
+            id,
+            role,
+            name: Some(name),
+            description: None,
+            value: None,
+            checked: None,
+            mixed: false,
+            read_only: false,
+            password: false,
+            selected,
+            enabled,
+            test_id: None,
+            frame,
+            children: Vec::new(),
+        };
+        let mut children: Vec<A11yNode> = titles
+            .into_iter()
+            .enumerate()
+            .map(|(index, title)| node(Role::Tab, title, Some(chosen == Some(index))))
+            .collect();
+        if crate::find_prop!(props, NewTabButton) == Some(true) {
+            children.push(node(Role::Button, crate::l10n::tr("mitsuami-tab-new", &[]), None));
+        }
+        children
     }
 
     /// A radio group's buttons, which are its data, not nodes: named by

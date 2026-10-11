@@ -50,6 +50,10 @@ fn describe_props(props: &[Prop]) -> String {
             Prop::Header(b) => extra.push(format!("header={b}")),
             Prop::HeaderEdge(edge) => extra.push(format!("header_edge={edge:?}")),
             Prop::TabsStyle(style) => extra.push(format!("tabs_style={style:?}")),
+            Prop::TabsClosable(b) => extra.push(format!("closable={b}")),
+            Prop::TabsReorderable(b) => extra.push(format!("reorderable={b}")),
+            Prop::NewTabButton(b) => extra.push(format!("new_tab={b}")),
+            Prop::DocumentTabsStyle(style) => extra.push(format!("document_tabs_style={style:?}")),
             Prop::SelectedIndex(index) => {
                 extra.push(format!("selected={}", index.map_or("none".to_owned(), |i| i.to_string())))
             }
@@ -410,6 +414,7 @@ pub(crate) fn wireframe(root: &NodeInfo) -> String {
             | WidgetKind::Table
             | WidgetKind::Sidebar
             | WidgetKind::Tabs
+            | WidgetKind::DocumentTabs
             | WidgetKind::Group => "#5f7fa0",
             WidgetKind::Text => "#3f7f5f",
             WidgetKind::Button | WidgetKind::ToggleButton | WidgetKind::MenuButton => "#2f6fdf",

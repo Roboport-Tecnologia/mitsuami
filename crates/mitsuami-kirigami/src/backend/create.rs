@@ -70,6 +70,36 @@ impl State {
                 });
                 Widget::Tabs { root, pages }
             }
+            WidgetKind::DocumentTabs => {
+                let root = QmlObject::load(&qml::document_tabs());
+                root.set_str("mitsuamiNewText", &mitsuami_core::l10n::tr("mitsuami-tab-new", &[]));
+                root.set_str("mitsuamiCloseText", &mitsuami_core::l10n::tr("mitsuami-tab-close", &[]));
+                // The user's only: a click, the arrow keys, a close button,
+                // a middle click, a drag, the new-tab button. The app's
+                // titles and choice don't emit them.
+                let chosen = events.clone();
+                root.connect("mitsuamiChosen()", move || {
+                    if let Ok(index) = usize::try_from(root.int("mitsuamiSelected")) {
+                        chosen.emit(id, UiEvent::Changed(EventValue::Index(index)));
+                    }
+                });
+                let closed = events.clone();
+                root.connect("mitsuamiCloseAsked()", move || {
+                    if let Ok(index) = usize::try_from(root.int("mitsuamiCloseIndex")) {
+                        closed.emit(id, UiEvent::TabCloseRequested(index));
+                    }
+                });
+                let moved = events.clone();
+                root.connect("mitsuamiMoved()", move || {
+                    if let (Ok(from), Ok(to)) =
+                        (usize::try_from(root.int("mitsuamiMovedFrom")), usize::try_from(root.int("mitsuamiMovedTo")))
+                    {
+                        moved.emit(id, UiEvent::TabMoved { from, to });
+                    }
+                });
+                root.connect("mitsuamiNewAsked()", move || events.emit(id, UiEvent::NewTabRequested));
+                Widget::DocumentTabs { root }
+            }
             WidgetKind::Group => {
                 let root = QmlObject::load(&qml::group());
                 let group = root.child("mitsuamiGroupBox").expect("groups have a group box");
@@ -277,6 +307,7 @@ impl State {
                 role: None,
                 button_style: None,
                 tabs_style: None,
+                document_tabs_style: None,
                 orientation: None,
                 mixed: None,
                 checked: false,

@@ -104,20 +104,22 @@ pub mod prelude {
     };
     pub use mitsuami_core::{Action, Resource, Store, action, resource, resource_on, use_store};
     pub use mitsuami_core::{
-        Align, ButtonRole, ButtonStyle, Callback, Children, Cursor, Element, ElementBuilder, FileDrop, FlexDirection,
-        FontWeight, For, GridPlacement, HeaderEdge, ImageFit, ImageSource, InputPurpose, Justify, Key, KeyCode, Length,
-        LengthExt, List, ListHandle, ListStyle, Modality, Modifiers, MouseButton, NodeId, NodeRef, Orientation, Pixels,
-        Point, Role, ScrollAxes, ScrollDelta, SelectionMode, Show, Size, Slot, Sort, SortOrder, Spacing, SurfaceHandle,
-        SurfaceInput, SurfaceSize, Table, TableColumn, TabsStyle, TextAlign, TextDirection, TextStyle, Track,
-        Truncation, Tweak, Ui, View, WindowSize, node_ref, repeat, use_size, use_viewport,
+        Align, ButtonRole, ButtonStyle, Callback, Children, Cursor, DocumentTabsStyle, Element, ElementBuilder,
+        FileDrop, FlexDirection, FontWeight, For, GridPlacement, HeaderEdge, ImageFit, ImageSource, InputPurpose,
+        Justify, Key, KeyCode, Length, LengthExt, List, ListHandle, ListStyle, Modality, Modifiers, MouseButton,
+        NodeId, NodeRef, Orientation, Pixels, Point, Role, ScrollAxes, ScrollDelta, SelectionMode, Show, Size, Slot,
+        Sort, SortOrder, Spacing, SurfaceHandle, SurfaceInput, SurfaceSize, Table, TableColumn, TabsStyle, TextAlign,
+        TextDirection, TextStyle, Track, Truncation, Tweak, Ui, View, WindowSize, node_ref, repeat, use_size,
+        use_viewport,
     };
     pub use mitsuami_reactive::{
         Computed, IntoValue, Owner, Signal, Value, batch, computed, effect, inject, on_cleanup, provide, signal,
         untrack, watch,
     };
     pub use mitsuami_widgets::{
-        Button, Checkbox, Column, Container, FileIcon, GpuSurface, Grid, Group, Icon, Image, MenuButton, NumberInput,
-        PasswordInput, Progress, RadioGroup, Row, ScrollView, SearchInput, Select, Separator, Sidebar, SidebarItem,
-        SidebarSection, Slider, Spinner, Switch, Tab, Tabs, Text, TextArea, TextInput, ToggleButton, Toolbar, Window,
+        Button, Checkbox, Column, Container, DocumentTab, DocumentTabs, FileIcon, GpuSurface, Grid, Group, Icon, Image,
+        MenuButton, NumberInput, PasswordInput, Progress, RadioGroup, Row, ScrollView, SearchInput, Select, Separator,
+        Sidebar, SidebarItem, SidebarSection, Slider, Spinner, Switch, Tab, Tabs, Text, TextArea, TextInput,
+        ToggleButton, Toolbar, Window,
     };
 }

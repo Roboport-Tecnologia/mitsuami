@@ -58,10 +58,10 @@ pub use ui::{NodeInfo, Ui, WeakUi};
 pub use units::{Length, LengthExt, Spacing};
 pub use view::{AnyView, Callback, Children, Slot, View};
 pub use widget::{
-    ButtonRole, ButtonStyle, CellKey, ColumnData, ColumnSort, CurrentWindow, Cursor, FileDrop, FontWeight, HeaderEdge,
-    HorizontalAlign, ImageFit, ImageSource, InputPurpose, LayoutDirection, ListStyle, Modality, NodeId, Orientation,
-    Pixels, Prop, RowKey, ScrollAxes, SelectionMode, SidebarItemData, SidebarSectionData, SortOrder, TabsStyle,
-    TextAlign, TextStyle, Truncation, WidgetKind,
+    ButtonRole, ButtonStyle, CellKey, ColumnData, ColumnSort, CurrentWindow, Cursor, DocumentTabsStyle, FileDrop,
+    FontWeight, HeaderEdge, HorizontalAlign, ImageFit, ImageSource, InputPurpose, LayoutDirection, ListStyle, Modality,
+    NodeId, Orientation, Pixels, Prop, RowKey, ScrollAxes, SelectionMode, SidebarItemData, SidebarSectionData,
+    SortOrder, TabsStyle, TextAlign, TextStyle, Truncation, WidgetKind, moved_index,
 };
 
 pub use mitsuami_reactive as reactive;

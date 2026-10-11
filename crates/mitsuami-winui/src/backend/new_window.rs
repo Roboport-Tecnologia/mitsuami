@@ -107,6 +107,19 @@ pub(super) fn escape_closes(root: &w::Grid, hwnd: w::HWND) -> R<EventRevoker> {
     Ok(revoker)
 }
 
+/// The band behind a title bar with document tabs, in Mica Alt's solid
+/// colour, which `TabView` is drawn to sit on (its strip is transparent,
+/// its chosen tab a lighter fill): near black in dark mode and grey in
+/// light, as File Explorer's tabbed title bar is.
+/// The tab view's own background, where it shows one, is the inner
+/// border's (`paint_band`).
+const TABS_BAND: &str = r#"
+<Border xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        Grid.Row="0" Visibility="Collapsed"
+        Background="{ThemeResource SolidBackgroundFillColorBaseAltBrush}">
+  <Border/>
+</Border>"#;
+
 impl State {
     pub(super) fn create_window(
         &mut self,
@@ -122,6 +135,9 @@ impl State {
         let bars: w::Grid = children.GetAt(1)?.cast()?;
         let host: w::Canvas = children.GetAt(2)?.cast()?;
         let host_element: w::UIElement = host.cast()?;
+        // Behind the title bar, shown while document tabs are in it.
+        let tabs_band: w::Border = w::XamlReader::Load(TABS_BAND)?.cast()?;
+        children.InsertAt(0, &tabs_band.cast::<w::UIElement>()?)?;
         if self.right_to_left {
             super::windows::set_window_direction(&root, &host, true)?;
         }
@@ -367,6 +383,8 @@ impl State {
             reveal: None,
             revealed: false,
             title_content: None,
+            title_tabs: None,
+            tabs_band,
             sidebar: None,
             sidebar_revokers: Vec::new(),
             sidebar_place: None,

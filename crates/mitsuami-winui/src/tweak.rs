@@ -4,11 +4,11 @@ use std::rc::Rc;
 
 use mitsuami_core::reactive::{IntoValue, Value};
 use mitsuami_core::{List, Opaque, Table, Tweak};
-use mitsuami_widgets::Sidebar;
 use mitsuami_widgets::{
     Button, Checkbox, FileIcon, Group, Icon, Image, MenuButton, NumberInput, PasswordInput, Progress, RadioGroup,
     ScrollView, SearchInput, Select, Separator, Slider, Spinner, Switch, Text, TextArea, TextInput, ToggleButton,
 };
+use mitsuami_widgets::{DocumentTabs, Sidebar};
 use windows_core::Interface;
 
 use crate::bindings as w;
@@ -113,6 +113,14 @@ impl Tweakable for List {
 /// The list view under the header.
 impl Tweakable for Table {
     type Native = w::ListView;
+}
+
+/// Its `TabView`, whose items have no content. Its colours are its theme
+/// resources (`TabViewItemHeaderBackgroundSelected` for the chosen tab);
+/// its background (`TabViewBackground`, transparent) is its strip's, and
+/// in the title bar the band's behind it, in place of Mica Alt's colour.
+impl<T> Tweakable for DocumentTabs<T> {
+    type Native = w::TabView;
 }
 
 /// The `NavigationView` whose pane it is.

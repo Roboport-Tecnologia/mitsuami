@@ -188,6 +188,9 @@ impl<'a> Locator<'a> {
             // A click on a sidebar's item chooses it, as it does a list's
             // row; activating it is a double-click.
             (Some(WidgetKind::Sidebar), Role::ListItem, Some(title)) => self.act(A11yAction::SetValue(title)).await,
+            // A click on a document tab chooses it; on their new-tab
+            // button (also theirs), asks for a tab.
+            (Some(WidgetKind::DocumentTabs), Role::Tab, Some(title)) => self.act(A11yAction::SetValue(title)).await,
             (Some(WidgetKind::Table), Role::ColumnHeader, Some(title)) => {
                 let columns = find_prop!(self.app.ui().props(node.id), Columns).unwrap_or_default();
                 let Some(column) = columns.iter().position(|c| c.title == title) else {
@@ -211,9 +214,39 @@ impl<'a> Locator<'a> {
         let node = self.node();
         match (self.app.ui().kind(node.id), node.role, node.name) {
             (Some(WidgetKind::Sidebar), Role::ListItem, Some(title)) => self.act(A11yAction::SetValue(title)).await,
-            (Some(WidgetKind::Tabs), Role::Tab, Some(title)) => self.act(A11yAction::SetValue(title)).await,
+            (Some(WidgetKind::Tabs | WidgetKind::DocumentTabs), Role::Tab, Some(title)) => {
+                self.act(A11yAction::SetValue(title)).await
+            }
             _ => self.act(A11yAction::Select).await,
         }
+    }
+
+    /// The index of a document tab (the first with its title), as its tabs
+    /// are their data, not nodes of their own.
+    fn document_tab(&self) -> usize {
+        let node = self.node();
+        let (Some(WidgetKind::DocumentTabs), Role::Tab, Some(title)) =
+            (self.app.ui().kind(node.id), node.role, node.name)
+        else {
+            self.fail(&format!("{} isn't a document tab", self.query))
+        };
+        let titles = find_prop!(self.app.ui().props(node.id), TabTitles).unwrap_or_default();
+        titles.iter().position(|t| *t == title).unwrap_or_else(|| self.fail(&format!("no tab {title:?}")))
+    }
+
+    /// Presses a document tab's close button, as assistive technology
+    /// does: the app is asked, and the tab stays until it takes it away.
+    pub async fn close(&self) {
+        self.app.settle().await;
+        let index = self.document_tab();
+        self.act(A11yAction::CloseTab(index)).await;
+    }
+
+    /// Drags a document tab to `index` among its tabs, as the user does.
+    pub async fn move_to(&self, index: usize) {
+        self.app.settle().await;
+        let from = self.document_tab();
+        self.act(A11yAction::MoveTab { from, to: index }).await;
     }
 
     /// Replaces a text field's content in one step.

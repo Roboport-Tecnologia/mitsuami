@@ -8,6 +8,7 @@ use gtk::{glib, pango};
 use mitsuami_core::{Command, EventValue, NodeId, Point, Prop, UiEvent, WidgetKind, find_prop};
 
 use crate::custom::{DrawnArea, ErasedRender, GtkCx, NativePayload};
+use crate::document_tabs::DocumentTabs;
 use crate::host::Host;
 use crate::radio::RadioGroup;
 use crate::services::ContextMenu;
@@ -38,6 +39,7 @@ impl State {
             WidgetKind::Group => Widget::Group(crate::group::Group::new(self.frames.clone())),
             WidgetKind::Sidebar => Widget::Sidebar(Sidebar::new(id, events.clone())),
             WidgetKind::Tabs => Widget::Tabs(Tabs::new(id, events.clone(), self.frames.clone())),
+            WidgetKind::DocumentTabs => Widget::DocumentTabs(DocumentTabs::new(id, events.clone())),
             WidgetKind::Custom(_) => {
                 let Command::Create { props, .. } = command else { unreachable!() };
                 let Some(custom) = find_prop!(props, Custom) else {

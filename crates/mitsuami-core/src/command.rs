@@ -103,7 +103,8 @@ pub enum EventValue {
     Rows(Vec<RowKey>),
     /// The column a `Table` is sorted by now, and which way.
     Sort(ColumnSort),
-    /// The option chosen in a `Select` or `RadioGroup`.
+    /// The option chosen in a `Select` or `RadioGroup`, the item or tab
+    /// chosen in a `Sidebar`, `Tabs` or `DocumentTabs`.
     Index(usize),
 }
 
@@ -141,6 +142,21 @@ pub enum UiEvent {
     /// or Enter pressed on it), where the platform's sidebar has that: its
     /// index across the sections.
     SidebarItemActivated(usize),
+    /// The user asked to close one of `DocumentTabs`' tabs (its close
+    /// button, a middle click, the platform's own close): its index. The
+    /// tab stays until the app takes it away.
+    TabCloseRequested(usize),
+    /// The user moved one of `DocumentTabs`' tabs from `from` to `to`
+    /// (dragged it, or moved it from the keyboard). The platform already
+    /// shows it there; the core absorbs it into `TabTitles` and
+    /// `SelectedIndex`.
+    TabMoved {
+        from: usize,
+        to: usize,
+    },
+    /// The user asked `DocumentTabs` for a new tab (the platform's new-tab
+    /// button).
+    NewTabRequested,
     /// Platform metrics changed (text size, color scheme, …).
     MetricsChanged,
     /// A `ScrollView`'s or `List`'s scroll offset changed (by the user or

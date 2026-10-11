@@ -1,4 +1,5 @@
-//! Items that hold other nodes: plain containers, groups, tab views, scroll views and lists.
+//! Items that hold other nodes: plain containers, groups, tab views, scroll views and lists; and
+//! document tabs, which hold none.
 
 use super::{a11y_hover, a11y_with, context_menu_handlers};
 
@@ -221,6 +222,260 @@ Item {{
         anchors.left: parent.left
         anchors.right: parent.right
         anchors.bottom: parent.bottom
+    }}
+    {}
+}}
+"#,
+        a11y_hover("\"\"")
+    )
+}
+
+/// Document tabs: tabs without pages, built as KDE's own Qt Quick apps
+/// build them (Angelfish's desktop tab bar, which Plasma Mobile's Konsole
+/// took): each tab a `QQC2.TabButton` in a `QQC2.TabBar`, so the style
+/// draws it as KDE's widget tab bars, with its title and a small close
+/// button (`tab-close-symbolic`, red under the pointer) inside, and a
+/// `list-add` tool button for a new tab at the bar's trailing end. A
+/// middle click closes a tab, as in Angelfish, Kate and Konsole; with
+/// `mitsuamiReorderable`, a tab dragged along the bar moves among the
+/// others, as Kate's and Konsole's movable tab bars do (Angelfish's
+/// don't move). Tabs are as wide as their title and button, not shared
+/// out over the bar, which scrolls when they don't fit.
+///
+/// The desktop style's tab draws its button's `text` itself (Breeze's has
+/// no content item), with no room for a close button, so the title is a
+/// label in the content item, and the button's own text is empty; its
+/// accessible name is the title.
+///
+/// Rust sets `mitsuamiTitles`, `mitsuamiSelected` and the flags, and reads
+/// the titles back from `mitsuamiShownTitles` (joined with U+001F). The
+/// user's choice is `mitsuamiChosen`, a close asked `mitsuamiCloseAsked`
+/// (`mitsuamiCloseIndex`), a move `mitsuamiMoved` (`mitsuamiMovedFrom`,
+/// `mitsuamiMovedTo`), a new tab `mitsuamiNewAsked`. Setting
+/// `mitsuamiChoice`, `mitsuamiCloseChoice`, or `mitsuamiMoveTo` then
+/// `mitsuamiMoveChoice`, does what the user's click, close or drag does.
+pub(crate) fn document_tabs() -> String {
+    format!(
+        r#"
+Item {{
+    id: mitsuamiDocTabs
+    property var mitsuamiTitles: []
+    property int mitsuamiSelected: -1
+    property int mitsuamiChoice: -1
+    property bool mitsuamiClosable: false
+    property bool mitsuamiReorderable: false
+    property bool mitsuamiNewButton: false
+    property string mitsuamiNewText: ""
+    property string mitsuamiCloseText: ""
+    property int mitsuamiCloseChoice: -1
+    property int mitsuamiMoveTo: -1
+    property int mitsuamiMoveChoice: -1
+    property int mitsuamiCloseIndex: -1
+    property int mitsuamiMovedFrom: -1
+    property int mitsuamiMovedTo: -1
+    readonly property int mitsuamiCount: mitsuamiTitles.length > 0 ? mitsuamiBar.count : 0
+    readonly property string mitsuamiShownTitles: {{
+        const titles = []
+        for (let i = 0; i < mitsuamiCount; i++) titles.push(mitsuamiBar.itemAt(i).mitsuamiTitle)
+        return titles.join("\u001f")
+    }}
+    // Its tabs at their own widths, and the new-tab button.
+    readonly property real mitsuamiStripWidth: mitsuamiBar.implicitWidth + (mitsuamiNewButton ? mitsuamiNew.implicitWidth : 0)
+    readonly property real mitsuamiStripHeight: Math.max(mitsuamiBar.implicitHeight, mitsuamiNewButton ? mitsuamiNew.implicitHeight : 0)
+    signal mitsuamiChosen()
+    signal mitsuamiCloseAsked()
+    signal mitsuamiMoved()
+    signal mitsuamiNewAsked()
+    // Sizes the strip now, for measuring: its layouts, and its buttons',
+    // size themselves when they're polished, before a frame.
+    function mitsuamiPolishStrip() {{
+        const polish = item => {{
+            for (let i = 0; i < item.children.length; i++) polish(item.children[i])
+            item.ensurePolished()
+        }}
+        polish(mitsuamiDocTabs)
+    }}
+    function mitsuamiChoose(index) {{
+        if (index !== mitsuamiSelected) {{
+            mitsuamiSelected = index
+            mitsuamiChosen()
+        }}
+        mitsuamiShow()
+    }}
+    // The bar resets its current tab when its buttons are made again.
+    function mitsuamiShow() {{
+        mitsuamiBar.currentIndex = mitsuamiSelected
+    }}
+    // Asks; the tab stays until the app takes it away.
+    function mitsuamiAskClose(index) {{
+        if (!mitsuamiClosable || index < 0 || index >= mitsuamiCount) return
+        mitsuamiCloseIndex = index
+        mitsuamiCloseAsked()
+    }}
+    // Shows the tab moved, the chosen one still chosen, then says so.
+    function mitsuamiMove(from, to) {{
+        if (!mitsuamiReorderable || from === to || from < 0 || to < 0 || from >= mitsuamiCount || to >= mitsuamiCount) return
+        const focused = mitsuamiBar.itemAt(from).activeFocus
+        const titles = mitsuamiTitles.slice()
+        titles.splice(to, 0, titles.splice(from, 1)[0])
+        let chosen = mitsuamiSelected
+        if (chosen === from) chosen = to
+        else if (from < chosen && chosen <= to) chosen--
+        else if (to <= chosen && chosen < from) chosen++
+        mitsuamiTitles = titles
+        mitsuamiSelected = chosen
+        mitsuamiShow()
+        if (focused) mitsuamiBar.itemAt(to).forceActiveFocus(Qt.OtherFocusReason)
+        mitsuamiMovedFrom = from
+        mitsuamiMovedTo = to
+        mitsuamiMoved()
+    }}
+    // Where a dragged tab lands: past every tab whose middle its middle
+    // passed, in the bar's direction.
+    function mitsuamiDrop(tab, dx) {{
+        const middle = tab.x + tab.width / 2 + dx
+        let to = 0
+        for (let i = 0; i < mitsuamiCount; i++) {{
+            if (i === tab.mitsuamiIndex) continue
+            const other = mitsuamiBar.itemAt(i)
+            const theirs = other.x + other.width / 2
+            if (mitsuamiBar.mirrored ? theirs > middle : theirs < middle) to++
+        }}
+        mitsuamiMove(tab.mitsuamiIndex, to)
+    }}
+    // The arrow keys pick the tab beside, as KDE's widget tab bars do; Qt
+    // Quick's bar has no keys.
+    function mitsuamiStep(by) {{
+        const index = mitsuamiSelected + by
+        if (index < 0 || index >= mitsuamiCount) return
+        mitsuamiChoose(index)
+        mitsuamiBar.itemAt(index).forceActiveFocus(Qt.TabFocusReason)
+    }}
+    onMitsuamiTitlesChanged: mitsuamiShow()
+    onMitsuamiSelectedChanged: mitsuamiShow()
+    onMitsuamiChoiceChanged: if (mitsuamiChoice >= 0) {{
+        const index = mitsuamiChoice
+        mitsuamiChoice = -1
+        mitsuamiChoose(index)
+    }}
+    onMitsuamiCloseChoiceChanged: if (mitsuamiCloseChoice >= 0) {{
+        const index = mitsuamiCloseChoice
+        mitsuamiCloseChoice = -1
+        mitsuamiAskClose(index)
+    }}
+    onMitsuamiMoveChoiceChanged: if (mitsuamiMoveChoice >= 0) {{
+        const from = mitsuamiMoveChoice
+        mitsuamiMoveChoice = -1
+        mitsuamiMove(from, mitsuamiMoveTo)
+    }}
+    QQC2.TabBar {{
+        id: mitsuamiBar
+        objectName: "mitsuamiDocumentTabBar"
+        anchors.left: parent.left
+        anchors.right: mitsuamiDocTabs.mitsuamiNewButton ? mitsuamiNew.left : parent.right
+        position: QQC2.TabBar.Header
+        // Focused, the bar's chosen tab takes it, as Tab focuses it.
+        onActiveFocusChanged: if (activeFocus && currentItem) currentItem.forceActiveFocus(focusReason)
+        onCountChanged: mitsuamiDocTabs.mitsuamiShow()
+        // The first tab is always there, hidden without titles: the
+        // desktop style's bar is as high as its first tab.
+        MitsuamiDocTab {{
+            mitsuamiTitle: mitsuamiDocTabs.mitsuamiTitles.length > 0 ? mitsuamiDocTabs.mitsuamiTitles[0] : ""
+            visible: mitsuamiDocTabs.mitsuamiTitles.length > 0
+        }}
+        Repeater {{
+            model: mitsuamiDocTabs.mitsuamiTitles.slice(1)
+            MitsuamiDocTab {{
+                required property string modelData
+                required property int index
+                mitsuamiTitle: modelData
+                mitsuamiIndex: index + 1
+            }}
+        }}
+    }}
+    QQC2.ToolButton {{
+        id: mitsuamiNew
+        objectName: "mitsuamiNewTab"
+        anchors.right: parent.right
+        anchors.verticalCenter: mitsuamiBar.verticalCenter
+        visible: mitsuamiDocTabs.mitsuamiNewButton
+        icon.name: "list-add"
+        text: mitsuamiDocTabs.mitsuamiNewText
+        display: QQC2.AbstractButton.IconOnly
+        QQC2.ToolTip.text: text
+        QQC2.ToolTip.visible: hovered
+        QQC2.ToolTip.delay: Qt.styleHints.mousePressAndHoldInterval
+        onClicked: mitsuamiDocTabs.mitsuamiNewAsked()
+    }}
+    component MitsuamiDocTab: QQC2.TabButton {{
+        id: mitsuamiTab
+        property int mitsuamiIndex: 0
+        property string mitsuamiTitle: ""
+        property real mitsuamiDragged: 0
+        width: implicitWidth
+        implicitWidth: Math.max(implicitBackgroundWidth + leftInset + rightInset, implicitContentWidth + leftPadding + rightPadding)
+        implicitHeight: Math.max(implicitBackgroundHeight + topInset + bottomInset, implicitContentHeight + topPadding + bottomPadding)
+        leftPadding: Kirigami.Units.largeSpacing
+        rightPadding: mitsuamiDocTabs.mitsuamiClosable ? Kirigami.Units.smallSpacing : Kirigami.Units.largeSpacing
+        Accessible.name: mitsuamiTitle
+        contentItem: RowLayout {{
+            spacing: Kirigami.Units.smallSpacing
+            QQC2.Label {{
+                text: mitsuamiTab.mitsuamiTitle
+                font: mitsuamiTab.font
+                elide: Text.ElideRight
+                horizontalAlignment: Text.AlignHCenter
+                Layout.fillWidth: true
+                Accessible.ignored: true
+            }}
+            QQC2.AbstractButton {{
+                id: mitsuamiClose
+                objectName: "mitsuamiCloseTab"
+                visible: mitsuamiDocTabs.mitsuamiClosable
+                focusPolicy: Qt.NoFocus
+                text: mitsuamiDocTabs.mitsuamiCloseText
+                Accessible.role: Accessible.Button
+                Accessible.name: text
+                Accessible.onPressAction: clicked()
+                contentItem: Kirigami.Icon {{
+                    implicitWidth: Kirigami.Units.iconSizes.small
+                    implicitHeight: Kirigami.Units.iconSizes.small
+                    source: "tab-close-symbolic"
+                    color: mitsuamiClose.hovered ? Kirigami.Theme.negativeTextColor : Kirigami.Theme.textColor
+                }}
+                QQC2.ToolTip.text: text
+                QQC2.ToolTip.visible: hovered
+                QQC2.ToolTip.delay: Qt.styleHints.mousePressAndHoldInterval
+                onClicked: mitsuamiDocTabs.mitsuamiAskClose(mitsuamiTab.mitsuamiIndex)
+            }}
+        }}
+        // `clicked` is the user's (and assistive technology's Press); the
+        // bar's `currentIndexChanged` is anyone's.
+        onClicked: mitsuamiDocTabs.mitsuamiChoose(mitsuamiIndex)
+        Keys.onLeftPressed: mitsuamiDocTabs.mitsuamiStep(mirrored ? 1 : -1)
+        Keys.onRightPressed: mitsuamiDocTabs.mitsuamiStep(mirrored ? -1 : 1)
+        TapHandler {{
+            acceptedButtons: Qt.MiddleButton
+            onTapped: mitsuamiDocTabs.mitsuamiAskClose(mitsuamiTab.mitsuamiIndex)
+        }}
+        // With the mouse only: a touch drag scrolls the bar. The tab
+        // follows the pointer, and lands where it's let go.
+        DragHandler {{
+            id: mitsuamiDrag
+            target: null
+            enabled: mitsuamiDocTabs.mitsuamiReorderable
+            yAxis.enabled: false
+            acceptedDevices: PointerDevice.Mouse
+            grabPermissions: PointerHandler.CanTakeOverFromAnything
+            onActiveTranslationChanged: if (active) mitsuamiTab.mitsuamiDragged = activeTranslation.x
+            onActiveChanged: if (!active) {{
+                const dx = mitsuamiTab.mitsuamiDragged
+                mitsuamiTab.mitsuamiDragged = 0
+                mitsuamiDocTabs.mitsuamiDrop(mitsuamiTab, dx)
+            }}
+        }}
+        z: mitsuamiDrag.active ? 1 : 0
+        transform: Translate {{ x: mitsuamiTab.mitsuamiDragged }}
     }}
     {}
 }}

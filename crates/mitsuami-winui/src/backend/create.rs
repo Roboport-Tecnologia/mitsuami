@@ -445,6 +445,13 @@ impl State {
                 let element = tabs.canvas.cast()?;
                 (Widget::Tabs(tabs), element)
             }
+            WidgetKind::DocumentTabs => {
+                let tabs = crate::document_tabs::DocumentTabs::new(id, emitter.clone())?;
+                self.document_tabs.push(id);
+                let element = tabs.grid.cast()?;
+                inner = Some(tabs.view.cast()?);
+                (Widget::DocumentTabs(tabs), element)
+            }
             WidgetKind::List => {
                 let list = crate::list::List::new(id, emitter.clone(), false)?;
                 let element = list.view.cast()?;

@@ -96,6 +96,22 @@ impl GtkBackend {
                     _ => Err(ActionError::Unsupported),
                 };
             }
+            // What its tabs and buttons do when clicked: the view reports
+            // it, from its own signals.
+            if let Widget::DocumentTabs(tabs) = &node.widget {
+                if !tabs.root().is_sensitive() && !matches!(action, A11yAction::ScrollIntoView) {
+                    return Err(ActionError::Disabled);
+                }
+                return match action {
+                    A11yAction::SetValue(title) if tabs.choose(title) => Ok(()),
+                    A11yAction::CloseTab(index) if tabs.close(*index) => Ok(()),
+                    A11yAction::MoveTab { from, to } if tabs.move_tab(*from, *to) => Ok(()),
+                    A11yAction::Activate if tabs.new_tab() => Ok(()),
+                    A11yAction::Focus if tabs.focus() => Ok(()),
+                    A11yAction::ScrollIntoView => Ok(()),
+                    _ => Err(ActionError::Unsupported),
+                };
+            }
             // A tab, as the user clicks it: the view reports it.
             if let Widget::Tabs(tabs) = &node.widget {
                 return match action {

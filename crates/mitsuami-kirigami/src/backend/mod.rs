@@ -11,18 +11,18 @@ use mitsuami_core::backend::{
 };
 use mitsuami_core::services::{MenuBarData, Reply};
 use mitsuami_core::{
-    AppInfo, ButtonRole, ButtonStyle, Command, CustomProps, DisplayList, HorizontalAlign, ImageFit, ImageSource,
-    InputPurpose, Insets, LayoutDirection, Modality, NodeId, Opaque, Orientation, Point, Rect, RowKey, ScrollAxes,
-    SidebarSectionData, Size, TabsStyle, TextStyle, Truncation, UiEvent, WidgetKind,
+    AppInfo, ButtonRole, ButtonStyle, Command, CustomProps, DisplayList, DocumentTabsStyle, HorizontalAlign, ImageFit,
+    ImageSource, InputPurpose, Insets, LayoutDirection, Modality, NodeId, Opaque, Orientation, Point, Rect, RowKey,
+    ScrollAxes, SidebarSectionData, Size, TabsStyle, TextStyle, Truncation, UiEvent, WidgetKind,
 };
 
 use crate::custom::ErasedRender;
 use crate::events::Events;
 use crate::ffi::{self, QmlObject};
 use crate::services::{ContextMenu, KirigamiServices, Menus};
-use mitsuami_core::services::MenuEntry;
 use crate::surface::SurfaceItem;
 use crate::theme;
+use mitsuami_core::services::MenuEntry;
 
 mod apply;
 mod capture;
@@ -170,6 +170,10 @@ enum Widget {
         root: QmlObject,
         pages: QmlObject,
     },
+    /// Document tabs: a strip of tabs without pages (`qml::document_tabs`).
+    DocumentTabs {
+        root: QmlObject,
+    },
     /// A group: its host, the `QQC2.GroupBox` drawn behind its content,
     /// and the item its children are in.
     Group {
@@ -230,6 +234,9 @@ struct Node {
     button_style: Option<ButtonStyle>,
     /// Tabs: the style the app chose, `Automatic` apart.
     tabs_style: Option<TabsStyle>,
+    /// Document tabs: where the app asked for them, which is a strip in
+    /// the content whatever it asked (KDE has no window tabs).
+    document_tabs_style: Option<DocumentTabsStyle>,
     /// Sliders: whether the app gave an `Orientation`. Separators: which
     /// way they run, which Kirigami's don't know.
     orientation: Option<Orientation>,
@@ -465,6 +472,14 @@ fn tab_titles(tabs: QmlObject) -> Vec<String> {
     tabs.str("mitsuamiShownTitles").split('\u{1f}').map(str::to_owned).collect()
 }
 
+/// Document tabs' titles, as their tabs show them.
+fn document_tab_titles(tabs: QmlObject) -> Vec<String> {
+    if tabs.int("mitsuamiCount") == 0 {
+        return Vec::new();
+    }
+    tabs.str("mitsuamiShownTitles").split('\u{1f}').map(str::to_owned).collect()
+}
+
 /// The options a radio group has buttons for.
 fn radio_options(group: QmlObject) -> Vec<String> {
     if group.int("mitsuamiCount") == 0 {
@@ -580,7 +595,8 @@ impl SidebarMenus {
     /// The action of the item with this id in an item's menu, with that
     /// menu put on the page.
     pub(crate) fn action(&self, page: QmlObject, id: u32) -> Option<QmlObject> {
-        let item = self.entries.borrow().iter().position(|m| mitsuami_core::services::menu_item_by_id(m, id).is_some())?;
+        let item =
+            self.entries.borrow().iter().position(|m| mitsuami_core::services::menu_item_by_id(m, id).is_some())?;
         self.show_for(page, item);
         self.menu.borrow().action(id)
     }
