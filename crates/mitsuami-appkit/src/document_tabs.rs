@@ -334,13 +334,14 @@ define_class!(
 
 pub(crate) struct PlaceholderIvars {
     close: Box<dyn Fn(&NSWindow)>,
-    key: Box<dyn Fn(&NSWindow)>,
+    key: Box<dyn Fn()>,
 }
 
 define_class!(
     /// The placeholder windows' delegate: closing one asks the app to
     /// close its tab, and one becoming key (its tab picked, Control-Tab,
-    /// the Window menu) puts the window in its place.
+    /// the Window menu) has the group looked at, to put the window in its
+    /// place.
     #[unsafe(super(NSObject))]
     #[thread_kind = MainThreadOnly]
     #[ivars = PlaceholderIvars]
@@ -356,10 +357,8 @@ define_class!(
         }
 
         #[unsafe(method(windowDidBecomeKey:))]
-        fn window_did_become_key(&self, notification: &NSNotification) {
-            if let Some(window) = notification.object().and_then(|o| o.downcast::<NSWindow>().ok()) {
-                (self.ivars().key)(&window);
-            }
+        fn window_did_become_key(&self, _notification: &NSNotification) {
+            (self.ivars().key)();
         }
     }
 );
@@ -398,6 +397,7 @@ define_class!(
 );
 
 const WINDOWS: &str = "windows";
+const SELECTED: &str = "selectedWindow";
 
 /// The node's window, with placeholder windows for the other tabs in its
 /// tab group.
@@ -443,9 +443,9 @@ impl WindowTabs {
                         tabs.close_placeholder(placeholder);
                     }
                 }),
-                key: Box::new(move |placeholder| {
+                key: Box::new(move || {
                     if let Some(tabs) = keyed.upgrade() {
-                        tabs.picked(placeholder);
+                        tabs.windows_changed();
                     }
                 }),
             });
@@ -483,14 +483,16 @@ impl WindowTabs {
                 pending: Cell::new(false),
             }
         });
-        unsafe {
-            group.addObserver_forKeyPath_options_context(
-                &tabs.observer,
-                &ns(WINDOWS),
-                NSKeyValueObservingOptions::New,
-                std::ptr::null_mut(),
-            )
-        };
+        for key_path in [WINDOWS, SELECTED] {
+            unsafe {
+                group.addObserver_forKeyPath_options_context(
+                    &tabs.observer,
+                    &ns(key_path),
+                    NSKeyValueObservingOptions::New,
+                    std::ptr::null_mut(),
+                )
+            };
+        }
         // The window's own close (its title bar's button, its tab's, ⌘W)
         // closes the chosen tab while there are others, as a window tab's
         // does; with one tab, or tabs the app doesn't let close, it's the
@@ -637,31 +639,6 @@ impl WindowTabs {
         *self.order.borrow_mut() = self.windows().iter().map(|w| addr(w)).collect();
     }
 
-    /// A placeholder became key: its tab was picked. The node's window
-    /// takes its place, and the app hears.
-    fn picked(&self, placeholder: &NSWindow) {
-        if self.muted.get() || self.index_of(&self.window).is_none() {
-            return;
-        }
-        let Some(index) = self.index_of(placeholder) else { return };
-        let enabled = self.shared.model.borrow().enabled();
-        if enabled {
-            self.shared.model.borrow_mut().selected = Some(index);
-        }
-        self.quietly(|| {
-            self.group.setSelectedWindow(Some(&self.window));
-            if enabled {
-                self.place(index);
-                self.title_tabs();
-            }
-            self.window.makeKeyAndOrderFront(None);
-            self.remember_order();
-        });
-        if enabled {
-            self.shared.emit(UiEvent::Changed(EventValue::Index(index)));
-        }
-    }
-
     /// A placeholder's close button: the app is asked to close its tab.
     fn close_placeholder(&self, placeholder: &NSWindow) {
         if self.muted.get() {
@@ -673,8 +650,11 @@ impl WindowTabs {
         }
     }
 
-    /// The group's windows changed, not by the backend: looked at once
-    /// AppKit is done (a drag may still be under way).
+    /// The group's windows or its selected one changed, not by the
+    /// backend: looked at once AppKit is done. A drag may still be under
+    /// way, and a tab picked is mid-selection: moving windows in the group
+    /// then throws (`NSWindowStackController`, "expected no items"), which
+    /// leaves the window hidden and the app with no key window.
     fn windows_changed(self: &Rc<Self>) {
         if self.muted.get() || self.pending.replace(true) {
             return;
@@ -693,12 +673,15 @@ impl WindowTabs {
     }
 
     /// What the user did to the group: a tab moved is reported (or put
-    /// back, if the app doesn't let tabs move); a tab dragged out to a
+    /// back, if the app doesn't let tabs move); a placeholder picked has
+    /// the window take its place, and is reported; a tab dragged out to a
     /// window of its own comes back, and a window merged in goes out. The
     /// tabs are the app's, and the window is always one with them.
     fn reconcile(&self) {
         let before = self.order.borrow().clone();
         let mut moved = None;
+        let mut picked = None;
+        let mut focus = false;
         self.quietly(|| {
             for window in self.windows() {
                 if !self.is_ours(&window) {
@@ -725,14 +708,30 @@ impl WindowTabs {
                     self.group.insertWindow_atIndex(&window, from as isize);
                 }
             }
+            let selected = self.group.selectedWindow().filter(|w| addr(w) != addr(&self.window) && self.is_ours(w));
+            if let Some(placeholder) = selected {
+                focus = placeholder.isKeyWindow();
+                let index = self.index_of(&placeholder);
+                let mut model = self.shared.model.borrow_mut();
+                if let Some(index) = index.filter(|i| model.enabled() && model.chosen() != Some(*i)) {
+                    model.selected = Some(index);
+                    picked = Some(index);
+                }
+            }
             let chosen = self.shared.model.borrow().chosen();
             self.place(chosen.unwrap_or(0));
             self.title_tabs();
             self.group.setSelectedWindow(Some(&self.window));
+            if focus {
+                self.window.makeKeyAndOrderFront(None);
+            }
             self.remember_order();
         });
         if let Some((from, to)) = moved {
             self.shared.emit(UiEvent::TabMoved { from, to });
+        }
+        if let Some(index) = picked {
+            self.shared.emit(UiEvent::Changed(EventValue::Index(index)));
         }
     }
 
@@ -749,7 +748,9 @@ impl WindowTabs {
     /// The window is a window again: no placeholders, its own title on its
     /// tab, its own close, responder chain and tabbing identifier.
     fn take_down(&self) {
-        unsafe { self.group.removeObserver_forKeyPath(&self.observer, &ns(WINDOWS)) };
+        for key_path in [WINDOWS, SELECTED] {
+            unsafe { self.group.removeObserver_forKeyPath(&self.observer, &ns(key_path)) };
+        }
         self.quietly(|| {
             for placeholder in self.placeholders.borrow_mut().drain(..) {
                 self.drop_placeholder(&placeholder);
