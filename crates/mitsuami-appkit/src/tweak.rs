@@ -125,8 +125,7 @@ impl<T> Tweakable for Sidebar<T> {
     type Native = NSTableView;
 }
 
-/// The strip's view. With window tabs it's hidden, and its window is
-/// the node's (`view.window()`).
+/// The strip's view.
 impl<T> Tweakable for DocumentTabs<T> {
     type Native = NSView;
 }

@@ -1,6 +1,6 @@
 //! `DocumentTabs`: tabs without pages, for the documents the app has open.
-//! The platform draws the tabs (in the window's chrome on macOS and
-//! Windows, a strip elsewhere); the user chooses, closes, moves and asks
+//! The platform draws the tabs (in the title bar on Windows, a strip
+//! elsewhere); the user chooses, closes, moves and asks
 //! for tabs where the app lets them, and the app decides.
 
 use mitsuami::prelude::*;
@@ -172,9 +172,9 @@ async fn the_new_tab_button_asks_for_a_tab(app: TestApp) {
 }
 
 /// A strip in the content is as high as the platform draws it, and grows
-/// across; the window's tabs (macOS's window tabs, a tab view in WinUI's
-/// title bar) take no room there. GNOME and KDE have none, so it's a
-/// strip.
+/// across; the window's tabs (a tab view in WinUI's title bar) take no
+/// room there. GNOME and KDE have none, and macOS's window tabs are the
+/// user's, so it's a strip.
 #[mitsuami_test::test]
 async fn a_strip_takes_room_and_the_windows_tabs_none(app: TestApp) {
     let (docs, current) = (docs(&["notes.txt", "todo.md"]), signal(1));
@@ -187,8 +187,8 @@ async fn a_strip_takes_room_and_the_windows_tabs_none(app: TestApp) {
     style.set(DocumentTabsStyle::Window);
     app.settle().await;
     let frame = app.ui().window_frame(list).unwrap();
-    // Linux has no tabs of the window's.
-    if matches!(app.backend_name(), "gtk" | "kirigami") {
+    // Only WinUI has tabs of the window's.
+    if matches!(app.backend_name(), "gtk" | "kirigami" | "appkit") {
         assert_eq!(frame.height(), strip_frame.height());
     } else {
         assert_eq!(frame.height(), 0.0, "{frame:?}");

@@ -34,7 +34,7 @@ use objc2::rc::Retained;
 use objc2::{AnyThread, MainThreadMarker, Message};
 use objc2_app_kit::{
     NSApplication, NSBox, NSButton, NSControl, NSImage, NSImageView, NSPopUpButton, NSProgressIndicator, NSSlider,
-    NSSwitch, NSTextField, NSView,
+    NSSwitch, NSTextField, NSView, NSWindow,
 };
 use objc2_foundation::{NSBundle, NSData, NSString};
 
@@ -83,7 +83,7 @@ impl Default for BackendOptions {
 
 enum Widget {
     Window {
-        window: crate::classes::NodeWindow,
+        window: Retained<NSWindow>,
         host: Retained<HostView>,
         _delegate: Retained<WindowDelegate>,
         /// Made when the first toolbar item arrives, or the sidebar.
@@ -454,7 +454,6 @@ impl Backend for AppKitBackend {
             state.note_touched(command);
         }
         state.layout_touched();
-        state.sync_document_tabs();
     }
 
     fn measure(&mut self, id: NodeId, request: MeasureRequest) -> Size {

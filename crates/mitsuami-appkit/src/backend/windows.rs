@@ -18,12 +18,11 @@ impl AppKitHandle {
         let Some(Widget::Window { window, _delegate, .. }) = state.nodes.get(&window).map(|n| &n.widget) else {
             return;
         };
-        let window = window.get();
         // The user can't resize a window without the resizable style.
         if !window.styleMask().contains(NSWindowStyleMask::Resizable) {
             return;
         }
-        let extra = _delegate.extra(&window);
+        let (window, extra) = (window.clone(), _delegate.extra(window));
         drop(state);
         // Not `clamp`, which panics on a maximum below the minimum (a
         // tweak's): the minimum wins, as it does in `at_least_min`.
@@ -62,8 +61,6 @@ impl AppKitHandle {
                 _delegate.apply_full_screen(&window);
             }
         }
-        // Window tabs need their window on screen.
-        self.state.borrow().sync_document_tabs();
     }
 
     /// Runs the app's modal loop for the window, once the current run-loop
@@ -92,7 +89,7 @@ impl AppKitHandle {
     /// Escape hatch: the native window of a window node.
     pub fn ns_window(&self, id: NodeId) -> Option<Retained<NSWindow>> {
         match &self.state.borrow().nodes.get(&id)?.widget {
-            Widget::Window { window, .. } => Some(window.get()),
+            Widget::Window { window, .. } => Some(window.clone()),
             _ => None,
         }
     }
@@ -100,7 +97,7 @@ impl AppKitHandle {
     /// The window node showing this native window.
     pub(crate) fn window_node(&self, ns_window: &NSWindow) -> Option<NodeId> {
         self.state.borrow().nodes.iter().find_map(|(id, node)| match &node.widget {
-            Widget::Window { window, .. } if window.is(ns_window) => Some(*id),
+            Widget::Window { window, .. } if std::ptr::eq(&**window, ns_window) => Some(*id),
             _ => None,
         })
     }

@@ -67,9 +67,7 @@ impl AppKitBackend {
                     A11yAction::MoveTab { from, to } => tabs.move_tab(*from, *to),
                     A11yAction::Activate => tabs.ask_for_tab(),
                     A11yAction::ScrollIntoView => true,
-                    // The strip takes focus; the window's tabs aren't in
-                    // the key view loop, as on macOS.
-                    A11yAction::Focus if !tabs.window_tabs() => {
+                    A11yAction::Focus => {
                         let strip = tabs.strip.clone();
                         drop(state);
                         let window = strip.window().ok_or(ActionError::Unsupported)?;

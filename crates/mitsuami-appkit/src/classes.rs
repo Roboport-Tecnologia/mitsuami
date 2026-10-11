@@ -496,9 +496,6 @@ pub(crate) struct WindowIvars {
     /// The window's content (its host), when it's beside a sidebar: the
     /// window's content area is larger by the sidebar and the title bar.
     detail: RefCell<Option<Retained<NSView>>>,
-    /// While the window's tabs are document tabs: takes a close as the
-    /// chosen tab's, when it does (see `document_tabs`).
-    close_tab: RefCell<Option<Rc<dyn Fn() -> bool>>>,
 }
 
 define_class!(
@@ -563,10 +560,7 @@ define_class!(
         /// unsaved changes); the core destroys it if so.
         #[unsafe(method(windowShouldClose:))]
         fn window_should_close(&self, _sender: &NSWindow) -> bool {
-            let close_tab = self.ivars().close_tab.borrow().clone();
-            if !close_tab.is_some_and(|close| close()) {
-                self.ivars().events.emit(self.ivars().id, UiEvent::WindowCloseRequested);
-            }
+            self.ivars().events.emit(self.ivars().id, UiEvent::WindowCloseRequested);
             false
         }
 
@@ -664,15 +658,8 @@ impl WindowDelegate {
             min_size: Cell::new(None),
             height_locked: Cell::new(false),
             detail: RefCell::new(None),
-            close_tab: RefCell::new(None),
         });
         unsafe { msg_send![super(this), init] }
-    }
-
-    /// Takes the window's close as its chosen document tab's while `close`
-    /// says it did.
-    pub(crate) fn set_close_tab(&self, close: Option<Rc<dyn Fn() -> bool>>) {
-        *self.ivars().close_tab.borrow_mut() = close;
     }
 
     pub(crate) fn set_modal(&self, modal: bool) {
@@ -879,14 +866,8 @@ impl WindowDelegate {
     }
 
     pub(crate) fn stop_observing_focus(&self, window: &NSWindow) {
-        self.unobserve_focus(window);
-        self.set_detail(None);
-    }
-
-    /// Stops watching the window's focus: the node has another window (see
-    /// `document_tabs`).
-    pub(crate) fn unobserve_focus(&self, window: &NSWindow) {
         unsafe { window.removeObserver_forKeyPath(self, &NSString::from_str(FIRST_RESPONDER)) };
+        self.set_detail(None);
     }
 
     /// The node owning the first responder: the nearest known view among
@@ -904,35 +885,6 @@ impl WindowDelegate {
             view = unsafe { current.superview() };
         }
         None
-    }
-}
-
-/// A window node's native window. It's the same one, except while
-/// document tabs are the window's: it's then the chosen tab's, which the
-/// content moves into (see `document_tabs`).
-#[derive(Clone)]
-pub(crate) struct NodeWindow(Rc<RefCell<Retained<NSWindow>>>);
-
-impl NodeWindow {
-    pub(crate) fn new(window: Retained<NSWindow>) -> NodeWindow {
-        NodeWindow(Rc::new(RefCell::new(window)))
-    }
-
-    pub(crate) fn get(&self) -> Retained<NSWindow> {
-        self.0.borrow().clone()
-    }
-
-    pub(crate) fn set(&self, window: &NSWindow) {
-        *self.0.borrow_mut() = window.retain();
-    }
-
-    pub(crate) fn is(&self, window: &NSWindow) -> bool {
-        std::ptr::eq(&**self.0.borrow(), window)
-    }
-
-    /// The same node's.
-    pub(crate) fn same(&self, other: &NodeWindow) -> bool {
-        Rc::ptr_eq(&self.0, &other.0)
     }
 }
 

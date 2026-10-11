@@ -101,7 +101,7 @@ pub(super) fn measure(state: &State, id: NodeId, request: MeasureRequest) -> Siz
             state.nodes[&item].parent.and_then(|w| state.nodes.get(&w)).map(|w| &w.widget)
         && toolbar.adopted(item)
     {
-        window.get().layoutIfNeeded();
+        window.layoutIfNeeded();
         if let Some(size) = toolbar.adopted_size(item) {
             let width = if toolbar.sizes_width(item) { size.width as f32 } else { natural.width };
             return Size::new(request.known_width.unwrap_or(width), size.height as f32);
@@ -114,7 +114,7 @@ pub(super) fn measure(state: &State, id: NodeId, request: MeasureRequest) -> Siz
             state.nodes[&item].parent.and_then(|w| state.nodes.get(&w)).map(|w| &w.widget)
         && toolbar.is_group(item)
     {
-        window.get().layoutIfNeeded();
+        window.layoutIfNeeded();
         if let Some(size) = toolbar.adopted_size(item) {
             return Size::new(request.known_width.unwrap_or(natural.width), size.height as f32);
         }

@@ -9,9 +9,9 @@ use mitsuami_core::{
 use mitsuami_reactive::{IntoValue, Signal, Value, effect, signal};
 
 /// Tabs for the documents the app has open, as a browser's or a
-/// terminal's: the platform's own (window tabs or a tab view in the title
-/// bar on macOS and Windows, libadwaita's tab bar on GNOME, a tab bar on
-/// KDE). The tabs have no pages: the app shows the chosen document itself,
+/// terminal's: the platform's own (a strip drawn as Safari's on macOS, a
+/// tab view in the title bar on Windows, libadwaita's tab bar on GNOME, a
+/// tab bar on KDE). The tabs have no pages: the app shows the chosen document itself,
 /// in one place, as a terminal draws its sessions on one surface.
 ///
 /// Its tabs are [`DocumentTab`]s, usually built from the app's list of
@@ -118,9 +118,8 @@ impl<T: PartialEq + Clone + 'static> DocumentTabs<T> {
     }
 
     /// Where it shows its tabs: the platform's own place (the default), a
-    /// strip where it's declared on every platform (on macOS one built as
-    /// Safari's is), or the window's own (macOS's window tabs, a tab view
-    /// in the title bar on Windows; GNOME and KDE have none, and show a
+    /// strip where it's declared on every platform, or the window's own (a
+    /// tab view in the title bar on Windows; macOS, GNOME and KDE show a
     /// strip). In `view!`, after `selection`.
     pub fn tabs_style(mut self, style: impl IntoValue<DocumentTabsStyle>) -> DocumentTabs<T> {
         self.element.prop(style.into_value(), Prop::DocumentTabsStyle);

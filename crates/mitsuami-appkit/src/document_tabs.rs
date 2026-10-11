@@ -1,44 +1,33 @@
-//! Document tabs, two ways, the app's choice: AppKit's own window tabs
-//! (each tab an `NSWindow` of a tab group, as Finder's and Terminal's
-//! are), or a strip of tabs in the content, built from AppKit views as
-//! Safari builds its own.
+//! Document tabs: a strip of tabs in the content, built from AppKit views
+//! and drawn as Safari's tab bar and the window tab bar of macOS 26 are.
 //!
-//! The app has one content for every tab (a terminal draws its sessions
-//! on one surface), so with window tabs each tab is a window of the group,
-//! and the content is the chosen one's: as a tab is picked, the content,
-//! toolbar, title bar accessories and the node's delegate move into its
-//! window while AppKit shows it. The switch is AppKit's own, and the
-//! node's window (`NodeWindow`) is the chosen tab's.
+//! macOS's own window tabs are the user's (Window > Merge All Windows):
+//! each is a window, which can't share one content, so every style is
+//! this strip.
 
 use std::cell::{Cell, RefCell};
-use std::ffi::c_void;
 use std::rc::{Rc, Weak};
 
-use block2::RcBlock;
 use mitsuami_core::{DocumentTabsStyle, EventSink, EventValue, NodeId, Size, UiEvent, moved_index};
 use objc2::rc::Retained;
-use objc2::runtime::{AnyObject, Bool, NSObject, NSObjectProtocol, ProtocolObject, Sel};
-use objc2::{AnyThread, DefinedClass, MainThreadMarker, MainThreadOnly, Message, define_class, msg_send, sel};
+use objc2::runtime::AnyObject;
+use objc2::{AnyThread, DefinedClass, MainThreadMarker, MainThreadOnly, define_class, msg_send, sel};
 use objc2_app_kit::{
     NSAccessibility, NSAccessibilityElement, NSAccessibilityRadioButtonRole, NSAccessibilityTabButtonSubrole,
-    NSAccessibilityTabGroupRole, NSAppearanceCustomization, NSBackingStoreType, NSBezierPath, NSButton, NSColor,
-    NSEvent, NSFont, NSImage, NSImageSymbolConfiguration, NSLineBreakMode, NSResponder, NSTextAlignment, NSTextField,
-    NSTextView, NSTrackingArea, NSTrackingAreaOptions, NSUserInterfaceLayoutDirection, NSView, NSWindow,
-    NSWindowDelegate, NSWindowStyleMask, NSWindowTabGroup,
+    NSAccessibilityTabGroupRole, NSAppearanceCustomization, NSAppearanceNameAqua, NSAppearanceNameDarkAqua,
+    NSBezelStyle, NSBezierPath, NSButton, NSColor, NSEvent, NSFont, NSFontWeightMedium, NSFontWeightRegular,
+    NSGraphicsContext, NSImage, NSImageSymbolConfiguration, NSLineBreakMode, NSShadow, NSTextAlignment, NSTextField,
+    NSTrackingArea, NSTrackingAreaOptions, NSUserInterfaceLayoutDirection, NSView,
 };
-use objc2_core_foundation::{CFRunLoop, kCFRunLoopCommonModes};
-use objc2_foundation::{
-    NSArray, NSKeyValueObservingOptions, NSNotification, NSNumber, NSObjectNSKeyValueObserverRegistration, NSPoint,
-    NSRect, NSSize, NSString,
-};
+use objc2_foundation::{NSArray, NSNumber, NSPoint, NSRect, NSSize, NSString};
 
-use crate::classes::{ClosureTarget, NodeWindow, WindowDelegate, zero_rect};
+use crate::classes::{ClosureTarget, zero_rect};
 
 fn ns(s: &str) -> Retained<NSString> {
     NSString::from_str(s)
 }
 
-/// What the core gave, which both ways show.
+/// What the core gave, which the strip shows.
 #[derive(Default)]
 struct Model {
     titles: Vec<String>,
@@ -66,11 +55,6 @@ impl Model {
 
     fn enabled(&self) -> bool {
         self.enabled != Some(false)
-    }
-
-    /// Window tabs: macOS's own, unless the app asked for a strip.
-    fn window_tabs(&self) -> bool {
-        self.style != Some(DocumentTabsStyle::Strip)
     }
 
     /// The chosen tab, as the platform shows one: the first if the core's
@@ -102,32 +86,19 @@ impl Shared {
 pub(crate) struct DocumentTabs {
     pub(crate) strip: Retained<TabStrip>,
     shared: Rc<Shared>,
-    window: RefCell<Option<Rc<WindowTabs>>>,
 }
 
 impl DocumentTabs {
     pub(crate) fn new(mtm: MainThreadMarker, id: NodeId, events: EventSink) -> DocumentTabs {
         let shared = Rc::new(Shared { id, events, model: RefCell::default() });
         let strip = TabStrip::new(mtm, shared.clone());
-        let tabs = DocumentTabs { strip, shared, window: RefCell::default() };
-        tabs.refresh();
-        tabs
+        strip.rebuild();
+        DocumentTabs { strip, shared }
     }
 
     fn change(&self, change: impl FnOnce(&mut Model)) {
         change(&mut self.shared.model.borrow_mut());
-        self.refresh();
-    }
-
-    /// Both ways show the model again. The strip is hidden while the tabs
-    /// are the window's.
-    fn refresh(&self) {
-        let window_tabs = self.shared.model.borrow().window_tabs();
-        self.strip.setHidden(window_tabs);
         self.strip.rebuild();
-        if let Some(window) = self.window.borrow().clone() {
-            window.sync();
-        }
     }
 
     pub(crate) fn set_titles(&self, titles: Vec<String>) {
@@ -150,6 +121,7 @@ impl DocumentTabs {
         self.change(|m| m.new_tab = Some(on));
     }
 
+    /// Kept for the mirror: every style is the strip.
     pub(crate) fn set_style(&self, style: DocumentTabsStyle) {
         self.change(|m| m.style = Some(style));
     }
@@ -162,64 +134,17 @@ impl DocumentTabs {
         self.shared.model.borrow().enabled()
     }
 
-    pub(crate) fn window_tabs(&self) -> bool {
-        self.shared.model.borrow().window_tabs()
-    }
-
-    /// The window's tabs are made once it's on screen (a hidden window's
-    /// tab group would order its tabs in), and taken down when the app
-    /// asks for a strip or the node leaves the window. `window`: the
-    /// node's window and its delegate, while it's in one.
-    pub(crate) fn sync_window(&self, mtm: MainThreadMarker, window: Option<(&NodeWindow, &WindowDelegate)>) {
-        let wanted = window.filter(|(w, _)| self.window_tabs() && w.get().isVisible());
-        let current = self.window.borrow().clone();
-        match (current, wanted) {
-            (Some(tabs), Some((w, _))) if tabs.window.same(w) => {}
-            (current, wanted) => {
-                if let Some(tabs) = current {
-                    tabs.take_down();
-                }
-                let made = wanted.map(|(w, delegate)| WindowTabs::new(mtm, self.shared.clone(), w, delegate));
-                *self.window.borrow_mut() = made.clone();
-                if let Some(tabs) = made {
-                    tabs.sync();
-                }
-            }
-        }
-    }
-
-    /// Takes the window's tabs down: the node is going.
-    pub(crate) fn detach(&self) {
-        if let Some(tabs) = self.window.borrow_mut().take() {
-            tabs.take_down();
-        }
-    }
-
-    /// The titles as the tabs show them: the window's tabs', in their
-    /// group's order, once they're made.
     pub(crate) fn titles(&self) -> Vec<String> {
-        match self.window.borrow().as_ref() {
-            Some(tabs) => tabs.titles(),
-            None if !self.window_tabs() => self.strip.titles(),
-            None => self.shared.model.borrow().titles.clone(),
-        }
+        self.strip.titles()
     }
 
-    /// The tab chosen: where the window is in its group, once its tabs are
-    /// made.
     pub(crate) fn selected(&self) -> Option<usize> {
-        match self.window.borrow().as_ref() {
-            Some(tabs) => tabs.selected(),
-            None => self.shared.model.borrow().chosen(),
-        }
+        self.shared.model.borrow().chosen()
     }
 
     pub(crate) fn closable(&self) -> Option<bool> {
-        let model = self.shared.model.borrow();
-        let given = model.closable?;
-        // The strip's close buttons, or the app's choice: window tabs
-        // always have theirs.
-        Some(if model.window_tabs() { given } else { self.strip.has_close_buttons() })
+        self.shared.model.borrow().closable?;
+        Some(self.strip.has_close_buttons())
     }
 
     pub(crate) fn reorderable(&self) -> Option<bool> {
@@ -227,9 +152,8 @@ impl DocumentTabs {
     }
 
     pub(crate) fn new_tab(&self) -> Option<bool> {
-        let model = self.shared.model.borrow();
-        let given = model.new_tab?;
-        Some(if model.window_tabs() { given } else { self.strip.has_plus() })
+        self.shared.model.borrow().new_tab?;
+        Some(self.strip.has_plus())
     }
 
     pub(crate) fn style(&self) -> Option<DocumentTabsStyle> {
@@ -242,7 +166,7 @@ impl DocumentTabs {
         let index = self.shared.model.borrow().titles.iter().position(|t| t == title);
         let Some(index) = index else { return false };
         choose(&self.shared, index);
-        self.refresh();
+        self.strip.rebuild();
         true
     }
 
@@ -257,7 +181,7 @@ impl DocumentTabs {
         true
     }
 
-    /// Moves a tab as a drag does: the tabs show it there before the app
+    /// Moves a tab as a drag does: the strip shows it there before the app
     /// hears.
     pub(crate) fn move_tab(&self, from: usize, to: usize) -> bool {
         let mut model = self.shared.model.borrow_mut();
@@ -269,7 +193,7 @@ impl DocumentTabs {
         }
         model.move_tab(from, to);
         drop(model);
-        self.refresh();
+        self.strip.rebuild();
         self.shared.emit(UiEvent::TabMoved { from, to });
         true
     }
@@ -283,10 +207,8 @@ impl DocumentTabs {
         true
     }
 
-    /// The strip's natural size; nothing for the window's tabs, which are
-    /// its chrome.
     pub(crate) fn natural_size(&self) -> Size {
-        if self.window_tabs() { Size::ZERO } else { self.strip.natural_size() }
+        self.strip.natural_size()
     }
 }
 
@@ -301,652 +223,19 @@ fn choose(shared: &Shared, index: usize) {
     shared.emit(UiEvent::Changed(EventValue::Index(index)));
 }
 
-// ------------------------------------------------------------ window tabs
-
-pub(crate) struct ObserverIvars {
-    handler: Box<dyn Fn()>,
-}
-
-define_class!(
-    /// KVO on the tab group's `windows` and `selectedWindow`: a tab
-    /// dragged elsewhere among them, out to a window of its own, or a
-    /// window merged in; a tab picked.
-    #[unsafe(super(NSObject))]
-    #[thread_kind = MainThreadOnly]
-    #[ivars = ObserverIvars]
-    pub(crate) struct TabGroupObserver;
-
-    impl TabGroupObserver {
-        #[unsafe(method(observeValueForKeyPath:ofObject:change:context:))]
-        fn observe_value(
-            &self,
-            _key_path: Option<&NSString>,
-            _object: Option<&AnyObject>,
-            _change: Option<&AnyObject>,
-            _context: *mut c_void,
-        ) {
-            (self.ivars().handler)();
-        }
-    }
-
-    unsafe impl NSObjectProtocol for TabGroupObserver {}
-);
-
-pub(crate) struct TabWindowIvars {
-    close: Box<dyn Fn(&NSWindow)>,
-    shown: Box<dyn Fn(&NSWindow)>,
-}
-
-define_class!(
-    /// The delegate of the tabs' windows but the chosen one (which has the
-    /// node's): closing one asks the app to close its tab, and one becoming
-    /// key or main (its tab picked, Control-Tab, the Window menu) takes the
-    /// content.
-    #[unsafe(super(NSObject))]
-    #[thread_kind = MainThreadOnly]
-    #[ivars = TabWindowIvars]
-    pub(crate) struct TabWindowDelegate;
-
-    unsafe impl NSObjectProtocol for TabWindowDelegate {}
-
-    unsafe impl NSWindowDelegate for TabWindowDelegate {
-        #[unsafe(method(windowShouldClose:))]
-        fn window_should_close(&self, sender: &NSWindow) -> bool {
-            (self.ivars().close)(sender);
-            false
-        }
-
-        #[unsafe(method(windowDidBecomeKey:))]
-        fn window_did_become_key(&self, notification: &NSNotification) {
-            if let Some(window) = notification.object().and_then(|o| o.downcast::<NSWindow>().ok()) {
-                (self.ivars().shown)(&window);
-            }
-        }
-
-        /// Picked while the app isn't active: it's main, not key.
-        #[unsafe(method(windowDidBecomeMain:))]
-        fn window_did_become_main(&self, notification: &NSNotification) {
-            if let Some(window) = notification.object().and_then(|o| o.downcast::<NSWindow>().ok()) {
-                (self.ivars().shown)(&window);
-            }
-        }
-    }
-);
-
-pub(crate) struct ResponderIvars {
-    shared: Weak<Shared>,
-}
-
-define_class!(
-    /// The tab bar's new-tab button: AppKit shows one while something in
-    /// the window's responder chain answers `newWindowForTab:`, so this
-    /// answers only while the app asked for the button.
-    #[unsafe(super(NSResponder))]
-    #[thread_kind = MainThreadOnly]
-    #[ivars = ResponderIvars]
-    pub(crate) struct NewTabResponder;
-
-    impl NewTabResponder {
-        #[unsafe(method(newWindowForTab:))]
-        fn new_window_for_tab(&self, _sender: Option<&AnyObject>) {
-            if let Some(shared) = self.ivars().shared.upgrade()
-                && shared.model.borrow().new_tab()
-            {
-                shared.emit(UiEvent::NewTabRequested);
-            }
-        }
-
-        #[unsafe(method(respondsToSelector:))]
-        fn responds_to_selector(&self, selector: Sel) -> Bool {
-            if selector == sel!(newWindowForTab:) {
-                return Bool::new(self.ivars().shared.upgrade().is_some_and(|s| s.model.borrow().new_tab()));
-            }
-            unsafe { msg_send![super(self), respondsToSelector: selector] }
-        }
-    }
-);
-
-const WINDOWS: &str = "windows";
-const SELECTED: &str = "selectedWindow";
-
-/// A window for each tab, in the node's window's tab group. The chosen
-/// tab's is the node's window: the content, toolbar, title bar
-/// accessories and the node's delegate move into a tab's window as it's
-/// picked, while AppKit shows it, so the switch is AppKit's own. The
-/// others are empty.
-pub(crate) struct WindowTabs {
-    mtm: MainThreadMarker,
-    shared: Rc<Shared>,
-    /// The node's window: the chosen tab's.
-    window: NodeWindow,
-    delegate: Retained<WindowDelegate>,
-    group: Retained<NSWindowTabGroup>,
-    /// The tabs' windows, the node's among them, in no particular order:
-    /// the group's is the tabs'.
-    windows: RefCell<Vec<Retained<NSWindow>>>,
-    tab_delegate: Retained<TabWindowDelegate>,
-    observer: Retained<TabGroupObserver>,
-    responder: Retained<NewTabResponder>,
-    /// The window's next responder before ours went in.
-    next_responder: Option<Retained<NSResponder>>,
-    /// The window's tabbing identifier before it got the node's own.
-    identifier: Retained<NSString>,
-    /// The tab group's windows, by address, as the backend last left
-    /// them: what a change the user made is told from.
-    order: RefCell<Vec<usize>>,
-    /// Set while the backend changes the group itself.
-    muted: Cell<bool>,
-    /// A look at the group is due on the next run-loop turn.
-    pending: Cell<bool>,
-}
-
-fn addr(window: &NSWindow) -> usize {
-    window as *const NSWindow as usize
-}
-
-impl WindowTabs {
-    fn new(mtm: MainThreadMarker, shared: Rc<Shared>, node: &NodeWindow, delegate: &WindowDelegate) -> Rc<WindowTabs> {
-        let window = node.get();
-        let identifier = window.tabbingIdentifier();
-        // The node's own: the user's "Prefer tabs" and Merge All Windows
-        // don't bring the app's other windows in, nor take these out.
-        window.setTabbingIdentifier(&ns(&format!("mitsuami.document-tabs.{}", shared.id.raw())));
-        let group = window.tabGroup().expect("a window's tab group is made when asked for");
-        let tabs = Rc::new_cyclic(|this: &Weak<WindowTabs>| {
-            let (closing, shown, observed) = (this.clone(), this.clone(), this.clone());
-            let tab_delegate = TabWindowDelegate::alloc(mtm).set_ivars(TabWindowIvars {
-                close: Box::new(move |window| {
-                    if let Some(tabs) = closing.upgrade() {
-                        tabs.close_window(window);
-                    }
-                }),
-                shown: Box::new(move |window| {
-                    if let Some(tabs) = shown.upgrade() {
-                        tabs.shown(window);
-                    }
-                }),
-            });
-            let tab_delegate: Retained<TabWindowDelegate> = unsafe { msg_send![super(tab_delegate), init] };
-            let observer = TabGroupObserver::alloc(mtm).set_ivars(ObserverIvars {
-                handler: Box::new(move || {
-                    if let Some(tabs) = observed.upgrade() {
-                        tabs.group_changed();
-                    }
-                }),
-            });
-            let observer: Retained<TabGroupObserver> = unsafe { msg_send![super(observer), init] };
-            let responder = NewTabResponder::alloc(mtm).set_ivars(ResponderIvars { shared: Rc::downgrade(&shared) });
-            let responder: Retained<NewTabResponder> = unsafe { msg_send![super(responder), init] };
-            let next_responder = unsafe { window.nextResponder() };
-            unsafe {
-                responder.setNextResponder(next_responder.as_deref());
-                window.setNextResponder(Some(&responder));
-            }
-            WindowTabs {
-                mtm,
-                shared,
-                window: node.clone(),
-                delegate: delegate.retain(),
-                group: group.clone(),
-                windows: RefCell::new(vec![window.clone()]),
-                tab_delegate,
-                observer,
-                responder,
-                next_responder,
-                identifier,
-                order: RefCell::default(),
-                muted: Cell::new(false),
-                pending: Cell::new(false),
-            }
-        });
-        for key_path in [WINDOWS, SELECTED] {
-            unsafe {
-                group.addObserver_forKeyPath_options_context(
-                    &tabs.observer,
-                    &ns(key_path),
-                    NSKeyValueObservingOptions::New,
-                    std::ptr::null_mut(),
-                )
-            };
-        }
-        // The window's own close (its title bar's button, its tab's, ⌘W)
-        // closes the chosen tab while there are others, as a window tab's
-        // does; with one tab, or tabs the app doesn't let close, it's the
-        // window's.
-        let shared = Rc::downgrade(&tabs.shared);
-        delegate.set_close_tab(Some(Rc::new(move || {
-            let Some(shared) = shared.upgrade() else { return false };
-            let model = shared.model.borrow();
-            let chosen = model.chosen();
-            if !model.closable() || model.titles.len() < 2 {
-                return false;
-            }
-            drop(model);
-            if let Some(index) = chosen {
-                shared.emit(UiEvent::TabCloseRequested(index));
-            }
-            true
-        })));
-        tabs
-    }
-
-    /// Runs a change the user didn't make, without reporting it.
-    fn quietly(&self, change: impl FnOnce()) {
-        let was = self.muted.replace(true);
-        change();
-        self.muted.set(was);
-    }
-
-    /// The group's windows that are tabs, in their order.
-    fn tabs(&self) -> Vec<Retained<NSWindow>> {
-        self.group.windows().iter().filter(|w| self.is_ours(w)).collect()
-    }
-
-    fn index_of(&self, window: &NSWindow) -> Option<usize> {
-        self.tabs().iter().position(|w| addr(w) == addr(window))
-    }
-
-    fn is_ours(&self, window: &NSWindow) -> bool {
-        self.windows.borrow().iter().any(|w| addr(w) == addr(window))
-    }
-
-    /// The node's delegate is still the window's: it's not going.
-    fn attached(&self) -> bool {
-        let delegate = self.window.get().delegate();
-        delegate.is_some_and(|d| {
-            std::ptr::eq(Retained::as_ptr(&d).cast::<AnyObject>(), (&*self.delegate as *const WindowDelegate).cast())
-        })
-    }
-
-    /// A tab's window: empty, set up as the node's, so the tab bar and
-    /// title bar look the same whichever is chosen.
-    fn make_window(&self) -> Retained<NSWindow> {
-        let window = self.window.get();
-        let mask = window.styleMask() & !NSWindowStyleMask::FullScreen;
-        let content = window.contentRectForFrameRect(window.frame());
-        let made = unsafe {
-            NSWindow::initWithContentRect_styleMask_backing_defer(
-                NSWindow::alloc(self.mtm),
-                content,
-                mask,
-                NSBackingStoreType::Buffered,
-                true,
-            )
-        };
-        unsafe { made.setReleasedWhenClosed(false) };
-        made.setAutorecalculatesKeyViewLoop(false);
-        made.setTabbingIdentifier(&window.tabbingIdentifier());
-        made.setTitlebarAppearsTransparent(window.titlebarAppearsTransparent());
-        made.setToolbarStyle(window.toolbarStyle());
-        made.setAppearance(window.appearance().as_deref());
-        made.setDelegate(Some(ProtocolObject::from_ref(&*self.tab_delegate)));
-        unsafe { made.setNextResponder(Some(&self.responder)) };
-        made
-    }
-
-    /// The content goes into `to`, which becomes the node's window: its
-    /// view or split, toolbar, title bar accessories, the window's settings
-    /// and the node's delegate, and the focus. Done while AppKit shows
-    /// `to` as its tab is picked, nothing is seen to move.
-    fn take_content(&self, to: &NSWindow) {
-        let from = self.window.get();
-        if addr(&from) == addr(to) {
-            return;
-        }
-        // The group gave it the chosen tab's frame. A toolbar coming in
-        // would grow it by the toolbar's height, keeping its content's.
-        let frame = to.frame();
-        let focus = focused_view(&from);
-        // The delegate isn't either's while the content moves, which
-        // resizes both.
-        self.delegate.unobserve_focus(&from);
-        from.setDelegate(Some(ProtocolObject::from_ref(&*self.tab_delegate)));
-        let full_screen = to.styleMask() & NSWindowStyleMask::FullScreen;
-        to.setStyleMask((from.styleMask() & !NSWindowStyleMask::FullScreen) | full_screen);
-        to.setTitle(&from.title());
-        to.setContentMinSize(from.contentMinSize());
-        to.setContentMaxSize(from.contentMaxSize());
-        to.setInitialFirstResponder(from.initialFirstResponder().as_deref());
-        if let Some(controller) = from.contentViewController() {
-            from.setContentViewController(None);
-            to.setContentViewController(Some(&controller));
-        } else if let Some(view) = from.contentView() {
-            from.setContentView(Some(&NSView::new(self.mtm)));
-            to.setContentView(Some(&view));
-        }
-        if let Some(toolbar) = from.toolbar() {
-            from.setToolbar(None);
-            to.setToolbar(Some(&toolbar));
-        }
-        let accessories = from.titlebarAccessoryViewControllers().to_vec();
-        for accessory in accessories {
-            accessory.removeFromParentViewController();
-            to.addTitlebarAccessoryViewController(&accessory);
-        }
-        to.setFrame_display(frame, true);
-        to.setDelegate(Some(ProtocolObject::from_ref(&*self.delegate)));
-        self.delegate.observe_focus(to);
-        self.window.set(to);
-        if let Some(view) = focus {
-            to.makeFirstResponder(Some(&view));
-        }
-    }
-
-    /// The group shows the model: a window per tab, in the tabs' order,
-    /// the chosen one's the node's. A title gone or come in between is a
-    /// tab closed or opened there; the other tabs keep their windows.
-    fn sync(&self) {
-        let (titles, chosen) = {
-            let model = self.shared.model.borrow();
-            (model.titles.clone(), model.chosen())
-        };
-        self.quietly(|| {
-            let current = self.window.get();
-            if self.index_of(&current).is_none() {
-                self.group.insertWindow_atIndex(&current, 0);
-            }
-            let old = self.tabs();
-            let shown: Vec<String> = old.iter().map(|w| w.tab().title().to_string()).collect();
-            let mut target: Vec<Retained<NSWindow>> = Vec::new();
-            for kept in align(&shown, &titles) {
-                let window = match kept {
-                    Some(i) => old[i].clone(),
-                    None => {
-                        // After the tab before it.
-                        let made = self.make_window();
-                        let windows = self.group.windows();
-                        let at = target.last().and_then(|p| windows.iter().position(|w| addr(&w) == addr(p)));
-                        self.group.insertWindow_atIndex(&made, at.map_or(0, |i| i + 1) as isize);
-                        self.windows.borrow_mut().push(made.clone());
-                        made
-                    }
-                };
-                target.push(window);
-            }
-            if let Some(wanted) = chosen.and_then(|i| target.get(i))
-                && addr(wanted) != addr(&current)
-            {
-                wanted.setFrame_display(current.frame(), false);
-                self.group.setSelectedWindow(Some(wanted));
-                self.take_content(wanted);
-            }
-            let current = self.window.get();
-            let dropped: Vec<Retained<NSWindow>> = self
-                .windows
-                .borrow()
-                .iter()
-                .filter(|w| addr(w) != addr(&current) && !target.iter().any(|t| addr(t) == addr(w)))
-                .cloned()
-                .collect();
-            for window in dropped {
-                self.drop_window(&window);
-            }
-            self.title_tabs();
-            self.group.setSelectedWindow(Some(&current));
-            self.remember_order();
-        });
-    }
-
-    fn drop_window(&self, window: &NSWindow) {
-        self.windows.borrow_mut().retain(|w| addr(w) != addr(window));
-        self.group.removeWindow(window);
-        window.setDelegate(None);
-        window.orderOut(None);
-        window.close();
-    }
-
-    /// Each tab shows its title; the other windows take theirs as their
-    /// windows' titles too (the Window menu lists them). The node's
-    /// window keeps the window's title.
-    fn title_tabs(&self) {
-        let titles = self.shared.model.borrow().titles.clone();
-        for (index, window) in self.tabs().iter().enumerate() {
-            let title = titles.get(index).map(|t| ns(t));
-            window.tab().setTitle(title.as_deref());
-            if !self.window.is(window) {
-                window.setTitle(title.as_deref().unwrap_or(&ns("")));
-            }
-        }
-    }
-
-    fn remember_order(&self) {
-        *self.order.borrow_mut() = self.tabs().iter().map(|w| addr(w)).collect();
-    }
-
-    /// The app lets the user pick a tab: the tabs are enabled, and the
-    /// window has no sheet, which stays with its window.
-    fn can_pick(&self) -> bool {
-        self.shared.model.borrow().enabled() && self.window.get().attachedSheet().is_none()
-    }
-
-    /// A tab's window became key or main: its tab was picked, and AppKit
-    /// is showing it. The content goes in now, in the same change, and the
-    /// app hears. Put back, if picking isn't allowed, once AppKit is done.
-    fn shown(self: &Rc<Self>, window: &NSWindow) {
-        if self.muted.get() || self.window.is(window) || !self.is_ours(window) || !self.attached() {
-            return;
-        }
-        if !self.can_pick() {
-            self.group_changed();
-            return;
-        }
-        let Some(index) = self.index_of(window) else { return };
-        self.quietly(|| {
-            self.take_content(window);
-            self.title_tabs();
-        });
-        self.picked(index);
-    }
-
-    /// The model has the tab picked, and the app hears.
-    fn picked(&self, index: usize) {
-        let mut model = self.shared.model.borrow_mut();
-        if model.chosen() == Some(index) {
-            return;
-        }
-        model.selected = Some(index);
-        drop(model);
-        self.shared.emit(UiEvent::Changed(EventValue::Index(index)));
-    }
-
-    /// A tab's window's close button: the app is asked to close its tab.
-    fn close_window(&self, window: &NSWindow) {
-        if self.muted.get() {
-            return;
-        }
-        let closable = self.shared.model.borrow().closable();
-        if let Some(index) = self.index_of(window).filter(|_| closable) {
-            self.shared.emit(UiEvent::TabCloseRequested(index));
-        }
-    }
-
-    /// The group's windows or its selected one changed, not by the
-    /// backend: looked at once AppKit is done. A drag may still be under
-    /// way, and changing the group in the middle of AppKit's selection
-    /// throws (`NSWindowStackController`'s "expected no items").
-    fn group_changed(self: &Rc<Self>) {
-        if self.muted.get() || self.pending.replace(true) {
-            return;
-        }
-        let this = Rc::downgrade(self);
-        let block = RcBlock::new(move || {
-            if let Some(tabs) = this.upgrade() {
-                tabs.pending.set(false);
-                tabs.reconcile();
-            }
-        });
-        if let Some(run_loop) = CFRunLoop::main() {
-            unsafe { run_loop.perform_block(kCFRunLoopCommonModes.map(|m| &**m), Some(&block)) };
-            run_loop.wake_up();
-        }
-    }
-
-    /// What the user did to the group: a tab moved is reported (or put
-    /// back, if the app doesn't let tabs move); a tab picked that the
-    /// content isn't in yet gets it, or the chosen one is shown again; a
-    /// tab dragged out to a window of its own comes back, and a window
-    /// merged in goes out. The tabs are the app's, and the window is
-    /// always one with them.
-    fn reconcile(&self) {
-        if !self.attached() {
-            return;
-        }
-        let before = self.order.borrow().clone();
-        let mut moved = None;
-        let mut picked = None;
-        self.quietly(|| {
-            for window in self.group.windows().iter() {
-                if !self.is_ours(&window) {
-                    self.group.removeWindow(&window);
-                }
-            }
-            let ours = self.windows.borrow().clone();
-            for window in &ours {
-                if self.index_of(window).is_none() {
-                    let at = before.iter().position(|a| *a == addr(window)).unwrap_or(0);
-                    let count = self.group.windows().len();
-                    self.group.insertWindow_atIndex(window, at.min(count) as isize);
-                }
-            }
-            let now: Vec<usize> = self.tabs().iter().map(|w| addr(w)).collect();
-            if let Some((from, to)) = one_move(&before, &now) {
-                let reorderable = self.shared.model.borrow().reorderable();
-                if reorderable {
-                    self.shared.model.borrow_mut().move_tab(from, to);
-                    moved = Some((from, to));
-                } else if let Some(window) = self.tabs().get(to).cloned() {
-                    self.group.removeWindow(&window);
-                    self.group.insertWindow_atIndex(&window, from as isize);
-                }
-            }
-            let selected = self.group.selectedWindow().filter(|w| self.is_ours(w) && !self.window.is(w));
-            if let Some(window) = selected.filter(|_| self.can_pick()) {
-                self.take_content(&window);
-                picked = self.index_of(&window);
-            }
-            self.title_tabs();
-            self.group.setSelectedWindow(Some(&self.window.get()));
-            self.remember_order();
-        });
-        if let Some((from, to)) = moved {
-            self.shared.emit(UiEvent::TabMoved { from, to });
-        }
-        if let Some(index) = picked {
-            self.picked(index);
-        }
-    }
-
-    fn titles(&self) -> Vec<String> {
-        let count = self.shared.model.borrow().titles.len();
-        self.tabs().iter().take(count).map(|w| w.tab().title().to_string()).collect()
-    }
-
-    fn selected(&self) -> Option<usize> {
-        let count = self.shared.model.borrow().titles.len();
-        self.index_of(&self.window.get()).filter(|_| count > 0)
-    }
-
-    /// The window is a window again: the other tabs' windows go, and it
-    /// has its own title on its tab, its own close, responder chain and
-    /// tabbing identifier.
-    fn take_down(&self) {
-        for key_path in [WINDOWS, SELECTED] {
-            unsafe { self.group.removeObserver_forKeyPath(&self.observer, &ns(key_path)) };
-        }
-        let window = self.window.get();
-        self.quietly(|| {
-            let others: Vec<Retained<NSWindow>> =
-                self.windows.borrow().iter().filter(|w| addr(w) != addr(&window)).cloned().collect();
-            for other in others {
-                self.drop_window(&other);
-            }
-            window.tab().setTitle(None);
-        });
-        self.delegate.set_close_tab(None);
-        let ours = unsafe { window.nextResponder() }.is_some_and(|r| std::ptr::eq(&*r, &**self.responder));
-        if ours {
-            unsafe { window.setNextResponder(self.next_responder.as_deref()) };
-        }
-        window.setTabbingIdentifier(&self.identifier);
-    }
-}
-
-/// The view with the focus: while a field is edited, the field, not the
-/// window's field editor, which stays in its window.
-fn focused_view(window: &NSWindow) -> Option<Retained<NSView>> {
-    let view = window.firstResponder()?.downcast::<NSView>().ok()?;
-    if let Some(text) = view.downcast_ref::<NSTextView>()
-        && text.isFieldEditor()
-    {
-        let field: Option<Retained<AnyObject>> = unsafe { msg_send![text, delegate] };
-        return field.and_then(|f| f.downcast::<NSView>().ok());
-    }
-    Some(view)
-}
-
-/// Which tab each title is, from the titles the tabs show: for each new
-/// title, the old tab it's (`None`: a tab opened there). Titles that
-/// match keep their tabs; with more old ones left than new, an old one
-/// before the next match closed, and with fewer, a new one opened before
-/// it; otherwise a tab was renamed. Old tabs left over closed.
-fn align(old: &[String], new: &[String]) -> Vec<Option<usize>> {
-    let mut plan = Vec::with_capacity(new.len());
-    let (mut i, mut j) = (0, 0);
-    while j < new.len() {
-        if i >= old.len() {
-            plan.push(None);
-            j += 1;
-            continue;
-        }
-        if old[i] == new[j] {
-            plan.push(Some(i));
-            (i, j) = (i + 1, j + 1);
-            continue;
-        }
-        let (old_left, new_left) = (old.len() - i, new.len() - j);
-        if old_left > new_left
-            && let Some(k) = old[i..].iter().take(old_left - new_left + 1).position(|t| *t == new[j])
-        {
-            i += k;
-        } else if new_left > old_left
-            && let Some(k) = new[j..].iter().take(new_left - old_left + 1).position(|t| *t == old[i])
-        {
-            plan.extend(std::iter::repeat_n(None, k));
-            j += k;
-        } else {
-            plan.push(Some(i));
-            (i, j) = (i + 1, j + 1);
-        }
-    }
-    plan
-}
-
-/// The one window that moved between two orders of the same windows, if
-/// one did: `(from, to)`.
-fn one_move(before: &[usize], now: &[usize]) -> Option<(usize, usize)> {
-    if before.len() != now.len() || before == now {
-        return None;
-    }
-    let mut sorted = (before.to_vec(), now.to_vec());
-    sorted.0.sort_unstable();
-    sorted.1.sort_unstable();
-    if sorted.0 != sorted.1 {
-        return None;
-    }
-    let first = before.iter().zip(now).position(|(a, b)| a != b)?;
-    let last = before.iter().zip(now).rposition(|(a, b)| a != b)?;
-    if now[first] == before[last] { Some((last, first)) } else { Some((first, last)) }
-}
-
 // ------------------------------------------------------------------ strip
 
-/// The strip's height, its new-tab button's width, each tab's close
-/// button's side, and how far titles are from their tab's edges: the
-/// window tab bar's, near enough.
+/// The geometry of macOS 26's window tab bar, which Safari's shares: a
+/// capsule track, tabs inset in it with a point between them for their
+/// separator, a close button on each tab's leading side, and a round
+/// new-tab button after the track.
 const HEIGHT: f64 = 28.0;
-const PLUS: f64 = 28.0;
+const INSET: f64 = 2.0;
+const SEPARATOR: f64 = 18.0;
 const CLOSE: f64 = 16.0;
-const PADDING: f64 = 8.0;
+const CLOSE_INSET: f64 = 5.0;
+const PLUS: f64 = 28.0;
+const PLUS_GAP: f64 = 4.0;
 
 /// One tab of the strip: its title, and its close button.
 struct Tab {
@@ -1158,8 +447,16 @@ define_class!(
         #[unsafe(method(drawFocusRingMask))]
         fn draw_focus_ring_mask(&self) {
             if let Some(rect) = self.chosen_rect() {
-                NSBezierPath::fillRect(rect);
+                let radius = rect.size.height / 2.0;
+                NSBezierPath::bezierPathWithRoundedRect_xRadius_yRadius(rect, radius, radius).fill();
             }
+        }
+
+        /// Its colours are painted: light and dark differ.
+        #[unsafe(method(viewDidChangeEffectiveAppearance))]
+        fn view_did_change_effective_appearance(&self) {
+            let _: () = unsafe { msg_send![super(self), viewDidChangeEffectiveAppearance] };
+            self.setNeedsDisplay(true);
         }
     }
 );
@@ -1224,23 +521,38 @@ impl TabStrip {
     }
 
     fn plus_width(&self) -> f64 {
-        if self.ivars().plus.borrow().is_some() { PLUS } else { 0.0 }
+        if self.ivars().plus.borrow().is_some() { PLUS + PLUS_GAP } else { 0.0 }
     }
 
-    /// Where each tab is: the strip's width less the new-tab button's,
-    /// shared equally.
+    /// The track the tabs are in: the strip less the new-tab button.
+    fn track_rect(&self) -> NSRect {
+        let size = self.bounds().size;
+        self.mirrored(NSRect::new(
+            NSPoint::new(0.0, 0.0),
+            NSSize::new((size.width - self.plus_width()).max(0.0), size.height),
+        ))
+    }
+
+    /// Where each tab is: the track's inside, shared equally, a point
+    /// between each for its separator.
     fn tab_rects(&self) -> Vec<NSRect> {
         let count = self.ivars().shared.model.borrow().titles.len();
         let size = self.bounds().size;
-        let width = if count == 0 { 0.0 } else { ((size.width - self.plus_width()) / count as f64).max(0.0) };
+        let inside = size.width - self.plus_width() - 2.0 * INSET;
+        let width = if count == 0 { 0.0 } else { ((inside - (count - 1) as f64) / count as f64).max(0.0) };
+        let height = (size.height - 2.0 * INSET).max(0.0);
         (0..count)
-            .map(|i| self.mirrored(NSRect::new(NSPoint::new(i as f64 * width, 0.0), NSSize::new(width, size.height))))
+            .map(|i| {
+                let x = INSET + i as f64 * (width + 1.0);
+                self.mirrored(NSRect::new(NSPoint::new(x, INSET), NSSize::new(width, height)))
+            })
             .collect()
     }
 
     fn plus_rect(&self) -> NSRect {
         let size = self.bounds().size;
-        self.mirrored(NSRect::new(NSPoint::new(size.width - PLUS, 0.0), NSSize::new(PLUS, size.height)))
+        let y = ((size.height - PLUS) / 2.0).round();
+        self.mirrored(NSRect::new(NSPoint::new(size.width - PLUS, y), NSSize::new(PLUS, PLUS)))
     }
 
     fn tab_at(&self, point: NSPoint) -> Option<usize> {
@@ -1295,6 +607,7 @@ impl TabStrip {
             for (index, (tab, title)) in tabs.iter().zip(&titles).enumerate() {
                 let shown = chosen == Some(index);
                 tab.label.setStringValue(&ns(title));
+                tab.label.setFont(Some(&title_font(shown)));
                 tab.label.setTextColor(Some(&*if shown {
                     NSColor::labelColor()
                 } else {
@@ -1336,7 +649,7 @@ impl TabStrip {
         let label = NSTextField::labelWithString(&ns(""), mtm);
         label.setLineBreakMode(NSLineBreakMode::ByTruncatingTail);
         label.setAlignment(NSTextAlignment::Center);
-        label.setFont(Some(&NSFont::systemFontOfSize(NSFont::systemFontSize())));
+        label.setFont(Some(&title_font(false)));
         // The tab reads as its title: the label isn't another element.
         label.setAccessibilityElement(false);
         self.addSubview(&label);
@@ -1369,20 +682,29 @@ impl TabStrip {
         Tab { label, close, element }
     }
 
-    /// A borderless button showing an SF Symbol, named for assistive
-    /// technology and its tooltip.
+    /// A button showing an SF Symbol, named for assistive technology and
+    /// its tooltip: a close button's borderless, the new-tab button round,
+    /// as the system's tab bar has them.
     fn button(&self, mtm: MainThreadMarker, symbol: &str, name: &str) -> Retained<NSButton> {
+        let close = symbol == "xmark";
         let image = NSImage::imageWithSystemSymbolName_accessibilityDescription(&ns(symbol), Some(&ns(name)))
             .map(|image| {
-                let config = NSImageSymbolConfiguration::configurationWithPointSize_weight(
-                    if symbol == "xmark" { 9.0 } else { 12.0 },
-                    unsafe { objc2_app_kit::NSFontWeightSemibold },
-                );
+                let (size, weight) = if close {
+                    (9.0, unsafe { objc2_app_kit::NSFontWeightSemibold })
+                } else {
+                    (13.0, unsafe { NSFontWeightMedium })
+                };
+                let config = NSImageSymbolConfiguration::configurationWithPointSize_weight(size, weight);
                 image.imageWithSymbolConfiguration(&config).unwrap_or(image)
             })
             .unwrap_or_default();
         let button = unsafe { NSButton::buttonWithImage_target_action(&image, None, None, mtm) };
-        button.setBordered(false);
+        if close {
+            button.setBordered(false);
+            button.setContentTintColor(Some(&NSColor::secondaryLabelColor()));
+        } else {
+            button.setBezelStyle(NSBezelStyle::Circular);
+        }
         button.setToolTip(Some(&ns(name)));
         button.setAccessibilityLabel(Some(&ns(name)));
         button
@@ -1413,12 +735,13 @@ impl TabStrip {
             let label_height = tab.label.intrinsicContentSize().height.max(0.0);
             // Room for the close button on the tab's leading side, and as
             // much on the other, so the title stays centred.
-            let inset = PADDING + CLOSE;
+            let inset = CLOSE_INSET + CLOSE + 4.0;
             tab.label.setFrame(NSRect::new(
                 NSPoint::new(rect.origin.x + inset, rect.origin.y + ((rect.size.height - label_height) / 2.0).round()),
                 NSSize::new((rect.size.width - 2.0 * inset).max(0.0), label_height),
             ));
-            let close_x = if rtl { rect.origin.x + rect.size.width - PADDING - CLOSE } else { rect.origin.x + PADDING };
+            let close_x =
+                if rtl { rect.origin.x + rect.size.width - CLOSE_INSET - CLOSE } else { rect.origin.x + CLOSE_INSET };
             tab.close.setFrame(NSRect::new(
                 NSPoint::new(close_x, rect.origin.y + ((rect.size.height - CLOSE) / 2.0).round()),
                 NSSize::new(CLOSE, CLOSE),
@@ -1430,61 +753,90 @@ impl TabStrip {
         }
     }
 
-    /// The strip's ground, the tabs on it, the chosen one lit as the
-    /// window's background (as the system's tab bar has it), and lines
-    /// between the others.
+    fn dark(&self) -> bool {
+        let candidates = unsafe { [NSAppearanceNameAqua, NSAppearanceNameDarkAqua] };
+        let names = NSArray::from_slice(&candidates);
+        self.effectiveAppearance()
+            .bestMatchFromAppearancesWithNames(&names)
+            .is_some_and(|name| &*name == unsafe { NSAppearanceNameDarkAqua })
+    }
+
+    /// The track, the chosen tab raised on it as a pill, a fainter pill
+    /// under the pointer, and separators between the other tabs: the
+    /// system tab bar's look, measured from it on macOS 26. Its track and
+    /// pill are Liquid Glass, which in the content would take the content's
+    /// colour, so the strip paints the colours glass has in the title bar.
     fn draw(&self) {
-        let bounds = self.bounds();
-        let ground = NSColor::windowBackgroundColor();
-        let shade = NSColor::blackColor();
-        let dim = |fraction| ground.blendedColorWithFraction_ofColor(fraction, &shade).unwrap_or(ground.clone());
-        dim(0.08).setFill();
-        NSBezierPath::fillRect(bounds);
+        let dark = self.dark();
+        let white = |alpha| NSColor::colorWithWhite_alpha(1.0, alpha);
+        let (track, raised, edge, hovered) = if dark {
+            (white(0.05), white(0.2), Some(white(0.12)), white(0.08))
+        } else {
+            (NSColor::colorWithWhite_alpha(0.0, 0.08), NSColor::colorWithWhite_alpha(0.98, 1.0), None, white(0.55))
+        };
+        let pill = |rect: NSRect| {
+            let radius = rect.size.height / 2.0;
+            NSBezierPath::bezierPathWithRoundedRect_xRadius_yRadius(rect, radius, radius)
+        };
+        let enabled = self.ivars().shared.model.borrow().enabled();
+        track.setFill();
+        pill(self.track_rect()).fill();
         let rects = self.tab_rects();
         let chosen = self.ivars().shared.model.borrow().chosen();
-        let hover = self.ivars().hover.get();
-        for (index, rect) in rects.iter().enumerate() {
-            if chosen == Some(index) {
-                ground.setFill();
-                NSBezierPath::fillRect(*rect);
-            } else if hover == Some(index) {
-                dim(0.04).setFill();
-                NSBezierPath::fillRect(*rect);
+        let hover = self.ivars().hover.get().filter(|_| enabled);
+        if let Some(rect) = hover.filter(|h| Some(*h) != chosen).and_then(|i| rects.get(i)) {
+            hovered.setFill();
+            pill(*rect).fill();
+        }
+        if let Some(rect) = chosen.and_then(|i| rects.get(i)) {
+            // Raised: a soft shadow in light mode, a lit edge in dark.
+            if let Some(context) = NSGraphicsContext::currentContext() {
+                context.saveGraphicsState();
+                if !dark {
+                    let shadow = NSShadow::new();
+                    shadow.setShadowColor(Some(&NSColor::colorWithWhite_alpha(0.0, 0.18)));
+                    shadow.setShadowBlurRadius(2.0);
+                    shadow.setShadowOffset(NSSize::new(0.0, -0.5));
+                    shadow.set();
+                }
+                raised.setFill();
+                pill(*rect).fill();
+                context.restoreGraphicsState();
+            }
+            if let Some(edge) = &edge {
+                edge.setStroke();
+                let path = pill(NSRect::new(
+                    NSPoint::new(rect.origin.x + 0.5, rect.origin.y + 0.5),
+                    NSSize::new(rect.size.width - 1.0, rect.size.height - 1.0),
+                ));
+                path.setLineWidth(1.0);
+                path.stroke();
             }
         }
+        // Between two tabs, unless either is lit.
         NSColor::separatorColor().setFill();
+        let lit = |i: usize| Some(i) == chosen || Some(i) == hover;
         for (index, rect) in rects.iter().enumerate().skip(1) {
-            if chosen == Some(index) || chosen == Some(index - 1) {
+            if lit(index) || lit(index - 1) {
                 continue;
             }
-            let x = if self.right_to_left() { rect.origin.x + rect.size.width } else { rect.origin.x };
-            NSBezierPath::fillRect(NSRect::new(NSPoint::new(x - 0.5, 4.0), NSSize::new(1.0, bounds.size.height - 8.0)));
-        }
-        // A line under the strip, except under the chosen tab, which runs
-        // into the content as the system's does.
-        let line = NSRect::new(NSPoint::new(0.0, bounds.size.height - 1.0), NSSize::new(bounds.size.width, 1.0));
-        NSBezierPath::fillRect(line);
-        if let Some(rect) = chosen.and_then(|i| rects.get(i)) {
-            ground.setFill();
-            NSBezierPath::fillRect(NSRect::new(
-                NSPoint::new(rect.origin.x, line.origin.y),
-                NSSize::new(rect.size.width, 1.0),
-            ));
+            let x = if self.right_to_left() { rect.origin.x + rect.size.width } else { rect.origin.x - 1.0 };
+            let y = rect.origin.y + ((rect.size.height - SEPARATOR) / 2.0).round();
+            NSBezierPath::fillRect(NSRect::new(NSPoint::new(x, y), NSSize::new(1.0, SEPARATOR)));
         }
     }
 
-    /// As wide as its titles with room for their buttons, and the new-tab
-    /// button; as high as the system's tab bar.
+    /// As wide as its titles with room for their close buttons, and the
+    /// new-tab button; as high as the system's tab bar.
     fn natural_size(&self) -> Size {
-        let tabs: f64 = self
-            .ivars()
-            .tabs
-            .borrow()
+        let tabs = self.ivars().tabs.borrow();
+        let titles: f64 = tabs
             .iter()
-            .map(|t| t.label.intrinsicContentSize().width.max(0.0) + 2.0 * (PADDING + CLOSE))
+            .map(|t| t.label.intrinsicContentSize().width.max(0.0) + 2.0 * (CLOSE_INSET + CLOSE + 4.0))
             .sum();
-        let plus = if self.ivars().shared.model.borrow().new_tab == Some(true) { PLUS } else { 0.0 };
-        Size::new((tabs + plus).ceil() as f32, HEIGHT as f32)
+        let separators = tabs.len().saturating_sub(1) as f64;
+        let plus = if self.ivars().shared.model.borrow().new_tab == Some(true) { PLUS + PLUS_GAP } else { 0.0 };
+        Size::new((titles + separators + 2.0 * INSET + plus).ceil() as f32, HEIGHT as f32)
     }
 
     fn titles(&self) -> Vec<String> {
@@ -1500,4 +852,11 @@ impl TabStrip {
     fn has_plus(&self) -> bool {
         self.ivars().plus.borrow().as_ref().is_some_and(|p| !p.isHidden())
     }
+}
+
+/// A tab's title: the system tab bar's small font, the chosen tab's a
+/// little heavier.
+fn title_font(chosen: bool) -> Retained<NSFont> {
+    let weight = if chosen { unsafe { NSFontWeightMedium } } else { unsafe { NSFontWeightRegular } };
+    NSFont::systemFontOfSize_weight(NSFont::smallSystemFontSize(), weight)
 }

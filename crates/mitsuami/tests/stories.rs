@@ -833,8 +833,7 @@ fn tabs_with_icons() -> impl View {
 
 /// Document tabs as a strip over the content, the second chosen, with
 /// close buttons and the new-tab button. Each platform draws its own; on
-/// macOS it's the strip the backend builds (the window's tabs are chrome,
-/// outside a capture).
+/// macOS it's the strip the backend builds.
 #[mitsuami_test::story(sizes = [(480, fit)])]
 fn document_tabs() -> impl View {
     let current = signal(2);
