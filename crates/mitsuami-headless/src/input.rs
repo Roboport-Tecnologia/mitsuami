@@ -267,6 +267,8 @@ impl State {
             return Err(ActionError::Unsupported);
         }
         let takes_text = find_prop!(self.nodes[&id].props, TextInput) == Some(true);
+        // Input methods are on while it takes text, unless the app turned them off.
+        let composes = takes_text && find_prop!(self.nodes[&id].props, InputMethod) != Some(false);
         let modifiers = Modifiers::default();
         match input {
             SyntheticInput::Click(position) => {
@@ -295,7 +297,7 @@ impl State {
                 }
             }
             SyntheticInput::Text(text) => {
-                if !takes_text || self.focused != Some(id) {
+                if !composes || self.focused != Some(id) {
                     return Err(ActionError::Unsupported);
                 }
                 // A composition going on ends as it commits.
@@ -306,7 +308,7 @@ impl State {
                 self.emit(id, UiEvent::SurfaceInput(SurfaceInput::Text(text.clone())));
             }
             SyntheticInput::Compose(text) => {
-                if !takes_text || self.focused != Some(id) {
+                if !composes || self.focused != Some(id) {
                     return Err(ActionError::Unsupported);
                 }
                 self.composing = !text.is_empty();

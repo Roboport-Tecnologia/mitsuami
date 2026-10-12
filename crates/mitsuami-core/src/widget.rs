@@ -1058,6 +1058,12 @@ pub enum Prop {
     /// methods are on while it has focus, committing as
     /// `SurfaceInput::Text`.
     TextInput(bool),
+    /// Whether the platform's input methods are on while a `GpuSurface`
+    /// takes text (they are unless this says otherwise). Off, its keys
+    /// still report what they type, dead keys and AltGr composed in, but
+    /// nothing composes: for a modal editor whose keys are commands
+    /// outside its insert mode, as a terminal's are.
+    InputMethod(bool),
     /// Where the caret is on a `GpuSurface` that takes text, in points from
     /// its top left: the input method's candidate window opens by it.
     TextCursor(Option<Rect>),

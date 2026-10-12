@@ -111,8 +111,10 @@ struct ItemState {
     keyboard_grab: Option<bool>,
     /// Qt gives no cursor back as it was set.
     cursor: Option<Cursor>,
-    /// Kept as set: whether it takes text, and the caret.
+    /// Kept as set: whether it takes text, whether input methods compose
+    /// in it, and the caret.
     text_input: Option<bool>,
+    input_method: Option<bool>,
     text_cursor: Option<Option<Rect>>,
     keys: Rc<Keys>,
     /// What's in effect, and which of them (a lock's reports carry it, so
@@ -174,6 +176,7 @@ impl SurfaceItem {
             keyboard_grab: None,
             cursor: None,
             text_input: None,
+            input_method: None,
             text_cursor: None,
             keys: held.clone(),
             lock: None,
@@ -254,6 +257,12 @@ impl SurfaceItem {
         state.text_input = Some(on);
     }
 
+    pub(crate) fn set_input_method(&self, on: bool) {
+        let mut state = self.state.borrow_mut();
+        state.input.set_surface_input_method(on);
+        state.input_method = Some(on);
+    }
+
     pub(crate) fn set_text_cursor(&self, caret: Option<Rect>) {
         let mut state = self.state.borrow_mut();
         state.input.set_surface_caret(caret);
@@ -263,6 +272,11 @@ impl SurfaceItem {
     pub(crate) fn takes_text(&self) -> bool {
         let state = self.state.borrow();
         state.takes_input == Some(true) && state.text_input == Some(true)
+    }
+
+    /// Takes text, and input methods compose in it.
+    pub(crate) fn composes(&self) -> bool {
+        self.takes_text() && self.state.borrow().input_method != Some(false)
     }
 
     /// The props kept on the node, as the core set them, the lock and
@@ -275,6 +289,7 @@ impl SurfaceItem {
         props.extend(state.keyboard_grab.map(Prop::KeyboardGrab));
         props.extend(state.cursor.clone().map(Prop::Cursor));
         props.extend(state.text_input.map(Prop::TextInput));
+        props.extend(state.input_method.map(Prop::InputMethod));
         props.extend(state.text_cursor.map(Prop::TextCursor));
         props
     }

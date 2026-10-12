@@ -103,8 +103,10 @@ struct AreaState {
     /// widget's cursor for it, which a lock hides until it ends.
     cursor: Option<Cursor>,
     gdk_cursor: Option<gdk::Cursor>,
-    /// What the app set: whether it takes text, and where its caret is.
+    /// What the app set: whether it takes text, whether input methods
+    /// compose in it, and where its caret is.
     text_input: Option<bool>,
+    input_method: Option<bool>,
     text_cursor: Option<Option<Rect>>,
     /// The widget's key controller, and the input method context on it
     /// while it takes text.
@@ -154,6 +156,7 @@ impl SurfaceArea {
             cursor: None,
             gdk_cursor: None,
             text_input: None,
+            input_method: None,
             text_cursor: None,
             keys: glib::WeakRef::new(),
             im: None,
@@ -198,6 +201,10 @@ impl SurfaceArea {
             Prop::TextInput(on) => {
                 self.state.borrow_mut().text_input = Some(*on);
                 AreaState::sync_text(&self.state);
+            }
+            Prop::InputMethod(on) => {
+                self.state.borrow_mut().input_method = Some(*on);
+                AreaState::sync_input_method(&self.state);
             }
             Prop::TextCursor(caret) => {
                 let mut state = self.state.borrow_mut();
@@ -246,6 +253,7 @@ impl SurfaceArea {
         props.extend(state.keyboard_grab.map(|_| Prop::KeyboardGrab(state.grab.is_some())));
         props.extend(state.cursor.clone().map(Prop::Cursor));
         props.extend(state.text_input.map(Prop::TextInput));
+        props.extend(state.input_method.map(Prop::InputMethod));
         props.extend(state.text_cursor.map(Prop::TextCursor));
         props
     }
@@ -295,7 +303,7 @@ impl SurfaceArea {
                 }
             }
             SyntheticInput::Text(text) => {
-                if !self.area.is_focus() || !state.takes_text() {
+                if !self.area.is_focus() || !state.composes() {
                     return Err(ActionError::Unsupported);
                 }
                 drop(state);
@@ -307,7 +315,7 @@ impl SurfaceArea {
             // GTK's input method contexts can't be fed a composition: it's
             // reported as their `preedit-changed` reports one.
             SyntheticInput::Compose(text) => {
-                if !self.area.is_focus() || !state.takes_text() {
+                if !self.area.is_focus() || !state.composes() {
                     return Err(ActionError::Unsupported);
                 }
                 drop(state);
@@ -720,10 +728,26 @@ impl AreaState {
         keys.set_im_context(Some(&im));
         state.im = Some(im.clone());
         state.place_input_method();
+        let simple = state.input_method == Some(false);
         drop(state);
+        if simple {
+            Self::sync_input_method(this);
+        }
         if area.has_focus() {
             im.focus_in();
         }
+    }
+
+    /// Input methods off, the context is GTK's simple one, which composes
+    /// dead keys and Compose sequences as the keyboard does, and nothing
+    /// else; on, the platform's (`None`: the default).
+    fn sync_input_method(this: &Rc<RefCell<AreaState>>) {
+        let state = this.borrow();
+        let Some(im) = state.im.clone() else { return };
+        let id = (state.input_method == Some(false)).then_some("gtk-im-context-simple");
+        // Switching ends a composition: its handlers borrow the state.
+        drop(state);
+        im.set_context_id(id);
     }
 
     /// Opens the input method's candidates by the app's caret, in the
@@ -741,6 +765,11 @@ impl AreaState {
 
     fn takes_text(&self) -> bool {
         self.takes_input() && self.text_input == Some(true)
+    }
+
+    /// Takes text, and input methods compose in it.
+    fn composes(&self) -> bool {
+        self.takes_text() && self.input_method != Some(false)
     }
 
     /// Reports every key it has down as released: focus left, or the

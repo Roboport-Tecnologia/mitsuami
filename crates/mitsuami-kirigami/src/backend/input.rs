@@ -291,12 +291,12 @@ impl KirigamiBackend {
         window: Option<QmlObject>,
         input: &SyntheticInput,
     ) -> Result<(), ActionError> {
-        let (events, surface_input, takes_text) = {
+        let (events, surface_input, composes) = {
             let state = self.state.borrow();
             let node = state.nodes.get(&id).ok_or(ActionError::UnknownNode)?;
             match &node.widget {
                 Widget::GpuSurface(surface) if surface.takes_input() => {
-                    (state.events.clone(), surface.input, surface.takes_text())
+                    (state.events.clone(), surface.input, surface.composes())
                 }
                 _ => return Err(ActionError::Unsupported),
             }
@@ -314,13 +314,13 @@ impl KirigamiBackend {
             }
             // A real commit, as Qt's input method context sends it.
             SyntheticInput::Text(text) => {
-                if !takes_text || window.focus_item().and_then(|f| f.node()) != Some(node_key(id)) {
+                if !composes || window.focus_item().and_then(|f| f.node()) != Some(node_key(id)) {
                     return Err(ActionError::Unsupported);
                 }
                 surface_input.surface_commit(text);
             }
             SyntheticInput::Compose(text) => {
-                if !takes_text || window.focus_item().and_then(|f| f.node()) != Some(node_key(id)) {
+                if !composes || window.focus_item().and_then(|f| f.node()) != Some(node_key(id)) {
                     return Err(ActionError::Unsupported);
                 }
                 surface_input.surface_compose(text);

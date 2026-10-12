@@ -285,6 +285,7 @@ impl State {
                 | Prop::KeyboardGrab(_)
                 | Prop::Cursor(_)
                 | Prop::TextInput(_)
+                | Prop::InputMethod(_)
                 | Prop::TextCursor(_),
                 Widget::GpuSurface(surface),
             ) => surface.set_prop(prop),

@@ -181,6 +181,7 @@ impl State {
             (Prop::KeyboardGrab(on), Widget::GpuSurface(surface)) => surface.set_keyboard_grab(*on),
             (Prop::Cursor(cursor), Widget::GpuSurface(surface)) => surface.set_cursor(cursor),
             (Prop::TextInput(on), Widget::GpuSurface(surface)) => surface.set_text_input(*on),
+            (Prop::InputMethod(on), Widget::GpuSurface(surface)) => surface.set_input_method(*on),
             (Prop::TextCursor(caret), Widget::GpuSurface(surface)) => surface.set_text_cursor(*caret),
             (Prop::Options(options), Widget::Select(s)) => {
                 // A new model resets the chosen index; it stays if it can,

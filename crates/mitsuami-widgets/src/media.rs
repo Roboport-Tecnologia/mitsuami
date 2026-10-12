@@ -290,6 +290,15 @@ impl GpuSurface {
         self
     }
 
+    /// Whether the platform's input methods are on while it takes text,
+    /// as they are unless `on` is false: off, keys still report what they
+    /// type (layouts, dead keys, AltGr), but nothing composes. For a modal
+    /// editor, whose keys outside insert mode are commands.
+    pub fn input_method(mut self, on: impl IntoValue<bool>) -> GpuSurface {
+        self.0.prop(on.into_value(), Prop::InputMethod);
+        self
+    }
+
     /// Where the caret is, in points from its top left, while it takes
     /// text: the input method's candidate window opens by it.
     pub fn text_cursor(mut self, caret: impl IntoValue<Option<Rect>>) -> GpuSurface {

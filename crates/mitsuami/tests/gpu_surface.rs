@@ -588,6 +588,33 @@ async fn reports_an_input_method_s_composition(app: TestApp) {
     assert_eq!(text, expected, "{log:?}");
 }
 
+/// With input methods off, keys still type what they type, as they do
+/// with them on, and it reads back as the app set it, as it's turned on
+/// and off: a modal editor's keys outside insert mode are commands.
+#[mitsuami_test::test]
+async fn types_text_with_input_methods_off(app: TestApp) {
+    let input_method = signal(false);
+    let (log, on_input) = input_log();
+    app.mount(move || Column::new().child(taking_input(on_input).text_input(true).input_method(input_method)));
+    app.settle().await;
+    app.get(screen()).click_at(10.0, 10.0).await;
+
+    app.get(screen()).type_text("aB").await;
+
+    let expected = [(KeyCode::KeyA, Some("a".to_owned()), Some('a')), (KeyCode::KeyB, Some("B".to_owned()), Some('b'))];
+    assert_eq!(typed(&log), expected, "{log:?}");
+    let props = app.get(screen()).native_state().props;
+    assert!(props.contains(&Prop::InputMethod(false)), "{props:?}");
+
+    input_method.set(true);
+    app.settle().await;
+
+    let props = app.get(screen()).native_state().props;
+    assert!(props.contains(&Prop::InputMethod(true)), "{props:?}");
+    app.get(screen()).commit_text("日本").await;
+    assert!(log.borrow().contains(&SurfaceInput::Text("日本".to_owned())), "{log:?}");
+}
+
 /// Whether it takes text, and where its caret is, read back as the app
 /// set them, as the caret moves.
 #[mitsuami_test::test]
@@ -719,7 +746,9 @@ async fn types_through_windows_text_input(app: TestApp) {
 /// focused on this thread: somewhere an input method can compose, as in a
 /// text field. The thread's `ITfThreadMgr` (one per thread), its focused
 /// `ITfDocumentMgr` (`GetFocus`, slot 7) and that one's top context
-/// (`GetTop`, slot 6).
+/// (`GetTop`, slot 6). XAML leaves the last one focused as focus moves on
+/// to an element that isn't a text control, so this can't tell that it
+/// did: [`text_box_has_focus`] can.
 #[cfg(windows)]
 fn input_methods_have_a_document() -> bool {
     use std::ffi::c_void;
@@ -764,6 +793,84 @@ fn input_methods_have_a_document() -> bool {
     }
 }
 
+/// Whether the text box in `window` (its one edit control, as UI
+/// Automation sees the window) has XAML's focus, where input methods
+/// compose, rather than the canvas: `IUIAutomation::ElementFromHandle`
+/// (slot 6), `CreatePropertyCondition` (23) on the control type,
+/// `FindFirst` (5) among its descendants, and that element's
+/// `HasKeyboardFocus` (`GetCurrentPropertyValue`, 10). The window needn't
+/// be the active one, as `GetFocusedElement` needs.
+#[cfg(windows)]
+fn text_box_has_focus(window: isize) -> bool {
+    use std::ffi::c_void;
+
+    #[link(name = "ole32")]
+    unsafe extern "system" {
+        fn CoCreateInstance(
+            clsid: *const [u8; 16],
+            outer: *mut c_void,
+            context: u32,
+            iid: *const [u8; 16],
+            out: *mut *mut c_void,
+        ) -> i32;
+    }
+    /// A `VARIANT`: its type, then its value (`VT_I4`'s, `VT_BOOL`'s).
+    #[repr(C)]
+    #[derive(Default)]
+    struct Variant {
+        kind: u16,
+        _reserved: [u16; 3],
+        value: u64,
+        _rest: u64,
+    }
+    const VT_I4: u16 = 3;
+    const CONTROL_TYPE: i32 = 30003;
+    const HAS_KEYBOARD_FOCUS: i32 = 30008;
+    const EDIT: u64 = 50004;
+    const DESCENDANTS: i32 = 4;
+    unsafe fn method<F>(object: *mut c_void, index: usize) -> F {
+        let vtable = unsafe { *(object as *const *const usize) };
+        unsafe { std::mem::transmute_copy(&*vtable.add(index)) }
+    }
+    fn guid(data1: u32, data2: u16, data3: u16, data4: [u8; 8]) -> [u8; 16] {
+        let mut bytes = [0; 16];
+        bytes[..4].copy_from_slice(&data1.to_le_bytes());
+        bytes[4..6].copy_from_slice(&data2.to_le_bytes());
+        bytes[6..8].copy_from_slice(&data3.to_le_bytes());
+        bytes[8..].copy_from_slice(&data4);
+        bytes
+    }
+    type Out = *mut *mut c_void;
+    unsafe {
+        let clsid = guid(0xff48dba4, 0x60ef, 0x4201, [0xaa, 0x87, 0x54, 0x10, 0x3e, 0xef, 0x59, 0x4e]);
+        let iid = guid(0x30cbe57d, 0xd9d0, 0x452a, [0xab, 0x13, 0x7a, 0xc5, 0xac, 0x48, 0x25, 0xee]);
+        let mut automation = std::ptr::null_mut();
+        if CoCreateInstance(&clsid, std::ptr::null_mut(), 1, &iid, &mut automation) < 0 || automation.is_null() {
+            return false;
+        }
+        let mut root = std::ptr::null_mut();
+        let from_handle: unsafe extern "system" fn(*mut c_void, isize, Out) -> i32 = method(automation, 6);
+        if from_handle(automation, window, &mut root) < 0 || root.is_null() {
+            return false;
+        }
+        let edit = Variant { kind: VT_I4, value: EDIT, ..Variant::default() };
+        let mut condition = std::ptr::null_mut();
+        let property_condition: unsafe extern "system" fn(*mut c_void, i32, Variant, Out) -> i32 =
+            method(automation, 23);
+        if property_condition(automation, CONTROL_TYPE, edit, &mut condition) < 0 || condition.is_null() {
+            return false;
+        }
+        let mut found = std::ptr::null_mut();
+        let find_first: unsafe extern "system" fn(*mut c_void, i32, *mut c_void, Out) -> i32 = method(root, 5);
+        if find_first(root, DESCENDANTS, condition, &mut found) < 0 || found.is_null() {
+            return false;
+        }
+        let mut focused = Variant::default();
+        let value: unsafe extern "system" fn(*mut c_void, i32, *mut Variant) -> i32 = method(found, 10);
+        value(found, HAS_KEYBOARD_FOCUS, &mut focused) >= 0 && focused.value as u16 != 0
+    }
+}
+
 /// On Windows, taking text with focus from a click, an input method has
 /// somewhere to compose. On the canvas alone XAML gave them no document,
 /// and Japanese typed as Latin letters.
@@ -801,6 +908,96 @@ async fn gives_input_methods_a_document_when_focused_from_code(app: TestApp) {
     app.expect(screen()).to_be_focused().await;
 
     assert!(input_methods_have_a_document(), "no text services document to compose in");
+}
+
+/// The XAML window a surface is in, from its child window.
+#[cfg(windows)]
+fn xaml_window(seen: &Rc<RefCell<Vec<Seen>>>) -> isize {
+    use mitsuami::raw_window_handle::RawWindowHandle;
+
+    #[link(name = "user32")]
+    unsafe extern "system" {
+        fn GetAncestor(hwnd: isize, flags: u32) -> isize;
+    }
+    const ROOT: u32 = 2;
+    let RawWindowHandle::Win32(child) = handle(seen).window_handle().unwrap().as_raw() else { panic!() };
+    unsafe { GetAncestor(child.hwnd.get(), ROOT) }
+}
+
+/// On Windows, a click on the surface itself (its child window, over the
+/// canvas, which the pointer clicks) leaves focus in its text box, where
+/// input methods compose. It focused the canvas, and Japanese typed as
+/// Latin letters after it.
+#[cfg(windows)]
+#[mitsuami_test::test]
+async fn keeps_input_methods_through_a_click_on_windows(app: TestApp) {
+    use mitsuami::raw_window_handle::RawWindowHandle;
+
+    #[link(name = "user32")]
+    unsafe extern "system" {
+        fn SendMessageW(hwnd: isize, msg: u32, w: usize, l: isize) -> isize;
+    }
+    const LBUTTONDOWN: u32 = 0x201;
+    const LBUTTONUP: u32 = 0x202;
+    const LBUTTON: usize = 1;
+
+    let seen = Rc::new(RefCell::new(Vec::new()));
+    let (_log, on_input) = input_log();
+    let s = seen.clone();
+    app.mount(move || Column::new().child(surface(&s).size(200.px(), 100.px()).on_input(on_input).text_input(true)));
+    app.settle().await;
+    if app.is_headless() {
+        return;
+    }
+    app.get(screen()).click_at(10.0, 10.0).await;
+    app.settle().await;
+    let window = xaml_window(&seen);
+    assert!(text_box_has_focus(window), "the text box hasn't focus before the click");
+    let RawWindowHandle::Win32(child) = handle(&seen).window_handle().unwrap().as_raw() else { panic!() };
+
+    let at = 10 | 10 << 16;
+    unsafe {
+        SendMessageW(child.hwnd.get(), LBUTTONDOWN, LBUTTON, at);
+        SendMessageW(child.hwnd.get(), LBUTTONUP, 0, at);
+    }
+    app.settle().await;
+
+    app.expect(screen()).to_be_focused().await;
+    assert!(text_box_has_focus(window), "the click took focus from the text box");
+}
+
+/// On Windows, with input methods off the canvas has focus, not the text
+/// box, so keys type as letters; turned back on, focus goes to the box,
+/// where they compose.
+#[cfg(windows)]
+#[mitsuami_test::test]
+async fn takes_focus_from_the_text_box_with_input_methods_off_on_windows(app: TestApp) {
+    let input_method = signal(true);
+    let seen = Rc::new(RefCell::new(Vec::new()));
+    let (_log, on_input) = input_log();
+    let s = seen.clone();
+    app.mount(move || {
+        Column::new()
+            .child(surface(&s).size(200.px(), 100.px()).on_input(on_input).text_input(true).input_method(input_method))
+    });
+    app.settle().await;
+    if app.is_headless() {
+        return;
+    }
+    app.get(screen()).click_at(10.0, 10.0).await;
+    app.settle().await;
+    let window = xaml_window(&seen);
+    assert!(text_box_has_focus(window), "the text box hasn't focus");
+
+    input_method.set(false);
+    app.settle().await;
+    app.expect(screen()).to_be_focused().await;
+    assert!(!text_box_has_focus(window), "the text box has focus with input methods off");
+
+    input_method.set(true);
+    app.settle().await;
+    app.expect(screen()).to_be_focused().await;
+    assert!(text_box_has_focus(window), "the text box hasn't focus with input methods back on");
 }
 
 mitsuami_test::main!();

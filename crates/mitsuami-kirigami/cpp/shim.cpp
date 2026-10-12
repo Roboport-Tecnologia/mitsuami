@@ -245,6 +245,13 @@ public:
         updateInputMethod();
     }
 
+    // Off, keys still type, but no input method composes: the item
+    // doesn't accept one, and tells it it's not enabled.
+    void setInputMethod(bool on) {
+        inputMethod = on;
+        updateInputMethod();
+    }
+
     void setCaret(std::optional<QRectF> at) {
         caret = at;
         if (hasActiveFocus()) QGuiApplication::inputMethod()->update(Qt::ImCursorRectangle);
@@ -257,7 +264,7 @@ public:
         showCursor();
     }
 
-    bool takes = false, grabbed = false, locked = false, textInput = false;
+    bool takes = false, grabbed = false, locked = false, textInput = false, inputMethod = true;
     std::optional<QCursor> chosen;
     std::optional<QRectF> caret;
 
@@ -279,7 +286,7 @@ protected:
     // wants no predictions or capitals of the input method's own.
     QVariant inputMethodQuery(Qt::InputMethodQuery query) const override {
         switch (query) {
-        case Qt::ImEnabled: return takesText();
+        case Qt::ImEnabled: return composes();
         case Qt::ImCursorRectangle: return caret.value_or(QRectF());
         case Qt::ImHints: return int(Qt::ImhNoPredictiveText | Qt::ImhNoAutoUppercase);
         case Qt::ImSurroundingText: return QString();
@@ -293,7 +300,7 @@ protected:
     // its caret where the `Cursor` attribute is shown (a length of 0 hides
     // it). A commit ends the composition first, then a new one may start.
     void inputMethodEvent(QInputMethodEvent* event) override {
-        if (!takesText()) return event->ignore();
+        if (!composes()) return event->ignore();
         QString preedit = event->preeditString();
         int cursor = -1;
         for (const QInputMethodEvent::Attribute& attribute : event->attributes()) {
@@ -358,9 +365,10 @@ protected:
 
 private:
     bool takesText() const { return takes && textInput; }
+    bool composes() const { return takesText() && inputMethod; }
 
     void updateInputMethod() {
-        setFlag(QQuickItem::ItemAcceptsInputMethod, takesText());
+        setFlag(QQuickItem::ItemAcceptsInputMethod, composes());
         if (hasActiveFocus())
             QGuiApplication::inputMethod()->update(Qt::ImEnabled | Qt::ImHints | Qt::ImCursorRectangle);
     }
@@ -1308,6 +1316,7 @@ void mq_surface_key(QObject* window, int32_t key, uint32_t scan_code, const char
 }
 
 void mq_surface_input_text(QObject* item, int32_t on) { static_cast<SurfaceInputItem*>(item)->setTextInput(on); }
+void mq_surface_input_method(QObject* item, int32_t on) { static_cast<SurfaceInputItem*>(item)->setInputMethod(on); }
 
 void mq_surface_input_caret(QObject* item, int32_t has, double x, double y, double width, double height) {
     auto* input = static_cast<SurfaceInputItem*>(item);

@@ -143,6 +143,7 @@ unsafe extern "C" {
     fn mq_surface_input_configure(item: Raw, takes: i32, grabbed: i32, locked: i32);
     fn mq_surface_key(window: Raw, key: i32, scan_code: u32, text: *const c_char);
     fn mq_surface_input_text(item: Raw, on: i32);
+    fn mq_surface_input_method(item: Raw, on: i32);
     fn mq_surface_input_caret(item: Raw, has: i32, x: f64, y: f64, width: f64, height: f64);
     fn mq_surface_commit(item: Raw, text: *const c_char);
     fn mq_surface_compose(item: Raw, text: *const c_char);
@@ -911,6 +912,13 @@ impl QmlObject {
     pub(crate) fn set_surface_text_input(self, on: bool) {
         let Some(raw) = self.live() else { return };
         unsafe { mq_surface_input_text(raw, on as i32) }
+    }
+
+    /// Whether input methods compose in a GPU surface's input item while it
+    /// takes text.
+    pub(crate) fn set_surface_input_method(self, on: bool) {
+        let Some(raw) = self.live() else { return };
+        unsafe { mq_surface_input_method(raw, on as i32) }
     }
 
     /// Where the caret is on a GPU surface's input item, for input methods.

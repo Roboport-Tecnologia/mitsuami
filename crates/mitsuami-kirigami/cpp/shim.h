@@ -199,8 +199,10 @@ void mq_set_input_callback(mq_input_callback callback);
 QObject* mq_surface_input_new(QObject* parent, uint64_t key);
 void mq_surface_input_configure(QObject* item, int32_t takes, int32_t grabbed, int32_t locked);
 void mq_surface_key(QObject* window, int32_t key, uint32_t scan_code, const char* text);
-// Text input: on or off, and the caret in the item's points (`has` 0: none).
+// Text input: on or off, input methods on or off while it is, and the caret
+// in the item's points (`has` 0: none).
 void mq_surface_input_text(QObject* item, int32_t on);
+void mq_surface_input_method(QObject* item, int32_t on);
 void mq_surface_input_caret(QObject* item, int32_t has, double x, double y, double width, double height);
 // A real input method commit, as tests give it.
 void mq_surface_commit(QObject* item, const char* text);

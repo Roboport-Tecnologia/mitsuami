@@ -42,10 +42,10 @@ use objc2::{
     AllocAnyThread, ClassType, DefinedClass, MainThreadMarker, MainThreadOnly, Message, define_class, msg_send, sel,
 };
 use objc2_app_kit::{
-    NSAccessibility, NSAccessibilityImageRole, NSApplication, NSApplicationPresentationOptions, NSCursor, NSEvent,
-    NSEventMask, NSEventModifierFlags, NSEventType, NSResponder, NSScreen, NSTextInputClient, NSTextInputContext,
-    NSTrackingArea, NSTrackingAreaOptions, NSView, NSViewLayerContentsPlacement, NSWindow,
-    NSWindowDidResignKeyNotification,
+    NSAccessibility, NSAccessibilityImageRole, NSAllRomanInputSourcesLocaleIdentifier, NSApplication,
+    NSApplicationPresentationOptions, NSCursor, NSEvent, NSEventMask, NSEventModifierFlags, NSEventType, NSResponder,
+    NSScreen, NSTextInputClient, NSTextInputContext, NSTrackingArea, NSTrackingAreaOptions, NSView,
+    NSViewLayerContentsPlacement, NSWindow, NSWindowDidResignKeyNotification,
 };
 use objc2_foundation::{
     NSArray, NSAttributedString, NSAttributedStringKey, NSNotFound, NSNotification, NSNotificationCenter,
@@ -170,9 +170,10 @@ pub(crate) struct SurfaceIvars {
     /// which an `NSCursor` can't give back.
     cursor: RefCell<Option<Retained<NSCursor>>>,
     cursor_prop: RefCell<Cursor>,
-    /// Whether it takes text, and the app's caret, in points from its top
-    /// left (the view is flipped).
+    /// Whether it takes text, whether input methods compose in it, and the
+    /// app's caret, in points from its top left (the view is flipped).
     text_input: Cell<bool>,
+    input_method: Cell<bool>,
     text_cursor: Cell<Option<Rect>>,
     /// While `keyDown:` interprets a key: what `insertText:` gave.
     typing: RefCell<Option<String>>,
@@ -291,7 +292,12 @@ define_class!(
         /// would otherwise take a game's keys.
         #[unsafe(method_id(inputContext))]
         fn input_context(&self) -> Option<Retained<NSTextInputContext>> {
-            if self.takes_text() { unsafe { msg_send![super(self), inputContext] } } else { None }
+            let context: Option<Retained<NSTextInputContext>> =
+                if self.takes_text() { unsafe { msg_send![super(self), inputContext] } } else { None };
+            if let Some(context) = &context {
+                self.allow_input_sources(context);
+            }
+            context
         }
 
         /// Only synthesized: the monitor takes real ones.
@@ -561,6 +567,7 @@ impl SurfaceView {
             cursor: RefCell::new(None),
             cursor_prop: RefCell::new(Cursor::Default),
             text_input: Cell::new(false),
+            input_method: Cell::new(true),
             text_cursor: Cell::new(None),
             typing: RefCell::new(None),
             marked: RefCell::new(String::new()),
@@ -640,8 +647,39 @@ impl SurfaceView {
         self.ivars().text_input.get()
     }
 
+    pub(crate) fn input_method(&self) -> bool {
+        self.ivars().input_method.get()
+    }
+
     pub(crate) fn text_cursor(&self) -> Option<Rect> {
         self.ivars().text_cursor.get()
+    }
+
+    /// Input methods off, its context takes only Roman input sources:
+    /// macOS switches to one while the view has focus, and back as it
+    /// leaves. The keyboard layout still composes dead keys and Option.
+    fn allow_input_sources(&self, context: &NSTextInputContext) {
+        let roman = (!self.ivars().input_method.get())
+            .then(|| NSArray::from_slice(&[unsafe { NSAllRomanInputSourcesLocaleIdentifier }]));
+        if context.allowedInputSourceLocales().as_deref() != roman.as_deref() {
+            context.setAllowedInputSourceLocales(roman.as_deref());
+        }
+    }
+
+    /// Whether input methods compose in it while it takes text: the
+    /// context's input sources follow it as it's asked for (above), so a
+    /// view that has focus asks for it again, which switches the source now.
+    pub(crate) fn set_input_method(&self, on: bool) {
+        if self.ivars().input_method.replace(on) == on {
+            return;
+        }
+        if self.is_first_responder()
+            && let Some(context) = self.inputContext()
+        {
+            context.discardMarkedText();
+            context.deactivate();
+            context.activate();
+        }
     }
 
     /// Takes text: its input context comes and goes with it. AppKit asks
@@ -1236,7 +1274,7 @@ pub(crate) fn synthesize(view: &SurfaceView, input: &SyntheticInput) -> Result<(
             view.emit(SurfaceInput::Scroll { delta, modifiers: Modifiers::default() });
         }
         SyntheticInput::Text(text) => {
-            if !view.takes_text() || !view.is_first_responder() {
+            if !view.takes_text() || !view.input_method() || !view.is_first_responder() {
                 return Err(ActionError::Unsupported);
             }
             let string = NSString::from_str(text);
@@ -1246,7 +1284,7 @@ pub(crate) fn synthesize(view: &SurfaceView, input: &SyntheticInput) -> Result<(
         // As an input method composes: the view's marked text, its caret
         // at the end; empty ends it.
         SyntheticInput::Compose(text) => {
-            if !view.takes_text() || !view.is_first_responder() {
+            if !view.takes_text() || !view.input_method() || !view.is_first_responder() {
                 return Err(ActionError::Unsupported);
             }
             if text.is_empty() {

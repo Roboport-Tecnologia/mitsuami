@@ -165,8 +165,10 @@ struct HostState {
     /// scale it was made for.
     cursor: Option<Cursor>,
     made: Option<(f64, w::HCURSOR)>,
-    /// What the core set: whether it takes text, and where its caret is.
+    /// What the core set: whether it takes text, whether input methods
+    /// compose in it, and where its caret is.
     text_input: Option<bool>,
+    input_method: Option<bool>,
     text_cursor: Option<Option<Rect>>,
     /// What the key going down typed: its `WM_CHAR`s, taken off the queue
     /// before XAML reports the key.
@@ -220,6 +222,7 @@ impl SurfaceHost {
                 cursor: None,
                 made: None,
                 text_input: None,
+                input_method: None,
                 text_cursor: None,
                 typed: None,
                 surrogate: None,
@@ -351,9 +354,23 @@ impl SurfaceHost {
     /// Takes text: its keys report what they type, and the input method
     /// follows its caret.
     pub(crate) fn set_text_input(&self, on: bool) {
+        self.state.borrow_mut().text_input = Some(on);
+        self.sync_text();
+    }
+
+    /// Whether input methods compose in it while it takes text: off, the
+    /// canvas has focus rather than its text box, and keys type as they
+    /// would with no input method.
+    pub(crate) fn set_input_method(&self, on: bool) {
+        self.state.borrow_mut().input_method = Some(on);
+        self.sync_text();
+    }
+
+    /// The text box comes with text input, and has focus, rather than the
+    /// canvas, while input methods compose in it.
+    fn sync_text(&self) {
         let mut state = self.state.borrow_mut();
-        state.text_input = Some(on);
-        if on && state.text_box.is_none() {
+        if state.text_input == Some(true) && state.text_box.is_none() {
             match make_text_box(&self.state, &state.element) {
                 Ok(text_box) => state.text_box = Some(text_box),
                 Err(e) => eprintln!("mitsuami: a GpuSurface's text box: {e}"),
@@ -361,10 +378,7 @@ impl SurfaceHost {
         }
         // Focus moves to the text box, or back from it to the canvas.
         if state.is_xaml_focus() {
-            let target = match (&state.text_box, state.takes_text()) {
-                (Some(text_box), true) => text_box.control.cast::<w::IUIElement>().ok(),
-                _ => state.element.cast::<w::IUIElement>().ok(),
-            };
+            let target = state.focus_target();
             drop(state);
             if let Some(target) = target {
                 _ = target.Focus(w::FocusState::Programmatic);
@@ -391,6 +405,7 @@ impl SurfaceHost {
         props.extend(state.grab.map(|_| Prop::KeyboardGrab(state.grabbed || state.pending_grab)));
         props.extend(state.cursor.clone().map(Prop::Cursor));
         props.extend(state.text_input.map(Prop::TextInput));
+        props.extend(state.input_method.map(Prop::InputMethod));
         props.extend(state.text_cursor.map(Prop::TextCursor));
         props
     }
@@ -434,7 +449,7 @@ impl SurfaceHost {
             // As an input method commits: into the text box, whose text is
             // taken (its `TextChanged` would come while this holds the state).
             SyntheticInput::Text(text) => {
-                if let (true, Some(text_box)) = (state.takes_text(), &state.text_box) {
+                if let (true, Some(text_box)) = (state.composes(), &state.text_box) {
                     text_box.composing.set(false);
                     state.report_preedit();
                     _ = text_box.control.SetText(text);
@@ -444,7 +459,7 @@ impl SurfaceHost {
             // A composition's text so far, in the text box, as an input
             // method writes it there; empty ends it.
             SyntheticInput::Compose(text) => {
-                if let (true, Some(text_box)) = (state.takes_text(), &state.text_box) {
+                if let (true, Some(text_box)) = (state.composes(), &state.text_box) {
                     text_box.composing.set(!text.is_empty());
                     _ = text_box.control.SetText(text);
                     _ = text_box.control.SetSelectionStart(text.encode_utf16().count() as i32);
@@ -533,16 +548,23 @@ fn listen(element: &w::IUIElement, state: &Rc<RefCell<HostState>>) -> R<Vec<Even
         };
         revokers.push(if pressed { element.KeyDown(handler)? } else { element.KeyUp(handler)? });
     }
-    // Focus coming to the canvas goes on to its text box while it takes
-    // text (the box's own focus comes through here too).
+    // Focus coming to the canvas goes on to its text box while input
+    // methods compose in it, and coming to the box goes back to the canvas
+    // while they don't (the box's own focus comes through here too). Not
+    // while the state is busy: what focuses then picks the target itself.
     let s = weak();
     revokers.push(element.GettingFocus(move |_, args| {
         let Some(args) = args.as_ref().and_then(|a| a.cast::<w::IGettingFocusEventArgs>().ok()) else { return };
         let Some(s) = s.upgrade() else { return };
         let Ok(state) = s.try_borrow() else { return };
-        let (Some(text_box), true) = (&state.text_box, state.takes_text()) else { return };
-        let to_canvas = args.NewFocusedElement().is_ok_and(|new| same(&new, &state.element));
-        if to_canvas && let Ok(target) = text_box.control.cast::<w::DependencyObject>() {
+        let Some(text_box) = &state.text_box else { return };
+        let Ok(new) = args.NewFocusedElement() else { return };
+        let ours = same(&new, &state.element) || same(&new, &text_box.control);
+        if ours
+            && let Some(target) = state.focus_target()
+            && !same(&new, &target)
+            && let Ok(target) = target.cast::<w::DependencyObject>()
+        {
             _ = args.TrySetNewFocusedElement(&target);
         }
     })?);
@@ -655,8 +677,11 @@ impl HostState {
         };
         let held = w::MK_LBUTTON | w::MK_RBUTTON | w::MK_MBUTTON | w::MK_XBUTTON1 | w::MK_XBUTTON2;
         if pressed {
-            if let Ok(element) = self.element.cast::<w::IUIElement>() {
-                _ = element.Focus(w::FocusState::Pointer);
+            // The text box, while input methods compose in it: `GettingFocus`
+            // can't send focus on there while this holds the state, and a
+            // click that focused the canvas left them nothing to compose in.
+            if let Some(target) = self.focus_target() {
+                _ = target.Focus(w::FocusState::Pointer);
             }
             // As a click outside a menu anywhere else closes it.
             crate::backend::reveal::dismiss_menus(self.hwnd);
@@ -708,6 +733,20 @@ impl HostState {
         self.takes_input == Some(true) && self.text_input == Some(true)
     }
 
+    /// Takes text, and input methods compose in its text box.
+    fn composes(&self) -> bool {
+        self.takes_text() && self.input_method != Some(false) && self.text_box.is_some()
+    }
+
+    /// What has focus for it: the text box while input methods compose in
+    /// it, else the canvas.
+    fn focus_target(&self) -> Option<w::IUIElement> {
+        match &self.text_box {
+            Some(text_box) if self.composes() => text_box.control.cast().ok(),
+            _ => self.element.cast().ok(),
+        }
+    }
+
     /// A `WM_CHAR` no key down came with, an input method's: one UTF-16
     /// unit at a time.
     fn char_typed(&mut self, unit: u16) {
@@ -737,7 +776,7 @@ impl HostState {
             _ = w::Canvas::SetLeft(&element, caret.origin.x as f64);
             _ = w::Canvas::SetTop(&element, caret.origin.y as f64);
         }
-        if !self.takes_text() || !self.is_xaml_focus() {
+        if !self.composes() || !self.is_xaml_focus() {
             return;
         }
         let focus = unsafe { w::GetFocus() };
@@ -931,11 +970,7 @@ impl HostState {
         }
         if std::mem::take(&mut self.pending_grab) {
             let focused = foreground
-                && self
-                    .element
-                    .cast::<w::IUIElement>()
-                    .and_then(|e| e.Focus(w::FocusState::Programmatic))
-                    .unwrap_or(false);
+                && self.focus_target().and_then(|e| e.Focus(w::FocusState::Programmatic).ok()).unwrap_or(false);
             if focused {
                 self.focused = true;
                 self.hook();
