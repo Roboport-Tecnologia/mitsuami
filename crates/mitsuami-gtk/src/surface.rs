@@ -112,6 +112,9 @@ struct AreaState {
     im: Option<gtk::IMMulticontext>,
     /// What the input method committed for the key being pressed.
     typed: Option<String>,
+    /// The composition last reported (its text and caret in bytes), so an
+    /// unchanged one isn't again.
+    preedit: (String, Option<usize>),
 }
 
 struct Grab {
@@ -155,6 +158,7 @@ impl SurfaceArea {
             keys: glib::WeakRef::new(),
             im: None,
             typed: None,
+            preedit: (String::new(), None),
         }));
         AREAS.with(|a| a.borrow_mut().insert(key, Rc::downgrade(&state)));
         let s = state.clone();
@@ -294,7 +298,21 @@ impl SurfaceArea {
                 if !self.area.is_focus() || !state.takes_text() {
                     return Err(ActionError::Unsupported);
                 }
+                drop(state);
+                let mut state = self.state.borrow_mut();
+                // A composition going on ends as it commits.
+                state.report_preedit(String::new(), None);
                 state.report(SurfaceInput::Text(text.clone()));
+            }
+            // GTK's input method contexts can't be fed a composition: it's
+            // reported as their `preedit-changed` reports one.
+            SyntheticInput::Compose(text) => {
+                if !self.area.is_focus() || !state.takes_text() {
+                    return Err(ActionError::Unsupported);
+                }
+                drop(state);
+                let cursor = (!text.is_empty()).then_some(text.len());
+                self.state.borrow_mut().report_preedit(text.clone(), cursor);
             }
             SyntheticInput::Scroll { dx, dy } => {
                 let delta = ScrollDelta::Points { x: *dx, y: *dy };
@@ -319,6 +337,15 @@ impl SurfaceArea {
 impl AreaState {
     fn report(&self, input: SurfaceInput) {
         self.events.emit(self.id, UiEvent::SurfaceInput(input));
+    }
+
+    /// Reports the composition going on (empty: none), if it changed.
+    fn report_preedit(&mut self, text: String, cursor: Option<usize>) {
+        if self.preedit.0 == text && self.preedit.1 == cursor {
+            return;
+        }
+        self.preedit = (text.clone(), cursor);
+        self.report(SurfaceInput::Preedit { text, cursor });
     }
 
     fn mapped(this: &Rc<RefCell<AreaState>>, area: &gtk::DrawingArea) {
@@ -642,6 +669,7 @@ impl AreaState {
         }
         if let Some(im) = state.im.take() {
             state.typed = None;
+            state.report_preedit(String::new(), None);
             // An input method may commit what it was composing as it
             // loses focus: its handler borrows the state.
             drop(state);
@@ -661,10 +689,32 @@ impl AreaState {
             let pressing =
                 k.upgrade().and_then(|k| k.current_event()).is_some_and(|e| e.event_type() == gdk::EventType::KeyPress);
             let mut state = s.borrow_mut();
+            // A composition showing ends as it commits.
+            state.report_preedit(String::new(), None);
             if pressing {
                 state.typed.get_or_insert_default().push_str(&text);
             } else if !text.is_empty() {
                 state.report(SurfaceInput::Text(text));
+            }
+        });
+        // The composition as it's typed and converted, for the app to draw at
+        // its caret: the area is the app's to draw.
+        let s = Rc::downgrade(this);
+        im.connect_preedit_changed(move |im| {
+            let Some(s) = s.upgrade() else { return };
+            let Ok(mut state) = s.try_borrow_mut() else { return };
+            let (text, _, cursor) = im.preedit_string();
+            let text = text.to_string();
+            let cursor =
+                (!text.is_empty()).then(|| text.chars().take(cursor.max(0) as usize).map(char::len_utf8).sum());
+            state.report_preedit(text, cursor);
+        });
+        let s = Rc::downgrade(this);
+        im.connect_preedit_end(move |_| {
+            if let Some(s) = s.upgrade()
+                && let Ok(mut state) = s.try_borrow_mut()
+            {
+                state.report_preedit(String::new(), None);
             }
         });
         keys.set_im_context(Some(&im));

@@ -121,7 +121,7 @@ impl HeadlessBackend {
             }
             // Handled above.
             // Only a surface takes an input method's text.
-            SyntheticInput::Text(_) => return Err(ActionError::Unsupported),
+            SyntheticInput::Text(_) | SyntheticInput::Compose(_) => return Err(ActionError::Unsupported),
             SyntheticInput::DragFiles(_)
             | SyntheticInput::DragLeave
             | SyntheticInput::DropFiles(_)
@@ -298,7 +298,21 @@ impl State {
                 if !takes_text || self.focused != Some(id) {
                     return Err(ActionError::Unsupported);
                 }
+                // A composition going on ends as it commits.
+                if std::mem::take(&mut self.composing) {
+                    let preedit = SurfaceInput::Preedit { text: String::new(), cursor: None };
+                    self.emit(id, UiEvent::SurfaceInput(preedit));
+                }
                 self.emit(id, UiEvent::SurfaceInput(SurfaceInput::Text(text.clone())));
+            }
+            SyntheticInput::Compose(text) => {
+                if !takes_text || self.focused != Some(id) {
+                    return Err(ActionError::Unsupported);
+                }
+                self.composing = !text.is_empty();
+                let cursor = self.composing.then_some(text.len());
+                let preedit = SurfaceInput::Preedit { text: text.clone(), cursor };
+                self.emit(id, UiEvent::SurfaceInput(preedit));
             }
             SyntheticInput::Scroll { dx, dy } => {
                 let delta = ScrollDelta::Points { x: *dx, y: *dy };

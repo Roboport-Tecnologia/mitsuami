@@ -119,7 +119,7 @@ impl KirigamiBackend {
             | SyntheticInput::PointerLeave
             | SyntheticInput::DoubleClick => unreachable!(),
             // Only a surface takes an input method's text.
-            SyntheticInput::Text(_) => Err(ActionError::Unsupported),
+            SyntheticInput::Text(_) | SyntheticInput::Compose(_) => Err(ActionError::Unsupported),
             // Text fields take keys with modifiers as editing commands,
             // which aren't simulated.
             SyntheticInput::Shortcut(_)
@@ -318,6 +318,12 @@ impl KirigamiBackend {
                     return Err(ActionError::Unsupported);
                 }
                 surface_input.surface_commit(text);
+            }
+            SyntheticInput::Compose(text) => {
+                if !takes_text || window.focus_item().and_then(|f| f.node()) != Some(node_key(id)) {
+                    return Err(ActionError::Unsupported);
+                }
+                surface_input.surface_compose(text);
             }
             SyntheticInput::Scroll { dx, dy } => {
                 let delta = ScrollDelta::Points { x: *dx, y: *dy };

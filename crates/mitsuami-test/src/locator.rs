@@ -282,6 +282,14 @@ impl<'a> Locator<'a> {
         self.input(SyntheticInput::Text(text.to_owned())).await;
     }
 
+    /// An input method's composition shows this text so far, on a focused
+    /// `GpuSurface` that takes text: the kana typed before they're
+    /// converted and committed (`commit_text`). Empty ends it.
+    pub async fn compose_text(&self, text: &str) {
+        self.app.settle().await;
+        self.input(SyntheticInput::Compose(text.to_owned())).await;
+    }
+
     /// Presses a key on the control, with it focused, as the keyboard
     /// does: `press(Key::Enter)`, `press(' ')`, or with modifiers,
     /// `press(Shortcut::primary(Key::Backspace))`. A key the control

@@ -558,6 +558,36 @@ async fn takes_an_input_method_s_text(app: TestApp) {
     assert_eq!(texts, [SurfaceInput::Text("日本".to_owned())], "{log:?}");
 }
 
+/// A composition in progress comes as its preedit, for the app to draw at
+/// its caret (the surface is the app's to draw, so the platform can't show
+/// it there), and ends, empty, as it's committed.
+#[mitsuami_test::test]
+async fn reports_an_input_method_s_composition(app: TestApp) {
+    let (log, on_input) = input_log();
+    app.mount(move || Column::new().child(taking_input(on_input).text_input(true)));
+    app.settle().await;
+    app.get(screen()).click_at(10.0, 10.0).await;
+
+    app.get(screen()).compose_text("かん").await;
+    app.get(screen()).compose_text("かんじ").await;
+    app.get(screen()).commit_text("感じ").await;
+
+    let text: Vec<SurfaceInput> = log
+        .borrow()
+        .iter()
+        .filter(|input| matches!(input, SurfaceInput::Text(_) | SurfaceInput::Preedit { .. }))
+        .cloned()
+        .collect();
+    let preedit = |text: &str, cursor| SurfaceInput::Preedit { text: text.to_owned(), cursor };
+    let expected = [
+        preedit("かん", Some(6)),
+        preedit("かんじ", Some(9)),
+        preedit("", None),
+        SurfaceInput::Text("感じ".to_owned()),
+    ];
+    assert_eq!(text, expected, "{log:?}");
+}
+
 /// Whether it takes text, and where its caret is, read back as the app
 /// set them, as the caret moves.
 #[mitsuami_test::test]
@@ -685,13 +715,13 @@ async fn types_through_windows_text_input(app: TestApp) {
     assert!(log.borrow().contains(&SurfaceInput::Text("日".to_owned())), "{log:?}");
 }
 
-/// On Windows, taking text with focus, an input method has somewhere to
-/// compose: Windows' text services (TSF) have a document with a context
-/// focused, as for a text field. On the canvas alone XAML gave them none,
-/// and Japanese typed as Latin letters.
+/// Whether Windows' text services (TSF) have a document with a context
+/// focused on this thread: somewhere an input method can compose, as in a
+/// text field. The thread's `ITfThreadMgr` (one per thread), its focused
+/// `ITfDocumentMgr` (`GetFocus`, slot 7) and that one's top context
+/// (`GetTop`, slot 6).
 #[cfg(windows)]
-#[mitsuami_test::test]
-async fn gives_input_methods_a_document_on_windows(app: TestApp) {
+fn input_methods_have_a_document() -> bool {
     use std::ffi::c_void;
 
     #[link(name = "ole32")]
@@ -722,10 +752,7 @@ async fn gives_input_methods_a_document_on_windows(app: TestApp) {
         bytes[8..].copy_from_slice(&data4);
         bytes
     }
-    // The thread's `ITfThreadMgr` (one per thread), its focused
-    // `ITfDocumentMgr` (`GetFocus`, slot 7) and that one's top context
-    // (`GetTop`, slot 6).
-    let focused_context = || unsafe {
+    unsafe {
         let clsid = guid(0x529a9e6b, 0x6587, 0x4f23, [0xab, 0x9e, 0x9c, 0x7d, 0x68, 0x3e, 0x3c, 0x50]);
         let iid = guid(0xaa80e801, 0x2021, 0x11d2, [0x93, 0xe0, 0x00, 0x60, 0xb0, 0x67, 0xb8, 0x6e]);
         let mut manager = std::ptr::null_mut();
@@ -734,8 +761,15 @@ async fn gives_input_methods_a_document_on_windows(app: TestApp) {
         }
         let document = call(manager, 7);
         !document.is_null() && !call(document, 6).is_null()
-    };
+    }
+}
 
+/// On Windows, taking text with focus from a click, an input method has
+/// somewhere to compose. On the canvas alone XAML gave them no document,
+/// and Japanese typed as Latin letters.
+#[cfg(windows)]
+#[mitsuami_test::test]
+async fn gives_input_methods_a_document_on_windows(app: TestApp) {
     let (_log, on_input) = input_log();
     app.mount(move || Column::new().child(taking_input(on_input).text_input(true)));
     app.settle().await;
@@ -745,7 +779,28 @@ async fn gives_input_methods_a_document_on_windows(app: TestApp) {
     app.get(screen()).click_at(10.0, 10.0).await;
     app.settle().await;
 
-    assert!(focused_context(), "no text services document to compose in");
+    assert!(input_methods_have_a_document(), "no text services document to compose in");
+}
+
+/// The same with focus from code as the surface is built, as an editor
+/// that is all surface focuses it: the focus may come before the surface
+/// takes text.
+#[cfg(windows)]
+#[mitsuami_test::test]
+async fn gives_input_methods_a_document_when_focused_from_code(app: TestApp) {
+    let (_log, on_input) = input_log();
+    app.mount(move || {
+        let surface = node_ref();
+        surface.focus();
+        Column::new().child(taking_input(on_input).node_ref(surface).text_input(true))
+    });
+    app.settle().await;
+    if app.is_headless() {
+        return;
+    }
+    app.expect(screen()).to_be_focused().await;
+
+    assert!(input_methods_have_a_document(), "no text services document to compose in");
 }
 
 mitsuami_test::main!();

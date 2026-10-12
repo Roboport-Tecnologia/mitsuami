@@ -19,7 +19,8 @@ typedef void (*mq_callback)(uint64_t key, int32_t kind, double x, double y);
 // pointer's position (or a scroll's delta) in `x`, `y`, a key's keysym
 // (its native virtual key) in `x`. A key's text (UTF-8, null for none)
 // and the character it types unmodified (0 for none) in `text` and
-// `character`; an input method's commit in `text`.
+// `character`; an input method's commit in `text`, its composition in
+// progress in `text` with its caret in `code` (bytes into it, -1 for none).
 typedef void (*mq_input_callback)(uint64_t key, int32_t kind, int32_t code, int32_t flags, double x, double y,
                                   const char* text, uint32_t character);
 
@@ -37,6 +38,7 @@ enum {
     MQ_SCROLL_LINES = 6, // positive towards the end
     MQ_SCROLL_POINTS = 7,
     MQ_TEXT = 8, // an input method committed `text`
+    MQ_PREEDIT = 9, // an input method's composition is now `text` (empty: none)
 };
 
 // Input flags.
@@ -202,6 +204,8 @@ void mq_surface_input_text(QObject* item, int32_t on);
 void mq_surface_input_caret(QObject* item, int32_t has, double x, double y, double width, double height);
 // A real input method commit, as tests give it.
 void mq_surface_commit(QObject* item, const char* text);
+// A real input method composition, its caret at its end, as tests give it.
+void mq_surface_compose(QObject* item, const char* text);
 void mq_surface_input_cursor(QObject* item, int32_t kind, const uint8_t* rgba, int32_t width, int32_t height,
                              double scale, int32_t hot_x, int32_t hot_y);
 

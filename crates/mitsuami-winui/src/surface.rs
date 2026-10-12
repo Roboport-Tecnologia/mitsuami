@@ -40,7 +40,7 @@
 //! where they open their windows. Keys never reach the box. Characters no
 //! key down came with (`WM_CHAR`s of their own) are committed text too.
 
-use std::cell::RefCell;
+use std::cell::{Cell, RefCell};
 use std::collections::{HashMap, HashSet};
 use std::num::NonZeroIsize;
 use std::rc::{Rc, Weak};
@@ -183,7 +183,10 @@ struct HostState {
 /// The text box an input method composes in, and its events.
 struct TextBox {
     control: w::TextBox,
-    composing: bool,
+    /// A composition is going on: what the box holds is its preedit.
+    composing: Cell<bool>,
+    /// The preedit last reported, so an unchanged one isn't again.
+    preedit: RefCell<(String, Option<usize>)>,
     _events: Vec<EventRevoker>,
 }
 
@@ -432,8 +435,20 @@ impl SurfaceHost {
             // taken (its `TextChanged` would come while this holds the state).
             SyntheticInput::Text(text) => {
                 if let (true, Some(text_box)) = (state.takes_text(), &state.text_box) {
+                    text_box.composing.set(false);
+                    state.report_preedit();
                     _ = text_box.control.SetText(text);
                     state.take_committed();
+                }
+            }
+            // A composition's text so far, in the text box, as an input
+            // method writes it there; empty ends it.
+            SyntheticInput::Compose(text) => {
+                if let (true, Some(text_box)) = (state.takes_text(), &state.text_box) {
+                    text_box.composing.set(!text.is_empty());
+                    _ = text_box.control.SetText(text);
+                    _ = text_box.control.SetSelectionStart(text.encode_utf16().count() as i32);
+                    state.report_preedit();
                 }
             }
             SyntheticInput::Scroll { dx, dy } => {
@@ -478,7 +493,7 @@ fn listen(element: &w::IUIElement, state: &Rc<RefCell<HostState>>) -> R<Vec<Even
     // foreground one) never reach accelerators; while it takes text, keys
     // are the surface's, not the text box's, which only an input method
     // writes to. Keys with Control or Alt are left to accelerators, as
-    // below; an input method's own (`ProcessKey`) to the text box.
+    // below; an input method's own to it, unreported.
     for pressed in [true, false] {
         let s = weak();
         let handler = move |_: windows_core::Ref<windows_core::IInspectable>,
@@ -486,12 +501,12 @@ fn listen(element: &w::IUIElement, state: &Rc<RefCell<HostState>>) -> R<Vec<Even
             let Some(args) = args.as_ref().and_then(|a| a.cast::<w::IKeyRoutedEventArgs>().ok()) else { return };
             let modifiers = key_modifiers();
             let shortcut = pressed && (modifiers.control || modifiers.alt);
-            let processed = args.Key().is_ok_and(|key| key == PROCESS_KEY);
+            let input_method = args.Key().is_ok_and(is_input_method_key);
             let handled = with(&s, |state| {
-                let text = state.takes_text();
-                (state.grabbed || text)
-                    && state.key(&args, pressed).is_ok()
-                    && (state.grabbed || (!shortcut && !processed))
+                // Taking text, an input method's own keys (toggles,
+                // conversion) are its, as in a text field.
+                let text = state.takes_text() && !input_method;
+                (state.grabbed || text) && state.key(&args, pressed).is_ok() && (state.grabbed || !shortcut)
             });
             if handled {
                 _ = args.SetHandled(true);
@@ -849,6 +864,28 @@ impl HostState {
         same(&focused, &self.element) || self.text_box.as_ref().is_some_and(|b| same(&focused, &b.control))
     }
 
+    /// Reports the composition going on in the text box, with its caret
+    /// (the box's, in UTF-16 units, made bytes), or that there's none, if
+    /// that changed.
+    fn report_preedit(&self) {
+        let Some(text_box) = &self.text_box else { return };
+        let preedit = if text_box.composing.get() {
+            let text = text_box.control.Text().unwrap_or_default();
+            let units = text_box.control.SelectionStart().unwrap_or(0).max(0) as usize;
+            let cursor =
+                char::decode_utf16(text.encode_utf16().take(units)).filter_map(Result::ok).map(char::len_utf8).sum();
+            (text, Some(cursor))
+        } else {
+            (String::new(), None)
+        };
+        if *text_box.preedit.borrow() == preedit || !self.takes_text() {
+            return;
+        }
+        *text_box.preedit.borrow_mut() = preedit.clone();
+        let (text, cursor) = preedit;
+        self.report(SurfaceInput::Preedit { text, cursor });
+    }
+
     /// Takes what an input method committed to the text box, and empties
     /// it for the next.
     fn take_committed(&self) {
@@ -1126,8 +1163,13 @@ fn key_modifiers() -> Modifiers {
     }
 }
 
-/// `VirtualKey.ProcessKey`: a key an input method took.
-const PROCESS_KEY: w::VirtualKey = w::VirtualKey(229);
+/// A key an input method takes for itself: `ProcessKey` (one it's
+/// composing with), and the keys that switch it on and off or between
+/// modes (Kana, Kanji — Alt+` on a US keyboard — Convert, NonConvert…),
+/// which a text field doesn't type either.
+fn is_input_method_key(key: w::VirtualKey) -> bool {
+    matches!(key.0, 0x15..=0x1A | 0x1C..=0x1F | 229)
+}
 
 /// COM identity: the same object answers the same `IUnknown`.
 fn same(a: &impl Interface, b: &impl Interface) -> bool {
@@ -1150,41 +1192,47 @@ fn make_text_box(state: &Rc<RefCell<HostState>>, canvas: &w::UIElement) -> R<Tex
     text_box.SetIsTextPredictionEnabled(false)?;
     canvas.cast::<w::IPanel>()?.Children()?.Append(&control.cast::<w::UIElement>()?)?;
     let mut events = Vec::new();
+    // Each runs on the state, if it isn't busy (a synthesized input holds it
+    // while the box raises events) and the box is there.
+    fn with(s: &Weak<RefCell<HostState>>, f: impl FnOnce(&HostState, &TextBox)) {
+        if let Some(s) = s.upgrade()
+            && let Ok(state) = s.try_borrow()
+            && let Some(text_box) = &state.text_box
+        {
+            f(&state, text_box);
+        }
+    }
     let s = Rc::downgrade(state);
     events.push(text_box.TextCompositionStarted(move |_, _| {
-        if let Some(s) = s.upgrade()
-            && let Ok(mut state) = s.try_borrow_mut()
-            && let Some(text_box) = &mut state.text_box
-        {
-            text_box.composing = true;
-        }
+        with(&s, |_, text_box| text_box.composing.set(true));
     })?);
+    // The composition's text changes as it's typed and converted.
+    let s = Rc::downgrade(state);
+    events.push(text_box.TextCompositionChanged(move |_, _| with(&s, |state, _| state.report_preedit()))?);
     let s = Rc::downgrade(state);
     events.push(text_box.TextCompositionEnded(move |_, _| {
-        if let Some(s) = s.upgrade()
-            && let Ok(mut state) = s.try_borrow_mut()
-        {
-            if let Some(text_box) = &mut state.text_box {
-                text_box.composing = false;
-            }
+        with(&s, |state, text_box| {
+            text_box.composing.set(false);
+            state.report_preedit();
             state.take_committed();
-        }
+        });
     })?);
     let s = Rc::downgrade(state);
     events.push(text_box.TextChanged(move |_, _| {
-        if let Some(s) = s.upgrade()
-            && let Ok(state) = s.try_borrow()
-            && state.text_box.as_ref().is_some_and(|b| !b.composing)
-        {
-            state.take_committed();
-        }
+        with(&s, |state, text_box| {
+            if text_box.composing.get() {
+                state.report_preedit();
+            } else {
+                state.take_committed();
+            }
+        });
     })?);
     events.push(text_box.Paste(move |_, args| {
         if let Some(args) = args.as_ref().and_then(|a| a.cast::<w::ITextControlPasteEventArgs>().ok()) {
             _ = args.SetHandled(true);
         }
     })?);
-    Ok(TextBox { control, composing: false, _events: events })
+    Ok(TextBox { control, composing: Cell::new(false), preedit: RefCell::default(), _events: events })
 }
 
 /// The character a key types with no modifiers in the thread's layout:

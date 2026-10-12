@@ -289,15 +289,39 @@ protected:
         }
     }
 
-    // A commit is text; the composition in progress isn't reported.
+    // A commit is text; the composition in progress is its preedit, with
+    // its caret where the `Cursor` attribute is shown (a length of 0 hides
+    // it). A commit ends the composition first, then a new one may start.
     void inputMethodEvent(QInputMethodEvent* event) override {
         if (!takesText()) return event->ignore();
-        if (!event->commitString().isEmpty() && g_input && !g_exiting) {
-            QByteArray text = event->commitString().toUtf8();
-            g_input(key, MQ_TEXT, 0, 0, 0, 0, text.constData(), 0);
+        QString preedit = event->preeditString();
+        int cursor = -1;
+        for (const QInputMethodEvent::Attribute& attribute : event->attributes()) {
+            if (attribute.type == QInputMethodEvent::Cursor && attribute.length != 0)
+                cursor = int(preedit.left(qBound(0, attribute.start, int(preedit.size()))).toUtf8().size());
         }
+        if (!event->commitString().isEmpty()) {
+            reportPreedit(QString(), -1);
+            if (g_input && !g_exiting) {
+                QByteArray text = event->commitString().toUtf8();
+                g_input(key, MQ_TEXT, 0, 0, 0, 0, text.constData(), 0);
+            }
+        }
+        reportPreedit(preedit, preedit.isEmpty() ? -1 : cursor);
         event->accept();
     }
+
+    // The composition, if it changed since it was last reported.
+    void reportPreedit(const QString& text, int cursor) {
+        if (text == shownPreedit && cursor == shownCursor) return;
+        shownPreedit = text;
+        shownCursor = cursor;
+        if (!g_input || g_exiting) return;
+        QByteArray utf8 = text.toUtf8();
+        g_input(key, MQ_PREEDIT, cursor, 0, 0, 0, utf8.constData(), 0);
+    }
+    QString shownPreedit;
+    int shownCursor = -1;
 
     void mousePressEvent(QMouseEvent* event) override {
         if (!takes) return event->ignore();
@@ -1294,6 +1318,16 @@ void mq_surface_input_caret(QObject* item, int32_t has, double x, double y, doub
 void mq_surface_commit(QObject* item, const char* text) {
     QInputMethodEvent event;
     event.setCommitString(QString::fromUtf8(text));
+    QCoreApplication::sendEvent(item, &event);
+}
+
+// Sent to the item as Qt's input method context sends a composition, its
+// caret shown at its end.
+void mq_surface_compose(QObject* item, const char* text) {
+    QString preedit = QString::fromUtf8(text);
+    QList<QInputMethodEvent::Attribute> attributes;
+    attributes.append(QInputMethodEvent::Attribute(QInputMethodEvent::Cursor, int(preedit.size()), 1, QVariant()));
+    QInputMethodEvent event(preedit, attributes);
     QCoreApplication::sendEvent(item, &event);
 }
 

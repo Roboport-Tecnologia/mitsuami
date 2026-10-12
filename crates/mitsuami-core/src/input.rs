@@ -37,6 +37,14 @@ pub enum SurfaceInput {
     /// On a surface that takes text, text an input method committed (a
     /// composition, a candidate chosen), which no single key typed.
     Text(String),
+    /// On a surface that takes text, an input method's composition in
+    /// progress (the kana typed so far, the candidate it would convert
+    /// to), for the app to draw at its caret, as a text field shows it
+    /// until it's committed: the surface is the app's to draw, so the
+    /// platform can't show it there. `cursor` is where the composition's
+    /// own caret is, in bytes into `text`. Empty when the composition ends,
+    /// committed (a `Text` follows) or cancelled.
+    Preedit { text: String, cursor: Option<usize> },
     /// The pointer moved over the surface (anywhere, while a button is
     /// held), in points from its top left. Not reported while the pointer
     /// is locked.

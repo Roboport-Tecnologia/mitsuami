@@ -117,6 +117,9 @@ struct State {
     recording: bool,
     log: Vec<Command>,
     focused: Option<NodeId>,
+    /// Whether an input method's composition is going on, on the focused
+    /// surface (`SyntheticInput::Compose`).
+    composing: bool,
     /// The focused text field's selection, in characters; `None` is the
     /// caret at the end, where focusing puts it.
     selection: Option<std::ops::Range<usize>>,
@@ -156,6 +159,7 @@ impl HeadlessBackend {
                 recording: false,
                 log: Vec::new(),
                 focused: None,
+                composing: false,
                 selection: None,
                 drop_hover: None,
                 focus_orders: BTreeMap::new(),

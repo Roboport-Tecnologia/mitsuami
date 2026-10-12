@@ -94,6 +94,9 @@ pub enum SyntheticInput {
     /// An input method commits this text on a `GpuSurface` that takes
     /// text, as a composition ends.
     Text(String),
+    /// An input method's composition on a `GpuSurface` that takes text
+    /// shows this text so far (empty: it ends without committing).
+    Compose(String),
     /// Scroll-wheel / trackpad scroll over a `ScrollView` or `List`, in logical units
     /// (positive = towards the end of the content).
     Scroll { dx: f32, dy: f32 },

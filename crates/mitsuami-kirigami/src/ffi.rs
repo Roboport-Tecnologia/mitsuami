@@ -145,6 +145,7 @@ unsafe extern "C" {
     fn mq_surface_input_text(item: Raw, on: i32);
     fn mq_surface_input_caret(item: Raw, has: i32, x: f64, y: f64, width: f64, height: f64);
     fn mq_surface_commit(item: Raw, text: *const c_char);
+    fn mq_surface_compose(item: Raw, text: *const c_char);
     #[allow(clippy::too_many_arguments)]
     fn mq_surface_input_cursor(
         item: Raw,
@@ -923,6 +924,12 @@ impl QmlObject {
     pub(crate) fn surface_commit(self, text: &str) {
         let Some(raw) = self.live() else { return };
         unsafe { mq_surface_commit(raw, c(text).as_ptr()) }
+    }
+
+    /// A real input method composition, sent to a GPU surface's input item.
+    pub(crate) fn surface_compose(self, text: &str) {
+        let Some(raw) = self.live() else { return };
+        unsafe { mq_surface_compose(raw, c(text).as_ptr()) }
     }
 
     /// The cursor over a GPU surface's input item.

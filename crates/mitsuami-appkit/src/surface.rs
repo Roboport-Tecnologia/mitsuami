@@ -17,8 +17,8 @@
 //! Taking text, it's an `NSTextInputClient`, as a text view is: `keyDown:`
 //! hands the key to `interpretKeyEvents:`, and what `insertText:` gives
 //! during it is what the key typed. Input methods compose in its marked
-//! text, which isn't reported, and commit with `insertText:`, which then is
-//! text on its own; their windows open by the app's caret
+//! text, reported as the preedit for the app to draw, and commit with
+//! `insertText:`, which then is text on its own; their windows open by the app's caret
 //! (`firstRectForCharacterRange:`). Not taking text, it has no input
 //! context, so no input method takes a game's keys.
 
@@ -178,6 +178,8 @@ pub(crate) struct SurfaceIvars {
     typing: RefCell<Option<String>>,
     /// An input method's composition in progress.
     marked: RefCell<String>,
+    /// The preedit last reported, so an unchanged one isn't again.
+    preedit: RefCell<(String, Option<usize>)>,
 }
 
 define_class!(
@@ -428,6 +430,8 @@ define_class!(
         unsafe fn insert_text(&self, string: &AnyObject, _replacement: NSRange) {
             let text: String = text_of(string).chars().filter(|c| !c.is_control()).collect();
             let composed = !std::mem::take(&mut *self.ivars().marked.borrow_mut()).is_empty();
+            // The composition ends before what it committed comes.
+            self.report_preedit(String::new(), None);
             let mut typing = self.ivars().typing.borrow_mut();
             match typing.as_mut() {
                 Some(typed) if !composed => typed.push_str(&text),
@@ -446,13 +450,23 @@ define_class!(
         unsafe fn do_command_by_selector(&self, _selector: Sel) {}
 
         #[unsafe(method(setMarkedText:selectedRange:replacementRange:))]
-        unsafe fn set_marked_text(&self, string: &AnyObject, _selected: NSRange, _replacement: NSRange) {
-            *self.ivars().marked.borrow_mut() = text_of(string);
+        unsafe fn set_marked_text(&self, string: &AnyObject, selected: NSRange, _replacement: NSRange) {
+            let text = text_of(string);
+            // The composition's caret, in UTF-16 units, made bytes.
+            let cursor = (!text.is_empty()).then(|| {
+                char::decode_utf16(text.encode_utf16().take(selected.location))
+                    .filter_map(Result::ok)
+                    .map(char::len_utf8)
+                    .sum()
+            });
+            *self.ivars().marked.borrow_mut() = text.clone();
+            self.report_preedit(text, cursor);
         }
 
         #[unsafe(method(unmarkText))]
         fn unmark_text(&self) {
             self.ivars().marked.borrow_mut().clear();
+            self.report_preedit(String::new(), None);
         }
 
         /// The app's text isn't known here: an empty selection.
@@ -550,6 +564,7 @@ impl SurfaceView {
             text_cursor: Cell::new(None),
             typing: RefCell::new(None),
             marked: RefCell::new(String::new()),
+            preedit: RefCell::default(),
         });
         let view: Retained<SurfaceView> = unsafe { msg_send![super(this), initWithFrame: zero_rect()] };
         view.setWantsLayer(true);
@@ -637,6 +652,7 @@ impl SurfaceView {
             return;
         }
         self.ivars().marked.borrow_mut().clear();
+        *self.ivars().preedit.borrow_mut() = Default::default();
         if !self.is_first_responder() {
             return;
         }
@@ -683,6 +699,18 @@ impl SurfaceView {
         } else {
             self.ungrab();
         }
+    }
+
+    /// Reports an input method's composition, if it changed: the app draws
+    /// it at its caret.
+    fn report_preedit(&self, text: String, cursor: Option<usize>) {
+        let preedit = (text, cursor);
+        if *self.ivars().preedit.borrow() == preedit || !self.takes_text() {
+            return;
+        }
+        *self.ivars().preedit.borrow_mut() = preedit.clone();
+        let (text, cursor) = preedit;
+        self.emit(SurfaceInput::Preedit { text, cursor });
     }
 
     fn emit(&self, input: SurfaceInput) {
@@ -1151,7 +1179,8 @@ fn modifiers(flags: NSEventModifierFlags) -> Modifiers {
 /// Input for tests, through the view's own event methods: a click as
 /// real mouse events (which focus it), keys as real key events to the
 /// first responder, which interprets them as it does real ones, and an
-/// input method's text through `insertText:`. Scrolls are reported as
+/// input method's text through `insertText:` (and `setMarkedText:` as it
+/// composes). Scrolls are reported as
 /// they'd come: AppKit makes no scroll events but from Quartz ones.
 pub(crate) fn synthesize(view: &SurfaceView, input: &SyntheticInput) -> Result<(), ActionError> {
     if !view.takes_input() {
@@ -1213,6 +1242,21 @@ pub(crate) fn synthesize(view: &SurfaceView, input: &SyntheticInput) -> Result<(
             let string = NSString::from_str(text);
             let nowhere = NSRange::new(NSNotFound as NSUInteger, 0);
             unsafe { view.insertText_replacementRange(&string, nowhere) };
+        }
+        // As an input method composes: the view's marked text, its caret
+        // at the end; empty ends it.
+        SyntheticInput::Compose(text) => {
+            if !view.takes_text() || !view.is_first_responder() {
+                return Err(ActionError::Unsupported);
+            }
+            if text.is_empty() {
+                view.unmarkText();
+            } else {
+                let string = NSString::from_str(text);
+                let caret = NSRange::new(text.encode_utf16().count(), 0);
+                let nowhere = NSRange::new(NSNotFound as NSUInteger, 0);
+                unsafe { view.setMarkedText_selectedRange_replacementRange(&string, caret, nowhere) };
+            }
         }
         // Keys with modifiers aren't simulated on a surface.
         SyntheticInput::Shortcut(_)

@@ -640,6 +640,8 @@ fn surface_input(event: SurfaceEvent) -> Option<SurfaceInput> {
         6 => SurfaceInput::Scroll { delta: ScrollDelta::Lines { x, y }, modifiers },
         7 => SurfaceInput::Scroll { delta: ScrollDelta::Points { x, y }, modifiers },
         8 => SurfaceInput::Text(event.text?),
+        // The composition's caret comes in `code`, in bytes; -1 for none.
+        9 => SurfaceInput::Preedit { text: event.text.unwrap_or_default(), cursor: usize::try_from(event.code).ok() },
         _ => return None,
     })
 }
