@@ -614,6 +614,7 @@ define_class!(
                 && point.y >= track.origin.y
                 && point.y < track.origin.y + track.size.height;
             self.set_hover(if over { self.tab_at(self.track_x(event)) } else { None });
+            self.close_under(point);
         }
 
         #[unsafe(method(mouseExited:))]
@@ -939,11 +940,41 @@ impl TabStrip {
             // the system's bar.
             tab.shown.target = if closable && hover == Some(index) && !dragging { 1.0 } else { 0.0 };
         }
+        self.chosen_in_front();
         self.animate();
         self.set_accessibility_children();
         self.place();
         self.setNeedsDisplay(true);
         self.noteFocusRingMaskChanged();
+    }
+
+    /// A close button under the pointer shows at once: its bezel drawn
+    /// while it's still fading in would flicker.
+    fn close_under(&self, point: NSPoint) {
+        for tab in self.ivars().tabs.borrow_mut().iter_mut() {
+            let frame = tab.close.convertRect_toView(tab.close.bounds(), Some(self));
+            let inside = point.x >= frame.origin.x
+                && point.x < frame.origin.x + frame.size.width
+                && point.y >= frame.origin.y
+                && point.y < frame.origin.y + frame.size.height;
+            if inside && tab.shown.target > 0.0 {
+                tab.shown.snap();
+                tab.close.setAlphaValue(1.0);
+            }
+        }
+    }
+
+    /// The chosen tab over the others: glass shows only what's under it,
+    /// and a dragged (chosen) tab's must go over the others' titles.
+    fn chosen_in_front(&self) {
+        let Some(chosen) = self.ivars().shared.model.borrow().chosen() else { return };
+        let tabs = self.ivars().tabs.borrow();
+        let Some(tab) = tabs.get(chosen) else { return };
+        let track = &self.ivars().track;
+        let front = track.subviews().lastObject().is_some_and(|v| std::ptr::eq(&*v, &*tab.view));
+        if !front {
+            track.addSubview_positioned_relativeTo(&tab.view, NSWindowOrderingMode::Above, None);
+        }
     }
 
     /// Tags each close button with its tab's place.
