@@ -19,8 +19,13 @@
 //! during it is what the key typed. Input methods compose in its marked
 //! text, reported as the preedit for the app to draw, and commit with
 //! `insertText:`, which then is text on its own; their windows open by the app's caret
-//! (`firstRectForCharacterRange:`). Not taking text, it has no input
-//! context, so no input method takes a game's keys.
+//! (`firstRectForCharacterRange:`). The keys they take for a composition
+//! (any, while one goes on, but those they hand back as commands) aren't
+//! the app's. Not knowing the app's text, it keeps what was typed since the
+//! caret last moved otherwise as the text before the caret, which macOS's
+//! accents (offered as a key is held) need, to replace the letter it typed.
+//! Not taking text, it has no input context, so no input method takes a
+//! game's keys.
 
 use std::cell::{Cell, RefCell};
 use std::collections::HashSet;
@@ -177,6 +182,14 @@ pub(crate) struct SurfaceIvars {
     text_cursor: Cell<Option<Rect>>,
     /// While `keyDown:` interprets a key: what `insertText:` gave.
     typing: RefCell<Option<String>>,
+    /// While `keyDown:` interprets a key: whether an input method composed
+    /// with it (marked text, or committed it), and whether it was handed
+    /// back as a command.
+    composed: Cell<bool>,
+    commanded: Cell<bool>,
+    /// What was typed since the caret last moved otherwise (an arrow, a
+    /// click): the text before the app's caret, as far as it's known.
+    typed: RefCell<String>,
     /// An input method's composition in progress.
     marked: RefCell<String>,
     /// The preedit last reported, so an unchanged one isn't again.
@@ -255,6 +268,7 @@ define_class!(
         fn resign_first_responder(&self) -> bool {
             let resigned: bool = unsafe { msg_send![super(self), resignFirstResponder] };
             if resigned {
+                self.forget_typed();
                 self.stop_watching_keys();
                 self.release_keys();
                 // A grab lasts while the surface has focus.
@@ -279,10 +293,20 @@ define_class!(
             // With Command, a shortcut: the menus' key equivalents and the
             // app's own, never text.
             let text = if self.takes_text() && !flags.contains(NSEventModifierFlags::Command) {
-                *self.ivars().typing.borrow_mut() = Some(String::new());
+                let ivars = self.ivars();
+                ivars.composed.set(self.hasMarkedText());
+                ivars.commanded.set(false);
+                *ivars.typing.borrow_mut() = Some(String::new());
                 self.interpretKeyEvents(&NSArray::from_retained_slice(&[event.retain()]));
-                self.ivars().typing.borrow_mut().take().filter(|t| !t.is_empty())
+                let text = ivars.typing.borrow_mut().take().filter(|t| !t.is_empty());
+                // An input method's key, for its composition (to start,
+                // convert or commit one): unless it handed it back.
+                if ivars.composed.get() && !ivars.commanded.get() {
+                    return;
+                }
+                text
             } else {
+                self.forget_typed();
                 None
             };
             self.key(event, true, text);
@@ -433,11 +457,17 @@ define_class!(
         /// Typed by the key `keyDown:` is interpreting, or committed by an
         /// input method.
         #[unsafe(method(insertText:replacementRange:))]
-        unsafe fn insert_text(&self, string: &AnyObject, _replacement: NSRange) {
+        unsafe fn insert_text(&self, string: &AnyObject, replacement: NSRange) {
             let text: String = text_of(string).chars().filter(|c| !c.is_control()).collect();
             let composed = !std::mem::take(&mut *self.ivars().marked.borrow_mut()).is_empty();
-            // The composition ends before what it committed comes.
+            if composed {
+                self.ivars().composed.set(true);
+            }
+            // The composition ends before what it committed comes, and what
+            // it replaces goes.
             self.report_preedit(String::new(), None);
+            self.replace_typed(replacement);
+            self.remember_typed(&text);
             let mut typing = self.ivars().typing.borrow_mut();
             match typing.as_mut() {
                 Some(typed) if !composed => typed.push_str(&text),
@@ -450,14 +480,24 @@ define_class!(
             }
         }
 
-        /// Enter, arrows, Backspace: the keys report themselves. Doing
-        /// nothing here keeps AppKit from beeping.
+        /// Enter, arrows, Backspace: the keys report themselves, so all
+        /// that's left is what they do to the text before the caret.
+        /// Handling it here keeps AppKit from beeping.
         #[unsafe(method(doCommandBySelector:))]
-        unsafe fn do_command_by_selector(&self, _selector: Sel) {}
+        unsafe fn do_command_by_selector(&self, selector: Sel) {
+            self.ivars().commanded.set(true);
+            if selector == sel!(deleteBackward:) {
+                self.ivars().typed.borrow_mut().pop();
+            } else {
+                self.forget_typed();
+            }
+        }
 
         #[unsafe(method(setMarkedText:selectedRange:replacementRange:))]
-        unsafe fn set_marked_text(&self, string: &AnyObject, selected: NSRange, _replacement: NSRange) {
+        unsafe fn set_marked_text(&self, string: &AnyObject, selected: NSRange, replacement: NSRange) {
             let text = text_of(string);
+            self.ivars().composed.set(true);
+            self.replace_typed(replacement);
             // The composition's caret, in UTF-16 units, made bytes.
             let cursor = (!text.is_empty()).then(|| {
                 char::decode_utf16(text.encode_utf16().take(selected.location))
@@ -471,21 +511,24 @@ define_class!(
 
         #[unsafe(method(unmarkText))]
         fn unmark_text(&self) {
+            self.ivars().composed.set(true);
             self.ivars().marked.borrow_mut().clear();
             self.report_preedit(String::new(), None);
         }
 
-        /// The app's text isn't known here: an empty selection.
+        /// The caret, after what was typed (and the composition): macOS's
+        /// accents aren't offered without one.
         #[unsafe(method(selectedRange))]
         fn selected_range(&self) -> NSRange {
-            NSRange::new(0, 0)
+            NSRange::new(self.text_before_caret().encode_utf16().count(), 0)
         }
 
+        /// The composition, after what was typed.
         #[unsafe(method(markedRange))]
         fn marked_range(&self) -> NSRange {
             match self.ivars().marked.borrow().encode_utf16().count() {
                 0 => NSRange::new(NSNotFound as NSUInteger, 0),
-                len => NSRange::new(0, len),
+                len => NSRange::new(self.ivars().typed.borrow().encode_utf16().count(), len),
             }
         }
 
@@ -497,10 +540,17 @@ define_class!(
         #[unsafe(method_id(attributedSubstringForProposedRange:actualRange:))]
         unsafe fn attributed_substring(
             &self,
-            _range: NSRange,
-            _actual: NSRangePointer,
+            range: NSRange,
+            actual: NSRangePointer,
         ) -> Option<Retained<NSAttributedString>> {
-            None
+            let text: Vec<u16> = self.text_before_caret().encode_utf16().collect();
+            let start = range.location.min(text.len());
+            let end = range.location.saturating_add(range.length).min(text.len());
+            if !actual.is_null() {
+                unsafe { *actual = NSRange::new(start, end - start) };
+            }
+            let text = String::from_utf16_lossy(&text[start..end]);
+            Some(NSAttributedString::from_nsstring(&NSString::from_str(&text)))
         }
 
         #[unsafe(method_id(validAttributesForMarkedText))]
@@ -546,6 +596,10 @@ fn text_of(string: &AnyObject) -> String {
 /// `kVK_Tab`.
 const TAB: u16 = 0x30;
 
+/// How many characters of what was typed it keeps as the text before the
+/// caret.
+const TYPED_KEPT: usize = 64;
+
 impl SurfaceView {
     /// The view, and the handle the app gets, whose size it keeps.
     pub(crate) fn new(mtm: MainThreadMarker, id: NodeId, events: EventSink) -> (Retained<SurfaceView>, SurfaceHandle) {
@@ -570,6 +624,9 @@ impl SurfaceView {
             input_method: Cell::new(true),
             text_cursor: Cell::new(None),
             typing: RefCell::new(None),
+            composed: Cell::new(false),
+            commanded: Cell::new(false),
+            typed: RefCell::new(String::new()),
             marked: RefCell::new(String::new()),
             preedit: RefCell::default(),
         });
@@ -690,6 +747,7 @@ impl SurfaceView {
             return;
         }
         self.ivars().marked.borrow_mut().clear();
+        self.forget_typed();
         *self.ivars().preedit.borrow_mut() = Default::default();
         if !self.is_first_responder() {
             return;
@@ -737,6 +795,51 @@ impl SurfaceView {
         } else {
             self.ungrab();
         }
+    }
+
+    /// What was typed and the composition: the text before the caret.
+    fn text_before_caret(&self) -> String {
+        format!("{}{}", self.ivars().typed.borrow(), self.ivars().marked.borrow())
+    }
+
+    /// Text typed, or committed, before the caret.
+    fn remember_typed(&self, text: &str) {
+        let mut typed = self.ivars().typed.borrow_mut();
+        typed.push_str(text);
+        // What an input method reaches back for is a letter or a few.
+        if let Some((cut, _)) = typed.char_indices().rev().nth(TYPED_KEPT) {
+            typed.drain(..=cut);
+        }
+    }
+
+    /// The caret moved otherwise: what's before it isn't known.
+    fn forget_typed(&self) {
+        self.ivars().typed.borrow_mut().clear();
+    }
+
+    /// An input method replaces `range` of the text before the caret, in
+    /// UTF-16 units: what of it was typed goes (it ends at the caret, as
+    /// macOS's accents' does), and the app is told to delete it. Ranges in
+    /// the composition are its own.
+    fn replace_typed(&self, range: NSRange) {
+        if range.location == NSNotFound as NSUInteger {
+            return;
+        }
+        let before = {
+            let mut typed = self.ivars().typed.borrow_mut();
+            let mut units = 0;
+            let Some(cut) = typed.char_indices().map(|(i, _)| i).find(|&i| {
+                let at = units;
+                units += typed[i..].chars().next().map_or(0, char::len_utf16);
+                at >= range.location
+            }) else {
+                return;
+            };
+            let before = typed[cut..].chars().count();
+            typed.truncate(cut);
+            before
+        };
+        self.emit(SurfaceInput::DeleteSurrounding { before, after: 0 });
     }
 
     /// Reports an input method's composition, if it changed: the app draws
@@ -943,8 +1046,11 @@ impl SurfaceView {
             }
             return true;
         };
-        if pressed && let Some(window) = self.window() {
-            window.makeFirstResponder(Some(self));
+        if pressed {
+            self.forget_typed();
+            if let Some(window) = self.window() {
+                window.makeFirstResponder(Some(self));
+            }
         }
         let button = match event.r#type() {
             NSEventType::LeftMouseDown | NSEventType::LeftMouseUp => MouseButton::Primary,

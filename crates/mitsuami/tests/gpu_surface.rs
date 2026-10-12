@@ -588,6 +588,250 @@ async fn reports_an_input_method_s_composition(app: TestApp) {
     assert_eq!(text, expected, "{log:?}");
 }
 
+/// On macOS, the view a surface is, for messages AppKit and its input
+/// methods send it, and keys as AppKit makes them.
+#[cfg(target_os = "macos")]
+mod appkit_view {
+    use std::cell::RefCell;
+
+    use mitsuami::appkit::objc2::ffi::class_replaceMethod;
+    use mitsuami::appkit::objc2::rc::Retained;
+    use mitsuami::appkit::objc2::runtime::{AnyClass, AnyObject, Imp, Sel};
+    use mitsuami::appkit::objc2::{msg_send, sel};
+    pub use mitsuami::appkit::objc2_app_kit::NSEventModifierFlags;
+    use mitsuami::appkit::objc2_app_kit::{NSEvent, NSEventType, NSWindow};
+    use mitsuami::appkit::objc2_foundation::{NSArray, NSPoint, NSRange, NSString};
+    use mitsuami::core::SurfaceHandle;
+    use mitsuami::raw_window_handle::{HasWindowHandle, RawWindowHandle};
+
+    pub const NOT_FOUND: usize = isize::MAX as usize;
+    /// `kVK_ANSI_K`, `kVK_ANSI_X`, `kVK_Tab`, `kVK_Return`.
+    pub const K: u16 = 0x28;
+    pub const X: u16 = 0x07;
+    pub const TAB: u16 = 0x30;
+    pub const RETURN: u16 = 0x24;
+
+    pub struct View(Retained<AnyObject>);
+
+    impl View {
+        pub fn of(handle: &SurfaceHandle) -> View {
+            let RawWindowHandle::AppKit(appkit) = handle.window_handle().unwrap().as_raw() else { panic!() };
+            // SAFETY: the handle keeps the view alive, and so does this.
+            View(unsafe { Retained::retain(appkit.ns_view.cast::<AnyObject>().as_ptr()) }.unwrap())
+        }
+
+        /// A key at `code` (a macOS virtual key code) going down with
+        /// `flags` held, then up, as AppKit makes it: typing `characters`,
+        /// `unmodified` with no modifiers.
+        pub fn press(&self, code: u16, flags: NSEventModifierFlags, characters: &str, unmodified: &str) {
+            let (characters, unmodified) = (NSString::from_str(characters), NSString::from_str(unmodified));
+            let window: Retained<NSWindow> = unsafe { msg_send![&*self.0, window] };
+            for (kind, up) in [(NSEventType::KeyDown, false), (NSEventType::KeyUp, true)] {
+                let event = NSEvent::keyEventWithType_location_modifierFlags_timestamp_windowNumber_context_characters_charactersIgnoringModifiers_isARepeat_keyCode(
+                    kind,
+                    NSPoint::new(0.0, 0.0),
+                    flags,
+                    0.0,
+                    window.windowNumber(),
+                    None,
+                    &characters,
+                    &unmodified,
+                    false,
+                    code,
+                )
+                .unwrap();
+                unsafe {
+                    if up {
+                        let _: () = msg_send![&*self.0, keyUp: &*event];
+                    } else {
+                        let _: () = msg_send![&*self.0, keyDown: &*event];
+                    }
+                }
+            }
+        }
+
+        pub fn selected_range(&self) -> NSRange {
+            unsafe { msg_send![&*self.0, selectedRange] }
+        }
+
+        pub fn set_marked_text(&self, text: &str, selected: NSRange, replacement: NSRange) {
+            let text = NSString::from_str(text);
+            unsafe {
+                let _: () =
+                    msg_send![&*self.0, setMarkedText: &*text, selectedRange: selected, replacementRange: replacement];
+            }
+        }
+
+        pub fn insert_text(&self, text: &str, replacement: NSRange) {
+            let text = NSString::from_str(text);
+            unsafe {
+                let _: () = msg_send![&*self.0, insertText: &*text, replacementRange: replacement];
+            }
+        }
+
+        /// Its keys interpreted by [`kana`] instead of the keyboard's input
+        /// source, until the guard goes: AppKit's own input methods don't
+        /// compose a test's keys.
+        pub fn with_kana(&self) -> Kana {
+            let class: *mut AnyClass = (self.0.class() as *const AnyClass).cast_mut();
+            let sel = sel!(interpretKeyEvents:);
+            // SAFETY: `kana` has `interpretKeyEvents:`'s signature.
+            unsafe {
+                let before = self.0.class().instance_method(sel).unwrap().implementation();
+                let kana: Imp = std::mem::transmute(kana as unsafe extern "C-unwind" fn(_, _, _));
+                class_replaceMethod(class, sel, kana, c"v@:@".as_ptr());
+                Kana { class, before }
+            }
+        }
+    }
+
+    /// Puts a view's own `interpretKeyEvents:` back.
+    pub struct Kana {
+        class: *mut AnyClass,
+        before: Imp,
+    }
+
+    impl Drop for Kana {
+        fn drop(&mut self) {
+            COMPOSING.take();
+            // SAFETY: what was there.
+            unsafe { class_replaceMethod(self.class, sel!(interpretKeyEvents:), self.before, c"v@:@".as_ptr()) };
+        }
+    }
+
+    thread_local! {
+        static COMPOSING: RefCell<String> = const { RefCell::new(String::new()) };
+    }
+
+    /// An input method as Japanese ones are, for one kana: K composes its
+    /// romaji, and while it composes, Tab converts it to か and Return
+    /// commits it, as its own keys; with nothing composed, Tab and Return
+    /// are commands, and other keys type their characters.
+    unsafe extern "C-unwind" fn kana(view: &AnyObject, _cmd: Sel, events: &NSArray<NSEvent>) {
+        let event = events.objectAtIndex(0);
+        let composing = COMPOSING.with_borrow(Clone::clone);
+        let mark = |text: &str| {
+            COMPOSING.set(text.to_owned());
+            let string = NSString::from_str(text);
+            let caret = NSRange::new(text.encode_utf16().count(), 0);
+            let nowhere = NSRange::new(NOT_FOUND, 0);
+            let _: () =
+                unsafe { msg_send![view, setMarkedText: &*string, selectedRange: caret, replacementRange: nowhere] };
+        };
+        let insert = |text: &str| {
+            COMPOSING.take();
+            let string = NSString::from_str(text);
+            let nowhere = NSRange::new(NOT_FOUND, 0);
+            let _: () = unsafe { msg_send![view, insertText: &*string, replacementRange: nowhere] };
+        };
+        let command = |selector: Sel| {
+            let _: () = unsafe { msg_send![view, doCommandBySelector: selector] };
+        };
+        match (event.keyCode(), composing.is_empty()) {
+            (K, _) => mark(&format!("{composing}k")),
+            (TAB, false) => mark("か"),
+            (RETURN, false) => insert(&composing),
+            (TAB, true) => command(sel!(insertTab:)),
+            (RETURN, true) => command(sel!(insertNewline:)),
+            _ => insert(&event.characters().map(|c| c.to_string()).unwrap_or_default()),
+        }
+    }
+}
+
+/// Keys an input method takes for its composition are its own, as in a
+/// text field: a Japanese one's to compose, convert (Tab) and commit
+/// (Return) aren't keys the app gets, but Tab and Return with no
+/// composition going on are, and so are keys typing.
+#[cfg(target_os = "macos")]
+#[mitsuami_test::test]
+async fn leaves_an_input_method_its_keys(app: TestApp) {
+    use appkit_view::{K, NSEventModifierFlags as Flags, RETURN, TAB, View, X};
+
+    let seen = Rc::new(RefCell::new(Vec::new()));
+    let (log, on_input) = input_log();
+    let s = seen.clone();
+    app.mount(move || Column::new().child(surface(&s).size(200.px(), 100.px()).on_input(on_input).text_input(true)));
+    app.settle().await;
+    if app.is_headless() {
+        return;
+    }
+    app.get(screen()).click_at(10.0, 10.0).await;
+    let view = View::of(&handle(&seen));
+    let _kana = view.with_kana();
+
+    for (code, typed) in [(K, "k"), (TAB, "\t"), (RETURN, "\r"), (TAB, "\t"), (X, "x")] {
+        view.press(code, Flags::empty(), typed, typed);
+    }
+    app.settle().await;
+
+    let preedit = |text: &str, cursor| SurfaceInput::Preedit { text: text.to_owned(), cursor };
+    let text: Vec<SurfaceInput> = log
+        .borrow()
+        .iter()
+        .filter(|input| matches!(input, SurfaceInput::Text(_) | SurfaceInput::Preedit { .. }))
+        .cloned()
+        .collect();
+    let expected =
+        [preedit("k", Some(1)), preedit("か", Some(3)), preedit("", None), SurfaceInput::Text("か".to_owned())];
+    assert_eq!(text, expected, "{log:?}");
+    let expected = [(KeyCode::Tab, None, None), (KeyCode::KeyX, Some("x".to_owned()), Some('x'))];
+    assert_eq!(typed(&log), expected, "{log:?}");
+    assert_eq!(
+        keys(&log),
+        [(KeyCode::Tab, true), (KeyCode::Tab, false), (KeyCode::KeyX, true), (KeyCode::KeyX, false)]
+    );
+}
+
+/// An input method can replace what keys typed: macOS's accents, offered
+/// as a key is held, mark the letter it typed (the caret is after what
+/// was typed, or the accents aren't offered), and replace it with the one
+/// chosen. The app is told to take the letter back; what was typed before
+/// a key that isn't text (an arrow) is out of reach.
+#[cfg(target_os = "macos")]
+#[mitsuami_test::test]
+async fn takes_back_what_an_input_method_replaces(app: TestApp) {
+    use appkit_view::{NOT_FOUND, NSEventModifierFlags as Flags, View};
+    use mitsuami::appkit::objc2_foundation::NSRange;
+
+    let seen = Rc::new(RefCell::new(Vec::new()));
+    let (log, on_input) = input_log();
+    let s = seen.clone();
+    app.mount(move || Column::new().child(surface(&s).size(200.px(), 100.px()).on_input(on_input).text_input(true)));
+    app.settle().await;
+    if app.is_headless() {
+        return;
+    }
+    app.get(screen()).click_at(10.0, 10.0).await;
+    let view = View::of(&handle(&seen));
+
+    // `kVK_ANSI_X`, `kVK_LeftArrow`, `kVK_ANSI_I`.
+    view.press(0x07, Flags::empty(), "x", "x");
+    view.press(0x7B, Flags::Function | Flags::NumericPad, "\u{F702}", "\u{F702}");
+    assert_eq!(view.selected_range(), NSRange::new(0, 0));
+    view.press(0x22, Flags::empty(), "i", "i");
+    assert_eq!(view.selected_range(), NSRange::new(1, 0));
+    app.settle().await;
+    log.borrow_mut().clear();
+    // Held: the letter is marked; one is chosen.
+    view.set_marked_text("i", NSRange::new(1, 0), NSRange::new(0, 1));
+    view.insert_text("í", NSRange::new(NOT_FOUND, 0));
+    // Or chosen right away, replacing it.
+    view.insert_text("ì", NSRange::new(0, 1));
+    app.settle().await;
+
+    let preedit = |text: &str, cursor| SurfaceInput::Preedit { text: text.to_owned(), cursor };
+    let expected = [
+        SurfaceInput::DeleteSurrounding { before: 1, after: 0 },
+        preedit("i", Some(1)),
+        preedit("", None),
+        SurfaceInput::Text("í".to_owned()),
+        SurfaceInput::DeleteSurrounding { before: 1, after: 0 },
+        SurfaceInput::Text("ì".to_owned()),
+    ];
+    assert_eq!(*log.borrow(), expected);
+    assert_eq!(view.selected_range(), NSRange::new(1, 0));
+}
+
 /// With input methods off, keys still type what they type, as they do
 /// with them on, and it reads back as the app set it, as it's turned on
 /// and off: a modal editor's keys outside insert mode are commands.

@@ -9,7 +9,10 @@ use crate::geometry::Point;
 #[derive(Clone, Debug, PartialEq)]
 pub enum SurfaceInput {
     /// A key went down, or up, while the surface had focus. `repeat`: the
-    /// platform's own repeat of a key held down.
+    /// platform's own repeat of a key held down. On a surface that takes
+    /// text, a key an input method takes for its composition (to convert
+    /// it, choose a candidate, commit it, or start one, as a dead key does)
+    /// isn't reported: it's the input method's, as in a text field.
     Key {
         code: KeyCode,
         /// The platform's own code for the key: a macOS virtual key code,
@@ -45,6 +48,12 @@ pub enum SurfaceInput {
     /// own caret is, in bytes into `text`. Empty when the composition ends,
     /// committed (a `Text` follows) or cancelled.
     Preedit { text: String, cursor: Option<usize> },
+    /// On a surface that takes text, an input method takes back text around
+    /// the app's caret, `before` and `after` it, in characters: text keys
+    /// typed that it now replaces (macOS's accents, offered as a key is
+    /// held, replace the letter it typed). The app deletes it before what
+    /// comes next.
+    DeleteSurrounding { before: usize, after: usize },
     /// The pointer moved over the surface (anywhere, while a button is
     /// held), in points from its top left. Not reported while the pointer
     /// is locked.
