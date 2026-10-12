@@ -32,11 +32,13 @@
 //! (XAML's content island): `TranslateMessage` queues a key's `WM_CHAR`s
 //! before the key is dispatched, so at its `WM_KEYDOWN` they're taken off
 //! the queue (as winit does) and go out with the key, which XAML reports
-//! as the canvas's `KeyDown` while the message is handled. Characters no
-//! key down came with (an input method's, sent as `WM_IME_CHAR` and then
-//! `WM_CHAR`) are reported as committed text. The input method's
-//! candidate window is placed at the app's caret with IMM32, which
-//! Windows' input methods follow.
+//! as the canvas's `PreviewKeyDown` while the message is handled. Input
+//! methods compose in a transparent text box in the canvas, which has
+//! XAML's focus for it: XAML gives them a text services document only for
+//! its text controls, and on the canvas alone they took no keys. What they
+//! commit to it is the surface's text, and the box sits at the app's caret,
+//! where they open their windows. Keys never reach the box. Characters no
+//! key down came with (`WM_CHAR`s of their own) are committed text too.
 
 use std::cell::RefCell;
 use std::collections::{HashMap, HashSet};
@@ -171,6 +173,18 @@ struct HostState {
     typed: Option<String>,
     /// A `WM_CHAR`'s high surrogate, waiting for the low one.
     surrogate: Option<u16>,
+    /// While it takes text, a text box in the canvas, under the surface,
+    /// that has XAML's focus for it: XAML gives input methods a document
+    /// only for its text controls, so they compose in this one, and what
+    /// they commit to it is the surface's text. Keys never reach it.
+    text_box: Option<TextBox>,
+}
+
+/// The text box an input method composes in, and its events.
+struct TextBox {
+    control: w::TextBox,
+    composing: bool,
+    _events: Vec<EventRevoker>,
 }
 
 impl SurfaceHost {
@@ -206,6 +220,7 @@ impl SurfaceHost {
                 text_cursor: None,
                 typed: None,
                 surrogate: None,
+                text_box: None,
             })
         });
         let input = listen(&element.cast()?, &state)?;
@@ -335,6 +350,24 @@ impl SurfaceHost {
     pub(crate) fn set_text_input(&self, on: bool) {
         let mut state = self.state.borrow_mut();
         state.text_input = Some(on);
+        if on && state.text_box.is_none() {
+            match make_text_box(&self.state, &state.element) {
+                Ok(text_box) => state.text_box = Some(text_box),
+                Err(e) => eprintln!("mitsuami: a GpuSurface's text box: {e}"),
+            }
+        }
+        // Focus moves to the text box, or back from it to the canvas.
+        if state.is_xaml_focus() {
+            let target = match (&state.text_box, state.takes_text()) {
+                (Some(text_box), true) => text_box.control.cast::<w::IUIElement>().ok(),
+                _ => state.element.cast::<w::IUIElement>().ok(),
+            };
+            drop(state);
+            if let Some(target) = target {
+                _ = target.Focus(w::FocusState::Programmatic);
+            }
+            state = self.state.borrow_mut();
+        }
         state.place_input_method();
     }
 
@@ -395,9 +428,12 @@ impl SurfaceHost {
                     });
                 }
             }
+            // As an input method commits: into the text box, whose text is
+            // taken (its `TextChanged` would come while this holds the state).
             SyntheticInput::Text(text) => {
-                if state.takes_text() {
-                    state.report(SurfaceInput::Text(text.clone()));
+                if let (true, Some(text_box)) = (state.takes_text(), &state.text_box) {
+                    _ = text_box.control.SetText(text);
+                    state.take_committed();
                 }
             }
             SyntheticInput::Scroll { dx, dy } => {
@@ -437,15 +473,32 @@ fn listen(element: &w::IUIElement, state: &Rc<RefCell<HostState>>) -> R<Vec<Even
             _ = args.cast::<w::IPointerRoutedEventArgs>().and_then(|a| a.SetHandled(true));
         }
     })?);
-    // While grabbed, keys the hook didn't take (it takes them only while
-    // the window is the foreground one) never reach accelerators.
-    let s = weak();
-    revokers.push(element.PreviewKeyDown(move |_, args| {
-        let Some(args) = args.as_ref().and_then(|a| a.cast::<w::IKeyRoutedEventArgs>().ok()) else { return };
-        if with(&s, |state| state.grabbed && state.key(&args, true).is_ok()) {
-            _ = args.SetHandled(true);
-        }
-    })?);
+    // Before the focused element hears of a key: while grabbed, keys the
+    // hook didn't take (it takes them only while the window is the
+    // foreground one) never reach accelerators; while it takes text, keys
+    // are the surface's, not the text box's, which only an input method
+    // writes to. Keys with Control or Alt are left to accelerators, as
+    // below; an input method's own (`ProcessKey`) to the text box.
+    for pressed in [true, false] {
+        let s = weak();
+        let handler = move |_: windows_core::Ref<windows_core::IInspectable>,
+                            args: windows_core::Ref<w::KeyRoutedEventArgs>| {
+            let Some(args) = args.as_ref().and_then(|a| a.cast::<w::IKeyRoutedEventArgs>().ok()) else { return };
+            let modifiers = key_modifiers();
+            let shortcut = pressed && (modifiers.control || modifiers.alt);
+            let processed = args.Key().is_ok_and(|key| key == PROCESS_KEY);
+            let handled = with(&s, |state| {
+                let text = state.takes_text();
+                (state.grabbed || text)
+                    && state.key(&args, pressed).is_ok()
+                    && (state.grabbed || (!shortcut && !processed))
+            });
+            if handled {
+                _ = args.SetHandled(true);
+            }
+        };
+        revokers.push(if pressed { element.PreviewKeyDown(handler)? } else { element.PreviewKeyUp(handler)? });
+    }
     for pressed in [true, false] {
         let s = weak();
         let handler = move |_: windows_core::Ref<windows_core::IInspectable>,
@@ -456,12 +509,28 @@ fn listen(element: &w::IUIElement, state: &Rc<RefCell<HostState>>) -> R<Vec<Even
             // Control or Alt are reported and left to them.
             let modifiers = key_modifiers();
             let shortcut = pressed && (modifiers.control || modifiers.alt);
-            if with(&s, |state| state.key(&args, pressed).is_ok() && (!shortcut || state.grabbed)) {
+            // Taking text, they were reported before the text box had them.
+            if with(&s, |state| {
+                !state.takes_text() && state.key(&args, pressed).is_ok() && (!shortcut || state.grabbed)
+            }) {
                 _ = args.SetHandled(true);
             }
         };
         revokers.push(if pressed { element.KeyDown(handler)? } else { element.KeyUp(handler)? });
     }
+    // Focus coming to the canvas goes on to its text box while it takes
+    // text (the box's own focus comes through here too).
+    let s = weak();
+    revokers.push(element.GettingFocus(move |_, args| {
+        let Some(args) = args.as_ref().and_then(|a| a.cast::<w::IGettingFocusEventArgs>().ok()) else { return };
+        let Some(s) = s.upgrade() else { return };
+        let Ok(state) = s.try_borrow() else { return };
+        let (Some(text_box), true) = (&state.text_box, state.takes_text()) else { return };
+        let to_canvas = args.NewFocusedElement().is_ok_and(|new| same(&new, &state.element));
+        if to_canvas && let Ok(target) = text_box.control.cast::<w::DependencyObject>() {
+            _ = args.TrySetNewFocusedElement(&target);
+        }
+    })?);
     let s = weak();
     revokers.push(element.GotFocus(move |_, _| {
         if let Some(s) = s.upgrade()
@@ -642,9 +711,17 @@ impl HostState {
     }
 
     /// Opens the input method's composition and candidate windows by the
-    /// app's caret, in the focused window's client pixels.
+    /// app's caret: the text box it composes in goes there (Windows' input
+    /// methods place theirs by its text), and IMM32 is told too, in the
+    /// focused window's client pixels, for the input methods that ask it.
     fn place_input_method(&self) {
         let (Some(Some(caret)), Some((x, y, _, _))) = (self.text_cursor, self.placed) else { return };
+        if let Some(text_box) = &self.text_box
+            && let Ok(element) = text_box.control.cast::<w::UIElement>()
+        {
+            _ = w::Canvas::SetLeft(&element, caret.origin.x as f64);
+            _ = w::Canvas::SetTop(&element, caret.origin.y as f64);
+        }
         if !self.takes_text() || !self.is_xaml_focus() {
             return;
         }
@@ -765,12 +842,26 @@ impl HostState {
         state.try_pending();
     }
 
-    /// Whether the canvas is XAML's focused element.
+    /// Whether the canvas, or its text box, is XAML's focused element.
     fn is_xaml_focus(&self) -> bool {
         let focused = self.element.XamlRoot().and_then(|r| w::FocusManager::GetFocusedElementWithRoot(&r));
-        let Ok(focused) = focused.and_then(|f| f.cast::<windows_core::IUnknown>()) else { return false };
-        // COM identity: the same object answers the same `IUnknown`.
-        self.element.cast::<windows_core::IUnknown>().is_ok_and(|e| e.as_raw() == focused.as_raw())
+        let Ok(focused) = focused else { return false };
+        same(&focused, &self.element) || self.text_box.as_ref().is_some_and(|b| same(&focused, &b.control))
+    }
+
+    /// Takes what an input method committed to the text box, and empties
+    /// it for the next.
+    fn take_committed(&self) {
+        let Some(text_box) = &self.text_box else { return };
+        let Ok(text) = text_box.control.Text() else { return };
+        if text.is_empty() {
+            return;
+        }
+        _ = text_box.control.SetText("");
+        let text: String = text.chars().filter(|c| !c.is_control()).collect();
+        if !text.is_empty() && self.takes_text() {
+            self.report(SurfaceInput::Text(text));
+        }
     }
 
     /// Gives Win32 focus to XAML's content island, which gives it back to
@@ -1033,6 +1124,67 @@ fn key_modifiers() -> Modifiers {
         alt: down(w::VK_MENU),
         meta: down(w::VK_LWIN) || down(w::VK_RWIN),
     }
+}
+
+/// `VirtualKey.ProcessKey`: a key an input method took.
+const PROCESS_KEY: w::VirtualKey = w::VirtualKey(229);
+
+/// COM identity: the same object answers the same `IUnknown`.
+fn same(a: &impl Interface, b: &impl Interface) -> bool {
+    let (Ok(a), Ok(b)) = (a.cast::<windows_core::IUnknown>(), b.cast::<windows_core::IUnknown>()) else { return false };
+    a.as_raw() == b.as_raw()
+}
+
+/// The text box an input method composes in, in `canvas`, under the
+/// surface: transparent and out of the pointer's way (a tab stop, since XAML
+/// keeps focus only on one; Tab is the surface's while it has it). What
+/// it holds when no composition is going on was committed: it's taken.
+/// Pastes are refused, since the keys are the surface's.
+fn make_text_box(state: &Rc<RefCell<HostState>>, canvas: &w::UIElement) -> R<TextBox> {
+    let control = w::TextBox::new()?;
+    let element: w::IUIElement = control.cast()?;
+    element.SetOpacity(0.0)?;
+    element.SetIsHitTestVisible(false)?;
+    let text_box: w::ITextBox = control.cast()?;
+    text_box.SetIsSpellCheckEnabled(false)?;
+    text_box.SetIsTextPredictionEnabled(false)?;
+    canvas.cast::<w::IPanel>()?.Children()?.Append(&control.cast::<w::UIElement>()?)?;
+    let mut events = Vec::new();
+    let s = Rc::downgrade(state);
+    events.push(text_box.TextCompositionStarted(move |_, _| {
+        if let Some(s) = s.upgrade()
+            && let Ok(mut state) = s.try_borrow_mut()
+            && let Some(text_box) = &mut state.text_box
+        {
+            text_box.composing = true;
+        }
+    })?);
+    let s = Rc::downgrade(state);
+    events.push(text_box.TextCompositionEnded(move |_, _| {
+        if let Some(s) = s.upgrade()
+            && let Ok(mut state) = s.try_borrow_mut()
+        {
+            if let Some(text_box) = &mut state.text_box {
+                text_box.composing = false;
+            }
+            state.take_committed();
+        }
+    })?);
+    let s = Rc::downgrade(state);
+    events.push(text_box.TextChanged(move |_, _| {
+        if let Some(s) = s.upgrade()
+            && let Ok(state) = s.try_borrow()
+            && state.text_box.as_ref().is_some_and(|b| !b.composing)
+        {
+            state.take_committed();
+        }
+    })?);
+    events.push(text_box.Paste(move |_, args| {
+        if let Some(args) = args.as_ref().and_then(|a| a.cast::<w::ITextControlPasteEventArgs>().ok()) {
+            _ = args.SetHandled(true);
+        }
+    })?);
+    Ok(TextBox { control, composing: false, _events: events })
 }
 
 /// The character a key types with no modifiers in the thread's layout:

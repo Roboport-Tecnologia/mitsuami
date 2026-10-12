@@ -3216,6 +3216,30 @@ unsafe impl Send for Geometry {}
 unsafe impl Sync for Geometry {}
 #[repr(transparent)]
 #[derive(Clone, Debug, Eq, PartialEq)]
+pub struct GettingFocusEventArgs(windows_core::IUnknown);
+windows_core::imp::interface_hierarchy!(GettingFocusEventArgs, windows_core::IUnknown, windows_core::IInspectable);
+windows_core::imp::required_hierarchy!(GettingFocusEventArgs, RoutedEventArgs);
+impl windows_core::RuntimeType for GettingFocusEventArgs {
+    const SIGNATURE: windows_core::imp::ConstBuffer =
+        windows_core::imp::ConstBuffer::for_class::<Self, IGettingFocusEventArgs>();
+}
+unsafe impl windows_core::Interface for GettingFocusEventArgs {
+    type Vtable = <IGettingFocusEventArgs as windows_core::Interface>::Vtable;
+    const IID: windows_core::GUID = <IGettingFocusEventArgs as windows_core::Interface>::IID;
+}
+impl core::ops::Deref for GettingFocusEventArgs {
+    type Target = IGettingFocusEventArgs;
+    fn deref(&self) -> &Self::Target {
+        unsafe { core::mem::transmute(self) }
+    }
+}
+impl windows_core::RuntimeName for GettingFocusEventArgs {
+    const NAME: &'static str = "Microsoft.UI.Xaml.Input.GettingFocusEventArgs";
+}
+unsafe impl Send for GettingFocusEventArgs {}
+unsafe impl Sync for GettingFocusEventArgs {}
+#[repr(transparent)]
+#[derive(Clone, Debug, Eq, PartialEq)]
 pub struct Grid(windows_core::IUnknown);
 windows_core::imp::interface_hierarchy!(Grid, windows_core::IUnknown, windows_core::IInspectable);
 windows_core::imp::required_hierarchy!(Grid, Panel, FrameworkElement, UIElement, DependencyObject);
@@ -6799,6 +6823,59 @@ impl windows_core::RuntimeType for IGeometry {
 #[repr(C)]
 pub struct IGeometry_Vtbl {
     pub base__: windows_core::IInspectable_Vtbl,
+}
+windows_core::imp::define_interface!(
+    IGettingFocusEventArgs,
+    IGettingFocusEventArgs_Vtbl,
+    0x37fd3af0_bd3c_5bf5_a9cd_71a1e87af950
+);
+impl windows_core::RuntimeType for IGettingFocusEventArgs {
+    const SIGNATURE: windows_core::imp::ConstBuffer = windows_core::imp::ConstBuffer::for_interface::<Self>();
+}
+impl IGettingFocusEventArgs {
+    pub fn NewFocusedElement(&self) -> windows_core::Result<DependencyObject> {
+        unsafe {
+            let mut result__ = core::mem::zeroed();
+            (windows_core::Interface::vtable(self).NewFocusedElement)(
+                windows_core::Interface::as_raw(self),
+                &mut result__,
+            )
+            .and_then(|| windows_core::imp::Type::from_abi(result__))
+        }
+    }
+    pub fn TrySetNewFocusedElement<P0>(&self, element: P0) -> windows_core::Result<bool>
+    where
+        P0: windows_core::Param<DependencyObject>,
+    {
+        unsafe {
+            let mut result__ = core::mem::zeroed();
+            (windows_core::Interface::vtable(self).TrySetNewFocusedElement)(
+                windows_core::Interface::as_raw(self),
+                element.param().abi(),
+                &mut result__,
+            )
+            .map(|| result__)
+        }
+    }
+}
+#[repr(C)]
+pub struct IGettingFocusEventArgs_Vtbl {
+    pub base__: windows_core::IInspectable_Vtbl,
+    OldFocusedElement: usize,
+    pub NewFocusedElement:
+        unsafe extern "system" fn(*mut core::ffi::c_void, *mut *mut core::ffi::c_void) -> windows_core::HRESULT,
+    SetNewFocusedElement: usize,
+    FocusState: usize,
+    Direction: usize,
+    Handled: usize,
+    SetHandled: usize,
+    InputDevice: usize,
+    Cancel: usize,
+    SetCancel: usize,
+    CorrelationId: usize,
+    TryCancel: usize,
+    pub TrySetNewFocusedElement:
+        unsafe extern "system" fn(*mut core::ffi::c_void, *mut core::ffi::c_void, *mut bool) -> windows_core::HRESULT,
 }
 windows_core::imp::define_interface!(IGrid, IGrid_Vtbl, 0xc4496219_9014_58a1_b4ad_c5044913a5bb);
 impl windows_core::RuntimeType for IGrid {
@@ -11886,6 +11963,21 @@ impl ITextBox {
             (windows_core::Interface::vtable(self).SetTextWrapping)(windows_core::Interface::as_raw(self), value).ok()
         }
     }
+    pub fn SetIsSpellCheckEnabled(&self, value: bool) -> windows_core::Result<()> {
+        unsafe {
+            (windows_core::Interface::vtable(self).SetIsSpellCheckEnabled)(windows_core::Interface::as_raw(self), value)
+                .ok()
+        }
+    }
+    pub fn SetIsTextPredictionEnabled(&self, value: bool) -> windows_core::Result<()> {
+        unsafe {
+            (windows_core::Interface::vtable(self).SetIsTextPredictionEnabled)(
+                windows_core::Interface::as_raw(self),
+                value,
+            )
+            .ok()
+        }
+    }
     pub fn InputScope(&self) -> windows_core::Result<InputScope> {
         unsafe {
             let mut result__ = core::mem::zeroed();
@@ -11965,6 +12057,113 @@ impl ITextBox {
             ))
         }
     }
+    pub fn Paste<F>(&self, handler: F) -> windows_core::Result<windows_core::EventRevoker>
+    where
+        F: Fn(windows_core::Ref<windows_core::IInspectable>, windows_core::Ref<TextControlPasteEventArgs>) + 'static,
+    {
+        let handler: TextControlPasteEventHandler = {
+            let com = windows_core::imp::DelegateBox::<TextControlPasteEventHandler, F>::new(
+                &TextControlPasteEventHandlerBox::<F>::VTABLE,
+                handler,
+            );
+            unsafe { core::mem::transmute(windows_core::imp::box_new(com)) }
+        };
+        unsafe {
+            let mut result__ = core::mem::zeroed();
+            let token__ = (windows_core::Interface::vtable(self).Paste)(
+                windows_core::Interface::as_raw(self),
+                windows_core::Interface::as_raw(&handler),
+                &mut result__,
+            )
+            .map(|| result__)?;
+            Ok(windows_core::EventRevoker::new(
+                self.clone(),
+                token__,
+                windows_core::Interface::vtable(self).RemovePaste,
+            ))
+        }
+    }
+    pub fn TextCompositionStarted<F>(&self, handler: F) -> windows_core::Result<windows_core::EventRevoker>
+    where
+        F: Fn(windows_core::Ref<TextBox>, windows_core::Ref<TextCompositionStartedEventArgs>) + 'static,
+    {
+        let handler: TypedEventHandler<TextBox, TextCompositionStartedEventArgs> = {
+            let com =
+                windows_core::imp::DelegateBox::<TypedEventHandler<TextBox, TextCompositionStartedEventArgs>, F>::new(
+                    &TypedEventHandlerBox::<TextBox, TextCompositionStartedEventArgs, F>::VTABLE,
+                    handler,
+                );
+            unsafe { core::mem::transmute(windows_core::imp::box_new(com)) }
+        };
+        unsafe {
+            let mut result__ = core::mem::zeroed();
+            let token__ = (windows_core::Interface::vtable(self).TextCompositionStarted)(
+                windows_core::Interface::as_raw(self),
+                windows_core::Interface::as_raw(&handler),
+                &mut result__,
+            )
+            .map(|| result__)?;
+            Ok(windows_core::EventRevoker::new(
+                self.clone(),
+                token__,
+                windows_core::Interface::vtable(self).RemoveTextCompositionStarted,
+            ))
+        }
+    }
+    pub fn TextCompositionChanged<F>(&self, handler: F) -> windows_core::Result<windows_core::EventRevoker>
+    where
+        F: Fn(windows_core::Ref<TextBox>, windows_core::Ref<TextCompositionChangedEventArgs>) + 'static,
+    {
+        let handler: TypedEventHandler<TextBox, TextCompositionChangedEventArgs> = {
+            let com =
+                windows_core::imp::DelegateBox::<TypedEventHandler<TextBox, TextCompositionChangedEventArgs>, F>::new(
+                    &TypedEventHandlerBox::<TextBox, TextCompositionChangedEventArgs, F>::VTABLE,
+                    handler,
+                );
+            unsafe { core::mem::transmute(windows_core::imp::box_new(com)) }
+        };
+        unsafe {
+            let mut result__ = core::mem::zeroed();
+            let token__ = (windows_core::Interface::vtable(self).TextCompositionChanged)(
+                windows_core::Interface::as_raw(self),
+                windows_core::Interface::as_raw(&handler),
+                &mut result__,
+            )
+            .map(|| result__)?;
+            Ok(windows_core::EventRevoker::new(
+                self.clone(),
+                token__,
+                windows_core::Interface::vtable(self).RemoveTextCompositionChanged,
+            ))
+        }
+    }
+    pub fn TextCompositionEnded<F>(&self, handler: F) -> windows_core::Result<windows_core::EventRevoker>
+    where
+        F: Fn(windows_core::Ref<TextBox>, windows_core::Ref<TextCompositionEndedEventArgs>) + 'static,
+    {
+        let handler: TypedEventHandler<TextBox, TextCompositionEndedEventArgs> = {
+            let com =
+                windows_core::imp::DelegateBox::<TypedEventHandler<TextBox, TextCompositionEndedEventArgs>, F>::new(
+                    &TypedEventHandlerBox::<TextBox, TextCompositionEndedEventArgs, F>::VTABLE,
+                    handler,
+                );
+            unsafe { core::mem::transmute(windows_core::imp::box_new(com)) }
+        };
+        unsafe {
+            let mut result__ = core::mem::zeroed();
+            let token__ = (windows_core::Interface::vtable(self).TextCompositionEnded)(
+                windows_core::Interface::as_raw(self),
+                windows_core::Interface::as_raw(&handler),
+                &mut result__,
+            )
+            .map(|| result__)?;
+            Ok(windows_core::EventRevoker::new(
+                self.clone(),
+                token__,
+                windows_core::Interface::vtable(self).RemoveTextCompositionEnded,
+            ))
+        }
+    }
     pub fn Select(&self, start: i32, length: i32) -> windows_core::Result<()> {
         unsafe {
             (windows_core::Interface::vtable(self).Select)(windows_core::Interface::as_raw(self), start, length).ok()
@@ -11995,9 +12194,9 @@ pub struct ITextBox_Vtbl {
     pub TextWrapping: unsafe extern "system" fn(*mut core::ffi::c_void, *mut TextWrapping) -> windows_core::HRESULT,
     pub SetTextWrapping: unsafe extern "system" fn(*mut core::ffi::c_void, TextWrapping) -> windows_core::HRESULT,
     IsSpellCheckEnabled: usize,
-    SetIsSpellCheckEnabled: usize,
+    pub SetIsSpellCheckEnabled: unsafe extern "system" fn(*mut core::ffi::c_void, bool) -> windows_core::HRESULT,
     IsTextPredictionEnabled: usize,
-    SetIsTextPredictionEnabled: usize,
+    pub SetIsTextPredictionEnabled: unsafe extern "system" fn(*mut core::ffi::c_void, bool) -> windows_core::HRESULT,
     pub InputScope:
         unsafe extern "system" fn(*mut core::ffi::c_void, *mut *mut core::ffi::c_void) -> windows_core::HRESULT,
     pub SetInputScope:
@@ -12039,14 +12238,18 @@ pub struct ITextBox_Vtbl {
     RemoveSelectionChanged: usize,
     ContextMenuOpening: usize,
     RemoveContextMenuOpening: usize,
-    Paste: usize,
-    RemovePaste: usize,
-    TextCompositionStarted: usize,
-    RemoveTextCompositionStarted: usize,
-    TextCompositionChanged: usize,
-    RemoveTextCompositionChanged: usize,
-    TextCompositionEnded: usize,
-    RemoveTextCompositionEnded: usize,
+    pub Paste:
+        unsafe extern "system" fn(*mut core::ffi::c_void, *mut core::ffi::c_void, *mut i64) -> windows_core::HRESULT,
+    pub RemovePaste: unsafe extern "system" fn(*mut core::ffi::c_void, i64) -> windows_core::HRESULT,
+    pub TextCompositionStarted:
+        unsafe extern "system" fn(*mut core::ffi::c_void, *mut core::ffi::c_void, *mut i64) -> windows_core::HRESULT,
+    pub RemoveTextCompositionStarted: unsafe extern "system" fn(*mut core::ffi::c_void, i64) -> windows_core::HRESULT,
+    pub TextCompositionChanged:
+        unsafe extern "system" fn(*mut core::ffi::c_void, *mut core::ffi::c_void, *mut i64) -> windows_core::HRESULT,
+    pub RemoveTextCompositionChanged: unsafe extern "system" fn(*mut core::ffi::c_void, i64) -> windows_core::HRESULT,
+    pub TextCompositionEnded:
+        unsafe extern "system" fn(*mut core::ffi::c_void, *mut core::ffi::c_void, *mut i64) -> windows_core::HRESULT,
+    pub RemoveTextCompositionEnded: unsafe extern "system" fn(*mut core::ffi::c_void, i64) -> windows_core::HRESULT,
     CopyingToClipboard: usize,
     RemoveCopyingToClipboard: usize,
     CuttingToClipboard: usize,
@@ -12082,6 +12285,61 @@ impl windows_core::RuntimeType for ITextChangedEventArgs {
 #[repr(C)]
 pub struct ITextChangedEventArgs_Vtbl {
     pub base__: windows_core::IInspectable_Vtbl,
+}
+windows_core::imp::define_interface!(
+    ITextCompositionChangedEventArgs,
+    ITextCompositionChangedEventArgs_Vtbl,
+    0x04f420d2_ba9c_5f59_b8ac_0d8aa50a9240
+);
+impl windows_core::RuntimeType for ITextCompositionChangedEventArgs {
+    const SIGNATURE: windows_core::imp::ConstBuffer = windows_core::imp::ConstBuffer::for_interface::<Self>();
+}
+#[repr(C)]
+pub struct ITextCompositionChangedEventArgs_Vtbl {
+    pub base__: windows_core::IInspectable_Vtbl,
+}
+windows_core::imp::define_interface!(
+    ITextCompositionEndedEventArgs,
+    ITextCompositionEndedEventArgs_Vtbl,
+    0x19d0a5c5_8d0f_5118_8c30_e709326f1283
+);
+impl windows_core::RuntimeType for ITextCompositionEndedEventArgs {
+    const SIGNATURE: windows_core::imp::ConstBuffer = windows_core::imp::ConstBuffer::for_interface::<Self>();
+}
+#[repr(C)]
+pub struct ITextCompositionEndedEventArgs_Vtbl {
+    pub base__: windows_core::IInspectable_Vtbl,
+}
+windows_core::imp::define_interface!(
+    ITextCompositionStartedEventArgs,
+    ITextCompositionStartedEventArgs_Vtbl,
+    0xa604ff71_5d44_5859_8d71_72030ed78bc8
+);
+impl windows_core::RuntimeType for ITextCompositionStartedEventArgs {
+    const SIGNATURE: windows_core::imp::ConstBuffer = windows_core::imp::ConstBuffer::for_interface::<Self>();
+}
+#[repr(C)]
+pub struct ITextCompositionStartedEventArgs_Vtbl {
+    pub base__: windows_core::IInspectable_Vtbl,
+}
+windows_core::imp::define_interface!(
+    ITextControlPasteEventArgs,
+    ITextControlPasteEventArgs_Vtbl,
+    0xfc5e567e_3aa9_5c57_88d4_834ad3b62e9e
+);
+impl windows_core::RuntimeType for ITextControlPasteEventArgs {
+    const SIGNATURE: windows_core::imp::ConstBuffer = windows_core::imp::ConstBuffer::for_interface::<Self>();
+}
+impl ITextControlPasteEventArgs {
+    pub fn SetHandled(&self, value: bool) -> windows_core::Result<()> {
+        unsafe { (windows_core::Interface::vtable(self).SetHandled)(windows_core::Interface::as_raw(self), value).ok() }
+    }
+}
+#[repr(C)]
+pub struct ITextControlPasteEventArgs_Vtbl {
+    pub base__: windows_core::IInspectable_Vtbl,
+    Handled: usize,
+    pub SetHandled: unsafe extern "system" fn(*mut core::ffi::c_void, bool) -> windows_core::HRESULT,
 }
 windows_core::imp::define_interface!(ITitleBar, ITitleBar_Vtbl, 0xc552714d_5d30_5a2b_9c7a_d68bea3dde8d);
 impl windows_core::RuntimeType for ITitleBar {
@@ -12528,12 +12786,21 @@ impl IUIElement {
             (windows_core::Interface::vtable(self).SetAllowDrop)(windows_core::Interface::as_raw(self), value).ok()
         }
     }
+    pub fn SetOpacity(&self, value: f64) -> windows_core::Result<()> {
+        unsafe { (windows_core::Interface::vtable(self).SetOpacity)(windows_core::Interface::as_raw(self), value).ok() }
+    }
     pub fn SetClip<P0>(&self, value: P0) -> windows_core::Result<()>
     where
         P0: windows_core::Param<RectangleGeometry>,
     {
         unsafe {
             (windows_core::Interface::vtable(self).SetClip)(windows_core::Interface::as_raw(self), value.param().abi())
+                .ok()
+        }
+    }
+    pub fn SetIsHitTestVisible(&self, value: bool) -> windows_core::Result<()> {
+        unsafe {
+            (windows_core::Interface::vtable(self).SetIsHitTestVisible)(windows_core::Interface::as_raw(self), value)
                 .ok()
         }
     }
@@ -12994,6 +13261,32 @@ impl IUIElement {
             ))
         }
     }
+    pub fn GettingFocus<F>(&self, handler: F) -> windows_core::Result<windows_core::EventRevoker>
+    where
+        F: Fn(windows_core::Ref<UIElement>, windows_core::Ref<GettingFocusEventArgs>) + 'static,
+    {
+        let handler: TypedEventHandler<UIElement, GettingFocusEventArgs> = {
+            let com = windows_core::imp::DelegateBox::<TypedEventHandler<UIElement, GettingFocusEventArgs>, F>::new(
+                &TypedEventHandlerBox::<UIElement, GettingFocusEventArgs, F>::VTABLE,
+                handler,
+            );
+            unsafe { core::mem::transmute(windows_core::imp::box_new(com)) }
+        };
+        unsafe {
+            let mut result__ = core::mem::zeroed();
+            let token__ = (windows_core::Interface::vtable(self).GettingFocus)(
+                windows_core::Interface::as_raw(self),
+                windows_core::Interface::as_raw(&handler),
+                &mut result__,
+            )
+            .map(|| result__)?;
+            Ok(windows_core::EventRevoker::new(
+                self.clone(),
+                token__,
+                windows_core::Interface::vtable(self).RemoveGettingFocus,
+            ))
+        }
+    }
     pub fn PreviewKeyDown<F>(&self, handler: F) -> windows_core::Result<windows_core::EventRevoker>
     where
         F: Fn(windows_core::Ref<windows_core::IInspectable>, windows_core::Ref<KeyRoutedEventArgs>) + 'static,
@@ -13015,6 +13308,30 @@ impl IUIElement {
                 self.clone(),
                 token__,
                 windows_core::Interface::vtable(self).RemovePreviewKeyDown,
+            ))
+        }
+    }
+    pub fn PreviewKeyUp<F>(&self, handler: F) -> windows_core::Result<windows_core::EventRevoker>
+    where
+        F: Fn(windows_core::Ref<windows_core::IInspectable>, windows_core::Ref<KeyRoutedEventArgs>) + 'static,
+    {
+        let handler: KeyEventHandler = {
+            let com =
+                windows_core::imp::DelegateBox::<KeyEventHandler, F>::new(&KeyEventHandlerBox::<F>::VTABLE, handler);
+            unsafe { core::mem::transmute(windows_core::imp::box_new(com)) }
+        };
+        unsafe {
+            let mut result__ = core::mem::zeroed();
+            let token__ = (windows_core::Interface::vtable(self).PreviewKeyUp)(
+                windows_core::Interface::as_raw(self),
+                windows_core::Interface::as_raw(&handler),
+                &mut result__,
+            )
+            .map(|| result__)?;
+            Ok(windows_core::EventRevoker::new(
+                self.clone(),
+                token__,
+                windows_core::Interface::vtable(self).RemovePreviewKeyUp,
             ))
         }
     }
@@ -13069,7 +13386,7 @@ pub struct IUIElement_Vtbl {
     pub AllowDrop: unsafe extern "system" fn(*mut core::ffi::c_void, *mut bool) -> windows_core::HRESULT,
     pub SetAllowDrop: unsafe extern "system" fn(*mut core::ffi::c_void, bool) -> windows_core::HRESULT,
     Opacity: usize,
-    SetOpacity: usize,
+    pub SetOpacity: unsafe extern "system" fn(*mut core::ffi::c_void, f64) -> windows_core::HRESULT,
     Clip: usize,
     pub SetClip: unsafe extern "system" fn(*mut core::ffi::c_void, *mut core::ffi::c_void) -> windows_core::HRESULT,
     RenderTransform: usize,
@@ -13081,7 +13398,7 @@ pub struct IUIElement_Vtbl {
     RenderTransformOrigin: usize,
     SetRenderTransformOrigin: usize,
     IsHitTestVisible: usize,
-    SetIsHitTestVisible: usize,
+    pub SetIsHitTestVisible: unsafe extern "system" fn(*mut core::ffi::c_void, bool) -> windows_core::HRESULT,
     pub Visibility: unsafe extern "system" fn(*mut core::ffi::c_void, *mut Visibility) -> windows_core::HRESULT,
     pub SetVisibility: unsafe extern "system" fn(*mut core::ffi::c_void, Visibility) -> windows_core::HRESULT,
     RenderSize: usize,
@@ -13277,8 +13594,9 @@ pub struct IUIElement_Vtbl {
     RemoveAccessKeyInvoked: usize,
     ProcessKeyboardAccelerators: usize,
     RemoveProcessKeyboardAccelerators: usize,
-    GettingFocus: usize,
-    RemoveGettingFocus: usize,
+    pub GettingFocus:
+        unsafe extern "system" fn(*mut core::ffi::c_void, *mut core::ffi::c_void, *mut i64) -> windows_core::HRESULT,
+    pub RemoveGettingFocus: unsafe extern "system" fn(*mut core::ffi::c_void, i64) -> windows_core::HRESULT,
     LosingFocus: usize,
     RemoveLosingFocus: usize,
     NoFocusCandidateFound: usize,
@@ -13286,8 +13604,9 @@ pub struct IUIElement_Vtbl {
     pub PreviewKeyDown:
         unsafe extern "system" fn(*mut core::ffi::c_void, *mut core::ffi::c_void, *mut i64) -> windows_core::HRESULT,
     pub RemovePreviewKeyDown: unsafe extern "system" fn(*mut core::ffi::c_void, i64) -> windows_core::HRESULT,
-    PreviewKeyUp: usize,
-    RemovePreviewKeyUp: usize,
+    pub PreviewKeyUp:
+        unsafe extern "system" fn(*mut core::ffi::c_void, *mut core::ffi::c_void, *mut i64) -> windows_core::HRESULT,
+    pub RemovePreviewKeyUp: unsafe extern "system" fn(*mut core::ffi::c_void, i64) -> windows_core::HRESULT,
     BringIntoViewRequested: usize,
     RemoveBringIntoViewRequested: usize,
     pub Measure: unsafe extern "system" fn(*mut core::ffi::c_void, Size) -> windows_core::HRESULT,
@@ -18342,6 +18661,154 @@ impl<F: Fn(windows_core::Ref<windows_core::IInspectable>, windows_core::Ref<Text
         unsafe {
             let this = &mut *(this as *mut *mut core::ffi::c_void
                 as *mut windows_core::imp::DelegateBox<TextChangedEventHandler, F>);
+            (this.invoke)(core::mem::transmute_copy(&sender), core::mem::transmute_copy(&e));
+            windows_core::HRESULT(0)
+        }
+    }
+}
+#[repr(transparent)]
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct TextCompositionChangedEventArgs(windows_core::IUnknown);
+windows_core::imp::interface_hierarchy!(
+    TextCompositionChangedEventArgs,
+    windows_core::IUnknown,
+    windows_core::IInspectable
+);
+impl windows_core::RuntimeType for TextCompositionChangedEventArgs {
+    const SIGNATURE: windows_core::imp::ConstBuffer =
+        windows_core::imp::ConstBuffer::for_class::<Self, ITextCompositionChangedEventArgs>();
+}
+unsafe impl windows_core::Interface for TextCompositionChangedEventArgs {
+    type Vtable = <ITextCompositionChangedEventArgs as windows_core::Interface>::Vtable;
+    const IID: windows_core::GUID = <ITextCompositionChangedEventArgs as windows_core::Interface>::IID;
+}
+impl core::ops::Deref for TextCompositionChangedEventArgs {
+    type Target = ITextCompositionChangedEventArgs;
+    fn deref(&self) -> &Self::Target {
+        unsafe { core::mem::transmute(self) }
+    }
+}
+impl windows_core::RuntimeName for TextCompositionChangedEventArgs {
+    const NAME: &'static str = "Microsoft.UI.Xaml.Controls.TextCompositionChangedEventArgs";
+}
+unsafe impl Send for TextCompositionChangedEventArgs {}
+unsafe impl Sync for TextCompositionChangedEventArgs {}
+#[repr(transparent)]
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct TextCompositionEndedEventArgs(windows_core::IUnknown);
+windows_core::imp::interface_hierarchy!(
+    TextCompositionEndedEventArgs,
+    windows_core::IUnknown,
+    windows_core::IInspectable
+);
+impl windows_core::RuntimeType for TextCompositionEndedEventArgs {
+    const SIGNATURE: windows_core::imp::ConstBuffer =
+        windows_core::imp::ConstBuffer::for_class::<Self, ITextCompositionEndedEventArgs>();
+}
+unsafe impl windows_core::Interface for TextCompositionEndedEventArgs {
+    type Vtable = <ITextCompositionEndedEventArgs as windows_core::Interface>::Vtable;
+    const IID: windows_core::GUID = <ITextCompositionEndedEventArgs as windows_core::Interface>::IID;
+}
+impl core::ops::Deref for TextCompositionEndedEventArgs {
+    type Target = ITextCompositionEndedEventArgs;
+    fn deref(&self) -> &Self::Target {
+        unsafe { core::mem::transmute(self) }
+    }
+}
+impl windows_core::RuntimeName for TextCompositionEndedEventArgs {
+    const NAME: &'static str = "Microsoft.UI.Xaml.Controls.TextCompositionEndedEventArgs";
+}
+unsafe impl Send for TextCompositionEndedEventArgs {}
+unsafe impl Sync for TextCompositionEndedEventArgs {}
+#[repr(transparent)]
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct TextCompositionStartedEventArgs(windows_core::IUnknown);
+windows_core::imp::interface_hierarchy!(
+    TextCompositionStartedEventArgs,
+    windows_core::IUnknown,
+    windows_core::IInspectable
+);
+impl windows_core::RuntimeType for TextCompositionStartedEventArgs {
+    const SIGNATURE: windows_core::imp::ConstBuffer =
+        windows_core::imp::ConstBuffer::for_class::<Self, ITextCompositionStartedEventArgs>();
+}
+unsafe impl windows_core::Interface for TextCompositionStartedEventArgs {
+    type Vtable = <ITextCompositionStartedEventArgs as windows_core::Interface>::Vtable;
+    const IID: windows_core::GUID = <ITextCompositionStartedEventArgs as windows_core::Interface>::IID;
+}
+impl core::ops::Deref for TextCompositionStartedEventArgs {
+    type Target = ITextCompositionStartedEventArgs;
+    fn deref(&self) -> &Self::Target {
+        unsafe { core::mem::transmute(self) }
+    }
+}
+impl windows_core::RuntimeName for TextCompositionStartedEventArgs {
+    const NAME: &'static str = "Microsoft.UI.Xaml.Controls.TextCompositionStartedEventArgs";
+}
+unsafe impl Send for TextCompositionStartedEventArgs {}
+unsafe impl Sync for TextCompositionStartedEventArgs {}
+#[repr(transparent)]
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct TextControlPasteEventArgs(windows_core::IUnknown);
+windows_core::imp::interface_hierarchy!(TextControlPasteEventArgs, windows_core::IUnknown, windows_core::IInspectable);
+impl windows_core::RuntimeType for TextControlPasteEventArgs {
+    const SIGNATURE: windows_core::imp::ConstBuffer =
+        windows_core::imp::ConstBuffer::for_class::<Self, ITextControlPasteEventArgs>();
+}
+unsafe impl windows_core::Interface for TextControlPasteEventArgs {
+    type Vtable = <ITextControlPasteEventArgs as windows_core::Interface>::Vtable;
+    const IID: windows_core::GUID = <ITextControlPasteEventArgs as windows_core::Interface>::IID;
+}
+impl core::ops::Deref for TextControlPasteEventArgs {
+    type Target = ITextControlPasteEventArgs;
+    fn deref(&self) -> &Self::Target {
+        unsafe { core::mem::transmute(self) }
+    }
+}
+impl windows_core::RuntimeName for TextControlPasteEventArgs {
+    const NAME: &'static str = "Microsoft.UI.Xaml.Controls.TextControlPasteEventArgs";
+}
+unsafe impl Send for TextControlPasteEventArgs {}
+unsafe impl Sync for TextControlPasteEventArgs {}
+windows_core::imp::define_interface!(
+    TextControlPasteEventHandler,
+    TextControlPasteEventHandler_Vtbl,
+    0xddf3a6c0_5ab1_5d74_8289_892c0614658f
+);
+impl windows_core::RuntimeType for TextControlPasteEventHandler {
+    const SIGNATURE: windows_core::imp::ConstBuffer = windows_core::imp::ConstBuffer::for_interface::<Self>();
+}
+#[repr(C)]
+pub struct TextControlPasteEventHandler_Vtbl {
+    base__: windows_core::IUnknown_Vtbl,
+    Invoke: unsafe extern "system" fn(
+        this: *mut core::ffi::c_void,
+        sender: *mut core::ffi::c_void,
+        e: *mut core::ffi::c_void,
+    ) -> windows_core::HRESULT,
+}
+struct TextControlPasteEventHandlerBox<
+    F: Fn(windows_core::Ref<windows_core::IInspectable>, windows_core::Ref<TextControlPasteEventArgs>) + 'static,
+>(core::marker::PhantomData<(fn() -> F,)>);
+impl<F: Fn(windows_core::Ref<windows_core::IInspectable>, windows_core::Ref<TextControlPasteEventArgs>) + 'static>
+    TextControlPasteEventHandlerBox<F>
+{
+    const VTABLE: TextControlPasteEventHandler_Vtbl = TextControlPasteEventHandler_Vtbl {
+        base__: windows_core::IUnknown_Vtbl {
+            QueryInterface: windows_core::imp::DelegateBox::<TextControlPasteEventHandler, F>::QueryInterface,
+            AddRef: windows_core::imp::DelegateBox::<TextControlPasteEventHandler, F>::AddRef,
+            Release: windows_core::imp::DelegateBox::<TextControlPasteEventHandler, F>::Release,
+        },
+        Invoke: Self::Invoke,
+    };
+    unsafe extern "system" fn Invoke(
+        this: *mut core::ffi::c_void,
+        sender: *mut core::ffi::c_void,
+        e: *mut core::ffi::c_void,
+    ) -> windows_core::HRESULT {
+        unsafe {
+            let this = &mut *(this as *mut *mut core::ffi::c_void
+                as *mut windows_core::imp::DelegateBox<TextControlPasteEventHandler, F>);
             (this.invoke)(core::mem::transmute_copy(&sender), core::mem::transmute_copy(&e));
             windows_core::HRESULT(0)
         }

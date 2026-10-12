@@ -685,4 +685,67 @@ async fn types_through_windows_text_input(app: TestApp) {
     assert!(log.borrow().contains(&SurfaceInput::Text("日".to_owned())), "{log:?}");
 }
 
+/// On Windows, taking text with focus, an input method has somewhere to
+/// compose: Windows' text services (TSF) have a document with a context
+/// focused, as for a text field. On the canvas alone XAML gave them none,
+/// and Japanese typed as Latin letters.
+#[cfg(windows)]
+#[mitsuami_test::test]
+async fn gives_input_methods_a_document_on_windows(app: TestApp) {
+    use std::ffi::c_void;
+
+    #[link(name = "ole32")]
+    unsafe extern "system" {
+        fn CoCreateInstance(
+            clsid: *const [u8; 16],
+            outer: *mut c_void,
+            context: u32,
+            iid: *const [u8; 16],
+            out: *mut *mut c_void,
+        ) -> i32;
+    }
+    /// A COM method `index` of `object`'s vtable, taking one out-pointer.
+    unsafe fn call(object: *mut c_void, index: usize) -> *mut c_void {
+        type Method = unsafe extern "system" fn(*mut c_void, *mut *mut c_void) -> i32;
+        let vtable = unsafe { *(object as *const *const usize) };
+        let method: Method = unsafe { std::mem::transmute(*vtable.add(index)) };
+        let mut out = std::ptr::null_mut();
+        unsafe { method(object, &mut out) };
+        out
+    }
+    /// A GUID's bytes, as `GUID` lays them out.
+    fn guid(data1: u32, data2: u16, data3: u16, data4: [u8; 8]) -> [u8; 16] {
+        let mut bytes = [0; 16];
+        bytes[..4].copy_from_slice(&data1.to_le_bytes());
+        bytes[4..6].copy_from_slice(&data2.to_le_bytes());
+        bytes[6..8].copy_from_slice(&data3.to_le_bytes());
+        bytes[8..].copy_from_slice(&data4);
+        bytes
+    }
+    // The thread's `ITfThreadMgr` (one per thread), its focused
+    // `ITfDocumentMgr` (`GetFocus`, slot 7) and that one's top context
+    // (`GetTop`, slot 6).
+    let focused_context = || unsafe {
+        let clsid = guid(0x529a9e6b, 0x6587, 0x4f23, [0xab, 0x9e, 0x9c, 0x7d, 0x68, 0x3e, 0x3c, 0x50]);
+        let iid = guid(0xaa80e801, 0x2021, 0x11d2, [0x93, 0xe0, 0x00, 0x60, 0xb0, 0x67, 0xb8, 0x6e]);
+        let mut manager = std::ptr::null_mut();
+        if CoCreateInstance(&clsid, std::ptr::null_mut(), 1, &iid, &mut manager) < 0 || manager.is_null() {
+            return false;
+        }
+        let document = call(manager, 7);
+        !document.is_null() && !call(document, 6).is_null()
+    };
+
+    let (_log, on_input) = input_log();
+    app.mount(move || Column::new().child(taking_input(on_input).text_input(true)));
+    app.settle().await;
+    if app.is_headless() {
+        return;
+    }
+    app.get(screen()).click_at(10.0, 10.0).await;
+    app.settle().await;
+
+    assert!(focused_context(), "no text services document to compose in");
+}
+
 mitsuami_test::main!();
