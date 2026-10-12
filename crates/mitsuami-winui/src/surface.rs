@@ -277,6 +277,21 @@ impl SurfaceHost {
         state.release_grab();
         state.rendering = None;
         state.input.clear();
+        // The text box goes now, while XAML runs, out of the canvas: kept to the
+        // end, input methods' text services failed fast in `CoreUIComponents`
+        // (`0xc0000602`) as the app quit, seconds after its window closed.
+        if let Some(text_box) = state.text_box.take() {
+            if let (Ok(panel), Ok(control)) =
+                (state.element.cast::<w::IPanel>(), text_box.control.cast::<w::UIElement>())
+                && let Ok(children) = panel.Children()
+            {
+                let mut at = 0;
+                if children.IndexOf(&control, &mut at).unwrap_or(false) {
+                    _ = children.RemoveAt(at);
+                }
+            }
+            drop(text_box);
+        }
         TAKES_TAB.with(|t| t.borrow_mut().remove(&state.id));
         CHILDREN.with(|c| c.borrow_mut().remove(&(state.hwnd as isize)));
         // Gone ones too: every `WM_SETCURSOR` goes through the list.
