@@ -61,7 +61,7 @@ pub use widget::{
     ButtonRole, ButtonStyle, CellKey, ColumnData, ColumnSort, CurrentWindow, Cursor, DocumentTabsStyle, FileDrop,
     FontWeight, HeaderEdge, HorizontalAlign, ImageFit, ImageSource, InputPurpose, LayoutDirection, ListStyle, Modality,
     NodeId, Orientation, Pixels, Prop, RowKey, ScrollAxes, SelectionMode, SidebarItemData, SidebarSectionData,
-    SortOrder, TabsStyle, TextAlign, TextStyle, Truncation, WidgetKind, moved_index,
+    SortOrder, SystemCursor, TabsStyle, TextAlign, TextStyle, Truncation, WidgetKind, moved_index,
 };
 
 pub use mitsuami_reactive as reactive;

@@ -1173,12 +1173,14 @@ void mq_surface_input_configure(QObject* item, int32_t takes, int32_t grabbed, i
 
 // Kind 0: the platform's cursor; 1: none; 2: the pixels (straight RGBA8,
 // copied), at `scale` pixels to a point, with the hotspot in points, as
-// Qt takes it for a pixmap with a device pixel ratio.
+// Qt takes it for a pixmap with a device pixel ratio; 3: Qt's own cursor
+// whose Qt::CursorShape is `width`.
 void mq_surface_input_cursor(QObject* item, int32_t kind, const uint8_t* rgba, int32_t width, int32_t height,
                              double scale, int32_t hot_x, int32_t hot_y) {
     auto* input = static_cast<SurfaceInputItem*>(item);
     if (kind == 0) return input->setChosenCursor(std::nullopt);
     if (kind == 1) return input->setChosenCursor(QCursor(Qt::BlankCursor));
+    if (kind == 3) return input->setChosenCursor(QCursor(Qt::CursorShape(width)));
     QImage image(rgba, width, height, width * 4, QImage::Format_RGBA8888);
     QPixmap pixmap = QPixmap::fromImage(image.copy());
     pixmap.setDevicePixelRatio(scale);

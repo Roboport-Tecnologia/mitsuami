@@ -183,6 +183,10 @@ impl SurfaceArea {
                     Cursor::Default => None,
                     Cursor::Hidden => gdk::Cursor::from_name("none", None),
                     Cursor::Image { pixels, hotspot } => cursor_image(pixels, *hotspot),
+                    // The theme's, by its CSS name, with the arrow where the theme has none.
+                    Cursor::System(shape) => {
+                        gdk::Cursor::from_name(shape.css_name(), gdk::Cursor::from_name("default", None).as_ref())
+                    }
                 };
                 let mut state = self.state.borrow_mut();
                 if state.lock.is_none() {
@@ -629,9 +633,16 @@ fn cursor_image(pixels: &Pixels, hotspot: Point) -> Option<gdk::Cursor> {
         out
     };
     let texture = |w: u32, h: u32, bytes: Vec<u8>| {
-        gdk::MemoryTexture::new(w as i32, h as i32, gdk::MemoryFormat::R8g8b8a8, &glib::Bytes::from_owned(bytes), w as usize * 4)
+        gdk::MemoryTexture::new(
+            w as i32,
+            h as i32,
+            gdk::MemoryFormat::R8g8b8a8,
+            &glib::Bytes::from_owned(bytes),
+            w as usize * 4,
+        )
     };
-    let (x, y) = (hotspot.x.round().clamp(0.0, w as f32 - 1.0) as i32, hotspot.y.round().clamp(0.0, h as f32 - 1.0) as i32);
+    let (x, y) =
+        (hotspot.x.round().clamp(0.0, w as f32 - 1.0) as i32, hotspot.y.round().clamp(0.0, h as f32 - 1.0) as i32);
     let fallback = gdk::Cursor::from_texture(&texture(w, h, bytes), x, y, None);
     let Some(new_from_callback) = (w, h).ne(&(width, height)).then(cursor_from_callback).flatten() else {
         return Some(fallback);
@@ -646,7 +657,8 @@ fn cursor_image(pixels: &Pixels, hotspot: Point) -> Option<gdk::Cursor> {
     // when GDK lets the cursor go; GDK takes its own reference on the
     // fallback.
     unsafe {
-        let cursor = new_from_callback(full_texture, Box::into_raw(full).cast(), Some(drop_full), fallback.to_glib_none().0);
+        let cursor =
+            new_from_callback(full_texture, Box::into_raw(full).cast(), Some(drop_full), fallback.to_glib_none().0);
         Some(from_glib_full(cursor))
     }
 }

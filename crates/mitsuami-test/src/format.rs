@@ -184,6 +184,7 @@ fn describe_props(props: &[Prop]) -> String {
             Prop::Cursor(Cursor::Image { pixels, hotspot }) => {
                 extra.push(format!("cursor={pixels:?} hotspot={},{}", Num(hotspot.x), Num(hotspot.y)))
             }
+            Prop::Cursor(Cursor::System(shape)) => extra.push(format!("cursor={}", shape.css_name())),
         }
     }
     let mut out = String::new();

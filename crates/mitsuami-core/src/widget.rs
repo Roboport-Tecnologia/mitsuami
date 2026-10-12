@@ -529,6 +529,54 @@ pub enum Cursor {
     /// shown at its scale. `hotspot`: the point that points, in points from
     /// its top left.
     Image { pixels: Pixels, hotspot: Point },
+    /// One of the platform's own, by what it means. A platform with none
+    /// for it shows its arrow.
+    System(SystemCursor),
+}
+
+/// The platform cursors a `Cursor::System` names: the ones the platforms
+/// share, as CSS names them.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+pub enum SystemCursor {
+    /// The text cursor, an I-beam.
+    Text,
+    /// Busy: nothing can be done (the hourglass, the spinner).
+    Wait,
+    /// Busy, but it can still be used (the arrow with a spinner).
+    Progress,
+    /// A link: the pointing hand.
+    Pointer,
+    Crosshair,
+    NotAllowed,
+    Help,
+    /// Something can be moved: arrows four ways.
+    Move,
+    /// Resizing up and down, left and right, and along the diagonals.
+    ResizeNorthSouth,
+    ResizeEastWest,
+    ResizeNorthWestSouthEast,
+    ResizeNorthEastSouthWest,
+}
+
+impl SystemCursor {
+    /// Its CSS name (`cursor:`), which GTK and freedesktop cursor themes
+    /// use too.
+    pub fn css_name(self) -> &'static str {
+        match self {
+            SystemCursor::Text => "text",
+            SystemCursor::Wait => "wait",
+            SystemCursor::Progress => "progress",
+            SystemCursor::Pointer => "pointer",
+            SystemCursor::Crosshair => "crosshair",
+            SystemCursor::NotAllowed => "not-allowed",
+            SystemCursor::Help => "help",
+            SystemCursor::Move => "move",
+            SystemCursor::ResizeNorthSouth => "ns-resize",
+            SystemCursor::ResizeEastWest => "ew-resize",
+            SystemCursor::ResizeNorthWestSouthEast => "nwse-resize",
+            SystemCursor::ResizeNorthEastSouthWest => "nesw-resize",
+        }
+    }
 }
 
 /// What a modal `Window` blocks while it's open, shown each platform's way.

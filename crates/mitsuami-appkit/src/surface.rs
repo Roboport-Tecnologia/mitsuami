@@ -26,12 +26,12 @@ use mitsuami_core::raw_window_handle::{
 };
 use mitsuami_core::{
     ActionError, Cursor, EventSink, ImageSource, KeyCode, Modifiers, MouseButton, NativeSurface, NodeId, Pixels, Point,
-    ScrollDelta, SurfaceHandle, SurfaceInput, SurfaceSize, UiEvent,
+    ScrollDelta, SurfaceHandle, SurfaceInput, SurfaceSize, SystemCursor, UiEvent,
 };
 use objc2::rc::{Retained, Weak};
 use objc2::runtime::{AnyClass, AnyObject, NSObjectProtocol, ProtocolObject};
 use objc2::{
-    AllocAnyThread, ClassType, DefinedClass, MainThreadMarker, MainThreadOnly, Message, define_class, msg_send,
+    AllocAnyThread, ClassType, DefinedClass, MainThreadMarker, MainThreadOnly, Message, define_class, msg_send, sel,
 };
 use objc2_app_kit::{
     NSAccessibility, NSAccessibilityImageRole, NSApplication, NSApplicationPresentationOptions, NSCursor, NSEvent,
@@ -471,6 +471,7 @@ impl SurfaceView {
             Cursor::Default => None,
             Cursor::Hidden => cursor_image(&Pixels::new(1, 1, vec![0; 4]), Point::ZERO),
             Cursor::Image { pixels, hotspot } => cursor_image(pixels, *hotspot),
+            Cursor::System(shape) => system_cursor(*shape),
         };
         *self.ivars().cursor.borrow_mut() = ns_cursor;
         *self.ivars().cursor_prop.borrow_mut() = cursor.clone();
@@ -1053,5 +1054,32 @@ impl Drop for AppKitSurface {
                 drop(release.0);
             });
         }
+    }
+}
+
+/// AppKit's cursor for a platform cursor, or `None` (the arrow) where it has
+/// none: no busy cursor (the system shows its own spinner over an app that
+/// doesn't answer), no help or move cursor. The resize cursors are macOS
+/// 15's frame ones where it has them, looked up at run time; before, only
+/// the straight ones, which 15 deprecated.
+fn system_cursor(shape: SystemCursor) -> Option<Retained<NSCursor>> {
+    use objc2_app_kit::{NSCursorFrameResizeDirections as Directions, NSCursorFrameResizePosition as Position};
+    let frame = |position| {
+        NSCursor::class()
+            .class_method(sel!(frameResizeCursorFromPosition:inDirections:))
+            .map(|_| NSCursor::frameResizeCursorFromPosition_inDirections(position, Directions::All))
+    };
+    match shape {
+        SystemCursor::Text => Some(NSCursor::IBeamCursor()),
+        SystemCursor::Pointer => Some(NSCursor::pointingHandCursor()),
+        SystemCursor::Crosshair => Some(NSCursor::crosshairCursor()),
+        SystemCursor::NotAllowed => Some(NSCursor::operationNotAllowedCursor()),
+        #[allow(deprecated)]
+        SystemCursor::ResizeNorthSouth => frame(Position::Top).or_else(|| Some(NSCursor::resizeUpDownCursor())),
+        #[allow(deprecated)]
+        SystemCursor::ResizeEastWest => frame(Position::Left).or_else(|| Some(NSCursor::resizeLeftRightCursor())),
+        SystemCursor::ResizeNorthWestSouthEast => frame(Position::TopLeft),
+        SystemCursor::ResizeNorthEastSouthWest => frame(Position::TopRight),
+        SystemCursor::Wait | SystemCursor::Progress | SystemCursor::Help | SystemCursor::Move => None,
     }
 }

@@ -11,7 +11,7 @@ use std::fmt;
 use std::ptr::NonNull;
 use std::rc::Rc;
 
-use mitsuami_core::{Cursor, Point, PointerKind};
+use mitsuami_core::{Cursor, Point, PointerKind, SystemCursor};
 
 type Raw = *mut c_void;
 
@@ -904,6 +904,9 @@ impl QmlObject {
                     hotspot.x.round() as i32,
                     hotspot.y.round() as i32,
                 ),
+                Cursor::System(shape) => {
+                    mq_surface_input_cursor(raw, 3, std::ptr::null(), qt_cursor_shape(*shape), 0, 1.0, 0, 0)
+                }
             }
         }
     }
@@ -1115,5 +1118,23 @@ impl Drop for ProvidedPixels {
         if !is_exiting() {
             unsafe { mq_pixels_remove(self.key) }
         }
+    }
+}
+
+/// Qt's `Qt::CursorShape` for a platform cursor.
+fn qt_cursor_shape(shape: SystemCursor) -> i32 {
+    match shape {
+        SystemCursor::Crosshair => 2,
+        SystemCursor::Wait => 3,
+        SystemCursor::Text => 4,
+        SystemCursor::ResizeNorthSouth => 5,
+        SystemCursor::ResizeEastWest => 6,
+        SystemCursor::ResizeNorthEastSouthWest => 7,
+        SystemCursor::ResizeNorthWestSouthEast => 8,
+        SystemCursor::Move => 9,
+        SystemCursor::Pointer => 13,
+        SystemCursor::NotAllowed => 14,
+        SystemCursor::Help => 15,
+        SystemCursor::Progress => 16,
     }
 }

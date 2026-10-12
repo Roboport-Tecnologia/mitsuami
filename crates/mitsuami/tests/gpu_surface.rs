@@ -400,8 +400,10 @@ async fn reads_as_an_image_named_by_its_label(app: TestApp) {
     app.expect(screen()).to_be_visible().await;
 }
 
-/// The app's cursor over it: the platform's, none, or an image with its
-/// hotspot. The native surface carries it (the mirror check compares).
+/// The app's cursor over it: the platform's, none, an image with its
+/// hotspot, or one of the platform's by name (a busy one, which AppKit
+/// has none of). The native surface carries it (the mirror check
+/// compares).
 #[mitsuami_test::test]
 async fn shows_the_app_s_cursor(app: TestApp) {
     let arrow = Pixels::new(2, 2, vec![255; 16]).scale(2.0);
@@ -409,9 +411,13 @@ async fn shows_the_app_s_cursor(app: TestApp) {
     app.mount(move || Column::new().child(surface_only().cursor(cursor)));
     app.settle().await;
 
-    for next in
-        [Cursor::Image { pixels: arrow.clone(), hotspot: Point::new(0.5, 0.5) }, Cursor::Hidden, Cursor::Default]
-    {
+    for next in [
+        Cursor::Image { pixels: arrow.clone(), hotspot: Point::new(0.5, 0.5) },
+        Cursor::System(SystemCursor::Text),
+        Cursor::System(SystemCursor::Wait),
+        Cursor::Hidden,
+        Cursor::Default,
+    ] {
         cursor.set(next.clone());
         app.settle().await;
         assert!(app.get(screen()).native_state().props.contains(&Prop::Cursor(next)));

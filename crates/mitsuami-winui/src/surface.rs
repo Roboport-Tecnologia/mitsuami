@@ -39,7 +39,7 @@ use mitsuami_core::raw_window_handle::{
 };
 use mitsuami_core::{
     Cursor, KeyCode, Modifiers, MouseButton, NativeSurface, NodeId, Pixels, Point, Prop, ScrollDelta, SurfaceHandle,
-    SurfaceInput, SurfaceSize, SyntheticInput, UiEvent,
+    SurfaceInput, SurfaceSize, SyntheticInput, SystemCursor, UiEvent,
 };
 use windows_core::{EventRevoker, Interface, PCWSTR, w as wide};
 
@@ -583,6 +583,8 @@ impl HostState {
                 }
                 self.made.map(|(_, cursor)| cursor)
             }
+            // A system cursor is shared: never destroyed.
+            Cursor::System(shape) => Some(unsafe { w::LoadCursorW(std::ptr::null_mut(), system_cursor_id(shape)) }),
         }
     }
 
@@ -1050,6 +1052,25 @@ fn register_class() {
         };
         w::RegisterClassExW(&class);
     });
+}
+
+/// Win32's `IDC_*` for a platform cursor, as `MAKEINTRESOURCE` makes it.
+fn system_cursor_id(shape: SystemCursor) -> PCWSTR {
+    let id: u16 = match shape {
+        SystemCursor::Text => 32513,                     // IDC_IBEAM
+        SystemCursor::Wait => 32514,                     // IDC_WAIT
+        SystemCursor::Crosshair => 32515,                // IDC_CROSS
+        SystemCursor::ResizeNorthWestSouthEast => 32642, // IDC_SIZENWSE
+        SystemCursor::ResizeNorthEastSouthWest => 32643, // IDC_SIZENESW
+        SystemCursor::ResizeEastWest => 32644,           // IDC_SIZEWE
+        SystemCursor::ResizeNorthSouth => 32645,         // IDC_SIZENS
+        SystemCursor::Move => 32646,                     // IDC_SIZEALL
+        SystemCursor::NotAllowed => 32648,               // IDC_NO
+        SystemCursor::Pointer => 32649,                  // IDC_HAND
+        SystemCursor::Progress => 32650,                 // IDC_APPSTARTING
+        SystemCursor::Help => 32651,                     // IDC_HELP
+    };
+    PCWSTR(id as usize as _)
 }
 
 /// The pointer over a surface that takes input is reported, under the
