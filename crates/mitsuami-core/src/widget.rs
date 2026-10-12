@@ -180,7 +180,7 @@ pub enum WidgetKind {
     /// the app shows in one place of its own (a terminal's sessions drawn
     /// on one surface). WinUI's TabView with items without content,
     /// libadwaita's AdwTabBar, a QQC2.TabBar with close buttons, and on
-    /// AppKit a strip of the backend's, drawn as Safari's. Titled by [`Prop::TabTitles`], the chosen
+    /// AppKit a strip of the backend's, made as the system's tab bar. Titled by [`Prop::TabTitles`], the chosen
     /// one [`Prop::SelectedIndex`]; the user closes them
     /// ([`Prop::TabsClosable`]), moves them ([`Prop::TabsReorderable`]) and
     /// asks for a new one ([`Prop::NewTabButton`]), where the app lets
@@ -406,17 +406,17 @@ pub enum TabsStyle {
 /// in the content where they're declared.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Hash)]
 pub enum DocumentTabsStyle {
-    /// The platform's own: the window's on Windows (a tab view in the
-    /// title bar, as Terminal has it), a strip in the content on macOS,
-    /// GNOME and KDE (as Safari, Console and Konsole).
+    /// The platform's own: the window's on macOS and Windows (in the title
+    /// bar, as Safari, Xcode and Terminal have them), a strip in the
+    /// content on GNOME and KDE (as Console and Konsole).
     #[default]
     Automatic,
     /// A strip in the content, where they're declared, on every platform:
     /// on macOS one the backend builds, as Safari's is.
     Strip,
-    /// The window's own: WinUI's tab view in the title bar. macOS's window
-    /// tabs are windows, which can't share the one content, and GTK and Qt
-    /// have none, so a strip there.
+    /// The window's own: a strip in AppKit's title bar, under the title and
+    /// toolbar, WinUI's tab view in the title bar. GTK and Qt have none,
+    /// so a strip.
     Window,
 }
 

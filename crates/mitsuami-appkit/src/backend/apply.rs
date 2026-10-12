@@ -7,6 +7,7 @@ use objc2::rc::Retained;
 use objc2_app_kit::{NSAccessibility, NSApplication, NSView, NSWindowOrderingMode};
 use objc2_foundation::{NSNotificationCenter, NSPoint, NSRect, NSSize};
 
+use crate::classes::HostView;
 use crate::sidebar::Split;
 use crate::toolbar::Toolbar;
 
@@ -40,9 +41,87 @@ impl State {
                 Widget::List(list) => run(&list.table),
                 Widget::Sidebar(sidebar) => run(&sidebar.table),
                 Widget::TextArea(area) => run(&area.text),
+                Widget::DocumentTabs(tabs) => run(&tabs.strip),
                 // The box, not the layout host its children are in.
                 Widget::Group { frame, .. } => run(frame),
                 widget => run(widget.view()),
+            }
+        }
+    }
+
+    /// The window a node is in: the window, its host and its delegate.
+    fn window_parts_of(
+        &self,
+        id: NodeId,
+    ) -> Option<(&Retained<objc2_app_kit::NSWindow>, &Retained<HostView>, &Retained<crate::classes::WindowDelegate>)>
+    {
+        let mut at = self.nodes.get(&id)?.parent;
+        while let Some(parent) = at {
+            let node = self.nodes.get(&parent)?;
+            if let Widget::Window { window, host, _delegate, .. } = &node.widget {
+                return Some((window, host, _delegate));
+            }
+            at = node.parent;
+        }
+        None
+    }
+
+    /// Puts document tabs in their window's title bar, unless the app
+    /// asked for a strip, and back in the content when they stop asking or
+    /// leave it. A window's title bar has one strip: the one there stays,
+    /// and others are strips in the content. As with a header, the content
+    /// goes under the bar and keeps its size: the window grows by the
+    /// strip's band, and shrinks by it when the strip leaves.
+    pub(super) fn place_document_tabs(&self) {
+        let mut all: Vec<(NodeId, &crate::document_tabs::DocumentTabs)> = self
+            .nodes
+            .iter()
+            .filter_map(|(id, node)| match &node.widget {
+                Widget::DocumentTabs(tabs) => Some((*id, tabs)),
+                _ => None,
+            })
+            .collect();
+        all.sort_by_key(|(id, tabs)| (tabs.title_bar().is_none(), *id));
+        let mut taken: Vec<*const objc2_app_kit::NSWindow> = Vec::new();
+        for (id, tabs) in all {
+            let parts = self
+                .window_parts_of(id)
+                .filter(|_| tabs.wants_title_bar())
+                .filter(|(w, ..)| !taken.contains(&(&***w as *const objc2_app_kit::NSWindow)));
+            if let Some((window, ..)) = parts {
+                taken.push(&**window);
+            }
+            let had = tabs.title_bar();
+            let same = match (&had, parts) {
+                (Some(had), Some((window, ..))) => std::ptr::eq(&**had, &**window),
+                (None, None) => true,
+                _ => false,
+            };
+            if same {
+                continue;
+            }
+            // Out of the window it was in, which keeps its content's size.
+            if let Some(had) = had {
+                let parts = self.nodes.values().find_map(|n| match &n.widget {
+                    Widget::Window { window, host, _delegate, .. } if std::ptr::eq(&**window, &*had) => {
+                        Some((host, _delegate))
+                    }
+                    _ => None,
+                });
+                let size = parts.map(|(host, _)| host.frame().size);
+                tabs.place(None);
+                if let (Some((_, delegate)), Some(size)) = (parts, size) {
+                    had.layoutIfNeeded();
+                    had.setContentSize(delegate.at_least_min(&had, Size::new(size.width as f32, size.height as f32)));
+                }
+            }
+            if let Some((window, host, delegate)) = parts {
+                let size = host.frame().size;
+                crate::sidebar::content_under_bar(self.mtm, window, host);
+                delegate.set_detail(Some(host));
+                tabs.place(Some(window));
+                window.layoutIfNeeded();
+                window.setContentSize(delegate.at_least_min(window, Size::new(size.width as f32, size.height as f32)));
             }
         }
     }
@@ -431,6 +510,11 @@ impl State {
                     Widget::List(list) => {
                         list.detach();
                         list.scroll.removeFromSuperview();
+                    }
+                    // Out of the title bar.
+                    Widget::DocumentTabs(tabs) => {
+                        tabs.detach();
+                        tabs.view.removeFromSuperview();
                     }
                     // The app's handle may keep it: it just stops showing.
                     Widget::GpuSurface(view) => {

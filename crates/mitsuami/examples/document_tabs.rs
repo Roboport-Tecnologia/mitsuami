@@ -11,10 +11,10 @@
 //!   its tab, and goes on the second close.
 //! - Drag a tab to another place: the notes' order follows.
 //! - The new-tab button opens an empty note, and chooses it.
-//! - "Tabs" picks where they show: the platform's place (a tab view in
-//!   the title bar on Windows; a strip on macOS, drawn as Safari's, and on
-//!   GNOME and KDE), a strip above the area everywhere, or the window's (a
-//!   strip except on Windows).
+//! - "Tabs" picks where they show: the platform's place (the title bar on
+//!   macOS, as Safari's and Xcode's, and on Windows; a strip on GNOME and
+//!   KDE), a strip above the area everywhere, or the window's (a strip on
+//!   GNOME and KDE, which have none).
 //! - In a title bar, WinUI puts the tabs on Mica Alt's colour, as File
 //!   Explorer has them: near black in dark mode, grey in light.
 //! - A raw platform setting, through `.native()`: on Windows, "Chosen tab

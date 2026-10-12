@@ -178,7 +178,7 @@ impl Widget {
             Widget::List(list) => &list.scroll,
             Widget::Sidebar(sidebar) => &sidebar.scroll,
             Widget::Tabs(tabs) => &tabs.view,
-            Widget::DocumentTabs(tabs) => &tabs.strip,
+            Widget::DocumentTabs(tabs) => &tabs.view,
             Widget::Custom { view, .. } | Widget::Native { view, .. } => view,
             Widget::Drawn { view, .. } => view,
         }
@@ -454,6 +454,7 @@ impl Backend for AppKitBackend {
             state.note_touched(command);
         }
         state.layout_touched();
+        state.place_document_tabs();
     }
 
     fn measure(&mut self, id: NodeId, request: MeasureRequest) -> Size {
