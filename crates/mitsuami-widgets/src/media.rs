@@ -3,8 +3,8 @@
 use std::rc::Rc;
 
 use mitsuami_core::{
-    Color, Cursor, Element, ElementBuilder, ImageFit, ImageSource, NodeId, Pixels, Prop, SurfaceHandle, SurfaceInput,
-    SurfaceSize, Tweak, Ui, UiEvent, View, WidgetKind,
+    Color, Cursor, Element, ElementBuilder, ImageFit, ImageSource, NodeId, Pixels, Prop, Rect, SurfaceHandle,
+    SurfaceInput, SurfaceSize, Tweak, Ui, UiEvent, View, WidgetKind,
 };
 use mitsuami_reactive::{IntoValue, Signal, Value};
 
@@ -253,7 +253,7 @@ impl GpuSurface {
         self.0.prop(Value::Static(true), Prop::TakesInput);
         self.0.on(move |event| {
             if let UiEvent::SurfaceInput(input) = event {
-                handler(*input);
+                handler(input.clone());
             }
         });
         self
@@ -278,6 +278,22 @@ impl GpuSurface {
     /// gives its pointer, say).
     pub fn cursor(mut self, cursor: impl IntoValue<Cursor>) -> GpuSurface {
         self.0.prop(cursor.into_value(), Prop::Cursor);
+        self
+    }
+
+    /// Takes text, as a text field does, while `on` is true: keys report
+    /// what they type (`SurfaceInput::Key`'s `text`), and the platform's
+    /// input methods are on while it has focus, committing as
+    /// `SurfaceInput::Text`. With `on_input`, which reports them.
+    pub fn text_input(mut self, on: impl IntoValue<bool>) -> GpuSurface {
+        self.0.prop(on.into_value(), Prop::TextInput);
+        self
+    }
+
+    /// Where the caret is, in points from its top left, while it takes
+    /// text: the input method's candidate window opens by it.
+    pub fn text_cursor(mut self, caret: impl IntoValue<Option<Rect>>) -> GpuSurface {
+        self.0.prop(caret.into_value(), Prop::TextCursor);
         self
     }
 

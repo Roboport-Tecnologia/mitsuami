@@ -168,11 +168,7 @@ impl KirigamiBackend {
             }
             Widget::GpuSurface(surface) => {
                 props.extend(node.a11y_label.clone().map(Prop::Label));
-                let (takes, locked, grabbed, cursor) = surface.props();
-                props.extend(takes.map(Prop::TakesInput));
-                props.extend(locked.map(Prop::PointerLock));
-                props.extend(grabbed.map(Prop::KeyboardGrab));
-                props.extend(cursor.map(Prop::Cursor));
+                props.extend(surface.props());
             }
             Widget::RadioGroup(g) => {
                 props.extend(node.a11y_label.clone().map(Prop::Label));

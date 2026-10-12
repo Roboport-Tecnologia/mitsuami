@@ -13,6 +13,14 @@
 //! before AppKit dispatches it, menus' key equivalents too, and turns off
 //! the system's shortcuts with the window server's hot key mode, or only
 //! Command-Tab with the app's presentation options.
+//!
+//! Taking text, it's an `NSTextInputClient`, as a text view is: `keyDown:`
+//! hands the key to `interpretKeyEvents:`, and what `insertText:` gives
+//! during it is what the key typed. Input methods compose in its marked
+//! text, which isn't reported, and commit with `insertText:`, which then is
+//! text on its own; their windows open by the app's caret
+//! (`firstRectForCharacterRange:`). Not taking text, it has no input
+//! context, so no input method takes a game's keys.
 
 use std::cell::{Cell, RefCell};
 use std::collections::HashSet;
@@ -26,19 +34,23 @@ use mitsuami_core::raw_window_handle::{
 };
 use mitsuami_core::{
     ActionError, Cursor, EventSink, ImageSource, KeyCode, Modifiers, MouseButton, NativeSurface, NodeId, Pixels, Point,
-    ScrollDelta, SurfaceHandle, SurfaceInput, SurfaceSize, SystemCursor, UiEvent,
+    Rect, ScrollDelta, SurfaceHandle, SurfaceInput, SurfaceSize, SystemCursor, UiEvent,
 };
 use objc2::rc::{Retained, Weak};
-use objc2::runtime::{AnyClass, AnyObject, NSObjectProtocol, ProtocolObject};
+use objc2::runtime::{AnyClass, AnyObject, NSObjectProtocol, ProtocolObject, Sel};
 use objc2::{
     AllocAnyThread, ClassType, DefinedClass, MainThreadMarker, MainThreadOnly, Message, define_class, msg_send, sel,
 };
 use objc2_app_kit::{
     NSAccessibility, NSAccessibilityImageRole, NSApplication, NSApplicationPresentationOptions, NSCursor, NSEvent,
-    NSEventMask, NSEventModifierFlags, NSEventType, NSResponder, NSScreen, NSTrackingArea, NSTrackingAreaOptions,
-    NSView, NSViewLayerContentsPlacement, NSWindow, NSWindowDidResignKeyNotification,
+    NSEventMask, NSEventModifierFlags, NSEventType, NSResponder, NSScreen, NSTextInputClient, NSTextInputContext,
+    NSTrackingArea, NSTrackingAreaOptions, NSView, NSViewLayerContentsPlacement, NSWindow,
+    NSWindowDidResignKeyNotification,
 };
-use objc2_foundation::{NSNotification, NSNotificationCenter, NSOperationQueue, NSPoint, NSSize, NSString};
+use objc2_foundation::{
+    NSArray, NSAttributedString, NSAttributedStringKey, NSNotFound, NSNotification, NSNotificationCenter,
+    NSOperationQueue, NSPoint, NSRange, NSRangePointer, NSRect, NSSize, NSString, NSUInteger,
+};
 
 use objc2_game_controller::{GCMouse, GCMouseDidConnectNotification, GCMouseInput};
 
@@ -158,6 +170,14 @@ pub(crate) struct SurfaceIvars {
     /// which an `NSCursor` can't give back.
     cursor: RefCell<Option<Retained<NSCursor>>>,
     cursor_prop: RefCell<Cursor>,
+    /// Whether it takes text, and the app's caret, in points from its top
+    /// left (the view is flipped).
+    text_input: Cell<bool>,
+    text_cursor: Cell<Option<Rect>>,
+    /// While `keyDown:` interprets a key: what `insertText:` gave.
+    typing: RefCell<Option<String>>,
+    /// An input method's composition in progress.
+    marked: RefCell<String>,
 }
 
 define_class!(
@@ -253,14 +273,30 @@ define_class!(
                 let _: () = unsafe { msg_send![super(self), keyDown: event] };
                 return;
             }
-            self.key(event, true);
+            // With Command, a shortcut: the menus' key equivalents and the
+            // app's own, never text.
+            let text = if self.takes_text() && !flags.contains(NSEventModifierFlags::Command) {
+                *self.ivars().typing.borrow_mut() = Some(String::new());
+                self.interpretKeyEvents(&NSArray::from_retained_slice(&[event.retain()]));
+                self.ivars().typing.borrow_mut().take().filter(|t| !t.is_empty())
+            } else {
+                None
+            };
+            self.key(event, true, text);
+        }
+
+        /// An input context only while it takes text: an input method
+        /// would otherwise take a game's keys.
+        #[unsafe(method_id(inputContext))]
+        fn input_context(&self) -> Option<Retained<NSTextInputContext>> {
+            if self.takes_text() { unsafe { msg_send![super(self), inputContext] } } else { None }
         }
 
         /// Only synthesized: the monitor takes real ones.
         #[unsafe(method(keyUp:))]
         fn key_up(&self, event: &NSEvent) {
             if self.ivars().takes_input.get() {
-                self.key(event, false);
+                self.key(event, false, None);
             } else {
                 let _: () = unsafe { msg_send![super(self), keyUp: event] };
             }
@@ -384,7 +420,108 @@ define_class!(
             self.track();
         }
     }
+
+    unsafe impl NSTextInputClient for SurfaceView {
+        /// Typed by the key `keyDown:` is interpreting, or committed by an
+        /// input method.
+        #[unsafe(method(insertText:replacementRange:))]
+        unsafe fn insert_text(&self, string: &AnyObject, _replacement: NSRange) {
+            let text: String = text_of(string).chars().filter(|c| !c.is_control()).collect();
+            let composed = !std::mem::take(&mut *self.ivars().marked.borrow_mut()).is_empty();
+            let mut typing = self.ivars().typing.borrow_mut();
+            match typing.as_mut() {
+                Some(typed) if !composed => typed.push_str(&text),
+                _ => {
+                    drop(typing);
+                    if !text.is_empty() {
+                        self.emit(SurfaceInput::Text(text));
+                    }
+                }
+            }
+        }
+
+        /// Enter, arrows, Backspace: the keys report themselves. Doing
+        /// nothing here keeps AppKit from beeping.
+        #[unsafe(method(doCommandBySelector:))]
+        unsafe fn do_command_by_selector(&self, _selector: Sel) {}
+
+        #[unsafe(method(setMarkedText:selectedRange:replacementRange:))]
+        unsafe fn set_marked_text(&self, string: &AnyObject, _selected: NSRange, _replacement: NSRange) {
+            *self.ivars().marked.borrow_mut() = text_of(string);
+        }
+
+        #[unsafe(method(unmarkText))]
+        fn unmark_text(&self) {
+            self.ivars().marked.borrow_mut().clear();
+        }
+
+        /// The app's text isn't known here: an empty selection.
+        #[unsafe(method(selectedRange))]
+        fn selected_range(&self) -> NSRange {
+            NSRange::new(0, 0)
+        }
+
+        #[unsafe(method(markedRange))]
+        fn marked_range(&self) -> NSRange {
+            match self.ivars().marked.borrow().encode_utf16().count() {
+                0 => NSRange::new(NSNotFound as NSUInteger, 0),
+                len => NSRange::new(0, len),
+            }
+        }
+
+        #[unsafe(method(hasMarkedText))]
+        fn has_marked_text(&self) -> bool {
+            !self.ivars().marked.borrow().is_empty()
+        }
+
+        #[unsafe(method_id(attributedSubstringForProposedRange:actualRange:))]
+        unsafe fn attributed_substring(
+            &self,
+            _range: NSRange,
+            _actual: NSRangePointer,
+        ) -> Option<Retained<NSAttributedString>> {
+            None
+        }
+
+        #[unsafe(method_id(validAttributesForMarkedText))]
+        fn valid_attributes_for_marked_text(&self) -> Retained<NSArray<NSAttributedStringKey>> {
+            NSArray::new()
+        }
+
+        /// The app's caret on screen, where input methods open their
+        /// windows; the view's top left without one.
+        #[unsafe(method(firstRectForCharacterRange:actualRange:))]
+        unsafe fn first_rect(&self, range: NSRange, actual: NSRangePointer) -> NSRect {
+            if !actual.is_null() {
+                unsafe { *actual = range };
+            }
+            let caret = self.ivars().text_cursor.get().unwrap_or_default();
+            let rect = NSRect::new(
+                NSPoint::new(caret.x() as f64, caret.y() as f64),
+                NSSize::new(caret.width() as f64, caret.height() as f64),
+            );
+            let in_window = self.convertRect_toView(rect, None);
+            self.window().map_or(in_window, |window| window.convertRectToScreen(in_window))
+        }
+
+        #[unsafe(method(characterIndexForPoint:))]
+        fn character_index_for_point(&self, _point: NSPoint) -> NSUInteger {
+            NSNotFound as NSUInteger
+        }
+    }
 );
+
+/// What `insertText:` or `setMarkedText:` were given: a string, or an
+/// attributed one.
+fn text_of(string: &AnyObject) -> String {
+    if let Some(attributed) = string.downcast_ref::<NSAttributedString>() {
+        attributed.string().to_string()
+    } else if let Some(plain) = string.downcast_ref::<NSString>() {
+        plain.to_string()
+    } else {
+        String::new()
+    }
+}
 
 /// `kVK_Tab`.
 const TAB: u16 = 0x30;
@@ -409,6 +546,10 @@ impl SurfaceView {
             key_observer: RefCell::new(None),
             cursor: RefCell::new(None),
             cursor_prop: RefCell::new(Cursor::Default),
+            text_input: Cell::new(false),
+            text_cursor: Cell::new(None),
+            typing: RefCell::new(None),
+            marked: RefCell::new(String::new()),
         });
         let view: Retained<SurfaceView> = unsafe { msg_send![super(this), initWithFrame: zero_rect()] };
         view.setWantsLayer(true);
@@ -480,6 +621,52 @@ impl SurfaceView {
         }
     }
 
+    pub(crate) fn text_input(&self) -> bool {
+        self.ivars().text_input.get()
+    }
+
+    pub(crate) fn text_cursor(&self) -> Option<Rect> {
+        self.ivars().text_cursor.get()
+    }
+
+    /// Takes text: its input context comes and goes with it. AppKit asks
+    /// for the context as the view becomes the first responder, so a view
+    /// that already is gets it (or loses it) here.
+    pub(crate) fn set_text_input(&self, on: bool) {
+        if self.ivars().text_input.replace(on) == on {
+            return;
+        }
+        self.ivars().marked.borrow_mut().clear();
+        if !self.is_first_responder() {
+            return;
+        }
+        match self.inputContext() {
+            Some(context) => context.activate(),
+            None => {
+                if let Some(current) = NSTextInputContext::currentInputContext(MainThreadMarker::from(self)) {
+                    current.deactivate();
+                }
+            }
+        }
+    }
+
+    /// The input method's windows move with the caret.
+    pub(crate) fn set_text_cursor(&self, caret: Option<Rect>) {
+        self.ivars().text_cursor.set(caret);
+        if let Some(context) = self.inputContext() {
+            context.invalidateCharacterCoordinates();
+        }
+    }
+
+    fn takes_text(&self) -> bool {
+        self.ivars().takes_input.get() && self.ivars().text_input.get()
+    }
+
+    fn is_first_responder(&self) -> bool {
+        let first: Option<Retained<NSResponder>> = self.window().and_then(|w| w.firstResponder());
+        first.is_some_and(|r| std::ptr::eq(&*r, self.as_super().as_super()))
+    }
+
     pub(crate) fn set_pointer_lock(&self, on: bool) {
         self.ivars().lock_wanted.set(on);
         if on {
@@ -548,10 +735,12 @@ impl SurfaceView {
 
     // ------------------------------------------------------------- keys
 
-    fn key(&self, event: &NSEvent, pressed: bool) {
+    fn key(&self, event: &NSEvent, pressed: bool, text: Option<String>) {
         let code = event.keyCode();
-        // Only key downs and ups know whether they repeat; asking a
-        // modifier key's `flagsChanged:` event raises an exception.
+        // Only key downs and ups know whether they repeat, or what they
+        // type; asking a modifier key's `flagsChanged:` event raises an
+        // exception.
+        let key_event = matches!(event.r#type(), NSEventType::KeyDown | NSEventType::KeyUp);
         let repeat = pressed && event.r#type() == NSEventType::KeyDown && event.isARepeat();
         let was_down = if pressed {
             !self.ivars().down.borrow_mut().insert(code)
@@ -563,7 +752,9 @@ impl SurfaceView {
             return;
         }
         let modifiers = modifiers(event.modifierFlags());
-        self.emit(SurfaceInput::Key { code: KeyCode::from_mac(code), native: code as u32, pressed, repeat, modifiers });
+        let unmodified = if key_event { unmodified(event) } else { None };
+        let (code, native) = (KeyCode::from_mac(code), code as u32);
+        self.emit(SurfaceInput::Key { code, native, pressed, repeat, modifiers, text, unmodified });
     }
 
     /// Modifier keys only change the flags: each side's device flag says
@@ -584,8 +775,9 @@ impl SurfaceView {
             0x39 => {
                 let modifiers = modifiers(event.modifierFlags());
                 for pressed in [true, false] {
-                    let native = code as u32;
-                    self.emit(SurfaceInput::Key { code: KeyCode::CapsLock, native, pressed, repeat: false, modifiers });
+                    let (native, text, unmodified) = (code as u32, None, None);
+                    let code = KeyCode::CapsLock;
+                    self.emit(SurfaceInput::Key { code, native, pressed, repeat: false, modifiers, text, unmodified });
                 }
                 return;
             }
@@ -595,7 +787,7 @@ impl SurfaceView {
         if pressed == self.ivars().down.borrow().contains(&code) {
             return;
         }
-        self.key(event, pressed);
+        self.key(event, pressed, None);
     }
 
     /// Releases every key it has down: focus left, or the window stopped
@@ -604,8 +796,8 @@ impl SurfaceView {
         let down: Vec<u16> = self.ivars().down.borrow_mut().drain().collect();
         for code in down {
             let (native, modifiers) = (code as u32, Modifiers::default());
-            let code = KeyCode::from_mac(code);
-            self.emit(SurfaceInput::Key { code, native, pressed: false, repeat: false, modifiers });
+            let (code, text, unmodified) = (KeyCode::from_mac(code), None, None);
+            self.emit(SurfaceInput::Key { code, native, pressed: false, repeat: false, modifiers, text, unmodified });
         }
     }
 
@@ -628,8 +820,9 @@ impl SurfaceView {
                 return event.as_ptr();
             }
             match e.r#type() {
-                NSEventType::KeyUp => view.key(e, false),
-                NSEventType::KeyDown if view.keyboard_grabbed() => view.key(e, true),
+                NSEventType::KeyUp => view.key(e, false, None),
+                // Taken before AppKit dispatches it: no input method sees it.
+                NSEventType::KeyDown if view.keyboard_grabbed() => view.key(e, true, None),
                 NSEventType::FlagsChanged if view.keyboard_grabbed() => view.modifier_key(e),
                 _ => return event.as_ptr(),
             }
@@ -938,6 +1131,14 @@ fn active(window: &NSWindow) -> bool {
     window.isKeyWindow() && NSApplication::sharedApplication(MainThreadMarker::from(window)).isActive()
 }
 
+/// The character the key types with no modifiers, in the keyboard's
+/// layout. Function keys' characters are private use (U+F700 on).
+fn unmodified(event: &NSEvent) -> Option<char> {
+    let characters = event.charactersByApplyingModifiers(NSEventModifierFlags::empty())?;
+    let c = characters.to_string().chars().next()?;
+    (!c.is_control() && !('\u{F700}'..='\u{F8FF}').contains(&c)).then_some(c)
+}
+
 fn modifiers(flags: NSEventModifierFlags) -> Modifiers {
     Modifiers {
         shift: flags.contains(NSEventModifierFlags::Shift),
@@ -949,8 +1150,9 @@ fn modifiers(flags: NSEventModifierFlags) -> Modifiers {
 
 /// Input for tests, through the view's own event methods: a click as
 /// real mouse events (which focus it), keys as real key events to the
-/// first responder. Scrolls are reported as they'd come: AppKit makes no
-/// scroll events but from Quartz ones.
+/// first responder, which interprets them as it does real ones, and an
+/// input method's text through `insertText:`. Scrolls are reported as
+/// they'd come: AppKit makes no scroll events but from Quartz ones.
 pub(crate) fn synthesize(view: &SurfaceView, input: &SyntheticInput) -> Result<(), ActionError> {
     if !view.takes_input() {
         return Err(ActionError::Unsupported);
@@ -1003,6 +1205,14 @@ pub(crate) fn synthesize(view: &SurfaceView, input: &SyntheticInput) -> Result<(
         SyntheticInput::Scroll { dx, dy } => {
             let delta = ScrollDelta::Points { x: *dx, y: *dy };
             view.emit(SurfaceInput::Scroll { delta, modifiers: Modifiers::default() });
+        }
+        SyntheticInput::Text(text) => {
+            if !view.takes_text() || !view.is_first_responder() {
+                return Err(ActionError::Unsupported);
+            }
+            let string = NSString::from_str(text);
+            let nowhere = NSRange::new(NSNotFound as NSUInteger, 0);
+            unsafe { view.insertText_replacementRange(&string, nowhere) };
         }
         // Keys with modifiers aren't simulated on a surface.
         SyntheticInput::Shortcut(_)

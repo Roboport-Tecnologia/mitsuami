@@ -12,7 +12,9 @@
 //! shim). The pointer lock is `mitsuami-linux`'s (Qt has none), the
 //! keyboard grab the compositor's shortcuts inhibitor on Wayland and
 //! `QWindow::setKeyboardGrabEnabled` on X11; the input item takes the
-//! window's shortcuts (`ShortcutOverride`) while it's grabbed.
+//! window's shortcuts (`ShortcutOverride`) while it's grabbed. Taking
+//! text, the input item reports what keys type (`QKeyEvent::text`) and
+//! takes input methods (`ItemAcceptsInputMethod`), whose commits are text.
 
 use std::cell::{Cell, RefCell};
 use std::collections::HashMap;
@@ -22,8 +24,8 @@ use std::rc::{Rc, Weak};
 use std::sync::Mutex;
 
 use mitsuami_core::{
-    Cursor, KeyCode, Modifiers, MouseButton, NodeId, Point, ScrollDelta, SurfaceHandle, SurfaceInput, SurfaceSize,
-    UiEvent,
+    Cursor, KeyCode, Modifiers, MouseButton, NodeId, Point, Prop, Rect, ScrollDelta, SurfaceHandle, SurfaceInput,
+    SurfaceSize, UiEvent,
 };
 use mitsuami_linux::wayland::{self, Subsurface};
 use mitsuami_linux::x11::ChildWindow;
@@ -109,6 +111,9 @@ struct ItemState {
     keyboard_grab: Option<bool>,
     /// Qt gives no cursor back as it was set.
     cursor: Option<Cursor>,
+    /// Kept as set: whether it takes text, and the caret.
+    text_input: Option<bool>,
+    text_cursor: Option<Option<Rect>>,
     keys: Rc<Keys>,
     /// What's in effect, and which of them (a lock's reports carry it, so
     /// a late one from a lock let go is dropped).
@@ -142,7 +147,8 @@ impl SurfaceItem {
             if let Callback::Input(event) = callback
                 && let Some(input) = surface_input(event)
             {
-                if let SurfaceInput::Key { code, native, pressed, .. } = input {
+                if let SurfaceInput::Key { code, native, pressed, .. } = &input {
+                    let (code, native, pressed) = (*code, *native, *pressed);
                     let mut down = keys.down.borrow_mut();
                     down.retain(|(k, _)| *k != native);
                     if pressed {
@@ -167,6 +173,8 @@ impl SurfaceItem {
             pointer_lock: None,
             keyboard_grab: None,
             cursor: None,
+            text_input: None,
+            text_cursor: None,
             keys: held.clone(),
             lock: None,
             grab: None,
@@ -240,11 +248,35 @@ impl SurfaceItem {
         state.cursor = Some(cursor.clone());
     }
 
+    pub(crate) fn set_text_input(&self, on: bool) {
+        let mut state = self.state.borrow_mut();
+        state.input.set_surface_text_input(on);
+        state.text_input = Some(on);
+    }
+
+    pub(crate) fn set_text_cursor(&self, caret: Option<Rect>) {
+        let mut state = self.state.borrow_mut();
+        state.input.set_surface_caret(caret);
+        state.text_cursor = Some(caret);
+    }
+
+    pub(crate) fn takes_text(&self) -> bool {
+        let state = self.state.borrow();
+        state.takes_input == Some(true) && state.text_input == Some(true)
+    }
+
     /// The props kept on the node, as the core set them, the lock and
     /// grab as they are.
-    pub(crate) fn props(&self) -> (Option<bool>, Option<bool>, Option<bool>, Option<Cursor>) {
+    pub(crate) fn props(&self) -> Vec<Prop> {
         let state = self.state.borrow();
-        (state.takes_input, state.pointer_lock, state.keyboard_grab, state.cursor.clone())
+        let mut props = Vec::new();
+        props.extend(state.takes_input.map(Prop::TakesInput));
+        props.extend(state.pointer_lock.map(Prop::PointerLock));
+        props.extend(state.keyboard_grab.map(Prop::KeyboardGrab));
+        props.extend(state.cursor.clone().map(Prop::Cursor));
+        props.extend(state.text_input.map(Prop::TextInput));
+        props.extend(state.text_cursor.map(Prop::TextCursor));
+        props
     }
 
     /// Lets go of the keys down without reporting them: the node is gone.
@@ -262,8 +294,8 @@ impl Keys {
     fn release(&self) {
         let down = std::mem::take(&mut *self.down.borrow_mut());
         for (native, code) in down {
-            let modifiers = Modifiers::default();
-            let key = SurfaceInput::Key { code, native, pressed: false, repeat: false, modifiers };
+            let (modifiers, text, unmodified) = (Modifiers::default(), None, None);
+            let key = SurfaceInput::Key { code, native, pressed: false, repeat: false, modifiers, text, unmodified };
             self.events.emit(self.id, UiEvent::SurfaceInput(key));
         }
     }
@@ -588,6 +620,8 @@ fn surface_input(event: SurfaceEvent) -> Option<SurfaceInput> {
                 pressed: event.kind == 0,
                 repeat: event.flags & 16 != 0,
                 modifiers,
+                text: event.text,
+                unmodified: event.unmodified,
             }
         }
         2 => SurfaceInput::PointerMoved { position, modifiers },
@@ -605,6 +639,7 @@ fn surface_input(event: SurfaceEvent) -> Option<SurfaceInput> {
         }
         6 => SurfaceInput::Scroll { delta: ScrollDelta::Lines { x, y }, modifiers },
         7 => SurfaceInput::Scroll { delta: ScrollDelta::Points { x, y }, modifiers },
+        8 => SurfaceInput::Text(event.text?),
         _ => return None,
     })
 }

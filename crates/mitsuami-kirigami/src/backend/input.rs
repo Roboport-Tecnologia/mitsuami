@@ -118,6 +118,8 @@ impl KirigamiBackend {
             | SyntheticInput::PointerEnter
             | SyntheticInput::PointerLeave
             | SyntheticInput::DoubleClick => unreachable!(),
+            // Only a surface takes an input method's text.
+            SyntheticInput::Text(_) => Err(ActionError::Unsupported),
             // Text fields take keys with modifiers as editing commands,
             // which aren't simulated.
             SyntheticInput::Shortcut(_)
@@ -289,11 +291,13 @@ impl KirigamiBackend {
         window: Option<QmlObject>,
         input: &SyntheticInput,
     ) -> Result<(), ActionError> {
-        let events = {
+        let (events, surface_input, takes_text) = {
             let state = self.state.borrow();
             let node = state.nodes.get(&id).ok_or(ActionError::UnknownNode)?;
             match &node.widget {
-                Widget::GpuSurface(surface) if surface.takes_input() => state.events.clone(),
+                Widget::GpuSurface(surface) if surface.takes_input() => {
+                    (state.events.clone(), surface.input, surface.takes_text())
+                }
                 _ => return Err(ActionError::Unsupported),
             }
         };
@@ -307,6 +311,13 @@ impl KirigamiBackend {
                 let ((qt_key, text), code) = (qt_key(*key), KeyCode::from_key(*key));
                 // XKB key codes: evdev's plus 8.
                 window.surface_key(qt_key, crate::surface::evdev_code(code) + 8, &text);
+            }
+            // A real commit, as Qt's input method context sends it.
+            SyntheticInput::Text(text) => {
+                if !takes_text || window.focus_item().and_then(|f| f.node()) != Some(node_key(id)) {
+                    return Err(ActionError::Unsupported);
+                }
+                surface_input.surface_commit(text);
             }
             SyntheticInput::Scroll { dx, dy } => {
                 let delta = ScrollDelta::Points { x: *dx, y: *dy };

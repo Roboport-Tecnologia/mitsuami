@@ -280,7 +280,12 @@ impl State {
                 node.a11y_label = Some(t.clone());
             }
             (
-                Prop::TakesInput(_) | Prop::PointerLock(_) | Prop::KeyboardGrab(_) | Prop::Cursor(_),
+                Prop::TakesInput(_)
+                | Prop::PointerLock(_)
+                | Prop::KeyboardGrab(_)
+                | Prop::Cursor(_)
+                | Prop::TextInput(_)
+                | Prop::TextCursor(_),
                 Widget::GpuSurface(surface),
             ) => surface.set_prop(prop),
             (Prop::Icon(name), Widget::Icon { image, .. }) => {

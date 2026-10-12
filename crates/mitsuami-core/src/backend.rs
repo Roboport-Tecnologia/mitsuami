@@ -91,6 +91,9 @@ pub enum SyntheticInput {
     /// A key pressed and released with modifiers held: what a node's keys
     /// (`Prop::Keys`) take, where the focused control doesn't use it.
     Shortcut(Shortcut),
+    /// An input method commits this text on a `GpuSurface` that takes
+    /// text, as a composition ends.
+    Text(String),
     /// Scroll-wheel / trackpad scroll over a `ScrollView` or `List`, in logical units
     /// (positive = towards the end of the content).
     Scroll { dx: f32, dy: f32 },

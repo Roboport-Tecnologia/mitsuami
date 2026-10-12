@@ -180,6 +180,8 @@ impl State {
             (Prop::PointerLock(on), Widget::GpuSurface(surface)) => surface.set_pointer_lock(*on),
             (Prop::KeyboardGrab(on), Widget::GpuSurface(surface)) => surface.set_keyboard_grab(*on),
             (Prop::Cursor(cursor), Widget::GpuSurface(surface)) => surface.set_cursor(cursor),
+            (Prop::TextInput(on), Widget::GpuSurface(surface)) => surface.set_text_input(*on),
+            (Prop::TextCursor(caret), Widget::GpuSurface(surface)) => surface.set_text_cursor(*caret),
             (Prop::Options(options), Widget::Select(s)) => {
                 // A new model resets the chosen index; it stays if it can,
                 // else the first option is chosen, as the core does. It

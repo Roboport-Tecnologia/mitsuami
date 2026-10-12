@@ -252,6 +252,8 @@ impl State {
             (Prop::PointerLock(on), Widget::GpuSurface(view)) => view.set_pointer_lock(*on),
             (Prop::KeyboardGrab(on), Widget::GpuSurface(view)) => view.set_keyboard_grab(*on),
             (Prop::Cursor(cursor), Widget::GpuSurface(view)) => view.set_cursor(cursor),
+            (Prop::TextInput(on), Widget::GpuSurface(view)) => view.set_text_input(*on),
+            (Prop::TextCursor(caret), Widget::GpuSurface(view)) => view.set_text_cursor(*caret),
             (Prop::Label(t), Widget::Progress(p) | Widget::Spinner { indicator: p, .. }) => {
                 p.setAccessibilityLabel(Some(&ns(t)))
             }

@@ -38,6 +38,7 @@ windows_core::link!("user32.dll" "system" fn GetFocus() -> HWND);
 windows_core::link!("user32.dll" "system" fn GetForegroundWindow() -> HWND);
 windows_core::link!("user32.dll" "system" fn GetIconInfo(hicon : HICON, piconinfo : *mut ICONINFO) -> windows_core::BOOL);
 windows_core::link!("user32.dll" "system" fn GetKeyState(nvirtkey : i32) -> i16);
+windows_core::link!("user32.dll" "system" fn GetKeyboardLayout(idthread : u32) -> HKL);
 windows_core::link!("kernel32.dll" "system" fn GetLastError() -> u32);
 windows_core::link!("kernel32.dll" "system" fn GetLocaleInfoEx(lplocalename : windows_core::PCWSTR, lctype : LCTYPE, lplcdata : windows_core::PWSTR, cchdata : i32) -> i32);
 windows_core::link!("kernel32.dll" "system" fn GetModuleHandleW(lpmodulename : windows_core::PCWSTR) -> HMODULE);
@@ -53,6 +54,12 @@ windows_core::link!("user32.dll" "system" fn GetWindowLongW(hwnd : HWND, nindex 
 windows_core::link!("user32.dll" "system" fn GetWindowTextW(hwnd : HWND, lpstring : windows_core::PWSTR, nmaxcount : i32) -> i32);
 windows_core::link!("user32.dll" "system" fn GetWindowThreadProcessId(hwnd : HWND, lpdwprocessid : *mut u32) -> u32);
 windows_core::link!("kernel32.dll" "system" fn HeapFree(hheap : HANDLE, dwflags : u32, lpmem : *mut core::ffi::c_void) -> windows_core::BOOL);
+windows_core::link!("imm32.dll" "system" fn ImmAssociateContextEx(param0 : HWND, param1 : HIMC, param2 : u32) -> windows_core::BOOL);
+windows_core::link!("imm32.dll" "system" fn ImmGetCompositionStringW(param0 : HIMC, param1 : u32, lpbuf : *mut core::ffi::c_void, dwbuflen : u32) -> i32);
+windows_core::link!("imm32.dll" "system" fn ImmGetContext(param0 : HWND) -> HIMC);
+windows_core::link!("imm32.dll" "system" fn ImmReleaseContext(param0 : HWND, param1 : HIMC) -> windows_core::BOOL);
+windows_core::link!("imm32.dll" "system" fn ImmSetCandidateWindow(param0 : HIMC, lpcandidate : *const CANDIDATEFORM) -> windows_core::BOOL);
+windows_core::link!("imm32.dll" "system" fn ImmSetCompositionWindow(param0 : HIMC, lpcompform : *const COMPOSITIONFORM) -> windows_core::BOOL);
 windows_core::link!("user32.dll" "system" fn IsWindowEnabled(hwnd : HWND) -> windows_core::BOOL);
 windows_core::link!("user32.dll" "system" fn IsWindowVisible(hwnd : HWND) -> windows_core::BOOL);
 windows_core::link!("user32.dll" "system" fn LoadCursorW(hinstance : HINSTANCE, lpcursorname : windows_core::PCWSTR) -> HCURSOR);
@@ -68,6 +75,7 @@ windows_core::link!("user32.dll" "system" fn RegisterRawInputDevices(prawinputde
 windows_core::link!("user32.dll" "system" fn ReleaseCapture() -> windows_core::BOOL);
 windows_core::link!("comctl32.dll" "system" fn RemoveWindowSubclass(hwnd : HWND, pfnsubclass : SUBCLASSPROC, uidsubclass : usize) -> windows_core::BOOL);
 windows_core::link!("shell32.dll" "system" fn SHCreateItemFromParsingName(pszpath : windows_core::PCWSTR, pbc : *mut core::ffi::c_void, riid : *const windows_core::GUID, ppv : *mut *mut core::ffi::c_void) -> windows_core::HRESULT);
+windows_core::link!("user32.dll" "system" fn ScreenToClient(hwnd : HWND, lppoint : *mut POINT) -> windows_core::BOOL);
 windows_core::link!("user32.dll" "system" fn SendMessageW(hwnd : HWND, msg : u32, wparam : WPARAM, lparam : LPARAM) -> LRESULT);
 windows_core::link!("user32.dll" "system" fn SetCapture(hwnd : HWND) -> HWND);
 windows_core::link!("shell32.dll" "system" fn SetCurrentProcessExplicitAppUserModelID(appid : windows_core::PCWSTR) -> windows_core::HRESULT);
@@ -90,6 +98,7 @@ windows_core::link!("user32.dll" "system" fn ShowCursor(bshow : windows_core::BO
 windows_core::link!("user32.dll" "system" fn ShutdownBlockReasonCreate(hwnd : HWND, pwszreason : windows_core::PCWSTR) -> windows_core::BOOL);
 windows_core::link!("user32.dll" "system" fn ShutdownBlockReasonDestroy(hwnd : HWND) -> windows_core::BOOL);
 windows_core::link!("kernel32.dll" "system" fn SystemTimeToTzSpecificLocalTime(lptimezoneinformation : *const TIME_ZONE_INFORMATION, lpuniversaltime : *const SYSTEMTIME, lplocaltime : *mut SYSTEMTIME) -> windows_core::BOOL);
+windows_core::link!("user32.dll" "system" fn ToUnicodeEx(wvirtkey : u32, wscancode : u32, lpkeystate : *const u8, pwszbuff : windows_core::PWSTR, cchbuff : i32, wflags : u32, dwhkl : HKL) -> i32);
 windows_core::link!("user32.dll" "system" fn TrackMouseEvent(lpeventtrack : *mut TRACKMOUSEEVENT) -> windows_core::BOOL);
 windows_core::link!("user32.dll" "system" fn TranslateMessage(lpmsg : *const MSG) -> windows_core::BOOL);
 windows_core::link!("user32.dll" "system" fn UnhookWindowsHookEx(hhk : HHOOK) -> windows_core::BOOL);
@@ -977,11 +986,28 @@ impl windows_core::RuntimeName for ButtonBase {
 }
 unsafe impl Send for ButtonBase {}
 unsafe impl Sync for ButtonBase {}
+#[repr(C)]
+#[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
+pub struct CANDIDATEFORM {
+    pub dwIndex: u32,
+    pub dwStyle: u32,
+    pub ptCurrentPos: POINT,
+    pub rcArea: RECT,
+}
+pub const CFS_EXCLUDE: i32 = 128;
+pub const CFS_POINT: i32 = 2;
 pub const CLSCTX_ALL: i32 = 23;
 pub type COINIT = i32;
 pub const COINIT_APARTMENTTHREADED: COINIT = 2;
 pub const COINIT_MULTITHREADED: COINIT = 0;
 pub type COLORREF = u32;
+#[repr(C)]
+#[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
+pub struct COMPOSITIONFORM {
+    pub dwStyle: u32,
+    pub ptCurrentPos: POINT,
+    pub rcArea: RECT,
+}
 pub const COPYENGINE_E_USER_CANCELLED: windows_core::HRESULT = windows_core::HRESULT(0x80270000_u32 as _);
 #[repr(transparent)]
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -3136,6 +3162,7 @@ impl windows_core::RuntimeName for FrameworkTemplate {
 unsafe impl Send for FrameworkTemplate {}
 unsafe impl Sync for FrameworkTemplate {}
 pub const GA_ROOT: i32 = 2;
+pub const GCS_RESULTSTR: i32 = 2048;
 pub const GWLP_HWNDPARENT: i32 = -8;
 pub const GWL_EXSTYLE: i32 = -20;
 pub const GW_CHILD: i32 = 5;
@@ -3295,9 +3322,11 @@ pub type HDC = *mut core::ffi::c_void;
 pub type HGDIOBJ = *mut core::ffi::c_void;
 pub type HHOOK = *mut core::ffi::c_void;
 pub type HICON = *mut core::ffi::c_void;
+pub type HIMC = *mut core::ffi::c_void;
 pub type HINSTANCE = *mut core::ffi::c_void;
 pub type HKEY = *mut core::ffi::c_void;
 pub const HKEY_CURRENT_USER: HKEY = -2147483647 as _;
+pub type HKL = *mut core::ffi::c_void;
 pub type HMENU = *mut core::ffi::c_void;
 pub type HMODULE = HINSTANCE;
 pub type HMONITOR = *mut core::ffi::c_void;
@@ -3324,6 +3353,7 @@ impl windows_core::RuntimeType for HorizontalAlignment {
     const SIGNATURE: windows_core::imp::ConstBuffer =
         windows_core::imp::ConstBuffer::from_slice(b"enum(Microsoft.UI.Xaml.HorizontalAlignment;i4)");
 }
+pub const IACE_DEFAULT: i32 = 16;
 windows_core::imp::define_interface!(
     IAccessibilitySettings,
     IAccessibilitySettings_Vtbl,
@@ -15647,6 +15677,7 @@ pub struct PACKAGE_VERSION_0_0 {
     pub Minor: u16,
     pub Major: u16,
 }
+pub const PM_NOREMOVE: i32 = 0;
 pub const PM_REMOVE: i32 = 1;
 #[repr(C)]
 #[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
@@ -19290,10 +19321,20 @@ impl windows_core::RuntimeName for VisualTreeHelper {
 unsafe impl Send for VisualTreeHelper {}
 unsafe impl Sync for VisualTreeHelper {}
 pub const WH_KEYBOARD_LL: i32 = 13;
+pub const WM_CHAR: i32 = 258;
 pub const WM_CLOSE: i32 = 16;
+pub const WM_DEADCHAR: i32 = 259;
 pub const WM_ENDSESSION: i32 = 22;
 pub const WM_GETICON: i32 = 127;
+pub const WM_IME_CHAR: i32 = 646;
+pub const WM_IME_COMPOSITION: i32 = 271;
+pub const WM_IME_ENDCOMPOSITION: i32 = 270;
+pub const WM_IME_SETCONTEXT: i32 = 641;
+pub const WM_IME_STARTCOMPOSITION: i32 = 269;
 pub const WM_INPUT: i32 = 255;
+pub const WM_KEYDOWN: i32 = 256;
+pub const WM_KEYFIRST: i32 = 256;
+pub const WM_KEYLAST: i32 = 265;
 pub const WM_LBUTTONDOWN: i32 = 513;
 pub const WM_LBUTTONUP: i32 = 514;
 pub const WM_MBUTTONDOWN: i32 = 519;
@@ -19309,6 +19350,7 @@ pub const WM_QUERYENDSESSION: i32 = 17;
 pub const WM_RBUTTONDOWN: i32 = 516;
 pub const WM_RBUTTONUP: i32 = 517;
 pub const WM_SETCURSOR: i32 = 32;
+pub const WM_SYSKEYDOWN: i32 = 260;
 pub const WM_XBUTTONDOWN: i32 = 523;
 pub const WM_XBUTTONUP: i32 = 524;
 #[repr(C)]

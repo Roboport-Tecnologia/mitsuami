@@ -274,6 +274,14 @@ impl<'a> Locator<'a> {
         }
     }
 
+    /// Commits text as an input method does when a composition ends, on a
+    /// focused `GpuSurface` that takes text: what a user typing Japanese or
+    /// Chinese gives it.
+    pub async fn commit_text(&self, text: &str) {
+        self.app.settle().await;
+        self.input(SyntheticInput::Text(text.to_owned())).await;
+    }
+
     /// Presses a key on the control, with it focused, as the keyboard
     /// does: `press(Key::Enter)`, `press(' ')`, or with modifiers,
     /// `press(Shortcut::primary(Key::Backspace))`. A key the control

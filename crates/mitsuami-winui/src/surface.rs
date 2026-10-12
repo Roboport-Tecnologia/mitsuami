@@ -27,6 +27,16 @@
 //! of letting XAML set its arrow. An `InputCursor` can't be made from
 //! pixels, so `UIElement.ProtectedCursor` (set from outside for a table's
 //! grippers) only has the system's shapes.
+//!
+//! Text comes through the same subclass, from the window with Win32 focus
+//! (XAML's content island): `TranslateMessage` queues a key's `WM_CHAR`s
+//! before the key is dispatched, so at its `WM_KEYDOWN` they're taken off
+//! the queue (as winit does) and go out with the key, which XAML reports
+//! as the canvas's `KeyDown` while the message is handled. Characters no
+//! key down came with (an input method's, sent as `WM_IME_CHAR` and then
+//! `WM_CHAR`) are reported as committed text. The input method's
+//! candidate window is placed at the app's caret with IMM32, which
+//! Windows' input methods follow.
 
 use std::cell::RefCell;
 use std::collections::{HashMap, HashSet};
@@ -34,12 +44,13 @@ use std::num::NonZeroIsize;
 use std::rc::{Rc, Weak};
 use std::sync::Once;
 
+use mitsuami_core::backend::Key;
 use mitsuami_core::raw_window_handle::{
     HandleError, RawDisplayHandle, RawWindowHandle, Win32WindowHandle, WindowsDisplayHandle,
 };
 use mitsuami_core::{
-    Cursor, KeyCode, Modifiers, MouseButton, NativeSurface, NodeId, Pixels, Point, Prop, ScrollDelta, SurfaceHandle,
-    SurfaceInput, SurfaceSize, SyntheticInput, SystemCursor, UiEvent,
+    Cursor, KeyCode, Modifiers, MouseButton, NativeSurface, NodeId, Pixels, Point, Prop, Rect, ScrollDelta,
+    SurfaceHandle, SurfaceInput, SurfaceSize, SyntheticInput, SystemCursor, UiEvent,
 };
 use windows_core::{EventRevoker, Interface, PCWSTR, w as wide};
 
@@ -152,6 +163,14 @@ struct HostState {
     /// scale it was made for.
     cursor: Option<Cursor>,
     made: Option<(f64, w::HCURSOR)>,
+    /// What the core set: whether it takes text, and where its caret is.
+    text_input: Option<bool>,
+    text_cursor: Option<Option<Rect>>,
+    /// What the key going down typed: its `WM_CHAR`s, taken off the queue
+    /// before XAML reports the key.
+    typed: Option<String>,
+    /// A `WM_CHAR`'s high surrogate, waiting for the low one.
+    surrogate: Option<u16>,
 }
 
 impl SurfaceHost {
@@ -183,6 +202,10 @@ impl SurfaceHost {
                 keys_down: HashSet::new(),
                 cursor: None,
                 made: None,
+                text_input: None,
+                text_cursor: None,
+                typed: None,
+                surrogate: None,
             })
         });
         let input = listen(&element.cast()?, &state)?;
@@ -307,6 +330,20 @@ impl SurfaceHost {
         }
     }
 
+    /// Takes text: its keys report what they type, and the input method
+    /// follows its caret.
+    pub(crate) fn set_text_input(&self, on: bool) {
+        let mut state = self.state.borrow_mut();
+        state.text_input = Some(on);
+        state.place_input_method();
+    }
+
+    pub(crate) fn set_text_cursor(&self, caret: Option<Rect>) {
+        let mut state = self.state.borrow_mut();
+        state.text_cursor = Some(caret);
+        state.place_input_method();
+    }
+
     /// What the core set that the canvas can't report: whether it takes
     /// input, and the lock and grab in effect (or about to be, until it's
     /// laid out in a window).
@@ -317,6 +354,8 @@ impl SurfaceHost {
         props.extend(state.lock.map(|_| Prop::PointerLock(state.locked || state.pending_lock)));
         props.extend(state.grab.map(|_| Prop::KeyboardGrab(state.grabbed || state.pending_grab)));
         props.extend(state.cursor.clone().map(Prop::Cursor));
+        props.extend(state.text_input.map(Prop::TextInput));
+        props.extend(state.text_cursor.map(Prop::TextCursor));
         props
     }
 
@@ -339,8 +378,26 @@ impl SurfaceHost {
                     .chain(0xE001..0xE080)
                     .find(|scan| KeyCode::from_windows_scancode(*scan) == code)
                     .unwrap_or(0);
+                let unmodified = code.us_char();
                 for pressed in [true, false] {
-                    state.report(SurfaceInput::Key { code, native, pressed, repeat: false, modifiers });
+                    let text = match key {
+                        Key::Char(c) if pressed && state.takes_text() && !c.is_control() => Some(c.to_string()),
+                        _ => None,
+                    };
+                    state.report(SurfaceInput::Key {
+                        code,
+                        native,
+                        pressed,
+                        repeat: false,
+                        modifiers,
+                        text,
+                        unmodified,
+                    });
+                }
+            }
+            SyntheticInput::Text(text) => {
+                if state.takes_text() {
+                    state.report(SurfaceInput::Text(text.clone()));
                 }
             }
             SyntheticInput::Scroll { dx, dy } => {
@@ -411,6 +468,10 @@ fn listen(element: &w::IUIElement, state: &Rc<RefCell<HostState>>) -> R<Vec<Even
             && let Ok(mut state) = s.try_borrow_mut()
         {
             state.focused = true;
+            // Its keys and characters come to the window with Win32
+            // focus, which may have been made after the surface was.
+            subclass(unsafe { w::GetFocus() });
+            state.place_input_method();
         }
     })?);
     let s = weak();
@@ -551,8 +612,72 @@ impl HostState {
             // A release for a key it never saw go down (it went down elsewhere).
             return Ok(());
         }
-        self.report(SurfaceInput::Key { code, native, pressed, repeat, modifiers: key_modifiers() });
+        let typed = if pressed { self.typed.take() } else { None };
+        let text = typed.filter(|t| !t.is_empty() && self.takes_text());
+        let unmodified = unmodified(args.Key()?.0 as u32, status.scan_code);
+        let modifiers = key_modifiers();
+        self.report(SurfaceInput::Key { code, native, pressed, repeat, modifiers, text, unmodified });
         Ok(())
+    }
+
+    fn takes_text(&self) -> bool {
+        self.takes_input == Some(true) && self.text_input == Some(true)
+    }
+
+    /// A `WM_CHAR` no key down came with, an input method's: one UTF-16
+    /// unit at a time.
+    fn char_typed(&mut self, unit: u16) {
+        let units = match (self.surrogate.take(), unit) {
+            (_, 0xD800..=0xDBFF) => {
+                self.surrogate = Some(unit);
+                return;
+            }
+            (Some(high), 0xDC00..=0xDFFF) => vec![high, unit],
+            _ => vec![unit],
+        };
+        let text = typed_text(&units);
+        if !text.is_empty() {
+            self.report(SurfaceInput::Text(text));
+        }
+    }
+
+    /// Opens the input method's composition and candidate windows by the
+    /// app's caret, in the focused window's client pixels.
+    fn place_input_method(&self) {
+        let (Some(Some(caret)), Some((x, y, _, _))) = (self.text_cursor, self.placed) else { return };
+        if !self.takes_text() || !self.is_xaml_focus() {
+            return;
+        }
+        let focus = unsafe { w::GetFocus() };
+        if focus.is_null() {
+            return;
+        }
+        let scale = self.scale();
+        let px = |v: f32| (v as f64 * scale).round() as i32;
+        let mut origin = w::POINT { x: x + px(caret.origin.x), y: y + px(caret.origin.y) };
+        unsafe {
+            _ = w::ClientToScreen(self.window, &mut origin);
+            _ = w::ScreenToClient(focus, &mut origin);
+        }
+        let (width, height) = (px(caret.size.width).max(1), px(caret.size.height).max(1));
+        let area = w::RECT { left: origin.x, top: origin.y, right: origin.x + width, bottom: origin.y + height };
+        let context = unsafe { w::ImmGetContext(focus) };
+        if context.is_null() {
+            return;
+        }
+        let composition = w::COMPOSITIONFORM { dwStyle: w::CFS_POINT as u32, ptCurrentPos: origin, rcArea: area };
+        // Below the caret, never over it.
+        let candidates = w::CANDIDATEFORM {
+            dwIndex: 0,
+            dwStyle: w::CFS_EXCLUDE as u32,
+            ptCurrentPos: w::POINT { x: origin.x, y: area.bottom },
+            rcArea: area,
+        };
+        unsafe {
+            _ = w::ImmSetCompositionWindow(context, &composition);
+            _ = w::ImmSetCandidateWindow(context, &candidates);
+            _ = w::ImmReleaseContext(focus, context);
+        }
     }
 
     /// Reports every key it has down as released: focus left, or the
@@ -561,7 +686,8 @@ impl HostState {
         let modifiers = Modifiers::default();
         for native in std::mem::take(&mut self.keys_down) {
             let code = KeyCode::from_windows_scancode(native);
-            self.report(SurfaceInput::Key { code, native, pressed: false, repeat: false, modifiers });
+            let (text, unmodified) = (None, None);
+            self.report(SurfaceInput::Key { code, native, pressed: false, repeat: false, modifiers, text, unmodified });
         }
     }
 
@@ -633,6 +759,7 @@ impl HostState {
                 Some(_) if state.locked => state.clip(),
                 Some(_) => {}
             }
+            state.place_input_method();
         }
         state.raise();
         state.try_pending();
@@ -842,7 +969,9 @@ impl HostState {
             meta: held([KeyCode::MetaLeft, KeyCode::MetaRight]),
         };
         let code = KeyCode::from_windows_scancode(native);
-        self.report(SurfaceInput::Key { code, native, pressed, repeat, modifiers });
+        // The hook comes before keys are translated: they type nothing.
+        let (text, unmodified) = (None, unmodified(key.vkCode, key.scanCode));
+        self.report(SurfaceInput::Key { code, native, pressed, repeat, modifiers, text, unmodified });
     }
 
     /// The canvas in the window's client area, in pixels; `None` while it
@@ -904,6 +1033,68 @@ fn key_modifiers() -> Modifiers {
         alt: down(w::VK_MENU),
         meta: down(w::VK_LWIN) || down(w::VK_RWIN),
     }
+}
+
+/// The character a key types with no modifiers in the thread's layout:
+/// `ToUnicodeEx` with nothing held, leaving the keyboard's state (a dead
+/// key pressed before) as it is. A dead key gives its accent.
+fn unmodified(virtual_key: u32, scan_code: u32) -> Option<char> {
+    // Bit 2: the keyboard's state stays as it is (Windows 10 1607).
+    const KEEP_STATE: u32 = 0x4;
+    let held = [0u8; 256];
+    let mut out = [0u16; 8];
+    let layout = unsafe { w::GetKeyboardLayout(0) };
+    let written = unsafe {
+        w::ToUnicodeEx(
+            virtual_key,
+            scan_code,
+            held.as_ptr(),
+            windows_core::PWSTR(out.as_mut_ptr()),
+            out.len() as i32,
+            KEEP_STATE,
+            layout,
+        )
+    };
+    let len = (written.unsigned_abs() as usize).min(out.len());
+    char::decode_utf16(out[..len].iter().copied()).next()?.ok().filter(|c| !c.is_control())
+}
+
+/// Text from `WM_CHAR`s: control characters (Control+letters, Enter, Tab,
+/// Backspace, Escape) aren't text.
+fn typed_text(units: &[u16]) -> String {
+    char::decode_utf16(units.iter().copied()).filter_map(Result::ok).filter(|c| !c.is_control()).collect()
+}
+
+/// Takes off the queue the `WM_CHAR`s `TranslateMessage` queued for the
+/// key going down in `hwnd` (two for a dead key that didn't compose, or a
+/// character outside the BMP), and a dead key's `WM_DEADCHAR`.
+fn typed_after_key(hwnd: w::HWND) -> String {
+    let mut units = Vec::new();
+    loop {
+        let mut message = w::MSG::default();
+        let (first, last) = (w::WM_KEYFIRST as u32, w::WM_KEYLAST as u32);
+        let queued = unsafe { w::PeekMessageW(&mut message, hwnd, first, last, w::PM_NOREMOVE as u32) };
+        let kind = message.message;
+        if !queued.as_bool() || (kind != w::WM_CHAR as u32 && kind != w::WM_DEADCHAR as u32) {
+            break;
+        }
+        unsafe { _ = w::PeekMessageW(&mut message, hwnd, kind, kind, w::PM_REMOVE as u32) };
+        if kind == w::WM_CHAR as u32 {
+            units.push(message.wParam as u16);
+        }
+    }
+    typed_text(&units)
+}
+
+/// The surface in `hwnd`'s window that takes text and is XAML's focused
+/// element. Asked of XAML, since `GotFocus` comes after focus moved: the
+/// first key after a click came before it.
+fn text_host(hwnd: w::HWND) -> Option<Rc<RefCell<HostState>>> {
+    let root = unsafe { w::GetAncestor(hwnd, w::GA_ROOT as u32) };
+    let hosts: Vec<_> = HOSTS.with(|h| h.borrow().iter().filter_map(Weak::upgrade).collect());
+    hosts
+        .into_iter()
+        .find(|host| host.try_borrow().is_ok_and(|s| s.window == root && s.takes_text() && s.is_xaml_focus()))
 }
 
 impl Drop for HostState {
@@ -983,7 +1174,7 @@ fn make_cursor(pixels: &Pixels, hotspot: Point, scale: f64) -> Option<w::HCURSOR
 }
 
 /// Subclasses a XAML window and the windows in it (not ours), for their
-/// `WM_SETCURSOR`.
+/// `WM_SETCURSOR`, and for the keys and characters of the one with focus.
 fn subclass_tree(window: w::HWND) {
     unsafe extern "system" fn each(hwnd: w::HWND, _: w::LPARAM) -> windows_core::BOOL {
         subclass(hwnd);
@@ -1002,7 +1193,7 @@ fn subclass(hwnd: w::HWND) {
     if class[..len.max(0) as usize] == *unsafe { CLASS.as_wide() } {
         return;
     }
-    if unsafe { w::SetWindowSubclass(hwnd, Some(set_cursor_proc), 0, 0) }.as_bool() {
+    if unsafe { w::SetWindowSubclass(hwnd, Some(subclass_proc), 0, 0) }.as_bool() {
         SUBCLASSED.with(|s| s.borrow_mut().insert(hwnd as isize));
     }
 }
@@ -1010,8 +1201,9 @@ fn subclass(hwnd: w::HWND) {
 /// Over a surface with a cursor of the app's, sets it rather than letting
 /// XAML set its own. A window asks its parent first only in
 /// `DefWindowProc`, which XAML's input window doesn't reach: each is
-/// subclassed.
-unsafe extern "system" fn set_cursor_proc(
+/// subclassed. While a surface that takes text has focus, keys take their
+/// characters with them, and characters on their own are text.
+unsafe extern "system" fn subclass_proc(
     hwnd: w::HWND,
     message: u32,
     wparam: w::WPARAM,
@@ -1019,8 +1211,32 @@ unsafe extern "system" fn set_cursor_proc(
     _: usize,
     _: usize,
 ) -> w::LRESULT {
+    let key_down = message == w::WM_KEYDOWN as u32 || message == w::WM_SYSKEYDOWN as u32;
+    if key_down && let Some(host) = text_host(hwnd) {
+        let typed = typed_after_key(hwnd);
+        host.borrow_mut().typed = Some(typed);
+        let result = unsafe { w::DefSubclassProc(hwnd, message, wparam, lparam) };
+        // XAML took the key itself (an accelerator) and the canvas never
+        // heard of it: what it typed still goes to the surface.
+        let left = host.borrow_mut().typed.take();
+        if let Some(text) = left.filter(|t| !t.is_empty()) {
+            host.borrow().report(SurfaceInput::Text(text));
+        }
+        return result;
+    }
+    if message == w::WM_CHAR as u32
+        && let Some(host) = text_host(hwnd)
+    {
+        host.borrow_mut().char_typed(wparam as u16);
+        return 0;
+    }
+    if message == w::WM_IME_STARTCOMPOSITION as u32
+        && let Some(host) = text_host(hwnd)
+    {
+        host.borrow().place_input_method();
+    }
     if message == w::WM_NCDESTROY as u32 {
-        unsafe { _ = w::RemoveWindowSubclass(hwnd, Some(set_cursor_proc), 0) };
+        unsafe { _ = w::RemoveWindowSubclass(hwnd, Some(subclass_proc), 0) };
         SUBCLASSED.with(|s| s.borrow_mut().remove(&(hwnd as isize)));
     } else if message == w::WM_SETCURSOR as u32 && (lparam & 0xFFFF) as i32 == w::HTCLIENT {
         let root = unsafe { w::GetAncestor(hwnd, w::GA_ROOT as u32) };

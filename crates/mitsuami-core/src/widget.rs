@@ -7,7 +7,7 @@ use std::sync::Arc;
 use crate::any_value::Opaque;
 use crate::custom::CustomProps;
 use crate::draw::{Color, DisplayList};
-use crate::geometry::{Point, Size};
+use crate::geometry::{Point, Rect, Size};
 use crate::services::{MenuEntry, Shortcut};
 
 /// Stable identity of a node for the lifetime of a [`Ui`](crate::Ui).
@@ -142,7 +142,8 @@ pub enum WidgetKind {
     /// UI thread (an `NSView` backed by a `CAMetalLayer`, a Wayland
     /// subsurface, a child window). The backend reports it as
     /// `SurfaceReady`, then its size in pixels as `SurfaceResized`; with
-    /// [`Prop::TakesInput`], its keys and pointer as `SurfaceInput`.
+    /// [`Prop::TakesInput`], its keys and pointer as `SurfaceInput`, and
+    /// with [`Prop::TextInput`] what its keys type.
     GpuSurface,
     /// A native scroll container. It has exactly one native child, the
     /// content, which the core lays out and may be larger than the viewport.
@@ -1052,6 +1053,14 @@ pub enum Prop {
     KeyboardGrab(bool),
     /// The pointer's cursor over a `GpuSurface`.
     Cursor(Cursor),
+    /// A `GpuSurface` that takes input takes text too, as a text field
+    /// does: its keys report what they type, and the platform's input
+    /// methods are on while it has focus, committing as
+    /// `SurfaceInput::Text`.
+    TextInput(bool),
+    /// Where the caret is on a `GpuSurface` that takes text, in points from
+    /// its top left: the input method's candidate window opens by it.
+    TextCursor(Option<Rect>),
     /// A `Container` or `Group` takes the files and folders this says
     /// when they're dragged from the platform's file manager and dropped
     /// on it; `None`: none. While acceptable files are over it, the

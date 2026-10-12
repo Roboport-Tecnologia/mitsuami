@@ -1,11 +1,12 @@
 //! What a `GpuSurface` that takes input reports: keys by where they are on
-//! the keyboard, and the pointer over it, as the platform delivers them.
+//! the keyboard, what they type, and the pointer over it, as the platform
+//! delivers them.
 
 use crate::geometry::Point;
 
 /// Input on a `GpuSurface` that takes it, reported as
 /// [`UiEvent::SurfaceInput`](crate::UiEvent::SurfaceInput).
-#[derive(Clone, Copy, Debug, PartialEq)]
+#[derive(Clone, Debug, PartialEq)]
 pub enum SurfaceInput {
     /// A key went down, or up, while the surface had focus. `repeat`: the
     /// platform's own repeat of a key held down.
@@ -18,7 +19,24 @@ pub enum SurfaceInput {
         pressed: bool,
         repeat: bool,
         modifiers: Modifiers,
+        /// On a surface that takes text (`Prop::TextInput`), what the key
+        /// typed, as the platform's text input gives it: with Shift, Caps
+        /// Lock, AltGr or Option, and a dead key pressed before it,
+        /// composed in. `None` for a key that types nothing (Escape, an
+        /// arrow, a modifier, a dead key, a shortcut with Control or
+        /// Command), for a release, and on a surface that doesn't take
+        /// text. Never control characters.
+        text: Option<String>,
+        /// The character the key types with no modifiers held, in the
+        /// keyboard's layout: what a shortcut names it by (`c` for
+        /// Option+C, which types `ç`; `z` for the key right of Tab on a
+        /// German keyboard). `None` for a key that types none (Escape, an
+        /// arrow, a modifier).
+        unmodified: Option<char>,
     },
+    /// On a surface that takes text, text an input method committed (a
+    /// composition, a candidate chosen), which no single key typed.
+    Text(String),
     /// The pointer moved over the surface (anywhere, while a button is
     /// held), in points from its top left. Not reported while the pointer
     /// is locked.
@@ -293,6 +311,35 @@ impl KeyCode {
             '/' => Slash,
             _ => Unidentified,
         }
+    }
+
+    /// The character this key types on a US keyboard, unshifted: what
+    /// tests and synthesized keys report as `unmodified`. `None` for a key
+    /// that types none.
+    pub fn us_char(self) -> Option<char> {
+        let name = self.name().as_bytes();
+        Some(match self {
+            KeyA | KeyB | KeyC | KeyD | KeyE | KeyF | KeyG | KeyH | KeyI | KeyJ | KeyK | KeyL | KeyM | KeyN | KeyO
+            | KeyP | KeyQ | KeyR | KeyS | KeyT | KeyU | KeyV | KeyW | KeyX | KeyY | KeyZ => {
+                char::from(name[3].to_ascii_lowercase())
+            }
+            Digit0 | Digit1 | Digit2 | Digit3 | Digit4 | Digit5 | Digit6 | Digit7 | Digit8 | Digit9 => {
+                char::from(name[5])
+            }
+            Space => ' ',
+            Backquote => '`',
+            Minus => '-',
+            Equal => '=',
+            BracketLeft => '[',
+            BracketRight => ']',
+            Backslash => '\\',
+            Semicolon => ';',
+            Quote => '\'',
+            Comma => ',',
+            Period => '.',
+            Slash => '/',
+            _ => return None,
+        })
     }
 
     /// The key that types or is `key` on a US keyboard: what tests press.

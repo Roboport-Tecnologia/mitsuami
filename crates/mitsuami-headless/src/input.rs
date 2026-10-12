@@ -120,6 +120,8 @@ impl HeadlessBackend {
                 return Ok(());
             }
             // Handled above.
+            // Only a surface takes an input method's text.
+            SyntheticInput::Text(_) => return Err(ActionError::Unsupported),
             SyntheticInput::DragFiles(_)
             | SyntheticInput::DragLeave
             | SyntheticInput::DropFiles(_)
@@ -258,12 +260,13 @@ impl State {
     }
 
     /// Input on a GPU surface that takes it: a click focuses it and
-    /// reports the primary button, keys (Tab too) go down and up, scrolls
-    /// are in points.
+    /// reports the primary button, keys (Tab too) go down and up, typing
+    /// what a US keyboard types when it takes text, scrolls are in points.
     pub(super) fn surface_input(&mut self, id: NodeId, input: &SyntheticInput) -> Result<(), ActionError> {
         if find_prop!(self.nodes[&id].props, TakesInput) != Some(true) {
             return Err(ActionError::Unsupported);
         }
+        let takes_text = find_prop!(self.nodes[&id].props, TextInput) == Some(true);
         let modifiers = Modifiers::default();
         match input {
             SyntheticInput::Click(position) => {
@@ -279,10 +282,23 @@ impl State {
                 if self.focused != Some(id) {
                     return Err(ActionError::Unsupported);
                 }
+                let unmodified = code.us_char();
                 for pressed in [true, false] {
-                    let key = SurfaceInput::Key { code, native: 0, pressed, repeat: false, modifiers };
+                    // The character asked for, as its key types it.
+                    let text = match key {
+                        Key::Char(c) if pressed && takes_text && !c.is_control() => Some(c.to_string()),
+                        _ => None,
+                    };
+                    let key =
+                        SurfaceInput::Key { code, native: 0, pressed, repeat: false, modifiers, text, unmodified };
                     self.emit(id, UiEvent::SurfaceInput(key));
                 }
+            }
+            SyntheticInput::Text(text) => {
+                if !takes_text || self.focused != Some(id) {
+                    return Err(ActionError::Unsupported);
+                }
+                self.emit(id, UiEvent::SurfaceInput(SurfaceInput::Text(text.clone())));
             }
             SyntheticInput::Scroll { dx, dy } => {
                 let delta = ScrollDelta::Points { x: *dx, y: *dy };

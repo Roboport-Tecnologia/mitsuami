@@ -224,6 +224,9 @@ pub(super) fn native_state(state: &State, id: NodeId) -> Option<NativeState> {
             props.push(Prop::PointerLock(view.pointer_locked()));
             props.push(Prop::KeyboardGrab(view.keyboard_grabbed()));
             props.push(Prop::Cursor(view.cursor()));
+            // Neither reads back from AppKit: kept as set.
+            props.push(Prop::TextInput(view.text_input()));
+            props.push(Prop::TextCursor(view.text_cursor()));
         }
         Widget::Scroll(scroll) => {
             let shown = (scroll.hasHorizontalScroller(), scroll.hasVerticalScroller());

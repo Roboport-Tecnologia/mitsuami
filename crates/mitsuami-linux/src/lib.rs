@@ -56,7 +56,7 @@ unsafe impl NativeSurface for NoSurface {
 
 /// What a pointer lock or a shortcuts inhibitor reports, from a thread of
 /// its own.
-#[derive(Clone, Copy, Debug, PartialEq)]
+#[derive(Clone, Debug, PartialEq)]
 pub enum LockEvent {
     /// Input for the surface: the pointer's moves while locked (and on
     /// X11, whose grab takes them from the toolkit, its buttons and

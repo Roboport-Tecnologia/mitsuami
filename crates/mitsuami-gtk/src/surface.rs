@@ -10,6 +10,14 @@
 //! pointer grab on X11), and reports from a thread of its own, sent here
 //! through GLib's main context. The keyboard grab is GTK's own
 //! `gdk_toplevel_inhibit_system_shortcuts`.
+//!
+//! Text comes from an input method context on the widget's key controller,
+//! as a text view has one, made while the app asks for text: the
+//! controller filters each key through it before reporting the key, so
+//! what it commits then is what that key typed. A key it takes (it types,
+//! or goes into a composition) never reaches `key-pressed`, and is
+//! reported from `im-update` instead. A commit outside a key (an input
+//! method's composition ending) is text of its own.
 
 use std::cell::{Cell, RefCell};
 use std::collections::HashMap;
@@ -20,9 +28,10 @@ use std::sync::OnceLock;
 use gtk::glib::translate::{IntoGlib, ToGlibPtr, from_glib_full};
 use gtk::prelude::*;
 use gtk::{gdk, glib, graphene};
+use mitsuami_core::backend::Key;
 use mitsuami_core::{
-    ActionError, Cursor, KeyCode, Modifiers, MouseButton, NodeId, Pixels, Point, Prop, ScrollDelta, SurfaceHandle,
-    SurfaceInput, SurfaceSize, SyntheticInput, UiEvent,
+    ActionError, Cursor, KeyCode, Modifiers, MouseButton, NodeId, Pixels, Point, Prop, Rect, ScrollDelta,
+    SurfaceHandle, SurfaceInput, SurfaceSize, SyntheticInput, UiEvent,
 };
 use mitsuami_linux::wayland::{self, Subsurface};
 use mitsuami_linux::{LockEvent, NoSurface, x11};
@@ -94,6 +103,15 @@ struct AreaState {
     /// widget's cursor for it, which a lock hides until it ends.
     cursor: Option<Cursor>,
     gdk_cursor: Option<gdk::Cursor>,
+    /// What the app set: whether it takes text, and where its caret is.
+    text_input: Option<bool>,
+    text_cursor: Option<Option<Rect>>,
+    /// The widget's key controller, and the input method context on it
+    /// while it takes text.
+    keys: glib::WeakRef<gtk::EventControllerKey>,
+    im: Option<gtk::IMMulticontext>,
+    /// What the input method committed for the key being pressed.
+    typed: Option<String>,
 }
 
 struct Grab {
@@ -132,6 +150,11 @@ impl SurfaceArea {
             pressed: HashMap::new(),
             cursor: None,
             gdk_cursor: None,
+            text_input: None,
+            text_cursor: None,
+            keys: glib::WeakRef::new(),
+            im: None,
+            typed: None,
         }));
         AREAS.with(|a| a.borrow_mut().insert(key, Rc::downgrade(&state)));
         let s = state.clone();
@@ -166,6 +189,16 @@ impl SurfaceArea {
                 self.state.borrow_mut().takes_input = Some(*on);
                 self.area.set_focusable(*on);
                 self.area.set_focus_on_click(*on);
+                AreaState::sync_text(&self.state);
+            }
+            Prop::TextInput(on) => {
+                self.state.borrow_mut().text_input = Some(*on);
+                AreaState::sync_text(&self.state);
+            }
+            Prop::TextCursor(caret) => {
+                let mut state = self.state.borrow_mut();
+                state.text_cursor = Some(*caret);
+                state.place_input_method();
             }
             Prop::PointerLock(on) => {
                 self.state.borrow_mut().pointer_lock = Some(*on);
@@ -208,6 +241,8 @@ impl SurfaceArea {
         props.extend(state.pointer_lock.map(|_| Prop::PointerLock(state.lock.is_some())));
         props.extend(state.keyboard_grab.map(|_| Prop::KeyboardGrab(state.grab.is_some())));
         props.extend(state.cursor.clone().map(Prop::Cursor));
+        props.extend(state.text_input.map(Prop::TextInput));
+        props.extend(state.text_cursor.map(Prop::TextCursor));
         props
     }
 
@@ -238,9 +273,28 @@ impl SurfaceArea {
                 }
                 let code = KeyCode::from_key(*key);
                 let native = (1..=255).find(|c| KeyCode::from_evdev(*c) == code).unwrap_or(0);
+                let unmodified = code.us_char();
                 for pressed in [true, false] {
-                    state.report(SurfaceInput::Key { code, native, pressed, repeat: false, modifiers });
+                    let text = match key {
+                        Key::Char(c) if pressed && state.takes_text() && !c.is_control() => Some(c.to_string()),
+                        _ => None,
+                    };
+                    state.report(SurfaceInput::Key {
+                        code,
+                        native,
+                        pressed,
+                        repeat: false,
+                        modifiers,
+                        text,
+                        unmodified,
+                    });
                 }
+            }
+            SyntheticInput::Text(text) => {
+                if !self.area.is_focus() || !state.takes_text() {
+                    return Err(ActionError::Unsupported);
+                }
+                state.report(SurfaceInput::Text(text.clone()));
             }
             SyntheticInput::Scroll { dx, dy } => {
                 let delta = ScrollDelta::Points { x: *dx, y: *dy };
@@ -418,8 +472,11 @@ impl AreaState {
         // thread isn't holding the context (between iterations), where
         // `AREAS` is empty.
         let sink = Box::new(move |event: LockEvent| {
+            let mut event = Some(event);
             glib::idle_add_full(glib::Priority::DEFAULT, move || {
-                AreaState::from_lock(key, number, event);
+                if let Some(event) = event.take() {
+                    AreaState::from_lock(key, number, event);
+                }
                 glib::ControlFlow::Break
             });
         });
@@ -512,13 +569,13 @@ impl AreaState {
             if state.grab.is_none() || !state.area.upgrade().is_some_and(|a| a.has_focus()) {
                 return glib::Propagation::Proceed;
             }
-            state.key(key_code(keys, keycode), keycode, true, modifiers);
+            state.key(keys, keycode, true, modifiers);
             glib::Propagation::Stop
         });
         let s = Rc::downgrade(this);
         keys.connect_key_released(move |keys, _, keycode, modifiers| {
             if let Some(s) = s.upgrade() {
-                s.borrow_mut().key(key_code(keys, keycode), keycode, false, modifiers);
+                s.borrow_mut().key(keys, keycode, false, modifiers);
             }
         });
         window.add_controller(keys.clone());
@@ -554,9 +611,12 @@ impl AreaState {
 
     // ------------------------------------------------------------ input
 
-    /// A key down or up: reported when down, and when up if its press
-    /// was. Returns whether it was reported.
-    fn key(&mut self, code: KeyCode, keycode: u32, pressed: bool, state: gdk::ModifierType) -> bool {
+    /// A key down or up, as `keys` has it: reported when down, with what
+    /// the input method committed for it, and when up if its press was.
+    /// Returns whether it was reported.
+    fn key(&mut self, keys: &gtk::EventControllerKey, keycode: u32, pressed: bool, state: gdk::ModifierType) -> bool {
+        let typed = if pressed { self.typed.take() } else { None };
+        let code = key_code(keys, keycode);
         let native = keycode.saturating_sub(8);
         let repeat = if pressed {
             self.pressed.insert(native, code).is_some()
@@ -565,8 +625,72 @@ impl AreaState {
         } else {
             return false;
         };
-        self.report(SurfaceInput::Key { code, native, pressed, repeat, modifiers: modifiers(state) });
+        let text = typed.filter(|t| !t.is_empty() && self.takes_text());
+        let unmodified = unmodified(keys, keycode);
+        let modifiers = modifiers(state);
+        self.report(SurfaceInput::Key { code, native, pressed, repeat, modifiers, text, unmodified });
         true
+    }
+
+    /// Makes the input method context while it takes text, or drops it:
+    /// over a game's surface an input method would take its keys.
+    fn sync_text(this: &Rc<RefCell<AreaState>>) {
+        let mut state = this.borrow_mut();
+        let (Some(area), Some(keys)) = (state.area.upgrade(), state.keys.upgrade()) else { return };
+        if state.takes_text() == state.im.is_some() {
+            return;
+        }
+        if let Some(im) = state.im.take() {
+            state.typed = None;
+            // An input method may commit what it was composing as it
+            // loses focus: its handler borrows the state.
+            drop(state);
+            im.focus_out();
+            keys.set_im_context(None::<&gtk::IMContext>);
+            im.set_client_widget(None::<&gtk::Widget>);
+            return;
+        }
+        let im = gtk::IMMulticontext::new();
+        im.set_client_widget(Some(&area));
+        let (s, k) = (Rc::downgrade(this), keys.downgrade());
+        im.connect_commit(move |_, text| {
+            let Some(s) = s.upgrade() else { return };
+            let text: String = text.chars().filter(|c| !c.is_control()).collect();
+            // While the controller handles a press, the commit is what that
+            // key typed; otherwise an input method's, on its own.
+            let pressing =
+                k.upgrade().and_then(|k| k.current_event()).is_some_and(|e| e.event_type() == gdk::EventType::KeyPress);
+            let mut state = s.borrow_mut();
+            if pressing {
+                state.typed.get_or_insert_default().push_str(&text);
+            } else if !text.is_empty() {
+                state.report(SurfaceInput::Text(text));
+            }
+        });
+        keys.set_im_context(Some(&im));
+        state.im = Some(im.clone());
+        state.place_input_method();
+        drop(state);
+        if area.has_focus() {
+            im.focus_in();
+        }
+    }
+
+    /// Opens the input method's candidates by the app's caret, in the
+    /// widget's coordinates.
+    fn place_input_method(&self) {
+        let (Some(im), Some(Some(caret))) = (&self.im, self.text_cursor) else { return };
+        let area = gdk::Rectangle::new(
+            caret.x().round() as i32,
+            caret.y().round() as i32,
+            caret.width().round().max(1.0) as i32,
+            caret.height().round().max(1.0) as i32,
+        );
+        im.set_cursor_location(&area);
+    }
+
+    fn takes_text(&self) -> bool {
+        self.takes_input() && self.text_input == Some(true)
     }
 
     /// Reports every key it has down as released: focus left, or the
@@ -574,8 +698,8 @@ impl AreaState {
     /// elsewhere.
     fn release_keys(&mut self) {
         for (native, code) in std::mem::take(&mut self.pressed) {
-            let modifiers = Modifiers::default();
-            self.report(SurfaceInput::Key { code, native, pressed: false, repeat: false, modifiers });
+            let (modifiers, text, unmodified) = (Modifiers::default(), None, None);
+            self.report(SurfaceInput::Key { code, native, pressed: false, repeat: false, modifiers, text, unmodified });
         }
     }
 
@@ -588,13 +712,22 @@ impl AreaState {
 /// character go by their keysym, so the keymap's remaps (Caps Lock and
 /// Control swapped) apply. The unshifted one, in the event's layout.
 fn key_code(keys: &gtk::EventControllerKey, keycode: u32) -> KeyCode {
+    let keysym = unshifted(keys, keycode).map(|keysym| keysym.into_glib());
+    keysym.and_then(KeyCode::from_keysym).unwrap_or_else(|| KeyCode::from_evdev(keycode.saturating_sub(8)))
+}
+
+/// The key's keysym with no modifiers, in the event's layout.
+fn unshifted(keys: &gtk::EventControllerKey, keycode: u32) -> Option<gdk::Key> {
     let layout = keys.current_event().and_then(|e| e.downcast::<gdk::KeyEvent>().ok()).map_or(0, |e| e.layout() as i32);
-    let keysym = keys
-        .widget()
+    keys.widget()
         .and_then(|w| w.display().map_keycode(keycode))
         .and_then(|keys| keys.into_iter().find(|(k, _)| k.group() == layout && k.level() == 0))
-        .map(|(_, keysym)| keysym.into_glib());
-    keysym.and_then(KeyCode::from_keysym).unwrap_or_else(|| KeyCode::from_evdev(keycode.saturating_sub(8)))
+        .map(|(_, keysym)| keysym)
+}
+
+/// The character the key types with no modifiers, in the event's layout.
+fn unmodified(keys: &gtk::EventControllerKey, keycode: u32) -> Option<char> {
+    unshifted(keys, keycode)?.to_unicode().filter(|c| !c.is_control())
 }
 
 /// A cursor from the app's pixels. GDK shows a texture's pixels one to a
@@ -753,15 +886,26 @@ fn input_controllers(area: &gtk::DrawingArea, state: &Rc<RefCell<AreaState>>) {
         {
             return glib::Propagation::Proceed;
         }
-        s.borrow_mut().key(key_code(keys, keycode), keycode, true, modifiers);
+        s.borrow_mut().key(keys, keycode, true, modifiers);
         glib::Propagation::Stop
     });
     let s = Rc::downgrade(state);
     keys.connect_key_released(move |keys, _, keycode, modifiers| {
         if let Some(s) = s.upgrade() {
-            s.borrow_mut().key(key_code(keys, keycode), keycode, false, modifiers);
+            s.borrow_mut().key(keys, keycode, false, modifiers);
         }
     });
+    // A key the input method took (it typed, or went into a composition)
+    // doesn't reach `key-pressed`: the controller says so here, with the
+    // key still its current event.
+    let s = Rc::downgrade(state);
+    keys.connect_im_update(move |keys| {
+        let Some(s) = s.upgrade() else { return };
+        let Some(event) = keys.current_event().and_then(|e| e.downcast::<gdk::KeyEvent>().ok()) else { return };
+        let pressed = event.event_type() == gdk::EventType::KeyPress;
+        s.borrow_mut().key(keys, event.keycode(), pressed, event.modifier_state());
+    });
+    state.borrow_mut().keys = keys.downgrade();
     area.add_controller(keys);
 
     let motion = gtk::EventControllerMotion::new();
@@ -840,8 +984,22 @@ fn input_controllers(area: &gtk::DrawingArea, state: &Rc<RefCell<AreaState>>) {
 
     let focus = gtk::EventControllerFocus::new();
     let s = Rc::downgrade(state);
+    // Cloned out of the state: the input method's handlers borrow it.
+    focus.connect_enter(move |_| {
+        let Some(s) = s.upgrade() else { return };
+        let im = s.borrow().im.clone();
+        if let Some(im) = im {
+            im.focus_in();
+            s.borrow().place_input_method();
+        }
+    });
+    let s = Rc::downgrade(state);
     focus.connect_leave(move |_| {
         if let Some(s) = s.upgrade() {
+            let im = s.borrow().im.clone();
+            if let Some(im) = im {
+                im.focus_out();
+            }
             // Keys held are let go wherever focus went.
             s.borrow_mut().release_keys();
             AreaState::end_grab(&s);

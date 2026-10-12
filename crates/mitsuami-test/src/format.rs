@@ -185,6 +185,15 @@ fn describe_props(props: &[Prop]) -> String {
                 extra.push(format!("cursor={pixels:?} hotspot={},{}", Num(hotspot.x), Num(hotspot.y)))
             }
             Prop::Cursor(Cursor::System(shape)) => extra.push(format!("cursor={}", shape.css_name())),
+            Prop::TextInput(b) => extra.push(format!("text_input={b}")),
+            Prop::TextCursor(None) => extra.push("text_cursor=none".to_owned()),
+            Prop::TextCursor(Some(r)) => extra.push(format!(
+                "text_cursor={},{} {}x{}",
+                Num(r.origin.x),
+                Num(r.origin.y),
+                Num(r.size.width),
+                Num(r.size.height)
+            )),
         }
     }
     let mut out = String::new();

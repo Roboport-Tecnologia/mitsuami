@@ -2,8 +2,9 @@
 //! It's reported once it exists, then its size in pixels whenever that or
 //! its scale changes; its handle keeps the native surface after the widget
 //! is gone. It has no natural size, and reads as an image named by its
-//! label. With `on_input` it takes focus, keys and the pointer; its
-//! pointer lock and keyboard grab end as the platform ends them.
+//! label. With `on_input` it takes focus, keys and the pointer, and with
+//! `text_input` what the keys type; its pointer lock and keyboard grab end
+//! as the platform ends them.
 
 use std::cell::RefCell;
 use std::rc::Rc;
@@ -491,9 +492,197 @@ async fn reports_raw_motion_while_locked(app: TestApp) {
         .borrow()
         .iter()
         .filter(|input| matches!(input, SurfaceInput::Motion { .. } | SurfaceInput::RawMotion { .. }))
-        .copied()
+        .cloned()
         .collect();
     assert_eq!(moves, [SurfaceInput::Motion { dx: 3.0, dy: -2.0 }, SurfaceInput::RawMotion { dx: 3.0, dy: -2.0 }]);
+}
+
+/// What keys going down typed, and the character each types unmodified.
+fn typed(log: &Rc<RefCell<Vec<SurfaceInput>>>) -> Vec<(KeyCode, Option<String>, Option<char>)> {
+    log.borrow()
+        .iter()
+        .filter_map(|input| match input {
+            SurfaceInput::Key { code, pressed: true, text, unmodified, .. } => Some((*code, text.clone(), *unmodified)),
+            _ => None,
+        })
+        .collect()
+}
+
+/// Taking text, keys report what they type; keys that type nothing
+/// (Enter) report none.
+#[mitsuami_test::test]
+async fn types_text_when_it_takes_text(app: TestApp) {
+    let (log, on_input) = input_log();
+    app.mount(move || Column::new().child(taking_input(on_input).text_input(true)));
+    app.settle().await;
+    app.get(screen()).click_at(10.0, 10.0).await;
+
+    app.get(screen()).type_text("aB").await;
+    app.get(screen()).press(Key::Enter).await;
+
+    let expected = [
+        (KeyCode::KeyA, Some("a".to_owned()), Some('a')),
+        (KeyCode::KeyB, Some("B".to_owned()), Some('b')),
+        (KeyCode::Enter, None, None),
+    ];
+    assert_eq!(typed(&log), expected, "{log:?}");
+}
+
+/// Without `text_input` keys type nothing, as on a game's surface, but
+/// still say what they'd type unmodified.
+#[mitsuami_test::test]
+async fn types_nothing_without_text_input(app: TestApp) {
+    let (log, on_input) = input_log();
+    app.mount(move || Column::new().child(taking_input(on_input)));
+    app.settle().await;
+    app.get(screen()).click_at(10.0, 10.0).await;
+
+    app.get(screen()).type_text("a").await;
+
+    assert_eq!(typed(&log), [(KeyCode::KeyA, None, Some('a'))], "{log:?}");
+}
+
+/// What an input method commits comes as text of its own: no key typed
+/// it.
+#[mitsuami_test::test]
+async fn takes_an_input_method_s_text(app: TestApp) {
+    let (log, on_input) = input_log();
+    app.mount(move || Column::new().child(taking_input(on_input).text_input(true)));
+    app.settle().await;
+    app.get(screen()).click_at(10.0, 10.0).await;
+
+    app.get(screen()).commit_text("日本").await;
+
+    let texts: Vec<SurfaceInput> =
+        log.borrow().iter().filter(|input| matches!(input, SurfaceInput::Text(_))).cloned().collect();
+    assert_eq!(texts, [SurfaceInput::Text("日本".to_owned())], "{log:?}");
+}
+
+/// Whether it takes text, and where its caret is, read back as the app
+/// set them, as the caret moves.
+#[mitsuami_test::test]
+async fn keeps_its_caret(app: TestApp) {
+    let caret = signal(Some(Rect::new(10.0, 20.0, 8.0, 16.0)));
+    let (_log, on_input) = input_log();
+    app.mount(move || Column::new().child(taking_input(on_input).text_input(true).text_cursor(caret)));
+    app.settle().await;
+    let props = app.get(screen()).native_state().props;
+    assert!(props.contains(&Prop::TextInput(true)), "{props:?}");
+    assert!(props.contains(&Prop::TextCursor(Some(Rect::new(10.0, 20.0, 8.0, 16.0)))), "{props:?}");
+
+    caret.set(None);
+    app.settle().await;
+
+    let props = app.get(screen()).native_state().props;
+    assert!(props.contains(&Prop::TextCursor(None)), "{props:?}");
+}
+
+/// On Windows, keys typed through the platform's own path: `WM_KEYDOWN`s
+/// posted to the window with focus, which the run loop translates with
+/// the thread's keyboard state and layout, as it does a real key. Shift
+/// folds in, Control types nothing, a dead key composes with the next
+/// key, AltGr types what the layout gives it (reported with Control and
+/// Alt held, as Windows has it), and characters no key typed are an input
+/// method's.
+#[cfg(windows)]
+#[mitsuami_test::test]
+async fn types_through_windows_text_input(app: TestApp) {
+    use mitsuami::raw_window_handle::RawWindowHandle;
+
+    #[link(name = "user32")]
+    unsafe extern "system" {
+        fn GetFocus() -> isize;
+        fn GetAncestor(hwnd: isize, flags: u32) -> isize;
+        fn FindWindowExW(parent: isize, after: isize, class: *const u16, title: *const u16) -> isize;
+        fn PostMessageW(hwnd: isize, msg: u32, w: usize, l: isize) -> i32;
+        fn SetKeyboardState(state: *const u8) -> i32;
+        fn MapVirtualKeyW(code: u32, map: u32) -> u32;
+        fn GetKeyboardLayout(thread: u32) -> isize;
+        fn GetKeyboardLayoutList(count: i32, list: *mut isize) -> i32;
+        fn LoadKeyboardLayoutW(id: *const u16, flags: u32) -> isize;
+        fn ActivateKeyboardLayout(layout: isize, flags: u32) -> isize;
+        fn UnloadKeyboardLayout(layout: isize) -> i32;
+    }
+    const SHIFT: u8 = 0x10;
+    const CONTROL: u8 = 0x11;
+    const MENU: u8 = 0x12;
+    const LCONTROL: u8 = 0xA2;
+    const RMENU: u8 = 0xA5;
+    let wide = |s: &str| s.encode_utf16().chain([0]).collect::<Vec<u16>>();
+
+    let seen = Rc::new(RefCell::new(Vec::new()));
+    let (log, on_input) = input_log();
+    let s = seen.clone();
+    app.mount(move || Column::new().child(surface(&s).size(200.px(), 100.px()).on_input(on_input).text_input(true)));
+    app.settle().await;
+    if app.is_headless() {
+        return;
+    }
+    app.get(screen()).click_at(10.0, 10.0).await;
+    let RawWindowHandle::Win32(child) = handle(&seen).window_handle().unwrap().as_raw() else { panic!() };
+    // XAML's content island has Win32 focus; it may not in a window that
+    // isn't the active one, but still gets the keys posted to it.
+    let focus = match unsafe { GetFocus() } {
+        0 => unsafe {
+            let window = GetAncestor(child.hwnd.get(), 2);
+            let bridge = wide("Microsoft.UI.Content.DesktopChildSiteBridge");
+            let island = FindWindowExW(window, 0, bridge.as_ptr(), std::ptr::null());
+            FindWindowExW(island, 0, wide("InputSiteWindowClass").as_ptr(), std::ptr::null())
+        },
+        focus => focus,
+    };
+    assert_ne!(focus, 0, "no window to post keys to");
+    let press = async |key: u32, held: &[u8]| {
+        let mut state = [0u8; 256];
+        for k in held {
+            state[*k as usize] = 0x80;
+        }
+        let scan = (unsafe { MapVirtualKeyW(key, 0) } as isize) << 16;
+        // The release once the press is handled: posted with it, it would
+        // be queued before the characters the press is translated to, which
+        // a real key's release, coming as input, never is.
+        unsafe {
+            SetKeyboardState(state.as_ptr());
+            PostMessageW(focus, 0x100, key as usize, 1 | scan);
+        }
+        app.settle().await;
+        unsafe { PostMessageW(focus, 0x101, key as usize, 1 | scan | 3 << 30) };
+        app.settle().await;
+        unsafe { SetKeyboardState([0u8; 256].as_ptr()) };
+    };
+
+    press(0x41, &[SHIFT]).await;
+    press(0x41, &[CONTROL]).await;
+    // US-International for this thread, unloaded after if it wasn't there.
+    let mut had = [0isize; 64];
+    let count = unsafe { GetKeyboardLayoutList(had.len() as i32, had.as_mut_ptr()) }.max(0) as usize;
+    let previous = unsafe { GetKeyboardLayout(0) };
+    let intl = unsafe { LoadKeyboardLayoutW(wide("00020409").as_ptr(), 0) };
+    unsafe { ActivateKeyboardLayout(intl, 0) };
+    press(0xDE, &[]).await;
+    press(0x45, &[]).await;
+    press(0x45, &[CONTROL, MENU, LCONTROL, RMENU]).await;
+    unsafe { ActivateKeyboardLayout(previous, 0) };
+    if !had[..count].contains(&intl) {
+        unsafe { UnloadKeyboardLayout(intl) };
+    }
+    unsafe { PostMessageW(focus, 0x102, 0x65E5, 1) };
+    app.settle().await;
+
+    let expected = [
+        (KeyCode::KeyA, Some("A".to_owned()), Some('a')),
+        (KeyCode::KeyA, None, Some('a')),
+        (KeyCode::Quote, None, Some('\'')),
+        (KeyCode::KeyE, Some("é".to_owned()), Some('e')),
+        (KeyCode::KeyE, Some("é".to_owned()), Some('e')),
+    ];
+    assert_eq!(typed(&log), expected, "{log:?}");
+    let altgr = log.borrow().iter().rev().find_map(|input| match input {
+        SurfaceInput::Key { pressed: true, modifiers, .. } => Some(*modifiers),
+        _ => None,
+    });
+    assert_eq!(altgr, Some(Modifiers { control: true, alt: true, ..Modifiers::default() }), "{log:?}");
+    assert!(log.borrow().contains(&SurfaceInput::Text("日".to_owned())), "{log:?}");
 }
 
 mitsuami_test::main!();

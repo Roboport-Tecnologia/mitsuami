@@ -12,6 +12,8 @@
 #include <QHash>
 #include <QIcon>
 #include <QImage>
+#include <QInputMethod>
+#include <QInputMethodEvent>
 #include <QKeyEvent>
 #include <QLibraryInfo>
 #include <QLocale>
@@ -213,7 +215,8 @@ void DrawnItem::mouseReleaseEvent(QMouseEvent* event) {
 // given to the item comes here), and reports it. Its key events carry the
 // native scan code, which is the XKB key code (evdev + 8) on X11 and
 // Wayland, and the keysym as its native virtual key. Without `takes` it takes nothing, so the pointer goes on to
-// what's under it.
+// what's under it. Taking text, it reports what keys type, and takes input
+// methods' commits (`ItemAcceptsInputMethod`), which open by its caret.
 class SurfaceInputItem : public QQuickItem {
 public:
     SurfaceInputItem(QQuickItem* parent, uint64_t key) : QQuickItem(parent), key(key) {
@@ -234,6 +237,17 @@ public:
         setAcceptHoverEvents(takes);
         setActiveFocusOnTab(takes);
         showCursor();
+        updateInputMethod();
+    }
+
+    void setTextInput(bool on) {
+        textInput = on;
+        updateInputMethod();
+    }
+
+    void setCaret(std::optional<QRectF> at) {
+        caret = at;
+        if (hasActiveFocus()) QGuiApplication::inputMethod()->update(Qt::ImCursorRectangle);
     }
 
     // The app's cursor: none (the platform's), or one of its own. A lock
@@ -243,8 +257,9 @@ public:
         showCursor();
     }
 
-    bool takes = false, grabbed = false, locked = false;
+    bool takes = false, grabbed = false, locked = false, textInput = false;
     std::optional<QCursor> chosen;
+    std::optional<QRectF> caret;
 
 protected:
     bool event(QEvent* event) override {
@@ -259,6 +274,30 @@ protected:
 
     void keyPressEvent(QKeyEvent* event) override { onKey(event, MQ_KEY_DOWN); }
     void keyReleaseEvent(QKeyEvent* event) override { onKey(event, MQ_KEY_UP); }
+
+    // What input methods ask of a text field. A terminal-like surface
+    // wants no predictions or capitals of the input method's own.
+    QVariant inputMethodQuery(Qt::InputMethodQuery query) const override {
+        switch (query) {
+        case Qt::ImEnabled: return takesText();
+        case Qt::ImCursorRectangle: return caret.value_or(QRectF());
+        case Qt::ImHints: return int(Qt::ImhNoPredictiveText | Qt::ImhNoAutoUppercase);
+        case Qt::ImSurroundingText: return QString();
+        case Qt::ImCursorPosition:
+        case Qt::ImAnchorPosition: return 0;
+        default: return QQuickItem::inputMethodQuery(query);
+        }
+    }
+
+    // A commit is text; the composition in progress isn't reported.
+    void inputMethodEvent(QInputMethodEvent* event) override {
+        if (!takesText()) return event->ignore();
+        if (!event->commitString().isEmpty() && g_input && !g_exiting) {
+            QByteArray text = event->commitString().toUtf8();
+            g_input(key, MQ_TEXT, 0, 0, 0, 0, text.constData(), 0);
+        }
+        event->accept();
+    }
 
     void mousePressEvent(QMouseEvent* event) override {
         if (!takes) return event->ignore();
@@ -294,6 +333,22 @@ protected:
     }
 
 private:
+    bool takesText() const { return takes && textInput; }
+
+    void updateInputMethod() {
+        setFlag(QQuickItem::ItemAcceptsInputMethod, takesText());
+        if (hasActiveFocus())
+            QGuiApplication::inputMethod()->update(Qt::ImEnabled | Qt::ImHints | Qt::ImCursorRectangle);
+    }
+
+    // The character a key types unmodified: Qt's key, which names a
+    // letter by its capital. Qt's own keys (arrows, dead keys) are past
+    // Unicode's planes.
+    static uint32_t unmodified(int key) {
+        if (key < 0x20 || key >= 0x110000 || key == 0x7f || (key >= 0xd800 && key < 0xe000)) return 0;
+        return uint32_t(QChar::toLower(char32_t(key)));
+    }
+
     void showCursor() {
         if (locked) setCursor(Qt::BlankCursor);
         else if (chosen) setCursor(*chosen);
@@ -311,11 +366,20 @@ private:
         // repeat is the presses.
         if (event->isAutoRepeat() && kind == MQ_KEY_UP) return;
         int32_t flags = modifiers(event->modifiers()) | (event->isAutoRepeat() ? MQ_REPEAT : 0);
-        if (g_input && !g_exiting) g_input(key, kind, int32_t(event->nativeScanCode()), flags, event->nativeVirtualKey(), 0);
+        // What a press typed: with Control or Meta, Qt's text is a control
+        // character or a shortcut's, not typing.
+        QString typed;
+        if (kind == MQ_KEY_DOWN && takesText() && !(event->modifiers() & (Qt::ControlModifier | Qt::MetaModifier)))
+            for (QChar c : event->text())
+                if (c.category() != QChar::Other_Control) typed += c;
+        QByteArray text = typed.toUtf8();
+        if (g_input && !g_exiting)
+            g_input(key, kind, int32_t(event->nativeScanCode()), flags, event->nativeVirtualKey(), 0,
+                    typed.isEmpty() ? nullptr : text.constData(), unmodified(event->key()));
     }
 
     void report(int32_t kind, int32_t code, Qt::KeyboardModifiers mods, QPointF at) {
-        if (g_input && !g_exiting) g_input(key, kind, code, modifiers(mods), at.x(), at.y());
+        if (g_input && !g_exiting) g_input(key, kind, code, modifiers(mods), at.x(), at.y(), nullptr, 0);
     }
 
     static int32_t modifiers(Qt::KeyboardModifiers mods) {
@@ -1217,6 +1281,20 @@ void mq_surface_key(QObject* window, int32_t key, uint32_t scan_code, const char
     QKeyEvent release(QEvent::KeyRelease, key, Qt::NoModifier, scan_code, 0, 0, t);
     QCoreApplication::sendEvent(quick, &press);
     QCoreApplication::sendEvent(quick, &release);
+}
+
+void mq_surface_input_text(QObject* item, int32_t on) { static_cast<SurfaceInputItem*>(item)->setTextInput(on); }
+
+void mq_surface_input_caret(QObject* item, int32_t has, double x, double y, double width, double height) {
+    auto* input = static_cast<SurfaceInputItem*>(item);
+    input->setCaret(has ? std::optional<QRectF>(QRectF(x, y, width, height)) : std::nullopt);
+}
+
+// Sent to the item as Qt's input method context sends a commit.
+void mq_surface_commit(QObject* item, const char* text) {
+    QInputMethodEvent event;
+    event.setCommitString(QString::fromUtf8(text));
+    QCoreApplication::sendEvent(item, &event);
 }
 
 uint64_t mq_window_xid(QObject* window) {

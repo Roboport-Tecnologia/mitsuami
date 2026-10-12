@@ -11,7 +11,7 @@ use std::fmt;
 use std::ptr::NonNull;
 use std::rc::Rc;
 
-use mitsuami_core::{Cursor, Point, PointerKind, SystemCursor};
+use mitsuami_core::{Cursor, Point, PointerKind, Rect, SystemCursor};
 
 type Raw = *mut c_void;
 
@@ -136,12 +136,15 @@ unsafe extern "C" {
     fn mq_rows_reset(model: Raw, keys: *const u64, count: i32);
     fn mq_rows_set_columns(model: Raw, count: i32);
 
-    fn mq_set_input_callback(callback: extern "C" fn(u64, i32, i32, i32, f64, f64));
+    fn mq_set_input_callback(callback: extern "C" fn(u64, i32, i32, i32, f64, f64, *const c_char, u32));
     fn mq_set_gone_callback(callback: extern "C" fn(Raw));
     fn mq_watch_gone(object: Raw);
     fn mq_surface_input_new(parent: Raw, key: u64) -> Raw;
     fn mq_surface_input_configure(item: Raw, takes: i32, grabbed: i32, locked: i32);
     fn mq_surface_key(window: Raw, key: i32, scan_code: u32, text: *const c_char);
+    fn mq_surface_input_text(item: Raw, on: i32);
+    fn mq_surface_input_caret(item: Raw, has: i32, x: f64, y: f64, width: f64, height: f64);
+    fn mq_surface_commit(item: Raw, text: *const c_char);
     #[allow(clippy::too_many_arguments)]
     fn mq_surface_input_cursor(
         item: Raw,
@@ -165,7 +168,7 @@ unsafe extern "C" {
 // ------------------------------------------------------------- callbacks
 
 /// What Qt reports to a registered closure.
-#[derive(Clone, Copy, Debug)]
+#[derive(Clone, Debug)]
 pub(crate) enum Callback {
     Signal,
     Pointer(PointerKind, Point),
@@ -179,13 +182,17 @@ pub(crate) enum Callback {
 }
 
 /// What a GPU surface's input item reports: see `mq_input_callback`.
-#[derive(Clone, Copy, Debug)]
+#[derive(Clone, Debug)]
 pub(crate) struct SurfaceEvent {
     pub kind: i32,
     pub code: i32,
     pub flags: i32,
     pub x: f64,
     pub y: f64,
+    /// What a key typed, or an input method committed.
+    pub text: Option<String>,
+    /// The character a key types unmodified.
+    pub unmodified: Option<char>,
 }
 
 type Handler = Rc<dyn Fn(Callback)>;
@@ -224,9 +231,21 @@ extern "C" fn dispatch(key: u64, kind: i32, x: f64, y: f64) {
     handler(callback);
 }
 
-extern "C" fn dispatch_input(key: u64, kind: i32, code: i32, flags: i32, x: f64, y: f64) {
+extern "C" fn dispatch_input(
+    key: u64,
+    kind: i32,
+    code: i32,
+    flags: i32,
+    x: f64,
+    y: f64,
+    text: *const c_char,
+    character: u32,
+) {
     let Ok(Some(handler)) = HANDLERS.try_with(|h| h.borrow().get(&key).cloned()) else { return };
-    handler(Callback::Input(SurfaceEvent { kind, code, flags, x, y }));
+    // SAFETY: the shim's UTF-8, alive for the call.
+    let text = (!text.is_null()).then(|| unsafe { CStr::from_ptr(text) }.to_string_lossy().into_owned());
+    let unmodified = char::from_u32(character).filter(|c| *c != '\0');
+    handler(Callback::Input(SurfaceEvent { kind, code, flags, x, y, text, unmodified }));
 }
 
 // ------------------------------------------------------------ application
@@ -885,6 +904,25 @@ impl QmlObject {
     pub(crate) fn configure_surface_input(self, takes: bool, grabbed: bool, locked: bool) {
         let Some(raw) = self.live() else { return };
         unsafe { mq_surface_input_configure(raw, takes as i32, grabbed as i32, locked as i32) }
+    }
+
+    /// Whether a GPU surface's input item takes text.
+    pub(crate) fn set_surface_text_input(self, on: bool) {
+        let Some(raw) = self.live() else { return };
+        unsafe { mq_surface_input_text(raw, on as i32) }
+    }
+
+    /// Where the caret is on a GPU surface's input item, for input methods.
+    pub(crate) fn set_surface_caret(self, caret: Option<Rect>) {
+        let Some(raw) = self.live() else { return };
+        let (has, r) = (caret.is_some() as i32, caret.unwrap_or_default());
+        unsafe { mq_surface_input_caret(raw, has, r.x() as f64, r.y() as f64, r.width() as f64, r.height() as f64) }
+    }
+
+    /// A real input method commit, sent to a GPU surface's input item.
+    pub(crate) fn surface_commit(self, text: &str) {
+        let Some(raw) = self.live() else { return };
+        unsafe { mq_surface_commit(raw, c(text).as_ptr()) }
     }
 
     /// The cursor over a GPU surface's input item.
