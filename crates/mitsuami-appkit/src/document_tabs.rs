@@ -18,12 +18,12 @@ use objc2::runtime::{AnyClass, AnyObject};
 use objc2::{AnyThread, DefinedClass, MainThreadMarker, MainThreadOnly, Message, define_class, msg_send, sel};
 use objc2_app_kit::{
     NSAccessibility, NSAccessibilityElement, NSAccessibilityRadioButtonRole, NSAccessibilityTabButtonSubrole,
-    NSAccessibilityTabGroupRole, NSAnimatablePropertyContainer, NSAnimationContext, NSAppearanceCustomization,
-    NSAppearanceNameAqua, NSAppearanceNameDarkAqua, NSApplication, NSAutoresizingMaskOptions, NSBezelStyle,
-    NSBezierPath, NSBox, NSBoxType, NSButton, NSColor, NSControlSize, NSEvent, NSEventType, NSFont, NSFontWeightMedium,
-    NSFontWeightRegular, NSGlassEffectView, NSGraphicsContext, NSImage, NSImageSymbolConfiguration, NSLayoutAttribute,
-    NSLineBreakMode, NSShadow, NSTextAlignment, NSTextField, NSTitlebarAccessoryViewController, NSTrackingArea,
-    NSTrackingAreaOptions, NSUserInterfaceLayoutDirection, NSView, NSWindow, NSWindowOrderingMode, NSWorkspace,
+    NSAccessibilityTabGroupRole, NSAppearanceCustomization, NSAppearanceNameAqua, NSAppearanceNameDarkAqua,
+    NSApplication, NSAutoresizingMaskOptions, NSBezelStyle, NSBezierPath, NSBox, NSBoxType, NSButton, NSColor,
+    NSControlSize, NSEvent, NSEventType, NSFont, NSFontWeightMedium, NSFontWeightRegular, NSGlassEffectView,
+    NSGraphicsContext, NSImage, NSImageSymbolConfiguration, NSLayoutAttribute, NSLineBreakMode, NSShadow,
+    NSTextAlignment, NSTextField, NSTitlebarAccessoryViewController, NSTrackingArea, NSTrackingAreaOptions,
+    NSUserInterfaceLayoutDirection, NSView, NSWindow, NSWindowOrderingMode, NSWorkspace,
 };
 use objc2_foundation::{
     NSArray, NSNumber, NSPoint, NSProcessInfo, NSRect, NSRunLoop, NSRunLoopCommonModes, NSSize, NSString, NSTimer,
@@ -382,6 +382,13 @@ impl Spring {
         self.value == self.target && self.velocity == 0.0
     }
 
+    /// Steadily towards its target, over `duration` for a step of 1.
+    fn ramp(&mut self, dt: f64, duration: f64) {
+        let step = dt / duration;
+        let d = self.target - self.value;
+        self.value = if d.abs() <= step { self.target } else { self.value + step * d.signum() };
+    }
+
     /// Where it is `dt` seconds on, at the rate `rate`: exactly, so
     /// any frame rate goes the same way.
     fn step(&mut self, dt: f64, rate: f64) {
@@ -396,16 +403,21 @@ impl Spring {
     }
 }
 
-/// One tab of the strip: its view (its glass, with the system's), its
-/// title and close button, where it is and how wide, both moving.
+/// One tab of the strip: its view, holding its glass (with the system's)
+/// and over it its title and close button, which the glass's lighting
+/// leaves alone; where it is and how wide, both moving, and how far its
+/// close button has faded in.
 struct Tab {
     view: Retained<NSView>,
+    glass: Option<Retained<NSView>>,
+    content: Retained<NSView>,
     label: Retained<NSTextField>,
     close: Retained<NSButton>,
     element: Retained<TabElement>,
     title: String,
     x: Spring,
     width: Spring,
+    shown: Spring,
 }
 
 /// A press on a tab: the tab it was (`from`) and where it is now (`at`),
@@ -845,6 +857,7 @@ impl TabStrip {
         for tab in self.ivars().tabs.borrow_mut().iter_mut() {
             tab.x.snap();
             tab.width.snap();
+            tab.shown.snap();
         }
     }
 
@@ -881,7 +894,8 @@ impl TabStrip {
         for (index, tab) in self.ivars().tabs.borrow_mut().iter_mut().enumerate() {
             tab.x.step(dt, if Some(index) == dragged { FOLLOW } else { SETTLE });
             tab.width.step(dt, SETTLE);
-            moving |= !tab.x.settled() || !tab.width.settled();
+            tab.shown.ramp(dt, FADE);
+            moving |= !tab.x.settled() || !tab.width.settled() || !tab.shown.settled();
         }
         self.place();
         if !moving {
@@ -910,10 +924,10 @@ impl TabStrip {
         };
         let hover = self.ivars().hover.get().filter(|_| enabled);
         let dragging = self.ivars().drag.get().is_some_and(|d| d.moving);
-        for (index, tab) in self.ivars().tabs.borrow().iter().enumerate() {
+        for (index, tab) in self.ivars().tabs.borrow_mut().iter_mut().enumerate() {
             let shown = chosen == Some(index);
-            if self.ivars().glass {
-                set_glass(&tab.view, shown, hover == Some(index));
+            if let Some(glass) = &tab.glass {
+                set_glass(glass, shown, hover == Some(index));
             }
             tab.label.setFont(Some(&title_font(shown)));
             tab.label.setTextColor(Some(&*if shown { NSColor::labelColor() } else { NSColor::secondaryLabelColor() }));
@@ -921,9 +935,11 @@ impl TabStrip {
             tab.close.setEnabled(enabled);
             tab.element.setAccessibilitySelected(shown);
             unsafe { tab.element.setAccessibilityValue(Some(&NSNumber::new_bool(shown))) };
-            // Not while a tab is dragged, as on the system's bar.
-            fade(&tab.close, closable && hover == Some(index) && !dragging);
+            // Fading in and out, and not while a tab is dragged, as on
+            // the system's bar.
+            tab.shown.target = if closable && hover == Some(index) && !dragging { 1.0 } else { 0.0 };
         }
+        self.animate();
         self.set_accessibility_children();
         self.place();
         self.setNeedsDisplay(true);
@@ -995,15 +1011,15 @@ impl TabStrip {
     }
 
     fn make_tab(&self, mtm: MainThreadMarker, index: usize) -> Tab {
-        let view: Retained<NSView> = if self.ivars().glass {
+        let view = NSView::new(mtm);
+        let glass = self.ivars().glass.then(|| {
             let glass = NSGlassEffectView::new(mtm);
             glass.setCornerRadius((HEIGHT - 2.0 * INSET) / 2.0);
-            glass.setContentView(Some(&NSView::new(mtm)));
+            view.addSubview(&glass);
             Retained::into_super(glass)
-        } else {
-            NSView::new(mtm)
-        };
-        let content = content_of(&view);
+        });
+        let content = NSView::new(mtm);
+        view.addSubview(&content);
         let label = NSTextField::labelWithString(&ns(""), mtm);
         label.setLineBreakMode(NSLineBreakMode::ByTruncatingTail);
         label.setAlignment(NSTextAlignment::Center);
@@ -1041,7 +1057,18 @@ impl TabStrip {
         element.setAccessibilityRole(Some(unsafe { NSAccessibilityRadioButtonRole }));
         element.setAccessibilitySubrole(Some(unsafe { NSAccessibilityTabButtonSubrole }));
         unsafe { element.setAccessibilityParent(Some(self)) };
-        Tab { view, label, close, element, title: String::new(), x: Spring::default(), width: Spring::default() }
+        Tab {
+            view,
+            glass,
+            content,
+            label,
+            close,
+            element,
+            title: String::new(),
+            x: Spring::default(),
+            width: Spring::default(),
+            shown: Spring::default(),
+        }
     }
 
     /// A separator between each two tabs, under them in the track.
@@ -1117,7 +1144,7 @@ impl TabStrip {
             tabs.iter().map(|t| Retained::into_super(t.element.clone()).into()).collect();
         children.extend(
             tabs.iter()
-                .filter(|t| t.close.alphaValue() > 0.0)
+                .filter(|t| t.shown.target > 0.0)
                 .map(|t| Retained::into_super(Retained::into_super(Retained::into_super(t.close.clone()))).into()),
         );
         if let Some((_, plus)) = self.ivars().plus.borrow().as_ref() {
@@ -1142,9 +1169,12 @@ impl TabStrip {
             // In the track's coordinates.
             let local = NSRect::new(NSPoint::new(rect.origin.x - track.origin.x, INSET), rect.size);
             tab.view.setFrame(local);
-            let content = content_of(&tab.view);
             let size = local.size;
-            content.setFrame(NSRect::new(NSPoint::ZERO, size));
+            if let Some(glass) = &tab.glass {
+                glass.setFrame(NSRect::new(NSPoint::ZERO, size));
+            }
+            tab.content.setFrame(NSRect::new(NSPoint::ZERO, size));
+            tab.close.setAlphaValue(tab.shown.value);
             let label_height = tab.label.intrinsicContentSize().height.max(0.0);
             // Room for the close button on the tab's leading side, and as
             // much on the other, so the title stays centred.
@@ -1269,31 +1299,9 @@ impl TabStrip {
     }
 }
 
-/// Where a tab's title and close button are: its glass's content, or the
-/// tab's view.
-fn content_of(view: &NSView) -> Retained<NSView> {
-    view.downcast_ref::<NSGlassEffectView>().and_then(|g| g.contentView()).unwrap_or_else(|| view.retain())
-}
-
 fn pill(rect: NSRect) -> Retained<NSBezierPath> {
     let radius = rect.size.height / 2.0;
     NSBezierPath::bezierPathWithRoundedRect_xRadius_yRadius(rect, radius, radius)
-}
-
-/// Fades a close button in or out, as the system's tab bar does.
-fn fade(button: &NSButton, show: bool) {
-    let alpha = if show { 1.0 } else { 0.0 };
-    if button.alphaValue() == alpha {
-        return;
-    }
-    if button.window().is_some_and(|w| w.isVisible()) {
-        NSAnimationContext::beginGrouping();
-        NSAnimationContext::currentContext().setDuration(FADE);
-        button.animator().setAlphaValue(alpha);
-        NSAnimationContext::endGrouping();
-    } else {
-        button.setAlphaValue(alpha);
-    }
 }
 
 fn now() -> f64 {
