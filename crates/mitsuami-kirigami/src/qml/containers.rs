@@ -121,6 +121,18 @@ Item {{
         const pages = mitsuamiPages.children
         for (let i = 0; i < pages.length; i++) pages[i].visible = i === mitsuamiSelected
     }}
+    // After the bar's current tab or its buttons changed, once they've
+    // settled. Made again, the bar moves its current tab itself, and it's
+    // put back; otherwise a new current tab is the user's: the style's
+    // wheel picks the tab beside, as KDE's widget tab bars do.
+    property bool mitsuamiRemade: false
+    function mitsuamiSettleBar() {{
+        const index = mitsuamiBar.currentIndex
+        if (mitsuamiRemade) {{
+            mitsuamiRemade = false
+            mitsuamiShow()
+        }} else if (!mitsuamiNavigation && index >= 0 && index < mitsuamiCount && index !== mitsuamiSelected) mitsuamiChoose(index)
+    }}
     // An action for each title, in the navigation bar; the old ones go.
     function mitsuamiMakeActions() {{
         const old = []
@@ -153,6 +165,11 @@ Item {{
         visible: !mitsuamiTabs.mitsuamiNavigation
         width: parent.width
         position: QQC2.TabBar.Header
+        onCountChanged: {{
+            mitsuamiTabs.mitsuamiRemade = true
+            Qt.callLater(mitsuamiTabs.mitsuamiSettleBar)
+        }}
+        onCurrentIndexChanged: Qt.callLater(mitsuamiTabs.mitsuamiSettleBar)
         // Focused, the bar's selected tab takes it, as Tab focuses it.
         onActiveFocusChanged: if (activeFocus && currentItem) currentItem.forceActiveFocus(focusReason)
         // The first tab is always there, hidden without titles: the desktop
@@ -306,6 +323,18 @@ Item {{
     function mitsuamiShow() {{
         mitsuamiBar.currentIndex = mitsuamiSelected
     }}
+    // After the bar's current tab or its buttons changed, once they've
+    // settled. Made again, the bar moves its current tab itself, and it's
+    // put back; otherwise a new current tab is the user's: the style's
+    // wheel picks the tab beside, as KDE's widget tab bars do.
+    property bool mitsuamiRemade: false
+    function mitsuamiSettleBar() {{
+        const index = mitsuamiBar.currentIndex
+        if (mitsuamiRemade) {{
+            mitsuamiRemade = false
+            mitsuamiShow()
+        }} else if (index >= 0 && index < mitsuamiCount && index !== mitsuamiSelected) mitsuamiChoose(index)
+    }}
     // Asks; the tab stays until the app takes it away.
     function mitsuamiAskClose(index) {{
         if (!mitsuamiClosable || index < 0 || index >= mitsuamiCount) return
@@ -376,7 +405,14 @@ Item {{
         position: QQC2.TabBar.Header
         // Focused, the bar's chosen tab takes it, as Tab focuses it.
         onActiveFocusChanged: if (activeFocus && currentItem) currentItem.forceActiveFocus(focusReason)
-        onCountChanged: mitsuamiDocTabs.mitsuamiShow()
+        // Set while the bar moves its current tab for the buttons it
+        // lost, ours is lost (and the style's list warns of a binding
+        // loop).
+        onCountChanged: {{
+            mitsuamiDocTabs.mitsuamiRemade = true
+            Qt.callLater(mitsuamiDocTabs.mitsuamiSettleBar)
+        }}
+        onCurrentIndexChanged: Qt.callLater(mitsuamiDocTabs.mitsuamiSettleBar)
         // The first tab is always there, hidden without titles: the
         // desktop style's bar is as high as its first tab.
         MitsuamiDocTab {{
