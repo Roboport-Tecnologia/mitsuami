@@ -329,7 +329,7 @@ const DRAG_START: f64 = 3.0;
 const SETTLE: f64 = 20.0;
 const FOLLOW: f64 = 40.0;
 /// How long a close button takes to fade in or out.
-const FADE: f64 = 0.15;
+const FADE: f64 = 0.1;
 
 /// The system tab bar's glass, which AppKit keeps private: the track is a
 /// "subdued" glass view of its own, and each tab an `NSGlassEffectView` in
