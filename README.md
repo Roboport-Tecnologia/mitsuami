@@ -36,10 +36,10 @@ More in [the examples](#examples): one per widget, and a few whole apps in
 
 ```toml
 [dependencies]
-mitsuami = "1.1"
+mitsuami = "1.2"
 
 [dev-dependencies]
-mitsuami-test = "1.1"
+mitsuami-test = "1.2"
 ```
 
 The backend is picked by the target OS; there's nothing to configure. Rust
@@ -56,8 +56,8 @@ For KDE Plasma, turn on the `kde` feature (with `gtk` on too, `kde` wins),
 and the test kit's own `kde` feature:
 
 ```toml
-mitsuami = { version = "1.1", default-features = false, features = ["kde"] }
-mitsuami-test = { version = "1.1", features = ["kde"] }
+mitsuami = { version = "1.2", default-features = false, features = ["kde"] }
+mitsuami-test = { version = "1.2", features = ["kde"] }
 ```
 
 ## The basics
