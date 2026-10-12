@@ -352,7 +352,8 @@ fn system_glass() -> Option<&'static AnyClass> {
 fn set_glass(glass: &NSView, chosen: bool, hovered: bool) {
     let variant = if chosen { VARIANT_CHOSEN } else { VARIANT_PLAIN };
     let subvariant = chosen.then(|| ns("tab"));
-    let interaction = if hovered && !chosen { INTERACTION_HOVER } else { 0 };
+    // The chosen tab lightens under the pointer too.
+    let interaction = if hovered { INTERACTION_HOVER } else { 0 };
     unsafe {
         let _: () = msg_send![glass, set_variant: variant];
         let _: () = msg_send![glass, set_subvariant: subvariant.as_deref()];
@@ -558,6 +559,9 @@ define_class!(
             drag.moving = true;
             drag.at = self.drag_to(drag.at, x - drag.grab);
             self.ivars().drag.set(Some(drag));
+            // The pointer is on the dragged tab, wherever it's gone (a
+            // drag sends no moves).
+            self.ivars().hover.set(Some(drag.at));
             self.retarget();
             self.restyle();
             self.animate();
@@ -905,6 +909,7 @@ impl TabStrip {
             (model.chosen(), model.closable == Some(true), model.enabled())
         };
         let hover = self.ivars().hover.get().filter(|_| enabled);
+        let dragging = self.ivars().drag.get().is_some_and(|d| d.moving);
         for (index, tab) in self.ivars().tabs.borrow().iter().enumerate() {
             let shown = chosen == Some(index);
             if self.ivars().glass {
@@ -916,7 +921,8 @@ impl TabStrip {
             tab.close.setEnabled(enabled);
             tab.element.setAccessibilitySelected(shown);
             unsafe { tab.element.setAccessibilityValue(Some(&NSNumber::new_bool(shown))) };
-            fade(&tab.close, closable && hover == Some(index));
+            // Not while a tab is dragged, as on the system's bar.
+            fade(&tab.close, closable && hover == Some(index) && !dragging);
         }
         self.set_accessibility_children();
         self.place();
@@ -1079,8 +1085,8 @@ impl TabStrip {
     }
 
     /// A button showing an SF Symbol, named for assistive technology and
-    /// its tooltip: a close button is AppKit's small round one, as the
-    /// system's tab bar has it.
+    /// its tooltip: a close button is AppKit's small round one, its bezel
+    /// showing under the pointer, as the system's tab bar has it.
     fn button(&self, mtm: MainThreadMarker, symbol: &str, name: &str) -> Retained<NSButton> {
         let close = symbol == "xmark";
         let image = NSImage::imageWithSystemSymbolName_accessibilityDescription(&ns(symbol), Some(&ns(name)))
@@ -1093,8 +1099,10 @@ impl TabStrip {
             .unwrap_or_default();
         let button = unsafe { NSButton::buttonWithImage_target_action(&image, None, None, mtm) };
         if close {
+            // Its round bezel shows only under the pointer.
             button.setBezelStyle(NSBezelStyle::Circular);
             button.setControlSize(NSControlSize::Small);
+            button.setShowsBorderOnlyWhileMouseInside(true);
             button.setContentTintColor(Some(&NSColor::secondaryLabelColor()));
         }
         button.setToolTip(Some(&ns(name)));
