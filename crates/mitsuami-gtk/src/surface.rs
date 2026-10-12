@@ -15,8 +15,9 @@ use std::cell::{Cell, RefCell};
 use std::collections::HashMap;
 use std::ffi::c_void;
 use std::rc::{Rc, Weak};
+use std::sync::OnceLock;
 
-use gtk::glib::translate::{IntoGlib, ToGlibPtr};
+use gtk::glib::translate::{IntoGlib, ToGlibPtr, from_glib_full};
 use gtk::prelude::*;
 use gtk::{gdk, glib, graphene};
 use mitsuami_core::{
@@ -593,9 +594,11 @@ fn key_code(keys: &gtk::EventControllerKey, keycode: u32) -> KeyCode {
 }
 
 /// A cursor from the app's pixels. GDK shows a texture's pixels one to a
-/// point (GTK 4.16's `Cursor::from_callback` is the scale-aware way): an
-/// image made at another scale is resampled to its size in points, so it
-/// shows at the size the app meant.
+/// point, so an image made at another scale is resampled to its size in
+/// points, and shows at the size the app meant. Where GTK has
+/// `gdk_cursor_new_from_callback` (4.16) that is only the fallback: the
+/// callback hands GDK every pixel with the size in points, and a screen at
+/// the image's scale shows each one.
 fn cursor_image(pixels: &Pixels, hotspot: Point) -> Option<gdk::Cursor> {
     let scale = pixels.scale_factor();
     let (width, height) = (pixels.width(), pixels.height());
@@ -625,15 +628,95 @@ fn cursor_image(pixels: &Pixels, hotspot: Point) -> Option<gdk::Cursor> {
         }
         out
     };
-    let texture = gdk::MemoryTexture::new(
-        w as i32,
-        h as i32,
-        gdk::MemoryFormat::R8g8b8a8,
-        &glib::Bytes::from_owned(bytes),
-        w as usize * 4,
-    );
-    let (x, y) = (hotspot.x.round() as i32, hotspot.y.round() as i32);
-    Some(gdk::Cursor::from_texture(&texture, x.clamp(0, w as i32 - 1), y.clamp(0, h as i32 - 1), None))
+    let texture = |w: u32, h: u32, bytes: Vec<u8>| {
+        gdk::MemoryTexture::new(w as i32, h as i32, gdk::MemoryFormat::R8g8b8a8, &glib::Bytes::from_owned(bytes), w as usize * 4)
+    };
+    let (x, y) = (hotspot.x.round().clamp(0.0, w as f32 - 1.0) as i32, hotspot.y.round().clamp(0.0, h as f32 - 1.0) as i32);
+    let fallback = gdk::Cursor::from_texture(&texture(w, h, bytes), x, y, None);
+    let Some(new_from_callback) = (w, h).ne(&(width, height)).then(cursor_from_callback).flatten() else {
+        return Some(fallback);
+    };
+    let full = Box::new(FullCursor {
+        texture: texture(width, height, rgba.to_vec()).upcast(),
+        size: (w as i32, h as i32),
+        hotspot: (x, y),
+    });
+    // SAFETY: the function is GDK's, of the type `cursor_from_callback`
+    // gives it. The box is the callback's data, dropped by `drop_full`
+    // when GDK lets the cursor go; GDK takes its own reference on the
+    // fallback.
+    unsafe {
+        let cursor = new_from_callback(full_texture, Box::into_raw(full).cast(), Some(drop_full), fallback.to_glib_none().0);
+        Some(from_glib_full(cursor))
+    }
+}
+
+/// What a cursor made by `cursor_from_callback` gives GDK: the image at its
+/// own scale, its size in points and its hotspot in points.
+struct FullCursor {
+    texture: gdk::Texture,
+    size: (i32, i32),
+    hotspot: (i32, i32),
+}
+
+type NewFromCallback = unsafe extern "C" fn(
+    callback: GetTexture,
+    data: glib::ffi::gpointer,
+    destroy: glib::ffi::GDestroyNotify,
+    fallback: *mut gdk::ffi::GdkCursor,
+) -> *mut gdk::ffi::GdkCursor;
+
+type GetTexture = unsafe extern "C" fn(
+    cursor: *mut gdk::ffi::GdkCursor,
+    cursor_size: i32,
+    scale: f64,
+    width: *mut i32,
+    height: *mut i32,
+    hotspot_x: *mut i32,
+    hotspot_y: *mut i32,
+    data: glib::ffi::gpointer,
+) -> *mut gdk::ffi::GdkTexture;
+
+/// GTK's `gdk_cursor_new_from_callback`, if the GTK the app runs with has
+/// it (4.16 and later). It's looked up at run time, so the backend builds
+/// against GTK 4.10.
+fn cursor_from_callback() -> Option<NewFromCallback> {
+    static NEW: OnceLock<Option<NewFromCallback>> = OnceLock::new();
+    *NEW.get_or_init(|| {
+        // SAFETY: the symbol, if GTK has it, is `GdkCursor*
+        // gdk_cursor_new_from_callback(GdkCursorGetTextureCallback,
+        // gpointer, GDestroyNotify, GdkCursor*)`.
+        unsafe {
+            let new = libc::dlsym(libc::RTLD_DEFAULT, c"gdk_cursor_new_from_callback".as_ptr());
+            (!new.is_null()).then(|| std::mem::transmute::<*mut c_void, NewFromCallback>(new))
+        }
+    })
+}
+
+/// The cursor's image for any size and scale GDK asks: the one it has.
+unsafe extern "C" fn full_texture(
+    _cursor: *mut gdk::ffi::GdkCursor,
+    _cursor_size: i32,
+    _scale: f64,
+    width: *mut i32,
+    height: *mut i32,
+    hotspot_x: *mut i32,
+    hotspot_y: *mut i32,
+    data: glib::ffi::gpointer,
+) -> *mut gdk::ffi::GdkTexture {
+    // SAFETY: `data` is the `FullCursor` the cursor was made with, alive
+    // until `drop_full`; the out pointers are GDK's.
+    unsafe {
+        let full = &*(data as *const FullCursor);
+        (*width, *height) = full.size;
+        (*hotspot_x, *hotspot_y) = full.hotspot;
+        full.texture.to_glib_full()
+    }
+}
+
+unsafe extern "C" fn drop_full(data: glib::ffi::gpointer) {
+    // SAFETY: `data` is the box `cursor_image` gave the cursor, dropped once.
+    drop(unsafe { Box::from_raw(data as *mut FullCursor) });
 }
 
 /// The widget's controllers: they report while it takes input.
