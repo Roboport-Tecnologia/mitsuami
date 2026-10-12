@@ -13,8 +13,10 @@
 //! - The new-tab button opens an empty note, and chooses it.
 //! - "Tabs" picks where they show: the platform's place (the title bar on
 //!   macOS, as Safari's and Xcode's, and on Windows; a strip on GNOME and
-//!   KDE), a strip above the area everywhere, or the window's (a strip on
-//!   GNOME and KDE, which have none).
+//!   KDE), a strip above the area everywhere, the window's (a strip on
+//!   GNOME and KDE, which have none), or the title's row: on macOS beside
+//!   the window's buttons with the title hidden, as Safari's compact tabs
+//!   (the window's title bar on Windows, a strip on GNOME and KDE).
 //! - In a title bar, WinUI puts the tabs on Mica Alt's colour, as File
 //!   Explorer has them: near black in dark mode, grey in light.
 //! - A raw platform setting, through `.native()`: on Windows, "Chosen tab
@@ -63,10 +65,11 @@ pub fn notepad() -> impl View {
     let current = signal(1);
     let next = signal(4);
     let style = signal(0);
-    let styles = ["The platform's place", "A strip", "The window's"];
+    let styles = ["The platform's place", "A strip", "The window's", "The title's row"];
     let tabs_style = move || match style.get() {
         1 => DocumentTabsStyle::Strip,
         2 => DocumentTabsStyle::Window,
+        3 => DocumentTabsStyle::TitleRow,
         _ => DocumentTabsStyle::Automatic,
     };
     let close = move |id: u32| {

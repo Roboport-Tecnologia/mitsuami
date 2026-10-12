@@ -23,7 +23,7 @@ use objc2_app_kit::{
     NSControlSize, NSEvent, NSEventType, NSFont, NSFontWeightMedium, NSFontWeightRegular, NSGlassEffectView,
     NSGraphicsContext, NSImage, NSImageSymbolConfiguration, NSLayoutAttribute, NSLineBreakMode, NSShadow,
     NSTextAlignment, NSTextField, NSTitlebarAccessoryViewController, NSTrackingArea, NSTrackingAreaOptions,
-    NSUserInterfaceLayoutDirection, NSView, NSWindow, NSWindowOrderingMode, NSWorkspace,
+    NSUserInterfaceLayoutDirection, NSView, NSWindow, NSWindowOrderingMode, NSWindowTitleVisibility, NSWorkspace,
 };
 use objc2_foundation::{
     NSArray, NSNumber, NSPoint, NSProcessInfo, NSRect, NSRunLoop, NSRunLoopCommonModes, NSSize, NSString, NSTimer,
@@ -101,8 +101,19 @@ pub(crate) struct DocumentTabs {
     /// the title and toolbar, where Safari's and Xcode's tab bars are.
     band: Retained<NSView>,
     accessory: Retained<NSTitlebarAccessoryViewController>,
-    /// The window whose title bar it's in.
-    window: RefCell<Option<Retained<NSWindow>>>,
+    /// The view the strip is in as a toolbar item, in the title's row.
+    pub(crate) row: Retained<NSView>,
+    /// The window it's in the chrome of, and where.
+    placed: RefCell<Option<(NodeId, Retained<NSWindow>, Place)>>,
+}
+
+/// Where in the window's chrome the strip is.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub(crate) enum Place {
+    /// Its own row under the title and toolbar, as Safari's separate tabs.
+    Band,
+    /// The title's row, as a toolbar item, as Safari's compact tabs.
+    Row,
 }
 
 impl DocumentTabs {
@@ -115,7 +126,14 @@ impl DocumentTabs {
         let accessory = NSTitlebarAccessoryViewController::new(mtm);
         accessory.setView(&band);
         accessory.setLayoutAttribute(NSLayoutAttribute::Bottom);
-        let tabs = DocumentTabs { view, strip, shared, band, accessory, window: RefCell::default() };
+        // A toolbar sizes its items' views with Auto Layout: at least room
+        // for a few tabs, as wide as the room left.
+        let row = NSView::new(mtm);
+        row.setTranslatesAutoresizingMaskIntoConstraints(false);
+        row.widthAnchor().constraintGreaterThanOrEqualToConstant(ROW_MIN).setActive(true);
+        row.widthAnchor().constraintLessThanOrEqualToConstant(ROW_MAX).setActive(true);
+        row.heightAnchor().constraintEqualToConstant(HEIGHT).setActive(true);
+        let tabs = DocumentTabs { view, strip, shared, band, accessory, row, placed: RefCell::default() };
         tabs.fill_view();
         tabs.strip.rebuild();
         tabs
@@ -131,47 +149,60 @@ impl DocumentTabs {
         self.view.addSubview(&self.strip);
     }
 
-    /// Whether it asks for the title bar: everything but a strip.
-    pub(crate) fn wants_title_bar(&self) -> bool {
-        self.shared.model.borrow().style != Some(DocumentTabsStyle::Strip)
-    }
-
-    pub(crate) fn title_bar(&self) -> Option<Retained<NSWindow>> {
-        self.window.borrow().clone()
-    }
-
-    /// Puts the strip in `window`'s title bar, or back in the content
-    /// (`None`). Moving, it takes room in the content or gives it back,
-    /// so the core measures it again.
-    pub(crate) fn place(&self, window: Option<&NSWindow>) {
-        let current = self.window.borrow().clone();
-        if current.as_deref().map(|w| w as *const NSWindow) == window.map(|w| w as *const NSWindow) {
-            return;
+    /// Where in the window's chrome it asks to be: nowhere for a strip.
+    pub(crate) fn wanted(&self) -> Option<Place> {
+        match self.shared.model.borrow().style {
+            Some(DocumentTabsStyle::Strip) => None,
+            Some(DocumentTabsStyle::TitleRow) => Some(Place::Row),
+            _ => Some(Place::Band),
         }
-        if current.is_some() {
-            self.accessory.removeFromParentViewController();
-            *self.window.borrow_mut() = None;
+    }
+
+    /// The window node it's in the chrome of, and where.
+    pub(crate) fn placed(&self) -> Option<(NodeId, Place)> {
+        self.placed.borrow().as_ref().map(|(id, _, place)| (*id, *place))
+    }
+
+    /// Puts the strip in a window's chrome, or back in the content
+    /// (`None`). In the title's row the toolbar takes `row` as an item
+    /// (the caller's), and the title hides, as Safari's does with compact
+    /// tabs. Moving, it takes room in the content or gives it back, so the
+    /// core measures it again.
+    pub(crate) fn place(&self, to: Option<(NodeId, &NSWindow, Place)>) {
+        let current = self.placed.borrow_mut().take();
+        if let Some((_, window, place)) = &current {
+            match place {
+                Place::Band => self.accessory.removeFromParentViewController(),
+                Place::Row => window.setTitleVisibility(NSWindowTitleVisibility::Visible),
+            }
             self.fill_view();
         }
-        if let Some(window) = window {
+        if let Some((id, window, place)) = to {
             self.strip.removeFromSuperview();
-            let width = window.frame().size.width;
-            self.band.setFrame(NSRect::new(NSPoint::ZERO, NSSize::new(width, BAND)));
-            self.strip.setAutoresizingMask(NSAutoresizingMaskOptions::ViewWidthSizable);
-            self.strip.setFrame(NSRect::new(
-                NSPoint::new(BAND_SIDE, BAND - BAND_SIDE - HEIGHT),
-                NSSize::new((width - 2.0 * BAND_SIDE).max(0.0), HEIGHT),
-            ));
-            self.band.addSubview(&self.strip);
-            window.addTitlebarAccessoryViewController(&self.accessory);
-            *self.window.borrow_mut() = Some(window.retain());
+            match place {
+                Place::Band => {
+                    let width = window.frame().size.width;
+                    self.band.setFrame(NSRect::new(NSPoint::ZERO, NSSize::new(width, BAND)));
+                    self.strip.setAutoresizingMask(NSAutoresizingMaskOptions::ViewWidthSizable);
+                    self.strip.setFrame(NSRect::new(
+                        NSPoint::new(BAND_SIDE, BAND - BAND_SIDE - HEIGHT),
+                        NSSize::new((width - 2.0 * BAND_SIDE).max(0.0), HEIGHT),
+                    ));
+                    self.band.addSubview(&self.strip);
+                    window.addTitlebarAccessoryViewController(&self.accessory);
+                }
+                Place::Row => {
+                    self.strip.setFrame(self.row.bounds());
+                    self.strip.setAutoresizingMask(
+                        NSAutoresizingMaskOptions::ViewWidthSizable | NSAutoresizingMaskOptions::ViewHeightSizable,
+                    );
+                    self.row.addSubview(&self.strip);
+                    window.setTitleVisibility(NSWindowTitleVisibility::Hidden);
+                }
+            }
+            *self.placed.borrow_mut() = Some((id, window.retain(), place));
         }
         self.shared.emit(UiEvent::Remeasure);
-    }
-
-    /// Out of the title bar: the node is going.
-    pub(crate) fn detach(&self) {
-        self.place(None);
     }
 
     fn change(&self, change: impl FnOnce(&mut Model)) {
@@ -288,7 +319,7 @@ impl DocumentTabs {
     /// The strip's natural size; nothing in the title bar, which is the
     /// window's chrome.
     pub(crate) fn natural_size(&self) -> Size {
-        if self.window.borrow().is_some() { Size::ZERO } else { self.strip.natural_size() }
+        if self.placed.borrow().is_some() { Size::ZERO } else { self.strip.natural_size() }
     }
 }
 
@@ -319,6 +350,10 @@ const PLUS_GAP: f64 = 4.0;
 /// The title bar's band: the strip, the room under it, and either side.
 const BAND: f64 = HEIGHT + 8.0;
 const BAND_SIDE: f64 = 8.0;
+/// In the title's row: at least room for a few tabs, and as wide as the
+/// toolbar's room.
+const ROW_MIN: f64 = 160.0;
+const ROW_MAX: f64 = 100_000.0;
 /// A dragged tab is narrower, lifted off the track.
 const LIFT: f64 = 8.0;
 /// How far a pressed tab goes before it's dragged.

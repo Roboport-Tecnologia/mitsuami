@@ -7,7 +7,7 @@ use objc2::rc::Retained;
 use objc2_app_kit::{NSAccessibility, NSApplication, NSView, NSWindowOrderingMode};
 use objc2_foundation::{NSNotificationCenter, NSPoint, NSRect, NSSize};
 
-use crate::classes::HostView;
+use crate::document_tabs::Place;
 use crate::sidebar::Split;
 use crate::toolbar::Toolbar;
 
@@ -49,81 +49,105 @@ impl State {
         }
     }
 
-    /// The window a node is in: the window, its host and its delegate.
-    fn window_parts_of(
-        &self,
-        id: NodeId,
-    ) -> Option<(&Retained<objc2_app_kit::NSWindow>, &Retained<HostView>, &Retained<crate::classes::WindowDelegate>)>
-    {
+    /// Puts document tabs in their window's chrome, unless the app asked
+    /// for a strip: in a band under the title and toolbar, or in the
+    /// title's row; and back in the content when they stop asking or leave
+    /// the window. A window's chrome has one strip: the one there stays,
+    /// and others are strips in the content.
+    pub(super) fn place_document_tabs(&mut self) {
+        let mut all: Vec<(NodeId, bool)> = self
+            .nodes
+            .iter()
+            .filter_map(|(id, node)| match &node.widget {
+                Widget::DocumentTabs(tabs) => Some((*id, tabs.placed().is_none())),
+                _ => None,
+            })
+            .collect();
+        all.sort();
+        all.sort_by_key(|(_, unplaced)| *unplaced);
+        let mut taken: Vec<NodeId> = Vec::new();
+        for (id, _) in all {
+            let Some(Widget::DocumentTabs(tabs)) = self.nodes.get(&id).map(|n| &n.widget) else { continue };
+            let target = tabs
+                .wanted()
+                .zip(self.window_node_of(id))
+                .filter(|(_, window)| !taken.contains(window))
+                .map(|(place, window)| (window, place));
+            if let Some((window, _)) = target {
+                taken.push(window);
+            }
+            if tabs.placed() != target {
+                self.move_document_tabs(id, target);
+            }
+        }
+    }
+
+    /// The window node a node is in.
+    fn window_node_of(&self, id: NodeId) -> Option<NodeId> {
         let mut at = self.nodes.get(&id)?.parent;
         while let Some(parent) = at {
             let node = self.nodes.get(&parent)?;
-            if let Widget::Window { window, host, _delegate, .. } = &node.widget {
-                return Some((window, host, _delegate));
+            if matches!(node.widget, Widget::Window { .. }) {
+                return Some(parent);
             }
             at = node.parent;
         }
         None
     }
 
-    /// Puts document tabs in their window's title bar, unless the app
-    /// asked for a strip, and back in the content when they stop asking or
-    /// leave it. A window's title bar has one strip: the one there stays,
-    /// and others are strips in the content. As with a header, the content
-    /// goes under the bar and keeps its size: the window grows by the
-    /// strip's band, and shrinks by it when the strip leaves.
-    pub(super) fn place_document_tabs(&self) {
-        let mut all: Vec<(NodeId, &crate::document_tabs::DocumentTabs)> = self
-            .nodes
-            .iter()
-            .filter_map(|(id, node)| match &node.widget {
-                Widget::DocumentTabs(tabs) => Some((*id, tabs)),
-                _ => None,
-            })
-            .collect();
-        all.sort_by_key(|(id, tabs)| (tabs.title_bar().is_none(), *id));
-        let mut taken: Vec<*const objc2_app_kit::NSWindow> = Vec::new();
-        for (id, tabs) in all {
-            let parts = self
-                .window_parts_of(id)
-                .filter(|_| tabs.wants_title_bar())
-                .filter(|(w, ..)| !taken.contains(&(&***w as *const objc2_app_kit::NSWindow)));
-            if let Some((window, ..)) = parts {
-                taken.push(&**window);
-            }
-            let had = tabs.title_bar();
-            let same = match (&had, parts) {
-                (Some(had), Some((window, ..))) => std::ptr::eq(&**had, &**window),
-                (None, None) => true,
-                _ => false,
-            };
-            if same {
-                continue;
-            }
-            // Out of the window it was in, which keeps its content's size.
-            if let Some(had) = had {
-                let parts = self.nodes.values().find_map(|n| match &n.widget {
-                    Widget::Window { window, host, _delegate, .. } if std::ptr::eq(&**window, &*had) => {
-                        Some((host, _delegate))
-                    }
-                    _ => None,
-                });
-                let size = parts.map(|(host, _)| host.frame().size);
-                tabs.place(None);
-                if let (Some((_, delegate)), Some(size)) = (parts, size) {
-                    had.layoutIfNeeded();
-                    had.setContentSize(delegate.at_least_min(&had, Size::new(size.width as f32, size.height as f32)));
+    /// Moves document tabs out of the chrome they're in and into
+    /// `target`'s. As with a header or a toolbar, each window's content
+    /// keeps its size: the window grows by the chrome the tabs take, and
+    /// shrinks by what they give back.
+    fn move_document_tabs(&mut self, id: NodeId, target: Option<(NodeId, Place)>) {
+        let mtm = self.mtm;
+        let animate = self.options.show_windows;
+        let Some(Widget::DocumentTabs(tabs)) = self.nodes.get(&id).map(|n| &n.widget) else { return };
+        let had = tabs.placed();
+        let row = tabs.row.clone();
+        if let Some((window_id, place)) = had
+            && let Some(Widget::Window { window, host, _delegate, toolbar, split }) =
+                self.nodes.get_mut(&window_id).map(|n| &mut n.widget)
+        {
+            let size = host.frame().size;
+            if place == Place::Row
+                && let Some(bar) = toolbar
+            {
+                bar.set_tabs(mtm, None);
+                if bar.is_empty() && split.is_none() {
+                    window.setToolbar(None);
+                    *toolbar = None;
                 }
             }
-            if let Some((window, host, delegate)) = parts {
-                let size = host.frame().size;
-                crate::sidebar::content_under_bar(self.mtm, window, host);
-                delegate.set_detail(Some(host));
-                tabs.place(Some(window));
-                window.layoutIfNeeded();
-                window.setContentSize(delegate.at_least_min(window, Size::new(size.width as f32, size.height as f32)));
+            let (window, delegate) = (window.clone(), _delegate.clone());
+            if let Some(Widget::DocumentTabs(tabs)) = self.nodes.get(&id).map(|n| &n.widget) {
+                tabs.place(None);
             }
+            window.layoutIfNeeded();
+            window.setContentSize(delegate.at_least_min(&window, Size::new(size.width as f32, size.height as f32)));
+        } else if let Some(Widget::DocumentTabs(tabs)) = self.nodes.get(&id).map(|n| &n.widget) {
+            tabs.place(None);
         }
+        let Some((window_id, place)) = target else { return };
+        let Some(Widget::Window { window, host, _delegate, .. }) =
+            self.nodes.get_mut(&window_id).map(|n| &mut n.widget)
+        else {
+            return;
+        };
+        let size = host.frame().size;
+        crate::sidebar::content_under_bar(mtm, window, host);
+        _delegate.set_detail(Some(host));
+        let (window, delegate) = (window.clone(), _delegate.clone());
+        if let Some(Widget::DocumentTabs(tabs)) = self.nodes.get(&id).map(|n| &n.widget) {
+            tabs.place(Some((window_id, &window, place)));
+        }
+        if place == Place::Row
+            && let Some(Widget::Window { toolbar, .. }) = self.nodes.get_mut(&window_id).map(|n| &mut n.widget)
+        {
+            toolbar.get_or_insert_with(|| Toolbar::new(mtm, &window, window_id, animate)).set_tabs(mtm, Some(&row));
+        }
+        window.layoutIfNeeded();
+        window.setContentSize(delegate.at_least_min(&window, Size::new(size.width as f32, size.height as f32)));
     }
 
     /// The toolbar item a node is a child of.
@@ -453,6 +477,10 @@ impl State {
                 if !self.nodes.contains_key(id) {
                     violation(command, "node does not exist");
                 }
+                // Document tabs out of their window's chrome.
+                if matches!(self.nodes[id].widget, Widget::DocumentTabs(_)) {
+                    self.move_document_tabs(*id, None);
+                }
                 // Out of its parent's children, if it wasn't removed first
                 // (a sidebar destroyed with its window).
                 self.detach(*id);
@@ -510,11 +538,6 @@ impl State {
                     Widget::List(list) => {
                         list.detach();
                         list.scroll.removeFromSuperview();
-                    }
-                    // Out of the title bar.
-                    Widget::DocumentTabs(tabs) => {
-                        tabs.detach();
-                        tabs.view.removeFromSuperview();
                     }
                     // The app's handle may keep it: it just stops showing.
                     Widget::GpuSurface(view) => {

@@ -42,6 +42,8 @@ pub(crate) struct DelegateIvars {
     shown: RefCell<Vec<Retained<NSToolbarItem>>>,
     /// The window has a sidebar.
     sidebar: Cell<bool>,
+    /// Document tabs in the toolbar's row, in the flexible space's place.
+    tabs: RefCell<Option<Retained<NSToolbarItem>>>,
 }
 
 define_class!(
@@ -60,7 +62,10 @@ define_class!(
             identifier: &NSToolbarItemIdentifier,
             _inserted: bool,
         ) -> Option<Retained<NSToolbarItem>> {
-            self.ivars().shown.borrow().iter().find(|item| &*item.itemIdentifier() == identifier).cloned()
+            let tabs = self.ivars().tabs.borrow().clone().filter(|item| &*item.itemIdentifier() == identifier);
+            tabs.or_else(|| {
+                self.ivars().shown.borrow().iter().find(|item| &*item.itemIdentifier() == identifier).cloned()
+            })
         }
 
         #[unsafe(method_id(toolbarDefaultItemIdentifiers:))]
@@ -77,19 +82,26 @@ define_class!(
 
 impl ToolbarDelegate {
     fn new(mtm: MainThreadMarker) -> Retained<ToolbarDelegate> {
-        let this = ToolbarDelegate::alloc(mtm)
-            .set_ivars(DelegateIvars { shown: RefCell::new(Vec::new()), sidebar: Cell::new(false) });
+        let this = ToolbarDelegate::alloc(mtm).set_ivars(DelegateIvars {
+            shown: RefCell::new(Vec::new()),
+            sidebar: Cell::new(false),
+            tabs: RefCell::new(None),
+        });
         unsafe { msg_send![super(this), init] }
     }
 
-    /// The system's items ahead of ours: the sidebar's tracking separator,
-    /// if there's a sidebar, then the flexible space.
+    /// The items ahead of the app's: the sidebar's tracking separator, if
+    /// there's a sidebar, then the flexible space, or document tabs taking
+    /// its room.
     fn system_items(&self) -> Vec<Retained<NSToolbarItemIdentifier>> {
         let mut identifiers = Vec::new();
         if self.ivars().sidebar.get() {
             identifiers.push(unsafe { NSToolbarSidebarTrackingSeparatorItemIdentifier }.retain());
         }
-        identifiers.push(unsafe { NSToolbarFlexibleSpaceItemIdentifier }.retain());
+        match self.ivars().tabs.borrow().as_ref() {
+            Some(tabs) => identifiers.push(tabs.itemIdentifier()),
+            None => identifiers.push(unsafe { NSToolbarFlexibleSpaceItemIdentifier }.retain()),
+        }
         identifiers
     }
 
@@ -471,7 +483,22 @@ impl Toolbar {
     }
 
     pub(crate) fn is_empty(&self) -> bool {
-        self.items.is_empty()
+        self.items.is_empty() && self.delegate.ivars().tabs.borrow().is_none()
+    }
+
+    /// Puts document tabs in the toolbar's row, `view` stretching over
+    /// the room the app's items leave, as Safari's compact tabs; `None`
+    /// takes them out.
+    pub(crate) fn set_tabs(&self, mtm: MainThreadMarker, view: Option<&NSView>) {
+        let item = view.map(|view| {
+            let item =
+                NSToolbarItem::initWithItemIdentifier(NSToolbarItem::alloc(mtm), &NSString::from_str("mitsuami.tabs"));
+            item.setView(Some(view));
+            item.setBordered(false);
+            item
+        });
+        *self.delegate.ivars().tabs.borrow_mut() = item;
+        self.place(true);
     }
 
     /// The window has a sidebar, or no longer has.

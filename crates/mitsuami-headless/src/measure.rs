@@ -107,7 +107,10 @@ impl HeadlessBackend {
             // new-tab button. The window's tabs take no room in the
             // content.
             WidgetKind::DocumentTabs => {
-                if find_prop!(node.props, DocumentTabsStyle) == Some(DocumentTabsStyle::Window) {
+                if matches!(
+                    find_prop!(node.props, DocumentTabsStyle),
+                    Some(DocumentTabsStyle::Window | DocumentTabsStyle::TitleRow)
+                ) {
                     Size::ZERO
                 } else {
                     let titles = find_prop!(node.props, TabTitles).unwrap_or_default();

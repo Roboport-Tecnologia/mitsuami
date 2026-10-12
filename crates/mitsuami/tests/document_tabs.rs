@@ -195,6 +195,17 @@ async fn a_strip_takes_room_and_the_windows_tabs_none(app: TestApp) {
     }
     // Still the same tabs.
     assert_eq!(strip(&app), ["notes.txt *", "todo.md"]);
+
+    // In the title's row, as Safari's compact tabs: the window's too.
+    style.set(DocumentTabsStyle::TitleRow);
+    app.settle().await;
+    assert_eq!(app.ui().window_frame(list).unwrap().height(), frame.height());
+    assert_eq!(strip(&app), ["notes.txt *", "todo.md"]);
+
+    // Back in the content.
+    style.set(DocumentTabsStyle::Strip);
+    app.settle().await;
+    assert_eq!(app.ui().window_frame(list).unwrap().height(), strip_frame.height());
 }
 
 #[mitsuami_test::test]

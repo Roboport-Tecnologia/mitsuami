@@ -185,7 +185,7 @@ pub enum WidgetKind {
     /// ([`Prop::TabsClosable`]), moves them ([`Prop::TabsReorderable`]) and
     /// asks for a new one ([`Prop::NewTabButton`]), where the app lets
     /// them. Measured by the backend; empty where the tabs are the
-    /// window's ([`DocumentTabsStyle::Window`]).
+    /// window's ([`DocumentTabsStyle::Window`], [`DocumentTabsStyle::TitleRow`]).
     DocumentTabs,
     /// A native box around related content, under an optional heading
     /// ([`Prop::Title`]): an NSBox, libadwaita's card under a heading, a
@@ -418,6 +418,11 @@ pub enum DocumentTabsStyle {
     /// toolbar, WinUI's tab view in the title bar. GTK and Qt have none,
     /// so a strip.
     Window,
+    /// In the title's own row, beside the window's buttons and toolbar
+    /// items, the title hidden: Safari's compact tabs on macOS. WinUI's
+    /// tabs in the title bar already are; GTK and Qt have none, so a
+    /// strip.
+    TitleRow,
 }
 
 /// How a button is drawn, mapped to each platform's native look.
