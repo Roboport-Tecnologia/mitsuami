@@ -12,7 +12,7 @@ use mitsuami_core::{NodeId, Prop, Size, UiEvent};
 
 use crate::host::{Host, WindowRoot};
 
-use super::{GtkBackend, State, WindowParts, owning_node, pump_until};
+use super::{GtkBackend, State, Widget, WindowParts, owning_node, pump_until};
 
 impl WindowParts {
     /// How much larger the window is than its content: by the header bar,
@@ -203,6 +203,57 @@ pub(super) fn keep_content_size(parts: &mut WindowParts) {
 }
 
 impl State {
+    /// Puts document tabs that want the title's row in their window's
+    /// header bar, in the title's place, and the others back in their
+    /// boxes. One per window has it, the first made; the others are
+    /// strips. The header bar keeps its height (the bar asks for none), so
+    /// the content keeps its size.
+    pub(super) fn place_title_row_tabs(&mut self) {
+        let window_of = |mut id: NodeId| loop {
+            let node = self.nodes.get(&id)?;
+            if let Widget::Window(_) = node.widget {
+                return Some(id);
+            }
+            id = node.parent?;
+        };
+        let mut tabs: Vec<(NodeId, Option<NodeId>)> = self
+            .nodes
+            .iter()
+            .filter_map(|(id, node)| match &node.widget {
+                Widget::DocumentTabs(tabs) => Some((*id, if tabs.wants_title_row() { window_of(*id) } else { None })),
+                _ => None,
+            })
+            .collect();
+        tabs.sort_by_key(|(id, _)| *id);
+        let mut taken = Vec::new();
+        for (_, window) in &mut tabs {
+            if let Some(w) = *window {
+                if taken.contains(&w) {
+                    *window = None;
+                } else {
+                    taken.push(w);
+                }
+            }
+        }
+        // Out first, so a window's header bar is free for the next.
+        for leaving in [true, false] {
+            for (id, window) in &tabs {
+                if leaving != window.is_none() {
+                    continue;
+                }
+                let header = window.and_then(|w| match &self.nodes[&w].widget {
+                    Widget::Window(parts) => Some(parts.header.clone()),
+                    _ => None,
+                });
+                let Widget::DocumentTabs(node) = &self.nodes[id].widget else { unreachable!() };
+                if node.title_row() != header {
+                    node.show_in_title_row(header.as_ref());
+                    self.events.emit(*id, UiEvent::Remeasure);
+                }
+            }
+        }
+    }
+
     pub(super) fn create_window(
         &mut self,
         id: NodeId,

@@ -230,6 +230,11 @@ impl State {
                 if matches!(node.widget, Widget::List(_)) {
                     self.lists -= 1;
                 }
+                if let Widget::DocumentTabs(tabs) = &node.widget {
+                    self.document_tabs -= 1;
+                    self.by_widget.borrow_mut().remove(tabs.bar());
+                    tabs.show_in_title_row(None);
+                }
                 // Destroyed in its parent, which goes too: it's still counted
                 // in a host it's in.
                 if let Some(parent) = node.parent.and_then(|p| self.nodes.get_mut(&p))

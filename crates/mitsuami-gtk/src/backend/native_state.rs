@@ -326,6 +326,8 @@ impl GtkBackend {
                 Some(scroll_offset(scrolled)),
             ),
             Widget::Tabs(tabs) => (tabs.pages().iter().filter_map(|p| by_widget.get(p).copied()).collect(), None),
+            // A leaf, whose bar is in the map too.
+            Widget::DocumentTabs(_) => (Vec::new(), None),
             _ => {
                 let mut children = Vec::new();
                 let mut next = widget.first_child();

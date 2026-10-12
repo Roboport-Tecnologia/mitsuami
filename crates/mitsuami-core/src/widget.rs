@@ -419,9 +419,9 @@ pub enum DocumentTabsStyle {
     /// so a strip.
     Window,
     /// In the title's own row, beside the window's buttons and toolbar
-    /// items, the title hidden: Safari's compact tabs on macOS. WinUI's
-    /// tabs in the title bar already are; GTK and Qt have none, so a
-    /// strip.
+    /// items, the title hidden: Safari's compact tabs on macOS, and on
+    /// GNOME libadwaita's tab bar in the header bar's title's place.
+    /// WinUI's tabs in the title bar already are; Qt has none, so a strip.
     TitleRow,
 }
 

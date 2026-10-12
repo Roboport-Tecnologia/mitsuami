@@ -262,6 +262,11 @@ impl State {
             self.lists += 1;
         }
         self.by_widget.borrow_mut().insert(widget.widget().clone(), id);
+        // Its bar may be in the header bar, out of the node's box.
+        if let Widget::DocumentTabs(tabs) = &widget {
+            self.document_tabs += 1;
+            self.by_widget.borrow_mut().insert(tabs.bar().clone(), id);
+        }
         self.nodes.insert(
             id,
             Node {

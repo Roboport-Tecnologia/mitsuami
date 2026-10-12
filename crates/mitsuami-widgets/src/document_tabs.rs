@@ -120,7 +120,9 @@ impl<T: PartialEq + Clone + 'static> DocumentTabs<T> {
     /// Where it shows its tabs: the platform's own place (the default), a
     /// strip where it's declared on every platform, the window's own (the
     /// title bar on macOS and Windows; GNOME and KDE have none, and show a
-    /// strip), or the title's own row (Safari's compact tabs on macOS). In `view!`, after `selection`.
+    /// strip), or the title's own row (Safari's compact tabs on macOS, the
+    /// header bar's title on GNOME; KDE shows a strip). In `view!`, after
+    /// `selection`.
     pub fn tabs_style(mut self, style: impl IntoValue<DocumentTabsStyle>) -> DocumentTabs<T> {
         self.element.prop(style.into_value(), Prop::DocumentTabsStyle);
         self

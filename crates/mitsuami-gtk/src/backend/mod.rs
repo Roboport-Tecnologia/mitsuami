@@ -351,6 +351,9 @@ pub(crate) struct State {
     lists_dirty: Cell<bool>,
     /// How many lists and tables there are, so a batch needn't look.
     lists: usize,
+    /// How many document tabs there are, so a batch needn't look for
+    /// ones in the title's row.
+    document_tabs: usize,
     /// File icons being read, which tests' settles wait for.
     loads: file_icon::Loads,
 }
@@ -451,6 +454,7 @@ impl GtkBackend {
             pending_show: Vec::new(),
             menus: Menus::default(),
             lists_dirty: Cell::new(false),
+            document_tabs: 0,
             lists: 0,
             loads: file_icon::Loads::default(),
         }));
@@ -490,6 +494,9 @@ impl Backend for GtkBackend {
                     state.log.push(command.clone());
                 }
                 state.apply(command);
+            }
+            if state.document_tabs > 0 {
+                state.place_title_row_tabs();
             }
         });
         text::flush_icon_colors();

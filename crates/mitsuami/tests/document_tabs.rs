@@ -174,7 +174,7 @@ async fn the_new_tab_button_asks_for_a_tab(app: TestApp) {
 /// A strip in the content is as high as the platform draws it, and grows
 /// across; the window's tabs (a strip in the title bar on macOS, a tab
 /// view in WinUI's) take no room there. GNOME and KDE have none, so it's a
-/// strip.
+/// strip; in the title's row it's GNOME's header bar's title.
 #[mitsuami_test::test]
 async fn a_strip_takes_room_and_the_windows_tabs_none(app: TestApp) {
     let (docs, current) = (docs(&["notes.txt", "todo.md"]), signal(1));
@@ -196,16 +196,50 @@ async fn a_strip_takes_room_and_the_windows_tabs_none(app: TestApp) {
     // Still the same tabs.
     assert_eq!(strip(&app), ["notes.txt *", "todo.md"]);
 
-    // In the title's row, as Safari's compact tabs: the window's too.
+    // In the title's row, as Safari's compact tabs: the window's too, and
+    // on GNOME the header bar's title. KDE has none, so it's a strip.
     style.set(DocumentTabsStyle::TitleRow);
     app.settle().await;
-    assert_eq!(app.ui().window_frame(list).unwrap().height(), frame.height());
+    let title_row = app.ui().window_frame(list).unwrap();
+    if app.backend_name() == "kirigami" {
+        assert_eq!(title_row.height(), strip_frame.height());
+    } else {
+        assert_eq!(title_row.height(), 0.0, "{title_row:?}");
+    }
     assert_eq!(strip(&app), ["notes.txt *", "todo.md"]);
+    // Its tabs are still chosen there.
+    app.get_by_role(Role::Tab, "todo.md").click().await;
+    assert_eq!(strip(&app), ["notes.txt", "todo.md *"]);
 
     // Back in the content.
     style.set(DocumentTabsStyle::Strip);
     app.settle().await;
     assert_eq!(app.ui().window_frame(list).unwrap().height(), strip_frame.height());
+}
+
+/// Tabs in the title's row leave a window the user can't resize its size:
+/// GTK's header bar gives them all the room it has, which mustn't widen
+/// the window, nor its height change the content's.
+#[mitsuami_test::test]
+async fn the_title_row_keeps_the_windows_size(app: TestApp) {
+    let (docs, current) = (docs(&["notes.txt", "todo.md", "log.txt"]), signal(1));
+    let style = signal(DocumentTabsStyle::TitleRow);
+    app.mount(move || {
+        Window::new("Notes")
+            .size(Size::new(400.0, 300.0))
+            .resizable(false)
+            .content(move || Column::new().children((tabs(docs, current).tabs_style(style), Text::new("Content"))))
+    });
+    let window = app.window_titled("Notes").expect("open");
+    let size = app.ui().window_size(window).unwrap();
+    assert_eq!(size.width, 400.0);
+
+    // Out of the title's row and back.
+    style.set(DocumentTabsStyle::Window);
+    app.settle().await;
+    style.set(DocumentTabsStyle::TitleRow);
+    app.settle().await;
+    assert_eq!(app.ui().window_size(window), Some(size));
 }
 
 #[mitsuami_test::test]

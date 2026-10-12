@@ -16,7 +16,8 @@
 //!   KDE), a strip above the area everywhere, the window's (a strip on
 //!   GNOME and KDE, which have none), or the title's row: on macOS beside
 //!   the window's buttons with the title hidden, as Safari's compact tabs
-//!   (the window's title bar on Windows, a strip on GNOME and KDE).
+//!   (the header bar's title on GNOME, the window's title bar on Windows,
+//!   a strip on KDE).
 //! - In a title bar, WinUI puts the tabs on Mica Alt's colour, as File
 //!   Explorer has them: near black in dark mode, grey in light.
 //! - A raw platform setting, through `.native()`: on Windows, "Chosen tab
