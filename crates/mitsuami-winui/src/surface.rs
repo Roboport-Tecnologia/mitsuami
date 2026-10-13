@@ -173,6 +173,11 @@ struct HostState {
     /// What the key going down typed: its `WM_CHAR`s, taken off the queue
     /// before XAML reports the key.
     typed: Option<String>,
+    /// The accent of a dead key going down (its `WM_DEADCHAR`), reported
+    /// as the preedit after the key.
+    dead: Option<char>,
+    /// A dead key's accent is the preedit, until the next key composes it.
+    dead_shown: bool,
     /// A `WM_CHAR`'s high surrogate, waiting for the low one.
     surrogate: Option<u16>,
     /// While it takes text, a text box in the canvas, under the surface,
@@ -225,6 +230,8 @@ impl SurfaceHost {
                 input_method: None,
                 text_cursor: None,
                 typed: None,
+                dead: None,
+                dead_shown: false,
                 surrogate: None,
                 text_box: None,
             })
@@ -612,6 +619,9 @@ fn listen(element: &w::IUIElement, state: &Rc<RefCell<HostState>>) -> R<Vec<Even
             && !state.is_xaml_focus()
         {
             state.focused = false;
+            // Its next key goes elsewhere.
+            state.dead = None;
+            state.end_dead();
             // A grab lasts while the surface has focus.
             state.end_grab();
             // Keys held are let go: their releases go wherever focus went.
@@ -743,11 +753,30 @@ impl HostState {
             return Ok(());
         }
         let typed = if pressed { self.typed.take() } else { None };
+        let dead = if pressed { self.dead.take() } else { None };
         let text = typed.filter(|t| !t.is_empty() && self.takes_text());
         let unmodified = unmodified(args.Key()?.0 as u32, status.scan_code);
         let modifiers = key_modifiers();
+        // A dead key's accent shows as a composition, as it does in a text
+        // field, until the next key (not a modifier, which may be what it
+        // composes with) composes it in or types it on its own: it ends
+        // before that key's text.
+        if pressed && self.dead_shown && (text.is_some() || dead.is_some() || !is_modifier(code)) {
+            self.end_dead();
+        }
         self.report(SurfaceInput::Key { code, native, pressed, repeat, modifiers, text, unmodified });
+        if let Some(accent) = dead.filter(|_| self.takes_text()) {
+            self.dead_shown = true;
+            self.report(SurfaceInput::Preedit { text: accent.to_string(), cursor: Some(accent.len_utf8()) });
+        }
         Ok(())
+    }
+
+    /// Ends a dead key's composition, if one shows.
+    fn end_dead(&mut self) {
+        if std::mem::take(&mut self.dead_shown) {
+            self.report(SurfaceInput::Preedit { text: String::new(), cursor: None });
+        }
     }
 
     fn takes_text(&self) -> bool {
@@ -1328,9 +1357,11 @@ fn typed_text(units: &[u16]) -> String {
 
 /// Takes off the queue the `WM_CHAR`s `TranslateMessage` queued for the
 /// key going down in `hwnd` (two for a dead key that didn't compose, or a
-/// character outside the BMP), and a dead key's `WM_DEADCHAR`.
-fn typed_after_key(hwnd: w::HWND) -> String {
+/// character outside the BMP), and a dead key's `WM_DEADCHAR`, whose accent
+/// comes back on its own.
+fn typed_after_key(hwnd: w::HWND) -> (String, Option<char>) {
     let mut units = Vec::new();
+    let mut dead = None;
     loop {
         let mut message = w::MSG::default();
         let (first, last) = (w::WM_KEYFIRST as u32, w::WM_KEYLAST as u32);
@@ -1342,9 +1373,20 @@ fn typed_after_key(hwnd: w::HWND) -> String {
         unsafe { _ = w::PeekMessageW(&mut message, hwnd, kind, kind, w::PM_REMOVE as u32) };
         if kind == w::WM_CHAR as u32 {
             units.push(message.wParam as u16);
+        } else {
+            dead = char::from_u32(message.wParam as u32).filter(|c| !c.is_control());
         }
     }
-    typed_text(&units)
+    (typed_text(&units), dead)
+}
+
+/// Keys that change what others type, rather than typing.
+fn is_modifier(code: KeyCode) -> bool {
+    use KeyCode::*;
+    matches!(
+        code,
+        ShiftLeft | ShiftRight | ControlLeft | ControlRight | AltLeft | AltRight | MetaLeft | MetaRight | CapsLock
+    )
 }
 
 /// The surface in `hwnd`'s window that takes text and is XAML's focused
@@ -1474,11 +1516,16 @@ unsafe extern "system" fn subclass_proc(
 ) -> w::LRESULT {
     let key_down = message == w::WM_KEYDOWN as u32 || message == w::WM_SYSKEYDOWN as u32;
     if key_down && let Some(host) = text_host(hwnd) {
-        let typed = typed_after_key(hwnd);
-        host.borrow_mut().typed = Some(typed);
+        let (typed, dead) = typed_after_key(hwnd);
+        {
+            let mut state = host.borrow_mut();
+            state.typed = Some(typed);
+            state.dead = dead;
+        }
         let result = unsafe { w::DefSubclassProc(hwnd, message, wparam, lparam) };
         // XAML took the key itself (an accelerator) and the canvas never
         // heard of it: what it typed still goes to the surface.
+        host.borrow_mut().dead = None;
         let left = host.borrow_mut().typed.take();
         if let Some(text) = left.filter(|t| !t.is_empty()) {
             host.borrow().report(SurfaceInput::Text(text));

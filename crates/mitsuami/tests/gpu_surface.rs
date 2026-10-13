@@ -998,6 +998,26 @@ async fn types_through_windows_text_input(app: TestApp) {
         (KeyCode::KeyE, Some("é".to_owned()), Some('e')),
     ];
     assert_eq!(typed(&log), expected, "{log:?}");
+    // The dead acute shows as a composition until the E composes it in, as
+    // in a text field: it ends before the E's text.
+    let around_dead: Vec<SurfaceInput> = log
+        .borrow()
+        .iter()
+        .filter(|input| matches!(input, SurfaceInput::Key { pressed: true, .. } | SurfaceInput::Preedit { .. }))
+        .skip_while(|input| !matches!(input, SurfaceInput::Key { code: KeyCode::Quote, .. }))
+        .skip(1)
+        .take(3)
+        .map(|input| match input {
+            SurfaceInput::Key { code, text, .. } => SurfaceInput::Text(format!("{code:?} {text:?}")),
+            other => other.clone(),
+        })
+        .collect();
+    let preedit = |text: &str, cursor| SurfaceInput::Preedit { text: text.to_owned(), cursor };
+    assert_eq!(
+        around_dead,
+        [preedit("'", Some(1)), preedit("", None), SurfaceInput::Text("KeyE Some(\"é\")".to_owned())],
+        "{log:?}"
+    );
     let altgr = log.borrow().iter().rev().find_map(|input| match input {
         SurfaceInput::Key { pressed: true, modifiers, .. } => Some(*modifiers),
         _ => None,
