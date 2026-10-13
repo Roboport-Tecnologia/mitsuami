@@ -304,6 +304,11 @@ impl State {
                 if let Widget::Group(group) = &self.nodes[id].widget {
                     group.place(frame.width() as f64, frame.height() as f64)?;
                 }
+                // The app draws its next frame at the new size: no waiting for
+                // XAML's.
+                if let Widget::GpuSurface(surface) = &self.nodes[id].widget {
+                    surface.follow_frame();
+                }
                 if let (Some(row), Some(Widget::List(list))) =
                     (self.nodes[id].row, self.nodes[id].parent.and_then(|p| self.nodes.get(&p)).map(|p| &p.widget))
                 {

@@ -74,6 +74,26 @@ async fn reports_the_surface_then_its_size(app: TestApp) {
     assert_eq!(handle(&seen).size(), size, "the handle has the size too");
 }
 
+/// Its window resized with nothing else going on, as the user drags its
+/// edge, it reports its new size: on WinUI XAML may draw no frame then, and
+/// with its text box focused bemtvi's editor kept its old size until a click
+/// elsewhere in the window.
+#[mitsuami_test::test]
+async fn follows_its_window_being_resized(app: TestApp) {
+    let seen = Rc::new(RefCell::new(Vec::new()));
+    let s = seen.clone();
+    let (_log, on_input) = input_log();
+    app.mount(move || Column::new().grow(1.0).child(surface(&s).grow(1.0).on_input(on_input).text_input(true)));
+    app.settle().await;
+    app.get(screen()).click_at(10.0, 10.0).await;
+    let before = last_size(&seen).expect("a size");
+    app.resize(700.0, 500.0).await;
+    app.resize(900.0, 650.0).await;
+    let after = last_size(&seen).expect("a size");
+    assert_ne!(after, before, "{seen:?}");
+    assert_fits(after, app.get(screen()).frame());
+}
+
 #[mitsuami_test::test]
 async fn follows_its_frame(app: TestApp) {
     let seen = Rc::new(RefCell::new(Vec::new()));

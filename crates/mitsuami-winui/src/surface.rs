@@ -254,6 +254,12 @@ impl SurfaceHost {
         Ok(())
     }
 
+    /// Places the child window at the frame just set, without waiting for
+    /// XAML's next frame, so the app hears of its new size at once.
+    pub(crate) fn follow_frame(&self) {
+        HostState::place(&Rc::downgrade(&self.state));
+    }
+
     /// Lays out and places the child window now, as XAML's next frame
     /// would.
     pub(crate) fn place_now(&self) {
@@ -1154,9 +1160,14 @@ impl HostState {
 
     /// The canvas in the window's client area, in pixels; `None` while it
     /// isn't laid out or has no size. XAML's root fills the client area.
+    /// Its size is the frame `SetFrame` set: XAML lays it out at that size
+    /// only at its next frame, which may not come for a while (none came
+    /// after the window was resized while the canvas held its text box,
+    /// until a click elsewhere).
     fn rect(&self) -> R<Option<(i32, i32, i32, i32)>> {
         let fe: w::IFrameworkElement = self.element.cast()?;
-        let (width, height) = (fe.ActualWidth()?, fe.ActualHeight()?);
+        let set = |set: f64, actual: f64| if set.is_finite() { set } else { actual };
+        let (width, height) = (set(fe.Width()?, fe.ActualWidth()?), set(fe.Height()?, fe.ActualHeight()?));
         if !fe.IsLoaded()? || width <= 0.0 || height <= 0.0 {
             return Ok(None);
         }
