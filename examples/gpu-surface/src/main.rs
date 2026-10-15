@@ -558,7 +558,7 @@ pub fn page(full: Signal<bool>) -> impl View {
                 world.hover = false;
             }
             // It takes keys by where they are, not text.
-            SurfaceInput::Text(_) => {}
+            SurfaceInput::Text(_) | SurfaceInput::Preedit { .. } | SurfaceInput::DeleteSurrounding { .. } => {}
         }
     };
     let cursor = signal(0);
