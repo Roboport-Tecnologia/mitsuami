@@ -646,7 +646,7 @@ We don't pick one fixed OS version per platform. Each backend has a **hard floor
 | Platform | Floor | Why |
 |---|---|---|
 | Windows | Windows 10 1809 (build 17763) for packaged apps, Windows 11 for unpackaged ones | Windows App SDK 2.4, which the bindings are generated from, declares 17763. An unpackaged app loads the runtime with the dynamic dependency API, which came with Windows 11 (§15, WinUI). Windows 10 hasn't been run. |
-| macOS | macOS 11 | The practical floor for arm64 and current Rust targets. Everything newer is looked up at run time. |
+| macOS | macOS 11 | The practical floor for arm64 and current Rust targets. Everything newer is looked up at run time. An app gets macOS 26's Liquid Glass only when it's linked against the 26 SDK, so the release apps build on `macos-26` (on `macos-15`, SDK 15.5, they looked like macOS 15 apps). |
 | Linux (GTK) | GTK 4.10 and libadwaita 1.4 | Fixed at build time: gtk4-rs's `v4_10` and libadwaita's `v1_4` features (the sidebar's navigation split view needs 1.4). libadwaita 1.7's inline view switcher is looked up at run time (§14.5). |
 | Linux (KDE Plasma) | Qt 6.5 and Kirigami 6.14 | The backend's build asks for Qt 6.5, the first Qt 6 LTS with what it uses; a given Kirigami release may need a newer Qt. Kirigami 6.14 has `Theme.fixedWidthFont`, which monospace text uses. Developed on Qt 6.11 and Kirigami 6.30. Kirigami's features resolve in QML at run time. The select's list over a GPU surface opens as a window of its own from Qt 6.8 (§13.8). |
 
