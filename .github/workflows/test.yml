@@ -65,6 +65,14 @@ jobs:
       - name: Build
         run: cargo build --workspace --all-targets
 
+      # The crates outside the workspace (they need wgpu), which releases
+      # build: the showcase, and the GPU surface example it includes. One
+      # target directory, so wgpu builds once.
+      - name: Build the showcase and the GPU surface example
+        run: |
+          cargo build --manifest-path examples/showcase/Cargo.toml --target-dir target/examples
+          cargo build --manifest-path examples/gpu-surface/Cargo.toml --target-dir target/examples
+
       # Failures are also posted as annotations, so they show on the run's
       # summary page without digging through the log.
       - name: Test (headless)
@@ -140,6 +148,12 @@ jobs:
         env:
           MITSUAMI_NATIVE: "1"
           MITSUAMI_IMAGE: archlinux-2026.09.20
+
+      # The showcase as the KDE release builds it.
+      - name: Build the showcase
+        run: |
+          cargo build --manifest-path examples/showcase/Cargo.toml --target-dir target/examples \
+            --no-default-features --features kde
 
       - name: Collect snapshots for review
         if: failure()
