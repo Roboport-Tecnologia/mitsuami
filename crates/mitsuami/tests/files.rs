@@ -29,8 +29,13 @@ struct Fixture {
 
 impl Fixture {
     fn new(app: &TestApp, files: &[&str]) -> Fixture {
-        // The same path every run, as the visual captures show it.
-        let base = std::env::temp_dir().join("mitsuami-files").join(app.test_name());
+        // The same path every run, as the visual captures show it: macOS's
+        // temporary folder is a per-user random one under /var/folders.
+        #[cfg(unix)]
+        let temp = PathBuf::from("/tmp");
+        #[cfg(not(unix))]
+        let temp = std::env::temp_dir();
+        let base = temp.join("mitsuami-files").join(app.test_name());
         let _ = std::fs::remove_dir_all(&base);
         let (root, trash) = (base.join("Home"), base.join("Trash"));
         std::fs::create_dir_all(&root).unwrap();
