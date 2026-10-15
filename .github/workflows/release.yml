@@ -14,10 +14,12 @@ jobs:
     steps:
       - uses: actions/checkout@v5
       - run: rustup toolchain install
+      # A tag may add build metadata after a `+`: `v1.2.0+ghfix1` rebuilds
+      # 1.2.0's apps and release (below).
       - run: |
           version=$(cargo metadata --no-deps --format-version 1 \
             | jq -r '.packages[] | select(.name == "mitsuami") | .version')
-          if [ "${GITHUB_REF_NAME}" != "v${version}" ]; then
+          if [ "${GITHUB_REF_NAME%%+*}" != "v${version}" ]; then
             echo "::error::Tag ${GITHUB_REF_NAME} doesn't match workspace version ${version}"
             exit 1
           fi
@@ -30,9 +32,12 @@ jobs:
     with:
       headless_only: true
 
+  # A `+ghfix` tag only fixes the GitHub release of a version whose crates
+  # are already on crates.io, which can't take them again.
   publish:
     name: Publish to crates.io
     needs: test
+    if: ${{ !contains(github.ref_name, '+ghfix') }}
     runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v5
@@ -131,10 +136,13 @@ jobs:
           mkdir universal
           lipo -create -output universal/showcase examples/showcase/target/{aarch64,x86_64}-apple-darwin/release/showcase
           lipo -create -output universal/files target/{aarch64,x86_64}-apple-darwin/release/examples/files
+          # A bundle's version is numbers and dots only: no build metadata.
+          version=${GITHUB_REF_NAME#v}
+          version=${version%%+*}
           .github/scripts/macos-app.sh universal/showcase br.com.roboport.mitsuami.Showcase \
-            "${GITHUB_REF_NAME#v}" "mitsuami-showcase-$SUFFIX.dmg"
+            "$version" "mitsuami-showcase-$SUFFIX.dmg"
           .github/scripts/macos-app.sh universal/files br.com.roboport.mitsuami.Files \
-            "${GITHUB_REF_NAME#v}" "mitsuami-files-$SUFFIX.dmg"
+            "$version" "mitsuami-files-$SUFFIX.dmg"
 
       - name: Build and package (Windows)
         if: runner.os == 'Windows'
@@ -241,6 +249,8 @@ jobs:
   release:
     name: Create the GitHub release
     needs: [publish, apps, appimage]
+    # Also when a `+ghfix` tag skipped the publish.
+    if: ${{ !failure() && !cancelled() }}
     runs-on: ubuntu-24.04
     permissions:
       contents: write
@@ -259,7 +269,7 @@ jobs:
         run: |
           echo '[mitsuami.roboport.com.br](https://mitsuami.roboport.com.br)' > notes.md
           echo >> notes.md
-          own=".github/release-notes/$GITHUB_REF_NAME.md"
+          own=".github/release-notes/${GITHUB_REF_NAME%%+*}.md"
           if [ -f "$own" ]; then cat "$own" >> notes.md; fi
           cat >> notes.md <<'EOF'
 
