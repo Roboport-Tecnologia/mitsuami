@@ -245,6 +245,11 @@ jobs:
     permissions:
       contents: write
     steps:
+      # Only the release's own notes, if it has any.
+      - uses: actions/checkout@v5
+        with:
+          sparse-checkout: .github/release-notes
+
       - uses: actions/download-artifact@v5
         with:
           path: dist
@@ -252,8 +257,11 @@ jobs:
 
       - name: Create the release
         run: |
-          cat > notes.md <<'EOF'
-          [mitsuami.roboport.com.br](https://mitsuami.roboport.com.br)
+          echo '[mitsuami.roboport.com.br](https://mitsuami.roboport.com.br)' > notes.md
+          echo >> notes.md
+          own=".github/release-notes/$GITHUB_REF_NAME.md"
+          if [ -f "$own" ]; then cat "$own" >> notes.md; fi
+          cat >> notes.md <<'EOF'
 
           ## The showcase and Files
 
