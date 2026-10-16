@@ -119,7 +119,7 @@ pub(super) fn scale_of(parts: &WindowParts) -> f64 {
 
 /// Height of what sits above the content: the title bar, and the menu bar
 /// and toolbar beside each other.
-fn chrome_height(parts: &WindowParts) -> f64 {
+pub(super) fn chrome_height(parts: &WindowParts) -> f64 {
     let infinite = w::Size { width: f32::INFINITY, height: f32::INFINITY };
     // As laid out, which can differ from the desired size (the title bar's
     // row is 32.67 at 150%, for a desired 32); measured if not laid out yet.

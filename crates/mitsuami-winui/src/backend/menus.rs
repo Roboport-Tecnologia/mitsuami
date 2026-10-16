@@ -10,7 +10,7 @@ use mitsuami_core::services::{MenuBarData, MenuCheck, MenuData, MenuEntry, MenuI
 use mitsuami_core::{Key, NodeId};
 use windows_core::{EventRevoker, Interface};
 
-use super::windows::{apply_min_size, resize_client, title_content, update_title_bar_height};
+use super::windows::{apply_min_size, chrome_height, resize_client, title_content, update_title_bar_height};
 use super::{ContextMenu, MenuItems, Menus, R, WinUiBackend, WindowParts, key, ok};
 use crate::bindings as w;
 
@@ -111,6 +111,7 @@ fn show_check(item: &w::MenuFlyoutItemBase, check: MenuCheck) {
 }
 
 fn install_menu(parts: &mut WindowParts, menu: &MenuBarData, activate: &Rc<dyn Fn(u32)>) {
+    let before = chrome_height(parts);
     // Back from the full-screen popup first, where it's replaced, and the
     // new bar back in it after.
     let revealed = parts.revealed;
@@ -153,9 +154,17 @@ fn install_menu(parts: &mut WindowParts, menu: &MenuBarData, activate: &Rc<dyn F
     if revealed {
         _ = super::reveal::show_reveal(parts);
     }
-    apply_min_size(parts);
-    if let Some(size) = parts.requested {
-        resize_client(parts, size);
+    // The content keeps its size only if the bar's height changed: the same
+    // menus built again (`rebuild_closed_menu`, after every menu closes)
+    // put the window back to the last size the app asked for, which the
+    // user had since resized it from (2ksbox's player shrank to its picture
+    // on every menu click after Fit Window to Picture).
+    _ = parts.root.cast::<w::IUIElement>().and_then(|r| r.UpdateLayout());
+    if chrome_height(parts) != before {
+        apply_min_size(parts);
+        if let Some(size) = parts.requested {
+            resize_client(parts, size);
+        }
     }
 }
 
