@@ -443,7 +443,18 @@ impl AreaState {
         let (x, y) = (p.x() as f64 + tx, p.y() as f64 + ty);
         let (width, height) = (area.width(), area.height());
         let scale = area.scale_factor();
-        let size = SurfaceSize { width: (width * scale) as u32, height: (height * scale) as u32, scale: scale as f32 };
+        // Wayland's surface is sized by a viewport, so its buffer can be
+        // the screen's own pixels at a fractional scale too. At GDK's
+        // whole scale (2 on a 1.6 screen) the compositor would shrink
+        // every frame, and fine detail (a CRT's scanlines) would blur.
+        let size = match native_surface {
+            Native::Wayland(_) => {
+                let s = fractional_scale(area).unwrap_or(scale as f64);
+                let px = |n: i32| (n as f64 * s).round() as u32;
+                SurfaceSize { width: px(width), height: px(height), scale: s as f32 }
+            }
+            _ => SurfaceSize { width: (width * scale) as u32, height: (height * scale) as u32, scale: scale as f32 },
+        };
         if !size.is_empty() && handle.set_size(size) {
             self.events.emit(self.id, UiEvent::SurfaceResized(size));
         }
@@ -915,6 +926,26 @@ fn cursor_from_callback() -> Option<NewFromCallback> {
             (!new.is_null()).then(|| std::mem::transmute::<*mut c_void, NewFromCallback>(new))
         }
     })
+}
+
+/// The widget's surface's scale as GDK has it, fractional
+/// (`gdk_surface_get_scale`, GTK 4.12 and later; looked up at run time like
+/// `cursor_from_callback`).
+fn fractional_scale(widget: &impl IsA<gtk::Widget>) -> Option<f64> {
+    type GetScale = unsafe extern "C" fn(*mut gdk::ffi::GdkSurface) -> f64;
+    static GET: OnceLock<Option<GetScale>> = OnceLock::new();
+    let get = (*GET.get_or_init(|| {
+        // SAFETY: the symbol, if GTK has it, is `double
+        // gdk_surface_get_scale(GdkSurface*)`.
+        unsafe {
+            let get = libc::dlsym(libc::RTLD_DEFAULT, c"gdk_surface_get_scale".as_ptr());
+            (!get.is_null()).then(|| std::mem::transmute::<*mut c_void, GetScale>(get))
+        }
+    }))?;
+    let surface = widget.native()?.surface()?;
+    // SAFETY: a live surface.
+    let scale = unsafe { get(surface.to_glib_none().0) };
+    (scale > 0.0).then_some(scale)
 }
 
 /// The cursor's image for any size and scale GDK asks: the one it has.
