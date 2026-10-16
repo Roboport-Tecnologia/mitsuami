@@ -107,16 +107,14 @@ pub(super) fn escape_closes(root: &w::Grid, hwnd: w::HWND) -> R<EventRevoker> {
     Ok(revoker)
 }
 
-/// The band behind a title bar with document tabs, in Mica Alt's solid
-/// colour, which `TabView` is drawn to sit on (its strip is transparent,
-/// its chosen tab a lighter fill): near black in dark mode and grey in
-/// light, as File Explorer's tabbed title bar is.
-/// The tab view's own background, where it shows one, is the inner
-/// border's (`paint_band`).
+/// The band behind a title bar with document tabs. The window is then on
+/// Mica Alt, which `TabView` is drawn to sit on (its strip is transparent,
+/// its chosen tab a solid fill), as File Explorer's tabbed title bar is;
+/// the band holds the tab view's own background, where it shows one
+/// (`paint_band`).
 const TABS_BAND: &str = r#"
 <Border xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
-        Grid.Row="0" Visibility="Collapsed"
-        Background="{ThemeResource SolidBackgroundFillColorBaseAltBrush}">
+        Grid.Row="0" Visibility="Collapsed">
   <Border/>
 </Border>"#;
 
@@ -134,6 +132,7 @@ impl State {
         let title_bar: w::TitleBar = children.GetAt(0)?.cast()?;
         let bars: w::Grid = children.GetAt(1)?.cast()?;
         let host: w::Canvas = children.GetAt(2)?.cast()?;
+        let fill_probe: w::Border = children.GetAt(3)?.cast()?;
         let host_element: w::UIElement = host.cast()?;
         // Behind the title bar, shown while document tabs are in it.
         let tabs_band: w::Border = w::XamlReader::Load(TABS_BAND)?.cast()?;
@@ -152,6 +151,11 @@ impl State {
         }
         let iwindow: w::IWindow = window.cast()?;
         iwindow.SetContent(&root.cast::<w::UIElement>()?)?;
+        // Mica, as Windows 11's own windows have it, tinted by the desktop's
+        // wallpaper. The system shows its solid colour where it can't (an
+        // inactive window, Windows 10, transparency effects off).
+        let backdrop = w::MicaBackdrop::new()?;
+        window.cast::<w::IWindow2>()?.SetSystemBackdrop(&backdrop.cast::<w::SystemBackdrop>()?)?;
         // Fluent's title bar instead of the Win32 caption, which ignores the
         // app's theme. The system still draws the caption buttons: make them
         // tall enough for the TitleBar control and follow the theme.
@@ -352,6 +356,8 @@ impl State {
             bars,
             host,
             text_probe,
+            fill_probe,
+            backdrop,
             title_bar,
             app_window,
             hwnd,

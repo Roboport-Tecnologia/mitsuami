@@ -18,11 +18,11 @@
 //!   the window's buttons with the title hidden, as Safari's compact tabs
 //!   (the header bar's title on GNOME, the window's title bar on Windows,
 //!   a strip on KDE).
-//! - In a title bar, WinUI puts the tabs on Mica Alt's colour, as File
-//!   Explorer has them: near black in dark mode, grey in light.
+//! - In a title bar, WinUI puts the tabs on Mica Alt, as File Explorer
+//!   has them: tinted by the wallpaper more strongly than Mica.
 //! - A raw platform setting, through `.native()`: on Windows, "Chosen tab
-//!   in the content's colour" gives the chosen tab the window's
-//!   background, as Terminal's takes its terminal's. Colours are each
+//!   in the content's colour" gives the chosen tab Mica's solid colour,
+//!   as Terminal's takes its terminal's. Colours are each
 //!   platform's own.
 
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
@@ -160,16 +160,16 @@ pub fn notepad() -> impl View {
     }
 }
 
-/// On WinUI, the chosen tab's and the strip's theme resources in the
-/// window's background, light and dark: the title bar is then the window's
-/// colour, as without tabs. The others keep theirs.
+/// On WinUI, the chosen tab's and the strip's theme resources in Mica's
+/// solid colour (an inactive window's background), light and dark. The
+/// others keep theirs.
 fn tab_in_content_colour() -> Tweak<DocumentTabs<u32>> {
     platform! {
         windows => mitsuami::winui::tweak(|view: &mitsuami::winui::bindings::TabView| {
             use mitsuami::winui::bindings::{IFrameworkElement, ResourceDictionary, XamlReader};
             use mitsuami::winui::windows_core::Interface;
             // The chosen tab, and the strip (in the title bar, the band
-            // behind it), on the window's background.
+            // behind it), on Mica's solid colour.
             let selected = r#"<StaticResource x:Key="TabViewItemHeaderBackgroundSelected" ResourceKey="SolidBackgroundFillColorBaseBrush"/>
                 <StaticResource x:Key="TabViewBackground" ResourceKey="SolidBackgroundFillColorBaseBrush"/>"#;
             let markup = format!(

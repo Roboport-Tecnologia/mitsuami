@@ -13,6 +13,8 @@ struct Pending {
     bitmap: w::RenderTargetBitmap,
     /// Physical pixels per logical unit.
     scale: f64,
+    /// An opaque colour it's drawn on: a window's backdrop's.
+    under: Option<w::Color>,
     reply: CaptureReply,
 }
 
@@ -20,7 +22,7 @@ fn failed(error: windows_core::Error) -> CaptureError {
     CaptureError::Failed(error.to_string())
 }
 
-pub(crate) fn capture(element: w::UIElement, reply: CaptureReply) {
+pub(crate) fn capture(element: w::UIElement, under: Option<w::Color>, reply: CaptureReply) {
     let started = (|| {
         let bitmap = w::RenderTargetBitmap::new()?;
         let render = bitmap.cast::<w::IRenderTargetBitmap>()?.RenderAsync(&element)?;
@@ -35,7 +37,7 @@ pub(crate) fn capture(element: w::UIElement, reply: CaptureReply) {
     let Ok(queue) = w::DispatcherQueue::GetForCurrentThread() else {
         return reply(Err(CaptureError::Failed("no dispatcher queue on this thread".into())));
     };
-    let ticket = later::park_until(&queue, Pending { bitmap, scale, reply });
+    let ticket = later::park_until(&queue, Pending { bitmap, scale, under, reply });
     let id = ticket.id();
     let watched = render.when(move |rendered| {
         let Some(pending) = ticket.take::<Pending>() else { return };
@@ -66,7 +68,7 @@ pub(crate) fn capture(element: w::UIElement, reply: CaptureReply) {
     }
 }
 
-/// Premultiplied BGRA rows → straight RGBA.
+/// Premultiplied BGRA rows → straight RGBA, or opaque on `under`.
 fn image(pending: &Pending, buffer: &w::IBuffer) -> windows_core::Result<Image> {
     let bitmap: w::IRenderTargetBitmap = pending.bitmap.cast()?;
     let (width, height) = (bitmap.PixelWidth()? as u32, bitmap.PixelHeight()? as u32);
@@ -74,6 +76,12 @@ fn image(pending: &Pending, buffer: &w::IBuffer) -> windows_core::Result<Image> 
     w::DataReader::FromBuffer(buffer)?.ReadBytes(&mut rgba)?;
     for px in rgba.chunks_exact_mut(4) {
         let [b, g, r, a] = [px[0], px[1], px[2], px[3]];
+        if let Some(under) = pending.under {
+            // Premultiplied: the colour over it is added as it is.
+            let over = |c: u8, u: u8| c.saturating_add(((u as u32 * (255 - a as u32) + 127) / 255) as u8);
+            px.copy_from_slice(&[over(r, under.r), over(g, under.g), over(b, under.b), 255]);
+            continue;
+        }
         let straight = |c: u8| if a == 0 { 0 } else { ((c as u32 * 255 + a as u32 / 2) / a as u32).min(255) as u8 };
         px.copy_from_slice(&[straight(r), straight(g), straight(b), a]);
     }

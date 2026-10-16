@@ -118,7 +118,7 @@ impl Tweakable for Table {
 /// Its `TabView`, whose items have no content. Its colours are its theme
 /// resources (`TabViewItemHeaderBackgroundSelected` for the chosen tab);
 /// its background (`TabViewBackground`, transparent) is its strip's, and
-/// in the title bar the band's behind it, in place of Mica Alt's colour.
+/// in the title bar the band's behind it, over Mica Alt.
 impl<T> Tweakable for DocumentTabs<T> {
     type Native = w::TabView;
 }

@@ -19,7 +19,11 @@ Microsoft.UI.Dispatching.IDispatcherQueue3::{RunEventLoop, EnqueueEventLoopExit}
 
 Microsoft.UI.Xaml.Window::CreateInstance
 Microsoft.UI.Xaml.IWindow::{add_Activated, remove_Activated, Activate, Close, get_Content, put_Content, get_Title, put_Title, put_ExtendsContentIntoTitleBar, SetTitleBar}
-Microsoft.UI.Xaml.IWindow2::get_AppWindow
+Microsoft.UI.Xaml.IWindow2::{get_AppWindow, put_SystemBackdrop}
+Microsoft.UI.Xaml.Media.SystemBackdrop::{}
+Microsoft.UI.Xaml.Media.MicaBackdrop::CreateInstance
+Microsoft.UI.Xaml.Media.IMicaBackdrop::put_Kind
+Microsoft.UI.Composition.SystemBackdrops.MicaKind
 Microsoft.UI.Windowing.IAppWindow::{get_TitleBar, get_Id, Move, Show, add_Closing, remove_Closing, put_IsShownInSwitchers, get_Presenter, get_Position, get_Size, SetPresenter, SetPresenterByKind, add_Changed, remove_Changed, SetIcon, SetIconWithIconId}
 Microsoft.UI.Windowing.IAppWindowPresenter::get_Kind
 Microsoft.UI.Windowing.AppWindowPresenterKind

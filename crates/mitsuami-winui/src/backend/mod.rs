@@ -191,6 +191,10 @@ pub(crate) struct WindowParts {
     /// An empty text box, collapsed, that text areas measure their lines
     /// by: XAML measures text boxes only in a live tree.
     text_probe: w::TextBox,
+    /// A collapsed border in Mica's solid colour (`window_fill`).
+    fill_probe: w::Border,
+    /// Mica, or Mica Alt while document tabs are in the title bar.
+    backdrop: w::MicaBackdrop,
     title_bar: w::TitleBar,
     app_window: w::AppWindow,
     pub(crate) hwnd: w::HWND,
@@ -254,7 +258,7 @@ pub(crate) struct WindowParts {
     title_content: Option<w::Grid>,
     /// Document tabs that are the window's, in the title bar's content
     /// (`put_tabs_in_title_bar`), and the band behind the title bar while
-    /// they are: Mica Alt's solid colour, or the tab view's background.
+    /// they are, which holds the tab view's background if it has one.
     title_tabs: Option<TitleTabs>,
     tabs_band: w::Border,
     /// Its sidebar's node and navigation view, while it has one: the
@@ -876,13 +880,16 @@ impl Backend for WinUiBackend {
         let element = {
             let state = self.state.borrow();
             match state.nodes.get(&id) {
-                // A window's capture is its content area, like its size.
-                Some(Node { widget: Widget::Window(parts), .. }) => parts.host.cast::<w::UIElement>().ok(),
-                Some(node) => Some(node.element.clone()),
+                // A window's capture is its content area, like its size, on
+                // Mica's solid colour.
+                Some(Node { widget: Widget::Window(parts), .. }) => {
+                    parts.host.cast::<w::UIElement>().ok().map(|host| (host, windows::window_fill(parts)))
+                }
+                Some(node) => Some((node.element.clone(), None)),
                 None => None,
             }
         };
-        let Some(element) = element else { return reply(Err(CaptureError::UnknownNode)) };
-        crate::capture::capture(element, reply);
+        let Some((element, under)) = element else { return reply(Err(CaptureError::UnknownNode)) };
+        crate::capture::capture(element, under, reply);
     }
 }

@@ -43,8 +43,9 @@ pub(super) fn clip_to_size(host: &w::IUIElement, size: w::Size) -> windows_core:
 
 /// A window's content: the title bar (content extends into it, the Windows
 /// 11 way), a row for the menu bar and the toolbar (the bars), then the
-/// content host. The root and the host carry the window background (window
-/// captures render the host). The title bar's content (a toolbar placed
+/// content host. The root and the host are transparent, over the window's
+/// Mica, and a collapsed border holds Mica's solid colour for captures
+/// (`window_fill`). The title bar's content (a toolbar placed
 /// there) gets the whole room between the title and the caption buttons,
 /// where the template centres it at its own width, so the toolbar's own
 /// alignment places it (`ToolbarAlign`), and an end-aligned one reaches the
@@ -53,7 +54,7 @@ pub(super) fn clip_to_size(host: &w::IUIElement, size: w::Size) -> windows_core:
 pub(super) const WINDOW_ROOT: &str = r#"
 <Grid xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
       xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
-      Background="{ThemeResource SolidBackgroundFillColorBaseBrush}">
+      Background="Transparent">
   <Grid.RowDefinitions>
     <RowDefinition Height="Auto"/>
     <RowDefinition Height="Auto"/>
@@ -71,8 +72,16 @@ pub(super) const WINDOW_ROOT: &str = r#"
       <ColumnDefinition Width="*"/>
     </Grid.ColumnDefinitions>
   </Grid>
-  <Canvas Grid.Row="2" Background="{ThemeResource SolidBackgroundFillColorBaseBrush}"/>
+  <Canvas Grid.Row="2" Background="Transparent"/>
+  <Border Visibility="Collapsed" Background="{ThemeResource SolidBackgroundFillColorBaseBrush}"/>
 </Grid>"#;
+
+/// Mica's solid colour in the window's theme: what an inactive window
+/// shows, and what its captures are on, as `RenderTargetBitmap` doesn't
+/// draw backdrops (and Mica's tint is the wallpaper's).
+pub(super) fn window_fill(parts: &WindowParts) -> Option<w::Color> {
+    parts.fill_probe.Background().ok()?.cast::<w::ISolidColorBrush>().ok()?.Color().ok()
+}
 
 /// A window's direction: its title bar, menu bar and toolbar follow the
 /// root; the content host stays left to right, as the core mirrored the
@@ -340,8 +349,8 @@ pub(super) fn takes_title_tabs(parts: &WindowParts, id: NodeId) -> bool {
 /// Puts document tabs' view in the title bar, as Windows Terminal and File
 /// Explorer have their tabs: the title bar's content in the title's place,
 /// at its bottom, only as wide as its tabs so the room after them drags
-/// the window, on a band in Mica Alt's colour, or the view's background if
-/// the app gave it one (a tweak).
+/// the window, on Mica Alt, as Windows' guidance has tabbed title bars, or
+/// on the view's background if the app gave it one (a tweak).
 pub(super) fn put_tabs_in_title_bar(parts: &mut WindowParts, id: NodeId, view: &w::TabView) -> R<()> {
     let before = chrome_height(parts);
     let fe: w::IFrameworkElement = view.cast()?;
@@ -375,6 +384,7 @@ pub(super) fn put_tabs_in_title_bar(parts: &mut WindowParts, id: NodeId, view: &
             sit_on_bottom(&bar, &element, &dropped);
         }
     })?;
+    parts.backdrop.cast::<w::IMicaBackdrop>()?.SetKind(w::MicaKind::BaseAlt)?;
     let band = parts.tabs_band.clone();
     paint_band(&band, view)?;
     band.cast::<w::IUIElement>()?.SetVisibility(w::Visibility::Visible)?;
@@ -395,7 +405,7 @@ pub(super) fn put_tabs_in_title_bar(parts: &mut WindowParts, id: NodeId, view: &
 /// The band behind the title bar takes the tab view's background where
 /// it shows one (its `TabViewBackground` resource, or a `Background`, an
 /// app's tweak gave it: Terminal's tabs take its terminal's colour), and
-/// Mica Alt's otherwise: the view's own is transparent.
+/// Mica Alt shows through otherwise: the view's own is transparent.
 fn paint_band(band: &w::Border, view: &w::TabView) -> R<()> {
     let brush = view.cast::<w::IControl>()?.Background().ok();
     let opaque = brush.as_ref().is_some_and(|b| match b.cast::<w::ISolidColorBrush>() {
@@ -403,8 +413,6 @@ fn paint_band(band: &w::Border, view: &w::TabView) -> R<()> {
         // Not a plain colour (a gradient, an acrylic): the app's.
         Err(_) => true,
     });
-    // Over the band, which keeps Mica Alt's colour from its markup (a local
-    // value, which clearing would take away).
     let over: w::Border = band.Child()?.cast()?;
     over.SetBackground(brush.as_ref().filter(|_| opaque))
 }
@@ -437,6 +445,7 @@ pub(super) fn take_tabs_from_title_bar(parts: &mut WindowParts) -> R<()> {
     view.cast::<w::IFrameworkElement>()?.SetMargin(w::Thickness::default())?;
     view.cast::<w::IDependencyObject>()?
         .UnregisterPropertyChangedCallback(&w::Control::BackgroundProperty()?, tabs.background)?;
+    parts.backdrop.cast::<w::IMicaBackdrop>()?.SetKind(w::MicaKind::Base)?;
     let band = &parts.tabs_band;
     band.cast::<w::IUIElement>()?.SetVisibility(w::Visibility::Collapsed)?;
     band.Child()?.cast::<w::Border>()?.SetBackground(None::<&w::Brush>)?;

@@ -8042,6 +8042,39 @@ pub struct IMenuFlyoutSubItem_Vtbl {
     pub Text: unsafe extern "system" fn(*mut core::ffi::c_void, *mut *mut core::ffi::c_void) -> windows_core::HRESULT,
     pub SetText: unsafe extern "system" fn(*mut core::ffi::c_void, *mut core::ffi::c_void) -> windows_core::HRESULT,
 }
+windows_core::imp::define_interface!(IMicaBackdrop, IMicaBackdrop_Vtbl, 0xc156a404_3dac_593a_b1f3_7a33c289dc83);
+impl windows_core::RuntimeType for IMicaBackdrop {
+    const SIGNATURE: windows_core::imp::ConstBuffer = windows_core::imp::ConstBuffer::for_interface::<Self>();
+}
+impl IMicaBackdrop {
+    pub fn SetKind(&self, value: MicaKind) -> windows_core::Result<()> {
+        unsafe { (windows_core::Interface::vtable(self).SetKind)(windows_core::Interface::as_raw(self), value).ok() }
+    }
+}
+#[repr(C)]
+pub struct IMicaBackdrop_Vtbl {
+    pub base__: windows_core::IInspectable_Vtbl,
+    Kind: usize,
+    pub SetKind: unsafe extern "system" fn(*mut core::ffi::c_void, MicaKind) -> windows_core::HRESULT,
+}
+windows_core::imp::define_interface!(
+    IMicaBackdropFactory,
+    IMicaBackdropFactory_Vtbl,
+    0x774379ce_74bd_59d4_849d_d99c4184d838
+);
+impl windows_core::RuntimeType for IMicaBackdropFactory {
+    const SIGNATURE: windows_core::imp::ConstBuffer = windows_core::imp::ConstBuffer::for_interface::<Self>();
+}
+#[repr(C)]
+pub struct IMicaBackdropFactory_Vtbl {
+    pub base__: windows_core::IInspectable_Vtbl,
+    pub CreateInstance: unsafe extern "system" fn(
+        *mut core::ffi::c_void,
+        *mut core::ffi::c_void,
+        *mut *mut core::ffi::c_void,
+        *mut *mut core::ffi::c_void,
+    ) -> windows_core::HRESULT,
+}
 pub const INFINITE: u32 = 4294967295;
 windows_core::imp::define_interface!(INavigationView, INavigationView_Vtbl, 0xe77a4b36_3dd1_53d9_9f97_65dccaa74a5c);
 impl windows_core::RuntimeType for INavigationView {
@@ -11182,6 +11215,14 @@ pub struct ISymbolIconFactory_Vtbl {
     pub CreateInstanceWithSymbol:
         unsafe extern "system" fn(*mut core::ffi::c_void, Symbol, *mut *mut core::ffi::c_void) -> windows_core::HRESULT,
 }
+windows_core::imp::define_interface!(ISystemBackdrop, ISystemBackdrop_Vtbl, 0x5aeed5c4_37ac_5852_b73f_1b76ebc3205f);
+impl windows_core::RuntimeType for ISystemBackdrop {
+    const SIGNATURE: windows_core::imp::ConstBuffer = windows_core::imp::ConstBuffer::for_interface::<Self>();
+}
+#[repr(C)]
+pub struct ISystemBackdrop_Vtbl {
+    pub base__: windows_core::IInspectable_Vtbl,
+}
 windows_core::imp::define_interface!(ITabView, ITabView_Vtbl, 0x07b509e1_1d38_551b_95f4_4732b049f6a6);
 impl windows_core::RuntimeType for ITabView {
     const SIGNATURE: windows_core::imp::ConstBuffer = windows_core::imp::ConstBuffer::for_interface::<Self>();
@@ -13971,6 +14012,18 @@ impl windows_core::RuntimeType for IWindow2 {
     const SIGNATURE: windows_core::imp::ConstBuffer = windows_core::imp::ConstBuffer::for_interface::<Self>();
 }
 impl IWindow2 {
+    pub fn SetSystemBackdrop<P0>(&self, value: P0) -> windows_core::Result<()>
+    where
+        P0: windows_core::Param<SystemBackdrop>,
+    {
+        unsafe {
+            (windows_core::Interface::vtable(self).SetSystemBackdrop)(
+                windows_core::Interface::as_raw(self),
+                value.param().abi(),
+            )
+            .ok()
+        }
+    }
     pub fn AppWindow(&self) -> windows_core::Result<AppWindow> {
         unsafe {
             let mut result__ = core::mem::zeroed();
@@ -13983,7 +14036,8 @@ impl IWindow2 {
 pub struct IWindow2_Vtbl {
     pub base__: windows_core::IInspectable_Vtbl,
     SystemBackdrop: usize,
-    SetSystemBackdrop: usize,
+    pub SetSystemBackdrop:
+        unsafe extern "system" fn(*mut core::ffi::c_void, *mut core::ffi::c_void) -> windows_core::HRESULT,
     pub AppWindow:
         unsafe extern "system" fn(*mut core::ffi::c_void, *mut *mut core::ffi::c_void) -> windows_core::HRESULT,
 }
@@ -15490,6 +15544,65 @@ impl windows_core::RuntimeName for MenuFlyoutSubItem {
 }
 unsafe impl Send for MenuFlyoutSubItem {}
 unsafe impl Sync for MenuFlyoutSubItem {}
+#[repr(transparent)]
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct MicaBackdrop(windows_core::IUnknown);
+windows_core::imp::interface_hierarchy!(MicaBackdrop, windows_core::IUnknown, windows_core::IInspectable);
+windows_core::imp::required_hierarchy!(MicaBackdrop, SystemBackdrop, DependencyObject);
+impl MicaBackdrop {
+    pub fn new() -> windows_core::Result<Self> {
+        Self::IMicaBackdropFactory(|this| unsafe {
+            let mut result__ = core::mem::zeroed();
+            (windows_core::Interface::vtable(this).CreateInstance)(
+                windows_core::Interface::as_raw(this),
+                core::ptr::null_mut(),
+                core::ptr::null_mut(),
+                &mut result__,
+            )
+            .and_then(|| windows_core::imp::Type::from_abi(result__))
+        })
+    }
+    fn IMicaBackdropFactory<R, F: FnOnce(&IMicaBackdropFactory) -> windows_core::Result<R>>(
+        callback: F,
+    ) -> windows_core::Result<R> {
+        static SHARED: windows_core::imp::FactoryCache<MicaBackdrop, IMicaBackdropFactory> =
+            windows_core::imp::FactoryCache::new();
+        SHARED.call(callback)
+    }
+}
+impl windows_core::RuntimeType for MicaBackdrop {
+    const SIGNATURE: windows_core::imp::ConstBuffer =
+        windows_core::imp::ConstBuffer::for_class::<Self, IMicaBackdrop>();
+}
+unsafe impl windows_core::Interface for MicaBackdrop {
+    type Vtable = <IMicaBackdrop as windows_core::Interface>::Vtable;
+    const IID: windows_core::GUID = <IMicaBackdrop as windows_core::Interface>::IID;
+}
+impl core::ops::Deref for MicaBackdrop {
+    type Target = IMicaBackdrop;
+    fn deref(&self) -> &Self::Target {
+        unsafe { core::mem::transmute(self) }
+    }
+}
+impl windows_core::RuntimeName for MicaBackdrop {
+    const NAME: &'static str = "Microsoft.UI.Xaml.Media.MicaBackdrop";
+}
+unsafe impl Send for MicaBackdrop {}
+unsafe impl Sync for MicaBackdrop {}
+#[repr(transparent)]
+#[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
+pub struct MicaKind(pub i32);
+impl MicaKind {
+    pub const Base: Self = Self(0);
+    pub const BaseAlt: Self = Self(1);
+}
+impl windows_core::imp::TypeKind for MicaKind {
+    type TypeKind = windows_core::imp::CopyType;
+}
+impl windows_core::RuntimeType for MicaKind {
+    const SIGNATURE: windows_core::imp::ConstBuffer =
+        windows_core::imp::ConstBuffer::from_slice(b"enum(Microsoft.UI.Composition.SystemBackdrops.MicaKind;i4)");
+}
 #[repr(transparent)]
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct NavigationView(windows_core::IUnknown);
@@ -18296,6 +18409,30 @@ impl windows_core::RuntimeName for SymbolIcon {
 }
 unsafe impl Send for SymbolIcon {}
 unsafe impl Sync for SymbolIcon {}
+#[repr(transparent)]
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct SystemBackdrop(windows_core::IUnknown);
+windows_core::imp::interface_hierarchy!(SystemBackdrop, windows_core::IUnknown, windows_core::IInspectable);
+windows_core::imp::required_hierarchy!(SystemBackdrop, DependencyObject);
+impl windows_core::RuntimeType for SystemBackdrop {
+    const SIGNATURE: windows_core::imp::ConstBuffer =
+        windows_core::imp::ConstBuffer::for_class::<Self, ISystemBackdrop>();
+}
+unsafe impl windows_core::Interface for SystemBackdrop {
+    type Vtable = <ISystemBackdrop as windows_core::Interface>::Vtable;
+    const IID: windows_core::GUID = <ISystemBackdrop as windows_core::Interface>::IID;
+}
+impl core::ops::Deref for SystemBackdrop {
+    type Target = ISystemBackdrop;
+    fn deref(&self) -> &Self::Target {
+        unsafe { core::mem::transmute(self) }
+    }
+}
+impl windows_core::RuntimeName for SystemBackdrop {
+    const NAME: &'static str = "Microsoft.UI.Xaml.Media.SystemBackdrop";
+}
+unsafe impl Send for SystemBackdrop {}
+unsafe impl Sync for SystemBackdrop {}
 pub const TIME_NOSECONDS: i32 = 2;
 #[repr(C)]
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
