@@ -1,5 +1,6 @@
 //! The platform's metrics: spacing, the theme's font sizes, dark mode.
 
+use gtk::glib::translate::ToGlibPtr;
 use gtk::prelude::*;
 use gtk::{gdk, pango};
 use mitsuami_core::TextStyle;
@@ -28,7 +29,7 @@ pub(super) fn metrics() -> PlatformMetrics {
     let scale = gdk::Display::default()
         .and_then(|d| d.monitors().item(0))
         .and_then(|m| m.downcast::<gdk::Monitor>().ok())
-        .map_or(1.0, |m| m.scale_factor() as f32);
+        .map_or(1.0, |m| monitor_scale(&m));
     PlatformMetrics {
         scale_factor: scale,
         // GNOME spaces in multiples of 6px; 24px is a generous window margin.
@@ -54,4 +55,24 @@ pub(super) fn metrics() -> PlatformMetrics {
         group_insets: crate::group::insets(false),
         titled_group_insets: crate::group::insets(true),
     }
+}
+
+/// The monitor's scale, fractional where GDK knows it
+/// (`gdk_monitor_get_scale`, GTK 4.14 and later, looked up at run time):
+/// its widget scale is a whole number (2 on a 1.6 display), and pixels made
+/// at that scale are shrunk on the way to the screen.
+fn monitor_scale(monitor: &gdk::Monitor) -> f32 {
+    type GetScale = unsafe extern "C" fn(*mut gdk::ffi::GdkMonitor) -> f64;
+    static GET: std::sync::OnceLock<Option<GetScale>> = std::sync::OnceLock::new();
+    let get = *GET.get_or_init(|| {
+        // SAFETY: the symbol, if GTK has it, is `double
+        // gdk_monitor_get_scale(GdkMonitor*)`.
+        unsafe {
+            let get = libc::dlsym(libc::RTLD_DEFAULT, c"gdk_monitor_get_scale".as_ptr());
+            (!get.is_null()).then(|| std::mem::transmute::<*mut std::ffi::c_void, GetScale>(get))
+        }
+    });
+    // SAFETY: a live monitor.
+    let scale = get.map_or(0.0, |get| unsafe { get(monitor.to_glib_none().0) });
+    if scale > 0.0 { scale as f32 } else { monitor.scale_factor() as f32 }
 }
