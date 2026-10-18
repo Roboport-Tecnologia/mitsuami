@@ -579,6 +579,8 @@ Windows.Win32.GCS_RESULTSTR
 Windows.Win32.PM_NOREMOVE
 Windows.Win32.ToUnicodeEx
 Windows.Win32.GetKeyboardLayout
+Windows.Win32.MapVirtualKeyW
+Windows.Win32.MAPVK_VK_TO_VSC_EX
 Windows.Win32.ScreenToClient
 Windows.Win32.ImmGetContext
 Windows.Win32.ImmReleaseContext

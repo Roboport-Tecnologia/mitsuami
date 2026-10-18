@@ -743,7 +743,8 @@ impl HostState {
 
     fn key(&mut self, args: &w::IKeyRoutedEventArgs, pressed: bool) -> R<()> {
         let status = args.KeyStatus()?;
-        let native = status.scan_code | if status.is_extended_key { 0xE000 } else { 0 };
+        let virtual_key = args.Key()?.0 as u32;
+        let native = scan_code(&status, virtual_key);
         let code = KeyCode::from_windows_scancode(native);
         let repeat = pressed && status.was_key_down;
         if pressed {
@@ -755,7 +756,7 @@ impl HostState {
         let typed = if pressed { self.typed.take() } else { None };
         let dead = if pressed { self.dead.take() } else { None };
         let text = typed.filter(|t| !t.is_empty() && self.takes_text());
-        let unmodified = unmodified(args.Key()?.0 as u32, status.scan_code);
+        let unmodified = unmodified(virtual_key, native & 0xFF);
         let modifiers = key_modifiers();
         // A dead key's accent shows as a composition, as it does in a text
         // field, until the next key (not a modifier, which may be what it
@@ -1323,6 +1324,18 @@ fn make_text_box(state: &Rc<RefCell<HostState>>, canvas: &w::UIElement) -> R<Tex
         }
     })?);
     Ok(TextBox { control, composing: Cell::new(false), preedit: RefCell::default(), _events: events })
+}
+
+/// Where a key is: its scan code, with `0xE000` for an extended key. XAML
+/// reports Tab with none (it raises it from its focus navigation), so a key
+/// without one takes the scan code the layout maps its virtual key to.
+fn scan_code(status: &w::CorePhysicalKeyStatus, virtual_key: u32) -> u32 {
+    if status.scan_code != 0 {
+        return status.scan_code | if status.is_extended_key { 0xE000 } else { 0 };
+    }
+    let mapped = unsafe { w::MapVirtualKeyW(virtual_key, w::MAPVK_VK_TO_VSC_EX as u32) };
+    // An extended key comes back with an `0xE0` (or `0xE1`) prefix byte.
+    (mapped & 0xFF) | if mapped & 0xFF00 != 0 { 0xE000 } else { 0 }
 }
 
 /// The character a key types with no modifiers in the thread's layout:
