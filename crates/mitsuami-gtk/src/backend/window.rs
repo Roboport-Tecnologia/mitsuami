@@ -55,7 +55,7 @@ impl MinSize {
         let Some((width, height)) = self.capped(window) else { return };
         host.set_size_request(width, height);
         if let Some(root) = host.window_root() {
-            let size = root.resizing.get().unwrap_or(root.size.get());
+            let size = root.content_size();
             let grown = Size::new(size.width.max(width as f32), size.height.max(height as f32));
             if grown != size {
                 root.resizing.set(Some(grown));

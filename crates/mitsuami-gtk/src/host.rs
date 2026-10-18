@@ -87,6 +87,14 @@ pub(crate) struct WindowRoot {
     pub(crate) focus_order: RefCell<Vec<gtk::Widget>>,
 }
 
+impl WindowRoot {
+    /// The content's size, or the one it's on its way to: what a change
+    /// that keeps the content's size (a sidebar added or removed) keeps.
+    pub(crate) fn content_size(&self) -> Size {
+        self.resizing.get().unwrap_or(self.size.get())
+    }
+}
+
 mod imp {
     use super::*;
 
@@ -155,6 +163,10 @@ mod imp {
                 let size = Size::new(width as f32, height as f32);
                 if root.size.replace(size) != size {
                     root.events.emit(root.id, UiEvent::WindowResized(size));
+                }
+                // Arrived: later changes start from here.
+                if root.resizing.get() == Some(size) {
+                    root.resizing.set(None);
                 }
             }
         }

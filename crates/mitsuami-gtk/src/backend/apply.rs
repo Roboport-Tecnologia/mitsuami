@@ -2,7 +2,7 @@
 
 use gtk::prelude::*;
 use mitsuami_core::a11y::A11yProps;
-use mitsuami_core::{Command, NodeId, Size, WidgetKind};
+use mitsuami_core::{Command, NodeId, Size, UiEvent, WidgetKind};
 
 use crate::host::WindowRoot;
 use crate::sidebar::Split;
@@ -97,7 +97,7 @@ impl State {
                     // The content keeps its size: the window grows by the
                     // sidebar, which a shown window does at a later frame.
                     let root = parts.host.window_root().expect("window hosts have a root");
-                    let size = root.size.get();
+                    let size = root.content_size();
                     if parts.window.is_mapped() {
                         root.resizing.set(Some(size));
                     }
@@ -189,7 +189,7 @@ impl State {
                     // The content keeps its size: the window loses the
                     // sidebar's.
                     let root = parts.host.window_root().expect("window hosts have a root");
-                    let size = root.size.get();
+                    let size = root.content_size();
                     if parts.window.is_mapped() {
                         root.resizing.set(Some(size));
                     }
@@ -359,11 +359,15 @@ impl State {
                 let asked = *size;
                 let size = Size::new(size.width.max(requested(min_width)), size.height.max(requested(min_height)));
                 // Before it's first allocated, it's the size the content
-                // has, as the core asked; after, the allocation reports it
-                // (the app resizing it, `Ui::set_window_size`, hears only
-                // from that), and so does one the minimum grows.
-                if !parts.window.is_mapped() {
-                    root.size.set(asked);
+                // has, reported now: the core lays out at the size it opened
+                // with until it hears, and the allocation reports only a
+                // size other than this one (an app that resizes the window
+                // while building its content kept its first layout). After,
+                // the allocation reports it (the app resizing it,
+                // `Ui::set_window_size`, hears only from that), and so does
+                // one the minimum grows.
+                if !parts.window.is_mapped() && root.size.replace(asked) != asked {
+                    root.events.emit(root.id, UiEvent::WindowResized(asked));
                 }
                 root.resizing.set((root.size.get() != size).then_some(size));
                 let (width, height) = parts.extra(size);

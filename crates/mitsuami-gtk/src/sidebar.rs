@@ -377,7 +377,7 @@ impl Split {
             let (window, host, page, pending) =
                 (window.downgrade(), host.downgrade(), sidebar_page.clone(), pending.clone());
             view.connect_notify_local(Some(property), move |view, _| {
-                let Some(root) = host.upgrade().and_then(|h| h.window_root().map(|r| r.size.get())) else { return };
+                let Some(root) = host.upgrade().and_then(|h| h.window_root().map(|r| r.content_size())) else { return };
                 if pending.replace(Some(root)).is_some() {
                     return;
                 }

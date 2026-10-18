@@ -6,7 +6,7 @@
 use std::cell::Cell;
 use std::rc::Rc;
 
-use mitsuami::core::Prop;
+use mitsuami::core::{CurrentWindow, Prop, Ui};
 use mitsuami::prelude::*;
 use mitsuami_test::prelude::*;
 
@@ -589,6 +589,21 @@ async fn the_app_resizes_it(app: TestApp) {
     app.settle().await;
     assert_eq!(app.ui().window_size(window), Some(Size::new(640.0, 480.0)));
     app.expect(by_test_id("fill")).to_have_frame(Rect::new(0.0, 0.0, 640.0, 480.0)).await;
+}
+
+/// Resized while its content is built, before it's first shown: it opens
+/// at that size, and the content is laid out at it.
+#[mitsuami_test::test]
+async fn the_app_resizes_it_before_it_shows(app: TestApp) {
+    app.mount(|| {
+        let ui = inject::<Ui>().expect("a window's content");
+        let CurrentWindow(window) = inject::<CurrentWindow>().expect("a window's content");
+        ui.set_window_size(window, Size::new(640.0, 300.0));
+        Column::new().child(Row::new().test_id("fill").size(100.vw(), 100.vh()))
+    });
+
+    app.settle().await;
+    app.expect(by_test_id("fill")).to_have_frame(Rect::new(0.0, 0.0, 640.0, 300.0)).await;
 }
 
 /// `view!` takes them as attributes.
