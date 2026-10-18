@@ -60,6 +60,34 @@ impl AppKitHandle {
             if let Some(Widget::Window { _delegate, .. }) = self.state.borrow().nodes.get(&id).map(|n| &n.widget) {
                 _delegate.apply_full_screen(&window);
             }
+            // The dialogs asked for on it before it was shown.
+            let waiting = {
+                let mut state = self.state.borrow_mut();
+                let (waiting, kept) = std::mem::take(&mut state.on_shown).into_iter().partition(|(w, _)| *w == id);
+                state.on_shown = kept;
+                waiting
+            };
+            for (_, run) in waiting {
+                run();
+            }
+        }
+    }
+
+    /// Runs `run` once the window `on` has been shown: at once if it has
+    /// (or there's no window), else right after its first layout puts it
+    /// on screen. A sheet begun on a window not yet shown orders it in
+    /// where AppKit put it, the screen's bottom-left corner, and the
+    /// window's centring then moves it under the sheet, which puts it back
+    /// in the corner as it ends; a dialog asked for as an app starts waits
+    /// for its window instead.
+    pub(crate) fn when_shown(&self, on: Option<NodeId>, run: impl FnOnce() + 'static) {
+        let mut state = self.state.borrow_mut();
+        match on.filter(|id| state.pending_show.contains(id)) {
+            Some(id) => state.on_shown.push((id, Box::new(run))),
+            None => {
+                drop(state);
+                run();
+            }
         }
     }
 
@@ -110,6 +138,20 @@ fn centre_on(window: &NSWindow, owner: &NSWindow) {
         (own.origin.x + (own.size.width - frame.size.width) / 2.0).round(),
         (own.origin.y + (own.size.height - frame.size.height) / 2.0).round(),
     ));
+}
+
+/// Runs `run` in the main run loop's next turn.
+pub(super) fn soon(run: Box<dyn FnOnce()>) {
+    let run = std::cell::Cell::new(Some(run));
+    let block = RcBlock::new(move || {
+        if let Some(run) = run.take() {
+            run();
+        }
+    });
+    if let Some(run_loop) = CFRunLoop::main() {
+        unsafe { run_loop.perform_block(kCFRunLoopCommonModes.map(|m| &**m), Some(&block)) };
+        run_loop.wake_up();
+    }
 }
 
 /// An empty event, which wakes the app's event loop.

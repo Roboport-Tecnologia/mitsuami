@@ -294,6 +294,22 @@ impl AppKitServices {
         AppKitServices { mtm, backend, pasteboard, menus, menu_target, sheets: Rc::default() }
     }
 
+    /// What a dialog needs once it goes up, which may be after this call
+    /// (`AppKitHandle::when_shown`).
+    fn dialogs(&self) -> Dialogs {
+        Dialogs { mtm: self.mtm, backend: self.backend.clone(), sheets: self.sheets.clone() }
+    }
+}
+
+/// Puts dialogs up: on the window they belong to, as sheets.
+#[derive(Clone)]
+struct Dialogs {
+    mtm: MainThreadMarker,
+    backend: AppKitHandle,
+    sheets: Rc<RefCell<Sheets>>,
+}
+
+impl Dialogs {
     /// Remembers a sheet on `parent` until it answers, so it ends with its
     /// window; returns what forgets it.
     fn track_sheet(&self, parent: &NSWindow, sheet: &NSWindow, cancel: NSModalResponse) -> impl Fn() + 'static {
@@ -316,6 +332,13 @@ impl AppKitServices {
     fn parent(&self, parent: Option<NodeId>) -> Option<Retained<NSWindow>> {
         let app = NSApplication::sharedApplication(self.mtm);
         parent.and_then(|id| self.backend.ns_window(id)).or_else(|| app.keyWindow()).or_else(|| app.mainWindow())
+    }
+
+    /// Runs `show` with the window the dialog belongs to, once that window
+    /// is on screen.
+    fn present(self, parent: Option<NodeId>, show: impl FnOnce(&Dialogs, Option<Retained<NSWindow>>) + 'static) {
+        let backend = self.backend.clone();
+        backend.when_shown(parent, move || show(&self, self.parent(parent)));
     }
 }
 
@@ -348,12 +371,12 @@ impl Services for AppKitServices {
         }
         let reply = once(reply);
         let answer = move |response: NSModalResponse| reply((response - NSAlertFirstButtonReturn).max(0) as usize);
-        match self.parent(parent) {
+        self.dialogs().present(parent, move |dialogs, window| match window {
             // A sheet on the window it belongs to.
             Some(window) => {
                 // The last button is the cancel one, as Escape chooses.
                 let cancel = NSAlertFirstButtonReturn + buttons.len() as NSModalResponse - 1;
-                let forget = self.track_sheet(&window, &ns_alert.window(), cancel);
+                let forget = dialogs.track_sheet(&window, &ns_alert.window(), cancel);
                 let done = RcBlock::new(move |response| {
                     forget();
                     answer(response)
@@ -362,7 +385,7 @@ impl Services for AppKitServices {
             }
             // No window: an app-modal alert, run once the caller has returned.
             None => later(move || answer(ns_alert.runModal())),
-        }
+        });
     }
 
     fn open_file(&mut self, parent: Option<NodeId>, request: &OpenFile, reply: Reply<Option<Vec<PathBuf>>>) {
@@ -386,9 +409,9 @@ impl Services for AppKitServices {
         let answer = move |response: NSModalResponse| {
             reply((response == NSModalResponseOK).then(|| chosen.URLs().iter().filter_map(|u| path(&u)).collect()));
         };
-        match self.parent(parent) {
+        self.dialogs().present(parent, move |dialogs, window| match window {
             Some(window) => {
-                let forget = self.track_sheet(&window, &panel, NSModalResponseCancel);
+                let forget = dialogs.track_sheet(&window, &panel, NSModalResponseCancel);
                 let done = RcBlock::new(move |response| {
                     forget();
                     answer(response)
@@ -396,7 +419,7 @@ impl Services for AppKitServices {
                 panel.beginSheetModalForWindow_completionHandler(&window, &done)
             }
             None => panel.beginWithCompletionHandler(&RcBlock::new(answer)),
-        }
+        });
     }
 
     fn save_file(&mut self, parent: Option<NodeId>, request: &SaveFile, reply: Reply<Option<PathBuf>>) {
@@ -416,9 +439,9 @@ impl Services for AppKitServices {
         let answer = move |response: NSModalResponse| {
             reply(if response == NSModalResponseOK { chosen.URL().and_then(|u| path(&u)) } else { None });
         };
-        match self.parent(parent) {
+        self.dialogs().present(parent, move |dialogs, window| match window {
             Some(window) => {
-                let forget = self.track_sheet(&window, &panel, NSModalResponseCancel);
+                let forget = dialogs.track_sheet(&window, &panel, NSModalResponseCancel);
                 let done = RcBlock::new(move |response| {
                     forget();
                     answer(response)
@@ -426,7 +449,7 @@ impl Services for AppKitServices {
                 panel.beginSheetModalForWindow_completionHandler(&window, &done)
             }
             None => panel.beginWithCompletionHandler(&RcBlock::new(answer)),
-        }
+        });
     }
 
     /// `NSFileManager` trashes synchronously, so on a queue of its own, as

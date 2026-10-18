@@ -315,6 +315,51 @@ mod checks {
         f.ui.tick();
     }
 
+    /// An alert asked for on a window before it's first shown (as an app
+    /// asks a question at start) waits for the window: the window opens
+    /// centred, not in the screen's bottom-left corner where a sheet on a
+    /// window not yet shown orders it, and stays there when the sheet ends.
+    pub fn sheets_wait_for_their_window(_: &Fixture) {
+        let mtm = mitsuami_appkit::init_for_tests();
+        let options = BackendOptions { show_windows: true, private_clipboard: true, ..BackendOptions::default() };
+        let backend = AppKitBackend::new(mtm, options);
+        let handle = backend.handle();
+        let ui = Ui::new(backend);
+        let window = ui.create_window("asks at start", Size::new(600.0, 400.0));
+        // Made, not yet shown: the app's run loop shows it after this tick.
+        // With no native window the alert would be app-modal, waiting for a
+        // click, so the check stops first.
+        ui.tick();
+        let ns_window = handle.ns_window(window).expect("the window is made");
+        assert!(!ns_window.isVisible(), "not shown yet");
+        let answer = Rc::new(Cell::new(None));
+        let a = answer.clone();
+        let reply = ui.alert(Some(window), Alert::new("Choose a folder?").button("Choose").button("Later"));
+        ui.spawn_local(async move { a.set(Some(reply.await)) });
+        // The app's run loop shows the windows its ticks laid out.
+        pump(&ui);
+        handle.show_pending_windows();
+        pump(&ui);
+        let sheet = sheet_of(&ns_window);
+        let screen = ns_window.screen().expect("on a screen").visibleFrame();
+        let shown = ns_window.frame();
+        assert!(ns_window.isVisible(), "the window is on screen");
+        let centre = |r: objc2_foundation::NSRect| r.origin.x + r.size.width / 2.0;
+        assert!(
+            (centre(shown) - centre(screen)).abs() < 2.0,
+            "the window is centred, not at x={} on a screen from x={}",
+            shown.origin.x,
+            screen.origin.x
+        );
+        ns_window.endSheet_returnCode(&sheet, objc2_app_kit::NSAlertSecondButtonReturn);
+        pump(&ui);
+        assert_eq!(answer.get(), Some(1), "the alert answered its second button");
+        let after = ns_window.frame();
+        assert_eq!((after.origin.x, after.origin.y), (shown.origin.x, shown.origin.y), "the window stays where it was");
+        ui.destroy(window);
+        ui.tick();
+    }
+
     /// Destroying their window ends both sheets with their cancel
     /// response: the alert answers its cancel button, the panel no paths.
     /// A window shows one sheet at a time, so each has its own.
@@ -373,7 +418,7 @@ fn main() {
     use std::panic::{AssertUnwindSafe, catch_unwind};
 
     type Check = (&'static str, fn(&checks::Fixture));
-    let checks: [Check; 9] = [
+    let checks: [Check; 10] = [
         ("clipboard_round_trips", checks::clipboard_round_trips),
         ("menus_are_installed_and_activate", checks::menus_are_installed_and_activate),
         ("submenus_check_marks_and_roles", checks::submenus_check_marks_and_roles),
@@ -382,6 +427,7 @@ fn main() {
         ("open_panels_report_cancellation", checks::open_panels_report_cancellation),
         ("folder_panels_can_make_folders", checks::folder_panels_can_make_folders),
         ("sheets_end_with_their_window", checks::sheets_end_with_their_window),
+        ("sheets_wait_for_their_window", checks::sheets_wait_for_their_window),
         ("trash_moves_files_to_the_users_trash", checks::trash_moves_files_to_the_users_trash),
     ];
     let filter: Vec<String> = std::env::args().skip(1).filter(|a| !a.starts_with('-')).collect();

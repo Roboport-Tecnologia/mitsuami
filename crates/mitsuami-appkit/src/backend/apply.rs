@@ -488,6 +488,13 @@ impl State {
                 let mut node = self.nodes.remove(id).unwrap();
                 self.by_view.borrow_mut().remove(&key(node.widget.view()));
                 self.pending_show.retain(|w| w != id);
+                // A dialog still waiting for it goes up without it, once
+                // this commit is over.
+                let (waiting, kept) = std::mem::take(&mut self.on_shown).into_iter().partition(|(w, _)| w == id);
+                self.on_shown = kept;
+                for (_, run) in waiting {
+                    super::windows::soon(run);
+                }
                 self.focus_orders.remove(id);
                 if let Some(target) = &node._target {
                     unsafe { NSNotificationCenter::defaultCenter().removeObserver(target) };

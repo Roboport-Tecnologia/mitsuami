@@ -328,6 +328,9 @@ struct State {
     events: EventSink,
     log: Vec<Command>,
     pending_show: Vec<NodeId>,
+    /// What waits for a window in `pending_show` to be shown: a dialog
+    /// asked for on it before its first layout (`when_shown`).
+    on_shown: Vec<(NodeId, Box<dyn FnOnce()>)>,
     /// The key view chain last built for each window.
     focus_orders: HashMap<NodeId, Vec<NodeId>>,
     /// The app's name, for the app menu.
@@ -405,6 +408,7 @@ impl AppKitBackend {
                 events: EventSink::default(),
                 log: Vec::new(),
                 pending_show: Vec::new(),
+                on_shown: Vec::new(),
                 focus_orders: HashMap::new(),
                 app_name: None,
                 tab_insets: std::cell::Cell::new(None),
