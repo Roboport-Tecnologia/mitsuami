@@ -294,6 +294,27 @@ mod checks {
         f.ui.tick();
     }
 
+    /// A folder panel has New Folder, which AppKit's open panel leaves off;
+    /// a file panel keeps AppKit's default.
+    pub fn folder_panels_can_make_folders(f: &Fixture) {
+        let window = f.ui.create_window("panel host", Size::new(600.0, 400.0));
+        f.ui.tick();
+        for (request, folders) in [(OpenFile::new().directories(), true), (OpenFile::new(), false)] {
+            let reply = f.ui.open_file(Some(window), request);
+            f.ui.spawn_local(async move {
+                reply.await;
+            });
+            pump(&f.ui);
+            let ns_window = f.handle.ns_window(window).unwrap();
+            let panel = sheet_of(&ns_window).downcast::<NSSavePanel>().expect("an open panel");
+            assert_eq!(panel.canCreateDirectories(), folders, "New Folder on a {} panel", if folders { "folder" } else { "file" });
+            unsafe { panel.cancel(None) };
+            pump(&f.ui);
+        }
+        f.ui.destroy(window);
+        f.ui.tick();
+    }
+
     /// Destroying their window ends both sheets with their cancel
     /// response: the alert answers its cancel button, the panel no paths.
     /// A window shows one sheet at a time, so each has its own.
@@ -352,13 +373,14 @@ fn main() {
     use std::panic::{AssertUnwindSafe, catch_unwind};
 
     type Check = (&'static str, fn(&checks::Fixture));
-    let checks: [Check; 8] = [
+    let checks: [Check; 9] = [
         ("clipboard_round_trips", checks::clipboard_round_trips),
         ("menus_are_installed_and_activate", checks::menus_are_installed_and_activate),
         ("submenus_check_marks_and_roles", checks::submenus_check_marks_and_roles),
         ("window_menus_are_there_while_it_is_main", checks::window_menus_are_there_while_it_is_main),
         ("alerts_are_answered_through_their_sheet", checks::alerts_are_answered_through_their_sheet),
         ("open_panels_report_cancellation", checks::open_panels_report_cancellation),
+        ("folder_panels_can_make_folders", checks::folder_panels_can_make_folders),
         ("sheets_end_with_their_window", checks::sheets_end_with_their_window),
         ("trash_moves_files_to_the_users_trash", checks::trash_moves_files_to_the_users_trash),
     ];

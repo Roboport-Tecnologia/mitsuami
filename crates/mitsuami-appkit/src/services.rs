@@ -369,6 +369,10 @@ impl Services for AppKitServices {
         let panel = NSOpenPanel::openPanel(self.mtm);
         panel.setCanChooseFiles(!request.directories);
         panel.setCanChooseDirectories(request.directories);
+        // A folder can be made where one is chosen, as GTK's, Qt's and
+        // Windows' folder dialogs offer and Mac apps' folder panels do;
+        // AppKit's open panel leaves New Folder off (§14.9).
+        panel.setCanCreateDirectories(request.directories);
         panel.setAllowsMultipleSelection(request.multiple);
         if let Some(title) = &request.title {
             panel.setMessage(Some(&ns(title)));
