@@ -258,7 +258,7 @@ jobs:
       # Only the release's own notes, if it has any.
       - uses: actions/checkout@v5
         with:
-          sparse-checkout: .github/release-notes
+          sparse-checkout: docs/release-notes
 
       - uses: actions/download-artifact@v5
         with:
@@ -269,7 +269,7 @@ jobs:
         run: |
           echo '[mitsuami.roboport.com.br](https://mitsuami.roboport.com.br)' > notes.md
           echo >> notes.md
-          own=".github/release-notes/${GITHUB_REF_NAME%%+*}.md"
+          own="docs/release-notes/${GITHUB_REF_NAME%%+*}.md"
           if [ -f "$own" ]; then cat "$own" >> notes.md; fi
           gh release create "$GITHUB_REF_NAME" dist/* --repo "$GITHUB_REPOSITORY" \
             --title "$GITHUB_REF_NAME" --notes-file notes.md --generate-notes

@@ -139,6 +139,33 @@ WinUI bindings are generated: add types and members to
 `crates/mitsuami-winui/bindgen/filter.txt`, then
 `cargo run --manifest-path crates/mitsuami-winui/bindgen/Cargo.toml`.
 
+## Releasing
+
+1. Bump the version in `Cargo.toml`: `[workspace.package]`'s `version` and
+   every `=X.Y.Z` in `[workspace.dependencies]`. Any cargo command then
+   updates `Cargo.lock`; refresh the examples' own lockfiles too
+   (`cargo metadata --manifest-path examples/<name>/Cargo.toml` for
+   `showcase` and `gpu-surface`).
+2. Write `docs/release-notes/vX.Y.Z.md`: a one-line summary
+   ("mitsuami 1.3.5 keeps …"), then a section per platform (`## macOS
+   (AppKit)`, `## Linux (GTK)`, …) with a bullet per change, a bold
+   sentence saying what users get and then why. Leave out the site link
+   and the Full Changelog line, which the workflow adds, and, in point
+   releases, "a drop-in update": it's implied.
+3. Commit both as "Bump the version to X.Y.Z" and push `main`.
+4. Validate, the one exception to "don't run CI": `cargo test --workspace`,
+   `MITSUAMI_NATIVE=1 cargo test --workspace`, the type-checks above, and
+   `gh workflow run test.yml --ref main`. Tag only once it's green.
+5. `git tag vX.Y.Z && git push origin vX.Y.Z`. `release.yml` checks
+   the tag matches the version, runs the headless tests, publishes the
+   crates, builds the showcase and Files apps, and creates the GitHub
+   release from the notes file.
+
+To fix a release's text afterwards, edit the notes file and
+`gh release edit vX.Y.Z` with the same text, link and Full Changelog
+included. If the apps or the release failed after the crates went to
+crates.io, tag `vX.Y.Z+ghfixN`: it rebuilds them without publishing.
+
 ## Conventions
 
 - Match the surrounding code's comment density and voice: short, plain
