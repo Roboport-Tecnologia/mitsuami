@@ -8,8 +8,8 @@ use std::rc::Rc;
 
 use mitsuami_core::services::Shortcut;
 use mitsuami_core::{
-    DisplayList, EventSink, EventValue, FileDrop, Insets, NodeId, Point, PointerEvent, PointerKind, Size, UiEvent,
-    WidgetKind,
+    DisplayList, EventSink, EventValue, FileDrop, Insets, Key, NodeId, Point, PointerEvent, PointerKind, Size,
+    UiEvent, WidgetKind,
 };
 use objc2::rc::Retained;
 use objc2::runtime::{AnyObject, NSObject, NSObjectProtocol, ProtocolObject, Sel};
@@ -19,7 +19,7 @@ use objc2::{
 use objc2_app_kit::{
     NSButton, NSClickGestureRecognizer, NSColor, NSControl, NSControlStateValueOn, NSControlTextEditingDelegate,
     NSDragOperation, NSDraggingInfo, NSEvent, NSEventModifierFlags, NSEventType, NSPasteboardTypeFileURL,
-    NSPopUpButton, NSRectFill, NSScreen, NSScrollView, NSSearchFieldDelegate, NSSlider, NSSwitch, NSText,
+    NSPopUpButton, NSRectFill, NSResponder, NSScreen, NSScrollView, NSSearchFieldDelegate, NSSlider, NSSwitch, NSText,
     NSTextDelegate, NSTextField, NSTextFieldDelegate, NSTextView, NSTextViewDelegate, NSTrackingArea,
     NSTrackingAreaOptions, NSView, NSViewFrameDidChangeNotification, NSWindow, NSWindowDelegate, NSWindowStyleMask,
 };
@@ -248,6 +248,11 @@ impl HostView {
         self.ivars().keys.borrow().as_ref().is_some_and(|k| k.keys.contains(&shortcut))
     }
 
+    /// Reports the shortcut if it's one of the host's.
+    pub(crate) fn take(&self, shortcut: Shortcut) -> bool {
+        self.ivars().keys.borrow().as_ref().is_some_and(|k| k.take_shortcut(shortcut))
+    }
+
     pub(crate) fn file_drop(&self) -> Option<FileDrop> {
         self.ivars().drop.borrow().as_ref().map(|d| d.files.clone())
     }
@@ -409,15 +414,22 @@ define_class!(
         #[unsafe(method(control:textView:doCommandBySelector:))]
         fn control_text_view_do_command_by_selector(
             &self,
-            _control: &NSControl,
+            control: &NSControl,
             _text_view: &NSTextView,
             command: Sel,
         ) -> bool {
             if command == sel!(insertNewline:) && self.ivars().kind != WidgetKind::SearchInput {
                 self.ivars().events.emit(self.ivars().id, UiEvent::Submit);
             }
-            // Not handled: AppKit carries on with its default behaviour.
-            false
+            // Escape, which a field doesn't use (a search field clears on
+            // it): the field editor sends it to the window as
+            // `cancelOperation:`, past the views round the field, so their
+            // keys (`Prop::Keys`) are asked first here, as for any other
+            // key the focused view didn't use. Otherwise not handled: AppKit
+            // carries on with its default behaviour.
+            command == sel!(cancelOperation:)
+                && self.ivars().kind != WidgetKind::SearchInput
+                && crate::keys::take_around(control, Shortcut::new(Key::Escape))
         }
 
         #[unsafe(method(controlTextDidChange:))]
@@ -497,6 +509,32 @@ pub(crate) struct WindowIvars {
     /// window's content area is larger by the sidebar and the title bar.
     detail: RefCell<Option<Retained<NSView>>>,
 }
+
+define_class!(
+    /// A node's window. With the focus on the window itself (nothing in it
+    /// focusable, or nothing focused yet), no view turns Escape into
+    /// `cancelOperation:`, and `NSWindow` beeps rather than passing the key
+    /// on: a dialog closes on it here instead.
+    #[unsafe(super(NSWindow, NSResponder, NSObject))]
+    #[thread_kind = MainThreadOnly]
+    pub(crate) struct NodeWindow;
+
+    impl NodeWindow {
+        #[unsafe(method(keyDown:))]
+        fn key_down(&self, event: &NSEvent) {
+            let delegate = self.delegate();
+            let ours = delegate.as_deref().and_then(|d| AsRef::<AnyObject>::as_ref(d).downcast_ref::<WindowDelegate>());
+            if let Some(WindowIvars { id, events, modal, .. }) = ours.map(|d| d.ivars())
+                && modal.get()
+                && crate::keys::shortcut_of(event) == Some(Shortcut::new(Key::Escape))
+            {
+                events.emit(*id, UiEvent::WindowCloseRequested);
+            } else {
+                unsafe { msg_send![super(self), keyDown: event] }
+            }
+        }
+    }
+);
 
 define_class!(
     #[unsafe(super(NSObject))]

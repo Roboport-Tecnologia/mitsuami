@@ -457,7 +457,7 @@ Implement `Services`. **Never block**: reply later, from the platform's completi
 
 ### 8.2 Windows closing and the app quitting
 
-- **Escape asks a modal window to close** (`WindowCloseRequested`), through the platform's own path, so a focused control that uses Escape gets it first: AppKit's `cancelOperation:` up the responder chain to the window's delegate, GTK's bubble-phase `ShortcutController`, Qt's `Shortcut` on `StandardKey.Cancel`, WinUI's `KeyboardAccelerator`. Plain windows ignore it.
+- **Escape asks a modal window to close** (`WindowCloseRequested`), through the platform's own path, so a focused control that uses Escape gets it first: AppKit's `cancelOperation:` up the responder chain to the window's delegate (a field's `cancelOperation:` asks the keys of the views round it first, and a window with the focus on itself takes Escape in its own `keyDown:`, where `NSWindow` would beep), GTK's bubble-phase `ShortcutController`, Qt's `Shortcut` on `StandardKey.Cancel`, WinUI's `KeyboardAccelerator`. Plain windows ignore it.
 - **The platform's own quit** (macOS's `terminate:` from the Dock, the app menu's default Quit or logging out; the session ending elsewhere) goes to the app: call `ui.request_quit()` (the app's Quit item, or a close request to every window), tick, and if windows are left, refuse it the platform's way. Never let it end the process while the app has windows open: it may have work to lose. ARCHITECTURE.md §14.7 has each platform's route.
 
 ## 9. Escape hatches: custom widgets, native views and tweaks

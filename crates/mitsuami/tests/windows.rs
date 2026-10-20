@@ -374,6 +374,44 @@ async fn escape_asks_a_modal_window_to_close(app: TestApp) {
     assert!(plain.get_untracked());
 }
 
+/// Escape closes a dialog with nothing in it to focus: on AppKit the
+/// focus is then the window itself, which no view turns Escape into
+/// `cancelOperation:` for.
+#[mitsuami_test::test]
+async fn escape_closes_a_dialog_with_nothing_focused(app: TestApp) {
+    let dialog = signal(true);
+    app.mount(move || {
+        Window::new("Dialog").modal(Modality::Application).bind(dialog).content(|| Text::new("Nothing to focus"))
+    });
+
+    app.get_by_text("Nothing to focus").press(Key::Escape).await;
+    assert!(!dialog.get_untracked());
+}
+
+/// A key handler round a field takes Escape before the dialog does, as
+/// it takes any key the field doesn't use: one Escape cancels what the
+/// field is for, a second closes the dialog. GTK's and WinUI's drivers
+/// run the window's Escape directly (they can't send the key), so only
+/// a real key shows it there.
+#[mitsuami_test::test]
+async fn escape_goes_to_a_key_handler_round_a_field_first(app: TestApp) {
+    let (dialog, cancelled) = (signal(true), signal(false));
+    app.mount(move || {
+        Window::new("Dialog").modal(Modality::Application).bind(dialog).content(move || {
+            Column::new()
+                .on_key(Key::Escape, move || cancelled.set(true))
+                .child(TextInput::new().a11y_label("Label"))
+        })
+    });
+    if matches!(app.backend_name(), "gtk" | "winui") {
+        return;
+    }
+
+    app.get_by_label("Label").press(Key::Escape).await;
+    assert!(cancelled.get_untracked());
+    assert!(dialog.get_untracked());
+}
+
 /// AppKit gives Escape to a Cancel button first (its key equivalent); the
 /// other platforms' Cancel buttons are ordinary, so the window takes it.
 #[mitsuami_test::test]

@@ -497,6 +497,16 @@ impl ListTable {
         self.ivars().data.borrow().keys.as_ref().is_some_and(|keys| keys.contains(&shortcut))
     }
 
+    /// Reports the shortcut if the app gave the list it.
+    pub(crate) fn take(&self, shortcut: Shortcut) -> bool {
+        let taken = self.takes(shortcut);
+        if taken {
+            let ListIvars { id, events, .. } = self.ivars();
+            events.emit(*id, UiEvent::Key(shortcut));
+        }
+        taken
+    }
+
     /// The menu of the view under the pointer in a row, or of the nearest
     /// view around it. The table's `hitTest:` answers itself over its
     /// rows' labels, so the search starts from the cell.

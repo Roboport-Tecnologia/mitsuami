@@ -23,13 +23,16 @@ pub(crate) struct Keys {
 impl Keys {
     /// Reports the event's key if the node takes it.
     pub(crate) fn take(&self, event: &NSEvent) -> bool {
-        match shortcut_of(event).filter(|s| self.keys.contains(s)) {
-            Some(shortcut) => {
-                self.events.emit(self.id, UiEvent::Key(shortcut));
-                true
-            }
-            None => false,
+        shortcut_of(event).is_some_and(|shortcut| self.take_shortcut(shortcut))
+    }
+
+    /// Reports the shortcut if the node takes it.
+    pub(crate) fn take_shortcut(&self, shortcut: Shortcut) -> bool {
+        let taken = self.keys.contains(&shortcut);
+        if taken {
+            self.events.emit(self.id, UiEvent::Key(shortcut));
         }
+        taken
     }
 }
 
@@ -102,6 +105,26 @@ pub(crate) fn taken_around(view: &NSView, shortcut: Shortcut) -> bool {
         }
         if let Some(table) = view.downcast_ref::<ListTable>()
             && table.takes(shortcut)
+        {
+            return true;
+        }
+        at = unsafe { view.superview() };
+    }
+    false
+}
+
+/// Reports the shortcut to the nearest host or table from `view` up that
+/// takes it, as a key passed up the responder chain would be.
+pub(crate) fn take_around(view: &NSView, shortcut: Shortcut) -> bool {
+    let mut at = Some(view.retain());
+    while let Some(view) = at {
+        if let Some(host) = view.downcast_ref::<HostView>()
+            && host.take(shortcut)
+        {
+            return true;
+        }
+        if let Some(table) = view.downcast_ref::<ListTable>()
+            && table.take(shortcut)
         {
             return true;
         }

@@ -11,7 +11,7 @@ use objc2_app_kit::{
     NSAppearance, NSAppearanceCustomization, NSAppearanceNameAqua, NSAppearanceNameDarkAqua, NSAutoresizingMaskOptions,
     NSBackingStoreType, NSBox, NSBoxType, NSButton, NSButtonType, NSImageScaling, NSImageView, NSMenuItem,
     NSPopUpButton, NSProgressIndicator, NSProgressIndicatorStyle, NSScrollView, NSSearchField, NSSecureTextField,
-    NSSlider, NSSwitch, NSTextField, NSViewBoundsDidChangeNotification, NSViewFrameDidChangeNotification, NSWindow,
+    NSSlider, NSSwitch, NSTextField, NSViewBoundsDidChangeNotification, NSViewFrameDidChangeNotification,
     NSWindowStyleMask,
 };
 use objc2_foundation::{NSNotificationCenter, NSPoint, NSRect, NSSize};
@@ -58,15 +58,17 @@ impl State {
                     | NSWindowStyleMask::Closable
                     | NSWindowStyleMask::Miniaturizable
                     | NSWindowStyleMask::Resizable;
-                let window = unsafe {
-                    NSWindow::initWithContentRect_styleMask_backing_defer(
-                        NSWindow::alloc(mtm),
-                        NSRect::new(NSPoint::new(0.0, 0.0), NSSize::new(400.0, 300.0)),
-                        style,
-                        NSBackingStoreType::Buffered,
-                        false,
-                    )
+                // Our subclass, for Escape in a dialog (`NodeWindow`).
+                let window: Retained<crate::classes::NodeWindow> = unsafe {
+                    msg_send![
+                        crate::classes::NodeWindow::alloc(mtm),
+                        initWithContentRect: NSRect::new(NSPoint::new(0.0, 0.0), NSSize::new(400.0, 300.0)),
+                        styleMask: style,
+                        backing: NSBackingStoreType::Buffered,
+                        defer: false,
+                    ]
                 };
+                let window = window.into_super();
                 unsafe { window.setReleasedWhenClosed(false) };
                 // The core owns the Tab order (reading order, not geometry)
                 // and sends it with SetFocusOrder.
