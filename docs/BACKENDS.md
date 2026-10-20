@@ -303,7 +303,7 @@ Native callbacks **only** call `events.emit(id, event)` on the `EventSink` given
 | `PointerLockEnded` | the platform ended a `GpuSurface`'s pointer lock (its window stopped being the active one, the compositor let go), or couldn't lock | the app turned it off, or the node went |
 | `KeyboardGrabEnded` | the platform ended a `GpuSurface`'s keyboard grab (the surface or its window lost focus, the compositor let go), or couldn't grab | the app turned it off, or the node went |
 
-**Focus tracking** needs one global observer, not per-widget guesses: AppKit uses KVO on `NSWindow.firstResponder`, GTK `notify::focus-widget` on the window, Qt Quick the window's `activeFocusItemChanged`, and WinUI a bubbling `GotFocus` on the window's root. WinUI raises it asynchronously, so its backend also reports the focus moves it makes itself right away, and drops the late event. Map the focused native object to the nearest known node by walking up its parents: composite widgets (a text field's inner editor, a scrolled window's viewport) put focus on children you didn't create.
+**Focus tracking** needs one global observer, not per-widget guesses: AppKit uses KVO on `NSWindow.firstResponder`, GTK `notify::focus-widget` on the window, Qt Quick the window's `activeFocusItemChanged`, and WinUI a bubbling `GotFocus` on the window's root. WinUI raises it asynchronously, so its backend also reports the focus moves it makes itself right away, and when the late event comes reports what has focus then, not the event's source. Map the focused native object to the nearest known node by walking up its parents: composite widgets (a text field's inner editor, a scrolled window's viewport) put focus on children you didn't create.
 
 ## 5. Measuring
 

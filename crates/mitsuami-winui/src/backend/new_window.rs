@@ -240,8 +240,20 @@ impl State {
         let root_element: w::IUIElement = root.cast()?;
         revokers.push(root_element.GotFocus({
             let (emitter, by_element, focus) = (emitter.clone(), self.by_element.clone(), focus.clone());
-            move |_, args| {
-                let source = args.as_ref().and_then(|a| a.cast::<w::IRoutedEventArgs>().ok()?.OriginalSource().ok());
+            // What has focus now, not the event's source: XAML raises
+            // `GotFocus` asynchronously, so a move it made on its own (a
+            // focused control went away, a menu gave focus back as it
+            // closed) can arrive after we focused something else, and
+            // would read as that control losing focus.
+            move |sender, args| {
+                let now = sender
+                    .as_ref()
+                    .and_then(|s| s.cast::<w::IUIElement>().ok()?.XamlRoot().ok())
+                    .and_then(|root| w::FocusManager::GetFocusedElementWithRoot(&root).ok())
+                    .filter(|e| !e.as_raw().is_null());
+                let source = now.or_else(|| {
+                    args.as_ref().and_then(|a| a.cast::<w::IRoutedEventArgs>().ok()?.OriginalSource().ok())
+                });
                 report_focus(&emitter, &focus, resolve(&by_element, source));
             }
         })?);
