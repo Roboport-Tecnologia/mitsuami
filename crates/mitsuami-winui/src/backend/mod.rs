@@ -52,7 +52,8 @@ pub(crate) use styles::{set_label_style, style};
 
 /// Fluent's spacing ramp: 4, 8, 12, 16, 24 epx. The spacing tokens, and
 /// the space the backend puts in its own chrome.
-pub(crate) const SPACING: SpacingScale = SpacingScale { xs: 4.0, sm: 8.0, md: 12.0, lg: 16.0, xl: 24.0 };
+/// A `TreeView` indents each level by 16.
+pub(crate) const SPACING: SpacingScale = SpacingScale { xs: 4.0, sm: 8.0, md: 12.0, lg: 16.0, xl: 24.0, indent: 16.0 };
 
 /// How the backend behaves; apps and tests want different things.
 #[derive(Clone, Debug)]

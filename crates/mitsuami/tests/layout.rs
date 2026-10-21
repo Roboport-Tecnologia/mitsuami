@@ -46,6 +46,7 @@ async fn units_resolve_against_font_viewport_parent_and_tokens(app: TestApp) {
             boxed("viewport", 10.vw(), 10.vh()),
             boxed("vmin", 10.vmin(), 10.vmax()),
             boxed("token", Spacing::Md, Spacing::Xl),
+            boxed("indent", Spacing::Indent, 10),
         ))
     });
     // Font sizes and spacing tokens come from the platform; the window is 800×600.
@@ -58,6 +59,9 @@ async fn units_resolve_against_font_viewport_parent_and_tokens(app: TestApp) {
     assert_eq!(frame_of(&app, "viewport").await.size, Size::new(80.0, 60.0));
     assert_eq!(frame_of(&app, "vmin").await.size, Size::new(60.0, 80.0));
     assert_eq!(frame_of(&app, "token").await.size, size(metrics.spacing.md, metrics.spacing.xl));
+    // A tree's indentation per level, as the platform's own trees indent.
+    assert!(metrics.spacing.indent > 0.0);
+    assert_eq!(frame_of(&app, "indent").await.size, size(metrics.spacing.indent, 10.0));
 }
 
 #[mitsuami_test::test]

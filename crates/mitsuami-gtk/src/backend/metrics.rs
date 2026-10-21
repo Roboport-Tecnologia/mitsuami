@@ -33,7 +33,8 @@ pub(super) fn metrics() -> PlatformMetrics {
     PlatformMetrics {
         scale_factor: scale,
         // GNOME spaces in multiples of 6px; 24px is a generous window margin.
-        spacing: SpacingScale { xs: 3.0, sm: 6.0, md: 12.0, lg: 18.0, xl: 24.0 },
+        // A `GtkTreeExpander` indents each level by its expander's icon, 16.
+        spacing: SpacingScale { xs: 3.0, sm: 6.0, md: 12.0, lg: 18.0, xl: 24.0, indent: 16.0 },
         font_sizes: FontSizes {
             large_title: font_size(TextStyle::LargeTitle),
             title: font_size(TextStyle::Title),

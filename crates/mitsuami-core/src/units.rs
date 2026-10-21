@@ -40,6 +40,9 @@ pub enum Spacing {
     Md,
     Lg,
     Xl,
+    /// How far the platform indents each level of a tree or outline: for
+    /// rows nested under others, as its own trees nest them.
+    Indent,
 }
 
 impl From<Spacing> for Length {
@@ -96,6 +99,8 @@ pub struct SpacingScale {
     pub md: f32,
     pub lg: f32,
     pub xl: f32,
+    /// A tree's indentation per level.
+    pub indent: f32,
 }
 
 impl SpacingScale {
@@ -107,6 +112,7 @@ impl SpacingScale {
             Spacing::Md => self.md,
             Spacing::Lg => self.lg,
             Spacing::Xl => self.xl,
+            Spacing::Indent => self.indent,
         }
     }
 }

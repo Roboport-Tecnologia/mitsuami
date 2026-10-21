@@ -10,6 +10,8 @@
 //!   (`RowMoves::between_rows`): onto a song lands before it.
 //! - Select several songs and drag one to move them all, as each platform
 //!   drags a selection.
+//! - Repositories in a group are indented as the platform indents a
+//!   tree's levels (`Spacing::Indent`).
 //! - Dragging isn't reachable from the keyboard or a screen reader, so Move
 //!   Up and Move Down move the selected song too.
 
@@ -86,16 +88,19 @@ fn groups() -> impl View {
         List::new(
             move || rows(&repositories.get()),
             |entry: &Entry| entry.name(),
-            |entry| match entry {
+            move |entry| match entry {
                 Entry::Group(name) => Row::new()
                     .padding_x(Spacing::Md)
                     .padding_y(Spacing::Xs)
                     .child(Text::new(name).weight(FontWeight::Bold)),
-                Entry::Repository { name, group } => Row::new()
-                    .padding_x(Spacing::Md)
-                    .padding_y(Spacing::Xs)
-                    .padding_start(if group.is_some() { 28 } else { 12 })
-                    .child(Text::new(name)),
+                Entry::Repository { name, .. } => {
+                    // In a group, one level in, by the platform's own tree
+                    // indentation. A row stays while its key does, so it
+                    // follows the data rather than the item it was made for.
+                    let nested = move || repositories.with(|r| r.iter().any(|(n, g)| *n == name && g.is_some()));
+                    let indent = move || if nested() { Length::from(Spacing::Indent) } else { Length::Px(0.0) };
+                    Row::new().padding_x(Spacing::Md).padding_y(Spacing::Xs).child(Text::new(name).margin_start(indent))
+                }
             },
         )
         .selected(signal(Vec::new()))

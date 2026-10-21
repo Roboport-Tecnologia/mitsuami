@@ -188,7 +188,7 @@ enum Length {
     Percent(f32),   // of the containing block
     Vw(f32), Vh(f32), Vmin(f32), Vmax(f32),  // of the window's content area
     Fr(f32),        // grid tracks only
-    Token(Spacing), // platform spacing: Spacing::{None, Xs, Sm, Md, Lg, Xl}
+    Token(Spacing), // platform spacing: Spacing::{None, Xs, Sm, Md, Lg, Xl, Indent}
     Auto,
 }
 ```
@@ -196,6 +196,7 @@ enum Length {
 - **HiDPI comes free.** Every toolkit already works in logical units (points, effective pixels, GTK's logical pixels, Qt's device-independent pixels). We never touch physical pixels, and a scale change needs no relayout.
 - `em`, `rem`, `vw`, `vh` and tokens are resolved in the core before styles reach Taffy, which knows lengths, percentages, `fr` and auto. When anything they depend on changes (a window's size, the text size), the core resolves the styles again.
 - **Tokens give platform spacing.** `Spacing::Md` is 8 pt on macOS and 12 on WinUI and GNOME; the backend gives the values in its `PlatformMetrics`.
+- **`Spacing::Indent` is a tree's indentation per level,** for rows nested under others (a group's repositories), as the platform's own trees nest them: AppKit reads `NSOutlineView`'s `indentationPerLevel`; GTK's is 16 (a `GtkTreeExpander` indents by its expander's icon), WinUI's 16 (`TreeView`), Breeze's 20 (`PM_TreeViewIndentation`). Only AppKit's is read from the platform, and only it and headless ran (`tests/layout.rs`); the others' values are to confirm natively.
 - Ergonomics: `16.px()`, `1.5.em()`, `50.pct()`, `100.vw()`, `1.fr()`, `Spacing::Md`.
 
 ### Window sizes

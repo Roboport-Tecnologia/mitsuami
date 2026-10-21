@@ -90,6 +90,8 @@ pub(crate) fn metrics() -> PlatformMetrics {
             md: large,
             lg: large * 1.5,
             xl: theme.real("gridUnit") as f32,
+            // Breeze's tree indentation per level (`PM_TreeViewIndentation`).
+            indent: 20.0,
         },
         font_sizes: FontSizes {
             large_title: heading(1.35),

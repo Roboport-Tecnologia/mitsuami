@@ -108,7 +108,16 @@ pub(super) fn metrics(mtm: MainThreadMarker, forced: Option<Appearance>) -> Plat
     PlatformMetrics {
         scale_factor: NSScreen::mainScreen(mtm).map_or(1.0, |s| s.backingScaleFactor() as f32),
         // The macOS HIG favours tight spacing; 20pt is the standard window margin.
-        spacing: SpacingScale { xs: 4.0, sm: 6.0, md: 8.0, lg: 12.0, xl: 20.0 },
+        // An outline view's own indentation per level, as Finder's and
+        // Mail's outlines indent.
+        spacing: SpacingScale {
+            xs: 4.0,
+            sm: 6.0,
+            md: 8.0,
+            lg: 12.0,
+            xl: 20.0,
+            indent: objc2_app_kit::NSOutlineView::new(mtm).indentationPerLevel() as f32,
+        },
         font_sizes: FontSizes {
             large_title: size(TextStyle::LargeTitle),
             title: size(TextStyle::Title),

@@ -44,7 +44,7 @@ pub(super) const WORK_AREA: Size = Size::new(1280.0, 740.0);
 pub fn metrics() -> PlatformMetrics {
     PlatformMetrics {
         scale_factor: 1.0,
-        spacing: SpacingScale { xs: 4.0, sm: 8.0, md: 12.0, lg: 16.0, xl: 24.0 },
+        spacing: SpacingScale { xs: 4.0, sm: 8.0, md: 12.0, lg: 16.0, xl: 24.0, indent: 16.0 },
         font_sizes: FontSizes {
             large_title: 32.0,
             title: 24.0,

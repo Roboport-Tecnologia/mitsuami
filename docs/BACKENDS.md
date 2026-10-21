@@ -332,6 +332,7 @@ Known gap on AppKit and WinUI: min-content falls back to max-content. If your pl
 
 - font sizes for each `TextStyle` from the platform's type ramp (body 13 pt on macOS, around 14–15 on WinUI and GNOME);
 - the spacing tokens `xs…xl` in the platform's design language (AppKit: 4/6/8/12/20; pick yours from the GNOME HIG, Fluent or Kirigami's units);
+- `indent`, the platform's tree indentation per level (AppKit reads `NSOutlineView`'s; pick yours from the platform's tree or outline control);
 - the scale factor, dark mode, high contrast and reduced motion;
 - `tab_insets`: how far in from a `Tabs`' edges its page area is (the tab strip on top, the border elsewhere), as the platform's tab view lays out its pages. The core sizes pages with it; measure it from a real tab view once, if the platform doesn't say.
 - `group_insets` and `titled_group_insets`: where a `Group` puts its content, without and with a heading: its border and the margins the platform gives content in a group, and the heading's room, inside the box or above it. The core adds them to the group's padding. Measure them from a probe, as for tabs.
