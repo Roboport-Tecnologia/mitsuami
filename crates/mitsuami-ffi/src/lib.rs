@@ -525,6 +525,17 @@ fn align(value: u32) -> Result<Option<Align>, String> {
     }))
 }
 
+/// Hides a node, or shows it again: it takes no room while hidden, and
+/// keeps its layout for when it's back.
+#[unsafe(no_mangle)]
+pub extern "C" fn mitsuami_set_hidden(id: u32, hidden: bool) -> bool {
+    guard(|| {
+        ui()?.update_style(node(id), |s| s.hidden = hidden);
+        Ok(())
+    })
+    .is_some()
+}
+
 /// A container's direction: 0 a column (the default), 1 a row.
 #[unsafe(no_mangle)]
 pub extern "C" fn mitsuami_set_direction(id: u32, row: bool) -> bool {

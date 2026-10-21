@@ -103,6 +103,12 @@ async fn nodes_it_makes_are_laid_out_and_found(app: TestApp) {
     assert_eq!(title.origin.x, 16.0);
     assert_eq!(title.origin.y, 16.0);
     assert_eq!(url.y(), title.max_y() + 8.0);
+    // A hidden node takes no room, and is back where it was when shown.
+    let field = app.get_by_role(Role::TextField, "Repository URL").id().raw();
+    assert!(mitsuami_set_hidden(field, true));
+    app.expect(by_role(Role::TextField, "Repository URL")).to_be_hidden().await;
+    assert!(mitsuami_set_hidden(field, false));
+    app.expect(by_role(Role::TextField, "Repository URL")).to_have_frame(url).await;
     // Aligned to the start, the button keeps its own width.
     assert!(clone.width() < url.width() || url.width() < 100.0);
 }
