@@ -267,6 +267,24 @@ pub extern "C" fn mitsuami_set_modal(window: u32, owner: u32, modality: u32) -> 
     .is_some()
 }
 
+/// The bounds of a path's shapes, in its own units, into `out` (x, y,
+/// width, height): for an app that pads an icon in a view box, to size it
+/// against others. False if the data doesn't parse.
+///
+/// # Safety
+/// The path data is as [`string`] says, and `out` holds four floats.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn mitsuami_vector_icon_bounds(data: MitsuamiStr, out: *mut f32) -> bool {
+    guard(|| {
+        let data = unsafe { string(data.ptr, data.len)? };
+        let bounds = VectorIcon::new(&data)?.view_box();
+        let out = unsafe { std::slice::from_raw_parts_mut(out, 4) };
+        out.copy_from_slice(&[bounds.origin.x, bounds.origin.y, bounds.size.width, bounds.size.height]);
+        Ok(())
+    })
+    .is_some()
+}
+
 /// Makes an icon showing the app's own icon, from path data as for
 /// [`mitsuami_set_vector_icon`]; 0 if it fails. WinUI makes an icon a
 /// `FontIcon` or a `PathIcon` by its first props, so an icon that will

@@ -288,6 +288,10 @@ async fn icon_buttons_show_the_apps_own_icon(app: TestApp) {
     app.get_by_role(Role::Button, "Clone").click().await;
     assert_eq!(heard(), ["click"]);
 
+    let mut bounds = [0.0; 4];
+    assert!(unsafe { mitsuami_vector_icon_bounds(str(plus), bounds.as_mut_ptr()) });
+    assert_eq!(bounds, [0.0, 0.0, 24.0, 24.0]);
+
     assert!(!unsafe { mitsuami_set_vector_icon(button, str("M10 X"), 0.0, 0.0, 0.0, 0.0) });
     assert!(last_error().starts_with("bad path data"), "{}", last_error());
 }
