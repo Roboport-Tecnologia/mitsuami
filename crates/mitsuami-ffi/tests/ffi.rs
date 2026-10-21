@@ -31,6 +31,14 @@ extern "C" fn record(_user: *mut c_void, _node: u32, event: *const MitsuamiEvent
         7 => format!("close {}", event.index),
         8 => format!("moved {} to {}", event.index, event.to),
         9 => "new tab".to_string(),
+        10 => format!("menu {}", event.index),
+        11 => format!("hover {}", event.flag),
+        12 => {
+            let text = unsafe { std::slice::from_raw_parts(event.text, event.text_len) };
+            let paths: Vec<&str> = std::str::from_utf8(text).unwrap().split_terminator('\0').collect();
+            let names: Vec<&str> = paths.iter().map(|p| p.rsplit('/').next().unwrap()).collect();
+            format!("dropped {}", names.join(","))
+        }
         // Where focus goes on a click differs per platform.
         3 | 4 => return,
         kind => format!("event {kind}"),
@@ -350,6 +358,60 @@ async fn windows_capture_to_png_files(app: TestApp) {
         assert_eq!(&png[..8], b"\x89PNG\r\n\x1a\n");
         std::fs::remove_file(&path).unwrap();
     }
+}
+
+fn menu_entry(kind: u32, id: u32, title: &str, check: u32) -> MitsuamiMenuEntry {
+    MitsuamiMenuEntry { kind, id, title: str(title), enabled: true, check }
+}
+
+#[mitsuami_test::test]
+async fn context_menus_report_the_item_chosen(app: TestApp) {
+    attach(app.ui());
+    heard();
+    let text = create(MitsuamiKind::Text);
+    set_text(text, MitsuamiTextProp::Text, "sourcegit");
+    let entries = [
+        menu_entry(0, 1, "Open", 0),
+        menu_entry(1, 0, "", 0),
+        menu_entry(2, 0, "Bookmark", 0),
+        menu_entry(0, 2, "None", 4),
+        menu_entry(0, 3, "Red", 3),
+        menu_entry(3, 0, "", 0),
+        menu_entry(0, 4, "Delete", 0),
+    ];
+    assert!(unsafe { mitsuami_set_context_menu(text, entries.as_ptr(), entries.len()) });
+    assert!(mitsuami_on_event(text, record, std::ptr::null_mut()));
+    app.mount(|| Adopt(text));
+
+    app.get_by_text("sourcegit").choose_menu_item(&["Bookmark", "Red"]).await;
+    app.get_by_text("sourcegit").choose_menu_item(&["Delete"]).await;
+    assert_eq!(heard(), ["menu 3", "menu 4"]);
+
+    let unended = [menu_entry(2, 0, "Bookmark", 0)];
+    assert!(!unsafe { mitsuami_set_context_menu(text, unended.as_ptr(), 1) });
+}
+
+#[mitsuami_test::test]
+async fn containers_take_dropped_folders(app: TestApp) {
+    attach(app.ui());
+    heard();
+    let dir = std::env::temp_dir().join(format!("mitsuami-ffi-drop-{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&dir);
+    std::fs::create_dir_all(dir.join("repo")).unwrap();
+    std::fs::write(dir.join("notes.txt"), b"").unwrap();
+
+    let zone = create(MitsuamiKind::Container);
+    assert!(mitsuami_set_size(zone, 200.0, 100.0));
+    set_text(zone, MitsuamiTextProp::TestId, "repositories");
+    assert!(unsafe { mitsuami_set_file_drop(zone, true, false, std::ptr::null(), 0) });
+    assert!(mitsuami_on_event(zone, record, std::ptr::null_mut()));
+    app.mount(|| Adopt(zone));
+
+    // Folders only: the file is left out.
+    app.get(by_test_id("repositories")).drop_files(&[dir.join("repo"), dir.join("notes.txt")]).await;
+    let heard = heard();
+    assert!(heard.contains(&"dropped repo".to_string()), "{heard:?}");
+    std::fs::remove_dir_all(&dir).unwrap();
 }
 
 static POSTED_TO: AtomicU32 = AtomicU32::new(0);

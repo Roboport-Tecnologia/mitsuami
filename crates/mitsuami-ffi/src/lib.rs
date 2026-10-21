@@ -23,12 +23,12 @@ use std::sync::Mutex;
 use std::task::{Poll, Waker};
 
 use mitsuami::App;
-use mitsuami::core::services::{Alert, AlertStyle, OpenFile};
+use mitsuami::core::services::{Alert, AlertStyle, MenuCheck, MenuData, MenuEntry, MenuItemData, MenuRole, OpenFile};
 use mitsuami::core::style::Edges;
 use mitsuami::core::{
-    Align, ButtonRole, ButtonStyle, Color, DocumentTabsStyle, EventValue, FlexDirection, HeaderEdge, Justify, Length,
-    List, ListStyle, Modality, NodeId, Prop, Rect, SelectionMode, Size, TextStyle, Ui, UiEvent, VectorIcon, View,
-    WidgetKind, WindowSize,
+    Align, ButtonRole, ButtonStyle, Color, DocumentTabsStyle, EventValue, FileDrop, FlexDirection, HeaderEdge, Justify,
+    Length, List, ListStyle, Modality, NodeId, Prop, Rect, SelectionMode, Size, TextStyle, Ui, UiEvent, VectorIcon,
+    View, WidgetKind, WindowSize,
 };
 use mitsuami::reactive::{Owner, Signal, on_cleanup, signal, watch};
 
@@ -394,6 +394,8 @@ pub enum MitsuamiTextProp {
     /// An icon's name in the platform's own set: an SF Symbol, a themed
     /// icon, a Segoe Fluent Icons glyph.
     Icon = 7,
+    /// What tests find the node by (`by_test_id`).
+    TestId = 8,
 }
 
 /// # Safety
@@ -411,6 +413,10 @@ pub unsafe extern "C" fn mitsuami_set_text(id: u32, prop: u32, value: *const u8,
             4 => Prop::Placeholder(value),
             6 => Prop::Tooltip(value),
             7 => Prop::Icon(value),
+            8 => {
+                ui.set_test_id(node(id), value);
+                return Ok(());
+            }
             5 => {
                 ui.update_a11y(node(id), |a11y| a11y.label = Some(value));
                 return Ok(());
@@ -480,6 +486,97 @@ pub extern "C" fn mitsuami_set_number(id: u32, prop: u32, value: f64) -> bool {
             _ => return Err(format!("unknown number prop {prop}")),
         };
         ui()?.set_prop(node(id), prop);
+        Ok(())
+    })
+    .is_some()
+}
+
+/// An entry of a context menu, in a flat list: submenus are a
+/// `SubmenuStart` (its title) and the entries up to their `SubmenuEnd`.
+#[repr(C)]
+pub struct MitsuamiMenuEntry {
+    /// `Item`, `Separator`, `SubmenuStart`, `SubmenuEnd`: 0 to 3.
+    pub kind: u32,
+    /// An item's, unique in the menu: what choosing it reports.
+    pub id: u32,
+    pub title: MitsuamiStr,
+    pub enabled: bool,
+    /// None, a check box's (off, on) or a radio item's (off, on): 0 to 4.
+    pub check: u32,
+}
+
+/// The node's context menu, shown on the platform's own gestures; no
+/// entries: none. Choosing an item reports `ContextMenuItem` on the node.
+///
+/// # Safety
+/// `entries` points to `count` entries, their titles as [`string`] says.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn mitsuami_set_context_menu(id: u32, entries: *const MitsuamiMenuEntry, count: usize) -> bool {
+    guard(|| {
+        let entries = if count == 0 { &[][..] } else { unsafe { std::slice::from_raw_parts(entries, count) } };
+        // Each open submenu: its title and entries so far.
+        let mut stack: Vec<(String, Vec<MenuEntry>)> = vec![(String::new(), Vec::new())];
+        for entry in entries {
+            let title = unsafe { string(entry.title.ptr, entry.title.len)? };
+            match entry.kind {
+                0 => {
+                    let check = match entry.check {
+                        0 => MenuCheck::None,
+                        1 | 2 => MenuCheck::Check(entry.check == 2),
+                        3 | 4 => MenuCheck::Radio(entry.check == 4),
+                        other => return Err(format!("bad menu check {other}")),
+                    };
+                    let item = MenuItemData {
+                        id: entry.id,
+                        title,
+                        shortcut: None,
+                        enabled: entry.enabled,
+                        check,
+                        role: MenuRole::None,
+                    };
+                    stack.last_mut().unwrap().1.push(MenuEntry::Item(item));
+                }
+                1 => stack.last_mut().unwrap().1.push(MenuEntry::Separator),
+                2 => stack.push((title, Vec::new())),
+                3 if stack.len() > 1 => {
+                    let (title, entries) = stack.pop().unwrap();
+                    stack.last_mut().unwrap().1.push(MenuEntry::Submenu(MenuData { title, entries }));
+                }
+                other => return Err(format!("bad menu entry kind {other}")),
+            }
+        }
+        if stack.len() != 1 {
+            return Err("a submenu isn't ended".to_string());
+        }
+        ui()?.set_prop(node(id), Prop::ContextMenu(stack.pop().unwrap().1));
+        Ok(())
+    })
+    .is_some()
+}
+
+/// Lets a container take files and folders dropped on it from the
+/// platform's file manager: `folders`, and files with these extensions
+/// (without the dot), or any file if `any_file`. Nothing taken: none.
+/// It reports `DropHover` and `FilesDropped`.
+///
+/// # Safety
+/// `extensions` points to `count` strings.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn mitsuami_set_file_drop(
+    id: u32,
+    folders: bool,
+    any_file: bool,
+    extensions: *const MitsuamiStr,
+    count: usize,
+) -> bool {
+    guard(|| {
+        let extensions = unsafe { strings(extensions, count)? };
+        let drop = match (folders, any_file, extensions.is_empty()) {
+            (false, false, true) => None,
+            (_, true, _) => Some(FileDrop { extensions: None, folders }),
+            (_, false, _) => Some(FileDrop { extensions: Some(extensions), folders }),
+        };
+        ui()?.set_prop(node(id), Prop::FileDrop(drop));
         Ok(())
     })
     .is_some()
@@ -840,6 +937,13 @@ pub enum MitsuamiEventKind {
     TabMoved = 8,
     /// The user asked for a new document tab.
     NewTabRequested = 9,
+    /// The user chose a context menu's item: `index` is its id.
+    ContextMenuItem = 10,
+    /// Files a node takes are over it (`flag`), or have left.
+    DropHover = 11,
+    /// Files were dropped on a node that takes them: `text` has their
+    /// paths, each ended by a NUL.
+    FilesDropped = 12,
 }
 
 #[repr(u32)]
@@ -888,6 +992,9 @@ pub extern "C" fn mitsuami_on_event(
                 UiEvent::TabCloseRequested(_) => MitsuamiEventKind::TabCloseRequested,
                 UiEvent::TabMoved { .. } => MitsuamiEventKind::TabMoved,
                 UiEvent::NewTabRequested => MitsuamiEventKind::NewTabRequested,
+                UiEvent::ContextMenuItem(_) => MitsuamiEventKind::ContextMenuItem,
+                UiEvent::DropHover(_) => MitsuamiEventKind::DropHover,
+                UiEvent::FilesDropped(_) => MitsuamiEventKind::FilesDropped,
                 _ => return,
             };
             let mut out = MitsuamiEvent {
@@ -900,7 +1007,26 @@ pub extern "C" fn mitsuami_on_event(
                 index: 0,
                 to: 0,
             };
+            // Lives until the callback returns, as `out` borrows it.
+            let mut paths = String::new();
             match event {
+                UiEvent::ContextMenuItem(id) => {
+                    out.value_kind = MitsuamiValueKind::Index as u32;
+                    out.index = u64::from(*id);
+                }
+                UiEvent::DropHover(over) => {
+                    out.value_kind = MitsuamiValueKind::Bool as u32;
+                    out.flag = *over;
+                }
+                UiEvent::FilesDropped(dropped) => {
+                    for path in dropped {
+                        paths.push_str(&path.to_string_lossy());
+                        paths.push('\0');
+                    }
+                    out.value_kind = MitsuamiValueKind::Text as u32;
+                    out.text = paths.as_ptr();
+                    out.text_len = paths.len();
+                }
                 UiEvent::TabCloseRequested(index) => {
                     out.value_kind = MitsuamiValueKind::Index as u32;
                     out.index = *index as u64;
