@@ -58,7 +58,7 @@ fn clone_form() -> u32 {
     let column = create(MitsuamiKind::Container);
     assert!(mitsuami_set_padding(column, 16.0, 16.0, 16.0, 16.0));
     assert!(mitsuami_set_gap(column, 8.0));
-    assert!(mitsuami_set_align(column, 1, 0));
+    assert!(mitsuami_set_align_items(column, 1));
 
     let title = create(MitsuamiKind::Text);
     set_text(title, MitsuamiTextProp::Text, "Clone a repository");

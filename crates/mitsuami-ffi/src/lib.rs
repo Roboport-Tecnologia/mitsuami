@@ -473,17 +473,25 @@ pub extern "C" fn mitsuami_set_grow(id: u32, grow: f32) -> bool {
     .is_some()
 }
 
-/// How a container aligns its children across its direction, and how a
-/// node aligns itself: 0 unset, then `Start`, `End`, `Center`, `Stretch`,
-/// `Baseline`.
+/// How a container aligns its children across its direction: 0 unset,
+/// then `Start`, `End`, `Center`, `Stretch`, `Baseline`.
 #[unsafe(no_mangle)]
-pub extern "C" fn mitsuami_set_align(id: u32, items: u32, this: u32) -> bool {
+pub extern "C" fn mitsuami_set_align_items(id: u32, align_items: u32) -> bool {
     guard(|| {
-        let (items, this) = (align(items)?, align(this)?);
-        ui()?.update_style(node(id), |s| {
-            s.align_items = items;
-            s.align_self = this;
-        });
+        let value = align(align_items)?;
+        ui()?.update_style(node(id), |s| s.align_items = value);
+        Ok(())
+    })
+    .is_some()
+}
+
+/// How a node aligns itself in its container, over the container's
+/// `align_items`: as for that.
+#[unsafe(no_mangle)]
+pub extern "C" fn mitsuami_set_align_self(id: u32, align_self: u32) -> bool {
+    guard(|| {
+        let value = align(align_self)?;
+        ui()?.update_style(node(id), |s| s.align_self = value);
         Ok(())
     })
     .is_some()
