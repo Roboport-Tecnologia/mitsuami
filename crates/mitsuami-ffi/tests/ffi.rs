@@ -6,7 +6,7 @@ use std::cell::RefCell;
 use std::ffi::c_void;
 use std::sync::atomic::{AtomicU32, Ordering};
 
-use mitsuami::core::{NodeId, Ui, View};
+use mitsuami::core::{Modality, NodeId, Prop, Ui, View};
 use mitsuami_ffi::*;
 use mitsuami_test::prelude::*;
 
@@ -143,7 +143,9 @@ async fn document_tabs_are_data_the_caller_keeps(app: TestApp) {
     heard();
     let tabs = create(MitsuamiKind::DocumentTabs);
     let titles = strs(&["Welcome", "mitsuami", "sourcegit"]);
-    assert!(unsafe { mitsuami_set_strings(tabs, MitsuamiStringsProp::TabTitles as u32, titles.as_ptr(), titles.len()) });
+    assert!(unsafe {
+        mitsuami_set_strings(tabs, MitsuamiStringsProp::TabTitles as u32, titles.as_ptr(), titles.len())
+    });
     assert!(mitsuami_set_index(tabs, MitsuamiIndexProp::SelectedIndex as u32, 0));
     assert!(mitsuami_set_bool(tabs, MitsuamiBoolProp::TabsClosable as u32, true));
     assert!(mitsuami_set_bool(tabs, MitsuamiBoolProp::TabsReorderable as u32, true));
@@ -161,6 +163,33 @@ async fn document_tabs_are_data_the_caller_keeps(app: TestApp) {
     assert!(heard.contains(&"moved 0 to 2".to_string()), "{heard:?}");
     // A close only asks: the tab stays until the caller takes it away.
     app.expect(by_role(Role::Tab, "sourcegit")).to_exist().await;
+}
+
+#[mitsuami_test::test]
+async fn dialogs_are_modal_to_their_window(app: TestApp) {
+    attach(app.ui());
+    heard();
+    let title = "Clone";
+    let dialog = unsafe { mitsuami_create_window(title.as_ptr(), title.len(), 400.0, -1.0) };
+    assert_ne!(dialog, 0);
+    assert!(mitsuami_set_modal(dialog, app.window().raw(), 0));
+    assert!(mitsuami_on_event(dialog, record, std::ptr::null_mut()));
+    let text = create(MitsuamiKind::Text);
+    set_text(text, MitsuamiTextProp::Text, "Clone a repository");
+    assert!(mitsuami_append_child(dialog, text));
+    app.settle().await;
+
+    let dialog = app.window_titled("Clone").expect("the dialog is open");
+    let modal = app.ui().props(dialog).into_iter().find_map(|p| match p {
+        Prop::Modal { owner, modality } => Some((owner, modality)),
+        _ => None,
+    });
+    assert_eq!(modal, Some((Some(app.window()), Modality::Window)));
+
+    // Closing it (Escape, on a sheet) destroys it, and the caller hears.
+    app.close_window(dialog).await;
+    assert!(app.window_titled("Clone").is_none());
+    assert_eq!(heard(), ["event 5"]);
 }
 
 static POSTED_TO: AtomicU32 = AtomicU32::new(0);

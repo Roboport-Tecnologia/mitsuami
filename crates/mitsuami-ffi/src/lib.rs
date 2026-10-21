@@ -26,7 +26,7 @@ use mitsuami::App;
 use mitsuami::core::style::Edges;
 use mitsuami::core::{
     Align, ButtonRole, ButtonStyle, DocumentTabsStyle, EventValue, FlexDirection, Justify, Length, List, ListStyle,
-    NodeId, Prop, SelectionMode, Size, TextStyle, Ui, UiEvent, View, WidgetKind,
+    Modality, NodeId, Prop, SelectionMode, Size, TextStyle, Ui, UiEvent, View, WidgetKind, WindowSize,
 };
 use mitsuami::reactive::{Owner, Signal, on_cleanup, signal, watch};
 
@@ -215,7 +215,8 @@ pub extern "C" fn mitsuami_create(kind: u32) -> u32 {
     guard(|| Ok(ui()?.create(widget_kind(kind)?, Vec::new()).raw())).unwrap_or(0)
 }
 
-/// Opens a window with `title` and a content size in points. Closing it
+/// Opens a window with `title` and a content size in points; a negative
+/// height follows the content's height, as a dialog's does. Closing it
 /// destroys it; the app ends with its last window.
 ///
 /// # Safety
@@ -225,7 +226,8 @@ pub unsafe extern "C" fn mitsuami_create_window(title: *const u8, title_len: usi
     guard(|| {
         let ui = ui()?;
         let title = unsafe { string(title, title_len)? };
-        let window = ui.create_window(title, Size::new(width, height));
+        let size = if height < 0.0 { WindowSize::FollowHeight(width) } else { Size::new(width, height).into() };
+        let window = ui.create_window(title, size);
         let weak = ui.downgrade();
         ui.on_event(window, move |event| {
             if *event == UiEvent::WindowCloseRequested
@@ -237,6 +239,24 @@ pub unsafe extern "C" fn mitsuami_create_window(title: *const u8, title_len: usi
         Ok(window.raw())
     })
     .unwrap_or(0)
+}
+
+/// Makes a window just made modal, before it shows: `modality` 0 blocks
+/// `owner` (a sheet on macOS), 1 the whole app. Without an owner (0), it
+/// blocks the whole app.
+#[unsafe(no_mangle)]
+pub extern "C" fn mitsuami_set_modal(window: u32, owner: u32, modality: u32) -> bool {
+    guard(|| {
+        let owner = (owner != 0).then(|| node(owner));
+        let modality = match (modality, owner) {
+            (0, Some(_)) => Modality::Window,
+            (0 | 1, _) => Modality::Application,
+            _ => return Err(format!("bad modality {modality}")),
+        };
+        ui()?.set_prop(node(window), Prop::Modal { owner, modality });
+        Ok(())
+    })
+    .is_some()
 }
 
 /// Puts `child` in `parent` at `index`, or last if `index` is past the end.
