@@ -95,7 +95,7 @@ fn clone_form() -> u32 {
 #[mitsuami_test::test]
 async fn nodes_it_makes_are_laid_out_and_found(app: TestApp) {
     attach(app.ui());
-    app.mount(|| Adopt(clone_form()));
+    let column = app.mount(|| Adopt(clone_form()));
 
     let title = app.get_by_text("Clone a repository").frame();
     let url = app.get_by_role(Role::TextField, "Repository URL").frame();
@@ -103,6 +103,12 @@ async fn nodes_it_makes_are_laid_out_and_found(app: TestApp) {
     assert_eq!(title.origin.x, 16.0);
     assert_eq!(title.origin.y, 16.0);
     assert_eq!(url.y(), title.max_y() + 8.0);
+    // A header is a prop: the core lays it out as any container.
+    assert!(mitsuami_set_bool(column.raw(), MitsuamiBoolProp::Header as u32, true));
+    assert!(mitsuami_set_enum(column.raw(), MitsuamiEnumProp::HeaderEdge as u32, 2));
+    app.settle().await;
+    assert!(app.ui().props(column).contains(&Prop::Header(true)));
+
     // A hidden node takes no room, and is back where it was when shown.
     let field = app.get_by_role(Role::TextField, "Repository URL").id().raw();
     assert!(mitsuami_set_hidden(field, true));

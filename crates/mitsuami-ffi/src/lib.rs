@@ -26,8 +26,8 @@ use mitsuami::App;
 use mitsuami::core::services::{Alert, AlertStyle, OpenFile};
 use mitsuami::core::style::Edges;
 use mitsuami::core::{
-    Align, ButtonRole, ButtonStyle, DocumentTabsStyle, EventValue, FlexDirection, Justify, Length, List, ListStyle,
-    Modality, NodeId, Prop, Rect, SelectionMode, Size, TextStyle, Ui, UiEvent, VectorIcon, View, WidgetKind,
+    Align, ButtonRole, ButtonStyle, DocumentTabsStyle, EventValue, FlexDirection, HeaderEdge, Justify, Length, List,
+    ListStyle, Modality, NodeId, Prop, Rect, SelectionMode, Size, TextStyle, Ui, UiEvent, VectorIcon, View, WidgetKind,
     WindowSize,
 };
 use mitsuami::reactive::{Owner, Signal, on_cleanup, signal, watch};
@@ -435,6 +435,10 @@ pub enum MitsuamiBoolProp {
     NewTabButton = 4,
     /// A button shows only its icon; its caption stays its name.
     IconOnly = 5,
+    /// A container that's its window's header: on macOS a strip in the
+    /// title bar, under the title, spanning the window; elsewhere the
+    /// content's top, as it is.
+    Header = 6,
 }
 
 #[unsafe(no_mangle)]
@@ -447,6 +451,7 @@ pub extern "C" fn mitsuami_set_bool(id: u32, prop: u32, value: bool) -> bool {
             3 => Prop::TabsReorderable(value),
             4 => Prop::NewTabButton(value),
             5 => Prop::IconOnly(value),
+            6 => Prop::Header(value),
             _ => return Err(format!("unknown bool prop {prop}")),
         };
         ui()?.set_prop(node(id), prop);
@@ -541,6 +546,9 @@ pub enum MitsuamiEnumProp {
     ListStyle = 4,
     /// Document tabs': `Automatic`, `Strip`, `Window`, `TitleRow`, 0 to 3.
     DocumentTabsStyle = 5,
+    /// How a header meets what scrolls under it: `Automatic`, `Soft`,
+    /// `Hard`, 0 to 2 (macOS 26.1 and later).
+    HeaderEdge = 6,
 }
 
 #[unsafe(no_mangle)]
@@ -588,6 +596,12 @@ pub extern "C" fn mitsuami_set_enum(id: u32, prop: u32, value: u32) -> bool {
                 1 => DocumentTabsStyle::Strip,
                 2 => DocumentTabsStyle::Window,
                 3 => DocumentTabsStyle::TitleRow,
+                _ => return Err(bad()),
+            }),
+            6 => Prop::HeaderEdge(match value {
+                0 => HeaderEdge::Automatic,
+                1 => HeaderEdge::Soft,
+                2 => HeaderEdge::Hard,
                 _ => return Err(bad()),
             }),
             _ => return Err(format!("unknown enum prop {prop}")),
