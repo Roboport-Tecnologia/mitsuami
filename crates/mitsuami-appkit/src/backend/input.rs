@@ -60,6 +60,17 @@ impl AppKitBackend {
             }
             return Ok(());
         }
+        // Through the table's own drop targeting.
+        if let SyntheticInput::MoveRows { rows, to } = input {
+            return match self.state.borrow().nodes.get(&id).map(|n| &n.widget) {
+                Some(Widget::List(list)) => {
+                    list.move_rows(rows, *to);
+                    Ok(())
+                }
+                Some(_) => Err(ActionError::Unsupported),
+                None => Err(ActionError::UnknownNode),
+            };
+        }
         if let SyntheticInput::Click(point) = input {
             // Drawn widgets only: native controls track the mouse in a
             // loop of their own, waiting for real events.

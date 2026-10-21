@@ -24,7 +24,8 @@ use std::path::PathBuf;
 use std::rc::Rc;
 
 use mitsuami_core::{
-    ColumnData, ColumnSort, EventValue, ListStyle, NodeId, Point, Rect, RowKey, SelectionMode, SortOrder, UiEvent,
+    ColumnData, ColumnSort, EventValue, ListStyle, NodeId, Point, Rect, RowDrop, RowKey, RowMoves, SelectionMode,
+    SortOrder, UiEvent,
 };
 use windows_core::{EventRevoker, IInspectable, IUnknown, Interface};
 
@@ -33,6 +34,16 @@ use crate::bindings as w;
 use crate::later;
 
 type R<T> = windows_core::Result<T>;
+
+/// The data format rows dragged within their list carry: a marker only,
+/// as XAML reads a package's data asynchronously and a drag over the list
+/// needs to know at once. The rows are kept here, from `DragItemsStarting`.
+const ROW_FORMAT: &str = "br.com.roboport.mitsuami.row";
+
+thread_local! {
+    /// The rows being dragged within a list, and that list.
+    static DRAGGED: RefCell<Option<(NodeId, Vec<RowKey>)>> = const { RefCell::new(None) };
+}
 
 /// Each container shows a `Canvas`, our cell: XAML creates it from the
 /// item template (content set on a container directly is replaced by the
@@ -192,6 +203,8 @@ struct Data {
     /// The rows' files, as the app gave them (`Prop::RowFiles`), and by row.
     files: Option<Vec<(RowKey, PathBuf)>>,
     file_of: HashMap<RowKey, PathBuf>,
+    /// Where rows dragged within it can go (`Prop::RowMoves`).
+    moves: Option<RowMoves>,
 }
 
 impl Data {
@@ -375,6 +388,44 @@ pub(crate) struct List {
 
 /// The files dragging these rows carries: XAML's dragged items, which are
 /// the selected rows when a selected row is dragged, else that row.
+/// Where rows dragged within the list land: `RowMoves::target` of where
+/// the pointer proposes, the rows in the list's order. `None`: refused.
+fn drop_target(d: &Data, dragged: &[RowKey], proposed: RowDrop<RowKey>) -> Option<(Vec<RowKey>, RowDrop<RowKey>)> {
+    let moves = d.moves?;
+    let mut rows: Vec<RowKey> = dragged.iter().filter(|row| d.index.contains_key(row)).copied().collect();
+    rows.sort_by_key(|row| d.index[row]);
+    let to = moves.target(&rows, proposed)?;
+    (!rows.is_empty()).then_some((rows, to))
+}
+
+/// Where a drag over the list proposes to drop: onto the row under the
+/// pointer in its middle half, before it in its top quarter, before the
+/// next row in its bottom quarter (at the end past the last row), and at
+/// the end where no row is.
+fn proposed(view: &w::ListView, d: &Data, args: &w::DragEventArgs) -> RowDrop<RowKey> {
+    let source = args.cast::<w::IRoutedEventArgs>().ok().and_then(|a| a.OriginalSource().ok());
+    let Some((container, row)) = source.and_then(|s| container_of(view, &s)) else { return RowDrop::End };
+    let Some(index) = d.index.get(&row).copied() else { return RowDrop::End };
+    let height = container.cast::<w::IFrameworkElement>().and_then(|e| e.ActualHeight()).unwrap_or(0.0);
+    let y =
+        container.cast::<w::UIElement>().ok().and_then(|c| args.GetPosition(&c).ok()).map_or(0.0, |p| f64::from(p.y));
+    if height <= 0.0 || (y >= height / 4.0 && y <= height * 3.0 / 4.0) {
+        RowDrop::On(row)
+    } else if y < height / 4.0 {
+        RowDrop::Before(row)
+    } else {
+        d.rows.get(index + 1).map_or(RowDrop::End, |next| RowDrop::Before(*next))
+    }
+}
+
+/// Whether a drag over the list is its own rows', as `DragItemsStarting`
+/// marked them.
+fn own_drag(args: &w::DragEventArgs, id: NodeId) -> Option<Vec<RowKey>> {
+    let marked = args.DataView().and_then(|v| v.Contains(ROW_FORMAT)).unwrap_or(false);
+    let (list, rows) = DRAGGED.with(|d| d.borrow().clone())?;
+    (marked && list == id).then_some(rows)
+}
+
 fn files_of(d: &Data, rows: &[RowKey]) -> Vec<PathBuf> {
     rows.iter().filter_map(|row| d.file_of.get(row).cloned()).collect()
 }
@@ -530,8 +581,9 @@ impl List {
                 }
             }
         })?);
-        // Rows with files (`Prop::RowFiles`) drag them out, as a copy;
-        // dragging is turned on once there are some.
+        // Rows with files (`Prop::RowFiles`) drag them out, as a copy, and
+        // rows that move within the list (`Prop::RowMoves`) carry a marker
+        // for it; dragging is turned on once either is there.
         revokers.push(view.cast::<w::IListViewBase>()?.DragItemsStarting({
             let data = data.clone();
             move |_, args| {
@@ -540,13 +592,28 @@ impl List {
                     .Items()
                     .map(|items| (&items).into_iter().filter_map(|i| key_of(&i)).collect())
                     .unwrap_or_default();
-                let paths = files_of(&data.borrow(), &rows);
+                let (paths, moves) = {
+                    let d = data.borrow();
+                    (files_of(&d, &rows), d.moves.is_some())
+                };
                 let Ok(package) = args.Data() else { return };
-                if paths.is_empty() {
+                if paths.is_empty() && !moves {
                     _ = args.SetCancel(true);
                     return;
                 }
-                _ = package.SetRequestedOperation(w::DataPackageOperation::Copy);
+                let mut operation = w::DataPackageOperation::None;
+                if moves {
+                    operation |= w::DataPackageOperation::Move;
+                    DRAGGED.with(|d| *d.borrow_mut() = Some((id, rows.clone())));
+                    // Asked for by no one: it only marks the drag as the list's.
+                    let marker = w::DataProviderHandler::new(|_| {});
+                    _ = package.SetDataProvider(ROW_FORMAT, &marker);
+                }
+                if paths.is_empty() {
+                    _ = package.SetRequestedOperation(operation);
+                    return;
+                }
+                _ = package.SetRequestedOperation(operation | w::DataPackageOperation::Copy);
                 let Ok(format) = w::StandardDataFormats::StorageItems() else { return };
                 let provider = w::DataProviderHandler::new(move |request| {
                     if let Some(request) = request.as_ref() {
@@ -554,6 +621,37 @@ impl List {
                     }
                 });
                 _ = package.SetDataProvider(&format.to_string(), &provider);
+            }
+        })?);
+        // Its own rows dragged over it (`Prop::RowMoves`): taken as a move
+        // where `RowMoves::target` puts them, else refused.
+        revokers.push(view.cast::<w::IUIElement>()?.DragOver({
+            let (data, view) = (data.clone(), view.clone());
+            move |_, args| {
+                let Some(args) = args.as_ref() else { return };
+                let Some(dragged) = own_drag(args, id) else { return };
+                let d = data.borrow();
+                let target = drop_target(&d, &dragged, proposed(&view, &d, args));
+                let operation =
+                    if target.is_some() { w::DataPackageOperation::Move } else { w::DataPackageOperation::None };
+                _ = args.SetAcceptedOperation(operation);
+                _ = args.SetHandled(true);
+            }
+        })?);
+        revokers.push(view.cast::<w::IUIElement>()?.Drop({
+            let (data, events, view) = (data.clone(), events.clone(), view.clone());
+            move |_, args| {
+                let Some(args) = args.as_ref() else { return };
+                let Some(dragged) = own_drag(args, id) else { return };
+                DRAGGED.with(|d| d.borrow_mut().take());
+                let moved = {
+                    let d = data.borrow();
+                    drop_target(&d, &dragged, proposed(&view, &d, args))
+                };
+                if let Some((rows, to)) = moved {
+                    events.emit(id, UiEvent::RowsMoved { rows, to });
+                }
+                _ = args.SetHandled(true);
             }
         })?);
         revokers.push(view.cast::<w::IUIElement>()?.PreviewKeyDown({
@@ -937,8 +1035,31 @@ impl List {
         selected(&self.view, &self.data.borrow())
     }
 
+    /// Rows move within the list: it drags its rows, and takes their drops.
+    pub(crate) fn set_moves(&self, moves: RowMoves) -> R<()> {
+        self.data.borrow_mut().moves = Some(moves);
+        self.view.cast::<w::IListViewBase>()?.SetCanDragItems(true)?;
+        self.view.cast::<w::IUIElement>()?.SetAllowDrop(true)
+    }
+
+    /// What the app gave, which XAML can't give back.
+    pub(crate) fn moves(&self) -> Option<RowMoves> {
+        self.data.borrow().moves
+    }
+
+    /// A drag of `rows` dropped where the pointer proposed `to`, through
+    /// the same targeting as a real drop: for tests, which can't start a
+    /// drag.
+    pub(crate) fn move_rows(&self, rows: &[RowKey], to: RowDrop<RowKey>) {
+        let moved = drop_target(&self.data.borrow(), rows, to);
+        if let Some((rows, to)) = moved {
+            self.events.emit(self.id, UiEvent::RowsMoved { rows, to });
+        }
+    }
+
     pub(crate) fn set_row_files(&self, files: Vec<(RowKey, PathBuf)>) -> R<()> {
-        self.view.cast::<w::IListViewBase>()?.SetCanDragItems(!files.is_empty())?;
+        let moves = self.data.borrow().moves.is_some();
+        self.view.cast::<w::IListViewBase>()?.SetCanDragItems(moves || !files.is_empty())?;
         let mut data = self.data.borrow_mut();
         data.file_of = files.iter().cloned().collect();
         data.files = Some(files);
@@ -1250,11 +1371,16 @@ fn selected(view: &w::ListView, d: &Data) -> Vec<RowKey> {
 
 /// The row an element is in: up the visual tree to its container.
 fn row_of_element(view: &w::ListView, element: &IInspectable) -> Option<RowKey> {
+    container_of(view, element).map(|(_, row)| row)
+}
+
+/// The item container an element is in, up the visual tree, and its row.
+fn container_of(view: &w::ListView, element: &IInspectable) -> Option<(w::DependencyObject, RowKey)> {
     let mut current: w::DependencyObject = element.cast().ok()?;
     loop {
         if current.cast::<w::SelectorItem>().is_ok() {
             let item = view.cast::<w::IItemContainerMapping>().ok()?.ItemFromContainer(&current).ok()?;
-            return key_of(&item);
+            return Some((current, key_of(&item)?));
         }
         current = w::VisualTreeHelper::GetParent(&current).ok()?;
     }

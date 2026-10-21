@@ -121,6 +121,9 @@ pub enum SyntheticInput {
     /// The files are dropped on the node (having entered it first, as a
     /// real drop does).
     DropFiles(Vec<std::path::PathBuf>),
+    /// Rows of a list with `Prop::RowMoves` dragged within it and dropped
+    /// where the platform proposed, through the list's own drop handling.
+    MoveRows { rows: Vec<crate::RowKey>, to: crate::RowDrop<crate::RowKey> },
 }
 
 /// A key, by what it types or does: a character (`Char(' ')` is the

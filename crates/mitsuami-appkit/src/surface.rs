@@ -1407,6 +1407,7 @@ pub(crate) fn synthesize(view: &SurfaceView, input: &SyntheticInput) -> Result<(
         | SyntheticInput::DragFiles(_)
         | SyntheticInput::DragLeave
         | SyntheticInput::DropFiles(_)
+        | SyntheticInput::MoveRows { .. }
         | SyntheticInput::PointerEnter
         | SyntheticInput::PointerLeave
         | SyntheticInput::DoubleClick => {

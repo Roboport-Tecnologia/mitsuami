@@ -73,6 +73,9 @@ mod launch;
 #[path = "../../../crates/mitsuami/examples/list.rs"]
 mod list;
 #[allow(dead_code, unused_attributes)]
+#[path = "../../../crates/mitsuami/examples/row_moves.rs"]
+mod row_moves;
+#[allow(dead_code, unused_attributes)]
 #[path = "../../../crates/mitsuami/examples/measurements.rs"]
 mod measurements;
 #[allow(dead_code, unused_attributes)]
@@ -197,6 +200,7 @@ const SECTIONS: [(&str, &[Example]); 7] = [
             example("Group", || AnyView::new(group::settings())),
             example("Separator", || AnyView::new(separator::page())),
             example("List", || AnyView::new(list::page())),
+            example("Moving rows", || AnyView::new(row_moves::page())),
             example("Table", || AnyView::new(table::page())),
             example("Scroll view", || AnyView::new(scroll_view::page())),
             example("Tabs", || AnyView::new(tabs::preferences())),

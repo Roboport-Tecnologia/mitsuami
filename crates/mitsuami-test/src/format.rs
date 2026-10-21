@@ -32,6 +32,11 @@ fn describe_props(props: &[Prop]) -> String {
             }
             Prop::FileDrop(None) => {}
             // Their names: the rest is the machine's.
+            Prop::RowMoves(moves) => {
+                let on = [(moves.onto_rows, "onto"), (moves.between_rows, "between")];
+                let on: Vec<&str> = on.iter().filter(|(on, _)| *on).map(|(_, name)| *name).collect();
+                extra.push(format!("row_moves={}", on.join("+")))
+            }
             Prop::RowFiles(files) => {
                 let names: Vec<String> = files
                     .iter()

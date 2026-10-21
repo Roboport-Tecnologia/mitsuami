@@ -50,6 +50,17 @@ impl GtkBackend {
             }
             return Ok(());
         }
+        // Through the targeting the list's drop targets use.
+        if let SyntheticInput::MoveRows { rows, to } = input {
+            return match self.state.borrow().nodes.get(&id).map(|n| &n.widget) {
+                Some(Widget::List(list)) => {
+                    list.move_rows(rows, *to);
+                    Ok(())
+                }
+                Some(_) => Err(ActionError::Unsupported),
+                None => Err(ActionError::UnknownNode),
+            };
+        }
         if let SyntheticInput::Click(point) = input {
             // Drawn widgets only: their pointer handling is ours.
             let state = self.state.borrow();

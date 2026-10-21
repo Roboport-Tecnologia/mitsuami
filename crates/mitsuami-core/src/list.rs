@@ -22,12 +22,14 @@ use crate::tweak::Tweak;
 use crate::ui::{Ui, WeakUi};
 use crate::units::Length;
 use crate::view::{AnyView, View};
-use crate::widget::{ListStyle, NodeId, Prop, RowKey, SelectionMode, WidgetKind};
+use crate::widget::{ListStyle, NodeId, Prop, RowDrop, RowKey, RowMoves, SelectionMode, WidgetKind};
 
 pub(crate) type KeyFn<T, K> = Rc<dyn Fn(&T) -> K>;
 /// The file a row's item stands for, which dragging the row carries.
 pub(crate) type FileFn<T> = Rc<dyn Fn(&T) -> Option<PathBuf>>;
 type RowOf<K> = Rc<dyn Fn(&K) -> Option<RowKey>>;
+/// What a list does with rows dragged within it (`List::on_move`).
+pub(crate) type MoveFn<K> = Rc<dyn Fn(Vec<K>, RowDrop<K>)>;
 
 /// How a `List` renders a row.
 pub struct RowRender<T>(Rc<dyn Fn(T) -> AnyView>);
@@ -63,6 +65,7 @@ pub struct List<T: 'static = (), K: 'static = (), R = RowRender<T>> {
     estimate: Option<f32>,
     handle: Option<ListHandle<K>>,
     files: Option<FileFn<T>>,
+    moves: Option<(RowMoves, MoveFn<K>)>,
 }
 
 impl<T: Clone + 'static, K: Eq + Hash + Clone + 'static> List<T, K> {
@@ -93,7 +96,25 @@ impl<T: 'static, K: 'static, R> List<T, K, R> {
             estimate: None,
             handle: None,
             files: None,
+            moves: None,
         }
+    }
+
+    /// Rows can be dragged within the list, with the platform's own row
+    /// drag (the selection, when a selected row is dragged), and dropped
+    /// where `moves` says: onto a row, between rows, or both. `handler`
+    /// gets the rows, in the list's order, and where they were dropped
+    /// (`RowDrop`: onto a row, before one, or at the end). The list shows
+    /// nothing moved: the app moves its data, or leaves it. Dragging isn't
+    /// reachable from the keyboard or assistive technology: offer another
+    /// way too (a Move command).
+    ///
+    /// ```ignore
+    /// List::new(..).on_move(RowMoves::onto_rows(), |ids, to| move_into(ids, to))
+    /// ```
+    pub fn on_move(mut self, moves: RowMoves, handler: impl Fn(Vec<K>, RowDrop<K>) + 'static) -> Self {
+        self.moves = Some((moves, Rc::new(handler)));
+        self
     }
 
     /// Rows can be dragged out of the app, carrying the files their items
@@ -289,18 +310,20 @@ pub(crate) struct RowParts<T: 'static, K: 'static> {
     pub estimate: Option<f32>,
     pub handle: Option<ListHandle<K>>,
     pub files: Option<FileFn<T>>,
+    pub moves: Option<(RowMoves, MoveFn<K>)>,
 }
 
 impl<T: Clone + 'static, K: Eq + Hash + Clone + 'static> View for List<T, K> {
     fn build(self, ui: &Ui) -> NodeId {
-        let List { element, each, key, render, mode, style, selected, on_activate, estimate, handle, files } = self;
+        let List { element, each, key, render, mode, style, selected, on_activate, estimate, handle, files, moves } =
+            self;
         let mount: Mount<T> = Rc::new(move |ui: &Ui, row, item| {
             let host = ui.create(WidgetKind::Container, vec![Prop::Row(row)]);
             let content = (render.0)(item).build(ui);
             ui.append_child(host, content);
             vec![host]
         });
-        let parts = RowParts { each, key, mount, mode, style, selected, on_activate, estimate, handle, files };
+        let parts = RowParts { each, key, mount, mode, style, selected, on_activate, estimate, handle, files, moves };
         build_rows(ui, element, parts)
     }
 }
@@ -312,7 +335,7 @@ pub(crate) fn build_rows<T: Clone + 'static, K: Eq + Hash + Clone + 'static>(
     mut element: Element,
     parts: RowParts<T, K>,
 ) -> NodeId {
-    let RowParts { each, key, mount, mode, style, selected, on_activate, estimate, handle, files } = parts;
+    let RowParts { each, key, mount, mode, style, selected, on_activate, estimate, handle, files, moves } = parts;
     let mode = mode.unwrap_or(Value::Static(match selected {
         Some(_) => SelectionMode::Single,
         None => SelectionMode::None,
@@ -325,6 +348,9 @@ pub(crate) fn build_rows<T: Clone + 'static, K: Eq + Hash + Clone + 'static>(
     }
     if let Some(estimate) = estimate {
         element.prop(Value::Static(estimate), Prop::EstimatedRowHeight);
+    }
+    if let Some((moves, _)) = &moves {
+        element.prop(Value::Static(*moves), Prop::RowMoves);
     }
     let id = element.build(ui);
 
@@ -533,6 +559,28 @@ pub(crate) fn build_rows<T: Clone + 'static, K: Eq + Hash + Clone + 'static>(
             }
         });
     }
+    if let Some((_, on_move)) = moves {
+        let rows = rows.clone();
+        ui.on_event(id, move |event| {
+            if let UiEvent::RowsMoved { rows: moved, to } = event {
+                let (keys, to) = {
+                    let rows = rows.borrow();
+                    let keys: Vec<K> = moved.iter().filter_map(|row| rows.keys.get(row).cloned()).collect();
+                    let to = match to.map(|row| rows.keys.get(&row).cloned()) {
+                        RowDrop::On(Some(k)) => RowDrop::On(k),
+                        RowDrop::Before(Some(k)) => RowDrop::Before(k),
+                        RowDrop::End => RowDrop::End,
+                        // A row that went while the drag was on.
+                        _ => return,
+                    };
+                    (keys, to)
+                };
+                if !keys.is_empty() {
+                    on_move(keys, to);
+                }
+            }
+        });
+    }
     if let Some(handle) = handle {
         let rows = rows.clone();
         handle.0.borrow_mut().connection = Some(Connection {
@@ -591,8 +639,8 @@ impl<T: 'static> ElementBuilder for ListWithoutKey<T> {
 impl<T: Clone + 'static, K: Eq + Hash + Clone + 'static> List<T, K, ()> {
     #[doc(hidden)]
     pub fn __children<V: View>(self, render: impl Fn(T) -> V + 'static) -> List<T, K> {
-        let List { element, each, key, mode, style, selected, on_activate, estimate, handle, files, .. } = self;
+        let List { element, each, key, mode, style, selected, on_activate, estimate, handle, files, moves, .. } = self;
         let render = RowRender(Rc::new(move |item| AnyView::new(render(item))) as Rc<dyn Fn(T) -> AnyView>);
-        List { element, each, key, render, mode, style, selected, on_activate, estimate, handle, files }
+        List { element, each, key, render, mode, style, selected, on_activate, estimate, handle, files, moves }
     }
 }

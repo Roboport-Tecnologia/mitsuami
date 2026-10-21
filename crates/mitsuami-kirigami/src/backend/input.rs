@@ -110,11 +110,28 @@ impl KirigamiBackend {
             }
             return Ok(());
         }
+        // Through the view's own drop targeting, with the state let go:
+        // its report may wake the run loop.
+        if let SyntheticInput::MoveRows { rows, to } = input {
+            let (events, moved) = {
+                let state = self.state.borrow();
+                match state.nodes.get(&id).map(|n| &n.widget) {
+                    Some(Widget::List(list)) => (state.events.clone(), list.move_rows(rows, *to)),
+                    Some(_) => return Err(ActionError::Unsupported),
+                    None => return Err(ActionError::UnknownNode),
+                }
+            };
+            if let Some((rows, to)) = moved {
+                events.emit(id, UiEvent::RowsMoved { rows, to });
+            }
+            return Ok(());
+        }
         match input {
             // Handled above.
             SyntheticInput::DragFiles(_)
             | SyntheticInput::DragLeave
             | SyntheticInput::DropFiles(_)
+            | SyntheticInput::MoveRows { .. }
             | SyntheticInput::PointerEnter
             | SyntheticInput::PointerLeave
             | SyntheticInput::DoubleClick => unreachable!(),
@@ -335,6 +352,7 @@ impl KirigamiBackend {
             | SyntheticInput::DragFiles(_)
             | SyntheticInput::DragLeave
             | SyntheticInput::DropFiles(_)
+            | SyntheticInput::MoveRows { .. }
             | SyntheticInput::PointerEnter
             | SyntheticInput::PointerLeave
             | SyntheticInput::DoubleClick => {

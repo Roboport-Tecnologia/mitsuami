@@ -22,7 +22,8 @@ use gtk::prelude::*;
 use gtk::subclass::prelude::*;
 use gtk::{gdk, gio, glib, graphene, gsk};
 use mitsuami_core::{
-    ColumnData, ColumnSort, EventValue, ListStyle, NodeId, Point, Rect, RowKey, SelectionMode, SortOrder, UiEvent,
+    ColumnData, ColumnSort, EventValue, ListStyle, NodeId, Point, Rect, RowDrop, RowKey, RowMoves, SelectionMode,
+    SortOrder, UiEvent,
 };
 
 use crate::host::Events;
@@ -66,6 +67,45 @@ struct Data {
     /// The rows' files, as the app gave them (`Prop::RowFiles`), and by row.
     files: Option<Vec<(RowKey, PathBuf)>>,
     file_of: HashMap<RowKey, PathBuf>,
+    /// Where rows dragged within it can go (`Prop::RowMoves`).
+    moves: Option<RowMoves>,
+    /// The cell a drag over the list is shown at.
+    drop_cell: Option<glib::WeakRef<gtk::Widget>>,
+}
+
+/// What a drag of rows within a list carries: the list's id, so another
+/// list refuses it, and the rows' keys. A drag within the app hands its
+/// value over as it is; other apps can't read it.
+#[derive(Clone, Debug, glib::Boxed)]
+#[boxed_type(name = "MitsuamiDraggedRows")]
+struct DraggedRows {
+    list: u32,
+    rows: Vec<u64>,
+}
+
+/// Where a drop lands, by `RowMoves::target`: the rows (those still in the
+/// list, in its order) and where. The drop targets and the test hook both
+/// ask it.
+fn landing(data: &Data, rows: &[RowKey], proposed: RowDrop<RowKey>) -> Option<(Vec<RowKey>, RowDrop<RowKey>)> {
+    let moves = data.moves?;
+    let mut rows: Vec<RowKey> = rows.iter().filter(|row| data.index.contains_key(row)).copied().collect();
+    rows.sort_by_key(|row| data.index[row]);
+    let to = moves.target(&rows, proposed)?;
+    (!rows.is_empty()).then_some((rows, to))
+}
+
+/// What a drag at `y` over `key`'s cell, `height` high, proposes: before
+/// the row in its top quarter, before the next one (or the end) in its
+/// bottom quarter, onto it in between.
+fn proposal(data: &Data, key: RowKey, y: f64, height: f64) -> RowDrop<RowKey> {
+    if y < height / 4.0 {
+        return RowDrop::Before(key);
+    }
+    if y > height * 3.0 / 4.0 {
+        let next = data.index.get(&key).and_then(|i| data.rows.get(i + 1));
+        return next.map_or(RowDrop::End, |next| RowDrop::Before(*next));
+    }
+    RowDrop::On(key)
 }
 
 impl Data {
@@ -111,7 +151,10 @@ fn install_css() {
     let provider = gtk::CssProvider::new();
     provider.load_from_data(
         "listview.mitsuami-list > row { padding: 0; margin: 0; min-height: 0; }
-         listview.mitsuami-list:not(.separators) > row { border: none; }",
+         listview.mitsuami-list:not(.separators) > row { border: none; }
+         .mitsuami-drop-on { outline: 2px solid @accent_bg_color; outline-offset: -2px; }
+         .mitsuami-drop-before { box-shadow: inset 0 2px @accent_bg_color; }
+         .mitsuami-drop-after { box-shadow: inset 0 -2px @accent_bg_color; }",
     );
     if let Some(display) = gtk::gdk::Display::default() {
         gtk::style_context_add_provider_for_display(&display, &provider, gtk::STYLE_PROVIDER_PRIORITY_APPLICATION);
@@ -137,7 +180,132 @@ fn new_data() -> Rc<RefCell<Data>> {
         row_width: None,
         files: None,
         file_of: HashMap::new(),
+        moves: None,
+        drop_cell: None,
     }))
+}
+
+/// The rows dragging `key` carries: the selection when it's selected, as
+/// GTK's lists drag, else the row.
+fn dragged_rows(data: &Data, key: RowKey, model: Option<&gtk::SelectionModel>) -> Vec<RowKey> {
+    let selected = model.map(|m| selected_keys(data, m)).unwrap_or_default();
+    if selected.contains(&key) { selected } else { vec![key] }
+}
+
+const DROP_CLASSES: [&str; 3] = ["mitsuami-drop-on", "mitsuami-drop-before", "mitsuami-drop-after"];
+
+/// Shows where a drag over `cell` lands: a ring on the row it drops onto,
+/// a line above or below it otherwise. `None` takes it away.
+fn show_drop(data: &mut Data, cell: Option<(&gtk::Widget, RowKey, RowDrop<RowKey>)>) {
+    if let Some(old) = data.drop_cell.take().and_then(|w| w.upgrade()) {
+        for class in DROP_CLASSES {
+            old.remove_css_class(class);
+        }
+    }
+    let Some((cell, key, to)) = cell else { return };
+    let class = match to {
+        RowDrop::On(row) if row == key => "mitsuami-drop-on",
+        RowDrop::Before(row) if row == key => "mitsuami-drop-before",
+        _ => "mitsuami-drop-after",
+    };
+    cell.add_css_class(class);
+    data.drop_cell = Some(cell.downgrade());
+}
+
+/// Makes a cell take rows dragged within its list: shown where they'd
+/// land while over it, reported as `RowsMoved` when dropped. The drop is a
+/// copy to GTK, so no file a row carries is ever moved: the app moves its
+/// data.
+fn row_drop_target(data: &Rc<RefCell<Data>>, events: &Events, id: NodeId, cell: &gtk::Widget) {
+    let target = gtk::DropTarget::new(DraggedRows::static_type(), gdk::DragAction::COPY);
+    target.set_preload(true);
+    let land = {
+        let (data, weak) = (Rc::downgrade(data), cell.downgrade());
+        move |target: &gtk::DropTarget, y: f64| -> Option<(RowKey, Vec<RowKey>, RowDrop<RowKey>)> {
+            let (data, cell) = (data.upgrade()?, weak.upgrade()?);
+            let dragged = target.value()?.get::<DraggedRows>().ok().filter(|d| d.list == id.raw())?;
+            let data = data.borrow();
+            let key = data.cells.iter().find(|(_, c)| **c == cell).map(|((key, _), _)| *key)?;
+            let rows: Vec<RowKey> = dragged.rows.iter().map(|r| RowKey(*r)).collect();
+            let (rows, to) = landing(&data, &rows, proposal(&data, key, y, f64::from(cell.height())))?;
+            Some((key, rows, to))
+        }
+    };
+    let land = Rc::new(land);
+    {
+        let (land, data, weak) = (land.clone(), Rc::downgrade(data), cell.downgrade());
+        target.connect_motion(move |target, _, y| {
+            let (Some(data), Some(cell)) = (data.upgrade(), weak.upgrade()) else { return gdk::DragAction::empty() };
+            let landed = land(target, y);
+            let mut data = data.borrow_mut();
+            match landed {
+                Some((key, _, to)) => {
+                    show_drop(&mut data, Some((&cell, key, to)));
+                    gdk::DragAction::COPY
+                }
+                None => {
+                    show_drop(&mut data, None);
+                    gdk::DragAction::empty()
+                }
+            }
+        });
+    }
+    {
+        let data = Rc::downgrade(data);
+        target.connect_leave(move |_| {
+            if let Some(data) = data.upgrade() {
+                show_drop(&mut data.borrow_mut(), None);
+            }
+        });
+    }
+    {
+        let (events, data) = (events.clone(), Rc::downgrade(data));
+        target.connect_drop(move |target, _, _, y| {
+            if let Some(data) = data.upgrade() {
+                show_drop(&mut data.borrow_mut(), None);
+            }
+            match land(target, y) {
+                Some((_, rows, to)) => {
+                    events.emit(id, UiEvent::RowsMoved { rows, to });
+                    true
+                }
+                None => false,
+            }
+        });
+    }
+    cell.add_controller(target);
+}
+
+/// Makes the list view take rows dropped on its empty part, at the end.
+fn end_drop_target(data: &Rc<RefCell<Data>>, events: &Events, id: NodeId, view: &gtk::Widget) {
+    let target = gtk::DropTarget::new(DraggedRows::static_type(), gdk::DragAction::COPY);
+    target.set_preload(true);
+    let land = {
+        let data = Rc::downgrade(data);
+        move |target: &gtk::DropTarget| -> Option<(Vec<RowKey>, RowDrop<RowKey>)> {
+            let data = data.upgrade()?;
+            let dragged = target.value()?.get::<DraggedRows>().ok().filter(|d| d.list == id.raw())?;
+            let rows: Vec<RowKey> = dragged.rows.iter().map(|r| RowKey(*r)).collect();
+            landing(&data.borrow(), &rows, RowDrop::End)
+        }
+    };
+    let land = Rc::new(land);
+    {
+        let land = land.clone();
+        target.connect_motion(move |target, _, _| match land(target) {
+            Some(_) => gdk::DragAction::COPY,
+            None => gdk::DragAction::empty(),
+        });
+    }
+    let events = events.clone();
+    target.connect_drop(move |target, _, _, _| match land(target) {
+        Some((rows, to)) => {
+            events.emit(id, UiEvent::RowsMoved { rows, to });
+            true
+        }
+        None => false,
+    });
+    view.add_controller(target);
 }
 
 /// The files dragging `key` carries: the selected rows' when it's
@@ -150,9 +318,10 @@ fn dragged(data: &Data, key: RowKey, model: Option<&gtk::SelectionModel>) -> Vec
 
 /// Makes a cell a drag source, as Files' rows are: dragging it carries its
 /// row's file (or the selection's) as a `gdk::FileList`, which file
-/// managers and other apps take, offered as a copy. A row without a file
-/// doesn't drag.
-fn drag_source(data: &Rc<RefCell<Data>>, cell: &gtk::Widget) {
+/// managers and other apps take, offered as a copy, and where rows move
+/// within the list, the rows (`DraggedRows`). A row with neither doesn't
+/// drag.
+fn drag_source(data: &Rc<RefCell<Data>>, id: NodeId, cell: &gtk::Widget) {
     let source = gtk::DragSource::new();
     source.set_actions(gdk::DragAction::COPY);
     let (data, weak) = (Rc::downgrade(data), cell.downgrade());
@@ -163,7 +332,19 @@ fn drag_source(data: &Rc<RefCell<Data>>, cell: &gtk::Widget) {
         let model = view_model(&cell);
         let files = dragged(&data, key, model.as_ref());
         let files: Vec<gio::File> = files.iter().map(gio::File::for_path).collect();
-        (!files.is_empty()).then(|| gdk::ContentProvider::for_value(&gdk::FileList::from_array(&files).to_value()))
+        let mut providers = Vec::new();
+        if !files.is_empty() {
+            providers.push(gdk::ContentProvider::for_value(&gdk::FileList::from_array(&files).to_value()));
+        }
+        if data.moves.is_some() {
+            let rows = dragged_rows(&data, key, model.as_ref()).iter().map(|r| r.0).collect();
+            providers.push(gdk::ContentProvider::for_value(&DraggedRows { list: id.raw(), rows }.to_value()));
+        }
+        match providers.len() {
+            0 => None,
+            1 => providers.pop(),
+            _ => Some(gdk::ContentProvider::new_union(&providers)),
+        }
     });
     // The row itself under the pointer, as Files shows a dragged row.
     let weak = cell.downgrade();
@@ -208,11 +389,12 @@ fn factory(
 ) -> gtk::SignalListItemFactory {
     let factory = gtk::SignalListItemFactory::new();
     {
-        let data = data.clone();
+        let (data, events) = (data.clone(), events.clone());
         factory.connect_setup(move |_, item| {
             let Some(item) = item.downcast_ref::<gtk::ListItem>() else { return };
             let cell = make();
-            drag_source(&data, &cell);
+            drag_source(&data, id, &cell);
+            row_drop_target(&data, &events, id, &cell);
             item.set_child(Some(&cell));
         });
     }
@@ -261,6 +443,7 @@ impl List {
         let factory = factory(&data, &events, id, 0, || ItemCell::new(0, None).upcast());
         let view = gtk::ListView::new(None::<gtk::NoSelection>, Some(factory));
         view.add_css_class("mitsuami-list");
+        end_drop_target(&data, &events, id, view.upcast_ref());
         // Activation is double-click or Enter, as in Files.
         view.set_single_click_activate(false);
         {
@@ -595,6 +778,24 @@ impl List {
         let mut data = self.data.borrow_mut();
         data.file_of = files.iter().cloned().collect();
         data.files = Some(files);
+    }
+
+    /// Rows move within the list: its cells drag them, and take them.
+    pub(crate) fn set_moves(&self, moves: RowMoves) {
+        self.data.borrow_mut().moves = Some(moves);
+    }
+
+    pub(crate) fn moves(&self) -> Option<RowMoves> {
+        self.data.borrow().moves
+    }
+
+    /// A drag of `rows` dropped where `to` proposes, through the targeting
+    /// the drop targets use: for tests, as GTK can't start a drag.
+    pub(crate) fn move_rows(&self, rows: &[RowKey], to: RowDrop<RowKey>) {
+        let landed = landing(&self.data.borrow(), rows, to);
+        if let Some((rows, to)) = landed {
+            self.events.emit(self.id, UiEvent::RowsMoved { rows, to });
+        }
     }
 
     pub(crate) fn row_files(&self) -> Option<Vec<(RowKey, PathBuf)>> {

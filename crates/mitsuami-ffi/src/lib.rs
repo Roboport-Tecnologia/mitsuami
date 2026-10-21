@@ -27,8 +27,8 @@ use mitsuami::core::services::{Alert, AlertStyle, MenuCheck, MenuData, MenuEntry
 use mitsuami::core::style::Edges;
 use mitsuami::core::{
     Align, ButtonRole, ButtonStyle, Color, DocumentTabsStyle, EventValue, FileDrop, FlexDirection, HeaderEdge, Justify,
-    Length, List, ListStyle, Modality, NodeId, Prop, Rect, SelectionMode, Size, TextStyle, Ui, UiEvent, VectorIcon,
-    View, WidgetKind, WindowSize,
+    Length, List, ListStyle, Modality, NodeId, Prop, Rect, RowDrop, RowMoves, SelectionMode, Size, TextStyle, Ui,
+    UiEvent, VectorIcon, View, WidgetKind, WindowSize,
 };
 use mitsuami::reactive::{Owner, Signal, on_cleanup, signal, watch};
 
@@ -1103,6 +1103,13 @@ pub struct MitsuamiListCallbacks {
     /// The user activated a row (double-click, Return): its key.
     pub activated: extern "C" fn(*mut c_void, u32, *const u8, usize),
     pub user: *mut c_void,
+    /// Where rows dragged within the list can be dropped: 1 onto rows, 2
+    /// between rows, both or-ed; 0, rows don't move.
+    pub moves: u32,
+    /// Rows were dragged and dropped (`moves`): their keys, in the list's
+    /// order, and where: `to` is 0 onto the row `to_key`, 1 before it, 2
+    /// at the end.
+    pub moved: extern "C" fn(*mut c_void, u32, *const MitsuamiStr, usize, u32, *const u8, usize),
 }
 
 struct ListState {
@@ -1169,6 +1176,32 @@ pub extern "C" fn mitsuami_create_list(callbacks: MitsuamiListCallbacks) -> u32 
             .on_activate(move |key: String| {
                 (activate_cb.activated)(activate_cb.user, activate_id.get(), key.as_ptr(), key.len())
             });
+            let list = match cb.moves {
+                0 => list,
+                moves => {
+                    let moves = RowMoves { onto_rows: moves & 1 != 0, between_rows: moves & 2 != 0 };
+                    let (moved_cb, moved_id) = (cb.clone(), id.clone());
+                    list.on_move(moves, move |keys: Vec<String>, to: RowDrop<String>| {
+                        let strs: Vec<MitsuamiStr> =
+                            keys.iter().map(|k| MitsuamiStr { ptr: k.as_ptr(), len: k.len() }).collect();
+                        let (kind, key) = match &to {
+                            RowDrop::On(key) => (0, key.as_str()),
+                            RowDrop::Before(key) => (1, key.as_str()),
+                            RowDrop::End => (2, ""),
+                        };
+                        let user = moved_cb.user;
+                        (moved_cb.moved)(
+                            user,
+                            moved_id.get(),
+                            strs.as_ptr(),
+                            strs.len(),
+                            kind,
+                            key.as_ptr(),
+                            key.len(),
+                        );
+                    })
+                }
+            };
             let (changed_cb, changed_id, set) = (cb.clone(), id.clone(), set.clone());
             watch(
                 move || selected.get(),

@@ -34,6 +34,18 @@ impl WinUiBackend {
             report();
             return Ok(());
         }
+        // Through the list's own drop targeting.
+        if let SyntheticInput::MoveRows { rows, to } = input {
+            let state = self.state.borrow();
+            return match state.nodes.get(&id).map(|n| &n.widget) {
+                Some(Widget::List(list)) => {
+                    list.move_rows(rows, *to);
+                    Ok(())
+                }
+                Some(_) => Err(ActionError::Unsupported),
+                None => Err(ActionError::UnknownNode),
+            };
+        }
         if let SyntheticInput::DragFiles(_) | SyntheticInput::DragLeave | SyntheticInput::DropFiles(_) = input {
             let state = self.state.borrow();
             let node = state.nodes.get(&id).ok_or(ActionError::UnknownNode)?;

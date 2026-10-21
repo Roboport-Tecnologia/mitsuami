@@ -54,6 +54,19 @@ impl HeadlessBackend {
             }
             return Ok(());
         }
+        // As a platform's list does: rows dropped where `RowMoves` takes
+        // them, the rows in the list's order.
+        if let SyntheticInput::MoveRows { rows, to } = input {
+            let moves = find_prop!(node.props, RowMoves).ok_or(ActionError::Unsupported)?;
+            let order = find_prop!(node.props, Rows).unwrap_or_default();
+            let rows: Vec<RowKey> = order.iter().filter(|row| rows.contains(row)).copied().collect();
+            if let Some(to) = moves.target(&rows, *to)
+                && !rows.is_empty()
+            {
+                state.emit(id, UiEvent::RowsMoved { rows, to });
+            }
+            return Ok(());
+        }
         if let SyntheticInput::DragLeave = input {
             if state.drop_hover.take_if(|n| *n == id).is_some() {
                 state.emit(id, UiEvent::DropHover(false));
@@ -125,6 +138,7 @@ impl HeadlessBackend {
             SyntheticInput::DragFiles(_)
             | SyntheticInput::DragLeave
             | SyntheticInput::DropFiles(_)
+            | SyntheticInput::MoveRows { .. }
             | SyntheticInput::PointerEnter
             | SyntheticInput::PointerLeave
             | SyntheticInput::DoubleClick => unreachable!(),
@@ -330,6 +344,7 @@ impl State {
             | SyntheticInput::DragFiles(_)
             | SyntheticInput::DragLeave
             | SyntheticInput::DropFiles(_)
+            | SyntheticInput::MoveRows { .. }
             | SyntheticInput::PointerEnter
             | SyntheticInput::PointerLeave
             | SyntheticInput::DoubleClick => {

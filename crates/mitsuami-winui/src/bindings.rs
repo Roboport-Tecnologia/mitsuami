@@ -5867,6 +5867,20 @@ impl IDragEventArgs {
                 .ok()
         }
     }
+    pub fn GetPosition<P0>(&self, relativeto: P0) -> windows_core::Result<Point>
+    where
+        P0: windows_core::Param<UIElement>,
+    {
+        unsafe {
+            let mut result__ = core::mem::zeroed();
+            (windows_core::Interface::vtable(self).GetPosition)(
+                windows_core::Interface::as_raw(self),
+                relativeto.param().abi(),
+                &mut result__,
+            )
+            .map(|| result__)
+        }
+    }
 }
 #[repr(C)]
 pub struct IDragEventArgs_Vtbl {
@@ -5883,6 +5897,10 @@ pub struct IDragEventArgs_Vtbl {
         unsafe extern "system" fn(*mut core::ffi::c_void, *mut DataPackageOperation) -> windows_core::HRESULT,
     pub SetAcceptedOperation:
         unsafe extern "system" fn(*mut core::ffi::c_void, DataPackageOperation) -> windows_core::HRESULT,
+    AllowedOperations: usize,
+    GetDeferral: usize,
+    pub GetPosition:
+        unsafe extern "system" fn(*mut core::ffi::c_void, *mut core::ffi::c_void, *mut Point) -> windows_core::HRESULT,
 }
 windows_core::imp::define_interface!(
     IDragItemsStartingEventArgs,

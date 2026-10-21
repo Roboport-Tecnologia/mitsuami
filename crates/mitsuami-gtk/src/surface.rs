@@ -332,6 +332,7 @@ impl SurfaceArea {
             | SyntheticInput::DragFiles(_)
             | SyntheticInput::DragLeave
             | SyntheticInput::DropFiles(_)
+            | SyntheticInput::MoveRows { .. }
             | SyntheticInput::PointerEnter
             | SyntheticInput::PointerLeave
             | SyntheticInput::DoubleClick => {

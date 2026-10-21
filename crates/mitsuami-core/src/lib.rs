@@ -27,9 +27,9 @@ mod surface;
 mod table;
 pub mod task;
 mod tweak;
-mod vector_icon;
 mod ui;
 pub mod units;
+mod vector_icon;
 mod view;
 mod widget;
 
@@ -55,15 +55,15 @@ pub use style::{Align, Display, FlexDirection, GridPlacement, Justify, Style, Te
 pub use surface::{NativeSurface, SurfaceHandle, SurfaceSize};
 pub use table::{Sort, Table, TableColumn, TableWithoutEach, TableWithoutKey};
 pub use tweak::Tweak;
-pub use vector_icon::{PathStep, VectorIcon};
 pub use ui::{NodeInfo, Ui, WeakUi};
 pub use units::{Length, LengthExt, Spacing};
+pub use vector_icon::{PathStep, VectorIcon};
 pub use view::{AnyView, Callback, Children, Slot, View};
 pub use widget::{
     ButtonRole, ButtonStyle, CellKey, ColumnData, ColumnSort, CurrentWindow, Cursor, DocumentTabsStyle, FileDrop,
     FontWeight, HeaderEdge, HorizontalAlign, ImageFit, ImageSource, InputPurpose, LayoutDirection, ListStyle, Modality,
-    NodeId, Orientation, Pixels, Prop, RowKey, ScrollAxes, SelectionMode, SidebarItemData, SidebarSectionData,
-    SortOrder, SystemCursor, TabsStyle, TextAlign, TextStyle, Truncation, WidgetKind, moved_index,
+    NodeId, Orientation, Pixels, Prop, RowDrop, RowKey, RowMoves, ScrollAxes, SelectionMode, SidebarItemData,
+    SidebarSectionData, SortOrder, SystemCursor, TabsStyle, TextAlign, TextStyle, Truncation, WidgetKind, moved_index,
 };
 
 pub use mitsuami_reactive as reactive;

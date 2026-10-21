@@ -689,6 +689,70 @@ impl ScrollAxes {
     }
 }
 
+/// Where rows dragged within a list can be dropped (`List::on_move`): onto
+/// a row (into a group, say), between rows (to reorder them), or both. A
+/// drop on the list's empty part is at its end, either way.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub struct RowMoves {
+    pub onto_rows: bool,
+    pub between_rows: bool,
+}
+
+impl RowMoves {
+    pub fn onto_rows() -> RowMoves {
+        RowMoves { onto_rows: true, between_rows: false }
+    }
+
+    pub fn between_rows() -> RowMoves {
+        RowMoves { onto_rows: false, between_rows: true }
+    }
+
+    pub fn and_between_rows(self) -> RowMoves {
+        RowMoves { between_rows: true, ..self }
+    }
+
+    pub fn and_onto_rows(self) -> RowMoves {
+        RowMoves { onto_rows: true, ..self }
+    }
+
+    /// Where a drop the platform proposes lands, by what the list takes:
+    /// onto a row where only between rows is taken is before it, and
+    /// between rows where only onto them is taken is onto the row there.
+    /// Rows aren't dropped onto one of themselves: `None`. Every backend
+    /// asks this while a drag is over its list, and shows what it answers.
+    pub fn target(&self, dragged: &[RowKey], proposed: RowDrop<RowKey>) -> Option<RowDrop<RowKey>> {
+        let target = match proposed {
+            RowDrop::On(row) if !self.onto_rows => RowDrop::Before(row),
+            RowDrop::Before(row) if !self.between_rows => RowDrop::On(row),
+            other => other,
+        };
+        match target {
+            RowDrop::On(row) if dragged.contains(&row) => None,
+            _ if !self.onto_rows && !self.between_rows => None,
+            target => Some(target),
+        }
+    }
+}
+
+/// Where rows dragged within a list were dropped: onto a row, before one,
+/// or at the end (the list's empty part).
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+pub enum RowDrop<K> {
+    On(K),
+    Before(K),
+    End,
+}
+
+impl<K> RowDrop<K> {
+    pub fn map<J>(self, f: impl FnOnce(K) -> J) -> RowDrop<J> {
+        match self {
+            RowDrop::On(k) => RowDrop::On(f(k)),
+            RowDrop::Before(k) => RowDrop::Before(f(k)),
+            RowDrop::End => RowDrop::End,
+        }
+    }
+}
+
 /// Identity of a row of a `List`, stable while its item's key stays in the
 /// data. Assigned by the core.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
@@ -1095,6 +1159,10 @@ pub enum Prop {
     /// file don't drag. Sent before the rows, and only if the app gave
     /// them.
     RowFiles(Vec<(RowKey, PathBuf)>),
+    /// A `List`'s rows can be dragged within it, and dropped where it
+    /// says (`List::on_move`); it reports `RowsMoved`. Sent only if the app
+    /// gave it.
+    RowMoves(RowMoves),
     /// The keys a `Container`, `Group`, `List` or `Table` takes while it,
     /// or a control inside it, has keyboard focus, and the focused control
     /// doesn't use them itself: they go up from the focused control, as the

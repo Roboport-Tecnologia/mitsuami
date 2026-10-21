@@ -1,6 +1,7 @@
 use mitsuami_core::services::{MenuEntry, Shortcut, find_menu_item};
 use mitsuami_core::{
-    A11yAction, A11yNode, Key, NativeState, NodeId, Point, Rect, Role, SyntheticInput, WidgetKind, find_prop,
+    A11yAction, A11yNode, Key, NativeState, NodeId, Point, Rect, Role, RowDrop, RowKey, SyntheticInput, WidgetKind,
+    find_prop,
 };
 
 use crate::app::TestApp;
@@ -379,6 +380,61 @@ impl<'a> Locator<'a> {
     pub async fn drop_files<P: AsRef<std::path::Path>>(&self, paths: &[P]) {
         self.drag(SyntheticInput::DropFiles(paths.iter().map(|p| p.as_ref().to_path_buf()).collect()), "drop files on")
             .await;
+    }
+
+    /// Drags this row (a list item) within its list and drops it onto
+    /// `target`'s row, as the platform's row drag does: the selected rows
+    /// if it's selected, else it alone. The list's own drop handling puts
+    /// the drop where it takes it (`RowMoves`). Nothing starts a real drag.
+    pub async fn drag_onto(&self, target: &Locator<'_>) {
+        self.move_row(Some((target, true)), "drag onto").await;
+    }
+
+    /// Drags this row within its list and drops it just before `target`'s.
+    pub async fn drag_before(&self, target: &Locator<'_>) {
+        self.move_row(Some((target, false)), "drag before").await;
+    }
+
+    /// Drags this row within its list and drops it on the list's empty part.
+    pub async fn drag_to_end(&self) {
+        self.move_row(None, "drag to the end of").await;
+    }
+
+    async fn move_row(&self, target: Option<(&Locator<'_>, bool)>, what: &str) {
+        self.app.settle().await;
+        let (list, row) = self.row();
+        let selected = find_prop!(self.app.ui().props(list), Selected).unwrap_or_default();
+        let rows = if selected.contains(&row) { selected } else { vec![row] };
+        let to = match target {
+            Some((target, on)) => {
+                let (target_list, target_row) = target.row();
+                if target_list != list {
+                    self.fail(&format!("{} isn't in the list of {}", target.query, self.query));
+                }
+                if on { RowDrop::On(target_row) } else { RowDrop::Before(target_row) }
+            }
+            None => RowDrop::End,
+        };
+        if let Err(e) = self.app.ui().synthesize(list, &SyntheticInput::MoveRows { rows, to }) {
+            self.fail(&format!("cannot {what} {}: {e}", self.query));
+        }
+        self.app.settle().await;
+    }
+
+    /// The list a row is in, and its row: the nearest node up the tree
+    /// that's a row's host.
+    fn row(&self) -> (NodeId, RowKey) {
+        let ui = self.app.ui();
+        let mut id = Some(self.node().id);
+        while let Some(node) = id {
+            if let Some(row) = find_prop!(ui.props(node), Row)
+                && let Some(list) = ui.parent(node)
+            {
+                return (list, row);
+            }
+            id = ui.parent(node);
+        }
+        self.fail(&format!("{} isn't in a list's row", self.query))
     }
 
     async fn drag(&self, input: SyntheticInput, what: &str) {

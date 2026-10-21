@@ -19,7 +19,8 @@ use std::path::PathBuf;
 use std::rc::Rc;
 
 use mitsuami_core::{
-    ColumnData, ColumnSort, EventSink, EventValue, ListStyle, NodeId, Rect, RowKey, SelectionMode, SortOrder, UiEvent,
+    ColumnData, ColumnSort, EventSink, EventValue, ListStyle, NodeId, Rect, RowDrop, RowKey, RowMoves, SelectionMode,
+    SortOrder, UiEvent,
 };
 
 use mitsuami_core::services::Shortcut;
@@ -27,10 +28,11 @@ use objc2::rc::Retained;
 use objc2::runtime::{AnyObject, NSObject, NSObjectProtocol, ProtocolObject};
 use objc2::{DefinedClass, MainThreadMarker, MainThreadOnly, define_class, msg_send, sel};
 use objc2_app_kit::{
-    NSAnimationContext, NSBorderType, NSControlTextEditingDelegate, NSDragOperation, NSEvent, NSEventModifierFlags,
-    NSImage, NSMenu, NSPasteboardWriting, NSResponder, NSScrollView, NSTableColumn, NSTableColumnResizingOptions,
-    NSTableRowView, NSTableView, NSTableViewAnimationOptions, NSTableViewColumnAutoresizingStyle,
-    NSTableViewDataSource, NSTableViewDelegate, NSTableViewStyle, NSView, NSViewBoundsDidChangeNotification,
+    NSAnimationContext, NSBorderType, NSControlTextEditingDelegate, NSDragOperation, NSDraggingInfo, NSEvent,
+    NSEventModifierFlags, NSImage, NSMenu, NSPasteboardItem, NSPasteboardTypeFileURL, NSPasteboardWriting, NSResponder,
+    NSScrollView, NSTableColumn, NSTableColumnResizingOptions, NSTableRowView, NSTableView,
+    NSTableViewAnimationOptions, NSTableViewColumnAutoresizingStyle, NSTableViewDataSource, NSTableViewDelegate,
+    NSTableViewDropOperation, NSTableViewStyle, NSView, NSViewBoundsDidChangeNotification,
     NSViewFrameDidChangeNotification,
 };
 use objc2_foundation::{
@@ -40,6 +42,9 @@ use objc2_foundation::{
 };
 
 use crate::classes::{HostView, zero_rect};
+
+/// The pasteboard type a row dragged within its list carries: its key.
+const ROW_TYPE: &str = "br.com.roboport.mitsuami.row";
 
 /// The key path of a table column's width, which the list watches.
 const WIDTH: &str = "width";
@@ -97,6 +102,8 @@ pub(crate) struct ListData {
     file_of: HashMap<RowKey, PathBuf>,
     /// Lists only: the row width last reported.
     row_width: Option<f32>,
+    /// Where rows dragged within it can go (`Prop::RowMoves`).
+    moves: Option<RowMoves>,
 }
 
 impl ListData {
@@ -113,11 +120,60 @@ impl ListData {
     }
 
     /// What dragging a row gives the pasteboard: its file's URL, which
-    /// Finder and other apps take as the file. The table asks for each row
-    /// it drags: the selected rows when a selected row is dragged.
-    fn pasteboard_writer(&self, key: RowKey) -> Option<Retained<NSURL>> {
-        let path = self.file_of.get(&key)?;
-        Some(NSURL::fileURLWithPath(&NSString::from_str(&path.to_string_lossy())))
+    /// Finder and other apps take as the file, and, where rows move within
+    /// the list, its key. The table asks for each row it drags: the
+    /// selected rows when a selected row is dragged.
+    fn pasteboard_writer(&self, key: RowKey) -> Option<Retained<ProtocolObject<dyn NSPasteboardWriting>>> {
+        let url =
+            self.file_of.get(&key).map(|path| NSURL::fileURLWithPath(&NSString::from_str(&path.to_string_lossy())));
+        if self.moves.is_none() {
+            return url.map(ProtocolObject::from_retained);
+        }
+        let item = NSPasteboardItem::new();
+        item.setString_forType(&NSString::from_str(&key.0.to_string()), &NSString::from_str(ROW_TYPE));
+        if let Some(url) = url.and_then(|url| url.absoluteString()) {
+            item.setString_forType(&url, unsafe { NSPasteboardTypeFileURL });
+        }
+        Some(ProtocolObject::from_retained(item))
+    }
+
+    /// Where a drop the table proposes (a row, and on it or above it; the
+    /// row past the last for the end) lands, by `RowMoves::target`, with
+    /// the row and operation the table shows it at. `None`: refused.
+    fn drop_target(&self, dragged: &[RowKey], row: isize, on: bool) -> Option<(RowDrop<RowKey>, isize, bool)> {
+        let moves = self.moves?;
+        let proposed = match (usize::try_from(row).ok().and_then(|i| self.rows.get(i)), on) {
+            (Some(key), true) => RowDrop::On(*key),
+            (Some(key), false) => RowDrop::Before(*key),
+            (None, _) => RowDrop::End,
+        };
+        let target = moves.target(dragged, proposed)?;
+        let (row, on) = match target {
+            RowDrop::On(key) => (*self.index.get(&key)? as isize, true),
+            RowDrop::Before(key) => (*self.index.get(&key)? as isize, false),
+            RowDrop::End => (self.rows.len() as isize, false),
+        };
+        Some((target, row, on))
+    }
+
+    /// The rows a drag carries, in the list's order: the keys on its
+    /// pasteboard, from this list only.
+    fn dragged(&self, table: &NSTableView, info: &ProtocolObject<dyn NSDraggingInfo>) -> Vec<RowKey> {
+        let from_here = info
+            .draggingSource()
+            .is_some_and(|source| std::ptr::eq(&*source, table as &NSTableView as *const _ as *const AnyObject));
+        if !from_here {
+            return Vec::new();
+        }
+        let items = info.draggingPasteboard().pasteboardItems().unwrap_or_default();
+        let mut rows: Vec<RowKey> = items
+            .iter()
+            .filter_map(|item| item.stringForType(&NSString::from_str(ROW_TYPE)))
+            .filter_map(|key| key.to_string().parse().ok().map(RowKey))
+            .filter(|row| self.index.contains_key(row))
+            .collect();
+        rows.sort_by_key(|row| self.index[row]);
+        rows
     }
 
     /// The rows' heights, as sent: a list's host's, or a table's highest
@@ -218,8 +274,55 @@ define_class!(
             row: NSInteger,
         ) -> Option<Retained<ProtocolObject<dyn NSPasteboardWriting>>> {
             let data = self.ivars().data.borrow();
-            let url = data.rows.get(row as usize).and_then(|key| data.pasteboard_writer(*key));
-            url.map(ProtocolObject::from_retained)
+            data.rows.get(row as usize).and_then(|key| data.pasteboard_writer(*key))
+        }
+
+        /// A drag over the table: rows from this list, shown where they'd
+        /// land (`RowMoves::target`), as a move.
+        #[unsafe(method(tableView:validateDrop:proposedRow:proposedDropOperation:))]
+        fn validate_drop(
+            &self,
+            table: &NSTableView,
+            info: &ProtocolObject<dyn NSDraggingInfo>,
+            row: NSInteger,
+            operation: NSTableViewDropOperation,
+        ) -> NSDragOperation {
+            let data = self.ivars().data.borrow();
+            let dragged = data.dragged(table, info);
+            if dragged.is_empty() {
+                return NSDragOperation::None;
+            }
+            match data.drop_target(&dragged, row, operation == NSTableViewDropOperation::On) {
+                Some((_, row, on)) => {
+                    let operation = if on { NSTableViewDropOperation::On } else { NSTableViewDropOperation::Above };
+                    table.setDropRow_dropOperation(row, operation);
+                    NSDragOperation::Move
+                }
+                None => NSDragOperation::None,
+            }
+        }
+
+        #[unsafe(method(tableView:acceptDrop:row:dropOperation:))]
+        fn accept_drop(
+            &self,
+            table: &NSTableView,
+            info: &ProtocolObject<dyn NSDraggingInfo>,
+            row: NSInteger,
+            operation: NSTableViewDropOperation,
+        ) -> bool {
+            let ListIvars { id, events, data } = self.ivars();
+            let moved = {
+                let data = data.borrow();
+                let dragged = data.dragged(table, info);
+                data.drop_target(&dragged, row, operation == NSTableViewDropOperation::On).map(|(to, ..)| (dragged, to))
+            };
+            match moved {
+                Some((rows, to)) if !rows.is_empty() => {
+                    events.emit(*id, UiEvent::RowsMoved { rows, to });
+                    true
+                }
+                _ => false,
+            }
         }
 
         #[unsafe(method(tableView:sortDescriptorsDidChange:))]
@@ -1133,6 +1236,40 @@ impl List {
         ))
     }
 
+    /// Rows move within the list: the table takes its own rows' drags,
+    /// as a move.
+    pub(crate) fn set_moves(&self, moves: RowMoves) {
+        self.data.borrow_mut().moves = Some(moves);
+        self.table.registerForDraggedTypes(&NSArray::from_retained_slice(&[NSString::from_str(ROW_TYPE)]));
+        self.table.setDraggingSourceOperationMask_forLocal(NSDragOperation::Copy | NSDragOperation::Move, true);
+    }
+
+    /// A drag of `rows` dropped where the platform proposed `to`, through
+    /// the same targeting as a real drop: for tests, which can't start a
+    /// drag.
+    pub(crate) fn move_rows(&self, rows: &[RowKey], to: RowDrop<RowKey>) {
+        let ListIvars { id, events, data } = self._source.ivars();
+        let moved = {
+            let data = data.borrow();
+            let (row, on) = match to {
+                RowDrop::On(key) => (data.index.get(&key).map_or(-1, |i| *i as isize), true),
+                RowDrop::Before(key) => (data.index.get(&key).map_or(-1, |i| *i as isize), false),
+                RowDrop::End => (data.rows.len() as isize, false),
+            };
+            let mut rows: Vec<RowKey> = rows.iter().filter(|row| data.index.contains_key(row)).copied().collect();
+            rows.sort_by_key(|row| data.index[row]);
+            data.drop_target(&rows, row, on).map(|(to, ..)| (rows, to))
+        };
+        if let Some((rows, to)) = moved.filter(|(rows, _)| !rows.is_empty()) {
+            events.emit(*id, UiEvent::RowsMoved { rows, to });
+        }
+    }
+
+    /// What the app gave, which the table can't give back.
+    pub(crate) fn moves(&self) -> Option<RowMoves> {
+        self.data.borrow().moves
+    }
+
     pub(crate) fn set_row_files(&self, files: Vec<(RowKey, PathBuf)>) {
         let mut data = self.data.borrow_mut();
         data.file_of = files.iter().cloned().collect();
@@ -1161,7 +1298,14 @@ impl List {
             .filter_map(|index| {
                 let writer: Option<Retained<AnyObject>> =
                     unsafe { msg_send![&*source, tableView: &*self.table, pasteboardWriterForRow: index] };
-                let url = writer?.downcast::<NSURL>().ok()?;
+                let url = match writer?.downcast::<NSPasteboardItem>() {
+                    // Rows that move carry their key too, in an item.
+                    Ok(item) => {
+                        let url = item.stringForType(unsafe { NSPasteboardTypeFileURL })?;
+                        NSURL::URLWithString(&url)?
+                    }
+                    Err(writer) => writer.downcast::<NSURL>().ok()?,
+                };
                 url.path().map(|p| PathBuf::from(p.to_string()))
             })
             .collect();

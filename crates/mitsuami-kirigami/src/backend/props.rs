@@ -432,6 +432,7 @@ impl State {
             }
             (Prop::Rows(rows), Widget::List(list)) => list.set_rows(rows.clone()),
             (Prop::RowFiles(files), Widget::List(list)) => list.set_row_files(files.clone()),
+            (Prop::RowMoves(moves), Widget::List(list)) => list.set_moves(*moves),
             (Prop::SelectionMode(mode), Widget::List(list)) => list.set_mode(*mode),
             (Prop::ListStyle(style), Widget::List(list)) => list.set_style(*style),
             (Prop::Selected(rows), Widget::List(list)) => list.set_selected(rows),

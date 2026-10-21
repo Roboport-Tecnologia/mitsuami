@@ -575,6 +575,18 @@ QQC2.ScrollView {{
 /// event loop turn), `mitsuamiSelectionChanged()` (the user changed the
 /// selection) and `mitsuamiActivate()` (the row `mitsuamiActivated` was
 /// double-clicked, or Return pressed on it).
+///
+/// Rows moved within the list (`Prop::RowMoves`): Rust sets `mitsuamiMoves`
+/// and `mitsuamiListId`, and a row's drag also carries the dragged rows'
+/// keys (`mitsuamiRowsMime`: the list's id, `|`, the keys), offering a move.
+/// While a drag of its own rows is over it, the view proposes where they'd
+/// land from the pointer (`on:KEY` in a row's middle, `before:KEY` in its
+/// top quarter, the next row's `before:` or `end` in its bottom quarter,
+/// `end` on the view's empty part) and asks Rust, which answers with
+/// `RowMoves::target`: it sets `mitsuamiAskRows` and `mitsuamiAskTarget`,
+/// emits `mitsuamiAskDrop()`, and reads `mitsuamiDropAnswer` (empty:
+/// refused). The answer is shown (`mitsuamiDropShown`) and, on a drop,
+/// reported with `mitsuamiDropped()`.
 pub(crate) fn list() -> String {
     format!(
         r#"
@@ -629,6 +641,64 @@ QQC2.ScrollView {{
         // The same, as `text/uri-list`.
         function mitsuamiUriList(key) {{
             return mitsuamiSelectedSet[key] === true ? mitsuamiSelectedUriList : (mitsuamiFiles[key] ?? "")
+        }}
+        // Rows moved within the list (`Prop::RowMoves`).
+        property bool mitsuamiMoves: false
+        property string mitsuamiListId: ""
+        readonly property string mitsuamiRowsMime: "application/x-mitsuami-rows"
+        property string mitsuamiAskRows: ""
+        property string mitsuamiAskTarget: ""
+        property string mitsuamiDropAnswer: ""
+        property string mitsuamiDropShown: ""
+        signal mitsuamiAskDrop()
+        signal mitsuamiDropped()
+        // The rows dragging `key` moves: the selection when it's selected.
+        function mitsuamiMovedKeys(key) {{
+            return (mitsuamiSelectedSet[key] === true ? mitsuamiSelected : [key]).join(",")
+        }}
+        // The keys a drag carries, if it's this list's own rows.
+        function mitsuamiOwnRows(drag) {{
+            if (!mitsuamiMoves || !drag.formats || drag.formats.indexOf(mitsuamiRowsMime) < 0) return ""
+            const data = drag.getDataAsString(mitsuamiRowsMime)
+            const bar = data.indexOf("|")
+            return bar > 0 && data.slice(0, bar) === mitsuamiListId ? data.slice(bar + 1) : ""
+        }}
+        // Where a drag of `rows` proposed at `target` lands, as Rust says.
+        function mitsuamiAsk(rows, target) {{
+            mitsuamiAskRows = rows
+            mitsuamiAskTarget = target
+            mitsuamiDropAnswer = ""
+            mitsuamiAskDrop()
+            return mitsuamiDropAnswer
+        }}
+        function mitsuamiDragOver(drag, target) {{
+            const rows = mitsuamiOwnRows(drag)
+            const answer = rows === "" ? "" : mitsuamiAsk(rows, target)
+            mitsuamiDropShown = answer
+            if (answer === "") drag.accepted = false
+            else drag.accept(Qt.MoveAction)
+        }}
+        function mitsuamiDropOn(drop, target) {{
+            const rows = mitsuamiOwnRows(drop)
+            const answer = rows === "" ? "" : mitsuamiAsk(rows, target)
+            mitsuamiDropShown = ""
+            if (answer === "") {{ drop.accepted = false; return }}
+            drop.accept(Qt.MoveAction)
+            mitsuamiAskRows = rows
+            mitsuamiAskTarget = answer
+            mitsuamiDropped()
+        }}
+        // The view's empty part: a drop there is at the end. Below the
+        // delegates, whose own areas take drags over rows.
+        DropArea {{
+            parent: view
+            anchors.fill: parent
+            z: -1
+            keys: [view.mitsuamiRowsMime]
+            onEntered: (drag) => view.mitsuamiDragOver(drag, "end")
+            onPositionChanged: (drag) => view.mitsuamiDragOver(drag, "end")
+            onExited: view.mitsuamiDropShown = ""
+            onDropped: (drop) => view.mitsuamiDropOn(drop, "end")
         }}
         // At the end, a list stays there as rows turn out taller than estimated.
         property bool mitsuamiAtEnd: false
@@ -753,14 +823,58 @@ QQC2.ScrollView {{
             DragHandler {{
                 id: mitsuamiDrag
                 target: null
-                enabled: view.mitsuamiFiles[mitsuamiKey] !== undefined
+                enabled: view.mitsuamiFiles[mitsuamiKey] !== undefined || view.mitsuamiMoves
                 acceptedDevices: PointerDevice.Mouse
                 grabPermissions: PointerHandler.CanTakeOverFromAnything | PointerHandler.ApprovesTakeOverByHandlersOfSameType
             }}
             Drag.active: mitsuamiDrag.active
             Drag.dragType: Drag.Automatic
-            Drag.supportedActions: Qt.CopyAction
-            Drag.mimeData: ({{ "text/uri-list": view.mitsuamiUriList(mitsuamiKey) }})
+            // Files out as a copy; rows within the list as a move.
+            Drag.supportedActions: view.mitsuamiMoves ? (Qt.CopyAction | Qt.MoveAction) : Qt.CopyAction
+            Drag.mimeData: {{
+                const data = {{}}
+                const uris = view.mitsuamiUriList(mitsuamiKey)
+                if (uris !== "") data["text/uri-list"] = uris
+                if (view.mitsuamiMoves) data[view.mitsuamiRowsMime] = view.mitsuamiListId + "|" + view.mitsuamiMovedKeys(mitsuamiKey)
+                return data
+            }}
+            // A drag of the list's own rows over this one: onto it in its
+            // middle, before it in its top quarter, before the next one (or
+            // at the end) in its bottom quarter.
+            function mitsuamiProposal(y) {{
+                if (y < height / 4) return "before:" + mitsuamiKey
+                if (y <= height * 3 / 4) return "on:" + mitsuamiKey
+                const next = view.mitsuamiKeys[view.mitsuamiKeys.indexOf(mitsuamiKey) + 1]
+                return next === undefined ? "end" : "before:" + next
+            }}
+            DropArea {{
+                anchors.fill: parent
+                keys: [view.mitsuamiRowsMime]
+                onEntered: (drag) => view.mitsuamiDragOver(drag, mitsuamiRow.mitsuamiProposal(drag.y))
+                onPositionChanged: (drag) => view.mitsuamiDragOver(drag, mitsuamiRow.mitsuamiProposal(drag.y))
+                onExited: view.mitsuamiDropShown = ""
+                onDropped: (drop) => view.mitsuamiDropOn(drop, mitsuamiRow.mitsuamiProposal(drop.y))
+            }}
+            // Where the drop would land, in the theme's highlight: a frame
+            // round the row it goes onto, a line where it goes between.
+            Rectangle {{
+                anchors.fill: parent
+                z: 2
+                visible: view.mitsuamiDropShown === "on:" + mitsuamiKey
+                color: "transparent"
+                border.color: Kirigami.Theme.highlightColor
+                border.width: 2
+                radius: Kirigami.Units.cornerRadius
+            }}
+            Rectangle {{
+                z: 2
+                width: parent.width
+                height: 2
+                y: view.mitsuamiDropShown === "end" ? parent.height - 1 : -1
+                visible: view.mitsuamiDropShown === "before:" + mitsuamiKey
+                    || (view.mitsuamiDropShown === "end" && view.mitsuamiKeys[view.mitsuamiKeys.length - 1] === mitsuamiKey)
+                color: Kirigami.Theme.highlightColor
+            }}
             onDoubleClicked: view.mitsuamiOpen(mitsuamiKey)
             Component.onCompleted: view.mitsuamiAdd(mitsuamiRow)
             Component.onDestruction: view.mitsuamiForget(mitsuamiRow)

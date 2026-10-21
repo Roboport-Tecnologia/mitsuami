@@ -302,6 +302,7 @@ impl WinUiBackend {
                 props.extend(list.style().map(Prop::ListStyle));
                 props.push(Prop::Selected(list.selected()));
                 props.extend(list.row_files().map(Prop::RowFiles));
+                props.extend(list.moves().map(Prop::RowMoves));
             }
             Widget::Host(_) => props.extend(node.row.map(|row| match node.column {
                 Some(column) => Prop::Cell(mitsuami_core::CellKey { row, column }),

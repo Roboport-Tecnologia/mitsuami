@@ -207,6 +207,13 @@ pub enum UiEvent {
     /// Files and folders were dropped on a node: the ones it takes, in
     /// the order the platform gave them.
     FilesDropped(Vec<std::path::PathBuf>),
+    /// Rows dragged within a list were dropped (`Prop::RowMoves`): the
+    /// rows, in the list's order, and where, as `RowMoves::target` put it.
+    /// The list shows nothing moved: the app moves its data.
+    RowsMoved {
+        rows: Vec<crate::RowKey>,
+        to: crate::RowDrop<crate::RowKey>,
+    },
     /// A `GpuSurface`'s native surface exists: the app can make its GPU
     /// surface on it. Reported once, before any `SurfaceResized`; its size
     /// may still be empty.

@@ -477,6 +477,25 @@ extern "C" fn selection_changed(_user: *mut c_void, list: u32) {
     HEARD.with(|h| h.borrow_mut().push(format!("selected {}", keys.join(","))));
 }
 
+extern "C" fn moved(
+    _user: *mut c_void,
+    _list: u32,
+    keys: *const MitsuamiStr,
+    count: usize,
+    to: u32,
+    key: *const u8,
+    len: usize,
+) {
+    let text = |ptr, len| std::str::from_utf8(unsafe { std::slice::from_raw_parts(ptr, len) }).unwrap().to_string();
+    let keys: Vec<String> = (0..count).map(|i| unsafe { &*keys.add(i) }).map(|k| text(k.ptr, k.len)).collect();
+    let to = match to {
+        0 => format!("onto {}", text(key, len)),
+        1 => format!("before {}", text(key, len)),
+        _ => "at the end".to_string(),
+    };
+    HEARD.with(|h| h.borrow_mut().push(format!("moved {} {to}", keys.join(","))));
+}
+
 extern "C" fn activated(_user: *mut c_void, _list: u32, key: *const u8, len: usize) {
     let key = std::str::from_utf8(unsafe { std::slice::from_raw_parts(key, len) }).unwrap();
     HEARD.with(|h| h.borrow_mut().push(format!("activated {key}")));
@@ -496,6 +515,8 @@ async fn lists_ask_for_rows_and_report_the_selection(app: TestApp) {
         selection_changed,
         activated,
         user: std::ptr::null_mut(),
+        moves: 1,
+        moved,
     });
     assert_ne!(list, 0);
     assert!(mitsuami_set_size(list, 300.0, 200.0));
@@ -516,6 +537,10 @@ async fn lists_ask_for_rows_and_report_the_selection(app: TestApp) {
     let heard_now = heard();
     assert!(heard_now.contains(&"selected c".to_string()), "{heard_now:?}");
     assert!(heard_now.contains(&"activated b".to_string()), "{heard_now:?}");
+
+    // Rows dragged onto another (the list takes drops onto rows).
+    app.get_by_role(Role::ListItem, "Repository a").drag_onto(&app.get_by_role(Role::ListItem, "Repository b")).await;
+    assert_eq!(heard(), ["moved a onto b"]);
 
     // Rows that go are let go, and the caller hears it.
     let keys = strs(&["a"]);

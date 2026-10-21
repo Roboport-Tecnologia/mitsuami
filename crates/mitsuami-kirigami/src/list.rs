@@ -30,7 +30,8 @@ use std::path::{Path, PathBuf};
 use std::rc::Rc;
 
 use mitsuami_core::{
-    ColumnData, ColumnSort, EventValue, ListStyle, NodeId, Point, Rect, RowKey, SelectionMode, SortOrder, UiEvent,
+    ColumnData, ColumnSort, EventValue, ListStyle, NodeId, Point, Rect, RowDrop, RowKey, RowMoves, SelectionMode,
+    SortOrder, UiEvent,
 };
 
 use crate::events::Events;
@@ -64,6 +65,38 @@ struct Data {
     row_width: Option<f64>,
     /// The rows' files, as the app gave them (`Prop::RowFiles`).
     files: Option<Vec<(RowKey, PathBuf)>>,
+    /// Where rows dragged within it can go (`Prop::RowMoves`).
+    moves: Option<RowMoves>,
+}
+
+impl Data {
+    /// Where a drag of `rows` (keys, comma-separated, as the drag carries
+    /// them) proposed at `target` (`on:KEY`, `before:KEY` or `end`, as the
+    /// view proposes) lands: `RowMoves::target`, with the rows that are
+    /// still here, in the list's order. `None`: refused.
+    fn drop_target(&self, rows: &str, target: &str) -> Option<(Vec<RowKey>, RowDrop<RowKey>)> {
+        let moves = self.moves?;
+        let mut rows: Vec<RowKey> =
+            rows.split(',').filter_map(parse).filter(|row| self.index.contains_key(row)).collect();
+        rows.sort_by_key(|row| self.index[row]);
+        let proposed = match target.split_once(':') {
+            Some(("on", key)) => RowDrop::On(parse(key).filter(|k| self.index.contains_key(k))?),
+            Some(("before", key)) => RowDrop::Before(parse(key).filter(|k| self.index.contains_key(k))?),
+            _ if target == "end" => RowDrop::End,
+            _ => return None,
+        };
+        let to = moves.target(&rows, proposed)?;
+        (!rows.is_empty()).then_some((rows, to))
+    }
+}
+
+/// A drop target as the view shows it: `on:KEY`, `before:KEY` or `end`.
+fn target_text(to: RowDrop<RowKey>) -> String {
+    match to {
+        RowDrop::On(key) => format!("on:{}", key.0),
+        RowDrop::Before(key) => format!("before:{}", key.0),
+        RowDrop::End => "end".to_string(),
+    }
 }
 
 pub(crate) struct List {
@@ -179,6 +212,22 @@ impl List {
                 events.emit(id, UiEvent::Changed(EventValue::Rows(selected)));
             });
         }
+        if !table {
+            // A drag of the list's own rows: the view asks where it lands
+            // while it's over it, and reports the drop (see `qml::list`).
+            let data_ = data.clone();
+            view.connect("mitsuamiAskDrop()", move || {
+                let answer = data_.borrow().drop_target(&view.str("mitsuamiAskRows"), &view.str("mitsuamiAskTarget"));
+                view.set_str("mitsuamiDropAnswer", &answer.map(|(_, to)| target_text(to)).unwrap_or_default());
+            });
+            let (data, events) = (data.clone(), events.clone());
+            view.connect("mitsuamiDropped()", move || {
+                let moved = data.borrow().drop_target(&view.str("mitsuamiAskRows"), &view.str("mitsuamiAskTarget"));
+                if let Some((rows, to)) = moved {
+                    events.emit(id, UiEvent::RowsMoved { rows, to });
+                }
+            });
+        }
         {
             let events = events.clone();
             view.connect("mitsuamiActivate()", move || {
@@ -244,6 +293,27 @@ impl List {
         if kept != selected {
             self.events.emit_always(self.id, UiEvent::Changed(EventValue::Rows(kept)));
         }
+    }
+
+    /// Rows move within the list: its rows' drags carry their keys too,
+    /// and the view takes its own rows' drops (see `qml::list`).
+    pub(crate) fn set_moves(&self, moves: RowMoves) {
+        self.data.borrow_mut().moves = Some(moves);
+        self.view.set_str("mitsuamiListId", &self.id.raw().to_string());
+        self.view.set_bool("mitsuamiMoves", true);
+    }
+
+    /// What the app gave, which the view can't give back.
+    pub(crate) fn moves(&self) -> Option<RowMoves> {
+        self.data.borrow().moves
+    }
+
+    /// Where a drag of `rows` dropped where the platform proposed `to`
+    /// lands, through the same targeting as a real drop, for the backend
+    /// to report: for tests, which can't start a drag.
+    pub(crate) fn move_rows(&self, rows: &[RowKey], to: RowDrop<RowKey>) -> Option<(Vec<RowKey>, RowDrop<RowKey>)> {
+        let keys: Vec<String> = rows.iter().map(|row| row.0.to_string()).collect();
+        self.data.borrow().drop_target(&keys.join(","), &target_text(to))
     }
 
     /// The rows' files, which the view's delegates drag (see `qml::list`).

@@ -42,6 +42,10 @@ name = "counter"
 harness = false
 
 [[test]]
+name = "row_moves"
+harness = false
+
+[[test]]
 name = "layout"
 harness = false
 
