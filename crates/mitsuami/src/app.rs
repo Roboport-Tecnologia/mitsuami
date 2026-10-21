@@ -11,6 +11,9 @@ struct WindowSpec {
     content: Box<dyn FnOnce() -> AnyView>,
 }
 
+/// Run once the app has started (`App::setup`).
+type Setup = Box<dyn FnOnce(&Ui)>;
+
 /// A window opened at startup.
 enum Startup {
     Spec(WindowSpec),
@@ -33,6 +36,7 @@ pub struct App {
     info: AppInfo,
     locales: Option<Locales>,
     windows: Vec<Startup>,
+    setups: Vec<Setup>,
 }
 
 impl App {
@@ -106,9 +110,17 @@ impl App {
         self
     }
 
+    /// Runs `setup` once the app has started, in the app scope, after its
+    /// windows are open: for bindings to other languages, which build
+    /// their windows on the [`Ui`] directly.
+    pub fn setup(mut self, setup: impl FnOnce(&Ui) + 'static) -> App {
+        self.setups.push(Box::new(setup));
+        self
+    }
+
     /// Runs until the last window closes.
     pub fn run(self) {
-        let (info, locales, windows) = (self.info, self.locales, self.windows);
+        let (info, locales, windows, setups) = (self.info, self.locales, self.windows, self.setups);
         let setup = move |ui: &Ui| {
             // Before any window, so the first is in the app's language.
             if let Some(locales) = locales {
@@ -131,6 +143,9 @@ impl App {
                         app.with(|| window().build(ui));
                     }
                 }
+            }
+            for setup in setups {
+                app.with(|| setup(ui));
             }
         };
         #[cfg(target_os = "macos")]

@@ -89,6 +89,7 @@ These rules decide most questions in §13 and §14:
 | `mitsuami-linux` | `GpuSurface` for the Linux backends: a Wayland subsurface or an X11 child window, pointer locks and a shortcuts inhibitor (§13.26). Only a `NoSurface` elsewhere. |
 | `mitsuami-headless` | In-memory backend with deterministic measurement, and the fake services tests script. It validates the protocol, and it's the default backend for tests. |
 | `mitsuami-test`, `mitsuami-test-macros` | The testing toolkit (§12), with `#[mitsuami_test::test]` and `#[mitsuami_test::story]`: runner, a11y queries, actions, assertions, fake clock, snapshots and wireframes, stories, visual capture and diff. |
+| `mitsuami-ffi` | A C ABI for bindings to other languages, over the core's `Ui`: create nodes of a kind, set props and style, insert children, hear events, post to the UI thread from any thread. A subset of the widgets so far; not published until it settles. Runs on AppKit and headless (`tests/ffi.rs`); type-checked for WinUI, GTK and Kirigami. |
 | `cargo-mitsuami` | The CLI: `cargo mitsuami visual` runs the native tests, `visual review` shows what changed, `visual accept` accepts it. Later: scaffolding and a gallery. |
 | `mitsuami` | The facade. Re-exports everything and picks the backend by `cfg(target_os)`: AppKit on macOS, WinUI 3 on Windows, and on Linux GTK 4, or Qt Quick and Kirigami with the `kde` feature. A toolkit is only used on its own platform. |
 

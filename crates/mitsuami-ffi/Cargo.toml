@@ -1,0 +1,30 @@
+[package]
+name = "mitsuami-ffi"
+description = "mitsuami over a C ABI, for bindings to other languages"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+authors.workspace = true
+repository.workspace = true
+homepage.workspace = true
+# Not published until the ABI settles.
+publish = false
+
+[lib]
+name = "mitsuami_ffi"
+crate-type = ["cdylib", "rlib"]
+
+[features]
+# Qt Quick and Kirigami instead of GTK 4 on Linux, as `mitsuami`'s.
+kde = ["mitsuami/kde"]
+
+[dependencies]
+mitsuami.workspace = true
+
+[dev-dependencies]
+mitsuami-test.workspace = true
+
+[[test]]
+name = "ffi"
+harness = false

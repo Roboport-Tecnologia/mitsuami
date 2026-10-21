@@ -38,6 +38,8 @@ bends to each platform's native controls, never the other way around:
   `mitsuami-winui` (Windows only), `mitsuami-kirigami` (Linux, `qt` feature).
   `mitsuami-linux` is GTK's and Kirigami's `GpuSurface` (Wayland subsurface,
   X11 child window, pointer locks).
+- `crates/mitsuami-ffi`: a C ABI over the core's `Ui`, for bindings to
+  other languages (`App::setup` starts them).
 - `crates/mitsuami-test`: the test kit (queries, actions, snapshots, stories);
   `crates/mitsuami-test-macros`: its `#[test]` and `#[story]`.
 - `crates/cargo-mitsuami`: `cargo mitsuami visual` runs the native tests,
