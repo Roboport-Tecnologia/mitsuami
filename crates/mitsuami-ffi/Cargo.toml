@@ -21,6 +21,7 @@ kde = ["mitsuami/kde"]
 
 [dependencies]
 mitsuami.workspace = true
+png.workspace = true
 
 [dev-dependencies]
 mitsuami-test.workspace = true

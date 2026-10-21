@@ -296,6 +296,39 @@ async fn icon_buttons_show_the_apps_own_icon(app: TestApp) {
     assert!(last_error().starts_with("bad path data"), "{}", last_error());
 }
 
+extern "C" fn captured(_user: *mut c_void, ok: bool) {
+    HEARD.with(|h| h.borrow_mut().push(format!("captured {ok}")));
+}
+
+#[mitsuami_test::test]
+async fn windows_capture_to_png_files(app: TestApp) {
+    attach(app.ui());
+    heard();
+    let text = create(MitsuamiKind::Text);
+    set_text(text, MitsuamiTextProp::Text, "Captured");
+    app.mount(|| Adopt(text));
+    let path = std::env::temp_dir().join(format!("mitsuami-ffi-capture-{}.png", std::process::id()));
+    let path_str = path.to_string_lossy().into_owned();
+
+    assert!(unsafe { mitsuami_capture_png(app.window().raw(), str(&path_str), captured, std::ptr::null_mut()) });
+    app.expect(by_text("Captured")).to_exist().await;
+    for _ in 0..50 {
+        if HEARD.with(|h| !h.borrow().is_empty()) {
+            break;
+        }
+        app.advance(std::time::Duration::from_millis(20)).await;
+    }
+
+    // Headless has no pixels to capture.
+    let ok = !app.is_headless();
+    assert_eq!(heard(), [format!("captured {ok}")]);
+    if ok {
+        let png = std::fs::read(&path).unwrap();
+        assert_eq!(&png[..8], b"\x89PNG\r\n\x1a\n");
+        std::fs::remove_file(&path).unwrap();
+    }
+}
+
 static POSTED_TO: AtomicU32 = AtomicU32::new(0);
 
 extern "C" fn show_posted(_user: *mut c_void) {

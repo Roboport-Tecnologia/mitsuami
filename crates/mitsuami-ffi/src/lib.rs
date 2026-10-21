@@ -1123,3 +1123,45 @@ pub unsafe extern "C" fn mitsuami_open_file(
     })
     .is_some()
 }
+
+/// Captures a window's content, offscreen, as the platform draws it, and
+/// writes it to `path` as a PNG, in pixels (the window's scale); then
+/// `done(user, ok)`. For tests and tools: no screen-recording permission
+/// is needed.
+///
+/// # Safety
+/// The path is as [`string`] says.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn mitsuami_capture_png(
+    window: u32,
+    path: MitsuamiStr,
+    done: extern "C" fn(*mut c_void, bool),
+    user: *mut c_void,
+) -> bool {
+    let user = user as usize;
+    guard(|| {
+        let ui = ui()?;
+        let path = unsafe { string(path.ptr, path.len)? };
+        let image = ui.capture(node(window));
+        ui.spawn_local(async move {
+            let ok = match image.await {
+                Ok(image) => write_png(&path, image.width, image.height, &image.rgba).is_ok(),
+                Err(e) => {
+                    eprintln!("mitsuami: capture failed: {e:?}");
+                    false
+                }
+            };
+            done(user as *mut c_void, ok);
+        });
+        Ok(())
+    })
+    .is_some()
+}
+
+fn write_png(path: &str, width: u32, height: u32, rgba: &[u8]) -> Result<(), png::EncodingError> {
+    let file = std::io::BufWriter::new(std::fs::File::create(path)?);
+    let mut encoder = png::Encoder::new(file, width, height);
+    encoder.set_color(png::ColorType::Rgba);
+    encoder.set_depth(png::BitDepth::Eight);
+    encoder.write_header()?.write_image_data(rgba)
+}
