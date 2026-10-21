@@ -95,6 +95,11 @@ fn describe_props(props: &[Prop]) -> String {
             Prop::Image(ImageSource::Pixels(p)) => extra.push(format!("{p:?}")),
             Prop::ImageFit(fit) => extra.push(format!("fit={fit:?}")),
             Prop::Icon(name) => extra.push(format!("icon={name:?}")),
+            Prop::VectorIcon(Some(icon)) => {
+                let size = icon.view_box().size;
+                extra.push(format!("vector_icon={}x{}", Num(size.width), Num(size.height)))
+            }
+            Prop::VectorIcon(None) => {}
             Prop::IconSize(points) => extra.push(format!("icon_size={}", Num(*points))),
             Prop::IconOnly(only) => extra.push(format!("icon_only={only}")),
             // Its name: the rest is the machine's (a temporary folder).

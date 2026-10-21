@@ -9106,6 +9106,34 @@ pub struct IPasswordBox_Vtbl {
     RemovePasswordChanging: usize,
     pub SelectAll: unsafe extern "system" fn(*mut core::ffi::c_void) -> windows_core::HRESULT,
 }
+windows_core::imp::define_interface!(IPathIcon, IPathIcon_Vtbl, 0x5c8229db_51cd_5a3b_88ef_1d9a8ac97683);
+impl windows_core::RuntimeType for IPathIcon {
+    const SIGNATURE: windows_core::imp::ConstBuffer = windows_core::imp::ConstBuffer::for_interface::<Self>();
+}
+impl IPathIcon {
+    pub fn Data(&self) -> windows_core::Result<Geometry> {
+        unsafe {
+            let mut result__ = core::mem::zeroed();
+            (windows_core::Interface::vtable(self).Data)(windows_core::Interface::as_raw(self), &mut result__)
+                .and_then(|| windows_core::imp::Type::from_abi(result__))
+        }
+    }
+    pub fn SetData<P0>(&self, value: P0) -> windows_core::Result<()>
+    where
+        P0: windows_core::Param<Geometry>,
+    {
+        unsafe {
+            (windows_core::Interface::vtable(self).SetData)(windows_core::Interface::as_raw(self), value.param().abi())
+                .ok()
+        }
+    }
+}
+#[repr(C)]
+pub struct IPathIcon_Vtbl {
+    pub base__: windows_core::IInspectable_Vtbl,
+    pub Data: unsafe extern "system" fn(*mut core::ffi::c_void, *mut *mut core::ffi::c_void) -> windows_core::HRESULT,
+    pub SetData: unsafe extern "system" fn(*mut core::ffi::c_void, *mut core::ffi::c_void) -> windows_core::HRESULT,
+}
 windows_core::imp::define_interface!(IPickFileResult, IPickFileResult_Vtbl, 0xe6f2e3d6_7bb0_5d81_9e7d_6fd35a1f25ab);
 impl windows_core::RuntimeType for IPickFileResult {
     const SIGNATURE: windows_core::imp::ConstBuffer = windows_core::imp::ConstBuffer::for_interface::<Self>();
@@ -16190,6 +16218,29 @@ impl windows_core::RuntimeName for PasswordBox {
 }
 unsafe impl Send for PasswordBox {}
 unsafe impl Sync for PasswordBox {}
+#[repr(transparent)]
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct PathIcon(windows_core::IUnknown);
+windows_core::imp::interface_hierarchy!(PathIcon, windows_core::IUnknown, windows_core::IInspectable);
+windows_core::imp::required_hierarchy!(PathIcon, IconElement, FrameworkElement, UIElement, DependencyObject);
+impl windows_core::RuntimeType for PathIcon {
+    const SIGNATURE: windows_core::imp::ConstBuffer = windows_core::imp::ConstBuffer::for_class::<Self, IPathIcon>();
+}
+unsafe impl windows_core::Interface for PathIcon {
+    type Vtable = <IPathIcon as windows_core::Interface>::Vtable;
+    const IID: windows_core::GUID = <IPathIcon as windows_core::Interface>::IID;
+}
+impl core::ops::Deref for PathIcon {
+    type Target = IPathIcon;
+    fn deref(&self) -> &Self::Target {
+        unsafe { core::mem::transmute(self) }
+    }
+}
+impl windows_core::RuntimeName for PathIcon {
+    const NAME: &'static str = "Microsoft.UI.Xaml.Controls.PathIcon";
+}
+unsafe impl Send for PathIcon {}
+unsafe impl Sync for PathIcon {}
 #[repr(transparent)]
 #[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
 pub struct PatternInterface(pub i32);

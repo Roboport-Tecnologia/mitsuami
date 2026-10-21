@@ -143,10 +143,24 @@ impl WinUiBackend {
                 }
                 let icon = icon.cast::<w::IFontIcon>().ok()?;
                 props.push(Prop::Icon(icon.Glyph().ok()?));
+                props.extend(node.vector_icon.clone().map(Prop::VectorIcon));
                 if node.icon_size {
                     props.push(Prop::IconSize(icon.FontSize().ok()? as f32));
                 }
                 // A theme resource in its style, as for text.
+                props.extend(node.text_color.map(Prop::TextColor));
+            }
+            Widget::VectorIcon(path) => {
+                let name = w::AutomationProperties::GetName(&node.element).unwrap_or_default();
+                if !name.is_empty() {
+                    props.push(Prop::Label(name));
+                }
+                // A path can't be read back as sent: the node keeps it.
+                props.push(Prop::Icon(node.icon.clone()));
+                props.extend(node.vector_icon.clone().map(Prop::VectorIcon));
+                if node.icon_size {
+                    props.push(Prop::IconSize(path.cast::<w::IFrameworkElement>().ok()?.Width().ok()? as f32));
+                }
                 props.extend(node.text_color.map(Prop::TextColor));
             }
             Widget::Checkbox(b) => {

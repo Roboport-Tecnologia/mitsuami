@@ -176,6 +176,10 @@ impl State {
                 node.button.icon = Some(name.clone());
                 node.button.show(b);
             }
+            (Prop::VectorIcon(icon), Widget::Button(b)) => {
+                node.button.vector = Some(icon.clone());
+                node.button.show(b);
+            }
             (Prop::IconOnly(only), Widget::Button(b)) => {
                 node.button.icon_only = Some(*only);
                 node.button.show(b);
@@ -186,6 +190,10 @@ impl State {
             }
             (Prop::Icon(name), Widget::MenuButton { button, .. }) => {
                 node.button.icon = Some(name.clone());
+                node.button.show(button);
+            }
+            (Prop::VectorIcon(icon), Widget::MenuButton { button, .. }) => {
+                node.button.vector = Some(icon.clone());
                 node.button.show(button);
             }
             (Prop::IconOnly(only), Widget::MenuButton { button, .. }) => {
@@ -289,8 +297,17 @@ impl State {
                 | Prop::TextCursor(_),
                 Widget::GpuSurface(surface),
             ) => surface.set_prop(prop),
-            (Prop::Icon(name), Widget::Icon { image, .. }) => {
-                image.set_icon_name(Some(name.as_str()).filter(|n| !n.is_empty()))
+            // The app's own icon over a named one, as a symbolic file icon.
+            (Prop::Icon(_) | Prop::VectorIcon(_), Widget::Icon { image, name, vector, .. }) => {
+                match prop {
+                    Prop::Icon(n) => *name = n.clone(),
+                    Prop::VectorIcon(v) => *vector = Some(v.clone()),
+                    _ => {}
+                }
+                match vector.clone().flatten().and_then(|v| super::vector_icon::gicon(&v)) {
+                    Some(gicon) => image.set_from_gicon(&gicon),
+                    None => image.set_icon_name(Some(name.as_str()).filter(|n| !n.is_empty())),
+                }
             }
             // Unsized, GTK's normal icon size (16 px in Adwaita and Breeze).
             (Prop::TextColor(color), Widget::Icon { image, color: rule, .. }) => {

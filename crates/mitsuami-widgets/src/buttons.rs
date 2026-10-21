@@ -3,7 +3,8 @@
 use mitsuami_core::services::{Menu, MenuEntries, install_button_menu};
 
 use mitsuami_core::{
-    ButtonRole, ButtonStyle, Element, ElementBuilder, EventValue, NodeId, Prop, Tweak, Ui, UiEvent, View, WidgetKind,
+    ButtonRole, ButtonStyle, Element, ElementBuilder, EventValue, NodeId, Prop, Tweak, Ui, UiEvent, VectorIcon, View,
+    WidgetKind,
 };
 use mitsuami_reactive::{IntoValue, Signal};
 
@@ -32,6 +33,13 @@ impl Button {
     /// An icon before its caption, named in the platform's own set as for
     /// [`Icon`](crate::Icon); empty: none. Each platform places and sizes it
     /// its own way.
+    /// The app's own icon before its caption, in place of a named one:
+    /// see [`VectorIcon`]. The platform sizes and colours it as its own.
+    pub fn vector_icon(mut self, icon: impl IntoValue<VectorIcon>) -> Button {
+        self.0.prop(crate::some(icon.into_value()), Prop::VectorIcon);
+        self
+    }
+
     pub fn icon(mut self, name: impl IntoValue<String>) -> Button {
         self.0.prop(name.into_value(), Prop::Icon);
         self
@@ -86,6 +94,13 @@ impl ToggleButton {
     }
 
     /// An icon before its caption, as for [`Button::icon`].
+    /// The app's own icon before its caption, as for
+    /// [`Button::vector_icon`].
+    pub fn vector_icon(mut self, icon: impl IntoValue<VectorIcon>) -> ToggleButton {
+        self.0.prop(crate::some(icon.into_value()), Prop::VectorIcon);
+        self
+    }
+
     pub fn icon(mut self, name: impl IntoValue<String>) -> ToggleButton {
         self.0.prop(name.into_value(), Prop::Icon);
         self
@@ -150,6 +165,13 @@ impl MenuButton {
     }
 
     /// An icon before its caption, as for [`Button::icon`].
+    /// The app's own icon before its caption, as for
+    /// [`Button::vector_icon`].
+    pub fn vector_icon(mut self, icon: impl IntoValue<VectorIcon>) -> MenuButton {
+        self.0.prop(crate::some(icon.into_value()), Prop::VectorIcon);
+        self
+    }
+
     pub fn icon(mut self, name: impl IntoValue<String>) -> MenuButton {
         self.0.prop(name.into_value(), Prop::Icon);
         self

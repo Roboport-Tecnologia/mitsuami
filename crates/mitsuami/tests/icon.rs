@@ -253,4 +253,101 @@ async fn a_new_caption_keeps_the_icon_alone(app: TestApp) {
     assert!(has(&app, by_role(Role::Button, "Discard"), Prop::IconOnly(true)));
 }
 
+// The app's own icons: path data, drawn as the platform draws its
+// symbolic icons.
+
+/// A square with a hole: solid enough to count pixels in, and even-odd.
+fn frame_icon() -> VectorIcon {
+    VectorIcon::with_view_box("F0 M2 2H22V22H2Z M8 8V16H16V8Z", Rect::new(0.0, 0.0, 24.0, 24.0)).unwrap()
+}
+
+fn plus_icon() -> VectorIcon {
+    VectorIcon::new("M10 0H14V10H24V14H14V24H10V14H0V10H10Z").unwrap()
+}
+
+#[mitsuami_test::test]
+async fn shows_the_apps_own_icon(app: TestApp) {
+    app.mount(|| Column::new().align(Align::Start).child(Icon::new("").vector(frame_icon()).label("Frame")));
+
+    app.expect(icon("Frame")).to_be_visible().await;
+    assert!(has(&app, icon("Frame"), Prop::VectorIcon(Some(frame_icon()))));
+    assert!(!app.get(icon("Frame")).frame().size.is_empty());
+}
+
+/// It takes the size a named icon takes, and is as large as one by
+/// default.
+#[mitsuami_test::test]
+async fn the_apps_own_icon_is_as_large_as_its_size(app: TestApp) {
+    app.mount(|| {
+        Row::new().align(Align::Start).gap(8).children((
+            Icon::new(trash()).label("Named"),
+            Icon::new("").vector(plus_icon()).label("Own"),
+            Icon::new("").vector(plus_icon()).label("Large").icon_size(48.0),
+        ))
+    });
+    app.expect(icon("Large")).to_be_visible().await;
+
+    let size = |label| app.get(icon(label)).frame().size;
+    let (named, own, large) = (size("Named"), size("Own"), size("Large"));
+    assert!(large.width > own.width && large.height > own.height, "{large:?} > {own:?}");
+    // Symbols' frames follow their shapes on AppKit: alike, not equal.
+    assert!((own.height - named.height).abs() <= 4.0, "{own:?} is about {named:?}");
+}
+
+#[mitsuami_test::test]
+async fn the_apps_own_icon_draws_in_its_colour(app: TestApp) {
+    app.mount(move || {
+        Row::new().align(Align::Start).padding(10).gap(10).children((
+            Icon::new("").vector(frame_icon()).label("Red").color(Color::rgb(255, 0, 0)).icon_size(32.0),
+            Icon::new("").vector(frame_icon()).label("Plain").icon_size(32.0),
+        ))
+    });
+    app.expect(icon("Plain")).to_be_visible().await;
+
+    let image = match app.ui().capture(app.window()).await {
+        Err(CaptureError::Unsupported) => return assert!(app.is_headless(), "only headless may lack capture"),
+        Err(e) => panic!("capture failed: {e:?}"),
+        Ok(image) => image,
+    };
+    let red_in = |frame: Rect| {
+        let scale = image.scale_factor;
+        let (x0, y0) = ((frame.x() * scale) as usize, (frame.y() * scale) as usize);
+        let (x1, y1) =
+            (((frame.x() + frame.width()) * scale) as usize, ((frame.y() + frame.height()) * scale) as usize);
+        (y0..y1)
+            .flat_map(|y| (x0..x1).map(move |x| (y * image.width as usize + x) * 4))
+            .filter(|&i| image.rgba[i] > 200 && image.rgba[i + 1] < 80 && image.rgba[i + 2] < 80)
+            .count()
+    };
+    let red = red_in(app.get(icon("Red")).frame());
+    assert!(red > 100, "{red} red pixels in the red icon");
+    assert_eq!(red_in(app.get(icon("Plain")).frame()), 0);
+}
+
+#[mitsuami_test::test]
+async fn a_button_shows_the_apps_own_icon(app: TestApp) {
+    let clicks = signal(0);
+    app.mount(move || {
+        Column::new().align(Align::Start).gap(8).children((
+            Button::new(LONG_CAPTION).test_id("caption"),
+            Button::new(LONG_CAPTION).vector_icon(plus_icon()).test_id("icon and caption"),
+            Button::new("Add")
+                .vector_icon(plus_icon())
+                .icon_only(true)
+                .button_style(ButtonStyle::Borderless)
+                .on_click(move || clicks.update(|c| *c += 1)),
+        ))
+    });
+    app.expect(by_role(Role::Button, "Add")).to_be_visible().await;
+
+    let width = |query: Query| app.get(query).frame().width();
+    let (caption, both) = (width(by_test_id("caption")), width(by_test_id("icon and caption")));
+    assert!(both > caption, "{both} > {caption}");
+    assert!(width(by_role(Role::Button, "Add")) < caption);
+    assert!(has(&app, by_test_id("icon and caption"), Prop::VectorIcon(Some(plus_icon()))));
+
+    app.get_by_role(Role::Button, "Add").click().await;
+    assert_eq!(clicks.get_untracked(), 1);
+}
+
 mitsuami_test::main!();

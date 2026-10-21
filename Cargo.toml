@@ -28,6 +28,7 @@ mitsuami-linux = { path = "crates/mitsuami-linux", version = "=1.3.6" }
 
 slotmap = "1.1"
 taffy = "0.14"
+kurbo = "0.13"
 inventory = "0.3"
 similar = "2"
 proc-macro2 = "1"

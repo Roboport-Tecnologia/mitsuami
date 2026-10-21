@@ -341,6 +341,7 @@ impl State {
                 image: None,
                 fit: None,
                 icon: None,
+                vector_icon: None,
                 icon_size: None,
                 icon_only: None,
                 file: None,

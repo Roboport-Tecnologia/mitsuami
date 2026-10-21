@@ -344,6 +344,10 @@ enum Widget {
     },
     /// A glyph of Segoe Fluent Icons (the theme's symbol font).
     Icon(w::FontIcon),
+    /// The app's own icon, a `PathIcon`. Which of the two an icon is is
+    /// decided as it's made, from its first props: an element can't change
+    /// type, so an icon made named shows only names.
+    VectorIcon(w::PathIcon),
     /// A file's icon in an `Image`, what the app gave (the image has only
     /// pixels), and its loads: the latest one asked for, and the latest
     /// one shown. `latest` is `asked` for the loading thread, which skips
@@ -464,6 +468,9 @@ struct Node {
     /// shows alone, which their content is made of.
     caption: String,
     icon: String,
+    /// Buttons and icons: the app's own icon, if the app set one (`None`
+    /// inside: unset), which XAML can't give back as sent.
+    vector_icon: Option<Option<mitsuami_core::VectorIcon>>,
     icon_only: Option<bool>,
     /// Icons: whether the app gave a size (XAML reads back its default).
     icon_size: bool,

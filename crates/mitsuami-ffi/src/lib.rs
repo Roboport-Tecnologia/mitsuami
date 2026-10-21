@@ -27,7 +27,8 @@ use mitsuami::core::services::{Alert, AlertStyle, OpenFile};
 use mitsuami::core::style::Edges;
 use mitsuami::core::{
     Align, ButtonRole, ButtonStyle, DocumentTabsStyle, EventValue, FlexDirection, Justify, Length, List, ListStyle,
-    Modality, NodeId, Prop, SelectionMode, Size, TextStyle, Ui, UiEvent, View, WidgetKind, WindowSize,
+    Modality, NodeId, Prop, Rect, SelectionMode, Size, TextStyle, Ui, UiEvent, VectorIcon, View, WidgetKind,
+    WindowSize,
 };
 use mitsuami::reactive::{Owner, Signal, on_cleanup, signal, watch};
 
@@ -189,6 +190,8 @@ pub enum MitsuamiKind {
     DocumentTabs = 13,
     /// The platform's drop-down: one of its options is always chosen.
     Select = 14,
+    /// An icon: a name in the platform's own set, or the app's own.
+    Icon = 15,
 }
 
 fn widget_kind(kind: u32) -> Result<WidgetKind, String> {
@@ -208,6 +211,7 @@ fn widget_kind(kind: u32) -> Result<WidgetKind, String> {
         12 => WidgetKind::Progress,
         13 => WidgetKind::DocumentTabs,
         14 => WidgetKind::Select,
+        15 => WidgetKind::Icon,
         _ => return Err(format!("unknown kind {kind}")),
     })
 }
@@ -263,6 +267,62 @@ pub extern "C" fn mitsuami_set_modal(window: u32, owner: u32, modality: u32) -> 
     .is_some()
 }
 
+/// Makes an icon showing the app's own icon, from path data as for
+/// [`mitsuami_set_vector_icon`]; 0 if it fails. WinUI makes an icon a
+/// `FontIcon` or a `PathIcon` by its first props, so an icon that will
+/// show the app's own is made so.
+///
+/// # Safety
+/// The path data is as [`string`] says.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn mitsuami_create_vector_icon(
+    data: MitsuamiStr,
+    view_x: f32,
+    view_y: f32,
+    view_width: f32,
+    view_height: f32,
+) -> u32 {
+    guard(|| {
+        let data = unsafe { string(data.ptr, data.len)? };
+        let icon = match view_width > 0.0 {
+            true => VectorIcon::with_view_box(&data, Rect::new(view_x, view_y, view_width, view_height))?,
+            false => VectorIcon::new(&data)?,
+        };
+        Ok(ui()?.create(WidgetKind::Icon, vec![Prop::VectorIcon(Some(icon))]).raw())
+    })
+    .unwrap_or(0)
+}
+
+/// The app's own icon on an icon or a button, from path data in the SVG
+/// syntax, fitted to its view box, or to its bounds if `view_width` isn't
+/// positive. Empty data takes it away. False if the data doesn't parse.
+///
+/// # Safety
+/// The path data is as [`string`] says.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn mitsuami_set_vector_icon(
+    id: u32,
+    data: MitsuamiStr,
+    view_x: f32,
+    view_y: f32,
+    view_width: f32,
+    view_height: f32,
+) -> bool {
+    guard(|| {
+        let data = unsafe { string(data.ptr, data.len)? };
+        let icon = match data.trim() {
+            "" => None,
+            _ if view_width > 0.0 => {
+                Some(VectorIcon::with_view_box(&data, Rect::new(view_x, view_y, view_width, view_height))?)
+            }
+            _ => Some(VectorIcon::new(&data)?),
+        };
+        ui()?.set_prop(node(id), Prop::VectorIcon(icon));
+        Ok(())
+    })
+    .is_some()
+}
+
 /// Puts `child` in `parent` at `index`, or last if `index` is past the end.
 #[unsafe(no_mangle)]
 pub extern "C" fn mitsuami_insert_child(parent: u32, child: u32, index: usize) -> bool {
@@ -311,6 +371,11 @@ pub enum MitsuamiTextProp {
     Placeholder = 4,
     /// The name assistive technology reads.
     A11yLabel = 5,
+    /// What the platform shows by the pointer when it rests on a control.
+    Tooltip = 6,
+    /// An icon's name in the platform's own set: an SF Symbol, a themed
+    /// icon, a Segoe Fluent Icons glyph.
+    Icon = 7,
 }
 
 /// # Safety
@@ -326,6 +391,8 @@ pub unsafe extern "C" fn mitsuami_set_text(id: u32, prop: u32, value: *const u8,
             2 => Prop::Title(value),
             3 => Prop::Value(value),
             4 => Prop::Placeholder(value),
+            6 => Prop::Tooltip(value),
+            7 => Prop::Icon(value),
             5 => {
                 ui.update_a11y(node(id), |a11y| a11y.label = Some(value));
                 return Ok(());
@@ -348,6 +415,8 @@ pub enum MitsuamiBoolProp {
     TabsReorderable = 3,
     /// Document tabs' new-tab button.
     NewTabButton = 4,
+    /// A button shows only its icon; its caption stays its name.
+    IconOnly = 5,
 }
 
 #[unsafe(no_mangle)]
@@ -359,6 +428,7 @@ pub extern "C" fn mitsuami_set_bool(id: u32, prop: u32, value: bool) -> bool {
             2 => Prop::TabsClosable(value),
             3 => Prop::TabsReorderable(value),
             4 => Prop::NewTabButton(value),
+            5 => Prop::IconOnly(value),
             _ => return Err(format!("unknown bool prop {prop}")),
         };
         ui()?.set_prop(node(id), prop);
@@ -373,6 +443,8 @@ pub enum MitsuamiNumberProp {
     Number = 0,
     /// A list's guess at its rows' height, for rows not built yet.
     EstimatedRowHeight = 1,
+    /// An icon's size, in points.
+    IconSize = 2,
 }
 
 #[unsafe(no_mangle)]
@@ -381,6 +453,7 @@ pub extern "C" fn mitsuami_set_number(id: u32, prop: u32, value: f64) -> bool {
         let prop = match prop {
             0 => Prop::Number(value),
             1 => Prop::EstimatedRowHeight(value as f32),
+            2 => Prop::IconSize(value as f32),
             _ => return Err(format!("unknown number prop {prop}")),
         };
         ui()?.set_prop(node(id), prop);

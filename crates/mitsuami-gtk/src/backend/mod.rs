@@ -44,6 +44,7 @@ mod scroll;
 mod selection;
 mod slider;
 mod text;
+mod vector_icon;
 mod window;
 
 pub(crate) use dialogs::{dialog_parent, file_filters};
@@ -151,6 +152,10 @@ enum Widget {
         image: gtk::Image,
         size: Option<f32>,
         color: Option<text::IconColorRule>,
+        /// The name the app gave, which a vector icon hides, and the
+        /// vector icon, which GTK can't give back (`None` inside: unset).
+        name: String,
+        vector: Option<Option<mitsuami_core::VectorIcon>>,
     },
     /// A file's icon, what the app gave (GTK shows a GIcon, not a path),
     /// and its size, as `Icon`'s.

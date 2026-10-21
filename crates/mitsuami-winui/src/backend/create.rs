@@ -8,6 +8,7 @@ use mitsuami_core::{
 };
 use windows_core::{IInspectable, Interface};
 
+use super::controls::{ICON_SIDE, path_icon};
 use super::fields::{report_text_changes, search_text_with, set_later, submit_on_enter};
 use super::scroll::{report_offset, report_viewport, set_scrolling};
 use super::styles::separator_style;
@@ -143,9 +144,20 @@ impl State {
                 (Widget::FileIcon { image, file: None, thumbnail: None, size: None, asked, shown, latest }, element)
             }
             WidgetKind::Icon => {
-                let icon = w::FontIcon::new()?;
-                let element = icon.cast()?;
-                (Widget::Icon(icon), element)
+                let Command::Create { props, .. } = command else { unreachable!() };
+                match find_prop!(props, VectorIcon).flatten() {
+                    Some(vector) => {
+                        let side = find_prop!(props, IconSize).unwrap_or(ICON_SIDE);
+                        let icon = path_icon(&vector, side)?;
+                        let element = icon.cast()?;
+                        (Widget::VectorIcon(icon), element)
+                    }
+                    None => {
+                        let icon = w::FontIcon::new()?;
+                        let element = icon.cast()?;
+                        (Widget::Icon(icon), element)
+                    }
+                }
             }
             WidgetKind::Checkbox => {
                 let checkbox = w::CheckBox::new()?;
@@ -523,6 +535,7 @@ impl State {
                 button_menu: None,
                 caption: String::new(),
                 icon: String::new(),
+                vector_icon: None,
                 icon_only: None,
                 icon_size: false,
             },

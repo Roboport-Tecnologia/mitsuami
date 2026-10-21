@@ -18,7 +18,7 @@ use crate::services::ItemTarget;
 
 use super::fonts::{font, label_font};
 use super::group::set_group_title;
-use super::images::{FILE_ICON_SIZE, image_position, ns_image, show_file_icon, symbol};
+use super::images::{FILE_ICON_SIZE, icon_image, image_position, ns_image, show_file_icon};
 use super::menus::{pull_down_title, show_pull_down};
 use super::scrolling::set_scrollers;
 use super::{State, Widget, ns, violation};
@@ -88,9 +88,13 @@ impl State {
             (Prop::Options(options), Widget::RadioGroup(group)) => group.set_options(options),
             (Prop::SelectedIndex(index), Widget::RadioGroup(group)) => group.set_selected(*index),
             (Prop::Enabled(e), Widget::RadioGroup(group)) => group.set_enabled(*e),
-            (Prop::Label(_) | Prop::Icon(_) | Prop::IconOnly(_) | Prop::Menu(_), Widget::MenuButton { .. }) => {
+            (
+                Prop::Label(_) | Prop::Icon(_) | Prop::VectorIcon(_) | Prop::IconOnly(_) | Prop::Menu(_),
+                Widget::MenuButton { .. },
+            ) => {
                 match prop {
                     Prop::Icon(name) => node.icon = Some(name.clone()),
+                    Prop::VectorIcon(icon) => node.vector_icon = Some(icon.clone()),
                     Prop::IconOnly(only) => node.icon_only = Some(*only),
                     Prop::Menu(entries) => {
                         if let Widget::MenuButton { sent, .. } = &mut node.widget {
@@ -103,7 +107,8 @@ impl State {
                     Prop::Label(t) => t.clone(),
                     _ => pull_down_title(&node.widget),
                 };
-                show_pull_down(&node.widget, &label, node.icon.as_deref(), node.icon_only);
+                let icon = icon_image(node.icon.as_deref(), node.vector_icon.clone().flatten().as_ref(), None);
+                show_pull_down(&node.widget, &label, icon, node.icon_only);
             }
             (Prop::ButtonStyle(style), Widget::MenuButton { popup, .. }) => {
                 popup.setBordered(*style != ButtonStyle::Borderless);
@@ -222,9 +227,15 @@ impl State {
                     show_file_icon(mtm, view, node.file.as_deref(), side, node.thumbnail == Some(true));
                 }
             }
-            (Prop::Icon(name), Widget::Icon(view)) => {
-                node.icon = Some(name.clone());
-                view.setImage(symbol(name, node.icon_size).as_deref());
+            (Prop::Icon(_) | Prop::VectorIcon(_) | Prop::IconSize(_), Widget::Icon(view)) => {
+                match prop {
+                    Prop::Icon(name) => node.icon = Some(name.clone()),
+                    Prop::VectorIcon(icon) => node.vector_icon = Some(icon.clone()),
+                    Prop::IconSize(points) => node.icon_size = Some(*points),
+                    _ => {}
+                }
+                let vector = node.vector_icon.clone().flatten();
+                view.setImage(icon_image(node.icon.as_deref(), vector.as_ref(), node.icon_size).as_deref());
             }
             // Tints the symbol, as a template image; images in colour keep
             // theirs.
@@ -232,15 +243,16 @@ impl State {
                 node.text_color = Some(*color);
                 view.setContentTintColor(Some(&crate::custom::ns_color(*color)));
             }
-            (Prop::IconSize(points), Widget::Icon(view)) => {
-                node.icon_size = Some(*points);
-                view.setImage(node.icon.as_deref().and_then(|name| symbol(name, node.icon_size)).as_deref());
-            }
             // The button sizes the symbol for its bezel and font, before
             // its title unless it shows only the image.
-            (Prop::Icon(name), Widget::Button(b)) => {
-                node.icon = Some(name.clone());
-                b.setImage(symbol(name, None).as_deref());
+            (Prop::Icon(_) | Prop::VectorIcon(_), Widget::Button(b)) => {
+                match prop {
+                    Prop::Icon(name) => node.icon = Some(name.clone()),
+                    Prop::VectorIcon(icon) => node.vector_icon = Some(icon.clone()),
+                    _ => {}
+                }
+                let vector = node.vector_icon.clone().flatten();
+                b.setImage(icon_image(node.icon.as_deref(), vector.as_ref(), None).as_deref());
                 b.setImagePosition(image_position(node.icon_only));
             }
             (Prop::IconOnly(only), Widget::Button(b)) => {

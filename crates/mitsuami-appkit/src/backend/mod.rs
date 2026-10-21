@@ -289,6 +289,8 @@ struct Node {
     /// give back (a symbol image has no name), and whether the app gave
     /// `IconOnly`.
     icon: Option<String>,
+    /// The app's own icon, if the app set one (`None` inside: unset).
+    vector_icon: Option<Option<mitsuami_core::VectorIcon>>,
     icon_size: Option<f32>,
     icon_only: Option<bool>,
     /// File icons: the file, and whether the app asked for a thumbnail,

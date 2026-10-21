@@ -1,6 +1,6 @@
 //! Buttons' content and looks, and the options of choice controls.
 
-use mitsuami_core::{ButtonRole, ButtonStyle, Prop};
+use mitsuami_core::{ButtonRole, ButtonStyle, Prop, VectorIcon};
 use windows_core::{IInspectable, Interface};
 
 use super::native_state::elements;
@@ -8,17 +8,57 @@ use super::styles::style;
 use super::{Node, R, boxed, unboxed};
 use crate::bindings as w;
 
-/// A button's content: its caption; with an icon, a `FontIcon` before it
-/// at Fluent's spacing (8), as WinUI's gallery lays them out; icon only,
-/// the `FontIcon`, named by the caption.
+/// A named icon's side in a `FontIcon` (its `FontSize` default), which an
+/// icon of the app's own takes unless sized.
+pub(super) const ICON_SIDE: f32 = 20.0;
+
+/// The side of the app's own icon in a button: a Fluent glyph's drawn
+/// size at a button's font size, which its `FontIcon` pads to 20.
+const BUTTON_ICON_SIDE: f32 = 16.0;
+
+/// The app's own icon as a `PathIcon`, WinUI's way to show one: its path
+/// already fitted in a `side` square, drawn in the foreground, as glyphs
+/// are. XAML's path markup takes the fill rule first.
+pub(super) fn path_icon(icon: &VectorIcon, side: f32) -> R<w::PathIcon> {
+    let rule = if icon.even_odd() { "F0" } else { "F1" };
+    let markup = format!(
+        r#"<PathIcon xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation" Width="{side}" Height="{side}" Data="{rule} {}"/>"#,
+        icon.path_data(side)
+    );
+    w::XamlReader::Load(&markup)?.cast()
+}
+
+/// Shows another icon, or the same at another side, in a `PathIcon`: its
+/// geometry is taken from one made from markup, as it can only be parsed.
+pub(super) fn set_path_icon(shown: &w::PathIcon, icon: &VectorIcon, side: f32) -> R<()> {
+    let made = path_icon(icon, side)?;
+    let data = made.Data()?;
+    made.SetData(None::<&w::Geometry>)?;
+    shown.SetData(&data)?;
+    let element = shown.cast::<w::IFrameworkElement>()?;
+    element.SetWidth(f64::from(side))?;
+    element.SetHeight(f64::from(side))
+}
+
+/// A button's content: its caption; with an icon, a `FontIcon` (or the
+/// app's own as a `PathIcon`) before it at Fluent's spacing (8), as
+/// WinUI's gallery lays them out; icon only, the icon, named by the
+/// caption.
 pub(super) fn set_button_content(node: &Node) -> R<()> {
     let control = node.element.cast::<w::IContentControl>()?;
-    if node.icon.is_empty() {
+    let vector = node.vector_icon.clone().flatten();
+    if node.icon.is_empty() && vector.is_none() {
         w::AutomationProperties::SetName(&node.element, "")?;
         return control.SetContent(&boxed(&node.caption));
     }
-    let icon = w::FontIcon::new()?;
-    icon.cast::<w::IFontIcon>()?.SetGlyph(&node.icon)?;
+    let icon: w::UIElement = match &vector {
+        Some(vector) => path_icon(vector, BUTTON_ICON_SIDE)?.cast()?,
+        None => {
+            let icon = w::FontIcon::new()?;
+            icon.cast::<w::IFontIcon>()?.SetGlyph(&node.icon)?;
+            icon.cast()?
+        }
+    };
     // UIA reads a panel's or icon's content as nothing: the caption names
     // the button either way.
     w::AutomationProperties::SetName(&node.element, &node.caption)?;
@@ -32,7 +72,7 @@ pub(super) fn set_button_content(node: &Node) -> R<()> {
     let caption = w::TextBlock::new()?;
     caption.cast::<w::ITextBlock>()?.SetText(&node.caption)?;
     let children = panel.cast::<w::IPanel>()?.Children()?;
-    children.Append(&icon.cast::<w::UIElement>()?)?;
+    children.Append(&icon)?;
     children.Append(&caption.cast::<w::UIElement>()?)?;
     control.SetContent(&panel.cast::<IInspectable>()?)
 }
@@ -45,7 +85,17 @@ pub(super) fn button_content(node: &Node) -> Vec<Prop> {
     };
     let glyph = |icon: &w::FontIcon| icon.cast::<w::IFontIcon>().ok().and_then(|i| i.Glyph().ok());
     let mut props = Vec::new();
-    if let Ok(icon) = content.cast::<w::FontIcon>() {
+    // The app's own icon is a path, which XAML can't give back as the
+    // core sent it: the node keeps it, and the name with it.
+    let kept = |props: &mut Vec<Prop>| {
+        props.push(Prop::Icon(node.icon.clone()));
+        props.extend(node.vector_icon.clone().map(Prop::VectorIcon));
+    };
+    if content.cast::<w::PathIcon>().is_ok() {
+        props.extend(w::AutomationProperties::GetName(&node.element).ok().map(Prop::Label));
+        kept(&mut props);
+        props.push(Prop::IconOnly(true));
+    } else if let Ok(icon) = content.cast::<w::FontIcon>() {
         props.extend(w::AutomationProperties::GetName(&node.element).ok().map(Prop::Label));
         props.extend(glyph(&icon).map(Prop::Icon));
         props.push(Prop::IconOnly(true));
@@ -53,9 +103,15 @@ pub(super) fn button_content(node: &Node) -> Vec<Prop> {
         let children = panel.cast::<w::IPanel>().ok().and_then(|p| p.Children().ok());
         let children = children.map(|c| elements(&c)).unwrap_or_default();
         let icon = children.first().and_then(|c| c.cast::<w::FontIcon>().ok());
+        let path = children.first().is_some_and(|c| c.cast::<w::PathIcon>().is_ok());
         let caption = children.get(1).and_then(|c| c.cast::<w::ITextBlock>().ok());
         props.extend(caption.and_then(|c| c.Text().ok()).map(Prop::Label));
-        props.extend(icon.as_ref().and_then(glyph).map(Prop::Icon));
+        if path {
+            kept(&mut props);
+        } else {
+            props.extend(icon.as_ref().and_then(glyph).map(Prop::Icon));
+            props.extend(node.vector_icon.clone().map(Prop::VectorIcon));
+        }
         if node.icon_only.is_some() {
             props.push(Prop::IconOnly(false));
         }
@@ -63,6 +119,7 @@ pub(super) fn button_content(node: &Node) -> Vec<Prop> {
         props.extend(unboxed(Ok(content)).map(Prop::Label));
         // No icon: shown as its caption, whether or not it's icon only.
         props.push(Prop::Icon(String::new()));
+        props.extend(node.vector_icon.clone().map(Prop::VectorIcon));
         props.extend(node.icon_only.map(Prop::IconOnly));
     }
     props

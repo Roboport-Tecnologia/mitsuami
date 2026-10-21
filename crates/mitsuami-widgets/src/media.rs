@@ -4,7 +4,7 @@ use std::rc::Rc;
 
 use mitsuami_core::{
     Color, Cursor, Element, ElementBuilder, ImageFit, ImageSource, NodeId, Pixels, Prop, Rect, SurfaceHandle,
-    SurfaceInput, SurfaceSize, Tweak, Ui, UiEvent, View, WidgetKind,
+    SurfaceInput, SurfaceSize, Tweak, Ui, UiEvent, VectorIcon, View, WidgetKind,
 };
 use mitsuami_reactive::{IntoValue, Signal, Value};
 
@@ -88,6 +88,14 @@ impl Icon {
         let mut element = Element::new(WidgetKind::Icon);
         element.prop(name.into_value(), Prop::Icon);
         Icon(element)
+    }
+
+    /// The app's own icon, drawn from path data: see [`VectorIcon`]. It
+    /// takes the size and colour a named icon takes, and shows in place of
+    /// one. `Icon::new("")` makes an icon without a name.
+    pub fn vector(mut self, icon: impl IntoValue<VectorIcon>) -> Icon {
+        self.0.prop(crate::some(icon.into_value()), Prop::VectorIcon);
+        self
     }
 
     /// Its accessible name: what the icon stands for.

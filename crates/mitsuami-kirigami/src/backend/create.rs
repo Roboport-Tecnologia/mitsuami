@@ -313,6 +313,7 @@ impl State {
                 checked: false,
                 icon_size: false,
                 icon_only: false,
+                vector_icon: None,
                 tweak: None,
                 tooltip: String::new(),
                 modal: None,

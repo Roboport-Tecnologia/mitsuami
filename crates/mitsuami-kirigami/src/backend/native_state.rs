@@ -90,9 +90,13 @@ impl KirigamiBackend {
                 }
                 props.extend(node.button_menu.as_ref().map(|menu| Prop::Menu(menu.shown())));
                 props.push(Prop::Icon(b.str("mitsuamiShownIcon")));
+                // Shown if the button has its file: the file stands for it.
+                if !b.str("mitsuamiShownIconFile").is_empty() || node.vector_icon == Some(None) {
+                    props.extend(node.vector_icon.clone().map(Prop::VectorIcon));
+                }
                 if node.icon_only {
                     // Only with an icon: without, it shows its text.
-                    let icon = !b.str("mitsuamiShownIcon").is_empty();
+                    let icon = !b.str("mitsuamiShownIcon").is_empty() || !b.str("mitsuamiShownIconFile").is_empty();
                     props
                         .push(Prop::IconOnly(b.bool("mitsuamiShownIconOnly") || (!icon && b.bool("mitsuamiIconOnly"))));
                 }
@@ -153,11 +157,15 @@ impl KirigamiBackend {
             Widget::Icon(i) => {
                 props.extend(node.a11y_label.clone().map(Prop::Label));
                 props.push(Prop::Icon(i.str("mitsuamiShownName")));
+                // Shown as a mask from its file: the file stands for it.
+                if !i.str("mitsuamiShownFile").is_empty() || node.vector_icon == Some(None) {
+                    props.extend(node.vector_icon.clone().map(Prop::VectorIcon));
+                }
                 props
                     .extend(qml::color_from(i.int("mitsuamiColor"), i.int("mitsuamiRgba") as u32).map(Prop::TextColor));
                 // Its size, which it takes no room at without a name.
                 if node.icon_size {
-                    let shown = if i.str("mitsuamiName").is_empty() { "mitsuamiSize" } else { "implicitWidth" };
+                    let shown = if i.bool("mitsuamiShowsIcon") { "implicitWidth" } else { "mitsuamiSize" };
                     props.push(Prop::IconSize(i.real(shown) as f32));
                 }
             }

@@ -34,6 +34,7 @@ mod native_state;
 mod perform;
 mod props;
 mod selection;
+mod vector_icon;
 mod widget;
 mod window;
 
@@ -248,6 +249,9 @@ struct Node {
     /// shows only its icon.
     icon_size: bool,
     icon_only: bool,
+    /// The app's own icon, if the app set one (`None` inside: unset),
+    /// which the widget only has as a file.
+    vector_icon: Option<Option<mitsuami_core::VectorIcon>>,
     /// The app's raw settings, run after every other prop.
     tweak: Option<Opaque>,
     scroll_axes: Option<ScrollAxes>,

@@ -6,7 +6,7 @@ use std::cell::RefCell;
 use std::ffi::c_void;
 use std::sync::atomic::{AtomicU32, Ordering};
 
-use mitsuami::core::{Modality, NodeId, Prop, Ui, View};
+use mitsuami::core::{Modality, NodeId, Prop, Ui, VectorIcon, View};
 use mitsuami_ffi::*;
 use mitsuami_test::prelude::*;
 
@@ -223,7 +223,16 @@ async fn alerts_and_folder_dialogs_answer_through_callbacks(app: TestApp) {
     let buttons = strs(&["Delete", "Cancel"]);
     let window = app.window().raw();
     assert!(unsafe {
-        mitsuami_alert(window, str("Delete the group?"), str(""), buttons.as_ptr(), 2, 2, alert_answer, std::ptr::null_mut())
+        mitsuami_alert(
+            window,
+            str("Delete the group?"),
+            str(""),
+            buttons.as_ptr(),
+            2,
+            2,
+            alert_answer,
+            std::ptr::null_mut(),
+        )
     });
     assert!(unsafe {
         mitsuami_open_file(window, str("Parent folder"), true, false, str("/tmp"), open_answer, std::ptr::null_mut())
@@ -257,6 +266,30 @@ async fn drop_downs_report_the_option_chosen(app: TestApp) {
 
     app.get_by_role(Role::ComboBox, "Group").select_option("Personal").await;
     assert_eq!(heard(), ["chose 2"]);
+}
+
+#[mitsuami_test::test]
+async fn icon_buttons_show_the_apps_own_icon(app: TestApp) {
+    attach(app.ui());
+    heard();
+    let button = create(MitsuamiKind::Button);
+    set_text(button, MitsuamiTextProp::Label, "Clone");
+    set_text(button, MitsuamiTextProp::Tooltip, "Clone a repository");
+    let plus = "M10 0H14V10H24V14H14V24H10V14H0V10H10Z";
+    assert!(unsafe { mitsuami_set_vector_icon(button, str(plus), 0.0, 0.0, 0.0, 0.0) });
+    assert!(mitsuami_set_bool(button, MitsuamiBoolProp::IconOnly as u32, true));
+    assert!(mitsuami_on_event(button, record, std::ptr::null_mut()));
+    app.mount(|| Adopt(button));
+
+    let props = app.ui().props(NodeId::from_raw(button));
+    assert!(props.contains(&Prop::VectorIcon(Some(VectorIcon::new(plus).unwrap()))));
+    assert!(props.contains(&Prop::Tooltip("Clone a repository".into())));
+    // Alone, its caption is still its name.
+    app.get_by_role(Role::Button, "Clone").click().await;
+    assert_eq!(heard(), ["click"]);
+
+    assert!(!unsafe { mitsuami_set_vector_icon(button, str("M10 X"), 0.0, 0.0, 0.0, 0.0) });
+    assert!(last_error().starts_with("bad path data"), "{}", last_error());
 }
 
 static POSTED_TO: AtomicU32 = AtomicU32::new(0);

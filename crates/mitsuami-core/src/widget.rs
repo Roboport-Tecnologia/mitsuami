@@ -941,6 +941,10 @@ pub enum Prop {
     /// set doesn't have shows as the platform shows one: nothing, or its
     /// missing-icon icon.
     Icon(String),
+    /// The app's own icon, in place of a named one ([`Prop::Icon`]), for
+    /// the same widgets: drawn as the platform draws its symbolic icons.
+    /// `None`: the named one, if any.
+    VectorIcon(Option<crate::VectorIcon>),
     /// How big an `Icon` is, in points, used as the platform sizes icons:
     /// an SF Symbol's point size (as a font's), the side of a square
     /// elsewhere; a `FileIcon`'s square's side everywhere. Sent only if the
@@ -1152,6 +1156,7 @@ impl Prop {
                 | Prop::Orientation(_)
                 | Prop::Image(_)
                 | Prop::Icon(_)
+                | Prop::VectorIcon(_)
                 | Prop::IconSize(_)
                 | Prop::IconOnly(_)
                 | Prop::Custom(_)
@@ -1219,5 +1224,6 @@ static_value!(
     ImageFit,
     Modality,
     Cursor,
-    Size
+    Size,
+    crate::VectorIcon
 );

@@ -8,7 +8,7 @@ use mitsuami_core::{Command, ImageFit, ImageSource, LayoutDirection, NodeId, Pix
 use mitsuami_core::{HorizontalAlign, InputPurpose};
 use windows_core::{IInspectable, Interface};
 
-use super::controls::{set_button_content, set_button_style, set_menu_button_style, set_toggle_style};
+use super::controls::{set_button_content, set_button_style, set_menu_button_style, set_path_icon, set_toggle_style};
 use super::fields::box_text;
 use super::focus::is_control;
 use super::menus::refresh_menu;
@@ -177,6 +177,10 @@ impl State {
                 node.icon = name.clone();
                 set_button_content(node)?;
             }
+            (Prop::VectorIcon(icon), Widget::Button(_) | Widget::Toggle(_) | Widget::MenuButton(_)) => {
+                node.vector_icon = Some(icon.clone());
+                set_button_content(node)?;
+            }
             (Prop::IconOnly(only), Widget::Button(_) | Widget::Toggle(_) | Widget::MenuButton(_)) => {
                 node.icon_only = Some(*only);
                 set_button_content(node)?;
@@ -184,7 +188,31 @@ impl State {
             (Prop::Label(t), Widget::Checkbox(_)) => {
                 node.element.cast::<w::IContentControl>()?.SetContent(&boxed(t))?
             }
-            (Prop::Icon(name), Widget::Icon(icon)) => icon.cast::<w::IFontIcon>()?.SetGlyph(name)?,
+            (Prop::Icon(name), Widget::Icon(icon)) => {
+                node.icon = name.clone();
+                icon.cast::<w::IFontIcon>()?.SetGlyph(name)?
+            }
+            // An icon made named stays a glyph: the node keeps the app's
+            // own icon, for the mirror check, but can't show it.
+            (Prop::VectorIcon(icon), Widget::Icon(_)) => node.vector_icon = Some(icon.clone()),
+            (Prop::Icon(name), Widget::VectorIcon(_)) => node.icon = name.clone(),
+            // `None` keeps the last path: the element can't become a glyph.
+            (Prop::VectorIcon(icon), Widget::VectorIcon(path)) => {
+                node.vector_icon = Some(icon.clone());
+                if let Some(icon) = icon {
+                    set_path_icon(path, icon, path.cast::<w::IFrameworkElement>()?.Width()? as f32)?;
+                }
+            }
+            (Prop::TextColor(color), Widget::VectorIcon(path)) => {
+                node.text_color = Some(*color);
+                path.cast::<w::IFrameworkElement>()?.SetStyle(&foreground_style("PathIcon", *color)?)?;
+            }
+            (Prop::IconSize(points), Widget::VectorIcon(path)) => {
+                node.icon_size = true;
+                if let Some(Some(icon)) = &node.vector_icon {
+                    set_path_icon(path, icon, *points)?;
+                }
+            }
             // A glyph is text: the brushes text takes, the accent's own
             // for text included.
             (Prop::TextColor(color), Widget::Icon(icon)) => {
@@ -206,6 +234,7 @@ impl State {
                 | Widget::Spinner(_)
                 | Widget::Image { .. }
                 | Widget::Icon(_)
+                | Widget::VectorIcon(_)
                 | Widget::FileIcon { .. }
                 | Widget::GpuSurface(_),
             ) => {

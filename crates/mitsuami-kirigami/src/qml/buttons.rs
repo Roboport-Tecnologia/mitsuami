@@ -5,7 +5,9 @@ use super::{TEXT_STYLE, a11y};
 /// A button. `mitsuamiDefault` marks it as the default button, which the
 /// desktop style draws from `Accessible.defaultButton` (`highlighted` only
 /// draws it as focused).
-/// Its icon is a themed icon's name (`mitsuamiIcon`, empty for none),
+/// Its icon is a themed icon's name (`mitsuamiIcon`, empty for none), or
+/// the app's own (`mitsuamiIconFile`, an SVG file's URL, which wins),
+/// tinted in the button's text colour as the style tints symbolic icons;
 /// beside the text unless `mitsuamiIconOnly`, which keeps the text as its
 /// accessible name, as Qt's `IconOnly` buttons do. `mitsuamiShown*` read
 /// back what the button shows.
@@ -49,12 +51,16 @@ fn button_with(extra: &str) -> String {
 QQC2.Button {{
     property bool mitsuamiDefault: false
     property string mitsuamiIcon: ""
+    property string mitsuamiIconFile: ""
     property bool mitsuamiIconOnly: false
-    readonly property string mitsuamiShownIcon: icon.name
+    readonly property string mitsuamiShownIcon: mitsuamiIconFile !== "" ? mitsuamiIcon : icon.name
+    readonly property string mitsuamiShownIconFile: mitsuamiIconFile !== "" ? icon.source.toString() : ""
     readonly property bool mitsuamiShownIconOnly: display === QQC2.AbstractButton.IconOnly
     Accessible.defaultButton: mitsuamiDefault
-    icon.name: mitsuamiIcon
-    display: mitsuamiIconOnly && mitsuamiIcon !== "" ? QQC2.AbstractButton.IconOnly : QQC2.AbstractButton.TextBesideIcon
+    icon.name: mitsuamiIconFile !== "" ? "" : mitsuamiIcon
+    icon.source: mitsuamiIconFile
+    icon.color: mitsuamiIconFile !== "" ? palette.buttonText : "transparent"
+    display: mitsuamiIconOnly && (mitsuamiIcon !== "" || mitsuamiIconFile !== "") ? QQC2.AbstractButton.IconOnly : QQC2.AbstractButton.TextBesideIcon
     {TEXT_STYLE}
     {}
     {extra}

@@ -6,15 +6,16 @@ use std::collections::HashMap;
 use std::path::Path;
 
 use block2::RcBlock;
-use mitsuami_core::ImageSource;
+use mitsuami_core::{ImageSource, PathStep, VectorIcon};
 use objc2::rc::{Retained, Weak};
+use objc2::runtime::Bool;
 use objc2::{AnyThread, MainThreadMarker};
 use objc2_app_kit::{
-    NSBitmapFormat, NSBitmapImageRep, NSCellImagePosition, NSColorSpace, NSDeviceRGBColorSpace, NSFontWeightRegular,
-    NSImage, NSImageSymbolConfiguration, NSImageView, NSScreen, NSWorkspace,
+    NSBezierPath, NSBitmapFormat, NSBitmapImageRep, NSCellImagePosition, NSColor, NSColorSpace, NSDeviceRGBColorSpace,
+    NSFontWeightRegular, NSImage, NSImageSymbolConfiguration, NSImageView, NSScreen, NSWindingRule, NSWorkspace,
 };
 use objc2_core_foundation::CGSize;
-use objc2_foundation::{NSError, NSSize, NSURL};
+use objc2_foundation::{NSError, NSPoint, NSRect, NSSize, NSURL};
 use objc2_quick_look_thumbnailing::{
     QLThumbnailGenerationRequest, QLThumbnailGenerationRequestRepresentationTypes, QLThumbnailGenerator,
     QLThumbnailRepresentation,
@@ -40,6 +41,71 @@ pub(super) fn symbol(name: &str, points: Option<f32>) -> Option<Retained<NSImage
         None => Some(image),
     }
 }
+
+/// The app's own icon, `side` points square, as a template image: AppKit
+/// tints it as it tints symbols (an image view's grey, a button's title's
+/// colour, `contentTintColor`). It's drawn at each scale it's shown at.
+pub(super) fn vector_image(icon: &VectorIcon, side: f32) -> Retained<NSImage> {
+    let steps = icon.steps(side);
+    let even_odd = icon.even_odd();
+    let draw = RcBlock::new(move |_: NSRect| -> Bool {
+        let p = |p: mitsuami_core::Point| NSPoint::new(f64::from(p.x), f64::from(p.y));
+        let path = NSBezierPath::bezierPath();
+        // Quadratic curves as cubic ones: AppKit's own came with macOS 14.
+        let mut last = NSPoint::new(0.0, 0.0);
+        for step in &steps {
+            match *step {
+                PathStep::Move(a) => {
+                    path.moveToPoint(p(a));
+                    last = p(a);
+                }
+                PathStep::Line(a) => {
+                    path.lineToPoint(p(a));
+                    last = p(a);
+                }
+                PathStep::Quad(c, a) => {
+                    let (c, a) = (p(c), p(a));
+                    let c1 = NSPoint::new(last.x + 2.0 / 3.0 * (c.x - last.x), last.y + 2.0 / 3.0 * (c.y - last.y));
+                    let c2 = NSPoint::new(a.x + 2.0 / 3.0 * (c.x - a.x), a.y + 2.0 / 3.0 * (c.y - a.y));
+                    path.curveToPoint_controlPoint1_controlPoint2(a, c1, c2);
+                    last = a;
+                }
+                PathStep::Cubic(c1, c2, a) => {
+                    path.curveToPoint_controlPoint1_controlPoint2(p(a), p(c1), p(c2));
+                    last = p(a);
+                }
+                PathStep::Close => path.closePath(),
+            }
+        }
+        if even_odd {
+            path.setWindingRule(NSWindingRule::EvenOdd);
+        }
+        NSColor::blackColor().setFill();
+        path.fill();
+        Bool::YES
+    });
+    let size = NSSize::new(f64::from(side), f64::from(side));
+    let image = NSImage::imageWithSize_flipped_drawingHandler(size, true, &draw);
+    image.setTemplate(true);
+    image
+}
+
+/// What an icon shows: the app's own icon over a named one. Without a
+/// size, the app's own is as big as a symbol at the system font's size.
+pub(super) fn icon_image(
+    name: Option<&str>,
+    vector: Option<&VectorIcon>,
+    points: Option<f32>,
+) -> Option<Retained<NSImage>> {
+    match vector {
+        Some(icon) => Some(vector_image(icon, points.unwrap_or(DEFAULT_VECTOR_SIDE))),
+        None => name.and_then(|name| symbol(name, points)),
+    }
+}
+
+/// A symbol's height at the system font's size, which an icon of the
+/// app's own matches.
+const DEFAULT_VECTOR_SIDE: f32 = 16.0;
 
 /// Where a button's image goes: before the title, which reads leading in
 /// right-to-left layouts too, or alone.

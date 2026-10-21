@@ -105,3 +105,11 @@ pub use text_inputs::*;
 pub use toggles::*;
 pub use toolbar::*;
 pub use window::*;
+
+/// A value as an optional one, for props that take `None` for unset.
+pub(crate) fn some<T: Clone + 'static>(value: mitsuami_reactive::Value<T>) -> mitsuami_reactive::Value<Option<T>> {
+    match value {
+        mitsuami_reactive::Value::Static(v) => mitsuami_reactive::Value::Static(Some(v)),
+        mitsuami_reactive::Value::Dynamic(f) => mitsuami_reactive::Value::Dynamic(std::rc::Rc::new(move || Some(f()))),
+    }
+}

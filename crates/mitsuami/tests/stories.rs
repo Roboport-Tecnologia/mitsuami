@@ -659,6 +659,35 @@ fn icons() -> impl View {
     ))
 }
 
+/// The app's own icons, from path data: drawn in the colour each platform
+/// gives its symbolic icons, at the size of its named ones and larger, and
+/// in buttons.
+#[mitsuami_test::story(sizes = [(320, fit)])]
+fn vector_icons() -> impl View {
+    let branch = || {
+        VectorIcon::with_view_box(
+            "M6 3a3 3 0 1 1 0 6a3 3 0 1 1 0-6Z M6 15a3 3 0 1 1 0 6a3 3 0 1 1 0-6Z M18 3a3 3 0 1 1 0 6a3 3 0 1 1 \
+             0-6Z M5 8h2v8H5Z M17 8h2v2a5 5 0 0 1-5 5H8v-2h6a3 3 0 0 0 3-3Z",
+            Rect::new(0.0, 0.0, 24.0, 24.0),
+        )
+        .unwrap()
+    };
+    let plus = || VectorIcon::new("M10 0H14V10H24V14H14V24H10V14H0V10H10Z").unwrap();
+    Column::new().padding(16).gap(12).align(Align::Start).children((
+        Row::new().gap(12).align(Align::Center).children((
+            Icon::new("").vector(branch()).label("Branch"),
+            Icon::new("").vector(plus()).label("Add"),
+            Icon::new("").vector(branch()).label("Large branch").icon_size(32.0),
+            Icon::new("").vector(branch()).label("Accent").color(Color::Accent),
+        )),
+        Row::new().gap(8).align(Align::Center).children((
+            Button::new("New branch").vector_icon(branch()),
+            Button::new("Add").vector_icon(plus()).icon_only(true),
+            Button::new("Add").vector_icon(plus()).icon_only(true).button_style(ButtonStyle::Borderless),
+        )),
+    ))
+}
+
 /// Files' icons as each platform's file manager shows them: a folder, a
 /// document and a picture at the small size and larger, and the picture's
 /// thumbnail where the platform makes one (AppKit and Windows; GTK only

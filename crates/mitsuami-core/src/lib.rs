@@ -27,6 +27,7 @@ mod surface;
 mod table;
 pub mod task;
 mod tweak;
+mod vector_icon;
 mod ui;
 pub mod units;
 mod view;
@@ -54,6 +55,7 @@ pub use style::{Align, Display, FlexDirection, GridPlacement, Justify, Style, Te
 pub use surface::{NativeSurface, SurfaceHandle, SurfaceSize};
 pub use table::{Sort, Table, TableColumn, TableWithoutEach, TableWithoutKey};
 pub use tweak::Tweak;
+pub use vector_icon::{PathStep, VectorIcon};
 pub use ui::{NodeInfo, Ui, WeakUi};
 pub use units::{Length, LengthExt, Spacing};
 pub use view::{AnyView, Callback, Children, Slot, View};

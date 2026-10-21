@@ -151,7 +151,8 @@ impl WinUiBackend {
             | Widget::Slider { .. }
             | Widget::Progress(_)
             | Widget::Spinner(_)
-            | Widget::Icon(_) => ceil(measure_element(&node.element, infinite)),
+            | Widget::Icon(_)
+            | Widget::VectorIcon(_) => ceil(measure_element(&node.element, infinite)),
             Widget::Number { .. } => ceil(measure_number_box(&node.element)),
             // To the nearest, not up: XAML rounds its 1 epx to whole
             // pixels (1.33 at 150 %), and up would make it 2.

@@ -19,14 +19,16 @@ Image {{
     )
 }
 
-/// A themed icon, `mitsuamiName`, at `mitsuamiSize` (Kirigami's small
+/// A themed icon, `mitsuamiName`, or the app's own (`mitsuamiFile`, an
+/// SVG file's URL, which wins), at `mitsuamiSize` (Kirigami's small
 /// size, 16 at the default scale, the one KDE's buttons and menus show
 /// inline, unless the app gave one). No name shows nothing and takes no
 /// room; a name the theme lacks shows Kirigami's fallback icon.
 /// Symbolic icons take the theme's text colour, as Kirigami colours them,
 /// or the colour the app gave, bound as a label's (`LABEL_OPTIONS`):
 /// `transparent`, Kirigami's default, leaves them to the theme. Icons in
-/// full colour keep theirs.
+/// full colour keep theirs. The app's own icon is a mask, so it's drawn
+/// as a symbolic one is: in the icon's colour.
 pub(crate) fn icon() -> String {
     format!(
         r#"
@@ -35,11 +37,15 @@ Kirigami.Icon {{
     property int mitsuamiRgba: 0
     color: {} ?? "transparent"
     property string mitsuamiName: ""
+    property string mitsuamiFile: ""
     property real mitsuamiSize: Kirigami.Units.iconSizes.small
-    readonly property string mitsuamiShownName: typeof source === "string" ? source : ""
-    source: mitsuamiName
-    implicitWidth: mitsuamiName === "" ? 0 : mitsuamiSize
-    implicitHeight: mitsuamiName === "" ? 0 : mitsuamiSize
+    readonly property bool mitsuamiShowsIcon: mitsuamiName !== "" || mitsuamiFile !== ""
+    readonly property string mitsuamiShownName: mitsuamiFile !== "" ? mitsuamiName : (typeof source === "string" ? source : "")
+    readonly property string mitsuamiShownFile: mitsuamiFile !== "" && isMask ? mitsuamiFile : ""
+    source: mitsuamiFile !== "" ? mitsuamiFile : mitsuamiName
+    isMask: mitsuamiFile !== ""
+    implicitWidth: mitsuamiShowsIcon ? mitsuamiSize : 0
+    implicitHeight: mitsuamiShowsIcon ? mitsuamiSize : 0
     Accessible.role: Accessible.Graphic
     {}
 }}

@@ -2,23 +2,24 @@
 
 use mitsuami_core::NodeId;
 use mitsuami_core::a11y::ActionError;
+use objc2::rc::Retained;
 use objc2::{MainThreadMarker, sel};
-use objc2_app_kit::{NSAccessibility, NSMenuItem};
+use objc2_app_kit::{NSAccessibility, NSImage, NSMenuItem};
 
 use crate::services::ItemTarget;
 
-use super::images::{image_position, symbol};
+use super::images::image_position;
 use super::{AppKitBackend, Widget, ns};
 
 /// Shows a menu button's title, icon and menu: a pull-down shows its
 /// first item as its title, so the menu is made again with that first.
-pub(super) fn show_pull_down(widget: &Widget, title: &str, icon: Option<&str>, icon_only: Option<bool>) {
+pub(super) fn show_pull_down(widget: &Widget, title: &str, icon: Option<Retained<NSImage>>, icon_only: Option<bool>) {
     let Widget::MenuButton { popup, target, sent } = widget else { return };
     let mtm = MainThreadMarker::from(&**popup);
     let menu = crate::services::context_menu(mtm, sent, ItemTarget { object: target, action: sel!(fire:) });
     let item = NSMenuItem::new(mtm);
     item.setTitle(&ns(title));
-    item.setImage(icon.and_then(|name| symbol(name, None)).as_deref());
+    item.setImage(icon.as_deref());
     menu.insertItem_atIndex(&item, 0);
     popup.setMenu(Some(&menu));
     popup.setImagePosition(image_position(icon_only));

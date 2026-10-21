@@ -173,10 +173,17 @@ impl GtkBackend {
                     }));
                 }
             }
-            Widget::Icon { image, size, .. } => {
+            Widget::Icon { image, size, name, vector, .. } => {
                 props.extend(node.a11y_label.clone().map(Prop::Label));
                 props.extend(icon_color(image, node.text_color).map(Prop::TextColor));
-                props.push(Prop::Icon(image.icon_name().map(|n| n.to_string()).unwrap_or_default()));
+                // A vector icon hides the name, which is then the one given.
+                let shown = image.icon_name().map(|n| n.to_string());
+                props.push(Prop::Icon(if super::vector_icon::shows_gicon(image) {
+                    name.clone()
+                } else {
+                    shown.unwrap_or_default()
+                }));
+                props.extend(vector.clone().map(Prop::VectorIcon));
                 // What GTK shows, as the size given when it rounds to it.
                 if let Some(size) = size {
                     let shown = image.pixel_size() as f32;

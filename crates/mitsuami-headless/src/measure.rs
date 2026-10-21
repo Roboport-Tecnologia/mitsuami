@@ -31,7 +31,8 @@ impl HeadlessBackend {
             // A menu button is a button with a 16-point arrow after it.
             WidgetKind::Button | WidgetKind::ToggleButton | WidgetKind::MenuButton => {
                 let arrow = if node.kind == WidgetKind::MenuButton { 16.0 } else { 0.0 };
-                let icon = find_prop!(node.props, Icon).is_some_and(|name| !name.is_empty());
+                let icon = find_prop!(node.props, Icon).is_some_and(|name| !name.is_empty())
+                    || find_prop!(node.props, VectorIcon).flatten().is_some();
                 let content = match (icon, find_prop!(node.props, IconOnly) == Some(true)) {
                     (true, true) => 16.0,
                     (true, false) => 16.0 + 6.0 + text_size(&label(), font, None, None).width,
@@ -63,14 +64,17 @@ impl HeadlessBackend {
                 Orientation::Horizontal => Size::new(0.0, 1.0),
                 Orientation::Vertical => Size::new(1.0, 0.0),
             },
-            // A square, 16 points unless sized; no name shows nothing.
-            WidgetKind::Icon => match find_prop!(node.props, Icon) {
-                Some(name) if !name.is_empty() => {
+            // A square, 16 points unless sized; no name and no vector icon
+            // shows nothing.
+            WidgetKind::Icon => {
+                let named = find_prop!(node.props, Icon).is_some_and(|name| !name.is_empty());
+                if named || find_prop!(node.props, VectorIcon).flatten().is_some() {
                     let side = find_prop!(node.props, IconSize).unwrap_or(16.0);
                     Size::new(side, side)
+                } else {
+                    Size::ZERO
                 }
-                _ => Size::ZERO,
-            },
+            }
             // A square, 16 points unless sized, whatever the file.
             WidgetKind::FileIcon => {
                 let side = find_prop!(node.props, IconSize).unwrap_or(16.0);

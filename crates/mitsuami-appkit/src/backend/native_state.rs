@@ -89,6 +89,7 @@ pub(super) fn native_state(state: &State, id: NodeId) -> Option<NativeState> {
         Widget::MenuButton { popup, sent, .. } => {
             props.push(Prop::Label(pull_down_title(&node.widget)));
             props.extend(node.icon.clone().map(Prop::Icon));
+            props.extend(node.vector_icon.clone().map(Prop::VectorIcon));
             if node.icon_only.is_some() {
                 props.push(Prop::IconOnly(popup.imagePosition() == NSCellImagePosition::ImageOnly));
             }
@@ -111,6 +112,7 @@ pub(super) fn native_state(state: &State, id: NodeId) -> Option<NativeState> {
                 props.push(checked(b.state()));
             }
             props.extend(node.icon.clone().map(Prop::Icon));
+            props.extend(node.vector_icon.clone().map(Prop::VectorIcon));
             if node.icon_only.is_some() {
                 props.push(Prop::IconOnly(b.imagePosition() == NSCellImagePosition::ImageOnly));
             }
@@ -120,6 +122,7 @@ pub(super) fn native_state(state: &State, id: NodeId) -> Option<NativeState> {
                 props.push(Prop::Label(label.to_string()));
             }
             props.extend(node.icon.clone().map(Prop::Icon));
+            props.extend(node.vector_icon.clone().map(Prop::VectorIcon));
             props.extend(node.icon_size.map(Prop::IconSize));
             if let (Some(sent), Some(shown)) = (node.text_color, view.contentTintColor()) {
                 let given = crate::custom::ns_color(sent);

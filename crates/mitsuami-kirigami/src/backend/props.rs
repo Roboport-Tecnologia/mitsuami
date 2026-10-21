@@ -10,6 +10,7 @@ use crate::ffi::{self, QmlObject};
 use crate::qml;
 use crate::services::ContextMenu;
 
+use super::vector_icon;
 use super::window::sections_json;
 use super::{
     ALIGN_H_CENTER, ALIGN_LEFT, ALIGN_RIGHT, CHECKED, PARTIALLY_CHECKED, PURPOSE_HINTS, QT_HORIZONTAL, QT_VERTICAL,
@@ -343,6 +344,14 @@ impl State {
                 node.icon_only = true;
             }
             (Prop::Icon(name), Widget::Icon(i)) => i.set_str("mitsuamiName", name),
+            (Prop::VectorIcon(icon), Widget::Icon(i)) => {
+                i.set_str("mitsuamiFile", &icon.as_ref().map(vector_icon::file_url).unwrap_or_default());
+                node.vector_icon = Some(icon.clone());
+            }
+            (Prop::VectorIcon(icon), Widget::Button(b) | Widget::MenuButton(b)) => {
+                b.set_str("mitsuamiIconFile", &icon.as_ref().map(vector_icon::file_url).unwrap_or_default());
+                node.vector_icon = Some(icon.clone());
+            }
             // Not the last file's icon while this one's type is found.
             (Prop::File(path), Widget::FileIcon(i)) => {
                 i.set_str("mitsuamiFile", &path.to_string_lossy());
