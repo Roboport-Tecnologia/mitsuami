@@ -192,6 +192,67 @@ async fn dialogs_are_modal_to_their_window(app: TestApp) {
     assert_eq!(heard(), ["event 5"]);
 }
 
+extern "C" fn alert_answer(_user: *mut c_void, index: usize) {
+    HEARD.with(|h| h.borrow_mut().push(format!("button {index}")));
+}
+
+extern "C" fn open_answer(_user: *mut c_void, paths: *const MitsuamiStr, count: usize) {
+    let paths: Vec<String> = (0..count)
+        .map(|i| {
+            let p = unsafe { &*paths.add(i) };
+            String::from_utf8(unsafe { std::slice::from_raw_parts(p.ptr, p.len) }.to_vec()).unwrap()
+        })
+        .collect();
+    HEARD.with(|h| h.borrow_mut().push(format!("paths {}", paths.join(","))));
+}
+
+fn str(s: &str) -> MitsuamiStr {
+    MitsuamiStr { ptr: s.as_ptr(), len: s.len() }
+}
+
+#[mitsuami_test::test]
+async fn alerts_and_folder_dialogs_answer_through_callbacks(app: TestApp) {
+    attach(app.ui());
+    heard();
+    let buttons = strs(&["Delete", "Cancel"]);
+    let window = app.window().raw();
+    assert!(unsafe {
+        mitsuami_alert(window, str("Delete the group?"), str(""), buttons.as_ptr(), 2, 2, alert_answer, std::ptr::null_mut())
+    });
+    assert!(unsafe {
+        mitsuami_open_file(window, str("Parent folder"), true, false, str("/tmp"), open_answer, std::ptr::null_mut())
+    });
+    app.settle().await;
+
+    let alert = app.services().take_alert().expect("an alert is showing");
+    assert_eq!(alert.request.title, "Delete the group?");
+    assert_eq!(alert.request.buttons, ["Delete", "Cancel"]);
+    alert.respond(1);
+    let open = app.services().take_open_file().expect("a folder dialog is showing");
+    assert!(open.request.directories && !open.request.multiple);
+    assert_eq!(open.request.start_folder, Some("/tmp".into()));
+    open.respond(Some(vec!["/tmp/repos".into()]));
+    app.settle().await;
+
+    assert_eq!(heard(), ["button 1", "paths /tmp/repos"]);
+}
+
+#[mitsuami_test::test]
+async fn drop_downs_report_the_option_chosen(app: TestApp) {
+    attach(app.ui());
+    heard();
+    let select = create(MitsuamiKind::Select);
+    set_text(select, MitsuamiTextProp::Label, "Group");
+    let options = strs(&["None", "Work", "Personal"]);
+    assert!(unsafe { mitsuami_set_strings(select, MitsuamiStringsProp::Options as u32, options.as_ptr(), 3) });
+    assert!(mitsuami_set_index(select, MitsuamiIndexProp::SelectedIndex as u32, 0));
+    assert!(mitsuami_on_event(select, record, std::ptr::null_mut()));
+    app.mount(|| Adopt(select));
+
+    app.get_by_role(Role::ComboBox, "Group").select_option("Personal").await;
+    assert_eq!(heard(), ["chose 2"]);
+}
+
 static POSTED_TO: AtomicU32 = AtomicU32::new(0);
 
 extern "C" fn show_posted(_user: *mut c_void) {

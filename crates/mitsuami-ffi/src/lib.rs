@@ -23,6 +23,7 @@ use std::sync::Mutex;
 use std::task::{Poll, Waker};
 
 use mitsuami::App;
+use mitsuami::core::services::{Alert, AlertStyle, OpenFile};
 use mitsuami::core::style::Edges;
 use mitsuami::core::{
     Align, ButtonRole, ButtonStyle, DocumentTabsStyle, EventValue, FlexDirection, Justify, Length, List, ListStyle,
@@ -186,6 +187,8 @@ pub enum MitsuamiKind {
     /// Tabs for the documents an app has open, as data: the app shows the
     /// chosen one itself.
     DocumentTabs = 13,
+    /// The platform's drop-down: one of its options is always chosen.
+    Select = 14,
 }
 
 fn widget_kind(kind: u32) -> Result<WidgetKind, String> {
@@ -204,6 +207,7 @@ fn widget_kind(kind: u32) -> Result<WidgetKind, String> {
         11 => WidgetKind::Spinner,
         12 => WidgetKind::Progress,
         13 => WidgetKind::DocumentTabs,
+        14 => WidgetKind::Select,
         _ => return Err(format!("unknown kind {kind}")),
     })
 }
@@ -389,6 +393,8 @@ pub extern "C" fn mitsuami_set_number(id: u32, prop: u32, value: f64) -> bool {
 pub enum MitsuamiStringsProp {
     /// Document tabs' titles, in order.
     TabTitles = 0,
+    /// A drop-down's options, in order.
+    Options = 1,
 }
 
 /// # Safety
@@ -399,6 +405,7 @@ pub unsafe extern "C" fn mitsuami_set_strings(id: u32, prop: u32, values: *const
         let values = unsafe { strings(values, count)? };
         let prop = match prop {
             0 => Prop::TabTitles(values),
+            1 => Prop::Options(values),
             _ => return Err(format!("unknown strings prop {prop}")),
         };
         ui()?.set_prop(node(id), prop);
@@ -929,4 +936,88 @@ pub unsafe extern "C" fn mitsuami_list_selected_key(id: u32, index: usize, ptr: 
         })
     })
     .unwrap_or(0)
+}
+
+// Alerts and file dialogs. They never block: the answer comes to a
+// callback, on the UI thread.
+
+/// Shows an alert on `window` (0: the focused one), its buttons in order
+/// of importance, the first the default; `style` is `Info`, `Warning` or
+/// `Critical`, 0 to 2. `answer(user, index)` gets the button chosen.
+///
+/// # Safety
+/// The strings are as [`string`] and [`strings`] say.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn mitsuami_alert(
+    window: u32,
+    title: MitsuamiStr,
+    message: MitsuamiStr,
+    buttons: *const MitsuamiStr,
+    count: usize,
+    style: u32,
+    answer: extern "C" fn(*mut c_void, usize),
+    user: *mut c_void,
+) -> bool {
+    let user = user as usize;
+    guard(|| {
+        let ui = ui()?;
+        let (title, message) = unsafe { (string(title.ptr, title.len)?, string(message.ptr, message.len)?) };
+        let mut alert = Alert::new(title);
+        if !message.is_empty() {
+            alert = alert.message(message);
+        }
+        alert.buttons = unsafe { strings(buttons, count)? };
+        alert.style = match style {
+            0 => AlertStyle::Info,
+            1 => AlertStyle::Warning,
+            2 => AlertStyle::Critical,
+            _ => return Err(format!("bad alert style {style}")),
+        };
+        let reply = ui.alert((window != 0).then(|| node(window)), alert);
+        ui.spawn_local(async move {
+            let index = reply.await;
+            answer(user as *mut c_void, index);
+        });
+        Ok(())
+    })
+    .is_some()
+}
+
+/// Asks for files to open, or with `folders` for folders, on `window` (0:
+/// the focused one), starting in `start_folder` if it's there.
+/// `answer(user, paths, count)` gets what was chosen: none if cancelled.
+///
+/// # Safety
+/// The strings are as [`string`] says.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn mitsuami_open_file(
+    window: u32,
+    title: MitsuamiStr,
+    folders: bool,
+    multiple: bool,
+    start_folder: MitsuamiStr,
+    answer: extern "C" fn(*mut c_void, *const MitsuamiStr, usize),
+    user: *mut c_void,
+) -> bool {
+    let user = user as usize;
+    guard(|| {
+        let ui = ui()?;
+        let (title, start) = unsafe { (string(title.ptr, title.len)?, string(start_folder.ptr, start_folder.len)?) };
+        let mut request = OpenFile::new();
+        if !title.is_empty() {
+            request = request.title(title);
+        }
+        request.directories = folders;
+        request.multiple = multiple;
+        request.start_folder = (!start.is_empty()).then(|| start.into());
+        let reply = ui.open_file((window != 0).then(|| node(window)), request);
+        ui.spawn_local(async move {
+            let paths: Vec<String> =
+                reply.await.unwrap_or_default().iter().map(|p| p.to_string_lossy().into_owned()).collect();
+            let strs: Vec<MitsuamiStr> = paths.iter().map(|p| MitsuamiStr { ptr: p.as_ptr(), len: p.len() }).collect();
+            answer(user as *mut c_void, strs.as_ptr(), strs.len());
+        });
+        Ok(())
+    })
+    .is_some()
 }
