@@ -23,6 +23,10 @@ extern "C" fn record(_user: *mut c_void, _node: u32, event: *const MitsuamiEvent
             format!("changed {}", std::str::from_utf8(text).unwrap())
         }
         1 if event.value_kind == MitsuamiValueKind::Bool as u32 => format!("changed {}", event.flag),
+        6 => {
+            let text = unsafe { std::slice::from_raw_parts(event.text, event.text_len) };
+            format!("search {}", std::str::from_utf8(text).unwrap())
+        }
         // Where focus goes on a click differs per platform.
         3 | 4 => return,
         kind => format!("event {kind}"),
@@ -110,6 +114,23 @@ async fn events_come_back_through_the_callback(app: TestApp) {
     app.get_by_role(Role::Checkbox, "Bare").click().await;
 
     assert_eq!(heard(), ["click", "changed https://example.com/a.git", "changed true"]);
+}
+
+#[mitsuami_test::test]
+async fn search_fields_search_when_their_platform_does(app: TestApp) {
+    attach(app.ui());
+    heard();
+    let search = create(MitsuamiKind::SearchInput);
+    set_text(search, MitsuamiTextProp::A11yLabel, "Search repositories");
+    assert!(mitsuami_on_event(search, record, std::ptr::null_mut()));
+    app.mount(|| Adopt(search));
+
+    app.get_by_role(Role::SearchField, "Search repositories").fill("mitsu").await;
+    app.expect(by_role(Role::SearchField, "Search repositories")).to_exist().await;
+
+    let heard = heard();
+    assert!(heard.contains(&"changed mitsu".to_string()), "{heard:?}");
+    assert!(heard.contains(&"search mitsu".to_string()), "{heard:?}");
 }
 
 static POSTED_TO: AtomicU32 = AtomicU32::new(0);

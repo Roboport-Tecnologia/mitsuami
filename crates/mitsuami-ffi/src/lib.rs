@@ -559,6 +559,9 @@ pub enum MitsuamiEventKind {
     FocusOut = 4,
     /// The user asked to close a window, which then closes.
     CloseRequested = 5,
+    /// A search field searches, when its platform does: `value` has the
+    /// text.
+    Search = 6,
 }
 
 #[repr(u32)]
@@ -601,6 +604,7 @@ pub extern "C" fn mitsuami_on_event(
                 UiEvent::FocusIn => MitsuamiEventKind::FocusIn,
                 UiEvent::FocusOut => MitsuamiEventKind::FocusOut,
                 UiEvent::WindowCloseRequested => MitsuamiEventKind::CloseRequested,
+                UiEvent::Search(_) => MitsuamiEventKind::Search,
                 _ => return,
             };
             let mut out = MitsuamiEvent {
@@ -612,6 +616,11 @@ pub extern "C" fn mitsuami_on_event(
                 number: 0.0,
                 index: 0,
             };
+            if let UiEvent::Search(text) = event {
+                out.value_kind = MitsuamiValueKind::Text as u32;
+                out.text = text.as_ptr();
+                out.text_len = text.len();
+            }
             if let UiEvent::Changed(value) = event {
                 match value {
                     EventValue::Text(text) => {
