@@ -26,9 +26,9 @@ use mitsuami::App;
 use mitsuami::core::services::{Alert, AlertStyle, OpenFile};
 use mitsuami::core::style::Edges;
 use mitsuami::core::{
-    Align, ButtonRole, ButtonStyle, DocumentTabsStyle, EventValue, FlexDirection, HeaderEdge, Justify, Length, List,
-    ListStyle, Modality, NodeId, Prop, Rect, SelectionMode, Size, TextStyle, Ui, UiEvent, VectorIcon, View, WidgetKind,
-    WindowSize,
+    Align, ButtonRole, ButtonStyle, Color, DocumentTabsStyle, EventValue, FlexDirection, HeaderEdge, Justify, Length,
+    List, ListStyle, Modality, NodeId, Prop, Rect, SelectionMode, Size, TextStyle, Ui, UiEvent, VectorIcon, View,
+    WidgetKind, WindowSize,
 };
 use mitsuami::reactive::{Owner, Signal, on_cleanup, signal, watch};
 
@@ -486,6 +486,42 @@ pub extern "C" fn mitsuami_set_number(id: u32, prop: u32, value: f64) -> bool {
 }
 
 #[repr(u32)]
+pub enum MitsuamiColorProp {
+    /// A text's or an icon's colour; an icon in full colour keeps its own.
+    TextColor = 0,
+}
+
+/// Sets a colour: `semantic` is one of the platform's own, which follow
+/// dark mode, high contrast and the accent (`Label`, `SecondaryLabel`,
+/// `Accent`, `Separator`, `ControlBackground`, `WindowBackground`, `Error`,
+/// `Warning`, `Success`: 0 to 8), or 9 for the fixed `r`, `g`, `b`, `a`.
+#[unsafe(no_mangle)]
+pub extern "C" fn mitsuami_set_color(id: u32, prop: u32, semantic: u32, r: u8, g: u8, b: u8, a: u8) -> bool {
+    guard(|| {
+        let color = match semantic {
+            0 => Color::Label,
+            1 => Color::SecondaryLabel,
+            2 => Color::Accent,
+            3 => Color::Separator,
+            4 => Color::ControlBackground,
+            5 => Color::WindowBackground,
+            6 => Color::Error,
+            7 => Color::Warning,
+            8 => Color::Success,
+            9 => Color::Rgba(r, g, b, a),
+            _ => return Err(format!("bad colour {semantic}")),
+        };
+        let prop = match prop {
+            0 => Prop::TextColor(color),
+            _ => return Err(format!("unknown colour prop {prop}")),
+        };
+        ui()?.set_prop(node(id), prop);
+        Ok(())
+    })
+    .is_some()
+}
+
+#[repr(u32)]
 pub enum MitsuamiStringsProp {
     /// Document tabs' titles, in order.
     TabTitles = 0,
@@ -681,6 +717,32 @@ pub extern "C" fn mitsuami_set_margin(id: u32, top: f32, end: f32, bottom: f32, 
     let edges = Edges { top: length(top), end: length(end), bottom: length(bottom), start: length(start) };
     guard(|| {
         ui()?.update_style(node(id), |s| s.margin = edges);
+        Ok(())
+    })
+    .is_some()
+}
+
+/// The least size the layout gives a node; negative: none.
+#[unsafe(no_mangle)]
+pub extern "C" fn mitsuami_set_min_size(id: u32, width: f32, height: f32) -> bool {
+    guard(|| {
+        ui()?.update_style(node(id), |s| {
+            s.min_width = length(width);
+            s.min_height = length(height);
+        });
+        Ok(())
+    })
+    .is_some()
+}
+
+/// The most size the layout gives a node; negative: none.
+#[unsafe(no_mangle)]
+pub extern "C" fn mitsuami_set_max_size(id: u32, width: f32, height: f32) -> bool {
+    guard(|| {
+        ui()?.update_style(node(id), |s| {
+            s.max_width = length(width);
+            s.max_height = length(height);
+        });
         Ok(())
     })
     .is_some()

@@ -6,7 +6,7 @@ use std::cell::RefCell;
 use std::ffi::c_void;
 use std::sync::atomic::{AtomicU32, Ordering};
 
-use mitsuami::core::{Modality, NodeId, Prop, Ui, VectorIcon, View};
+use mitsuami::core::{Color, Modality, NodeId, Prop, Ui, VectorIcon, View};
 use mitsuami_ffi::*;
 use mitsuami_test::prelude::*;
 
@@ -103,6 +103,23 @@ async fn nodes_it_makes_are_laid_out_and_found(app: TestApp) {
     assert_eq!(title.origin.x, 16.0);
     assert_eq!(title.origin.y, 16.0);
     assert_eq!(url.y(), title.max_y() + 8.0);
+    // Colours and the least and most sizes.
+    let title = app.get_by_text("Clone a repository").id();
+    assert!(mitsuami_set_color(title.raw(), MitsuamiColorProp::TextColor as u32, 1, 0, 0, 0, 0));
+    assert!(app.ui().props(title).contains(&Prop::TextColor(Color::SecondaryLabel)));
+    assert!(mitsuami_set_color(title.raw(), MitsuamiColorProp::TextColor as u32, 9, 255, 0, 0, 255));
+    assert!(app.ui().props(title).contains(&Prop::TextColor(Color::rgb(255, 0, 0))));
+    assert!(!mitsuami_set_color(title.raw(), MitsuamiColorProp::TextColor as u32, 10, 0, 0, 0, 0));
+    assert!(mitsuami_set_min_size(column.raw(), 600.0, -1.0));
+    app.expect(by_text("Clone a repository")).to_be_visible().await;
+    assert!(app.ui().frame(column).unwrap().width() >= 600.0);
+    assert!(mitsuami_set_max_size(title.raw(), 50.0, -1.0));
+    app.settle().await;
+    assert!(app.ui().frame(title).unwrap().width() <= 50.0);
+    // A narrower title wraps, moving what's under it: back as it was.
+    assert!(mitsuami_set_max_size(title.raw(), -1.0, -1.0));
+    app.settle().await;
+
     // A header is a prop: the core lays it out as any container.
     assert!(mitsuami_set_bool(column.raw(), MitsuamiBoolProp::Header as u32, true));
     assert!(mitsuami_set_enum(column.raw(), MitsuamiEnumProp::HeaderEdge as u32, 2));
