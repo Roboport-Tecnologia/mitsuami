@@ -153,4 +153,73 @@ async fn failures_are_returned_not_panicked(app: TestApp) {
     set_text(text, MitsuamiTextProp::Text, "Gone");
 }
 
+extern "C" fn build_row(_user: *mut c_void, _list: u32, key: *const u8, len: usize) -> u32 {
+    let key = std::str::from_utf8(unsafe { std::slice::from_raw_parts(key, len) }).unwrap();
+    let text = create(MitsuamiKind::Text);
+    set_text(text, MitsuamiTextProp::Text, &format!("Repository {key}"));
+    text
+}
+
+extern "C" fn release_row(_user: *mut c_void, _list: u32, _row: u32) {
+    HEARD.with(|h| h.borrow_mut().push("released".to_string()));
+}
+
+extern "C" fn selection_changed(_user: *mut c_void, list: u32) {
+    let keys: Vec<String> = (0..mitsuami_list_selected_count(list))
+        .map(|i| {
+            let mut ptr = std::ptr::null();
+            let len = unsafe { mitsuami_list_selected_key(list, i, &mut ptr) };
+            String::from_utf8(unsafe { std::slice::from_raw_parts(ptr, len) }.to_vec()).unwrap()
+        })
+        .collect();
+    HEARD.with(|h| h.borrow_mut().push(format!("selected {}", keys.join(","))));
+}
+
+extern "C" fn activated(_user: *mut c_void, _list: u32, key: *const u8, len: usize) {
+    let key = std::str::from_utf8(unsafe { std::slice::from_raw_parts(key, len) }).unwrap();
+    HEARD.with(|h| h.borrow_mut().push(format!("activated {key}")));
+}
+
+fn strs(keys: &[&str]) -> Vec<MitsuamiStr> {
+    keys.iter().map(|k| MitsuamiStr { ptr: k.as_ptr(), len: k.len() }).collect()
+}
+
+#[mitsuami_test::test]
+async fn lists_ask_for_rows_and_report_the_selection(app: TestApp) {
+    attach(app.ui());
+    heard();
+    let list = mitsuami_create_list(MitsuamiListCallbacks {
+        build_row,
+        release_row,
+        selection_changed,
+        activated,
+        user: std::ptr::null_mut(),
+    });
+    assert_ne!(list, 0);
+    assert!(mitsuami_set_size(list, 300.0, 200.0));
+    let keys = strs(&["a", "b", "c"]);
+    assert!(unsafe { mitsuami_list_set_keys(list, keys.as_ptr(), keys.len()) });
+    app.mount(|| Adopt(list));
+    app.expect(by_role(Role::ListItem, "Repository c")).to_be_visible().await;
+
+    // The caller's own selection isn't reported back as the user's.
+    let selected = strs(&["a"]);
+    assert!(unsafe { mitsuami_list_set_selected(list, selected.as_ptr(), selected.len()) });
+    app.settle().await;
+    assert!(app.get_by_role(Role::ListItem, "Repository a").node().selected == Some(true));
+    assert_eq!(heard(), Vec::<String>::new());
+
+    app.get_by_role(Role::ListItem, "Repository c").select().await;
+    app.get_by_role(Role::ListItem, "Repository b").click().await;
+    let heard_now = heard();
+    assert!(heard_now.contains(&"selected c".to_string()), "{heard_now:?}");
+    assert!(heard_now.contains(&"activated b".to_string()), "{heard_now:?}");
+
+    // Rows that go are let go, and the caller hears it.
+    let keys = strs(&["a"]);
+    assert!(unsafe { mitsuami_list_set_keys(list, keys.as_ptr(), keys.len()) });
+    app.expect(by_role(Role::ListItem, "Repository c")).not_to_exist().await;
+    assert!(heard().contains(&"released".to_string()));
+}
+
 mitsuami_test::main!();

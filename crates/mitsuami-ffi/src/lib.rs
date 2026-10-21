@@ -14,22 +14,25 @@
 //! - Nothing panics across the boundary: a call that fails returns false
 //!   (or a node of 0), and `mitsuami_last_error` says why.
 
-use std::cell::RefCell;
-use std::collections::VecDeque;
+use std::cell::{Cell, RefCell};
+use std::collections::{HashMap, VecDeque};
 use std::ffi::c_void;
 use std::panic::{AssertUnwindSafe, catch_unwind};
+use std::rc::Rc;
 use std::sync::Mutex;
 use std::task::{Poll, Waker};
 
 use mitsuami::App;
 use mitsuami::core::style::Edges;
 use mitsuami::core::{
-    Align, ButtonRole, ButtonStyle, EventValue, FlexDirection, Justify, Length, NodeId, Prop, Size, TextStyle, Ui,
-    UiEvent, WidgetKind,
+    Align, ButtonRole, ButtonStyle, EventValue, FlexDirection, Justify, Length, List, ListStyle, NodeId, Prop,
+    SelectionMode, Size, TextStyle, Ui, UiEvent, View, WidgetKind,
 };
+use mitsuami::reactive::{Owner, Signal, on_cleanup, signal, watch};
 
 thread_local! {
     static UI: RefCell<Option<Ui>> = const { RefCell::new(None) };
+    static LISTS: RefCell<HashMap<u32, ListState>> = RefCell::new(HashMap::new());
     static LAST_ERROR: RefCell<Vec<u8>> = const { RefCell::new(Vec::new()) };
 }
 
@@ -256,6 +259,10 @@ pub extern "C" fn mitsuami_append_child(parent: u32, child: u32) -> bool {
 pub extern "C" fn mitsuami_destroy(id: u32) -> bool {
     guard(|| {
         ui()?.destroy(node(id));
+        // Known gap: a list inside a destroyed node keeps its scope.
+        if let Some(list) = LISTS.with(|l| l.borrow_mut().remove(&id)) {
+            list.owner.dispose();
+        }
         Ok(())
     })
     .is_some()
@@ -327,6 +334,8 @@ pub extern "C" fn mitsuami_set_bool(id: u32, prop: u32, value: bool) -> bool {
 pub enum MitsuamiNumberProp {
     /// A progress bar's, a slider's or a number field's value.
     Number = 0,
+    /// A list's guess at its rows' height, for rows not built yet.
+    EstimatedRowHeight = 1,
 }
 
 #[unsafe(no_mangle)]
@@ -334,6 +343,7 @@ pub extern "C" fn mitsuami_set_number(id: u32, prop: u32, value: f64) -> bool {
     guard(|| {
         let prop = match prop {
             0 => Prop::Number(value),
+            1 => Prop::EstimatedRowHeight(value as f32),
             _ => return Err(format!("unknown number prop {prop}")),
         };
         ui()?.set_prop(node(id), prop);
@@ -351,6 +361,10 @@ pub enum MitsuamiEnumProp {
     ButtonRole = 1,
     /// `Automatic`, `Bordered`, `Borderless`: 0 to 2.
     ButtonStyle = 2,
+    /// A list's: `None`, `Single`, `Multiple`, 0 to 2.
+    SelectionMode = 3,
+    /// A list's: `Automatic`, `Plain`, `Framed`, 0 to 2.
+    ListStyle = 4,
 }
 
 #[unsafe(no_mangle)]
@@ -379,6 +393,18 @@ pub extern "C" fn mitsuami_set_enum(id: u32, prop: u32, value: u32) -> bool {
                 0 => ButtonStyle::Automatic,
                 1 => ButtonStyle::Bordered,
                 2 => ButtonStyle::Borderless,
+                _ => return Err(bad()),
+            }),
+            3 => Prop::SelectionMode(match value {
+                0 => SelectionMode::None,
+                1 => SelectionMode::Single,
+                2 => SelectionMode::Multiple,
+                _ => return Err(bad()),
+            }),
+            4 => Prop::ListStyle(match value {
+                0 => ListStyle::Automatic,
+                1 => ListStyle::Plain,
+                2 => ListStyle::Framed,
                 _ => return Err(bad()),
             }),
             _ => return Err(format!("unknown enum prop {prop}")),
@@ -620,4 +646,167 @@ pub extern "C" fn mitsuami_on_event(
         Ok(())
     })
     .is_some()
+}
+
+// Lists.
+
+/// A string a caller gives: UTF-8, a pointer and a length.
+#[repr(C)]
+#[derive(Clone, Copy)]
+pub struct MitsuamiStr {
+    pub ptr: *const u8,
+    pub len: usize,
+}
+
+/// What a list asks of its caller. The list's id comes with each call.
+#[repr(C)]
+#[derive(Clone, Copy)]
+pub struct MitsuamiListCallbacks {
+    /// Builds the row for a key when the platform shows it: a node in no
+    /// tree yet (0 for an empty row).
+    pub build_row: extern "C" fn(*mut c_void, u32, *const u8, usize) -> u32,
+    /// The platform let a row go: its node is destroyed.
+    pub release_row: extern "C" fn(*mut c_void, u32, u32),
+    /// The user changed the selection; `mitsuami_list_selected` has it.
+    pub selection_changed: extern "C" fn(*mut c_void, u32),
+    /// The user activated a row (double-click, Return): its key.
+    pub activated: extern "C" fn(*mut c_void, u32, *const u8, usize),
+    pub user: *mut c_void,
+}
+
+struct ListState {
+    keys: Signal<Vec<String>>,
+    selected: Signal<Vec<String>>,
+    /// The selection as the caller last set it, so setting it isn't
+    /// reported back as the user's.
+    set: Rc<RefCell<Vec<String>>>,
+    owner: Owner,
+}
+
+fn list<T>(id: u32, f: impl FnOnce(&ListState) -> T) -> Result<T, String> {
+    LISTS.with(|l| l.borrow().get(&id).map(f)).ok_or_else(|| format!("node {id} isn't a list"))
+}
+
+/// # Safety
+/// `strings` points to `count` strings, each as [`string`] says.
+unsafe fn strings(strings: *const MitsuamiStr, count: usize) -> Result<Vec<String>, String> {
+    if count == 0 {
+        return Ok(Vec::new());
+    }
+    let strings = unsafe { std::slice::from_raw_parts(strings, count) };
+    strings.iter().map(|s| unsafe { string(s.ptr, s.len) }).collect()
+}
+
+/// A node the caller made, as a row's content.
+struct Adopt(u32);
+
+impl View for Adopt {
+    fn build(self, ui: &Ui) -> NodeId {
+        if self.0 == 0 { ui.create(WidgetKind::Container, Vec::new()) } else { node(self.0) }
+    }
+}
+
+/// Makes a list: the platform's own list control, which builds rows (with
+/// `build_row`) only as it shows them. Rows are keyed by strings, unique
+/// in the list. It selects one row at a time until its `SelectionMode`
+/// says otherwise.
+#[unsafe(no_mangle)]
+pub extern "C" fn mitsuami_create_list(callbacks: MitsuamiListCallbacks) -> u32 {
+    guard(|| {
+        let ui = ui()?;
+        let cb = Rc::new(callbacks);
+        let id = Rc::new(Cell::new(0));
+        let owner = Owner::new_root();
+        let set = Rc::new(RefCell::new(Vec::new()));
+        let (keys, selected, list) = owner.with(|| {
+            let (keys, selected) = (signal(Vec::<String>::new()), signal(Vec::<String>::new()));
+            let (row_cb, row_id) = (cb.clone(), id.clone());
+            let (activate_cb, activate_id) = (cb.clone(), id.clone());
+            let list = List::new(
+                keys,
+                |key: &String| key.clone(),
+                move |key: String| {
+                    let (cb, list) = (row_cb.clone(), row_id.get());
+                    let row = (cb.build_row)(cb.user, list, key.as_ptr(), key.len());
+                    if row != 0 {
+                        on_cleanup(move || (cb.release_row)(cb.user, list, row));
+                    }
+                    Adopt(row)
+                },
+            )
+            .selected(selected)
+            .on_activate(move |key: String| {
+                (activate_cb.activated)(activate_cb.user, activate_id.get(), key.as_ptr(), key.len())
+            });
+            let (changed_cb, changed_id, set) = (cb.clone(), id.clone(), set.clone());
+            watch(
+                move || selected.get(),
+                move |now, _| {
+                    if *now != *set.borrow() {
+                        (changed_cb.selection_changed)(changed_cb.user, changed_id.get());
+                    }
+                },
+            );
+            (keys, selected, list.build(&ui))
+        });
+        id.set(list.raw());
+        LISTS.with(|l| l.borrow_mut().insert(list.raw(), ListState { keys, selected, set, owner }));
+        Ok(list.raw())
+    })
+    .unwrap_or(0)
+}
+
+/// The list's rows, by key, in order.
+///
+/// # Safety
+/// `keys` points to `count` strings.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn mitsuami_list_set_keys(id: u32, keys: *const MitsuamiStr, count: usize) -> bool {
+    guard(|| {
+        let new = unsafe { strings(keys, count)? };
+        list(id, |l| l.keys)?.set(new);
+        Ok(())
+    })
+    .is_some()
+}
+
+/// Selects the rows with these keys.
+///
+/// # Safety
+/// `keys` points to `count` strings.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn mitsuami_list_set_selected(id: u32, keys: *const MitsuamiStr, count: usize) -> bool {
+    guard(|| {
+        let new = unsafe { strings(keys, count)? };
+        let (selected, set) = list(id, |l| (l.selected, l.set.clone()))?;
+        *set.borrow_mut() = new.clone();
+        selected.set(new);
+        Ok(())
+    })
+    .is_some()
+}
+
+/// How many rows are selected; `mitsuami_list_selected_key` gives each.
+#[unsafe(no_mangle)]
+pub extern "C" fn mitsuami_list_selected_count(id: u32) -> usize {
+    guard(|| list(id, |l| l.selected.with(|s| s.len()))).unwrap_or(0)
+}
+
+/// The key of the `index`th selected row: its length, with `*ptr` set to
+/// its bytes, valid until the selection changes.
+///
+/// # Safety
+/// `ptr` is valid for a write.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn mitsuami_list_selected_key(id: u32, index: usize, ptr: *mut *const u8) -> usize {
+    guard(|| {
+        list(id, |l| {
+            l.selected.with(|s| {
+                let key = s.get(index).map(|k| (k.as_ptr(), k.len())).unwrap_or((std::ptr::null(), 0));
+                unsafe { *ptr = key.0 };
+                key.1
+            })
+        })
+    })
+    .unwrap_or(0)
 }
