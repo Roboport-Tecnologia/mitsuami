@@ -27,6 +27,10 @@ extern "C" fn record(_user: *mut c_void, _node: u32, event: *const MitsuamiEvent
             let text = unsafe { std::slice::from_raw_parts(event.text, event.text_len) };
             format!("search {}", std::str::from_utf8(text).unwrap())
         }
+        1 if event.value_kind == MitsuamiValueKind::Index as u32 => format!("chose {}", event.index),
+        7 => format!("close {}", event.index),
+        8 => format!("moved {} to {}", event.index, event.to),
+        9 => "new tab".to_string(),
         // Where focus goes on a click differs per platform.
         3 | 4 => return,
         kind => format!("event {kind}"),
@@ -131,6 +135,32 @@ async fn search_fields_search_when_their_platform_does(app: TestApp) {
     let heard = heard();
     assert!(heard.contains(&"changed mitsu".to_string()), "{heard:?}");
     assert!(heard.contains(&"search mitsu".to_string()), "{heard:?}");
+}
+
+#[mitsuami_test::test]
+async fn document_tabs_are_data_the_caller_keeps(app: TestApp) {
+    attach(app.ui());
+    heard();
+    let tabs = create(MitsuamiKind::DocumentTabs);
+    let titles = strs(&["Welcome", "mitsuami", "sourcegit"]);
+    assert!(unsafe { mitsuami_set_strings(tabs, MitsuamiStringsProp::TabTitles as u32, titles.as_ptr(), titles.len()) });
+    assert!(mitsuami_set_index(tabs, MitsuamiIndexProp::SelectedIndex as u32, 0));
+    assert!(mitsuami_set_bool(tabs, MitsuamiBoolProp::TabsClosable as u32, true));
+    assert!(mitsuami_set_bool(tabs, MitsuamiBoolProp::TabsReorderable as u32, true));
+    assert!(mitsuami_set_enum(tabs, MitsuamiEnumProp::DocumentTabsStyle as u32, 1));
+    assert!(mitsuami_on_event(tabs, record, std::ptr::null_mut()));
+    app.mount(|| Adopt(tabs));
+
+    app.get_by_role(Role::Tab, "mitsuami").select().await;
+    app.get_by_role(Role::Tab, "sourcegit").close().await;
+    app.get_by_role(Role::Tab, "Welcome").move_to(2).await;
+
+    let heard = heard();
+    assert!(heard.contains(&"chose 1".to_string()), "{heard:?}");
+    assert!(heard.contains(&"close 2".to_string()), "{heard:?}");
+    assert!(heard.contains(&"moved 0 to 2".to_string()), "{heard:?}");
+    // A close only asks: the tab stays until the caller takes it away.
+    app.expect(by_role(Role::Tab, "sourcegit")).to_exist().await;
 }
 
 static POSTED_TO: AtomicU32 = AtomicU32::new(0);

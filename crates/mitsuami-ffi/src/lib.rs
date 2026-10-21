@@ -25,8 +25,8 @@ use std::task::{Poll, Waker};
 use mitsuami::App;
 use mitsuami::core::style::Edges;
 use mitsuami::core::{
-    Align, ButtonRole, ButtonStyle, EventValue, FlexDirection, Justify, Length, List, ListStyle, NodeId, Prop,
-    SelectionMode, Size, TextStyle, Ui, UiEvent, View, WidgetKind,
+    Align, ButtonRole, ButtonStyle, DocumentTabsStyle, EventValue, FlexDirection, Justify, Length, List, ListStyle,
+    NodeId, Prop, SelectionMode, Size, TextStyle, Ui, UiEvent, View, WidgetKind,
 };
 use mitsuami::reactive::{Owner, Signal, on_cleanup, signal, watch};
 
@@ -183,6 +183,9 @@ pub enum MitsuamiKind {
     Separator = 10,
     Spinner = 11,
     Progress = 12,
+    /// Tabs for the documents an app has open, as data: the app shows the
+    /// chosen one itself.
+    DocumentTabs = 13,
 }
 
 fn widget_kind(kind: u32) -> Result<WidgetKind, String> {
@@ -200,6 +203,7 @@ fn widget_kind(kind: u32) -> Result<WidgetKind, String> {
         10 => WidgetKind::Separator,
         11 => WidgetKind::Spinner,
         12 => WidgetKind::Progress,
+        13 => WidgetKind::DocumentTabs,
         _ => return Err(format!("unknown kind {kind}")),
     })
 }
@@ -314,6 +318,12 @@ pub unsafe extern "C" fn mitsuami_set_text(id: u32, prop: u32, value: *const u8,
 pub enum MitsuamiBoolProp {
     Enabled = 0,
     Checked = 1,
+    /// Document tabs' close buttons (and the platform's close keys).
+    TabsClosable = 2,
+    /// Document tabs the user can drag to another place.
+    TabsReorderable = 3,
+    /// Document tabs' new-tab button.
+    NewTabButton = 4,
 }
 
 #[unsafe(no_mangle)]
@@ -322,6 +332,9 @@ pub extern "C" fn mitsuami_set_bool(id: u32, prop: u32, value: bool) -> bool {
         let prop = match prop {
             0 => Prop::Enabled(value),
             1 => Prop::Checked(value),
+            2 => Prop::TabsClosable(value),
+            3 => Prop::TabsReorderable(value),
+            4 => Prop::NewTabButton(value),
             _ => return Err(format!("unknown bool prop {prop}")),
         };
         ui()?.set_prop(node(id), prop);
@@ -353,6 +366,49 @@ pub extern "C" fn mitsuami_set_number(id: u32, prop: u32, value: f64) -> bool {
 }
 
 #[repr(u32)]
+pub enum MitsuamiStringsProp {
+    /// Document tabs' titles, in order.
+    TabTitles = 0,
+}
+
+/// # Safety
+/// `values` points to `count` strings.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn mitsuami_set_strings(id: u32, prop: u32, values: *const MitsuamiStr, count: usize) -> bool {
+    guard(|| {
+        let values = unsafe { strings(values, count)? };
+        let prop = match prop {
+            0 => Prop::TabTitles(values),
+            _ => return Err(format!("unknown strings prop {prop}")),
+        };
+        ui()?.set_prop(node(id), prop);
+        Ok(())
+    })
+    .is_some()
+}
+
+#[repr(u32)]
+pub enum MitsuamiIndexProp {
+    /// The chosen document tab, option, item or tab.
+    SelectedIndex = 0,
+}
+
+/// Sets an index; a negative one is none.
+#[unsafe(no_mangle)]
+pub extern "C" fn mitsuami_set_index(id: u32, prop: u32, index: isize) -> bool {
+    guard(|| {
+        let index = usize::try_from(index).ok();
+        let prop = match prop {
+            0 => Prop::SelectedIndex(index),
+            _ => return Err(format!("unknown index prop {prop}")),
+        };
+        ui()?.set_prop(node(id), prop);
+        Ok(())
+    })
+    .is_some()
+}
+
+#[repr(u32)]
 pub enum MitsuamiEnumProp {
     /// `LargeTitle`, `Title`, `Headline`, `Body`, `Callout`, `Caption`,
     /// `Monospace`: 0 to 6.
@@ -365,6 +421,8 @@ pub enum MitsuamiEnumProp {
     SelectionMode = 3,
     /// A list's: `Automatic`, `Plain`, `Framed`, 0 to 2.
     ListStyle = 4,
+    /// Document tabs': `Automatic`, `Strip`, `Window`, `TitleRow`, 0 to 3.
+    DocumentTabsStyle = 5,
 }
 
 #[unsafe(no_mangle)]
@@ -405,6 +463,13 @@ pub extern "C" fn mitsuami_set_enum(id: u32, prop: u32, value: u32) -> bool {
                 0 => ListStyle::Automatic,
                 1 => ListStyle::Plain,
                 2 => ListStyle::Framed,
+                _ => return Err(bad()),
+            }),
+            5 => Prop::DocumentTabsStyle(match value {
+                0 => DocumentTabsStyle::Automatic,
+                1 => DocumentTabsStyle::Strip,
+                2 => DocumentTabsStyle::Window,
+                3 => DocumentTabsStyle::TitleRow,
                 _ => return Err(bad()),
             }),
             _ => return Err(format!("unknown enum prop {prop}")),
@@ -562,6 +627,14 @@ pub enum MitsuamiEventKind {
     /// A search field searches, when its platform does: `value` has the
     /// text.
     Search = 6,
+    /// The user asked to close a document tab: `index` is which. It stays
+    /// until the app takes it away.
+    TabCloseRequested = 7,
+    /// The user moved a document tab from `index` to `to`. It's shown there
+    /// already, and the titles and chosen index follow.
+    TabMoved = 8,
+    /// The user asked for a new document tab.
+    NewTabRequested = 9,
 }
 
 #[repr(u32)]
@@ -584,6 +657,8 @@ pub struct MitsuamiEvent {
     pub flag: bool,
     pub number: f64,
     pub index: u64,
+    /// Where a moved tab went.
+    pub to: u64,
 }
 
 /// Calls `callback(user, node, event)` for each event on the node that the
@@ -605,6 +680,9 @@ pub extern "C" fn mitsuami_on_event(
                 UiEvent::FocusOut => MitsuamiEventKind::FocusOut,
                 UiEvent::WindowCloseRequested => MitsuamiEventKind::CloseRequested,
                 UiEvent::Search(_) => MitsuamiEventKind::Search,
+                UiEvent::TabCloseRequested(_) => MitsuamiEventKind::TabCloseRequested,
+                UiEvent::TabMoved { .. } => MitsuamiEventKind::TabMoved,
+                UiEvent::NewTabRequested => MitsuamiEventKind::NewTabRequested,
                 _ => return,
             };
             let mut out = MitsuamiEvent {
@@ -615,7 +693,20 @@ pub extern "C" fn mitsuami_on_event(
                 flag: false,
                 number: 0.0,
                 index: 0,
+                to: 0,
             };
+            match event {
+                UiEvent::TabCloseRequested(index) => {
+                    out.value_kind = MitsuamiValueKind::Index as u32;
+                    out.index = *index as u64;
+                }
+                UiEvent::TabMoved { from, to } => {
+                    out.value_kind = MitsuamiValueKind::Index as u32;
+                    out.index = *from as u64;
+                    out.to = *to as u64;
+                }
+                _ => {}
+            }
             if let UiEvent::Search(text) = event {
                 out.value_kind = MitsuamiValueKind::Text as u32;
                 out.text = text.as_ptr();
