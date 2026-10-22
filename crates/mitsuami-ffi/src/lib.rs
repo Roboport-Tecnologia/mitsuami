@@ -23,18 +23,21 @@ use std::sync::Mutex;
 use std::task::{Poll, Waker};
 
 use mitsuami::App;
+use mitsuami::core::draw::Path;
 use mitsuami::core::services::{Alert, AlertStyle, MenuCheck, MenuData, MenuEntry, MenuItemData, MenuRole, OpenFile};
 use mitsuami::core::style::Edges;
 use mitsuami::core::{
-    Align, ButtonRole, ButtonStyle, Color, DocumentTabsStyle, EventValue, FileDrop, FlexDirection, HeaderEdge, Justify,
-    Length, List, ListStyle, Modality, NodeId, Prop, Rect, RowDrop, RowMoves, SelectionMode, Size, Spacing, TextStyle,
-    Ui, UiEvent, VectorIcon, View, WidgetKind, WindowSize,
+    A11yAction, A11yProps, Align, ButtonRole, ButtonStyle, Canvas, Color, Custom, CustomWidget, DocumentTabsStyle,
+    Drawn, EventValue, FileDrop, FlexDirection, HeaderEdge, Justify, Length, List, ListStyle, MeasureRequest, Modality,
+    NodeId, PathStep, PlatformMetrics, Point, PointerKind, Prop, Rect, Render, Renderer, Role, RowDrop, RowMoves,
+    SelectionMode, Shape, Size, Spacing, TextStyle, Ui, UiEvent, VectorIcon, View, WidgetKind, WindowSize,
 };
 use mitsuami::reactive::{Owner, Signal, on_cleanup, signal, watch};
 
 thread_local! {
     static UI: RefCell<Option<Ui>> = const { RefCell::new(None) };
     static LISTS: RefCell<HashMap<u32, ListState>> = RefCell::new(HashMap::new());
+    static DRAWN: RefCell<HashMap<u32, DrawnState>> = RefCell::new(HashMap::new());
     static LAST_ERROR: RefCell<Vec<u8>> = const { RefCell::new(Vec::new()) };
 }
 
@@ -369,6 +372,9 @@ pub extern "C" fn mitsuami_destroy(id: u32) -> bool {
         if let Some(list) = LISTS.with(|l| l.borrow_mut().remove(&id)) {
             list.owner.dispose();
         }
+        if let Some(drawn) = DRAWN.with(|d| d.borrow_mut().remove(&id)) {
+            drawn.owner.dispose();
+        }
         Ok(())
     })
     .is_some()
@@ -595,19 +601,7 @@ pub enum MitsuamiColorProp {
 #[unsafe(no_mangle)]
 pub extern "C" fn mitsuami_set_color(id: u32, prop: u32, semantic: u32, r: u8, g: u8, b: u8, a: u8) -> bool {
     guard(|| {
-        let color = match semantic {
-            0 => Color::Label,
-            1 => Color::SecondaryLabel,
-            2 => Color::Accent,
-            3 => Color::Separator,
-            4 => Color::ControlBackground,
-            5 => Color::WindowBackground,
-            6 => Color::Error,
-            7 => Color::Warning,
-            8 => Color::Success,
-            9 => Color::Rgba(r, g, b, a),
-            _ => return Err(format!("bad colour {semantic}")),
-        };
+        let color = color(MitsuamiColor { semantic, r, g, b, a })?;
         let prop = match prop {
             0 => Prop::TextColor(color),
             _ => return Err(format!("unknown colour prop {prop}")),
@@ -616,6 +610,34 @@ pub extern "C" fn mitsuami_set_color(id: u32, prop: u32, semantic: u32, r: u8, g
         Ok(())
     })
     .is_some()
+}
+
+/// A colour as for [`mitsuami_set_color`]: `semantic`, or 9 for the fixed
+/// `r`, `g`, `b`, `a`.
+#[repr(C)]
+#[derive(Clone, Copy)]
+pub struct MitsuamiColor {
+    pub semantic: u32,
+    pub r: u8,
+    pub g: u8,
+    pub b: u8,
+    pub a: u8,
+}
+
+fn color(c: MitsuamiColor) -> Result<Color, String> {
+    Ok(match c.semantic {
+        0 => Color::Label,
+        1 => Color::SecondaryLabel,
+        2 => Color::Accent,
+        3 => Color::Separator,
+        4 => Color::ControlBackground,
+        5 => Color::WindowBackground,
+        6 => Color::Error,
+        7 => Color::Warning,
+        8 => Color::Success,
+        9 => Color::Rgba(c.r, c.g, c.b, c.a),
+        other => return Err(format!("bad colour {other}")),
+    })
 }
 
 #[repr(u32)]
@@ -988,6 +1010,12 @@ pub enum MitsuamiEventKind {
     /// Files were dropped on a node that takes them: `text` has their
     /// paths, each ended by a NUL.
     FilesDropped = 12,
+    /// The primary button went down (`flag`) or up on a drawn widget, at
+    /// `x`, `y` in its coordinates.
+    Pointer = 13,
+    /// Assistive technology (or a test) acted on a drawn widget: `index`
+    /// is the `MitsuamiDrawnAction` bit, `text` a value it set.
+    A11yAction = 14,
 }
 
 #[repr(u32)]
@@ -1012,6 +1040,9 @@ pub struct MitsuamiEvent {
     pub index: u64,
     /// Where a moved tab went.
     pub to: u64,
+    /// Where a pointer event was, in the node's coordinates.
+    pub x: f32,
+    pub y: f32,
 }
 
 /// Calls `callback(user, node, event)` for each event on the node that the
@@ -1039,6 +1070,10 @@ pub extern "C" fn mitsuami_on_event(
                 UiEvent::ContextMenuItem(_) => MitsuamiEventKind::ContextMenuItem,
                 UiEvent::DropHover(_) => MitsuamiEventKind::DropHover,
                 UiEvent::FilesDropped(_) => MitsuamiEventKind::FilesDropped,
+                UiEvent::Pointer(_) => MitsuamiEventKind::Pointer,
+                UiEvent::Custom(value) if value.downcast_ref::<DrawnAction>().is_some() => {
+                    MitsuamiEventKind::A11yAction
+                }
                 _ => return,
             };
             let mut out = MitsuamiEvent {
@@ -1050,6 +1085,8 @@ pub extern "C" fn mitsuami_on_event(
                 number: 0.0,
                 index: 0,
                 to: 0,
+                x: 0.0,
+                y: 0.0,
             };
             // Lives until the callback returns, as `out` borrows it.
             let mut paths = String::new();
@@ -1079,6 +1116,21 @@ pub extern "C" fn mitsuami_on_event(
                     out.value_kind = MitsuamiValueKind::Index as u32;
                     out.index = *from as u64;
                     out.to = *to as u64;
+                }
+                UiEvent::Pointer(pointer) => {
+                    out.value_kind = MitsuamiValueKind::Bool as u32;
+                    out.flag = pointer.kind == PointerKind::Down;
+                    (out.x, out.y) = (pointer.position.x, pointer.position.y);
+                }
+                UiEvent::Custom(value) => {
+                    let DrawnAction(action) = value.downcast_ref::<DrawnAction>().unwrap();
+                    out.value_kind = MitsuamiValueKind::Index as u32;
+                    out.index = u64::from(action_bit(action));
+                    if let A11yAction::SetValue(text) = action {
+                        out.value_kind = MitsuamiValueKind::Text as u32;
+                        out.text = text.as_ptr();
+                        out.text_len = text.len();
+                    }
                 }
                 _ => {}
             }
@@ -1317,6 +1369,336 @@ pub unsafe extern "C" fn mitsuami_list_selected_key(id: u32, index: usize, ptr: 
         })
     })
     .unwrap_or(0)
+}
+
+// Drawn widgets.
+
+/// What a drawn widget asks of its caller.
+#[repr(C)]
+#[derive(Clone, Copy)]
+pub struct MitsuamiDrawnCallbacks {
+    /// Draws the widget, `width` by `height` points, into the canvas with
+    /// the `mitsuami_canvas_*` functions, and calls nothing else: the `Ui`
+    /// is laying out. It's called again on a new size, new metrics (dark
+    /// mode needn't: semantic colours follow it) and after
+    /// `mitsuami_drawn_redraw`.
+    pub draw: extern "C" fn(*mut c_void, u32, *mut MitsuamiCanvas, f32, f32),
+    pub user: *mut c_void,
+}
+
+/// Where a drawn widget draws, while its `draw` runs.
+pub struct MitsuamiCanvas(Canvas<'static>);
+
+/// The accessibility actions a drawn widget takes, or-ed: each comes as an
+/// `A11yAction` event with its bit.
+#[repr(u32)]
+pub enum MitsuamiDrawnAction {
+    Activate = 1,
+    /// `text` has the value, as read out.
+    SetValue = 2,
+    Increment = 4,
+    Decrement = 8,
+}
+
+fn action_bit(action: &A11yAction) -> u32 {
+    match action {
+        A11yAction::Activate => MitsuamiDrawnAction::Activate as u32,
+        A11yAction::SetValue(_) => MitsuamiDrawnAction::SetValue as u32,
+        A11yAction::Increment => MitsuamiDrawnAction::Increment as u32,
+        A11yAction::Decrement => MitsuamiDrawnAction::Decrement as u32,
+        _ => 0,
+    }
+}
+
+/// A widget the caller draws. Its look is the caller's, so its props are
+/// what the core needs: its size, its semantics, and a generation that
+/// changes when the caller's state does, to draw it again.
+#[derive(Clone)]
+struct DrawnProps {
+    name: Rc<str>,
+    callbacks: Rc<DrawnCallbacks>,
+    size: Size,
+    role: Role,
+    value: Option<String>,
+    actions: u32,
+    generation: u64,
+}
+
+struct DrawnCallbacks {
+    callbacks: MitsuamiDrawnCallbacks,
+    node: Cell<u32>,
+}
+
+impl PartialEq for DrawnProps {
+    fn eq(&self, other: &DrawnProps) -> bool {
+        Rc::ptr_eq(&self.callbacks, &other.callbacks)
+            && (self.size, self.role, &self.value, self.actions, self.generation)
+                == (other.size, other.role, &other.value, other.actions, other.generation)
+    }
+}
+
+impl std::fmt::Debug for DrawnProps {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match &self.value {
+            Some(value) => write!(f, "{} {value:?}", self.name),
+            None => f.write_str(&self.name),
+        }
+    }
+}
+
+/// What an accessibility action means for a drawn widget: the caller says.
+#[derive(Clone, Debug, PartialEq)]
+struct DrawnAction(A11yAction);
+
+struct FfiDrawn;
+
+impl CustomWidget for FfiDrawn {
+    const NAME: &'static str = "Drawn";
+    type Props = DrawnProps;
+    type Event = DrawnAction;
+
+    fn a11y(props: &DrawnProps) -> A11yProps {
+        A11yProps { value: props.value.clone(), ..A11yProps::new(props.role) }
+    }
+
+    fn action(props: &DrawnProps, action: &A11yAction) -> Option<DrawnAction> {
+        (props.actions & action_bit(action) != 0).then(|| DrawnAction(action.clone()))
+    }
+}
+
+impl Drawn for FfiDrawn {
+    fn measure(props: &DrawnProps, _request: &MeasureRequest, _metrics: &PlatformMetrics) -> Size {
+        props.size
+    }
+
+    fn draw(props: &DrawnProps, canvas: &mut Canvas) {
+        let size = canvas.size();
+        let cb = &props.callbacks;
+        // The canvas only lives through the call; the caller can't keep it.
+        let canvas = canvas as *mut Canvas as *mut MitsuamiCanvas;
+        (cb.callbacks.draw)(cb.callbacks.user, cb.node.get(), canvas, size.width, size.height);
+    }
+}
+
+impl Render for FfiDrawn {
+    fn renderer() -> Renderer<Self> {
+        Renderer::drawn()
+    }
+}
+
+struct DrawnState {
+    props: Signal<DrawnProps>,
+    owner: Owner,
+}
+
+fn drawn(id: u32) -> Result<Signal<DrawnProps>, String> {
+    DRAWN.with(|d| d.borrow().get(&id).map(|d| d.props)).ok_or_else(|| format!("node {id} isn't drawn"))
+}
+
+/// Makes a widget the caller draws, `width` by `height` points unless its
+/// style sizes it; `name` is what trees and snapshots call it. It gets
+/// `Pointer` events, and is a group to assistive technology until
+/// `mitsuami_drawn_set_semantics` says otherwise; 0 if it fails.
+///
+/// # Safety
+/// The name is as [`string`] says.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn mitsuami_create_drawn(
+    name: MitsuamiStr,
+    callbacks: MitsuamiDrawnCallbacks,
+    width: f32,
+    height: f32,
+) -> u32 {
+    guard(|| {
+        let ui = ui()?;
+        let name = unsafe { string(name.ptr, name.len)? };
+        let callbacks = Rc::new(DrawnCallbacks { callbacks, node: Cell::new(0) });
+        let owner = Owner::new_root();
+        let (props, id) = owner.with(|| {
+            let props = signal(DrawnProps {
+                name: name.into(),
+                callbacks: callbacks.clone(),
+                size: Size::new(width, height),
+                role: Role::Group,
+                value: None,
+                actions: 0,
+                generation: 0,
+            });
+            (props, Custom::<FfiDrawn>::new(move || props.get()).build(&ui))
+        });
+        callbacks.node.set(id.raw());
+        DRAWN.with(|d| d.borrow_mut().insert(id.raw(), DrawnState { props, owner }));
+        Ok(id.raw())
+    })
+    .unwrap_or(0)
+}
+
+/// What a drawn widget is to assistive technology: `role` (`Group`,
+/// `Image`, `Button`, `Slider`: 0 to 3), its value as read out (empty:
+/// none), and the actions it takes (`MitsuamiDrawnAction` bits). Its name
+/// is the `A11yLabel` text prop.
+///
+/// # Safety
+/// The value is as [`string`] says.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn mitsuami_drawn_set_semantics(id: u32, role: u32, value: MitsuamiStr, actions: u32) -> bool {
+    guard(|| {
+        let value = unsafe { string(value.ptr, value.len)? };
+        let role = match role {
+            0 => Role::Group,
+            1 => Role::Image,
+            2 => Role::Button,
+            3 => Role::Slider,
+            _ => return Err(format!("bad drawn role {role}")),
+        };
+        drawn(id)?.update(|p| {
+            p.role = role;
+            p.value = (!value.is_empty()).then_some(value);
+            p.actions = actions;
+        });
+        Ok(())
+    })
+    .is_some()
+}
+
+/// A drawn widget's size, in points, unless its style sizes it.
+#[unsafe(no_mangle)]
+pub extern "C" fn mitsuami_drawn_set_size(id: u32, width: f32, height: f32) -> bool {
+    guard(|| {
+        drawn(id)?.update(|p| p.size = Size::new(width, height));
+        Ok(())
+    })
+    .is_some()
+}
+
+/// Draws a drawn widget again, once the caller's state has changed.
+#[unsafe(no_mangle)]
+pub extern "C" fn mitsuami_drawn_redraw(id: u32) -> bool {
+    guard(|| {
+        drawn(id)?.update(|p| p.generation += 1);
+        Ok(())
+    })
+    .is_some()
+}
+
+/// # Safety
+/// `canvas` is the one `draw` was given, while it runs.
+unsafe fn canvas<'a>(canvas: *mut MitsuamiCanvas) -> Result<&'a mut Canvas<'static>, String> {
+    if canvas.is_null() {
+        return Err("null canvas".to_string());
+    }
+    Ok(unsafe { &mut (*canvas).0 })
+}
+
+fn paint(canvas: &mut Canvas, shape: Shape, stroke: f32, c: MitsuamiColor) -> Result<(), String> {
+    match stroke > 0.0 {
+        true => canvas.stroke(shape, color(c)?, stroke),
+        false => canvas.fill(shape, color(c)?),
+    }
+    Ok(())
+}
+
+/// Fills a rectangle, rounded by `radius`, or strokes it with lines
+/// `stroke` points wide if that's positive.
+///
+/// # Safety
+/// As [`canvas`] says.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn mitsuami_canvas_rect(
+    canvas_: *mut MitsuamiCanvas,
+    x: f32,
+    y: f32,
+    width: f32,
+    height: f32,
+    radius: f32,
+    stroke: f32,
+    color: MitsuamiColor,
+) -> bool {
+    guard(|| {
+        let rect = Rect::new(x, y, width, height);
+        let shape = if radius > 0.0 { Shape::RoundedRect(rect, radius) } else { Shape::Rect(rect) };
+        paint(unsafe { canvas(canvas_)? }, shape, stroke, color)
+    })
+    .is_some()
+}
+
+/// Fills the ellipse in a rectangle, or strokes it as for
+/// [`mitsuami_canvas_rect`].
+///
+/// # Safety
+/// As [`canvas`] says.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn mitsuami_canvas_ellipse(
+    canvas_: *mut MitsuamiCanvas,
+    x: f32,
+    y: f32,
+    width: f32,
+    height: f32,
+    stroke: f32,
+    color: MitsuamiColor,
+) -> bool {
+    guard(|| paint(unsafe { canvas(canvas_)? }, Shape::Ellipse(Rect::new(x, y, width, height)), stroke, color))
+        .is_some()
+}
+
+/// Fills a path, or strokes it as for [`mitsuami_canvas_rect`]: path data
+/// as for [`mitsuami_set_vector_icon`], its view box (or its bounds, if
+/// `view_width` isn't positive) fitted in the square of `side` points at
+/// `x`, `y`, as an icon of that size. The non-zero rule fills it.
+///
+/// # Safety
+/// As [`canvas`] says; the path data is as [`string`] says.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn mitsuami_canvas_path(
+    canvas_: *mut MitsuamiCanvas,
+    data: MitsuamiStr,
+    view_x: f32,
+    view_y: f32,
+    view_width: f32,
+    view_height: f32,
+    x: f32,
+    y: f32,
+    side: f32,
+    stroke: f32,
+    color: MitsuamiColor,
+) -> bool {
+    guard(|| {
+        let data = unsafe { string(data.ptr, data.len)? };
+        let icon = match view_width > 0.0 {
+            true => VectorIcon::with_view_box(&data, Rect::new(view_x, view_y, view_width, view_height))?,
+            false => VectorIcon::new(&data)?,
+        };
+        let at = |p: Point| Point::new(x + p.x, y + p.y);
+        let mut path = Path::new();
+        // Where the pen is, and where its subpath started: a close goes back there.
+        let (mut last, mut start) = (Point::new(x, y), Point::new(x, y));
+        for step in icon.steps(side) {
+            path = match step {
+                PathStep::Move(p) => path.move_to(at(p).x, at(p).y),
+                PathStep::Line(p) => path.line_to(at(p).x, at(p).y),
+                // The canvas has no quadratic curves: this cubic one is the same.
+                PathStep::Quad(c, p) => {
+                    let (c, p) = (at(c), at(p));
+                    let toward = |from: Point| {
+                        Point::new(from.x + (c.x - from.x) * 2.0 / 3.0, from.y + (c.y - from.y) * 2.0 / 3.0)
+                    };
+                    path.curve_to(toward(last), toward(p), p)
+                }
+                PathStep::Cubic(c1, c2, p) => path.curve_to(at(c1), at(c2), at(p)),
+                PathStep::Close => path.close(),
+            };
+            last = match step {
+                PathStep::Move(p) => {
+                    start = at(p);
+                    start
+                }
+                PathStep::Line(p) | PathStep::Quad(_, p) | PathStep::Cubic(_, _, p) => at(p),
+                PathStep::Close => start,
+            };
+        }
+        paint(unsafe { canvas(canvas_)? }, Shape::Path(path), stroke, color)
+    })
+    .is_some()
 }
 
 // Alerts and file dialogs. They never block: the answer comes to a

@@ -6,7 +6,7 @@ use std::cell::RefCell;
 use std::ffi::c_void;
 use std::sync::atomic::{AtomicU32, Ordering};
 
-use mitsuami::core::{Color, Modality, NodeId, Prop, Ui, VectorIcon, View};
+use mitsuami::core::{Color, Modality, NodeId, Prop, Size, Ui, VectorIcon, View};
 use mitsuami_ffi::*;
 use mitsuami_test::prelude::*;
 
@@ -39,6 +39,12 @@ extern "C" fn record(_user: *mut c_void, _node: u32, event: *const MitsuamiEvent
             let names: Vec<&str> = paths.iter().map(|p| p.rsplit('/').next().unwrap()).collect();
             format!("dropped {}", names.join(","))
         }
+        13 => format!("pointer {} at {},{}", if event.flag { "down" } else { "up" }, event.x, event.y),
+        14 if event.value_kind == MitsuamiValueKind::Text as u32 => {
+            let text = unsafe { std::slice::from_raw_parts(event.text, event.text_len) };
+            format!("action {} {}", event.index, std::str::from_utf8(text).unwrap())
+        }
+        14 => format!("action {}", event.index),
         // Where focus goes on a click differs per platform.
         3 | 4 => return,
         kind => format!("event {kind}"),
@@ -567,3 +573,61 @@ async fn lists_ask_for_rows_and_report_the_selection(app: TestApp) {
 }
 
 mitsuami_test::main!();
+
+/// Two bookmark swatches, the chosen one framed: what a binding's drawn
+/// widget draws.
+extern "C" fn draw_swatches(_user: *mut c_void, _node: u32, canvas: *mut MitsuamiCanvas, width: f32, height: f32) {
+    HEARD.with(|h| h.borrow_mut().push(format!("draw {width}x{height}")));
+    let accent = MitsuamiColor { semantic: 2, r: 0, g: 0, b: 0, a: 0 };
+    let red = MitsuamiColor { semantic: 9, r: 255, g: 0, b: 0, a: 255 };
+    let blue = MitsuamiColor { semantic: 9, r: 0, g: 0, b: 255, a: 255 };
+    let bookmark = str("M0 0H10V14L5 10L0 14Z");
+    unsafe {
+        assert!(mitsuami_canvas_rect(canvas, 0.0, 2.0, 18.0, 20.0, 3.0, 1.0, accent));
+        assert!(mitsuami_canvas_path(canvas, bookmark, 0.0, 0.0, 0.0, 0.0, 2.0, 5.0, 14.0, 0.0, red));
+        assert!(mitsuami_canvas_path(canvas, bookmark, 0.0, 0.0, 0.0, 0.0, 28.0, 5.0, 14.0, 0.0, blue));
+        assert!(!mitsuami_canvas_ellipse(canvas, 0.0, 0.0, 4.0, 4.0, 0.0, MitsuamiColor { semantic: 42, ..red }));
+    }
+}
+
+#[mitsuami_test::test]
+async fn drawn_widgets_are_drawn_by_the_caller(app: TestApp) {
+    attach(app.ui());
+    heard();
+    let callbacks = MitsuamiDrawnCallbacks { draw: draw_swatches, user: std::ptr::null_mut() };
+    let picker = unsafe { mitsuami_create_drawn(str("Bookmarks"), callbacks, 52.0, 24.0) };
+    assert_ne!(picker, 0);
+    set_text(picker, MitsuamiTextProp::A11yLabel, "Bookmark");
+    let actions = MitsuamiDrawnAction::SetValue as u32 | MitsuamiDrawnAction::Increment as u32;
+    assert!(unsafe { mitsuami_drawn_set_semantics(picker, 3, str("Red"), actions) });
+    assert!(mitsuami_on_event(picker, record, std::ptr::null_mut()));
+    let column = create(MitsuamiKind::Container);
+    assert!(mitsuami_set_align_items(column, 1));
+    assert!(mitsuami_append_child(column, picker));
+    app.mount(|| Adopt(column));
+
+    let slider = app.get_by_role(Role::Slider, "Bookmark");
+    assert_eq!(slider.frame().size, Size::new(52.0, 24.0));
+    assert_eq!(slider.value().as_deref(), Some("Red"));
+    let drawing = app.ui().props(NodeId::from_raw(picker)).into_iter().find_map(|p| match p {
+        Prop::Drawing(d) => Some(d),
+        _ => None,
+    });
+    // The ellipse in a colour that isn't one was refused.
+    assert_eq!(drawing.unwrap().ops().len(), 3);
+    assert_eq!(heard(), ["draw 52x24"]);
+
+    // The caller decides what pointers and actions mean.
+    slider.click_at(30.0, 12.0).await;
+    assert_eq!(heard(), ["pointer down at 30,12", "pointer up at 30,12"]);
+    slider.select_option("Blue").await;
+    slider.increment().await;
+    assert_eq!(heard(), ["action 2 Blue", "action 4"]);
+
+    // Its state is the caller's: it says when to draw again.
+    assert!(unsafe { mitsuami_drawn_set_semantics(picker, 3, str("Blue"), actions) });
+    assert!(mitsuami_drawn_redraw(picker));
+    app.settle().await;
+    assert_eq!(slider.value().as_deref(), Some("Blue"));
+    assert_eq!(heard(), ["draw 52x24"]);
+}
