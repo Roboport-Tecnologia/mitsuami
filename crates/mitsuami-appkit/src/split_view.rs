@@ -162,6 +162,15 @@ impl SplitView {
         self.state.position.set(Some(position));
     }
 
+    /// The core placed the split or a pane. The split view works out
+    /// where to draw its divider in its layout pass, and keeps that until
+    /// the next one: a window resize marks it for one, panes set from
+    /// outside don't, so the divider stayed where the last pass put it.
+    pub(crate) fn panes_moved(&self) {
+        self.view.setNeedsLayout(true);
+        self.view.setNeedsDisplay(true);
+    }
+
     /// Moves the divider as the user would (assistive technology sets a
     /// splitter's value), within the panes' least sizes: it's reported.
     pub(crate) fn move_divider(&self, position: f64) {

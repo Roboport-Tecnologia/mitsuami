@@ -8,6 +8,7 @@ use std::cell::RefCell;
 use std::rc::Rc;
 
 use mitsuami::core::Prop;
+use mitsuami::core::backend::CaptureError;
 use mitsuami::prelude::*;
 use mitsuami_test::prelude::*;
 
@@ -123,6 +124,43 @@ async fn without_a_position_the_first_pane_fits_its_content(app: TestApp) {
     });
     app.expect(by_text("second")).to_be_visible().await;
     assert_eq!(app.get_by_test_id("first").frame().width(), app.get_by_test_id("label").frame().width());
+}
+
+/// The divider is drawn where the panes are after the app moves them, not
+/// where it was: AppKit works out where its divider goes in a layout pass,
+/// which panes moved from outside didn't ask for (the split example's
+/// Reset, after the window was resized).
+#[mitsuami_test::test]
+async fn the_divider_is_drawn_where_the_app_moves_it(app: TestApp) {
+    let position = signal(200.0);
+    app.mount(move || {
+        Split::new().position(position).grow(1.0).test_id("split").children((pane("first"), pane("second")))
+    });
+    app.resize(600.0, 300.0).await;
+    // Shown as resized, as the screen would (a split view's first capture
+    // works out its divider; the next draws it).
+    for _ in 0..2 {
+        let _ = app.ui().capture(app.window()).await;
+    }
+    position.set(320.0);
+    app.settle().await;
+
+    let image = match app.ui().capture(app.window()).await {
+        Err(CaptureError::Unsupported) => return assert!(app.is_headless(), "only headless may lack capture"),
+        Err(e) => panic!("capture failed: {e:?}"),
+        Ok(image) => image,
+    };
+    // A pixel down the middle of the split, at a point along it.
+    let split = app.get_by_test_id("split").frame();
+    let at = |x: f32| {
+        let scale = image.scale_factor;
+        let (x, y) = ((x * scale) as usize, ((split.y() + split.height() / 2.0) * scale) as usize);
+        let i = (y * image.width as usize + x) * 4;
+        image.rgba[i..i + 3].to_vec()
+    };
+    let background = at(split.x() + 100.0);
+    assert_ne!(at(split.x() + 320.0 + divider(&app) / 2.0), background, "no divider where the panes now meet");
+    assert_eq!(at(split.x() + 200.0 + divider(&app) / 2.0), background, "a divider left where they met");
 }
 
 mitsuami_test::main!();

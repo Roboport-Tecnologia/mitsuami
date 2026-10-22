@@ -615,6 +615,12 @@ impl State {
                 // Auto Layout does; controls draw their bezels inset from
                 // their frames (a push button by 7pt a side before macOS 26).
                 view.setFrame(view.frameForAlignmentRect(rect));
+                // The split or a pane moved: the divider follows.
+                for widget in [Some(&self.nodes[id].widget), parent].into_iter().flatten() {
+                    if let Widget::SplitView(split) = widget {
+                        split.panes_moved();
+                    }
+                }
             }
             Command::SetA11y { id, a11y } => {
                 let view = self.view(*id, command);
