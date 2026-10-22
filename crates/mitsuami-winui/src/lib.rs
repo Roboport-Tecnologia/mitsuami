@@ -73,6 +73,8 @@ mod session;
 #[cfg(all(windows, target_env = "msvc"))]
 mod sidebar;
 #[cfg(all(windows, target_env = "msvc"))]
+mod split;
+#[cfg(all(windows, target_env = "msvc"))]
 mod surface;
 #[cfg(all(windows, target_env = "msvc"))]
 mod tabs;

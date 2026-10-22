@@ -155,6 +155,12 @@ impl State {
                         }
                         tabs.insert(*index, &child_widget);
                     }
+                    Some(Widget::Split(split)) => {
+                        if *index > 1 {
+                            violation(command, "a Split has two panes");
+                        }
+                        split.insert(*index, &child_widget);
+                    }
                     parent_kind => {
                         // After a group's heading and card.
                         let own = if matches!(parent_kind, Some(Widget::Group(_))) {
@@ -221,6 +227,7 @@ impl State {
                         self.nodes[child].column.unwrap_or(0),
                     ),
                     Widget::Tabs(tabs) => tabs.remove(&self.widget(*child, command)),
+                    Widget::Split(split) => split.remove(&self.widget(*child, command)),
                     _ => {
                         self.widget(*child, command).unparent();
                         self.nodes.get_mut(parent).unwrap().children -= 1;
@@ -275,6 +282,13 @@ impl State {
                 if let Some(Widget::Tabs(tabs)) = node.parent.and_then(|p| self.nodes.get(&p)).map(|n| &n.widget) {
                     tabs.remove(&widget);
                 }
+                // A pane, out of its split's wrapper.
+                if let Some(Widget::Split(split)) = node.parent.and_then(|p| self.nodes.get(&p)).map(|n| &n.widget) {
+                    split.remove(&widget);
+                }
+                if let Widget::Split(split) = &node.widget {
+                    split.forget();
+                }
                 if let Widget::Group(group) = &node.widget {
                     group.forget();
                 }
@@ -322,11 +336,11 @@ impl State {
                     }
                     return;
                 }
-                // A page: the tab view places it.
-                if let Some(Widget::Tabs(tabs)) =
-                    self.nodes[id].parent.and_then(|p| self.nodes.get(&p)).map(|p| &p.widget)
-                {
-                    tabs.place(&widget);
+                // A page: the tab view places it; a pane, the split.
+                match self.nodes[id].parent.and_then(|p| self.nodes.get(&p)).map(|p| &p.widget) {
+                    Some(Widget::Tabs(tabs)) => tabs.place(&widget),
+                    Some(Widget::Split(split)) => split.place(&widget),
+                    _ => {}
                 }
                 self.update_child_visible(*id);
                 if let Widget::Group(group) = &self.nodes[id].widget {
@@ -435,6 +449,6 @@ impl State {
 /// as `Insert` puts them, in order: not a scroll view's content, a list's
 /// rows, a tab view's pages, a window's toolbar items or its sidebar.
 fn in_widget(parent: &Widget, kind: WidgetKind) -> bool {
-    !matches!(parent, Widget::Scroll { .. } | Widget::List(_) | Widget::Tabs(_))
+    !matches!(parent, Widget::Scroll { .. } | Widget::List(_) | Widget::Tabs(_) | Widget::Split(_))
         && !matches!(kind, WidgetKind::ToolbarItem | WidgetKind::Sidebar)
 }

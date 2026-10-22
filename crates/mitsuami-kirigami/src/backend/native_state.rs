@@ -235,6 +235,21 @@ impl KirigamiBackend {
                 }));
             }
             Widget::Group { group, .. } => props.push(Prop::Title(group.str("title"))),
+            // Where the handle is shows in the panes' frames; the position
+            // is kept as given.
+            Widget::Split { root, position } => {
+                let split = root.child("mitsuamiSplitView").unwrap_or(*root);
+                props.push(Prop::Orientation(if split.int("orientation") == QT_VERTICAL {
+                    Orientation::Vertical
+                } else {
+                    Orientation::Horizontal
+                }));
+                props.extend(position.map(Prop::Number));
+                props.push(Prop::PaneMinimums([
+                    root.real("mitsuamiMinimumFirst") as f32,
+                    root.real("mitsuamiMinimumSecond") as f32,
+                ]));
+            }
             // The flags are the strip's own properties, which its buttons
             // and handlers follow; there's nothing else to read them from.
             Widget::DocumentTabs { root } => {
@@ -333,6 +348,9 @@ impl KirigamiBackend {
             Widget::Window { .. } | Widget::Host(_) | Widget::ToolbarItem { .. } => (item.child_items(), None),
             Widget::Tabs { pages, .. } => (pages.child_items(), None),
             Widget::Group { content, .. } => (content.child_items(), None),
+            Widget::Split { root, .. } => {
+                (["mitsuamiFirst", "mitsuamiSecond"].iter().filter_map(|p| root.object(p)).collect(), None)
+            }
             _ => (Vec::new(), None),
         };
         // Items that stand for nodes themselves: `node()` walks up the tree.

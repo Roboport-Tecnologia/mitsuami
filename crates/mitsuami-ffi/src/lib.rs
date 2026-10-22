@@ -195,6 +195,10 @@ pub enum MitsuamiKind {
     Select = 14,
     /// An icon: a name in the platform's own set, or the app's own.
     Icon = 15,
+    /// Two panes, its two children, with a divider the user drags: the
+    /// first pane's length is its `Number`, reported as `Changed` when the
+    /// user moves it; a pane's least width (or height) stops it.
+    Split = 16,
 }
 
 fn widget_kind(kind: u32) -> Result<WidgetKind, String> {
@@ -215,6 +219,7 @@ fn widget_kind(kind: u32) -> Result<WidgetKind, String> {
         13 => WidgetKind::DocumentTabs,
         14 => WidgetKind::Select,
         15 => WidgetKind::Icon,
+        16 => WidgetKind::Split,
         _ => return Err(format!("unknown kind {kind}")),
     })
 }
@@ -474,7 +479,8 @@ pub extern "C" fn mitsuami_set_bool(id: u32, prop: u32, value: bool) -> bool {
 
 #[repr(u32)]
 pub enum MitsuamiNumberProp {
-    /// A progress bar's, a slider's or a number field's value.
+    /// A progress bar's, a slider's or a number field's value; a split's
+    /// first pane's length, in points.
     Number = 0,
     /// A list's guess at its rows' height, for rows not built yet.
     EstimatedRowHeight = 1,
@@ -704,6 +710,8 @@ pub enum MitsuamiEnumProp {
     /// How a header meets what scrolls under it: `Automatic`, `Soft`,
     /// `Hard`, 0 to 2 (macOS 26.1 and later).
     HeaderEdge = 6,
+    /// A split's: `Horizontal` (side by side), `Vertical`, 0 to 1.
+    Orientation = 7,
 }
 
 #[unsafe(no_mangle)]
@@ -757,6 +765,11 @@ pub extern "C" fn mitsuami_set_enum(id: u32, prop: u32, value: u32) -> bool {
                 0 => HeaderEdge::Automatic,
                 1 => HeaderEdge::Soft,
                 2 => HeaderEdge::Hard,
+                _ => return Err(bad()),
+            }),
+            7 => Prop::Orientation(match value {
+                0 => mitsuami::core::Orientation::Horizontal,
+                1 => mitsuami::core::Orientation::Vertical,
                 _ => return Err(bad()),
             }),
             _ => return Err(format!("unknown enum prop {prop}")),

@@ -197,6 +197,16 @@ pub enum WidgetKind {
     /// backends measure. Backends draw the box behind the children, which
     /// are its native children.
     Group,
+    /// Two panes with a divider between them that the user drags: side by
+    /// side, or with `Orientation::Vertical` one over the other. Its two
+    /// children are the panes. The core lays them out: the first as long
+    /// along the split as its `Number`, then the platform's divider
+    /// ([`PlatformMetrics::split_divider`](crate::PlatformMetrics)), then
+    /// the second, which takes what's left, so the first keeps its size as
+    /// the split grows. Each pane is at least its style's least size
+    /// ([`Prop::PaneMinimums`]). The platform draws the divider and reports
+    /// where the user drags it as `Changed(Number)`.
+    Split,
     /// A custom widget (see [`CustomWidget`](crate::CustomWidget)), named
     /// after it. Its props travel as [`Prop::Custom`].
     Custom(&'static str),
@@ -220,6 +230,7 @@ impl WidgetKind {
                 | WidgetKind::ScrollView
                 | WidgetKind::Tabs
                 | WidgetKind::Group
+                | WidgetKind::Split
         )
     }
 
@@ -245,6 +256,7 @@ impl WidgetKind {
             WidgetKind::Tabs => "Tabs",
             WidgetKind::DocumentTabs => "DocumentTabs",
             WidgetKind::Group => "Group",
+            WidgetKind::Split => "Split",
             WidgetKind::Fragment => "Fragment",
             WidgetKind::Text => "Text",
             WidgetKind::Button => "Button",
@@ -959,7 +971,9 @@ pub enum Prop {
     /// `DocumentTabs` is chosen: always one, unless it has none.
     SelectedIndex(Option<usize>),
     /// A `Slider`'s or `NumberInput`'s value, within its range. The core
-    /// sends it after the range, which may have clamped it.
+    /// sends it after the range, which may have clamped it. A `Split`'s
+    /// first pane's size along it, in points, which the core keeps within
+    /// the panes' least sizes.
     Number(f64),
     /// The values a `Slider` or `NumberInput` can take.
     Range {
@@ -975,8 +989,13 @@ pub enum Prop {
     /// other. Sent only if the app chose: without, it's the platform's
     /// (AppKit's stepper wraps, the others stop).
     WrapAround(bool),
-    /// Which way a `Slider` or a `Separator` runs.
+    /// Which way a `Slider` or a `Separator` runs; a `Split`'s panes are
+    /// side by side when it's horizontal.
     Orientation(Orientation),
+    /// A `Split`'s panes' least sizes along it, first then second, from
+    /// their styles' least width (or height): the platform stops the
+    /// divider there. Computed by the core.
+    PaneMinimums([f32; 2]),
     /// Text the platform shows when the pointer rests on the widget, as
     /// its tooltip, and assistive technology reads as its description.
     /// Any widget or container can have one; empty: none.

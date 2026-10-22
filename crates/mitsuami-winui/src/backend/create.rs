@@ -452,6 +452,11 @@ impl State {
                 let element = group.canvas.cast()?;
                 (Widget::Group(group), element)
             }
+            WidgetKind::Split => {
+                let split = crate::split::Split::new(id, emitter.clone())?;
+                let element = split.canvas.cast()?;
+                (Widget::Split(split), element)
+            }
             WidgetKind::Tabs => {
                 let tabs = crate::tabs::Tabs::new(id, emitter.clone(), self.tab_bar.clone())?;
                 let element = tabs.canvas.cast()?;

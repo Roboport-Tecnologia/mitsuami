@@ -38,6 +38,8 @@ mod services;
 #[cfg(target_os = "macos")]
 mod sidebar;
 #[cfg(target_os = "macos")]
+mod split_view;
+#[cfg(target_os = "macos")]
 mod surface;
 #[cfg(target_os = "macos")]
 mod tabs;

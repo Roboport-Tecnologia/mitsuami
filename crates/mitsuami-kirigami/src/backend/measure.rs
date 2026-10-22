@@ -64,6 +64,7 @@ impl KirigamiBackend {
             | Widget::Host(_)
             | Widget::Scroll { .. }
             | Widget::List(_)
+            | Widget::Split { .. }
             | Widget::Sidebar { .. } => Size::ZERO,
             widget => measure_item(widget.item(), matches!(widget, Widget::Label(_)), request),
         }

@@ -238,6 +238,17 @@ impl GtkBackend {
                 props.extend(sidebar.shown().map(Prop::SidebarShown));
             }
             Widget::Group(group) => props.push(Prop::Title(group.title())),
+            // Where the divider is shows in the panes' frames; the position
+            // and least sizes are kept as given.
+            Widget::Split(split) => {
+                props.push(Prop::Orientation(if split.vertical() {
+                    Orientation::Vertical
+                } else {
+                    Orientation::Horizontal
+                }));
+                props.extend(split.position().map(Prop::Number));
+                props.push(Prop::PaneMinimums(split.minimums()));
+            }
             Widget::Tabs(tabs) => {
                 props.push(Prop::TabTitles(tabs.titles()));
                 props.push(Prop::TabIcons(tabs.icons()));
@@ -324,6 +335,8 @@ impl GtkBackend {
             }
             // A page is where the tab view put it; the others aren't shown.
             (_, Some(Widget::Tabs(tabs))) => tabs.page_frame(widget, frame.size),
+            // A pane is where the paned put it.
+            (_, Some(Widget::Split(split))) => split.pane_frame(widget, frame.size),
             _ => frame,
         };
         let by_widget = state.by_widget.borrow();
@@ -334,6 +347,7 @@ impl GtkBackend {
                 Some(scroll_offset(scrolled)),
             ),
             Widget::Tabs(tabs) => (tabs.pages().iter().filter_map(|p| by_widget.get(p).copied()).collect(), None),
+            Widget::Split(split) => (split.panes().iter().filter_map(|p| by_widget.get(p).copied()).collect(), None),
             // A leaf, whose bar is in the map too.
             Widget::DocumentTabs(_) => (Vec::new(), None),
             _ => {

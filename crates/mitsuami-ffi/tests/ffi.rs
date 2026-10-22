@@ -23,6 +23,7 @@ extern "C" fn record(_user: *mut c_void, _node: u32, event: *const MitsuamiEvent
             format!("changed {}", std::str::from_utf8(text).unwrap())
         }
         1 if event.value_kind == MitsuamiValueKind::Bool as u32 => format!("changed {}", event.flag),
+        1 if event.value_kind == MitsuamiValueKind::Number as u32 => format!("changed {}", event.number),
         6 => {
             let text = unsafe { std::slice::from_raw_parts(event.text, event.text_len) };
             format!("search {}", std::str::from_utf8(text).unwrap())
@@ -631,4 +632,34 @@ async fn drawn_widgets_are_drawn_by_the_caller(app: TestApp) {
     app.settle().await;
     assert_eq!(slider.value().as_deref(), Some("Blue"));
     assert_eq!(heard(), ["draw 52x24"]);
+}
+
+#[mitsuami_test::test]
+async fn splits_lay_out_their_panes_and_report_the_divider(app: TestApp) {
+    attach(app.ui());
+    heard();
+    let split = create(MitsuamiKind::Split);
+    let (first, second) = (create(MitsuamiKind::Container), create(MitsuamiKind::Container));
+    set_text(first, MitsuamiTextProp::TestId, "first");
+    set_text(second, MitsuamiTextProp::TestId, "second");
+    set_text(split, MitsuamiTextProp::TestId, "split");
+    assert!(mitsuami_set_min_size(first, px(120.0), auto()));
+    assert!(mitsuami_append_child(split, first));
+    assert!(mitsuami_append_child(split, second));
+    assert!(mitsuami_set_number(split, MitsuamiNumberProp::Number as u32, 200.0));
+    assert!(mitsuami_set_enum(split, MitsuamiEnumProp::Orientation as u32, 0));
+    assert!(mitsuami_on_event(split, record, std::ptr::null_mut()));
+    // Its panes are empty: it's as high as the window lets it grow.
+    assert!(mitsuami_set_grow(split, 1.0));
+    app.mount(|| Adopt(split));
+    app.resize(800.0, 400.0).await;
+
+    let divider = app.ui().metrics().split_divider;
+    assert_eq!(app.get_by_test_id("first").frame().width(), 200.0);
+    assert_eq!(app.get_by_test_id("second").frame().x(), 200.0 + divider);
+
+    // The user's move is reported; the least width stops it.
+    app.get_by_test_id("split").set_number(40.0).await;
+    assert_eq!(heard(), ["changed 120"]);
+    assert_eq!(app.get_by_test_id("first").frame().width(), 120.0);
 }

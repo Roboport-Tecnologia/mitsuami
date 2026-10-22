@@ -72,6 +72,8 @@ impl Inner {
             WidgetKind::DocumentTabs => Role::TabList,
             // Named by its heading, as a fieldset by its legend.
             WidgetKind::Group => Role::Group,
+            // A split group to AppKit; its panes are what's read.
+            WidgetKind::Split => Role::Group,
             WidgetKind::Text => Role::StaticText,
             WidgetKind::Button => Role::Button,
             WidgetKind::ToggleButton => Role::ToggleButton,

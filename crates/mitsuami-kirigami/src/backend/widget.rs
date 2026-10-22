@@ -34,6 +34,7 @@ impl Widget {
             | Widget::Tabs { root: i, .. }
             | Widget::DocumentTabs { root: i }
             | Widget::Group { root: i, .. }
+            | Widget::Split { root: i, .. }
             | Widget::TextArea { root: i, .. }
             | Widget::Sidebar { page: i, .. } => *i,
             Widget::GpuSurface(surface) => surface.item,
@@ -143,6 +144,7 @@ impl Widget {
                 | Widget::Sidebar { .. }
                 | Widget::Tabs { .. }
                 | Widget::Group { .. }
+                | Widget::Split { .. }
         )
     }
 }

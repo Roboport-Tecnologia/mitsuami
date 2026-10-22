@@ -145,6 +145,12 @@ impl State {
                         let index = (*index as u32 + crate::group::PARTS).min(children.Size()?);
                         children.InsertAt(index, &child_element)?;
                     }
+                    // After its line and grip, which is over it.
+                    Some(Widget::Split(split)) => {
+                        let children = split.canvas.cast::<w::IPanel>()?.Children()?;
+                        let index = (*index as u32 + crate::split::PARTS).min(children.Size()?);
+                        children.InsertAt(index, &child_element)?;
+                    }
                     Some(Widget::List(list)) => {
                         let Some(row) = self.nodes[child].row else {
                             violation(command, "a List's children are row hosts, a Table's cell hosts")
@@ -308,6 +314,15 @@ impl State {
                 }
                 if let Widget::Group(group) = &self.nodes[id].widget {
                     group.place(frame.width() as f64, frame.height() as f64)?;
+                }
+                if let Widget::Split(split) = &self.nodes[id].widget {
+                    split.set_size(frame.width() as f64, frame.height() as f64)?;
+                }
+                // A split's line follows its first pane.
+                if let Some(Widget::Split(split)) =
+                    self.nodes[id].parent.and_then(|p| self.nodes.get(&p)).map(|p| &p.widget)
+                {
+                    split.pane_placed(x, y, frame.width() as f64, frame.height() as f64)?;
                 }
                 // The app draws its next frame at the new size: no waiting for
                 // XAML's.
@@ -713,6 +728,7 @@ impl State {
             Some(Widget::Window(parts)) => parts.host.cast::<w::IPanel>()?.Children(),
             Some(Widget::Host(canvas)) => canvas.cast::<w::IPanel>()?.Children(),
             Some(Widget::Group(group)) => group.canvas.cast::<w::IPanel>()?.Children(),
+            Some(Widget::Split(split)) => split.canvas.cast::<w::IPanel>()?.Children(),
             Some(_) => violation(command, "not a container"),
             None => violation(command, "node does not exist"),
         }

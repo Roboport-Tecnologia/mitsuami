@@ -6,10 +6,10 @@ use std::path::PathBuf;
 
 use mitsuami_core::services::Shortcut;
 use mitsuami_core::{
-    Align, Children, Display, Element, ElementBuilder, FileDrop, FlexDirection, HeaderEdge, Justify, Length, NodeId,
-    Prop, Track, Tweak, Ui, UiEvent, View, WidgetKind,
+    Align, Children, Display, Element, ElementBuilder, EventValue, FileDrop, FlexDirection, HeaderEdge, Justify,
+    Length, NodeId, Orientation, Prop, Track, Tweak, Ui, UiEvent, View, WidgetKind,
 };
-use mitsuami_reactive::{IntoValue, Value};
+use mitsuami_reactive::{IntoValue, Signal, Value};
 
 /// A layout host: flexbox (column by default) or grid.
 pub struct Container(pub(crate) Element);
@@ -355,6 +355,89 @@ impl Group {
     pub fn native(mut self, tweak: Tweak<Group>) -> Group {
         tweak.apply(&mut self.0);
         self
+    }
+}
+
+/// Two panes with a divider between them that the user drags, as the
+/// platform splits a window: `NSSplitView`, `GtkPaned`, Qt's `SplitView`,
+/// and on Windows a grip on the panes' edge, as File Explorer's navigation
+/// pane has (WinUI has no splitter). Side by side, or one over the other
+/// with `Orientation::Vertical`.
+///
+/// Its two children are the panes. The first is as long along the split as
+/// its position (its content's, until there's one), and keeps it as the
+/// split grows; the second takes the rest. A pane's least width (or height)
+/// in its style is as far as the divider goes.
+///
+/// ```ignore
+/// let sidebar = signal(250.0);
+/// Split::new().bind(sidebar).children((branches.min_width(200), history.min_width(100)))
+/// ```
+pub struct Split(Element);
+widget!(Split);
+
+impl Default for Split {
+    fn default() -> Split {
+        Split::new()
+    }
+}
+
+impl Split {
+    pub fn new() -> Split {
+        Split(Element::new(WidgetKind::Split))
+    }
+
+    /// Its panes, first then second.
+    pub fn children(mut self, children: impl Children) -> Split {
+        self.0.add_children(children);
+        self
+    }
+
+    /// The first pane's length along the split, in points.
+    pub fn position(mut self, position: impl IntoValue<f64>) -> Split {
+        self.0.prop(position.into_value(), Prop::Number);
+        self
+    }
+
+    /// Two-way binding, Vue's `v-model`.
+    pub fn bind(self, signal: Signal<f64>) -> Split {
+        self.position(signal).on_change(move |position| signal.set(position))
+    }
+
+    /// Horizontal (the default) puts the panes side by side.
+    pub fn orientation(mut self, orientation: impl IntoValue<Orientation>) -> Split {
+        self.0.prop(orientation.into_value(), Prop::Orientation);
+        self
+    }
+
+    /// Called with the first pane's new length as the user drags the
+    /// divider.
+    pub fn on_change(mut self, handler: impl Fn(f64) + 'static) -> Split {
+        self.0.on(move |event| {
+            if let UiEvent::Changed(EventValue::Number(position)) = event {
+                handler(*position);
+            }
+        });
+        self
+    }
+
+    /// Raw platform settings, past the semantic ones: see [`Tweak`].
+    pub fn native(mut self, tweak: Tweak<Split>) -> Split {
+        tweak.apply(&mut self.0);
+        self
+    }
+}
+
+impl Split {
+    /// `<Split position=sidebar>…</Split>`
+    #[doc(hidden)]
+    pub fn __tag() -> Split {
+        Split::new()
+    }
+
+    #[doc(hidden)]
+    pub fn __children<C: Children>(self, children: impl FnOnce() -> C) -> Split {
+        self.children(children())
     }
 }
 

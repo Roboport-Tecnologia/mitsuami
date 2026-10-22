@@ -102,6 +102,18 @@ impl HeadlessBackend {
                 state.set_prop(id, Prop::Number(value));
                 state.emit(id, UiEvent::Changed(EventValue::Number(value)));
             }
+            // Moves the divider, as assistive technology sets a splitter's
+            // value: no further than the panes' least sizes let it.
+            (A11yAction::SetValue(text), WidgetKind::Split) => {
+                let node = &state.nodes[&id];
+                let position: f32 = text.trim().parse().map_err(|_| ActionError::Unsupported)?;
+                let [first, second] = find_prop!(node.props, PaneMinimums).unwrap_or_default();
+                let vertical = find_prop!(node.props, Orientation).is_some_and(|o| o.vertical());
+                let length = if vertical { node.frame.height() } else { node.frame.width() };
+                let position = position.min(length - super::metrics::SPLIT_DIVIDER - second).max(first);
+                state.set_prop(id, Prop::Number(f64::from(position)));
+                state.emit(id, UiEvent::Changed(EventValue::Number(f64::from(position))));
+            }
             (A11yAction::SetValue(_) | A11yAction::Increment | A11yAction::Decrement, WidgetKind::NumberInput) => {
                 let props = &state.nodes[&id].props;
                 let (min, max) = props

@@ -141,6 +141,11 @@ impl KirigamiBackend {
                     return Err(ActionError::Unsupported);
                 }
             }
+            // As if the handle were dragged there: reported.
+            (A11yAction::SetValue(text), WidgetKind::Split) => {
+                let position: f64 = text.trim().parse().map_err(|_| ActionError::Unsupported)?;
+                item.set_real("mitsuamiMoveTo", position.max(0.0));
+            }
             // As if its button were clicked.
             (A11yAction::SetValue(text), WidgetKind::RadioGroup) => {
                 let index = radio_options(item).iter().position(|o| o == text).ok_or(ActionError::Unsupported)?;

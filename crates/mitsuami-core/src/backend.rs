@@ -48,6 +48,8 @@ pub struct PlatformMetrics {
     /// it on others.
     pub group_insets: Insets,
     pub titled_group_insets: Insets,
+    /// How thick a `Split`'s divider is, between its panes.
+    pub split_divider: f32,
 }
 
 /// Light or dark. Backends can force one (tests do, so captures don't

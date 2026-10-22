@@ -8,7 +8,8 @@ use mitsuami_core::{List, Opaque, Table, Tweak};
 use mitsuami_widgets::Sidebar;
 use mitsuami_widgets::{
     Button, Checkbox, FileIcon, Group, Icon, Image, MenuButton, NumberInput, PasswordInput, Progress, RadioGroup,
-    ScrollView, SearchInput, Select, Separator, Slider, Spinner, Switch, Text, TextArea, TextInput, ToggleButton,
+    ScrollView, SearchInput, Select, Separator, Slider, Spinner, Split, Switch, Text, TextArea, TextInput,
+    ToggleButton,
 };
 
 use crate::backend::{STEPS, Steps, update_marks};
@@ -56,6 +57,10 @@ impl Tweakable for Image {
 }
 
 /// The card: the `gtk::Box` with libadwaita's `card` class.
+impl Tweakable for Split {
+    type Native = gtk::Paned;
+}
+
 impl Tweakable for Group {
     type Native = gtk::Box;
 }

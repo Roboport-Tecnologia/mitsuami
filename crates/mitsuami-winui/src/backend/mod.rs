@@ -371,6 +371,8 @@ enum Widget {
     Tabs(crate::tabs::Tabs),
     DocumentTabs(crate::document_tabs::DocumentTabs),
     Group(crate::group::Group),
+    /// WinUI has no splitter: a canvas with a grip, as File Explorer's.
+    Split(crate::split::Split),
     /// A custom widget with a native render, and the props it shows.
     Custom {
         render: Rc<dyn ErasedRender>,
@@ -813,6 +815,7 @@ impl Backend for WinUiBackend {
             tab_insets: Insets::new(bar, 0.0, 0.0, 0.0),
             group_insets,
             titled_group_insets,
+            split_divider: crate::split::DIVIDER,
         }
     }
 

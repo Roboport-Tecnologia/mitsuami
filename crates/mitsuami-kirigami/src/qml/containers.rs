@@ -35,6 +35,120 @@ Item {{
     )
 }
 
+/// A split: Qt's `SplitView`, filling the host, its two pane hosts its
+/// items (`mitsuamiInsert` and `mitsuamiTake`, with `mitsuamiItem` and
+/// `mitsuamiIndex`), which it places itself. The core's frames say where:
+/// Rust sets `mitsuamiPosition`, the first pane's length, which is its
+/// preferred length; the second fills the rest, so the first keeps its
+/// length as the split grows. `mitsuamiMinimumFirst` and
+/// `mitsuamiMinimumSecond` are the panes' least lengths, where the split
+/// view stops its handle. A drag of the handle
+/// (`resizing`) is reported with `mitsuamiMoved`, the first pane's length
+/// in `mitsuamiReported`; setting `mitsuamiMoveTo` moves the handle as a
+/// drag would, and reports it.
+pub(crate) fn split() -> String {
+    format!(
+        r#"
+Item {{
+    id: mitsuamiSplitRoot
+    property bool mitsuamiVertical: false
+    property real mitsuamiPosition: -1
+    property real mitsuamiMinimumFirst: 0
+    property real mitsuamiMinimumSecond: 0
+    property real mitsuamiReported: -1
+    property real mitsuamiMoveTo: -1
+    property Item mitsuamiItem: null
+    property int mitsuamiIndex: 0
+    readonly property Item mitsuamiFirst: mitsuamiSplit.count > 0 ? mitsuamiSplit.itemAt(0) : null
+    readonly property Item mitsuamiSecond: mitsuamiSplit.count > 1 ? mitsuamiSplit.itemAt(1) : null
+    signal mitsuamiMoved()
+    QQC2.SplitView {{
+        id: mitsuamiSplit
+        objectName: "mitsuamiSplitView"
+        anchors.fill: parent
+        orientation: mitsuamiSplitRoot.mitsuamiVertical ? Qt.Vertical : Qt.Horizontal
+        // The end of a drag: where the handle was let go.
+        onResizingChanged: if (!resizing) mitsuamiSplitRoot.mitsuamiReport()
+    }}
+    // During a drag, as the first pane follows the handle.
+    Connections {{
+        target: mitsuamiSplitRoot.mitsuamiFirst
+        function onWidthChanged() {{ if (mitsuamiSplit.resizing) mitsuamiSplitRoot.mitsuamiReport() }}
+        function onHeightChanged() {{ if (mitsuamiSplit.resizing) mitsuamiSplitRoot.mitsuamiReport() }}
+    }}
+    function mitsuamiLength(item) {{
+        return item ? (mitsuamiVertical ? item.height : item.width) : 0
+    }}
+    function mitsuamiReport() {{
+        const length = mitsuamiLength(mitsuamiFirst)
+        if (mitsuamiFirst && length !== mitsuamiReported) {{
+            mitsuamiReported = length
+            mitsuamiMoved()
+        }}
+    }}
+    // The panes' sizes as the split view takes them: the first at its
+    // position, the second filling the rest, each at least its least.
+    function mitsuamiApply() {{
+        const first = mitsuamiFirst, second = mitsuamiSecond
+        if (first) {{
+            first.SplitView.fillWidth = false
+            first.SplitView.fillHeight = false
+            if (mitsuamiPosition >= 0) {{
+                if (mitsuamiVertical) first.SplitView.preferredHeight = mitsuamiPosition
+                else first.SplitView.preferredWidth = mitsuamiPosition
+            }}
+            first.SplitView.minimumWidth = mitsuamiVertical ? 0 : mitsuamiMinimumFirst
+            first.SplitView.minimumHeight = mitsuamiVertical ? mitsuamiMinimumFirst : 0
+        }}
+        if (second) {{
+            second.SplitView.fillWidth = !mitsuamiVertical
+            second.SplitView.fillHeight = mitsuamiVertical
+            second.SplitView.minimumWidth = mitsuamiVertical ? 0 : mitsuamiMinimumSecond
+            second.SplitView.minimumHeight = mitsuamiVertical ? mitsuamiMinimumSecond : 0
+        }}
+    }}
+    onMitsuamiPositionChanged: mitsuamiApply()
+    onMitsuamiMinimumFirstChanged: mitsuamiApply()
+    onMitsuamiMinimumSecondChanged: mitsuamiApply()
+    onMitsuamiVerticalChanged: mitsuamiApply()
+    function mitsuamiInsert() {{
+        mitsuamiSplit.insertItem(mitsuamiIndex, mitsuamiItem)
+        mitsuamiItem = null
+        mitsuamiApply()
+    }}
+    // Out of the split view, not destroyed: it may go elsewhere.
+    function mitsuamiTake() {{
+        for (let i = 0; i < mitsuamiSplit.count; i++) {{
+            if (mitsuamiSplit.itemAt(i) === mitsuamiItem) {{
+                mitsuamiSplit.takeItem(i)
+                break
+            }}
+        }}
+        mitsuamiItem = null
+        mitsuamiApply()
+    }}
+    // As if the handle were dragged there and let go, within the panes'
+    // least lengths: reported as the user's.
+    onMitsuamiMoveToChanged: {{
+        if (mitsuamiMoveTo < 0) return
+        const target = mitsuamiMoveTo
+        mitsuamiMoveTo = -1
+        if (!mitsuamiFirst) return
+        const total = mitsuamiVertical ? mitsuamiSplit.height : mitsuamiSplit.width
+        const handle = mitsuamiSecond ? total - mitsuamiLength(mitsuamiFirst) - mitsuamiLength(mitsuamiSecond) : 0
+        const length = Math.max(mitsuamiMinimumFirst, Math.min(target, total - handle - mitsuamiMinimumSecond))
+        if (mitsuamiVertical) mitsuamiFirst.SplitView.preferredHeight = length
+        else mitsuamiFirst.SplitView.preferredWidth = length
+        mitsuamiReported = length
+        mitsuamiMoved()
+    }}
+    {}
+}}
+"#,
+        a11y_hover("\"\"")
+    )
+}
+
 /// A tab view: a strip of tabs over the page hosts. The strip is Kirigami's
 /// `NavigationTabBar` (`mitsuamiNavigation`, the default), as Kirigami apps
 /// switch views and libadwaita's view switcher does, or a `QQC2.TabBar` of

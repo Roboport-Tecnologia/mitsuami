@@ -100,6 +100,16 @@ impl State {
                 root.connect("mitsuamiNewAsked()", move || events.emit(id, UiEvent::NewTabRequested));
                 Widget::DocumentTabs { root }
             }
+            WidgetKind::Split => {
+                let root = QmlObject::load(&qml::split());
+                // A drag of the handle, or assistive technology's move: the
+                // app's position and the core's frames don't emit it.
+                let moved = events.clone();
+                root.connect("mitsuamiMoved()", move || {
+                    moved.emit(id, UiEvent::Changed(EventValue::Number(root.real("mitsuamiReported"))));
+                });
+                Widget::Split { root, position: None }
+            }
             WidgetKind::Group => {
                 let root = QmlObject::load(&qml::group());
                 let group = root.child("mitsuamiGroupBox").expect("groups have a group box");

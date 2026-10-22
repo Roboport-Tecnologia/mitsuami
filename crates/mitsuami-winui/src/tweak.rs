@@ -6,7 +6,8 @@ use mitsuami_core::reactive::{IntoValue, Value};
 use mitsuami_core::{List, Opaque, Table, Tweak};
 use mitsuami_widgets::{
     Button, Checkbox, FileIcon, Group, Icon, Image, MenuButton, NumberInput, PasswordInput, Progress, RadioGroup,
-    ScrollView, SearchInput, Select, Separator, Slider, Spinner, Switch, Text, TextArea, TextInput, ToggleButton,
+    ScrollView, SearchInput, Select, Separator, Slider, Spinner, Split, Switch, Text, TextArea, TextInput,
+    ToggleButton,
 };
 use mitsuami_widgets::{DocumentTabs, Sidebar};
 use windows_core::Interface;
@@ -69,6 +70,11 @@ impl Tweakable for MenuButton {
 /// The card; its heading is a `TextBlock` over it.
 impl Tweakable for Group {
     type Native = w::Border;
+}
+
+/// The canvas its panes, line and grip are in.
+impl Tweakable for Split {
+    type Native = w::Canvas;
 }
 
 impl Tweakable for Progress {

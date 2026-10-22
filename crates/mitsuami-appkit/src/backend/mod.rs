@@ -98,6 +98,7 @@ enum Widget {
         frame: Retained<NSBox>,
     },
     Sidebar(Sidebar),
+    SplitView(crate::split_view::SplitView),
     Tabs(Tabs),
     DocumentTabs(crate::document_tabs::DocumentTabs),
     Label(Retained<NSTextField>),
@@ -178,6 +179,7 @@ impl Widget {
             Widget::List(list) => &list.scroll,
             Widget::Sidebar(sidebar) => &sidebar.scroll,
             Widget::Tabs(tabs) => &tabs.view,
+            Widget::SplitView(split) => &split.view,
             Widget::DocumentTabs(tabs) => &tabs.view,
             Widget::Custom { view, .. } | Widget::Native { view, .. } => view,
             Widget::Drawn { view, .. } => view,
@@ -211,6 +213,7 @@ impl Widget {
             | Widget::List(_)
             | Widget::Sidebar(_)
             | Widget::Tabs(_)
+            | Widget::SplitView(_)
             | Widget::DocumentTabs(_)
             | Widget::Custom { .. }
             | Widget::Drawn { .. }

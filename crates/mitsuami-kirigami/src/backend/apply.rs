@@ -44,6 +44,8 @@ impl State {
                 Widget::List(list) => run(list.view),
                 Widget::TextArea { area, .. } => run(*area),
                 Widget::Group { group, .. } => run(*group),
+                // The split view, not the host it fills.
+                Widget::Split { root, .. } => run(root.child("mitsuamiSplitView").unwrap_or(*root)),
                 widget => run(widget.item()),
             }
         }
@@ -127,6 +129,14 @@ impl State {
                     self.nodes.get_mut(child).unwrap().parent = Some(*parent);
                     return;
                 }
+                // The split view places its items itself.
+                if let Widget::Split { root, .. } = &self.nodes[parent].widget {
+                    root.set_object("mitsuamiItem", Some(item));
+                    root.set_int("mitsuamiIndex", *index as i32);
+                    root.invoke("mitsuamiInsert");
+                    self.nodes.get_mut(child).unwrap().parent = Some(*parent);
+                    return;
+                }
                 let parent_widget = self.widget(*parent, command);
                 let content = parent_widget.content();
                 if matches!(parent_widget, Widget::Scroll { .. }) && !content.child_items().is_empty() {
@@ -169,6 +179,11 @@ impl State {
                     }
                     (Widget::Window { root }, Widget::ToolbarItem { host, action }) => {
                         remove_toolbar_item(root, *child, *host, *action)
+                    }
+                    (Widget::Split { root, .. }, child) => {
+                        root.set_object("mitsuamiItem", Some(child.item()));
+                        root.invoke("mitsuamiTake");
+                        child.item().set_parent_item(None, 0);
                     }
                     _ => self.widget(*child, command).item().set_parent_item(None, 0),
                 }
@@ -246,6 +261,19 @@ impl State {
                 let widget = self.widget(*id, command);
                 let item = widget.item();
                 let parent = self.nodes[id].parent.and_then(|p| self.nodes.get(&p)).map(|p| &p.widget);
+                // A split's pane: the split view places and sizes it, the
+                // first at the length the core gave it, the second with the
+                // rest, which is the core's frame too.
+                if let Some(Widget::Split { root, .. }) = parent {
+                    if root.object("mitsuamiFirst") == Some(item) {
+                        let vertical = root.bool("mitsuamiVertical");
+                        root.set_real(
+                            "mitsuamiPosition",
+                            f64::from(if vertical { frame.height() } else { frame.width() }),
+                        );
+                    }
+                    return;
+                }
                 // A tab view's page: its size; it's at the top-left of the
                 // page area.
                 let at = match parent {

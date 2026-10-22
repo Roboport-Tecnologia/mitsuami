@@ -37,6 +37,7 @@ impl State {
             }
             WidgetKind::Container | WidgetKind::ToolbarItem => Widget::Host(Host::new(self.frames.clone(), None)),
             WidgetKind::Group => Widget::Group(crate::group::Group::new(self.frames.clone())),
+            WidgetKind::Split => Widget::Split(crate::split::Split::new(id, events.clone(), self.frames.clone())),
             WidgetKind::Sidebar => Widget::Sidebar(Sidebar::new(id, events.clone())),
             WidgetKind::Tabs => Widget::Tabs(Tabs::new(id, events.clone(), self.frames.clone())),
             WidgetKind::DocumentTabs => Widget::DocumentTabs(DocumentTabs::new(id, events.clone())),

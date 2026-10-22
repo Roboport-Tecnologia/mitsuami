@@ -199,6 +199,7 @@ impl WinUiBackend {
             Widget::Group(group) => ceil(group.strip()),
             // Measured by the core, or never (the sidebar is the window's).
             Widget::Drawn { .. }
+            | Widget::Split(_)
             | Widget::Window(_)
             | Widget::Host(_)
             | Widget::Scroll(_)

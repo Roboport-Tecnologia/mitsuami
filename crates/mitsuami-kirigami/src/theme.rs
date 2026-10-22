@@ -110,6 +110,8 @@ pub(crate) fn metrics() -> PlatformMetrics {
         tab_insets: tab_insets(theme),
         group_insets: group_insets(theme, "groupProbe"),
         titled_group_insets: group_insets(theme, "titledGroupProbe"),
+        // The style's handle (Breeze's is a line).
+        split_divider: theme.real("splitDivider").max(0.0).ceil() as f32,
     }
 }
 

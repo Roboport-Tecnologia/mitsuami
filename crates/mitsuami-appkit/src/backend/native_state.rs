@@ -300,6 +300,17 @@ pub(super) fn native_state(state: &State, id: NodeId) -> Option<NativeState> {
             props.push(Prop::SelectedIndex(tabs.selected()));
             props.extend(node.tab_icons.clone().map(Prop::TabIcons));
         }
+        // Where the divider is shows in the panes' frames; the position
+        // and least sizes are kept as given.
+        Widget::SplitView(split) => {
+            props.push(Prop::Orientation(if split.view.isVertical() {
+                Orientation::Horizontal
+            } else {
+                Orientation::Vertical
+            }));
+            props.extend(split.state.position().map(Prop::Number));
+            props.push(Prop::PaneMinimums(split.state.minimums()));
+        }
     }
     if node.file_drop
         && let Widget::Host(host) | Widget::Group { host, .. } = &node.widget

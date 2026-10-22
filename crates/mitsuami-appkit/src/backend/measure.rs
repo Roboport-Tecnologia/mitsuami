@@ -87,6 +87,7 @@ pub(super) fn measure(state: &State, id: NodeId, request: MeasureRequest) -> Siz
         Widget::Group { frame, .. } => group_natural_size(&state.group_probes, frame),
         // Measured by the core, or never (the sidebar is the window's).
         Widget::Drawn { .. }
+        | Widget::SplitView(_)
         | Widget::Window { .. }
         | Widget::Host(_)
         | Widget::Scroll(_)

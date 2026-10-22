@@ -756,6 +756,24 @@ fn groups() -> impl View {
     ))
 }
 
+/// A sidebar of branches beside a history, the way a Git client splits
+/// its window, and the history over its details: each platform's divider
+/// between the panes.
+#[mitsuami_test::story(sizes = [(480, 280)])]
+fn splits() -> impl View {
+    Split::new().position(160.0).grow(1.0).children((
+        Column::new().padding(8).gap(4).min_width(120).children((
+            Text::new("LOCAL BRANCHES").text_style(TextStyle::Caption),
+            Text::new("main"),
+            Text::new("feature/split"),
+        )),
+        Split::new().orientation(Orientation::Vertical).position(140.0).children((
+            Column::new().padding(8).gap(4).children((Text::new("Add splits"), Text::new("Fix the sidebar"))),
+            Column::new().padding(8).child(Text::new("Commit 54b9153").color(Color::SecondaryLabel)),
+        )),
+    ))
+}
+
 /// A GPU surface nothing has presented to yet, between two lines: where
 /// it sits and how large it is. Captures show what the platform draws
 /// before the app presents (captures don't read GPU surfaces' content).

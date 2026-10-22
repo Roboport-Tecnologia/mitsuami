@@ -33,6 +33,13 @@ impl WinUiBackend {
             if let (A11yAction::Activate, Widget::Sidebar(sidebar)) = (action, &node.widget) {
                 return if sidebar.activate() { Ok(()) } else { Err(ActionError::Unsupported) };
             }
+            // A splitter's value, as assistive technology sets it: the
+            // divider moves there, which is reported.
+            if let (A11yAction::SetValue(text), Widget::Split(split)) = (action, &node.widget) {
+                let position: f64 = text.trim().parse().map_err(|_| ActionError::Unsupported)?;
+                split.move_divider(&state.emitter(), id, position);
+                return Ok(());
+            }
             // A tab, as a click picks it; the same way.
             if let (A11yAction::SetValue(title), Widget::Tabs(tabs)) = (action, &node.widget) {
                 if tabs.bar.cast::<w::IControl>().and_then(|c| c.IsEnabled()).is_ok_and(|on| !on) {

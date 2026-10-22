@@ -55,6 +55,7 @@ pub(super) fn metrics() -> PlatformMetrics {
         tab_insets: crate::tabs::default_insets(),
         group_insets: crate::group::insets(false),
         titled_group_insets: crate::group::insets(true),
+        split_divider: crate::split::measure_divider(),
     }
 }
 

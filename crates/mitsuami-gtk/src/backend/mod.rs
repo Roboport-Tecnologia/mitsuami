@@ -182,6 +182,7 @@ enum Widget {
     Tabs(Tabs),
     DocumentTabs(DocumentTabs),
     Group(crate::group::Group),
+    Split(crate::split::Split),
     /// A custom widget with a GTK render, and the props it last got.
     Custom {
         widget: gtk::Widget,
@@ -233,6 +234,7 @@ impl Widget {
             Widget::Tabs(tabs) => tabs.root(),
             Widget::DocumentTabs(tabs) => tabs.root(),
             Widget::Group(group) => group.host.upcast_ref(),
+            Widget::Split(split) => split.paned.upcast_ref(),
             Widget::Custom { widget, .. } | Widget::Native { widget, .. } => widget,
             Widget::Drawn { drawn, .. } => drawn.area.upcast_ref(),
         }
@@ -270,6 +272,7 @@ impl Widget {
                 | Widget::Sidebar(_)
                 | Widget::Tabs(_)
                 | Widget::Group(_)
+                | Widget::Split(_)
         )
     }
 

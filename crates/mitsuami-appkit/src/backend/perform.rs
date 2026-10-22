@@ -135,6 +135,15 @@ impl AppKitBackend {
             (A11yAction::Decrement, WidgetKind::Slider) => {
                 let _: bool = unsafe { msg_send![&*a11y_element(&widget_view), accessibilityPerformDecrement] };
             }
+            // As a splitter's value is set: the divider moves there.
+            (A11yAction::SetValue(text), WidgetKind::Split) => {
+                let position: f64 = text.trim().parse().map_err(|_| ActionError::Unsupported)?;
+                let state = self.state.borrow();
+                let Some(Widget::SplitView(split)) = state.nodes.get(&id).map(|n| &n.widget) else {
+                    return Err(ActionError::Unsupported);
+                };
+                split.move_divider(position);
+            }
             (A11yAction::SetValue(text), WidgetKind::Slider) => {
                 let slider: &NSSlider = widget_view.downcast_ref().ok_or(ActionError::Unsupported)?;
                 let value: f64 = text.trim().parse().map_err(|_| ActionError::Unsupported)?;

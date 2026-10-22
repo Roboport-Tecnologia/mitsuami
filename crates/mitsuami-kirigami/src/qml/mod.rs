@@ -210,6 +210,16 @@ QtObject {
     // goes (`qml::group`).
     property Item groupProbe: QQC2.GroupBox {}
     property Item titledGroupProbe: QQC2.GroupBox { title: "Title" }
+    // The style's split view handle, for how thick a split's divider is
+    // (`qml::split`): a handle is made only between items, so one is
+    // made from its delegate here.
+    property real splitDivider: {
+        const handle = splitProbe.handle ? splitProbe.handle.createObject(null) : null
+        const thickness = handle ? handle.implicitWidth : 1
+        if (handle) handle.destroy()
+        return thickness
+    }
+    property Item splitProbe: QQC2.SplitView {}
 }
 "#
     .into()

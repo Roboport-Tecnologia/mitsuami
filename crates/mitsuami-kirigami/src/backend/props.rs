@@ -217,6 +217,13 @@ impl State {
             (Prop::Step(step), Widget::NumberInput(s)) => s.set_int("stepSize", step.map_or(1, |s| s as i32)),
             (Prop::Number(n), Widget::NumberInput(s)) => s.set_int("value", *n as i32),
             (Prop::WrapAround(on), Widget::NumberInput(s)) => s.set_bool("wrap", *on),
+            (Prop::Orientation(o), Widget::Split { root, .. }) => root.set_bool("mitsuamiVertical", o.vertical()),
+            // The core places the panes at it (`SetFrame`); kept as given.
+            (Prop::Number(n), Widget::Split { position, .. }) => *position = Some(*n),
+            (Prop::PaneMinimums([first, second]), Widget::Split { root, .. }) => {
+                root.set_real("mitsuamiMinimumFirst", f64::from(*first));
+                root.set_real("mitsuamiMinimumSecond", f64::from(*second));
+            }
             (Prop::Orientation(o), Widget::Slider(s)) => {
                 s.set_int("orientation", if o.vertical() { QT_VERTICAL } else { QT_HORIZONTAL });
                 node.orientation = Some(*o);

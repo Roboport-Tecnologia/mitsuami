@@ -6,13 +6,14 @@ use mitsuami_core::reactive::{IntoValue, Value};
 use mitsuami_core::{List, Opaque, Table, Tweak};
 use mitsuami_widgets::{
     Button, Checkbox, FileIcon, Group, Icon, Image, MenuButton, NumberInput, PasswordInput, Progress, RadioGroup,
-    ScrollView, SearchInput, Select, Separator, Slider, Spinner, Switch, Text, TextArea, TextInput, ToggleButton,
+    ScrollView, SearchInput, Select, Separator, Slider, Spinner, Split, Switch, Text, TextArea, TextInput,
+    ToggleButton,
 };
 use mitsuami_widgets::{DocumentTabs, Sidebar};
 use objc2::DowncastTarget;
 use objc2_app_kit::{
     NSBox, NSButton, NSImageView, NSPopUpButton, NSProgressIndicator, NSScrollView, NSSearchField, NSSecureTextField,
-    NSSlider, NSStackView, NSSwitch, NSTableView, NSTextField, NSTextView, NSView,
+    NSSlider, NSSplitView, NSStackView, NSSwitch, NSTableView, NSTextField, NSTextView, NSView,
 };
 
 /// A built-in widget, and the AppKit control that shows it.
@@ -60,6 +61,10 @@ impl Tweakable for Image {
 /// The box behind its children (the node's own view is a layout host).
 impl Tweakable for Group {
     type Native = NSBox;
+}
+
+impl Tweakable for Split {
+    type Native = NSSplitView;
 }
 
 /// The pull-down pop-up button.

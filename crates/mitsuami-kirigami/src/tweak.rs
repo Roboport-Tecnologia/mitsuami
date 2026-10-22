@@ -7,7 +7,8 @@ use mitsuami_core::{List, Opaque, Table, Tweak};
 use mitsuami_widgets::Sidebar;
 use mitsuami_widgets::{
     Button, Checkbox, FileIcon, Group, Icon, Image, MenuButton, NumberInput, PasswordInput, Progress, RadioGroup,
-    ScrollView, SearchInput, Select, Separator, Slider, Spinner, Switch, Text, TextArea, TextInput, ToggleButton,
+    ScrollView, SearchInput, Select, Separator, Slider, Spinner, Split, Switch, Text, TextArea, TextInput,
+    ToggleButton,
 };
 
 use crate::ffi::QmlObject;
@@ -27,6 +28,9 @@ impl Tweakable for MenuButton {}
 
 /// A `QQC2.GroupBox`, drawn behind the group's content.
 impl Tweakable for Group {}
+
+/// A `QQC2.SplitView`.
+impl Tweakable for Split {}
 
 /// A `QQC2.CheckBox`.
 impl Tweakable for Checkbox {}

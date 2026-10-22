@@ -2,7 +2,7 @@
 
 use crate::geometry::Size;
 use crate::style::{Align, Display, FlexDirection, GridPlacement, TextDirection, Track};
-use crate::units::{Length, ResolveContext};
+use crate::units::{Length, ResolveContext, Resolved};
 use crate::widget::{HorizontalAlign, LayoutDirection, NodeId, Prop, TextAlign, WidgetKind};
 
 use super::{Fit, Inner};
@@ -38,6 +38,8 @@ impl Inner {
             TextDirection::Ltr => false,
             TextDirection::Rtl => true,
         };
+        // A split's panes' least sizes, sent once the node is let go of.
+        let mut minimums = None;
         if let Some(t) = node.taffy {
             let cx = ResolveContext {
                 font_size,
@@ -58,6 +60,30 @@ impl Inner {
                     let mut own = node.style.clone();
                     own.grid_column = GridPlacement::at(1);
                     own.grid_row = GridPlacement::at(1);
+                    own.to_taffy(&cx, rtl)
+                }
+                // The first pane, the divider, then the second pane.
+                WidgetKind::Split => {
+                    let (tracks, least) = self.split_tracks(id, &cx);
+                    minimums = Some(least);
+                    let mut own = node.style.clone();
+                    own.display = Display::Grid;
+                    let vertical = crate::find_prop!(node.props, Orientation).is_some_and(|o| o.vertical());
+                    let (along, across) = match vertical {
+                        false => (&mut own.grid_template_columns, &mut own.grid_template_rows),
+                        true => (&mut own.grid_template_rows, &mut own.grid_template_columns),
+                    };
+                    *along = tracks;
+                    *across = vec![Track::Size(Length::Fr(1.0))];
+                    // A split can be another's pane.
+                    if let Some((index, vertical)) = self.pane(id) {
+                        place_pane(&mut own, index, vertical);
+                    }
+                    own.to_taffy(&cx, rtl)
+                }
+                _ if let Some((index, vertical)) = self.pane(id) => {
+                    let mut own = node.style.clone();
+                    place_pane(&mut own, index, vertical);
                     own.to_taffy(&cx, rtl)
                 }
                 _ => node.style.to_taffy(&cx, rtl),
@@ -133,6 +159,14 @@ impl Inner {
         if node.kind == WidgetKind::Text {
             self.resolve_text_align(id, rtl);
         }
+        if let Some(prop) = minimums
+            && self.nodes[&id].prop(&prop) != Some(&prop)
+        {
+            let node = self.nodes.get_mut(&id).unwrap();
+            node.props.retain(|p| p.key() != prop.key());
+            node.props.push(prop.clone());
+            self.queue_prop(id, prop);
+        }
         self.resolve_direction(id, rtl);
         let node = &self.nodes[&id];
         // Nodes without a layout box pass their parent's context through.
@@ -193,6 +227,64 @@ impl Inner {
             self.queue_prop(id, prop);
         }
     }
+}
+
+impl Inner {
+    /// Which pane of a `Split` a node is, and whether the split is
+    /// vertical.
+    fn pane(&self, id: NodeId) -> Option<(usize, bool)> {
+        let parent = self.nodes[&id].parent?;
+        let split = &self.nodes[&parent];
+        if split.kind != WidgetKind::Split {
+            return None;
+        }
+        let index = split.children.iter().position(|c| *c == id)?;
+        Some((index, crate::find_prop!(split.props, Orientation).is_some_and(|o| o.vertical())))
+    }
+
+    /// A `Split`'s tracks along it: its first pane at the app's or the
+    /// user's size (its content's, until there's one), kept within the
+    /// panes' least sizes and the split's last length; the divider; the
+    /// second pane with what's left. And the least sizes, which the
+    /// platform stops the divider at.
+    fn split_tracks(&self, id: NodeId, cx: &ResolveContext<'_>) -> (Vec<Track>, Prop) {
+        let node = &self.nodes[&id];
+        let vertical = crate::find_prop!(node.props, Orientation).is_some_and(|o| o.vertical());
+        let least = |pane: Option<&NodeId>| {
+            let style = &self.nodes[pane?].style;
+            match (if vertical { style.min_height } else { style.min_width }).resolve(cx) {
+                Resolved::Length(points) => Some(points),
+                _ => None,
+            }
+        };
+        let (first, second) = (least(node.children.first()).unwrap_or(0.0), least(node.children.get(1)).unwrap_or(0.0));
+        let divider = self.metrics.split_divider;
+        let length = if vertical { node.frame.height() } else { node.frame.width() };
+        let position = crate::find_prop!(node.props, Number).map(|p| {
+            let most = if length > 0.0 { (length - divider - second).max(first) } else { f32::INFINITY };
+            (p as f32).clamp(first, most)
+        });
+        let tracks = vec![
+            match position {
+                Some(points) => Track::Size(Length::Px(points)),
+                None => Track::MinMax(Length::Px(first), Length::Auto),
+            },
+            Track::Size(Length::Px(divider)),
+            Track::MinMax(Length::Px(second), Length::Fr(1.0)),
+        ];
+        (tracks, Prop::PaneMinimums([first, second]))
+    }
+}
+
+/// Puts a split's pane in its track: the first, or the third (past the
+/// divider).
+fn place_pane(style: &mut crate::style::Style, index: usize, vertical: bool) {
+    let (along, across) = match vertical {
+        false => (&mut style.grid_column, &mut style.grid_row),
+        true => (&mut style.grid_row, &mut style.grid_column),
+    };
+    *along = GridPlacement::at(if index == 0 { 1 } else { 3 });
+    *across = GridPlacement::at(1);
 }
 
 /// Makes a tab view at least as big as its tab strip (and border), or a

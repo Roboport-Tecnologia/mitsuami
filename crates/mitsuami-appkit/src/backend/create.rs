@@ -103,6 +103,7 @@ impl State {
                 Widget::Group { host, frame }
             }
             WidgetKind::Tabs => Widget::Tabs(Tabs::new(mtm, id, self.events.clone())),
+            WidgetKind::Split => Widget::SplitView(crate::split_view::SplitView::new(mtm, id, self.events.clone())),
             WidgetKind::DocumentTabs => {
                 Widget::DocumentTabs(crate::document_tabs::DocumentTabs::new(mtm, id, self.events.clone()))
             }

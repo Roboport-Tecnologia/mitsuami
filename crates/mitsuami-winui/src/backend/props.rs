@@ -395,6 +395,9 @@ impl State {
             // One way to show tabs: the app's choice is kept, not shown.
             (Prop::TabsStyle(style), Widget::Tabs(_)) => node.tabs_style = Some(*style),
             (Prop::Title(title), Widget::Group(group)) => group.set_title(title)?,
+            (Prop::Orientation(o), Widget::Split(split)) => split.set_vertical(o.vertical())?,
+            (Prop::Number(position), Widget::Split(split)) => split.set_position(*position),
+            (Prop::PaneMinimums(minimums), Widget::Split(split)) => split.set_minimums(*minimums),
             (Prop::TabTitles(titles), Widget::DocumentTabs(tabs)) => tabs.set_titles(titles)?,
             (Prop::SelectedIndex(index), Widget::DocumentTabs(tabs)) => tabs.set_selected(*index)?,
             (Prop::TabsClosable(closable), Widget::DocumentTabs(tabs)) => tabs.set_closable(*closable)?,
@@ -622,7 +625,10 @@ impl State {
             (Prop::LayoutDirection(direction), widget) => {
                 node.direction = Some(*direction);
                 let holds_ours = node.element.cast::<w::Canvas>().is_ok()
-                    || matches!(widget, Widget::Scroll(_) | Widget::List(_) | Widget::Tabs(_) | Widget::Group(_));
+                    || matches!(
+                        widget,
+                        Widget::Scroll(_) | Widget::List(_) | Widget::Tabs(_) | Widget::Group(_) | Widget::Split(_)
+                    );
                 let flow = match direction {
                     LayoutDirection::RightToLeft if !holds_ours => w::FlowDirection::RightToLeft,
                     _ => w::FlowDirection::LeftToRight,

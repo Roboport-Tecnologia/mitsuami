@@ -154,6 +154,10 @@ name = "group"
 harness = false
 
 [[test]]
+name = "split"
+harness = false
+
+[[test]]
 name = "file_drop"
 harness = false
 

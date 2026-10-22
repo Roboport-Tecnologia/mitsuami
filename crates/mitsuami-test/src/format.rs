@@ -96,6 +96,9 @@ fn describe_props(props: &[Prop]) -> String {
             Prop::ScrollAxes(a) => extra.push(format!("scroll={a:?}")),
             Prop::ScrollBars(b) => extra.push(format!("scroll_bars={b}")),
             Prop::Orientation(o) => extra.push(format!("orientation={o:?}")),
+            Prop::PaneMinimums([first, second]) => {
+                extra.push(format!("pane_minimums={},{}", Num(*first), Num(*second)))
+            }
             Prop::Image(ImageSource::File(path)) => extra.push(format!("file={:?}", path.display().to_string())),
             Prop::Image(ImageSource::Pixels(p)) => extra.push(format!("{p:?}")),
             Prop::ImageFit(fit) => extra.push(format!("fit={fit:?}")),
@@ -436,7 +439,8 @@ pub(crate) fn wireframe(root: &NodeInfo) -> String {
             | WidgetKind::Sidebar
             | WidgetKind::Tabs
             | WidgetKind::DocumentTabs
-            | WidgetKind::Group => "#5f7fa0",
+            | WidgetKind::Group
+            | WidgetKind::Split => "#5f7fa0",
             WidgetKind::Text => "#3f7f5f",
             WidgetKind::Button | WidgetKind::ToggleButton | WidgetKind::MenuButton => "#2f6fdf",
             WidgetKind::TextInput => "#a0602a",

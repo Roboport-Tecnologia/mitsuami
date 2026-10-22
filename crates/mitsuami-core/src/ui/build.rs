@@ -138,8 +138,11 @@ impl Ui {
             {
                 let _ = inner.taffy.mark_dirty(t);
             }
-            // A line limit changes a text's minimum width (`resolve_node`).
-            if matches!(prop, Prop::TextStyle(_) | Prop::MaxLines(_)) {
+            // A line limit changes a text's minimum width (`resolve_node`);
+            // a split's position and orientation, its tracks.
+            if matches!(prop, Prop::TextStyle(_) | Prop::MaxLines(_))
+                || (node.kind == WidgetKind::Split && matches!(prop, Prop::Number(_) | Prop::Orientation(_)))
+            {
                 inner.styles_dirty = true;
             }
             // New titles, icons or another style may make the tab strip wider

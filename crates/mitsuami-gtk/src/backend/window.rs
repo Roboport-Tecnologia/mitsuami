@@ -317,7 +317,12 @@ impl State {
                     return (parts.split.is_none() && top.abs() < 0.5 && own.height() > 0.0).then_some(p);
                 }
                 // Its own place, or its window's toolbar.
-                Widget::Scroll { .. } | Widget::List(_) | Widget::Tabs(_) | Widget::Sidebar(_) | Widget::Group(_) => {
+                Widget::Scroll { .. }
+                | Widget::List(_)
+                | Widget::Tabs(_)
+                | Widget::Sidebar(_)
+                | Widget::Group(_)
+                | Widget::Split(_) => {
                     return None;
                 }
                 _ if above.kind == WidgetKind::ToolbarItem => return None,

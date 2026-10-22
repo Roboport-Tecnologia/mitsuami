@@ -268,6 +268,17 @@ impl WinUiBackend {
                 props.push(Prop::SidebarShown(sidebar.is_shown()));
             }
             Widget::Group(group) => props.push(Prop::Title(group.title())),
+            // Where the line is shows in the panes' frames; the position
+            // and least lengths are kept as given.
+            Widget::Split(split) => {
+                props.push(Prop::Orientation(if split.vertical() {
+                    Orientation::Vertical
+                } else {
+                    Orientation::Horizontal
+                }));
+                props.extend(split.position().map(Prop::Number));
+                props.push(Prop::PaneMinimums(split.minimums()));
+            }
             Widget::Tabs(tabs) => {
                 props.push(Prop::TabTitles(tabs.titles()));
                 props.push(Prop::TabIcons(tabs.icons()));
@@ -398,6 +409,8 @@ impl WinUiBackend {
             Widget::Tabs(tabs) => (panel_children(&tabs.canvas, &known), None),
             // Its content; the heading and card aren't nodes.
             Widget::Group(group) => (panel_children(&group.canvas, &known), None),
+            // Its panes; the line and grip aren't nodes.
+            Widget::Split(split) => (panel_children(&split.canvas, &known), None),
             _ => (Vec::new(), None),
         };
         // Composite controls give focus to a part (a list's row container,

@@ -112,6 +112,18 @@ impl GtkBackend {
                     _ => Err(ActionError::Unsupported),
                 };
             }
+            // The divider, as a drag moves it: the paned reports it.
+            if let Widget::Split(split) = &node.widget {
+                return match action {
+                    A11yAction::SetValue(text) => {
+                        let position: f64 = text.trim().parse().map_err(|_| ActionError::Unsupported)?;
+                        split.move_divider(position);
+                        Ok(())
+                    }
+                    A11yAction::ScrollIntoView => Ok(()),
+                    _ => Err(ActionError::Unsupported),
+                };
+            }
             // A tab, as the user clicks it: the view reports it.
             if let Widget::Tabs(tabs) = &node.widget {
                 return match action {
