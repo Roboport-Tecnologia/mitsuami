@@ -8,7 +8,7 @@ use std::time::Duration;
 use gtk::prelude::*;
 use gtk::{gdk, glib};
 use mitsuami_core::a11y::ActionError;
-use mitsuami_core::{NodeId, Prop, Size, UiEvent};
+use mitsuami_core::{NodeId, Prop, Size, UiEvent, WidgetKind};
 
 use crate::host::{Host, WindowRoot};
 
@@ -191,6 +191,10 @@ pub(super) fn pack_items(parts: &WindowParts) {
 /// with it, so the content keeps the size the core asked for.
 pub(super) fn keep_content_size(parts: &mut WindowParts) {
     let height = parts.header.measure(gtk::Orientation::Vertical, -1).1;
+    // Under a header, the content runs up under the header bar alone.
+    if parts.top_bars.is_some() {
+        parts.host.set_margin_top(height);
+    }
     if height == parts.header_height {
         return;
     }
@@ -252,6 +256,104 @@ impl State {
                 }
             }
         }
+    }
+
+    /// Puts each header at the top of a window's content under that
+    /// window's header bar, and takes out those that left it (see
+    /// `crate::header`). One a window, the first made; beside a sidebar a
+    /// header stays where it is, as on AppKit.
+    pub(super) fn place_headers(&mut self) {
+        let mut headers: Vec<NodeId> =
+            self.nodes.iter().filter(|(_, n)| n.header.is_some()).map(|(id, _)| *id).collect();
+        headers.sort();
+        let mut taken = Vec::new();
+        let mut moves = Vec::new();
+        for id in headers {
+            let want = self.header_window(id).filter(|w| !taken.contains(w));
+            taken.extend(want);
+            let had = self.nodes[&id].header.as_ref().unwrap().window.get();
+            if had != want {
+                moves.push((id, had, want));
+            }
+        }
+        // Out first, so a window's top bars are free for the next.
+        for (id, had, _) in &moves {
+            if let Some(window) = had {
+                self.restore_window(*window);
+            }
+            let node = &self.nodes[id];
+            let Widget::Host(placeholder) = &node.widget else { unreachable!("headers are hosts") };
+            node.header.as_ref().unwrap().detach(Some(placeholder));
+        }
+        for (id, _, want) in moves {
+            let Some(window) = want else { continue };
+            let header = self.nodes.get_mut(&id).unwrap().header.take().unwrap();
+            if let Some(Widget::Window(parts)) = self.nodes.get_mut(&window).map(|n| &mut n.widget) {
+                // The content keeps its size: the header bar is as high as
+                // it was, or the window follows it (`keep_content_size`).
+                parts.top_bars = Some(header.attach(window, &parts.window, &parts.header, &parts.host));
+                keep_content_size(parts);
+            }
+            self.nodes.get_mut(&id).unwrap().header = Some(header);
+        }
+    }
+
+    /// The window whose top bars a header goes in: the one it's at the top
+    /// of the content of, by the core's frames, if that window has no
+    /// sidebar.
+    fn header_window(&self, id: NodeId) -> Option<NodeId> {
+        let node = self.nodes.get(&id)?;
+        if !node.header.as_ref()?.on.get() {
+            return None;
+        }
+        let frame = |widget: &Widget| self.frames.borrow().get(widget.widget()).copied().unwrap_or_default();
+        let own = frame(&node.widget);
+        let mut top = own.y();
+        let mut parent = node.parent;
+        while let Some(p) = parent {
+            let above = self.nodes.get(&p)?;
+            match &above.widget {
+                Widget::Window(parts) => {
+                    return (parts.split.is_none() && top.abs() < 0.5 && own.height() > 0.0).then_some(p);
+                }
+                // Its own place, or its window's toolbar.
+                Widget::Scroll { .. } | Widget::List(_) | Widget::Tabs(_) | Widget::Sidebar(_) | Widget::Group(_) => {
+                    return None;
+                }
+                _ if above.kind == WidgetKind::ToolbarItem => return None,
+                widget => {
+                    top += frame(widget).y();
+                    parent = above.parent;
+                }
+            }
+        }
+        None
+    }
+
+    /// Takes the header under `window`'s header bar, if there's one, back
+    /// to its place in the content.
+    pub(super) fn detach_header_of(&mut self, window: NodeId) {
+        let Some(id) = self
+            .nodes
+            .iter()
+            .find(|(_, n)| n.header.as_ref().is_some_and(|h| h.window.get() == Some(window)))
+            .map(|(id, _)| *id)
+        else {
+            return;
+        };
+        self.restore_window(window);
+        let node = &self.nodes[&id];
+        let Widget::Host(placeholder) = &node.widget else { unreachable!("headers are hosts") };
+        node.header.as_ref().unwrap().detach(Some(placeholder));
+    }
+
+    /// Gives a window its header bar and content back, from the toolbar
+    /// view a header made it.
+    pub(super) fn restore_window(&mut self, window: NodeId) {
+        let Some(Widget::Window(parts)) = self.nodes.get_mut(&window).map(|n| &mut n.widget) else { return };
+        let Some(view) = parts.top_bars.take() else { return };
+        crate::header::restore_window(&view, &parts.window, &parts.header, &parts.host);
+        keep_content_size(parts);
     }
 
     pub(super) fn create_window(
@@ -370,6 +472,7 @@ impl State {
             height_locked: false,
             min_size,
             split: None,
+            top_bars: None,
         };
         self.menus.show_in(id, &parts);
         parts

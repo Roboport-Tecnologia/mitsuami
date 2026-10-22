@@ -94,6 +94,9 @@ pub(crate) struct WindowParts {
     min_size: MinSize,
     /// The window's content beside its sidebar, while it has one.
     split: Option<Split>,
+    /// The toolbar view the window is while a header is under its header
+    /// bar (`crate::header`).
+    top_bars: Option<adw::ToolbarView>,
 }
 
 enum Widget {
@@ -320,9 +323,9 @@ struct Node {
     /// The gesture that reports double clicks, and what it reports, once
     /// the core asked for it.
     double_click: Option<(gtk::GestureClick, std::rc::Rc<dyn Fn()>)>,
-    /// Hosts: whether the app made it its window's header, and its edge,
-    /// which this platform leaves at the content's top, with no edge.
-    header: Option<bool>,
+    /// Hosts: the window's header, once the app said whether it is one,
+    /// and its edge, which GTK has no choice of.
+    header: Option<crate::header::Header>,
     header_edge: Option<mitsuami_core::HeaderEdge>,
     /// Hosts: what they take when files are dropped on them, once the app
     /// said (`None` inside: nothing).
@@ -359,6 +362,8 @@ pub(crate) struct State {
     /// How many document tabs there are, so a batch needn't look for
     /// ones in the title's row.
     document_tabs: usize,
+    /// How many headers there are, so a batch needn't look for them.
+    headers: usize,
     /// File icons being read, which tests' settles wait for.
     loads: file_icon::Loads,
 }
@@ -460,6 +465,7 @@ impl GtkBackend {
             menus: Menus::default(),
             lists_dirty: Cell::new(false),
             document_tabs: 0,
+            headers: 0,
             lists: 0,
             loads: file_icon::Loads::default(),
         }));
@@ -502,6 +508,9 @@ impl Backend for GtkBackend {
             }
             if state.document_tabs > 0 {
                 state.place_title_row_tabs();
+            }
+            if state.headers > 0 {
+                state.place_headers();
             }
         });
         text::flush_icon_colors();

@@ -611,7 +611,16 @@ impl State {
                 }
                 *last = opaque.clone();
             }
-            (Prop::Header(on), Widget::Host(_)) => node.header = Some(*on),
+            // Placed after the batch, once laid out (`place_headers`).
+            (Prop::Header(on), Widget::Host(host)) => match &node.header {
+                Some(header) => header.on.set(*on),
+                None => {
+                    let header = crate::header::Header::new(self.frames.clone(), host);
+                    header.on.set(*on);
+                    node.header = Some(header);
+                    self.headers += 1;
+                }
+            },
             (Prop::HeaderEdge(edge), Widget::Host(_)) => node.header_edge = Some(*edge),
             _ => {}
         }

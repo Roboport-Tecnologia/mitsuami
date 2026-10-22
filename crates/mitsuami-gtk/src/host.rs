@@ -218,6 +218,10 @@ impl Host {
         host
     }
 
+    pub(crate) fn frames(&self) -> &Frames {
+        self.imp().frames.get().expect("hosts are built with frames")
+    }
+
     pub(crate) fn window_root(&self) -> Option<&WindowRoot> {
         self.imp().root.get()
     }

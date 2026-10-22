@@ -81,6 +81,9 @@ impl State {
                     violation(command, "child is still attached");
                 }
                 if self.nodes[child].kind == WidgetKind::Sidebar {
+                    // Its header goes back in the content first: beside a
+                    // sidebar, it stays there (`place_headers`).
+                    self.detach_header_of(*parent);
                     let sidebar = match self.nodes.remove(child) {
                         Some(node) => node,
                         None => violation(command, "node does not exist"),
@@ -159,7 +162,11 @@ impl State {
                         } else {
                             0
                         };
-                        let parent_widget = self.widget(*parent, command);
+                        // A header's children are in its own host.
+                        let parent_widget = match &self.nodes[parent].header {
+                            Some(header) => header.content.clone().upcast(),
+                            None => self.widget(*parent, command),
+                        };
                         // Appended without a walk: the core inserts most
                         // children at the end, and the walk is as long as
                         // the children before.
@@ -271,6 +278,14 @@ impl State {
                 if let Widget::Group(group) = &node.widget {
                     group.forget();
                 }
+                if let Some(header) = &node.header {
+                    self.headers -= 1;
+                    header.forget();
+                    if let Some(window) = header.window.get() {
+                        self.restore_window(window);
+                    }
+                    header.detach(None);
+                }
                 // What it was reading isn't shown.
                 if let Widget::FileIcon { loading: Some(loading), .. } = &node.widget {
                     loading.cancel();
@@ -316,6 +331,9 @@ impl State {
                 self.update_child_visible(*id);
                 if let Widget::Group(group) = &self.nodes[id].widget {
                     group.place();
+                }
+                if let (Some(header), Widget::Host(host)) = (&self.nodes[id].header, &self.nodes[id].widget) {
+                    header.place(host);
                 }
                 if let Widget::Slider { scale, steps } = &self.nodes[id].widget {
                     let vertical = scale.orientation() == gtk::Orientation::Vertical;

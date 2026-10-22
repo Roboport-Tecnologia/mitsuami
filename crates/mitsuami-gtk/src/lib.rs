@@ -28,6 +28,8 @@ mod file_drop;
 #[cfg(target_os = "linux")]
 mod group;
 #[cfg(target_os = "linux")]
+mod header;
+#[cfg(target_os = "linux")]
 mod host;
 #[cfg(target_os = "linux")]
 mod keys;

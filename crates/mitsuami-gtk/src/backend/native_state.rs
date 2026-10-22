@@ -268,7 +268,7 @@ impl GtkBackend {
         props.push(Prop::Tooltip(text(node.widget.focus_widget().tooltip_text())));
         props.extend(node.context_menu.as_ref().map(|m| Prop::ContextMenu(m.entries(&node.widget.focus_widget()))));
         props.extend(node.hover.as_ref().map(|motion| Prop::Hover(motion.widget().as_ref() == Some(widget))));
-        props.extend(node.header.map(Prop::Header));
+        props.extend(node.header.as_ref().map(|h| Prop::Header(h.on.get())));
         props.extend(node.header_edge.map(Prop::HeaderEdge));
         props.extend(
             node.double_click.as_ref().map(|(click, _)| Prop::DoubleClick(click.widget().as_ref() == Some(widget))),
@@ -338,6 +338,8 @@ impl GtkBackend {
             Widget::DocumentTabs(_) => (Vec::new(), None),
             _ => {
                 let mut children = Vec::new();
+                // A header's are in its own host, wherever that is.
+                let widget = node.header.as_ref().map_or(widget.clone(), |h| h.content.clone().upcast());
                 let mut next = widget.first_child();
                 while let Some(child) = next {
                     children.extend(by_widget.get(&child).copied());

@@ -109,4 +109,51 @@ async fn on_appkit_it_is_in_the_title_bar(app: TestApp) {
     }
 }
 
+/// On GTK the header's controls are in the window's top bars, under the
+/// header bar, in a toolbar view whose content is the rest; turned off, the
+/// header is back in the content and the window has its own title bar again.
+#[mitsuami_test::test]
+async fn on_gtk_it_is_under_the_header_bar(app: TestApp) {
+    #[cfg(not(all(target_os = "linux", not(feature = "kde"))))]
+    let _ = app;
+    #[cfg(all(target_os = "linux", not(feature = "kde")))]
+    if app.backend_name() == "gtk" {
+        use mitsuami::gtk::gtk;
+        use mitsuami::gtk::gtk::glib;
+        use mitsuami::gtk::gtk::prelude::*;
+        use std::cell::RefCell;
+        use std::rc::Rc;
+
+        let seen: Rc<RefCell<Option<gtk::Button>>> = Rc::default();
+        let on = signal(true);
+        let mounted = seen.clone();
+        app.mount(move || {
+            let seen = mounted.clone();
+            let tweak = mitsuami::gtk::tweak(move |button: &gtk::Button| *seen.borrow_mut() = Some(button.clone()));
+            Column::new().grow(1.0).min_height(0.0).children((
+                Row::new().header(on).padding(12.0).child(Button::new("Add").native(tweak)),
+                ScrollView::new()
+                    .child(Column::new().children((0..60).map(|i| Text::new(format!("Disc {i}"))).collect::<Vec<_>>()))
+                    .grow(1.0)
+                    .min_height(0.0)
+                    .test_id("discs"),
+            ))
+        });
+        app.settle().await;
+
+        let toolbar_view = glib::Type::from_name("AdwToolbarView").expect("libadwaita");
+        let button = seen.borrow().clone().expect("tweaked");
+        let view = button.ancestor(toolbar_view).expect("the header is in a toolbar view");
+        let content: gtk::Widget = view.property("content");
+        assert!(!button.is_ancestor(&content), "the header is in the top bars");
+        let discs = app.get_by_test_id("discs").frame();
+        app.get_by_role(Role::Button, "Add").click().await;
+
+        on.set(false);
+        app.settle().await;
+        assert!(button.ancestor(toolbar_view).is_none(), "the header is back in the content");
+        assert_eq!(app.get_by_test_id("discs").frame(), discs, "what's under it stays where it was");
+    }
+}
+
 mitsuami_test::main!();
