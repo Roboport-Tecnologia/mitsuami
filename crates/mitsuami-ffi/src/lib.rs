@@ -30,7 +30,8 @@ use mitsuami::core::{
     A11yAction, A11yProps, Align, ButtonRole, ButtonStyle, Canvas, Color, Custom, CustomWidget, DocumentTabsStyle,
     Drawn, EventValue, FileDrop, FlexDirection, HeaderEdge, Justify, Length, List, ListStyle, MeasureRequest, Modality,
     NodeId, PathStep, PlatformMetrics, Point, PointerKind, Prop, Rect, Render, Renderer, Role, RowDrop, RowMoves,
-    SelectionMode, Shape, Size, Spacing, TextStyle, Ui, UiEvent, VectorIcon, View, WidgetKind, WindowSize,
+    SelectionMode, Shape, Size, Sort, SortOrder, Spacing, Table, TableColumn, TextStyle, Ui, UiEvent, VectorIcon, View,
+    WidgetKind, WindowSize,
 };
 use mitsuami::reactive::{Owner, Signal, on_cleanup, signal, watch};
 
@@ -1251,8 +1252,13 @@ struct ListState {
     /// The selection as the caller last set it, so setting it isn't
     /// reported back as the user's.
     set: Rc<RefCell<Vec<String>>>,
+    sort: Option<TableSort>,
     owner: Owner,
 }
+
+/// A table's sort, by column index, and as the caller last set it, so
+/// setting it isn't reported back as the user's.
+type TableSort = (Signal<Sort<usize>>, Rc<Cell<Sort<usize>>>);
 
 fn list<T>(id: u32, f: impl FnOnce(&ListState) -> T) -> Result<T, String> {
     LISTS.with(|l| l.borrow().get(&id).map(f)).ok_or_else(|| format!("node {id} isn't a list"))
@@ -1354,7 +1360,7 @@ pub extern "C" fn mitsuami_create_list(callbacks: MitsuamiListCallbacks) -> u32 
             (keys, selected, list.build(&ui))
         });
         id.set(list.raw());
-        LISTS.with(|l| l.borrow_mut().insert(list.raw(), ListState { keys, selected, set, owner }));
+        LISTS.with(|l| l.borrow_mut().insert(list.raw(), ListState { keys, selected, set, sort: None, owner }));
         Ok(list.raw())
     })
     .unwrap_or(0)
@@ -1413,6 +1419,154 @@ pub unsafe extern "C" fn mitsuami_list_selected_key(id: u32, index: usize, ptr: 
         })
     })
     .unwrap_or(0)
+}
+
+// Tables.
+
+/// A column of a table.
+#[repr(C)]
+#[derive(Clone, Copy)]
+pub struct MitsuamiTableColumn {
+    pub title: MitsuamiStr,
+    /// How wide it starts, in points; 0 or less, the platform's default.
+    pub width: f32,
+    /// It takes the room left past the other columns' widths.
+    pub expand: bool,
+    /// Pressing its header sorts the table by it.
+    pub sortable: bool,
+}
+
+/// What a table asks of its caller. The table's id comes with each call.
+#[repr(C)]
+#[derive(Clone, Copy)]
+pub struct MitsuamiTableCallbacks {
+    /// Builds a row's cell in a column (its index) when the platform shows
+    /// the row: a node in no tree yet (0 for an empty cell).
+    pub build_cell: extern "C" fn(*mut c_void, u32, *const u8, usize, usize) -> u32,
+    /// The platform let a cell go: its node is destroyed.
+    pub release_cell: extern "C" fn(*mut c_void, u32, u32),
+    /// The user changed the selection; `mitsuami_list_selected_key` has it.
+    pub selection_changed: extern "C" fn(*mut c_void, u32),
+    /// The user activated a row (double-click, Return): its key.
+    pub activated: extern "C" fn(*mut c_void, u32, *const u8, usize),
+    /// The user pressed a sortable header: the column, and true if
+    /// descending. The caller sorts its rows.
+    pub sorted: extern "C" fn(*mut c_void, u32, usize, bool),
+    pub user: *mut c_void,
+    /// As a list's.
+    pub still: u32,
+}
+
+/// Makes a table: the platform's own table control, rows of cells under
+/// these column headers, which builds cells (with `build_cell`) only for
+/// the rows it shows. Its rows, selection and selection mode are set as a
+/// list's, with the `mitsuami_list_*` functions. With sortable columns, it
+/// starts sorted by the first, ascending (`mitsuami_table_set_sort`).
+///
+/// # Safety
+/// `columns` points to `count` columns, their titles as [`string`] says.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn mitsuami_create_table(
+    callbacks: MitsuamiTableCallbacks,
+    columns: *const MitsuamiTableColumn,
+    count: usize,
+) -> u32 {
+    guard(|| {
+        let ui = ui()?;
+        let columns = match count {
+            0 => &[][..],
+            _ => unsafe { std::slice::from_raw_parts(columns, count) },
+        };
+        let titles: Vec<String> =
+            columns.iter().map(|c| unsafe { string(c.title.ptr, c.title.len) }).collect::<Result<_, _>>()?;
+        let cb = Rc::new(callbacks);
+        let id = Rc::new(Cell::new(0));
+        let owner = Owner::new_root();
+        let set = Rc::new(RefCell::new(Vec::new()));
+        let (keys, selected, sort, table) = owner.with(|| {
+            let (keys, selected) = (signal(Vec::<String>::new()), signal(Vec::<String>::new()));
+            let first_sortable = columns.iter().position(|c| c.sortable);
+            let sort = first_sortable.map(|first| {
+                let sort = Sort::ascending(first);
+                (signal(sort), Rc::new(Cell::new(sort)))
+            });
+            let mut table = Table::new(keys, |key: &String| key.clone());
+            for (index, (column, title)) in columns.iter().zip(titles).enumerate() {
+                let (cell_cb, cell_id) = (cb.clone(), id.clone());
+                let mut data = TableColumn::new(title, move |key: String| {
+                    let (cb, table) = (cell_cb.clone(), cell_id.get());
+                    let cell = (cb.build_cell)(cb.user, table, key.as_ptr(), key.len(), index);
+                    if cell != 0 {
+                        on_cleanup(move || (cb.release_cell)(cb.user, table, cell));
+                    }
+                    Adopt(cell)
+                });
+                if column.width > 0.0 {
+                    data = data.width(column.width);
+                }
+                if column.expand {
+                    data = data.expand();
+                }
+                if column.sortable {
+                    data = data.sort_key(index);
+                }
+                table = table.column(data);
+            }
+            let (activate_cb, activate_id) = (cb.clone(), id.clone());
+            table = table.selected(selected).on_activate(move |key: String| {
+                (activate_cb.activated)(activate_cb.user, activate_id.get(), key.as_ptr(), key.len())
+            });
+            if let Some((sort, last)) = sort.clone() {
+                table = table.sort(sort);
+                let (sorted_cb, sorted_id) = (cb.clone(), id.clone());
+                watch(
+                    move || sort.get(),
+                    move |now, _| {
+                        if *now != last.get() {
+                            last.set(*now);
+                            let descending = now.order == SortOrder::Descending;
+                            (sorted_cb.sorted)(sorted_cb.user, sorted_id.get(), now.by, descending);
+                        }
+                    },
+                );
+            }
+            if cb.still != 0 {
+                table = table.native(mitsuami::platform! {
+                    windows => mitsuami::winui::without_item_animations(),
+                    _ => mitsuami::core::Tweak::none(),
+                });
+            }
+            let (changed_cb, changed_id, set) = (cb.clone(), id.clone(), set.clone());
+            watch(
+                move || selected.get(),
+                move |now, _| {
+                    if *now != *set.borrow() {
+                        (changed_cb.selection_changed)(changed_cb.user, changed_id.get());
+                    }
+                },
+            );
+            (keys, selected, sort, table.build(&ui))
+        });
+        id.set(table.raw());
+        LISTS.with(|l| l.borrow_mut().insert(table.raw(), ListState { keys, selected, set, sort, owner }));
+        Ok(table.raw())
+    })
+    .unwrap_or(0)
+}
+
+/// Shows the table sorted by a sortable column, descending if
+/// `descending`; not reported back as the user's.
+#[unsafe(no_mangle)]
+pub extern "C" fn mitsuami_table_set_sort(id: u32, column: usize, descending: bool) -> bool {
+    guard(|| {
+        let (sort, last) = list(id, |l| l.sort.clone())?.ok_or_else(|| format!("table {id} has no sortable column"))?;
+        let order = if descending { SortOrder::Descending } else { SortOrder::Ascending };
+        let now = Sort { by: column, order };
+        last.set(now);
+        sort.set(now);
+        Ok(())
+    })
+    .is_some()
 }
 
 // Drawn widgets.

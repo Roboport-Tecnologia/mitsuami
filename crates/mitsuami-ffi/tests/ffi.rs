@@ -682,4 +682,73 @@ async fn containers_report_clicks_when_asked(app: TestApp) {
     assert_eq!(heard(), ["click"]);
 }
 
+extern "C" fn build_cell(_user: *mut c_void, _table: u32, key: *const u8, len: usize, column: usize) -> u32 {
+    let key = std::str::from_utf8(unsafe { std::slice::from_raw_parts(key, len) }).unwrap();
+    let text = create(MitsuamiKind::Text);
+    let shown = if column == 0 { format!("Commit {key}") } else { format!("{key}@example.com") };
+    set_text(text, MitsuamiTextProp::Text, &shown);
+    text
+}
+
+extern "C" fn sorted(_user: *mut c_void, _table: u32, column: usize, descending: bool) {
+    let order = if descending { "descending" } else { "ascending" };
+    HEARD.with(|h| h.borrow_mut().push(format!("sorted {column} {order}")));
+}
+
+#[mitsuami_test::test]
+async fn tables_ask_for_cells_and_report_the_sort(app: TestApp) {
+    attach(app.ui());
+    heard();
+    let column = |title: &'static str, width: f32, expand: bool| MitsuamiTableColumn {
+        title: str(title),
+        width,
+        expand,
+        sortable: true,
+    };
+    let columns = [column("Subject", 0.0, true), column("Author", 120.0, false)];
+    let callbacks = MitsuamiTableCallbacks {
+        build_cell,
+        release_cell: release_row,
+        selection_changed,
+        activated,
+        sorted,
+        user: std::ptr::null_mut(),
+        still: 1,
+    };
+    let table = unsafe { mitsuami_create_table(callbacks, columns.as_ptr(), columns.len()) };
+    assert_ne!(table, 0);
+    assert!(mitsuami_set_size(table, px(400.0), px(200.0)));
+    assert!(mitsuami_set_enum(table, MitsuamiEnumProp::SelectionMode as u32, 2));
+    let keys = strs(&["a", "b", "c"]);
+    assert!(unsafe { mitsuami_list_set_keys(table, keys.as_ptr(), keys.len()) });
+    app.mount(|| Adopt(table));
+    app.expect(by_role(Role::Row, "Commit c c@example.com")).to_be_visible().await;
+
+    // A row's cells side by side, in column order.
+    let (subject, author) =
+        (app.get_by_role(Role::Cell, "Commit b").frame(), app.get_by_role(Role::Cell, "b@example.com").frame());
+    assert!(subject.max_x() <= author.x(), "{subject:?} {author:?}");
+
+    app.get_by_role(Role::Cell, "Commit b").select().await;
+    app.get_by_role(Role::Cell, "Commit c").click().await;
+    let heard_now = heard();
+    assert!(heard_now.contains(&"selected b".to_string()), "{heard_now:?}");
+    assert!(heard_now.contains(&"activated c".to_string()), "{heard_now:?}");
+
+    // The caller's sort isn't reported back; the user's is, as the
+    // platform sorts (another column ascending, the same one reversed).
+    assert!(mitsuami_table_set_sort(table, 1, true));
+    app.settle().await;
+    assert_eq!(heard(), Vec::<String>::new());
+    app.get_by_role(Role::ColumnHeader, "Subject").click().await;
+    app.get_by_role(Role::ColumnHeader, "Subject").click().await;
+    assert_eq!(heard(), ["sorted 0 ascending", "sorted 0 descending"]);
+
+    // Rows that go let their cells go.
+    let keys = strs(&["a"]);
+    assert!(unsafe { mitsuami_list_set_keys(table, keys.as_ptr(), keys.len()) });
+    app.expect(by_role(Role::Row, "Commit c c@example.com")).not_to_exist().await;
+    assert!(heard().contains(&"released".to_string()));
+}
+
 mitsuami_test::main!();
