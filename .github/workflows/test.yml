@@ -29,6 +29,16 @@ jobs:
       - name: Install the toolchain from rust-toolchain.toml
         run: rustup toolchain install
 
+      # Everything stays formatted, so `cargo fmt` only touches what a
+      # change touched. Once, on Linux: formatting doesn't depend on the OS.
+      - name: Check formatting
+        if: runner.os == 'Linux'
+        run: |
+          cargo fmt --all --check
+          for crate in examples/gpu-surface examples/showcase crates/mitsuami-winui/bindgen; do
+            (cd "$crate" && cargo fmt --all --check)
+          done
+
       # The one action from outside GitHub, pinned to its commit (v2.9.2):
       # a tag can be moved to other code, which would run with the job.
       - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6
@@ -137,6 +147,16 @@ jobs:
 
       - name: Install the toolchain from rust-toolchain.toml
         run: rustup toolchain install
+
+      # Everything stays formatted, so `cargo fmt` only touches what a
+      # change touched. Once, on Linux: formatting doesn't depend on the OS.
+      - name: Check formatting
+        if: runner.os == 'Linux'
+        run: |
+          cargo fmt --all --check
+          for crate in examples/gpu-surface examples/showcase crates/mitsuami-winui/bindgen; do
+            (cd "$crate" && cargo fmt --all --check)
+          done
 
       - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6  # v2.9.2, pinned as above
 

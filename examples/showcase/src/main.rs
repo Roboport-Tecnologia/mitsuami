@@ -73,9 +73,6 @@ mod launch;
 #[path = "../../../crates/mitsuami/examples/list.rs"]
 mod list;
 #[allow(dead_code, unused_attributes)]
-#[path = "../../../crates/mitsuami/examples/row_moves.rs"]
-mod row_moves;
-#[allow(dead_code, unused_attributes)]
 #[path = "../../../crates/mitsuami/examples/measurements.rs"]
 mod measurements;
 #[allow(dead_code, unused_attributes)]
@@ -96,6 +93,9 @@ mod progress;
 #[allow(dead_code, unused_attributes)]
 #[path = "../../../crates/mitsuami/examples/radio_group.rs"]
 mod radio_group;
+#[allow(dead_code, unused_attributes)]
+#[path = "../../../crates/mitsuami/examples/row_moves.rs"]
+mod row_moves;
 #[allow(dead_code, unused_attributes)]
 #[path = "../../../crates/mitsuami/examples/scroll_view.rs"]
 mod scroll_view;

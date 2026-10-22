@@ -307,7 +307,12 @@ mod checks {
             pump(&f.ui);
             let ns_window = f.handle.ns_window(window).unwrap();
             let panel = sheet_of(&ns_window).downcast::<NSSavePanel>().expect("an open panel");
-            assert_eq!(panel.canCreateDirectories(), folders, "New Folder on a {} panel", if folders { "folder" } else { "file" });
+            assert_eq!(
+                panel.canCreateDirectories(),
+                folders,
+                "New Folder on a {} panel",
+                if folders { "folder" } else { "file" }
+            );
             unsafe { panel.cancel(None) };
             pump(&f.ui);
         }

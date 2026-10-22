@@ -170,6 +170,11 @@ crates.io, tag `vX.Y.Z+ghfixN`: it rebuilds them without publishing.
 
 ## Conventions
 
+- Everything is formatted: run `cargo fmt --all` before committing (and in
+  `examples/gpu-surface`, `examples/showcase` and
+  `crates/mitsuami-winui/bindgen`, which are crates of their own when you
+  touch them). CI's test workflow checks it.
+
 - Match the surrounding code's comment density and voice: short, plain
   sentences that say why.
 - Commit subjects are imperative and plain ("Show Lists as gtk::ListViews on

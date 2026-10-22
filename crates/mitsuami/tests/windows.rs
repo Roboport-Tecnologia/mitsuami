@@ -398,9 +398,7 @@ async fn escape_goes_to_a_key_handler_round_a_field_first(app: TestApp) {
     let (dialog, cancelled) = (signal(true), signal(false));
     app.mount(move || {
         Window::new("Dialog").modal(Modality::Application).bind(dialog).content(move || {
-            Column::new()
-                .on_key(Key::Escape, move || cancelled.set(true))
-                .child(TextInput::new().a11y_label("Label"))
+            Column::new().on_key(Key::Escape, move || cancelled.set(true)).child(TextInput::new().a11y_label("Label"))
         })
     });
     if matches!(app.backend_name(), "gtk" | "winui") {

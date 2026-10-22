@@ -8,8 +8,8 @@ use std::rc::Rc;
 
 use mitsuami_core::services::Shortcut;
 use mitsuami_core::{
-    DisplayList, EventSink, EventValue, FileDrop, Insets, Key, NodeId, Point, PointerEvent, PointerKind, Size,
-    UiEvent, WidgetKind,
+    DisplayList, EventSink, EventValue, FileDrop, Insets, Key, NodeId, Point, PointerEvent, PointerKind, Size, UiEvent,
+    WidgetKind,
 };
 use objc2::rc::Retained;
 use objc2::runtime::{AnyObject, NSObject, NSObjectProtocol, ProtocolObject, Sel};

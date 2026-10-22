@@ -773,12 +773,12 @@ fn set_hit_testable(node: &Node) -> R<()> {
     // shows only while no local background hides it.
     if node.header_filled
         || node.tooltip.is_empty()
-        && !node.scroll_content
-        && !ContextMenu::has_items(&node.context_menu)
-        && node.file_drop.is_none()
-        && node.hover.is_none()
-        && node.double_click.is_none()
-        && node.click.is_none()
+            && !node.scroll_content
+            && !ContextMenu::has_items(&node.context_menu)
+            && node.file_drop.is_none()
+            && node.hover.is_none()
+            && node.double_click.is_none()
+            && node.click.is_none()
     {
         panel.cast::<w::IDependencyObject>()?.ClearValue(&w::Panel::BackgroundProperty()?)
     } else {
