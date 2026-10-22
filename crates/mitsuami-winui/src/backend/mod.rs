@@ -490,7 +490,8 @@ struct Node {
     /// What reports hover, once the core asked for it.
     hover: Option<crate::hover::HoverTracker>,
     /// What reports double clicks, once the core asked for it.
-    double_click: Option<crate::double_click::DoubleClicker>,
+    double_click: Option<crate::double_click::Clicker>,
+    click: Option<crate::double_click::Clicker>,
     /// Hosts: whether the app made it its window's header, and its edge,
     /// which this platform leaves at the content's top, with no edge.
     header: Option<bool>,
@@ -761,7 +762,9 @@ impl State {
 fn set_hit_testable(node: &Node) -> R<()> {
     let panel = match &node.widget {
         Widget::Host(canvas) => canvas.cast::<w::IPanel>()?,
-        Widget::Group(group) if node.file_drop_sent || node.hover.is_some() || node.double_click.is_some() => {
+        Widget::Group(group)
+            if node.file_drop_sent || node.hover.is_some() || node.double_click.is_some() || node.click.is_some() =>
+        {
             group.canvas.cast::<w::IPanel>()?
         }
         _ => return Ok(()),
@@ -775,6 +778,7 @@ fn set_hit_testable(node: &Node) -> R<()> {
         && node.file_drop.is_none()
         && node.hover.is_none()
         && node.double_click.is_none()
+        && node.click.is_none()
     {
         panel.cast::<w::IDependencyObject>()?.ClearValue(&w::Panel::BackgroundProperty()?)
     } else {

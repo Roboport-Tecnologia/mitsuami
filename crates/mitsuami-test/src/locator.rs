@@ -192,6 +192,16 @@ impl<'a> Locator<'a> {
             // A click on a document tab chooses it; on their new-tab
             // button (also theirs), asks for a tab.
             (Some(WidgetKind::DocumentTabs), Role::Tab, Some(title)) => self.act(A11yAction::SetValue(title)).await,
+            // A container that hears clicks (`on_click`) is clicked as a
+            // mouse does: it isn't a control assistive technology presses.
+            (Some(WidgetKind::Container | WidgetKind::Group), _, _)
+                if find_prop!(self.app.ui().props(node.id), Click) == Some(true) =>
+            {
+                if let Err(e) = self.app.ui().synthesize(node.id, &SyntheticInput::SingleClick) {
+                    panic!("cannot click node {}: {e}", node.id);
+                }
+                self.app.settle().await;
+            }
             (Some(WidgetKind::Table), Role::ColumnHeader, Some(title)) => {
                 let columns = find_prop!(self.app.ui().props(node.id), Columns).unwrap_or_default();
                 let Some(column) = columns.iter().position(|c| c.title == title) else {

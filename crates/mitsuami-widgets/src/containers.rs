@@ -91,6 +91,16 @@ impl Container {
         self
     }
 
+    /// Called when it's clicked, or anything inside it that isn't a
+    /// control (a label, an icon): a header that opens its section, as
+    /// GTK's and WinUI's expanders do. Pointers only, as for
+    /// `on_double_click`: keyboards and assistive technology need a
+    /// control inside (the header's disclosure button).
+    pub fn on_click(mut self, handler: impl Fn() + 'static) -> Container {
+        self.0.on_click(handler);
+        self
+    }
+
     /// Runs `handler` when `key` is pressed while it, or a control
     /// inside it, has keyboard focus, and the focused control doesn't use
     /// the key itself: Space for a preview, Delete for Move to Trash.
@@ -323,6 +333,16 @@ impl Group {
     /// context menu, a button).
     pub fn on_double_click(mut self, handler: impl Fn() + 'static) -> Group {
         self.0.on_double_click(handler);
+        self
+    }
+
+    /// Called when it's clicked, or anything inside it that isn't a
+    /// control (a label, an icon): a header that opens its section, as
+    /// GTK's and WinUI's expanders do. Pointers only, as for
+    /// `on_double_click`: keyboards and assistive technology need a
+    /// control inside (the header's disclosure button).
+    pub fn on_click(mut self, handler: impl Fn() + 'static) -> Group {
+        self.0.on_click(handler);
         self
     }
 

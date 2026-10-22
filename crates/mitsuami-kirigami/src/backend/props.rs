@@ -400,7 +400,15 @@ impl State {
                     double_click.remove();
                 }
                 if *on {
-                    node.double_click = Some(crate::double_click::DoubleClick::new(widget.item(), id, events));
+                    node.double_click = Some(crate::double_click::Tap::new(widget.item(), id, events, true));
+                }
+            }
+            (Prop::Click(on), widget @ (Widget::Host(_) | Widget::Group { .. })) => {
+                if let Some(click) = node.click.take() {
+                    click.remove();
+                }
+                if *on {
+                    node.click = Some(crate::double_click::Tap::new(widget.item(), id, events, false));
                 }
             }
             (Prop::Keys(keys), Widget::Host(_) | Widget::Group { .. } | Widget::List(_)) => {

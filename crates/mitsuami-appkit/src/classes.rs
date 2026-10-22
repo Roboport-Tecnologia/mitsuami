@@ -1037,21 +1037,23 @@ impl HoverTracker {
     }
 }
 
-pub(crate) struct DoubleClickIvars {
+pub(crate) struct ClickIvars {
     id: NodeId,
     events: EventSink,
+    /// What a click reports: `Click` or `DoubleClick`.
+    event: UiEvent,
 }
 
 define_class!(
-    /// The target of a node's double-click recognizer: reports a double
+    /// The target of a node's click or double-click recognizer: reports a
     /// click on the view, or on what's in it that isn't a control (a
     /// button or field keeps its own clicks).
     #[unsafe(super(NSObject))]
     #[thread_kind = MainThreadOnly]
-    #[ivars = DoubleClickIvars]
-    pub(crate) struct DoubleClicker;
+    #[ivars = ClickIvars]
+    pub(crate) struct Clicker;
 
-    impl DoubleClicker {
+    impl Clicker {
         #[unsafe(method(clicked:))]
         fn clicked(&self, recognizer: &NSClickGestureRecognizer) {
             let Some(view) = recognizer.view() else { return };
@@ -1069,20 +1071,22 @@ define_class!(
         }
     }
 
-    unsafe impl NSObjectProtocol for DoubleClicker {}
+    unsafe impl NSObjectProtocol for Clicker {}
 );
 
-impl DoubleClicker {
-    /// Recognizes double clicks on `view`, its subviews' too, without
-    /// holding back the clicks its controls get.
+impl Clicker {
+    /// Recognizes clicks (`clicks` 1) or double clicks (2) on `view`, its
+    /// subviews' too, without holding back the clicks its controls get.
     pub(crate) fn track(
         mtm: MainThreadMarker,
         view: &NSView,
         id: NodeId,
         events: EventSink,
-    ) -> (Retained<DoubleClicker>, Retained<NSClickGestureRecognizer>) {
-        let this = DoubleClicker::alloc(mtm).set_ivars(DoubleClickIvars { id, events });
-        let target: Retained<DoubleClicker> = unsafe { msg_send![super(this), init] };
+        clicks: isize,
+    ) -> (Retained<Clicker>, Retained<NSClickGestureRecognizer>) {
+        let event = if clicks == 2 { UiEvent::DoubleClick } else { UiEvent::Click };
+        let this = Clicker::alloc(mtm).set_ivars(ClickIvars { id, events, event });
+        let target: Retained<Clicker> = unsafe { msg_send![super(this), init] };
         let recognizer = unsafe {
             NSClickGestureRecognizer::initWithTarget_action(
                 NSClickGestureRecognizer::alloc(mtm),
@@ -1090,16 +1094,16 @@ impl DoubleClicker {
                 Some(sel!(clicked:)),
             )
         };
-        recognizer.setNumberOfClicksRequired(2);
+        recognizer.setNumberOfClicksRequired(clicks);
         recognizer.setDelaysPrimaryMouseButtonEvents(false);
         view.addGestureRecognizer(&recognizer);
         (target, recognizer)
     }
 
-    /// What a recognized double click reports, for `synthesize` too:
-    /// AppKit can't be sent clicks without a window on screen.
+    /// What a recognized click reports, for `synthesize` too: AppKit
+    /// can't be sent clicks without a window on screen.
     pub(crate) fn fire(&self) {
-        self.ivars().events.emit(self.ivars().id, UiEvent::DoubleClick);
+        self.ivars().events.emit(self.ivars().id, self.ivars().event.clone());
     }
 }
 

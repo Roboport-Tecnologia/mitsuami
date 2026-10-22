@@ -507,7 +507,8 @@ impl SurfaceHost {
             | SyntheticInput::MoveRows { .. }
             | SyntheticInput::PointerEnter
             | SyntheticInput::PointerLeave
-            | SyntheticInput::DoubleClick => {}
+            | SyntheticInput::DoubleClick
+            | SyntheticInput::SingleClick => {}
         }
     }
 }

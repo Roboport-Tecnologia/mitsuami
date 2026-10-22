@@ -456,6 +456,10 @@ pub enum MitsuamiBoolProp {
     /// title bar, under the title, spanning the window; elsewhere the
     /// content's top, as it is.
     Header = 6,
+    /// A container reports `Click` when it, or a label or icon inside it,
+    /// is clicked (a control inside keeps its clicks): a header opening its
+    /// section. Pointers only.
+    Clickable = 7,
 }
 
 #[unsafe(no_mangle)]
@@ -469,6 +473,7 @@ pub extern "C" fn mitsuami_set_bool(id: u32, prop: u32, value: bool) -> bool {
             4 => Prop::NewTabButton(value),
             5 => Prop::IconOnly(value),
             6 => Prop::Header(value),
+            7 => Prop::Click(value),
             _ => return Err(format!("unknown bool prop {prop}")),
         };
         ui()?.set_prop(node(id), prop);

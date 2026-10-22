@@ -1,6 +1,7 @@
-//! Double clicks (`Prop::DoubleClick`): a Qt Quick `TapHandler` on the
-//! node's item, whose `doubleTapped` is Qt Quick's double click. A control
-//! inside takes its own taps, so only the item's and its labels' reach it.
+//! Clicks and double clicks (`Prop::Click`, `Prop::DoubleClick`): a Qt
+//! Quick `TapHandler` on the node's item, whose `tapped` is a click and
+//! `doubleTapped` Qt Quick's double click. A control inside takes its own
+//! taps, so only the item's and its labels' reach it.
 
 use std::rc::Rc;
 
@@ -10,23 +11,26 @@ use crate::events::Events;
 use crate::ffi::QmlObject;
 
 /// An item's tap handler, made on it (its `parent` registers it there).
-pub(crate) struct DoubleClick {
+pub(crate) struct Tap {
     handler: QmlObject,
     report: Rc<dyn Fn()>,
 }
 
-impl DoubleClick {
-    pub(crate) fn new(item: QmlObject, id: NodeId, events: Events) -> DoubleClick {
-        // `doubleTapped` carries an event point and a button, which the
-        // connection can't take: a signal of its own passes it on.
-        let handler = QmlObject::load_in(
-            "TapHandler { signal mitsuamiDoubleTapped(); onDoubleTapped: mitsuamiDoubleTapped() }",
-            item,
-        );
-        let report: Rc<dyn Fn()> = Rc::new(move || events.emit(id, UiEvent::DoubleClick));
+impl Tap {
+    /// Reports `UiEvent::DoubleClick` on a double tap if `double`, else
+    /// `UiEvent::Click` on a tap.
+    pub(crate) fn new(item: QmlObject, id: NodeId, events: Events, double: bool) -> Tap {
+        // `tapped` and `doubleTapped` carry an event point and a button,
+        // which the connection can't take: a signal of its own passes it on.
+        let (qml, event) = match double {
+            true => ("TapHandler { signal mitsuamiTapped(); onDoubleTapped: mitsuamiTapped() }", UiEvent::DoubleClick),
+            false => ("TapHandler { signal mitsuamiTapped(); onTapped: mitsuamiTapped() }", UiEvent::Click),
+        };
+        let handler = QmlObject::load_in(qml, item);
+        let report: Rc<dyn Fn()> = Rc::new(move || events.emit(id, event.clone()));
         let on = report.clone();
-        handler.connect("mitsuamiDoubleTapped()", move || on());
-        DoubleClick { handler, report }
+        handler.connect("mitsuamiTapped()", move || on());
+        Tap { handler, report }
     }
 
     /// Whether it's still on `item`.

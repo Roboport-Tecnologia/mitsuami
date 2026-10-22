@@ -608,7 +608,16 @@ impl State {
                 node.double_click = None;
                 if *on {
                     node.double_click =
-                        Some(crate::double_click::DoubleClicker::new(id, self.emitter.clone(), &node.element)?);
+                        Some(crate::double_click::Clicker::new(id, self.emitter.clone(), &node.element, true)?);
+                }
+                set_hit_testable(node)?;
+            }
+            // As for double taps.
+            (Prop::Click(on), Widget::Host(_) | Widget::Group(_)) => {
+                node.click = None;
+                if *on {
+                    node.click =
+                        Some(crate::double_click::Clicker::new(id, self.emitter.clone(), &node.element, false)?);
                 }
                 set_hit_testable(node)?;
             }

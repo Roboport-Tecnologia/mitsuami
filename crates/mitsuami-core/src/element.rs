@@ -136,6 +136,17 @@ impl Element {
         });
     }
 
+    /// Reports a click on the node (`Prop::Click`), and runs `handler` for
+    /// it. For containers and groups.
+    pub fn on_click(&mut self, handler: impl Fn() + 'static) {
+        self.prop(Value::Static(true), Prop::Click);
+        self.on(move |event| {
+            if *event == UiEvent::Click {
+                handler();
+            }
+        });
+    }
+
     /// Runs `f` right after the node is created, in the building scope.
     pub fn after_build(&mut self, f: impl FnOnce(&Ui, NodeId) + 'static) {
         self.binders.push(Box::new(f));

@@ -1410,7 +1410,8 @@ pub(crate) fn synthesize(view: &SurfaceView, input: &SyntheticInput) -> Result<(
         | SyntheticInput::MoveRows { .. }
         | SyntheticInput::PointerEnter
         | SyntheticInput::PointerLeave
-        | SyntheticInput::DoubleClick => {
+        | SyntheticInput::DoubleClick
+        | SyntheticInput::SingleClick => {
             return Err(ActionError::Unsupported);
         }
     }

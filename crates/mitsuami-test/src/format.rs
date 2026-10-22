@@ -85,6 +85,7 @@ fn describe_props(props: &[Prop]) -> String {
             Prop::Enabled(b) => extra.push(format!("enabled={b}")),
             Prop::Hover(b) => extra.push(format!("hover={b}")),
             Prop::DoubleClick(b) => extra.push(format!("double_click={b}")),
+            Prop::Click(b) => extra.push(format!("click={b}")),
             Prop::TextStyle(s) => extra.push(format!("style={s:?}")),
             Prop::TextColor(c) => extra.push(format!("color={c:?}")),
             Prop::FontWeight(w) => extra.push(format!("weight={w:?}")),

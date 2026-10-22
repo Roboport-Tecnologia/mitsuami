@@ -332,6 +332,7 @@ impl State {
                 context_menu: None,
                 hover: None,
                 double_click: None,
+                click: None,
                 header: None,
                 header_edge: None,
                 button_menu: None,

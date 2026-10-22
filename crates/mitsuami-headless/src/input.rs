@@ -28,6 +28,13 @@ impl HeadlessBackend {
             state.emit(id, UiEvent::DoubleClick);
             return Ok(());
         }
+        if *input == SyntheticInput::SingleClick {
+            if find_prop!(node.props, Click) != Some(true) {
+                return Err(ActionError::Unsupported);
+            }
+            state.emit(id, UiEvent::Click);
+            return Ok(());
+        }
         if find_prop!(node.props, Enabled) == Some(false) {
             return Err(ActionError::Disabled);
         }
@@ -141,7 +148,8 @@ impl HeadlessBackend {
             | SyntheticInput::MoveRows { .. }
             | SyntheticInput::PointerEnter
             | SyntheticInput::PointerLeave
-            | SyntheticInput::DoubleClick => unreachable!(),
+            | SyntheticInput::DoubleClick
+            | SyntheticInput::SingleClick => unreachable!(),
         };
         // Nothing can be typed into a read-only field (AppKit's can't even
         // take focus from the keyboard).
@@ -347,7 +355,8 @@ impl State {
             | SyntheticInput::MoveRows { .. }
             | SyntheticInput::PointerEnter
             | SyntheticInput::PointerLeave
-            | SyntheticInput::DoubleClick => {
+            | SyntheticInput::DoubleClick
+            | SyntheticInput::SingleClick => {
                 return Err(ActionError::Unsupported);
             }
         }

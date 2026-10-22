@@ -544,6 +544,29 @@ impl State {
                     node.double_click = Some((click, report));
                 }
             }
+            // A click is a press released over the host, as a button's is.
+            // With a double click too, its first press also reports a
+            // click, as on the other platforms.
+            (Prop::Click(on), widget @ (Widget::Host(_) | Widget::Group(_))) => {
+                if let Some((click, _)) = node.click.take() {
+                    widget.widget().remove_controller(&click);
+                }
+                if *on {
+                    let click = gtk::GestureClick::new();
+                    let events = self.events.clone();
+                    let report: Rc<dyn Fn()> = Rc::new(move || events.emit(id, UiEvent::Click));
+                    let fire = report.clone();
+                    click.connect_released(move |click, presses, x, y| {
+                        let Some(host) = click.widget() else { return };
+                        if presses != 1 || on_control(&host, x, y) {
+                            return;
+                        }
+                        fire();
+                    });
+                    widget.widget().add_controller(click.clone());
+                    node.click = Some((click, report));
+                }
+            }
             // On the widget the pointer rests on, as the tooltip is, and
             // for its children without one of their own.
             (Prop::ContextMenu(entries), widget) => {

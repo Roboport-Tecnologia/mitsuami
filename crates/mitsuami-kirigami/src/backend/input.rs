@@ -66,11 +66,12 @@ impl KirigamiBackend {
             report(*input == SyntheticInput::PointerEnter);
             return Ok(());
         }
-        if *input == SyntheticInput::DoubleClick {
+        if matches!(input, SyntheticInput::DoubleClick | SyntheticInput::SingleClick) {
             let report = {
                 let state = self.state.borrow();
                 let node = state.nodes.get(&id).ok_or(ActionError::UnknownNode)?;
-                node.double_click.as_ref().map(|d| d.report()).ok_or(ActionError::Unsupported)?
+                let tap = if *input == SyntheticInput::DoubleClick { &node.double_click } else { &node.click };
+                tap.as_ref().map(|t| t.report()).ok_or(ActionError::Unsupported)?
             };
             report();
             return Ok(());
@@ -134,7 +135,8 @@ impl KirigamiBackend {
             | SyntheticInput::MoveRows { .. }
             | SyntheticInput::PointerEnter
             | SyntheticInput::PointerLeave
-            | SyntheticInput::DoubleClick => unreachable!(),
+            | SyntheticInput::DoubleClick
+            | SyntheticInput::SingleClick => unreachable!(),
             // Only a surface takes an input method's text.
             SyntheticInput::Text(_) | SyntheticInput::Compose(_) => Err(ActionError::Unsupported),
             // Text fields take keys with modifiers as editing commands,
@@ -355,7 +357,8 @@ impl KirigamiBackend {
             | SyntheticInput::MoveRows { .. }
             | SyntheticInput::PointerEnter
             | SyntheticInput::PointerLeave
-            | SyntheticInput::DoubleClick => {
+            | SyntheticInput::DoubleClick
+            | SyntheticInput::SingleClick => {
                 return Err(ActionError::Unsupported);
             }
         }

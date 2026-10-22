@@ -114,6 +114,8 @@ pub enum SyntheticInput {
     /// A double click on a node with a `Prop::DoubleClick`, through the
     /// platform's own handling where it can be reached.
     DoubleClick,
+    /// A click on a node with a `Prop::Click`, as for `DoubleClick`.
+    SingleClick,
     /// Files dragged from the file manager, over a node with a
     /// `Prop::FileDrop`: what the platform's drag handling does when they
     /// enter it, through the same path.

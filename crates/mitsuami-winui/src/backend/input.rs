@@ -25,11 +25,12 @@ impl WinUiBackend {
             hover.set(*input == SyntheticInput::PointerEnter);
             return Ok(());
         }
-        if *input == SyntheticInput::DoubleClick {
+        if matches!(input, SyntheticInput::DoubleClick | SyntheticInput::SingleClick) {
             let report = {
                 let state = self.state.borrow();
                 let node = state.nodes.get(&id).ok_or(ActionError::UnknownNode)?;
-                node.double_click.as_ref().map(|d| d.report()).ok_or(ActionError::Unsupported)?
+                let clicker = if *input == SyntheticInput::DoubleClick { &node.double_click } else { &node.click };
+                clicker.as_ref().map(|d| d.report()).ok_or(ActionError::Unsupported)?
             };
             report();
             return Ok(());

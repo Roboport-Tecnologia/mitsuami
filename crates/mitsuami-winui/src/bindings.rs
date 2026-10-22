@@ -11785,6 +11785,18 @@ impl windows_core::RuntimeType for ITabViewTabDragStartingEventArgs {
 pub struct ITabViewTabDragStartingEventArgs_Vtbl {
     pub base__: windows_core::IInspectable_Vtbl,
 }
+windows_core::imp::define_interface!(
+    ITappedRoutedEventArgs,
+    ITappedRoutedEventArgs_Vtbl,
+    0x73f74b8c_3709_547e_8e0c_51c03c89126a
+);
+impl windows_core::RuntimeType for ITappedRoutedEventArgs {
+    const SIGNATURE: windows_core::imp::ConstBuffer = windows_core::imp::ConstBuffer::for_interface::<Self>();
+}
+#[repr(C)]
+pub struct ITappedRoutedEventArgs_Vtbl {
+    pub base__: windows_core::IInspectable_Vtbl,
+}
 windows_core::imp::define_interface!(ITextBlock, ITextBlock_Vtbl, 0x1ac8d84f_392c_5c7e_83f5_a53e3bf0abb0);
 impl windows_core::RuntimeType for ITextBlock {
     const SIGNATURE: windows_core::imp::ConstBuffer = windows_core::imp::ConstBuffer::for_interface::<Self>();
@@ -13362,6 +13374,32 @@ impl IUIElement {
             ))
         }
     }
+    pub fn Tapped<F>(&self, handler: F) -> windows_core::Result<windows_core::EventRevoker>
+    where
+        F: Fn(windows_core::Ref<windows_core::IInspectable>, windows_core::Ref<TappedRoutedEventArgs>) + 'static,
+    {
+        let handler: TappedEventHandler = {
+            let com = windows_core::imp::DelegateBox::<TappedEventHandler, F>::new(
+                &TappedEventHandlerBox::<F>::VTABLE,
+                handler,
+            );
+            unsafe { core::mem::transmute(windows_core::imp::box_new(com)) }
+        };
+        unsafe {
+            let mut result__ = core::mem::zeroed();
+            let token__ = (windows_core::Interface::vtable(self).Tapped)(
+                windows_core::Interface::as_raw(self),
+                windows_core::Interface::as_raw(&handler),
+                &mut result__,
+            )
+            .map(|| result__)?;
+            Ok(windows_core::EventRevoker::new(
+                self.clone(),
+                token__,
+                windows_core::Interface::vtable(self).RemoveTapped,
+            ))
+        }
+    }
     pub fn DoubleTapped<F>(&self, handler: F) -> windows_core::Result<windows_core::EventRevoker>
     where
         F: Fn(windows_core::Ref<windows_core::IInspectable>, windows_core::Ref<DoubleTappedRoutedEventArgs>) + 'static,
@@ -13690,8 +13728,9 @@ pub struct IUIElement_Vtbl {
     pub PointerWheelChanged:
         unsafe extern "system" fn(*mut core::ffi::c_void, *mut core::ffi::c_void, *mut i64) -> windows_core::HRESULT,
     pub RemovePointerWheelChanged: unsafe extern "system" fn(*mut core::ffi::c_void, i64) -> windows_core::HRESULT,
-    Tapped: usize,
-    RemoveTapped: usize,
+    pub Tapped:
+        unsafe extern "system" fn(*mut core::ffi::c_void, *mut core::ffi::c_void, *mut i64) -> windows_core::HRESULT,
+    pub RemoveTapped: unsafe extern "system" fn(*mut core::ffi::c_void, i64) -> windows_core::HRESULT,
     pub DoubleTapped:
         unsafe extern "system" fn(*mut core::ffi::c_void, *mut core::ffi::c_void, *mut i64) -> windows_core::HRESULT,
     pub RemoveDoubleTapped: unsafe extern "system" fn(*mut core::ffi::c_void, i64) -> windows_core::HRESULT,
@@ -18763,6 +18802,74 @@ impl windows_core::RuntimeName for TabViewTabDragStartingEventArgs {
 }
 unsafe impl Send for TabViewTabDragStartingEventArgs {}
 unsafe impl Sync for TabViewTabDragStartingEventArgs {}
+windows_core::imp::define_interface!(
+    TappedEventHandler,
+    TappedEventHandler_Vtbl,
+    0xb60074f3_125b_534e_8f9c_9769bd3f0f64
+);
+impl windows_core::RuntimeType for TappedEventHandler {
+    const SIGNATURE: windows_core::imp::ConstBuffer = windows_core::imp::ConstBuffer::for_interface::<Self>();
+}
+#[repr(C)]
+pub struct TappedEventHandler_Vtbl {
+    base__: windows_core::IUnknown_Vtbl,
+    Invoke: unsafe extern "system" fn(
+        this: *mut core::ffi::c_void,
+        sender: *mut core::ffi::c_void,
+        e: *mut core::ffi::c_void,
+    ) -> windows_core::HRESULT,
+}
+struct TappedEventHandlerBox<
+    F: Fn(windows_core::Ref<windows_core::IInspectable>, windows_core::Ref<TappedRoutedEventArgs>) + 'static,
+>(core::marker::PhantomData<(fn() -> F,)>);
+impl<F: Fn(windows_core::Ref<windows_core::IInspectable>, windows_core::Ref<TappedRoutedEventArgs>) + 'static>
+    TappedEventHandlerBox<F>
+{
+    const VTABLE: TappedEventHandler_Vtbl = TappedEventHandler_Vtbl {
+        base__: windows_core::IUnknown_Vtbl {
+            QueryInterface: windows_core::imp::DelegateBox::<TappedEventHandler, F>::QueryInterface,
+            AddRef: windows_core::imp::DelegateBox::<TappedEventHandler, F>::AddRef,
+            Release: windows_core::imp::DelegateBox::<TappedEventHandler, F>::Release,
+        },
+        Invoke: Self::Invoke,
+    };
+    unsafe extern "system" fn Invoke(
+        this: *mut core::ffi::c_void,
+        sender: *mut core::ffi::c_void,
+        e: *mut core::ffi::c_void,
+    ) -> windows_core::HRESULT {
+        unsafe {
+            let this = &mut *(this as *mut *mut core::ffi::c_void
+                as *mut windows_core::imp::DelegateBox<TappedEventHandler, F>);
+            (this.invoke)(core::mem::transmute_copy(&sender), core::mem::transmute_copy(&e));
+            windows_core::HRESULT(0)
+        }
+    }
+}
+#[repr(transparent)]
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct TappedRoutedEventArgs(windows_core::IUnknown);
+windows_core::imp::interface_hierarchy!(TappedRoutedEventArgs, windows_core::IUnknown, windows_core::IInspectable);
+windows_core::imp::required_hierarchy!(TappedRoutedEventArgs, RoutedEventArgs);
+impl windows_core::RuntimeType for TappedRoutedEventArgs {
+    const SIGNATURE: windows_core::imp::ConstBuffer =
+        windows_core::imp::ConstBuffer::for_class::<Self, ITappedRoutedEventArgs>();
+}
+unsafe impl windows_core::Interface for TappedRoutedEventArgs {
+    type Vtable = <ITappedRoutedEventArgs as windows_core::Interface>::Vtable;
+    const IID: windows_core::GUID = <ITappedRoutedEventArgs as windows_core::Interface>::IID;
+}
+impl core::ops::Deref for TappedRoutedEventArgs {
+    type Target = ITappedRoutedEventArgs;
+    fn deref(&self) -> &Self::Target {
+        unsafe { core::mem::transmute(self) }
+    }
+}
+impl windows_core::RuntimeName for TappedRoutedEventArgs {
+    const NAME: &'static str = "Microsoft.UI.Xaml.Input.TappedRoutedEventArgs";
+}
+unsafe impl Send for TappedRoutedEventArgs {}
+unsafe impl Sync for TappedRoutedEventArgs {}
 #[repr(transparent)]
 #[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
 pub struct TextAlignment(pub i32);

@@ -575,8 +575,6 @@ async fn lists_ask_for_rows_and_report_the_selection(app: TestApp) {
     assert!(heard().contains(&"released".to_string()));
 }
 
-mitsuami_test::main!();
-
 /// Two bookmark swatches, the chosen one framed: what a binding's drawn
 /// widget draws.
 extern "C" fn draw_swatches(_user: *mut c_void, _node: u32, canvas: *mut MitsuamiCanvas, width: f32, height: f32) {
@@ -664,3 +662,22 @@ async fn splits_lay_out_their_panes_and_report_the_divider(app: TestApp) {
     assert_eq!(heard(), ["changed 120"]);
     assert_eq!(app.get_by_test_id("first").frame().width(), 120.0);
 }
+
+#[mitsuami_test::test]
+async fn containers_report_clicks_when_asked(app: TestApp) {
+    attach(app.ui());
+    heard();
+    let header = create(MitsuamiKind::Container);
+    let label = create(MitsuamiKind::Text);
+    set_text(label, MitsuamiTextProp::Text, "LOCAL BRANCHES");
+    set_text(header, MitsuamiTextProp::TestId, "header");
+    assert!(mitsuami_append_child(header, label));
+    assert!(mitsuami_set_bool(header, MitsuamiBoolProp::Clickable as u32, true));
+    assert!(mitsuami_on_event(header, record, std::ptr::null_mut()));
+    app.mount(|| Adopt(header));
+
+    app.get_by_test_id("header").click().await;
+    assert_eq!(heard(), ["click"]);
+}
+
+mitsuami_test::main!();

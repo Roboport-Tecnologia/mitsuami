@@ -24,11 +24,14 @@ impl GtkBackend {
             }
             return Ok(());
         }
-        // What the gesture reports for two presses: GTK can't be sent
+        // What the gesture reports for one press or two: GTK can't be sent
         // clicks.
-        if *input == SyntheticInput::DoubleClick {
+        if matches!(input, SyntheticInput::DoubleClick | SyntheticInput::SingleClick) {
             let report = match self.state.borrow().nodes.get(&id) {
-                Some(node) => node.double_click.as_ref().map(|(_, r)| r.clone()).ok_or(ActionError::Unsupported)?,
+                Some(node) => {
+                    let tracked = if *input == SyntheticInput::DoubleClick { &node.double_click } else { &node.click };
+                    tracked.as_ref().map(|(_, r)| r.clone()).ok_or(ActionError::Unsupported)?
+                }
                 None => return Err(ActionError::UnknownNode),
             };
             report();

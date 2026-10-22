@@ -326,6 +326,9 @@ struct Node {
     /// The gesture that reports double clicks, and what it reports, once
     /// the core asked for it.
     double_click: Option<(gtk::GestureClick, std::rc::Rc<dyn Fn()>)>,
+    /// The gesture that reports clicks, and what it reports, once the
+    /// core asked for it.
+    click: Option<(gtk::GestureClick, std::rc::Rc<dyn Fn()>)>,
     /// Hosts: the window's header, once the app said whether it is one,
     /// and its edge, which GTK has no choice of.
     header: Option<crate::header::Header>,

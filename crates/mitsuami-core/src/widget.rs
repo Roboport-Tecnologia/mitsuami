@@ -1172,6 +1172,11 @@ pub enum Prop {
     /// [`UiEvent::DoubleClick`](crate::UiEvent::DoubleClick). Sent only if
     /// the app asked (`on_double_click`).
     DoubleClick(bool),
+    /// A `Container` or `Group` reports a click on it, or on anything
+    /// inside it that isn't a control, as [`UiEvent::Click`](crate::UiEvent::Click),
+    /// as a header that opens its section. Sent only if the app asked
+    /// (`on_click`).
+    Click(bool),
     /// A `List`'s or `Table`'s rows' files: dragging a row carries its
     /// file out of the app (to the file manager, another app, a folder),
     /// and dragging a selected row carries every selected row's, as the

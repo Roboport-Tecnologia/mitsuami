@@ -464,7 +464,16 @@ impl State {
                     view.removeGestureRecognizer(&recognizer);
                 }
                 if *on {
-                    node.double_click = Some(crate::classes::DoubleClicker::track(mtm, view, id, events));
+                    node.double_click = Some(crate::classes::Clicker::track(mtm, view, id, events, 2));
+                }
+            }
+            (Prop::Click(on), widget @ (Widget::Host(_) | Widget::Group { .. })) => {
+                let view = widget.view();
+                if let Some((_, recognizer)) = node.click.take() {
+                    view.removeGestureRecognizer(&recognizer);
+                }
+                if *on {
+                    node.click = Some(crate::classes::Clicker::track(mtm, view, id, events, 1));
                 }
             }
             (Prop::ContextMenu(entries), widget) => {

@@ -315,7 +315,8 @@ struct Node {
     hover: Option<(Retained<crate::classes::HoverTracker>, Retained<objc2_app_kit::NSTrackingArea>)>,
     /// The target of the recognizer that reports double clicks, and the
     /// recognizer, once the core asked for it.
-    double_click: Option<(Retained<crate::classes::DoubleClicker>, Retained<objc2_app_kit::NSClickGestureRecognizer>)>,
+    double_click: Option<(Retained<crate::classes::Clicker>, Retained<objc2_app_kit::NSClickGestureRecognizer>)>,
+    click: Option<(Retained<crate::classes::Clicker>, Retained<objc2_app_kit::NSClickGestureRecognizer>)>,
     /// Hosts: the app gave `Header`; its children are in the header's
     /// own view (see `header`).
     header: Option<crate::header::Header>,

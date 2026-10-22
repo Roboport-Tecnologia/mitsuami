@@ -200,6 +200,9 @@ impl State {
                 if let Some(double_click) = node.double_click.take() {
                     double_click.remove();
                 }
+                if let Some(click) = node.click.take() {
+                    click.remove();
+                }
                 if let Some(area) = node.file_drop.take() {
                     area.destroy();
                 }

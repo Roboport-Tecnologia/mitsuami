@@ -284,6 +284,7 @@ impl GtkBackend {
         props.extend(
             node.double_click.as_ref().map(|(click, _)| Prop::DoubleClick(click.widget().as_ref() == Some(widget))),
         );
+        props.extend(node.click.as_ref().map(|(click, _)| Prop::Click(click.widget().as_ref() == Some(widget))));
         let frame = match &node.widget {
             Widget::Window(parts) => {
                 let size = parts.host.window_root().expect("window hosts have a root").size.get();

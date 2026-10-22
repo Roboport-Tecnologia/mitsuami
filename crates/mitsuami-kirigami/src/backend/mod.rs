@@ -275,7 +275,9 @@ struct Node {
     /// The handler that reports hover, once the core asked for it.
     hover: Option<crate::hover::Hover>,
     /// The handler that reports double clicks, once the core asked for it.
-    double_click: Option<crate::double_click::DoubleClick>,
+    double_click: Option<crate::double_click::Tap>,
+    /// The handler that reports clicks, once the core asked for it.
+    click: Option<crate::double_click::Tap>,
     /// Hosts: whether the app made it its window's header, and its edge,
     /// which this platform leaves at the content's top, with no edge.
     header: Option<bool>,

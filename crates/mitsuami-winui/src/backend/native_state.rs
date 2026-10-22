@@ -340,6 +340,7 @@ impl WinUiBackend {
         props.extend(node.header.map(Prop::Header));
         props.extend(node.header_edge.map(Prop::HeaderEdge));
         props.extend(node.double_click.as_ref().map(|_| Prop::DoubleClick(true)));
+        props.extend(node.click.as_ref().map(|_| Prop::Click(true)));
         if node.file_drop_sent {
             props.push(Prop::FileDrop(node.file_drop.as_ref().map(|t| t.file_drop())));
         }
