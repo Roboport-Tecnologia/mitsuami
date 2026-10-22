@@ -687,6 +687,8 @@ extern "C" fn build_cell(_user: *mut c_void, _table: u32, key: *const u8, len: u
     let text = create(MitsuamiKind::Text);
     let shown = if column == 0 { format!("Commit {key}") } else { format!("{key}@example.com") };
     set_text(text, MitsuamiTextProp::Text, &shown);
+    // A subject on one line, as history views show it.
+    assert!(mitsuami_set_number(text, MitsuamiNumberProp::MaxLines as u32, 1.0));
     text
 }
 
@@ -723,6 +725,9 @@ async fn tables_ask_for_cells_and_report_the_sort(app: TestApp) {
     assert!(unsafe { mitsuami_list_set_keys(table, keys.as_ptr(), keys.len()) });
     app.mount(|| Adopt(table));
     app.expect(by_role(Role::Row, "Commit c c@example.com")).to_be_visible().await;
+
+    let subject = app.get_by_text("Commit b").id();
+    assert!(app.ui().props(subject).contains(&Prop::MaxLines(Some(1))));
 
     // A row's cells side by side, in column order.
     let (subject, author) =

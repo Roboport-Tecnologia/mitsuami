@@ -496,6 +496,9 @@ pub enum MitsuamiNumberProp {
     EstimatedRowHeight = 1,
     /// An icon's size, in points.
     IconSize = 2,
+    /// A text's most lines, the last cut off with the platform's ellipsis;
+    /// 0 shows them all.
+    MaxLines = 3,
 }
 
 #[unsafe(no_mangle)]
@@ -505,6 +508,7 @@ pub extern "C" fn mitsuami_set_number(id: u32, prop: u32, value: f64) -> bool {
             0 => Prop::Number(value),
             1 => Prop::EstimatedRowHeight(value as f32),
             2 => Prop::IconSize(value as f32),
+            3 => Prop::MaxLines((value >= 1.0).then_some(value as u32)),
             _ => return Err(format!("unknown number prop {prop}")),
         };
         ui()?.set_prop(node(id), prop);
