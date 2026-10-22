@@ -58,6 +58,9 @@ struct Node {
     taffy: Option<taffy::NodeId>,
     /// Relative to the native parent.
     frame: Rect,
+    /// Whether the backend has been sent a frame: a node laid out at zero
+    /// (hidden from the start) still gets one, so the backend hides it.
+    framed: bool,
     /// Windows only: content size.
     window_size: Size,
     /// Windows only: how the height follows the content.

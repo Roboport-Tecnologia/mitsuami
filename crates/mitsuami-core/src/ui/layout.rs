@@ -255,8 +255,9 @@ impl Inner {
         self.compute_layout(t, available);
         let height = self.taffy.layout(t).map_or(0.0, |l| l.size.height);
         let frame = Rect::new(0.0, 0.0, width, height);
-        if self.nodes[&host].frame != frame {
-            self.nodes.get_mut(&host).unwrap().frame = frame;
+        let node = self.nodes.get_mut(&host).unwrap();
+        if node.frame != frame || !node.framed {
+            (node.frame, node.framed) = (frame, true);
             self.pending.push(Command::SetFrame { id: host, frame });
         }
         self.collect_frames(host);
@@ -307,12 +308,15 @@ impl Inner {
         }
         for child in self.nodes[&parent].native_children.clone() {
             let node = &self.nodes[&child];
-            if let Some(t) = node.taffy
+            // A sidebar's frame is the platform's.
+            if node.kind != WidgetKind::Sidebar
+                && let Some(t) = node.taffy
                 && let Ok(layout) = self.taffy.layout(t)
             {
                 let frame = Rect::new(layout.location.x, layout.location.y, layout.size.width, layout.size.height);
-                if frame != node.frame {
-                    self.nodes.get_mut(&child).unwrap().frame = frame;
+                if frame != node.frame || !node.framed {
+                    let node = self.nodes.get_mut(&child).unwrap();
+                    (node.frame, node.framed) = (frame, true);
                     self.pending.push(Command::SetFrame { id: child, frame });
                 }
             }

@@ -46,6 +46,7 @@ impl Ui {
                     handlers: Vec::new(),
                     taffy,
                     frame: Rect::ZERO,
+                    framed: false,
                     window_size: Size::ZERO,
                     fit: Fit::None,
                     heights: Vec::new(),

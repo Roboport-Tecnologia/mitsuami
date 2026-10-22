@@ -604,6 +604,13 @@ impl State {
                     view.setFrame(rect);
                     return;
                 }
+                // A view given no room (hidden, or squeezed out) shows
+                // nothing: a control's frame for an empty alignment rect is
+                // its bezel's size, so it would still draw.
+                let empty = frame.width() <= 0.0 || frame.height() <= 0.0;
+                if view.isHidden() != empty {
+                    view.setHidden(empty);
+                }
                 // Layout places what the user sees, the alignment rect, as
                 // Auto Layout does; controls draw their bezels inset from
                 // their frames (a push button by 7pt a side before macOS 26).
