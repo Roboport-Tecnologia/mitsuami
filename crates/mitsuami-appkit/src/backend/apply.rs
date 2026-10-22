@@ -4,7 +4,7 @@ use mitsuami_core::a11y::A11yProps;
 use mitsuami_core::{ButtonStyle, Command, NodeId, Size, WidgetKind};
 use objc2::Message;
 use objc2::rc::Retained;
-use objc2_app_kit::{NSAccessibility, NSApplication, NSView, NSWindowOrderingMode};
+use objc2_app_kit::{NSAccessibility, NSApplication, NSBezelStyle, NSView, NSWindowOrderingMode};
 use objc2_foundation::{NSNotificationCenter, NSPoint, NSRect, NSSize};
 
 use crate::document_tabs::Place;
@@ -610,6 +610,24 @@ impl State {
                 let empty = frame.width() <= 0.0 || frame.height() <= 0.0;
                 if view.isHidden() != empty {
                     view.setHidden(empty);
+                }
+                // AppKit's push button is one height; one the layout makes
+                // taller is its flexible push button, which takes any height
+                // (an icon tab in a rail, a tall action button).
+                // Buttons are made `Automatic`, which AppKit draws as a push.
+                if let Widget::Button(b) = &self.nodes[id].widget
+                    && b.isBordered()
+                    && matches!(
+                        b.bezelStyle(),
+                        NSBezelStyle::Automatic | NSBezelStyle::Push | NSBezelStyle::FlexiblePush
+                    )
+                {
+                    let tall = rect.size.height > b.intrinsicContentSize().height + 0.5;
+                    if tall {
+                        b.setBezelStyle(NSBezelStyle::FlexiblePush);
+                    } else if b.bezelStyle() == NSBezelStyle::FlexiblePush {
+                        b.setBezelStyle(NSBezelStyle::Automatic);
+                    }
                 }
                 // Layout places what the user sees, the alignment rect, as
                 // Auto Layout does; controls draw their bezels inset from

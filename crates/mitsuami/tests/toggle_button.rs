@@ -6,6 +6,7 @@
 use std::cell::RefCell;
 use std::rc::Rc;
 
+use mitsuami::core::backend::CaptureError;
 use mitsuami::core::{A11yAction, ActionError, Prop, WidgetKind};
 use mitsuami::prelude::*;
 use mitsuami_test::prelude::*;
@@ -113,6 +114,31 @@ async fn works_in_view_macros(app: TestApp) {
 
     app.get(bold()).click().await;
     assert!(on.get_untracked());
+}
+
+/// A toggle the app makes taller than the platform's button is drawn that
+/// tall, as a rail of page icons has them (AppKit's flexible push button;
+/// its push button is one height).
+#[mitsuami_test::test]
+async fn is_drawn_as_tall_as_its_frame(app: TestApp) {
+    app.mount(|| Row::new().align(Align::Start).padding(10).child(ToggleButton::new("Bold").width(41).height(42)));
+    app.expect(bold()).to_be_visible().await;
+    let frame = app.get(bold()).frame();
+    assert_eq!(frame.height(), 42.0);
+
+    let image = match app.ui().capture(app.window()).await {
+        Err(CaptureError::Unsupported) => return assert!(app.is_headless(), "only headless may lack capture"),
+        Err(e) => panic!("capture failed: {e:?}"),
+        Ok(image) => image,
+    };
+    let at = |x: f32, y: f32| {
+        let s = image.scale_factor;
+        let i = (((y * s) as usize) * image.width as usize + (x * s) as usize) * 4;
+        image.rgba[i..i + 3].to_vec()
+    };
+    // Near its top, the bezel, not the window behind it.
+    let (top, beside) = (at(frame.x() + 20.0, frame.y() + 4.0), at(frame.x() + frame.width() + 6.0, frame.y() + 4.0));
+    assert_ne!(top, beside, "nothing drawn near the top of a 42-high toggle");
 }
 
 mitsuami_test::main!();
