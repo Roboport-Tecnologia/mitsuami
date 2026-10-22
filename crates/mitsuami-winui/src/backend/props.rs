@@ -184,6 +184,11 @@ impl State {
                 node.vector_icon = Some(icon.clone());
                 set_button_content(node)?;
             }
+            // On the icon, which the content makes again with it.
+            (Prop::TextColor(color), Widget::Button(_) | Widget::Toggle(_)) => {
+                node.text_color = Some(*color);
+                set_button_content(node)?;
+            }
             (Prop::IconOnly(only), Widget::Button(_) | Widget::Toggle(_) | Widget::MenuButton(_)) => {
                 node.icon_only = Some(*only);
                 set_button_content(node)?;

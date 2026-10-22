@@ -891,10 +891,11 @@ pub enum Prop {
     /// Qt and WinUI cut off a single line's start or middle only. Sent
     /// only if the app chose.
     Truncation(Truncation),
-    /// A `Text`'s or `Icon`'s colour. Semantic colours follow the
-    /// appearance (dark mode, high contrast, the accent colour); `Rgba` is
-    /// fixed. Icons in full colour keep their own; symbolic ones take it.
-    /// Sent only if the app chose.
+    /// A `Text`'s or `Icon`'s colour, or the icon's on a `Button` or
+    /// `ToggleButton` (its caption keeps the platform's). Semantic colours
+    /// follow the appearance (dark mode, high contrast, the accent colour);
+    /// `Rgba` is fixed. Icons in full colour keep their own; symbolic ones
+    /// take it. Sent only if the app chose.
     TextColor(Color),
     /// A `Text`'s weight, in place of its text style's.
     FontWeight(FontWeight),

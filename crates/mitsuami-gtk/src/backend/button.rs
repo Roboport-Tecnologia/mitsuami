@@ -2,7 +2,9 @@
 
 use gtk::glib;
 use gtk::prelude::*;
-use mitsuami_core::{ButtonRole, Prop, VectorIcon};
+use mitsuami_core::{ButtonRole, Color, Prop, VectorIcon};
+
+use super::text::{IconColorRule, icon_color, set_icon_color};
 
 /// GNOME has no cancel style: cancel buttons are normal buttons.
 pub(super) fn role_class(role: ButtonRole) -> Option<&'static str> {
@@ -28,6 +30,11 @@ pub(super) struct ButtonFace {
     /// The app's own icon, which wins over the named one (`None` inside:
     /// unset). GTK can't give it back.
     pub(super) vector: Option<Option<VectorIcon>>,
+    /// The icon's colour, once the app gave one: on the image alone, so
+    /// the caption and the button keep the theme's.
+    pub(super) color: Option<Color>,
+    /// Its rule in the display's style sheet, while the image uses one.
+    color_rule: Option<IconColorRule>,
 }
 
 /// What a `gtk::Button` and a `gtk::MenuButton` both do with a caption
@@ -105,7 +112,21 @@ impl Face for gtk::MenuButton {
 }
 
 impl ButtonFace {
-    pub(super) fn show(&self, button: &impl Face) {
+    /// Shows the face, then colours its icon: the image may be a new one.
+    pub(super) fn show(&mut self, button: &impl Face) {
+        self.show_face(button);
+        self.color_icon(button);
+    }
+
+    /// Colours the image the button shows, if it has one and a colour.
+    pub(super) fn color_icon(&mut self, button: &impl Face) {
+        let (Some(color), Some(image)) = (self.color, shown_image(button)) else { return };
+        // The new rule before the old one goes, so a shared one stays.
+        let rule = set_icon_color(&image, color);
+        self.color_rule = rule;
+    }
+
+    fn show_face(&self, button: &impl Face) {
         if let Some(gicon) = self.vector.clone().flatten().and_then(|v| super::vector_icon::gicon(&v)) {
             let image = gtk::Image::from_gicon(&gicon);
             if self.icon_only == Some(true) {
@@ -152,6 +173,7 @@ impl ButtonFace {
             props.extend(self.icon.clone().map(Prop::Icon));
             props.extend(self.icon_only.map(|_| Prop::IconOnly(only)));
             props.extend(self.vector.clone().map(Prop::VectorIcon));
+            props.extend(self.shown_color(button).map(Prop::TextColor));
             return props;
         }
         let content = child.as_ref().and_then(|c| c.downcast_ref::<adw::ButtonContent>());
@@ -171,8 +193,40 @@ impl ButtonFace {
             props.push(Prop::IconOnly(if given.is_empty() { asked } else { only }));
         }
         props.extend(self.vector.clone().map(Prop::VectorIcon));
+        props.extend(self.shown_color(button).map(Prop::TextColor));
         props
     }
+
+    /// The colour the icon's image has, or the one given while it shows
+    /// none (a caption alone).
+    fn shown_color(&self, button: &impl Face) -> Option<Color> {
+        self.color?;
+        match shown_image(button) {
+            Some(image) => icon_color(&image, self.color),
+            None => self.color,
+        }
+    }
+}
+
+/// The image a button shows: alone, in our box with its caption, or in a
+/// `ButtonContent`; GTK's own for an icon name.
+fn shown_image(button: &impl Face) -> Option<gtk::Image> {
+    let child = button.shown_child()?;
+    first_image(&child)
+}
+
+fn first_image(widget: &gtk::Widget) -> Option<gtk::Image> {
+    if let Some(image) = widget.downcast_ref::<gtk::Image>() {
+        return Some(image.clone());
+    }
+    let mut child = widget.first_child();
+    while let Some(c) = child {
+        if let Some(image) = first_image(&c) {
+            return Some(image);
+        }
+        child = c.next_sibling();
+    }
+    None
 }
 
 /// What a button shows of a vector icon: the image alone (`Some(None)`), or

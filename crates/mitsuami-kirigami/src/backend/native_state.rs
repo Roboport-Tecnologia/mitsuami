@@ -100,6 +100,8 @@ impl KirigamiBackend {
                     props
                         .push(Prop::IconOnly(b.bool("mitsuamiShownIconOnly") || (!icon && b.bool("mitsuamiIconOnly"))));
                 }
+                props
+                    .extend(qml::color_from(b.int("mitsuamiColor"), b.int("mitsuamiRgba") as u32).map(Prop::TextColor));
             }
             Widget::Checkbox(c) => {
                 props.push(Prop::Label(c.str("text")));

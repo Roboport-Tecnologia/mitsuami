@@ -184,6 +184,12 @@ impl State {
                 node.button.icon_only = Some(*only);
                 node.button.show(b);
             }
+            // The icon's colour, on its image alone: the caption and the
+            // button (a toggle's pressed look too) keep the theme's.
+            (Prop::TextColor(color), Widget::Button(b)) => {
+                node.button.color = Some(*color);
+                node.button.color_icon(b);
+            }
             (Prop::Label(t), Widget::MenuButton { button, .. }) => {
                 node.button.label = t.clone();
                 node.button.show(button);

@@ -9,8 +9,10 @@ use super::{TEXT_STYLE, a11y};
 /// the app's own (`mitsuamiIconFile`, an SVG file's URL, which wins),
 /// tinted in the button's text colour as the style tints symbolic icons;
 /// beside the text unless `mitsuamiIconOnly`, which keeps the text as its
-/// accessible name, as Qt's `IconOnly` buttons do. `mitsuamiShown*` read
-/// back what the button shows.
+/// accessible name, as Qt's `IconOnly` buttons do. A colour the app gave
+/// (`mitsuamiColor`, as a label's) goes to the icon only: the text and the
+/// checked look stay the style's. `mitsuamiShown*` read back what the
+/// button shows.
 pub(crate) fn button() -> String {
     button_with("")
 }
@@ -49,6 +51,8 @@ fn button_with(extra: &str) -> String {
     format!(
         r#"
 QQC2.Button {{
+    property int mitsuamiColor: -1
+    property int mitsuamiRgba: 0
     property bool mitsuamiDefault: false
     property string mitsuamiIcon: ""
     property string mitsuamiIconFile: ""
@@ -59,13 +63,14 @@ QQC2.Button {{
     Accessible.defaultButton: mitsuamiDefault
     icon.name: mitsuamiIconFile !== "" ? "" : mitsuamiIcon
     icon.source: mitsuamiIconFile
-    icon.color: mitsuamiIconFile !== "" ? palette.buttonText : "transparent"
+    icon.color: {} ?? (mitsuamiIconFile !== "" ? palette.buttonText : "transparent")
     display: mitsuamiIconOnly && (mitsuamiIcon !== "" || mitsuamiIconFile !== "") ? QQC2.AbstractButton.IconOnly : QQC2.AbstractButton.TextBesideIcon
     {TEXT_STYLE}
     {}
     {extra}
 }}
 "#,
+        color_binding!(),
         a11y("text")
     )
 }

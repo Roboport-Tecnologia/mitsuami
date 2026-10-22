@@ -134,7 +134,8 @@ impl State {
                 let lines = l.int("maximumLineCount");
                 set_elide(*l, (lines != i32::MAX).then_some(lines as u32), *truncation);
             }
-            (Prop::TextColor(color), Widget::Label(l) | Widget::Icon(l)) => {
+            // A button's colours its icon, through `icon.color`.
+            (Prop::TextColor(color), Widget::Label(l) | Widget::Icon(l) | Widget::Button(l)) => {
                 if let Color::Rgba(r, g, b, a) = *color {
                     l.set_int("mitsuamiRgba", u32::from_be_bytes([r, g, b, a]) as i32);
                 }

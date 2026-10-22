@@ -107,7 +107,7 @@ impl State {
                     Prop::Label(t) => t.clone(),
                     _ => pull_down_title(&node.widget),
                 };
-                let icon = icon_image(node.icon.as_deref(), node.vector_icon.clone().flatten().as_ref(), None);
+                let icon = icon_image(node.icon.as_deref(), node.vector_icon.clone().flatten().as_ref(), None, None);
                 show_pull_down(&node.widget, &label, icon, node.icon_only);
             }
             (Prop::ButtonStyle(style), Widget::MenuButton { popup, .. }) => {
@@ -235,7 +235,7 @@ impl State {
                     _ => {}
                 }
                 let vector = node.vector_icon.clone().flatten();
-                view.setImage(icon_image(node.icon.as_deref(), vector.as_ref(), node.icon_size).as_deref());
+                view.setImage(icon_image(node.icon.as_deref(), vector.as_ref(), node.icon_size, None).as_deref());
             }
             // Tints the symbol, as a template image; images in colour keep
             // theirs.
@@ -244,15 +244,18 @@ impl State {
                 view.setContentTintColor(Some(&crate::custom::ns_color(*color)));
             }
             // The button sizes the symbol for its bezel and font, before
-            // its title unless it shows only the image.
-            (Prop::Icon(_) | Prop::VectorIcon(_), Widget::Button(b)) => {
+            // its title unless it shows only the image. In a colour, the
+            // image is in it: AppKit tints only borderless buttons' images,
+            // and a tinted toggle looks the same pressed or not.
+            (Prop::Icon(_) | Prop::VectorIcon(_) | Prop::TextColor(_), Widget::Button(b)) => {
                 match prop {
                     Prop::Icon(name) => node.icon = Some(name.clone()),
                     Prop::VectorIcon(icon) => node.vector_icon = Some(icon.clone()),
+                    Prop::TextColor(color) => node.text_color = Some(*color),
                     _ => {}
                 }
                 let vector = node.vector_icon.clone().flatten();
-                b.setImage(icon_image(node.icon.as_deref(), vector.as_ref(), None).as_deref());
+                b.setImage(icon_image(node.icon.as_deref(), vector.as_ref(), None, node.text_color).as_deref());
                 b.setImagePosition(image_position(node.icon_only));
             }
             (Prop::IconOnly(only), Widget::Button(b)) => {

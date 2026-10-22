@@ -3,7 +3,7 @@
 //! platform, so the tests pick them with `platform!`. Sizes are each
 //! platform's own: tests only compare them.
 
-use mitsuami::core::backend::CaptureError;
+use mitsuami::core::backend::{CaptureError, Image};
 use mitsuami::core::{Prop, WidgetKind};
 use mitsuami::prelude::*;
 use mitsuami_test::prelude::*;
@@ -149,20 +149,60 @@ async fn draws_in_its_colour(app: TestApp) {
         Err(e) => panic!("capture failed: {e:?}"),
         Ok(image) => image,
     };
-    // Antialiased edges blend with the background: count the solid ones.
-    let red_in = |frame: Rect| {
-        let scale = image.scale_factor;
-        let (x0, y0) = ((frame.x() * scale) as usize, (frame.y() * scale) as usize);
-        let (x1, y1) =
-            (((frame.x() + frame.width()) * scale) as usize, ((frame.y() + frame.height()) * scale) as usize);
-        (y0..y1)
-            .flat_map(|y| (x0..x1).map(move |x| (y * image.width as usize + x) * 4))
-            .filter(|&i| image.rgba[i] > 200 && image.rgba[i + 1] < 80 && image.rgba[i + 2] < 80)
-            .count()
-    };
-    let red = red_in(app.get(icon("Red")).frame());
+    let red = red_in(&image, app.get(icon("Red")).frame());
     assert!(red > 20, "{red} red pixels in the red icon");
-    assert_eq!(red_in(app.get(icon("Plain")).frame()), 0);
+    assert_eq!(red_in(&image, app.get(icon("Plain")).frame()), 0);
+}
+
+/// Solid red pixels in a frame of a capture. Antialiased edges blend with
+/// the background, so only solid ones count.
+fn red_in(image: &Image, frame: Rect) -> usize {
+    let scale = image.scale_factor;
+    let (x0, y0) = ((frame.x() * scale) as usize, (frame.y() * scale) as usize);
+    let (x1, y1) = (((frame.x() + frame.width()) * scale) as usize, ((frame.y() + frame.height()) * scale) as usize);
+    (y0..y1)
+        .flat_map(|y| (x0..x1).map(move |x| (y * image.width as usize + x) * 4))
+        .filter(|&i| image.rgba[i] > 200 && image.rgba[i + 1] < 80 && image.rgba[i + 2] < 80)
+        .count()
+}
+
+/// A button's and a toggle button's icon take the colour they're given,
+/// pressed or not, as the bookmarks of a Git client's picker do; their
+/// captions keep the platform's.
+#[mitsuami_test::test]
+async fn button_icons_take_the_colour_they_are_given(app: TestApp) {
+    let on = signal(false);
+    app.mount(move || {
+        Row::new().align(Align::Start).padding(10).gap(10).children((
+            Button::new("Red").vector_icon(plus_icon()).icon_only(true).icon_color(Color::rgb(255, 0, 0)),
+            ToggleButton::new("Red toggle")
+                .vector_icon(plus_icon())
+                .icon_only(true)
+                .icon_color(Color::rgb(255, 0, 0))
+                .bind(on),
+            Button::new("Plain").vector_icon(plus_icon()).icon_only(true),
+        ))
+    });
+    let (red, toggle, plain) =
+        (by_role(Role::Button, "Red"), by_role(Role::ToggleButton, "Red toggle"), by_role(Role::Button, "Plain"));
+    app.expect(plain.clone()).to_be_visible().await;
+    assert!(has(&app, red.clone(), Prop::TextColor(Color::rgb(255, 0, 0))));
+    assert!(has(&app, toggle.clone(), Prop::TextColor(Color::rgb(255, 0, 0))));
+
+    for pressed in [false, true] {
+        on.set(pressed);
+        app.settle().await;
+        let image = match app.ui().capture(app.window()).await {
+            Err(CaptureError::Unsupported) => return assert!(app.is_headless(), "only headless may lack capture"),
+            Err(e) => panic!("capture failed: {e:?}"),
+            Ok(image) => image,
+        };
+        for query in [red.clone(), toggle.clone()] {
+            let count = red_in(&image, app.get(query.clone()).frame());
+            assert!(count > 10, "{count} red pixels in {query:?}, pressed: {pressed}");
+        }
+        assert_eq!(red_in(&image, app.get(plain.clone()).frame()), 0);
+    }
 }
 
 /// An icon goes before the caption and makes the button wider; alone,

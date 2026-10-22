@@ -116,6 +116,8 @@ pub(super) fn native_state(state: &State, id: NodeId) -> Option<NativeState> {
             if node.icon_only.is_some() {
                 props.push(Prop::IconOnly(b.imagePosition() == NSCellImagePosition::ImageOnly));
             }
+            // Drawn into its image: AppKit can't give it back.
+            props.extend(node.text_color.map(Prop::TextColor));
         }
         Widget::Icon(view) => {
             if let Some(label) = view.accessibilityLabel() {

@@ -4,7 +4,7 @@ use mitsuami_core::{ButtonRole, ButtonStyle, Prop, VectorIcon};
 use windows_core::{IInspectable, Interface};
 
 use super::native_state::elements;
-use super::styles::style;
+use super::styles::{foreground_style, style};
 use super::{Node, R, Widget, boxed, unboxed};
 use crate::bindings as w;
 
@@ -51,14 +51,21 @@ pub(super) fn set_button_content(node: &Node) -> R<()> {
         w::AutomationProperties::SetName(&node.element, "")?;
         return control.SetContent(&boxed(&node.caption));
     }
-    let icon: w::UIElement = match &vector {
-        Some(vector) => path_icon(vector, BUTTON_ICON_SIDE)?.cast()?,
+    let (icon, target): (w::UIElement, _) = match &vector {
+        Some(vector) => (path_icon(vector, BUTTON_ICON_SIDE)?.cast()?, "PathIcon"),
         None => {
             let icon = w::FontIcon::new()?;
             icon.cast::<w::IFontIcon>()?.SetGlyph(&node.icon)?;
-            icon.cast()?
+            (icon.cast()?, "FontIcon")
         }
     };
+    // The app's colour is the icon's alone: the caption and the button's
+    // states (a toggle's checked fill) stay Fluent's.
+    if let Some(color) = node.text_color
+        && matches!(node.widget, Widget::Button(_) | Widget::Toggle(_))
+    {
+        icon.cast::<w::IFrameworkElement>()?.SetStyle(&foreground_style(target, color)?)?;
+    }
     // UIA reads a panel's or icon's content as nothing: the caption names
     // the button either way.
     w::AutomationProperties::SetName(&node.element, &node.caption)?;

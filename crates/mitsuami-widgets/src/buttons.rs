@@ -3,8 +3,8 @@
 use mitsuami_core::services::{Menu, MenuEntries, install_button_menu};
 
 use mitsuami_core::{
-    ButtonRole, ButtonStyle, Element, ElementBuilder, EventValue, NodeId, Prop, Tweak, Ui, UiEvent, VectorIcon, View,
-    WidgetKind,
+    ButtonRole, ButtonStyle, Color, Element, ElementBuilder, EventValue, NodeId, Prop, Tweak, Ui, UiEvent, VectorIcon,
+    View, WidgetKind,
 };
 use mitsuami_reactive::{IntoValue, Signal};
 
@@ -49,6 +49,14 @@ impl Button {
     /// tooltip saying it too is up to the app, as platforms leave it.
     pub fn icon_only(mut self, only: impl IntoValue<bool>) -> Button {
         self.0.prop(only.into_value(), Prop::IconOnly);
+        self
+    }
+
+    /// Its icon's colour, in place of the one the platform gives button
+    /// icons, as for [`Icon::color`](crate::Icon::color); the caption keeps
+    /// the platform's.
+    pub fn icon_color(mut self, color: impl IntoValue<Color>) -> Button {
+        self.0.prop(color.into_value(), Prop::TextColor);
         self
     }
 
@@ -109,6 +117,12 @@ impl ToggleButton {
     /// Shows only its icon. The caption stays its accessible name.
     pub fn icon_only(mut self, only: impl IntoValue<bool>) -> ToggleButton {
         self.0.prop(only.into_value(), Prop::IconOnly);
+        self
+    }
+
+    /// Its icon's colour, as for [`Button::icon_color`].
+    pub fn icon_color(mut self, color: impl IntoValue<Color>) -> ToggleButton {
+        self.0.prop(color.into_value(), Prop::TextColor);
         self
     }
 

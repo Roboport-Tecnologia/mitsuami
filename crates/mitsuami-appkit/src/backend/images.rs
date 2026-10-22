@@ -6,7 +6,7 @@ use std::collections::HashMap;
 use std::path::Path;
 
 use block2::RcBlock;
-use mitsuami_core::{ImageSource, PathStep, VectorIcon};
+use mitsuami_core::{Color, ImageSource, PathStep, VectorIcon};
 use objc2::rc::{Retained, Weak};
 use objc2::runtime::Bool;
 use objc2::{AnyThread, MainThreadMarker};
@@ -15,7 +15,7 @@ use objc2_app_kit::{
     NSFontWeightRegular, NSImage, NSImageSymbolConfiguration, NSImageView, NSScreen, NSWindingRule, NSWorkspace,
 };
 use objc2_core_foundation::CGSize;
-use objc2_foundation::{NSError, NSPoint, NSRect, NSSize, NSURL};
+use objc2_foundation::{NSArray, NSError, NSPoint, NSRect, NSSize, NSURL};
 use objc2_quick_look_thumbnailing::{
     QLThumbnailGenerationRequest, QLThumbnailGenerationRequestRepresentationTypes, QLThumbnailGenerator,
     QLThumbnailRepresentation,
@@ -44,8 +44,10 @@ pub(super) fn symbol(name: &str, points: Option<f32>) -> Option<Retained<NSImage
 
 /// The app's own icon, `side` points square, as a template image: AppKit
 /// tints it as it tints symbols (an image view's grey, a button's title's
-/// colour, `contentTintColor`). It's drawn at each scale it's shown at.
-pub(super) fn vector_image(icon: &VectorIcon, side: f32) -> Retained<NSImage> {
+/// colour, `contentTintColor`). In a colour, it's an image in that colour,
+/// resolved as it's drawn, so a semantic one follows the appearance. It's
+/// drawn at each scale it's shown at.
+pub(super) fn vector_image(icon: &VectorIcon, side: f32, color: Option<Color>) -> Retained<NSImage> {
     let steps = icon.steps(side);
     let even_odd = icon.even_odd();
     let draw = RcBlock::new(move |_: NSRect| -> Bool {
@@ -80,26 +82,35 @@ pub(super) fn vector_image(icon: &VectorIcon, side: f32) -> Retained<NSImage> {
         if even_odd {
             path.setWindingRule(NSWindingRule::EvenOdd);
         }
-        NSColor::blackColor().setFill();
+        color.map_or_else(NSColor::blackColor, crate::custom::ns_color).setFill();
         path.fill();
         Bool::YES
     });
     let size = NSSize::new(f64::from(side), f64::from(side));
     let image = NSImage::imageWithSize_flipped_drawingHandler(size, true, &draw);
-    image.setTemplate(true);
+    image.setTemplate(color.is_none());
     image
 }
 
 /// What an icon shows: the app's own icon over a named one. Without a
 /// size, the app's own is as big as a symbol at the system font's size.
+/// In a colour, it's in that colour, not a template AppKit tints: for
+/// buttons, which tint only when borderless.
 pub(super) fn icon_image(
     name: Option<&str>,
     vector: Option<&VectorIcon>,
     points: Option<f32>,
+    color: Option<Color>,
 ) -> Option<Retained<NSImage>> {
     match vector {
-        Some(icon) => Some(vector_image(icon, points.unwrap_or(DEFAULT_VECTOR_SIDE))),
-        None => name.and_then(|name| symbol(name, points)),
+        Some(icon) => Some(vector_image(icon, points.unwrap_or(DEFAULT_VECTOR_SIDE), color)),
+        None => {
+            let image = name.and_then(|name| symbol(name, points))?;
+            let Some(color) = color else { return Some(image) };
+            let colors = NSArray::from_retained_slice(&[crate::custom::ns_color(color)]);
+            let config = NSImageSymbolConfiguration::configurationWithPaletteColors(&colors);
+            image.imageWithSymbolConfiguration(&config).or(Some(image))
+        }
     }
 }
 

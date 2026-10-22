@@ -110,9 +110,14 @@ impl WinUiBackend {
                     props.push(Prop::Placeholder(placeholder));
                 }
             }
-            Widget::Button(_) => props.extend(button_content(node)),
+            // The icon's colour is a theme resource in its style: kept.
+            Widget::Button(_) => {
+                props.extend(button_content(node));
+                props.extend(node.text_color.map(Prop::TextColor));
+            }
             Widget::Toggle(b) => {
                 props.extend(button_content(node));
+                props.extend(node.text_color.map(Prop::TextColor));
                 props.push(Prop::Checked(b.cast::<w::IToggleButton>().ok()?.IsChecked().unwrap_or(false)));
             }
             Widget::MenuButton(b) => {
