@@ -540,6 +540,7 @@ async fn lists_ask_for_rows_and_report_the_selection(app: TestApp) {
         user: std::ptr::null_mut(),
         moves: 1,
         moved,
+        still: 1,
     });
     assert_ne!(list, 0);
     assert!(mitsuami_set_size(list, px(300.0), px(200.0)));

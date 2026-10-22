@@ -8,6 +8,7 @@ use mitsuami_core::{NodeId, Rect, Size, UiEvent};
 use windows_core::{IInspectable, Interface};
 
 use super::measure::measure_element;
+use super::styles::tabs_on_mica;
 use super::{
     Events, MenuBarPlace, R, SPACING, TitleTabs, ToolbarAlign, ToolbarPlace, WindowParts, WindowPlacement, ok,
 };
@@ -396,7 +397,9 @@ pub(super) fn put_tabs_in_title_bar(parts: &mut WindowParts, id: NodeId, view: &
     let background = view
         .cast::<w::IDependencyObject>()?
         .RegisterPropertyChangedCallback(&w::Control::BackgroundProperty()?, &painter)?;
-    parts.title_tabs = Some(TitleTabs { id, view: view.clone(), _regrow: regrow, background });
+    let on_mica = tabs_on_mica()?;
+    view.cast::<w::IFrameworkElement>()?.Resources()?.MergedDictionaries()?.Append(&on_mica)?;
+    parts.title_tabs = Some(TitleTabs { id, view: view.clone(), _regrow: regrow, background, on_mica });
     chrome_changed(parts, before)?;
     sit_on_bottom(&parts.title_bar, &element, &dropped);
     Ok(())
@@ -426,10 +429,11 @@ fn sit_on_bottom(title_bar: &w::TitleBar, view: &w::UIElement, dropped: &Cell<f6
         let top = view.cast::<w::IUIElement>()?.TransformToVisual(&bar)?.TransformPoint(w::Point { x: 0.0, y: 0.0 })?.y;
         let height = view.cast::<w::IFrameworkElement>()?.ActualHeight()?;
         let room = title_bar.cast::<w::IFrameworkElement>()?.ActualHeight()?;
-        // Where the bottom would be without the margin.
-        let gap = room - (top as f64 + height - dropped.get());
-        if height > 0.0 && (gap - dropped.get()).abs() > 0.25 {
-            dropped.set(gap.max(0.0));
+        // The title bar centres its content, so the margin moves the view
+        // half as far: twice what's left between its bottom and the bar's.
+        let left = room - (top as f64 + height);
+        if height > 0.0 && left.abs() > 0.25 {
+            dropped.set((dropped.get() + 2.0 * left).max(0.0));
             let margin = w::Thickness { left: 0.0, top: 0.0, right: 0.0, bottom: -dropped.get() };
             view.cast::<w::IFrameworkElement>()?.SetMargin(margin)?;
         }
@@ -443,6 +447,11 @@ pub(super) fn take_tabs_from_title_bar(parts: &mut WindowParts) -> R<()> {
     let Some(tabs) = parts.title_tabs.take() else { return Ok(()) };
     let view = &tabs.view;
     view.cast::<w::IFrameworkElement>()?.SetMargin(w::Thickness::default())?;
+    let merged = view.cast::<w::IFrameworkElement>()?.Resources()?.MergedDictionaries()?;
+    let mut index = 0;
+    if merged.IndexOf(&tabs.on_mica, &mut index)? {
+        merged.RemoveAt(index)?;
+    }
     view.cast::<w::IDependencyObject>()?
         .UnregisterPropertyChangedCallback(&w::Control::BackgroundProperty()?, tabs.background)?;
     parts.backdrop.cast::<w::IMicaBackdrop>()?.SetKind(w::MicaKind::Base)?;

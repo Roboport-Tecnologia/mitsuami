@@ -1206,6 +1206,11 @@ pub struct MitsuamiListCallbacks {
     /// order, and where: `to` is 0 onto the row `to_key`, 1 before it, 2
     /// at the end.
     pub moved: extern "C" fn(*mut c_void, u32, *const MitsuamiStr, usize, u32, *const u8, usize),
+    /// Nonzero: rows don't animate in where the platform animates them
+    /// (WinUI's list view slides and fades them in, again when they all
+    /// change), for lists whose rows move or change wholesale. 0 keeps the
+    /// platform's.
+    pub still: u32,
 }
 
 struct ListState {
@@ -1272,6 +1277,13 @@ pub extern "C" fn mitsuami_create_list(callbacks: MitsuamiListCallbacks) -> u32 
             .on_activate(move |key: String| {
                 (activate_cb.activated)(activate_cb.user, activate_id.get(), key.as_ptr(), key.len())
             });
+            let list = match cb.still {
+                0 => list,
+                _ => list.native(mitsuami::platform! {
+                    windows => mitsuami::winui::without_item_animations(),
+                    _ => mitsuami::Tweak::none(),
+                }),
+            };
             let list = match cb.moves {
                 0 => list,
                 moves => {

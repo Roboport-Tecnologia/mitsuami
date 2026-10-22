@@ -525,6 +525,7 @@ impl State {
                 hover: None,
                 double_click: None,
                 header: None,
+                header_filled: false,
                 header_edge: None,
                 keys: None,
                 direction: None,

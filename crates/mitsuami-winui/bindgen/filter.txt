@@ -93,7 +93,7 @@ Microsoft.UI.Xaml.Controls.ITextBlock::{get_Text, put_Text, put_TextWrapping, ge
 Microsoft.UI.Xaml.Media.FontFamily::CreateInstanceWithName
 Windows.UI.Text.FontWeight
 Windows.UI.Text.FontStyle
-Microsoft.UI.Xaml.Controls.IControl::{get_IsEnabled, put_IsEnabled, get_FontSize, put_FontSize, get_FontFamily, put_FontWeight, put_FontFamily, get_Background, put_Background, put_BorderThickness, get_CornerRadius, put_CornerRadius, put_VerticalContentAlignment}
+Microsoft.UI.Xaml.Controls.IControl::{get_IsEnabled, put_IsEnabled, get_FontSize, put_FontSize, get_FontFamily, put_FontWeight, put_FontFamily, get_Background, put_Background, put_BorderThickness, get_CornerRadius, put_CornerRadius, put_VerticalContentAlignment, get_Padding, put_Padding}
 Microsoft.UI.Xaml.Thickness
 Microsoft.UI.Xaml.Controls.IContentControl::{get_Content, put_Content, get_ContentTemplateRoot}
 Microsoft.UI.Xaml.Controls.Button::CreateInstance
@@ -138,7 +138,7 @@ Microsoft.UI.Xaml.Controls.ListViewItem::{}
 Microsoft.UI.Xaml.Controls.Primitives.SelectorItem::{}
 Microsoft.UI.Xaml.Controls.Primitives.ISelector::{get_SelectedIndex, put_SelectedIndex, add_SelectionChanged, remove_SelectionChanged}
 Microsoft.UI.Xaml.Controls.SelectionChangedEventHandler
-Microsoft.UI.Xaml.Controls.IItemsControl::{get_Items, put_ItemContainerStyle, put_ItemTemplate, get_ItemContainerTransitions, put_ItemContainerTransitions}
+Microsoft.UI.Xaml.Controls.IItemsControl::{get_Items, put_ItemContainerStyle, put_ItemTemplate, get_ItemContainerTransitions, put_ItemContainerTransitions, get_ItemsPanelRoot}
 Microsoft.UI.Xaml.Media.Animation.TransitionCollection::{}
 Microsoft.UI.Xaml.DataTemplate::{}
 Microsoft.UI.Xaml.Controls.IItemContainerMapping::{ItemFromContainer, ContainerFromItem}
@@ -310,6 +310,8 @@ Microsoft.UI.Xaml.Controls.Border::CreateInstance
 Microsoft.UI.Xaml.Controls.IBorder::{get_Child, put_Child, get_CornerRadius, put_CornerRadius, get_Background, put_Background}
 Microsoft.UI.Xaml.Controls.Border::BackgroundProperty
 Microsoft.UI.Xaml.Controls.Control::BackgroundProperty
+Microsoft.UI.Xaml.Controls.Control::PaddingProperty
+Microsoft.UI.Xaml.Controls.Panel::BackgroundProperty
 Microsoft.UI.Xaml.DependencyProperty::UnsetValue
 Microsoft.UI.Xaml.IDependencyObject::{RegisterPropertyChangedCallback, UnregisterPropertyChangedCallback, ReadLocalValue, ClearValue}
 Microsoft.UI.Xaml.DependencyPropertyChangedCallback

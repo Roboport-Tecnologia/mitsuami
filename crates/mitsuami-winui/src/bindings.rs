@@ -1664,6 +1664,16 @@ pub struct Control(windows_core::IUnknown);
 windows_core::imp::interface_hierarchy!(Control, windows_core::IUnknown, windows_core::IInspectable);
 windows_core::imp::required_hierarchy!(Control, FrameworkElement, UIElement, DependencyObject);
 impl Control {
+    pub fn PaddingProperty() -> windows_core::Result<DependencyProperty> {
+        Self::IControlStatics(|this| unsafe {
+            let mut result__ = core::mem::zeroed();
+            (windows_core::Interface::vtable(this).PaddingProperty)(
+                windows_core::Interface::as_raw(this),
+                &mut result__,
+            )
+            .and_then(|| windows_core::imp::Type::from_abi(result__))
+        })
+    }
     pub fn BackgroundProperty() -> windows_core::Result<DependencyProperty> {
         Self::IControlStatics(|this| unsafe {
             let mut result__ = core::mem::zeroed();
@@ -5200,6 +5210,16 @@ impl IControl {
             (windows_core::Interface::vtable(self).SetIsEnabled)(windows_core::Interface::as_raw(self), value).ok()
         }
     }
+    pub fn Padding(&self) -> windows_core::Result<Thickness> {
+        unsafe {
+            let mut result__ = core::mem::zeroed();
+            (windows_core::Interface::vtable(self).Padding)(windows_core::Interface::as_raw(self), &mut result__)
+                .map(|| result__)
+        }
+    }
+    pub fn SetPadding(&self, value: Thickness) -> windows_core::Result<()> {
+        unsafe { (windows_core::Interface::vtable(self).SetPadding)(windows_core::Interface::as_raw(self), value).ok() }
+    }
     pub fn SetVerticalContentAlignment(&self, value: VerticalAlignment) -> windows_core::Result<()> {
         unsafe {
             (windows_core::Interface::vtable(self).SetVerticalContentAlignment)(
@@ -5280,8 +5300,8 @@ pub struct IControl_Vtbl {
     SetTabNavigation: usize,
     Template: usize,
     SetTemplate: usize,
-    Padding: usize,
-    SetPadding: usize,
+    pub Padding: unsafe extern "system" fn(*mut core::ffi::c_void, *mut Thickness) -> windows_core::HRESULT,
+    pub SetPadding: unsafe extern "system" fn(*mut core::ffi::c_void, Thickness) -> windows_core::HRESULT,
     HorizontalContentAlignment: usize,
     SetHorizontalContentAlignment: usize,
     VerticalContentAlignment: usize,
@@ -5325,7 +5345,8 @@ pub struct IControlStatics_Vtbl {
     IsEnabledProperty: usize,
     TabNavigationProperty: usize,
     TemplateProperty: usize,
-    PaddingProperty: usize,
+    pub PaddingProperty:
+        unsafe extern "system" fn(*mut core::ffi::c_void, *mut *mut core::ffi::c_void) -> windows_core::HRESULT,
     HorizontalContentAlignmentProperty: usize,
     VerticalContentAlignmentProperty: usize,
     pub BackgroundProperty:
@@ -7308,6 +7329,13 @@ impl IItemsControl {
             .ok()
         }
     }
+    pub fn ItemsPanelRoot(&self) -> windows_core::Result<Panel> {
+        unsafe {
+            let mut result__ = core::mem::zeroed();
+            (windows_core::Interface::vtable(self).ItemsPanelRoot)(windows_core::Interface::as_raw(self), &mut result__)
+                .and_then(|| windows_core::imp::Type::from_abi(result__))
+        }
+    }
     pub fn SetItemContainerStyle<P0>(&self, value: P0) -> windows_core::Result<()>
     where
         P0: windows_core::Param<Style>,
@@ -7358,7 +7386,8 @@ pub struct IItemsControl_Vtbl {
     SetItemsPanel: usize,
     DisplayMemberPath: usize,
     SetDisplayMemberPath: usize,
-    ItemsPanelRoot: usize,
+    pub ItemsPanelRoot:
+        unsafe extern "system" fn(*mut core::ffi::c_void, *mut *mut core::ffi::c_void) -> windows_core::HRESULT,
     ItemContainerStyle: usize,
     pub SetItemContainerStyle:
         unsafe extern "system" fn(*mut core::ffi::c_void, *mut core::ffi::c_void) -> windows_core::HRESULT,
@@ -8979,6 +9008,16 @@ pub struct IPanel_Vtbl {
     Background: usize,
     pub SetBackground:
         unsafe extern "system" fn(*mut core::ffi::c_void, *mut core::ffi::c_void) -> windows_core::HRESULT,
+}
+windows_core::imp::define_interface!(IPanelStatics, IPanelStatics_Vtbl, 0x76a9caa7_a5d4_5061_a325_17c76f66de51);
+impl windows_core::RuntimeType for IPanelStatics {
+    const SIGNATURE: windows_core::imp::ConstBuffer = windows_core::imp::ConstBuffer::for_interface::<Self>();
+}
+#[repr(C)]
+pub struct IPanelStatics_Vtbl {
+    pub base__: windows_core::IInspectable_Vtbl,
+    pub BackgroundProperty:
+        unsafe extern "system" fn(*mut core::ffi::c_void, *mut *mut core::ffi::c_void) -> windows_core::HRESULT,
 }
 windows_core::imp::define_interface!(IPasswordBox, IPasswordBox_Vtbl, 0x6d3ccff7_aaee_5adc_8298_33300fa119da);
 impl windows_core::RuntimeType for IPasswordBox {
@@ -16183,6 +16222,22 @@ pub const PackageDependencyProcessorArchitectures_X86A64: PackageDependencyProce
 pub struct Panel(windows_core::IUnknown);
 windows_core::imp::interface_hierarchy!(Panel, windows_core::IUnknown, windows_core::IInspectable);
 windows_core::imp::required_hierarchy!(Panel, FrameworkElement, UIElement, DependencyObject);
+impl Panel {
+    pub fn BackgroundProperty() -> windows_core::Result<DependencyProperty> {
+        Self::IPanelStatics(|this| unsafe {
+            let mut result__ = core::mem::zeroed();
+            (windows_core::Interface::vtable(this).BackgroundProperty)(
+                windows_core::Interface::as_raw(this),
+                &mut result__,
+            )
+            .and_then(|| windows_core::imp::Type::from_abi(result__))
+        })
+    }
+    fn IPanelStatics<R, F: FnOnce(&IPanelStatics) -> windows_core::Result<R>>(callback: F) -> windows_core::Result<R> {
+        static SHARED: windows_core::imp::FactoryCache<Panel, IPanelStatics> = windows_core::imp::FactoryCache::new();
+        SHARED.call(callback)
+    }
+}
 impl windows_core::RuntimeType for Panel {
     const SIGNATURE: windows_core::imp::ConstBuffer = windows_core::imp::ConstBuffer::for_class::<Self, IPanel>();
 }

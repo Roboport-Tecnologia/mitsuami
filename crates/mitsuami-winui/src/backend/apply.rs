@@ -8,6 +8,7 @@ use windows_core::{IInspectable, Interface};
 
 use super::fields::{box_text, search_text};
 use super::scroll::{scroll_now, shift_wheel};
+use super::styles::header_fill_style;
 use super::windows::{
     CONTENT_ROW, apply_min_size, client_insets, in_full_screen, insert_toolbar_item, put_tabs_in_title_bar,
     remove_sidebar, remove_toolbar_item, resize_client, resize_client_with, scale_of, take_tabs_from_title_bar,
@@ -239,6 +240,7 @@ impl State {
                 if let Widget::GpuSurface(surface) = &node.widget {
                     surface.detach();
                 }
+                self.headers.retain(|h| h != id);
                 // Tabs in their window's title bar leave it.
                 if let Widget::DocumentTabs(tabs) = &node.widget {
                     self.document_tabs.retain(|t| t != id);
@@ -293,6 +295,9 @@ impl State {
                 let fe: w::IFrameworkElement = element.cast()?;
                 fe.SetWidth(frame.width() as f64)?;
                 fe.SetHeight(frame.height() as f64)?;
+                if let Widget::Button(_) | Widget::Toggle(_) = &self.nodes[id].widget {
+                    super::controls::fit_icon_padding(&self.nodes[id])?;
+                }
                 if let Widget::List(list) = &self.nodes[id].widget {
                     list.set_width(frame.width());
                 }
@@ -587,6 +592,31 @@ impl State {
             }
             // In the title bar, they take no room in the content.
             self.emitter().emit(id, UiEvent::Remeasure);
+        }
+    }
+
+    /// Fills headers as the chosen tab is while their window's tabs are in
+    /// its title bar, as File Explorer's command bar sits on its chosen
+    /// tab's colour; elsewhere a header is the content's top, unfilled.
+    pub(super) fn place_headers(&mut self) {
+        for id in self.headers.clone() {
+            let tabs = self.window_of(id).is_some_and(|parts| parts.title_tabs.is_some());
+            let Some(node) = self.nodes.get_mut(&id) else { continue };
+            let filled = tabs && node.header == Some(true);
+            if node.header_filled == filled {
+                continue;
+            }
+            node.header_filled = filled;
+            if let Err(error) = (|| -> R<()> {
+                let element = node.element.cast::<w::IFrameworkElement>()?;
+                match filled {
+                    true => element.SetStyle(&header_fill_style()?)?,
+                    false => element.SetStyle(None::<&w::Style>)?,
+                }
+                set_hit_testable(node)
+            })() {
+                panic!("winui backend: filling header {id}: {error}");
+            }
         }
     }
 

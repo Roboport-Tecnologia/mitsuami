@@ -12,6 +12,8 @@
 //!   drags a selection.
 //! - Repositories in a group are indented as the platform indents a
 //!   tree's levels (`Spacing::Indent`).
+//! - Rows don't animate in on WinUI (`winui::without_item_animations`),
+//!   so a moved row just takes its place.
 //! - Dragging isn't reachable from the keyboard or a screen reader, so Move
 //!   Up and Move Down move the selected song too.
 
@@ -106,6 +108,9 @@ fn groups() -> impl View {
         .selected(signal(Vec::new()))
         .on_move(RowMoves::onto_rows(), moved)
         .list_style(ListStyle::Framed)
+        // Moved rows just take their new places: XAML's list view slid
+        // and faded every row in again after each move.
+        .native(platform! { windows => mitsuami::winui::without_item_animations(), _ => Tweak::none() })
         .grow(1.0),
         Text::new(status).color(Color::SecondaryLabel),
     ))
@@ -155,6 +160,9 @@ fn playlist() -> impl View {
         .selection_mode(SelectionMode::Multiple)
         .on_move(RowMoves::between_rows(), moved)
         .list_style(ListStyle::Framed)
+        // Moved rows just take their new places: XAML's list view slid
+        // and faded every row in again after each move.
+        .native(platform! { windows => mitsuami::winui::without_item_animations(), _ => Tweak::none() })
         .grow(1.0),
         Row::new().gap(Spacing::Sm).children((
             Button::new("Move Up").enabled(move || !selected.get().is_empty()).on_click(move || step(false)),

@@ -403,12 +403,8 @@ fn drop_target(d: &Data, dragged: &[RowKey], proposed: RowDrop<RowKey>) -> Optio
 /// next row in its bottom quarter (at the end past the last row), and at
 /// the end where no row is.
 fn proposed(view: &w::ListView, d: &Data, args: &w::DragEventArgs) -> RowDrop<RowKey> {
-    let source = args.cast::<w::IRoutedEventArgs>().ok().and_then(|a| a.OriginalSource().ok());
-    let Some((container, row)) = source.and_then(|s| container_of(view, &s)) else { return RowDrop::End };
+    let Some((row, y, height)) = row_under(view, args) else { return RowDrop::End };
     let Some(index) = d.index.get(&row).copied() else { return RowDrop::End };
-    let height = container.cast::<w::IFrameworkElement>().and_then(|e| e.ActualHeight()).unwrap_or(0.0);
-    let y =
-        container.cast::<w::UIElement>().ok().and_then(|c| args.GetPosition(&c).ok()).map_or(0.0, |p| f64::from(p.y));
     if height <= 0.0 || (y >= height / 4.0 && y <= height * 3.0 / 4.0) {
         RowDrop::On(row)
     } else if y < height / 4.0 {
@@ -416,6 +412,28 @@ fn proposed(view: &w::ListView, d: &Data, args: &w::DragEventArgs) -> RowDrop<Ro
     } else {
         d.rows.get(index + 1).map_or(RowDrop::End, |next| RowDrop::Before(*next))
     }
+}
+
+/// The row under a drag's pointer, the pointer's height in it and the
+/// row's height. A drag's `OriginalSource` is the list view itself, not
+/// the row under it, so the rows XAML has made are each asked where the
+/// pointer is.
+fn row_under(view: &w::ListView, args: &w::DragEventArgs) -> Option<(RowKey, f64, f64)> {
+    let panel = view.cast::<w::IItemsControl>().ok()?.ItemsPanelRoot().ok()?;
+    let mapping = view.cast::<w::IItemContainerMapping>().ok()?;
+    let children = panel.cast::<w::IPanel>().ok()?.Children().ok()?;
+    for container in (0..children.Size().unwrap_or(0)).filter_map(|i| children.GetAt(i).ok()) {
+        let height = container.cast::<w::IFrameworkElement>().and_then(|e| e.ActualHeight()).unwrap_or(0.0);
+        let Ok(at) = args.GetPosition(&container) else { continue };
+        let y = f64::from(at.y);
+        if (0.0..height).contains(&y)
+            && let Ok(item) = mapping.ItemFromContainer(&container.cast::<w::DependencyObject>().ok()?)
+            && let Some(row) = key_of(&item)
+        {
+            return Some((row, y, height));
+        }
+    }
+    None
 }
 
 /// Whether a drag over the list is its own rows', as `DragItemsStarting`

@@ -103,6 +103,11 @@ impl DropTarget {
         let weak = Rc::downgrade(&state);
         revokers.push(ui.Drop(move |_, args| {
             let (Some(state), Some(args)) = (weak.upgrade(), args.as_ref()) else { return };
+            // Not files: it goes on to whoever takes it, as a list its own
+            // rows dragged over a row that takes files.
+            if !carries_files(args) {
+                return;
+            }
             _ = args.SetHandled(true);
             let known = state.paths.borrow().clone();
             match known {
@@ -141,11 +146,18 @@ impl DropTarget {
     }
 }
 
-/// Copies while the host takes the drag, as Explorer's own targets do.
+fn carries_files(args: &w::DragEventArgs) -> bool {
+    args.DataView().and_then(|v| v.Contains(&w::StandardDataFormats::StorageItems()?)).unwrap_or(false)
+}
+
+/// Copies while the host takes the drag, as Explorer's own targets do. A
+/// drag without files is left to whoever takes it (a list, its own rows).
 fn accept(state: &DropState, args: &w::DragEventArgs) {
-    let files = args.DataView().and_then(|v| v.Contains(&w::StandardDataFormats::StorageItems()?)).unwrap_or(false);
+    if !carries_files(args) {
+        return;
+    }
     let paths = state.paths.borrow().clone();
-    let takes = files && state.over(paths.as_deref());
+    let takes = state.over(paths.as_deref());
     _ = args.SetAcceptedOperation(if takes { w::DataPackageOperation::Copy } else { w::DataPackageOperation::None });
 }
 

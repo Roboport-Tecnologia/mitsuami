@@ -105,6 +105,25 @@ pub(super) fn separator_style(orientation: Orientation) -> R<w::Style> {
     made_style(markup, None)
 }
 
+/// A header's fill under tabs in the title bar: Mica Alt's commanding
+/// layer (`LayerOnMicaBaseAltFillColorDefaultBrush`), which the chosen
+/// tab takes too (`tabs_on_mica`), so the two are one surface on Mica,
+/// as File Explorer's chosen tab and command bar are. A theme resource in
+/// a setter, so it follows the theme.
+pub(super) fn header_fill_style() -> R<w::Style> {
+    let markup = r#"<Style xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation" TargetType="Canvas"><Setter Property="Background" Value="{ThemeResource LayerOnMicaBaseAltFillColorDefaultBrush}"/></Style>"#;
+    made_style(markup.to_owned(), None)
+}
+
+/// The chosen tab's fill on Mica Alt: its commanding layer, as WinUI's
+/// guidance has for a tabbed title bar and File Explorer's tabs show.
+/// `TabView` fills it with `SolidBackgroundFillColorTertiary`, opaque, as
+/// for a view on a solid background. High contrast keeps WinUI's own.
+pub(super) fn tabs_on_mica() -> R<w::ResourceDictionary> {
+    let markup = r#"<ResourceDictionary xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation" xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"><ResourceDictionary.ThemeDictionaries><ResourceDictionary x:Key="Default"><StaticResource x:Key="TabViewItemHeaderBackgroundSelected" ResourceKey="LayerOnMicaBaseAltFillColorDefaultBrush"/></ResourceDictionary><ResourceDictionary x:Key="Light"><StaticResource x:Key="TabViewItemHeaderBackgroundSelected" ResourceKey="LayerOnMicaBaseAltFillColorDefaultBrush"/></ResourceDictionary><ResourceDictionary x:Key="HighContrast"><StaticResource x:Key="TabViewItemHeaderBackgroundSelected" ResourceKey="SystemColorWindowColorBrush"/></ResourceDictionary></ResourceDictionary.ThemeDictionaries></ResourceDictionary>"#;
+    w::XamlReader::Load(markup)?.cast()
+}
+
 /// A style that sets a `target`'s foreground to a colour, as markup, so a
 /// theme resource keeps following the theme once set.
 pub(super) fn foreground_style(target: &str, color: Color) -> R<w::Style> {

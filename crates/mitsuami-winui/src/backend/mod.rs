@@ -178,6 +178,8 @@ pub(crate) struct TitleTabs {
     _regrow: EventRevoker,
     /// Paints the band when the view's background changes.
     background: i64,
+    /// The chosen tab's fill on Mica Alt, in the view's resources.
+    on_mica: w::ResourceDictionary,
 }
 
 /// The parts of a window: XAML's `Window`, a root grid with a row for the
@@ -490,6 +492,9 @@ struct Node {
     /// Hosts: whether the app made it its window's header, and its edge,
     /// which this platform leaves at the content's top, with no edge.
     header: Option<bool>,
+    /// Headers: filled as the chosen tab is, while their window's tabs
+    /// are in its title bar (`place_headers`).
+    header_filled: bool,
     header_edge: Option<mitsuami_core::HeaderEdge>,
     /// Containers, groups, lists and tables: the keys they take, once the
     /// core sent some.
@@ -641,6 +646,9 @@ pub(crate) struct State {
     /// Document tabs, which go in their window's title bar when they're
     /// the window's (`place_document_tabs`).
     document_tabs: Vec<NodeId>,
+    /// Hosts the app made headers, which take the chosen tab's fill under
+    /// tabs in the title bar (`place_headers`).
+    headers: Vec<NodeId>,
     menus: Menus,
     /// The app's icon, which every window gets.
     icon: Option<WindowIcon>,
@@ -722,6 +730,7 @@ impl WinUiBackend {
                 touched: HashSet::new(),
                 pending_toolbars: Vec::new(),
                 document_tabs: Vec::new(),
+                headers: Vec::new(),
                 menus: Menus::default(),
                 icon: None,
                 tab_bar: Rc::default(),
@@ -755,14 +764,17 @@ fn set_hit_testable(node: &Node) -> R<()> {
         }
         _ => return Ok(()),
     };
-    if node.tooltip.is_empty()
+    // A filled header takes the pointer already, and its style's fill
+    // shows only while no local background hides it.
+    if node.header_filled
+        || node.tooltip.is_empty()
         && !node.scroll_content
         && !ContextMenu::has_items(&node.context_menu)
         && node.file_drop.is_none()
         && node.hover.is_none()
         && node.double_click.is_none()
     {
-        panel.SetBackground(None::<&w::Brush>)
+        panel.cast::<w::IDependencyObject>()?.ClearValue(&w::Panel::BackgroundProperty()?)
     } else {
         let clear = w::SolidColorBrush::CreateInstanceWithColor(w::Color { a: 0, r: 0, g: 0, b: 0 })?;
         panel.SetBackground(&clear)
@@ -819,6 +831,7 @@ impl Backend for WinUiBackend {
         state.load_file_icons();
         state.connect_scroll_content();
         state.place_document_tabs();
+        state.place_headers();
         state.update_toolbars();
         let lists = state.touched_lists();
         state.layout_lists(&lists);

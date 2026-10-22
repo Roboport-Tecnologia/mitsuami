@@ -25,6 +25,9 @@ use crate::custom::NativePayload;
 
 impl State {
     pub(super) fn set_prop(&mut self, id: NodeId, prop: &Prop, command: &Command) -> R<()> {
+        if *prop == Prop::Header(true) && !self.headers.contains(&id) {
+            self.headers.push(id);
+        }
         let Some(node) = self.nodes.get_mut(&id) else { violation(command, "node does not exist") };
         // Custom widgets and native views keep what they were last given.
         match (prop, &mut node.widget) {

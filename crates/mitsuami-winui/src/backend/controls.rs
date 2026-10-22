@@ -5,7 +5,7 @@ use windows_core::{IInspectable, Interface};
 
 use super::native_state::elements;
 use super::styles::style;
-use super::{Node, R, boxed, unboxed};
+use super::{Node, R, Widget, boxed, unboxed};
 use crate::bindings as w;
 
 /// A named icon's side in a `FontIcon` (its `FontSize` default), which an
@@ -63,8 +63,10 @@ pub(super) fn set_button_content(node: &Node) -> R<()> {
     // the button either way.
     w::AutomationProperties::SetName(&node.element, &node.caption)?;
     if node.icon_only == Some(true) {
-        return control.SetContent(&icon.cast::<IInspectable>()?);
+        control.SetContent(&icon.cast::<IInspectable>()?)?;
+        return fit_icon_padding(node);
     }
+    node.element.cast::<w::IDependencyObject>()?.ClearValue(&w::Control::PaddingProperty()?)?;
     let panel = w::StackPanel::new()?;
     let stack = panel.cast::<w::IStackPanel>()?;
     stack.SetOrientation(w::Orientation::Horizontal)?;
@@ -75,6 +77,52 @@ pub(super) fn set_button_content(node: &Node) -> R<()> {
     children.Append(&icon)?;
     children.Append(&caption.cast::<w::UIElement>()?)?;
     control.SetContent(&panel.cast::<IInspectable>()?)
+}
+
+/// Fluent's side padding on a button (`ButtonPadding`, 11 a side), which
+/// an icon-only button's natural width keeps.
+pub(super) const BUTTON_SIDE_PADDING: f64 = 22.0;
+
+/// The width of what's between an icon-only button's side paddings: its
+/// border and icon.
+pub(super) fn icon_button_inner(node: &Node) -> R<f64> {
+    let infinite = w::Size { width: f32::INFINITY, height: f32::INFINITY };
+    let measured = f64::from(super::measure::measure_element(&node.element, infinite).width);
+    let padding = node.element.cast::<w::IControl>()?.Padding()?;
+    Ok(measured - padding.left - padding.right)
+}
+
+/// An icon-only button narrower than its natural width (the app's width)
+/// has as much of Fluent's side padding as fits, so its icon stays whole
+/// and centred: WinUI's own narrow icon buttons centre theirs so (the tab
+/// view's 32-wide new-tab button). At its natural width or more it has
+/// Fluent's.
+pub(super) fn fit_icon_padding(node: &Node) -> R<()> {
+    let padding = w::Control::PaddingProperty()?;
+    let dependency = node.element.cast::<w::IDependencyObject>()?;
+    let width = node.element.cast::<w::IFrameworkElement>()?.Width()?;
+    // Not before the core gives it a width: measuring a button before its
+    // template applies would keep its size without the template's padding.
+    if !centres_icon(node) || width.is_nan() || width <= 0.0 {
+        return dependency.ClearValue(&padding);
+    }
+    let inner = icon_button_inner(node)?;
+    dependency.ClearValue(&padding)?;
+    if width >= inner + BUTTON_SIDE_PADDING {
+        return Ok(());
+    }
+    let control = node.element.cast::<w::IControl>()?;
+    let side = ((width - inner) / 2.0).max(0.0);
+    let shown = control.Padding()?;
+    control.SetPadding(w::Thickness { left: side, right: side, ..shown })
+}
+
+/// Whether a button shows its icon alone, centred in what padding fits.
+/// A menu button's chevron needs its padding.
+pub(super) fn centres_icon(node: &Node) -> bool {
+    node.icon_only == Some(true)
+        && matches!(node.widget, Widget::Button(_) | Widget::Toggle(_))
+        && (!node.icon.is_empty() || node.vector_icon.as_ref().is_some_and(Option::is_some))
 }
 
 /// What a button's content shows: its caption (the panel's text, or the
