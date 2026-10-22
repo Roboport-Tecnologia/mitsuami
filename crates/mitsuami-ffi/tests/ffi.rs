@@ -94,6 +94,7 @@ fn clone_form() -> u32 {
     let title = create(MitsuamiKind::Text);
     set_text(title, MitsuamiTextProp::Text, "Clone a repository");
     assert!(mitsuami_set_enum(title, MitsuamiEnumProp::TextStyle as u32, 2));
+    assert!(mitsuami_set_enum(title, MitsuamiEnumProp::FontWeight as u32, 3));
 
     let url = create(MitsuamiKind::TextInput);
     set_text(url, MitsuamiTextProp::Placeholder, "https://");

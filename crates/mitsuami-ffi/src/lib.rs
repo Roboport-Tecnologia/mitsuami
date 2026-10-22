@@ -712,6 +712,9 @@ pub enum MitsuamiEnumProp {
     HeaderEdge = 6,
     /// A split's: `Horizontal` (side by side), `Vertical`, 0 to 1.
     Orientation = 7,
+    /// A text's, over its style's: `Regular`, `Medium`, `Semibold`,
+    /// `Bold`, 0 to 3.
+    FontWeight = 8,
 }
 
 #[unsafe(no_mangle)]
@@ -770,6 +773,13 @@ pub extern "C" fn mitsuami_set_enum(id: u32, prop: u32, value: u32) -> bool {
             7 => Prop::Orientation(match value {
                 0 => mitsuami::core::Orientation::Horizontal,
                 1 => mitsuami::core::Orientation::Vertical,
+                _ => return Err(bad()),
+            }),
+            8 => Prop::FontWeight(match value {
+                0 => mitsuami::core::FontWeight::Regular,
+                1 => mitsuami::core::FontWeight::Medium,
+                2 => mitsuami::core::FontWeight::Semibold,
+                3 => mitsuami::core::FontWeight::Bold,
                 _ => return Err(bad()),
             }),
             _ => return Err(format!("unknown enum prop {prop}")),
