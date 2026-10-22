@@ -282,6 +282,9 @@ struct Node {
     /// which this platform leaves at the content's top, with no edge.
     header: Option<bool>,
     header_edge: Option<mitsuami_core::HeaderEdge>,
+    /// Hosts: whether the app made it a sidebar pane, which this platform
+    /// leaves as it is.
+    sidebar_pane: Option<bool>,
     /// Menu buttons: their menu, once the app gave one.
     button_menu: Option<ContextMenu>,
     /// Hosts: the drop area over them while they take files, and whether

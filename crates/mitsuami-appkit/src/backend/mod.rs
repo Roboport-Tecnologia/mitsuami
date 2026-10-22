@@ -322,6 +322,9 @@ struct Node {
     header: Option<crate::header::Header>,
     /// Hosts: the header's edge, if the app chose one (it may come first).
     header_edge: Option<mitsuami_core::HeaderEdge>,
+    /// Hosts: whether the app made it a sidebar pane, which this platform
+    /// leaves as it is.
+    sidebar_pane: Option<bool>,
 }
 
 struct State {

@@ -1098,6 +1098,12 @@ pub enum Prop {
     /// How a header meets what scrolls under it. Sent only if the app
     /// chose.
     HeaderEdge(HeaderEdge),
+    /// A container that's a pane down its window's side that navigates
+    /// (the rail that picks a Git client's pages, a mail app's folders) when the app builds
+    /// one itself rather than with `Sidebar`. On WinUI, under tabs in the
+    /// title bar, it's Mica Alt's commanding layer, as a header is; the
+    /// others leave it as it is. Sent only if the app chose.
+    SidebarPane(bool),
     /// A `List`'s rows, in order.
     Rows(Vec<RowKey>),
     /// How high a `List`'s rows are likely to be, for platforms that must

@@ -54,6 +54,7 @@ fn describe_props(props: &[Prop]) -> String {
             Prop::SidebarShown(b) => extra.push(format!("sidebar_shown={b}")),
             Prop::Header(b) => extra.push(format!("header={b}")),
             Prop::HeaderEdge(edge) => extra.push(format!("header_edge={edge:?}")),
+            Prop::SidebarPane(b) => extra.push(format!("sidebar_pane={b}")),
             Prop::TabsStyle(style) => extra.push(format!("tabs_style={style:?}")),
             Prop::TabsClosable(b) => extra.push(format!("closable={b}")),
             Prop::TabsReorderable(b) => extra.push(format!("reorderable={b}")),

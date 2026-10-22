@@ -648,6 +648,7 @@ impl State {
                 }
             },
             (Prop::HeaderEdge(edge), Widget::Host(_)) => node.header_edge = Some(*edge),
+            (Prop::SidebarPane(on), Widget::Host(_)) => node.sidebar_pane = Some(*on),
             _ => {}
         }
     }

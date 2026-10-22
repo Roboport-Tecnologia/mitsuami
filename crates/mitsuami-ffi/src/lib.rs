@@ -460,6 +460,9 @@ pub enum MitsuamiBoolProp {
     /// is clicked (a control inside keeps its clicks): a header opening its
     /// section. Pointers only.
     Clickable = 7,
+    /// A container that's a pane down its window's side that navigates:
+    /// on WinUI under tabs in the title bar, on the chosen tab's layer.
+    SidebarPane = 8,
 }
 
 #[unsafe(no_mangle)]
@@ -474,6 +477,7 @@ pub extern "C" fn mitsuami_set_bool(id: u32, prop: u32, value: bool) -> bool {
             5 => Prop::IconOnly(value),
             6 => Prop::Header(value),
             7 => Prop::Click(value),
+            8 => Prop::SidebarPane(value),
             _ => return Err(format!("unknown bool prop {prop}")),
         };
         ui()?.set_prop(node(id), prop);

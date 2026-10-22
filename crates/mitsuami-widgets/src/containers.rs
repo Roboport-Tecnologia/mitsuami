@@ -142,6 +142,15 @@ impl Container {
         self
     }
 
+    /// Makes it a pane down its window's side that navigates, one the app
+    /// builds itself (the rail that picks a Git client's pages): on WinUI under tabs in the
+    /// title bar, it's on the same layer as the chosen tab and a header,
+    /// as WinUI's guidance has for navigation. Elsewhere it's left as is.
+    pub fn sidebar_pane(mut self, pane: impl IntoValue<bool>) -> Container {
+        self.0.prop(pane.into_value(), Prop::SidebarPane);
+        self
+    }
+
     pub fn flex_direction(mut self, direction: impl IntoValue<FlexDirection>) -> Container {
         self.0.style_prop(direction.into_value(), |s, v| s.flex_direction = v);
         self

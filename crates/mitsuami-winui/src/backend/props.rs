@@ -25,8 +25,8 @@ use crate::custom::NativePayload;
 
 impl State {
     pub(super) fn set_prop(&mut self, id: NodeId, prop: &Prop, command: &Command) -> R<()> {
-        if *prop == Prop::Header(true) && !self.headers.contains(&id) {
-            self.headers.push(id);
+        if matches!(prop, Prop::Header(true) | Prop::SidebarPane(true)) && !self.commanding_layer.contains(&id) {
+            self.commanding_layer.push(id);
         }
         let Some(node) = self.nodes.get_mut(&id) else { violation(command, "node does not exist") };
         // Custom widgets and native views keep what they were last given.
@@ -711,6 +711,7 @@ impl State {
             }
             (Prop::Header(on), Widget::Host(_)) => node.header = Some(*on),
             (Prop::HeaderEdge(edge), Widget::Host(_)) => node.header_edge = Some(*edge),
+            (Prop::SidebarPane(on), Widget::Host(_)) => node.sidebar_pane = Some(*on),
             _ => {}
         }
         // What a label shows depends on its text, font and limit.

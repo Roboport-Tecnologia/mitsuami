@@ -3,6 +3,7 @@
 //! in the bar's glass, and the scroll view under it runs up under it; the
 //! others leave it at the content's top.
 
+use mitsuami::core::Prop;
 use mitsuami::prelude::*;
 use mitsuami_test::prelude::*;
 
@@ -154,6 +155,37 @@ async fn on_gtk_it_is_under_the_header_bar(app: TestApp) {
         assert!(button.ancestor(toolbar_view).is_none(), "the header is back in the content");
         assert_eq!(app.get_by_test_id("discs").frame(), discs, "what's under it stays where it was");
     }
+}
+
+/// A sidebar pane the app builds (`Container::sidebar_pane`) beside its
+/// content, under a header and tabs that go in the title bar where the
+/// platform puts them there: each is where the core put it, and keeps
+/// its prop (the mirror check reads it back). On WinUI the header and
+/// the pane are on the chosen tab's layer then (checked by eye).
+#[mitsuami_test::test]
+async fn a_sidebar_pane_stays_beside_the_content(app: TestApp) {
+    let current = signal(1u32);
+    app.mount(move || {
+        Column::new().grow(1.0).children((
+            DocumentTabs::new(current)
+                .tabs_style(DocumentTabsStyle::Window)
+                .children((DocumentTab::new("One", 1u32), DocumentTab::new("Two", 2u32))),
+            Row::new().header(true).test_id("header").padding(8.0).child(Text::new("Toolbar")),
+            Row::new().grow(1.0).align(Align::Stretch).children((
+                Column::new().sidebar_pane(true).test_id("pane").width(160.0).child(Text::new("Branches")),
+                Column::new().grow(1.0).test_id("page").child(Text::new("History")),
+            )),
+        ))
+    });
+    app.settle().await;
+
+    let header = app.get_by_test_id("header").frame();
+    let pane = app.get_by_test_id("pane").frame();
+    let page = app.get_by_test_id("page").frame();
+    assert_eq!(pane.y(), header.max_y(), "{pane:?} under {header:?}");
+    assert_eq!(pane.width(), 160.0);
+    assert_eq!(page.x(), pane.max_x(), "{page:?} beside {pane:?}");
+    assert!(app.get_by_test_id("pane").native_state().props.contains(&Prop::SidebarPane(true)));
 }
 
 mitsuami_test::main!();

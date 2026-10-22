@@ -492,6 +492,7 @@ impl State {
             }
             (Prop::Header(on), Widget::Host(_)) => node.header = Some(*on),
             (Prop::HeaderEdge(edge), Widget::Host(_)) => node.header_edge = Some(*edge),
+            (Prop::SidebarPane(on), Widget::Host(_)) => node.sidebar_pane = Some(*on),
             _ => {}
         }
         // A window's sidebar leaves its row or comes back, and the content

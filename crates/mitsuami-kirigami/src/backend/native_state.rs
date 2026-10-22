@@ -293,6 +293,7 @@ impl KirigamiBackend {
         props.extend(node.hover.as_ref().map(|hover| Prop::Hover(hover.is_on(node.widget.item()))));
         props.extend(node.header.map(Prop::Header));
         props.extend(node.header_edge.map(Prop::HeaderEdge));
+        props.extend(node.sidebar_pane.map(Prop::SidebarPane));
         props.extend(node.double_click.as_ref().map(|d| Prop::DoubleClick(d.is_on(node.widget.item()))));
         props.extend(node.click.as_ref().map(|c| Prop::Click(c.is_on(node.widget.item()))));
         props.push(Prop::Tooltip(if node.widget.has_tooltip() {

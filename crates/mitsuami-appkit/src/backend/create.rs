@@ -358,6 +358,7 @@ impl State {
                 click: None,
                 header: None,
                 header_edge: None,
+                sidebar_pane: None,
             },
         );
     }

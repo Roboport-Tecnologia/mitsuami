@@ -158,6 +158,8 @@ async fn nodes_it_makes_are_laid_out_and_found(app: TestApp) {
     assert!(mitsuami_set_enum(column.raw(), MitsuamiEnumProp::HeaderEdge as u32, 2));
     app.settle().await;
     assert!(app.ui().props(column).contains(&Prop::Header(true)));
+    assert!(mitsuami_set_bool(column.raw(), MitsuamiBoolProp::SidebarPane as u32, true));
+    assert!(app.ui().props(column).contains(&Prop::SidebarPane(true)));
 
     // A hidden node takes no room, and is back where it was when shown.
     let field = app.get_by_role(Role::TextField, "Repository URL").id().raw();

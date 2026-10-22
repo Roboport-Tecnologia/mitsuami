@@ -8,7 +8,7 @@ use windows_core::{IInspectable, Interface};
 
 use super::fields::{box_text, search_text};
 use super::scroll::{scroll_now, shift_wheel};
-use super::styles::header_fill_style;
+use super::styles::commanding_layer_style;
 use super::windows::{
     CONTENT_ROW, apply_min_size, client_insets, in_full_screen, insert_toolbar_item, put_tabs_in_title_bar,
     remove_sidebar, remove_toolbar_item, resize_client, resize_client_with, scale_of, take_tabs_from_title_bar,
@@ -246,7 +246,7 @@ impl State {
                 if let Widget::GpuSurface(surface) = &node.widget {
                     surface.detach();
                 }
-                self.headers.retain(|h| h != id);
+                self.commanding_layer.retain(|h| h != id);
                 // Tabs in their window's title bar leave it.
                 if let Widget::DocumentTabs(tabs) = &node.widget {
                     self.document_tabs.retain(|t| t != id);
@@ -610,27 +610,29 @@ impl State {
         }
     }
 
-    /// Fills headers as the chosen tab is while their window's tabs are in
-    /// its title bar, as File Explorer's command bar sits on its chosen
-    /// tab's colour; elsewhere a header is the content's top, unfilled.
-    pub(super) fn place_headers(&mut self) {
-        for id in self.headers.clone() {
+    /// Puts headers and sidebar panes on Mica Alt's commanding layer, as
+    /// the chosen tab is, while their window's tabs are in its title bar:
+    /// File Explorer's command bar sits on its chosen tab's colour, and
+    /// WinUI's guidance puts navigation there too. Elsewhere they're left
+    /// as they are, unfilled.
+    pub(super) fn place_commanding_layer(&mut self) {
+        for id in self.commanding_layer.clone() {
             let tabs = self.window_of(id).is_some_and(|parts| parts.title_tabs.is_some());
             let Some(node) = self.nodes.get_mut(&id) else { continue };
-            let filled = tabs && node.header == Some(true);
-            if node.header_filled == filled {
+            let filled = tabs && (node.header == Some(true) || node.sidebar_pane == Some(true));
+            if node.on_commanding_layer == filled {
                 continue;
             }
-            node.header_filled = filled;
+            node.on_commanding_layer = filled;
             if let Err(error) = (|| -> R<()> {
                 let element = node.element.cast::<w::IFrameworkElement>()?;
                 match filled {
-                    true => element.SetStyle(&header_fill_style()?)?,
+                    true => element.SetStyle(&commanding_layer_style()?)?,
                     false => element.SetStyle(None::<&w::Style>)?,
                 }
                 set_hit_testable(node)
             })() {
-                panic!("winui backend: filling header {id}: {error}");
+                panic!("winui backend: filling {id} as the commanding layer: {error}");
             }
         }
     }

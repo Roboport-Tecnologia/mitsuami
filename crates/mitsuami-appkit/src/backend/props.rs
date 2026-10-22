@@ -457,6 +457,7 @@ impl State {
                     header.set_edge(*edge);
                 }
             }
+            (Prop::SidebarPane(on), Widget::Host(_)) => node.sidebar_pane = Some(*on),
             // On the host, so a click on any of its subviews counts.
             (Prop::DoubleClick(on), widget @ (Widget::Host(_) | Widget::Group { .. })) => {
                 let view = widget.view();

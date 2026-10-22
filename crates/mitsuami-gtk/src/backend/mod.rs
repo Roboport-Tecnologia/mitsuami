@@ -333,6 +333,9 @@ struct Node {
     /// and its edge, which GTK has no choice of.
     header: Option<crate::header::Header>,
     header_edge: Option<mitsuami_core::HeaderEdge>,
+    /// Hosts: whether the app made it a sidebar pane, which this platform
+    /// leaves as it is.
+    sidebar_pane: Option<bool>,
     /// Hosts: what they take when files are dropped on them, once the app
     /// said (`None` inside: nothing).
     file_drop: Option<Option<FileDropTarget>>,
