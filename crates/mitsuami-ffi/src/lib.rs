@@ -27,8 +27,8 @@ use mitsuami::core::services::{Alert, AlertStyle, MenuCheck, MenuData, MenuEntry
 use mitsuami::core::style::Edges;
 use mitsuami::core::{
     Align, ButtonRole, ButtonStyle, Color, DocumentTabsStyle, EventValue, FileDrop, FlexDirection, HeaderEdge, Justify,
-    Length, List, ListStyle, Modality, NodeId, Prop, Rect, RowDrop, RowMoves, SelectionMode, Size, TextStyle, Ui,
-    UiEvent, VectorIcon, View, WidgetKind, WindowSize,
+    Length, List, ListStyle, Modality, NodeId, Prop, Rect, RowDrop, RowMoves, SelectionMode, Size, Spacing, TextStyle,
+    Ui, UiEvent, VectorIcon, View, WidgetKind, WindowSize,
 };
 use mitsuami::reactive::{Owner, Signal, on_cleanup, signal, watch};
 
@@ -745,10 +745,38 @@ pub extern "C" fn mitsuami_set_enum(id: u32, prop: u32, value: u32) -> bool {
     .is_some()
 }
 
-// Style. Lengths are in points; a negative one is `Auto`.
+// Style.
 
-fn length(points: f32) -> Length {
-    if points < 0.0 { Length::Auto } else { Length::Px(points) }
+/// A length: `Auto` (unit 0, so a zeroed length is auto), points (1), a
+/// platform spacing token (2: `None`, `Xs`, `Sm`, `Md`, `Lg`, `Xl`,
+/// `Indent` as 0 to 6 in `value`), a percentage of the container (3), or
+/// the node's (4, `em`) or the platform body's (5, `rem`) font size.
+#[repr(C)]
+#[derive(Clone, Copy)]
+pub struct MitsuamiLength {
+    pub unit: u32,
+    pub value: f32,
+}
+
+fn length(l: MitsuamiLength) -> Result<Length, String> {
+    Ok(match l.unit {
+        0 => Length::Auto,
+        1 => Length::Px(l.value),
+        2 => Length::Token(match l.value as u32 {
+            0 => Spacing::None,
+            1 => Spacing::Xs,
+            2 => Spacing::Sm,
+            3 => Spacing::Md,
+            4 => Spacing::Lg,
+            5 => Spacing::Xl,
+            6 => Spacing::Indent,
+            other => return Err(format!("bad spacing token {other}")),
+        }),
+        3 => Length::Percent(l.value),
+        4 => Length::Em(l.value),
+        5 => Length::Rem(l.value),
+        other => return Err(format!("bad length unit {other}")),
+    })
 }
 
 fn align(value: u32) -> Result<Option<Align>, String> {
@@ -787,11 +815,12 @@ pub extern "C" fn mitsuami_set_direction(id: u32, row: bool) -> bool {
 
 /// The space between a container's children.
 #[unsafe(no_mangle)]
-pub extern "C" fn mitsuami_set_gap(id: u32, gap: f32) -> bool {
+pub extern "C" fn mitsuami_set_gap(id: u32, gap: MitsuamiLength) -> bool {
     guard(|| {
+        let gap = length(gap)?;
         ui()?.update_style(node(id), |s| {
-            s.row_gap = length(gap);
-            s.column_gap = length(gap);
+            s.row_gap = gap;
+            s.column_gap = gap;
         });
         Ok(())
     })
@@ -800,9 +829,15 @@ pub extern "C" fn mitsuami_set_gap(id: u32, gap: f32) -> bool {
 
 /// Padding, with start and end following the text's direction.
 #[unsafe(no_mangle)]
-pub extern "C" fn mitsuami_set_padding(id: u32, top: f32, end: f32, bottom: f32, start: f32) -> bool {
-    let edges = Edges { top: length(top), end: length(end), bottom: length(bottom), start: length(start) };
+pub extern "C" fn mitsuami_set_padding(
+    id: u32,
+    top: MitsuamiLength,
+    end: MitsuamiLength,
+    bottom: MitsuamiLength,
+    start: MitsuamiLength,
+) -> bool {
     guard(|| {
+        let edges = Edges { top: length(top)?, end: length(end)?, bottom: length(bottom)?, start: length(start)? };
         ui()?.update_style(node(id), |s| s.padding = edges);
         Ok(())
     })
@@ -810,35 +845,43 @@ pub extern "C" fn mitsuami_set_padding(id: u32, top: f32, end: f32, bottom: f32,
 }
 
 #[unsafe(no_mangle)]
-pub extern "C" fn mitsuami_set_margin(id: u32, top: f32, end: f32, bottom: f32, start: f32) -> bool {
-    let edges = Edges { top: length(top), end: length(end), bottom: length(bottom), start: length(start) };
+pub extern "C" fn mitsuami_set_margin(
+    id: u32,
+    top: MitsuamiLength,
+    end: MitsuamiLength,
+    bottom: MitsuamiLength,
+    start: MitsuamiLength,
+) -> bool {
     guard(|| {
+        let edges = Edges { top: length(top)?, end: length(end)?, bottom: length(bottom)?, start: length(start)? };
         ui()?.update_style(node(id), |s| s.margin = edges);
         Ok(())
     })
     .is_some()
 }
 
-/// The least size the layout gives a node; negative: none.
+/// The least size the layout gives a node; auto: none.
 #[unsafe(no_mangle)]
-pub extern "C" fn mitsuami_set_min_size(id: u32, width: f32, height: f32) -> bool {
+pub extern "C" fn mitsuami_set_min_size(id: u32, width: MitsuamiLength, height: MitsuamiLength) -> bool {
     guard(|| {
+        let (width, height) = (length(width)?, length(height)?);
         ui()?.update_style(node(id), |s| {
-            s.min_width = length(width);
-            s.min_height = length(height);
+            s.min_width = width;
+            s.min_height = height;
         });
         Ok(())
     })
     .is_some()
 }
 
-/// The most size the layout gives a node; negative: none.
+/// The most size the layout gives a node; auto: none.
 #[unsafe(no_mangle)]
-pub extern "C" fn mitsuami_set_max_size(id: u32, width: f32, height: f32) -> bool {
+pub extern "C" fn mitsuami_set_max_size(id: u32, width: MitsuamiLength, height: MitsuamiLength) -> bool {
     guard(|| {
+        let (width, height) = (length(width)?, length(height)?);
         ui()?.update_style(node(id), |s| {
-            s.max_width = length(width);
-            s.max_height = length(height);
+            s.max_width = width;
+            s.max_height = height;
         });
         Ok(())
     })
@@ -846,11 +889,12 @@ pub extern "C" fn mitsuami_set_max_size(id: u32, width: f32, height: f32) -> boo
 }
 
 #[unsafe(no_mangle)]
-pub extern "C" fn mitsuami_set_size(id: u32, width: f32, height: f32) -> bool {
+pub extern "C" fn mitsuami_set_size(id: u32, width: MitsuamiLength, height: MitsuamiLength) -> bool {
     guard(|| {
+        let (width, height) = (length(width)?, length(height)?);
         ui()?.update_style(node(id), |s| {
-            s.width = length(width);
-            s.height = length(height);
+            s.width = width;
+            s.height = height;
         });
         Ok(())
     })

@@ -63,6 +63,14 @@ fn set_text(id: u32, prop: MitsuamiTextProp, text: &str) {
     assert!(unsafe { mitsuami_set_text(id, prop as u32, text.as_ptr(), text.len()) });
 }
 
+fn px(points: f32) -> MitsuamiLength {
+    MitsuamiLength { unit: 1, value: points }
+}
+
+fn auto() -> MitsuamiLength {
+    MitsuamiLength { unit: 0, value: 0.0 }
+}
+
 fn create(kind: MitsuamiKind) -> u32 {
     let id = mitsuami_create(kind as u32);
     assert_ne!(id, 0);
@@ -72,8 +80,8 @@ fn create(kind: MitsuamiKind) -> u32 {
 /// Clone's form, as a binding would build it.
 fn clone_form() -> u32 {
     let column = create(MitsuamiKind::Container);
-    assert!(mitsuami_set_padding(column, 16.0, 16.0, 16.0, 16.0));
-    assert!(mitsuami_set_gap(column, 8.0));
+    assert!(mitsuami_set_padding(column, px(16.0), px(16.0), px(16.0), px(16.0)));
+    assert!(mitsuami_set_gap(column, px(8.0)));
     assert!(mitsuami_set_align_items(column, 1));
 
     let title = create(MitsuamiKind::Text);
@@ -118,15 +126,24 @@ async fn nodes_it_makes_are_laid_out_and_found(app: TestApp) {
     assert!(mitsuami_set_color(title.raw(), MitsuamiColorProp::TextColor as u32, 9, 255, 0, 0, 255));
     assert!(app.ui().props(title).contains(&Prop::TextColor(Color::rgb(255, 0, 0))));
     assert!(!mitsuami_set_color(title.raw(), MitsuamiColorProp::TextColor as u32, 10, 0, 0, 0, 0));
-    assert!(mitsuami_set_min_size(column.raw(), 600.0, -1.0));
+    assert!(mitsuami_set_min_size(column.raw(), px(600.0), auto()));
     app.expect(by_text("Clone a repository")).to_be_visible().await;
     assert!(app.ui().frame(column).unwrap().width() >= 600.0);
-    assert!(mitsuami_set_max_size(title.raw(), 50.0, -1.0));
+    assert!(mitsuami_set_max_size(title.raw(), px(50.0), auto()));
     app.settle().await;
     assert!(app.ui().frame(title).unwrap().width() <= 50.0);
     // A narrower title wraps, moving what's under it: back as it was.
-    assert!(mitsuami_set_max_size(title.raw(), -1.0, -1.0));
+    assert!(mitsuami_set_max_size(title.raw(), auto(), auto()));
     app.settle().await;
+
+    // Lengths in the platform's tokens: a tree's indentation, say.
+    let token = |t: f32| MitsuamiLength { unit: 2, value: t };
+    assert!(mitsuami_set_padding(column.raw(), token(6.0), px(16.0), px(16.0), px(16.0)));
+    app.settle().await;
+    let indent = app.ui().metrics().spacing.indent;
+    assert_eq!(app.get_by_text("Clone a repository").frame().y(), indent.round());
+    assert!(mitsuami_set_padding(column.raw(), px(16.0), px(16.0), px(16.0), px(16.0)));
+    assert!(!mitsuami_set_gap(column.raw(), token(7.0)));
 
     // A header is a prop: the core lays it out as any container.
     assert!(mitsuami_set_bool(column.raw(), MitsuamiBoolProp::Header as u32, true));
@@ -401,7 +418,7 @@ async fn containers_take_dropped_folders(app: TestApp) {
     std::fs::write(dir.join("notes.txt"), b"").unwrap();
 
     let zone = create(MitsuamiKind::Container);
-    assert!(mitsuami_set_size(zone, 200.0, 100.0));
+    assert!(mitsuami_set_size(zone, px(200.0), px(100.0)));
     set_text(zone, MitsuamiTextProp::TestId, "repositories");
     assert!(unsafe { mitsuami_set_file_drop(zone, true, false, std::ptr::null(), 0) });
     assert!(mitsuami_on_event(zone, record, std::ptr::null_mut()));
@@ -519,7 +536,7 @@ async fn lists_ask_for_rows_and_report_the_selection(app: TestApp) {
         moved,
     });
     assert_ne!(list, 0);
-    assert!(mitsuami_set_size(list, 300.0, 200.0));
+    assert!(mitsuami_set_size(list, px(300.0), px(200.0)));
     let keys = strs(&["a", "b", "c"]);
     assert!(unsafe { mitsuami_list_set_keys(list, keys.as_ptr(), keys.len()) });
     app.mount(|| Adopt(list));
