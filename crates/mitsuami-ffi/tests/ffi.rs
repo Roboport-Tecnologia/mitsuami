@@ -827,4 +827,27 @@ async fn tabs_show_one_page_and_report_the_user_s_pick(app: TestApp) {
     assert_eq!(heard(), Vec::<String>::new());
 }
 
+#[mitsuami_test::test]
+async fn scroll_views_scroll_their_content(app: TestApp) {
+    attach(app.ui());
+    let mut content = 0;
+    let scroll = unsafe { mitsuami_create_scroll_view(0, &mut content) };
+    assert_ne!(scroll, 0);
+    assert_ne!(content, 0);
+    for i in 0..60 {
+        let line = create(MitsuamiKind::Text);
+        set_text(line, MitsuamiTextProp::Text, &format!("Line {i}"));
+        assert!(mitsuami_append_child(content, line));
+    }
+    set_text(scroll, MitsuamiTextProp::TestId, "scroll");
+    assert!(mitsuami_set_size(scroll, px(300.0), px(120.0)));
+    app.mount(|| Adopt(scroll));
+    app.settle().await;
+
+    // The content is as wide as the view, and longer: it scrolls.
+    assert_eq!(app.get_by_text("Line 0").frame().width(), app.get_by_test_id("scroll").frame().width());
+    app.get_by_test_id("scroll").scroll_by(0.0, 1e6).await;
+    app.expect(by_text("Line 59")).to_be_visible().await;
+}
+
 mitsuami_test::main!();

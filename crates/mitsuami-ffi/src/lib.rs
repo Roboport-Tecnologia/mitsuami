@@ -30,8 +30,8 @@ use mitsuami::core::{
     A11yAction, A11yProps, Align, ButtonRole, ButtonStyle, Canvas, Color, Custom, CustomWidget, DocumentTabsStyle,
     Drawn, EventValue, FileDrop, FlexDirection, HeaderEdge, Justify, Length, List, ListStyle, MeasureRequest, Modality,
     NodeId, PathStep, PlatformMetrics, Point, PointerKind, Prop, Rect, Render, Renderer, Role, RowDrop, RowMoves,
-    SelectionMode, Shape, Size, Sort, SortOrder, Spacing, Table, TableColumn, TextStyle, Ui, UiEvent, VectorIcon, View,
-    WidgetKind, WindowSize,
+    ScrollAxes, SelectionMode, Shape, Size, Sort, SortOrder, Spacing, Table, TableColumn, TextStyle, Ui, UiEvent,
+    VectorIcon, View, WidgetKind, WindowSize,
 };
 use mitsuami::reactive::{Owner, Signal, on_cleanup, signal, watch};
 
@@ -235,6 +235,44 @@ fn widget_kind(kind: u32) -> Result<WidgetKind, String> {
 #[unsafe(no_mangle)]
 pub extern "C" fn mitsuami_create(kind: u32) -> u32 {
     guard(|| Ok(ui()?.create(widget_kind(kind)?, Vec::new()).raw())).unwrap_or(0)
+}
+
+/// Makes a scroll view along `axes` (`Vertical`, `Horizontal`, `Both`: 0
+/// to 2) and the container it scrolls, which `*content` is set to: the
+/// caller adds to that. The content keeps its natural length along the
+/// scrolling axes and stretches across the other, a column unless it
+/// scrolls only sideways. 0 if it fails.
+///
+/// # Safety
+/// `content` is valid for a write.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn mitsuami_create_scroll_view(axes: u32, content: *mut u32) -> u32 {
+    guard(|| {
+        let axes = match axes {
+            0 => ScrollAxes::Vertical,
+            1 => ScrollAxes::Horizontal,
+            2 => ScrollAxes::Both,
+            _ => return Err(format!("bad scroll axes {axes}")),
+        };
+        let ui = ui()?;
+        let direction = if axes == ScrollAxes::Horizontal { FlexDirection::Row } else { FlexDirection::Column };
+        let outer = ui.create(WidgetKind::ScrollView, vec![Prop::ScrollAxes(axes)]);
+        ui.update_style(outer, |s| {
+            s.scroll_x = axes.horizontal();
+            s.scroll_y = axes.vertical();
+            s.flex_direction = direction;
+        });
+        let inner = ui.create(WidgetKind::Container, Vec::new());
+        ui.update_style(inner, |s| {
+            s.flex_shrink = 0.0;
+            s.flex_direction = direction;
+            s.align_self = (axes == ScrollAxes::Both).then_some(Align::Start);
+        });
+        ui.append_child(outer, inner);
+        unsafe { *content = inner.raw() };
+        Ok(outer.raw())
+    })
+    .unwrap_or(0)
 }
 
 /// Opens a window with `title` and a content size in points; a negative
