@@ -71,6 +71,9 @@ pub(crate) struct HostIvars {
     centers: Cell<bool>,
     /// The keys it takes, if the app gave any.
     keys: RefCell<Option<Keys>>,
+    /// A split's pane: how far it runs up under its window's bars with
+    /// its split (see `SplitView::set_under_bar`).
+    under_bar: Cell<f64>,
 }
 
 /// A host's file drop: what it takes, where it reports, and whether
@@ -94,6 +97,11 @@ define_class!(
         #[unsafe(method(isFlipped))]
         fn is_flipped(&self) -> bool {
             true
+        }
+
+        #[unsafe(method(alignmentRectInsets))]
+        fn alignment_rect_insets(&self) -> NSEdgeInsets {
+            NSEdgeInsets { top: self.ivars().under_bar.get(), left: 0.0, bottom: 0.0, right: 0.0 }
         }
 
         #[unsafe(method(resizeSubviewsWithOldSize:))]
@@ -200,8 +208,26 @@ impl HostView {
             drop: RefCell::new(None),
             centers: Cell::new(false),
             keys: RefCell::new(None),
+            under_bar: Cell::new(0.0),
         });
         unsafe { msg_send![super(this), initWithFrame: zero_rect()] }
+    }
+
+    /// Runs this far up under its window's bars, as a split's pane does
+    /// with its split: the part under them is outside its alignment rect,
+    /// where the core placed it, and its bounds start that far above its
+    /// top, so its children stay where the core put them.
+    pub(crate) fn set_under_bar(&self, height: f64) {
+        self.ivars().under_bar.set(height);
+        self.keep_under_bar();
+    }
+
+    /// Its bounds as `set_under_bar` left them, after a new frame.
+    pub(crate) fn keep_under_bar(&self) {
+        let top = NSPoint::new(0.0, -self.ivars().under_bar.get());
+        if self.bounds().origin != top {
+            self.setBoundsOrigin(top);
+        }
     }
 
     /// Paints the window background, for a window's capture.

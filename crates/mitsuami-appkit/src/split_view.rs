@@ -20,9 +20,9 @@ use objc2::runtime::{NSObject, NSObjectProtocol, ProtocolObject};
 use objc2::{DefinedClass, MainThreadMarker, MainThreadOnly, define_class, msg_send};
 use objc2_app_kit::{NSEvent, NSResponder, NSSplitView, NSSplitViewDelegate, NSSplitViewDividerStyle, NSView};
 use objc2_core_foundation::CGFloat;
-use objc2_foundation::{NSInteger, NSNotification, NSPoint, NSRect, NSSize};
+use objc2_foundation::{NSEdgeInsets, NSInteger, NSNotification, NSPoint, NSRect, NSSize};
 
-use crate::classes::zero_rect;
+use crate::classes::{HostView, zero_rect};
 
 /// What the split view and its delegate share.
 #[derive(Default)]
@@ -34,6 +34,9 @@ pub(crate) struct State {
     minimums: Cell<[f32; 2]>,
     /// The first pane's length last reported or set.
     position: Cell<Option<f64>>,
+    /// How far it runs up under its window's bars (see
+    /// `SplitView::set_under_bar`).
+    under_bar: Cell<f64>,
 }
 
 impl State {
@@ -61,6 +64,13 @@ define_class!(
     pub(crate) struct DraggedSplitView;
 
     impl DraggedSplitView {
+        /// The part under the window's bars is outside where the core
+        /// placed it.
+        #[unsafe(method(alignmentRectInsets))]
+        fn alignment_rect_insets(&self) -> NSEdgeInsets {
+            NSEdgeInsets { top: self.ivars().under_bar.get(), left: 0.0, bottom: 0.0, right: 0.0 }
+        }
+
         /// AppKit lays the panes out on every resize, and in a split with
         /// no room for its divider (as it is before the core sizes it) it
         /// gives the second pane a negative length, then logs that its own
@@ -192,6 +202,52 @@ impl SplitView {
     pub(crate) fn panes_moved(&self) {
         self.view.setNeedsLayout(true);
         self.view.setNeedsDisplay(true);
+    }
+
+    /// How far it runs up under its window's bars.
+    pub(crate) fn under_bar(&self) -> f64 {
+        self.state.under_bar.get()
+    }
+
+    /// Runs this far up under its window's bars (zero: not under them),
+    /// with its panes, keeping where the core placed them, for a scroll
+    /// view that runs up under the bars from a pane: macOS shows what
+    /// scrolls under its bars only from a scroll view whose split view and
+    /// pane reach them too (one reaching up out of its pane showed
+    /// nothing; plain views around it don't matter). What's in the panes
+    /// stays where the core put it, as their bounds start above their
+    /// tops. Whether it changed.
+    pub(crate) fn set_under_bar(&self, height: f64) -> bool {
+        let old = self.state.under_bar.get();
+        if old == height {
+            return false;
+        }
+        let view = &self.view;
+        let placed = view.alignmentRectForFrame(view.frame());
+        let panes: Vec<_> = view
+            .subviews()
+            .iter()
+            .map(|pane| {
+                let mut placed = pane.alignmentRectForFrame(pane.frame());
+                placed.origin.y -= old;
+                (pane.clone(), placed)
+            })
+            .collect();
+        self.state.under_bar.set(height);
+        view.setFrame(view.frameForAlignmentRect(placed));
+        // Side by side, both panes reach the top; stacked, the first.
+        let vertical = view.isVertical();
+        for (index, (pane, mut placed)) in panes.into_iter().enumerate() {
+            placed.origin.y += height;
+            if let Some(host) = pane.downcast_ref::<HostView>() {
+                host.set_under_bar(if vertical || index == 0 { height } else { 0.0 });
+            }
+            pane.setFrame(pane.frameForAlignmentRect(placed));
+            if let Some(host) = pane.downcast_ref::<HostView>() {
+                host.keep_under_bar();
+            }
+        }
+        true
     }
 
     /// Moves the divider as the user would (assistive technology sets a

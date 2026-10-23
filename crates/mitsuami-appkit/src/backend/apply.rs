@@ -629,10 +629,19 @@ impl State {
                         b.setBezelStyle(NSBezelStyle::Automatic);
                     }
                 }
+                // A split under its window's bars has the core's top that
+                // far down; its panes keep their bounds shifted to match.
+                let mut rect = rect;
+                if let Some(Widget::SplitView(split)) = parent {
+                    rect.origin.y += split.under_bar();
+                }
                 // Layout places what the user sees, the alignment rect, as
                 // Auto Layout does; controls draw their bezels inset from
                 // their frames (a push button by 7pt a side before macOS 26).
                 view.setFrame(view.frameForAlignmentRect(rect));
+                if let Some(host) = view.downcast_ref::<crate::classes::HostView>() {
+                    host.keep_under_bar();
+                }
                 // The split or a pane moved: the divider follows.
                 for widget in [Some(&self.nodes[id].widget), parent].into_iter().flatten() {
                     if let Widget::SplitView(split) = widget {

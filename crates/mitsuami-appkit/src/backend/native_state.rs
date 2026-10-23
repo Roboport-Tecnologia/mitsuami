@@ -361,6 +361,10 @@ pub(super) fn native_state(state: &State, id: NodeId) -> Option<NativeState> {
         _ => view.alignmentRectForFrame(view.frame()),
     };
     let mut frame = Rect::new(f.origin.x as f32, f.origin.y as f32, f.size.width as f32, f.size.height as f32);
+    // A pane of a split under its window's bars is that far down in it.
+    if let Some(Widget::SplitView(split)) = node.parent.and_then(|p| state.nodes.get(&p)).map(|p| &p.widget) {
+        frame = Rect::new(frame.x(), frame.y() - split.under_bar() as f32, frame.width(), frame.height());
+    }
     // A row is where the table put it, and so is a cell.
     if let (Some(row), Some(Widget::List(list))) =
         (node.row, node.parent.and_then(|p| state.nodes.get(&p)).map(|p| &p.widget))
