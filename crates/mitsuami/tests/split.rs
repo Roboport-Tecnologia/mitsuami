@@ -207,3 +207,26 @@ async fn the_divider_is_drawn_where_the_app_moves_it(app: TestApp) {
 }
 
 mitsuami_test::main!();
+
+/// A pane whose content is taller than the split is cut to it: a scroll
+/// view in it scrolls, as SourceGit's sidebar of branches and tags does.
+#[mitsuami_test::test]
+async fn a_pane_taller_than_it_scrolls(app: TestApp) {
+    app.mount(|| {
+        let rows: Vec<Container> = (0..50).map(|i| Container::new().height(20).test_id(format!("row{i}"))).collect();
+        Column::new().child(
+            Split::new().position(200.0).height(200).test_id("split").children((
+                Column::new()
+                    .test_id("first")
+                    .child(ScrollView::new().grow(1.0).min_height(0).test_id("scroller").children(rows)),
+                pane("second"),
+            )),
+        )
+    });
+
+    let split = app.get_by_test_id("split").frame();
+    let first = app.get_by_test_id("first").frame();
+    assert!(first.max_y() <= split.max_y(), "{first:?} in {split:?}");
+    let scroller = app.get_by_test_id("scroller").frame();
+    assert!(scroller.height() <= 200.0, "{scroller:?}");
+}

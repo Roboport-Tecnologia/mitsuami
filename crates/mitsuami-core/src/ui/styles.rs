@@ -85,7 +85,9 @@ impl Inner {
                         true => (&mut own.grid_template_rows, &mut own.grid_template_columns),
                     };
                     *along = tracks;
-                    *across = vec![Track::Size(Length::Fr(1.0))];
+                    // From 0, as a tab view's: a pane taller than the
+                    // split is cut to it, so a scroll view in it scrolls.
+                    *across = vec![Track::MinMax(Length::Px(0.0), Length::Fr(1.0))];
                     // A split can be another's pane.
                     if let Some((index, vertical)) = self.pane(id) {
                         place_pane(&mut own, index, vertical);
