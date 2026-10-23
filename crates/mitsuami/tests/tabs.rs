@@ -175,6 +175,27 @@ async fn its_pages_fill_it(app: TestApp) {
     assert!(frame.width() > view.width() * 0.8, "{frame:?} in {view:?}");
 }
 
+/// A page as tall as its content no longer fits is cut to the view, as
+/// the platform's tab view clips it: a scroll view in it scrolls.
+#[mitsuami_test::test]
+async fn a_page_taller_than_it_scrolls(app: TestApp) {
+    let page = signal(Page::General);
+    app.mount(move || {
+        let rows: Vec<Container> = (0..50).map(|i| Container::new().height(20).test_id(format!("row{i}"))).collect();
+        Column::new().child(
+            Tabs::new(page).height(200).children((Tab::new("General", Page::General)
+                .child(ScrollView::new().grow(1.0).min_height(0).test_id("scroller").children(rows)),)),
+        )
+    });
+
+    let view = app.ui().window_frame(tabs(&app)).unwrap();
+    let shown = app.ui().window_frame(pages(&app)[0]).unwrap();
+    assert!(shown.max_y() <= view.max_y(), "{shown:?} in {view:?}");
+    let scroller = app.get_by_test_id("scroller").frame();
+    assert!(scroller.height() < 200.0, "{scroller:?}");
+    assert!(scroller.max_y() <= view.max_y() + 0.5, "{scroller:?} in {view:?}");
+}
+
 /// However small its pages, it's as wide as its tab strip.
 #[mitsuami_test::test]
 async fn it_is_as_wide_as_its_tabs(app: TestApp) {

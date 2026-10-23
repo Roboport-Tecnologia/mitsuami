@@ -48,12 +48,18 @@ impl Inner {
                 spacing: &self.metrics.spacing,
             };
             let mut style = match node.kind {
-                // Its pages share one cell, which fills it.
+                // Its pages share one cell, which fills it. Its tracks
+                // start at 0, not at the pages' content (a plain `1fr`):
+                // a view given less room cuts its page to it, as the
+                // platform's tab view clips it, so a scroll view in the
+                // page scrolls. With room to spare, they still take the
+                // biggest page's size.
                 WidgetKind::Tabs => {
                     let mut own = node.style.clone();
                     own.display = Display::Grid;
-                    own.grid_template_columns = vec![Track::Size(Length::Fr(1.0))];
-                    own.grid_template_rows = vec![Track::Size(Length::Fr(1.0))];
+                    let fill = Track::MinMax(Length::Px(0.0), Length::Fr(1.0));
+                    own.grid_template_columns = vec![fill.clone()];
+                    own.grid_template_rows = vec![fill];
                     // Tabs can be a split's pane; they went in the
                     // divider's track, at their own size.
                     if let Some((index, vertical)) = self.pane(id) {
