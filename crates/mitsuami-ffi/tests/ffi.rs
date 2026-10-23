@@ -6,7 +6,8 @@ use std::cell::RefCell;
 use std::ffi::c_void;
 use std::sync::atomic::{AtomicU32, Ordering};
 
-use mitsuami::core::{Color, Modality, NodeId, Prop, Size, Ui, VectorIcon, View};
+use mitsuami::core::services::Launch;
+use mitsuami::core::{Color, ImageSource, Modality, NodeId, Pixels, Prop, Size, Ui, VectorIcon, View};
 use mitsuami_ffi::*;
 use mitsuami_test::prelude::*;
 
@@ -856,3 +857,38 @@ async fn scroll_views_scroll_their_content(app: TestApp) {
 }
 
 mitsuami_test::main!();
+
+#[mitsuami_test::test]
+async fn images_show_the_callers_pixels(app: TestApp) {
+    attach(app.ui());
+    let image = create(MitsuamiKind::Image);
+    // 4 × 2 pixels at 2 to a point: 2 × 1 points.
+    let rgba: Vec<u8> = (0..8).flat_map(|i| [i * 30, 0, 0, 255]).collect();
+    assert!(unsafe { mitsuami_set_image(image, 4, 2, 2.0, rgba.as_ptr(), rgba.len()) });
+    assert!(mitsuami_set_align_self(image, 1));
+    app.mount(|| Adopt(image));
+    app.settle().await;
+
+    let pixels = Pixels::new(4, 2, rgba.clone()).scale(2.0);
+    assert!(app.ui().props(NodeId::from_raw(image)).contains(&Prop::Image(ImageSource::Pixels(pixels))));
+    assert_eq!(app.ui().frame(NodeId::from_raw(image)).map(|f| f.size), Some(Size::new(2.0, 1.0)));
+
+    assert!(!unsafe { mitsuami_set_image(image, 4, 4, 2.0, rgba.as_ptr(), rgba.len()) });
+    assert!(last_error().contains("RGBA8"), "{}", last_error());
+}
+
+#[mitsuami_test::test]
+async fn the_clipboard_and_links_go_to_the_platform(app: TestApp) {
+    attach(app.ui());
+    assert!(unsafe { mitsuami_set_clipboard_text(str("1a2b3c")) });
+    app.settle().await;
+    assert_eq!(app.services().clipboard().as_deref(), Some("1a2b3c"));
+
+    let window = app.window().raw();
+    assert!(unsafe { mitsuami_launch(window, str("https://example.com/commit/1a2b3c"), true) });
+    app.settle().await;
+    let launch = app.services().take_launch().expect("a request to open the link");
+    assert_eq!(launch.request, Launch::Url("https://example.com/commit/1a2b3c".into()));
+    assert_eq!(launch.parent, Some(app.window()));
+    launch.respond(Ok(()));
+}

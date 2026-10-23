@@ -24,14 +24,16 @@ use std::task::{Poll, Waker};
 
 use mitsuami::App;
 use mitsuami::core::draw::Path;
-use mitsuami::core::services::{Alert, AlertStyle, MenuCheck, MenuData, MenuEntry, MenuItemData, MenuRole, OpenFile};
+use mitsuami::core::services::{
+    Alert, AlertStyle, Launch, MenuCheck, MenuData, MenuEntry, MenuItemData, MenuRole, OpenFile,
+};
 use mitsuami::core::style::{Edges, Position};
 use mitsuami::core::{
     A11yAction, A11yProps, Align, ButtonRole, ButtonStyle, Canvas, Color, Custom, CustomWidget, DocumentTabsStyle,
-    Drawn, EventValue, FileDrop, FlexDirection, HeaderEdge, Justify, Length, List, ListStyle, MeasureRequest, Modality,
-    NodeId, PathStep, PlatformMetrics, Point, PointerKind, Prop, Rect, Render, Renderer, Role, RowDrop, RowMoves,
-    ScrollAxes, SelectionMode, Shape, Size, Sort, SortOrder, Spacing, Table, TableColumn, TextStyle, Ui, UiEvent,
-    VectorIcon, View, WidgetKind, WindowSize,
+    Drawn, EventValue, FileDrop, FlexDirection, HeaderEdge, ImageSource, Justify, Length, List, ListStyle,
+    MeasureRequest, Modality, NodeId, PathStep, Pixels, PlatformMetrics, Point, PointerKind, Prop, Rect, Render,
+    Renderer, Role, RowDrop, RowMoves, ScrollAxes, SelectionMode, Shape, Size, Sort, SortOrder, Spacing, Table,
+    TableColumn, TextStyle, Ui, UiEvent, VectorIcon, View, WidgetKind, WindowSize,
 };
 use mitsuami::reactive::{Owner, Signal, on_cleanup, signal, watch};
 
@@ -204,6 +206,9 @@ pub enum MitsuamiKind {
     /// `TabTitles`, the shown one its `SelectedIndex`, reported as
     /// `Changed` when the user picks another.
     Tabs = 17,
+    /// The platform's image view, showing pixels the app gives it
+    /// (`mitsuami_set_image`).
+    Image = 18,
 }
 
 fn widget_kind(kind: u32) -> Result<WidgetKind, String> {
@@ -226,6 +231,7 @@ fn widget_kind(kind: u32) -> Result<WidgetKind, String> {
         15 => WidgetKind::Icon,
         16 => WidgetKind::Split,
         17 => WidgetKind::Tabs,
+        18 => WidgetKind::Image,
         _ => return Err(format!("unknown kind {kind}")),
     })
 }
@@ -388,6 +394,36 @@ pub unsafe extern "C" fn mitsuami_set_vector_icon(
             _ => Some(VectorIcon::new(&data)?),
         };
         ui()?.set_prop(node(id), Prop::VectorIcon(icon));
+        Ok(())
+    })
+    .is_some()
+}
+
+/// What an image shows: `width × height` pixels of straight RGBA8, top
+/// row first, `scale` pixels to a point (its natural size is the pixels'
+/// over the scale).
+///
+/// # Safety
+/// `rgba` points to `len` bytes.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn mitsuami_set_image(
+    id: u32,
+    width: u32,
+    height: u32,
+    scale: f32,
+    rgba: *const u8,
+    len: usize,
+) -> bool {
+    guard(|| {
+        if rgba.is_null() || (width as usize).checked_mul(height as usize).and_then(|n| n.checked_mul(4)) != Some(len) {
+            return Err(format!("{width}×{height} RGBA8 pixels take {len} bytes"));
+        }
+        if scale.is_nan() || scale <= 0.0 {
+            return Err(format!("bad image scale {scale}"));
+        }
+        let bytes = unsafe { std::slice::from_raw_parts(rgba, len) };
+        let pixels = Pixels::new(width, height, bytes.to_vec()).scale(scale);
+        ui()?.set_prop(node(id), Prop::Image(ImageSource::Pixels(pixels)));
         Ok(())
     })
     .is_some()
@@ -2075,6 +2111,54 @@ pub unsafe extern "C" fn mitsuami_open_file(
                 reply.await.unwrap_or_default().iter().map(|p| p.to_string_lossy().into_owned()).collect();
             let strs: Vec<MitsuamiStr> = paths.iter().map(|p| MitsuamiStr { ptr: p.as_ptr(), len: p.len() }).collect();
             answer(user as *mut c_void, strs.as_ptr(), strs.len());
+        });
+        Ok(())
+    })
+    .is_some()
+}
+
+/// Puts `text` on the clipboard. The write is issued right away; one the
+/// platform refuses is only logged, as there's nothing the app could do.
+///
+/// # Safety
+/// The text is as [`string`] says.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn mitsuami_set_clipboard_text(text: MitsuamiStr) -> bool {
+    guard(|| {
+        let ui = ui()?;
+        let text = unsafe { string(text.ptr, text.len)? };
+        let done = ui.set_clipboard_text(&text);
+        ui.spawn_local(async move {
+            if let Err(e) = done.await {
+                eprintln!("mitsuami: the clipboard refused the text: {e:?}");
+            }
+        });
+        Ok(())
+    })
+    .is_some()
+}
+
+/// Opens `target` in another app, for `window` (0: the focused one): with
+/// `url`, a URL in the app set for its scheme (the browser for `https:`);
+/// otherwise a path, a file in the app set for its type, a folder in the
+/// file manager. A launch that fails is only logged.
+///
+/// # Safety
+/// The target is as [`string`] says.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn mitsuami_launch(window: u32, target: MitsuamiStr, url: bool) -> bool {
+    guard(|| {
+        let ui = ui()?;
+        let target = unsafe { string(target.ptr, target.len)? };
+        let target = match url {
+            true => Launch::Url(target),
+            false => Launch::Path(target.into()),
+        };
+        let done = ui.launch((window != 0).then(|| node(window)), target);
+        ui.spawn_local(async move {
+            if let Err(e) = done.await {
+                eprintln!("mitsuami: launching failed: {e:?}");
+            }
         });
         Ok(())
     })
