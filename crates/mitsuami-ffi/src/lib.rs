@@ -200,6 +200,10 @@ pub enum MitsuamiKind {
     /// first pane's length is its `Number`, reported as `Changed` when the
     /// user moves it; a pane's least width (or height) stops it.
     Split = 16,
+    /// The platform's tab view: its children are its pages, titled by its
+    /// `TabTitles`, the shown one its `SelectedIndex`, reported as
+    /// `Changed` when the user picks another.
+    Tabs = 17,
 }
 
 fn widget_kind(kind: u32) -> Result<WidgetKind, String> {
@@ -221,6 +225,7 @@ fn widget_kind(kind: u32) -> Result<WidgetKind, String> {
         14 => WidgetKind::Select,
         15 => WidgetKind::Icon,
         16 => WidgetKind::Split,
+        17 => WidgetKind::Tabs,
         _ => return Err(format!("unknown kind {kind}")),
     })
 }
@@ -662,7 +667,7 @@ fn color(c: MitsuamiColor) -> Result<Color, String> {
 
 #[repr(u32)]
 pub enum MitsuamiStringsProp {
-    /// Document tabs' titles, in order.
+    /// Tabs' or document tabs' titles, in order.
     TabTitles = 0,
     /// A drop-down's options, in order.
     Options = 1,
@@ -729,6 +734,9 @@ pub enum MitsuamiEnumProp {
     /// A text's, over its style's: `Regular`, `Medium`, `Semibold`,
     /// `Bold`, 0 to 3.
     FontWeight = 8,
+    /// Tabs', where the platform has more than one way to show them:
+    /// `Automatic`, `TabBar`, `Navigation`, 0 to 2.
+    TabsStyle = 9,
 }
 
 #[unsafe(no_mangle)]
@@ -794,6 +802,12 @@ pub extern "C" fn mitsuami_set_enum(id: u32, prop: u32, value: u32) -> bool {
                 1 => mitsuami::core::FontWeight::Medium,
                 2 => mitsuami::core::FontWeight::Semibold,
                 3 => mitsuami::core::FontWeight::Bold,
+                _ => return Err(bad()),
+            }),
+            9 => Prop::TabsStyle(match value {
+                0 => mitsuami::core::TabsStyle::Automatic,
+                1 => mitsuami::core::TabsStyle::TabBar,
+                2 => mitsuami::core::TabsStyle::Navigation,
                 _ => return Err(bad()),
             }),
             _ => return Err(format!("unknown enum prop {prop}")),

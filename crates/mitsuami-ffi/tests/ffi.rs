@@ -794,4 +794,37 @@ async fn absolute_nodes_sit_over_the_others(app: TestApp) {
     assert!(app.get_by_text("main").frame().x() >= frame.x() + 20.0);
 }
 
+#[mitsuami_test::test]
+async fn tabs_show_one_page_and_report_the_user_s_pick(app: TestApp) {
+    attach(app.ui());
+    heard();
+    let tabs = create(MitsuamiKind::Tabs);
+    let titles = strs(&["Information", "Changes"]);
+    assert!(unsafe {
+        mitsuami_set_strings(tabs, MitsuamiStringsProp::TabTitles as u32, titles.as_ptr(), titles.len())
+    });
+    assert!(mitsuami_set_enum(tabs, MitsuamiEnumProp::TabsStyle as u32, 1));
+    for text in ["Author", "Files changed"] {
+        let page = create(MitsuamiKind::Container);
+        let label = create(MitsuamiKind::Text);
+        set_text(label, MitsuamiTextProp::Text, text);
+        assert!(mitsuami_append_child(page, label));
+        assert!(mitsuami_append_child(tabs, page));
+    }
+    assert!(mitsuami_set_index(tabs, MitsuamiIndexProp::SelectedIndex as u32, 0));
+    assert!(mitsuami_set_size(tabs, px(400.0), px(200.0)));
+    assert!(mitsuami_on_event(tabs, record, std::ptr::null_mut()));
+    app.mount(|| Adopt(tabs));
+    app.expect(by_text("Author")).to_be_visible().await;
+
+    app.get_by_role(Role::Tab, "Changes").select().await;
+    assert_eq!(heard(), ["chose 1"]);
+    app.expect(by_text("Files changed")).to_be_visible().await;
+
+    // The caller's pick isn't reported back.
+    assert!(mitsuami_set_index(tabs, MitsuamiIndexProp::SelectedIndex as u32, 0));
+    app.expect(by_text("Author")).to_be_visible().await;
+    assert_eq!(heard(), Vec::<String>::new());
+}
+
 mitsuami_test::main!();
