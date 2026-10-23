@@ -54,6 +54,11 @@ impl Inner {
                     own.display = Display::Grid;
                     own.grid_template_columns = vec![Track::Size(Length::Fr(1.0))];
                     own.grid_template_rows = vec![Track::Size(Length::Fr(1.0))];
+                    // Tabs can be a split's pane; they went in the
+                    // divider's track, at their own size.
+                    if let Some((index, vertical)) = self.pane(id) {
+                        place_pane(&mut own, index, vertical);
+                    }
                     own.to_taffy(&cx, rtl)
                 }
                 _ if self.is_page(id) => {

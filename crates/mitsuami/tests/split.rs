@@ -7,6 +7,7 @@
 use std::cell::RefCell;
 use std::rc::Rc;
 
+use mitsuami::core::AnyView;
 use mitsuami::core::Prop;
 use mitsuami::core::backend::CaptureError;
 use mitsuami::prelude::*;
@@ -50,6 +51,48 @@ async fn stacks_the_panes_when_vertical(app: TestApp) {
     assert_eq!(first.height(), 120.0);
     assert_eq!(second.y() - split.y(), 120.0 + divider(&app));
     assert_eq!((first.width(), second.width()), (split.width(), split.width()));
+}
+
+/// Stacked in a column it grows in, the second pane takes the height the
+/// first leaves, whatever it is: a column, or tabs (SourceGit's commit
+/// details under its history, 2026-10-23).
+async fn stacked_second_pane_takes_the_rest(app: TestApp, tabs: bool) {
+    let page = signal(0u32);
+    app.mount(move || {
+        let second: AnyView = match tabs {
+            false => AnyView::new(pane("second").min_height(28)),
+            true => AnyView::new(
+                Tabs::new(page)
+                    .children(Tab::new("Information", 0u32).child(Text::new("second")))
+                    .min_height(28)
+                    .test_id("second"),
+            ),
+        };
+        Column::new().grow(1.0).align(Align::Stretch).child(
+            Split::new()
+                .orientation(Orientation::Vertical)
+                .position(120.0)
+                .grow(1.0)
+                .min_height(0)
+                .test_id("split")
+                .children((pane("first").min_height(100), second)),
+        )
+    });
+    app.resize(600.0, 500.0).await;
+    let split = app.get_by_test_id("split").frame();
+    let second = app.get_by_test_id("second").frame();
+    assert_eq!(split.height(), 500.0, "the split fills the column");
+    assert_eq!(second.max_y(), split.max_y(), "{second:?} in {split:?}");
+}
+
+#[mitsuami_test::test]
+async fn stacked_in_a_column_a_second_pane_takes_the_rest(app: TestApp) {
+    stacked_second_pane_takes_the_rest(app, false).await;
+}
+
+#[mitsuami_test::test]
+async fn stacked_in_a_column_tabs_take_the_rest(app: TestApp) {
+    stacked_second_pane_takes_the_rest(app, true).await;
 }
 
 /// The first pane keeps its size as the window grows, as a sidebar does;
