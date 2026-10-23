@@ -944,3 +944,30 @@ async fn children_shrink_as_told(app: TestApp) {
     assert_eq!(height(rest), 80.0);
     assert!(!mitsuami_set_shrink(kept, -1.0));
 }
+
+#[mitsuami_test::test]
+async fn lists_scroll_to_a_row(app: TestApp) {
+    attach(app.ui());
+    let list = mitsuami_create_list(MitsuamiListCallbacks {
+        build_row,
+        release_row,
+        selection_changed,
+        activated,
+        user: std::ptr::null_mut(),
+        moves: 0,
+        moved,
+        still: 0,
+    });
+    assert!(mitsuami_set_size(list, px(300.0), px(200.0)));
+    let names: Vec<String> = (0..500).map(|i| format!("r{i}")).collect();
+    let keys: Vec<MitsuamiStr> = names.iter().map(|k| MitsuamiStr { ptr: k.as_ptr(), len: k.len() }).collect();
+    assert!(unsafe { mitsuami_list_set_keys(list, keys.as_ptr(), keys.len()) });
+    app.mount(|| Adopt(list));
+    app.settle().await;
+    app.expect(by_role(Role::ListItem, "Repository r400")).not_to_exist().await;
+
+    assert!(unsafe { mitsuami_list_scroll_to(list, str("r400")) });
+    app.settle().await;
+    assert!(app.get_by_role(Role::ListItem, "Repository r400").is_visible());
+    assert!(!unsafe { mitsuami_list_scroll_to(create(MitsuamiKind::Text), str("r400")) });
+}

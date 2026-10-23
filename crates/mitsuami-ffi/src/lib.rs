@@ -30,7 +30,7 @@ use mitsuami::core::services::{
 use mitsuami::core::style::{Edges, Position};
 use mitsuami::core::{
     A11yAction, A11yProps, Align, ButtonRole, ButtonStyle, Canvas, Color, Custom, CustomWidget, DocumentTabsStyle,
-    Drawn, EventValue, FileDrop, FlexDirection, HeaderEdge, ImageSource, Justify, Length, List, ListStyle,
+    Drawn, EventValue, FileDrop, FlexDirection, HeaderEdge, ImageSource, Justify, Length, List, ListHandle, ListStyle,
     MeasureRequest, Modality, NodeId, PathStep, Pixels, PlatformMetrics, Point, PointerKind, Prop, Rect, Render,
     Renderer, Role, RowDrop, RowMoves, ScrollAxes, SelectionMode, Shape, Size, Sort, SortOrder, Spacing, Table,
     TableColumn, TextStyle, Ui, UiEvent, VectorIcon, View, WidgetKind, WindowSize,
@@ -1435,6 +1435,8 @@ struct ListState {
     /// reported back as the user's.
     set: Rc<RefCell<Vec<String>>>,
     sort: Option<TableSort>,
+    /// Scrolls it to a row.
+    handle: ListHandle<String>,
     owner: Owner,
 }
 
@@ -1477,6 +1479,7 @@ pub extern "C" fn mitsuami_create_list(callbacks: MitsuamiListCallbacks) -> u32 
         let id = Rc::new(Cell::new(0));
         let owner = Owner::new_root();
         let set = Rc::new(RefCell::new(Vec::new()));
+        let handle = ListHandle::new();
         let (keys, selected, list) = owner.with(|| {
             let (keys, selected) = (signal(Vec::<String>::new()), signal(Vec::<String>::new()));
             let (row_cb, row_id) = (cb.clone(), id.clone());
@@ -1494,6 +1497,7 @@ pub extern "C" fn mitsuami_create_list(callbacks: MitsuamiListCallbacks) -> u32 
                 },
             )
             .selected(selected)
+            .handle(handle.clone())
             .on_activate(move |key: String| {
                 (activate_cb.activated)(activate_cb.user, activate_id.get(), key.as_ptr(), key.len())
             });
@@ -1542,7 +1546,7 @@ pub extern "C" fn mitsuami_create_list(callbacks: MitsuamiListCallbacks) -> u32 
             (keys, selected, list.build(&ui))
         });
         id.set(list.raw());
-        LISTS.with(|l| l.borrow_mut().insert(list.raw(), ListState { keys, selected, set, sort: None, owner }));
+        LISTS.with(|l| l.borrow_mut().insert(list.raw(), ListState { keys, selected, set, sort: None, handle, owner }));
         Ok(list.raw())
     })
     .unwrap_or(0)
@@ -1573,6 +1577,21 @@ pub unsafe extern "C" fn mitsuami_list_set_selected(id: u32, keys: *const Mitsua
         let (selected, set) = list(id, |l| (l.selected, l.set.clone()))?;
         *set.borrow_mut() = new.clone();
         selected.set(new);
+        Ok(())
+    })
+    .is_some()
+}
+
+/// Scrolls a list or table just enough to show the row with this key,
+/// shown yet or not; a key it doesn't have yet is scrolled to once it has.
+///
+/// # Safety
+/// The key is as [`string`] says.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn mitsuami_list_scroll_to(id: u32, key: MitsuamiStr) -> bool {
+    guard(|| {
+        let key = unsafe { string(key.ptr, key.len)? };
+        list(id, |l| l.handle.clone())?.scroll_to(&key);
         Ok(())
     })
     .is_some()
@@ -1665,6 +1684,7 @@ pub unsafe extern "C" fn mitsuami_create_table(
         let id = Rc::new(Cell::new(0));
         let owner = Owner::new_root();
         let set = Rc::new(RefCell::new(Vec::new()));
+        let handle = ListHandle::new();
         let (keys, selected, sort, table) = owner.with(|| {
             let (keys, selected) = (signal(Vec::<String>::new()), signal(Vec::<String>::new()));
             let first_sortable = columns.iter().position(|c| c.sortable);
@@ -1695,7 +1715,7 @@ pub unsafe extern "C" fn mitsuami_create_table(
                 table = table.column(data);
             }
             let (activate_cb, activate_id) = (cb.clone(), id.clone());
-            table = table.selected(selected).on_activate(move |key: String| {
+            table = table.selected(selected).handle(handle.clone()).on_activate(move |key: String| {
                 (activate_cb.activated)(activate_cb.user, activate_id.get(), key.as_ptr(), key.len())
             });
             if let Some((sort, last)) = sort.clone() {
@@ -1730,7 +1750,7 @@ pub unsafe extern "C" fn mitsuami_create_table(
             (keys, selected, sort, table.build(&ui))
         });
         id.set(table.raw());
-        LISTS.with(|l| l.borrow_mut().insert(table.raw(), ListState { keys, selected, set, sort, owner }));
+        LISTS.with(|l| l.borrow_mut().insert(table.raw(), ListState { keys, selected, set, sort, handle, owner }));
         Ok(table.raw())
     })
     .unwrap_or(0)
