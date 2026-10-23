@@ -92,6 +92,7 @@ enum Widget {
         split: Option<Split>,
     },
     Host(Retained<HostView>),
+    Popover(crate::popover::Popover),
     /// A layout host with an `NSBox` behind its children, the box's size.
     Group {
         host: Retained<HostView>,
@@ -162,6 +163,7 @@ impl Widget {
         match self {
             Widget::Window { host, .. } => host,
             Widget::Host(v) | Widget::Group { host: v, .. } => v,
+            Widget::Popover(popover) => &popover.host,
             Widget::Label(v) | Widget::Field(v) => v,
             Widget::TextArea(area) => &area.scroll,
             Widget::Button(v) | Widget::Checkbox(v) => v,
@@ -208,6 +210,7 @@ impl Widget {
             | Widget::FileIcon(_)
             | Widget::GpuSurface(_)
             | Widget::Host(_)
+            | Widget::Popover(_)
             | Widget::Group { .. }
             | Widget::Scroll(_)
             | Widget::List(_)

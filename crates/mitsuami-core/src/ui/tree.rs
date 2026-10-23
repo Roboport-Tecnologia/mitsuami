@@ -223,10 +223,11 @@ impl Inner {
     fn flattened_children(&self, id: NodeId) -> Vec<NodeId> {
         let mut children: Vec<NodeId> = self.nodes[&id].children.iter().flat_map(|c| self.native_roots(*c)).collect();
         // A window's toolbar items come after its content, and its sidebar
-        // after them.
+        // after them; a container's popovers after its content.
         children.sort_by_key(|c| match self.nodes[c].kind {
             WidgetKind::ToolbarItem => 1,
             WidgetKind::Sidebar => 2,
+            WidgetKind::Popover => 3,
             _ => 0,
         });
         children
@@ -285,8 +286,9 @@ impl Inner {
         for child in &desired {
             self.nodes.get_mut(child).unwrap().native_parent = Some(parent);
         }
-        // Toolbar items are laid out on their own (`layout_toolbar`); the
-        // sidebar is the platform's.
+        // Toolbar items and popovers are laid out on their own
+        // (`layout_toolbar`, `collect_frames`); the sidebar is the
+        // platform's.
         let taffy_children: Vec<_> =
             desired.iter().filter(|c| !in_chrome(self.nodes[*c].kind)).filter_map(|c| self.nodes[c].taffy).collect();
         // A list's rows are laid out on their own (`layout_list`).

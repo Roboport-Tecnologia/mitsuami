@@ -528,6 +528,7 @@ impl State {
                     }
                 }
             },
+            (Prop::PopoverShown(on), Widget::Popover(popover)) => popover.set_shown(*on),
             (Prop::Tweak(tweak), _) => node.tweak = Some(tweak.clone()),
             (Prop::Custom(new), Widget::Custom { view, render, props }) => {
                 if props != new {

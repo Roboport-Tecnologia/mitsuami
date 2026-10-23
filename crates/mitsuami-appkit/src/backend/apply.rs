@@ -389,6 +389,15 @@ impl State {
                     self.sync_toolbar_item(*child);
                     return;
                 }
+                // A popover isn't in its parent's view: it points at it.
+                if let Widget::Popover(popover) = &self.nodes[child].widget {
+                    if !matches!(self.nodes[parent].widget, Widget::Host(_) | Widget::Group { .. }) {
+                        violation(command, "a popover goes in a container");
+                    }
+                    popover.set_anchor(Some(&parent_view));
+                    self.attach(*child, *parent);
+                    return;
+                }
                 if let Widget::Tabs(tabs) = &self.nodes[parent].widget {
                     tabs.insert(self.mtm, *child, child_view, *index);
                     self.attach(*child, *parent);
@@ -459,6 +468,11 @@ impl State {
                     window.setContentSize(
                         _delegate.at_least_min(window, Size::new(size.width as f32, size.height as f32)),
                     );
+                    self.detach(*child);
+                    return;
+                }
+                if let Widget::Popover(popover) = &self.nodes[child].widget {
+                    popover.set_anchor(None);
                     self.detach(*child);
                     return;
                 }
@@ -571,6 +585,11 @@ impl State {
                 );
                 if let Some(Widget::List(list)) = self.nodes.get(id).map(|n| &n.widget) {
                     list.set_frame(rect);
+                    return;
+                }
+                // A popover is where the platform shows it, at this size.
+                if let Some(Widget::Popover(popover)) = self.nodes.get(id).map(|n| &n.widget) {
+                    popover.set_size(rect.size);
                     return;
                 }
                 // A toolbar item is where the toolbar puts it, at this size.

@@ -222,7 +222,8 @@ impl Inner {
             | UiEvent::KeyboardGrabEnded
             | UiEvent::FullScreenChanged(_)
             | UiEvent::MaximizedChanged(_)
-            | UiEvent::SidebarShownChanged(_) => {
+            | UiEvent::SidebarShownChanged(_)
+            | UiEvent::PopoverShownChanged(_) => {
                 let Some(node) = self.nodes.get_mut(&id) else { return };
                 let prop = match event {
                     UiEvent::PointerLockEnded => Prop::PointerLock(false),
@@ -230,6 +231,7 @@ impl Inner {
                     UiEvent::FullScreenChanged(on) => Prop::FullScreen(*on),
                     UiEvent::MaximizedChanged(on) => Prop::Maximized(*on),
                     UiEvent::SidebarShownChanged(shown) => Prop::SidebarShown(*shown),
+                    UiEvent::PopoverShownChanged(shown) => Prop::PopoverShown(*shown),
                     _ => unreachable!(),
                 };
                 node.props.retain(|p| p.key() != prop.key());

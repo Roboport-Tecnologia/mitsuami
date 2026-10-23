@@ -212,6 +212,9 @@ pub enum MitsuamiKind {
     /// The platform's button that opens a menu of actions
     /// (`mitsuami_set_menu`), with a `Button`'s caption, icon and style.
     MenuButton = 19,
+    /// The platform's popover, shown by its parent (a container) while
+    /// its `PopoverShown`; the user dismisses it (`PopoverShownChanged`).
+    Popover = 20,
 }
 
 fn widget_kind(kind: u32) -> Result<WidgetKind, String> {
@@ -236,6 +239,7 @@ fn widget_kind(kind: u32) -> Result<WidgetKind, String> {
         17 => WidgetKind::Tabs,
         18 => WidgetKind::Image,
         19 => WidgetKind::MenuButton,
+        20 => WidgetKind::Popover,
         _ => return Err(format!("unknown kind {kind}")),
     })
 }
@@ -550,6 +554,8 @@ pub enum MitsuamiBoolProp {
     /// A text the user can select and copy. Set before it's in a window:
     /// a platform may not change it afterwards (Qt's is another item).
     Selectable = 9,
+    /// A popover is shown by its parent.
+    PopoverShown = 10,
 }
 
 #[unsafe(no_mangle)]
@@ -566,6 +572,7 @@ pub extern "C" fn mitsuami_set_bool(id: u32, prop: u32, value: bool) -> bool {
             7 => Prop::Click(value),
             8 => Prop::SidebarPane(value),
             9 => Prop::Selectable(value),
+            10 => Prop::PopoverShown(value),
             _ => return Err(format!("unknown bool prop {prop}")),
         };
         ui()?.set_prop(node(id), prop);
@@ -1277,6 +1284,9 @@ pub enum MitsuamiEventKind {
     A11yAction = 14,
     /// The user chose a menu button's item: `index` is its id.
     MenuItem = 15,
+    /// The user dismissed a popover (a click outside, Escape): `flag` is
+    /// false.
+    PopoverShownChanged = 16,
 }
 
 #[repr(u32)]
@@ -1330,6 +1340,7 @@ pub extern "C" fn mitsuami_on_event(
                 UiEvent::NewTabRequested => MitsuamiEventKind::NewTabRequested,
                 UiEvent::ContextMenuItem(_) => MitsuamiEventKind::ContextMenuItem,
                 UiEvent::MenuItem(_) => MitsuamiEventKind::MenuItem,
+                UiEvent::PopoverShownChanged(_) => MitsuamiEventKind::PopoverShownChanged,
                 UiEvent::DropHover(_) => MitsuamiEventKind::DropHover,
                 UiEvent::FilesDropped(_) => MitsuamiEventKind::FilesDropped,
                 UiEvent::Pointer(_) => MitsuamiEventKind::Pointer,
@@ -1356,6 +1367,10 @@ pub extern "C" fn mitsuami_on_event(
                 UiEvent::ContextMenuItem(id) | UiEvent::MenuItem(id) => {
                     out.value_kind = MitsuamiValueKind::Index as u32;
                     out.index = u64::from(*id);
+                }
+                UiEvent::PopoverShownChanged(shown) => {
+                    out.value_kind = MitsuamiValueKind::Bool as u32;
+                    out.flag = *shown;
                 }
                 UiEvent::DropHover(over) => {
                     out.value_kind = MitsuamiValueKind::Bool as u32;

@@ -32,6 +32,8 @@ mod locale;
 #[cfg(target_os = "macos")]
 mod number_field;
 #[cfg(target_os = "macos")]
+mod popover;
+#[cfg(target_os = "macos")]
 mod radio;
 #[cfg(target_os = "macos")]
 mod services;

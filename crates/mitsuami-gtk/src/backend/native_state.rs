@@ -238,6 +238,7 @@ impl GtkBackend {
                 props.extend(sidebar.shown().map(Prop::SidebarShown));
             }
             Widget::Group(group) => props.push(Prop::Title(group.title())),
+            Widget::Popover(popover) => props.push(Prop::PopoverShown(popover.shown())),
             // Where the divider is shows in the panes' frames; the position
             // and least sizes are kept as given.
             Widget::Split(split) => {
@@ -322,6 +323,9 @@ impl GtkBackend {
                     _ => Rect::ZERO,
                 }
             }
+            // A popover is where GTK shows it, by its parent; hidden, it
+            // isn't shown.
+            _ if let Widget::Popover(popover) = &node.widget => popover.frame(),
             // A sidebar is its page, beside the content (at negative x); in
             // a collapsed split view, one of the two isn't shown. A page
             // not allocated yet (a sidebar the window just took) isn't
@@ -358,11 +362,18 @@ impl GtkBackend {
                 let mut children = Vec::new();
                 // A header's are in its own host, wherever that is.
                 let widget = node.header.as_ref().map_or(widget.clone(), |h| h.content.clone().upcast());
+                // Its popovers come after its content, whatever their place
+                // among GTK's children.
+                let mut popovers = Vec::new();
                 let mut next = widget.first_child();
                 while let Some(child) = next {
-                    children.extend(by_widget.get(&child).copied());
+                    match child.is::<gtk::Popover>() {
+                        true => popovers.extend(by_widget.get(&child).copied()),
+                        false => children.extend(by_widget.get(&child).copied()),
+                    }
                     next = child.next_sibling();
                 }
+                children.extend(popovers);
                 // Then its toolbar items, in the header bar, and its sidebar.
                 if let Widget::Window(parts) = &node.widget {
                     children.extend(parts.items.iter().map(|(id, _)| *id));

@@ -53,6 +53,7 @@ fn describe_props(props: &[Prop]) -> String {
             Prop::TabTitles(titles) => extra.push(format!("tabs={titles:?}")),
             Prop::TabIcons(icons) => extra.push(format!("tab_icons={icons:?}")),
             Prop::SidebarShown(b) => extra.push(format!("sidebar_shown={b}")),
+            Prop::PopoverShown(b) => extra.push(format!("popover_shown={b}")),
             Prop::Header(b) => extra.push(format!("header={b}")),
             Prop::HeaderEdge(edge) => extra.push(format!("header_edge={edge:?}")),
             Prop::SidebarPane(b) => extra.push(format!("sidebar_pane={b}")),
@@ -443,7 +444,8 @@ pub(crate) fn wireframe(root: &NodeInfo) -> String {
             | WidgetKind::Tabs
             | WidgetKind::DocumentTabs
             | WidgetKind::Group
-            | WidgetKind::Split => "#5f7fa0",
+            | WidgetKind::Split
+            | WidgetKind::Popover => "#5f7fa0",
             WidgetKind::Text => "#3f7f5f",
             WidgetKind::Button | WidgetKind::ToggleButton | WidgetKind::MenuButton => "#2f6fdf",
             WidgetKind::TextInput => "#a0602a",

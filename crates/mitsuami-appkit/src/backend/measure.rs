@@ -90,6 +90,7 @@ pub(super) fn measure(state: &State, id: NodeId, request: MeasureRequest) -> Siz
         | Widget::SplitView(_)
         | Widget::Window { .. }
         | Widget::Host(_)
+        | Widget::Popover(_)
         | Widget::Scroll(_)
         | Widget::List(_)
         | Widget::Sidebar(_) => Size::ZERO,

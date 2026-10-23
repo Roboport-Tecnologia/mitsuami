@@ -524,6 +524,27 @@ impl GtkBackend {
     /// run it; a plain window has none, and nothing happens, as with a
     /// real Escape.
     pub(super) fn escape(&mut self, id: NodeId) -> Result<(), ActionError> {
+        // In a shown popover, its own Escape hides it, as a key press
+        // would; it reports that itself (`crate::popover`).
+        let popover = {
+            let state = self.state.borrow();
+            let mut node = Some(id);
+            let mut found = None;
+            while let Some(n) = node.and_then(|n| state.nodes.get(&n)) {
+                if let Widget::Popover(popover) = &n.widget
+                    && popover.shown()
+                {
+                    found = Some(popover.popover.clone());
+                    break;
+                }
+                node = n.parent;
+            }
+            found
+        };
+        if let Some(popover) = popover {
+            popover.popdown();
+            return Ok(());
+        }
         let widget = {
             let state = self.state.borrow();
             state.nodes.get(&id).ok_or(ActionError::UnknownNode)?.widget.widget().clone()

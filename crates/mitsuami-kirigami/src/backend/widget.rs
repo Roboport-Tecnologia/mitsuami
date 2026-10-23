@@ -10,6 +10,7 @@ impl Widget {
         match self {
             Widget::Window { root } => root.host,
             Widget::ToolbarItem { host: i, .. }
+            | Widget::Popover { host: i, .. }
             | Widget::Host(i)
             | Widget::Label(i)
             | Widget::Button(i)
@@ -139,6 +140,7 @@ impl Widget {
             Widget::Window { .. }
                 | Widget::Host(_)
                 | Widget::ToolbarItem { .. }
+                | Widget::Popover { .. }
                 | Widget::Scroll { .. }
                 | Widget::List(_)
                 | Widget::Sidebar { .. }

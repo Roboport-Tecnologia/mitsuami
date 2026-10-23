@@ -138,6 +138,10 @@ pub enum UiEvent {
     /// divider dragged away), or the platform did. Not reported for the
     /// app's own `SidebarShown`. The core absorbs it as `SidebarShown`.
     SidebarShownChanged(bool),
+    /// The user dismissed a `Popover` (a click outside, Escape), or the
+    /// platform did. Not reported for the app's own `PopoverShown`. The
+    /// core absorbs it as `PopoverShown`.
+    PopoverShownChanged(bool),
     /// A `Sidebar`'s item was activated, as a list's row is (double-clicked,
     /// or Enter pressed on it), where the platform's sidebar has that: its
     /// index across the sections.

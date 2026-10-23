@@ -266,6 +266,8 @@ pub(super) fn native_state(state: &State, id: NodeId) -> Option<NativeState> {
             props.extend(list.row_files().map(Prop::RowFiles));
             props.extend(list.moves().map(Prop::RowMoves));
         }
+        // Shown or not as the platform shows it, while the core wants it.
+        Widget::Popover(popover) => props.push(Prop::PopoverShown(popover.wanted() && popover.shown())),
         Widget::Host(_) => props.extend(node.row.map(|row| match node.column {
             Some(column) => Prop::Cell(mitsuami_core::CellKey { row, column }),
             None => Prop::Row(row),
@@ -410,6 +412,12 @@ pub(super) fn native_state(state: &State, id: NodeId) -> Option<NativeState> {
         let f = toolbar.frame(id, host).unwrap_or(crate::classes::zero_rect());
         frame = Rect::new(f.origin.x as f32, f.origin.y as f32, f.size.width as f32, f.size.height as f32);
     }
+    // A popover is where the platform shows it, by its parent; hidden,
+    // it isn't shown.
+    if let Widget::Popover(popover) = &node.widget {
+        let f = popover.frame().unwrap_or(crate::classes::zero_rect());
+        frame = Rect::new(f.origin.x as f32, f.origin.y as f32, f.size.width as f32, f.size.height as f32);
+    }
     // A sidebar is where the split put it, beside the content (so at
     // negative x), and full height; collapsed, it isn't shown.
     if let Some(Widget::Window { host, split: Some(split), .. }) =
@@ -458,6 +466,16 @@ pub(super) fn native_state(state: &State, id: NodeId) -> Option<NativeState> {
             if let Widget::Window { split: Some(split), .. } = &node.widget {
                 children.push(split.sidebar);
             }
+            // Popovers point at their parent, after what it shows, in the
+            // order they came.
+            let mut popovers: Vec<NodeId> = state
+                .nodes
+                .iter()
+                .filter(|(_, n)| n.parent == Some(id) && matches!(n.widget, Widget::Popover(_)))
+                .map(|(c, _)| *c)
+                .collect();
+            popovers.sort_by_key(|c| c.raw());
+            children.extend(popovers);
             // An item's button is its view, not in its host.
             if node.kind == WidgetKind::ToolbarItem
                 && let Some(Widget::Window { toolbar: Some(toolbar), .. }) =

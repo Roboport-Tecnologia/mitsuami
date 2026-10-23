@@ -131,6 +131,13 @@ enum Widget {
         host: QmlObject,
         action: QmlObject,
     },
+    /// A popover: its host (the popup's content item) and the
+    /// `QQC2.Popup`, and whether the core wants it shown.
+    Popover {
+        host: QmlObject,
+        popup: QmlObject,
+        wanted: Rc<Cell<bool>>,
+    },
     Label(QmlObject),
     Button(QmlObject),
     MenuButton(QmlObject),

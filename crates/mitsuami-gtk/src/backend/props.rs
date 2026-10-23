@@ -62,6 +62,7 @@ impl State {
             (Prop::Sections(sections), Widget::Sidebar(sidebar)) => sidebar.set_sections(sections.clone()),
             (Prop::SelectedIndex(index), Widget::Sidebar(sidebar)) => sidebar.set_selected(*index),
             (Prop::SidebarShown(shown), Widget::Sidebar(sidebar)) => sidebar.set_shown(*shown),
+            (Prop::PopoverShown(shown), Widget::Popover(popover)) => popover.set_shown(*shown),
             (Prop::TabTitles(titles), Widget::Tabs(tabs)) => tabs.set_titles(titles.clone()),
             (Prop::TabIcons(icons), Widget::Tabs(tabs)) => tabs.set_icons(icons.clone()),
             (Prop::TabsStyle(style), Widget::Tabs(tabs)) => tabs.set_style(*style),

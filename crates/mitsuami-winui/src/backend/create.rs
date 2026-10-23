@@ -46,6 +46,11 @@ impl State {
                 let element = canvas.cast()?;
                 (Widget::Host(canvas), element)
             }
+            WidgetKind::Popover => {
+                let popover = crate::popover::Popover::new(id, emitter.clone(), self.options.show_windows)?;
+                let element = popover.host.cast()?;
+                (Widget::Popover(popover), element)
+            }
             WidgetKind::GpuSurface => {
                 let surface = SurfaceHost::new(id, emitter.clone())?;
                 let element = surface.canvas.cast()?;

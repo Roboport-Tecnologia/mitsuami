@@ -65,6 +65,7 @@ impl Inner {
             WidgetKind::Container if cell.is_some() => Role::Cell,
             WidgetKind::Container if labelled => Role::Group,
             WidgetKind::Container | WidgetKind::ToolbarItem | WidgetKind::Fragment => Role::None,
+            WidgetKind::Popover => Role::Group,
             WidgetKind::ScrollView => Role::ScrollArea,
             WidgetKind::List | WidgetKind::Sidebar => Role::List,
             WidgetKind::Table => Role::Table,

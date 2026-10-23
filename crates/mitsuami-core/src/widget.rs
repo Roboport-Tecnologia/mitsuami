@@ -207,6 +207,14 @@ pub enum WidgetKind {
     /// ([`Prop::PaneMinimums`]). The platform draws the divider and reports
     /// where the user drags it as `Changed(Number)`.
     Split,
+    /// A platform's popover, attached to its parent (a container) while
+    /// [`Prop::PopoverShown`]: an NSPopover, a gtk::Popover, a XAML Flyout,
+    /// a QQC2.Popup. It's out of its parent's layout: the core lays out its
+    /// children at their natural size, as a toolbar item's, and the
+    /// platform places it by its parent, where it fits. A click outside or
+    /// Escape dismisses it, as the platform's do: the backend reports
+    /// `PopoverShownChanged(false)`, which the core absorbs.
+    Popover,
     /// A custom widget (see [`CustomWidget`](crate::CustomWidget)), named
     /// after it. Its props travel as [`Prop::Custom`].
     Custom(&'static str),
@@ -231,6 +239,7 @@ impl WidgetKind {
                 | WidgetKind::Tabs
                 | WidgetKind::Group
                 | WidgetKind::Split
+                | WidgetKind::Popover
         )
     }
 
@@ -256,6 +265,7 @@ impl WidgetKind {
             WidgetKind::Tabs => "Tabs",
             WidgetKind::DocumentTabs => "DocumentTabs",
             WidgetKind::Group => "Group",
+            WidgetKind::Popover => "Popover",
             WidgetKind::Split => "Split",
             WidgetKind::Fragment => "Fragment",
             WidgetKind::Text => "Text",
@@ -1090,6 +1100,10 @@ pub enum Prop {
     /// backend reports `SidebarShownChanged`, which the core absorbs. Sent
     /// only if the app chose.
     SidebarShown(bool),
+    /// A `Popover` is shown by its parent, or not. The user dismisses one
+    /// too (a click outside, Escape): the backend reports
+    /// `PopoverShownChanged(false)`, which the core absorbs.
+    PopoverShown(bool),
     /// A `Container` at the top of its window's content is the window's
     /// header, the part that stays while what's under it scrolls: on
     /// AppKit it goes in the title bar, under the title and toolbar, in

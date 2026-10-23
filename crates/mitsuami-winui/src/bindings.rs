@@ -2800,6 +2800,49 @@ impl windows_core::RuntimeType for FlowDirection {
 }
 #[repr(transparent)]
 #[derive(Clone, Debug, Eq, PartialEq)]
+pub struct Flyout(windows_core::IUnknown);
+windows_core::imp::interface_hierarchy!(Flyout, windows_core::IUnknown, windows_core::IInspectable);
+windows_core::imp::required_hierarchy!(Flyout, FlyoutBase, DependencyObject);
+impl Flyout {
+    pub fn new() -> windows_core::Result<Self> {
+        Self::IFlyoutFactory(|this| unsafe {
+            let mut result__ = core::mem::zeroed();
+            (windows_core::Interface::vtable(this).CreateInstance)(
+                windows_core::Interface::as_raw(this),
+                core::ptr::null_mut(),
+                core::ptr::null_mut(),
+                &mut result__,
+            )
+            .and_then(|| windows_core::imp::Type::from_abi(result__))
+        })
+    }
+    fn IFlyoutFactory<R, F: FnOnce(&IFlyoutFactory) -> windows_core::Result<R>>(
+        callback: F,
+    ) -> windows_core::Result<R> {
+        static SHARED: windows_core::imp::FactoryCache<Flyout, IFlyoutFactory> = windows_core::imp::FactoryCache::new();
+        SHARED.call(callback)
+    }
+}
+impl windows_core::RuntimeType for Flyout {
+    const SIGNATURE: windows_core::imp::ConstBuffer = windows_core::imp::ConstBuffer::for_class::<Self, IFlyout>();
+}
+unsafe impl windows_core::Interface for Flyout {
+    type Vtable = <IFlyout as windows_core::Interface>::Vtable;
+    const IID: windows_core::GUID = <IFlyout as windows_core::Interface>::IID;
+}
+impl core::ops::Deref for Flyout {
+    type Target = IFlyout;
+    fn deref(&self) -> &Self::Target {
+        unsafe { core::mem::transmute(self) }
+    }
+}
+impl windows_core::RuntimeName for Flyout {
+    const NAME: &'static str = "Microsoft.UI.Xaml.Controls.Flyout";
+}
+unsafe impl Send for Flyout {}
+unsafe impl Sync for Flyout {}
+#[repr(transparent)]
+#[derive(Clone, Debug, Eq, PartialEq)]
 pub struct FlyoutBase(windows_core::IUnknown);
 windows_core::imp::interface_hierarchy!(FlyoutBase, windows_core::IUnknown, windows_core::IInspectable);
 windows_core::imp::required_hierarchy!(FlyoutBase, DependencyObject);
@@ -6291,6 +6334,38 @@ pub struct IFileSavePickerFactory_Vtbl {
         *mut *mut core::ffi::c_void,
     ) -> windows_core::HRESULT,
 }
+windows_core::imp::define_interface!(IFlyout, IFlyout_Vtbl, 0xd4a1eb7d_59b8_5df9_87c3_bd5e3856923f);
+impl windows_core::RuntimeType for IFlyout {
+    const SIGNATURE: windows_core::imp::ConstBuffer = windows_core::imp::ConstBuffer::for_interface::<Self>();
+}
+impl IFlyout {
+    pub fn Content(&self) -> windows_core::Result<UIElement> {
+        unsafe {
+            let mut result__ = core::mem::zeroed();
+            (windows_core::Interface::vtable(self).Content)(windows_core::Interface::as_raw(self), &mut result__)
+                .and_then(|| windows_core::imp::Type::from_abi(result__))
+        }
+    }
+    pub fn SetContent<P0>(&self, value: P0) -> windows_core::Result<()>
+    where
+        P0: windows_core::Param<UIElement>,
+    {
+        unsafe {
+            (windows_core::Interface::vtable(self).SetContent)(
+                windows_core::Interface::as_raw(self),
+                value.param().abi(),
+            )
+            .ok()
+        }
+    }
+}
+#[repr(C)]
+pub struct IFlyout_Vtbl {
+    pub base__: windows_core::IInspectable_Vtbl,
+    pub Content:
+        unsafe extern "system" fn(*mut core::ffi::c_void, *mut *mut core::ffi::c_void) -> windows_core::HRESULT,
+    pub SetContent: unsafe extern "system" fn(*mut core::ffi::c_void, *mut core::ffi::c_void) -> windows_core::HRESULT,
+}
 windows_core::imp::define_interface!(IFlyoutBase, IFlyoutBase_Vtbl, 0xbb6603bf_744d_5c31_a87d_744394634d77);
 impl windows_core::RuntimeType for IFlyoutBase {
     const SIGNATURE: windows_core::imp::ConstBuffer = windows_core::imp::ConstBuffer::for_interface::<Self>();
@@ -6299,6 +6374,39 @@ impl IFlyoutBase {
     pub fn SetPlacement(&self, value: FlyoutPlacementMode) -> windows_core::Result<()> {
         unsafe {
             (windows_core::Interface::vtable(self).SetPlacement)(windows_core::Interface::as_raw(self), value).ok()
+        }
+    }
+    pub fn IsOpen(&self) -> windows_core::Result<bool> {
+        unsafe {
+            let mut result__ = core::mem::zeroed();
+            (windows_core::Interface::vtable(self).IsOpen)(windows_core::Interface::as_raw(self), &mut result__)
+                .map(|| result__)
+        }
+    }
+    pub fn Closed<F>(&self, handler: F) -> windows_core::Result<windows_core::EventRevoker>
+    where
+        F: Fn(windows_core::Ref<windows_core::IInspectable>, windows_core::Ref<windows_core::IInspectable>) + 'static,
+    {
+        let handler: EventHandler<windows_core::IInspectable> = {
+            let com = windows_core::imp::DelegateBox::<EventHandler<windows_core::IInspectable>, F>::new(
+                &EventHandlerBox::<windows_core::IInspectable, F>::VTABLE,
+                handler,
+            );
+            unsafe { core::mem::transmute(windows_core::imp::box_new(com)) }
+        };
+        unsafe {
+            let mut result__ = core::mem::zeroed();
+            let token__ = (windows_core::Interface::vtable(self).Closed)(
+                windows_core::Interface::as_raw(self),
+                windows_core::Interface::as_raw(&handler),
+                &mut result__,
+            )
+            .map(|| result__)?;
+            Ok(windows_core::EventRevoker::new(
+                self.clone(),
+                token__,
+                windows_core::Interface::vtable(self).RemoveClosed,
+            ))
         }
     }
     pub fn Opening<F>(&self, handler: F) -> windows_core::Result<windows_core::EventRevoker>
@@ -6325,6 +6433,18 @@ impl IFlyoutBase {
                 token__,
                 windows_core::Interface::vtable(self).RemoveOpening,
             ))
+        }
+    }
+    pub fn ShowAt<P0>(&self, placementtarget: P0) -> windows_core::Result<()>
+    where
+        P0: windows_core::Param<FrameworkElement>,
+    {
+        unsafe {
+            (windows_core::Interface::vtable(self).ShowAt)(
+                windows_core::Interface::as_raw(self),
+                placementtarget.param().abi(),
+            )
+            .ok()
         }
     }
     pub fn Hide(&self) -> windows_core::Result<()> {
@@ -6355,21 +6475,36 @@ pub struct IFlyoutBase_Vtbl {
     SetElementSoundMode: usize,
     OverlayInputPassThroughElement: usize,
     SetOverlayInputPassThroughElement: usize,
-    IsOpen: usize,
+    pub IsOpen: unsafe extern "system" fn(*mut core::ffi::c_void, *mut bool) -> windows_core::HRESULT,
     XamlRoot: usize,
     SetXamlRoot: usize,
     Opened: usize,
     RemoveOpened: usize,
-    Closed: usize,
-    RemoveClosed: usize,
+    pub Closed:
+        unsafe extern "system" fn(*mut core::ffi::c_void, *mut core::ffi::c_void, *mut i64) -> windows_core::HRESULT,
+    pub RemoveClosed: unsafe extern "system" fn(*mut core::ffi::c_void, i64) -> windows_core::HRESULT,
     pub Opening:
         unsafe extern "system" fn(*mut core::ffi::c_void, *mut core::ffi::c_void, *mut i64) -> windows_core::HRESULT,
     pub RemoveOpening: unsafe extern "system" fn(*mut core::ffi::c_void, i64) -> windows_core::HRESULT,
     Closing: usize,
     RemoveClosing: usize,
-    ShowAt: usize,
+    pub ShowAt: unsafe extern "system" fn(*mut core::ffi::c_void, *mut core::ffi::c_void) -> windows_core::HRESULT,
     ShowAtWithOptions: usize,
     pub Hide: unsafe extern "system" fn(*mut core::ffi::c_void) -> windows_core::HRESULT,
+}
+windows_core::imp::define_interface!(IFlyoutFactory, IFlyoutFactory_Vtbl, 0xfd19002e_66b3_5656_b49c_b2aca11e9602);
+impl windows_core::RuntimeType for IFlyoutFactory {
+    const SIGNATURE: windows_core::imp::ConstBuffer = windows_core::imp::ConstBuffer::for_interface::<Self>();
+}
+#[repr(C)]
+pub struct IFlyoutFactory_Vtbl {
+    pub base__: windows_core::IInspectable_Vtbl,
+    pub CreateInstance: unsafe extern "system" fn(
+        *mut core::ffi::c_void,
+        *mut core::ffi::c_void,
+        *mut *mut core::ffi::c_void,
+        *mut *mut core::ffi::c_void,
+    ) -> windows_core::HRESULT,
 }
 windows_core::imp::define_interface!(IFocusManager, IFocusManager_Vtbl, 0x9fd07bc5_d2d4_53fe_a31a_846de8b7a257);
 impl windows_core::RuntimeType for IFocusManager {

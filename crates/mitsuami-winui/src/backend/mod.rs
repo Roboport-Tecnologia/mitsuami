@@ -373,6 +373,8 @@ enum Widget {
     Group(crate::group::Group),
     /// WinUI has no splitter: a canvas with a grip, as File Explorer's.
     Split(crate::split::Split),
+    /// A flyout shown at its parent; the node's element is its content.
+    Popover(crate::popover::Popover),
     /// A custom widget with a native render, and the props it shows.
     Custom {
         render: Rc<dyn ErasedRender>,

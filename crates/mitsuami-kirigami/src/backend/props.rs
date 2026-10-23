@@ -84,6 +84,7 @@ impl State {
             }
             // Its window takes the page out of its row, or puts it back.
             (Prop::SidebarShown(shown), Widget::Sidebar { page, .. }) => page.set_bool("mitsuamiShown", *shown),
+            (Prop::PopoverShown(shown), Widget::Popover { wanted, .. }) => wanted.set(*shown),
             // Titles and pages come in either order: each shows again.
             (Prop::Title(title), Widget::Group { root, .. }) => root.set_str("mitsuamiTitle", title),
             (Prop::TabTitles(titles), Widget::Tabs { root, .. }) => {
@@ -515,6 +516,9 @@ impl State {
             if !size.is_empty() {
                 root.resize_to(size);
             }
+        }
+        if let Prop::PopoverShown(_) = prop {
+            self.sync_popover(id);
         }
     }
 }

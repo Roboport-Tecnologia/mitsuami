@@ -202,6 +202,7 @@ impl WinUiBackend {
             | Widget::Split(_)
             | Widget::Window(_)
             | Widget::Host(_)
+            | Widget::Popover(_)
             | Widget::Scroll(_)
             | Widget::List(_)
             | Widget::Sidebar(_) => Size::ZERO,

@@ -1,6 +1,6 @@
 //! Making a node's widget.
 
-use std::cell::RefCell;
+use std::cell::{Cell, RefCell};
 use std::rc::Rc;
 
 use mitsuami_core::{Command, DisplayList, EventValue, NodeId, PointerEvent, UiEvent, WidgetKind, find_prop};
@@ -28,6 +28,21 @@ impl State {
                 let action = QmlObject::load(&qml::toolbar_action());
                 action.set_object("mitsuamiItem", Some(host));
                 Widget::ToolbarItem { host, action }
+            }
+            WidgetKind::Popover => {
+                let host = QmlObject::load(&qml::container());
+                let popup = QmlObject::load(&qml::popover());
+                popup.set_object("contentItem", Some(host));
+                // The user's only: a press outside, Escape. The core's own
+                // close came with it no longer wanted.
+                let wanted = Rc::new(Cell::new(false));
+                let shown = wanted.clone();
+                popup.connect("closed()", move || {
+                    if shown.replace(false) {
+                        events.emit(id, UiEvent::PopoverShownChanged(false));
+                    }
+                });
+                Widget::Popover { host, popup, wanted }
             }
             WidgetKind::Sidebar => {
                 let page = QmlObject::load(&qml::sidebar());

@@ -7,6 +7,24 @@ pub(crate) fn container() -> String {
     format!("Item {{ {} }}", a11y_hover("\"\""))
 }
 
+/// A popover: a `QQC2.Popup` under its parent (the item it points at),
+/// as KDE's pop-ups open under what opened them. It closes on Escape and
+/// on a press outside, as theirs do, and isn't modal. Its content item is
+/// the node's host, which the core lays out at its natural size, so it
+/// has no padding of its own: Breeze's background frames the host.
+pub(crate) fn popover() -> String {
+    r#"
+QQC2.Popup {
+    padding: 0
+    modal: false
+    focus: true
+    closePolicy: QQC2.Popup.CloseOnEscape | QQC2.Popup.CloseOnPressOutside
+    y: parent ? parent.height : 0
+}
+"#
+    .to_owned()
+}
+
 /// A group: a `QQC2.GroupBox` (Breeze draws its frame and title) behind
 /// the content item the core's children go in, both filling the host.
 /// The box has no content of its own; the core lays the children out

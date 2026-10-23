@@ -221,6 +221,10 @@ impl KirigamiBackend {
                 None => Prop::Row(row),
             })),
             Widget::ToolbarItem { .. } => {}
+            // Shown as the popup is, while the core wants it.
+            Widget::Popover { popup, wanted, .. } => {
+                props.push(Prop::PopoverShown(wanted.get() && popup.bool("visible")))
+            }
             Widget::Sidebar { page, sections, .. } => {
                 props.push(Prop::Sections(sections.clone()));
                 props.push(Prop::SelectedIndex(usize::try_from(page.int("mitsuamiSelected")).ok()));
@@ -337,6 +341,16 @@ impl KirigamiBackend {
                     Rect::new(at.x - origin.x, at.y - origin.y, frame.width(), frame.height())
                 }
             }
+            // A popover is where the popup shows it, by its parent; closed,
+            // it isn't shown.
+            (Some(parent), Widget::Popover { popup, wanted, .. }) => {
+                if !wanted.get() || !popup.bool("visible") {
+                    Rect::ZERO
+                } else {
+                    let (at, origin) = (item.map_to_scene(Point::ZERO), parent.item().map_to_scene(Point::ZERO));
+                    Rect::new(at.x - origin.x, at.y - origin.y, frame.width(), frame.height())
+                }
+            }
             // A tab view's page is in its page area, below the bar, while
             // it's the one shown.
             (Some(Widget::Tabs { root, .. }), _) => {
@@ -352,7 +366,9 @@ impl KirigamiBackend {
         let (children, scroll_offset) = match &node.widget {
             Widget::List(list) => (Vec::new(), Some(list.scroll_offset())),
             Widget::Scroll { flickable, .. } => (node.widget.content().child_items(), Some(scroll_offset(*flickable))),
-            Widget::Window { .. } | Widget::Host(_) | Widget::ToolbarItem { .. } => (item.child_items(), None),
+            Widget::Window { .. } | Widget::Host(_) | Widget::ToolbarItem { .. } | Widget::Popover { .. } => {
+                (item.child_items(), None)
+            }
             Widget::Tabs { pages, .. } => (pages.child_items(), None),
             Widget::Group { content, .. } => (content.child_items(), None),
             Widget::Split { root, .. } => {
@@ -366,6 +382,16 @@ impl KirigamiBackend {
             Widget::List(list) => list.children(),
             _ => children.iter().filter_map(|c| c.node()).filter(|key| *key != own).map(node_from_key).collect(),
         };
+        // A container's popovers point at it, after its content, in the
+        // order they came.
+        let mut popovers: Vec<NodeId> = state
+            .nodes
+            .iter()
+            .filter(|(_, n)| n.parent == Some(id) && matches!(n.widget, Widget::Popover { .. }))
+            .map(|(c, _)| *c)
+            .collect();
+        popovers.sort_by_key(|c| c.raw());
+        children.extend(popovers);
         // A window's toolbar items come after its content, and its sidebar
         // after them.
         if let Widget::Window { root } = &node.widget {

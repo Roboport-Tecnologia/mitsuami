@@ -93,6 +93,9 @@ impl State {
             WidgetKind::Sidebar => Widget::Sidebar(Sidebar::new(mtm, id, self.events.clone())),
             WidgetKind::RadioGroup => Widget::RadioGroup(RadioGroup::new(mtm, id, self.events.clone())),
             WidgetKind::Container | WidgetKind::ToolbarItem => Widget::Host(HostView::new(mtm)),
+            WidgetKind::Popover => {
+                Widget::Popover(crate::popover::Popover::new(mtm, id, self.events.clone(), self.options.show_windows))
+            }
             WidgetKind::Group => {
                 let host = HostView::new(mtm);
                 let frame = group_box(mtm, NSSize::new(0.0, 0.0));

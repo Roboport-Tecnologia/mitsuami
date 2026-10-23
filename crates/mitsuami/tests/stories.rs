@@ -713,6 +713,22 @@ fn file_icons() -> impl View {
     ))
 }
 
+/// A button with its popover shown: a heading and three branches, under
+/// the button, as the platform shows popovers.
+#[mitsuami_test::story(sizes = [(420, 240)])]
+fn popovers() -> impl View {
+    let shown = signal(true);
+    Column::new().padding(16).align(Align::Start).child(Row::new().children((
+        Button::new("Contains in"),
+        Popover::new(shown).padding(12).gap(6).children((
+            Text::new("Branches").text_style(TextStyle::Headline),
+            Text::new("main"),
+            Text::new("develop"),
+            Text::new("release/2026.22"),
+        )),
+    )))
+}
+
 /// Menu buttons as each platform draws them, closed: with a caption, an
 /// icon before it, the icon alone, borderless, and disabled. Each draws
 /// its own arrow (GNOME's icon-only menu buttons have none).

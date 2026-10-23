@@ -25,6 +25,24 @@ impl State {
         }
     }
 
+    /// Opens a popover the core wants, once it has a size and something to
+    /// point at; closes one it no longer wants (unreported: `closed()`
+    /// sees it isn't wanted).
+    pub(super) fn sync_popover(&self, id: NodeId) {
+        let Some(node) = self.nodes.get(&id) else { return };
+        let Widget::Popover { host, popup, wanted } = &node.widget else { return };
+        let open = popup.bool("visible");
+        if !wanted.get() {
+            if open {
+                popup.invoke("close");
+            }
+            return;
+        }
+        if !open && node.parent.is_some() && host.real("width") > 0.0 && host.real("height") > 0.0 {
+            popup.invoke("open");
+        }
+    }
+
     /// The flickable of the scroll view a node is the content of.
     fn scroll_parent(&self, id: NodeId) -> Option<QmlObject> {
         match &self.nodes.get(&self.nodes.get(&id)?.parent?)?.widget {
@@ -121,6 +139,17 @@ impl State {
                     self.nodes.get_mut(child).unwrap().parent = Some(*parent);
                     return;
                 }
+                // A popover isn't in its parent's item: it points at it.
+                if let Widget::Popover { popup, .. } = &self.nodes[child].widget {
+                    let anchor = match &self.nodes[parent].widget {
+                        Widget::Host(item) | Widget::Group { root: item, .. } => *item,
+                        _ => violation(command, "a popover goes in a container"),
+                    };
+                    popup.set_object("parent", Some(anchor));
+                    self.nodes.get_mut(child).unwrap().parent = Some(*parent);
+                    self.sync_popover(*child);
+                    return;
+                }
                 if let Widget::List(list) = &self.nodes[parent].widget {
                     let Some(row) = self.nodes[child].row else {
                         violation(command, "a List's children are row hosts, a Table's cell hosts")
@@ -179,6 +208,13 @@ impl State {
                     }
                     (Widget::Window { root }, Widget::ToolbarItem { host, action }) => {
                         remove_toolbar_item(root, *child, *host, *action)
+                    }
+                    // It closes with nothing to point at, unreported.
+                    (_, Widget::Popover { popup, wanted, .. }) => {
+                        let was = wanted.replace(false);
+                        popup.invoke("close");
+                        wanted.set(was);
+                        popup.set_object("parent", None);
                     }
                     (Widget::Split { root, .. }, child) => {
                         root.set_object("mitsuamiItem", Some(child.item()));
@@ -244,6 +280,12 @@ impl State {
                         }
                         page.destroy();
                     }
+                    // Its host goes with the popup, whose content it is.
+                    Widget::Popover { popup, wanted, .. } => {
+                        wanted.set(false);
+                        popup.invoke("close");
+                        popup.destroy();
+                    }
                     // The app's handle may keep its surface: it just stops
                     // showing.
                     Widget::GpuSurface(surface) => {
@@ -259,6 +301,14 @@ impl State {
                 if let Widget::ToolbarItem { host, action } = self.widget(*id, command) {
                     host.set_geometry(0.0, 0.0, frame.width() as f64, frame.height() as f64);
                     action.set_bool("visible", !frame.size.is_empty());
+                    return;
+                }
+                // A popover: its content's size; the popup places it.
+                if let Widget::Popover { host, popup, .. } = self.widget(*id, command) {
+                    host.set_geometry(0.0, 0.0, frame.width() as f64, frame.height() as f64);
+                    popup.set_real("contentWidth", frame.width() as f64);
+                    popup.set_real("contentHeight", frame.height() as f64);
+                    self.sync_popover(*id);
                     return;
                 }
                 let widget = self.widget(*id, command);

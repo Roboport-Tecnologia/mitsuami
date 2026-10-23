@@ -25,6 +25,13 @@ impl State {
         }
     }
 
+    /// The user dismissed a popover (Escape, a click outside): it hides,
+    /// and says so.
+    pub(super) fn dismiss_popover(&mut self, id: NodeId) {
+        self.set_prop(id, Prop::PopoverShown(false));
+        self.emit(id, UiEvent::PopoverShownChanged(false));
+    }
+
     /// The next enabled control after `id` in its window's focus order (as
     /// sent by the core), wrapping around. Every control takes focus, as with
     /// full keyboard access.

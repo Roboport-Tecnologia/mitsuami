@@ -250,6 +250,19 @@ impl HeadlessBackend {
                 if state.bubble_key(id, Shortcut::new(Key::Escape)).is_ok() {
                     return Ok(());
                 }
+                // A popover around the control is dismissed, as every
+                // platform's is.
+                let mut node = Some(id);
+                while let Some(n) = node {
+                    let popover = &state.nodes[&n];
+                    if popover.kind == WidgetKind::Popover
+                        && popover.props.iter().any(|p| matches!(p, Prop::PopoverShown(true)))
+                    {
+                        state.dismiss_popover(n);
+                        return Ok(());
+                    }
+                    node = popover.parent;
+                }
                 let mut window = Some(id);
                 while let Some(w) = window.filter(|w| state.nodes[w].kind != WidgetKind::Window) {
                     window = state.nodes[&w].parent;

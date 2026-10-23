@@ -48,6 +48,7 @@ extern "C" fn record(_user: *mut c_void, _node: u32, event: *const MitsuamiEvent
         }
         14 => format!("action {}", event.index),
         15 => format!("item {}", event.index),
+        16 => format!("popover shown {}", event.flag),
         // Where focus goes on a click differs per platform.
         3 | 4 => return,
         kind => format!("event {kind}"),
@@ -1026,4 +1027,29 @@ async fn rows_wrap_when_told(app: TestApp) {
     assert_eq!((frame(chips[0]).y(), frame(chips[1]).y()), (0.0, 0.0));
     assert_eq!((frame(chips[2]).x(), frame(chips[2]).y()), (0.0, 20.0));
     assert_eq!(frame(row).height(), 40.0);
+}
+
+#[mitsuami_test::test]
+async fn popovers_show_and_report_their_dismissal(app: TestApp) {
+    attach(app.ui());
+    heard();
+    let anchor = create(MitsuamiKind::Container);
+    let button = create(MitsuamiKind::Button);
+    set_text(button, MitsuamiTextProp::Label, "Contains in");
+    let popover = create(MitsuamiKind::Popover);
+    let branch = create(MitsuamiKind::Text);
+    set_text(branch, MitsuamiTextProp::Text, "develop");
+    assert!(mitsuami_append_child(popover, branch));
+    assert!(mitsuami_append_child(anchor, button));
+    assert!(mitsuami_append_child(anchor, popover));
+    assert!(mitsuami_on_event(popover, record, std::ptr::null_mut()));
+    app.mount(|| Adopt(anchor));
+    app.settle().await;
+    app.expect(by_text("develop")).to_be_hidden().await;
+
+    assert!(mitsuami_set_bool(popover, MitsuamiBoolProp::PopoverShown as u32, true));
+    app.expect(by_text("develop")).to_be_visible().await;
+    app.get_by_text("develop").press(Key::Escape).await;
+    app.expect(by_text("develop")).to_be_hidden().await;
+    assert_eq!(heard(), ["popover shown false"]);
 }
