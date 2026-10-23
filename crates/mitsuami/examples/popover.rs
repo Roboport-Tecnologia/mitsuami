@@ -24,7 +24,7 @@ pub fn page() -> impl View {
     Column::new().padding(Spacing::Xl).gap(Spacing::Lg).align(Align::Start).children((
         Row::new().children((
             Button::new("Contains in").on_click(move || branches.set(true)),
-            Popover::new(branches).padding(Spacing::Md).gap(Spacing::Sm).children((
+            Popover::new(branches).gap(Spacing::Sm).children((
                 Text::new("Branches").text_style(TextStyle::Headline),
                 Text::new("main"),
                 Text::new("develop"),
@@ -33,8 +33,8 @@ pub fn page() -> impl View {
         )),
         Row::new().children((
             Button::new("Rename…").on_click(move || rename.set(true)),
-            Popover::new(rename).padding(Spacing::Md).gap(Spacing::Sm).children((
-                TextInput::new().a11y_label("Name").value(name).width(240),
+            Popover::new(rename).gap(Spacing::Sm).children((
+                TextInput::new().a11y_label("Name").bind(name).width(240),
                 Button::new("Rename").on_click(move || {
                     rename.set(false);
                     last.set(format!("Renamed to {}.", name.get_untracked()));

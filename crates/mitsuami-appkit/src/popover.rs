@@ -1,6 +1,11 @@
-//! `Popover`: an `NSPopover` whose content view is the node's host, shown
-//! by its parent's view while the core says so. It's transient, as macOS's
+//! `Popover`: an `NSPopover` whose content is the node's host, shown by its
+//! parent's view while the core says so. It's transient, as macOS's
 //! popovers are: a click outside or Escape closes it, which is reported.
+//! An `NSPopover` puts its content view edge to edge, and apps inset what's
+//! in it: the host is `INSET` in from its content view's edges, AppKit's
+//! standard spacing between content and its container's edge (what
+//! `|-[view]-|` constraints and Interface Builder's popover use), as GTK's,
+//! WinUI's and Qt's popovers inset their content themselves.
 //!
 //! AppKit shows a popover only from a window on screen, and tests never
 //! show windows: there, it keeps what the core asked and says it shows
@@ -20,15 +25,19 @@ use objc2_foundation::{NSNotification, NSRect, NSRectEdge, NSSize};
 use crate::classes::HostView;
 
 /// How far under its parent a popover's content is in tests: about where
-/// its arrow puts it.
-const GAP: f64 = 13.0;
+/// its arrow and inset put it.
+const GAP: f64 = 33.0;
+
+/// Between the popover's edges and its content.
+const INSET: f64 = 20.0;
 
 pub(crate) struct State {
     id: NodeId,
     events: EventSink,
     /// What the core asked for.
     wanted: Cell<bool>,
-    /// The popover is closing because the core asked: not reported.
+    /// The popover is closing because the core asked: not reported. It
+    /// animates out, so AppKit says it closed later.
     closing: Cell<bool>,
     anchor: RefCell<Option<Retained<NSView>>>,
     /// Windows are shown: off in tests (see above).
@@ -48,7 +57,10 @@ define_class!(
         #[unsafe(method(popoverDidClose:))]
         fn did_close(&self, _notification: &NSNotification) {
             let state = self.ivars();
-            if !state.closing.get() && state.wanted.get() {
+            if state.closing.replace(false) {
+                return;
+            }
+            if state.wanted.get() {
                 state.wanted.set(false);
                 state.events.emit(state.id, UiEvent::PopoverShownChanged(false));
             }
@@ -66,12 +78,14 @@ pub(crate) struct Popover {
 impl Popover {
     pub(crate) fn new(mtm: MainThreadMarker, id: NodeId, events: EventSink, on_screen: bool) -> Popover {
         let host = HostView::new(mtm);
+        let content = HostView::new(mtm);
+        content.addSubview(&host);
+        host.setFrameOrigin(objc2_foundation::NSPoint::new(INSET, INSET));
         let controller = NSViewController::new(mtm);
-        controller.setView(&host);
+        controller.setView(&content);
         let popover = NSPopover::new(mtm);
         popover.setContentViewController(Some(&controller));
         popover.setBehavior(NSPopoverBehavior::Transient);
-        popover.setAnimates(false);
         let state = Rc::new(State {
             id,
             events,
@@ -107,7 +121,7 @@ impl Popover {
     /// Its content's size, as the core laid it out.
     pub(crate) fn set_size(&self, size: NSSize) {
         self.host.setFrameSize(size);
-        self.popover.setContentSize(size);
+        self.popover.setContentSize(NSSize::new(size.width + 2.0 * INSET, size.height + 2.0 * INSET));
         self.sync();
     }
 
@@ -138,7 +152,6 @@ impl Popover {
         if self.popover.isShown() {
             self.state.closing.set(true);
             self.popover.close();
-            self.state.closing.set(false);
         }
     }
 
