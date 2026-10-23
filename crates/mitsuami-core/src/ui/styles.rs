@@ -58,7 +58,7 @@ impl Inner {
                     let mut own = node.style.clone();
                     own.display = Display::Grid;
                     let fill = Track::MinMax(Length::Px(0.0), Length::Fr(1.0));
-                    own.grid_template_columns = vec![fill.clone()];
+                    own.grid_template_columns = vec![fill];
                     own.grid_template_rows = vec![fill];
                     // Tabs can be a split's pane; they went in the
                     // divider's track, at their own size.
