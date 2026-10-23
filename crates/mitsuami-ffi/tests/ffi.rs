@@ -756,4 +756,42 @@ async fn tables_ask_for_cells_and_report_the_sort(app: TestApp) {
     assert!(heard().contains(&"released".to_string()));
 }
 
+extern "C" fn draw_nothing(_user: *mut c_void, _node: u32, _canvas: *mut MitsuamiCanvas, _width: f32, _height: f32) {}
+
+#[mitsuami_test::test]
+async fn absolute_nodes_sit_over_the_others(app: TestApp) {
+    attach(app.ui());
+    // A branch's label: a drawn backdrop filling it, behind its name.
+    let badge = create(MitsuamiKind::Container);
+    assert!(mitsuami_set_direction(badge, true));
+    assert!(mitsuami_set_align_self(badge, 1));
+    assert!(mitsuami_set_padding(badge, px(0.0), px(4.0), px(0.0), px(20.0)));
+    let callbacks = MitsuamiDrawnCallbacks { draw: draw_nothing, user: std::ptr::null_mut() };
+    let backdrop = unsafe { mitsuami_create_drawn(str("Backdrop"), callbacks, 0.0, 0.0) };
+    set_text(backdrop, MitsuamiTextProp::TestId, "backdrop");
+    assert!(mitsuami_set_position(backdrop, true, px(0.0), px(0.0), px(0.0), px(0.0)));
+    let name = create(MitsuamiKind::Text);
+    set_text(name, MitsuamiTextProp::Text, "main");
+    assert!(mitsuami_append_child(badge, backdrop));
+    assert!(mitsuami_append_child(badge, name));
+    set_text(badge, MitsuamiTextProp::TestId, "badge");
+    let column = create(MitsuamiKind::Container);
+    assert!(mitsuami_append_child(column, badge));
+    app.mount(|| Adopt(column));
+    app.settle().await;
+
+    // The backdrop takes the badge's frame; the name is laid out as if it
+    // weren't there.
+    let (frame, behind) = (app.get_by_test_id("badge").frame(), app.get_by_test_id("backdrop").frame());
+    assert_eq!(behind, frame);
+    let label = app.get_by_text("main").frame();
+    assert_eq!(label.x(), frame.x() + 20.0);
+    assert_eq!(frame.width(), label.width() + 24.0);
+
+    // Back in the flow, it takes room again.
+    assert!(mitsuami_set_position(backdrop, false, auto(), auto(), auto(), auto()));
+    app.settle().await;
+    assert!(app.get_by_text("main").frame().x() >= frame.x() + 20.0);
+}
+
 mitsuami_test::main!();

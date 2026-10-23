@@ -25,7 +25,7 @@ use std::task::{Poll, Waker};
 use mitsuami::App;
 use mitsuami::core::draw::Path;
 use mitsuami::core::services::{Alert, AlertStyle, MenuCheck, MenuData, MenuEntry, MenuItemData, MenuRole, OpenFile};
-use mitsuami::core::style::Edges;
+use mitsuami::core::style::{Edges, Position};
 use mitsuami::core::{
     A11yAction, A11yProps, Align, ButtonRole, ButtonStyle, Canvas, Color, Custom, CustomWidget, DocumentTabsStyle,
     Drawn, EventValue, FileDrop, FlexDirection, HeaderEdge, Justify, Length, List, ListStyle, MeasureRequest, Modality,
@@ -898,6 +898,30 @@ pub extern "C" fn mitsuami_set_padding(
     guard(|| {
         let edges = Edges { top: length(top)?, end: length(end)?, bottom: length(bottom)?, start: length(start)? };
         ui()?.update_style(node(id), |s| s.padding = edges);
+        Ok(())
+    })
+    .is_some()
+}
+
+/// Takes a node out of its container's flow, placed by its insets from the
+/// container's edges (auto: not placed by that edge), over the nodes in it
+/// (a drawn backdrop behind a label, say); `absolute` false puts it back.
+#[unsafe(no_mangle)]
+pub extern "C" fn mitsuami_set_position(
+    id: u32,
+    absolute: bool,
+    top: MitsuamiLength,
+    end: MitsuamiLength,
+    bottom: MitsuamiLength,
+    start: MitsuamiLength,
+) -> bool {
+    guard(|| {
+        let inset = Edges { top: length(top)?, end: length(end)?, bottom: length(bottom)?, start: length(start)? };
+        let position = if absolute { Position::Absolute } else { Position::Relative };
+        ui()?.update_style(node(id), |s| {
+            s.position = position;
+            s.inset = inset;
+        });
         Ok(())
     })
     .is_some()
