@@ -80,7 +80,6 @@ impl Popover {
         let host = HostView::new(mtm);
         let content = HostView::new(mtm);
         content.addSubview(&host);
-        host.setFrameOrigin(objc2_foundation::NSPoint::new(INSET, INSET));
         let controller = NSViewController::new(mtm);
         controller.setView(&content);
         let popover = NSPopover::new(mtm);
@@ -120,7 +119,9 @@ impl Popover {
 
     /// Its content's size, as the core laid it out.
     pub(crate) fn set_size(&self, size: NSSize) {
-        self.host.setFrameSize(size);
+        // Its whole frame: the backend gives nodes their frames as they're
+        // made, so its place in the content view is set with its size.
+        self.host.setFrame(NSRect::new(objc2_foundation::NSPoint::new(INSET, INSET), size));
         self.popover.setContentSize(NSSize::new(size.width + 2.0 * INSET, size.height + 2.0 * INSET));
         self.sync();
     }
