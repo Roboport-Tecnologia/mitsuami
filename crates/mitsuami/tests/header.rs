@@ -126,14 +126,18 @@ async fn on_gtk_it_is_under_the_header_bar(app: TestApp) {
         use std::rc::Rc;
 
         let seen: Rc<RefCell<Option<gtk::Button>>> = Rc::default();
+        let scrolled: Rc<RefCell<Option<gtk::ScrolledWindow>>> = Rc::default();
         let on = signal(true);
-        let mounted = seen.clone();
+        let (mounted, mounted_scrolled) = (seen.clone(), scrolled.clone());
         app.mount(move || {
-            let seen = mounted.clone();
+            let (seen, scrolled) = (mounted.clone(), mounted_scrolled.clone());
             let tweak = mitsuami::gtk::tweak(move |button: &gtk::Button| *seen.borrow_mut() = Some(button.clone()));
+            let scroll_tweak =
+                mitsuami::gtk::tweak(move |s: &gtk::ScrolledWindow| *scrolled.borrow_mut() = Some(s.clone()));
             Column::new().grow(1.0).min_height(0.0).children((
                 Row::new().header(on).padding(12.0).child(Button::new("Add").native(tweak)),
                 ScrollView::new()
+                    .native(scroll_tweak)
                     .child(Column::new().children((0..60).map(|i| Text::new(format!("Disc {i}"))).collect::<Vec<_>>()))
                     .grow(1.0)
                     .min_height(0.0)
@@ -147,6 +151,15 @@ async fn on_gtk_it_is_under_the_header_bar(app: TestApp) {
         let view = button.ancestor(toolbar_view).expect("the header is in a toolbar view");
         let content: gtk::Widget = view.property("content");
         assert!(!button.is_ancestor(&content), "the header is in the top bars");
+        // What's under it starts below the top bars, as drawn: libadwaita
+        // spaces two bars apart, which the content's top must take in.
+        let header = button.parent().expect("in the header's host");
+        let header = header.compute_bounds(&view).expect("placed");
+        let under = scrolled.borrow().clone().expect("tweaked").compute_bounds(&view).expect("placed");
+        assert!(
+            under.y() >= header.y() + header.height() - 0.5,
+            "{under:?} under the top bars, whose header is {header:?}"
+        );
         let discs = app.get_by_test_id("discs").frame();
         app.get_by_role(Role::Button, "Add").click().await;
 

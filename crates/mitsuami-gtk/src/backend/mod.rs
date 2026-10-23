@@ -78,7 +78,8 @@ pub(crate) struct WindowParts {
     /// libadwaita's, which a split view's content page can take: it shows
     /// the page's title and back button there.
     header: adw::HeaderBar,
-    /// Measured again when toolbar items change it.
+    /// What's above the content: the header bar, or under a header, the
+    /// top bars less the header. Measured again when they change.
     header_height: i32,
     /// The toolbar items in the header bar, in order.
     items: Vec<(NodeId, gtk::Widget)>,
@@ -95,8 +96,8 @@ pub(crate) struct WindowParts {
     /// The window's content beside its sidebar, while it has one.
     split: Option<Split>,
     /// The toolbar view the window is while a header is under its header
-    /// bar (`crate::header`).
-    top_bars: Option<adw::ToolbarView>,
+    /// bar, and the header's host (`crate::header`).
+    top_bars: Option<(adw::ToolbarView, Host)>,
 }
 
 enum Widget {

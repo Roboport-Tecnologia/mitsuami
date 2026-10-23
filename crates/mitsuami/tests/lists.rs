@@ -414,6 +414,42 @@ async fn a_framed_lists_rows_fit_inside_it(app: TestApp) {
     assert!(row.width() <= list.width(), "a {}px row in a {}px list", row.width(), list.width());
 }
 
+/// A list shorter than the platform's scroll bar is as high as the core
+/// made it: GTK's scroll bar is at least 58 px high, and its scrolled window
+/// had been as high, over what's under the list (SourceGit's sidebar, with
+/// one branch). It scrolls without a scroll bar there.
+#[mitsuami_test::test]
+async fn a_list_shorter_than_a_scroll_bar_keeps_its_height(app: TestApp) {
+    let data = signal(items(1));
+    #[cfg(all(target_os = "linux", not(feature = "kde")))]
+    let seen: Rc<RefCell<Option<mitsuami::gtk::gtk::ListView>>> = Rc::default();
+    #[cfg(all(target_os = "linux", not(feature = "kde")))]
+    let tweak = {
+        let seen = seen.clone();
+        mitsuami::gtk::tweak(move |v: &mitsuami::gtk::gtk::ListView| *seen.borrow_mut() = Some(v.clone()))
+    };
+    #[cfg(not(all(target_os = "linux", not(feature = "kde"))))]
+    let tweak = Tweak::none();
+    app.mount(move || {
+        Column::new().children((
+            List::new(data, |i: &Item| i.id, |i| row(i.name, 20.0)).height(20).native(tweak).test_id("list"),
+            Text::new("Below").test_id("below"),
+        ))
+    });
+    app.settle().await;
+
+    let (list, below) = (app.get_by_test_id("list").frame(), app.get_by_test_id("below").frame());
+    assert_eq!(list.height(), 20.0);
+    assert_eq!(below.y(), list.max_y());
+    #[cfg(all(target_os = "linux", not(feature = "kde")))]
+    if app.backend_name() == "gtk" {
+        use mitsuami::gtk::gtk::prelude::*;
+        let view = seen.borrow().clone().expect("tweaked");
+        let scrolled = view.parent().expect("in its scrolled window");
+        assert_eq!(scrolled.height(), 20, "the scrolled window is as high as the list");
+    }
+}
+
 /// Logs how many rows the native list view has, each time the tweak runs.
 fn log_rows(log: Rc<RefCell<Vec<usize>>>) -> Tweak<List> {
     platform! {

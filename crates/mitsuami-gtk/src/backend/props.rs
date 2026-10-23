@@ -648,7 +648,16 @@ impl State {
                 }
             },
             (Prop::HeaderEdge(edge), Widget::Host(_)) => node.header_edge = Some(*edge),
-            (Prop::SidebarPane(on), Widget::Host(_)) => node.sidebar_pane = Some(*on),
+            // libadwaita's sidebar pane: its background (the header bar's,
+            // in the dark style) and the line at its trailing edge.
+            (Prop::SidebarPane(on), Widget::Host(host)) => {
+                if *on {
+                    host.add_css_class("sidebar-pane");
+                } else {
+                    host.remove_css_class("sidebar-pane");
+                }
+                node.sidebar_pane = Some(*on);
+            }
             _ => {}
         }
     }

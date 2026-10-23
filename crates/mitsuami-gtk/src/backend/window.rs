@@ -190,11 +190,16 @@ pub(super) fn pack_items(parts: &WindowParts) {
 /// An item taller than the header bar makes it taller; the window grows
 /// with it, so the content keeps the size the core asked for.
 pub(super) fn keep_content_size(parts: &mut WindowParts) {
-    let height = parts.header.measure(gtk::Orientation::Vertical, -1).1;
-    // Under a header, the content runs up under the header bar alone.
-    if parts.top_bars.is_some() {
-        parts.host.set_margin_top(height);
-    }
+    let height = match &parts.top_bars {
+        // Under a header, the content runs up under it, so what's above
+        // the content is the top bars less the header.
+        Some((view, header)) => {
+            let height = crate::header::above_content(view, header);
+            parts.host.set_margin_top(height);
+            height
+        }
+        None => parts.header.measure(gtk::Orientation::Vertical, -1).1,
+    };
     if height == parts.header_height {
         return;
     }
@@ -291,7 +296,8 @@ impl State {
             if let Some(Widget::Window(parts)) = self.nodes.get_mut(&window).map(|n| &mut n.widget) {
                 // The content keeps its size: the header bar is as high as
                 // it was, or the window follows it (`keep_content_size`).
-                parts.top_bars = Some(header.attach(window, &parts.window, &parts.header, &parts.host));
+                let view = header.attach(window, &parts.window, &parts.header, &parts.host);
+                parts.top_bars = Some((view, header.content.clone()));
                 keep_content_size(parts);
             }
             self.nodes.get_mut(&id).unwrap().header = Some(header);
@@ -356,7 +362,7 @@ impl State {
     /// view a header made it.
     pub(super) fn restore_window(&mut self, window: NodeId) {
         let Some(Widget::Window(parts)) = self.nodes.get_mut(&window).map(|n| &mut n.widget) else { return };
-        let Some(view) = parts.top_bars.take() else { return };
+        let Some((view, _)) = parts.top_bars.take() else { return };
         crate::header::restore_window(&view, &parts.window, &parts.header, &parts.host);
         keep_content_size(parts);
     }

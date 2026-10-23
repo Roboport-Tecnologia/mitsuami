@@ -281,7 +281,7 @@ impl GtkBackend {
         props.extend(node.hover.as_ref().map(|motion| Prop::Hover(motion.widget().as_ref() == Some(widget))));
         props.extend(node.header.as_ref().map(|h| Prop::Header(h.on.get())));
         props.extend(node.header_edge.map(Prop::HeaderEdge));
-        props.extend(node.sidebar_pane.map(Prop::SidebarPane));
+        props.extend(node.sidebar_pane.map(|_| Prop::SidebarPane(widget.has_css_class("sidebar-pane"))));
         props.extend(
             node.double_click.as_ref().map(|(click, _)| Prop::DoubleClick(click.widget().as_ref() == Some(widget))),
         );

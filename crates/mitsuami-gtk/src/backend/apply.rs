@@ -346,8 +346,17 @@ impl State {
                 if let Widget::Group(group) = &self.nodes[id].widget {
                     group.place();
                 }
+                if let Widget::List(list) = &self.nodes[id].widget {
+                    list.fit_scroll_bar(frame.height());
+                }
                 if let (Some(header), Widget::Host(host)) = (&self.nodes[id].header, &self.nodes[id].widget) {
                     header.place(host);
+                    // The top bars follow it, and the content stays below them.
+                    if let Some(window) = header.window.get()
+                        && let Some(Widget::Window(parts)) = self.nodes.get_mut(&window).map(|n| &mut n.widget)
+                    {
+                        keep_content_size(parts);
+                    }
                 }
                 if let Widget::Slider { scale, steps } = &self.nodes[id].widget {
                     let vertical = scale.orientation() == gtk::Orientation::Vertical;
