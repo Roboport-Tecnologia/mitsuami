@@ -894,6 +894,17 @@ async fn images_show_the_callers_pixels(app: TestApp) {
 }
 
 #[mitsuami_test::test]
+async fn texts_can_be_selectable(app: TestApp) {
+    attach(app.ui());
+    let text = create(MitsuamiKind::Text);
+    set_text(text, MitsuamiTextProp::Text, "Fix the graph's curves");
+    assert!(mitsuami_set_bool(text, MitsuamiBoolProp::Selectable as u32, true));
+    app.mount(|| Adopt(text));
+    app.settle().await;
+    assert!(app.ui().props(NodeId::from_raw(text)).contains(&Prop::Selectable(true)));
+}
+
+#[mitsuami_test::test]
 async fn the_clipboard_and_links_go_to_the_platform(app: TestApp) {
     attach(app.ui());
     assert!(unsafe { mitsuami_set_clipboard_text(str("1a2b3c")) });

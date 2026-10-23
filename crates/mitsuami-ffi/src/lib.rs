@@ -547,6 +547,9 @@ pub enum MitsuamiBoolProp {
     /// A container that's a pane down its window's side that navigates:
     /// on WinUI under tabs in the title bar, on the chosen tab's layer.
     SidebarPane = 8,
+    /// A text the user can select and copy. Set before it's in a window:
+    /// a platform may not change it afterwards (Qt's is another item).
+    Selectable = 9,
 }
 
 #[unsafe(no_mangle)]
@@ -562,6 +565,7 @@ pub extern "C" fn mitsuami_set_bool(id: u32, prop: u32, value: bool) -> bool {
             6 => Prop::Header(value),
             7 => Prop::Click(value),
             8 => Prop::SidebarPane(value),
+            9 => Prop::Selectable(value),
             _ => return Err(format!("unknown bool prop {prop}")),
         };
         ui()?.set_prop(node(id), prop);
