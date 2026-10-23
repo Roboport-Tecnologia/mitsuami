@@ -1,12 +1,12 @@
 //! Menus: the menu bar, context menus and menu buttons' menus, built and
 //! read back.
 
-use std::cell::Cell;
+use std::cell::{Cell, RefCell};
 use std::collections::HashMap;
 use std::rc::Rc;
 
 use mitsuami_core::a11y::ActionError;
-use mitsuami_core::services::{MenuBarData, MenuCheck, MenuData, MenuEntry, MenuItemData, Shortcut};
+use mitsuami_core::services::{MenuBarData, MenuCheck, MenuData, MenuEntry, MenuItemData, MenuOnOpen, Shortcut};
 use mitsuami_core::{Key, NodeId};
 use windows_core::{EventRevoker, Interface};
 
@@ -16,7 +16,15 @@ use crate::bindings as w;
 
 impl ContextMenu {
     pub(crate) fn new(activate: Rc<dyn Fn(u32)>, own: Option<w::FlyoutBase>) -> ContextMenu {
-        ContextMenu { sent: Vec::new(), flyout: None, items: MenuItems::default(), revokers: Vec::new(), activate, own }
+        ContextMenu {
+            sent: Rc::default(),
+            flyout: None,
+            items: MenuItems::default(),
+            revokers: Rc::default(),
+            activate,
+            own,
+            on_open: None,
+        }
     }
 
     /// The flyout showing it, none while it's empty.
@@ -31,18 +39,25 @@ impl ContextMenu {
     /// Shows `entries`: in place when only enabled and checked states
     /// changed, so an open menu stays open, as the menu bar does; else a
     /// new flyout (none for no entries). Whether the flyout was replaced.
+    /// One built as it opens keeps its flyout, refilled.
     pub(crate) fn update(&mut self, entries: &[MenuEntry], scope: String) -> R<bool> {
-        let replaced = if self.flyout.is_some() && as_menu_bar(entries).same_structure(&as_menu_bar(&self.sent)) {
+        if let (Some(_), Some(flyout)) = (&self.on_open, &self.flyout) {
+            fill(flyout, &self.sent, &self.revokers, &self.items, &self.activate, entries, scope)?;
+            return Ok(false);
+        }
+        let same = as_menu_bar(entries).same_structure(&as_menu_bar(&self.sent.borrow()));
+        let replaced = if self.flyout.is_some() && same {
             update_items(&self.items, &as_menu_bar(entries));
             false
         } else if self.flyout.is_some() || !entries.is_empty() {
-            self.revokers.clear();
+            self.revokers.borrow_mut().clear();
             self.items.borrow_mut().clear();
             self.flyout = None;
             if !entries.is_empty() {
+                let mut revokers = self.revokers.borrow_mut();
                 let mut built = MenuBuild {
                     activate: &self.activate,
-                    revokers: &mut self.revokers,
+                    revokers: &mut revokers,
                     items: &self.items,
                     closed: None,
                     scope,
@@ -53,9 +68,94 @@ impl ContextMenu {
         } else {
             false
         };
-        self.sent = entries.to_vec();
+        *self.sent.borrow_mut() = entries.to_vec();
         Ok(replaced)
     }
+
+    /// Builds the menu as it opens, asking `on_open` (`ContextMenuOnOpen`),
+    /// or with `None` shows what was sent, as `update` does. Whether the
+    /// flyout was replaced.
+    pub(crate) fn set_on_open(&mut self, on_open: Option<&MenuOnOpen>, scope: String) -> R<bool> {
+        match (on_open, &self.on_open) {
+            (Some(on_open), Some((build, _))) => {
+                *build.borrow_mut() = on_open.clone();
+                Ok(false)
+            }
+            (Some(on_open), None) => {
+                // A flyout of its own, set even while it's empty, so XAML
+                // opens it and raises `Opening`: the moment WinUI apps fill
+                // a menu that depends on what's under the pointer.
+                let flyout = w::MenuFlyout::new()?;
+                let sent = std::mem::take(&mut *self.sent.borrow_mut());
+                self.revokers.borrow_mut().clear();
+                self.items.borrow_mut().clear();
+                fill(&flyout, &self.sent, &self.revokers, &self.items, &self.activate, &sent, scope.clone())?;
+                let build = Rc::new(RefCell::new(on_open.clone()));
+                let (asked, shared) = (build.clone(), self.sent.clone());
+                let (revokers, items, activate) = (self.revokers.clone(), self.items.clone(), self.activate.clone());
+                let opening = flyout.cast::<w::IFlyoutBase>()?.Opening(move |sender, _| {
+                    let Some(flyout) = sender.as_ref().and_then(|s| s.cast::<w::MenuFlyout>().ok()) else { return };
+                    // Outside any core call, unless a nested pump runs
+                    // inside one: then it shows what it built last.
+                    if !super::super::runtime::nested() {
+                        let on_open = asked.borrow().clone();
+                        let entries = on_open.build();
+                        _ = fill(&flyout, &shared, &revokers, &items, &activate, &entries, scope.clone());
+                    }
+                    // Nothing to show: XAML has no way to cancel `Opening`,
+                    // and an empty flyout would show as an empty box, so
+                    // it's hidden at once, as a control without a menu
+                    // shows nothing.
+                    if shared.borrow().iter().all(|e| matches!(e, MenuEntry::Separator)) {
+                        _ = flyout.cast::<w::IFlyoutBase>().and_then(|f| f.Hide());
+                    }
+                })?;
+                self.flyout = Some(flyout);
+                self.on_open = Some((build, opening));
+                Ok(true)
+            }
+            (None, Some(_)) => {
+                self.on_open = None;
+                let sent = std::mem::take(&mut *self.sent.borrow_mut());
+                self.revokers.borrow_mut().clear();
+                self.items.borrow_mut().clear();
+                self.flyout = None;
+                self.update(&sent, scope)?;
+                Ok(true)
+            }
+            (None, None) => Ok(false),
+        }
+    }
+
+    /// The app's function, for `native_state`.
+    pub(crate) fn on_open(&self) -> Option<MenuOnOpen> {
+        self.on_open.as_ref().map(|(build, _)| build.borrow().clone())
+    }
+}
+
+/// Fills a flyout built as it opens with `entries`, in place, unless it
+/// holds them already, so an open menu isn't rebuilt under the pointer.
+fn fill(
+    flyout: &w::MenuFlyout,
+    sent: &RefCell<Vec<MenuEntry>>,
+    revokers: &RefCell<Vec<EventRevoker>>,
+    items: &MenuItems,
+    activate: &Rc<dyn Fn(u32)>,
+    entries: &[MenuEntry],
+    scope: String,
+) -> R<()> {
+    if *sent.borrow() == entries {
+        return Ok(());
+    }
+    let shown = flyout.cast::<w::IMenuFlyout>()?.Items()?;
+    shown.Clear()?;
+    revokers.borrow_mut().clear();
+    items.borrow_mut().clear();
+    let mut revokers = revokers.borrow_mut();
+    let mut built = MenuBuild { activate, revokers: &mut revokers, items, closed: None, scope };
+    built.entries(&shown, &MenuData { title: String::new(), entries: entries.to_vec() })?;
+    *sent.borrow_mut() = entries.to_vec();
+    Ok(())
 }
 
 /// Entries as one menu, to compare and update them as menu bars are.
@@ -306,9 +406,10 @@ pub(super) fn read_menu(
     menu: &ContextMenu,
 ) -> Vec<MenuEntry> {
     let ids: HashMap<usize, u32> = menu.items.borrow().iter().map(|(id, (item, _))| (key(item), *id)).collect();
+    let sent_entries = menu.sent.borrow().clone();
     let read_item = |item: &w::MenuFlyoutItemBase| -> Option<MenuItemData> {
         let id = *ids.get(&key(item))?;
-        let sent = mitsuami_core::services::menu_item_by_id(&menu.sent, id);
+        let sent = mitsuami_core::services::menu_item_by_id(&sent_entries, id);
         let check = if let Ok(radio) = item.cast::<w::IRadioMenuFlyoutItem>() {
             MenuCheck::Radio(radio.IsChecked().ok()?)
         } else if let Ok(toggle) = item.cast::<w::IToggleMenuFlyoutItem>() {

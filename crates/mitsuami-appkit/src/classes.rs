@@ -6,7 +6,7 @@ use std::ffi::c_void;
 use std::path::PathBuf;
 use std::rc::Rc;
 
-use mitsuami_core::services::Shortcut;
+use mitsuami_core::services::{MenuEntry, MenuOnOpen, Shortcut};
 use mitsuami_core::{
     DisplayList, EventSink, EventValue, FileDrop, Insets, Key, NodeId, Point, PointerEvent, PointerKind, Size, UiEvent,
     WidgetKind,
@@ -18,10 +18,11 @@ use objc2::{
 };
 use objc2_app_kit::{
     NSButton, NSClickGestureRecognizer, NSColor, NSControl, NSControlStateValueOn, NSControlTextEditingDelegate,
-    NSDragOperation, NSDraggingInfo, NSEvent, NSEventModifierFlags, NSEventType, NSPasteboardTypeFileURL,
-    NSPopUpButton, NSRectFill, NSResponder, NSScreen, NSScrollView, NSSearchFieldDelegate, NSSlider, NSSwitch, NSText,
-    NSTextDelegate, NSTextField, NSTextFieldDelegate, NSTextView, NSTextViewDelegate, NSTrackingArea,
-    NSTrackingAreaOptions, NSView, NSViewFrameDidChangeNotification, NSWindow, NSWindowDelegate, NSWindowStyleMask,
+    NSDragOperation, NSDraggingInfo, NSEvent, NSEventModifierFlags, NSEventType, NSMenu, NSMenuDelegate,
+    NSPasteboardTypeFileURL, NSPopUpButton, NSRectFill, NSResponder, NSScreen, NSScrollView, NSSearchFieldDelegate,
+    NSSlider, NSSwitch, NSText, NSTextDelegate, NSTextField, NSTextFieldDelegate, NSTextView, NSTextViewDelegate,
+    NSTrackingArea, NSTrackingAreaOptions, NSView, NSViewFrameDidChangeNotification, NSWindow, NSWindowDelegate,
+    NSWindowStyleMask,
 };
 use objc2_foundation::{
     NSArray, NSEdgeInsets, NSKeyValueObservingOptions, NSNotification, NSNotificationCenter,
@@ -978,6 +979,69 @@ impl ClosureTarget {
     pub(crate) fn new(mtm: MainThreadMarker, handler: impl Fn(&AnyObject) + 'static) -> Retained<ClosureTarget> {
         let this = ClosureTarget::alloc(mtm).set_ivars(ClosureIvars { handler: Box::new(handler) });
         unsafe { msg_send![super(this), init] }
+    }
+}
+
+pub(crate) struct MenuOpenerIvars {
+    on_open: RefCell<MenuOnOpen>,
+    /// The target of its items, which only hold weak references to it.
+    target: Retained<ClosureTarget>,
+    /// What it holds, so the same entries aren't put in again while it's
+    /// open.
+    shown: RefCell<Vec<MenuEntry>>,
+}
+
+define_class!(
+    /// The delegate of a context menu built as it opens: AppKit asks it to
+    /// fill the menu just before showing it (`menuNeedsUpdate:`), and it
+    /// asks the app.
+    #[unsafe(super(NSObject))]
+    #[thread_kind = MainThreadOnly]
+    #[ivars = MenuOpenerIvars]
+    pub(crate) struct MenuOpener;
+
+    unsafe impl NSObjectProtocol for MenuOpener {}
+
+    unsafe impl NSMenuDelegate for MenuOpener {
+        #[unsafe(method(menuNeedsUpdate:))]
+        fn menu_needs_update(&self, menu: &NSMenu) {
+            // Outside any core call: AppKit is handling a right-click.
+            let entries = self.ivars().on_open.borrow().build();
+            self.fill(menu, &entries);
+        }
+    }
+);
+
+impl MenuOpener {
+    pub(crate) fn new(
+        mtm: MainThreadMarker,
+        on_open: MenuOnOpen,
+        target: Retained<ClosureTarget>,
+    ) -> Retained<MenuOpener> {
+        let ivars = MenuOpenerIvars { on_open: RefCell::new(on_open), target, shown: RefCell::new(Vec::new()) };
+        let this = MenuOpener::alloc(mtm).set_ivars(ivars);
+        unsafe { msg_send![super(this), init] }
+    }
+
+    pub(crate) fn on_open(&self) -> MenuOnOpen {
+        self.ivars().on_open.borrow().clone()
+    }
+
+    pub(crate) fn set(&self, on_open: MenuOnOpen) {
+        *self.ivars().on_open.borrow_mut() = on_open;
+    }
+
+    /// Puts `entries` in `menu`, unless it holds them already.
+    pub(crate) fn fill(&self, menu: &NSMenu, entries: &[MenuEntry]) {
+        if *self.ivars().shown.borrow() == entries {
+            return;
+        }
+        menu.removeAllItems();
+        let target = crate::services::ItemTarget { object: &self.ivars().target, action: sel!(fire:) };
+        for item in crate::services::app_items(self.mtm(), entries, target) {
+            menu.addItem(&item);
+        }
+        *self.ivars().shown.borrow_mut() = entries.to_vec();
     }
 }
 

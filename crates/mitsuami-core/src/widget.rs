@@ -1005,6 +1005,11 @@ pub enum Prop {
     /// or container can have one; empty: none. The node reports the item
     /// chosen as [`UiEvent::ContextMenuItem`](crate::UiEvent::ContextMenuItem).
     ContextMenu(Vec<MenuEntry>),
+    /// The node's context menu is built as the platform opens it: the
+    /// platform calls it, from its own moment before a menu shows, and
+    /// shows what it returns, which is also the node's `ContextMenu`
+    /// from then on. `None`: the menu is `ContextMenu` alone.
+    ContextMenuOnOpen(Option<crate::services::MenuOnOpen>),
     /// A `MenuButton`'s menu: items, separators and submenus, built as a
     /// context menu's. The node reports the item chosen as
     /// [`UiEvent::MenuItem`](crate::UiEvent::MenuItem).

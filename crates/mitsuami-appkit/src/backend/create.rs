@@ -353,6 +353,7 @@ impl State {
                 tweak: None,
                 file_drop: false,
                 context_menu: None,
+                menu_on_open: None,
                 hover: None,
                 double_click: None,
                 click: None,

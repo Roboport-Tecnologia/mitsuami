@@ -12,6 +12,7 @@ use mitsuami_core::{
 
 use crate::custom::NativePayload;
 use crate::file_drop::FileDropTarget;
+use crate::host::Events;
 use crate::services::ContextMenu;
 
 use super::button::{ROLE_CLASSES, role_class};
@@ -570,14 +571,13 @@ impl State {
             // On the widget the pointer rests on, as the tooltip is, and
             // for its children without one of their own.
             (Prop::ContextMenu(entries), widget) => {
-                let events = self.events.clone();
                 let focus = widget.focus_widget();
-                node.context_menu
-                    .get_or_insert_with(|| {
-                        let activate = move |item| events.emit(id, UiEvent::ContextMenuItem(item));
-                        ContextMenu::new(&focus, Rc::new(activate))
-                    })
-                    .set(&focus, entries);
+                context_menu(&mut node.context_menu, &focus, id, &self.events).set(&focus, entries);
+            }
+            // Built by the gestures that open it, just before.
+            (Prop::ContextMenuOnOpen(on_open), widget) => {
+                let focus = widget.focus_widget();
+                context_menu(&mut node.context_menu, &focus, id, &self.events).set_on_open(on_open.clone());
             }
             (Prop::Rows(rows), Widget::List(list)) => list.set_rows(rows.clone()),
             (Prop::RowFiles(files), Widget::List(list)) => list.set_row_files(files.clone()),
@@ -699,4 +699,18 @@ fn on_control(host: &gtk::Widget, x: f64, y: f64) -> bool {
         at = widget.parent();
     }
     false
+}
+
+/// The node's context menu, made the first time it's given one.
+fn context_menu<'a>(
+    menu: &'a mut Option<ContextMenu>,
+    focus: &gtk::Widget,
+    id: NodeId,
+    events: &Events,
+) -> &'a mut ContextMenu {
+    menu.get_or_insert_with(|| {
+        let events = events.clone();
+        let activate = move |item| events.emit(id, UiEvent::ContextMenuItem(item));
+        ContextMenu::new(focus, Rc::new(activate))
+    })
 }

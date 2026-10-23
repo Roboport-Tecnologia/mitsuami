@@ -689,6 +689,25 @@ impl State {
                 }
                 set_hit_testable(node)?;
             }
+            // Built as it opens, from the flyout's `Opening`; the
+            // `ContextMenu` the build sets then fills the same flyout.
+            (Prop::ContextMenuOnOpen(on_open), _) => {
+                let control: w::IUIElement = node.control().cast()?;
+                let events = self.emitter.clone();
+                let menu = node.context_menu.get_or_insert_with(|| {
+                    ContextMenu::new(
+                        Rc::new(move |item| events.emit(id, UiEvent::ContextMenuItem(item))),
+                        control.ContextFlyout().ok(),
+                    )
+                });
+                if menu.set_on_open(on_open.as_ref(), format!("node-{id}"))? {
+                    match &menu.flyout {
+                        Some(flyout) => control.SetContextFlyout(flyout)?,
+                        None => control.SetContextFlyout(menu.own.as_ref())?,
+                    }
+                }
+                set_hit_testable(node)?;
+            }
             // The button's own flyout, which XAML opens on a click, Enter,
             // Space or UIA's Expand. Radio groups are named apart from its
             // context menu's. Flyouts open above by default; drop-down

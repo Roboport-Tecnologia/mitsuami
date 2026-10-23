@@ -1,15 +1,17 @@
 //! Setting props on the native widgets.
 
 use mitsuami_core::{
-    ButtonRole, ButtonStyle, Command, HorizontalAlign, ImageFit, InputPurpose, LayoutDirection, NodeId, Prop,
-    Truncation, UiEvent,
+    ButtonRole, ButtonStyle, Command, EventSink, HorizontalAlign, ImageFit, InputPurpose, LayoutDirection, NodeId,
+    Prop, Truncation, UiEvent,
 };
-use objc2::{MainThreadOnly, sel};
+use objc2::rc::Retained;
+use objc2::runtime::ProtocolObject;
+use objc2::{MainThreadMarker, MainThreadOnly, sel};
 use objc2_app_kit::{
     NSAccessibility, NSControlStateValueMixed, NSControlStateValueOff, NSControlStateValueOn, NSImageScaling,
-    NSLineBreakMode, NSMenuItem, NSProgressIndicatorStyle, NSSlider, NSTextAlignment, NSTextContent, NSTextContentType,
-    NSTextContentTypeEmailAddress, NSTextContentTypeTelephoneNumber, NSTextContentTypeURL, NSTextField,
-    NSUserInterfaceLayoutDirection, NSView, NSWindowStyleMask,
+    NSLineBreakMode, NSMenu, NSMenuItem, NSProgressIndicatorStyle, NSSlider, NSTextAlignment, NSTextContent,
+    NSTextContentType, NSTextContentTypeEmailAddress, NSTextContentTypeTelephoneNumber, NSTextContentTypeURL,
+    NSTextField, NSUserInterfaceLayoutDirection, NSView, NSWindowStyleMask,
 };
 
 use crate::classes::ClosureTarget;
@@ -480,37 +482,52 @@ impl State {
             (Prop::ContextMenu(entries), widget) => {
                 let target = match node.context_menu.take() {
                     Some((_, target)) => target,
-                    None => ClosureTarget::new(mtm, move |sender| {
-                        if let Some(item) = sender.downcast_ref::<NSMenuItem>() {
-                            events.emit(id, UiEvent::ContextMenuItem(item.tag() as u32));
-                        }
-                    }),
+                    None => menu_target(mtm, id, &events),
                 };
-                // AppKit shows a view's menu on a right-click or a Control-
-                // click, and a view without one passes the click up to its
-                // superview: children show their container's.
-                let menu = (!entries.is_empty()).then(|| {
-                    let target = ItemTarget { object: &target, action: sel!(fire:) };
-                    crate::services::context_menu(mtm, entries, target)
-                });
-                // On the views the pointer rests on, as tooltips are. A
-                // pop-up button's menu is its options, which a right-click
-                // shows too: it keeps the menu on the node.
-                let set = |view: &NSView| unsafe { view.setMenu(menu.as_deref()) };
-                match widget {
-                    Widget::Select(_) | Widget::MenuButton { .. } => {}
-                    Widget::NumberInput(n) => {
-                        set(n.field());
-                        set(n.stepper());
+                match &node.menu_on_open {
+                    // A menu built as it opens holds what was built last.
+                    Some((opener, menu)) => opener.fill(menu, entries),
+                    None => {
+                        let menu = (!entries.is_empty()).then(|| {
+                            let target = ItemTarget { object: &target, action: sel!(fire:) };
+                            crate::services::context_menu(mtm, entries, target)
+                        });
+                        set_context_menu(widget, menu.as_deref());
                     }
-                    Widget::List(list) => set(&list.table),
-                    _ => {}
-                }
-                if !matches!(widget, Widget::Select(_) | Widget::MenuButton { .. }) {
-                    set(widget.view());
                 }
                 node.context_menu = Some((entries.clone(), target));
             }
+            (Prop::ContextMenuOnOpen(on_open), widget) => match on_open {
+                // An empty menu whose delegate asks the app as AppKit opens
+                // it, with what it last built in the meantime.
+                Some(on_open) => {
+                    if let Some((opener, _)) = &node.menu_on_open {
+                        opener.set(on_open.clone());
+                    } else {
+                        let opener =
+                            crate::classes::MenuOpener::new(mtm, on_open.clone(), menu_target(mtm, id, &events));
+                        let menu = NSMenu::new(mtm);
+                        menu.setAutoenablesItems(false);
+                        menu.setDelegate(Some(ProtocolObject::from_ref(&*opener)));
+                        if let Some((entries, _)) = &node.context_menu {
+                            opener.fill(&menu, entries);
+                        }
+                        set_context_menu(widget, Some(&menu));
+                        node.menu_on_open = Some((opener, menu));
+                    }
+                }
+                None => {
+                    if node.menu_on_open.take().is_some() {
+                        let menu = node.context_menu.as_ref().filter(|(entries, _)| !entries.is_empty()).map(
+                            |(entries, target)| {
+                                let target = ItemTarget { object: target, action: sel!(fire:) };
+                                crate::services::context_menu(mtm, entries, target)
+                            },
+                        );
+                        set_context_menu(widget, menu.as_deref());
+                    }
+                }
+            },
             (Prop::Tweak(tweak), _) => node.tweak = Some(tweak.clone()),
             (Prop::Custom(new), Widget::Custom { view, render, props }) => {
                 if props != new {
@@ -647,4 +664,34 @@ fn set_line_limit(label: &NSTextField, lines: Option<u32>, truncation: Truncatio
     if let Some(cell) = label.cell() {
         cell.setTruncatesLastVisibleLine(lines.is_some());
     }
+}
+
+/// The target of a context menu's items: reports the one chosen.
+fn menu_target(mtm: MainThreadMarker, id: NodeId, events: &EventSink) -> Retained<ClosureTarget> {
+    let events = events.clone();
+    ClosureTarget::new(mtm, move |sender| {
+        if let Some(item) = sender.downcast_ref::<NSMenuItem>() {
+            events.emit(id, UiEvent::ContextMenuItem(item.tag() as u32));
+        }
+    })
+}
+
+/// Gives a widget's views its context menu. AppKit shows a view's menu on
+/// a right-click or a Control-click, and a view without one passes the
+/// click up to its superview: children show their container's. It's on
+/// the views the pointer rests on, as tooltips are. A pop-up button's
+/// menu is its options, which a right-click shows too: it keeps the menu
+/// on the node.
+fn set_context_menu(widget: &Widget, menu: Option<&NSMenu>) {
+    let set = |view: &NSView| unsafe { view.setMenu(menu) };
+    match widget {
+        Widget::Select(_) | Widget::MenuButton { .. } => return,
+        Widget::NumberInput(n) => {
+            set(n.field());
+            set(n.stepper());
+        }
+        Widget::List(list) => set(&list.table),
+        _ => {}
+    }
+    set(widget.view());
 }

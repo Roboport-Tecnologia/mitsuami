@@ -1,6 +1,8 @@
 //! Menus as data, as platforms get them: menu bars, items, shortcuts and
 //! roles.
 
+use std::rc::Rc;
+
 use crate::backend::Key;
 
 /// A keyboard shortcut: a key, and the modifiers held with it. `primary`
@@ -68,6 +70,38 @@ pub struct MenuBarData {
 pub struct MenuData {
     pub title: String,
     pub entries: Vec<MenuEntry>,
+}
+
+/// Builds a node's context menu as the platform opens it, for menus that
+/// depend on what's under the pointer and selected at that moment (a
+/// table's rows). Calling it builds the menu, makes it the node's
+/// [`Prop::ContextMenu`](crate::Prop::ContextMenu), and returns it, for
+/// the platform to show. Equal only to itself.
+#[derive(Clone)]
+pub struct MenuOnOpen(Rc<dyn Fn() -> Vec<MenuEntry>>);
+
+impl MenuOnOpen {
+    pub fn new(build: impl Fn() -> Vec<MenuEntry> + 'static) -> MenuOnOpen {
+        MenuOnOpen(Rc::new(build))
+    }
+
+    /// Builds the menu. Called outside any `Ui` call: from the platform's
+    /// own event (a right-click), or by tests before they act on it.
+    pub fn build(&self) -> Vec<MenuEntry> {
+        (self.0)()
+    }
+}
+
+impl PartialEq for MenuOnOpen {
+    fn eq(&self, other: &MenuOnOpen) -> bool {
+        Rc::ptr_eq(&self.0, &other.0)
+    }
+}
+
+impl std::fmt::Debug for MenuOnOpen {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str("MenuOnOpen")
+    }
 }
 
 #[derive(Clone, Debug, PartialEq)]

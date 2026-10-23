@@ -348,6 +348,10 @@ pub(super) fn native_state(state: &State, id: NodeId) -> Option<NativeState> {
     if let Some((_, recognizer)) = &node.double_click {
         props.push(Prop::DoubleClick(view.gestureRecognizers().iter().any(|r| *r == ***recognizer)));
     }
+    // Kept: AppKit can't give back the app's function.
+    if let Some((opener, _)) = &node.menu_on_open {
+        props.push(Prop::ContextMenuOnOpen(Some(opener.on_open())));
+    }
     if let Some((sent, _)) = &node.context_menu {
         props.push(Prop::ContextMenu(match (&node.widget, view.menu()) {
             (Widget::Select(_) | Widget::MenuButton { .. }, _) => sent.clone(),

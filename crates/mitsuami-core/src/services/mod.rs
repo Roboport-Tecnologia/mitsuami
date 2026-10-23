@@ -21,11 +21,12 @@ pub use futures::{
     alert, clipboard_text, launch, launch_url, open_file, save_file, set_clipboard_text, set_menu, trash,
 };
 pub use menu::{Menu, MenuBar, MenuEntries, MenuItem, MenuSeparator, Menus};
-pub(crate) use menu_collect::install_context_menu;
 #[doc(hidden)]
 pub use menu_collect::{ItemMenus, install_button_menu};
+pub(crate) use menu_collect::{install_context_menu, install_context_menu_on_open};
 pub use menu_data::{
-    MenuBarData, MenuCheck, MenuData, MenuEntry, MenuItemData, MenuRole, Shortcut, find_menu_item, menu_item_by_id,
+    MenuBarData, MenuCheck, MenuData, MenuEntry, MenuItemData, MenuOnOpen, MenuRole, Shortcut, find_menu_item,
+    menu_item_by_id,
 };
 
 use std::path::PathBuf;

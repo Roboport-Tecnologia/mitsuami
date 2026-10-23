@@ -347,6 +347,8 @@ impl WinUiBackend {
         }
         // What its `KeyDown` handler takes: XAML has no keys to read back.
         props.extend(node.keys.as_ref().map(|k| Prop::Keys(k.keys())));
+        // Kept: XAML can't give back the app's function.
+        props.extend(node.context_menu.as_ref().and_then(|m| m.on_open()).map(|f| Prop::ContextMenuOnOpen(Some(f))));
         if let Some(menu) = &node.context_menu {
             let shown = node.control().cast::<w::IUIElement>().ok()?.ContextFlyout().ok();
             // Ours, or the control's own (or none) while the app's is empty.

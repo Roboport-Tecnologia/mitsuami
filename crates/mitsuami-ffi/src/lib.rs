@@ -25,7 +25,7 @@ use std::task::{Poll, Waker};
 use mitsuami::App;
 use mitsuami::core::draw::Path;
 use mitsuami::core::services::{
-    Alert, AlertStyle, Launch, MenuCheck, MenuData, MenuEntry, MenuItemData, MenuRole, OpenFile,
+    Alert, AlertStyle, Launch, MenuCheck, MenuData, MenuEntry, MenuItemData, MenuOnOpen, MenuRole, OpenFile,
 };
 use mitsuami::core::style::{Edges, Position};
 use mitsuami::core::{
@@ -628,6 +628,42 @@ pub unsafe extern "C" fn mitsuami_set_context_menu(id: u32, entries: *const Mits
     guard(|| {
         let menu = unsafe { menu_entries(entries, count)? };
         ui()?.set_prop(node(id), Prop::ContextMenu(menu));
+        Ok(())
+    })
+    .is_some()
+}
+
+/// Builds the node's context menu as the platform opens it, for a menu
+/// that depends on what's selected or under the pointer then (a table's
+/// rows): `build(user, node)` calls `mitsuami_set_context_menu` on the
+/// node, and that's the menu shown. It's called from the platform's own
+/// event (a right-click), outside any other call. Null: the menu is the
+/// one set, as before.
+#[unsafe(no_mangle)]
+pub extern "C" fn mitsuami_set_context_menu_on_open(
+    id: u32,
+    build: Option<extern "C" fn(*mut c_void, u32)>,
+    user: *mut c_void,
+) -> bool {
+    let user = user as usize;
+    guard(|| {
+        let ui = ui()?;
+        let weak = ui.downgrade();
+        let on_open = build.map(|build| {
+            MenuOnOpen::new(move || {
+                if guard(|| {
+                    build(user as *mut c_void, id);
+                    Ok(())
+                })
+                .is_none()
+                {
+                    eprintln!("mitsuami: a context menu's build callback panicked");
+                }
+                let props = weak.upgrade().map(|ui| ui.props(node(id))).unwrap_or_default();
+                mitsuami::core::find_prop!(props, ContextMenu).unwrap_or_default()
+            })
+        });
+        ui.set_prop(node(id), Prop::ContextMenuOnOpen(on_open));
         Ok(())
     })
     .is_some()

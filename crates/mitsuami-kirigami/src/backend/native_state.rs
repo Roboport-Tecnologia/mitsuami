@@ -301,7 +301,12 @@ impl KirigamiBackend {
         } else {
             node.tooltip.clone()
         }));
-        props.extend(node.context_menu.as_ref().map(|menu| Prop::ContextMenu(menu.shown())));
+        props
+            .extend(node.context_menu.as_ref().filter(|menu| menu.given()).map(|menu| Prop::ContextMenu(menu.shown())));
+        // Kept: Qt can't give back the app's function.
+        props.extend(
+            node.context_menu.as_ref().and_then(|menu| menu.on_open()).map(|f| Prop::ContextMenuOnOpen(Some(f))),
+        );
         let frame = match &node.widget {
             Widget::Window { root } => {
                 let size = root.size.get();

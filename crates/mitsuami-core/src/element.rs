@@ -7,7 +7,7 @@ use mitsuami_reactive::{IntoValue, Value, effect};
 use crate::a11y::{A11yProps, Role};
 use crate::command::UiEvent;
 use crate::measure::NodeRef;
-use crate::services::{Menu, MenuEntries, Shortcut, install_context_menu};
+use crate::services::{Menu, MenuEntries, Shortcut, install_context_menu, install_context_menu_on_open};
 use crate::style::{Align, Edges, GridPlacement, Position, Style, TextDirection};
 use crate::ui::{Handler, Ui};
 use crate::units::Length;
@@ -304,6 +304,16 @@ pub trait ElementBuilder: Sized {
     fn context_menu_with<E: MenuEntries>(mut self, entries: impl Fn() -> E + 'static) -> Self {
         let menu = Menu::new(String::new()).children_with(entries);
         self.element().after_build(move |ui, id| install_context_menu(ui, id, menu));
+        self
+    }
+
+    /// A context menu built by `entries` each time the platform opens it,
+    /// for a menu that depends on what's selected or under the pointer at
+    /// that moment: a table row's menu acting on the selection. What it
+    /// reads is read then, not followed.
+    fn context_menu_on_open<E: MenuEntries>(mut self, entries: impl Fn() -> E + 'static) -> Self {
+        let build: Rc<dyn Fn() -> Menu> = Rc::new(move || Menu::new(String::new()).children(entries()));
+        self.element().after_build(move |ui, id| install_context_menu_on_open(ui, id, build));
         self
     }
 

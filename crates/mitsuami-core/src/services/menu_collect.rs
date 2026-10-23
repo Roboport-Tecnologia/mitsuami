@@ -13,7 +13,7 @@ use crate::view::View;
 use crate::widget::{CurrentWindow, NodeId, Prop, WidgetKind};
 
 use super::menu::{Entry, Handler, Mark, Menu, MenuBar};
-use super::menu_data::{MenuBarData, MenuCheck, MenuData, MenuEntry, MenuItemData};
+use super::menu_data::{MenuBarData, MenuCheck, MenuData, MenuEntry, MenuItemData, MenuOnOpen};
 
 impl MenuBar {
     /// The bar as data, reading reactive values, and each item's handler.
@@ -55,6 +55,46 @@ pub(crate) fn install_context_menu(ui: &Ui, id: NodeId, menu: Menu) {
         UiEvent::ContextMenuItem(item) => Some(*item),
         _ => None,
     });
+}
+
+/// Gives a node a context menu `build` makes as the platform opens it
+/// (`.context_menu_on_open(...)`): [`Prop::ContextMenuOnOpen`], which
+/// builds the menu, keeps its items' handlers until it's built again, and
+/// makes it the node's [`Prop::ContextMenu`]. Its reactive parts are read
+/// as it opens, not followed.
+pub(crate) fn install_context_menu_on_open(ui: &Ui, id: NodeId, build: Rc<dyn Fn() -> Menu>) {
+    let handlers: Rc<RefCell<HashMap<u32, Handler>>> = Rc::default();
+    let scope = mitsuami_reactive::Owner::current();
+    let chosen = handlers.clone();
+    ui.on_event(id, move |event| {
+        let UiEvent::ContextMenuItem(item) = event else { return };
+        let Some(handler) = chosen.borrow().get(item).cloned() else { return };
+        match scope {
+            Some(scope) if scope.is_alive() => scope.with(|| handler()),
+            _ => handler(),
+        }
+    });
+    let weak = ui.downgrade();
+    let ids = RefCell::new(Vec::new());
+    let next_id = std::cell::Cell::new(0);
+    let on_open = MenuOnOpen::new(move || {
+        let menu = match scope {
+            Some(scope) if scope.is_alive() => scope.with(|| build()),
+            _ => build(),
+        };
+        let (entries, collected) = mitsuami_reactive::untrack(|| {
+            menu.collect_entries(&mut ids.borrow_mut(), &mut || {
+                next_id.set(next_id.get() + 1);
+                next_id.get()
+            })
+        });
+        *handlers.borrow_mut() = collected.into_iter().collect();
+        if let Some(ui) = weak.upgrade() {
+            ui.set_prop(id, Prop::ContextMenu(entries.clone()));
+        }
+        entries
+    });
+    ui.set_prop(id, Prop::ContextMenuOnOpen(Some(on_open)));
 }
 
 /// Gives a `MenuButton` its menu, as [`Prop::Menu`], as a context menu is

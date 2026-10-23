@@ -446,6 +446,16 @@ impl State {
                     })
                     .set(item, entries);
             }
+            // Kept on the node by those that don't show a menu, as
+            // `ContextMenu` is; the menu's item asks for it as it opens.
+            (Prop::ContextMenuOnOpen(on_open), widget) => {
+                let item = widget.shows_context_menu().then(|| widget.item());
+                node.context_menu
+                    .get_or_insert_with(|| {
+                        ContextMenu::new(move |chosen| events.emit(id, UiEvent::ContextMenuItem(chosen)))
+                    })
+                    .set_on_open(item, on_open.clone());
+            }
             (Prop::Rows(rows), Widget::List(list)) => list.set_rows(rows.clone()),
             (Prop::RowFiles(files), Widget::List(list)) => list.set_row_files(files.clone()),
             (Prop::RowMoves(moves), Widget::List(list)) => list.set_moves(*moves),

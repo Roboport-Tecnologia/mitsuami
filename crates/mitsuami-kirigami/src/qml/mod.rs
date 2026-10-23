@@ -112,17 +112,20 @@ fn a11y_with(default_name: &str, hovered: &str) -> String {
 const CONTEXT_MENU: &str = r#"
     property QtObject mitsuamiContextMenu: null
     property bool mitsuamiHasContextMenu: false
+    // The app builds the menu as it opens: it's made again each time.
+    property bool mitsuamiMenuOnOpen: false
     signal mitsuamiContextMenuWanted()
-    // The backend makes the menu when it's first wanted.
-    function mitsuamiEnsureContextMenu() {
-        if (!mitsuamiContextMenu && mitsuamiHasContextMenu) mitsuamiContextMenuWanted()
+    // The backend makes the menu when it's first wanted, or as it opens.
+    function mitsuamiEnsureContextMenu(opening) {
+        if ((!mitsuamiContextMenu || (opening && mitsuamiMenuOnOpen)) && mitsuamiHasContextMenu)
+            mitsuamiContextMenuWanted()
         return mitsuamiContextMenu
     }
     function mitsuamiIsMenuKey(event) {
         return event.key === Qt.Key_Menu || (event.key === Qt.Key_F10 && (event.modifiers & Qt.ShiftModifier))
     }
     function mitsuamiPopupContextMenu(item, x, y) {
-        const menu = mitsuamiEnsureContextMenu()
+        const menu = mitsuamiEnsureContextMenu(true)
         const window = Window.window
         if (!menu || (window && window.mitsuamiShownMenu && window.mitsuamiShownMenu.visible)) return
         if (window) window.mitsuamiShownMenu = menu
