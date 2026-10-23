@@ -20,7 +20,7 @@ use objc2::runtime::{NSObject, NSObjectProtocol, ProtocolObject};
 use objc2::{DefinedClass, MainThreadMarker, MainThreadOnly, define_class, msg_send};
 use objc2_app_kit::{NSEvent, NSResponder, NSSplitView, NSSplitViewDelegate, NSSplitViewDividerStyle, NSView};
 use objc2_core_foundation::CGFloat;
-use objc2_foundation::{NSInteger, NSNotification};
+use objc2_foundation::{NSInteger, NSNotification, NSPoint, NSRect, NSSize};
 
 use crate::classes::zero_rect;
 
@@ -61,6 +61,29 @@ define_class!(
     pub(crate) struct DraggedSplitView;
 
     impl DraggedSplitView {
+        /// AppKit lays the panes out on every resize, and in a split with
+        /// no room for its divider (as it is before the core sizes it) it
+        /// gives the second pane a negative length, then logs that its own
+        /// layout is inconsistent. The core places the panes: until there's
+        /// room, they're flat at the split's start.
+        #[unsafe(method(resizeSubviewsWithOldSize:))]
+        fn resize_subviews(&self, old: NSSize) {
+            let bounds = self.bounds().size;
+            if along(self, bounds.width, bounds.height) >= self.dividerThickness() {
+                unsafe {
+                    let _: () = msg_send![super(self), resizeSubviewsWithOldSize: old];
+                }
+                return;
+            }
+            let flat = match self.isVertical() {
+                true => NSSize::new(0.0, bounds.height),
+                false => NSSize::new(bounds.width, 0.0),
+            };
+            for pane in self.subviews() {
+                pane.setFrame(NSRect::new(NSPoint::new(0.0, 0.0), flat));
+            }
+        }
+
         /// AppKit tracks the drag inside this call.
         #[unsafe(method(mouseDown:))]
         fn mouse_down(&self, event: &NSEvent) {
