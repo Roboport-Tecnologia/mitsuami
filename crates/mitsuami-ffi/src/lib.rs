@@ -1165,6 +1165,17 @@ pub extern "C" fn mitsuami_set_grow(id: u32, grow: f32) -> bool {
     .is_some()
 }
 
+/// A container's children go on to another line (a row's) or column (a
+/// column's) when they don't fit, as chips and tags do.
+#[unsafe(no_mangle)]
+pub extern "C" fn mitsuami_set_wrap(id: u32, wrap: bool) -> bool {
+    guard(|| {
+        ui()?.update_style(node(id), |s| s.flex_wrap = wrap);
+        Ok(())
+    })
+    .is_some()
+}
+
 /// How much a node gives up when its container's children don't fit,
 /// against the others (weighted by their sizes, as CSS's `flex-shrink`);
 /// 1 by default, 0 never.

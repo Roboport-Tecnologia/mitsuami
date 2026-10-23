@@ -1004,3 +1004,26 @@ async fn context_menus_can_be_built_as_they_open(app: TestApp) {
     app.get_by_text("commit").choose_menu_item(&["Opened 2"]).await;
     assert_eq!(heard(), ["menu 1", "menu 2"]);
 }
+
+/// A row that wraps puts what doesn't fit on another line.
+#[mitsuami_test::test]
+async fn rows_wrap_when_told(app: TestApp) {
+    attach(app.ui());
+    let row = create(MitsuamiKind::Container);
+    assert!(mitsuami_set_direction(row, true));
+    assert!(mitsuami_set_wrap(row, true));
+    assert!(mitsuami_set_size(row, px(250.0), auto()));
+    assert!(mitsuami_set_align_self(row, 1));
+    let chips: Vec<u32> = (0..3).map(|_| create(MitsuamiKind::Container)).collect();
+    for &chip in &chips {
+        assert!(mitsuami_set_size(chip, px(100.0), px(20.0)));
+        assert!(mitsuami_append_child(row, chip));
+    }
+    app.mount(|| Adopt(row));
+    app.settle().await;
+
+    let frame = |id| app.ui().frame(NodeId::from_raw(id)).unwrap();
+    assert_eq!((frame(chips[0]).y(), frame(chips[1]).y()), (0.0, 0.0));
+    assert_eq!((frame(chips[2]).x(), frame(chips[2]).y()), (0.0, 20.0));
+    assert_eq!(frame(row).height(), 40.0);
+}
