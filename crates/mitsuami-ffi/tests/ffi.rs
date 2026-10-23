@@ -919,3 +919,28 @@ async fn the_clipboard_and_links_go_to_the_platform(app: TestApp) {
     assert_eq!(launch.parent, Some(app.window()));
     launch.respond(Ok(()));
 }
+
+/// Children that don't fit give up room by their shrink: one that never
+/// shrinks keeps its height, one at its least height stops there.
+#[mitsuami_test::test]
+async fn children_shrink_as_told(app: TestApp) {
+    attach(app.ui());
+    let column = create(MitsuamiKind::Container);
+    assert!(mitsuami_set_size(column, auto(), px(300.0)));
+    let (kept, floor, rest) =
+        (create(MitsuamiKind::Container), create(MitsuamiKind::Container), create(MitsuamiKind::Container));
+    for (child, height) in [(kept, 100.0), (floor, 400.0), (rest, 200.0)] {
+        assert!(mitsuami_set_size(child, auto(), px(height)));
+        assert!(mitsuami_append_child(column, child));
+    }
+    assert!(mitsuami_set_shrink(kept, 0.0));
+    assert!(mitsuami_set_min_size(floor, auto(), px(120.0)));
+    assert!(mitsuami_set_shrink(floor, 1000.0));
+    app.mount(|| Adopt(column));
+    app.settle().await;
+
+    let height = |id| app.ui().frame(NodeId::from_raw(id)).unwrap().height();
+    assert_eq!((height(kept), height(floor)), (100.0, 120.0));
+    assert_eq!(height(rest), 80.0);
+    assert!(!mitsuami_set_shrink(kept, -1.0));
+}

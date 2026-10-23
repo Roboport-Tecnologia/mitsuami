@@ -1129,6 +1129,21 @@ pub extern "C" fn mitsuami_set_grow(id: u32, grow: f32) -> bool {
     .is_some()
 }
 
+/// How much a node gives up when its container's children don't fit,
+/// against the others (weighted by their sizes, as CSS's `flex-shrink`);
+/// 1 by default, 0 never.
+#[unsafe(no_mangle)]
+pub extern "C" fn mitsuami_set_shrink(id: u32, shrink: f32) -> bool {
+    guard(|| {
+        if shrink.is_nan() || shrink < 0.0 {
+            return Err(format!("bad shrink {shrink}"));
+        }
+        ui()?.update_style(node(id), |s| s.flex_shrink = shrink);
+        Ok(())
+    })
+    .is_some()
+}
+
 /// How a container aligns its children across its direction: 0 unset,
 /// then `Start`, `End`, `Center`, `Stretch`, `Baseline`.
 #[unsafe(no_mangle)]
