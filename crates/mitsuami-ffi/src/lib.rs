@@ -913,6 +913,24 @@ pub extern "C" fn mitsuami_set_hidden(id: u32, hidden: bool) -> bool {
     .is_some()
 }
 
+/// A node's frame as last laid out, relative to its native parent: x, y,
+/// width and height in `out`. A node not laid out yet is at zero, so
+/// read it once layout has run (a posted callback, after the change that
+/// made it).
+///
+/// # Safety
+/// `out` is valid for four writes.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn mitsuami_frame(id: u32, out: *mut f32) -> bool {
+    guard(|| {
+        let frame = ui()?.frame(node(id)).ok_or_else(|| format!("no node {id}"))?;
+        let values = [frame.x(), frame.y(), frame.width(), frame.height()];
+        unsafe { std::ptr::copy_nonoverlapping(values.as_ptr(), out, 4) };
+        Ok(())
+    })
+    .is_some()
+}
+
 /// A container's direction: 0 a column (the default), 1 a row.
 #[unsafe(no_mangle)]
 pub extern "C" fn mitsuami_set_direction(id: u32, row: bool) -> bool {

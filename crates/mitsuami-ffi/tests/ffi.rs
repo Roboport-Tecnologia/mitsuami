@@ -844,6 +844,11 @@ async fn scroll_views_scroll_their_content(app: TestApp) {
     app.mount(|| Adopt(scroll));
     app.settle().await;
 
+    // Its frame as laid out, for the caller's own sizing.
+    let mut frame = [0f32; 4];
+    assert!(unsafe { mitsuami_frame(scroll, frame.as_mut_ptr()) });
+    assert_eq!(frame[2..], [300.0, 120.0]);
+
     // The content is as wide as the view, and longer: it scrolls.
     assert_eq!(app.get_by_text("Line 0").frame().width(), app.get_by_test_id("scroll").frame().width());
     app.get_by_test_id("scroll").scroll_by(0.0, 1e6).await;
