@@ -230,3 +230,32 @@ async fn a_pane_taller_than_it_scrolls(app: TestApp) {
     let scroller = app.get_by_test_id("scroller").frame();
     assert!(scroller.height() <= 200.0, "{scroller:?}");
 }
+
+/// Turned while shown (SourceGit's two-column history), the panes go from
+/// side by side to stacked at the position, and back.
+#[mitsuami_test::test]
+async fn turns_while_shown(app: TestApp) {
+    let vertical = signal(false);
+    app.mount(move || {
+        Split::new()
+            .orientation(move || if vertical.get() { Orientation::Vertical } else { Orientation::Horizontal })
+            .position(120.0)
+            .test_id("split")
+            .children((pane("first"), pane("second")))
+    });
+    app.expect(by_text("second")).to_be_visible().await;
+
+    for stacked in [true, false, true] {
+        vertical.set(stacked);
+        app.settle().await;
+        let split = app.get_by_test_id("split").frame();
+        let (first, second) = (app.get_by_test_id("first").frame(), app.get_by_test_id("second").frame());
+        if stacked {
+            assert_eq!((first.height(), first.width()), (120.0, split.width()));
+            assert_eq!(second.y() - split.y(), 120.0 + divider(&app));
+        } else {
+            assert_eq!((first.width(), first.height()), (120.0, split.height()));
+            assert_eq!(second.x() - split.x(), 120.0 + divider(&app));
+        }
+    }
+}

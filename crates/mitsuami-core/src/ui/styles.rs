@@ -272,14 +272,14 @@ impl Inner {
         };
         let (first, second) = (least(node.children.first()).unwrap_or(0.0), least(node.children.get(1)).unwrap_or(0.0));
         let divider = self.metrics.split_divider;
-        let length = if vertical { node.frame.height() } else { node.frame.width() };
-        let position = crate::find_prop!(node.props, Number).map(|p| {
-            let most = if length > 0.0 { (length - divider - second).max(first) } else { f32::INFINITY };
-            (p as f32).clamp(first, most)
-        });
+        // The first pane is at the position when there's room, and gives
+        // way down to its least length when the second pane needs it: the
+        // grid works it out from the split's length, so a split turned to
+        // the other axis isn't held to its last length along this one.
+        let position = crate::find_prop!(node.props, Number).map(|p| (p as f32).max(first));
         let tracks = vec![
             match position {
-                Some(points) => Track::Size(Length::Px(points)),
+                Some(points) => Track::MinMax(Length::Px(first), Length::Px(points)),
                 None => Track::MinMax(Length::Px(first), Length::Auto),
             },
             Track::Size(Length::Px(divider)),

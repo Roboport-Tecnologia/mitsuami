@@ -34,7 +34,7 @@ impl State {
             (Prop::Title(t), Widget::Window { window, .. }) => window.setTitle(&ns(t)),
             (Prop::Title(t), Widget::Group { frame, .. }) => set_group_title(frame, t),
             // Side by side is AppKit's vertical divider.
-            (Prop::Orientation(o), Widget::SplitView(split)) => split.view.setVertical(!o.vertical()),
+            (Prop::Orientation(o), Widget::SplitView(split)) => split.turn(!o.vertical()),
             (Prop::Number(position), Widget::SplitView(split)) => split.set_position(*position),
             (Prop::PaneMinimums(minimums), Widget::SplitView(split)) => split.set_minimums(*minimums),
             (Prop::FileDrop(drop), Widget::Host(host) | Widget::Group { host, .. }) => {

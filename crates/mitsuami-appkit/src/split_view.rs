@@ -202,6 +202,44 @@ impl SplitView {
         self.view.setNeedsDisplay(true);
     }
 
+    /// Turns it: panes side by side, or stacked. Under the bars, both
+    /// panes reach up under them side by side, only the first stacked, so
+    /// their hosts change with it. AppKit checks, as it turns, that the
+    /// panes tile it along the new axis, and logs that they're "in an
+    /// inconsistent state" if not: they're tiled halfway first, and the
+    /// core places them where they go on its next pass.
+    pub(crate) fn turn(&self, side_by_side: bool) {
+        if self.view.isVertical() == side_by_side {
+            return;
+        }
+        let bounds = self.view.bounds();
+        let divider = self.view.dividerThickness();
+        let under_bar = self.state.under_bar.get();
+        let panes = self.panes.borrow();
+        let along = if side_by_side { bounds.size.width } else { bounds.size.height };
+        let half = ((along - divider) / 2.0).max(0.0).floor();
+        for (index, (_, host)) in panes.iter().enumerate() {
+            host.set_under_bar(if side_by_side || index == 0 { under_bar } else { 0.0 });
+            let (start, length) = match index {
+                0 => (0.0, half),
+                _ => (half + divider, (along - divider - half).max(0.0)),
+            };
+            host.setFrame(match side_by_side {
+                true => NSRect::new(
+                    NSPoint::new(bounds.origin.x + start, bounds.origin.y),
+                    NSSize::new(length, bounds.size.height),
+                ),
+                false => NSRect::new(
+                    NSPoint::new(bounds.origin.x, bounds.origin.y + start),
+                    NSSize::new(bounds.size.width, length),
+                ),
+            });
+            host.keep_under_bar();
+        }
+        drop(panes);
+        self.view.setVertical(side_by_side);
+    }
+
     /// Puts a pane's view in a host of its own, at `index` among the panes.
     pub(crate) fn insert(&self, mtm: MainThreadMarker, id: NodeId, pane: &NSView, index: usize) {
         let host = HostView::new(mtm);
@@ -282,8 +320,9 @@ impl SplitView {
             })
             .collect();
         self.state.under_bar.set(height);
-        view.setFrame(view.frameForAlignmentRect(placed));
-        // Side by side, both panes reach the top; stacked, the first.
+        // Side by side, both panes reach the top; stacked, the first. The
+        // panes move before the split: AppKit checks, as the split's frame
+        // changes, that they line up with its edges.
         let vertical = view.isVertical();
         for (index, (pane, mut placed)) in panes.into_iter().enumerate() {
             placed.origin.y += height;
@@ -295,6 +334,7 @@ impl SplitView {
                 host.keep_under_bar();
             }
         }
+        view.setFrame(view.frameForAlignmentRect(placed));
         true
     }
 
