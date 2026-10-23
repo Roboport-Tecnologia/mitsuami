@@ -209,6 +209,9 @@ pub enum MitsuamiKind {
     /// The platform's image view, showing pixels the app gives it
     /// (`mitsuami_set_image`).
     Image = 18,
+    /// The platform's button that opens a menu of actions
+    /// (`mitsuami_set_menu`), with a `Button`'s caption, icon and style.
+    MenuButton = 19,
 }
 
 fn widget_kind(kind: u32) -> Result<WidgetKind, String> {
@@ -232,6 +235,7 @@ fn widget_kind(kind: u32) -> Result<WidgetKind, String> {
         16 => WidgetKind::Split,
         17 => WidgetKind::Tabs,
         18 => WidgetKind::Image,
+        19 => WidgetKind::MenuButton,
         _ => return Err(format!("unknown kind {kind}")),
     })
 }
@@ -618,45 +622,67 @@ pub struct MitsuamiMenuEntry {
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn mitsuami_set_context_menu(id: u32, entries: *const MitsuamiMenuEntry, count: usize) -> bool {
     guard(|| {
-        let entries = if count == 0 { &[][..] } else { unsafe { std::slice::from_raw_parts(entries, count) } };
-        // Each open submenu: its title and entries so far.
-        let mut stack: Vec<(String, Vec<MenuEntry>)> = vec![(String::new(), Vec::new())];
-        for entry in entries {
-            let title = unsafe { string(entry.title.ptr, entry.title.len)? };
-            match entry.kind {
-                0 => {
-                    let check = match entry.check {
-                        0 => MenuCheck::None,
-                        1 | 2 => MenuCheck::Check(entry.check == 2),
-                        3 | 4 => MenuCheck::Radio(entry.check == 4),
-                        other => return Err(format!("bad menu check {other}")),
-                    };
-                    let item = MenuItemData {
-                        id: entry.id,
-                        title,
-                        shortcut: None,
-                        enabled: entry.enabled,
-                        check,
-                        role: MenuRole::None,
-                    };
-                    stack.last_mut().unwrap().1.push(MenuEntry::Item(item));
-                }
-                1 => stack.last_mut().unwrap().1.push(MenuEntry::Separator),
-                2 => stack.push((title, Vec::new())),
-                3 if stack.len() > 1 => {
-                    let (title, entries) = stack.pop().unwrap();
-                    stack.last_mut().unwrap().1.push(MenuEntry::Submenu(MenuData { title, entries }));
-                }
-                other => return Err(format!("bad menu entry kind {other}")),
-            }
-        }
-        if stack.len() != 1 {
-            return Err("a submenu isn't ended".to_string());
-        }
-        ui()?.set_prop(node(id), Prop::ContextMenu(stack.pop().unwrap().1));
+        let menu = unsafe { menu_entries(entries, count)? };
+        ui()?.set_prop(node(id), Prop::ContextMenu(menu));
         Ok(())
     })
     .is_some()
+}
+
+/// A menu button's menu, as a context menu's entries. Choosing an item
+/// reports `MenuItem` on the node.
+///
+/// # Safety
+/// As [`mitsuami_set_context_menu`]'s.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn mitsuami_set_menu(id: u32, entries: *const MitsuamiMenuEntry, count: usize) -> bool {
+    guard(|| {
+        let menu = unsafe { menu_entries(entries, count)? };
+        ui()?.set_prop(node(id), Prop::Menu(menu));
+        Ok(())
+    })
+    .is_some()
+}
+
+/// # Safety
+/// As [`mitsuami_set_context_menu`]'s.
+unsafe fn menu_entries(entries: *const MitsuamiMenuEntry, count: usize) -> Result<Vec<MenuEntry>, String> {
+    let entries = if count == 0 { &[][..] } else { unsafe { std::slice::from_raw_parts(entries, count) } };
+    // Each open submenu: its title and entries so far.
+    let mut stack: Vec<(String, Vec<MenuEntry>)> = vec![(String::new(), Vec::new())];
+    for entry in entries {
+        let title = unsafe { string(entry.title.ptr, entry.title.len)? };
+        match entry.kind {
+            0 => {
+                let check = match entry.check {
+                    0 => MenuCheck::None,
+                    1 | 2 => MenuCheck::Check(entry.check == 2),
+                    3 | 4 => MenuCheck::Radio(entry.check == 4),
+                    other => return Err(format!("bad menu check {other}")),
+                };
+                let item = MenuItemData {
+                    id: entry.id,
+                    title,
+                    shortcut: None,
+                    enabled: entry.enabled,
+                    check,
+                    role: MenuRole::None,
+                };
+                stack.last_mut().unwrap().1.push(MenuEntry::Item(item));
+            }
+            1 => stack.last_mut().unwrap().1.push(MenuEntry::Separator),
+            2 => stack.push((title, Vec::new())),
+            3 if stack.len() > 1 => {
+                let (title, entries) = stack.pop().unwrap();
+                stack.last_mut().unwrap().1.push(MenuEntry::Submenu(MenuData { title, entries }));
+            }
+            other => return Err(format!("bad menu entry kind {other}")),
+        }
+    }
+    if stack.len() != 1 {
+        return Err("a submenu isn't ended".to_string());
+    }
+    Ok(stack.pop().unwrap().1)
 }
 
 /// Lets a container take files and folders dropped on it from the
@@ -1183,6 +1209,8 @@ pub enum MitsuamiEventKind {
     /// Assistive technology (or a test) acted on a drawn widget: `index`
     /// is the `MitsuamiDrawnAction` bit, `text` a value it set.
     A11yAction = 14,
+    /// The user chose a menu button's item: `index` is its id.
+    MenuItem = 15,
 }
 
 #[repr(u32)]
@@ -1235,6 +1263,7 @@ pub extern "C" fn mitsuami_on_event(
                 UiEvent::TabMoved { .. } => MitsuamiEventKind::TabMoved,
                 UiEvent::NewTabRequested => MitsuamiEventKind::NewTabRequested,
                 UiEvent::ContextMenuItem(_) => MitsuamiEventKind::ContextMenuItem,
+                UiEvent::MenuItem(_) => MitsuamiEventKind::MenuItem,
                 UiEvent::DropHover(_) => MitsuamiEventKind::DropHover,
                 UiEvent::FilesDropped(_) => MitsuamiEventKind::FilesDropped,
                 UiEvent::Pointer(_) => MitsuamiEventKind::Pointer,
@@ -1258,7 +1287,7 @@ pub extern "C" fn mitsuami_on_event(
             // Lives until the callback returns, as `out` borrows it.
             let mut paths = String::new();
             match event {
-                UiEvent::ContextMenuItem(id) => {
+                UiEvent::ContextMenuItem(id) | UiEvent::MenuItem(id) => {
                     out.value_kind = MitsuamiValueKind::Index as u32;
                     out.index = u64::from(*id);
                 }

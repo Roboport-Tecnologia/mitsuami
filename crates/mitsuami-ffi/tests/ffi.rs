@@ -47,6 +47,7 @@ extern "C" fn record(_user: *mut c_void, _node: u32, event: *const MitsuamiEvent
             format!("action {} {}", event.index, std::str::from_utf8(text).unwrap())
         }
         14 => format!("action {}", event.index),
+        15 => format!("item {}", event.index),
         // Where focus goes on a click differs per platform.
         3 | 4 => return,
         kind => format!("event {kind}"),
@@ -417,6 +418,21 @@ async fn context_menus_report_the_item_chosen(app: TestApp) {
 
     let unended = [menu_entry(2, 0, "Bookmark", 0)];
     assert!(!unsafe { mitsuami_set_context_menu(text, unended.as_ptr(), 1) });
+}
+
+#[mitsuami_test::test]
+async fn menu_buttons_report_the_item_chosen(app: TestApp) {
+    attach(app.ui());
+    heard();
+    let button = create(MitsuamiKind::MenuButton);
+    set_text(button, MitsuamiTextProp::Label, "Open in Browser");
+    let entries = [menu_entry(0, 1, "GitHub", 0), menu_entry(0, 2, "Gitee", 0)];
+    assert!(unsafe { mitsuami_set_menu(button, entries.as_ptr(), entries.len()) });
+    assert!(mitsuami_on_event(button, record, std::ptr::null_mut()));
+    app.mount(|| Adopt(button));
+
+    app.get_by_role(Role::MenuButton, "Open in Browser").choose_menu_item(&["Gitee"]).await;
+    assert_eq!(heard(), ["item 2"]);
 }
 
 #[mitsuami_test::test]
