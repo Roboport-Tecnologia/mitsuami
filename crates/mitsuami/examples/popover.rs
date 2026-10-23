@@ -4,8 +4,10 @@
 //!   platform shows popovers (an `NSPopover` with its arrow on macOS, a
 //!   popover on GNOME, a flyout on Windows, a popup on KDE). A click
 //!   outside or Escape dismisses it, and the status says so.
-//! - A form in one: a field and a button that closes it, which says what
-//!   was typed.
+//! - A form in one: Rename… opens a field with the branch's name, and its
+//!   button renames it. Dismissing the popover (a click outside, Escape)
+//!   drops what was typed, as a cancelled edit; the next opening starts
+//!   from the name again.
 
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
@@ -15,11 +17,12 @@ pub fn page() -> impl View {
     let branches = signal(false);
     let rename = signal(false);
     let name = signal(String::from("feature/popover"));
-    let last = signal(String::from("Nothing open."));
+    // What's typed, applied only by the Rename button.
+    let draft = signal(String::new());
     let status = move || match (branches.get(), rename.get()) {
         (true, _) => "Branches open: click outside or press Escape.".to_string(),
-        (_, true) => "Rename open.".to_string(),
-        _ => last.get(),
+        (_, true) => "Rename open: Escape cancels.".to_string(),
+        _ => format!("The branch is {}.", name.get()),
     };
     Column::new().padding(Spacing::Xl).gap(Spacing::Lg).align(Align::Start).children((
         Row::new().children((
@@ -32,12 +35,15 @@ pub fn page() -> impl View {
             )),
         )),
         Row::new().children((
-            Button::new("Rename…").on_click(move || rename.set(true)),
+            Button::new("Rename…").on_click(move || {
+                draft.set(name.get_untracked());
+                rename.set(true);
+            }),
             Popover::new(rename).gap(Spacing::Sm).children((
-                TextInput::new().a11y_label("Name").bind(name).width(240),
+                TextInput::new().a11y_label("Name").bind(draft).width(240),
                 Button::new("Rename").on_click(move || {
+                    name.set(draft.get_untracked());
                     rename.set(false);
-                    last.set(format!("Renamed to {}.", name.get_untracked()));
                 }),
             )),
         )),
