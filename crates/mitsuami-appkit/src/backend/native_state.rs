@@ -358,13 +358,22 @@ pub(super) fn native_state(state: &State, id: NodeId) -> Option<NativeState> {
     let f = match node.widget {
         // Placed by its frame (see `SetFrame`).
         Widget::Separator(_) => view.frame(),
+        // Hidden where the core gave it no room, keeping its frame (see
+        // `SetFrame`).
         _ => view.alignmentRectForFrame(view.frame()),
     };
+    // A split's pane is in a host of its own (see `SplitView::place`).
+    let f = match node.parent.and_then(|p| state.nodes.get(&p)).map(|p| &p.widget) {
+        Some(Widget::SplitView(split)) => split.placed(id, view).unwrap_or(f),
+        _ => f,
+    };
+    // Hidden where the core gave it no room, keeping its frame (see
+    // `SetFrame`).
+    let f = match &node.widget {
+        Widget::Tabs(tabs) => tabs.parked.get().unwrap_or(f),
+        _ => f,
+    };
     let mut frame = Rect::new(f.origin.x as f32, f.origin.y as f32, f.size.width as f32, f.size.height as f32);
-    // A pane of a split under its window's bars is that far down in it.
-    if let Some(Widget::SplitView(split)) = node.parent.and_then(|p| state.nodes.get(&p)).map(|p| &p.widget) {
-        frame = Rect::new(frame.x(), frame.y() - split.under_bar() as f32, frame.width(), frame.height());
-    }
     // A row is where the table put it, and so is a cell.
     if let (Some(row), Some(Widget::List(list))) =
         (node.row, node.parent.and_then(|p| state.nodes.get(&p)).map(|p| &p.widget))
@@ -416,6 +425,18 @@ pub(super) fn native_state(state: &State, id: NodeId) -> Option<NativeState> {
             (list.children(), Some(Point::new(origin.x as f32, origin.y as f32)))
         }
         Widget::Tabs(tabs) => (tabs.ids(), None),
+        // Each pane is in a host of its own (see `SplitView::insert`).
+        Widget::SplitView(split) => (
+            split
+                .view
+                .subviews()
+                .iter()
+                .flat_map(|host| {
+                    host.subviews().iter().filter_map(|v| by_view.get(&key(&v)).copied()).collect::<Vec<_>>()
+                })
+                .collect(),
+            None,
+        ),
         Widget::Scroll(scroll) => {
             let origin = crate::classes::scrolled(&scroll.contentView());
             (

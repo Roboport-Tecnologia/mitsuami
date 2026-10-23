@@ -277,10 +277,16 @@ async fn a_split_under_it_runs_up_under_the_title_bar(app: TestApp) {
             (top.origin.y + top.size.height - height).abs() < 0.5,
             "the split reaches the top: {top:?} of {height}"
         );
-        // The scroll view is in its pane, whose top is the split's.
+        // The scroll view is in the split's arranged view around its pane
+        // (the pane's host), whose top is the split's.
+        fn find(
+            view: &mitsuami::appkit::objc2_app_kit::NSView,
+        ) -> Option<mitsuami::appkit::objc2::rc::Retained<NSScrollView>> {
+            view.subviews().iter().find_map(|v| v.clone().downcast::<NSScrollView>().ok().or_else(|| find(&v)))
+        }
         let pane = split.subviews().objectAtIndex(1);
-        let scroll = pane.subviews().iter().find_map(|v| v.downcast::<NSScrollView>().ok()).expect("the scroll view");
-        let inside = scroll.frame();
+        let scroll = find(&pane).expect("the scroll view");
+        let inside = pane.convertRect_fromView(scroll.frame(), unsafe { scroll.superview() }.as_deref());
         let bounds = pane.bounds();
         assert!(inside.origin.y >= bounds.origin.y - 0.5, "{inside:?} in its pane's {bounds:?}");
         assert!(scroll.contentInsets().top > 0.0, "its content starts below the bars");

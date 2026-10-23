@@ -394,6 +394,11 @@ impl State {
                     self.attach(*child, *parent);
                     return;
                 }
+                if let Widget::SplitView(split) = &self.nodes[parent].widget {
+                    split.insert(self.mtm, *child, &child_view, *index);
+                    self.attach(*child, *parent);
+                    return;
+                }
                 if let Widget::List(list) = &self.nodes[parent].widget {
                     let Some(row) = self.nodes[child].row else {
                         violation(command, "a List's children are row hosts, a Table's cell hosts")
@@ -461,11 +466,16 @@ impl State {
                 if let Some(item) = item {
                     self.release_toolbar_item(item);
                 }
+                if let Widget::SplitView(split) = &self.nodes[parent].widget {
+                    split.remove(*child, self.nodes[child].widget.view());
+                }
                 match &mut self.nodes.get_mut(parent).unwrap().widget {
                     Widget::Window { toolbar: Some(toolbar), .. } if toolbar.contains(*child) => toolbar.remove(*child),
                     Widget::Scroll(scroll) => scroll.setDocumentView(None),
                     Widget::List(list) => list.remove(row.expect("inserted with a row"), column),
                     Widget::Tabs(tabs) => tabs.remove(*child),
+                    // Taken out with its host, above.
+                    Widget::SplitView(_) => {}
                     _ => self.view(*child, command).removeFromSuperview(),
                 }
                 self.detach(*child);
@@ -611,6 +621,21 @@ impl State {
                 if view.isHidden() != empty {
                     view.setHidden(empty);
                 }
+                // A tab view keeps its frame while it has no room: macOS 26's
+                // tab strip (SwiftUI's segmented control) laid its tabs out
+                // for the frame it had then, and came back with them
+                // narrower once it had room again.
+                if let Widget::Tabs(tabs) = &self.nodes[id].widget {
+                    tabs.parked.set(empty.then_some(rect));
+                    if empty {
+                        // As a split's pane, its host still goes where
+                        // the core put it.
+                        if let Some(Widget::SplitView(split)) = parent {
+                            split.place_host(*id, rect);
+                        }
+                        return;
+                    }
+                }
                 // AppKit's push button is one height; one the layout makes
                 // taller is its flexible push button, which takes any height
                 // (an icon tab in a rail, a tall action button).
@@ -629,18 +654,13 @@ impl State {
                         b.setBezelStyle(NSBezelStyle::Automatic);
                     }
                 }
-                // A split under its window's bars has the core's top that
-                // far down; its panes keep their bounds shifted to match.
-                let mut rect = rect;
-                if let Some(Widget::SplitView(split)) = parent {
-                    rect.origin.y += split.under_bar();
-                }
                 // Layout places what the user sees, the alignment rect, as
                 // Auto Layout does; controls draw their bezels inset from
                 // their frames (a push button by 7pt a side before macOS 26).
-                view.setFrame(view.frameForAlignmentRect(rect));
-                if let Some(host) = view.downcast_ref::<crate::classes::HostView>() {
-                    host.keep_under_bar();
+                // A split's pane is in a host of its own.
+                match parent {
+                    Some(Widget::SplitView(split)) => split.place(*id, &view, rect),
+                    _ => view.setFrame(view.frameForAlignmentRect(rect)),
                 }
                 // The split or a pane moved: the divider follows.
                 for widget in [Some(&self.nodes[id].widget), parent].into_iter().flatten() {

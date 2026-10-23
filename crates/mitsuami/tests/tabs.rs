@@ -355,4 +355,118 @@ async fn tabs_can_have_icons(app: TestApp) {
     assert_eq!(page.get_untracked(), Page::Network);
 }
 
+/// Tabs hidden with what's around them, then shown again, are laid out as
+/// they were, their tabs no narrower. macOS 26's tab strip (SwiftUI's segmented control in the
+/// tab view) laid its tabs out for no room while hidden, and kept them
+/// that narrow, their titles cut off, until another tab was picked
+/// (SourceGit's commit details, under a page the rail hides,
+/// 2026-10-23). Every platform keeps the tab picked.
+#[mitsuami_test::test]
+async fn tabs_shown_again_are_laid_out_as_they_were(app: TestApp) {
+    use std::cell::RefCell;
+    use std::rc::Rc;
+
+    let page = signal(Page::General);
+    let shown = signal(true);
+    // A button on the first page, to find the tab view around it.
+    #[cfg(target_os = "macos")]
+    let seen: Rc<
+        RefCell<Option<mitsuami::appkit::objc2::rc::Retained<mitsuami::appkit::objc2_app_kit::NSButton>>>,
+    > = Rc::default();
+    #[cfg(not(target_os = "macos"))]
+    let seen: Rc<RefCell<Option<()>>> = Rc::default();
+    let mounted = seen.clone();
+    app.mount(move || {
+        let _ = &mounted;
+        let tweak = platform! {
+            macos => {
+                let seen = mounted.clone();
+                mitsuami::appkit::tweak(move |button: &mitsuami::appkit::objc2_app_kit::NSButton| {
+                    use mitsuami::appkit::objc2::Message;
+                    *seen.borrow_mut() = Some(button.retain());
+                })
+            },
+            _ => Tweak::none(),
+        };
+        let divider = signal(120.0);
+        let tabs = Tabs::new(page).children((
+            Tab::new("General", Page::General).child(Button::new("Apply").native(tweak)),
+            Tab::new("Network", Page::Network).child(Text::new("Network settings")),
+            Tab::new("Advanced", Page::Advanced).child(Text::new("Advanced settings")),
+        ));
+        // Under a history, in a split, beside a sidebar, under a header,
+        // as SourceGit's details are.
+        let sidebar = signal(160.0);
+        let history = Column::new().hidden(move || !shown.get()).grow(1.0).align(Align::Stretch).child(
+            Split::new().orientation(Orientation::Vertical).bind(divider).grow(1.0).children((
+                ScrollView::new().child(Text::new("History")).grow(1.0).min_height(0),
+                tabs.min_height(100),
+            )),
+        );
+        Column::new().grow(1.0).align(Align::Stretch).children((
+            Row::new().header(true).padding(8.0).child(Text::new("Toolbar")),
+            Split::new().bind(sidebar).grow(1.0).min_height(0).children((
+                Column::new().min_width(100).child(Text::new("Branches")),
+                Column::new()
+                    .min_width(100)
+                    .align(Align::Stretch)
+                    .children((history, Show::new(move || !shown.get(), || Text::new("Local changes")))),
+            )),
+        ))
+    });
+    app.settle().await;
+
+    // The frames inside the tab view's strip, as the platform laid it out.
+    #[cfg(target_os = "macos")]
+    let strip_layout = || -> Vec<f64> {
+        use mitsuami::appkit::objc2_app_kit::{NSSegmentedControl, NSTabView, NSView};
+        fn walk(view: &NSView, inside: bool, out: &mut Vec<f64>) {
+            let inside = inside || view.downcast_ref::<NSSegmentedControl>().is_some();
+            if inside {
+                out.push(view.frame().size.width);
+            }
+            for sub in view.subviews().iter() {
+                walk(&sub, inside, out);
+            }
+        }
+        let mut out = Vec::new();
+        // Headless has no strip to look into.
+        let Some(button) = seen.borrow().clone() else { return out };
+        let mut view = unsafe { button.superview() };
+        while let Some(v) = view {
+            if v.downcast_ref::<NSTabView>().is_some() {
+                // As laid out, not as it was when last drawn.
+                v.layoutSubtreeIfNeeded();
+                walk(&v, false, &mut out);
+                break;
+            }
+            view = unsafe { v.superview() };
+        }
+        out
+    };
+    #[cfg(not(target_os = "macos"))]
+    let strip_layout = Vec::<f64>::new;
+
+    // Read once it's drawn, as the screen draws it.
+    let _ = app.ui().capture(app.window()).await;
+    let before = strip_layout();
+    shown.set(false);
+    app.settle().await;
+    // Hidden a while, and drawn so, as a page the user left is.
+    for _ in 0..10 {
+        std::thread::sleep(std::time::Duration::from_millis(50));
+        app.settle().await;
+    }
+    let _ = app.ui().capture(app.window()).await;
+    shown.set(true);
+    app.settle().await;
+    let _ = app.ui().capture(app.window()).await;
+    assert_eq!(strip(&app), ["General *", "Network", "Advanced"]);
+    // Its parts are back, none narrower than they were (SwiftUI may give
+    // the tabs more of the strip's room after a hide, but never less).
+    let after = strip_layout();
+    assert_eq!(after.len(), before.len(), "the strip's parts: {before:?}, then {after:?}");
+    assert!(after.iter().zip(&before).all(|(a, b)| a >= b), "the strip's widths: {before:?}, then {after:?}");
+}
+
 mitsuami_test::main!();
