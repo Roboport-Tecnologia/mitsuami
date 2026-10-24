@@ -331,6 +331,24 @@ async fn drop_downs_report_the_option_chosen(app: TestApp) {
 }
 
 #[mitsuami_test::test]
+async fn radio_groups_report_the_option_chosen(app: TestApp) {
+    attach(app.ui());
+    heard();
+    let group = create(MitsuamiKind::RadioGroup);
+    set_text(group, MitsuamiTextProp::Label, "Local changes");
+    let options = strs(&["Do nothing", "Stash and reapply", "Discard"]);
+    assert!(unsafe { mitsuami_set_strings(group, MitsuamiStringsProp::Options as u32, options.as_ptr(), 3) });
+    assert!(mitsuami_set_index(group, MitsuamiIndexProp::SelectedIndex as u32, 0));
+    assert!(mitsuami_on_event(group, record, std::ptr::null_mut()));
+    app.mount(|| Adopt(group));
+
+    assert!(app.get_by_role(Role::RadioButton, "Do nothing").is_checked());
+    app.get_by_role(Role::RadioButton, "Discard").click().await;
+    assert_eq!(heard(), ["chose 2"]);
+    assert!(app.get_by_role(Role::RadioButton, "Discard").is_checked());
+}
+
+#[mitsuami_test::test]
 async fn icon_buttons_show_the_apps_own_icon(app: TestApp) {
     attach(app.ui());
     heard();

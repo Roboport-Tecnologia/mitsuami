@@ -215,6 +215,10 @@ pub enum MitsuamiKind {
     /// The platform's popover, shown by its parent (a container) while
     /// its `PopoverShown`; the user dismisses it (`PopoverShownChanged`).
     Popover = 20,
+    /// The platform's radio buttons, one per option: its `Options`, the
+    /// chosen one its `SelectedIndex` (none when negative), reported as
+    /// `Changed` when the user picks another.
+    RadioGroup = 21,
 }
 
 fn widget_kind(kind: u32) -> Result<WidgetKind, String> {
@@ -240,6 +244,7 @@ fn widget_kind(kind: u32) -> Result<WidgetKind, String> {
         18 => WidgetKind::Image,
         19 => WidgetKind::MenuButton,
         20 => WidgetKind::Popover,
+        21 => WidgetKind::RadioGroup,
         _ => return Err(format!("unknown kind {kind}")),
     })
 }
