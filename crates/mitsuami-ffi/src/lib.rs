@@ -25,7 +25,7 @@ use std::task::{Poll, Waker};
 use mitsuami::App;
 use mitsuami::core::draw::Path;
 use mitsuami::core::services::{
-    Alert, AlertStyle, Launch, MenuCheck, MenuData, MenuEntry, MenuItemData, MenuOnOpen, MenuRole, OpenFile,
+    Alert, AlertStyle, Launch, MenuCheck, MenuData, MenuEntry, MenuItemData, MenuOnOpen, MenuRole, OpenFile, SaveFile,
 };
 use mitsuami::core::style::{Edges, Position};
 use mitsuami::core::{
@@ -2284,6 +2284,47 @@ pub unsafe extern "C" fn mitsuami_open_file(
             let paths: Vec<String> =
                 reply.await.unwrap_or_default().iter().map(|p| p.to_string_lossy().into_owned()).collect();
             let strs: Vec<MitsuamiStr> = paths.iter().map(|p| MitsuamiStr { ptr: p.as_ptr(), len: p.len() }).collect();
+            answer(user as *mut c_void, strs.as_ptr(), strs.len());
+        });
+        Ok(())
+    })
+    .is_some()
+}
+
+/// Asks where to save a file, on `window` (0: the focused one), named
+/// `name` and starting in `start_folder` if they're given.
+/// `answer(user, path, count)` gets the path chosen (`count` 1), or none
+/// (`count` 0) if cancelled.
+///
+/// # Safety
+/// The strings are as [`string`] says.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn mitsuami_save_file(
+    window: u32,
+    title: MitsuamiStr,
+    name: MitsuamiStr,
+    start_folder: MitsuamiStr,
+    answer: extern "C" fn(*mut c_void, *const MitsuamiStr, usize),
+    user: *mut c_void,
+) -> bool {
+    let user = user as usize;
+    guard(|| {
+        let ui = ui()?;
+        let (title, name, start) = unsafe {
+            (string(title.ptr, title.len)?, string(name.ptr, name.len)?, string(start_folder.ptr, start_folder.len)?)
+        };
+        let mut request = SaveFile::new();
+        if !title.is_empty() {
+            request = request.title(title);
+        }
+        if !name.is_empty() {
+            request = request.name(name);
+        }
+        request.start_folder = (!start.is_empty()).then(|| start.into());
+        let reply = ui.save_file((window != 0).then(|| node(window)), request);
+        ui.spawn_local(async move {
+            let path = reply.await.map(|p| p.to_string_lossy().into_owned());
+            let strs: Vec<MitsuamiStr> = path.iter().map(|p| MitsuamiStr { ptr: p.as_ptr(), len: p.len() }).collect();
             answer(user as *mut c_void, strs.as_ptr(), strs.len());
         });
         Ok(())

@@ -315,6 +315,29 @@ async fn alerts_and_folder_dialogs_answer_through_callbacks(app: TestApp) {
 }
 
 #[mitsuami_test::test]
+async fn save_dialogs_answer_with_the_path_or_none(app: TestApp) {
+    attach(app.ui());
+    heard();
+    let window = app.window().raw();
+    for _ in 0..2 {
+        assert!(unsafe {
+            mitsuami_save_file(window, str("Archive"), str("main.zip"), str("/tmp"), open_answer, std::ptr::null_mut())
+        });
+    }
+    app.settle().await;
+
+    let save = app.services().take_save_file().expect("a save dialog is showing");
+    assert_eq!(save.request.title.as_deref(), Some("Archive"));
+    assert_eq!(save.request.default_name.as_deref(), Some("main.zip"));
+    assert_eq!(save.request.start_folder, Some("/tmp".into()));
+    save.respond(Some("/tmp/main.zip".into()));
+    app.services().take_save_file().expect("a second save dialog").respond(None);
+    app.settle().await;
+
+    assert_eq!(heard(), ["paths /tmp/main.zip", "paths "]);
+}
+
+#[mitsuami_test::test]
 async fn drop_downs_report_the_option_chosen(app: TestApp) {
     attach(app.ui());
     heard();
