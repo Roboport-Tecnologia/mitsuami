@@ -60,8 +60,12 @@ impl Inner {
     fn focus_order(&self, window: NodeId) -> Vec<NodeId> {
         fn walk(inner: &Inner, id: NodeId, out: &mut Vec<(Option<u32>, NodeId)>) {
             let node = &inner.nodes[&id];
-            // Whether Tab reaches the toolbar is the platform's call.
-            if node.style.is_hidden() || node.kind == WidgetKind::ToolbarItem || inner.is_hidden_page(id) {
+            // Whether Tab reaches the toolbar is the platform's call, and a
+            // popover takes focus as its platform's does.
+            if node.style.is_hidden()
+                || matches!(node.kind, WidgetKind::ToolbarItem | WidgetKind::Popover)
+                || inner.is_hidden_page(id)
+            {
                 return;
             }
             if matches!(

@@ -136,7 +136,26 @@ impl State {
                     self.nodes.get_mut(child).unwrap().parent = Some(*parent);
                     return;
                 }
+                // A popover isn't among its parent's children: it points at
+                // it, and GTK places it (the host presents it).
+                if self.nodes[child].kind == WidgetKind::Popover {
+                    if !matches!(self.nodes[parent].widget, Widget::Host(_) | Widget::Group(_)) {
+                        violation(command, "a popover goes in a container");
+                    }
+                    let parent_widget = match &self.nodes[parent].header {
+                        Some(header) => header.content.clone().upcast(),
+                        None => self.widget(*parent, command),
+                    };
+                    child_widget.set_parent(&parent_widget);
+                    self.nodes.get_mut(child).unwrap().parent = Some(*parent);
+                    return;
+                }
                 match &self.nodes.get(parent).map(|n| &n.widget) {
+                    Some(Widget::Popover(popover)) => {
+                        let host = popover.host.clone().upcast::<gtk::Widget>();
+                        let before = nth_child(&host, *index);
+                        child_widget.insert_before(&host, before.as_ref());
+                    }
                     Some(Widget::Scroll { viewport, .. }) => {
                         if viewport.child().is_some() {
                             violation(command, "a ScrollView has a single native child (its content)");
@@ -179,11 +198,7 @@ impl State {
                         let before = if *index >= self.nodes[parent].children {
                             None
                         } else {
-                            let mut before = parent_widget.first_child();
-                            for _ in 0..*index + own {
-                                before = before.and_then(|w| w.next_sibling());
-                            }
-                            before
+                            nth_child(&parent_widget, *index + own)
                         };
                         child_widget.insert_before(&parent_widget, before.as_ref());
                         self.nodes.get_mut(parent).unwrap().children += 1;
@@ -220,7 +235,13 @@ impl State {
                     self.nodes.get_mut(child).unwrap().parent = None;
                     return;
                 }
+                if self.nodes[child].kind == WidgetKind::Popover {
+                    self.widget(*child, command).unparent();
+                    self.nodes.get_mut(child).unwrap().parent = None;
+                    return;
+                }
                 match &self.nodes[parent].widget {
+                    Widget::Popover(_) => self.widget(*child, command).unparent(),
                     Widget::Scroll { viewport, .. } => viewport.set_child(None::<&gtk::Widget>),
                     Widget::List(list) => list.remove(
                         self.nodes[child].row.expect("inserted with a row"),
@@ -239,6 +260,9 @@ impl State {
                 let Some(node) = self.nodes.remove(id) else { violation(command, "node does not exist") };
                 if let Some(menu) = &node.context_menu {
                     menu.close();
+                }
+                if let Some(suggestions) = &node.suggestions {
+                    suggestions.close();
                 }
                 let widget = node.widget.widget().clone();
                 if matches!(node.widget, Widget::List(_)) {
@@ -323,6 +347,11 @@ impl State {
                 }
             }
             Command::SetFrame { id, frame } => {
+                // A popover: GTK places it by its parent, at this size.
+                if let Widget::Popover(popover) = &self.nodes[id].widget {
+                    popover.set_size(&self.frames, frame.width(), frame.height());
+                    return;
+                }
                 let widget = self.widget(*id, command);
                 self.frames.borrow_mut().insert(widget.clone(), *frame);
                 // A toolbar item: the header bar places it, at this size.
@@ -346,8 +375,17 @@ impl State {
                 if let Widget::Group(group) = &self.nodes[id].widget {
                     group.place();
                 }
+                if let Widget::List(list) = &self.nodes[id].widget {
+                    list.fit_scroll_bar(frame.height());
+                }
                 if let (Some(header), Widget::Host(host)) = (&self.nodes[id].header, &self.nodes[id].widget) {
                     header.place(host);
+                    // The top bars follow it, and the content stays below them.
+                    if let Some(window) = header.window.get()
+                        && let Some(Widget::Window(parts)) = self.nodes.get_mut(&window).map(|n| &mut n.widget)
+                    {
+                        keep_content_size(parts);
+                    }
                 }
                 if let Widget::Slider { scale, steps } = &self.nodes[id].widget {
                     let vertical = scale.orientation() == gtk::Orientation::Vertical;
@@ -449,6 +487,15 @@ impl State {
 /// as `Insert` puts them, in order: not a scroll view's content, a list's
 /// rows, a tab view's pages, a window's toolbar items or its sidebar.
 fn in_widget(parent: &Widget, kind: WidgetKind) -> bool {
-    !matches!(parent, Widget::Scroll { .. } | Widget::List(_) | Widget::Tabs(_) | Widget::Split(_))
-        && !matches!(kind, WidgetKind::ToolbarItem | WidgetKind::Sidebar)
+    !matches!(parent, Widget::Scroll { .. } | Widget::List(_) | Widget::Tabs(_) | Widget::Split(_) | Widget::Popover(_))
+        && !matches!(kind, WidgetKind::ToolbarItem | WidgetKind::Sidebar | WidgetKind::Popover)
+}
+
+/// A widget's `index`th child, past the popovers among them (a popover's,
+/// a context menu's): they're its children in GTK, not in the core's
+/// order.
+fn nth_child(parent: &gtk::Widget, index: usize) -> Option<gtk::Widget> {
+    let mut children =
+        std::iter::successors(parent.first_child(), |w| w.next_sibling()).filter(|w| !w.is::<gtk::Popover>());
+    children.nth(index)
 }

@@ -158,6 +158,10 @@ name = "split"
 harness = false
 
 [[test]]
+name = "popover"
+harness = false
+
+[[test]]
 name = "file_drop"
 harness = false
 

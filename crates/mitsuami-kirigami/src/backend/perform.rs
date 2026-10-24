@@ -60,6 +60,15 @@ impl KirigamiBackend {
         }
         // No state borrow below: Qt calls back into our signal handlers.
         match (action, kind) {
+            // A suggestion of the list under the field, as a click on it.
+            (A11yAction::ChooseSuggestion(index), WidgetKind::SearchInput) => {
+                let count =
+                    self.state.borrow().nodes.get(&id).and_then(|n| n.suggestions.as_ref()).map_or(0, |s| s.len());
+                if *index >= count {
+                    return Err(ActionError::Unsupported);
+                }
+                events.emit(id, UiEvent::SuggestionChosen(*index));
+            }
             // What a screen reader does, through the items' accessible
             // actions. Like a click, they focus the control.
             (A11yAction::Activate, WidgetKind::Button) => {
@@ -172,7 +181,10 @@ impl KirigamiBackend {
                 item.set_str("text", text);
                 item.set_int("cursorPosition", text.chars().count() as i32);
                 events.emit(id, UiEvent::Changed(EventValue::Text(text.clone())));
-                events.emit(id, UiEvent::Search(text.clone()));
+                // Only on Return, an edit doesn't search, but emptying it does.
+                if item.bool("autoAccept") || text.is_empty() {
+                    events.emit(id, UiEvent::Search(text.clone()));
+                }
             }
             (A11yAction::SetValue(text), WidgetKind::TextArea) => {
                 if item.bool("readOnly") {

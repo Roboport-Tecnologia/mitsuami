@@ -719,6 +719,19 @@ impl List {
         self.data.borrow().mode
     }
 
+    /// A list shorter than its scroll bar's minimum has no room to show
+    /// one, and GTK would make it as high as the scroll bar, over what's
+    /// under it (a one-row list in a sidebar). It scrolls without a scroll
+    /// bar then (`External`), and shows one again once it's high enough.
+    pub(crate) fn fit_scroll_bar(&self, height: f32) {
+        let bar = self.scrolled.vscrollbar().measure(gtk::Orientation::Vertical, -1).0;
+        let wanted = if (height.round() as i32) < bar { gtk::PolicyType::External } else { gtk::PolicyType::Automatic };
+        let (horizontal, vertical) = self.scrolled.policy();
+        if vertical != wanted {
+            self.scrolled.set_policy(horizontal, wanted);
+        }
+    }
+
     pub(crate) fn set_style(&self, style: ListStyle) {
         self.data.borrow_mut().style = Some(style);
         self.scrolled.set_has_frame(style.framed());

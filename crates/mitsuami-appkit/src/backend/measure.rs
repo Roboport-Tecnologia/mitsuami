@@ -13,15 +13,22 @@ use super::{State, Widget};
 pub(super) fn measure(state: &State, id: NodeId, request: MeasureRequest) -> Size {
     let Some(node) = state.nodes.get(&id) else { return Size::ZERO };
     let natural = match &node.widget {
+        // Measured as layout places it, by its alignment rect: the cell's
+        // size has the 2pt a side a label insets its text, which are
+        // outside that rect. With them, each label was 4pt wider than its
+        // text and drew it 2pt left of its place.
         Widget::Label(label) => {
             let Some(cell) = label.cell() else { return Size::ZERO };
-            let width = request.known_width.map(f64::from).or(match request.available_width {
-                AvailableSpace::Definite(w) => Some(w as f64),
+            let insets = label.alignmentRectInsets();
+            let (across, down) = (insets.left + insets.right, insets.top + insets.bottom);
+            let width = request.known_width.map(|w| f64::from(w) + across).or(match request.available_width {
+                AvailableSpace::Definite(w) => Some(w as f64 + across),
                 AvailableSpace::MinContent => Some(min_content_width(label, &cell)),
                 AvailableSpace::MaxContent => None,
             });
             let bounds = NSRect::new(NSPoint::new(0.0, 0.0), NSSize::new(width.unwrap_or(1.0e7), 1.0e7));
-            ceil_size(cell.cellSizeForBounds(bounds))
+            let size = cell.cellSizeForBounds(bounds);
+            ceil_size(NSSize::new((size.width - across).max(0.0), (size.height - down).max(0.0)))
         }
         Widget::Field(field) => {
             let intrinsic = field.intrinsicContentSize();
@@ -90,6 +97,7 @@ pub(super) fn measure(state: &State, id: NodeId, request: MeasureRequest) -> Siz
         | Widget::SplitView(_)
         | Widget::Window { .. }
         | Widget::Host(_)
+        | Widget::Popover(_)
         | Widget::Scroll(_)
         | Widget::List(_)
         | Widget::Sidebar(_) => Size::ZERO,

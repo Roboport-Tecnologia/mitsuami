@@ -112,6 +112,15 @@ impl State {
                     self.nodes.get_mut(child).unwrap().parent = Some(*parent);
                     return Ok(());
                 }
+                // A popover isn't in its parent's canvas: it shows at it.
+                if let Widget::Popover(popover) = &self.nodes[child].widget {
+                    if !matches!(self.nodes.get(parent).map(|n| &n.widget), Some(Widget::Host(_) | Widget::Group(_))) {
+                        violation(command, "a popover goes in a container");
+                    }
+                    popover.set_anchor(Some(self.element(*parent, command).cast()?))?;
+                    self.nodes.get_mut(child).unwrap().parent = Some(*parent);
+                    return Ok(());
+                }
                 if self.nodes[child].kind == WidgetKind::ToolbarItem {
                     // Items come after the window's content, and before its sidebar.
                     let content = self
@@ -191,6 +200,11 @@ impl State {
                     violation(command, "not a child of this parent");
                 }
                 let child_element = self.element(*child, command);
+                if let Widget::Popover(popover) = &self.nodes[child].widget {
+                    popover.set_anchor(None)?;
+                    self.nodes.get_mut(child).unwrap().parent = None;
+                    return Ok(());
+                }
                 if self.nodes[child].kind == WidgetKind::ToolbarItem
                     && let Some(Widget::Window(parts)) = self.nodes.get_mut(parent).map(|n| &mut n.widget)
                 {
@@ -274,6 +288,10 @@ impl State {
             }
             Command::SetFrame { id, frame } => {
                 let element = self.element(*id, command);
+                // A popover is where its flyout shows, at this size.
+                if let Widget::Popover(popover) = &self.nodes[id].widget {
+                    return popover.set_size(frame.width() as f64, frame.height() as f64);
+                }
                 // A toolbar item is where the toolbar puts it, at this size;
                 // an empty one is collapsed.
                 if self.nodes[id].kind == WidgetKind::ToolbarItem
@@ -713,9 +731,14 @@ impl State {
             _ => None,
         };
         if let Some(value) = changed {
-            // A search box's edit is a search too, as its TextChanged is.
+            // A search box's edit is a search too, as its TextChanged is,
+            // unless only on Return (an emptied field still searches).
             let search = match (&node.widget, &value) {
-                (Widget::Search(_), EventValue::Text(text)) => Some(text.clone()),
+                (Widget::Search(_), EventValue::Text(text))
+                    if node.search_on_return.get() != Some(true) || text.is_empty() =>
+                {
+                    Some(text.clone())
+                }
                 _ => None,
             };
             self.emitter.emit(id, UiEvent::Changed(value));
@@ -731,6 +754,7 @@ impl State {
             Some(Widget::Host(canvas)) => canvas.cast::<w::IPanel>()?.Children(),
             Some(Widget::Group(group)) => group.canvas.cast::<w::IPanel>()?.Children(),
             Some(Widget::Split(split)) => split.canvas.cast::<w::IPanel>()?.Children(),
+            Some(Widget::Popover(popover)) => popover.host.cast::<w::IPanel>()?.Children(),
             Some(_) => violation(command, "not a container"),
             None => violation(command, "node does not exist"),
         }

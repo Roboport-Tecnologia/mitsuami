@@ -101,6 +101,21 @@ impl Header {
     }
 }
 
+/// What's above a window's content under a header: its top bars (the
+/// header bar and the header, and the spacing libadwaita gives two bars),
+/// less the header, which the content runs up under.
+pub(crate) fn above_content(view: &adw::ToolbarView, header: &Host) -> i32 {
+    let mut next = view.first_child();
+    while let Some(child) = next {
+        if child.has_css_class("top-bar") {
+            let bars = child.measure(gtk::Orientation::Vertical, -1).1;
+            return (bars - header.measure(gtk::Orientation::Vertical, -1).1).max(0);
+        }
+        next = child.next_sibling();
+    }
+    0
+}
+
 /// Gives a window whose header left its header bar and content back, as
 /// `create_window` made them.
 pub(crate) fn restore_window(view: &adw::ToolbarView, window: &gtk::Window, header_bar: &adw::HeaderBar, host: &Host) {

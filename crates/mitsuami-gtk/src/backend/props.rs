@@ -12,6 +12,7 @@ use mitsuami_core::{
 
 use crate::custom::NativePayload;
 use crate::file_drop::FileDropTarget;
+use crate::host::Events;
 use crate::services::ContextMenu;
 
 use super::button::{ROLE_CLASSES, role_class};
@@ -61,6 +62,7 @@ impl State {
             (Prop::Sections(sections), Widget::Sidebar(sidebar)) => sidebar.set_sections(sections.clone()),
             (Prop::SelectedIndex(index), Widget::Sidebar(sidebar)) => sidebar.set_selected(*index),
             (Prop::SidebarShown(shown), Widget::Sidebar(sidebar)) => sidebar.set_shown(*shown),
+            (Prop::PopoverShown(shown), Widget::Popover(popover)) => popover.set_shown(*shown),
             (Prop::TabTitles(titles), Widget::Tabs(tabs)) => tabs.set_titles(titles.clone()),
             (Prop::TabIcons(icons), Widget::Tabs(tabs)) => tabs.set_icons(icons.clone()),
             (Prop::TabsStyle(style), Widget::Tabs(tabs)) => tabs.set_style(*style),
@@ -303,7 +305,8 @@ impl State {
                 | Prop::Cursor(_)
                 | Prop::TextInput(_)
                 | Prop::InputMethod(_)
-                | Prop::TextCursor(_),
+                | Prop::TextCursor(_)
+                | Prop::Transparent(_),
                 Widget::GpuSurface(surface),
             ) => surface.set_prop(prop),
             // The app's own icon over a named one, as a symbolic file icon.
@@ -434,9 +437,18 @@ impl State {
             (Prop::Value(t), Widget::Search(e)) => {
                 if e.text() != t.as_str() {
                     e.set_text(t);
+                    // `set_text` leaves the caret at the start; after a
+                    // picked suggestion it goes past the text, as GTK's
+                    // entry completion puts it.
+                    e.set_position(-1);
                 }
             }
             (Prop::Placeholder(t), Widget::Search(e)) => e.set_placeholder_text(Some(t)),
+            (Prop::SearchOnReturn(on), Widget::Search(e)) => {
+                if let Some(cell) = super::create::search_on_return(e) {
+                    cell.set(Some(*on));
+                }
+            }
             (Prop::Value(t), Widget::TextArea { view, .. }) => {
                 let buffer = view.buffer();
                 if buffer_text(&buffer) != *t {
@@ -570,15 +582,20 @@ impl State {
             // On the widget the pointer rests on, as the tooltip is, and
             // for its children without one of their own.
             (Prop::ContextMenu(entries), widget) => {
-                let events = self.events.clone();
                 let focus = widget.focus_widget();
-                node.context_menu
-                    .get_or_insert_with(|| {
-                        let activate = move |item| events.emit(id, UiEvent::ContextMenuItem(item));
-                        ContextMenu::new(&focus, Rc::new(activate))
-                    })
-                    .set(&focus, entries);
+                context_menu(&mut node.context_menu, &focus, id, &self.events).set(&focus, entries);
             }
+            // Built by the gestures that open it, just before.
+            (Prop::ContextMenuOnOpen(on_open), widget) => {
+                let focus = widget.focus_widget();
+                context_menu(&mut node.context_menu, &focus, id, &self.events).set_on_open(on_open.clone());
+            }
+            // Under the field, without the keyboard, as GTK's entry
+            // completion shows its matches.
+            (Prop::Suggestions(suggestions), Widget::Search(entry)) => node
+                .suggestions
+                .get_or_insert_with(|| crate::suggestions::Suggestions::new(entry, id, self.events.clone()))
+                .set(suggestions),
             (Prop::Rows(rows), Widget::List(list)) => list.set_rows(rows.clone()),
             (Prop::RowFiles(files), Widget::List(list)) => list.set_row_files(files.clone()),
             (Prop::RowMoves(moves), Widget::List(list)) => list.set_moves(*moves),
@@ -648,7 +665,16 @@ impl State {
                 }
             },
             (Prop::HeaderEdge(edge), Widget::Host(_)) => node.header_edge = Some(*edge),
-            (Prop::SidebarPane(on), Widget::Host(_)) => node.sidebar_pane = Some(*on),
+            // libadwaita's sidebar pane: its background (the header bar's,
+            // in the dark style) and the line at its trailing edge.
+            (Prop::SidebarPane(on), Widget::Host(host)) => {
+                if *on {
+                    host.add_css_class("sidebar-pane");
+                } else {
+                    host.remove_css_class("sidebar-pane");
+                }
+                node.sidebar_pane = Some(*on);
+            }
             _ => {}
         }
     }
@@ -690,4 +716,18 @@ fn on_control(host: &gtk::Widget, x: f64, y: f64) -> bool {
         at = widget.parent();
     }
     false
+}
+
+/// The node's context menu, made the first time it's given one.
+fn context_menu<'a>(
+    menu: &'a mut Option<ContextMenu>,
+    focus: &gtk::Widget,
+    id: NodeId,
+    events: &Events,
+) -> &'a mut ContextMenu {
+    menu.get_or_insert_with(|| {
+        let events = events.clone();
+        let activate = move |item| events.emit(id, UiEvent::ContextMenuItem(item));
+        ContextMenu::new(focus, Rc::new(activate))
+    })
 }

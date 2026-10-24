@@ -6,7 +6,7 @@ use std::ffi::c_void;
 use std::path::PathBuf;
 use std::rc::Rc;
 
-use mitsuami_core::services::Shortcut;
+use mitsuami_core::services::{MenuEntry, MenuOnOpen, Shortcut};
 use mitsuami_core::{
     DisplayList, EventSink, EventValue, FileDrop, Insets, Key, NodeId, Point, PointerEvent, PointerKind, Size, UiEvent,
     WidgetKind,
@@ -18,10 +18,11 @@ use objc2::{
 };
 use objc2_app_kit::{
     NSButton, NSClickGestureRecognizer, NSColor, NSControl, NSControlStateValueOn, NSControlTextEditingDelegate,
-    NSDragOperation, NSDraggingInfo, NSEvent, NSEventModifierFlags, NSEventType, NSPasteboardTypeFileURL,
-    NSPopUpButton, NSRectFill, NSResponder, NSScreen, NSScrollView, NSSearchFieldDelegate, NSSlider, NSSwitch, NSText,
-    NSTextDelegate, NSTextField, NSTextFieldDelegate, NSTextView, NSTextViewDelegate, NSTrackingArea,
-    NSTrackingAreaOptions, NSView, NSViewFrameDidChangeNotification, NSWindow, NSWindowDelegate, NSWindowStyleMask,
+    NSDragOperation, NSDraggingInfo, NSEvent, NSEventModifierFlags, NSEventType, NSMenu, NSMenuDelegate,
+    NSPasteboardTypeFileURL, NSPopUpButton, NSRectFill, NSResponder, NSScreen, NSScrollView, NSSearchFieldDelegate,
+    NSSlider, NSSwitch, NSText, NSTextDelegate, NSTextField, NSTextFieldDelegate, NSTextView, NSTextViewDelegate,
+    NSTrackingArea, NSTrackingAreaOptions, NSView, NSViewFrameDidChangeNotification, NSWindow, NSWindowDelegate,
+    NSWindowStyleMask,
 };
 use objc2_foundation::{
     NSArray, NSEdgeInsets, NSKeyValueObservingOptions, NSNotification, NSNotificationCenter,
@@ -71,6 +72,9 @@ pub(crate) struct HostIvars {
     centers: Cell<bool>,
     /// The keys it takes, if the app gave any.
     keys: RefCell<Option<Keys>>,
+    /// A split's pane: how far it runs up under its window's bars with
+    /// its split (see `SplitView::set_under_bar`).
+    under_bar: Cell<f64>,
 }
 
 /// A host's file drop: what it takes, where it reports, and whether
@@ -94,6 +98,11 @@ define_class!(
         #[unsafe(method(isFlipped))]
         fn is_flipped(&self) -> bool {
             true
+        }
+
+        #[unsafe(method(alignmentRectInsets))]
+        fn alignment_rect_insets(&self) -> NSEdgeInsets {
+            NSEdgeInsets { top: self.ivars().under_bar.get(), left: 0.0, bottom: 0.0, right: 0.0 }
         }
 
         #[unsafe(method(resizeSubviewsWithOldSize:))]
@@ -200,8 +209,26 @@ impl HostView {
             drop: RefCell::new(None),
             centers: Cell::new(false),
             keys: RefCell::new(None),
+            under_bar: Cell::new(0.0),
         });
         unsafe { msg_send![super(this), initWithFrame: zero_rect()] }
+    }
+
+    /// Runs this far up under its window's bars, as a split's pane does
+    /// with its split: the part under them is outside its alignment rect,
+    /// where the core placed it, and its bounds start that far above its
+    /// top, so its children stay where the core put them.
+    pub(crate) fn set_under_bar(&self, height: f64) {
+        self.ivars().under_bar.set(height);
+        self.keep_under_bar();
+    }
+
+    /// Its bounds as `set_under_bar` left them, after a new frame.
+    pub(crate) fn keep_under_bar(&self) {
+        let top = NSPoint::new(0.0, -self.ivars().under_bar.get());
+        if self.bounds().origin != top {
+            self.setBoundsOrigin(top);
+        }
     }
 
     /// Paints the window background, for a window's capture.
@@ -315,6 +342,8 @@ pub(crate) struct TargetIvars {
     /// Sliders whose step is too fine for tick marks: the step their
     /// action rounds to (see `set_ticks`).
     snap: Cell<Option<f64>>,
+    /// A search field's suggestions, which its keys move through.
+    suggestions: RefCell<Option<Rc<crate::suggestions::Suggestions>>>,
 }
 
 define_class!(
@@ -328,7 +357,7 @@ define_class!(
     impl ActionTarget {
         #[unsafe(method(fire:))]
         fn fire(&self, sender: &AnyObject) {
-            let TargetIvars { id, kind, events, snap } = self.ivars();
+            let TargetIvars { id, kind, events, snap, .. } = self.ivars();
             let event = match kind {
                 WidgetKind::Button => UiEvent::Click,
                 WidgetKind::Checkbox => match sender.downcast_ref::<NSButton>() {
@@ -418,6 +447,10 @@ define_class!(
             _text_view: &NSTextView,
             command: Sel,
         ) -> bool {
+            // A search field's suggestions take their keys first.
+            if self.take_suggestion_key(command) {
+                return true.into();
+            }
             if command == sel!(insertNewline:) && self.ivars().kind != WidgetKind::SearchInput {
                 self.ivars().events.emit(self.ivars().id, UiEvent::Submit);
             }
@@ -432,8 +465,19 @@ define_class!(
                 && crate::keys::take_around(control, Shortcut::new(Key::Escape))
         }
 
+        /// Editing ended (Tab, a click elsewhere): the suggestions hide.
+        #[unsafe(method(controlTextDidEndEditing:))]
+        fn control_text_did_end_editing(&self, _notification: &NSNotification) {
+            if let Some(list) = self.ivars().suggestions.borrow().as_ref() {
+                list.hide();
+            }
+        }
+
         #[unsafe(method(controlTextDidChange:))]
         fn control_text_did_change(&self, notification: &NSNotification) {
+            if let Some(list) = self.ivars().suggestions.borrow().as_ref() {
+                list.typed();
+            }
             let Some(object) = notification.object() else { return };
             if let Some(field) = object.downcast_ref::<NSTextField>() {
                 let text = field.stringValue().to_string();
@@ -463,13 +507,43 @@ define_class!(
 );
 
 impl ActionTarget {
+    /// The arrows, Return on the suggestion they reached, and Escape, while
+    /// a search field's suggestions show: the field keeps the keyboard.
+    fn take_suggestion_key(&self, command: Sel) -> bool {
+        let suggestions = self.ivars().suggestions.borrow();
+        let Some(list) = suggestions.as_ref().filter(|l| l.shown()) else { return false };
+        if command == sel!(moveDown:) || command == sel!(moveUp:) {
+            list.step(if command == sel!(moveDown:) { 1 } else { -1 });
+        } else if command == sel!(insertNewline:)
+            && let Some(row) = list.selected()
+        {
+            list.choose(row);
+        } else if command == sel!(cancelOperation:) {
+            list.dismiss();
+        } else {
+            return false;
+        }
+        true
+    }
+
+    /// A search field's suggestions, for its keys.
+    pub(crate) fn set_suggestions(&self, list: Rc<crate::suggestions::Suggestions>) {
+        *self.ivars().suggestions.borrow_mut() = Some(list);
+    }
+
     pub(crate) fn new(
         mtm: MainThreadMarker,
         id: NodeId,
         kind: WidgetKind,
         events: EventSink,
     ) -> Retained<ActionTarget> {
-        let this = ActionTarget::alloc(mtm).set_ivars(TargetIvars { id, kind, events, snap: Cell::new(None) });
+        let this = ActionTarget::alloc(mtm).set_ivars(TargetIvars {
+            id,
+            kind,
+            events,
+            snap: Cell::new(None),
+            suggestions: RefCell::new(None),
+        });
         unsafe { msg_send![super(this), init] }
     }
 
@@ -952,6 +1026,69 @@ impl ClosureTarget {
     pub(crate) fn new(mtm: MainThreadMarker, handler: impl Fn(&AnyObject) + 'static) -> Retained<ClosureTarget> {
         let this = ClosureTarget::alloc(mtm).set_ivars(ClosureIvars { handler: Box::new(handler) });
         unsafe { msg_send![super(this), init] }
+    }
+}
+
+pub(crate) struct MenuOpenerIvars {
+    on_open: RefCell<MenuOnOpen>,
+    /// The target of its items, which only hold weak references to it.
+    target: Retained<ClosureTarget>,
+    /// What it holds, so the same entries aren't put in again while it's
+    /// open.
+    shown: RefCell<Vec<MenuEntry>>,
+}
+
+define_class!(
+    /// The delegate of a context menu built as it opens: AppKit asks it to
+    /// fill the menu just before showing it (`menuNeedsUpdate:`), and it
+    /// asks the app.
+    #[unsafe(super(NSObject))]
+    #[thread_kind = MainThreadOnly]
+    #[ivars = MenuOpenerIvars]
+    pub(crate) struct MenuOpener;
+
+    unsafe impl NSObjectProtocol for MenuOpener {}
+
+    unsafe impl NSMenuDelegate for MenuOpener {
+        #[unsafe(method(menuNeedsUpdate:))]
+        fn menu_needs_update(&self, menu: &NSMenu) {
+            // Outside any core call: AppKit is handling a right-click.
+            let entries = self.ivars().on_open.borrow().build();
+            self.fill(menu, &entries);
+        }
+    }
+);
+
+impl MenuOpener {
+    pub(crate) fn new(
+        mtm: MainThreadMarker,
+        on_open: MenuOnOpen,
+        target: Retained<ClosureTarget>,
+    ) -> Retained<MenuOpener> {
+        let ivars = MenuOpenerIvars { on_open: RefCell::new(on_open), target, shown: RefCell::new(Vec::new()) };
+        let this = MenuOpener::alloc(mtm).set_ivars(ivars);
+        unsafe { msg_send![super(this), init] }
+    }
+
+    pub(crate) fn on_open(&self) -> MenuOnOpen {
+        self.ivars().on_open.borrow().clone()
+    }
+
+    pub(crate) fn set(&self, on_open: MenuOnOpen) {
+        *self.ivars().on_open.borrow_mut() = on_open;
+    }
+
+    /// Puts `entries` in `menu`, unless it holds them already.
+    pub(crate) fn fill(&self, menu: &NSMenu, entries: &[MenuEntry]) {
+        if *self.ivars().shown.borrow() == entries {
+            return;
+        }
+        menu.removeAllItems();
+        let target = crate::services::ItemTarget { object: &self.ivars().target, action: sel!(fire:) };
+        for item in crate::services::app_items(self.mtm(), entries, target) {
+            menu.addItem(&item);
+        }
+        *self.ivars().shown.borrow_mut() = entries.to_vec();
     }
 }
 

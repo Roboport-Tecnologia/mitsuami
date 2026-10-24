@@ -23,6 +23,7 @@ fn describe_props(props: &[Prop]) -> String {
             Prop::Tooltip(s) => extra.push(format!("tooltip={s:?}")),
             Prop::ContextMenu(entries) => extra.push(format!("context_menu=[{}]", menu_entries(entries))),
             Prop::Menu(entries) => extra.push(format!("menu=[{}]", menu_entries(entries))),
+            Prop::ContextMenuOnOpen(Some(_)) => extra.push("context_menu_on_open".to_owned()),
             Prop::FileDrop(Some(drop)) => {
                 let files = match &drop.extensions {
                     None => "files".to_owned(),
@@ -30,7 +31,7 @@ fn describe_props(props: &[Prop]) -> String {
                 };
                 extra.push(format!("file_drop=[{files}{}]", if drop.folders { " folders" } else { "" }));
             }
-            Prop::FileDrop(None) => {}
+            Prop::FileDrop(None) | Prop::ContextMenuOnOpen(None) => {}
             // Their names: the rest is the machine's.
             Prop::RowMoves(moves) => {
                 let on = [(moves.onto_rows, "onto"), (moves.between_rows, "between")];
@@ -52,6 +53,12 @@ fn describe_props(props: &[Prop]) -> String {
             Prop::TabTitles(titles) => extra.push(format!("tabs={titles:?}")),
             Prop::TabIcons(icons) => extra.push(format!("tab_icons={icons:?}")),
             Prop::SidebarShown(b) => extra.push(format!("sidebar_shown={b}")),
+            Prop::PopoverShown(b) => extra.push(format!("popover_shown={b}")),
+            Prop::SearchOnReturn(b) => extra.push(format!("search_on_return={b}")),
+            Prop::Suggestions(list) => {
+                let titles: Vec<&str> = list.iter().map(|s| s.title.as_str()).collect();
+                extra.push(format!("suggestions=[{}]", titles.join(", ")));
+            }
             Prop::Header(b) => extra.push(format!("header={b}")),
             Prop::HeaderEdge(edge) => extra.push(format!("header_edge={edge:?}")),
             Prop::SidebarPane(b) => extra.push(format!("sidebar_pane={b}")),
@@ -202,6 +209,7 @@ fn describe_props(props: &[Prop]) -> String {
             Prop::Cursor(Cursor::System(shape)) => extra.push(format!("cursor={}", shape.css_name())),
             Prop::TextInput(b) => extra.push(format!("text_input={b}")),
             Prop::InputMethod(b) => extra.push(format!("input_method={b}")),
+            Prop::Transparent(b) => extra.push(format!("transparent={b}")),
             Prop::TextCursor(None) => extra.push("text_cursor=none".to_owned()),
             Prop::TextCursor(Some(r)) => extra.push(format!(
                 "text_cursor={},{} {}x{}",
@@ -442,7 +450,8 @@ pub(crate) fn wireframe(root: &NodeInfo) -> String {
             | WidgetKind::Tabs
             | WidgetKind::DocumentTabs
             | WidgetKind::Group
-            | WidgetKind::Split => "#5f7fa0",
+            | WidgetKind::Split
+            | WidgetKind::Popover => "#5f7fa0",
             WidgetKind::Text => "#3f7f5f",
             WidgetKind::Button | WidgetKind::ToggleButton | WidgetKind::MenuButton => "#2f6fdf",
             WidgetKind::TextInput => "#a0602a",

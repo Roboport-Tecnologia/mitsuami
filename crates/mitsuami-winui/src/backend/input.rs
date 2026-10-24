@@ -171,6 +171,20 @@ impl WinUiBackend {
         if *key == Key::Escape && self.send_key(id, Shortcut::new(*key)).is_ok() {
             return Ok(());
         }
+        // In a popover, which tests can't show: it closes, as the flyout's
+        // light dismiss would on the key (see `crate::popover`).
+        if *key == Key::Escape {
+            let state = self.state.borrow();
+            let mut current = Some(id);
+            while let Some(node) = current.and_then(|c| state.nodes.get(&c)) {
+                if let Widget::Popover(popover) = &node.widget
+                    && popover.dismiss()
+                {
+                    return Ok(());
+                }
+                current = node.parent;
+            }
+        }
         if *key == Key::Escape {
             // What the accelerator does, in the node's window if it's a
             // dialog; a plain window ignores Escape. Keys are synthesized

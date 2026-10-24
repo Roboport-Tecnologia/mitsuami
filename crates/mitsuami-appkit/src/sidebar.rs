@@ -212,13 +212,13 @@ const ICON_WIDTH: f64 = 20.0;
 
 /// A subtitle's font: the subheadline style, smaller than the title, as
 /// Mail's and Messages' second lines are.
-fn subtitle_font() -> Retained<NSFont> {
+pub(crate) fn subtitle_font() -> Retained<NSFont> {
     unsafe {
         NSFont::preferredFontForTextStyle_options(NSFontTextStyleSubheadline, &objc2_foundation::NSDictionary::new())
     }
 }
 
-fn line_height(font: &NSFont) -> f64 {
+pub(crate) fn line_height(font: &NSFont) -> f64 {
     (font.ascender() - font.descender() + font.leading()).ceil()
 }
 
@@ -226,7 +226,12 @@ fn line_height(font: &NSFont) -> f64 {
 /// styles for the row size the user chose (System Settings' "Sidebar icon
 /// size"), as Interface Builder's image and text cell; an item's subtitle
 /// under the title, in the secondary label colour.
-fn cell(mtm: MainThreadMarker, title: &str, icon: Option<&str>, subtitle: Option<&str>) -> Retained<NSTableCellView> {
+pub(crate) fn cell(
+    mtm: MainThreadMarker,
+    title: &str,
+    icon: Option<&str>,
+    subtitle: Option<&str>,
+) -> Retained<NSTableCellView> {
     let cell = NSTableCellView::new(mtm);
     let label = NSTextField::labelWithString(&NSString::from_str(title), mtm);
     label.setLineBreakMode(NSLineBreakMode::ByTruncatingTail);

@@ -33,10 +33,11 @@ use crate::style::Style;
 use crate::task::{Clock, Executor, Sleep, TaskHandle};
 use crate::widget::{NodeId, Prop, WidgetKind};
 
-/// A window's toolbar items and sidebar are the platform's to place, around
-/// its content: they aren't in the window's layout box.
+/// A window's toolbar items and sidebar, and popovers, are the platform's
+/// to place, around its content or by their parent: they aren't in their
+/// parent's layout box.
 fn in_chrome(kind: WidgetKind) -> bool {
-    matches!(kind, WidgetKind::ToolbarItem | WidgetKind::Sidebar)
+    matches!(kind, WidgetKind::ToolbarItem | WidgetKind::Sidebar | WidgetKind::Popover)
 }
 
 pub(crate) type Handler = Rc<dyn Fn(&UiEvent)>;

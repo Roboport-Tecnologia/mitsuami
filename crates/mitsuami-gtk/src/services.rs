@@ -18,8 +18,8 @@ use std::rc::{Rc, Weak};
 use gtk::prelude::*;
 use gtk::{gdk, gio, glib};
 use mitsuami_core::services::{
-    Alert, Launch, MenuBarData, MenuCheck, MenuData, MenuEntry, MenuItemData, MenuRole, OpenFile, Reply, SaveFile,
-    ServiceError, Services, Shortcut, existing_folder, menu_item_by_id,
+    Alert, Launch, MenuBarData, MenuCheck, MenuData, MenuEntry, MenuItemData, MenuOnOpen, MenuRole, OpenFile, Reply,
+    SaveFile, ServiceError, Services, Shortcut, existing_folder, menu_item_by_id,
 };
 use mitsuami_core::{ActionError, Key, NodeId};
 
@@ -347,10 +347,12 @@ const BUTTON_GROUP: &str = "button";
 /// A widget's context menu, or a menu button's own menu, as GTK objects:
 /// the model a popover (a text widget's own menu, the menu button's
 /// popover) shows, and the items' actions, which the widget carries. Both
-/// are kept across changes, so a shown menu follows them.
+/// are kept across changes, so a shown menu follows them. Clones share
+/// them: the gestures that open it hold one.
+#[derive(Clone)]
 pub(crate) struct ContextMenu {
-    data: Vec<MenuEntry>,
-    model: gio::Menu,
+    data: Rc<RefCell<Vec<MenuEntry>>>,
+    model: Rc<RefCell<gio::Menu>>,
     actions: gio::SimpleActionGroup,
     /// The actions' group name on the widget.
     group: &'static str,
@@ -359,18 +361,21 @@ pub(crate) struct ContextMenu {
     popover: Rc<RefCell<Option<gtk::PopoverMenu>>>,
     /// A menu button's menu: the button shows it in its own popover.
     button: Option<gtk::MenuButton>,
+    /// Builds the menu as it opens, before what was set last.
+    on_open: Rc<RefCell<Option<MenuOnOpen>>>,
 }
 
 impl ContextMenu {
     fn empty(group: &'static str, activate: Rc<dyn Fn(u32)>, button: Option<gtk::MenuButton>) -> ContextMenu {
         ContextMenu {
-            data: Vec::new(),
-            model: gio::Menu::new(),
+            data: Rc::default(),
+            model: Rc::new(RefCell::new(gio::Menu::new())),
             actions: gio::SimpleActionGroup::new(),
             group,
             activate,
             popover: Rc::default(),
             button,
+            on_open: Rc::default(),
         }
     }
 
@@ -380,7 +385,7 @@ impl ContextMenu {
     pub(crate) fn for_menu_button(button: &gtk::MenuButton, activate: Rc<dyn Fn(u32)>) -> ContextMenu {
         let menu = ContextMenu::empty(BUTTON_GROUP, activate, Some(button.clone()));
         button.insert_action_group(BUTTON_GROUP, Some(&menu.actions));
-        button.set_menu_model(Some(&menu.model));
+        button.set_menu_model(Some(&*menu.model.borrow()));
         menu
     }
 
@@ -391,9 +396,9 @@ impl ContextMenu {
         let menu = ContextMenu::empty(CONTEXT_GROUP, activate, None);
         widget.insert_action_group(CONTEXT_GROUP, Some(&menu.actions));
         match text_widget(widget) {
-            Some(TextWidget::Entry(entry)) => entry.set_extra_menu(Some(&menu.model)),
-            Some(TextWidget::Password(entry)) => entry.set_extra_menu(Some(&menu.model)),
-            Some(TextWidget::Text(text)) => text.set_extra_menu(Some(&menu.model)),
+            Some(TextWidget::Entry(entry)) => entry.set_extra_menu(Some(&*menu.model.borrow())),
+            Some(TextWidget::Password(entry)) => entry.set_extra_menu(Some(&*menu.model.borrow())),
+            Some(TextWidget::Text(text)) => text.set_extra_menu(Some(&*menu.model.borrow())),
             None => menu.attach(widget),
         }
         menu
@@ -407,51 +412,81 @@ impl ContextMenu {
     fn attach(&self, widget: &gtk::Widget) {
         let click = gtk::GestureClick::new();
         click.set_button(gdk::BUTTON_SECONDARY);
-        let (model, popover) = (self.model.clone(), self.popover.clone());
+        let menu = self.clone();
         click.connect_pressed(move |gesture, _, x, y| {
-            if has_items(&model) {
-                gesture.set_state(gtk::EventSequenceState::Claimed);
-                popup(&gesture.widget().expect("attached"), &model, &popover, Some((x, y)));
-            } else {
-                gesture.set_state(gtk::EventSequenceState::Denied);
+            let widget = gesture.widget().expect("attached");
+            match menu.opened(&widget) {
+                Some(model) => {
+                    gesture.set_state(gtk::EventSequenceState::Claimed);
+                    popup(&widget, &model, &menu.popover, Some((x, y)));
+                }
+                None => {
+                    gesture.set_state(gtk::EventSequenceState::Denied);
+                }
             }
         });
         widget.add_controller(click);
 
         let press = gtk::GestureLongPress::new();
         press.set_touch_only(true);
-        let (model, popover) = (self.model.clone(), self.popover.clone());
+        let menu = self.clone();
         press.connect_pressed(move |gesture, x, y| {
-            if has_items(&model) {
-                gesture.set_state(gtk::EventSequenceState::Claimed);
-                popup(&gesture.widget().expect("attached"), &model, &popover, Some((x, y)));
-            } else {
-                gesture.set_state(gtk::EventSequenceState::Denied);
+            let widget = gesture.widget().expect("attached");
+            match menu.opened(&widget) {
+                Some(model) => {
+                    gesture.set_state(gtk::EventSequenceState::Claimed);
+                    popup(&widget, &model, &menu.popover, Some((x, y)));
+                }
+                None => {
+                    gesture.set_state(gtk::EventSequenceState::Denied);
+                }
             }
         });
         widget.add_controller(press);
 
         let keys = gtk::ShortcutController::new();
-        let (model, popover) = (self.model.clone(), self.popover.clone());
+        let menu = self.clone();
         let action = gtk::CallbackAction::new(move |widget, _| {
-            if !has_items(&model) {
-                return glib::Propagation::Proceed;
-            }
-            popup(widget, &model, &popover, None);
+            let Some(model) = menu.opened(widget) else { return glib::Propagation::Proceed };
+            popup(widget, &model, &menu.popover, None);
             glib::Propagation::Stop
         });
         keys.add_shortcut(gtk::Shortcut::new(gtk::ShortcutTrigger::parse_string("<Shift>F10|Menu"), Some(action)));
         widget.add_controller(keys);
     }
 
+    /// The model to show as the menu opens, built first if the app builds
+    /// it then; `None` without items. Called from GTK's own events,
+    /// outside any core call.
+    fn opened(&self, widget: &gtk::Widget) -> Option<gio::Menu> {
+        let on_open = self.on_open.borrow().clone();
+        if let Some(on_open) = on_open {
+            self.set(widget, &on_open.build());
+        }
+        let model = self.model.borrow().clone();
+        has_items(&model).then_some(model)
+    }
+
+    /// Builds the menu as it opens (`None`: shows what was set). A text
+    /// widget's own menu has no moment before it opens, so it shows what
+    /// was built last.
+    pub(crate) fn set_on_open(&self, on_open: Option<MenuOnOpen>) {
+        *self.on_open.borrow_mut() = on_open;
+    }
+
+    pub(crate) fn on_open(&self) -> Option<MenuOnOpen> {
+        self.on_open.borrow().clone()
+    }
+
     /// Takes the app's entries: states in place when only they changed,
     /// otherwise the model and actions filled again.
-    pub(crate) fn set(&mut self, widget: &gtk::Widget, entries: &[MenuEntry]) {
+    pub(crate) fn set(&self, widget: &gtk::Widget, entries: &[MenuEntry]) {
         let bar = |entries: &[MenuEntry]| MenuBarData {
             menus: vec![MenuData { title: String::new(), entries: entries.to_vec() }],
         };
         let new = bar(entries);
-        if bar(&self.data).same_structure(&new) {
+        let same = bar(&self.data.borrow()).same_structure(&new);
+        if same {
             update_actions(&self.actions, &new.items());
         } else {
             for name in self.actions.list_actions() {
@@ -473,16 +508,17 @@ impl ContextMenu {
                 // A menu button makes a new popover for the model. The old
                 // one lives on while the item that made this change is
                 // activated, and would still follow a refilled model.
-                self.model = gio::Menu::new();
+                *self.model.borrow_mut() = gio::Menu::new();
             } else {
-                self.model.remove_all();
+                self.model.borrow().remove_all();
             }
+            let model = self.model.borrow().clone();
             for section in &sections {
-                self.model.append_section(None, section);
+                model.append_section(None, section);
             }
-            self.show_model(widget, Some(&self.model));
+            self.show_model(widget, Some(&model));
         }
-        self.data = entries.to_vec();
+        *self.data.borrow_mut() = entries.to_vec();
     }
 
     /// Gives the model to what shows it: the popover, if it's there, or
@@ -522,7 +558,7 @@ impl ContextMenu {
             Some(TextWidget::Entry(entry)) => entry.extra_menu(),
             Some(TextWidget::Password(entry)) => entry.extra_menu(),
             Some(TextWidget::Text(text)) => text.extra_menu(),
-            None => Some(self.model.clone().upcast()),
+            None => Some(self.model.borrow().clone().upcast()),
         };
         model.map(|model| self.read_sections(&model)).unwrap_or_default()
     }
@@ -555,7 +591,8 @@ impl ContextMenu {
                 let name = action.strip_prefix(&format!("{}.", self.group))?;
                 let id: u32 = name.strip_prefix("item-")?.parse().ok()?;
                 let action = self.actions.lookup_action(name)?;
-                let sent = menu_item_by_id(&self.data, id);
+                let data = self.data.borrow();
+                let sent = menu_item_by_id(&data, id);
                 let target = string(i, "target");
                 let state = action.state();
                 let check = match (state.as_ref().and_then(|s| s.get::<bool>()), state.and_then(|s| s.get::<String>()))

@@ -84,6 +84,7 @@ impl State {
             }
             // Its window takes the page out of its row, or puts it back.
             (Prop::SidebarShown(shown), Widget::Sidebar { page, .. }) => page.set_bool("mitsuamiShown", *shown),
+            (Prop::PopoverShown(shown), Widget::Popover { wanted, .. }) => wanted.set(*shown),
             // Titles and pages come in either order: each shows again.
             (Prop::Title(title), Widget::Group { root, .. }) => root.set_str("mitsuamiTitle", title),
             (Prop::TabTitles(titles), Widget::Tabs { root, .. }) => {
@@ -185,6 +186,7 @@ impl State {
             (Prop::TextInput(on), Widget::GpuSurface(surface)) => surface.set_text_input(*on),
             (Prop::InputMethod(on), Widget::GpuSurface(surface)) => surface.set_input_method(*on),
             (Prop::TextCursor(caret), Widget::GpuSurface(surface)) => surface.set_text_cursor(*caret),
+            (Prop::Transparent(on), Widget::GpuSurface(surface)) => surface.set_transparent(*on),
             (Prop::Options(options), Widget::Select(s)) => {
                 // A new model resets the chosen index; it stays if it can,
                 // else the first option is chosen, as the core does. It
@@ -292,6 +294,17 @@ impl State {
                 }
             }
             (Prop::Placeholder(t), Widget::Field(f)) => f.set_str("placeholderText", t),
+            (Prop::SearchOnReturn(on), Widget::Field(f)) if node.kind == WidgetKind::SearchInput => {
+                f.set_int("mitsuamiOnReturn", i32::from(*on))
+            }
+            (Prop::Suggestions(list), Widget::Field(f)) if node.kind == WidgetKind::SearchInput => {
+                let titles: Vec<String> = list.iter().map(|s| s.title.clone()).collect();
+                let details: Vec<String> = list.iter().map(|s| s.detail.clone().unwrap_or_default()).collect();
+                // The details first: the list follows the titles.
+                f.set_str_list("mitsuamiDetails", &details);
+                f.set_str_list("mitsuamiTitles", &titles);
+                node.suggestions = Some(list.clone());
+            }
             // Still focusable and selectable, so its text can be copied.
             (Prop::ReadOnly(r), Widget::Field(f)) => f.set_bool("readOnly", *r),
             // For the on-screen keyboard and input methods.
@@ -446,6 +459,16 @@ impl State {
                     })
                     .set(item, entries);
             }
+            // Kept on the node by those that don't show a menu, as
+            // `ContextMenu` is; the menu's item asks for it as it opens.
+            (Prop::ContextMenuOnOpen(on_open), widget) => {
+                let item = widget.shows_context_menu().then(|| widget.item());
+                node.context_menu
+                    .get_or_insert_with(|| {
+                        ContextMenu::new(move |chosen| events.emit(id, UiEvent::ContextMenuItem(chosen)))
+                    })
+                    .set_on_open(item, on_open.clone());
+            }
             (Prop::Rows(rows), Widget::List(list)) => list.set_rows(rows.clone()),
             (Prop::RowFiles(files), Widget::List(list)) => list.set_row_files(files.clone()),
             (Prop::RowMoves(moves), Widget::List(list)) => list.set_moves(*moves),
@@ -505,6 +528,9 @@ impl State {
             if !size.is_empty() {
                 root.resize_to(size);
             }
+        }
+        if let Prop::PopoverShown(_) = prop {
+            self.sync_popover(id);
         }
     }
 }

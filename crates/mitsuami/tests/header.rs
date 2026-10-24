@@ -126,14 +126,18 @@ async fn on_gtk_it_is_under_the_header_bar(app: TestApp) {
         use std::rc::Rc;
 
         let seen: Rc<RefCell<Option<gtk::Button>>> = Rc::default();
+        let scrolled: Rc<RefCell<Option<gtk::ScrolledWindow>>> = Rc::default();
         let on = signal(true);
-        let mounted = seen.clone();
+        let (mounted, mounted_scrolled) = (seen.clone(), scrolled.clone());
         app.mount(move || {
-            let seen = mounted.clone();
+            let (seen, scrolled) = (mounted.clone(), mounted_scrolled.clone());
             let tweak = mitsuami::gtk::tweak(move |button: &gtk::Button| *seen.borrow_mut() = Some(button.clone()));
+            let scroll_tweak =
+                mitsuami::gtk::tweak(move |s: &gtk::ScrolledWindow| *scrolled.borrow_mut() = Some(s.clone()));
             Column::new().grow(1.0).min_height(0.0).children((
                 Row::new().header(on).padding(12.0).child(Button::new("Add").native(tweak)),
                 ScrollView::new()
+                    .native(scroll_tweak)
                     .child(Column::new().children((0..60).map(|i| Text::new(format!("Disc {i}"))).collect::<Vec<_>>()))
                     .grow(1.0)
                     .min_height(0.0)
@@ -147,6 +151,15 @@ async fn on_gtk_it_is_under_the_header_bar(app: TestApp) {
         let view = button.ancestor(toolbar_view).expect("the header is in a toolbar view");
         let content: gtk::Widget = view.property("content");
         assert!(!button.is_ancestor(&content), "the header is in the top bars");
+        // What's under it starts below the top bars, as drawn: libadwaita
+        // spaces two bars apart, which the content's top must take in.
+        let header = button.parent().expect("in the header's host");
+        let header = header.compute_bounds(&view).expect("placed");
+        let under = scrolled.borrow().clone().expect("tweaked").compute_bounds(&view).expect("placed");
+        assert!(
+            under.y() >= header.y() + header.height() - 0.5,
+            "{under:?} under the top bars, whose header is {header:?}"
+        );
         let discs = app.get_by_test_id("discs").frame();
         app.get_by_role(Role::Button, "Add").click().await;
 
@@ -186,6 +199,98 @@ async fn a_sidebar_pane_stays_beside_the_content(app: TestApp) {
     assert_eq!(pane.width(), 160.0);
     assert_eq!(page.x(), pane.max_x(), "{page:?} beside {pane:?}");
     assert!(app.get_by_test_id("pane").native_state().props.contains(&Prop::SidebarPane(true)));
+}
+
+/// What scrolls in a split's pane right under a header, beside a sidebar
+/// that doesn't, as SourceGit's history is: on AppKit the split and the
+/// pane run up under the title bar with the scroll view, which stays in its
+/// pane (macOS showed nothing through the bar from one reaching up out of
+/// its pane, 2026-10-23); everything stays where the core put it on every
+/// platform (the mirror check reads the frames back).
+#[mitsuami_test::test]
+async fn a_split_under_it_runs_up_under_the_title_bar(app: TestApp) {
+    use std::cell::RefCell;
+    use std::rc::Rc;
+
+    #[cfg(target_os = "macos")]
+    let seen: Rc<
+        RefCell<Option<mitsuami::appkit::objc2::rc::Retained<mitsuami::appkit::objc2_app_kit::NSSplitView>>>,
+    > = Rc::default();
+    #[cfg(not(target_os = "macos"))]
+    let seen: Rc<RefCell<Option<()>>> = Rc::default();
+    let mounted = seen.clone();
+    app.mount(move || {
+        let _ = &mounted;
+        let tweak = mitsuami::platform! {
+            macos => {
+                let seen = mounted.clone();
+                mitsuami::appkit::tweak(move |split: &mitsuami::appkit::objc2_app_kit::NSSplitView| {
+                    use mitsuami::appkit::objc2::Message;
+                    *seen.borrow_mut() = Some(split.retain());
+                })
+            },
+            _ => Tweak::none(),
+        };
+        let width = signal(160.0);
+        Column::new().grow(1.0).min_height(0.0).children((
+            Row::new()
+                .header(true)
+                .header_edge(HeaderEdge::Hard)
+                .test_id("header")
+                .padding(12.0)
+                .child(Text::new("Fetch")),
+            Split::new().bind(width).native(tweak).grow(1.0).min_height(0).test_id("split").children((
+                Column::new().min_width(100).test_id("branches").child(Text::new("LOCAL BRANCHES")),
+                Column::new().min_width(100).min_height(0).align(Align::Stretch).test_id("page").child(
+                    ScrollView::new()
+                        .child(
+                            Column::new()
+                                .children((0..60).map(|i| Text::new(format!("Commit {i}"))).collect::<Vec<_>>()),
+                        )
+                        .grow(1.0)
+                        .min_height(0.0)
+                        .test_id("history"),
+                ),
+            )),
+        ))
+    });
+    app.settle().await;
+
+    let header = app.get_by_test_id("header").frame();
+    let split = app.get_by_test_id("split").frame();
+    assert_eq!(split.y(), header.max_y(), "{split:?} under {header:?}");
+    assert_eq!(app.get_by_test_id("history").frame().y(), split.y());
+    assert_eq!(app.get_by_text("LOCAL BRANCHES").frame().y(), split.y());
+    app.get_by_test_id("history").scroll_by(0.0, 1e6).await;
+    app.expect(by_text("Commit 59")).to_be_visible().await;
+
+    #[cfg(target_os = "macos")]
+    if app.backend_name() == "appkit" {
+        use mitsuami::appkit::objc2_app_kit::NSScrollView;
+        let split = seen.borrow().clone().expect("tweaked");
+        let window = split.window().expect("in a window");
+        let content = window.contentView().expect("content");
+        // The split reaches the window's top, under the bars.
+        let top = split.convertRect_toView(split.bounds(), None);
+        let height = content.frame().size.height;
+        assert!(
+            (top.origin.y + top.size.height - height).abs() < 0.5,
+            "the split reaches the top: {top:?} of {height}"
+        );
+        // The scroll view is in the split's arranged view around its pane
+        // (the pane's host), whose top is the split's.
+        fn find(
+            view: &mitsuami::appkit::objc2_app_kit::NSView,
+        ) -> Option<mitsuami::appkit::objc2::rc::Retained<NSScrollView>> {
+            view.subviews().iter().find_map(|v| v.clone().downcast::<NSScrollView>().ok().or_else(|| find(&v)))
+        }
+        let pane = split.subviews().objectAtIndex(1);
+        let scroll = find(&pane).expect("the scroll view");
+        let inside = pane.convertRect_fromView(scroll.frame(), unsafe { scroll.superview() }.as_deref());
+        let bounds = pane.bounds();
+        assert!(inside.origin.y >= bounds.origin.y - 0.5, "{inside:?} in its pane's {bounds:?}");
+        assert!(scroll.contentInsets().top > 0.0, "its content starts below the bars");
+    }
 }
 
 mitsuami_test::main!();

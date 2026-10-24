@@ -24,13 +24,17 @@ use std::task::{Poll, Waker};
 
 use mitsuami::App;
 use mitsuami::core::draw::Path;
-use mitsuami::core::services::{Alert, AlertStyle, MenuCheck, MenuData, MenuEntry, MenuItemData, MenuRole, OpenFile};
-use mitsuami::core::style::Edges;
+use mitsuami::core::services::{
+    Alert, AlertStyle, Launch, MenuCheck, MenuData, MenuEntry, MenuItemData, MenuOnOpen, MenuRole, OpenFile, SaveFile,
+    Shortcut,
+};
+use mitsuami::core::style::{Edges, Position};
 use mitsuami::core::{
     A11yAction, A11yProps, Align, ButtonRole, ButtonStyle, Canvas, Color, Custom, CustomWidget, DocumentTabsStyle,
-    Drawn, EventValue, FileDrop, FlexDirection, HeaderEdge, Justify, Length, List, ListStyle, MeasureRequest, Modality,
-    NodeId, PathStep, PlatformMetrics, Point, PointerKind, Prop, Rect, Render, Renderer, Role, RowDrop, RowMoves,
-    SelectionMode, Shape, Size, Spacing, TextStyle, Ui, UiEvent, VectorIcon, View, WidgetKind, WindowSize,
+    Drawn, EventValue, FileDrop, FlexDirection, HeaderEdge, ImageSource, Justify, Key, Length, List, ListHandle,
+    ListStyle, MeasureRequest, Modality, NodeId, PathStep, Pixels, PlatformMetrics, Point, PointerKind, Prop, Rect,
+    Render, Renderer, Role, RowDrop, RowMoves, ScrollAxes, SelectionMode, Shape, Size, Sort, SortOrder, Spacing, Table,
+    TableColumn, TextStyle, Ui, UiEvent, VectorIcon, View, WidgetKind, WindowSize,
 };
 use mitsuami::reactive::{Owner, Signal, on_cleanup, signal, watch};
 
@@ -199,6 +203,23 @@ pub enum MitsuamiKind {
     /// first pane's length is its `Number`, reported as `Changed` when the
     /// user moves it; a pane's least width (or height) stops it.
     Split = 16,
+    /// The platform's tab view: its children are its pages, titled by its
+    /// `TabTitles`, the shown one its `SelectedIndex`, reported as
+    /// `Changed` when the user picks another.
+    Tabs = 17,
+    /// The platform's image view, showing pixels the app gives it
+    /// (`mitsuami_set_image`).
+    Image = 18,
+    /// The platform's button that opens a menu of actions
+    /// (`mitsuami_set_menu`), with a `Button`'s caption, icon and style.
+    MenuButton = 19,
+    /// The platform's popover, shown by its parent (a container) while
+    /// its `PopoverShown`; the user dismisses it (`PopoverShownChanged`).
+    Popover = 20,
+    /// The platform's radio buttons, one per option: its `Options`, the
+    /// chosen one its `SelectedIndex` (none when negative), reported as
+    /// `Changed` when the user picks another.
+    RadioGroup = 21,
 }
 
 fn widget_kind(kind: u32) -> Result<WidgetKind, String> {
@@ -220,6 +241,11 @@ fn widget_kind(kind: u32) -> Result<WidgetKind, String> {
         14 => WidgetKind::Select,
         15 => WidgetKind::Icon,
         16 => WidgetKind::Split,
+        17 => WidgetKind::Tabs,
+        18 => WidgetKind::Image,
+        19 => WidgetKind::MenuButton,
+        20 => WidgetKind::Popover,
+        21 => WidgetKind::RadioGroup,
         _ => return Err(format!("unknown kind {kind}")),
     })
 }
@@ -229,6 +255,44 @@ fn widget_kind(kind: u32) -> Result<WidgetKind, String> {
 #[unsafe(no_mangle)]
 pub extern "C" fn mitsuami_create(kind: u32) -> u32 {
     guard(|| Ok(ui()?.create(widget_kind(kind)?, Vec::new()).raw())).unwrap_or(0)
+}
+
+/// Makes a scroll view along `axes` (`Vertical`, `Horizontal`, `Both`: 0
+/// to 2) and the container it scrolls, which `*content` is set to: the
+/// caller adds to that. The content keeps its natural length along the
+/// scrolling axes and stretches across the other, a column unless it
+/// scrolls only sideways. 0 if it fails.
+///
+/// # Safety
+/// `content` is valid for a write.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn mitsuami_create_scroll_view(axes: u32, content: *mut u32) -> u32 {
+    guard(|| {
+        let axes = match axes {
+            0 => ScrollAxes::Vertical,
+            1 => ScrollAxes::Horizontal,
+            2 => ScrollAxes::Both,
+            _ => return Err(format!("bad scroll axes {axes}")),
+        };
+        let ui = ui()?;
+        let direction = if axes == ScrollAxes::Horizontal { FlexDirection::Row } else { FlexDirection::Column };
+        let outer = ui.create(WidgetKind::ScrollView, vec![Prop::ScrollAxes(axes)]);
+        ui.update_style(outer, |s| {
+            s.scroll_x = axes.horizontal();
+            s.scroll_y = axes.vertical();
+            s.flex_direction = direction;
+        });
+        let inner = ui.create(WidgetKind::Container, Vec::new());
+        ui.update_style(inner, |s| {
+            s.flex_shrink = 0.0;
+            s.flex_direction = direction;
+            s.align_self = (axes == ScrollAxes::Both).then_some(Align::Start);
+        });
+        ui.append_child(outer, inner);
+        unsafe { *content = inner.raw() };
+        Ok(outer.raw())
+    })
+    .unwrap_or(0)
 }
 
 /// Opens a window with `title` and a content size in points; a negative
@@ -349,6 +413,36 @@ pub unsafe extern "C" fn mitsuami_set_vector_icon(
     .is_some()
 }
 
+/// What an image shows: `width × height` pixels of straight RGBA8, top
+/// row first, `scale` pixels to a point (its natural size is the pixels'
+/// over the scale).
+///
+/// # Safety
+/// `rgba` points to `len` bytes.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn mitsuami_set_image(
+    id: u32,
+    width: u32,
+    height: u32,
+    scale: f32,
+    rgba: *const u8,
+    len: usize,
+) -> bool {
+    guard(|| {
+        if rgba.is_null() || (width as usize).checked_mul(height as usize).and_then(|n| n.checked_mul(4)) != Some(len) {
+            return Err(format!("{width}×{height} RGBA8 pixels take {len} bytes"));
+        }
+        if scale.is_nan() || scale <= 0.0 {
+            return Err(format!("bad image scale {scale}"));
+        }
+        let bytes = unsafe { std::slice::from_raw_parts(rgba, len) };
+        let pixels = Pixels::new(width, height, bytes.to_vec()).scale(scale);
+        ui()?.set_prop(node(id), Prop::Image(ImageSource::Pixels(pixels)));
+        Ok(())
+    })
+    .is_some()
+}
+
 /// Puts `child` in `parent` at `index`, or last if `index` is past the end.
 #[unsafe(no_mangle)]
 pub extern "C" fn mitsuami_insert_child(parent: u32, child: u32, index: usize) -> bool {
@@ -463,6 +557,14 @@ pub enum MitsuamiBoolProp {
     /// A container that's a pane down its window's side that navigates:
     /// on WinUI under tabs in the title bar, on the chosen tab's layer.
     SidebarPane = 8,
+    /// A text the user can select and copy. Set before it's in a window:
+    /// a platform may not change it afterwards (Qt's is another item).
+    Selectable = 9,
+    /// A popover is shown by its parent.
+    PopoverShown = 10,
+    /// A search field searches on Return (and when cleared), not as the
+    /// user types.
+    SearchOnReturn = 11,
 }
 
 #[unsafe(no_mangle)]
@@ -478,6 +580,9 @@ pub extern "C" fn mitsuami_set_bool(id: u32, prop: u32, value: bool) -> bool {
             6 => Prop::Header(value),
             7 => Prop::Click(value),
             8 => Prop::SidebarPane(value),
+            9 => Prop::Selectable(value),
+            10 => Prop::PopoverShown(value),
+            11 => Prop::SearchOnReturn(value),
             _ => return Err(format!("unknown bool prop {prop}")),
         };
         ui()?.set_prop(node(id), prop);
@@ -495,6 +600,9 @@ pub enum MitsuamiNumberProp {
     EstimatedRowHeight = 1,
     /// An icon's size, in points.
     IconSize = 2,
+    /// A text's most lines, the last cut off with the platform's ellipsis;
+    /// 0 shows them all.
+    MaxLines = 3,
 }
 
 #[unsafe(no_mangle)]
@@ -504,6 +612,7 @@ pub extern "C" fn mitsuami_set_number(id: u32, prop: u32, value: f64) -> bool {
             0 => Prop::Number(value),
             1 => Prop::EstimatedRowHeight(value as f32),
             2 => Prop::IconSize(value as f32),
+            3 => Prop::MaxLines((value >= 1.0).then_some(value as u32)),
             _ => return Err(format!("unknown number prop {prop}")),
         };
         ui()?.set_prop(node(id), prop);
@@ -534,45 +643,103 @@ pub struct MitsuamiMenuEntry {
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn mitsuami_set_context_menu(id: u32, entries: *const MitsuamiMenuEntry, count: usize) -> bool {
     guard(|| {
-        let entries = if count == 0 { &[][..] } else { unsafe { std::slice::from_raw_parts(entries, count) } };
-        // Each open submenu: its title and entries so far.
-        let mut stack: Vec<(String, Vec<MenuEntry>)> = vec![(String::new(), Vec::new())];
-        for entry in entries {
-            let title = unsafe { string(entry.title.ptr, entry.title.len)? };
-            match entry.kind {
-                0 => {
-                    let check = match entry.check {
-                        0 => MenuCheck::None,
-                        1 | 2 => MenuCheck::Check(entry.check == 2),
-                        3 | 4 => MenuCheck::Radio(entry.check == 4),
-                        other => return Err(format!("bad menu check {other}")),
-                    };
-                    let item = MenuItemData {
-                        id: entry.id,
-                        title,
-                        shortcut: None,
-                        enabled: entry.enabled,
-                        check,
-                        role: MenuRole::None,
-                    };
-                    stack.last_mut().unwrap().1.push(MenuEntry::Item(item));
-                }
-                1 => stack.last_mut().unwrap().1.push(MenuEntry::Separator),
-                2 => stack.push((title, Vec::new())),
-                3 if stack.len() > 1 => {
-                    let (title, entries) = stack.pop().unwrap();
-                    stack.last_mut().unwrap().1.push(MenuEntry::Submenu(MenuData { title, entries }));
-                }
-                other => return Err(format!("bad menu entry kind {other}")),
-            }
-        }
-        if stack.len() != 1 {
-            return Err("a submenu isn't ended".to_string());
-        }
-        ui()?.set_prop(node(id), Prop::ContextMenu(stack.pop().unwrap().1));
+        let menu = unsafe { menu_entries(entries, count)? };
+        ui()?.set_prop(node(id), Prop::ContextMenu(menu));
         Ok(())
     })
     .is_some()
+}
+
+/// Builds the node's context menu as the platform opens it, for a menu
+/// that depends on what's selected or under the pointer then (a table's
+/// rows): `build(user, node)` calls `mitsuami_set_context_menu` on the
+/// node, and that's the menu shown. It's called from the platform's own
+/// event (a right-click), outside any other call. Null: the menu is the
+/// one set, as before.
+#[unsafe(no_mangle)]
+pub extern "C" fn mitsuami_set_context_menu_on_open(
+    id: u32,
+    build: Option<extern "C" fn(*mut c_void, u32)>,
+    user: *mut c_void,
+) -> bool {
+    let user = user as usize;
+    guard(|| {
+        let ui = ui()?;
+        let weak = ui.downgrade();
+        let on_open = build.map(|build| {
+            MenuOnOpen::new(move || {
+                if guard(|| {
+                    build(user as *mut c_void, id);
+                    Ok(())
+                })
+                .is_none()
+                {
+                    eprintln!("mitsuami: a context menu's build callback panicked");
+                }
+                let props = weak.upgrade().map(|ui| ui.props(node(id))).unwrap_or_default();
+                mitsuami::core::find_prop!(props, ContextMenu).unwrap_or_default()
+            })
+        });
+        ui.set_prop(node(id), Prop::ContextMenuOnOpen(on_open));
+        Ok(())
+    })
+    .is_some()
+}
+
+/// A menu button's menu, as a context menu's entries. Choosing an item
+/// reports `MenuItem` on the node.
+///
+/// # Safety
+/// As [`mitsuami_set_context_menu`]'s.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn mitsuami_set_menu(id: u32, entries: *const MitsuamiMenuEntry, count: usize) -> bool {
+    guard(|| {
+        let menu = unsafe { menu_entries(entries, count)? };
+        ui()?.set_prop(node(id), Prop::Menu(menu));
+        Ok(())
+    })
+    .is_some()
+}
+
+/// # Safety
+/// As [`mitsuami_set_context_menu`]'s.
+unsafe fn menu_entries(entries: *const MitsuamiMenuEntry, count: usize) -> Result<Vec<MenuEntry>, String> {
+    let entries = if count == 0 { &[][..] } else { unsafe { std::slice::from_raw_parts(entries, count) } };
+    // Each open submenu: its title and entries so far.
+    let mut stack: Vec<(String, Vec<MenuEntry>)> = vec![(String::new(), Vec::new())];
+    for entry in entries {
+        let title = unsafe { string(entry.title.ptr, entry.title.len)? };
+        match entry.kind {
+            0 => {
+                let check = match entry.check {
+                    0 => MenuCheck::None,
+                    1 | 2 => MenuCheck::Check(entry.check == 2),
+                    3 | 4 => MenuCheck::Radio(entry.check == 4),
+                    other => return Err(format!("bad menu check {other}")),
+                };
+                let item = MenuItemData {
+                    id: entry.id,
+                    title,
+                    shortcut: None,
+                    enabled: entry.enabled,
+                    check,
+                    role: MenuRole::None,
+                };
+                stack.last_mut().unwrap().1.push(MenuEntry::Item(item));
+            }
+            1 => stack.last_mut().unwrap().1.push(MenuEntry::Separator),
+            2 => stack.push((title, Vec::new())),
+            3 if stack.len() > 1 => {
+                let (title, entries) = stack.pop().unwrap();
+                stack.last_mut().unwrap().1.push(MenuEntry::Submenu(MenuData { title, entries }));
+            }
+            other => return Err(format!("bad menu entry kind {other}")),
+        }
+    }
+    if stack.len() != 1 {
+        return Err("a submenu isn't ended".to_string());
+    }
+    Ok(stack.pop().unwrap().1)
 }
 
 /// Lets a container take files and folders dropped on it from the
@@ -657,7 +824,7 @@ fn color(c: MitsuamiColor) -> Result<Color, String> {
 
 #[repr(u32)]
 pub enum MitsuamiStringsProp {
-    /// Document tabs' titles, in order.
+    /// Tabs' or document tabs' titles, in order.
     TabTitles = 0,
     /// A drop-down's options, in order.
     Options = 1,
@@ -675,6 +842,34 @@ pub unsafe extern "C" fn mitsuami_set_strings(id: u32, prop: u32, values: *const
             _ => return Err(format!("unknown strings prop {prop}")),
         };
         ui()?.set_prop(node(id), prop);
+        Ok(())
+    })
+    .is_some()
+}
+
+/// What a search field suggests for its text: `count` titles, and as many
+/// details (an empty one is none), shown under it as its platform shows a
+/// field's suggestions. None: no list. Picking one reports
+/// `SuggestionChosen` with its index.
+///
+/// # Safety
+/// `titles` and `details` each point to `count` strings.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn mitsuami_set_suggestions(
+    id: u32,
+    titles: *const MitsuamiStr,
+    details: *const MitsuamiStr,
+    count: usize,
+) -> bool {
+    guard(|| {
+        let titles = unsafe { strings(titles, count)? };
+        let details = unsafe { strings(details, count)? };
+        let list = titles
+            .into_iter()
+            .zip(details)
+            .map(|(title, detail)| mitsuami::core::Suggestion { title, detail: (!detail.is_empty()).then_some(detail) })
+            .collect();
+        ui()?.set_prop(node(id), Prop::Suggestions(list));
         Ok(())
     })
     .is_some()
@@ -724,6 +919,9 @@ pub enum MitsuamiEnumProp {
     /// A text's, over its style's: `Regular`, `Medium`, `Semibold`,
     /// `Bold`, 0 to 3.
     FontWeight = 8,
+    /// Tabs', where the platform has more than one way to show them:
+    /// `Automatic`, `TabBar`, `Navigation`, 0 to 2.
+    TabsStyle = 9,
 }
 
 #[unsafe(no_mangle)]
@@ -791,6 +989,12 @@ pub extern "C" fn mitsuami_set_enum(id: u32, prop: u32, value: u32) -> bool {
                 3 => mitsuami::core::FontWeight::Bold,
                 _ => return Err(bad()),
             }),
+            9 => Prop::TabsStyle(match value {
+                0 => mitsuami::core::TabsStyle::Automatic,
+                1 => mitsuami::core::TabsStyle::TabBar,
+                2 => mitsuami::core::TabsStyle::Navigation,
+                _ => return Err(bad()),
+            }),
             _ => return Err(format!("unknown enum prop {prop}")),
         };
         ui()?.set_prop(node(id), prop);
@@ -856,6 +1060,24 @@ pub extern "C" fn mitsuami_set_hidden(id: u32, hidden: bool) -> bool {
     .is_some()
 }
 
+/// A node's frame as last laid out, relative to its native parent: x, y,
+/// width and height in `out`. A node not laid out yet is at zero, so
+/// read it once layout has run (a posted callback, after the change that
+/// made it).
+///
+/// # Safety
+/// `out` is valid for four writes.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn mitsuami_frame(id: u32, out: *mut f32) -> bool {
+    guard(|| {
+        let frame = ui()?.frame(node(id)).ok_or_else(|| format!("no node {id}"))?;
+        let values = [frame.x(), frame.y(), frame.width(), frame.height()];
+        unsafe { std::ptr::copy_nonoverlapping(values.as_ptr(), out, 4) };
+        Ok(())
+    })
+    .is_some()
+}
+
 /// A container's direction: 0 a column (the default), 1 a row.
 #[unsafe(no_mangle)]
 pub extern "C" fn mitsuami_set_direction(id: u32, row: bool) -> bool {
@@ -893,6 +1115,30 @@ pub extern "C" fn mitsuami_set_padding(
     guard(|| {
         let edges = Edges { top: length(top)?, end: length(end)?, bottom: length(bottom)?, start: length(start)? };
         ui()?.update_style(node(id), |s| s.padding = edges);
+        Ok(())
+    })
+    .is_some()
+}
+
+/// Takes a node out of its container's flow, placed by its insets from the
+/// container's edges (auto: not placed by that edge), over the nodes in it
+/// (a drawn backdrop behind a label, say); `absolute` false puts it back.
+#[unsafe(no_mangle)]
+pub extern "C" fn mitsuami_set_position(
+    id: u32,
+    absolute: bool,
+    top: MitsuamiLength,
+    end: MitsuamiLength,
+    bottom: MitsuamiLength,
+    start: MitsuamiLength,
+) -> bool {
+    guard(|| {
+        let inset = Edges { top: length(top)?, end: length(end)?, bottom: length(bottom)?, start: length(start)? };
+        let position = if absolute { Position::Absolute } else { Position::Relative };
+        ui()?.update_style(node(id), |s| {
+            s.position = position;
+            s.inset = inset;
+        });
         Ok(())
     })
     .is_some()
@@ -959,6 +1205,32 @@ pub extern "C" fn mitsuami_set_size(id: u32, width: MitsuamiLength, height: Mits
 pub extern "C" fn mitsuami_set_grow(id: u32, grow: f32) -> bool {
     guard(|| {
         ui()?.update_style(node(id), |s| s.flex_grow = grow);
+        Ok(())
+    })
+    .is_some()
+}
+
+/// A container's children go on to another line (a row's) or column (a
+/// column's) when they don't fit, as chips and tags do.
+#[unsafe(no_mangle)]
+pub extern "C" fn mitsuami_set_wrap(id: u32, wrap: bool) -> bool {
+    guard(|| {
+        ui()?.update_style(node(id), |s| s.flex_wrap = wrap);
+        Ok(())
+    })
+    .is_some()
+}
+
+/// How much a node gives up when its container's children don't fit,
+/// against the others (weighted by their sizes, as CSS's `flex-shrink`);
+/// 1 by default, 0 never.
+#[unsafe(no_mangle)]
+pub extern "C" fn mitsuami_set_shrink(id: u32, shrink: f32) -> bool {
+    guard(|| {
+        if shrink.is_nan() || shrink < 0.0 {
+            return Err(format!("bad shrink {shrink}"));
+        }
+        ui()?.update_style(node(id), |s| s.flex_shrink = shrink);
         Ok(())
     })
     .is_some()
@@ -1048,6 +1320,16 @@ pub enum MitsuamiEventKind {
     /// Assistive technology (or a test) acted on a drawn widget: `index`
     /// is the `MitsuamiDrawnAction` bit, `text` a value it set.
     A11yAction = 14,
+    /// The user chose a menu button's item: `index` is its id.
+    MenuItem = 15,
+    /// The user dismissed a popover (a click outside, Escape): `flag` is
+    /// false.
+    PopoverShownChanged = 16,
+    /// The user picked a search field's suggestion: `index` is which.
+    SuggestionChosen = 17,
+    /// A key the node takes (`mitsuami_set_keys`) was pressed: `index` is
+    /// its place in the list the app gave.
+    Key = 18,
 }
 
 #[repr(u32)]
@@ -1100,6 +1382,10 @@ pub extern "C" fn mitsuami_on_event(
                 UiEvent::TabMoved { .. } => MitsuamiEventKind::TabMoved,
                 UiEvent::NewTabRequested => MitsuamiEventKind::NewTabRequested,
                 UiEvent::ContextMenuItem(_) => MitsuamiEventKind::ContextMenuItem,
+                UiEvent::MenuItem(_) => MitsuamiEventKind::MenuItem,
+                UiEvent::PopoverShownChanged(_) => MitsuamiEventKind::PopoverShownChanged,
+                UiEvent::SuggestionChosen(_) => MitsuamiEventKind::SuggestionChosen,
+                UiEvent::Key(_) => MitsuamiEventKind::Key,
                 UiEvent::DropHover(_) => MitsuamiEventKind::DropHover,
                 UiEvent::FilesDropped(_) => MitsuamiEventKind::FilesDropped,
                 UiEvent::Pointer(_) => MitsuamiEventKind::Pointer,
@@ -1123,9 +1409,13 @@ pub extern "C" fn mitsuami_on_event(
             // Lives until the callback returns, as `out` borrows it.
             let mut paths = String::new();
             match event {
-                UiEvent::ContextMenuItem(id) => {
+                UiEvent::ContextMenuItem(id) | UiEvent::MenuItem(id) => {
                     out.value_kind = MitsuamiValueKind::Index as u32;
                     out.index = u64::from(*id);
+                }
+                UiEvent::PopoverShownChanged(shown) => {
+                    out.value_kind = MitsuamiValueKind::Bool as u32;
+                    out.flag = *shown;
                 }
                 UiEvent::DropHover(over) => {
                     out.value_kind = MitsuamiValueKind::Bool as u32;
@@ -1139,6 +1429,20 @@ pub extern "C" fn mitsuami_on_event(
                     out.value_kind = MitsuamiValueKind::Text as u32;
                     out.text = paths.as_ptr();
                     out.text_len = paths.len();
+                }
+                UiEvent::SuggestionChosen(index) => {
+                    out.value_kind = MitsuamiValueKind::Index as u32;
+                    out.index = *index as u64;
+                }
+                UiEvent::Key(shortcut) => {
+                    let keys = ui().ok().and_then(|ui| {
+                        ui.props(node(id)).into_iter().find_map(|p| match p {
+                            Prop::Keys(keys) => Some(keys),
+                            _ => None,
+                        })
+                    });
+                    out.value_kind = MitsuamiValueKind::Index as u32;
+                    out.index = keys.and_then(|k| k.iter().position(|s| s == shortcut)).unwrap_or(0) as u64;
                 }
                 UiEvent::TabCloseRequested(index) => {
                     out.value_kind = MitsuamiValueKind::Index as u32;
@@ -1251,8 +1555,15 @@ struct ListState {
     /// The selection as the caller last set it, so setting it isn't
     /// reported back as the user's.
     set: Rc<RefCell<Vec<String>>>,
+    sort: Option<TableSort>,
+    /// Scrolls it to a row.
+    handle: ListHandle<String>,
     owner: Owner,
 }
+
+/// A table's sort, by column index, and as the caller last set it, so
+/// setting it isn't reported back as the user's.
+type TableSort = (Signal<Sort<usize>>, Rc<Cell<Sort<usize>>>);
 
 fn list<T>(id: u32, f: impl FnOnce(&ListState) -> T) -> Result<T, String> {
     LISTS.with(|l| l.borrow().get(&id).map(f)).ok_or_else(|| format!("node {id} isn't a list"))
@@ -1289,6 +1600,7 @@ pub extern "C" fn mitsuami_create_list(callbacks: MitsuamiListCallbacks) -> u32 
         let id = Rc::new(Cell::new(0));
         let owner = Owner::new_root();
         let set = Rc::new(RefCell::new(Vec::new()));
+        let handle = ListHandle::new();
         let (keys, selected, list) = owner.with(|| {
             let (keys, selected) = (signal(Vec::<String>::new()), signal(Vec::<String>::new()));
             let (row_cb, row_id) = (cb.clone(), id.clone());
@@ -1306,6 +1618,7 @@ pub extern "C" fn mitsuami_create_list(callbacks: MitsuamiListCallbacks) -> u32 
                 },
             )
             .selected(selected)
+            .handle(handle.clone())
             .on_activate(move |key: String| {
                 (activate_cb.activated)(activate_cb.user, activate_id.get(), key.as_ptr(), key.len())
             });
@@ -1354,7 +1667,7 @@ pub extern "C" fn mitsuami_create_list(callbacks: MitsuamiListCallbacks) -> u32 
             (keys, selected, list.build(&ui))
         });
         id.set(list.raw());
-        LISTS.with(|l| l.borrow_mut().insert(list.raw(), ListState { keys, selected, set, owner }));
+        LISTS.with(|l| l.borrow_mut().insert(list.raw(), ListState { keys, selected, set, sort: None, handle, owner }));
         Ok(list.raw())
     })
     .unwrap_or(0)
@@ -1390,6 +1703,21 @@ pub unsafe extern "C" fn mitsuami_list_set_selected(id: u32, keys: *const Mitsua
     .is_some()
 }
 
+/// Scrolls a list or table just enough to show the row with this key,
+/// shown yet or not; a key it doesn't have yet is scrolled to once it has.
+///
+/// # Safety
+/// The key is as [`string`] says.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn mitsuami_list_scroll_to(id: u32, key: MitsuamiStr) -> bool {
+    guard(|| {
+        let key = unsafe { string(key.ptr, key.len)? };
+        list(id, |l| l.handle.clone())?.scroll_to(&key);
+        Ok(())
+    })
+    .is_some()
+}
+
 /// How many rows are selected; `mitsuami_list_selected_key` gives each.
 #[unsafe(no_mangle)]
 pub extern "C" fn mitsuami_list_selected_count(id: u32) -> usize {
@@ -1413,6 +1741,155 @@ pub unsafe extern "C" fn mitsuami_list_selected_key(id: u32, index: usize, ptr: 
         })
     })
     .unwrap_or(0)
+}
+
+// Tables.
+
+/// A column of a table.
+#[repr(C)]
+#[derive(Clone, Copy)]
+pub struct MitsuamiTableColumn {
+    pub title: MitsuamiStr,
+    /// How wide it starts, in points; 0 or less, the platform's default.
+    pub width: f32,
+    /// It takes the room left past the other columns' widths.
+    pub expand: bool,
+    /// Pressing its header sorts the table by it.
+    pub sortable: bool,
+}
+
+/// What a table asks of its caller. The table's id comes with each call.
+#[repr(C)]
+#[derive(Clone, Copy)]
+pub struct MitsuamiTableCallbacks {
+    /// Builds a row's cell in a column (its index) when the platform shows
+    /// the row: a node in no tree yet (0 for an empty cell).
+    pub build_cell: extern "C" fn(*mut c_void, u32, *const u8, usize, usize) -> u32,
+    /// The platform let a cell go: its node is destroyed.
+    pub release_cell: extern "C" fn(*mut c_void, u32, u32),
+    /// The user changed the selection; `mitsuami_list_selected_key` has it.
+    pub selection_changed: extern "C" fn(*mut c_void, u32),
+    /// The user activated a row (double-click, Return): its key.
+    pub activated: extern "C" fn(*mut c_void, u32, *const u8, usize),
+    /// The user pressed a sortable header: the column, and true if
+    /// descending. The caller sorts its rows.
+    pub sorted: extern "C" fn(*mut c_void, u32, usize, bool),
+    pub user: *mut c_void,
+    /// As a list's.
+    pub still: u32,
+}
+
+/// Makes a table: the platform's own table control, rows of cells under
+/// these column headers, which builds cells (with `build_cell`) only for
+/// the rows it shows. Its rows, selection and selection mode are set as a
+/// list's, with the `mitsuami_list_*` functions. With sortable columns, it
+/// starts sorted by the first, ascending (`mitsuami_table_set_sort`).
+///
+/// # Safety
+/// `columns` points to `count` columns, their titles as [`string`] says.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn mitsuami_create_table(
+    callbacks: MitsuamiTableCallbacks,
+    columns: *const MitsuamiTableColumn,
+    count: usize,
+) -> u32 {
+    guard(|| {
+        let ui = ui()?;
+        let columns = match count {
+            0 => &[][..],
+            _ => unsafe { std::slice::from_raw_parts(columns, count) },
+        };
+        let titles: Vec<String> =
+            columns.iter().map(|c| unsafe { string(c.title.ptr, c.title.len) }).collect::<Result<_, _>>()?;
+        let cb = Rc::new(callbacks);
+        let id = Rc::new(Cell::new(0));
+        let owner = Owner::new_root();
+        let set = Rc::new(RefCell::new(Vec::new()));
+        let handle = ListHandle::new();
+        let (keys, selected, sort, table) = owner.with(|| {
+            let (keys, selected) = (signal(Vec::<String>::new()), signal(Vec::<String>::new()));
+            let first_sortable = columns.iter().position(|c| c.sortable);
+            let sort = first_sortable.map(|first| {
+                let sort = Sort::ascending(first);
+                (signal(sort), Rc::new(Cell::new(sort)))
+            });
+            let mut table = Table::new(keys, |key: &String| key.clone());
+            for (index, (column, title)) in columns.iter().zip(titles).enumerate() {
+                let (cell_cb, cell_id) = (cb.clone(), id.clone());
+                let mut data = TableColumn::new(title, move |key: String| {
+                    let (cb, table) = (cell_cb.clone(), cell_id.get());
+                    let cell = (cb.build_cell)(cb.user, table, key.as_ptr(), key.len(), index);
+                    if cell != 0 {
+                        on_cleanup(move || (cb.release_cell)(cb.user, table, cell));
+                    }
+                    Adopt(cell)
+                });
+                if column.width > 0.0 {
+                    data = data.width(column.width);
+                }
+                if column.expand {
+                    data = data.expand();
+                }
+                if column.sortable {
+                    data = data.sort_key(index);
+                }
+                table = table.column(data);
+            }
+            let (activate_cb, activate_id) = (cb.clone(), id.clone());
+            table = table.selected(selected).handle(handle.clone()).on_activate(move |key: String| {
+                (activate_cb.activated)(activate_cb.user, activate_id.get(), key.as_ptr(), key.len())
+            });
+            if let Some((sort, last)) = sort.clone() {
+                table = table.sort(sort);
+                let (sorted_cb, sorted_id) = (cb.clone(), id.clone());
+                watch(
+                    move || sort.get(),
+                    move |now, _| {
+                        if *now != last.get() {
+                            last.set(*now);
+                            let descending = now.order == SortOrder::Descending;
+                            (sorted_cb.sorted)(sorted_cb.user, sorted_id.get(), now.by, descending);
+                        }
+                    },
+                );
+            }
+            if cb.still != 0 {
+                table = table.native(mitsuami::platform! {
+                    windows => mitsuami::winui::without_item_animations(),
+                    _ => mitsuami::core::Tweak::none(),
+                });
+            }
+            let (changed_cb, changed_id, set) = (cb.clone(), id.clone(), set.clone());
+            watch(
+                move || selected.get(),
+                move |now, _| {
+                    if *now != *set.borrow() {
+                        (changed_cb.selection_changed)(changed_cb.user, changed_id.get());
+                    }
+                },
+            );
+            (keys, selected, sort, table.build(&ui))
+        });
+        id.set(table.raw());
+        LISTS.with(|l| l.borrow_mut().insert(table.raw(), ListState { keys, selected, set, sort, handle, owner }));
+        Ok(table.raw())
+    })
+    .unwrap_or(0)
+}
+
+/// Shows the table sorted by a sortable column, descending if
+/// `descending`; not reported back as the user's.
+#[unsafe(no_mangle)]
+pub extern "C" fn mitsuami_table_set_sort(id: u32, column: usize, descending: bool) -> bool {
+    guard(|| {
+        let (sort, last) = list(id, |l| l.sort.clone())?.ok_or_else(|| format!("table {id} has no sortable column"))?;
+        let order = if descending { SortOrder::Descending } else { SortOrder::Ascending };
+        let now = Sort { by: column, order };
+        last.set(now);
+        sort.set(now);
+        Ok(())
+    })
+    .is_some()
 }
 
 // Drawn widgets.
@@ -1823,6 +2300,175 @@ pub unsafe extern "C" fn mitsuami_open_file(
                 reply.await.unwrap_or_default().iter().map(|p| p.to_string_lossy().into_owned()).collect();
             let strs: Vec<MitsuamiStr> = paths.iter().map(|p| MitsuamiStr { ptr: p.as_ptr(), len: p.len() }).collect();
             answer(user as *mut c_void, strs.as_ptr(), strs.len());
+        });
+        Ok(())
+    })
+    .is_some()
+}
+
+/// A key and its modifiers. `key` is a `MitsuamiKey`; `ch` is the
+/// character for `Char` and the number for `F` (1 for F1).
+#[repr(C)]
+#[derive(Clone, Copy)]
+pub struct MitsuamiShortcut {
+    pub key: u32,
+    pub ch: u32,
+    /// ⌘ on macOS, Ctrl elsewhere.
+    pub primary: bool,
+    pub shift: bool,
+    pub alt: bool,
+}
+
+#[repr(u32)]
+pub enum MitsuamiKey {
+    Char = 0,
+    Enter = 1,
+    Escape = 2,
+    Tab = 3,
+    /// The key that deletes backwards: Delete (⌫) on Apple keyboards.
+    Backspace = 4,
+    /// The key that deletes forwards.
+    Delete = 5,
+    Up = 6,
+    Down = 7,
+    Left = 8,
+    Right = 9,
+    Home = 10,
+    End = 11,
+    PageUp = 12,
+    PageDown = 13,
+    F = 14,
+}
+
+fn shortcut(s: &MitsuamiShortcut) -> Result<Shortcut, String> {
+    let key = match s.key {
+        0 => Key::Char(char::from_u32(s.ch).ok_or_else(|| format!("bad character {}", s.ch))?),
+        1 => Key::Enter,
+        2 => Key::Escape,
+        3 => Key::Tab,
+        4 => Key::Backspace,
+        5 => Key::Delete,
+        6 => Key::Up,
+        7 => Key::Down,
+        8 => Key::Left,
+        9 => Key::Right,
+        10 => Key::Home,
+        11 => Key::End,
+        12 => Key::PageUp,
+        13 => Key::PageDown,
+        14 => Key::F(u8::try_from(s.ch).map_err(|_| format!("bad function key {}", s.ch))?),
+        key => return Err(format!("unknown key {key}")),
+    };
+    let mut shortcut = if s.primary { Shortcut::primary(key) } else { Shortcut::new(key) };
+    if s.shift {
+        shortcut = shortcut.shift();
+    }
+    if s.alt {
+        shortcut = shortcut.alt();
+    }
+    Ok(shortcut)
+}
+
+/// The keys a container, list or table takes while it, or a control in
+/// it, has keyboard focus and the focused control doesn't use them: each
+/// is reported as a `Key` event with its index here. None: it takes none.
+///
+/// # Safety
+/// `keys` points to `count` shortcuts.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn mitsuami_set_keys(id: u32, keys: *const MitsuamiShortcut, count: usize) -> bool {
+    guard(|| {
+        let keys = if count == 0 { &[][..] } else { unsafe { std::slice::from_raw_parts(keys, count) } };
+        let keys = keys.iter().map(shortcut).collect::<Result<Vec<_>, _>>()?;
+        ui()?.set_prop(node(id), Prop::Keys(keys));
+        Ok(())
+    })
+    .is_some()
+}
+
+/// Asks where to save a file, on `window` (0: the focused one), named
+/// `name` and starting in `start_folder` if they're given.
+/// `answer(user, path, count)` gets the path chosen (`count` 1), or none
+/// (`count` 0) if cancelled.
+///
+/// # Safety
+/// The strings are as [`string`] says.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn mitsuami_save_file(
+    window: u32,
+    title: MitsuamiStr,
+    name: MitsuamiStr,
+    start_folder: MitsuamiStr,
+    answer: extern "C" fn(*mut c_void, *const MitsuamiStr, usize),
+    user: *mut c_void,
+) -> bool {
+    let user = user as usize;
+    guard(|| {
+        let ui = ui()?;
+        let (title, name, start) = unsafe {
+            (string(title.ptr, title.len)?, string(name.ptr, name.len)?, string(start_folder.ptr, start_folder.len)?)
+        };
+        let mut request = SaveFile::new();
+        if !title.is_empty() {
+            request = request.title(title);
+        }
+        if !name.is_empty() {
+            request = request.name(name);
+        }
+        request.start_folder = (!start.is_empty()).then(|| start.into());
+        let reply = ui.save_file((window != 0).then(|| node(window)), request);
+        ui.spawn_local(async move {
+            let path = reply.await.map(|p| p.to_string_lossy().into_owned());
+            let strs: Vec<MitsuamiStr> = path.iter().map(|p| MitsuamiStr { ptr: p.as_ptr(), len: p.len() }).collect();
+            answer(user as *mut c_void, strs.as_ptr(), strs.len());
+        });
+        Ok(())
+    })
+    .is_some()
+}
+
+/// Puts `text` on the clipboard. The write is issued right away; one the
+/// platform refuses is only logged, as there's nothing the app could do.
+///
+/// # Safety
+/// The text is as [`string`] says.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn mitsuami_set_clipboard_text(text: MitsuamiStr) -> bool {
+    guard(|| {
+        let ui = ui()?;
+        let text = unsafe { string(text.ptr, text.len)? };
+        let done = ui.set_clipboard_text(&text);
+        ui.spawn_local(async move {
+            if let Err(e) = done.await {
+                eprintln!("mitsuami: the clipboard refused the text: {e:?}");
+            }
+        });
+        Ok(())
+    })
+    .is_some()
+}
+
+/// Opens `target` in another app, for `window` (0: the focused one): with
+/// `url`, a URL in the app set for its scheme (the browser for `https:`);
+/// otherwise a path, a file in the app set for its type, a folder in the
+/// file manager. A launch that fails is only logged.
+///
+/// # Safety
+/// The target is as [`string`] says.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn mitsuami_launch(window: u32, target: MitsuamiStr, url: bool) -> bool {
+    guard(|| {
+        let ui = ui()?;
+        let target = unsafe { string(target.ptr, target.len)? };
+        let target = match url {
+            true => Launch::Url(target),
+            false => Launch::Path(target.into()),
+        };
+        let done = ui.launch((window != 0).then(|| node(window)), target);
+        ui.spawn_local(async move {
+            if let Err(e) = done.await {
+                eprintln!("mitsuami: launching failed: {e:?}");
+            }
         });
         Ok(())
     })

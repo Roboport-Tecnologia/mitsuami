@@ -97,6 +97,10 @@ impl WinUiBackend {
             Widget::Search(s) => {
                 let search: w::IAutoSuggestBox = s.cast().ok()?;
                 props.push(Prop::Value(search_text(s)?));
+                // Kept: the list's items are views.
+                props.extend(node.suggestions.clone().map(Prop::Suggestions));
+                // Kept: XAML has no such setting to read.
+                props.extend(node.search_on_return.get().map(Prop::SearchOnReturn));
                 let placeholder = search.PlaceholderText().ok()?;
                 if !placeholder.is_empty() {
                     props.push(Prop::Placeholder(placeholder));
@@ -320,6 +324,8 @@ impl WinUiBackend {
                 props.extend(list.row_files().map(Prop::RowFiles));
                 props.extend(list.moves().map(Prop::RowMoves));
             }
+            // Shown or not as XAML shows it, while the core wants it.
+            Widget::Popover(popover) => props.push(Prop::PopoverShown(popover.wanted() && popover.shown())),
             Widget::Host(_) => props.extend(node.row.map(|row| match node.column {
                 Some(column) => Prop::Cell(mitsuami_core::CellKey { row, column }),
                 None => Prop::Row(row),
@@ -347,6 +353,8 @@ impl WinUiBackend {
         }
         // What its `KeyDown` handler takes: XAML has no keys to read back.
         props.extend(node.keys.as_ref().map(|k| Prop::Keys(k.keys())));
+        // Kept: XAML can't give back the app's function.
+        props.extend(node.context_menu.as_ref().and_then(|m| m.on_open()).map(|f| Prop::ContextMenuOnOpen(Some(f))));
         if let Some(menu) = &node.context_menu {
             let shown = node.control().cast::<w::IUIElement>().ok()?.ContextFlyout().ok();
             // Ours, or the control's own (or none) while the app's is empty.
@@ -381,6 +389,12 @@ impl WinUiBackend {
             Some(Widget::Window(parts)) if node.kind == WidgetKind::Sidebar => {
                 sidebar_frame(parts).unwrap_or(Rect::ZERO)
             }
+            // A popover is where its flyout shows, by its parent; hidden,
+            // it isn't shown.
+            _ if let Widget::Popover(popover) = &node.widget => match popover.frame() {
+                Some((x, y, width, height)) => Rect::new(x as f32, y as f32, width as f32, height as f32),
+                None => Rect::ZERO,
+            },
             // A page its tab view doesn't show is collapsed: nowhere.
             Some(Widget::Tabs(_)) if !crate::tabs::Tabs::shows(&node.element) => Rect::ZERO,
             _ => frame,
@@ -406,13 +420,15 @@ impl WinUiBackend {
                 children.extend(parts.sidebar.as_ref().map(|(sidebar, _)| *sidebar));
                 (children, None)
             }
-            Widget::Host(canvas) => (panel_children(canvas, &known), None),
+            Widget::Host(canvas) => (with_popovers(panel_children(canvas, &known), id, &state), None),
             // Its pages; the bar isn't a node.
             Widget::Tabs(tabs) => (panel_children(&tabs.canvas, &known), None),
             // Its content; the heading and card aren't nodes.
-            Widget::Group(group) => (panel_children(&group.canvas, &known), None),
+            Widget::Group(group) => (with_popovers(panel_children(&group.canvas, &known), id, &state), None),
             // Its panes; the line and grip aren't nodes.
             Widget::Split(split) => (panel_children(&split.canvas, &known), None),
+            // Its content, in the flyout.
+            Widget::Popover(popover) => (panel_children(&popover.host, &known), None),
             _ => (Vec::new(), None),
         };
         // Composite controls give focus to a part (a list's row container,
@@ -443,6 +459,20 @@ impl WinUiBackend {
             selection,
         })
     }
+}
+
+/// A container's children, then the popovers that show at it, in the
+/// order they came.
+fn with_popovers(mut children: Vec<NodeId>, id: NodeId, state: &super::State) -> Vec<NodeId> {
+    let mut popovers: Vec<NodeId> = state
+        .nodes
+        .iter()
+        .filter(|(_, n)| n.parent == Some(id) && matches!(n.widget, Widget::Popover(_)))
+        .map(|(c, _)| *c)
+        .collect();
+    popovers.sort_by_key(|c| c.raw());
+    children.extend(popovers);
+    children
 }
 
 fn panel_children(panel: &w::Canvas, known: &dyn Fn(&IInspectable) -> Option<NodeId>) -> Vec<NodeId> {

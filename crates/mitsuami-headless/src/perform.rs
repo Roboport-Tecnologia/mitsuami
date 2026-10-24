@@ -45,6 +45,14 @@ impl HeadlessBackend {
             };
         }
         match (action, kind) {
+            // A suggestion of the list under the field.
+            (A11yAction::ChooseSuggestion(index), WidgetKind::SearchInput) => {
+                let count = find_prop!(state.nodes[&id].props, Suggestions).map_or(0, |s| s.len());
+                if *index >= count {
+                    return Err(ActionError::Unsupported);
+                }
+                state.emit(id, UiEvent::SuggestionChosen(*index));
+            }
             (A11yAction::Activate, WidgetKind::Button) => {
                 state.focus(id);
                 state.emit(id, UiEvent::Click);
@@ -75,7 +83,8 @@ impl HeadlessBackend {
                 }
                 state.set_prop(id, Prop::Value(text.clone()));
                 state.emit(id, UiEvent::Changed(EventValue::Text(text.clone())));
-                if kind == WidgetKind::SearchInput {
+                let on_return = find_prop!(state.nodes[&id].props, SearchOnReturn) == Some(true);
+                if kind == WidgetKind::SearchInput && (!on_return || text.is_empty()) {
                     state.emit(id, UiEvent::Search(text.clone()));
                 }
             }

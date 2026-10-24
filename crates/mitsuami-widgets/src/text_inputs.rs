@@ -1,7 +1,7 @@
 //! Text fields: single-line, password, search and multi-line.
 
 use mitsuami_core::{
-    Element, ElementBuilder, EventValue, InputPurpose, NodeId, Prop, Tweak, Ui, UiEvent, View, WidgetKind,
+    Element, ElementBuilder, EventValue, InputPurpose, NodeId, Prop, Suggestion, Tweak, Ui, UiEvent, View, WidgetKind,
 };
 use mitsuami_reactive::{IntoValue, Signal, Value};
 
@@ -210,6 +210,33 @@ impl SearchInput {
         self.0.on(move |event| {
             if let UiEvent::Search(text) = event {
                 handler(text.clone());
+            }
+        });
+        self
+    }
+
+    /// Searches on Return (and when cleared), not as the user types: for
+    /// searches that take a while, with each platform's own setting for it.
+    pub fn search_on_return(mut self, on: impl IntoValue<bool>) -> SearchInput {
+        self.0.prop(on.into_value(), Prop::SearchOnReturn);
+        self
+    }
+
+    /// What it suggests for its text, in a list under it as the platform
+    /// shows a field's suggestions; empty: none. The field keeps the
+    /// keyboard: the arrows move through the list, Return picks one, and
+    /// Escape hides it. The app sets it as the text changes.
+    pub fn suggestions(mut self, suggestions: impl IntoValue<Vec<Suggestion>>) -> SearchInput {
+        self.0.prop(suggestions.into_value(), Prop::Suggestions);
+        self
+    }
+
+    /// Called with a suggestion's index when the user picks it. The text
+    /// is the app's to set.
+    pub fn on_suggestion(mut self, handler: impl Fn(usize) + 'static) -> SearchInput {
+        self.0.on(move |event| {
+            if let UiEvent::SuggestionChosen(index) = event {
+                handler(*index);
             }
         });
         self

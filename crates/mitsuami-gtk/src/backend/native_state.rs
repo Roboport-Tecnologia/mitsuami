@@ -88,6 +88,8 @@ impl GtkBackend {
             }
             Widget::Search(e) => {
                 props.push(Prop::Value(e.text().to_string()));
+                // Kept: GTK has no such setting to read.
+                props.extend(super::create::search_on_return(e).and_then(|c| c.get()).map(Prop::SearchOnReturn));
                 if let Some(p) = e.placeholder_text() {
                     props.push(Prop::Placeholder(p.to_string()));
                 }
@@ -238,6 +240,7 @@ impl GtkBackend {
                 props.extend(sidebar.shown().map(Prop::SidebarShown));
             }
             Widget::Group(group) => props.push(Prop::Title(group.title())),
+            Widget::Popover(popover) => props.push(Prop::PopoverShown(popover.shown())),
             // Where the divider is shows in the panes' frames; the position
             // and least sizes are kept as given.
             Widget::Split(split) => {
@@ -278,10 +281,14 @@ impl GtkBackend {
         props.extend(node.tweak.clone().map(Prop::Tweak));
         props.push(Prop::Tooltip(text(node.widget.focus_widget().tooltip_text())));
         props.extend(node.context_menu.as_ref().map(|m| Prop::ContextMenu(m.entries(&node.widget.focus_widget()))));
+        // Kept: GTK's list rows don't give the data back.
+        props.extend(node.suggestions.as_ref().map(|s| Prop::Suggestions(s.get())));
+        // Kept: GTK can't give back the app's function.
+        props.extend(node.context_menu.as_ref().and_then(|m| m.on_open()).map(|f| Prop::ContextMenuOnOpen(Some(f))));
         props.extend(node.hover.as_ref().map(|motion| Prop::Hover(motion.widget().as_ref() == Some(widget))));
         props.extend(node.header.as_ref().map(|h| Prop::Header(h.on.get())));
         props.extend(node.header_edge.map(Prop::HeaderEdge));
-        props.extend(node.sidebar_pane.map(Prop::SidebarPane));
+        props.extend(node.sidebar_pane.map(|_| Prop::SidebarPane(widget.has_css_class("sidebar-pane"))));
         props.extend(
             node.double_click.as_ref().map(|(click, _)| Prop::DoubleClick(click.widget().as_ref() == Some(widget))),
         );
@@ -320,6 +327,9 @@ impl GtkBackend {
                     _ => Rect::ZERO,
                 }
             }
+            // A popover is where GTK shows it, by its parent; hidden, it
+            // isn't shown.
+            _ if let Widget::Popover(popover) = &node.widget => popover.frame(),
             // A sidebar is its page, beside the content (at negative x); in
             // a collapsed split view, one of the two isn't shown. A page
             // not allocated yet (a sidebar the window just took) isn't
@@ -356,11 +366,18 @@ impl GtkBackend {
                 let mut children = Vec::new();
                 // A header's are in its own host, wherever that is.
                 let widget = node.header.as_ref().map_or(widget.clone(), |h| h.content.clone().upcast());
+                // Its popovers come after its content, whatever their place
+                // among GTK's children.
+                let mut popovers = Vec::new();
                 let mut next = widget.first_child();
                 while let Some(child) = next {
-                    children.extend(by_widget.get(&child).copied());
+                    match child.is::<gtk::Popover>() {
+                        true => popovers.extend(by_widget.get(&child).copied()),
+                        false => children.extend(by_widget.get(&child).copied()),
+                    }
                     next = child.next_sibling();
                 }
+                children.extend(popovers);
                 // Then its toolbar items, in the header bar, and its sidebar.
                 if let Widget::Window(parts) = &node.widget {
                     children.extend(parts.items.iter().map(|(id, _)| *id));

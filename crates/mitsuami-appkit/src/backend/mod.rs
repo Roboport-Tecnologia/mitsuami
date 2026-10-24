@@ -92,6 +92,7 @@ enum Widget {
         split: Option<Split>,
     },
     Host(Retained<HostView>),
+    Popover(crate::popover::Popover),
     /// A layout host with an `NSBox` behind its children, the box's size.
     Group {
         host: Retained<HostView>,
@@ -162,6 +163,7 @@ impl Widget {
         match self {
             Widget::Window { host, .. } => host,
             Widget::Host(v) | Widget::Group { host: v, .. } => v,
+            Widget::Popover(popover) => &popover.host,
             Widget::Label(v) | Widget::Field(v) => v,
             Widget::TextArea(area) => &area.scroll,
             Widget::Button(v) | Widget::Checkbox(v) => v,
@@ -208,6 +210,7 @@ impl Widget {
             | Widget::FileIcon(_)
             | Widget::GpuSurface(_)
             | Widget::Host(_)
+            | Widget::Popover(_)
             | Widget::Group { .. }
             | Widget::Scroll(_)
             | Widget::List(_)
@@ -249,6 +252,10 @@ struct Node {
     widget: Widget,
     /// Controls only hold weak references to their target and delegate.
     _target: Option<Retained<ActionTarget>>,
+    /// A search field's suggestions, made with the first.
+    suggestions: Option<std::rc::Rc<crate::suggestions::Suggestions>>,
+    /// A search field: the app said when it searches.
+    search_on_return: bool,
     /// Action targets of native renders and native views.
     _targets: Vec<Retained<ClosureTarget>>,
     parent: Option<NodeId>,
@@ -310,6 +317,9 @@ struct Node {
     /// radio items from check items, nor keep roles), and the target of
     /// its items, which only hold weak references to it.
     context_menu: Option<(Vec<MenuEntry>, Retained<ClosureTarget>)>,
+    /// A context menu built as it opens: its delegate, and the menu the
+    /// views hold.
+    menu_on_open: Option<(Retained<crate::classes::MenuOpener>, Retained<objc2_app_kit::NSMenu>)>,
     /// The owner of the tracking area that reports hover, and the area,
     /// once the core asked for it.
     hover: Option<(Retained<crate::classes::HoverTracker>, Retained<objc2_app_kit::NSTrackingArea>)>,

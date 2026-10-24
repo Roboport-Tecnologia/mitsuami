@@ -262,7 +262,9 @@ impl State {
     /// host below the bar. One inside a scroll view or a list moves as that scrolls, so
     /// it stays put. A list that moved lays out the rows now in view. In a
     /// window with a header in its title bar, the one right under the
-    /// header runs up under it too.
+    /// header runs up under it too, and so do the splits it's in, with
+    /// their panes: macOS shows nothing scrolling under its bars from a
+    /// split's pane that doesn't reach them.
     pub(super) fn extend_under_bars(&self) {
         // The windows' headers' heights.
         let headers: std::collections::HashMap<NodeId, f64> = self
@@ -270,6 +272,8 @@ impl State {
             .values()
             .filter_map(|n| Some((n.header.as_ref()?.window.get()?, n.widget.view().frame().size.height)))
             .collect();
+        // How far up each split runs, for the scroll views at their tops.
+        let mut splits: std::collections::HashMap<NodeId, f64> = std::collections::HashMap::new();
         for node in self.nodes.values() {
             let scroll = match &node.widget {
                 Widget::Scroll(scroll) => scroll,
@@ -277,9 +281,15 @@ impl State {
                 _ => continue,
             };
             let mut host = None;
+            let mut around = Vec::new();
             let mut parent = node.parent;
             while let Some((id, node)) = parent.and_then(|id| Some((id, self.nodes.get(&id)?))) {
                 match &node.widget {
+                    Widget::SplitView(_) => {
+                        around.push(id);
+                        parent = node.parent;
+                        continue;
+                    }
                     Widget::Window { host: window, split: Some(_), .. } => host = Some((window, 0.0)),
                     Widget::Window { host: window, toolbar: Some(_), .. } => {
                         host = Some((window, headers.get(&id).copied().unwrap_or(0.0)))
@@ -301,8 +311,18 @@ impl State {
                 }
                 _ => 0.0,
             };
+            if height > 0.0 {
+                for split in around {
+                    splits.insert(split, height);
+                }
+            }
             if scroll.set_under_bar(height) {
                 layout_list(&node.widget);
+            }
+        }
+        for (id, node) in &self.nodes {
+            if let Widget::SplitView(split) = &node.widget {
+                split.set_under_bar(splits.get(id).copied().unwrap_or(0.0));
             }
         }
     }

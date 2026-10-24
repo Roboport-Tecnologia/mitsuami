@@ -389,8 +389,22 @@ impl State {
                     self.sync_toolbar_item(*child);
                     return;
                 }
+                // A popover isn't in its parent's view: it points at it.
+                if let Widget::Popover(popover) = &self.nodes[child].widget {
+                    if !matches!(self.nodes[parent].widget, Widget::Host(_) | Widget::Group { .. }) {
+                        violation(command, "a popover goes in a container");
+                    }
+                    popover.set_anchor(Some(&parent_view));
+                    self.attach(*child, *parent);
+                    return;
+                }
                 if let Widget::Tabs(tabs) = &self.nodes[parent].widget {
                     tabs.insert(self.mtm, *child, child_view, *index);
+                    self.attach(*child, *parent);
+                    return;
+                }
+                if let Widget::SplitView(split) = &self.nodes[parent].widget {
+                    split.insert(self.mtm, *child, &child_view, *index);
                     self.attach(*child, *parent);
                     return;
                 }
@@ -407,13 +421,16 @@ impl State {
                 if let Some(item) = item {
                     self.release_toolbar_item(item);
                 }
-                let siblings = parent_view.subviews();
+                // A transparent surface's backdrop isn't a sibling: it
+                // stays just under its surface.
+                let siblings: Vec<_> =
+                    parent_view.subviews().iter().filter(|v| !crate::surface::is_backdrop(v)).collect();
                 // A group's box is behind its children.
                 let index = &(index + usize::from(matches!(self.nodes[parent].widget, Widget::Group { .. })));
                 if *index >= siblings.len() {
                     parent_view.addSubview(&child_view);
                 } else {
-                    let before = siblings.objectAtIndex(*index);
+                    let before = crate::surface::lowest(siblings[*index].clone());
                     parent_view.addSubview_positioned_relativeTo(
                         &child_view,
                         NSWindowOrderingMode::Below,
@@ -457,15 +474,25 @@ impl State {
                     self.detach(*child);
                     return;
                 }
+                if let Widget::Popover(popover) = &self.nodes[child].widget {
+                    popover.set_anchor(None);
+                    self.detach(*child);
+                    return;
+                }
                 let item = (self.nodes[parent].kind == WidgetKind::ToolbarItem).then_some(*parent);
                 if let Some(item) = item {
                     self.release_toolbar_item(item);
+                }
+                if let Widget::SplitView(split) = &self.nodes[parent].widget {
+                    split.remove(*child, self.nodes[child].widget.view());
                 }
                 match &mut self.nodes.get_mut(parent).unwrap().widget {
                     Widget::Window { toolbar: Some(toolbar), .. } if toolbar.contains(*child) => toolbar.remove(*child),
                     Widget::Scroll(scroll) => scroll.setDocumentView(None),
                     Widget::List(list) => list.remove(row.expect("inserted with a row"), column),
                     Widget::Tabs(tabs) => tabs.remove(*child),
+                    // Taken out with its host, above.
+                    Widget::SplitView(_) => {}
                     _ => self.view(*child, command).removeFromSuperview(),
                 }
                 self.detach(*child);
@@ -563,6 +590,11 @@ impl State {
                     list.set_frame(rect);
                     return;
                 }
+                // A popover is where the platform shows it, at this size.
+                if let Some(Widget::Popover(popover)) = self.nodes.get(id).map(|n| &n.widget) {
+                    popover.set_size(rect.size);
+                    return;
+                }
                 // A toolbar item is where the toolbar puts it, at this size.
                 if let Some(window) =
                     self.nodes.get(id).filter(|n| n.kind == WidgetKind::ToolbarItem).and_then(|n| n.parent)
@@ -611,6 +643,21 @@ impl State {
                 if view.isHidden() != empty {
                     view.setHidden(empty);
                 }
+                // A tab view keeps its frame while it has no room: macOS 26's
+                // tab strip (SwiftUI's segmented control) laid its tabs out
+                // for the frame it had then, and came back with them
+                // narrower once it had room again.
+                if let Widget::Tabs(tabs) = &self.nodes[id].widget {
+                    tabs.parked.set(empty.then_some(rect));
+                    if empty {
+                        // As a split's pane, its host still goes where
+                        // the core put it.
+                        if let Some(Widget::SplitView(split)) = parent {
+                            split.place_host(*id, rect);
+                        }
+                        return;
+                    }
+                }
                 // AppKit's push button is one height; one the layout makes
                 // taller is its flexible push button, which takes any height
                 // (an icon tab in a rail, a tall action button).
@@ -632,7 +679,11 @@ impl State {
                 // Layout places what the user sees, the alignment rect, as
                 // Auto Layout does; controls draw their bezels inset from
                 // their frames (a push button by 7pt a side before macOS 26).
-                view.setFrame(view.frameForAlignmentRect(rect));
+                // A split's pane is in a host of its own.
+                match parent {
+                    Some(Widget::SplitView(split)) => split.place(*id, &view, rect),
+                    _ => view.setFrame(view.frameForAlignmentRect(rect)),
+                }
                 // The split or a pane moved: the divider follows.
                 for widget in [Some(&self.nodes[id].widget), parent].into_iter().flatten() {
                     if let Widget::SplitView(split) = widget {

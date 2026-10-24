@@ -93,6 +93,9 @@ impl State {
             WidgetKind::Sidebar => Widget::Sidebar(Sidebar::new(mtm, id, self.events.clone())),
             WidgetKind::RadioGroup => Widget::RadioGroup(RadioGroup::new(mtm, id, self.events.clone())),
             WidgetKind::Container | WidgetKind::ToolbarItem => Widget::Host(HostView::new(mtm)),
+            WidgetKind::Popover => {
+                Widget::Popover(crate::popover::Popover::new(mtm, id, self.events.clone(), self.options.show_windows))
+            }
             WidgetKind::Group => {
                 let host = HostView::new(mtm);
                 let frame = group_box(mtm, NSSize::new(0.0, 0.0));
@@ -275,8 +278,13 @@ impl State {
                 // Edits come from the delegate, as a text field's; searches
                 // from the field's action, which AppKit sends when typing
                 // pauses, on Return, and when the field is cleared, but not
-                // for text set in code.
-                let field = NSSearchField::new(mtm);
+                // for text set in code. Made as the password field is: a
+                // search field's `init` leaves its cell unscrollable, so
+                // the text didn't follow the caret past the field's end.
+                // SAFETY: the class method returns an autoreleased instance
+                // of the class it's called on.
+                let field: Retained<NSSearchField> =
+                    unsafe { msg_send![<NSSearchField as objc2::ClassType>::class(), textFieldWithString: &*ns("")] };
                 if let Some(target) = &target {
                     // SAFETY: the node keeps the target alive as long as the field.
                     unsafe {
@@ -322,6 +330,8 @@ impl State {
                 kind,
                 widget,
                 _target: target,
+                suggestions: None,
+                search_on_return: false,
                 _targets: targets,
                 parent: None,
                 row: None,
@@ -353,6 +363,7 @@ impl State {
                 tweak: None,
                 file_drop: false,
                 context_menu: None,
+                menu_on_open: None,
                 hover: None,
                 double_click: None,
                 click: None,

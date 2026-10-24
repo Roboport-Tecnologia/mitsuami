@@ -287,6 +287,20 @@ impl AppKitBackend {
     /// equivalent first (a Cancel button's), then to the first responder,
     /// whose unhandled `cancelOperation:` reaches the window's delegate.
     fn escape(&self, id: NodeId) -> Result<(), ActionError> {
+        // In a popover, which tests can't show: it closes, as its own
+        // window would on the key (see `crate::popover`).
+        {
+            let state = self.state.borrow();
+            let mut node = Some(id);
+            while let Some(n) = node.and_then(|n| state.nodes.get(&n)) {
+                if let Widget::Popover(popover) = &n.widget
+                    && popover.dismiss()
+                {
+                    return Ok(());
+                }
+                node = n.parent;
+            }
+        }
         let view = self.state.borrow().nodes.get(&id).ok_or(ActionError::UnknownNode)?.widget.key_view();
         let window = view.window().ok_or(ActionError::Unsupported)?;
         if view.acceptsFirstResponder() {

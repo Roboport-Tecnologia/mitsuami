@@ -6,7 +6,8 @@ use std::cell::RefCell;
 use std::ffi::c_void;
 use std::sync::atomic::{AtomicU32, Ordering};
 
-use mitsuami::core::{Color, Modality, NodeId, Prop, Size, Ui, VectorIcon, View};
+use mitsuami::core::services::{Launch, Shortcut};
+use mitsuami::core::{Color, ImageSource, Modality, NodeId, Pixels, Prop, Size, Ui, VectorIcon, View};
 use mitsuami_ffi::*;
 use mitsuami_test::prelude::*;
 
@@ -46,6 +47,10 @@ extern "C" fn record(_user: *mut c_void, _node: u32, event: *const MitsuamiEvent
             format!("action {} {}", event.index, std::str::from_utf8(text).unwrap())
         }
         14 => format!("action {}", event.index),
+        15 => format!("item {}", event.index),
+        16 => format!("popover shown {}", event.flag),
+        17 => format!("suggestion {}", event.index),
+        18 => format!("key {}", event.index),
         // Where focus goes on a click differs per platform.
         3 | 4 => return,
         kind => format!("event {kind}"),
@@ -311,6 +316,29 @@ async fn alerts_and_folder_dialogs_answer_through_callbacks(app: TestApp) {
 }
 
 #[mitsuami_test::test]
+async fn save_dialogs_answer_with_the_path_or_none(app: TestApp) {
+    attach(app.ui());
+    heard();
+    let window = app.window().raw();
+    for _ in 0..2 {
+        assert!(unsafe {
+            mitsuami_save_file(window, str("Archive"), str("main.zip"), str("/tmp"), open_answer, std::ptr::null_mut())
+        });
+    }
+    app.settle().await;
+
+    let save = app.services().take_save_file().expect("a save dialog is showing");
+    assert_eq!(save.request.title.as_deref(), Some("Archive"));
+    assert_eq!(save.request.default_name.as_deref(), Some("main.zip"));
+    assert_eq!(save.request.start_folder, Some("/tmp".into()));
+    save.respond(Some("/tmp/main.zip".into()));
+    app.services().take_save_file().expect("a second save dialog").respond(None);
+    app.settle().await;
+
+    assert_eq!(heard(), ["paths /tmp/main.zip", "paths "]);
+}
+
+#[mitsuami_test::test]
 async fn drop_downs_report_the_option_chosen(app: TestApp) {
     attach(app.ui());
     heard();
@@ -324,6 +352,73 @@ async fn drop_downs_report_the_option_chosen(app: TestApp) {
 
     app.get_by_role(Role::ComboBox, "Group").select_option("Personal").await;
     assert_eq!(heard(), ["chose 2"]);
+}
+
+/// Keys a list doesn't use itself reach it, a letter included (AppKit's
+/// table would take it to select a row by typing).
+#[mitsuami_test::test]
+async fn lists_take_keys_their_control_passes_on(app: TestApp) {
+    attach(app.ui());
+    heard();
+    let list = mitsuami_create_list(MitsuamiListCallbacks {
+        build_row,
+        release_row,
+        selection_changed,
+        activated,
+        user: std::ptr::null_mut(),
+        moves: 0,
+        moved,
+        still: 1,
+    });
+    assert!(mitsuami_set_size(list, px(300.0), px(200.0)));
+    let keys = strs(&["a", "b"]);
+    assert!(unsafe { mitsuami_list_set_keys(list, keys.as_ptr(), keys.len()) });
+    let shortcut = |key: MitsuamiKey, ch: char, primary| MitsuamiShortcut {
+        key: key as u32,
+        ch: ch as u32,
+        primary,
+        shift: false,
+        alt: false,
+    };
+    let taken = [
+        shortcut(MitsuamiKey::Char, 'p', false),
+        shortcut(MitsuamiKey::F, '\u{2}', false),
+        shortcut(MitsuamiKey::Char, 'd', true),
+    ];
+    assert!(unsafe { mitsuami_set_keys(list, taken.as_ptr(), taken.len()) });
+    assert!(mitsuami_on_event(list, record, std::ptr::null_mut()));
+    set_text(list, MitsuamiTextProp::A11yLabel, "Commits");
+    app.mount(|| Adopt(list));
+    app.expect(by_role(Role::ListItem, "Repository b")).to_be_visible().await;
+    heard();
+
+    let commits = app.get_by_role(Role::List, "Commits");
+    commits.press('p').await;
+    commits.press(Key::F(2)).await;
+    commits.press(Shortcut::primary('d')).await;
+    assert_eq!(heard(), ["key 0", "key 1", "key 2"]);
+
+    let bad = [MitsuamiShortcut { key: 99, ch: 0, primary: false, shift: false, alt: false }];
+    assert!(!unsafe { mitsuami_set_keys(list, bad.as_ptr(), 1) });
+    assert!(last_error().starts_with("unknown key 99"), "{}", last_error());
+}
+
+#[mitsuami_test::test]
+async fn radio_groups_report_the_option_chosen(app: TestApp) {
+    attach(app.ui());
+    heard();
+    let group = create(MitsuamiKind::RadioGroup);
+    set_text(group, MitsuamiTextProp::Label, "Local changes");
+    let options = strs(&["Do nothing", "Stash and reapply", "Discard"]);
+    assert!(unsafe { mitsuami_set_strings(group, MitsuamiStringsProp::Options as u32, options.as_ptr(), 3) });
+    assert!(mitsuami_set_index(group, MitsuamiIndexProp::SelectedIndex as u32, 0));
+    assert!(mitsuami_on_event(group, record, std::ptr::null_mut()));
+    app.mount(|| Adopt(group));
+
+    assert!(app.get_by_role(Role::RadioButton, "Do nothing").is_checked());
+    app.get_by_role(Role::RadioButton, "Discard").click().await;
+    assert_eq!(heard(), ["chose 2"]);
+    assert!(app.get_by_role(Role::RadioButton, "Discard").is_checked());
 }
 
 #[mitsuami_test::test]
@@ -416,6 +511,21 @@ async fn context_menus_report_the_item_chosen(app: TestApp) {
 
     let unended = [menu_entry(2, 0, "Bookmark", 0)];
     assert!(!unsafe { mitsuami_set_context_menu(text, unended.as_ptr(), 1) });
+}
+
+#[mitsuami_test::test]
+async fn menu_buttons_report_the_item_chosen(app: TestApp) {
+    attach(app.ui());
+    heard();
+    let button = create(MitsuamiKind::MenuButton);
+    set_text(button, MitsuamiTextProp::Label, "Open in Browser");
+    let entries = [menu_entry(0, 1, "GitHub", 0), menu_entry(0, 2, "Gitee", 0)];
+    assert!(unsafe { mitsuami_set_menu(button, entries.as_ptr(), entries.len()) });
+    assert!(mitsuami_on_event(button, record, std::ptr::null_mut()));
+    app.mount(|| Adopt(button));
+
+    app.get_by_role(Role::MenuButton, "Open in Browser").choose_menu_item(&["Gitee"]).await;
+    assert_eq!(heard(), ["item 2"]);
 }
 
 #[mitsuami_test::test]
@@ -682,4 +792,371 @@ async fn containers_report_clicks_when_asked(app: TestApp) {
     assert_eq!(heard(), ["click"]);
 }
 
+extern "C" fn build_cell(_user: *mut c_void, _table: u32, key: *const u8, len: usize, column: usize) -> u32 {
+    let key = std::str::from_utf8(unsafe { std::slice::from_raw_parts(key, len) }).unwrap();
+    let text = create(MitsuamiKind::Text);
+    let shown = if column == 0 { format!("Commit {key}") } else { format!("{key}@example.com") };
+    set_text(text, MitsuamiTextProp::Text, &shown);
+    // A subject on one line, as history views show it.
+    assert!(mitsuami_set_number(text, MitsuamiNumberProp::MaxLines as u32, 1.0));
+    text
+}
+
+extern "C" fn sorted(_user: *mut c_void, _table: u32, column: usize, descending: bool) {
+    let order = if descending { "descending" } else { "ascending" };
+    HEARD.with(|h| h.borrow_mut().push(format!("sorted {column} {order}")));
+}
+
+#[mitsuami_test::test]
+async fn tables_ask_for_cells_and_report_the_sort(app: TestApp) {
+    attach(app.ui());
+    heard();
+    let column = |title: &'static str, width: f32, expand: bool| MitsuamiTableColumn {
+        title: str(title),
+        width,
+        expand,
+        sortable: true,
+    };
+    let columns = [column("Subject", 0.0, true), column("Author", 120.0, false)];
+    let callbacks = MitsuamiTableCallbacks {
+        build_cell,
+        release_cell: release_row,
+        selection_changed,
+        activated,
+        sorted,
+        user: std::ptr::null_mut(),
+        still: 1,
+    };
+    let table = unsafe { mitsuami_create_table(callbacks, columns.as_ptr(), columns.len()) };
+    assert_ne!(table, 0);
+    assert!(mitsuami_set_size(table, px(400.0), px(200.0)));
+    assert!(mitsuami_set_enum(table, MitsuamiEnumProp::SelectionMode as u32, 2));
+    let keys = strs(&["a", "b", "c"]);
+    assert!(unsafe { mitsuami_list_set_keys(table, keys.as_ptr(), keys.len()) });
+    app.mount(|| Adopt(table));
+    app.expect(by_role(Role::Row, "Commit c c@example.com")).to_be_visible().await;
+
+    let subject = app.get_by_text("Commit b").id();
+    assert!(app.ui().props(subject).contains(&Prop::MaxLines(Some(1))));
+
+    // A row's cells side by side, in column order.
+    let (subject, author) =
+        (app.get_by_role(Role::Cell, "Commit b").frame(), app.get_by_role(Role::Cell, "b@example.com").frame());
+    assert!(subject.max_x() <= author.x(), "{subject:?} {author:?}");
+
+    app.get_by_role(Role::Cell, "Commit b").select().await;
+    app.get_by_role(Role::Cell, "Commit c").click().await;
+    let heard_now = heard();
+    assert!(heard_now.contains(&"selected b".to_string()), "{heard_now:?}");
+    assert!(heard_now.contains(&"activated c".to_string()), "{heard_now:?}");
+
+    // The caller's sort isn't reported back; the user's is, as the
+    // platform sorts (another column ascending, the same one reversed).
+    assert!(mitsuami_table_set_sort(table, 1, true));
+    app.settle().await;
+    assert_eq!(heard(), Vec::<String>::new());
+    app.get_by_role(Role::ColumnHeader, "Subject").click().await;
+    app.get_by_role(Role::ColumnHeader, "Subject").click().await;
+    assert_eq!(heard(), ["sorted 0 ascending", "sorted 0 descending"]);
+
+    // Rows that go let their cells go.
+    let keys = strs(&["a"]);
+    assert!(unsafe { mitsuami_list_set_keys(table, keys.as_ptr(), keys.len()) });
+    app.expect(by_role(Role::Row, "Commit c c@example.com")).not_to_exist().await;
+    assert!(heard().contains(&"released".to_string()));
+}
+
+extern "C" fn draw_nothing(_user: *mut c_void, _node: u32, _canvas: *mut MitsuamiCanvas, _width: f32, _height: f32) {}
+
+#[mitsuami_test::test]
+async fn absolute_nodes_sit_over_the_others(app: TestApp) {
+    attach(app.ui());
+    // A branch's label: a drawn backdrop filling it, behind its name.
+    let badge = create(MitsuamiKind::Container);
+    assert!(mitsuami_set_direction(badge, true));
+    assert!(mitsuami_set_align_self(badge, 1));
+    assert!(mitsuami_set_padding(badge, px(0.0), px(4.0), px(0.0), px(20.0)));
+    let callbacks = MitsuamiDrawnCallbacks { draw: draw_nothing, user: std::ptr::null_mut() };
+    let backdrop = unsafe { mitsuami_create_drawn(str("Backdrop"), callbacks, 0.0, 0.0) };
+    set_text(backdrop, MitsuamiTextProp::TestId, "backdrop");
+    assert!(mitsuami_set_position(backdrop, true, px(0.0), px(0.0), px(0.0), px(0.0)));
+    let name = create(MitsuamiKind::Text);
+    set_text(name, MitsuamiTextProp::Text, "main");
+    assert!(mitsuami_append_child(badge, backdrop));
+    assert!(mitsuami_append_child(badge, name));
+    set_text(badge, MitsuamiTextProp::TestId, "badge");
+    let column = create(MitsuamiKind::Container);
+    assert!(mitsuami_append_child(column, badge));
+    app.mount(|| Adopt(column));
+    app.settle().await;
+
+    // The backdrop takes the badge's frame; the name is laid out as if it
+    // weren't there.
+    let (frame, behind) = (app.get_by_test_id("badge").frame(), app.get_by_test_id("backdrop").frame());
+    assert_eq!(behind, frame);
+    let label = app.get_by_text("main").frame();
+    assert_eq!(label.x(), frame.x() + 20.0);
+    assert_eq!(frame.width(), label.width() + 24.0);
+
+    // Back in the flow, it takes room again.
+    assert!(mitsuami_set_position(backdrop, false, auto(), auto(), auto(), auto()));
+    app.settle().await;
+    assert!(app.get_by_text("main").frame().x() >= frame.x() + 20.0);
+}
+
+#[mitsuami_test::test]
+async fn tabs_show_one_page_and_report_the_user_s_pick(app: TestApp) {
+    attach(app.ui());
+    heard();
+    let tabs = create(MitsuamiKind::Tabs);
+    let titles = strs(&["Information", "Changes"]);
+    assert!(unsafe {
+        mitsuami_set_strings(tabs, MitsuamiStringsProp::TabTitles as u32, titles.as_ptr(), titles.len())
+    });
+    assert!(mitsuami_set_enum(tabs, MitsuamiEnumProp::TabsStyle as u32, 1));
+    for text in ["Author", "Files changed"] {
+        let page = create(MitsuamiKind::Container);
+        let label = create(MitsuamiKind::Text);
+        set_text(label, MitsuamiTextProp::Text, text);
+        assert!(mitsuami_append_child(page, label));
+        assert!(mitsuami_append_child(tabs, page));
+    }
+    assert!(mitsuami_set_index(tabs, MitsuamiIndexProp::SelectedIndex as u32, 0));
+    assert!(mitsuami_set_size(tabs, px(400.0), px(200.0)));
+    assert!(mitsuami_on_event(tabs, record, std::ptr::null_mut()));
+    app.mount(|| Adopt(tabs));
+    app.expect(by_text("Author")).to_be_visible().await;
+
+    app.get_by_role(Role::Tab, "Changes").select().await;
+    assert_eq!(heard(), ["chose 1"]);
+    app.expect(by_text("Files changed")).to_be_visible().await;
+
+    // The caller's pick isn't reported back.
+    assert!(mitsuami_set_index(tabs, MitsuamiIndexProp::SelectedIndex as u32, 0));
+    app.expect(by_text("Author")).to_be_visible().await;
+    assert_eq!(heard(), Vec::<String>::new());
+}
+
+#[mitsuami_test::test]
+async fn scroll_views_scroll_their_content(app: TestApp) {
+    attach(app.ui());
+    let mut content = 0;
+    let scroll = unsafe { mitsuami_create_scroll_view(0, &mut content) };
+    assert_ne!(scroll, 0);
+    assert_ne!(content, 0);
+    for i in 0..60 {
+        let line = create(MitsuamiKind::Text);
+        set_text(line, MitsuamiTextProp::Text, &format!("Line {i}"));
+        assert!(mitsuami_append_child(content, line));
+    }
+    set_text(scroll, MitsuamiTextProp::TestId, "scroll");
+    assert!(mitsuami_set_size(scroll, px(300.0), px(120.0)));
+    app.mount(|| Adopt(scroll));
+    app.settle().await;
+
+    // Its frame as laid out, for the caller's own sizing.
+    let mut frame = [0f32; 4];
+    assert!(unsafe { mitsuami_frame(scroll, frame.as_mut_ptr()) });
+    assert_eq!(frame[2..], [300.0, 120.0]);
+
+    // The content is as wide as the view, and longer: it scrolls.
+    assert_eq!(app.get_by_text("Line 0").frame().width(), app.get_by_test_id("scroll").frame().width());
+    app.get_by_test_id("scroll").scroll_by(0.0, 1e6).await;
+    app.expect(by_text("Line 59")).to_be_visible().await;
+}
+
 mitsuami_test::main!();
+
+#[mitsuami_test::test]
+async fn images_show_the_callers_pixels(app: TestApp) {
+    attach(app.ui());
+    let image = create(MitsuamiKind::Image);
+    // 4 × 2 pixels at 2 to a point: 2 × 1 points.
+    let rgba: Vec<u8> = (0..8).flat_map(|i| [i * 30, 0, 0, 255]).collect();
+    assert!(unsafe { mitsuami_set_image(image, 4, 2, 2.0, rgba.as_ptr(), rgba.len()) });
+    assert!(mitsuami_set_align_self(image, 1));
+    app.mount(|| Adopt(image));
+    app.settle().await;
+
+    let pixels = Pixels::new(4, 2, rgba.clone()).scale(2.0);
+    assert!(app.ui().props(NodeId::from_raw(image)).contains(&Prop::Image(ImageSource::Pixels(pixels))));
+    assert_eq!(app.ui().frame(NodeId::from_raw(image)).map(|f| f.size), Some(Size::new(2.0, 1.0)));
+
+    assert!(!unsafe { mitsuami_set_image(image, 4, 4, 2.0, rgba.as_ptr(), rgba.len()) });
+    assert!(last_error().contains("RGBA8"), "{}", last_error());
+}
+
+#[mitsuami_test::test]
+async fn texts_can_be_selectable(app: TestApp) {
+    attach(app.ui());
+    let text = create(MitsuamiKind::Text);
+    set_text(text, MitsuamiTextProp::Text, "Fix the graph's curves");
+    assert!(mitsuami_set_bool(text, MitsuamiBoolProp::Selectable as u32, true));
+    app.mount(|| Adopt(text));
+    app.settle().await;
+    assert!(app.ui().props(NodeId::from_raw(text)).contains(&Prop::Selectable(true)));
+}
+
+#[mitsuami_test::test]
+async fn the_clipboard_and_links_go_to_the_platform(app: TestApp) {
+    attach(app.ui());
+    assert!(unsafe { mitsuami_set_clipboard_text(str("1a2b3c")) });
+    app.settle().await;
+    assert_eq!(app.services().clipboard().as_deref(), Some("1a2b3c"));
+
+    let window = app.window().raw();
+    assert!(unsafe { mitsuami_launch(window, str("https://example.com/commit/1a2b3c"), true) });
+    app.settle().await;
+    let launch = app.services().take_launch().expect("a request to open the link");
+    assert_eq!(launch.request, Launch::Url("https://example.com/commit/1a2b3c".into()));
+    assert_eq!(launch.parent, Some(app.window()));
+    launch.respond(Ok(()));
+}
+
+/// Children that don't fit give up room by their shrink: one that never
+/// shrinks keeps its height, one at its least height stops there.
+#[mitsuami_test::test]
+async fn children_shrink_as_told(app: TestApp) {
+    attach(app.ui());
+    let column = create(MitsuamiKind::Container);
+    assert!(mitsuami_set_size(column, auto(), px(300.0)));
+    let (kept, floor, rest) =
+        (create(MitsuamiKind::Container), create(MitsuamiKind::Container), create(MitsuamiKind::Container));
+    for (child, height) in [(kept, 100.0), (floor, 400.0), (rest, 200.0)] {
+        assert!(mitsuami_set_size(child, auto(), px(height)));
+        assert!(mitsuami_append_child(column, child));
+    }
+    assert!(mitsuami_set_shrink(kept, 0.0));
+    assert!(mitsuami_set_min_size(floor, auto(), px(120.0)));
+    assert!(mitsuami_set_shrink(floor, 1000.0));
+    app.mount(|| Adopt(column));
+    app.settle().await;
+
+    let height = |id| app.ui().frame(NodeId::from_raw(id)).unwrap().height();
+    assert_eq!((height(kept), height(floor)), (100.0, 120.0));
+    assert_eq!(height(rest), 80.0);
+    assert!(!mitsuami_set_shrink(kept, -1.0));
+}
+
+#[mitsuami_test::test]
+async fn lists_scroll_to_a_row(app: TestApp) {
+    attach(app.ui());
+    let list = mitsuami_create_list(MitsuamiListCallbacks {
+        build_row,
+        release_row,
+        selection_changed,
+        activated,
+        user: std::ptr::null_mut(),
+        moves: 0,
+        moved,
+        still: 0,
+    });
+    assert!(mitsuami_set_size(list, px(300.0), px(200.0)));
+    let names: Vec<String> = (0..500).map(|i| format!("r{i}")).collect();
+    let keys: Vec<MitsuamiStr> = names.iter().map(|k| MitsuamiStr { ptr: k.as_ptr(), len: k.len() }).collect();
+    assert!(unsafe { mitsuami_list_set_keys(list, keys.as_ptr(), keys.len()) });
+    app.mount(|| Adopt(list));
+    app.settle().await;
+    app.expect(by_role(Role::ListItem, "Repository r400")).not_to_exist().await;
+
+    assert!(unsafe { mitsuami_list_scroll_to(list, str("r400")) });
+    app.settle().await;
+    assert!(app.get_by_role(Role::ListItem, "Repository r400").is_visible());
+    assert!(!unsafe { mitsuami_list_scroll_to(create(MitsuamiKind::Text), str("r400")) });
+}
+
+thread_local! {
+    static OPENED: std::cell::Cell<u32> = const { std::cell::Cell::new(0) };
+}
+
+/// A menu that says how many times it was built.
+extern "C" fn build_counted_menu(_user: *mut c_void, node: u32) {
+    let times = OPENED.with(|o| {
+        o.set(o.get() + 1);
+        o.get()
+    });
+    let title = format!("Opened {times}");
+    let entries = [menu_entry(0, times, &title, 0)];
+    assert!(unsafe { mitsuami_set_context_menu(node, entries.as_ptr(), entries.len()) });
+}
+
+#[mitsuami_test::test]
+async fn context_menus_can_be_built_as_they_open(app: TestApp) {
+    attach(app.ui());
+    heard();
+    OPENED.with(|o| o.set(0));
+    let text = create(MitsuamiKind::Text);
+    set_text(text, MitsuamiTextProp::Text, "commit");
+    assert!(mitsuami_set_context_menu_on_open(text, Some(build_counted_menu), std::ptr::null_mut()));
+    assert!(mitsuami_on_event(text, record, std::ptr::null_mut()));
+    app.mount(|| Adopt(text));
+    app.settle().await;
+    assert_eq!(OPENED.with(|o| o.get()), 0, "built before it opens");
+
+    app.get_by_text("commit").choose_menu_item(&["Opened 1"]).await;
+    app.get_by_text("commit").choose_menu_item(&["Opened 2"]).await;
+    assert_eq!(heard(), ["menu 1", "menu 2"]);
+}
+
+/// A row that wraps puts what doesn't fit on another line.
+#[mitsuami_test::test]
+async fn rows_wrap_when_told(app: TestApp) {
+    attach(app.ui());
+    let row = create(MitsuamiKind::Container);
+    assert!(mitsuami_set_direction(row, true));
+    assert!(mitsuami_set_wrap(row, true));
+    assert!(mitsuami_set_size(row, px(250.0), auto()));
+    assert!(mitsuami_set_align_self(row, 1));
+    let chips: Vec<u32> = (0..3).map(|_| create(MitsuamiKind::Container)).collect();
+    for &chip in &chips {
+        assert!(mitsuami_set_size(chip, px(100.0), px(20.0)));
+        assert!(mitsuami_append_child(row, chip));
+    }
+    app.mount(|| Adopt(row));
+    app.settle().await;
+
+    let frame = |id| app.ui().frame(NodeId::from_raw(id)).unwrap();
+    assert_eq!((frame(chips[0]).y(), frame(chips[1]).y()), (0.0, 0.0));
+    assert_eq!((frame(chips[2]).x(), frame(chips[2]).y()), (0.0, 20.0));
+    assert_eq!(frame(row).height(), 40.0);
+}
+
+#[mitsuami_test::test]
+async fn popovers_show_and_report_their_dismissal(app: TestApp) {
+    attach(app.ui());
+    heard();
+    let anchor = create(MitsuamiKind::Container);
+    let button = create(MitsuamiKind::Button);
+    set_text(button, MitsuamiTextProp::Label, "Contains in");
+    let popover = create(MitsuamiKind::Popover);
+    let branch = create(MitsuamiKind::Text);
+    set_text(branch, MitsuamiTextProp::Text, "develop");
+    assert!(mitsuami_append_child(popover, branch));
+    assert!(mitsuami_append_child(anchor, button));
+    assert!(mitsuami_append_child(anchor, popover));
+    assert!(mitsuami_on_event(popover, record, std::ptr::null_mut()));
+    app.mount(|| Adopt(anchor));
+    app.settle().await;
+    app.expect(by_text("develop")).to_be_hidden().await;
+
+    assert!(mitsuami_set_bool(popover, MitsuamiBoolProp::PopoverShown as u32, true));
+    app.expect(by_text("develop")).to_be_visible().await;
+    app.get_by_text("develop").press(Key::Escape).await;
+    app.expect(by_text("develop")).to_be_hidden().await;
+    assert_eq!(heard(), ["popover shown false"]);
+}
+
+#[mitsuami_test::test]
+async fn search_fields_suggest_and_report_the_pick(app: TestApp) {
+    attach(app.ui());
+    heard();
+    let field = create(MitsuamiKind::SearchInput);
+    set_text(field, MitsuamiTextProp::A11yLabel, "Path");
+    let (titles, details) = (strs(&["App.cs", "Program.cs"]), strs(&["mitsuami", ""]));
+    assert!(unsafe { mitsuami_set_suggestions(field, titles.as_ptr(), details.as_ptr(), 2) });
+    assert!(mitsuami_on_event(field, record, std::ptr::null_mut()));
+    app.mount(|| Adopt(field));
+
+    app.get_by_label("Path").choose_suggestion("Program.cs").await;
+    assert_eq!(heard(), ["suggestion 1"]);
+}

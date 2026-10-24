@@ -30,7 +30,7 @@ use mitsuami_core::a11y::{A11yAction, ActionError};
 use mitsuami_core::backend::{
     Appearance, Backend, CaptureError, EventSink, Image, MeasureRequest, NativeState, PlatformMetrics, SyntheticInput,
 };
-use mitsuami_core::services::{MenuBarData, MenuCheck, MenuEntry, Reply};
+use mitsuami_core::services::{MenuBarData, MenuCheck, MenuEntry, MenuOnOpen, Reply};
 use mitsuami_core::units::SpacingScale;
 use mitsuami_core::{
     AnyValue, AppInfo, ButtonRole, ButtonStyle, Command, CustomProps, HorizontalAlign, ImageFit, ImageSource, Insets,
@@ -373,6 +373,8 @@ enum Widget {
     Group(crate::group::Group),
     /// WinUI has no splitter: a canvas with a grip, as File Explorer's.
     Split(crate::split::Split),
+    /// A flyout shown at its parent; the node's element is its content.
+    Popover(crate::popover::Popover),
     /// A custom widget with a native render, and the props it shows.
     Custom {
         render: Rc<dyn ErasedRender>,
@@ -483,6 +485,12 @@ struct Node {
     context_menu: Option<ContextMenu>,
     /// Menu buttons: their menu, set once the core gave one.
     button_menu: Option<ContextMenu>,
+    /// Search fields: the suggestions their list shows, set once the core
+    /// gave some (XAML's items are views, not the data).
+    suggestions: Option<Vec<mitsuami_core::Suggestion>>,
+    /// Search fields: the app's `SearchOnReturn`, if it gave one. On, only
+    /// `QuerySubmitted` and an emptied field search.
+    search_on_return: Rc<Cell<Option<bool>>>,
     /// Hosts and groups: the files they take and the drag over them, while
     /// they take some, and whether the core ever sent `FileDrop`.
     file_drop: Option<crate::drop::DropTarget>,
@@ -529,15 +537,20 @@ type MenuItems = Rc<RefCell<HashMap<u32, (w::MenuFlyoutItemBase, MenuCheck)>>>;
 /// the `MenuFlyout` showing it as the control's `ContextFlyout` or the
 /// button's `Flyout` (none while it's empty).
 pub(crate) struct ContextMenu {
-    sent: Vec<MenuEntry>,
+    /// Shared with a menu built as it opens, whose `Opening` refills it.
+    sent: Rc<RefCell<Vec<MenuEntry>>>,
     flyout: Option<w::MenuFlyout>,
     items: MenuItems,
-    revokers: Vec<EventRevoker>,
+    revokers: Rc<RefCell<Vec<EventRevoker>>>,
     /// Reports an item chosen.
     activate: Rc<dyn Fn(u32)>,
     /// The control's own flyout (a text box's Cut, Copy and Paste), back
     /// while the app's menu is empty.
     own: Option<w::FlyoutBase>,
+    /// Built as it opens (`ContextMenuOnOpen`): the app's function, and
+    /// the flyout's `Opening` handler, which asks it. The flyout then
+    /// stays, refilled in place.
+    on_open: Option<(Rc<RefCell<MenuOnOpen>>, EventRevoker)>,
 }
 
 /// The app's menus, each window's own, and how to report a choice.

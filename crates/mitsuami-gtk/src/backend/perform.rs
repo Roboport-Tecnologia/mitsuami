@@ -61,6 +61,16 @@ impl GtkBackend {
                 }
                 return Ok(());
             }
+            // A suggestion under a search field, as a click picks it: the
+            // list reports it.
+            if let A11yAction::ChooseSuggestion(index) = action {
+                let Some(suggestions) = node.suggestions.clone() else { return Err(ActionError::Unsupported) };
+                if !node.widget.focus_widget().is_sensitive() {
+                    return Err(ActionError::Disabled);
+                }
+                drop(state);
+                return if suggestions.choose(*index) { Ok(()) } else { Err(ActionError::Unsupported) };
+            }
             if let (A11yAction::PressHeader(column), Widget::List(list)) = (action, &node.widget) {
                 state.lists_dirty.set(true);
                 return if list.press_header(*column) { Ok(()) } else { Err(ActionError::Unsupported) };
@@ -215,8 +225,14 @@ impl GtkBackend {
                 entry.set_position(-1);
                 events.emit(id, UiEvent::Changed(EventValue::Text(text.clone())));
                 // An edit searches, once: the muted `set_text` isn't
-                // searched for when GTK's timer fires.
-                if kind == WidgetKind::SearchInput {
+                // searched for when GTK's timer fires. Only on Return, an
+                // edit doesn't, but emptying the field does.
+                let on_return = widget
+                    .downcast_ref::<gtk::SearchEntry>()
+                    .and_then(super::create::search_on_return)
+                    .and_then(|c| c.get())
+                    == Some(true);
+                if kind == WidgetKind::SearchInput && (!on_return || text.is_empty()) {
                     events.emit(id, UiEvent::Search(text.clone()));
                 }
             }

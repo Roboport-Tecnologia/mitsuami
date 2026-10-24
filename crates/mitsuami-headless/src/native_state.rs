@@ -3,7 +3,7 @@
 use mitsuami_core::backend::NativeState;
 use mitsuami_core::{NodeId, Rect, WidgetKind, find_prop};
 
-use super::metrics::{SIDEBAR_WIDTH, TAB_INSETS, TOOLBAR_HEIGHT, TOOLBAR_SPACING};
+use super::metrics::{POPOVER_GAP, SIDEBAR_WIDTH, TAB_INSETS, TOOLBAR_HEIGHT, TOOLBAR_SPACING};
 use super::{HeadlessBackend, State};
 
 impl HeadlessBackend {
@@ -23,6 +23,15 @@ impl HeadlessBackend {
             None if let Some(cell) = cell => cell,
             None if node.kind == WidgetKind::ToolbarItem => state.toolbar_item_frame(id),
             None if node.kind == WidgetKind::Sidebar => state.sidebar_frame(id),
+            // A popover shows under its parent, at the size the core gave
+            // it, while it's shown.
+            None if node.kind == WidgetKind::Popover => match find_prop!(node.props, PopoverShown) {
+                Some(true) => {
+                    let below = node.parent.map_or(0.0, |p| state.nodes[&p].frame.height());
+                    Rect::new(0.0, below + POPOVER_GAP, node.frame.width(), node.frame.height())
+                }
+                _ => Rect::ZERO,
+            },
             // A tab view places its pages itself, and shows one.
             None if let Some(tabs) = node.parent.filter(|p| state.nodes[p].kind == WidgetKind::Tabs) => {
                 state.page_frame(id, tabs)

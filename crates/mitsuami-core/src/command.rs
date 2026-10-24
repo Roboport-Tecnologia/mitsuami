@@ -120,6 +120,10 @@ pub enum UiEvent {
     /// one), on Return, and when the field is cleared. Not for text the
     /// core set.
     Search(String),
+    /// The user picked a `SearchInput`'s suggestion (a click, or Return on
+    /// the one the arrows reached): its index in `Suggestions`. The field's
+    /// text is the app's to set.
+    SuggestionChosen(usize),
     FocusIn,
     FocusOut,
     WindowResized(Size),
@@ -138,6 +142,10 @@ pub enum UiEvent {
     /// divider dragged away), or the platform did. Not reported for the
     /// app's own `SidebarShown`. The core absorbs it as `SidebarShown`.
     SidebarShownChanged(bool),
+    /// The user dismissed a `Popover` (a click outside, Escape), or the
+    /// platform did. Not reported for the app's own `PopoverShown`. The
+    /// core absorbs it as `PopoverShown`.
+    PopoverShownChanged(bool),
     /// A `Sidebar`'s item was activated, as a list's row is (double-clicked,
     /// or Enter pressed on it), where the platform's sidebar has that: its
     /// index across the sections.

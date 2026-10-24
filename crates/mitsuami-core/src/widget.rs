@@ -207,6 +207,14 @@ pub enum WidgetKind {
     /// ([`Prop::PaneMinimums`]). The platform draws the divider and reports
     /// where the user drags it as `Changed(Number)`.
     Split,
+    /// A platform's popover, attached to its parent (a container) while
+    /// [`Prop::PopoverShown`]: an NSPopover, a gtk::Popover, a XAML Flyout,
+    /// a QQC2.Popup. It's out of its parent's layout: the core lays out its
+    /// children at their natural size, as a toolbar item's, and the
+    /// platform places it by its parent, where it fits. A click outside or
+    /// Escape dismisses it, as the platform's do: the backend reports
+    /// `PopoverShownChanged(false)`, which the core absorbs.
+    Popover,
     /// A custom widget (see [`CustomWidget`](crate::CustomWidget)), named
     /// after it. Its props travel as [`Prop::Custom`].
     Custom(&'static str),
@@ -231,6 +239,7 @@ impl WidgetKind {
                 | WidgetKind::Tabs
                 | WidgetKind::Group
                 | WidgetKind::Split
+                | WidgetKind::Popover
         )
     }
 
@@ -256,6 +265,7 @@ impl WidgetKind {
             WidgetKind::Tabs => "Tabs",
             WidgetKind::DocumentTabs => "DocumentTabs",
             WidgetKind::Group => "Group",
+            WidgetKind::Popover => "Popover",
             WidgetKind::Split => "Split",
             WidgetKind::Fragment => "Fragment",
             WidgetKind::Text => "Text",
@@ -449,6 +459,14 @@ pub enum ButtonStyle {
     /// No bezel or frame until hovered, where the platform does that: for
     /// toolbars, and buttons that sit among text.
     Borderless,
+}
+
+/// A suggestion of a `SearchInput`: what it says, and a second line in the
+/// secondary style (a file's folder, an author's email).
+#[derive(Clone, Debug, PartialEq)]
+pub struct Suggestion {
+    pub title: String,
+    pub detail: Option<String>,
 }
 
 /// What an `Image` shows.
@@ -1005,6 +1023,11 @@ pub enum Prop {
     /// or container can have one; empty: none. The node reports the item
     /// chosen as [`UiEvent::ContextMenuItem`](crate::UiEvent::ContextMenuItem).
     ContextMenu(Vec<MenuEntry>),
+    /// The node's context menu is built as the platform opens it: the
+    /// platform calls it, from its own moment before a menu shows, and
+    /// shows what it returns, which is also the node's `ContextMenu`
+    /// from then on. `None`: the menu is `ContextMenu` alone.
+    ContextMenuOnOpen(Option<crate::services::MenuOnOpen>),
     /// A `MenuButton`'s menu: items, separators and submenus, built as a
     /// context menu's. The node reports the item chosen as
     /// [`UiEvent::MenuItem`](crate::UiEvent::MenuItem).
@@ -1085,6 +1108,23 @@ pub enum Prop {
     /// backend reports `SidebarShownChanged`, which the core absorbs. Sent
     /// only if the app chose.
     SidebarShown(bool),
+    /// A `Popover` is shown by its parent, or not. The user dismisses one
+    /// too (a click outside, Escape): the backend reports
+    /// `PopoverShownChanged(false)`, which the core absorbs.
+    PopoverShown(bool),
+    /// What a `SearchInput` suggests for its text, in a list under it while
+    /// the user types, as each platform shows a field's suggestions (an
+    /// `AutoSuggestBox`'s list, a list in a window that doesn't take the
+    /// keyboard on AppKit, a popover that doesn't on GTK, a popup that
+    /// doesn't on Qt). The field keeps the keyboard: the arrows move
+    /// through the list, Return picks, Escape hides it. Empty: none.
+    Suggestions(Vec<Suggestion>),
+    /// A `SearchInput` searches on Return (and when cleared), not as the
+    /// user types: each platform's setting for searches that take a while
+    /// (AppKit's `sendsWholeSearchString`, GTK's `activate` alone, WinUI's
+    /// `QuerySubmitted` alone, Kirigami's `autoAccept` off). Sent only if
+    /// the app chose.
+    SearchOnReturn(bool),
     /// A `Container` at the top of its window's content is the window's
     /// header, the part that stays while what's under it scrolls: on
     /// AppKit it goes in the title bar, under the title and toolbar, in
@@ -1161,6 +1201,12 @@ pub enum Prop {
     /// Where the caret is on a `GpuSurface` that takes text, in points from
     /// its top left: the input method's candidate window opens by it.
     TextCursor(Option<Rect>),
+    /// A `GpuSurface` lets the window's backdrop show where what the app
+    /// presents isn't opaque: the material the platform puts behind a
+    /// translucent window (AppKit's behind-window vibrancy, WinUI's Mica,
+    /// which its windows always have), or the window's own background where
+    /// there's none. The app still presents with alpha.
+    Transparent(bool),
     /// A `Container` or `Group` takes the files and folders this says
     /// when they're dragged from the platform's file manager and dropped
     /// on it; `None`: none. While acceptable files are over it, the

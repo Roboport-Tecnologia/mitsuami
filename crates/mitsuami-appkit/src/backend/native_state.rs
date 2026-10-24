@@ -19,6 +19,14 @@ use super::{State, Widget, key};
 pub(super) fn native_state(state: &State, id: NodeId) -> Option<NativeState> {
     let node = state.nodes.get(&id)?;
     let mut props = Vec::new();
+    // Kept: what the list under the field shows.
+    props.extend(node.suggestions.as_ref().map(|list| Prop::Suggestions(list.items())));
+    if node.search_on_return
+        && let Widget::Field(field) = &node.widget
+        && let Some(search) = field.downcast_ref::<objc2_app_kit::NSSearchField>()
+    {
+        props.push(Prop::SearchOnReturn(search.sendsWholeSearchString()));
+    }
     let checked = |s: isize| Prop::Checked(s == NSControlStateValueOn);
     match &node.widget {
         Widget::Window { window, _delegate, .. } => {
@@ -233,6 +241,7 @@ pub(super) fn native_state(state: &State, id: NodeId) -> Option<NativeState> {
             props.push(Prop::TextInput(view.text_input()));
             props.push(Prop::InputMethod(view.input_method()));
             props.push(Prop::TextCursor(view.text_cursor()));
+            props.push(Prop::Transparent(view.transparent()));
         }
         Widget::Scroll(scroll) => {
             let shown = (scroll.hasHorizontalScroller(), scroll.hasVerticalScroller());
@@ -266,6 +275,8 @@ pub(super) fn native_state(state: &State, id: NodeId) -> Option<NativeState> {
             props.extend(list.row_files().map(Prop::RowFiles));
             props.extend(list.moves().map(Prop::RowMoves));
         }
+        // Shown or not as the platform shows it, while the core wants it.
+        Widget::Popover(popover) => props.push(Prop::PopoverShown(popover.wanted() && popover.shown())),
         Widget::Host(_) => props.extend(node.row.map(|row| match node.column {
             Some(column) => Prop::Cell(mitsuami_core::CellKey { row, column }),
             None => Prop::Row(row),
@@ -348,6 +359,10 @@ pub(super) fn native_state(state: &State, id: NodeId) -> Option<NativeState> {
     if let Some((_, recognizer)) = &node.double_click {
         props.push(Prop::DoubleClick(view.gestureRecognizers().iter().any(|r| *r == ***recognizer)));
     }
+    // Kept: AppKit can't give back the app's function.
+    if let Some((opener, _)) = &node.menu_on_open {
+        props.push(Prop::ContextMenuOnOpen(Some(opener.on_open())));
+    }
     if let Some((sent, _)) = &node.context_menu {
         props.push(Prop::ContextMenu(match (&node.widget, view.menu()) {
             (Widget::Select(_) | Widget::MenuButton { .. }, _) => sent.clone(),
@@ -358,7 +373,20 @@ pub(super) fn native_state(state: &State, id: NodeId) -> Option<NativeState> {
     let f = match node.widget {
         // Placed by its frame (see `SetFrame`).
         Widget::Separator(_) => view.frame(),
+        // Hidden where the core gave it no room, keeping its frame (see
+        // `SetFrame`).
         _ => view.alignmentRectForFrame(view.frame()),
+    };
+    // A split's pane is in a host of its own (see `SplitView::place`).
+    let f = match node.parent.and_then(|p| state.nodes.get(&p)).map(|p| &p.widget) {
+        Some(Widget::SplitView(split)) => split.placed(id, view).unwrap_or(f),
+        _ => f,
+    };
+    // Hidden where the core gave it no room, keeping its frame (see
+    // `SetFrame`).
+    let f = match &node.widget {
+        Widget::Tabs(tabs) => tabs.parked.get().unwrap_or(f),
+        _ => f,
     };
     let mut frame = Rect::new(f.origin.x as f32, f.origin.y as f32, f.size.width as f32, f.size.height as f32);
     // A row is where the table put it, and so is a cell.
@@ -393,6 +421,12 @@ pub(super) fn native_state(state: &State, id: NodeId) -> Option<NativeState> {
         let f = toolbar.frame(id, host).unwrap_or(crate::classes::zero_rect());
         frame = Rect::new(f.origin.x as f32, f.origin.y as f32, f.size.width as f32, f.size.height as f32);
     }
+    // A popover is where the platform shows it, by its parent; hidden,
+    // it isn't shown.
+    if let Widget::Popover(popover) = &node.widget {
+        let f = popover.frame().unwrap_or(crate::classes::zero_rect());
+        frame = Rect::new(f.origin.x as f32, f.origin.y as f32, f.size.width as f32, f.size.height as f32);
+    }
     // A sidebar is where the split put it, beside the content (so at
     // negative x), and full height; collapsed, it isn't shown.
     if let Some(Widget::Window { host, split: Some(split), .. }) =
@@ -412,6 +446,18 @@ pub(super) fn native_state(state: &State, id: NodeId) -> Option<NativeState> {
             (list.children(), Some(Point::new(origin.x as f32, origin.y as f32)))
         }
         Widget::Tabs(tabs) => (tabs.ids(), None),
+        // Each pane is in a host of its own (see `SplitView::insert`).
+        Widget::SplitView(split) => (
+            split
+                .view
+                .subviews()
+                .iter()
+                .flat_map(|host| {
+                    host.subviews().iter().filter_map(|v| by_view.get(&key(&v)).copied()).collect::<Vec<_>>()
+                })
+                .collect(),
+            None,
+        ),
         Widget::Scroll(scroll) => {
             let origin = crate::classes::scrolled(&scroll.contentView());
             (
@@ -429,6 +475,16 @@ pub(super) fn native_state(state: &State, id: NodeId) -> Option<NativeState> {
             if let Widget::Window { split: Some(split), .. } = &node.widget {
                 children.push(split.sidebar);
             }
+            // Popovers point at their parent, after what it shows, in the
+            // order they came.
+            let mut popovers: Vec<NodeId> = state
+                .nodes
+                .iter()
+                .filter(|(_, n)| n.parent == Some(id) && matches!(n.widget, Widget::Popover(_)))
+                .map(|(c, _)| *c)
+                .collect();
+            popovers.sort_by_key(|c| c.raw());
+            children.extend(popovers);
             // An item's button is its view, not in its host.
             if node.kind == WidgetKind::ToolbarItem
                 && let Some(Widget::Window { toolbar: Some(toolbar), .. }) =

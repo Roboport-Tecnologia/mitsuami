@@ -38,6 +38,8 @@ mod list;
 #[cfg(target_os = "linux")]
 mod locale;
 #[cfg(target_os = "linux")]
+mod popover;
+#[cfg(target_os = "linux")]
 mod radio;
 #[cfg(target_os = "linux")]
 mod services;
@@ -47,6 +49,8 @@ mod session;
 mod sidebar;
 #[cfg(target_os = "linux")]
 mod split;
+#[cfg(target_os = "linux")]
+mod suggestions;
 #[cfg(target_os = "linux")]
 mod surface;
 #[cfg(target_os = "linux")]

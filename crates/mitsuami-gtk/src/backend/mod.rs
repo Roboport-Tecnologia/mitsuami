@@ -78,7 +78,8 @@ pub(crate) struct WindowParts {
     /// libadwaita's, which a split view's content page can take: it shows
     /// the page's title and back button there.
     header: adw::HeaderBar,
-    /// Measured again when toolbar items change it.
+    /// What's above the content: the header bar, or under a header, the
+    /// top bars less the header. Measured again when they change.
     header_height: i32,
     /// The toolbar items in the header bar, in order.
     items: Vec<(NodeId, gtk::Widget)>,
@@ -95,8 +96,8 @@ pub(crate) struct WindowParts {
     /// The window's content beside its sidebar, while it has one.
     split: Option<Split>,
     /// The toolbar view the window is while a header is under its header
-    /// bar (`crate::header`).
-    top_bars: Option<adw::ToolbarView>,
+    /// bar, and the header's host (`crate::header`).
+    top_bars: Option<(adw::ToolbarView, Host)>,
 }
 
 enum Widget {
@@ -183,6 +184,8 @@ enum Widget {
     DocumentTabs(DocumentTabs),
     Group(crate::group::Group),
     Split(crate::split::Split),
+    /// A popover, by its parent; its children are in its host.
+    Popover(crate::popover::Popover),
     /// A custom widget with a GTK render, and the props it last got.
     Custom {
         widget: gtk::Widget,
@@ -235,6 +238,7 @@ impl Widget {
             Widget::DocumentTabs(tabs) => tabs.root(),
             Widget::Group(group) => group.host.upcast_ref(),
             Widget::Split(split) => split.paned.upcast_ref(),
+            Widget::Popover(popover) => popover.popover.upcast_ref(),
             Widget::Custom { widget, .. } | Widget::Native { widget, .. } => widget,
             Widget::Drawn { drawn, .. } => drawn.area.upcast_ref(),
         }
@@ -321,6 +325,9 @@ struct Node {
     settings_handlers: Vec<(glib::Object, glib::SignalHandlerId)>,
     /// The context menu, once the app gave one.
     context_menu: Option<ContextMenu>,
+    /// Search fields: the list of suggestions under them, once the app
+    /// gave some.
+    suggestions: Option<crate::suggestions::Suggestions>,
     /// The controller that reports hover, once the core asked for it.
     hover: Option<gtk::EventControllerMotion>,
     /// The gesture that reports double clicks, and what it reports, once

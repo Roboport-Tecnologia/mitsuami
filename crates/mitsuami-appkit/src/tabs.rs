@@ -70,6 +70,9 @@ pub(crate) struct Tabs {
     /// The page the core shows, which AppKit may change as pages come and
     /// go: it's shown again after.
     shown: Cell<Option<usize>>,
+    /// The frame the core gave it with no room, while it keeps its own
+    /// (see `SetFrame`).
+    pub(crate) parked: Cell<Option<NSRect>>,
 }
 
 impl Tabs {
@@ -87,6 +90,7 @@ impl Tabs {
             pages: RefCell::default(),
             titles: RefCell::default(),
             shown: Cell::new(None),
+            parked: Cell::new(None),
         }
     }
 

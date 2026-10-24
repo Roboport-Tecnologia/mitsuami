@@ -501,12 +501,33 @@ impl<'a> Locator<'a> {
         while let Some(node) = id {
             // Separators alone show nothing.
             let shown = |menu: &Vec<MenuEntry>| menu.iter().any(|e| !matches!(e, MenuEntry::Separator));
-            if let Some(menu) = find_prop!(ui.props(node), ContextMenu).filter(shown) {
+            // One built as it opens is built now, as a right-click does.
+            if let Some(Some(on_open)) = find_prop!(ui.props(node), ContextMenuOnOpen) {
+                let menu = on_open.build();
+                if shown(&menu) {
+                    return Some((node, menu));
+                }
+            } else if let Some(menu) = find_prop!(ui.props(node), ContextMenu).filter(shown) {
                 return Some((node, menu));
             }
             id = ui.parent(node);
         }
         None
+    }
+
+    /// Picks a `SearchInput`'s suggestion by its title, as the user picks
+    /// one from the list under the field.
+    pub async fn choose_suggestion(&self, title: &str) {
+        self.app.settle().await;
+        let id = self.id();
+        let suggestions = find_prop!(self.app.ui().props(id), Suggestions).unwrap_or_default();
+        let Some(index) = suggestions.iter().position(|s| s.title == title) else {
+            self.fail(&format!("{} suggests no {title:?}", self.query))
+        };
+        if let Err(e) = self.app.ui().perform(id, &A11yAction::ChooseSuggestion(index)) {
+            self.fail(&format!("cannot choose the suggestion {title:?} of {}: {e}", self.query));
+        }
+        self.app.settle().await;
     }
 
     /// Chooses an item of the menu a `MenuButton` opens, or else of the
@@ -531,6 +552,8 @@ impl<'a> Locator<'a> {
         let Some(item) = find_menu_item(&menu, path) else {
             self.fail(&format!("the context menu of {} has no item {path:?}", self.query))
         };
+        // A menu just built reaches the platform first.
+        self.app.settle().await;
         if let Err(e) = self.app.ui().perform(node, &A11yAction::ContextMenuItem(item.id)) {
             self.fail(&format!("cannot choose {path:?} in the context menu of {}: {e}", self.query));
         }

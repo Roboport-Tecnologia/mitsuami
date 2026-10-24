@@ -5,7 +5,7 @@ use mitsuami_core::{EventValue, NodeId, SelectionMode, UiEvent, WidgetKind};
 use objc2::rc::Retained;
 use objc2::runtime::AnyObject;
 use objc2::{Message, msg_send};
-use objc2_app_kit::{NSPopUpButton, NSScrollView, NSSlider, NSTextField, NSTextView, NSView};
+use objc2_app_kit::{NSPopUpButton, NSScrollView, NSSearchField, NSSlider, NSTextField, NSTextView, NSView};
 use objc2_foundation::NSArray;
 
 use crate::custom::Emitter;
@@ -31,6 +31,18 @@ impl AppKitBackend {
         }
         if let A11yAction::MenuItem(item) = action {
             return self.choose_pull_down_item(id, *item);
+        }
+        // A search field's suggestion, as a click on its row picks it.
+        if let A11yAction::ChooseSuggestion(index) = action {
+            let state = self.state.borrow();
+            let node = state.nodes.get(&id).ok_or(ActionError::UnknownNode)?;
+            return match &node.suggestions {
+                Some(list) if *index < list.items().len() => {
+                    state.events.emit(id, UiEvent::SuggestionChosen(*index));
+                    Ok(())
+                }
+                _ => Err(ActionError::Unsupported),
+            };
         }
         // A list's rows: select or activate them in the table. The table
         // only calls back into its own data, never into our state.
@@ -222,7 +234,9 @@ impl AppKitBackend {
                 // technology edits are user edits, so report one, and the
                 // search a search field's edits ask for.
                 events.emit(id, UiEvent::Changed(EventValue::Text(text.clone())));
-                if kind == WidgetKind::SearchInput {
+                // Unless it searches on Return only: then only clearing does.
+                let whole = field.downcast_ref::<NSSearchField>().is_some_and(|f| f.sendsWholeSearchString());
+                if kind == WidgetKind::SearchInput && (!whole || text.is_empty()) {
                     events.emit(id, UiEvent::Search(text.clone()));
                 }
             }

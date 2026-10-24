@@ -48,12 +48,23 @@ impl Inner {
                 spacing: &self.metrics.spacing,
             };
             let mut style = match node.kind {
-                // Its pages share one cell, which fills it.
+                // Its pages share one cell, which fills it. Its tracks
+                // start at 0, not at the pages' content (a plain `1fr`):
+                // a view given less room cuts its page to it, as the
+                // platform's tab view clips it, so a scroll view in the
+                // page scrolls. With room to spare, they still take the
+                // biggest page's size.
                 WidgetKind::Tabs => {
                     let mut own = node.style.clone();
                     own.display = Display::Grid;
-                    own.grid_template_columns = vec![Track::Size(Length::Fr(1.0))];
-                    own.grid_template_rows = vec![Track::Size(Length::Fr(1.0))];
+                    let fill = Track::MinMax(Length::Px(0.0), Length::Fr(1.0));
+                    own.grid_template_columns = vec![fill];
+                    own.grid_template_rows = vec![fill];
+                    // Tabs can be a split's pane; they went in the
+                    // divider's track, at their own size.
+                    if let Some((index, vertical)) = self.pane(id) {
+                        place_pane(&mut own, index, vertical);
+                    }
                     own.to_taffy(&cx, rtl)
                 }
                 _ if self.is_page(id) => {
@@ -74,7 +85,9 @@ impl Inner {
                         true => (&mut own.grid_template_rows, &mut own.grid_template_columns),
                     };
                     *along = tracks;
-                    *across = vec![Track::Size(Length::Fr(1.0))];
+                    // From 0, as a tab view's: a pane taller than the
+                    // split is cut to it, so a scroll view in it scrolls.
+                    *across = vec![Track::MinMax(Length::Px(0.0), Length::Fr(1.0))];
                     // A split can be another's pane.
                     if let Some((index, vertical)) = self.pane(id) {
                         place_pane(&mut own, index, vertical);
@@ -259,14 +272,14 @@ impl Inner {
         };
         let (first, second) = (least(node.children.first()).unwrap_or(0.0), least(node.children.get(1)).unwrap_or(0.0));
         let divider = self.metrics.split_divider;
-        let length = if vertical { node.frame.height() } else { node.frame.width() };
-        let position = crate::find_prop!(node.props, Number).map(|p| {
-            let most = if length > 0.0 { (length - divider - second).max(first) } else { f32::INFINITY };
-            (p as f32).clamp(first, most)
-        });
+        // The first pane is at the position when there's room, and gives
+        // way down to its least length when the second pane needs it: the
+        // grid works it out from the split's length, so a split turned to
+        // the other axis isn't held to its last length along this one.
+        let position = crate::find_prop!(node.props, Number).map(|p| (p as f32).max(first));
         let tracks = vec![
             match position {
-                Some(points) => Track::Size(Length::Px(points)),
+                Some(points) => Track::MinMax(Length::Px(first), Length::Px(points)),
                 None => Track::MinMax(Length::Px(first), Length::Auto),
             },
             Track::Size(Length::Px(divider)),

@@ -175,6 +175,8 @@ struct HostState {
     text_input: Option<bool>,
     input_method: Option<bool>,
     text_cursor: Option<Option<Rect>>,
+    /// What the app set for `Transparent`, which needs nothing here.
+    transparent: Option<bool>,
     /// What the key going down typed: its `WM_CHAR`s, taken off the queue
     /// before XAML reports the key.
     typed: Option<String>,
@@ -234,6 +236,7 @@ impl SurfaceHost {
                 made: None,
                 text_input: None,
                 input_method: None,
+                transparent: None,
                 text_cursor: None,
                 typed: None,
                 dead: None,
@@ -428,6 +431,12 @@ impl SurfaceHost {
         state.place_input_method();
     }
 
+    /// The window's Mica is always behind its child window, and shows
+    /// where a composition swapchain presents with alpha: kept as set.
+    pub(crate) fn set_transparent(&self, on: bool) {
+        self.state.borrow_mut().transparent = Some(on);
+    }
+
     /// What the core set that the canvas can't report: whether it takes
     /// input, and the lock and grab in effect (or about to be, until it's
     /// laid out in a window).
@@ -441,6 +450,7 @@ impl SurfaceHost {
         props.extend(state.text_input.map(Prop::TextInput));
         props.extend(state.input_method.map(Prop::InputMethod));
         props.extend(state.text_cursor.map(Prop::TextCursor));
+        props.extend(state.transparent.map(Prop::Transparent));
         props
     }
 

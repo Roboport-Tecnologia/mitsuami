@@ -116,6 +116,8 @@ struct ItemState {
     text_input: Option<bool>,
     input_method: Option<bool>,
     text_cursor: Option<Option<Rect>>,
+    /// What the app set for `Transparent`, which needs nothing here.
+    transparent: Option<bool>,
     keys: Rc<Keys>,
     /// What's in effect, and which of them (a lock's reports carry it, so
     /// a late one from a lock let go is dropped).
@@ -177,6 +179,7 @@ impl SurfaceItem {
             cursor: None,
             text_input: None,
             input_method: None,
+            transparent: None,
             text_cursor: None,
             keys: held.clone(),
             lock: None,
@@ -269,6 +272,12 @@ impl SurfaceItem {
         state.text_cursor = Some(caret);
     }
 
+    /// Qt Quick has no backdrop to show through it, so the window's
+    /// background does: kept as set.
+    pub(crate) fn set_transparent(&self, on: bool) {
+        self.state.borrow_mut().transparent = Some(on);
+    }
+
     pub(crate) fn takes_text(&self) -> bool {
         let state = self.state.borrow();
         state.takes_input == Some(true) && state.text_input == Some(true)
@@ -291,6 +300,7 @@ impl SurfaceItem {
         props.extend(state.text_input.map(Prop::TextInput));
         props.extend(state.input_method.map(Prop::InputMethod));
         props.extend(state.text_cursor.map(Prop::TextCursor));
+        props.extend(state.transparent.map(Prop::Transparent));
         props
     }
 

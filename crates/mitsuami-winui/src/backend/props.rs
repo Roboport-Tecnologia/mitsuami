@@ -464,6 +464,23 @@ impl State {
                 }
             }
             (Prop::Placeholder(t), Widget::Search(s)) => s.cast::<w::IAutoSuggestBox>()?.SetPlaceholderText(t)?,
+            // The box's own list: a title, or a title over its detail in
+            // the secondary caption style, as a sidebar item's subtitle.
+            // It opens with items while the box has focus, as XAML opens
+            // it as the user types, and closes empty.
+            (Prop::SearchOnReturn(on), Widget::Search(_)) => node.search_on_return.set(Some(*on)),
+            (Prop::Suggestions(list), Widget::Search(s)) => {
+                if node.suggestions.as_ref() != Some(list) {
+                    let items = s.cast::<w::IItemsControl>()?.Items()?;
+                    items.Clear()?;
+                    for suggestion in list {
+                        items.Append(&suggestion_item(suggestion)?)?;
+                    }
+                    let focused = s.cast::<w::IUIElement>()?.FocusState()? != w::FocusState::Unfocused;
+                    s.cast::<w::IAutoSuggestBox>()?.SetIsSuggestionListOpen(focused && !list.is_empty())?;
+                    node.suggestions = Some(list.clone());
+                }
+            }
             (Prop::Checked(c), Widget::Checkbox(b)) => {
                 node.shown_checked.set(*c);
                 // The mixed state shows over it.
@@ -574,6 +591,8 @@ impl State {
             (Prop::TextInput(on), Widget::GpuSurface(surface)) => surface.set_text_input(*on),
             (Prop::InputMethod(on), Widget::GpuSurface(surface)) => surface.set_input_method(*on),
             (Prop::TextCursor(caret), Widget::GpuSurface(surface)) => surface.set_text_cursor(*caret),
+            (Prop::PopoverShown(on), Widget::Popover(popover)) => popover.set_shown(*on)?,
+            (Prop::Transparent(on), Widget::GpuSurface(surface)) => surface.set_transparent(*on),
             (Prop::Tweak(tweak), _) => node.tweak = Some(tweak.clone()),
             (Prop::FileDrop(drop), Widget::Host(_) | Widget::Group(_)) => {
                 node.file_drop_sent = true;
@@ -682,6 +701,25 @@ impl State {
                     )
                 });
                 if menu.update(entries, format!("node-{id}"))? {
+                    match &menu.flyout {
+                        Some(flyout) => control.SetContextFlyout(flyout)?,
+                        None => control.SetContextFlyout(menu.own.as_ref())?,
+                    }
+                }
+                set_hit_testable(node)?;
+            }
+            // Built as it opens, from the flyout's `Opening`; the
+            // `ContextMenu` the build sets then fills the same flyout.
+            (Prop::ContextMenuOnOpen(on_open), _) => {
+                let control: w::IUIElement = node.control().cast()?;
+                let events = self.emitter.clone();
+                let menu = node.context_menu.get_or_insert_with(|| {
+                    ContextMenu::new(
+                        Rc::new(move |item| events.emit(id, UiEvent::ContextMenuItem(item))),
+                        control.ContextFlyout().ok(),
+                    )
+                });
+                if menu.set_on_open(on_open.as_ref(), format!("node-{id}"))? {
                     match &menu.flyout {
                         Some(flyout) => control.SetContextFlyout(flyout)?,
                         None => control.SetContextFlyout(menu.own.as_ref())?,
@@ -835,4 +873,22 @@ fn align_label(l: &w::TextBlock, align: HorizontalAlign) -> R<()> {
         (HorizontalAlign::Right, false) | (HorizontalAlign::Left, true) => w::TextAlignment::Right,
     })?;
     Ok(())
+}
+
+/// An item of a search box's list: its title, or its title over its detail,
+/// a caption in the secondary text colour (as a sidebar item's subtitle).
+fn suggestion_item(suggestion: &mitsuami_core::Suggestion) -> R<IInspectable> {
+    let Some(detail) = &suggestion.detail else { return Ok(boxed(&suggestion.title)) };
+    let panel = w::StackPanel::new()?;
+    let children = panel.cast::<w::IPanel>()?.Children()?;
+    let title = w::TextBlock::new()?;
+    title.cast::<w::ITextBlock>()?.SetText(&suggestion.title)?;
+    let second = w::TextBlock::new()?;
+    second.cast::<w::ITextBlock>()?.SetText(detail)?;
+    set_label_style(&second, Some(TextStyle::Caption), Some(mitsuami_core::Color::SecondaryLabel))?;
+    for line in [&title, &second] {
+        line.cast::<w::ITextBlock>()?.SetTextTrimming(w::TextTrimming::CharacterEllipsis)?;
+        children.Append(&line.cast::<w::UIElement>()?)?;
+    }
+    panel.cast()
 }

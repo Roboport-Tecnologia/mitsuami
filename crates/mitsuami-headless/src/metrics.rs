@@ -9,6 +9,9 @@ use mitsuami_core::{Insets, Size};
 pub(super) const TOOLBAR_HEIGHT: f32 = 40.0;
 pub(super) const TOOLBAR_SPACING: f32 = 8.0;
 
+/// A popover shows this far under its parent.
+pub(super) const POPOVER_GAP: f32 = 6.0;
+
 /// A window's sidebar: this wide, on the leading side of its content, as
 /// high as it.
 pub(super) const SIDEBAR_WIDTH: f32 = 200.0;

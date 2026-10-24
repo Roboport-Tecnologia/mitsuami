@@ -279,6 +279,60 @@ async fn list_rows_have_their_own(app: TestApp) {
     app.expect(by_role(Role::ListItem, "Windows XP")).to_exist().await;
 }
 
+/// A row's menu built as it opens acts on what's selected then: the
+/// selection when the row is in it, as Finder's and Explorer's do, else the
+/// row alone. It isn't built before it opens.
+#[mitsuami_test::test]
+async fn menus_built_as_they_open_read_the_selection_then(app: TestApp) {
+    let machines = signal(vec![
+        Machine { id: 1, name: "Windows 98".into() },
+        Machine { id: 2, name: "Windows XP".into() },
+        Machine { id: 3, name: "Windows 7".into() },
+    ]);
+    let selected = signal(Vec::<u32>::new());
+    let deleted = signal(String::new());
+    let built = Rc::new(RefCell::new(0));
+    let count = built.clone();
+    app.mount(move || {
+        let count = count.clone();
+        Column::new().children((
+            List::new(
+                machines,
+                |m: &Machine| m.id,
+                move |m| {
+                    let (name, id, count) = (m.name.clone(), m.id, count.clone());
+                    let row = Container::new().height(24).test_id(format!("row{id}"));
+                    row.child(Text::new(m.name)).context_menu_on_open(move || {
+                        *count.borrow_mut() += 1;
+                        let chosen = selected.get();
+                        let what = match chosen.contains(&id) && chosen.len() > 1 {
+                            true => format!("{} machines", chosen.len()),
+                            false => name.clone(),
+                        };
+                        MenuItem::new(format!("Delete {what}")).on_select(move || deleted.set(what.clone()))
+                    })
+                },
+            )
+            .selection_mode(SelectionMode::Multiple)
+            .selected(selected)
+            .height(100),
+            Text::new(move || format!("Deleted {}", deleted.get())).test_id("deleted"),
+        ))
+    });
+    assert_eq!(*built.borrow(), 0, "built before it opens");
+
+    selected.set(vec![1, 2]);
+    app.get(by_text("Windows XP")).choose_menu_item(&["Delete 2 machines"]).await;
+    assert_eq!(app.get(by_test_id("deleted")).text().as_deref(), Some("Deleted 2 machines"));
+
+    app.get(by_text("Windows 7")).choose_menu_item(&["Delete Windows 7"]).await;
+    assert_eq!(app.get(by_test_id("deleted")).text().as_deref(), Some("Deleted Windows 7"));
+
+    // The platform carries the menu last built.
+    let menu = native_menu(&app, by_test_id("row3")).expect("a menu");
+    assert_eq!(titles(&menu), ["Delete Windows 7"]);
+}
+
 #[mitsuami_test::test]
 async fn works_in_view_macros(app: TestApp) {
     let chosen = signal(false);

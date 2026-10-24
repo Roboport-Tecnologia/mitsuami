@@ -307,6 +307,15 @@ impl Inner {
             _ => {}
         }
         for child in self.nodes[&parent].native_children.clone() {
+            // A popover is laid out on its own at its natural size, as a
+            // toolbar item is; where it goes is the platform's.
+            if self.nodes[&child].kind == WidgetKind::Popover
+                && let Some(t) = self.nodes[&child].taffy
+            {
+                let available =
+                    taffy::Size { width: taffy::AvailableSpace::MaxContent, height: taffy::AvailableSpace::MaxContent };
+                self.compute_layout(t, available);
+            }
             let node = &self.nodes[&child];
             // A sidebar's frame is the platform's.
             if node.kind != WidgetKind::Sidebar

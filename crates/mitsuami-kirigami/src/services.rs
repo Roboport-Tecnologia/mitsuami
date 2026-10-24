@@ -17,8 +17,8 @@ use std::rc::Rc;
 
 use mitsuami_core::l10n::tr;
 use mitsuami_core::services::{
-    Alert, AlertStyle, FileFilter, Launch, MenuBarData, MenuCheck, MenuData, MenuEntry, MenuItemData, MenuRole,
-    OpenFile, Reply, SaveFile, ServiceError, Services, Shortcut, existing_folder,
+    Alert, AlertStyle, FileFilter, Launch, MenuBarData, MenuCheck, MenuData, MenuEntry, MenuItemData, MenuOnOpen,
+    MenuRole, OpenFile, Reply, SaveFile, ServiceError, Services, Shortcut, existing_folder,
 };
 use mitsuami_core::{Key, NodeId};
 
@@ -354,10 +354,16 @@ fn context_menu_qml(menu: &MenuData) -> Option<MenuQml> {
 /// chosen from code): a table's rows each have one per cell, and making a
 /// `QQC2.Menu` and its items took most of the time rows took to scroll in.
 /// A menu button's menu is one too, its `mitsuamiButtonMenu` (see
-/// `qml::menu_button`), made as its entries come.
+/// `qml::menu_button`), made as its entries come. One the app builds as
+/// it opens (`ContextMenuOnOpen`) is made again each time it's wanted to
+/// open, from what the app builds then.
 pub(crate) struct ContextMenu {
     entries: Rc<RefCell<MenuBarData>>,
     menu: Rc<Cell<Option<QmlObject>>>,
+    /// Builds the menu as it opens, if the app gave that.
+    on_open: Rc<RefCell<Option<MenuOnOpen>>>,
+    /// Whether the app gave entries (`ContextMenu`), not only `on_open`.
+    given: Cell<bool>,
     /// Reports the item chosen.
     choose: Rc<dyn Fn(u32)>,
     /// The item's property that holds the menu.
@@ -373,6 +379,8 @@ impl ContextMenu {
         ContextMenu {
             entries: Rc::default(),
             menu: Rc::default(),
+            on_open: Rc::default(),
+            given: Cell::new(false),
             choose: Rc::new(choose),
             property: CONTEXT_MENU_PROPERTY,
             item: Cell::new(None),
@@ -393,6 +401,7 @@ impl ContextMenu {
     /// changed, which keeps an open menu open.
     pub(crate) fn set(&mut self, item: Option<QmlObject>, entries: &[MenuEntry]) {
         let data = MenuBarData { menus: vec![MenuData { title: String::new(), entries: entries.to_vec() }] };
+        self.given.set(true);
         let same = self.menu.get().is_some() && self.entries.borrow().same_structure(&data);
         self.entries.replace(data);
         if let Some(menu) = self.menu.get().filter(|_| same) {
@@ -409,15 +418,59 @@ impl ContextMenu {
             self.menu.set(build(item, self.property, &self.entries, &self.choose));
             return;
         }
-        item.set_bool("mitsuamiHasContextMenu", !self.entries.borrow().menus[0].entries.is_empty());
-        if self.item.replace(Some(item)) != Some(item) {
-            let (menu, entries, choose) = (self.menu.clone(), self.entries.clone(), self.choose.clone());
-            item.connect("mitsuamiContextMenuWanted()", move || {
-                if menu.get().is_none() {
-                    menu.set(build(item, CONTEXT_MENU_PROPERTY, &entries, &choose));
-                }
-            });
+        self.connect(item);
+    }
+
+    /// Builds the menu as it opens with `on_open`, on `item`, or only
+    /// keeps it if the item can't show a menu (`None`). The node has a
+    /// menu while it has `on_open`, whatever its entries.
+    pub(crate) fn set_on_open(&mut self, item: Option<QmlObject>, on_open: Option<MenuOnOpen>) {
+        self.on_open.replace(on_open);
+        if let Some(item) = item {
+            self.connect(item);
         }
+    }
+
+    /// The app's function that builds the menu as it opens, if it gave one.
+    pub(crate) fn on_open(&self) -> Option<MenuOnOpen> {
+        self.on_open.borrow().clone()
+    }
+
+    /// Whether the app gave the menu's entries, not only `on_open`.
+    pub(crate) fn given(&self) -> bool {
+        self.given.get()
+    }
+
+    /// Tells `item` whether it has a menu, and makes the menu when it's
+    /// wanted: once, or each time with `on_open`.
+    fn connect(&self, item: QmlObject) {
+        let on_open = self.on_open.borrow().is_some();
+        item.set_bool("mitsuamiMenuOnOpen", on_open);
+        item.set_bool("mitsuamiHasContextMenu", on_open || !self.entries.borrow().menus[0].entries.is_empty());
+        if self.item.replace(Some(item)) == Some(item) {
+            return;
+        }
+        let (menu, entries, choose, on_open) =
+            (self.menu.clone(), self.entries.clone(), self.choose.clone(), self.on_open.clone());
+        item.connect("mitsuamiContextMenuWanted()", move || {
+            // A Qt signal from a press or a key: outside any core call, so
+            // the app can build the menu now.
+            let built = on_open.borrow().clone().map(|on_open| on_open.build());
+            if let Some(built) = built {
+                let data = MenuBarData { menus: vec![MenuData { title: String::new(), entries: built }] };
+                if menu.get().is_some() && *entries.borrow() == data {
+                    return;
+                }
+                entries.replace(data);
+                if let Some(old) = menu.take() {
+                    item.set_object(CONTEXT_MENU_PROPERTY, None);
+                    retire(old);
+                }
+            }
+            if menu.get().is_none() {
+                menu.set(build(item, CONTEXT_MENU_PROPERTY, &entries, &choose));
+            }
+        });
     }
 
     /// The menu, made now if it's wanted and not made yet.

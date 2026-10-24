@@ -298,6 +298,14 @@ impl State {
             if sidebars == 1 && node.children.last().map(kind) != Some(WidgetKind::Sidebar) {
                 violation(command, &format!("window {id}'s sidebar isn't after its content and toolbar items"));
             }
+            // A container's popovers come after its content.
+            let popovers = node.children.iter().filter(|c| kind(c) == WidgetKind::Popover).count();
+            if popovers > 0 && (!node.kind.is_container() || node.kind == WidgetKind::Window) {
+                violation(command, &format!("{id} has a popover but isn't a container"));
+            }
+            if node.children[node.children.len() - popovers..].iter().any(|c| kind(c) != WidgetKind::Popover) {
+                violation(command, &format!("{id}'s popovers aren't after its content"));
+            }
             let children = &node.children[..node.children.len() - sidebars];
             let items = children.iter().filter(|c| kind(c) == WidgetKind::ToolbarItem).count();
             if items > 0 && node.kind != WidgetKind::Window {

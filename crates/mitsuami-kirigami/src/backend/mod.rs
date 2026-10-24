@@ -131,6 +131,13 @@ enum Widget {
         host: QmlObject,
         action: QmlObject,
     },
+    /// A popover: its host (the popup's content item) and the
+    /// `QQC2.Popup`, and whether the core wants it shown.
+    Popover {
+        host: QmlObject,
+        popup: QmlObject,
+        wanted: Rc<Cell<bool>>,
+    },
     Label(QmlObject),
     Button(QmlObject),
     MenuButton(QmlObject),
@@ -303,6 +310,9 @@ struct Node {
     /// The direction the core gave an item made without QML (a drawn
     /// item), which has no `LayoutMirroring` to hold it.
     direction: Option<LayoutDirection>,
+    /// Search fields: their suggestions, once the app gave them (the list
+    /// shows only their texts).
+    suggestions: Option<Vec<mitsuami_core::Suggestion>>,
 }
 
 pub(crate) struct State {
