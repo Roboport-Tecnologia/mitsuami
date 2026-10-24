@@ -278,8 +278,13 @@ impl State {
                 // Edits come from the delegate, as a text field's; searches
                 // from the field's action, which AppKit sends when typing
                 // pauses, on Return, and when the field is cleared, but not
-                // for text set in code.
-                let field = NSSearchField::new(mtm);
+                // for text set in code. Made as the password field is: a
+                // search field's `init` leaves its cell unscrollable, so
+                // the text didn't follow the caret past the field's end.
+                // SAFETY: the class method returns an autoreleased instance
+                // of the class it's called on.
+                let field: Retained<NSSearchField> =
+                    unsafe { msg_send![<NSSearchField as objc2::ClassType>::class(), textFieldWithString: &*ns("")] };
                 if let Some(target) = &target {
                     // SAFETY: the node keeps the target alive as long as the field.
                     unsafe {
