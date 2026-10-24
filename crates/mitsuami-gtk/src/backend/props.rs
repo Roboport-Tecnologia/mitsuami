@@ -436,6 +436,10 @@ impl State {
             (Prop::Value(t), Widget::Search(e)) => {
                 if e.text() != t.as_str() {
                     e.set_text(t);
+                    // `set_text` leaves the caret at the start; after a
+                    // picked suggestion it goes past the text, as GTK's
+                    // entry completion puts it.
+                    e.set_position(-1);
                 }
             }
             (Prop::Placeholder(t), Widget::Search(e)) => e.set_placeholder_text(Some(t)),

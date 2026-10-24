@@ -153,6 +153,12 @@ impl Suggestions {
             if !inner.popover.is_visible() {
                 inner.list.unselect_all();
                 inner.popover.popup();
+            } else {
+                // A shown popover is laid out in its surface's size, and
+                // only `present` measures it again: the entry's own
+                // allocation doesn't, so it grew or shrank only when shown
+                // anew (the maintainer's report, 2026-10-24).
+                inner.popover.present();
             }
         } else if inner.popover.is_visible() {
             inner.popover.popdown();
