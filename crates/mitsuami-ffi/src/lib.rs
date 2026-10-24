@@ -26,13 +26,14 @@ use mitsuami::App;
 use mitsuami::core::draw::Path;
 use mitsuami::core::services::{
     Alert, AlertStyle, Launch, MenuCheck, MenuData, MenuEntry, MenuItemData, MenuOnOpen, MenuRole, OpenFile, SaveFile,
+    Shortcut,
 };
 use mitsuami::core::style::{Edges, Position};
 use mitsuami::core::{
     A11yAction, A11yProps, Align, ButtonRole, ButtonStyle, Canvas, Color, Custom, CustomWidget, DocumentTabsStyle,
-    Drawn, EventValue, FileDrop, FlexDirection, HeaderEdge, ImageSource, Justify, Length, List, ListHandle, ListStyle,
-    MeasureRequest, Modality, NodeId, PathStep, Pixels, PlatformMetrics, Point, PointerKind, Prop, Rect, Render,
-    Renderer, Role, RowDrop, RowMoves, ScrollAxes, SelectionMode, Shape, Size, Sort, SortOrder, Spacing, Table,
+    Drawn, EventValue, FileDrop, FlexDirection, HeaderEdge, ImageSource, Justify, Key, Length, List, ListHandle,
+    ListStyle, MeasureRequest, Modality, NodeId, PathStep, Pixels, PlatformMetrics, Point, PointerKind, Prop, Rect,
+    Render, Renderer, Role, RowDrop, RowMoves, ScrollAxes, SelectionMode, Shape, Size, Sort, SortOrder, Spacing, Table,
     TableColumn, TextStyle, Ui, UiEvent, VectorIcon, View, WidgetKind, WindowSize,
 };
 use mitsuami::reactive::{Owner, Signal, on_cleanup, signal, watch};
@@ -1326,6 +1327,9 @@ pub enum MitsuamiEventKind {
     PopoverShownChanged = 16,
     /// The user picked a search field's suggestion: `index` is which.
     SuggestionChosen = 17,
+    /// A key the node takes (`mitsuami_set_keys`) was pressed: `index` is
+    /// its place in the list the app gave.
+    Key = 18,
 }
 
 #[repr(u32)]
@@ -1381,6 +1385,7 @@ pub extern "C" fn mitsuami_on_event(
                 UiEvent::MenuItem(_) => MitsuamiEventKind::MenuItem,
                 UiEvent::PopoverShownChanged(_) => MitsuamiEventKind::PopoverShownChanged,
                 UiEvent::SuggestionChosen(_) => MitsuamiEventKind::SuggestionChosen,
+                UiEvent::Key(_) => MitsuamiEventKind::Key,
                 UiEvent::DropHover(_) => MitsuamiEventKind::DropHover,
                 UiEvent::FilesDropped(_) => MitsuamiEventKind::FilesDropped,
                 UiEvent::Pointer(_) => MitsuamiEventKind::Pointer,
@@ -1428,6 +1433,16 @@ pub extern "C" fn mitsuami_on_event(
                 UiEvent::SuggestionChosen(index) => {
                     out.value_kind = MitsuamiValueKind::Index as u32;
                     out.index = *index as u64;
+                }
+                UiEvent::Key(shortcut) => {
+                    let keys = ui().ok().and_then(|ui| {
+                        ui.props(node(id)).into_iter().find_map(|p| match p {
+                            Prop::Keys(keys) => Some(keys),
+                            _ => None,
+                        })
+                    });
+                    out.value_kind = MitsuamiValueKind::Index as u32;
+                    out.index = keys.and_then(|k| k.iter().position(|s| s == shortcut)).unwrap_or(0) as u64;
                 }
                 UiEvent::TabCloseRequested(index) => {
                     out.value_kind = MitsuamiValueKind::Index as u32;
@@ -2286,6 +2301,86 @@ pub unsafe extern "C" fn mitsuami_open_file(
             let strs: Vec<MitsuamiStr> = paths.iter().map(|p| MitsuamiStr { ptr: p.as_ptr(), len: p.len() }).collect();
             answer(user as *mut c_void, strs.as_ptr(), strs.len());
         });
+        Ok(())
+    })
+    .is_some()
+}
+
+/// A key and its modifiers. `key` is a `MitsuamiKey`; `ch` is the
+/// character for `Char` and the number for `F` (1 for F1).
+#[repr(C)]
+#[derive(Clone, Copy)]
+pub struct MitsuamiShortcut {
+    pub key: u32,
+    pub ch: u32,
+    /// ⌘ on macOS, Ctrl elsewhere.
+    pub primary: bool,
+    pub shift: bool,
+    pub alt: bool,
+}
+
+#[repr(u32)]
+pub enum MitsuamiKey {
+    Char = 0,
+    Enter = 1,
+    Escape = 2,
+    Tab = 3,
+    /// The key that deletes backwards: Delete (⌫) on Apple keyboards.
+    Backspace = 4,
+    /// The key that deletes forwards.
+    Delete = 5,
+    Up = 6,
+    Down = 7,
+    Left = 8,
+    Right = 9,
+    Home = 10,
+    End = 11,
+    PageUp = 12,
+    PageDown = 13,
+    F = 14,
+}
+
+fn shortcut(s: &MitsuamiShortcut) -> Result<Shortcut, String> {
+    let key = match s.key {
+        0 => Key::Char(char::from_u32(s.ch).ok_or_else(|| format!("bad character {}", s.ch))?),
+        1 => Key::Enter,
+        2 => Key::Escape,
+        3 => Key::Tab,
+        4 => Key::Backspace,
+        5 => Key::Delete,
+        6 => Key::Up,
+        7 => Key::Down,
+        8 => Key::Left,
+        9 => Key::Right,
+        10 => Key::Home,
+        11 => Key::End,
+        12 => Key::PageUp,
+        13 => Key::PageDown,
+        14 => Key::F(u8::try_from(s.ch).map_err(|_| format!("bad function key {}", s.ch))?),
+        key => return Err(format!("unknown key {key}")),
+    };
+    let mut shortcut = if s.primary { Shortcut::primary(key) } else { Shortcut::new(key) };
+    if s.shift {
+        shortcut = shortcut.shift();
+    }
+    if s.alt {
+        shortcut = shortcut.alt();
+    }
+    Ok(shortcut)
+}
+
+/// The keys a container, list or table takes while it, or a control in
+/// it, has keyboard focus and the focused control doesn't use them: each
+/// is reported as a `Key` event with its index here. None: it takes none.
+///
+/// # Safety
+/// `keys` points to `count` shortcuts.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn mitsuami_set_keys(id: u32, keys: *const MitsuamiShortcut, count: usize) -> bool {
+    guard(|| {
+        let keys = if count == 0 { &[][..] } else { unsafe { std::slice::from_raw_parts(keys, count) } };
+        let keys = keys.iter().map(shortcut).collect::<Result<Vec<_>, _>>()?;
+        ui()?.set_prop(node(id), Prop::Keys(keys));
         Ok(())
     })
     .is_some()

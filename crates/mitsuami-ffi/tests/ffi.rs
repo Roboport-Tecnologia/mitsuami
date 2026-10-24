@@ -6,7 +6,7 @@ use std::cell::RefCell;
 use std::ffi::c_void;
 use std::sync::atomic::{AtomicU32, Ordering};
 
-use mitsuami::core::services::Launch;
+use mitsuami::core::services::{Launch, Shortcut};
 use mitsuami::core::{Color, ImageSource, Modality, NodeId, Pixels, Prop, Size, Ui, VectorIcon, View};
 use mitsuami_ffi::*;
 use mitsuami_test::prelude::*;
@@ -50,6 +50,7 @@ extern "C" fn record(_user: *mut c_void, _node: u32, event: *const MitsuamiEvent
         15 => format!("item {}", event.index),
         16 => format!("popover shown {}", event.flag),
         17 => format!("suggestion {}", event.index),
+        18 => format!("key {}", event.index),
         // Where focus goes on a click differs per platform.
         3 | 4 => return,
         kind => format!("event {kind}"),
@@ -351,6 +352,55 @@ async fn drop_downs_report_the_option_chosen(app: TestApp) {
 
     app.get_by_role(Role::ComboBox, "Group").select_option("Personal").await;
     assert_eq!(heard(), ["chose 2"]);
+}
+
+/// Keys a list doesn't use itself reach it, a letter included (AppKit's
+/// table would take it to select a row by typing).
+#[mitsuami_test::test]
+async fn lists_take_keys_their_control_passes_on(app: TestApp) {
+    attach(app.ui());
+    heard();
+    let list = mitsuami_create_list(MitsuamiListCallbacks {
+        build_row,
+        release_row,
+        selection_changed,
+        activated,
+        user: std::ptr::null_mut(),
+        moves: 0,
+        moved,
+        still: 1,
+    });
+    assert!(mitsuami_set_size(list, px(300.0), px(200.0)));
+    let keys = strs(&["a", "b"]);
+    assert!(unsafe { mitsuami_list_set_keys(list, keys.as_ptr(), keys.len()) });
+    let shortcut = |key: MitsuamiKey, ch: char, primary| MitsuamiShortcut {
+        key: key as u32,
+        ch: ch as u32,
+        primary,
+        shift: false,
+        alt: false,
+    };
+    let taken = [
+        shortcut(MitsuamiKey::Char, 'p', false),
+        shortcut(MitsuamiKey::F, '\u{2}', false),
+        shortcut(MitsuamiKey::Char, 'd', true),
+    ];
+    assert!(unsafe { mitsuami_set_keys(list, taken.as_ptr(), taken.len()) });
+    assert!(mitsuami_on_event(list, record, std::ptr::null_mut()));
+    set_text(list, MitsuamiTextProp::A11yLabel, "Commits");
+    app.mount(|| Adopt(list));
+    app.expect(by_role(Role::ListItem, "Repository b")).to_be_visible().await;
+    heard();
+
+    let commits = app.get_by_role(Role::List, "Commits");
+    commits.press('p').await;
+    commits.press(Key::F(2)).await;
+    commits.press(Shortcut::primary('d')).await;
+    assert_eq!(heard(), ["key 0", "key 1", "key 2"]);
+
+    let bad = [MitsuamiShortcut { key: 99, ch: 0, primary: false, shift: false, alt: false }];
+    assert!(!unsafe { mitsuami_set_keys(list, bad.as_ptr(), 1) });
+    assert!(last_error().starts_with("unknown key 99"), "{}", last_error());
 }
 
 #[mitsuami_test::test]
