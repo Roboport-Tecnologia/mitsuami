@@ -7,6 +7,7 @@
 //! the arrows, picks with Return and hides it with Escape.
 
 use std::cell::{Cell, RefCell};
+use std::rc::{Rc, Weak};
 
 use mitsuami_core::{EventSink, NodeId, Suggestion, UiEvent};
 use objc2::rc::Retained;
@@ -23,7 +24,7 @@ use objc2_foundation::{NSIndexSet, NSInteger, NSPoint, NSRect, NSSize, NSString}
 const ROW: f64 = 24.0;
 /// The list goes no taller, then scrolls.
 const MOST: f64 = 400.0;
-/// Between the field and the list, and round the rows.
+/// Between the field and the list.
 const GAP: f64 = 4.0;
 
 pub(crate) struct Ivars {
@@ -32,6 +33,8 @@ pub(crate) struct Ivars {
     items: RefCell<Vec<Suggestion>>,
     /// Escape hid it, or a pick did: hidden until the user types again.
     dismissed: Cell<bool>,
+    /// The list, for showing it again once the app has answered.
+    list: RefCell<Weak<Suggestions>>,
 }
 
 define_class!(
@@ -86,6 +89,14 @@ define_class!(
                 }
             }
         }
+
+        /// A turn after typing: the app has given the text's suggestions.
+        #[unsafe(method(answered))]
+        fn answered(&self) {
+            if let Some(list) = self.ivars().list.borrow().upgrade() {
+                list.sync();
+            }
+        }
     }
 );
 
@@ -98,12 +109,13 @@ pub(crate) struct Suggestions {
 }
 
 impl Suggestions {
-    pub(crate) fn new(mtm: MainThreadMarker, id: NodeId, events: EventSink, field: &NSTextField) -> Suggestions {
+    pub(crate) fn new(mtm: MainThreadMarker, id: NodeId, events: EventSink, field: &NSTextField) -> Rc<Suggestions> {
         let source = SuggestionSource::alloc(mtm).set_ivars(Ivars {
             id,
             events,
             items: RefCell::new(Vec::new()),
             dismissed: Cell::new(false),
+            list: RefCell::new(Weak::new()),
         });
         let source: Retained<SuggestionSource> = unsafe { msg_send![super(source), init] };
         let table = NSTableView::new(mtm);
@@ -147,7 +159,9 @@ impl Suggestions {
         panel.setBackgroundColor(Some(&NSColor::clearColor()));
         panel.setHasShadow(true);
         panel.setContentView(Some(&effect));
-        Suggestions { panel, table, scroll, source, field: field.retain() }
+        let list = Rc::new(Suggestions { panel, table, scroll, source, field: field.retain() });
+        *list.source.ivars().list.borrow_mut() = Rc::downgrade(&list);
+        list
     }
 
     pub(crate) fn items(&self) -> Vec<Suggestion> {
@@ -160,10 +174,18 @@ impl Suggestions {
         self.sync();
     }
 
-    /// The user typed: a list Escape hid shows again.
+    /// The user typed: a list Escape hid shows again. A hidden one waits a
+    /// turn, for the app to answer the new text: its old suggestions
+    /// flashed up, and Escape's clearing the field hid them again.
     pub(crate) fn typed(&self) {
         self.source.ivars().dismissed.set(false);
-        self.sync();
+        if !self.shown() {
+            // A timer, so after the turn's end, where the app's handlers
+            // run; a main-queue block can run before it.
+            let _: () = unsafe {
+                msg_send![&self.source, performSelector: sel!(answered), withObject: None::<&NSObject>, afterDelay: 0.0f64]
+            };
+        }
     }
 
     /// Shows the list under the field while it has suggestions, the field
@@ -175,8 +197,12 @@ impl Suggestions {
         else {
             return self.hide();
         };
-        let height = (0..count).map(|row| self.table.rectOfRow(row as NSInteger).size.height).sum::<f64>();
-        let height = (height + 2.0 * GAP).min(MOST);
+        // The rows, with the padding the inset style puts above them again
+        // below them. Not the table's frame: it fills the scroll view, so
+        // it never shrinks back for fewer rows.
+        let first = self.table.rectOfRow(0);
+        let last = self.table.rectOfRow(count as NSInteger - 1);
+        let height = (last.origin.y + last.size.height + first.origin.y).min(MOST);
         let on_screen = window.convertRectToScreen(self.field.convertRect_toView(self.field.bounds(), None));
         let frame = NSRect::new(
             NSPoint::new(on_screen.origin.x, on_screen.origin.y - GAP - height),
@@ -184,11 +210,7 @@ impl Suggestions {
         );
         self.panel.setFrame_display(frame, true);
         if let Some(content) = self.panel.contentView() {
-            let bounds = content.bounds();
-            self.scroll.setFrame(NSRect::new(
-                NSPoint::new(bounds.origin.x, bounds.origin.y + GAP),
-                NSSize::new(bounds.size.width, bounds.size.height - 2.0 * GAP),
-            ));
+            self.scroll.setFrame(content.bounds());
         }
         if self.panel.parentWindow().is_none() {
             unsafe { window.addChildWindow_ordered(&self.panel, NSWindowOrderingMode::Above) };

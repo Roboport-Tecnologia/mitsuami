@@ -539,7 +539,7 @@ impl State {
             // suggestions; its keys reach it through the field's delegate.
             (Prop::Suggestions(list), Widget::Field(field)) if node.kind == WidgetKind::SearchInput => {
                 if node.suggestions.is_none() {
-                    let made = std::rc::Rc::new(crate::suggestions::Suggestions::new(mtm, id, events.clone(), field));
+                    let made = crate::suggestions::Suggestions::new(mtm, id, events.clone(), field);
                     if let Some(target) = &node._target {
                         target.set_suggestions(made.clone());
                     }
