@@ -213,6 +213,27 @@ async fn bold_text_is_at_least_as_wide(app: TestApp) {
     assert!(bold >= regular, "bold {bold} is narrower than regular {regular}");
 }
 
+/// A label is as wide as its text, on every platform: twice the text is
+/// twice as wide, give or take a point of rounding each. AppKit's labels
+/// inset their text 2pt a side, outside their alignment rect, where layout
+/// places them: measured with the insets, each label came out 4pt wider
+/// than its text and drew it 2pt left of where it was placed (a letter
+/// centred in a 14pt badge showed at its left, SourceGit's status marks).
+#[mitsuami_test::test]
+async fn a_label_is_as_wide_as_its_text(app: TestApp) {
+    app.mount(|| {
+        Column::new().align(Align::Start).children((
+            Text::new("M").test_id("one"),
+            Text::new("MM").test_id("two"),
+            Text::new("MMMM").test_id("four"),
+        ))
+    });
+    let width = |id| app.get_by_test_id(id).frame().width();
+    let (one, two, four) = (width("one"), width("two"), width("four"));
+    assert!((two - 2.0 * one).abs() <= 2.0, "\"MM\" is {two} wide, \"M\" {one}");
+    assert!((four - 2.0 * two).abs() <= 2.0, "\"MMMM\" is {four} wide, \"MM\" {two}");
+}
+
 /// Start and end are the text's direction's: left and right in
 /// left-to-right text, the other way round in right-to-left.
 #[mitsuami_test::test]
