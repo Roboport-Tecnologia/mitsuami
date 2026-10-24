@@ -200,9 +200,14 @@ impl State {
             // once when the field is emptied, but for any change, the app's
             // too: `set_text` starts the same timer, which fires after the
             // commands are applied. So only a search that follows a user
-            // edit is reported. Return searches at once.
+            // edit is reported. Return searches at once. With
+            // `SearchOnReturn`, typing doesn't search, as GNOME apps that
+            // listen to `activate` alone: only emptying the field does.
             WidgetKind::SearchInput => {
                 let entry = gtk::SearchEntry::new();
+                let on_return: SearchOnReturn = Rc::new(Cell::new(None));
+                // SAFETY: the key only ever holds a `SearchOnReturn`.
+                unsafe { entry.set_data(SEARCH_ON_RETURN, on_return.clone()) };
                 let edited = Rc::new(Cell::new(false));
                 let (e, ed) = (events.clone(), edited.clone());
                 entry.connect_changed(move |entry| {
@@ -211,8 +216,9 @@ impl State {
                 });
                 let (e, ed) = (events.clone(), edited.clone());
                 entry.connect_search_changed(move |entry| {
-                    if ed.replace(false) {
-                        e.emit(id, UiEvent::Search(entry.text().to_string()));
+                    let text = entry.text();
+                    if ed.replace(false) && (on_return.get() != Some(true) || text.is_empty()) {
+                        e.emit(id, UiEvent::Search(text.to_string()));
                     }
                 });
                 // The search the timer would make is this one.
@@ -308,4 +314,14 @@ impl State {
             },
         );
     }
+}
+
+/// Where a search entry keeps the app's `SearchOnReturn`, if it gave one.
+pub(super) const SEARCH_ON_RETURN: &str = "mitsuami-search-on-return";
+pub(super) type SearchOnReturn = Rc<Cell<Option<bool>>>;
+
+/// A search entry's `SearchOnReturn`, as the app gave it.
+pub(super) fn search_on_return(entry: &gtk::SearchEntry) -> Option<SearchOnReturn> {
+    // SAFETY: the key only ever holds a `SearchOnReturn`.
+    unsafe { entry.data::<SearchOnReturn>(SEARCH_ON_RETURN) }.map(|p| unsafe { p.as_ref() }.clone())
 }

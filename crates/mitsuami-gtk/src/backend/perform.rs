@@ -225,8 +225,14 @@ impl GtkBackend {
                 entry.set_position(-1);
                 events.emit(id, UiEvent::Changed(EventValue::Text(text.clone())));
                 // An edit searches, once: the muted `set_text` isn't
-                // searched for when GTK's timer fires.
-                if kind == WidgetKind::SearchInput {
+                // searched for when GTK's timer fires. Only on Return, an
+                // edit doesn't, but emptying the field does.
+                let on_return = widget
+                    .downcast_ref::<gtk::SearchEntry>()
+                    .and_then(super::create::search_on_return)
+                    .and_then(|c| c.get())
+                    == Some(true);
+                if kind == WidgetKind::SearchInput && (!on_return || text.is_empty()) {
                     events.emit(id, UiEvent::Search(text.clone()));
                 }
             }

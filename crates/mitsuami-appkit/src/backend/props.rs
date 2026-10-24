@@ -529,6 +529,12 @@ impl State {
                 }
             },
             (Prop::PopoverShown(on), Widget::Popover(popover)) => popover.set_shown(*on),
+            (Prop::SearchOnReturn(on), Widget::Field(field)) => {
+                if let Some(search) = field.downcast_ref::<objc2_app_kit::NSSearchField>() {
+                    search.setSendsWholeSearchString(*on);
+                    node.search_on_return = true;
+                }
+            }
             // A search field's list under it, made with its first
             // suggestions; its keys reach it through the field's delegate.
             (Prop::Suggestions(list), Widget::Field(field)) if node.kind == WidgetKind::SearchInput => {

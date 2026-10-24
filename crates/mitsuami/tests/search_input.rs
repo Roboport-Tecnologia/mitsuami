@@ -103,6 +103,34 @@ async fn return_searches(app: TestApp) {
     assert_eq!(searches.borrow()[before..], ["ap".to_string()]);
 }
 
+/// For searches that take a while: typing doesn't search, Return does,
+/// and emptying the field still does.
+#[mitsuami_test::test]
+async fn searches_on_return_when_told(app: TestApp) {
+    let searches = Rc::new(RefCell::new(Vec::new()));
+    let log = searches.clone();
+    app.mount(move || {
+        let log = log.clone();
+        Column::new().padding(16).child(
+            SearchInput::new().a11y_label("Search").search_on_return(true).on_search(move |q| log.borrow_mut().push(q)),
+        )
+    });
+    let field = app.get_by_label("Search");
+    assert!(field.native_state().props.contains(&Prop::SearchOnReturn(true)));
+
+    field.type_text("ap").await;
+    wait_past_the_search_delay(&app).await;
+    assert!(searches.borrow().is_empty(), "{:?}", searches.borrow());
+    field.fill("apr").await;
+    wait_past_the_search_delay(&app).await;
+    assert!(searches.borrow().is_empty(), "{:?}", searches.borrow());
+
+    field.press(Key::Enter).await;
+    assert_eq!(*searches.borrow(), ["apr".to_string()]);
+    field.fill("").await;
+    assert_eq!(searches.borrow().last().map(String::as_str), Some(""));
+}
+
 /// Emptying the field searches for nothing, as its clear button does.
 #[mitsuami_test::test]
 async fn clearing_searches_for_nothing(app: TestApp) {

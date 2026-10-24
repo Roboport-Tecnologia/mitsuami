@@ -326,6 +326,7 @@ impl State {
                 widget,
                 _target: target,
                 suggestions: None,
+                search_on_return: false,
                 _targets: targets,
                 parent: None,
                 row: None,

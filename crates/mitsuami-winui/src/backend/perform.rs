@@ -110,7 +110,7 @@ impl WinUiBackend {
                 return Ok(());
             }
         }
-        let (element, kind, enabled, shown_text, events, custom) = {
+        let (element, kind, enabled, shown_text, events, custom, on_return) = {
             let state = self.state.borrow();
             let node = state.nodes.get(&id).ok_or(ActionError::UnknownNode)?;
             let enabled = is_control(&node.widget)
@@ -119,7 +119,8 @@ impl WinUiBackend {
                 Widget::Custom { render, props } => Some((render.clone(), props.props().clone())),
                 _ => None,
             };
-            (node.control().clone(), node.kind, enabled, node.shown_text.clone(), state.emitter(), custom)
+            let on_return = node.search_on_return.get() == Some(true);
+            (node.control().clone(), node.kind, enabled, node.shown_text.clone(), state.emitter(), custom, on_return)
         };
         if enabled == Some(false) {
             return Err(ActionError::Disabled);
@@ -230,7 +231,9 @@ impl WinUiBackend {
                 };
                 set.map_err(|_| ActionError::Unsupported)?;
                 events.emit(id, UiEvent::Changed(EventValue::Text(text.clone())));
-                events.emit(id, UiEvent::Search(text.clone()));
+                if !on_return || text.is_empty() {
+                    events.emit(id, UiEvent::Search(text.clone()));
+                }
             }
             // Password boxes don't let UI Automation set their value.
             (A11yAction::SetValue(text), WidgetKind::PasswordInput) => {

@@ -488,6 +488,9 @@ struct Node {
     /// Search fields: the suggestions their list shows, set once the core
     /// gave some (XAML's items are views, not the data).
     suggestions: Option<Vec<mitsuami_core::Suggestion>>,
+    /// Search fields: the app's `SearchOnReturn`, if it gave one. On, only
+    /// `QuerySubmitted` and an emptied field search.
+    search_on_return: Rc<Cell<Option<bool>>>,
     /// Hosts and groups: the files they take and the drag over them, while
     /// they take some, and whether the core ever sent `FileDrop`.
     file_drop: Option<crate::drop::DropTarget>,

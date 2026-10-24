@@ -254,6 +254,8 @@ struct Node {
     _target: Option<Retained<ActionTarget>>,
     /// A search field's suggestions, made with the first.
     suggestions: Option<std::rc::Rc<crate::suggestions::Suggestions>>,
+    /// A search field: the app said when it searches.
+    search_on_return: bool,
     /// Action targets of native renders and native views.
     _targets: Vec<Retained<ClosureTarget>>,
     parent: Option<NodeId>,

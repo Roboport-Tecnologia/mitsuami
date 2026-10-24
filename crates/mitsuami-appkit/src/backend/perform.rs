@@ -5,7 +5,7 @@ use mitsuami_core::{EventValue, NodeId, SelectionMode, UiEvent, WidgetKind};
 use objc2::rc::Retained;
 use objc2::runtime::AnyObject;
 use objc2::{Message, msg_send};
-use objc2_app_kit::{NSPopUpButton, NSScrollView, NSSlider, NSTextField, NSTextView, NSView};
+use objc2_app_kit::{NSPopUpButton, NSScrollView, NSSearchField, NSSlider, NSTextField, NSTextView, NSView};
 use objc2_foundation::NSArray;
 
 use crate::custom::Emitter;
@@ -234,7 +234,9 @@ impl AppKitBackend {
                 // technology edits are user edits, so report one, and the
                 // search a search field's edits ask for.
                 events.emit(id, UiEvent::Changed(EventValue::Text(text.clone())));
-                if kind == WidgetKind::SearchInput {
+                // Unless it searches on Return only: then only clearing does.
+                let whole = field.downcast_ref::<NSSearchField>().is_some_and(|f| f.sendsWholeSearchString());
+                if kind == WidgetKind::SearchInput && (!whole || text.is_empty()) {
                     events.emit(id, UiEvent::Search(text.clone()));
                 }
             }

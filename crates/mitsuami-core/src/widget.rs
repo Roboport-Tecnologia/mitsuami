@@ -1119,6 +1119,12 @@ pub enum Prop {
     /// doesn't on Qt). The field keeps the keyboard: the arrows move
     /// through the list, Return picks, Escape hides it. Empty: none.
     Suggestions(Vec<Suggestion>),
+    /// A `SearchInput` searches on Return (and when cleared), not as the
+    /// user types: each platform's setting for searches that take a while
+    /// (AppKit's `sendsWholeSearchString`, GTK's `activate` alone, WinUI's
+    /// `QuerySubmitted` alone, Kirigami's `autoAccept` off). Sent only if
+    /// the app chose.
+    SearchOnReturn(bool),
     /// A `Container` at the top of its window's content is the window's
     /// header, the part that stays while what's under it scrolls: on
     /// AppKit it goes in the title bar, under the title and toolbar, in

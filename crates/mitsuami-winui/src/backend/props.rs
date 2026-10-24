@@ -468,6 +468,7 @@ impl State {
             // the secondary caption style, as a sidebar item's subtitle.
             // It opens with items while the box has focus, as XAML opens
             // it as the user types, and closes empty.
+            (Prop::SearchOnReturn(on), Widget::Search(_)) => node.search_on_return.set(Some(*on)),
             (Prop::Suggestions(list), Widget::Search(s)) => {
                 if node.suggestions.as_ref() != Some(list) {
                     let items = s.cast::<w::IItemsControl>()?.Items()?;

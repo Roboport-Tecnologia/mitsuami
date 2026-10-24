@@ -293,6 +293,9 @@ impl State {
                 }
             }
             (Prop::Placeholder(t), Widget::Field(f)) => f.set_str("placeholderText", t),
+            (Prop::SearchOnReturn(on), Widget::Field(f)) if node.kind == WidgetKind::SearchInput => {
+                f.set_int("mitsuamiOnReturn", i32::from(*on))
+            }
             (Prop::Suggestions(list), Widget::Field(f)) if node.kind == WidgetKind::SearchInput => {
                 let titles: Vec<String> = list.iter().map(|s| s.title.clone()).collect();
                 let details: Vec<String> = list.iter().map(|s| s.detail.clone().unwrap_or_default()).collect();

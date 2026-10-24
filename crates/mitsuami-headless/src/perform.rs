@@ -83,7 +83,8 @@ impl HeadlessBackend {
                 }
                 state.set_prop(id, Prop::Value(text.clone()));
                 state.emit(id, UiEvent::Changed(EventValue::Text(text.clone())));
-                if kind == WidgetKind::SearchInput {
+                let on_return = find_prop!(state.nodes[&id].props, SearchOnReturn) == Some(true);
+                if kind == WidgetKind::SearchInput && (!on_return || text.is_empty()) {
                     state.emit(id, UiEvent::Search(text.clone()));
                 }
             }

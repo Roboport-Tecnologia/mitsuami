@@ -215,6 +215,13 @@ impl SearchInput {
         self
     }
 
+    /// Searches on Return (and when cleared), not as the user types: for
+    /// searches that take a while, with each platform's own setting for it.
+    pub fn search_on_return(mut self, on: impl IntoValue<bool>) -> SearchInput {
+        self.0.prop(on.into_value(), Prop::SearchOnReturn);
+        self
+    }
+
     /// What it suggests for its text, in a list under it as the platform
     /// shows a field's suggestions; empty: none. The field keeps the
     /// keyboard: the arrows move through the list, Return picks one, and

@@ -439,6 +439,11 @@ impl State {
                 }
             }
             (Prop::Placeholder(t), Widget::Search(e)) => e.set_placeholder_text(Some(t)),
+            (Prop::SearchOnReturn(on), Widget::Search(e)) => {
+                if let Some(cell) = super::create::search_on_return(e) {
+                    cell.set(Some(*on));
+                }
+            }
             (Prop::Value(t), Widget::TextArea { view, .. }) => {
                 let buffer = view.buffer();
                 if buffer_text(&buffer) != *t {

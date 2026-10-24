@@ -88,6 +88,8 @@ impl GtkBackend {
             }
             Widget::Search(e) => {
                 props.push(Prop::Value(e.text().to_string()));
+                // Kept: GTK has no such setting to read.
+                props.extend(super::create::search_on_return(e).and_then(|c| c.get()).map(Prop::SearchOnReturn));
                 if let Some(p) = e.placeholder_text() {
                     props.push(Prop::Placeholder(p.to_string()));
                 }

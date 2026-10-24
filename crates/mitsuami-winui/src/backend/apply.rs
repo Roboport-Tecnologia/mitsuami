@@ -731,9 +731,14 @@ impl State {
             _ => None,
         };
         if let Some(value) = changed {
-            // A search box's edit is a search too, as its TextChanged is.
+            // A search box's edit is a search too, as its TextChanged is,
+            // unless only on Return (an emptied field still searches).
             let search = match (&node.widget, &value) {
-                (Widget::Search(_), EventValue::Text(text)) => Some(text.clone()),
+                (Widget::Search(_), EventValue::Text(text))
+                    if node.search_on_return.get() != Some(true) || text.is_empty() =>
+                {
+                    Some(text.clone())
+                }
                 _ => None,
             };
             self.emitter.emit(id, UiEvent::Changed(value));

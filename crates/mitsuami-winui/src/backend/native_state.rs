@@ -99,6 +99,8 @@ impl WinUiBackend {
                 props.push(Prop::Value(search_text(s)?));
                 // Kept: the list's items are views.
                 props.extend(node.suggestions.clone().map(Prop::Suggestions));
+                // Kept: XAML has no such setting to read.
+                props.extend(node.search_on_return.get().map(Prop::SearchOnReturn));
                 let placeholder = search.PlaceholderText().ok()?;
                 if !placeholder.is_empty() {
                     props.push(Prop::Placeholder(placeholder));

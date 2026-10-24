@@ -74,6 +74,9 @@ impl KirigamiBackend {
                 props.push(Prop::ReadOnly(f.bool("readOnly")));
                 // Kept: the list shows only their texts.
                 props.extend(node.suggestions.clone().map(Prop::Suggestions));
+                if node.kind == WidgetKind::SearchInput && f.int("mitsuamiOnReturn") >= 0 {
+                    props.push(Prop::SearchOnReturn(!f.bool("autoAccept")));
+                }
                 if let Widget::TextArea { root, area } = &node.widget {
                     props.push(Prop::Lines(root.int("mitsuamiLines") as u32));
                     props.push(Prop::LineWrap(area.int("wrapMode") != TEXT_EDIT_NO_WRAP));

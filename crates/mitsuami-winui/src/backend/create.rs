@@ -21,6 +21,7 @@ impl State {
     pub(super) fn create(&mut self, id: NodeId, kind: WidgetKind, command: &Command) -> R<()> {
         let emitter = self.emitter();
         let shown_text = Rc::new(RefCell::new(String::new()));
+        let search_on_return = Rc::new(Cell::new(None));
         let shown_checked = Rc::new(Cell::new(false));
         let shown_mixed = Rc::new(Cell::new(false));
         let shown_index = Rc::new(Cell::new(-1));
@@ -402,14 +403,19 @@ impl State {
                 // text is the field's, as it shows it: the box's own `Text`
                 // follows it later, and a late event read the text from
                 // before the last edit (the contacts search went back).
+                // Only on Return, an edit doesn't search unless it empties
+                // the field.
                 revokers.push(iface.TextChanged({
                     let (emitter, shown, field) = (emitter.clone(), shown_text.clone(), RefCell::new(None));
+                    let on_return = search_on_return.clone();
                     move |sender, _| {
                         let Some(text) = sender.as_ref().and_then(|s| search_text_with(s, &field)) else { return };
                         if *shown.borrow() != text {
                             *shown.borrow_mut() = text.clone();
                             emitter.emit(id, UiEvent::Changed(EventValue::Text(text.clone())));
-                            emitter.emit(id, UiEvent::Search(text));
+                            if on_return.get() != Some(true) || text.is_empty() {
+                                emitter.emit(id, UiEvent::Search(text));
+                            }
                         }
                     }
                 })?);
@@ -564,6 +570,7 @@ impl State {
                 password_all: Cell::new(false),
                 button_menu: None,
                 suggestions: None,
+                search_on_return,
                 caption: String::new(),
                 icon: String::new(),
                 vector_icon: None,

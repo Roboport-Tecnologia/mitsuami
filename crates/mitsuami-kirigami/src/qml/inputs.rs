@@ -20,6 +20,10 @@ pub(crate) fn password_field() -> String {
 /// knows, which Rust sets with its own. The clear button's edit isn't a
 /// `textEdited`, so it's reported (`mitsuamiEdited`) as the search comes.
 ///
+/// With `SearchOnReturn` (`mitsuamiOnReturn`: -1 unset, 0, 1), `autoAccept`
+/// is off, Kirigami's own setting: it searches on Return alone, and an
+/// emptied field (by the user, or the clear button) searches at once.
+///
 /// Its suggestions (`mitsuamiTitles`, `mitsuamiDetails`, set by Rust) are a
 /// list of `SubtitleDelegate`s in a popup under it that never takes the
 /// keyboard, shown while there are some, the field has focus, and Escape
@@ -39,6 +43,8 @@ Kirigami.SearchField {{
     property var mitsuamiDetails: []
     property bool mitsuamiDismissed: false
     property int mitsuamiChoice: -1
+    property int mitsuamiOnReturn: -1
+    autoAccept: mitsuamiOnReturn !== 1
     signal mitsuamiEdited()
     signal mitsuamiSearched()
     signal mitsuamiSuggestionChosen()
@@ -92,6 +98,19 @@ Kirigami.SearchField {{
         mitsuamiShown = text
         mitsuamiPending = true
         mitsuamiEdited()
+        if (!autoAccept && text === "") {{
+            mitsuamiPending = false
+            mitsuamiSearched()
+        }}
+    }}
+    // Only on Return: the clear button empties it without a search of
+    // Kirigami's, so it's reported here; the core's own text is shown
+    // already, so it isn't.
+    onTextChanged: {{
+        if (autoAccept || text !== "" || mitsuamiShown === "") return
+        mitsuamiShown = text
+        mitsuamiEdited()
+        mitsuamiSearched()
     }}
     // Seen before the field takes it, and left to it. Not `onPressed`:
     // the context menu's handler is (`CONTEXT_MENU`), and it leaves these

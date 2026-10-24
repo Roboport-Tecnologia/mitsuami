@@ -21,6 +21,12 @@ pub(super) fn native_state(state: &State, id: NodeId) -> Option<NativeState> {
     let mut props = Vec::new();
     // Kept: what the list under the field shows.
     props.extend(node.suggestions.as_ref().map(|list| Prop::Suggestions(list.items())));
+    if node.search_on_return
+        && let Widget::Field(field) = &node.widget
+        && let Some(search) = field.downcast_ref::<objc2_app_kit::NSSearchField>()
+    {
+        props.push(Prop::SearchOnReturn(search.sendsWholeSearchString()));
+    }
     let checked = |s: isize| Prop::Checked(s == NSControlStateValueOn);
     match &node.widget {
         Widget::Window { window, _delegate, .. } => {

@@ -556,6 +556,9 @@ pub enum MitsuamiBoolProp {
     Selectable = 9,
     /// A popover is shown by its parent.
     PopoverShown = 10,
+    /// A search field searches on Return (and when cleared), not as the
+    /// user types.
+    SearchOnReturn = 11,
 }
 
 #[unsafe(no_mangle)]
@@ -573,6 +576,7 @@ pub extern "C" fn mitsuami_set_bool(id: u32, prop: u32, value: bool) -> bool {
             8 => Prop::SidebarPane(value),
             9 => Prop::Selectable(value),
             10 => Prop::PopoverShown(value),
+            11 => Prop::SearchOnReturn(value),
             _ => return Err(format!("unknown bool prop {prop}")),
         };
         ui()?.set_prop(node(id), prop);
