@@ -286,7 +286,8 @@ impl State {
                 | Prop::Cursor(_)
                 | Prop::TextInput(_)
                 | Prop::InputMethod(_)
-                | Prop::TextCursor(_),
+                | Prop::TextCursor(_)
+                | Prop::Transparent(_),
                 Widget::GpuSurface(surface),
             ) => surface.set_prop(prop),
             (Prop::Icon(name), Widget::Icon { image, .. }) => {

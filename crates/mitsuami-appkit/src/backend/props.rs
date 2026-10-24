@@ -255,6 +255,7 @@ impl State {
             (Prop::TextInput(on), Widget::GpuSurface(view)) => view.set_text_input(*on),
             (Prop::InputMethod(on), Widget::GpuSurface(view)) => view.set_input_method(*on),
             (Prop::TextCursor(caret), Widget::GpuSurface(view)) => view.set_text_cursor(*caret),
+            (Prop::Transparent(on), Widget::GpuSurface(view)) => view.set_transparent(*on),
             (Prop::Label(t), Widget::Progress(p) | Widget::Spinner { indicator: p, .. }) => {
                 p.setAccessibilityLabel(Some(&ns(t)))
             }

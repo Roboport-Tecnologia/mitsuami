@@ -1067,6 +1067,12 @@ pub enum Prop {
     /// Where the caret is on a `GpuSurface` that takes text, in points from
     /// its top left: the input method's candidate window opens by it.
     TextCursor(Option<Rect>),
+    /// A `GpuSurface` lets the window's backdrop show where what the app
+    /// presents isn't opaque: the material the platform puts behind a
+    /// translucent window (AppKit's behind-window vibrancy, WinUI's Mica,
+    /// which its windows always have), or the window's own background where
+    /// there's none. The app still presents with alpha.
+    Transparent(bool),
     /// A `Container` or `Group` takes the files and folders this says
     /// when they're dragged from the platform's file manager and dropped
     /// on it; `None`: none. While acceptable files are over it, the

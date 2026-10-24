@@ -608,6 +608,85 @@ async fn reports_an_input_method_s_composition(app: TestApp) {
     assert_eq!(text, expected, "{log:?}");
 }
 
+/// Transparent, it lets the window's backdrop show through, and stops
+/// when it isn't. The native surface carries it (the mirror check
+/// compares): AppKit by the backdrop under it, the others as set.
+#[mitsuami_test::test]
+async fn lets_the_window_s_backdrop_show_through(app: TestApp) {
+    let transparent = signal(true);
+    app.mount(move || Column::new().child(surface_only().transparent(transparent)));
+    app.settle().await;
+    assert!(app.get(screen()).native_state().props.contains(&Prop::Transparent(true)));
+
+    transparent.set(false);
+    app.settle().await;
+    assert!(app.get(screen()).native_state().props.contains(&Prop::Transparent(false)));
+}
+
+/// On AppKit the backdrop is behind-window vibrancy just under the
+/// surface, at its frame as that changes, and stays just under it as
+/// views come in before and after it (those after above both); it goes
+/// with the surface's transparency.
+#[cfg(target_os = "macos")]
+#[mitsuami_test::test]
+async fn puts_appkit_s_vibrancy_just_under_it(app: TestApp) {
+    use mitsuami::appkit::objc2::rc::Retained;
+    use mitsuami::appkit::objc2_app_kit::{NSView, NSVisualEffectView};
+    use mitsuami::raw_window_handle::RawWindowHandle;
+
+    // Headless has no views.
+    if app.is_headless() {
+        return;
+    }
+    let seen = Rc::new(RefCell::new(Vec::new()));
+    let (transparent, width, before, after) = (signal(true), signal(200.0), signal(false), signal(false));
+    let s = seen.clone();
+    app.mount(move || {
+        Column::new()
+            .child(Show::new(before, || Text::new("Before")))
+            .child(surface(&s).transparent(transparent).style_with(move |st| {
+                st.width = width.get().px();
+                st.height = 100.px();
+            }))
+            .child(Show::new(after, || Text::new("After")))
+    });
+    app.settle().await;
+    let RawWindowHandle::AppKit(appkit) = handle(&seen).window_handle().unwrap().as_raw() else { panic!() };
+    // SAFETY: the handle keeps the view alive, and so does this.
+    let view: Retained<NSView> = unsafe { Retained::retain(appkit.ns_view.cast::<NSView>().as_ptr()) }.unwrap();
+    let parent = unsafe { view.superview() }.expect("in the layout");
+    let at = || parent.subviews().iter().position(|v| std::ptr::eq(&*v, &*view)).expect("among its siblings");
+    let under = || {
+        let siblings = parent.subviews();
+        let backdrops = siblings.iter().filter(|v| v.downcast_ref::<NSVisualEffectView>().is_some()).count();
+        let below = at().checked_sub(1).map(|i| siblings.objectAtIndex(i));
+        (below.filter(|v| v.downcast_ref::<NSVisualEffectView>().is_some()), backdrops)
+    };
+
+    let (backdrop, count) = under();
+    let backdrop = backdrop.expect("vibrancy just under it");
+    assert_eq!(count, 1);
+    assert_eq!(backdrop.frame(), view.frame());
+
+    width.set(320.0);
+    app.expect(screen()).to_have_frame(Rect::new(0.0, 0.0, 320.0, 100.0)).await;
+    assert_eq!(backdrop.frame(), view.frame());
+
+    for show in [after, before] {
+        show.set(true);
+        app.settle().await;
+        let (still, count) = under();
+        assert!(still.is_some_and(|v| std::ptr::eq(&*v, &*backdrop)), "the backdrop left the surface");
+        assert_eq!(count, 1);
+        assert_eq!(backdrop.frame(), view.frame());
+    }
+    assert_eq!(at(), parent.subviews().len() - 2, "the view after it went under it");
+
+    transparent.set(false);
+    app.settle().await;
+    assert_eq!(under(), (None, 0));
+}
+
 /// On macOS, the view a surface is, for messages AppKit and its input
 /// methods send it, and keys as AppKit makes them.
 #[cfg(target_os = "macos")]

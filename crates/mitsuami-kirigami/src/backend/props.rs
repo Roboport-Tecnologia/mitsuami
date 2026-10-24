@@ -183,6 +183,7 @@ impl State {
             (Prop::TextInput(on), Widget::GpuSurface(surface)) => surface.set_text_input(*on),
             (Prop::InputMethod(on), Widget::GpuSurface(surface)) => surface.set_input_method(*on),
             (Prop::TextCursor(caret), Widget::GpuSurface(surface)) => surface.set_text_cursor(*caret),
+            (Prop::Transparent(on), Widget::GpuSurface(surface)) => surface.set_transparent(*on),
             (Prop::Options(options), Widget::Select(s)) => {
                 // A new model resets the chosen index; it stays if it can,
                 // else the first option is chosen, as the core does. It
