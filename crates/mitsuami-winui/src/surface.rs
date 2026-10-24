@@ -161,6 +161,11 @@ struct HostState {
     /// Keys down, by scan code: for the grab's repeats and modifiers, and
     /// to let go of them when focus goes.
     keys_down: HashSet<u32>,
+    /// Keys whose press the grab's hook kept from the system. A release
+    /// whose press the system had (the key went down before the grab
+    /// began) goes on to the system too, or Windows holds the key down
+    /// after the window goes: a Windows key stuck pressed on the desktop.
+    hooked_down: HashSet<u32>,
     /// The cursor the core set, and the one made from its image, at the
     /// scale it was made for.
     cursor: Option<Cursor>,
@@ -224,6 +229,7 @@ impl SurfaceHost {
                 focused: false,
                 tracking: false,
                 keys_down: HashSet::new(),
+                hooked_down: HashSet::new(),
                 cursor: None,
                 made: None,
                 text_input: None,
@@ -1145,6 +1151,7 @@ impl HostState {
             return;
         }
         self.grabbed = true;
+        self.hooked_down.clear();
         GRAB.with(|g| *g.borrow_mut() = Some((hook, self.me.clone())));
     }
 
@@ -1167,10 +1174,17 @@ impl HostState {
     }
 
     /// A key the hook took: reported, with its repeat and the modifiers
-    /// held, from the keys it saw go down.
-    fn hooked_key(&mut self, key: &w::KBDLLHOOKSTRUCT) {
+    /// held, from the keys it saw go down. False for a release whose press
+    /// the system had, which the system must have too.
+    fn hooked_key(&mut self, key: &w::KBDLLHOOKSTRUCT) -> bool {
         let native = key.scanCode | if key.flags & w::LLKHF_EXTENDED as u32 != 0 { 0xE000 } else { 0 };
         let pressed = key.flags & w::LLKHF_UP as u32 == 0;
+        let swallow = if pressed {
+            self.hooked_down.insert(native);
+            true
+        } else {
+            self.hooked_down.remove(&native)
+        };
         let repeat = pressed && !self.keys_down.insert(native);
         if !pressed {
             self.keys_down.remove(&native);
@@ -1188,6 +1202,7 @@ impl HostState {
         // The hook comes before keys are translated: they type nothing.
         let (text, unmodified) = (None, unmodified(key.vkCode, key.scanCode));
         self.report(SurfaceInput::Key { code, native, pressed, repeat, modifiers, text, unmodified });
+        swallow
     }
 
     /// The canvas in the window's client area, in pixels; `None` while it
@@ -1226,8 +1241,9 @@ unsafe extern "system" fn keyboard_hook(code: i32, wparam: w::WPARAM, lparam: w:
         {
             // SAFETY: a low-level keyboard hook's `lparam` is its event.
             let key = unsafe { &*(lparam as *const w::KBDLLHOOKSTRUCT) };
-            state.hooked_key(key);
-            return 1;
+            if state.hooked_key(key) {
+                return 1;
+            }
         }
     }
     unsafe { w::CallNextHookEx(std::ptr::null_mut(), code, wparam, lparam) }
