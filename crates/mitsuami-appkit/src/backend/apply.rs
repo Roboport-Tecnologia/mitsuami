@@ -421,13 +421,16 @@ impl State {
                 if let Some(item) = item {
                     self.release_toolbar_item(item);
                 }
-                let siblings = parent_view.subviews();
+                // A transparent surface's backdrop isn't a sibling: it
+                // stays just under its surface.
+                let siblings: Vec<_> =
+                    parent_view.subviews().iter().filter(|v| !crate::surface::is_backdrop(v)).collect();
                 // A group's box is behind its children.
                 let index = &(index + usize::from(matches!(self.nodes[parent].widget, Widget::Group { .. })));
                 if *index >= siblings.len() {
                     parent_view.addSubview(&child_view);
                 } else {
-                    let before = siblings.objectAtIndex(*index);
+                    let before = crate::surface::lowest(siblings[*index].clone());
                     parent_view.addSubview_positioned_relativeTo(
                         &child_view,
                         NSWindowOrderingMode::Below,

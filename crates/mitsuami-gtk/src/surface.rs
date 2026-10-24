@@ -108,6 +108,9 @@ struct AreaState {
     text_input: Option<bool>,
     input_method: Option<bool>,
     text_cursor: Option<Option<Rect>>,
+    /// What the app set: GTK has no backdrop to show through it, so the
+    /// window's background does, and nothing changes here.
+    transparent: Option<bool>,
     /// The widget's key controller, and the input method context on it
     /// while it takes text.
     keys: glib::WeakRef<gtk::EventControllerKey>,
@@ -157,6 +160,7 @@ impl SurfaceArea {
             gdk_cursor: None,
             text_input: None,
             input_method: None,
+            transparent: None,
             text_cursor: None,
             keys: glib::WeakRef::new(),
             im: None,
@@ -206,6 +210,7 @@ impl SurfaceArea {
                 self.state.borrow_mut().input_method = Some(*on);
                 AreaState::sync_input_method(&self.state);
             }
+            Prop::Transparent(on) => self.state.borrow_mut().transparent = Some(*on),
             Prop::TextCursor(caret) => {
                 let mut state = self.state.borrow_mut();
                 state.text_cursor = Some(*caret);
@@ -255,6 +260,7 @@ impl SurfaceArea {
         props.extend(state.text_input.map(Prop::TextInput));
         props.extend(state.input_method.map(Prop::InputMethod));
         props.extend(state.text_cursor.map(Prop::TextCursor));
+        props.extend(state.transparent.map(Prop::Transparent));
         props
     }
 

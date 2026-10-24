@@ -314,6 +314,18 @@ impl GpuSurface {
         self
     }
 
+    /// Lets the window's backdrop show through it while `on` is true,
+    /// where what the app presents isn't opaque: AppKit puts its
+    /// behind-window vibrancy under it, and WinUI's windows have Mica
+    /// already; GTK and Kirigami have no backdrop, so the window's own
+    /// background shows. The app presents with alpha, premultiplied as
+    /// the compositor reads it (wgpu's `PostMultiplied` mode on Metal, a
+    /// composition swapchain with `PreMultiplied` on Direct3D 12).
+    pub fn transparent(mut self, on: impl IntoValue<bool>) -> GpuSurface {
+        self.0.prop(on.into_value(), Prop::Transparent);
+        self
+    }
+
     /// Takes every key while `grabbed` is true, the system's shortcuts
     /// (as far as the platform lets an app) and the window's own too, and
     /// focuses the surface. The platform ends it when the surface or its

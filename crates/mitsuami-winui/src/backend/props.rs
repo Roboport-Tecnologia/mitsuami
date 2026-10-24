@@ -592,6 +592,7 @@ impl State {
             (Prop::InputMethod(on), Widget::GpuSurface(surface)) => surface.set_input_method(*on),
             (Prop::TextCursor(caret), Widget::GpuSurface(surface)) => surface.set_text_cursor(*caret),
             (Prop::PopoverShown(on), Widget::Popover(popover)) => popover.set_shown(*on)?,
+            (Prop::Transparent(on), Widget::GpuSurface(surface)) => surface.set_transparent(*on),
             (Prop::Tweak(tweak), _) => node.tweak = Some(tweak.clone()),
             (Prop::FileDrop(drop), Widget::Host(_) | Widget::Group(_)) => {
                 node.file_drop_sent = true;

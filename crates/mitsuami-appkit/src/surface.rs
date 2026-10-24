@@ -50,7 +50,8 @@ use objc2_app_kit::{
     NSAccessibility, NSAccessibilityImageRole, NSAllRomanInputSourcesLocaleIdentifier, NSApplication,
     NSApplicationPresentationOptions, NSCursor, NSEvent, NSEventMask, NSEventModifierFlags, NSEventType, NSResponder,
     NSScreen, NSTextInputClient, NSTextInputContext, NSTrackingArea, NSTrackingAreaOptions, NSView,
-    NSViewLayerContentsPlacement, NSWindow, NSWindowDidResignKeyNotification,
+    NSViewLayerContentsPlacement, NSVisualEffectBlendingMode, NSVisualEffectMaterial, NSVisualEffectState,
+    NSVisualEffectView, NSWindow, NSWindowDidResignKeyNotification, NSWindowOrderingMode,
 };
 use objc2_foundation::{
     NSArray, NSAttributedString, NSAttributedStringKey, NSNotFound, NSNotification, NSNotificationCenter,
@@ -194,6 +195,44 @@ pub(crate) struct SurfaceIvars {
     marked: RefCell<String>,
     /// The preedit last reported, so an unchanged one isn't again.
     preedit: RefCell<(String, Option<usize>)>,
+    /// While it's transparent: the window's backdrop, just under it in its
+    /// superview at its frame (see [`Backdrop`]).
+    backdrop: RefCell<Option<Retained<Backdrop>>>,
+}
+
+define_class!(
+    /// A transparent surface's backdrop: behind-window vibrancy, the
+    /// material a translucent window's background is, just under the
+    /// surface in its superview, at its frame. Its own class, so the
+    /// backend can tell it from the nodes' views beside it.
+    #[unsafe(super(NSVisualEffectView, NSView))]
+    #[thread_kind = MainThreadOnly]
+    pub(crate) struct Backdrop;
+);
+
+impl Backdrop {
+    fn new(mtm: MainThreadMarker) -> Retained<Backdrop> {
+        let this: Retained<Backdrop> = unsafe { msg_send![Backdrop::alloc(mtm), initWithFrame: zero_rect()] };
+        // A window's background, behind the window: the desktop through
+        // it, dimmed as the window's is when it isn't the active one.
+        this.setMaterial(NSVisualEffectMaterial::UnderWindowBackground);
+        this.setBlendingMode(NSVisualEffectBlendingMode::BehindWindow);
+        this.setState(NSVisualEffectState::FollowsWindowActiveState);
+        this.setAccessibilityElement(false);
+        this
+    }
+}
+
+/// Whether `view` is a surface's backdrop rather than a node's view.
+pub(crate) fn is_backdrop(view: &NSView) -> bool {
+    view.downcast_ref::<Backdrop>().is_some()
+}
+
+/// What a view placed below `view` goes below: a transparent surface's
+/// backdrop, which stays just under it, or `view` itself.
+pub(crate) fn lowest(view: Retained<NSView>) -> Retained<NSView> {
+    let backdrop = view.downcast_ref::<SurfaceView>().and_then(|s| s.ivars().backdrop.borrow().clone());
+    backdrop.map_or(view, |b| Retained::into_super(Retained::into_super(b)))
 }
 
 define_class!(
@@ -225,7 +264,21 @@ define_class!(
         #[unsafe(method(setFrameSize:))]
         fn set_frame_size(&self, size: NSSize) {
             let _: () = unsafe { msg_send![super(self), setFrameSize: size] };
+            self.follow_frame();
             self.report();
+        }
+
+        #[unsafe(method(setFrameOrigin:))]
+        fn set_frame_origin(&self, origin: NSPoint) {
+            let _: () = unsafe { msg_send![super(self), setFrameOrigin: origin] };
+            self.follow_frame();
+        }
+
+        /// The backdrop comes and goes with it.
+        #[unsafe(method(viewDidMoveToSuperview))]
+        fn did_move_to_superview(&self) {
+            let _: () = unsafe { msg_send![super(self), viewDidMoveToSuperview] };
+            self.place_backdrop();
         }
 
         #[unsafe(method(viewDidChangeBackingProperties))]
@@ -629,6 +682,7 @@ impl SurfaceView {
             typed: RefCell::new(String::new()),
             marked: RefCell::new(String::new()),
             preedit: RefCell::default(),
+            backdrop: RefCell::new(None),
         });
         let view: Retained<SurfaceView> = unsafe { msg_send![super(this), initWithFrame: zero_rect()] };
         view.setWantsLayer(true);
@@ -653,6 +707,7 @@ impl SurfaceView {
         self.ungrab();
         self.stop_watching_keys();
         self.set_takes_input(false);
+        self.set_transparent(false);
     }
 
     pub(crate) fn takes_input(&self) -> bool {
@@ -710,6 +765,48 @@ impl SurfaceView {
 
     pub(crate) fn text_cursor(&self) -> Option<Rect> {
         self.ivars().text_cursor.get()
+    }
+
+    /// Whether it has a backdrop, which is under it whenever it's in a
+    /// superview.
+    pub(crate) fn transparent(&self) -> bool {
+        self.ivars().backdrop.borrow().is_some()
+    }
+
+    /// Transparent, a backdrop goes just under it: the layer composites
+    /// what the app presents over it wherever that isn't opaque (wgpu
+    /// makes the layer non-opaque for `PostMultiplied`), and an opaque
+    /// frame hides it.
+    pub(crate) fn set_transparent(&self, on: bool) {
+        if self.ivars().backdrop.borrow().is_some() == on {
+            return;
+        }
+        let backdrop = on.then(|| Backdrop::new(MainThreadMarker::from(self)));
+        if let Some(old) = self.ivars().backdrop.replace(backdrop) {
+            old.removeFromSuperview();
+        }
+        self.place_backdrop();
+    }
+
+    /// The backdrop just under it in its superview, at its frame; out of
+    /// the superview it was in when it has none.
+    fn place_backdrop(&self) {
+        let Some(backdrop) = self.ivars().backdrop.borrow().clone() else {
+            return;
+        };
+        match unsafe { self.superview() } {
+            Some(parent) => {
+                backdrop.setFrame(self.frame());
+                parent.addSubview_positioned_relativeTo(&backdrop, NSWindowOrderingMode::Below, Some(self));
+            }
+            None => backdrop.removeFromSuperview(),
+        }
+    }
+
+    fn follow_frame(&self) {
+        if let Some(backdrop) = self.ivars().backdrop.borrow().as_ref() {
+            backdrop.setFrame(self.frame());
+        }
     }
 
     /// Input methods off, its context takes only Roman input sources:

@@ -241,6 +241,7 @@ pub(super) fn native_state(state: &State, id: NodeId) -> Option<NativeState> {
             props.push(Prop::TextInput(view.text_input()));
             props.push(Prop::InputMethod(view.input_method()));
             props.push(Prop::TextCursor(view.text_cursor()));
+            props.push(Prop::Transparent(view.transparent()));
         }
         Widget::Scroll(scroll) => {
             let shown = (scroll.hasHorizontalScroller(), scroll.hasVerticalScroller());

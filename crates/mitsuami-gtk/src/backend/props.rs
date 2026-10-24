@@ -305,7 +305,8 @@ impl State {
                 | Prop::Cursor(_)
                 | Prop::TextInput(_)
                 | Prop::InputMethod(_)
-                | Prop::TextCursor(_),
+                | Prop::TextCursor(_)
+                | Prop::Transparent(_),
                 Widget::GpuSurface(surface),
             ) => surface.set_prop(prop),
             // The app's own icon over a named one, as a symbolic file icon.
