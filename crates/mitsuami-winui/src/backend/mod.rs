@@ -485,6 +485,9 @@ struct Node {
     context_menu: Option<ContextMenu>,
     /// Menu buttons: their menu, set once the core gave one.
     button_menu: Option<ContextMenu>,
+    /// Search fields: the suggestions their list shows, set once the core
+    /// gave some (XAML's items are views, not the data).
+    suggestions: Option<Vec<mitsuami_core::Suggestion>>,
     /// Hosts and groups: the files they take and the drag over them, while
     /// they take some, and whether the core ever sent `FileDrop`.
     file_drop: Option<crate::drop::DropTarget>,

@@ -837,6 +837,34 @@ pub unsafe extern "C" fn mitsuami_set_strings(id: u32, prop: u32, values: *const
     .is_some()
 }
 
+/// What a search field suggests for its text: `count` titles, and as many
+/// details (an empty one is none), shown under it as its platform shows a
+/// field's suggestions. None: no list. Picking one reports
+/// `SuggestionChosen` with its index.
+///
+/// # Safety
+/// `titles` and `details` each point to `count` strings.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn mitsuami_set_suggestions(
+    id: u32,
+    titles: *const MitsuamiStr,
+    details: *const MitsuamiStr,
+    count: usize,
+) -> bool {
+    guard(|| {
+        let titles = unsafe { strings(titles, count)? };
+        let details = unsafe { strings(details, count)? };
+        let list = titles
+            .into_iter()
+            .zip(details)
+            .map(|(title, detail)| mitsuami::core::Suggestion { title, detail: (!detail.is_empty()).then_some(detail) })
+            .collect();
+        ui()?.set_prop(node(id), Prop::Suggestions(list));
+        Ok(())
+    })
+    .is_some()
+}
+
 #[repr(u32)]
 pub enum MitsuamiIndexProp {
     /// The chosen document tab, option, item or tab.
@@ -1287,6 +1315,8 @@ pub enum MitsuamiEventKind {
     /// The user dismissed a popover (a click outside, Escape): `flag` is
     /// false.
     PopoverShownChanged = 16,
+    /// The user picked a search field's suggestion: `index` is which.
+    SuggestionChosen = 17,
 }
 
 #[repr(u32)]
@@ -1341,6 +1371,7 @@ pub extern "C" fn mitsuami_on_event(
                 UiEvent::ContextMenuItem(_) => MitsuamiEventKind::ContextMenuItem,
                 UiEvent::MenuItem(_) => MitsuamiEventKind::MenuItem,
                 UiEvent::PopoverShownChanged(_) => MitsuamiEventKind::PopoverShownChanged,
+                UiEvent::SuggestionChosen(_) => MitsuamiEventKind::SuggestionChosen,
                 UiEvent::DropHover(_) => MitsuamiEventKind::DropHover,
                 UiEvent::FilesDropped(_) => MitsuamiEventKind::FilesDropped,
                 UiEvent::Pointer(_) => MitsuamiEventKind::Pointer,
@@ -1384,6 +1415,10 @@ pub extern "C" fn mitsuami_on_event(
                     out.value_kind = MitsuamiValueKind::Text as u32;
                     out.text = paths.as_ptr();
                     out.text_len = paths.len();
+                }
+                UiEvent::SuggestionChosen(index) => {
+                    out.value_kind = MitsuamiValueKind::Index as u32;
+                    out.index = *index as u64;
                 }
                 UiEvent::TabCloseRequested(index) => {
                     out.value_kind = MitsuamiValueKind::Index as u32;

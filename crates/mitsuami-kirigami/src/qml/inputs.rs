@@ -19,16 +19,75 @@ pub(crate) fn password_field() -> String {
 /// when the clear button emptied it; `mitsuamiShown` is the text the core
 /// knows, which Rust sets with its own. The clear button's edit isn't a
 /// `textEdited`, so it's reported (`mitsuamiEdited`) as the search comes.
+///
+/// Its suggestions (`mitsuamiTitles`, `mitsuamiDetails`, set by Rust) are a
+/// list of `SubtitleDelegate`s in a popup under it that never takes the
+/// keyboard, shown while there are some, the field has focus, and Escape
+/// hasn't hidden them since they last changed (`mitsuamiDismissed`). The
+/// arrows move through the list and Return picks the current one, a click
+/// any one: `mitsuamiChoice`, `mitsuamiSuggestionChosen()`. Only the user's
+/// picks are reported.
 pub(crate) fn search_field() -> String {
     format!(
-        r#"
+        r#"import org.kde.kirigami.delegates as KD
 Kirigami.SearchField {{
     id: field
     property string mitsuamiShown: ""
     property bool mitsuamiPending: false
     property bool mitsuamiReturn: false
+    property var mitsuamiTitles: []
+    property var mitsuamiDetails: []
+    property bool mitsuamiDismissed: false
+    property int mitsuamiChoice: -1
     signal mitsuamiEdited()
     signal mitsuamiSearched()
+    signal mitsuamiSuggestionChosen()
+    onMitsuamiTitlesChanged: {{
+        mitsuamiDismissed = false
+        mitsuamiList.currentIndex = -1
+    }}
+    function mitsuamiChoose(index) {{
+        mitsuamiChoice = index
+        mitsuamiDismissed = true
+        mitsuamiSuggestionChosen()
+    }}
+    QQC2.Popup {{
+        id: mitsuamiSuggestions
+        y: field.height
+        width: field.width
+        focus: false
+        modal: false
+        closePolicy: QQC2.Popup.NoAutoClose
+        visible: field.mitsuamiTitles.length > 0 && field.activeFocus && !field.mitsuamiDismissed
+        contentItem: ListView {{
+            id: mitsuamiList
+            implicitHeight: Math.min(contentHeight, Kirigami.Units.gridUnit * 16)
+            clip: true
+            model: field.mitsuamiTitles.length
+            delegate: KD.SubtitleDelegate {{
+                required property int index
+                width: ListView.view.width
+                text: field.mitsuamiTitles[index] ?? ""
+                subtitle: field.mitsuamiDetails[index] ?? ""
+                highlighted: ListView.isCurrentItem
+                focusPolicy: Qt.NoFocus
+                onClicked: field.mitsuamiChoose(index)
+            }}
+        }}
+    }}
+    // The list's keys, while it shows; the field keeps the keyboard.
+    Keys.onDownPressed: (event) => {{
+        if (!mitsuamiSuggestions.visible) {{ event.accepted = false; return }}
+        mitsuamiList.currentIndex = Math.min(mitsuamiList.currentIndex + 1, mitsuamiList.count - 1)
+    }}
+    Keys.onUpPressed: (event) => {{
+        if (!mitsuamiSuggestions.visible) {{ event.accepted = false; return }}
+        mitsuamiList.currentIndex = Math.max(mitsuamiList.currentIndex - 1, 0)
+    }}
+    Keys.onEscapePressed: (event) => {{
+        if (!mitsuamiSuggestions.visible) {{ event.accepted = false; return }}
+        mitsuamiDismissed = true
+    }}
     onTextEdited: {{
         mitsuamiShown = text
         mitsuamiPending = true
@@ -37,11 +96,20 @@ Kirigami.SearchField {{
     // Seen before the field takes it, and left to it. Not `onPressed`:
     // the context menu's handler is (`CONTEXT_MENU`), and it leaves these
     // keys to these handlers.
+    // A suggestion the arrows reached is picked, not searched for.
     Keys.onReturnPressed: (event) => {{
+        if (mitsuamiSuggestions.visible && mitsuamiList.currentIndex >= 0) {{
+            mitsuamiChoose(mitsuamiList.currentIndex)
+            return
+        }}
         mitsuamiReturn = true
         event.accepted = false
     }}
     Keys.onEnterPressed: (event) => {{
+        if (mitsuamiSuggestions.visible && mitsuamiList.currentIndex >= 0) {{
+            mitsuamiChoose(mitsuamiList.currentIndex)
+            return
+        }}
         mitsuamiReturn = true
         event.accepted = false
     }}

@@ -325,6 +325,9 @@ struct Node {
     settings_handlers: Vec<(glib::Object, glib::SignalHandlerId)>,
     /// The context menu, once the app gave one.
     context_menu: Option<ContextMenu>,
+    /// Search fields: the list of suggestions under them, once the app
+    /// gave some.
+    suggestions: Option<crate::suggestions::Suggestions>,
     /// The controller that reports hover, once the core asked for it.
     hover: Option<gtk::EventControllerMotion>,
     /// The gesture that reports double clicks, and what it reports, once

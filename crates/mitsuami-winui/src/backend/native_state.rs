@@ -97,6 +97,8 @@ impl WinUiBackend {
             Widget::Search(s) => {
                 let search: w::IAutoSuggestBox = s.cast().ok()?;
                 props.push(Prop::Value(search_text(s)?));
+                // Kept: the list's items are views.
+                props.extend(node.suggestions.clone().map(Prop::Suggestions));
                 let placeholder = search.PlaceholderText().ok()?;
                 if !placeholder.is_empty() {
                     props.push(Prop::Placeholder(placeholder));

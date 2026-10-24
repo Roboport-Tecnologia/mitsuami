@@ -49,6 +49,7 @@ extern "C" fn record(_user: *mut c_void, _node: u32, event: *const MitsuamiEvent
         14 => format!("action {}", event.index),
         15 => format!("item {}", event.index),
         16 => format!("popover shown {}", event.flag),
+        17 => format!("suggestion {}", event.index),
         // Where focus goes on a click differs per platform.
         3 | 4 => return,
         kind => format!("event {kind}"),
@@ -1052,4 +1053,19 @@ async fn popovers_show_and_report_their_dismissal(app: TestApp) {
     app.get_by_text("develop").press(Key::Escape).await;
     app.expect(by_text("develop")).to_be_hidden().await;
     assert_eq!(heard(), ["popover shown false"]);
+}
+
+#[mitsuami_test::test]
+async fn search_fields_suggest_and_report_the_pick(app: TestApp) {
+    attach(app.ui());
+    heard();
+    let field = create(MitsuamiKind::SearchInput);
+    set_text(field, MitsuamiTextProp::A11yLabel, "Path");
+    let (titles, details) = (strs(&["App.cs", "Program.cs"]), strs(&["mitsuami", ""]));
+    assert!(unsafe { mitsuami_set_suggestions(field, titles.as_ptr(), details.as_ptr(), 2) });
+    assert!(mitsuami_on_event(field, record, std::ptr::null_mut()));
+    app.mount(|| Adopt(field));
+
+    app.get_by_label("Path").choose_suggestion("Program.cs").await;
+    assert_eq!(heard(), ["suggestion 1"]);
 }

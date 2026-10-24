@@ -310,6 +310,9 @@ struct Node {
     /// The direction the core gave an item made without QML (a drawn
     /// item), which has no `LayoutMirroring` to hold it.
     direction: Option<LayoutDirection>,
+    /// Search fields: their suggestions, once the app gave them (the list
+    /// shows only their texts).
+    suggestions: Option<Vec<mitsuami_core::Suggestion>>,
 }
 
 pub(crate) struct State {

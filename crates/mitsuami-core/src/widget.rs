@@ -461,6 +461,14 @@ pub enum ButtonStyle {
     Borderless,
 }
 
+/// A suggestion of a `SearchInput`: what it says, and a second line in the
+/// secondary style (a file's folder, an author's email).
+#[derive(Clone, Debug, PartialEq)]
+pub struct Suggestion {
+    pub title: String,
+    pub detail: Option<String>,
+}
+
 /// What an `Image` shows.
 #[derive(Clone, Debug, PartialEq)]
 pub enum ImageSource {
@@ -1104,6 +1112,13 @@ pub enum Prop {
     /// too (a click outside, Escape): the backend reports
     /// `PopoverShownChanged(false)`, which the core absorbs.
     PopoverShown(bool),
+    /// What a `SearchInput` suggests for its text, in a list under it while
+    /// the user types, as each platform shows a field's suggestions (an
+    /// `AutoSuggestBox`'s list, a list in a window that doesn't take the
+    /// keyboard on AppKit, a popover that doesn't on GTK, a popup that
+    /// doesn't on Qt). The field keeps the keyboard: the arrows move
+    /// through the list, Return picks, Escape hides it. Empty: none.
+    Suggestions(Vec<Suggestion>),
     /// A `Container` at the top of its window's content is the window's
     /// header, the part that stays while what's under it scrolls: on
     /// AppKit it goes in the title bar, under the title and toolbar, in

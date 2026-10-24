@@ -170,6 +170,9 @@ pub enum A11yAction {
     /// itself never opens. (`Activate` would open it, so a menu button
     /// doesn't take it.)
     MenuItem(u32),
+    /// Choose a `SearchInput`'s suggestion at this index, as the user picks
+    /// one from the list under the field.
+    ChooseSuggestion(usize),
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]

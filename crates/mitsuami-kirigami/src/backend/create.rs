@@ -278,7 +278,14 @@ impl State {
                 field.connect("mitsuamiEdited()", move || {
                     e.emit(id, UiEvent::Changed(EventValue::Text(field.str("text"))))
                 });
-                field.connect("mitsuamiSearched()", move || events.emit(id, UiEvent::Search(field.str("text"))));
+                let e = events.clone();
+                field.connect("mitsuamiSearched()", move || e.emit(id, UiEvent::Search(field.str("text"))));
+                // Only the user picks: the list shows nothing of ours.
+                field.connect("mitsuamiSuggestionChosen()", move || {
+                    if let Ok(index) = usize::try_from(field.int("mitsuamiChoice")) {
+                        events.emit(id, UiEvent::SuggestionChosen(index))
+                    }
+                });
                 Widget::Field(field)
             }
             WidgetKind::TextArea => {
@@ -358,6 +365,7 @@ impl State {
                 align: None,
                 truncation: None,
                 direction: None,
+                suggestions: None,
             },
         );
     }

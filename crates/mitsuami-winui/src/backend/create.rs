@@ -385,13 +385,17 @@ impl State {
                 (Widget::Password(field), element)
             }
             // An auto-suggest box with the find icon, as Windows' search
-            // boxes are made, and no suggestions: a list would pop up.
+            // boxes are made. Its list shows the app's `Suggestions`; the
+            // arrows going through it leave the text alone, as a pick is
+            // the app's to apply (and an item with a second line is no
+            // text).
             WidgetKind::SearchInput => {
                 let search = w::AutoSuggestBox::new()?;
                 let iface: w::IAutoSuggestBox = search.cast()?;
                 iface.SetQueryIcon(
                     &w::SymbolIcon::CreateInstanceWithSymbol(w::Symbol::Find)?.cast::<w::IconElement>()?,
                 )?;
+                iface.SetUpdateTextOnSelect(false)?;
                 // TextChanged also fires (later) for programmatic sets: only
                 // text the core doesn't know about is a user edit. It's a
                 // search too, at once: XAML doesn't wait for a pause. The
@@ -409,11 +413,24 @@ impl State {
                         }
                     }
                 })?);
-                // Return, or a click on the find icon.
+                // Return, or a click on the find icon: a search. A click on a
+                // suggestion, or Return on the one the arrows reached, picks
+                // it instead.
                 revokers.push(iface.QuerySubmitted({
                     let emitter = emitter.clone();
-                    move |_, args| {
-                        if let Some(text) = args.as_ref().and_then(|a| a.QueryText().ok()) {
+                    move |sender, args| {
+                        let Some(args) = args.as_ref() else { return };
+                        if let Some(chosen) = args.ChosenSuggestion().ok().filter(|c| !c.as_raw().is_null()) {
+                            let items = sender.as_ref().and_then(|s| s.cast::<w::IItemsControl>().ok()?.Items().ok());
+                            let index = items.and_then(|items| {
+                                (0..items.Size().ok()?).find(|i| items.GetAt(*i).is_ok_and(|item| item == chosen))
+                            });
+                            if let Some(index) = index {
+                                emitter.emit(id, UiEvent::SuggestionChosen(index as usize));
+                            }
+                            return;
+                        }
+                        if let Ok(text) = args.QueryText() {
                             emitter.emit(id, UiEvent::Search(text));
                         }
                     }
@@ -546,6 +563,7 @@ impl State {
                 label: Default::default(),
                 password_all: Cell::new(false),
                 button_menu: None,
+                suggestions: None,
                 caption: String::new(),
                 icon: String::new(),
                 vector_icon: None,

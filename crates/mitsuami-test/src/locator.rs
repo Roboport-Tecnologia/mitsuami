@@ -515,6 +515,21 @@ impl<'a> Locator<'a> {
         None
     }
 
+    /// Picks a `SearchInput`'s suggestion by its title, as the user picks
+    /// one from the list under the field.
+    pub async fn choose_suggestion(&self, title: &str) {
+        self.app.settle().await;
+        let id = self.id();
+        let suggestions = find_prop!(self.app.ui().props(id), Suggestions).unwrap_or_default();
+        let Some(index) = suggestions.iter().position(|s| s.title == title) else {
+            self.fail(&format!("{} suggests no {title:?}", self.query))
+        };
+        if let Err(e) = self.app.ui().perform(id, &A11yAction::ChooseSuggestion(index)) {
+            self.fail(&format!("cannot choose the suggestion {title:?} of {}: {e}", self.query));
+        }
+        self.app.settle().await;
+    }
+
     /// Chooses an item of the menu a `MenuButton` opens, or else of the
     /// context menu a right-click here shows (see
     /// [`context_menu`](Self::context_menu)), by the titles of its

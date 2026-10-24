@@ -293,6 +293,7 @@ impl State {
                 modal: None,
                 settings_handlers,
                 context_menu: None,
+                suggestions: None,
                 hover: None,
                 double_click: None,
                 click: None,

@@ -30,6 +30,14 @@ impl WinUiBackend {
                     _ => Err(ActionError::Unsupported),
                 };
             }
+            // A suggestion, as a click on it in the box's list picks it.
+            if let (A11yAction::ChooseSuggestion(index), Widget::Search(_)) = (action, &node.widget) {
+                if node.suggestions.as_ref().is_none_or(|list| *index >= list.len()) {
+                    return Err(ActionError::Unsupported);
+                }
+                state.emitter().emit(id, UiEvent::SuggestionChosen(*index));
+                return Ok(());
+            }
             if let (A11yAction::Activate, Widget::Sidebar(sidebar)) = (action, &node.widget) {
                 return if sidebar.activate() { Ok(()) } else { Err(ActionError::Unsupported) };
             }

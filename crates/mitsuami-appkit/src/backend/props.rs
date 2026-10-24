@@ -2,7 +2,7 @@
 
 use mitsuami_core::{
     ButtonRole, ButtonStyle, Command, EventSink, HorizontalAlign, ImageFit, InputPurpose, LayoutDirection, NodeId,
-    Prop, Truncation, UiEvent,
+    Prop, Truncation, UiEvent, WidgetKind,
 };
 use objc2::rc::Retained;
 use objc2::runtime::ProtocolObject;
@@ -529,6 +529,20 @@ impl State {
                 }
             },
             (Prop::PopoverShown(on), Widget::Popover(popover)) => popover.set_shown(*on),
+            // A search field's list under it, made with its first
+            // suggestions; its keys reach it through the field's delegate.
+            (Prop::Suggestions(list), Widget::Field(field)) if node.kind == WidgetKind::SearchInput => {
+                if node.suggestions.is_none() {
+                    let made = std::rc::Rc::new(crate::suggestions::Suggestions::new(mtm, id, events.clone(), field));
+                    if let Some(target) = &node._target {
+                        target.set_suggestions(made.clone());
+                    }
+                    node.suggestions = Some(made);
+                }
+                if let Some(suggestions) = &node.suggestions {
+                    suggestions.set(list);
+                }
+            }
             (Prop::Tweak(tweak), _) => node.tweak = Some(tweak.clone()),
             (Prop::Custom(new), Widget::Custom { view, render, props }) => {
                 if props != new {

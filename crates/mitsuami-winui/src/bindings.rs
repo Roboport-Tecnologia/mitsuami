@@ -3989,6 +3989,25 @@ impl windows_core::RuntimeType for IAutoSuggestBox {
     const SIGNATURE: windows_core::imp::ConstBuffer = windows_core::imp::ConstBuffer::for_interface::<Self>();
 }
 impl IAutoSuggestBox {
+    pub fn IsSuggestionListOpen(&self) -> windows_core::Result<bool> {
+        unsafe {
+            let mut result__ = core::mem::zeroed();
+            (windows_core::Interface::vtable(self).IsSuggestionListOpen)(
+                windows_core::Interface::as_raw(self),
+                &mut result__,
+            )
+            .map(|| result__)
+        }
+    }
+    pub fn SetIsSuggestionListOpen(&self, value: bool) -> windows_core::Result<()> {
+        unsafe {
+            (windows_core::Interface::vtable(self).SetIsSuggestionListOpen)(
+                windows_core::Interface::as_raw(self),
+                value,
+            )
+            .ok()
+        }
+    }
     pub fn Text(&self) -> windows_core::Result<String> {
         unsafe {
             let mut result__ = core::mem::zeroed();
@@ -4007,6 +4026,12 @@ impl IAutoSuggestBox {
                 core::mem::transmute_copy(&windows_core::HSTRING::from(value)),
             )
             .ok()
+        }
+    }
+    pub fn SetUpdateTextOnSelect(&self, value: bool) -> windows_core::Result<()> {
+        unsafe {
+            (windows_core::Interface::vtable(self).SetUpdateTextOnSelect)(windows_core::Interface::as_raw(self), value)
+                .ok()
         }
     }
     pub fn PlaceholderText(&self) -> windows_core::Result<String> {
@@ -4125,14 +4150,14 @@ pub struct IAutoSuggestBox_Vtbl {
     pub base__: windows_core::IInspectable_Vtbl,
     MaxSuggestionListHeight: usize,
     SetMaxSuggestionListHeight: usize,
-    IsSuggestionListOpen: usize,
-    SetIsSuggestionListOpen: usize,
+    pub IsSuggestionListOpen: unsafe extern "system" fn(*mut core::ffi::c_void, *mut bool) -> windows_core::HRESULT,
+    pub SetIsSuggestionListOpen: unsafe extern "system" fn(*mut core::ffi::c_void, bool) -> windows_core::HRESULT,
     TextMemberPath: usize,
     SetTextMemberPath: usize,
     pub Text: unsafe extern "system" fn(*mut core::ffi::c_void, *mut *mut core::ffi::c_void) -> windows_core::HRESULT,
     pub SetText: unsafe extern "system" fn(*mut core::ffi::c_void, *mut core::ffi::c_void) -> windows_core::HRESULT,
     UpdateTextOnSelect: usize,
-    SetUpdateTextOnSelect: usize,
+    pub SetUpdateTextOnSelect: unsafe extern "system" fn(*mut core::ffi::c_void, bool) -> windows_core::HRESULT,
     pub PlaceholderText:
         unsafe extern "system" fn(*mut core::ffi::c_void, *mut *mut core::ffi::c_void) -> windows_core::HRESULT,
     pub SetPlaceholderText:
@@ -4180,11 +4205,23 @@ impl IAutoSuggestBoxQuerySubmittedEventArgs {
             )
         }
     }
+    pub fn ChosenSuggestion(&self) -> windows_core::Result<windows_core::IInspectable> {
+        unsafe {
+            let mut result__ = core::mem::zeroed();
+            (windows_core::Interface::vtable(self).ChosenSuggestion)(
+                windows_core::Interface::as_raw(self),
+                &mut result__,
+            )
+            .and_then(|| windows_core::imp::Type::from_abi(result__))
+        }
+    }
 }
 #[repr(C)]
 pub struct IAutoSuggestBoxQuerySubmittedEventArgs_Vtbl {
     pub base__: windows_core::IInspectable_Vtbl,
     pub QueryText:
+        unsafe extern "system" fn(*mut core::ffi::c_void, *mut *mut core::ffi::c_void) -> windows_core::HRESULT,
+    pub ChosenSuggestion:
         unsafe extern "system" fn(*mut core::ffi::c_void, *mut *mut core::ffi::c_void) -> windows_core::HRESULT,
 }
 windows_core::imp::define_interface!(

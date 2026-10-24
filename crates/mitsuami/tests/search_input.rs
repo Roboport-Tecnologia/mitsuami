@@ -271,4 +271,51 @@ async fn a_tweak_runs_on_the_native_field_after_its_props(app: TestApp) {
     assert_eq!(log.borrow().last().map(String::as_str), Some("second"));
 }
 
+/// Suggestions for what's typed show under the field, each with a second
+/// line; picking one reports its index, and the app sets the text.
+#[mitsuami_test::test]
+async fn suggests_and_reports_the_pick(app: TestApp) {
+    let text = signal(String::new());
+    let fruit = [("apple", "Malus"), ("apricot", "Prunus"), ("banana", "Musa")];
+    let suggestions = move || {
+        let typed = text.get();
+        fruit
+            .iter()
+            .filter(|(name, _)| !typed.is_empty() && name.starts_with(typed.as_str()))
+            .map(|(name, genus)| Suggestion { title: name.to_string(), detail: Some(genus.to_string()) })
+            .collect::<Vec<_>>()
+    };
+    app.mount(move || {
+        Column::new().padding(16).child(
+            SearchInput::new()
+                .a11y_label("Search")
+                .bind(text)
+                .suggestions(suggestions)
+                .on_suggestion(move |index| text.set(suggestions()[index].title.clone())),
+        )
+    });
+    let field = || app.get_by_label("Search");
+    let shown = || {
+        let props = field().native_state().props;
+        props.into_iter().find_map(|p| match p {
+            Prop::Suggestions(list) => Some(list.into_iter().map(|s| s.title).collect::<Vec<_>>()),
+            _ => None,
+        })
+    };
+    app.settle().await;
+    assert_eq!(shown().unwrap_or_default(), Vec::<String>::new());
+
+    field().fill("ap").await;
+    assert_eq!(shown(), Some(vec!["apple".to_string(), "apricot".to_string()]));
+    field().choose_suggestion("apricot").await;
+    assert_eq!(field().value().as_deref(), Some("apricot"));
+    assert_eq!(shown(), Some(vec!["apricot".to_string()]));
+
+    assert_eq!(
+        app.ui().perform(field().id(), &A11yAction::ChooseSuggestion(5)),
+        Err(ActionError::Unsupported),
+        "only the ones it suggests"
+    );
+}
+
 mitsuami_test::main!();

@@ -342,6 +342,8 @@ pub(crate) struct TargetIvars {
     /// Sliders whose step is too fine for tick marks: the step their
     /// action rounds to (see `set_ticks`).
     snap: Cell<Option<f64>>,
+    /// A search field's suggestions, which its keys move through.
+    suggestions: RefCell<Option<Rc<crate::suggestions::Suggestions>>>,
 }
 
 define_class!(
@@ -355,7 +357,7 @@ define_class!(
     impl ActionTarget {
         #[unsafe(method(fire:))]
         fn fire(&self, sender: &AnyObject) {
-            let TargetIvars { id, kind, events, snap } = self.ivars();
+            let TargetIvars { id, kind, events, snap, .. } = self.ivars();
             let event = match kind {
                 WidgetKind::Button => UiEvent::Click,
                 WidgetKind::Checkbox => match sender.downcast_ref::<NSButton>() {
@@ -445,6 +447,10 @@ define_class!(
             _text_view: &NSTextView,
             command: Sel,
         ) -> bool {
+            // A search field's suggestions take their keys first.
+            if self.take_suggestion_key(command) {
+                return true.into();
+            }
             if command == sel!(insertNewline:) && self.ivars().kind != WidgetKind::SearchInput {
                 self.ivars().events.emit(self.ivars().id, UiEvent::Submit);
             }
@@ -459,8 +465,19 @@ define_class!(
                 && crate::keys::take_around(control, Shortcut::new(Key::Escape))
         }
 
+        /// Editing ended (Tab, a click elsewhere): the suggestions hide.
+        #[unsafe(method(controlTextDidEndEditing:))]
+        fn control_text_did_end_editing(&self, _notification: &NSNotification) {
+            if let Some(list) = self.ivars().suggestions.borrow().as_ref() {
+                list.hide();
+            }
+        }
+
         #[unsafe(method(controlTextDidChange:))]
         fn control_text_did_change(&self, notification: &NSNotification) {
+            if let Some(list) = self.ivars().suggestions.borrow().as_ref() {
+                list.typed();
+            }
             let Some(object) = notification.object() else { return };
             if let Some(field) = object.downcast_ref::<NSTextField>() {
                 let text = field.stringValue().to_string();
@@ -490,13 +507,43 @@ define_class!(
 );
 
 impl ActionTarget {
+    /// The arrows, Return on the suggestion they reached, and Escape, while
+    /// a search field's suggestions show: the field keeps the keyboard.
+    fn take_suggestion_key(&self, command: Sel) -> bool {
+        let suggestions = self.ivars().suggestions.borrow();
+        let Some(list) = suggestions.as_ref().filter(|l| l.shown()) else { return false };
+        if command == sel!(moveDown:) || command == sel!(moveUp:) {
+            list.step(if command == sel!(moveDown:) { 1 } else { -1 });
+        } else if command == sel!(insertNewline:)
+            && let Some(row) = list.selected()
+        {
+            list.choose(row);
+        } else if command == sel!(cancelOperation:) {
+            list.dismiss();
+        } else {
+            return false;
+        }
+        true
+    }
+
+    /// A search field's suggestions, for its keys.
+    pub(crate) fn set_suggestions(&self, list: Rc<crate::suggestions::Suggestions>) {
+        *self.ivars().suggestions.borrow_mut() = Some(list);
+    }
+
     pub(crate) fn new(
         mtm: MainThreadMarker,
         id: NodeId,
         kind: WidgetKind,
         events: EventSink,
     ) -> Retained<ActionTarget> {
-        let this = ActionTarget::alloc(mtm).set_ivars(TargetIvars { id, kind, events, snap: Cell::new(None) });
+        let this = ActionTarget::alloc(mtm).set_ivars(TargetIvars {
+            id,
+            kind,
+            events,
+            snap: Cell::new(None),
+            suggestions: RefCell::new(None),
+        });
         unsafe { msg_send![super(this), init] }
     }
 

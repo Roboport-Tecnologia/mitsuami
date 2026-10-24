@@ -42,6 +42,8 @@ mod sidebar;
 #[cfg(target_os = "macos")]
 mod split_view;
 #[cfg(target_os = "macos")]
+mod suggestions;
+#[cfg(target_os = "macos")]
 mod surface;
 #[cfg(target_os = "macos")]
 mod tabs;

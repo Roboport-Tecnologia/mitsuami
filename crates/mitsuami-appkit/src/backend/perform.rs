@@ -32,6 +32,18 @@ impl AppKitBackend {
         if let A11yAction::MenuItem(item) = action {
             return self.choose_pull_down_item(id, *item);
         }
+        // A search field's suggestion, as a click on its row picks it.
+        if let A11yAction::ChooseSuggestion(index) = action {
+            let state = self.state.borrow();
+            let node = state.nodes.get(&id).ok_or(ActionError::UnknownNode)?;
+            return match &node.suggestions {
+                Some(list) if *index < list.items().len() => {
+                    state.events.emit(id, UiEvent::SuggestionChosen(*index));
+                    Ok(())
+                }
+                _ => Err(ActionError::Unsupported),
+            };
+        }
         // A list's rows: select or activate them in the table. The table
         // only calls back into its own data, never into our state.
         {

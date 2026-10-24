@@ -580,6 +580,12 @@ impl State {
                 let focus = widget.focus_widget();
                 context_menu(&mut node.context_menu, &focus, id, &self.events).set_on_open(on_open.clone());
             }
+            // Under the field, without the keyboard, as GTK's entry
+            // completion shows its matches.
+            (Prop::Suggestions(suggestions), Widget::Search(entry)) => node
+                .suggestions
+                .get_or_insert_with(|| crate::suggestions::Suggestions::new(entry, id, self.events.clone()))
+                .set(suggestions),
             (Prop::Rows(rows), Widget::List(list)) => list.set_rows(rows.clone()),
             (Prop::RowFiles(files), Widget::List(list)) => list.set_row_files(files.clone()),
             (Prop::RowMoves(moves), Widget::List(list)) => list.set_moves(*moves),

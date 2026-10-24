@@ -252,6 +252,8 @@ struct Node {
     widget: Widget,
     /// Controls only hold weak references to their target and delegate.
     _target: Option<Retained<ActionTarget>>,
+    /// A search field's suggestions, made with the first.
+    suggestions: Option<std::rc::Rc<crate::suggestions::Suggestions>>,
     /// Action targets of native renders and native views.
     _targets: Vec<Retained<ClosureTarget>>,
     parent: Option<NodeId>,

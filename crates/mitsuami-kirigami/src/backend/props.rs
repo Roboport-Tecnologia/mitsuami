@@ -293,6 +293,14 @@ impl State {
                 }
             }
             (Prop::Placeholder(t), Widget::Field(f)) => f.set_str("placeholderText", t),
+            (Prop::Suggestions(list), Widget::Field(f)) if node.kind == WidgetKind::SearchInput => {
+                let titles: Vec<String> = list.iter().map(|s| s.title.clone()).collect();
+                let details: Vec<String> = list.iter().map(|s| s.detail.clone().unwrap_or_default()).collect();
+                // The details first: the list follows the titles.
+                f.set_str_list("mitsuamiDetails", &details);
+                f.set_str_list("mitsuamiTitles", &titles);
+                node.suggestions = Some(list.clone());
+            }
             // Still focusable and selectable, so its text can be copied.
             (Prop::ReadOnly(r), Widget::Field(f)) => f.set_bool("readOnly", *r),
             // For the on-screen keyboard and input methods.

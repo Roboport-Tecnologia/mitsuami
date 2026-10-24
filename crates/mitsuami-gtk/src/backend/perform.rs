@@ -61,6 +61,16 @@ impl GtkBackend {
                 }
                 return Ok(());
             }
+            // A suggestion under a search field, as a click picks it: the
+            // list reports it.
+            if let A11yAction::ChooseSuggestion(index) = action {
+                let Some(suggestions) = node.suggestions.clone() else { return Err(ActionError::Unsupported) };
+                if !node.widget.focus_widget().is_sensitive() {
+                    return Err(ActionError::Disabled);
+                }
+                drop(state);
+                return if suggestions.choose(*index) { Ok(()) } else { Err(ActionError::Unsupported) };
+            }
             if let (A11yAction::PressHeader(column), Widget::List(list)) = (action, &node.widget) {
                 state.lists_dirty.set(true);
                 return if list.press_header(*column) { Ok(()) } else { Err(ActionError::Unsupported) };

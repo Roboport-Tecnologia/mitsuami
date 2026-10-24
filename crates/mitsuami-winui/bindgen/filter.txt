@@ -119,9 +119,9 @@ Microsoft.UI.Xaml.Input.IInputScopeName::{get_NameValue, put_NameValue}
 Microsoft.UI.Xaml.Input.InputScopeNameValue
 Microsoft.UI.Xaml.Controls.TextChangedEventHandler
 Microsoft.UI.Xaml.Controls.AutoSuggestBox::CreateInstance
-Microsoft.UI.Xaml.Controls.IAutoSuggestBox::{get_Text, put_Text, get_PlaceholderText, put_PlaceholderText, get_QueryIcon, put_QueryIcon, put_Header, add_TextChanged, remove_TextChanged, add_QuerySubmitted, remove_QuerySubmitted}
+Microsoft.UI.Xaml.Controls.IAutoSuggestBox::{get_Text, put_Text, get_PlaceholderText, put_PlaceholderText, get_QueryIcon, put_QueryIcon, put_Header, add_TextChanged, remove_TextChanged, add_QuerySubmitted, remove_QuerySubmitted, get_IsSuggestionListOpen, put_IsSuggestionListOpen, put_UpdateTextOnSelect}
 Microsoft.UI.Xaml.Controls.AutoSuggestBoxQuerySubmittedEventArgs::{}
-Microsoft.UI.Xaml.Controls.IAutoSuggestBoxQuerySubmittedEventArgs::get_QueryText
+Microsoft.UI.Xaml.Controls.IAutoSuggestBoxQuerySubmittedEventArgs::{get_QueryText, get_ChosenSuggestion}
 Microsoft.UI.Xaml.Controls.SymbolIcon::CreateInstanceWithSymbol
 Microsoft.UI.Xaml.Controls.Symbol
 Microsoft.UI.Xaml.Controls.PasswordBox::CreateInstance

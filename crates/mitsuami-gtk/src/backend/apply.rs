@@ -261,6 +261,9 @@ impl State {
                 if let Some(menu) = &node.context_menu {
                     menu.close();
                 }
+                if let Some(suggestions) = &node.suggestions {
+                    suggestions.close();
+                }
                 let widget = node.widget.widget().clone();
                 if matches!(node.widget, Widget::List(_)) {
                     self.lists -= 1;

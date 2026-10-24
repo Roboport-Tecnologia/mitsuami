@@ -50,6 +50,8 @@ mod sidebar;
 #[cfg(target_os = "linux")]
 mod split;
 #[cfg(target_os = "linux")]
+mod suggestions;
+#[cfg(target_os = "linux")]
 mod surface;
 #[cfg(target_os = "linux")]
 mod tabs;

@@ -3,6 +3,10 @@
 //! - A list of fruit, filtered as the platform asks for searches: once
 //!   typing pauses on AppKit, GTK and Qt, at once on WinUI, on Return, and
 //!   when the field is cleared.
+//! - Suggestions: as you type, fruit starting with it in a list under the
+//!   field, each with its colour on a second line. The field keeps the
+//!   keyboard: the arrows move through the list, Return or a click picks,
+//!   Escape hides it.
 //! - A playground: what's typed next to what was searched for, and how
 //!   many searches came, with a switch to turn the field off.
 //! - A raw platform setting, through `.native()`: when each platform
@@ -50,6 +54,42 @@ fn find_fruit() -> impl View {
             </Text>
         </Column>
     }
+}
+
+/// Fruit starting with what's typed, suggested under the field.
+fn suggest_fruit() -> impl View {
+    let text = signal(String::new());
+    let picked = signal(String::from("Nothing picked yet."));
+    let colour = |fruit: &str| match fruit {
+        "Banana" | "Lemon" | "Mango" => "Yellow",
+        "Orange" | "Apricot" | "Peach" => "Orange",
+        "Blackberry" | "Grape" | "Plum" => "Purple",
+        "Pear" => "Green",
+        _ => "Red",
+    };
+    let suggestions = move || {
+        let typed = text.get().to_lowercase();
+        FRUIT
+            .iter()
+            .filter(|f| !typed.is_empty() && f.to_lowercase().starts_with(&typed))
+            .map(|f| Suggestion { title: f.to_string(), detail: Some(colour(f).to_string()) })
+            .collect::<Vec<_>>()
+    };
+    Column::new().gap(Spacing::Md).children((
+        heading("Suggestions"),
+        SearchInput::new()
+            .a11y_label("Suggested fruit")
+            .placeholder("Type a, b, p…")
+            .bind(text)
+            .width(280)
+            .suggestions(suggestions)
+            .on_suggestion(move |index| {
+                let fruit = suggestions()[index].title.clone();
+                picked.set(format!("Picked {fruit}."));
+                text.set(fruit);
+            }),
+        Text::new(picked),
+    ))
 }
 
 /// What the field holds, and what the platform asked to search for.
@@ -131,6 +171,7 @@ pub fn page() -> impl View {
     view! {
         <Column padding=Spacing::Xl gap=Spacing::Xl>
             {find_fruit()}
+            {suggest_fruit()}
             {playground()}
             {platform_option()}
         </Column>

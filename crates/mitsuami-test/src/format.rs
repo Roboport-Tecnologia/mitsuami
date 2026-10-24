@@ -54,6 +54,10 @@ fn describe_props(props: &[Prop]) -> String {
             Prop::TabIcons(icons) => extra.push(format!("tab_icons={icons:?}")),
             Prop::SidebarShown(b) => extra.push(format!("sidebar_shown={b}")),
             Prop::PopoverShown(b) => extra.push(format!("popover_shown={b}")),
+            Prop::Suggestions(list) => {
+                let titles: Vec<&str> = list.iter().map(|s| s.title.as_str()).collect();
+                extra.push(format!("suggestions=[{}]", titles.join(", ")));
+            }
             Prop::Header(b) => extra.push(format!("header={b}")),
             Prop::HeaderEdge(edge) => extra.push(format!("header_edge={edge:?}")),
             Prop::SidebarPane(b) => extra.push(format!("sidebar_pane={b}")),

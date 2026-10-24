@@ -120,6 +120,10 @@ pub enum UiEvent {
     /// one), on Return, and when the field is cleared. Not for text the
     /// core set.
     Search(String),
+    /// The user picked a `SearchInput`'s suggestion (a click, or Return on
+    /// the one the arrows reached): its index in `Suggestions`. The field's
+    /// text is the app's to set.
+    SuggestionChosen(usize),
     FocusIn,
     FocusOut,
     WindowResized(Size),

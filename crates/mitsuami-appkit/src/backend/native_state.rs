@@ -19,6 +19,8 @@ use super::{State, Widget, key};
 pub(super) fn native_state(state: &State, id: NodeId) -> Option<NativeState> {
     let node = state.nodes.get(&id)?;
     let mut props = Vec::new();
+    // Kept: what the list under the field shows.
+    props.extend(node.suggestions.as_ref().map(|list| Prop::Suggestions(list.items())));
     let checked = |s: isize| Prop::Checked(s == NSControlStateValueOn);
     match &node.widget {
         Widget::Window { window, _delegate, .. } => {

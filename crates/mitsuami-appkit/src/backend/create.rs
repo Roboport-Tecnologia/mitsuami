@@ -325,6 +325,7 @@ impl State {
                 kind,
                 widget,
                 _target: target,
+                suggestions: None,
                 _targets: targets,
                 parent: None,
                 row: None,

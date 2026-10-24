@@ -279,6 +279,8 @@ impl GtkBackend {
         props.extend(node.tweak.clone().map(Prop::Tweak));
         props.push(Prop::Tooltip(text(node.widget.focus_widget().tooltip_text())));
         props.extend(node.context_menu.as_ref().map(|m| Prop::ContextMenu(m.entries(&node.widget.focus_widget()))));
+        // Kept: GTK's list rows don't give the data back.
+        props.extend(node.suggestions.as_ref().map(|s| Prop::Suggestions(s.get())));
         // Kept: GTK can't give back the app's function.
         props.extend(node.context_menu.as_ref().and_then(|m| m.on_open()).map(|f| Prop::ContextMenuOnOpen(Some(f))));
         props.extend(node.hover.as_ref().map(|motion| Prop::Hover(motion.widget().as_ref() == Some(widget))));
