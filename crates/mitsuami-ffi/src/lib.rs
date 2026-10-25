@@ -712,6 +712,43 @@ pub extern "C" fn mitsuami_set_context_menu_on_open(
     build: Option<extern "C" fn(*mut c_void, u32)>,
     user: *mut c_void,
 ) -> bool {
+    set_menu_on_open(
+        id,
+        build,
+        user,
+        "context menu",
+        |props| mitsuami::core::find_prop!(props, ContextMenu),
+        Prop::ContextMenuOnOpen,
+    )
+}
+
+/// Builds a menu button's menu as the platform opens it, as
+/// [`mitsuami_set_context_menu_on_open`] does a context menu:
+/// `build(user, node)` calls `mitsuami_set_menu` on the node.
+#[unsafe(no_mangle)]
+pub extern "C" fn mitsuami_set_menu_on_open(
+    id: u32,
+    build: Option<extern "C" fn(*mut c_void, u32)>,
+    user: *mut c_void,
+) -> bool {
+    set_menu_on_open(
+        id,
+        build,
+        user,
+        "menu button's menu",
+        |props| mitsuami::core::find_prop!(props, Menu),
+        Prop::MenuOnOpen,
+    )
+}
+
+fn set_menu_on_open(
+    id: u32,
+    build: Option<extern "C" fn(*mut c_void, u32)>,
+    user: *mut c_void,
+    what: &'static str,
+    menu: fn(Vec<Prop>) -> Option<Vec<MenuEntry>>,
+    prop: fn(Option<MenuOnOpen>) -> Prop,
+) -> bool {
     let user = user as usize;
     guard(|| {
         let ui = ui()?;
@@ -724,13 +761,13 @@ pub extern "C" fn mitsuami_set_context_menu_on_open(
                 })
                 .is_none()
                 {
-                    eprintln!("mitsuami: a context menu's build callback panicked");
+                    eprintln!("mitsuami: a {what}'s build callback panicked");
                 }
                 let props = weak.upgrade().map(|ui| ui.props(node(id))).unwrap_or_default();
-                mitsuami::core::find_prop!(props, ContextMenu).unwrap_or_default()
+                menu(props).unwrap_or_default()
             })
         });
-        ui.set_prop(node(id), Prop::ContextMenuOnOpen(on_open));
+        ui.set_prop(node(id), prop(on_open));
         Ok(())
     })
     .is_some()

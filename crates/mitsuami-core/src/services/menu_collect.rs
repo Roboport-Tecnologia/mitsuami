@@ -63,12 +63,37 @@ pub(crate) fn install_context_menu(ui: &Ui, id: NodeId, menu: Menu) {
 /// makes it the node's [`Prop::ContextMenu`]. Its reactive parts are read
 /// as it opens, not followed.
 pub(crate) fn install_context_menu_on_open(ui: &Ui, id: NodeId, build: Rc<dyn Fn() -> Menu>) {
+    install_menu_on_open(ui, id, build, Prop::ContextMenu, Prop::ContextMenuOnOpen, |event| match event {
+        UiEvent::ContextMenuItem(item) => Some(*item),
+        _ => None,
+    });
+}
+
+/// Gives a `MenuButton` a menu `build` makes as the platform opens it, as
+/// [`Prop::MenuOnOpen`], as a context menu built as it opens is given
+/// (see `install_context_menu_on_open`).
+#[doc(hidden)]
+pub fn install_button_menu_on_open(ui: &Ui, id: NodeId, build: Rc<dyn Fn() -> Menu>) {
+    install_menu_on_open(ui, id, build, Prop::Menu, Prop::MenuOnOpen, |event| match event {
+        UiEvent::MenuItem(item) => Some(*item),
+        _ => None,
+    });
+}
+
+fn install_menu_on_open(
+    ui: &Ui,
+    id: NodeId,
+    build: Rc<dyn Fn() -> Menu>,
+    prop: fn(Vec<MenuEntry>) -> Prop,
+    on_open_prop: fn(Option<MenuOnOpen>) -> Prop,
+    chosen_item: fn(&UiEvent) -> Option<u32>,
+) {
     let handlers: Rc<RefCell<HashMap<u32, Handler>>> = Rc::default();
     let scope = mitsuami_reactive::Owner::current();
     let chosen = handlers.clone();
     ui.on_event(id, move |event| {
-        let UiEvent::ContextMenuItem(item) = event else { return };
-        let Some(handler) = chosen.borrow().get(item).cloned() else { return };
+        let Some(item) = chosen_item(event) else { return };
+        let Some(handler) = chosen.borrow().get(&item).cloned() else { return };
         match scope {
             Some(scope) if scope.is_alive() => scope.with(|| handler()),
             _ => handler(),
@@ -90,11 +115,11 @@ pub(crate) fn install_context_menu_on_open(ui: &Ui, id: NodeId, build: Rc<dyn Fn
         });
         *handlers.borrow_mut() = collected.into_iter().collect();
         if let Some(ui) = weak.upgrade() {
-            ui.set_prop(id, Prop::ContextMenu(entries.clone()));
+            ui.set_prop(id, prop(entries.clone()));
         }
         entries
     });
-    ui.set_prop(id, Prop::ContextMenuOnOpen(Some(on_open)));
+    ui.set_prop(id, on_open_prop(Some(on_open)));
 }
 
 /// Gives a `MenuButton` or `SplitButton` its menu, as [`Prop::Menu`], as a

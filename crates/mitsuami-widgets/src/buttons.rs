@@ -1,6 +1,6 @@
 //! Push, toggle, menu and split buttons.
 
-use mitsuami_core::services::{Menu, MenuEntries, install_button_menu};
+use mitsuami_core::services::{Menu, MenuEntries, install_button_menu, install_button_menu_on_open};
 
 use mitsuami_core::{
     ButtonRole, ButtonStyle, Color, Element, ElementBuilder, EventValue, NodeId, Prop, Tweak, Ui, UiEvent, VectorIcon,
@@ -175,6 +175,17 @@ impl MenuButton {
     pub fn menu_with<E: MenuEntries>(mut self, entries: impl Fn() -> E + 'static) -> MenuButton {
         let menu = Menu::new(String::new()).children_with(entries);
         self.0.after_build(move |ui, id| install_button_menu(ui, id, menu));
+        self
+    }
+
+    /// Its menu, built by `entries` each time the platform opens it, for
+    /// a menu that depends on what's true at that moment, as
+    /// [`context_menu_on_open`](ElementBuilder::context_menu_on_open)
+    /// builds a context menu. What it reads is read then, not followed.
+    pub fn menu_on_open<E: MenuEntries>(mut self, entries: impl Fn() -> E + 'static) -> MenuButton {
+        let build: std::rc::Rc<dyn Fn() -> Menu> =
+            std::rc::Rc::new(move || Menu::new(String::new()).children(entries()));
+        self.0.after_build(move |ui, id| install_button_menu_on_open(ui, id, build));
         self
     }
 

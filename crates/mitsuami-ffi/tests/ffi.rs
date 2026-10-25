@@ -1131,6 +1131,34 @@ async fn context_menus_can_be_built_as_they_open(app: TestApp) {
     assert_eq!(heard(), ["menu 1", "menu 2"]);
 }
 
+extern "C" fn build_counted_button_menu(_user: *mut c_void, node: u32) {
+    let times = OPENED.with(|o| {
+        o.set(o.get() + 1);
+        o.get()
+    });
+    let title = format!("Opened {times}");
+    let entries = [menu_entry(0, times, &title, 0)];
+    assert!(unsafe { mitsuami_set_menu(node, entries.as_ptr(), entries.len()) });
+}
+
+#[mitsuami_test::test]
+async fn menu_buttons_menus_can_be_built_as_they_open(app: TestApp) {
+    attach(app.ui());
+    heard();
+    OPENED.with(|o| o.set(0));
+    let button = create(MitsuamiKind::MenuButton);
+    set_text(button, MitsuamiTextProp::Label, "Git-Flow");
+    assert!(mitsuami_set_menu_on_open(button, Some(build_counted_button_menu), std::ptr::null_mut()));
+    assert!(mitsuami_on_event(button, record, std::ptr::null_mut()));
+    app.mount(|| Adopt(button));
+    app.settle().await;
+    assert_eq!(OPENED.with(|o| o.get()), 0, "built before it opens");
+
+    app.get_by_role(Role::MenuButton, "Git-Flow").choose_menu_item(&["Opened 1"]).await;
+    app.get_by_role(Role::MenuButton, "Git-Flow").choose_menu_item(&["Opened 2"]).await;
+    assert_eq!(heard(), ["item 1", "item 2"]);
+}
+
 /// A row that wraps puts what doesn't fit on another line.
 #[mitsuami_test::test]
 async fn rows_wrap_when_told(app: TestApp) {

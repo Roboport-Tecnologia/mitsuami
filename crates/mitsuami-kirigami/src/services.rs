@@ -355,8 +355,9 @@ fn context_menu_qml(menu: &MenuData) -> Option<MenuQml> {
 /// `QQC2.Menu` and its items took most of the time rows took to scroll in.
 /// A menu button's menu is one too, its `mitsuamiButtonMenu` (see
 /// `qml::menu_button`), made as its entries come. One the app builds as
-/// it opens (`ContextMenuOnOpen`) is made again each time it's wanted to
-/// open, from what the app builds then.
+/// it opens (`ContextMenuOnOpen`, or a menu button's `MenuOnOpen`) is
+/// made again each time it's wanted to open, from what the app builds
+/// then, if that changed.
 pub(crate) struct ContextMenu {
     entries: Rc<RefCell<MenuBarData>>,
     menu: Rc<Cell<Option<QmlObject>>>,
@@ -426,8 +427,10 @@ impl ContextMenu {
     /// menu while it has `on_open`, whatever its entries.
     pub(crate) fn set_on_open(&mut self, item: Option<QmlObject>, on_open: Option<MenuOnOpen>) {
         self.on_open.replace(on_open);
-        if let Some(item) = item {
-            self.connect(item);
+        match item {
+            Some(item) if self.lazy() => self.connect(item),
+            Some(item) => self.connect_button(item),
+            None => {}
         }
     }
 
@@ -470,6 +473,32 @@ impl ContextMenu {
             if menu.get().is_none() {
                 menu.set(build(item, CONTEXT_MENU_PROPERTY, &entries, &choose));
             }
+        });
+    }
+
+    /// Asks the app for a menu button's menu as it's clicked, while it has
+    /// `on_open`, and makes it again if what's built changed. The `Menu`
+    /// that follows from the core finds it holding those entries already.
+    fn connect_button(&self, item: QmlObject) {
+        item.set_bool("mitsuamiMenuOnOpen", self.on_open.borrow().is_some());
+        if self.item.replace(Some(item)) == Some(item) {
+            return;
+        }
+        let (menu, entries, choose, on_open, property) =
+            (self.menu.clone(), self.entries.clone(), self.choose.clone(), self.on_open.clone(), self.property);
+        item.connect("mitsuamiButtonMenuWanted()", move || {
+            // A Qt signal from a click: outside any core call.
+            let Some(built) = on_open.borrow().clone().map(|on_open| on_open.build()) else { return };
+            let data = MenuBarData { menus: vec![MenuData { title: String::new(), entries: built }] };
+            if menu.get().is_some() && *entries.borrow() == data {
+                return;
+            }
+            entries.replace(data);
+            if let Some(old) = menu.take() {
+                item.set_object(property, None);
+                retire(old);
+            }
+            menu.set(build(item, property, &entries, &choose));
         });
     }
 

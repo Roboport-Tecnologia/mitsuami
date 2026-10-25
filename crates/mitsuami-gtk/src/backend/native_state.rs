@@ -108,6 +108,8 @@ impl GtkBackend {
             Widget::MenuButton { button, menu } => {
                 props.extend(node.button.read(button));
                 props.push(Prop::Menu(menu.entries(button.upcast_ref())));
+                // Kept: GTK can't give back the app's function.
+                props.extend(menu.on_open().map(|f| Prop::MenuOnOpen(Some(f))));
             }
             Widget::SplitButton { button, menu } => {
                 props.extend(node.button.read(button));

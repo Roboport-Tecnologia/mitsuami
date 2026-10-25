@@ -113,11 +113,13 @@ enum Widget {
     Select(Retained<NSPopUpButton>),
     RadioGroup(RadioGroup),
     /// A pull-down: its first item is the title it shows, then the app's
-    /// menu, whose items call the target.
+    /// menu, whose items call the target. A menu built as it opens has
+    /// the opener as its delegate.
     MenuButton {
         popup: Retained<NSPopUpButton>,
         target: Retained<ClosureTarget>,
         sent: Vec<MenuEntry>,
+        opener: Option<Retained<crate::classes::MenuOpener>>,
     },
     SplitButton(split_button::SplitButton),
     /// A slider, and the step it was given: AppKit steps by tick marks,

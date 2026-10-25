@@ -24,6 +24,7 @@ fn describe_props(props: &[Prop]) -> String {
             Prop::ContextMenu(entries) => extra.push(format!("context_menu=[{}]", menu_entries(entries))),
             Prop::Menu(entries) => extra.push(format!("menu=[{}]", menu_entries(entries))),
             Prop::ContextMenuOnOpen(Some(_)) => extra.push("context_menu_on_open".to_owned()),
+            Prop::MenuOnOpen(Some(_)) => extra.push("menu_on_open".to_owned()),
             Prop::FileDrop(Some(drop)) => {
                 let files = match &drop.extensions {
                     None => "files".to_owned(),
@@ -31,7 +32,7 @@ fn describe_props(props: &[Prop]) -> String {
                 };
                 extra.push(format!("file_drop=[{files}{}]", if drop.folders { " folders" } else { "" }));
             }
-            Prop::FileDrop(None) | Prop::ContextMenuOnOpen(None) => {}
+            Prop::FileDrop(None) | Prop::ContextMenuOnOpen(None) | Prop::MenuOnOpen(None) => {}
             // Their names: the rest is the machine's.
             Prop::RowMoves(moves) => {
                 let on = [(moves.onto_rows, "onto"), (moves.between_rows, "between")];

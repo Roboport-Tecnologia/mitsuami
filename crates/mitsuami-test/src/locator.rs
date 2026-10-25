@@ -539,7 +539,17 @@ impl<'a> Locator<'a> {
         self.app.settle().await;
         let id = self.id();
         if matches!(self.app.ui().kind(id), Some(WidgetKind::MenuButton | WidgetKind::SplitButton)) {
-            let menu = find_prop!(self.app.ui().props(id), Menu).unwrap_or_default();
+            // One built as it opens is built now, as a press does, and
+            // reaches the platform first.
+            let props = self.app.ui().props(id);
+            let menu = match find_prop!(props, MenuOnOpen) {
+                Some(Some(on_open)) => {
+                    let menu = on_open.build();
+                    self.app.settle().await;
+                    menu
+                }
+                _ => find_prop!(props, Menu).unwrap_or_default(),
+            };
             let Some(item) = find_menu_item(&menu, path) else {
                 self.fail(&format!("the menu of {} has no item {path:?}", self.query))
             };

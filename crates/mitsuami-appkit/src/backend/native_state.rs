@@ -106,8 +106,12 @@ pub(super) fn native_state(state: &State, id: NodeId) -> Option<NativeState> {
                 props.push(Prop::Menu(crate::services::context_menu_entries(&menu, &button.sent)));
             }
         }
-        Widget::MenuButton { popup, sent, .. } => {
+        Widget::MenuButton { popup, sent, opener, .. } => {
             props.push(Prop::Label(pull_down_title(&node.widget)));
+            // Kept: AppKit can't give back the app's function.
+            if let Some(opener) = opener {
+                props.push(Prop::MenuOnOpen(Some(opener.on_open())));
+            }
             props.extend(node.icon.clone().map(Prop::Icon));
             props.extend(node.vector_icon.clone().map(Prop::VectorIcon));
             if node.icon_only.is_some() {

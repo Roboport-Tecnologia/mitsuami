@@ -446,6 +446,15 @@ impl State {
                     })
                     .set(Some(b), entries);
             }
+            // Built as the button's clicked: see `ContextMenu::set_on_open`.
+            (Prop::MenuOnOpen(on_open), Widget::MenuButton(b)) => {
+                let b = *b;
+                node.button_menu
+                    .get_or_insert_with(|| {
+                        ContextMenu::for_button(move |chosen| events.emit(id, UiEvent::MenuItem(chosen)))
+                    })
+                    .set_on_open(Some(b), on_open.clone());
+            }
             (Prop::ButtonStyle(style), Widget::Button(b) | Widget::MenuButton(b) | Widget::SplitButton(b)) => {
                 // Flat buttons have no frame until hovered.
                 b.set_bool("flat", *style == ButtonStyle::Borderless);

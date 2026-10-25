@@ -95,6 +95,32 @@ impl State {
             (Prop::Options(options), Widget::RadioGroup(group)) => group.set_options(options),
             (Prop::SelectedIndex(index), Widget::RadioGroup(group)) => group.set_selected(*index),
             (Prop::Enabled(e), Widget::RadioGroup(group)) => group.set_enabled(*e),
+            // A menu built as it opens: what was built goes into the menu
+            // showing, which holds it already when AppKit asked for it.
+            (Prop::Menu(entries), Widget::MenuButton { popup, sent, opener: Some(opener), .. }) => {
+                *sent = entries.clone();
+                if let Some(menu) = popup.menu() {
+                    opener.fill(&menu, entries);
+                }
+            }
+            (Prop::MenuOnOpen(on_open), Widget::MenuButton { popup, target, sent, opener }) => match (on_open, &opener)
+            {
+                (Some(on_open), Some(opener)) => opener.set(on_open.clone()),
+                (Some(on_open), None) => {
+                    let new = crate::classes::MenuOpener::new(mtm, on_open.clone(), target.clone(), 1);
+                    if let Some(menu) = popup.menu() {
+                        new.adopt(&menu, sent);
+                    }
+                    *opener = Some(new);
+                }
+                (None, _) => {
+                    if opener.take().is_some()
+                        && let Some(menu) = popup.menu()
+                    {
+                        menu.setDelegate(None);
+                    }
+                }
+            },
             (
                 Prop::Label(_) | Prop::Icon(_) | Prop::VectorIcon(_) | Prop::IconOnly(_) | Prop::Menu(_),
                 Widget::MenuButton { .. },
@@ -532,7 +558,7 @@ impl State {
                         opener.set(on_open.clone());
                     } else {
                         let opener =
-                            crate::classes::MenuOpener::new(mtm, on_open.clone(), menu_target(mtm, id, &events));
+                            crate::classes::MenuOpener::new(mtm, on_open.clone(), menu_target(mtm, id, &events), 0);
                         let menu = NSMenu::new(mtm);
                         menu.setAutoenablesItems(false);
                         menu.setDelegate(Some(ProtocolObject::from_ref(&*opener)));

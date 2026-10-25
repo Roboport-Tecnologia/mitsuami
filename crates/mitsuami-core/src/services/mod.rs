@@ -22,7 +22,7 @@ pub use futures::{
 };
 pub use menu::{Menu, MenuBar, MenuEntries, MenuItem, MenuSeparator, Menus};
 #[doc(hidden)]
-pub use menu_collect::{ItemMenus, install_button_menu};
+pub use menu_collect::{ItemMenus, install_button_menu, install_button_menu_on_open};
 pub(crate) use menu_collect::{install_context_menu, install_context_menu_on_open};
 pub use menu_data::{
     MenuBarData, MenuCheck, MenuData, MenuEntry, MenuItemData, MenuOnOpen, MenuRole, Shortcut, find_menu_item,

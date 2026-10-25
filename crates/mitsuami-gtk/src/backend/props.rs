@@ -213,6 +213,9 @@ impl State {
                 node.button.show(button);
             }
             (Prop::Menu(entries), Widget::MenuButton { button, menu }) => menu.set(button.upcast_ref(), entries),
+            // Built by the button as its popover is about to show; what was
+            // built then comes back as `Menu`, which the menu holds already.
+            (Prop::MenuOnOpen(on_open), Widget::MenuButton { menu, .. }) => menu.set_button_on_open(on_open.clone()),
             (Prop::ButtonStyle(style), Widget::MenuButton { button, .. }) => {
                 button.set_has_frame(*style != ButtonStyle::Borderless);
                 set_suggested(button.upcast_ref(), *style == ButtonStyle::Prominent);

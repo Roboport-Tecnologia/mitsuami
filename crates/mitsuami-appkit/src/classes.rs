@@ -1069,12 +1069,14 @@ pub(crate) struct MenuOpenerIvars {
     /// What it holds, so the same entries aren't put in again while it's
     /// open.
     shown: RefCell<Vec<MenuEntry>>,
+    /// Items at the start it leaves: a pull-down's title.
+    keep: isize,
 }
 
 define_class!(
-    /// The delegate of a context menu built as it opens: AppKit asks it to
-    /// fill the menu just before showing it (`menuNeedsUpdate:`), and it
-    /// asks the app.
+    /// The delegate of a context menu (or a pull-down's) built as it
+    /// opens: AppKit asks it to fill the menu just before showing it
+    /// (`menuNeedsUpdate:`), and it asks the app.
     #[unsafe(super(NSObject))]
     #[thread_kind = MainThreadOnly]
     #[ivars = MenuOpenerIvars]
@@ -1085,7 +1087,8 @@ define_class!(
     unsafe impl NSMenuDelegate for MenuOpener {
         #[unsafe(method(menuNeedsUpdate:))]
         fn menu_needs_update(&self, menu: &NSMenu) {
-            // Outside any core call: AppKit is handling a right-click.
+            // Outside any core call: AppKit is handling a right-click or
+            // a press.
             let entries = self.ivars().on_open.borrow().build();
             self.fill(menu, &entries);
         }
@@ -1097,8 +1100,9 @@ impl MenuOpener {
         mtm: MainThreadMarker,
         on_open: MenuOnOpen,
         target: Retained<ClosureTarget>,
+        keep: isize,
     ) -> Retained<MenuOpener> {
-        let ivars = MenuOpenerIvars { on_open: RefCell::new(on_open), target, shown: RefCell::new(Vec::new()) };
+        let ivars = MenuOpenerIvars { on_open: RefCell::new(on_open), target, shown: RefCell::new(Vec::new()), keep };
         let this = MenuOpener::alloc(mtm).set_ivars(ivars);
         unsafe { msg_send![super(this), init] }
     }
@@ -1116,11 +1120,20 @@ impl MenuOpener {
         if *self.ivars().shown.borrow() == entries {
             return;
         }
-        menu.removeAllItems();
+        let keep = self.ivars().keep;
+        while menu.numberOfItems() > keep {
+            menu.removeItemAtIndex(keep);
+        }
         let target = crate::services::ItemTarget { object: &self.ivars().target, action: sel!(fire:) };
         for item in crate::services::app_items(self.mtm(), entries, target) {
             menu.addItem(&item);
         }
+        *self.ivars().shown.borrow_mut() = entries.to_vec();
+    }
+
+    /// Takes `menu`, which holds `entries` already, as its own.
+    pub(crate) fn adopt(&self, menu: &NSMenu, entries: &[MenuEntry]) {
+        menu.setDelegate(Some(ProtocolObject::from_ref(self)));
         *self.ivars().shown.borrow_mut() = entries.to_vec();
     }
 }

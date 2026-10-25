@@ -72,11 +72,12 @@ pub struct MenuData {
     pub entries: Vec<MenuEntry>,
 }
 
-/// Builds a node's context menu as the platform opens it, for menus that
-/// depend on what's under the pointer and selected at that moment (a
-/// table's rows). Calling it builds the menu, makes it the node's
-/// [`Prop::ContextMenu`](crate::Prop::ContextMenu), and returns it, for
-/// the platform to show. Equal only to itself.
+/// Builds a node's context menu (or a menu button's menu) as the platform
+/// opens it, for menus that depend on what's under the pointer and
+/// selected at that moment (a table's rows). Calling it builds the menu,
+/// makes it the node's [`Prop::ContextMenu`](crate::Prop::ContextMenu)
+/// (or [`Prop::Menu`](crate::Prop::Menu)), and returns it, for the
+/// platform to show. Equal only to itself.
 #[derive(Clone)]
 pub struct MenuOnOpen(Rc<dyn Fn() -> Vec<MenuEntry>>);
 
@@ -86,7 +87,8 @@ impl MenuOnOpen {
     }
 
     /// Builds the menu. Called outside any `Ui` call: from the platform's
-    /// own event (a right-click), or by tests before they act on it.
+    /// own event (a right-click, a press on the button), or by tests
+    /// before they act on it.
     pub fn build(&self) -> Vec<MenuEntry> {
         (self.0)()
     }

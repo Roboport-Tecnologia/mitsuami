@@ -1055,6 +1055,11 @@ pub enum Prop {
     /// submenus, built as a context menu's. The node reports the item chosen as
     /// [`UiEvent::MenuItem`](crate::UiEvent::MenuItem).
     Menu(Vec<MenuEntry>),
+    /// A `MenuButton`'s menu is built as the platform opens it, as
+    /// [`ContextMenuOnOpen`](Prop::ContextMenuOnOpen) builds a context
+    /// menu: what it returns is shown, and is the node's `Menu` from then
+    /// on. `None`: the menu is `Menu` alone.
+    MenuOnOpen(Option<crate::services::MenuOnOpen>),
     /// A window is modal, belonging to `owner` (the window it was declared
     /// in, if any). Sent once, before the window is shown.
     Modal {

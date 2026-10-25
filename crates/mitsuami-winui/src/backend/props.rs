@@ -749,12 +749,20 @@ impl State {
             // context menu's. Flyouts open above by default; drop-down
             // buttons' open below, as WinUI's own samples set them.
             // A split button's arrow opens its flyout the same way.
-            (Prop::Menu(entries), Widget::MenuButton(_) | Widget::SplitButton(_)) => {
+            (Prop::Menu(_) | Prop::MenuOnOpen(_), Widget::MenuButton(_) | Widget::SplitButton(_)) => {
                 let events = self.emitter.clone();
                 let menu = node.button_menu.get_or_insert_with(|| {
                     ContextMenu::new(Rc::new(move |item| events.emit(id, UiEvent::MenuItem(item))), None)
                 });
-                if menu.update(entries, format!("button-{id}"))? {
+                // Built as it opens, from the flyout's `Opening`, as a
+                // context menu is; the `Menu` the build sets then fills
+                // the same flyout.
+                let replaced = match prop {
+                    Prop::MenuOnOpen(on_open) => menu.set_on_open(on_open.as_ref(), format!("button-{id}"))?,
+                    Prop::Menu(entries) => menu.update(entries, format!("button-{id}"))?,
+                    _ => false,
+                };
+                if replaced {
                     let flyout = match &menu.flyout {
                         Some(flyout) => {
                             flyout.cast::<w::IFlyoutBase>()?.SetPlacement(w::FlyoutPlacementMode::Bottom)?;

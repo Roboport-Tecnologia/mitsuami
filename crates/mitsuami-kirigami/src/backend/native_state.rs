@@ -94,6 +94,10 @@ impl KirigamiBackend {
                     props.push(Prop::Checked(b.bool("checked")));
                 }
                 props.extend(node.button_menu.as_ref().map(|menu| Prop::Menu(menu.shown())));
+                // Kept: Qt can't give back the app's function.
+                props.extend(
+                    node.button_menu.as_ref().and_then(|menu| menu.on_open()).map(|f| Prop::MenuOnOpen(Some(f))),
+                );
                 props.push(Prop::Icon(b.str("mitsuamiShownIcon")));
                 // Shown if the button has its file: the file stands for it.
                 if !b.str("mitsuamiShownIconFile").is_empty() || node.vector_icon == Some(None) {

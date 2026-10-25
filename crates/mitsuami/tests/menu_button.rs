@@ -3,6 +3,9 @@
 //! button carries its menu, and tests choose its items as assistive
 //! technology does, without opening it: nothing here may open modal UI.
 
+use std::cell::Cell;
+use std::rc::Rc;
+
 use mitsuami::core::services::{MenuCheck, MenuEntry, find_menu_item};
 use mitsuami::core::{A11yAction, ActionError, Prop, WidgetKind};
 use mitsuami::prelude::*;
@@ -113,6 +116,46 @@ async fn a_built_menu_follows_what_it_reads(app: TestApp) {
     assert_eq!(titles(&native_menu(&app, "Add")), ["b.txt", "a.txt"]);
     app.get(add("Add")).choose_menu_item(&["b.txt"]).await;
     app.expect(by_test_id("chosen")).to_have_text("b.txt").await;
+}
+
+/// A menu built as it opens reads what's true then, not before: an item
+/// that depends on the current branch, as a Git client's Git-Flow menu.
+/// The native button carries the menu last built.
+#[mitsuami_test::test]
+async fn a_menu_built_as_it_opens_reads_what_is_true_then(app: TestApp) {
+    let branch = signal("main".to_owned());
+    let finished = signal(String::new());
+    let built = Rc::new(Cell::new(0));
+    let count = built.clone();
+    app.mount(move || {
+        let count = count.clone();
+        Column::new().align(Align::Start).children((
+            MenuButton::new("Git-Flow").menu_on_open(move || {
+                count.set(count.get() + 1);
+                let name = branch.get();
+                let finish = (name != "main").then(|| {
+                    let name = name.clone();
+                    MenuItem::new(format!("Finish {name}")).on_select(move || finished.set(name.clone()))
+                });
+                (MenuItem::new("Start Feature…"), finish)
+            }),
+            Text::new(finished).test_id("finished"),
+        ))
+    });
+    app.expect(add("Git-Flow")).to_be_visible().await;
+    assert_eq!(built.get(), 0, "built before it opens");
+
+    branch.set("feature/login".to_owned());
+    app.settle().await;
+    assert_eq!(built.get(), 0, "built when what it reads changes");
+    app.get(add("Git-Flow")).choose_menu_item(&["Finish feature/login"]).await;
+    app.expect(by_test_id("finished")).to_have_text("feature/login").await;
+    assert_eq!(titles(&native_menu(&app, "Git-Flow")), ["Start Feature…", "Finish feature/login"]);
+
+    branch.set("main".to_owned());
+    app.get(add("Git-Flow")).choose_menu_item(&["Start Feature…"]).await;
+    assert_eq!(titles(&native_menu(&app, "Git-Flow")), ["Start Feature…"]);
+    assert_eq!(built.get(), 2);
 }
 
 /// Clicking opens the menu, which would be modal: it has no click of its

@@ -364,6 +364,8 @@ pub(crate) struct ContextMenu {
     button: Option<MenuOwner>,
     /// Builds the menu as it opens, before what was set last.
     on_open: Rc<RefCell<Option<MenuOnOpen>>>,
+    /// A menu button's `create-popup-func` is given.
+    popup_func: Rc<std::cell::Cell<bool>>,
 }
 
 /// The button that shows a button's own menu.
@@ -384,6 +386,7 @@ impl ContextMenu {
             popover: Rc::default(),
             button,
             on_open: Rc::default(),
+            popup_func: Rc::default(),
         }
     }
 
@@ -493,6 +496,28 @@ impl ContextMenu {
 
     pub(crate) fn on_open(&self) -> Option<MenuOnOpen> {
         self.on_open.borrow().clone()
+    }
+
+    /// Builds a menu button's menu as it opens (`None`: shows what was
+    /// set), from GTK's own moment for it: the button's `create-popup-func`,
+    /// called each time before the popover shows, outside any core call.
+    /// GTK can't take the function back, so it's given once and does
+    /// nothing without one.
+    pub(crate) fn set_button_on_open(&self, on_open: Option<MenuOnOpen>) {
+        let given = on_open.is_some();
+        *self.on_open.borrow_mut() = on_open;
+        let Some(MenuOwner::Menu(button)) = &self.button else { return };
+        if !given || self.popup_func.get() {
+            return;
+        }
+        self.popup_func.set(true);
+        // Without the button: it holds the function, which would hold it.
+        let menu = ContextMenu { button: None, ..self.clone() };
+        button.set_create_popup_func(move |button| {
+            let Some(on_open) = menu.on_open.borrow().clone() else { return };
+            let menu = ContextMenu { button: Some(MenuOwner::Menu(button.clone())), ..menu.clone() };
+            menu.set(button.upcast_ref(), &on_open.build());
+        });
     }
 
     /// Takes the app's entries: states in place when only they changed,

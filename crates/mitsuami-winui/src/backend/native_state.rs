@@ -126,6 +126,8 @@ impl WinUiBackend {
             }
             Widget::MenuButton(_) | Widget::SplitButton(_) => {
                 props.extend(button_content(node));
+                // Kept: XAML can't give back the app's function.
+                props.extend(node.button_menu.as_ref().and_then(|m| m.on_open()).map(|f| Prop::MenuOnOpen(Some(f))));
                 if let Some(menu) = &node.button_menu {
                     let shown = match &node.widget {
                         Widget::SplitButton(b) => b.cast::<w::ISplitButton>().ok()?.Flyout().ok(),

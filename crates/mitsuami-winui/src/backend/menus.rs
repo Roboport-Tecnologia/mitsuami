@@ -72,7 +72,8 @@ impl ContextMenu {
         Ok(replaced)
     }
 
-    /// Builds the menu as it opens, asking `on_open` (`ContextMenuOnOpen`),
+    /// Builds the menu as it opens, asking `on_open` (`ContextMenuOnOpen`,
+    /// or a menu button's `MenuOnOpen`),
     /// or with `None` shows what was sent, as `update` does. Whether the
     /// flyout was replaced.
     pub(crate) fn set_on_open(&mut self, on_open: Option<&MenuOnOpen>, scope: String) -> R<bool> {

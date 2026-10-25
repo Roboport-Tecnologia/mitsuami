@@ -195,7 +195,7 @@ impl State {
                         events.emit(id, UiEvent::MenuItem(item.tag() as u32));
                     }
                 });
-                let widget = Widget::MenuButton { popup, target, sent: Vec::new() };
+                let widget = Widget::MenuButton { popup, target, sent: Vec::new(), opener: None };
                 show_pull_down(&widget, "", None, None);
                 widget
             }
