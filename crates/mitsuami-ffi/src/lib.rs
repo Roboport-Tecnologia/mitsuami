@@ -668,6 +668,9 @@ pub enum MitsuamiBoolProp {
     /// A text area keeps its end in view as its text is set, while it's
     /// there: a log.
     FollowsEnd = 15,
+    /// A container reports the pointer coming over it, or anything inside
+    /// it, and leaving (`Hover`): a row's buttons that show on hover.
+    Hover = 16,
 }
 
 #[unsafe(no_mangle)]
@@ -690,6 +693,7 @@ pub extern "C" fn mitsuami_set_bool(id: u32, prop: u32, value: bool) -> bool {
             13 => Prop::ReadOnly(value),
             14 => Prop::LineWrap(value),
             15 => Prop::FollowsEnd(value),
+            16 => Prop::Hover(value),
             _ => return Err(format!("unknown bool prop {prop}")),
         };
         ui()?.set_prop(node(id), prop);
@@ -1546,6 +1550,9 @@ pub enum MitsuamiEventKind {
     /// A key the node takes (`mitsuami_set_keys`) was pressed: `index` is
     /// its place in the list the app gave.
     Key = 18,
+    /// The pointer came over a container that reports it (`flag`), or
+    /// left.
+    Hover = 19,
 }
 
 #[repr(u32)]
@@ -1603,6 +1610,7 @@ pub extern "C" fn mitsuami_on_event(
                 UiEvent::SuggestionChosen(_) => MitsuamiEventKind::SuggestionChosen,
                 UiEvent::Key(_) => MitsuamiEventKind::Key,
                 UiEvent::DropHover(_) => MitsuamiEventKind::DropHover,
+                UiEvent::Hover(_) => MitsuamiEventKind::Hover,
                 UiEvent::FilesDropped(_) => MitsuamiEventKind::FilesDropped,
                 UiEvent::Pointer(_) => MitsuamiEventKind::Pointer,
                 UiEvent::Custom(value) if value.downcast_ref::<DrawnAction>().is_some() => {
@@ -1633,7 +1641,7 @@ pub extern "C" fn mitsuami_on_event(
                     out.value_kind = MitsuamiValueKind::Bool as u32;
                     out.flag = *shown;
                 }
-                UiEvent::DropHover(over) => {
+                UiEvent::DropHover(over) | UiEvent::Hover(over) => {
                     out.value_kind = MitsuamiValueKind::Bool as u32;
                     out.flag = *over;
                 }

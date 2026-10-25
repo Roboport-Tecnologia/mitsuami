@@ -51,6 +51,7 @@ extern "C" fn record(_user: *mut c_void, _node: u32, event: *const MitsuamiEvent
         16 => format!("popover shown {}", event.flag),
         17 => format!("suggestion {}", event.index),
         18 => format!("key {}", event.index),
+        19 => format!("pointer over {}", event.flag),
         // Where focus goes on a click differs per platform.
         3 | 4 => return,
         kind => format!("event {kind}"),
@@ -1318,4 +1319,22 @@ async fn sliders_and_number_fields_report_the_number(app: TestApp) {
     app.get_by_label("Tab width").increment().await;
     assert_eq!(heard(), ["changed 5"]);
     assert!(!mitsuami_set_range(number, 3.0, 1.0, 0.0));
+}
+
+#[mitsuami_test::test]
+async fn containers_report_the_pointer_over_them(app: TestApp) {
+    attach(app.ui());
+    heard();
+    let row = create(MitsuamiKind::Container);
+    let text = create(MitsuamiKind::Text);
+    set_text(text, MitsuamiTextProp::Text, "main");
+    assert!(mitsuami_append_child(row, text));
+    assert!(mitsuami_set_bool(row, MitsuamiBoolProp::Hover as u32, true));
+    assert!(mitsuami_on_event(row, record, std::ptr::null_mut()));
+    app.mount(|| Adopt(row));
+
+    app.get_by_text("main").hover().await;
+    assert_eq!(heard(), ["pointer over true"]);
+    app.move_pointer_away().await;
+    assert_eq!(heard(), ["pointer over false"]);
 }
