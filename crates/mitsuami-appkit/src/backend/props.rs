@@ -318,7 +318,7 @@ impl State {
             (Prop::InputPurpose(purpose), Widget::Field(f)) => f.setContentType(content_type(*purpose)),
             (Prop::Value(t), Widget::TextArea(area)) => area.set_string(t),
             // A text view has no placeholder: kept for the mirror.
-            (Prop::Placeholder(t), Widget::TextArea(area)) => area.placeholder = Some(t.clone()),
+            (Prop::Placeholder(t), Widget::TextArea(area)) => area.set_placeholder(t),
             (Prop::ReadOnly(r), Widget::TextArea(area)) => area.set_read_only(*r),
             (Prop::Enabled(e), Widget::TextArea(area)) => area.set_enabled(*e),
             (Prop::Lines(lines), Widget::TextArea(area)) => area.lines = *lines,

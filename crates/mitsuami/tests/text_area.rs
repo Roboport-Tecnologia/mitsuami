@@ -363,4 +363,50 @@ async fn lines_wrap_unless_the_app_says_otherwise(app: TestApp) {
     app.expect(by_label("Log")).to_have_value("typed").await;
 }
 
+/// The placeholder shows while the area is empty, as a field's, and goes
+/// once it has text: AppKit's text view has its own, outside the SDK's
+/// headers (SourceGit's commit message showed none, 2026-10-24).
+#[mitsuami_test::test]
+async fn shows_its_placeholder_while_empty(app: TestApp) {
+    let text = signal(String::new());
+    app.mount(move || {
+        Row::new().padding(16).gap(16).children((
+            TextArea::new().placeholder("Write a message").a11y_label("With").bind(text).width(200).test_id("with"),
+            TextArea::new().a11y_label("Without").bind(text).width(200).test_id("without"),
+        ))
+    });
+    app.expect(by_label("Without")).to_be_visible().await;
+
+    // The pixels inside each area, which are the same but for the
+    // placeholder.
+    let looks = async || {
+        let image = match app.ui().capture(app.window()).await {
+            Err(mitsuami::core::backend::CaptureError::Unsupported) => return None,
+            Err(e) => panic!("capture failed: {e:?}"),
+            Ok(image) => image,
+        };
+        let inside = |id: &str| {
+            let frame = app.get_by_test_id(id).frame();
+            let scale = image.scale_factor;
+            let mut pixels = Vec::new();
+            for y in ((frame.y() + 4.0) * scale) as usize..((frame.max_y() - 4.0) * scale) as usize {
+                let start = (y * image.width as usize + ((frame.x() + 4.0) * scale) as usize) * 4;
+                let end = (y * image.width as usize + ((frame.max_x() - 4.0) * scale) as usize) * 4;
+                pixels.extend_from_slice(&image.rgba[start..end]);
+            }
+            pixels
+        };
+        Some((inside("with"), inside("without")))
+    };
+    let Some((with, without)) = looks().await else {
+        return assert!(app.is_headless(), "only headless may lack capture");
+    };
+    assert_ne!(with, without, "no placeholder while empty");
+
+    text.set("Fix the build".into());
+    app.settle().await;
+    let (with, without) = looks().await.unwrap();
+    assert!(with == without, "a placeholder over the text");
+}
+
 mitsuami_test::main!();
