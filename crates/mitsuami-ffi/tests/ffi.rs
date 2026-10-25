@@ -6,7 +6,7 @@ use std::cell::RefCell;
 use std::ffi::c_void;
 use std::sync::atomic::{AtomicU32, Ordering};
 
-use mitsuami::core::services::{Launch, Shortcut};
+use mitsuami::core::services::{Launch, MenuRole, Shortcut};
 use mitsuami::core::{Color, ImageSource, Modality, NodeId, Pixels, Prop, Size, TextStyle, Ui, VectorIcon, View};
 use mitsuami_ffi::*;
 use mitsuami_test::prelude::*;
@@ -485,7 +485,16 @@ async fn windows_capture_to_png_files(app: TestApp) {
 }
 
 fn menu_entry(kind: u32, id: u32, title: &str, check: u32) -> MitsuamiMenuEntry {
-    MitsuamiMenuEntry { kind, id, title: str(title), enabled: true, check }
+    MitsuamiMenuEntry {
+        kind,
+        id,
+        title: str(title),
+        enabled: true,
+        check,
+        role: 0,
+        has_shortcut: false,
+        shortcut: MitsuamiShortcut { key: 0, ch: 0, primary: false, shift: false, alt: false },
+    }
 }
 
 #[mitsuami_test::test]
@@ -1252,4 +1261,61 @@ async fn text_areas_can_be_logs(app: TestApp) {
     {
         assert!(props.contains(&prop), "{prop:?}");
     }
+}
+
+static MENU_BAR_CHOSEN: AtomicU32 = AtomicU32::new(0);
+
+extern "C" fn menu_bar_chosen(_: *mut c_void, id: u32) {
+    MENU_BAR_CHOSEN.store(id, Ordering::SeqCst);
+}
+
+#[mitsuami_test::test]
+async fn the_menu_bar_reports_the_item_chosen(app: TestApp) {
+    attach(app.ui());
+    app.mount(|| Adopt(create(MitsuamiKind::Text)));
+    let mut settings = menu_entry(0, 7, "Settings…", 0);
+    settings.role = 2;
+    settings.has_shortcut = true;
+    settings.shortcut = MitsuamiShortcut { key: 0, ch: ',' as u32, primary: true, shift: false, alt: false };
+    let entries = [menu_entry(2, 0, "SourceGit", 0), settings, menu_entry(3, 0, "", 0)];
+    assert!(unsafe { mitsuami_set_menu_bar(entries.as_ptr(), entries.len(), menu_bar_chosen, std::ptr::null_mut()) });
+    app.settle().await;
+    let item = app.services().menu_item(&["SourceGit", "Settings…"]).expect("the item");
+    assert_eq!(item.role, MenuRole::Settings);
+    assert_eq!(item.shortcut, Some(Shortcut::primary(',')));
+    assert!(app.services().choose_menu_item(&["SourceGit", "Settings…"]));
+    app.settle().await;
+    assert_eq!(MENU_BAR_CHOSEN.load(Ordering::SeqCst), 7);
+
+    // A bar holds menus, not items.
+    let loose = [menu_entry(0, 1, "Loose", 0)];
+    assert!(!unsafe { mitsuami_set_menu_bar(loose.as_ptr(), loose.len(), menu_bar_chosen, std::ptr::null_mut()) });
+}
+
+#[mitsuami_test::test]
+async fn sliders_and_number_fields_report_the_number(app: TestApp) {
+    attach(app.ui());
+    let column = create(MitsuamiKind::Container);
+    let slider = create(MitsuamiKind::Slider);
+    set_text(slider, MitsuamiTextProp::Label, "Subject guide length");
+    assert!(mitsuami_set_range(slider, 50.0, 200.0, 10.0));
+    assert!(mitsuami_set_number(slider, MitsuamiNumberProp::Number as u32, 70.0));
+    let number = create(MitsuamiKind::NumberInput);
+    set_text(number, MitsuamiTextProp::Label, "Tab width");
+    assert!(mitsuami_set_range(number, 1.0, 16.0, 0.0));
+    assert!(mitsuami_set_number(number, MitsuamiNumberProp::Number as u32, 4.0));
+    assert!(mitsuami_on_event(number, record, std::ptr::null_mut()));
+    assert!(mitsuami_append_child(column, slider));
+    assert!(mitsuami_append_child(column, number));
+    app.mount(|| Adopt(column));
+    app.settle().await;
+    let props = app.get_by_label("Subject guide length").native_state().props;
+    assert!(props.contains(&Prop::Number(70.0)));
+    assert!(props.contains(&Prop::Range { min: 50.0, max: 200.0 }));
+    assert!(app.get_by_label("Tab width").native_state().props.contains(&Prop::Number(4.0)));
+
+    heard();
+    app.get_by_label("Tab width").increment().await;
+    assert_eq!(heard(), ["changed 5"]);
+    assert!(!mitsuami_set_range(number, 3.0, 1.0, 0.0));
 }

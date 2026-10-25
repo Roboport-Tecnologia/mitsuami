@@ -25,8 +25,8 @@ use std::task::{Poll, Waker};
 use mitsuami::App;
 use mitsuami::core::draw::Path;
 use mitsuami::core::services::{
-    Alert, AlertStyle, Launch, MenuCheck, MenuData, MenuEntry, MenuItemData, MenuOnOpen, MenuRole, OpenFile, SaveFile,
-    Shortcut,
+    Alert, AlertStyle, Launch, Menu, MenuBar, MenuCheck, MenuData, MenuEntry, MenuItem, MenuItemData, MenuOnOpen,
+    MenuRole, OpenFile, SaveFile, Shortcut,
 };
 use mitsuami::core::style::{Edges, Position};
 use mitsuami::core::{
@@ -262,6 +262,12 @@ pub enum MitsuamiKind {
     /// (`mitsuami_set_menu`): a `Button`'s caption, icon, style and
     /// `Click`.
     SplitButton = 22,
+    /// The platform's slider: its `Number` in its range
+    /// (`mitsuami_set_range`), reported as `Changed` when the user moves it.
+    Slider = 23,
+    /// The platform's field for a whole number, with buttons that step it:
+    /// its `Number` in its range, reported as `Changed`.
+    NumberInput = 24,
 }
 
 fn widget_kind(kind: u32) -> Result<WidgetKind, String> {
@@ -289,6 +295,8 @@ fn widget_kind(kind: u32) -> Result<WidgetKind, String> {
         20 => WidgetKind::Popover,
         21 => WidgetKind::RadioGroup,
         22 => WidgetKind::SplitButton,
+        23 => WidgetKind::Slider,
+        24 => WidgetKind::NumberInput,
         _ => return Err(format!("unknown kind {kind}")),
     })
 }
@@ -336,6 +344,25 @@ pub unsafe extern "C" fn mitsuami_create_scroll_view(axes: u32, content: *mut u3
         Ok(outer.raw())
     })
     .unwrap_or(0)
+}
+
+/// A slider's or number field's range, and its step (where `step` is
+/// positive; else the platform's default). Set it before its `Number`,
+/// which it clamps.
+#[unsafe(no_mangle)]
+pub extern "C" fn mitsuami_set_range(id: u32, min: f64, max: f64, step: f64) -> bool {
+    guard(|| {
+        if min > max {
+            return Err(format!("an empty range {min}..{max}"));
+        }
+        let ui = ui()?;
+        ui.set_prop(node(id), Prop::Range { min, max });
+        if step > 0.0 {
+            ui.set_prop(node(id), Prop::Step(Some(step)));
+        }
+        Ok(())
+    })
+    .is_some()
 }
 
 /// Scrolls a scroll view to this offset of its content, in points,
@@ -713,6 +740,14 @@ pub struct MitsuamiMenuEntry {
     pub enabled: bool,
     /// None, a check box's (off, on) or a radio item's (off, on): 0 to 4.
     pub check: u32,
+    /// An item every app has, which a platform may move to a place of its
+    /// own (macOS's app menu): `None`, `About`, `Settings`, `Quit`, 0 to 3.
+    /// Menu bars only.
+    pub role: u32,
+    /// The item's shortcut, shown in the menu, if `has_shortcut`; in a
+    /// menu bar it also chooses the item.
+    pub has_shortcut: bool,
+    pub shortcut: MitsuamiShortcut,
 }
 
 /// The node's context menu, shown on the platform's own gestures; no
@@ -834,13 +869,20 @@ unsafe fn menu_entries(entries: *const MitsuamiMenuEntry, count: usize) -> Resul
                     3 | 4 => MenuCheck::Radio(entry.check == 4),
                     other => return Err(format!("bad menu check {other}")),
                 };
+                let role = match entry.role {
+                    0 => MenuRole::None,
+                    1 => MenuRole::About,
+                    2 => MenuRole::Settings,
+                    3 => MenuRole::Quit,
+                    other => return Err(format!("bad menu role {other}")),
+                };
                 let item = MenuItemData {
                     id: entry.id,
                     title,
-                    shortcut: None,
+                    shortcut: if entry.has_shortcut { Some(shortcut(&entry.shortcut)?) } else { None },
                     enabled: entry.enabled,
                     check,
-                    role: MenuRole::None,
+                    role,
                 };
                 stack.last_mut().unwrap().1.push(MenuEntry::Item(item));
             }
@@ -857,6 +899,60 @@ unsafe fn menu_entries(entries: *const MitsuamiMenuEntry, count: usize) -> Resul
         return Err("a submenu isn't ended".to_string());
     }
     Ok(stack.pop().unwrap().1)
+}
+
+/// The app's menu bar: its menus are the top-level submenus of `entries`
+/// (each a `SubmenuStart`, its entries, a `SubmenuEnd`). The platform
+/// shows it as its menu bar (macOS's, with the roles' items in the app
+/// menu) or as it shows an app's menus; `chosen(user, id)` gets the item
+/// chosen, by a click or its shortcut. Set again to change it.
+///
+/// # Safety
+/// As [`mitsuami_set_menu`] says.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn mitsuami_set_menu_bar(
+    entries: *const MitsuamiMenuEntry,
+    count: usize,
+    chosen: extern "C" fn(*mut c_void, u32),
+    user: *mut c_void,
+) -> bool {
+    let user = user as usize;
+    guard(|| {
+        let mut bar = MenuBar::new();
+        for entry in unsafe { menu_entries(entries, count)? } {
+            let MenuEntry::Submenu(menu) = entry else {
+                return Err("a menu bar holds menus".to_string());
+            };
+            bar = bar.menu(menu_of(menu, chosen, user));
+        }
+        ui()?.set_menu(bar);
+        Ok(())
+    })
+    .is_some()
+}
+
+/// A menu's data as the menu builder takes it, each item reporting its id.
+fn menu_of(data: MenuData, chosen: extern "C" fn(*mut c_void, u32), user: usize) -> Menu {
+    let mut menu = Menu::new(data.title);
+    for entry in data.entries {
+        menu = match entry {
+            MenuEntry::Item(item) => {
+                let id = item.id;
+                let mut built = MenuItem::new(item.title)
+                    .shortcut(item.shortcut)
+                    .enabled(item.enabled)
+                    .role(item.role)
+                    .on_select(move || chosen(user as *mut c_void, id));
+                if let MenuCheck::Check(on) | MenuCheck::Radio(on) = item.check {
+                    built = built.checked(on);
+                }
+                menu.item(built)
+            }
+            MenuEntry::Separator => menu.separator(),
+            MenuEntry::Submenu(sub) => menu.submenu(menu_of(sub, chosen, user)),
+        };
+    }
+    menu
 }
 
 /// Lets a container take files and folders dropped on it from the
