@@ -4,11 +4,12 @@ use mitsuami_core::a11y::{A11yAction, ActionError};
 use mitsuami_core::backend::{Backend, Key, SyntheticInput};
 use mitsuami_core::services::Shortcut;
 use mitsuami_core::{NodeId, ScrollAxes, WidgetKind};
-use objc2::{Message, msg_send, sel};
+use objc2::{MainThreadMarker, Message, msg_send, sel};
 use objc2_app_kit::{
-    NSEvent, NSEventModifierFlags, NSEventType, NSStandardKeyBindingResponding, NSTextField, NSTextView, NSView,
+    NSApplication, NSEvent, NSEventMask, NSEventModifierFlags, NSEventType, NSStandardKeyBindingResponding,
+    NSTextField, NSTextView, NSView,
 };
-use objc2_foundation::{NSPoint, NSRange, NSSize};
+use objc2_foundation::{NSDate, NSDefaultRunLoopMode, NSPoint, NSRange, NSSize};
 
 use super::scrolling::scroll_to;
 use super::{AppKitBackend, Widget, ns};
@@ -127,18 +128,10 @@ impl AppKitBackend {
         }
         let key = match input {
             SyntheticInput::Key(key) => key,
-            SyntheticInput::Shortcut(shortcut) => {
-                // Text fields take keys with modifiers as editing
-                // commands, which aren't simulated.
-                let kind = self.state.borrow().nodes.get(&id).ok_or(ActionError::UnknownNode)?.kind;
-                if matches!(
-                    kind,
-                    WidgetKind::TextInput | WidgetKind::PasswordInput | WidgetKind::SearchInput | WidgetKind::TextArea
-                ) {
-                    return Err(ActionError::Unsupported);
-                }
-                return self.send_key(id, *shortcut);
-            }
+            // A real key event, which a text field's editor or a text view
+            // takes as an editing command if it has one for it, and passes
+            // to the nodes around it if not (`keys::take_unused`).
+            SyntheticInput::Shortcut(shortcut) => return self.send_key(id, *shortcut),
             _ => unreachable!(),
         };
         if *key == Key::Escape {
@@ -279,7 +272,20 @@ impl AppKitBackend {
             window.makeFirstResponder(Some(&view));
         }
         let event = crate::keys::key_event(&window, shortcut).ok_or(ActionError::Unsupported)?;
-        window.sendEvent(&event);
+        // Through the event queue, as the keyboard's: the app's current
+        // event is the last it took from there, and text views' delegates
+        // read the key from it (`keys::take_unused`).
+        let app = NSApplication::sharedApplication(MainThreadMarker::from(&*view));
+        app.postEvent_atStart(&event, true);
+        let taken = unsafe {
+            app.nextEventMatchingMask_untilDate_inMode_dequeue(
+                NSEventMask::KeyDown,
+                Some(&NSDate::distantPast()),
+                NSDefaultRunLoopMode,
+                true,
+            )
+        };
+        window.sendEvent(&taken.unwrap_or(event));
         Ok(())
     }
 

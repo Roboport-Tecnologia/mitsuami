@@ -69,6 +69,38 @@ async fn the_focused_control_uses_its_own_keys_first(app: TestApp) {
     assert!(log.get_untracked().is_empty(), "{:?}", log.get_untracked());
 }
 
+/// A key a text field or text area has no use for goes up from it too, as
+/// from a list: F2, which no platform's text view uses, and on AppKit ⌘↵
+/// (a commit message's commit, SourceGit's). AppKit's text view and field
+/// editor turn a key they don't use into their `noop:` command and beep,
+/// rather than passing it on: it went nowhere, the maintainer's report
+/// (2026-10-24). Other platforms' text views may use modified keys (a
+/// line break), and headless doesn't simulate them in text fields.
+#[mitsuami_test::test]
+async fn text_fields_pass_on_keys_they_dont_use(app: TestApp) {
+    let log = signal(Vec::new());
+    let (name, notes) = (signal(String::new()), signal(String::new()));
+    app.mount(move || {
+        Column::new()
+            .on_key(Key::F(2), hear(log, "rename"))
+            .on_key(Shortcut::primary(Key::Enter), hear(log, "commit"))
+            .children((
+                TextInput::new().bind(name).a11y_label("Name"),
+                TextArea::new().bind(notes).a11y_label("Notes").height(80),
+            ))
+    });
+
+    app.get_by_label("Name").press(Key::F(2)).await;
+    app.get_by_label("Notes").press(Key::F(2)).await;
+    assert_eq!(log.get_untracked(), ["rename", "rename"]);
+    if app.backend_name() == "appkit" {
+        app.get_by_label("Name").press(Shortcut::primary(Key::Enter)).await;
+        app.get_by_label("Notes").press(Shortcut::primary(Key::Enter)).await;
+        assert_eq!(log.get_untracked(), ["rename", "rename", "commit", "commit"]);
+        assert_eq!(notes.get_untracked(), "", "⌘↵ broke the line too");
+    }
+}
+
 /// A key goes to the nearest node around the focused control that takes
 /// it; one it doesn't take goes on up.
 #[mitsuami_test::test]

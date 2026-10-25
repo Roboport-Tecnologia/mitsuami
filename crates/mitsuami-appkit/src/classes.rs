@@ -451,6 +451,9 @@ define_class!(
             if self.take_suggestion_key(command) {
                 return true.into();
             }
+            if command == sel!(noop:) {
+                return crate::keys::take_unused(control).into();
+            }
             if command == sel!(insertNewline:) && self.ivars().kind != WidgetKind::SearchInput {
                 self.ivars().events.emit(self.ivars().id, UiEvent::Submit);
             }
@@ -503,7 +506,13 @@ define_class!(
         }
     }
 
-    unsafe impl NSTextViewDelegate for ActionTarget {}
+    unsafe impl NSTextViewDelegate for ActionTarget {
+        /// A key the text area has no use for goes to the nodes around it.
+        #[unsafe(method(textView:doCommandBySelector:))]
+        fn text_view_do_command_by_selector(&self, text_view: &NSTextView, command: Sel) -> bool {
+            command == sel!(noop:) && crate::keys::take_unused(text_view)
+        }
+    }
 );
 
 impl ActionTarget {

@@ -4,9 +4,10 @@
 
 use mitsuami_core::services::Shortcut;
 use mitsuami_core::{EventSink, KeyCode, NodeId, UiEvent};
+use objc2::MainThreadMarker;
 use objc2::Message;
 use objc2::rc::Retained;
-use objc2_app_kit::{NSEvent, NSEventModifierFlags, NSEventType, NSView, NSWindow};
+use objc2_app_kit::{NSApplication, NSEvent, NSEventModifierFlags, NSEventType, NSView, NSWindow};
 use objc2_foundation::{NSPoint, NSString};
 
 use crate::classes::HostView;
@@ -131,4 +132,17 @@ pub(crate) fn take_around(view: &NSView, shortcut: Shortcut) -> bool {
         at = unsafe { view.superview() };
     }
     false
+}
+
+/// Offers the key being handled to the nodes around a text view that has
+/// no use for it. AppKit's text views (a text area's, a field's editor)
+/// turn such a key into their `noop:` command and beep, rather than pass
+/// it up the responder chain as other views do: ⌘↵ in a commit message
+/// went nowhere.
+pub(crate) fn take_unused(view: &NSView) -> bool {
+    let app = NSApplication::sharedApplication(MainThreadMarker::from(view));
+    app.currentEvent()
+        .filter(|event| event.r#type() == NSEventType::KeyDown)
+        .and_then(|event| shortcut_of(&event))
+        .is_some_and(|shortcut| take_around(view, shortcut))
 }
