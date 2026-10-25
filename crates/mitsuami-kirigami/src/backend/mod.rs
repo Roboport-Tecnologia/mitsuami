@@ -141,6 +141,8 @@ enum Widget {
     Label(QmlObject),
     Button(QmlObject),
     MenuButton(QmlObject),
+    /// The action's button, with the arrow button joined to it inside.
+    SplitButton(QmlObject),
     Field(QmlObject),
     /// A scroll view, and the text area in it.
     TextArea {

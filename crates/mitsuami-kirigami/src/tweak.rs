@@ -7,7 +7,7 @@ use mitsuami_core::{List, Opaque, Table, Tweak};
 use mitsuami_widgets::Sidebar;
 use mitsuami_widgets::{
     Button, Checkbox, FileIcon, Group, Icon, Image, MenuButton, NumberInput, PasswordInput, Progress, RadioGroup,
-    ScrollView, SearchInput, Select, Separator, Slider, Spinner, Split, Switch, Text, TextArea, TextInput,
+    ScrollView, SearchInput, Select, Separator, Slider, Spinner, Split, SplitButton, Switch, Text, TextArea, TextInput,
     ToggleButton,
 };
 
@@ -25,6 +25,9 @@ impl Tweakable for ToggleButton {}
 
 /// A `QQC2.Button` that opens a `QQC2.Menu` (its `mitsuamiButtonMenu`).
 impl Tweakable for MenuButton {}
+
+/// The action's `QQC2.Button`, with the arrow `QQC2.Button` inside it.
+impl Tweakable for SplitButton {}
 
 /// A `QQC2.GroupBox`, drawn behind the group's content.
 impl Tweakable for Group {}

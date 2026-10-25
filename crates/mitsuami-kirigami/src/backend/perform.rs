@@ -71,7 +71,7 @@ impl KirigamiBackend {
             }
             // What a screen reader does, through the items' accessible
             // actions. Like a click, they focus the control.
-            (A11yAction::Activate, WidgetKind::Button) => {
+            (A11yAction::Activate, WidgetKind::Button | WidgetKind::SplitButton) => {
                 if !item.accessible_action("Press") {
                     return Err(ActionError::Unsupported);
                 }

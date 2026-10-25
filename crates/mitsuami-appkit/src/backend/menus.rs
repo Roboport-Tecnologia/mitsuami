@@ -4,7 +4,7 @@ use mitsuami_core::NodeId;
 use mitsuami_core::a11y::ActionError;
 use objc2::rc::Retained;
 use objc2::{MainThreadMarker, sel};
-use objc2_app_kit::{NSAccessibility, NSImage, NSMenuItem};
+use objc2_app_kit::{NSAccessibility, NSControl, NSImage, NSMenuItem};
 
 use crate::services::ItemTarget;
 
@@ -34,16 +34,21 @@ pub(super) fn pull_down_title(widget: &Widget) -> String {
 }
 
 impl AppKitBackend {
-    /// Chooses an item of a menu button's pull-down, as the menu would.
+    /// Chooses an item of a menu button's pull-down or a split button's
+    /// menu, as the menu would.
     pub(super) fn choose_pull_down_item(&self, id: NodeId, item: u32) -> Result<(), ActionError> {
         let menu = {
             let state = self.state.borrow();
             let node = state.nodes.get(&id).ok_or(ActionError::UnknownNode)?;
-            let Widget::MenuButton { popup, .. } = &node.widget else { return Err(ActionError::Unsupported) };
-            if !popup.isEnabled() {
+            let (control, menu): (&NSControl, _) = match &node.widget {
+                Widget::MenuButton { popup, .. } => (popup, popup.menu()),
+                Widget::SplitButton(button) => (&button.control, button.menu()),
+                _ => return Err(ActionError::Unsupported),
+            };
+            if !control.isEnabled() {
                 return Err(ActionError::Disabled);
             }
-            popup.menu()
+            menu
         };
         // Tag 0 is the title item, never an app item.
         let (item, menu) = menu
@@ -65,7 +70,7 @@ impl AppKitBackend {
             let state = self.state.borrow();
             let node = state.nodes.get(&id).ok_or(ActionError::UnknownNode)?;
             let menu = match node.widget {
-                Widget::Select(_) | Widget::MenuButton { .. } => None,
+                Widget::Select(_) | Widget::MenuButton { .. } | Widget::SplitButton(_) => None,
                 _ => node.widget.view().menu(),
             };
             (menu, node.widget.control().is_none_or(|c| c.isEnabled()))

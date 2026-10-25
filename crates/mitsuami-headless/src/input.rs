@@ -210,7 +210,7 @@ impl HeadlessBackend {
                     state.focus(next);
                 }
             }
-            (WidgetKind::Button, Key::Enter | Key::Char(' ')) => state.emit(id, UiEvent::Click),
+            (WidgetKind::Button | WidgetKind::SplitButton, Key::Enter | Key::Char(' ')) => state.emit(id, UiEvent::Click),
             (WidgetKind::Checkbox | WidgetKind::Switch | WidgetKind::ToggleButton, Key::Char(' ')) => {
                 drop(state);
                 return self.perform(id, &A11yAction::Activate);

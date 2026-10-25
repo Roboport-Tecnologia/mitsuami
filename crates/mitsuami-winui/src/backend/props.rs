@@ -172,15 +172,24 @@ impl State {
             (Prop::MaxLines(lines), Widget::Label(l)) => {
                 l.cast::<w::ITextBlock>()?.SetMaxLines(lines.map_or(0, |n| n as i32))?
             }
-            (Prop::Label(t), Widget::Button(_) | Widget::Toggle(_) | Widget::MenuButton(_)) => {
+            (
+                Prop::Label(t),
+                Widget::Button(_) | Widget::Toggle(_) | Widget::MenuButton(_) | Widget::SplitButton(_),
+            ) => {
                 node.caption = t.clone();
                 set_button_content(node)?;
             }
-            (Prop::Icon(name), Widget::Button(_) | Widget::Toggle(_) | Widget::MenuButton(_)) => {
+            (
+                Prop::Icon(name),
+                Widget::Button(_) | Widget::Toggle(_) | Widget::MenuButton(_) | Widget::SplitButton(_),
+            ) => {
                 node.icon = name.clone();
                 set_button_content(node)?;
             }
-            (Prop::VectorIcon(icon), Widget::Button(_) | Widget::Toggle(_) | Widget::MenuButton(_)) => {
+            (
+                Prop::VectorIcon(icon),
+                Widget::Button(_) | Widget::Toggle(_) | Widget::MenuButton(_) | Widget::SplitButton(_),
+            ) => {
                 node.vector_icon = Some(icon.clone());
                 set_button_content(node)?;
             }
@@ -189,7 +198,10 @@ impl State {
                 node.text_color = Some(*color);
                 set_button_content(node)?;
             }
-            (Prop::IconOnly(only), Widget::Button(_) | Widget::Toggle(_) | Widget::MenuButton(_)) => {
+            (
+                Prop::IconOnly(only),
+                Widget::Button(_) | Widget::Toggle(_) | Widget::MenuButton(_) | Widget::SplitButton(_),
+            ) => {
                 node.icon_only = Some(*only);
                 set_button_content(node)?;
             }
@@ -579,7 +591,11 @@ impl State {
             }
             (Prop::ButtonStyle(button_style), Widget::MenuButton(b)) => {
                 node.button_style = Some(*button_style);
-                set_menu_button_style(b, *button_style)?;
+                set_menu_button_style(&b.cast()?, "DropDownButton", *button_style)?;
+            }
+            (Prop::ButtonStyle(button_style), Widget::SplitButton(b)) => {
+                node.button_style = Some(*button_style);
+                set_menu_button_style(&b.cast()?, "SplitButton", *button_style)?;
             }
             (Prop::ButtonStyle(button_style), Widget::Toggle(b)) => {
                 node.button_style = Some(*button_style);
@@ -732,19 +748,24 @@ impl State {
             // Space or UIA's Expand. Radio groups are named apart from its
             // context menu's. Flyouts open above by default; drop-down
             // buttons' open below, as WinUI's own samples set them.
-            (Prop::Menu(entries), Widget::MenuButton(b)) => {
+            // A split button's arrow opens its flyout the same way.
+            (Prop::Menu(entries), Widget::MenuButton(_) | Widget::SplitButton(_)) => {
                 let events = self.emitter.clone();
                 let menu = node.button_menu.get_or_insert_with(|| {
                     ContextMenu::new(Rc::new(move |item| events.emit(id, UiEvent::MenuItem(item))), None)
                 });
                 if menu.update(entries, format!("button-{id}"))? {
-                    let button = b.cast::<w::IButton>()?;
-                    match &menu.flyout {
+                    let flyout = match &menu.flyout {
                         Some(flyout) => {
                             flyout.cast::<w::IFlyoutBase>()?.SetPlacement(w::FlyoutPlacementMode::Bottom)?;
-                            button.SetFlyout(flyout)?
+                            Some(flyout.cast::<w::FlyoutBase>()?)
                         }
-                        None => button.SetFlyout(None::<&w::FlyoutBase>)?,
+                        None => None,
+                    };
+                    match &node.widget {
+                        Widget::SplitButton(b) => b.cast::<w::ISplitButton>()?.SetFlyout(flyout.as_ref())?,
+                        Widget::MenuButton(b) => b.cast::<w::IButton>()?.SetFlyout(flyout.as_ref())?,
+                        _ => {}
                     }
                 }
             }

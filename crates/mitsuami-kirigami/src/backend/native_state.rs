@@ -88,7 +88,7 @@ impl KirigamiBackend {
                     props.push(Prop::InputPurpose(shown.unwrap_or_default()));
                 }
             }
-            Widget::Button(b) | Widget::MenuButton(b) => {
+            Widget::Button(b) | Widget::MenuButton(b) | Widget::SplitButton(b) => {
                 props.push(Prop::Label(b.str("text")));
                 if node.kind == WidgetKind::ToggleButton {
                     props.push(Prop::Checked(b.bool("checked")));

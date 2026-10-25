@@ -217,6 +217,33 @@ impl State {
                 button.set_has_frame(*style != ButtonStyle::Borderless);
                 node.button_style = Some(*style);
             }
+            (Prop::Label(t), Widget::SplitButton { button, .. }) => {
+                node.button.label = t.clone();
+                node.button.show(button);
+            }
+            (Prop::Icon(name), Widget::SplitButton { button, .. }) => {
+                node.button.icon = Some(name.clone());
+                node.button.show(button);
+            }
+            (Prop::VectorIcon(icon), Widget::SplitButton { button, .. }) => {
+                node.button.vector = Some(icon.clone());
+                node.button.show(button);
+            }
+            (Prop::IconOnly(only), Widget::SplitButton { button, .. }) => {
+                node.button.icon_only = Some(*only);
+                node.button.show(button);
+            }
+            (Prop::Menu(entries), Widget::SplitButton { button, menu }) => menu.set(button.upcast_ref(), entries),
+            // A split button has no frame of its own to drop: libadwaita
+            // styles it flat, as a flat button.
+            (Prop::ButtonStyle(style), Widget::SplitButton { button, .. }) => {
+                if *style == ButtonStyle::Borderless {
+                    button.add_css_class("flat");
+                } else {
+                    button.remove_css_class("flat");
+                }
+                node.button_style = Some(*style);
+            }
             (Prop::Label(t), Widget::Checkbox(c)) => c.set_label(Some(t)),
             (Prop::Label(t), Widget::Switch(s)) => {
                 s.update_property(&[gtk::accessible::Property::Label(t)]);

@@ -8,7 +8,7 @@ use mitsuami_core::{List, Opaque, Table, Tweak};
 use mitsuami_widgets::Sidebar;
 use mitsuami_widgets::{
     Button, Checkbox, FileIcon, Group, Icon, Image, MenuButton, NumberInput, PasswordInput, Progress, RadioGroup,
-    ScrollView, SearchInput, Select, Separator, Slider, Spinner, Split, Switch, Text, TextArea, TextInput,
+    ScrollView, SearchInput, Select, Separator, Slider, Spinner, Split, SplitButton, Switch, Text, TextArea, TextInput,
     ToggleButton,
 };
 
@@ -75,6 +75,10 @@ impl Tweakable for FileIcon {
 
 impl Tweakable for MenuButton {
     type Native = gtk::MenuButton;
+}
+
+impl Tweakable for SplitButton {
+    type Native = adw::SplitButton;
 }
 
 impl Tweakable for Progress {

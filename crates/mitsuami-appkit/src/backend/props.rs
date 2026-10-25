@@ -117,6 +117,25 @@ impl State {
                 let icon = icon_image(node.icon.as_deref(), node.vector_icon.clone().flatten().as_ref(), None, None);
                 show_pull_down(&node.widget, &label, icon, node.icon_only);
             }
+            (
+                Prop::Label(_) | Prop::Icon(_) | Prop::VectorIcon(_) | Prop::IconOnly(_) | Prop::Menu(_),
+                Widget::SplitButton(_),
+            ) => {
+                let Widget::SplitButton(button) = &mut node.widget else { unreachable!() };
+                let mut title = button.title();
+                match prop {
+                    Prop::Label(t) => title = t.clone(),
+                    Prop::Icon(name) => node.icon = Some(name.clone()),
+                    Prop::VectorIcon(icon) => node.vector_icon = Some(icon.clone()),
+                    Prop::IconOnly(only) => node.icon_only = Some(*only),
+                    Prop::Menu(entries) => button.sent = entries.clone(),
+                    _ => {}
+                }
+                let icon = icon_image(node.icon.as_deref(), node.vector_icon.clone().flatten().as_ref(), None, None);
+                button.show(&title, icon, node.icon_only == Some(true));
+            }
+            // A combo button has one look: kept for the app.
+            (Prop::ButtonStyle(style), Widget::SplitButton(_)) => node.button_style = Some(*style),
             (Prop::ButtonStyle(style), Widget::MenuButton { popup, .. }) => {
                 popup.setBordered(*style != ButtonStyle::Borderless);
                 node.button_style = Some(*style);
@@ -712,7 +731,7 @@ fn menu_target(mtm: MainThreadMarker, id: NodeId, events: &EventSink) -> Retaine
 fn set_context_menu(widget: &Widget, menu: Option<&NSMenu>) {
     let set = |view: &NSView| unsafe { view.setMenu(menu) };
     match widget {
-        Widget::Select(_) | Widget::MenuButton { .. } => return,
+        Widget::Select(_) | Widget::MenuButton { .. } | Widget::SplitButton(_) => return,
         Widget::NumberInput(n) => {
             set(n.field());
             set(n.stepper());

@@ -28,9 +28,14 @@ impl HeadlessBackend {
             }
             // An icon takes a 16-point square and a 6-point gap before
             // the caption, or the caption's place when it's shown alone.
-            // A menu button is a button with a 16-point arrow after it.
-            WidgetKind::Button | WidgetKind::ToggleButton | WidgetKind::MenuButton => {
-                let arrow = if node.kind == WidgetKind::MenuButton { 16.0 } else { 0.0 };
+            // A menu button is a button with a 16-point arrow after it, a
+            // split button one with a 24-point arrow segment.
+            WidgetKind::Button | WidgetKind::ToggleButton | WidgetKind::MenuButton | WidgetKind::SplitButton => {
+                let arrow = match node.kind {
+                    WidgetKind::MenuButton => 16.0,
+                    WidgetKind::SplitButton => 24.0,
+                    _ => 0.0,
+                };
                 let icon = find_prop!(node.props, Icon).is_some_and(|name| !name.is_empty())
                     || find_prop!(node.props, VectorIcon).flatten().is_some();
                 let content = match (icon, find_prop!(node.props, IconOnly) == Some(true)) {

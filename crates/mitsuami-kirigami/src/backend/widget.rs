@@ -15,6 +15,7 @@ impl Widget {
             | Widget::Label(i)
             | Widget::Button(i)
             | Widget::MenuButton(i)
+            | Widget::SplitButton(i)
             | Widget::Field(i)
             | Widget::Checkbox(i)
             | Widget::Switch(i)
@@ -98,6 +99,7 @@ impl Widget {
             Widget::Label(_)
                 | Widget::Button(_)
                 | Widget::MenuButton(_)
+                | Widget::SplitButton(_)
                 | Widget::Field(_)
                 | Widget::TextArea { .. }
                 | Widget::Checkbox(_)
@@ -116,6 +118,7 @@ impl Widget {
             self,
             Widget::Button(_)
                 | Widget::MenuButton(_)
+                | Widget::SplitButton(_)
                 | Widget::Field(_)
                 | Widget::TextArea { .. }
                 | Widget::Checkbox(_)

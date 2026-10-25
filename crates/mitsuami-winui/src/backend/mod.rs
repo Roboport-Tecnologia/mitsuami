@@ -313,6 +313,9 @@ enum Widget {
     Toggle(w::ToggleButton),
     /// A button whose `Flyout` is its menu, which it opens on a click.
     MenuButton(w::DropDownButton),
+    /// A button with its own click, and its menu as the `Flyout` its
+    /// arrow opens.
+    SplitButton(w::SplitButton),
     Checkbox(w::CheckBox),
     Switch(w::ToggleSwitch),
     Select(w::ComboBox),

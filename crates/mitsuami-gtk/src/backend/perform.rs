@@ -14,12 +14,16 @@ use super::{GtkBackend, Widget};
 
 impl GtkBackend {
     pub(super) fn perform_action(&mut self, id: NodeId, action: &A11yAction) -> Result<(), ActionError> {
-        // A menu button's own menu, without opening it.
+        // A menu or split button's own menu, without opening it.
         if let A11yAction::MenuItem(item) = action {
             let actions = {
                 let state = self.state.borrow();
                 let node = state.nodes.get(&id).ok_or(ActionError::UnknownNode)?;
-                let Widget::MenuButton { button, menu } = &node.widget else { return Err(ActionError::Unsupported) };
+                let (button, menu): (&gtk::Widget, _) = match &node.widget {
+                    Widget::MenuButton { button, menu } => (button.upcast_ref(), menu),
+                    Widget::SplitButton { button, menu } => (button.upcast_ref(), menu),
+                    _ => return Err(ActionError::Unsupported),
+                };
                 if !button.is_sensitive() {
                     return Err(ActionError::Disabled);
                 }
@@ -167,6 +171,10 @@ impl GtkBackend {
             // would click a button only after its press animation.
             (A11yAction::Activate, WidgetKind::Button) => {
                 widget.downcast_ref::<gtk::Button>().ok_or(ActionError::Unsupported)?.emit_clicked()
+            }
+            // Its own button's click, which it passes on as `clicked`.
+            (A11yAction::Activate, WidgetKind::SplitButton) => {
+                widget.downcast_ref::<adw::SplitButton>().ok_or(ActionError::Unsupported)?.emit_clicked()
             }
             (A11yAction::Activate, WidgetKind::ToggleButton) => {
                 let toggle = widget.downcast_ref::<gtk::ToggleButton>().ok_or(ActionError::Unsupported)?;

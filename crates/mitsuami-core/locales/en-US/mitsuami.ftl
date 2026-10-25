@@ -39,3 +39,9 @@ mitsuami-alert-ok = OK
 mitsuami-tab-new = New Tab
 # A tab's close button, where the backend makes one.
 mitsuami-tab-close = Close Tab
+
+## Split buttons.
+
+# The arrow beside a split button's own, which opens its menu, where the
+# backend makes one.
+mitsuami-split-button-more = More

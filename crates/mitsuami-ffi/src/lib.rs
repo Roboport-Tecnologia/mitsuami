@@ -258,6 +258,10 @@ pub enum MitsuamiKind {
     /// chosen one its `SelectedIndex` (none when negative), reported as
     /// `Changed` when the user picks another.
     RadioGroup = 21,
+    /// The platform's button with a menu of other actions beside its own
+    /// (`mitsuami_set_menu`): a `Button`'s caption, icon, style and
+    /// `Click`.
+    SplitButton = 22,
 }
 
 fn widget_kind(kind: u32) -> Result<WidgetKind, String> {
@@ -284,6 +288,7 @@ fn widget_kind(kind: u32) -> Result<WidgetKind, String> {
         19 => WidgetKind::MenuButton,
         20 => WidgetKind::Popover,
         21 => WidgetKind::RadioGroup,
+        22 => WidgetKind::SplitButton,
         _ => return Err(format!("unknown kind {kind}")),
     })
 }
@@ -731,7 +736,7 @@ pub extern "C" fn mitsuami_set_context_menu_on_open(
     .is_some()
 }
 
-/// A menu button's menu, as a context menu's entries. Choosing an item
+/// A menu button's or split button's menu, as a context menu's entries. Choosing an item
 /// reports `MenuItem` on the node.
 ///
 /// # Safety

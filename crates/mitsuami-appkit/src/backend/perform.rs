@@ -120,6 +120,17 @@ impl AppKitBackend {
         }
         // No state borrow below: AppKit calls back into our targets.
         match (action, kind) {
+            (A11yAction::Activate, WidgetKind::SplitButton) => {
+                let state = self.state.borrow();
+                let Some(Widget::SplitButton(button)) = state.nodes.get(&id).map(|n| &n.widget) else {
+                    return Err(ActionError::Unsupported);
+                };
+                let pressed = button.press();
+                drop(state);
+                if !pressed {
+                    return Err(ActionError::Unsupported);
+                }
+            }
             (
                 A11yAction::Activate,
                 WidgetKind::Button | WidgetKind::ToggleButton | WidgetKind::Checkbox | WidgetKind::Switch,

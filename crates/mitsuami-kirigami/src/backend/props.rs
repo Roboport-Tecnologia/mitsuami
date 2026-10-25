@@ -158,7 +158,10 @@ impl State {
                     align_label(*l, align);
                 }
             }
-            (Prop::Label(t), Widget::Button(b) | Widget::MenuButton(b) | Widget::Checkbox(b)) => b.set_str("text", t),
+            (
+                Prop::Label(t),
+                Widget::Button(b) | Widget::MenuButton(b) | Widget::SplitButton(b) | Widget::Checkbox(b),
+            ) => b.set_str("text", t),
             (
                 Prop::Label(t),
                 Widget::Switch(s)
@@ -364,8 +367,10 @@ impl State {
                 b.set_bool("mitsuamiDefault", *role == ButtonRole::Default);
                 node.role = Some(*role);
             }
-            (Prop::Icon(name), Widget::Button(b) | Widget::MenuButton(b)) => b.set_str("mitsuamiIcon", name),
-            (Prop::IconOnly(only), Widget::Button(b) | Widget::MenuButton(b)) => {
+            (Prop::Icon(name), Widget::Button(b) | Widget::MenuButton(b) | Widget::SplitButton(b)) => {
+                b.set_str("mitsuamiIcon", name)
+            }
+            (Prop::IconOnly(only), Widget::Button(b) | Widget::MenuButton(b) | Widget::SplitButton(b)) => {
                 b.set_bool("mitsuamiIconOnly", *only);
                 node.icon_only = true;
             }
@@ -374,7 +379,7 @@ impl State {
                 i.set_str("mitsuamiFile", &icon.as_ref().map(vector_icon::file_url).unwrap_or_default());
                 node.vector_icon = Some(icon.clone());
             }
-            (Prop::VectorIcon(icon), Widget::Button(b) | Widget::MenuButton(b)) => {
+            (Prop::VectorIcon(icon), Widget::Button(b) | Widget::MenuButton(b) | Widget::SplitButton(b)) => {
                 b.set_str("mitsuamiIconFile", &icon.as_ref().map(vector_icon::file_url).unwrap_or_default());
                 node.vector_icon = Some(icon.clone());
             }
@@ -433,7 +438,7 @@ impl State {
                 let item = node.widget.item();
                 node.keys.get_or_insert_with(|| crate::keys::NodeKeys::new(item, id, events)).set(keys);
             }
-            (Prop::Menu(entries), Widget::MenuButton(b)) => {
+            (Prop::Menu(entries), Widget::MenuButton(b) | Widget::SplitButton(b)) => {
                 let b = *b;
                 node.button_menu
                     .get_or_insert_with(|| {
@@ -441,7 +446,7 @@ impl State {
                     })
                     .set(Some(b), entries);
             }
-            (Prop::ButtonStyle(style), Widget::Button(b) | Widget::MenuButton(b)) => {
+            (Prop::ButtonStyle(style), Widget::Button(b) | Widget::MenuButton(b) | Widget::SplitButton(b)) => {
                 // Flat buttons have no frame until hovered.
                 b.set_bool("flat", *style == ButtonStyle::Borderless);
                 node.button_style = Some(*style);

@@ -94,6 +94,17 @@ pub(super) fn native_state(state: &State, id: NodeId) -> Option<NativeState> {
             props.push(Prop::Enabled(area.text.isSelectable()));
             props.push(Prop::Lines(area.lines));
         }
+        Widget::SplitButton(button) => {
+            props.push(Prop::Label(button.title()));
+            props.extend(node.icon.clone().map(Prop::Icon));
+            props.extend(node.vector_icon.clone().map(Prop::VectorIcon));
+            if node.icon_only.is_some() {
+                props.push(Prop::IconOnly(button.icon_only()));
+            }
+            if let Some(menu) = button.menu() {
+                props.push(Prop::Menu(crate::services::context_menu_entries(&menu, &button.sent)));
+            }
+        }
         Widget::MenuButton { popup, sent, .. } => {
             props.push(Prop::Label(pull_down_title(&node.widget)));
             props.extend(node.icon.clone().map(Prop::Icon));
@@ -371,7 +382,7 @@ pub(super) fn native_state(state: &State, id: NodeId) -> Option<NativeState> {
     }
     if let Some((sent, _)) = &node.context_menu {
         props.push(Prop::ContextMenu(match (&node.widget, view.menu()) {
-            (Widget::Select(_) | Widget::MenuButton { .. }, _) => sent.clone(),
+            (Widget::Select(_) | Widget::MenuButton { .. } | Widget::SplitButton(_), _) => sent.clone(),
             (_, Some(menu)) => crate::services::context_menu_entries(&menu, sent),
             (_, None) => Vec::new(),
         }));

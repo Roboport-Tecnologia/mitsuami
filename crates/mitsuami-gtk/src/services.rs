@@ -359,14 +359,22 @@ pub(crate) struct ContextMenu {
     activate: Rc<dyn Fn(u32)>,
     /// The popover while it's shown, parented to the widget.
     popover: Rc<RefCell<Option<gtk::PopoverMenu>>>,
-    /// A menu button's menu: the button shows it in its own popover.
-    button: Option<gtk::MenuButton>,
+    /// A menu or split button's menu: the button shows it in its own
+    /// popover.
+    button: Option<MenuOwner>,
     /// Builds the menu as it opens, before what was set last.
     on_open: Rc<RefCell<Option<MenuOnOpen>>>,
 }
 
+/// The button that shows a button's own menu.
+#[derive(Clone)]
+enum MenuOwner {
+    Menu(gtk::MenuButton),
+    Split(adw::SplitButton),
+}
+
 impl ContextMenu {
-    fn empty(group: &'static str, activate: Rc<dyn Fn(u32)>, button: Option<gtk::MenuButton>) -> ContextMenu {
+    fn empty(group: &'static str, activate: Rc<dyn Fn(u32)>, button: Option<MenuOwner>) -> ContextMenu {
         ContextMenu {
             data: Rc::default(),
             model: Rc::new(RefCell::new(gio::Menu::new())),
@@ -383,7 +391,16 @@ impl ContextMenu {
     /// id. The button opens it as GTK's menu buttons do: a click, Enter or
     /// Space.
     pub(crate) fn for_menu_button(button: &gtk::MenuButton, activate: Rc<dyn Fn(u32)>) -> ContextMenu {
-        let menu = ContextMenu::empty(BUTTON_GROUP, activate, Some(button.clone()));
+        let menu = ContextMenu::empty(BUTTON_GROUP, activate, Some(MenuOwner::Menu(button.clone())));
+        button.insert_action_group(BUTTON_GROUP, Some(&menu.actions));
+        button.set_menu_model(Some(&*menu.model.borrow()));
+        menu
+    }
+
+    /// A split button's menu, shown by its arrow as libadwaita does, as a
+    /// menu button's is.
+    pub(crate) fn for_split_button(button: &adw::SplitButton, activate: Rc<dyn Fn(u32)>) -> ContextMenu {
+        let menu = ContextMenu::empty(BUTTON_GROUP, activate, Some(MenuOwner::Split(button.clone())));
         button.insert_action_group(BUTTON_GROUP, Some(&menu.actions));
         button.set_menu_model(Some(&*menu.model.borrow()));
         menu
@@ -524,8 +541,10 @@ impl ContextMenu {
     /// Gives the model to what shows it: the popover, if it's there, or
     /// the text widget's own menu.
     fn show_model(&self, widget: &gtk::Widget, model: Option<&gio::Menu>) {
-        if let Some(button) = &self.button {
-            return button.set_menu_model(model);
+        match &self.button {
+            Some(MenuOwner::Menu(button)) => return button.set_menu_model(model),
+            Some(MenuOwner::Split(button)) => return button.set_menu_model(model),
+            None => {}
         }
         match text_widget(widget) {
             Some(TextWidget::Entry(entry)) => entry.set_extra_menu(model),
@@ -552,7 +571,11 @@ impl ContextMenu {
     /// Roles mean nothing here and come from the app's entries.
     pub(crate) fn entries(&self, widget: &gtk::Widget) -> Vec<MenuEntry> {
         if let Some(button) = &self.button {
-            return button.menu_model().map(|model| self.read_sections(&model)).unwrap_or_default();
+            let model = match button {
+                MenuOwner::Menu(button) => button.menu_model(),
+                MenuOwner::Split(button) => button.menu_model(),
+            };
+            return model.map(|model| self.read_sections(&model)).unwrap_or_default();
         }
         let model = match text_widget(widget) {
             Some(TextWidget::Entry(entry)) => entry.extra_menu(),

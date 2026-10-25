@@ -105,6 +105,17 @@ impl State {
                 );
                 Widget::MenuButton { button, menu }
             }
+            // Its button reports clicks; its arrow opens the menu.
+            WidgetKind::SplitButton => {
+                let button = adw::SplitButton::new();
+                let clicks = events.clone();
+                button.connect_clicked(move |_| clicks.emit(id, UiEvent::Click));
+                let menu = ContextMenu::for_split_button(
+                    &button,
+                    Rc::new(move |item| events.emit(id, UiEvent::MenuItem(item))),
+                );
+                Widget::SplitButton { button, menu }
+            }
             WidgetKind::Checkbox => {
                 let check = gtk::CheckButton::new();
                 check.connect_toggled(move |c| {

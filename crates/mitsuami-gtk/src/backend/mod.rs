@@ -113,6 +113,11 @@ enum Widget {
         button: gtk::MenuButton,
         menu: ContextMenu,
     },
+    /// A split button, and its menu (apart from its context menu).
+    SplitButton {
+        button: adw::SplitButton,
+        menu: ContextMenu,
+    },
     Checkbox(gtk::CheckButton),
     Switch(gtk::Switch),
     Select {
@@ -218,6 +223,7 @@ impl Widget {
             Widget::Search(w) => w.upcast_ref(),
             Widget::Button(w) => w.upcast_ref(),
             Widget::MenuButton { button, .. } => button.upcast_ref(),
+            Widget::SplitButton { button, .. } => button.upcast_ref(),
             Widget::Checkbox(w) => w.upcast_ref(),
             Widget::Switch(w) => w.upcast_ref(),
             Widget::Select { dropdown, .. } => dropdown.upcast_ref(),
@@ -254,6 +260,7 @@ impl Widget {
                 | Widget::Search(_)
                 | Widget::Button(_)
                 | Widget::MenuButton { .. }
+                | Widget::SplitButton { .. }
                 | Widget::Checkbox(_)
                 | Widget::Switch(_)
                 | Widget::Select { .. }

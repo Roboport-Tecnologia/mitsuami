@@ -1,4 +1,4 @@
-//! Push, toggle and menu buttons.
+//! Push, toggle, menu and split buttons.
 
 use mitsuami_core::services::{Menu, MenuEntries, install_button_menu};
 
@@ -216,9 +216,94 @@ impl MenuButton {
     }
 }
 
+/// A button with a menu of other actions beside its own, as the platform
+/// makes one: an `NSComboButton` (split), WinUI's `SplitButton`, an
+/// `adw::SplitButton`; on Kirigami, which has none, a `QQC2.Button` with an
+/// arrow button joined to it. Clicking the button does its action
+/// (`on_click`); its arrow opens the menu, built as a [`MenuButton`]'s.
+///
+/// ```ignore
+/// SplitButton::new("Continue").on_click(proceed).menu((
+///     MenuItem::new("Commit to Edit").on_select(commit),
+/// ))
+/// ```
+pub struct SplitButton(Element);
+widget!(SplitButton);
+
+impl SplitButton {
+    pub fn new(label: impl IntoValue<String>) -> SplitButton {
+        let mut element = Element::new(WidgetKind::SplitButton);
+        element.prop(label.into_value(), Prop::Label);
+        SplitButton(element)
+    }
+
+    /// Its menu: `MenuItem`s, `MenuSeparator`s and submenus (`Menu`).
+    pub fn menu(mut self, entries: impl MenuEntries + 'static) -> SplitButton {
+        let menu = Menu::new(String::new()).children(entries);
+        self.0.after_build(move |ui, id| install_button_menu(ui, id, menu));
+        self
+    }
+
+    /// Its menu, built by `entries`, and built again whenever what it reads
+    /// changes, as for [`MenuButton::menu_with`].
+    pub fn menu_with<E: MenuEntries>(mut self, entries: impl Fn() -> E + 'static) -> SplitButton {
+        let menu = Menu::new(String::new()).children_with(entries);
+        self.0.after_build(move |ui, id| install_button_menu(ui, id, menu));
+        self
+    }
+
+    /// An icon before its caption, as for [`Button::icon`].
+    /// The app's own icon before its caption, as for
+    /// [`Button::vector_icon`].
+    pub fn vector_icon(mut self, icon: impl IntoValue<VectorIcon>) -> SplitButton {
+        self.0.prop(crate::some(icon.into_value()), Prop::VectorIcon);
+        self
+    }
+
+    pub fn icon(mut self, name: impl IntoValue<String>) -> SplitButton {
+        self.0.prop(name.into_value(), Prop::Icon);
+        self
+    }
+
+    /// Shows only its icon (and the arrow). The caption stays its
+    /// accessible name.
+    pub fn icon_only(mut self, only: impl IntoValue<bool>) -> SplitButton {
+        self.0.prop(only.into_value(), Prop::IconOnly);
+        self
+    }
+
+    /// How the button is drawn: see [`ButtonStyle`]. AppKit's combo button
+    /// has one look, so it ignores this.
+    pub fn button_style(mut self, style: impl IntoValue<ButtonStyle>) -> SplitButton {
+        self.0.prop(style.into_value(), Prop::ButtonStyle);
+        self
+    }
+
+    pub fn enabled(mut self, enabled: impl IntoValue<bool>) -> SplitButton {
+        self.0.prop(enabled.into_value(), Prop::Enabled);
+        self
+    }
+
+    pub fn on_click(mut self, handler: impl Fn() + 'static) -> SplitButton {
+        self.0.on(move |event| {
+            if *event == UiEvent::Click {
+                handler();
+            }
+        });
+        self
+    }
+
+    /// Raw platform settings, past the semantic ones: see [`Tweak`].
+    pub fn native(mut self, tweak: Tweak<SplitButton>) -> SplitButton {
+        tweak.apply(&mut self.0);
+        self
+    }
+}
+
 // A toggle button's pressed state.
 toggle!(ToggleButton);
 
 text_tag!(Button, Label);
 text_tag!(ToggleButton, Label);
 text_tag!(MenuButton, Label);
+text_tag!(SplitButton, Label);

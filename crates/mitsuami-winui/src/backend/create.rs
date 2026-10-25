@@ -136,6 +136,14 @@ impl State {
                 let element = button.cast()?;
                 (Widget::Toggle(button), element)
             }
+            // Its click is the primary part's; the arrow opens its flyout.
+            WidgetKind::SplitButton => {
+                let button = w::SplitButton::new()?;
+                let emitter = emitter.clone();
+                revokers.push(button.cast::<w::ISplitButton>()?.Click(move |_, _| emitter.emit(id, UiEvent::Click))?);
+                let element = button.cast()?;
+                (Widget::SplitButton(button), element)
+            }
             // No click of its own: a click opens its flyout.
             WidgetKind::MenuButton => {
                 let button = w::DropDownButton::new()?;

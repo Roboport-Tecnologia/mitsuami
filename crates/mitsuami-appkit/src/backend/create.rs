@@ -35,6 +35,7 @@ impl State {
         let target = matches!(
             kind,
             WidgetKind::Button
+                | WidgetKind::SplitButton
                 | WidgetKind::ToggleButton
                 | WidgetKind::Checkbox
                 | WidgetKind::Switch
@@ -198,6 +199,13 @@ impl State {
                 show_pull_down(&widget, "", None, None);
                 widget
             }
+            WidgetKind::SplitButton => Widget::SplitButton(super::split_button::SplitButton::new(
+                mtm,
+                id,
+                self.events.clone(),
+                target_obj,
+                sel!(fire:),
+            )),
             WidgetKind::Slider => {
                 let slider = NSSlider::new(mtm);
                 unsafe {

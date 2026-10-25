@@ -531,6 +531,22 @@ async fn menu_buttons_report_the_item_chosen(app: TestApp) {
 }
 
 #[mitsuami_test::test]
+async fn split_buttons_report_clicks_and_the_item_chosen(app: TestApp) {
+    attach(app.ui());
+    heard();
+    let button = create(MitsuamiKind::SplitButton);
+    set_text(button, MitsuamiTextProp::Label, "Continue");
+    let entries = [menu_entry(0, 1, "Commit to Edit", 0)];
+    assert!(unsafe { mitsuami_set_menu(button, entries.as_ptr(), entries.len()) });
+    assert!(mitsuami_on_event(button, record, std::ptr::null_mut()));
+    app.mount(|| Adopt(button));
+
+    app.get_by_role(Role::Button, "Continue").click().await;
+    app.get_by_role(Role::Button, "Continue").choose_menu_item(&["Commit to Edit"]).await;
+    assert_eq!(heard(), ["click", "item 1"]);
+}
+
+#[mitsuami_test::test]
 async fn containers_take_dropped_folders(app: TestApp) {
     attach(app.ui());
     heard();

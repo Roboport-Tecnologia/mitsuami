@@ -204,7 +204,8 @@ pub enum UiEvent {
     Hover(bool),
     /// A node that reports it (`Prop::DoubleClick`) was double-clicked.
     DoubleClick,
-    /// The item of a `MenuButton`'s menu with this id was chosen.
+    /// The item of a `MenuButton`'s or `SplitButton`'s menu with this id
+    /// was chosen.
     MenuItem(u32),
     /// A key the node takes (`Prop::Keys`) was pressed while it, or a
     /// control inside it that doesn't use the key, had keyboard focus.

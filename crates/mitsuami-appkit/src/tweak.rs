@@ -6,7 +6,7 @@ use mitsuami_core::reactive::{IntoValue, Value};
 use mitsuami_core::{List, Opaque, Table, Tweak};
 use mitsuami_widgets::{
     Button, Checkbox, FileIcon, Group, Icon, Image, MenuButton, NumberInput, PasswordInput, Progress, RadioGroup,
-    ScrollView, SearchInput, Select, Separator, Slider, Spinner, Split, Switch, Text, TextArea, TextInput,
+    ScrollView, SearchInput, Select, Separator, Slider, Spinner, Split, SplitButton, Switch, Text, TextArea, TextInput,
     ToggleButton,
 };
 use mitsuami_widgets::{DocumentTabs, Sidebar};
@@ -70,6 +70,11 @@ impl Tweakable for Split {
 /// The pull-down pop-up button.
 impl Tweakable for MenuButton {
     type Native = NSPopUpButton;
+}
+
+/// The `NSComboButton` (macOS 13), or before it the segmented control.
+impl Tweakable for SplitButton {
+    type Native = objc2_app_kit::NSControl;
 }
 
 impl Tweakable for Icon {

@@ -191,6 +191,13 @@ impl State {
             }
             // A click opens its menu: it reports only the item chosen.
             WidgetKind::MenuButton => Widget::MenuButton(QmlObject::load(&qml::menu_button())),
+            // A click on the button is its own; its arrow opens the menu.
+            WidgetKind::SplitButton => {
+                let button = QmlObject::load(&qml::split_button());
+                button.set_str("mitsuamiMoreText", &mitsuami_core::l10n::tr("mitsuami-split-button-more", &[]));
+                button.connect("clicked()", move || events.emit(id, UiEvent::Click));
+                Widget::SplitButton(button)
+            }
             WidgetKind::Checkbox | WidgetKind::Switch => {
                 let switch = kind == WidgetKind::Switch;
                 let toggle = QmlObject::load(&if switch { qml::switch() } else { qml::checkbox() });

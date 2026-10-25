@@ -165,10 +165,10 @@ pub enum A11yAction {
     /// assistive technology does once it has shown the menu. The menu
     /// itself never opens.
     ContextMenuItem(u32),
-    /// Choose the item of a `MenuButton`'s menu with this id, as
-    /// assistive technology does once the button has shown it. The menu
-    /// itself never opens. (`Activate` would open it, so a menu button
-    /// doesn't take it.)
+    /// Choose the item of a `MenuButton`'s or `SplitButton`'s menu with
+    /// this id, as assistive technology does once the button has shown it.
+    /// The menu itself never opens. (`Activate` would open a menu button's,
+    /// so a menu button doesn't take it; a split button's presses it.)
     MenuItem(u32),
     /// Choose a `SearchInput`'s suggestion at this index, as the user picks
     /// one from the list under the field.

@@ -84,6 +84,7 @@ pub(super) fn is_control(widget: &Widget) -> bool {
             | Widget::Button(_)
             | Widget::Toggle(_)
             | Widget::MenuButton(_)
+            | Widget::SplitButton(_)
             | Widget::Checkbox(_)
             | Widget::Switch(_)
             | Widget::Select(_)

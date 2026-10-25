@@ -136,7 +136,8 @@ impl WinUiBackend {
         let peer =
             || w::FrameworkElementAutomationPeer::CreatePeerForElement(&element).map_err(|_| ActionError::Unsupported);
         match (action, kind) {
-            (A11yAction::Activate, WidgetKind::Button) => {
+            // A split button's Invoke is its primary part's click.
+            (A11yAction::Activate, WidgetKind::Button | WidgetKind::SplitButton) => {
                 // What assistive technology does: the UIA Invoke pattern.
                 let invoke: w::IInvokeProvider = peer()?
                     .GetPattern(w::PatternInterface::Invoke)

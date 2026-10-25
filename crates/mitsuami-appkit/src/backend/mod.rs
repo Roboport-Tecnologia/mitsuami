@@ -15,6 +15,7 @@ mod perform;
 mod props;
 mod scrolling;
 mod selection;
+mod split_button;
 mod windows;
 
 use std::cell::RefCell;
@@ -50,6 +51,7 @@ use crate::toolbar::Toolbar;
 use fonts::metrics;
 use group::group_probe_like;
 pub(crate) use images::ns_image;
+pub(crate) use split_button::is_press as is_split_button_press;
 
 /// How the backend behaves; apps and tests want different things.
 #[derive(Clone, Debug)]
@@ -117,6 +119,7 @@ enum Widget {
         target: Retained<ClosureTarget>,
         sent: Vec<MenuEntry>,
     },
+    SplitButton(split_button::SplitButton),
     /// A slider, and the step it was given: AppKit steps by tick marks,
     /// which only approximate one that doesn't divide the range.
     Slider {
@@ -169,6 +172,7 @@ impl Widget {
             Widget::Button(v) | Widget::Checkbox(v) => v,
             Widget::Switch(v) => v,
             Widget::Select(v) | Widget::MenuButton { popup: v, .. } => v,
+            Widget::SplitButton(b) => &b.control,
             Widget::RadioGroup(group) => &group.stack,
             Widget::Slider { slider, .. } => slider,
             Widget::NumberInput(v) => v,
@@ -194,6 +198,7 @@ impl Widget {
             Widget::Button(v) | Widget::Checkbox(v) => Some(v),
             Widget::Switch(v) => Some(v),
             Widget::Select(v) | Widget::MenuButton { popup: v, .. } => Some(v),
+            Widget::SplitButton(b) => Some(&b.control),
             Widget::Slider { slider, .. } => Some(slider),
             // Its field: what's focused, and what text styles apply to.
             Widget::NumberInput(n) => Some(n.field()),

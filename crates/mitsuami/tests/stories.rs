@@ -755,6 +755,33 @@ fn menu_buttons() -> impl View {
     ))
 }
 
+/// Split buttons as each platform draws them: with a caption, an icon
+/// before it, the icon alone, borderless (AppKit's has one look), and
+/// disabled, beside a plain button for their arrows' room.
+#[mitsuami_test::story(sizes = [(420, fit)])]
+fn split_buttons() -> impl View {
+    let plus = platform! {
+        macos => "plus",
+        gtk => "list-add-symbolic",
+        kde => "list-add",
+        windows => "\u{E710}",
+        _ => "plus",
+    };
+    let menu = || (MenuItem::new("Commit to Edit"), MenuItem::new("Skip"));
+    Column::new().padding(16).gap(12).align(Align::Start).children((
+        Row::new()
+            .gap(8)
+            .align(Align::Center)
+            .children((Button::new("Continue"), SplitButton::new("Continue").menu(menu()))),
+        Row::new().gap(8).align(Align::Center).children((
+            SplitButton::new("Add").icon(plus).menu(menu()),
+            SplitButton::new("Add").icon(plus).icon_only(true).menu(menu()),
+            SplitButton::new("Add").icon(plus).button_style(ButtonStyle::Borderless).menu(menu()),
+            SplitButton::new("Continue").enabled(false).menu(menu()),
+        )),
+    ))
+}
+
 /// Groups as each platform draws them: a box with its heading inside on
 /// AppKit and Qt, a card under a heading on GNOME and Windows; one
 /// without a heading; content laid out inside each platform's margins.

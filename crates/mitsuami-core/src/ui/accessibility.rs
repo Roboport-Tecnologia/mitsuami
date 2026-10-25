@@ -79,6 +79,8 @@ impl Inner {
             WidgetKind::Button => Role::Button,
             WidgetKind::ToggleButton => Role::ToggleButton,
             WidgetKind::MenuButton => Role::MenuButton,
+            // Pressed as a button; its menu is an action of its own.
+            WidgetKind::SplitButton => Role::Button,
             // A text field that hides its text, as every platform exposes
             // one (AppKit's secure subrole, Qt's and UIA's password flag).
             WidgetKind::TextInput | WidgetKind::PasswordInput => Role::TextField,
@@ -109,6 +111,7 @@ impl Inner {
                 WidgetKind::Button
                 | WidgetKind::ToggleButton
                 | WidgetKind::MenuButton
+                | WidgetKind::SplitButton
                 | WidgetKind::Checkbox
                 | WidgetKind::Switch
                 | WidgetKind::Select

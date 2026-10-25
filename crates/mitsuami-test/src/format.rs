@@ -456,7 +456,9 @@ pub(crate) fn wireframe(root: &NodeInfo) -> String {
             | WidgetKind::Split
             | WidgetKind::Popover => "#5f7fa0",
             WidgetKind::Text => "#3f7f5f",
-            WidgetKind::Button | WidgetKind::ToggleButton | WidgetKind::MenuButton => "#2f6fdf",
+            WidgetKind::Button | WidgetKind::ToggleButton | WidgetKind::MenuButton | WidgetKind::SplitButton => {
+                "#2f6fdf"
+            }
             WidgetKind::TextInput => "#a0602a",
             WidgetKind::PasswordInput => "#8a4f1f",
             WidgetKind::SearchInput => "#c07a3a",

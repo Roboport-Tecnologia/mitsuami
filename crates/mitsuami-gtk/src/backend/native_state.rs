@@ -109,6 +109,10 @@ impl GtkBackend {
                 props.extend(node.button.read(button));
                 props.push(Prop::Menu(menu.entries(button.upcast_ref())));
             }
+            Widget::SplitButton { button, menu } => {
+                props.extend(node.button.read(button));
+                props.push(Prop::Menu(menu.entries(button.upcast_ref())));
+            }
             Widget::Checkbox(c) => {
                 props.push(Prop::Label(text(c.label())));
                 props.push(Prop::Checked(c.is_active()));

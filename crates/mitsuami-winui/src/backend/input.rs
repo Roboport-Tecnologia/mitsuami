@@ -365,9 +365,11 @@ impl WinUiBackend {
                 Widget::TextArea { .. } | Widget::Number { .. } => {
                     !alt && matches!(key, Key::Char(_) | Key::Backspace | Key::Delete | Key::Enter) || arrow || paging
                 }
-                Widget::Button(_) | Widget::Toggle(_) | Widget::Checkbox(_) | Widget::MenuButton(_) => {
-                    plain && matches!(key, Key::Enter | Key::Char(' '))
-                }
+                Widget::Button(_)
+                | Widget::Toggle(_)
+                | Widget::Checkbox(_)
+                | Widget::MenuButton(_)
+                | Widget::SplitButton(_) => plain && matches!(key, Key::Enter | Key::Char(' ')),
                 Widget::Switch(_) => plain && key == Key::Char(' '),
                 // Typing picks an option; Alt+Up and Alt+Down open it.
                 Widget::Select(_) => {

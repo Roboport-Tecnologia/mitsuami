@@ -47,6 +47,58 @@ pub(crate) fn menu_button() -> String {
     )
 }
 
+/// A button with a menu of other actions beside its own, as KDE apps pair
+/// them where Qt Quick has no split button: the action's own button,
+/// inset on its trailing side, and an arrow button joined to it there,
+/// which pops up `mitsuamiButtonMenu` under the pair (Alt+Down does too,
+/// as for a combo box). The arrow takes no focus, so the pair is one stop;
+/// it's named by `mitsuamiMoreText` and reads as `ButtonMenu`.
+pub(crate) fn split_button() -> String {
+    button_with(
+        r#"
+    property QtObject mitsuamiButtonMenu: null
+    property string mitsuamiMoreText: ""
+    function mitsuamiPopupButtonMenu() {
+        const menu = mitsuamiButtonMenu
+        if (!menu || menu.visible) return
+        const window = Window.window
+        if (window) window.mitsuamiShownMenu = menu
+        const overlay = QQC2.Overlay.overlay
+        if (overlay) {
+            menu.mitsuamiOwner = menu.parent
+            menu.parent = overlay
+        }
+        const at = mapToItem(menu.parent, 0, height)
+        menu.popup(at.x, at.y)
+    }
+    leftInset: mirrored ? mitsuamiArrow.width : 0
+    rightInset: mirrored ? 0 : mitsuamiArrow.width
+    leftPadding: padding + leftInset
+    rightPadding: padding + rightInset
+    Keys.onPressed: (event) => {
+        if (event.key === Qt.Key_Down && (event.modifiers & Qt.AltModifier)) {
+            mitsuamiPopupButtonMenu()
+            event.accepted = true
+        }
+    }
+    QQC2.Button {
+        id: mitsuamiArrow
+        anchors.right: parent.right
+        anchors.top: parent.top
+        anchors.bottom: parent.bottom
+        flat: parent.flat
+        focusPolicy: Qt.NoFocus
+        display: QQC2.AbstractButton.IconOnly
+        icon.name: "arrow-down"
+        Accessible.role: Accessible.ButtonMenu
+        Accessible.name: parent.mitsuamiMoreText
+        down: pressed || (parent.mitsuamiButtonMenu !== null && parent.mitsuamiButtonMenu.visible)
+        onClicked: parent.mitsuamiPopupButtonMenu()
+    }
+"#,
+    )
+}
+
 fn button_with(extra: &str) -> String {
     format!(
         r#"

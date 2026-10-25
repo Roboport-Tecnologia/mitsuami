@@ -69,6 +69,14 @@ pub enum WidgetKind {
     /// its menu is [`Prop::Menu`], and the item chosen comes as
     /// [`UiEvent::MenuItem`](crate::UiEvent::MenuItem).
     MenuButton,
+    /// A native button with a menu of other actions beside its own (an
+    /// `NSComboButton` of the split style, WinUI's SplitButton,
+    /// adw::SplitButton; Kirigami has none, so a QQC2.Button with an arrow
+    /// QQC2.Button joined to it, as KDE apps pair them). Its caption, icon
+    /// and style are a `Button`'s, and it reports a click as one does; its
+    /// menu is [`Prop::Menu`], whose item chosen comes as
+    /// [`UiEvent::MenuItem`](crate::UiEvent::MenuItem).
+    SplitButton,
     TextInput,
     /// A native password field (NSSecureTextField, PasswordBox,
     /// gtk::PasswordEntry, Kirigami.PasswordField): a `TextInput` whose
@@ -274,6 +282,7 @@ impl WidgetKind {
             WidgetKind::Button => "Button",
             WidgetKind::ToggleButton => "ToggleButton",
             WidgetKind::MenuButton => "MenuButton",
+            WidgetKind::SplitButton => "SplitButton",
             WidgetKind::TextInput => "TextInput",
             WidgetKind::PasswordInput => "PasswordInput",
             WidgetKind::SearchInput => "SearchInput",
@@ -949,8 +958,8 @@ pub enum Prop {
     /// the text is created, and never changed: Qt's selectable label is
     /// another item.
     Selectable(bool),
-    /// Caption of a `Button`, `ToggleButton`, `MenuButton`, `Checkbox` or
-    /// `Switch`; accessible name of a `Switch`, `Select`, `RadioGroup`,
+    /// Caption of a `Button`, `ToggleButton`, `MenuButton`, `SplitButton`,
+    /// `Checkbox` or `Switch`; accessible name of a `Switch`, `Select`, `RadioGroup`,
     /// `Slider`, `NumberInput`, `Progress`, `Image`, `Icon` or `GpuSurface`,
     /// and of a button that shows only its icon.
     Label(String),
@@ -1034,8 +1043,8 @@ pub enum Prop {
     /// shows what it returns, which is also the node's `ContextMenu`
     /// from then on. `None`: the menu is `ContextMenu` alone.
     ContextMenuOnOpen(Option<crate::services::MenuOnOpen>),
-    /// A `MenuButton`'s menu: items, separators and submenus, built as a
-    /// context menu's. The node reports the item chosen as
+    /// A `MenuButton`'s or `SplitButton`'s menu: items, separators and
+    /// submenus, built as a context menu's. The node reports the item chosen as
     /// [`UiEvent::MenuItem`](crate::UiEvent::MenuItem).
     Menu(Vec<MenuEntry>),
     /// A window is modal, belonging to `owner` (the window it was declared
@@ -1048,8 +1057,9 @@ pub enum Prop {
     Image(ImageSource),
     /// How an `Image` fills its frame; sent only if the app chose.
     ImageFit(ImageFit),
-    /// What an `Icon` shows, or the icon a `Button`, `ToggleButton` or
-    /// `MenuButton` shows before its caption: a name in the platform's own set (an SF Symbol, a themed
+    /// What an `Icon` shows, or the icon a `Button`, `ToggleButton`,
+    /// `MenuButton` or `SplitButton` shows before its caption: a name in
+    /// the platform's own set (an SF Symbol, a themed
     /// icon's name, a Segoe Fluent Icons glyph). Empty: none. A name the
     /// set doesn't have shows as the platform shows one: nothing, or its
     /// missing-icon icon.

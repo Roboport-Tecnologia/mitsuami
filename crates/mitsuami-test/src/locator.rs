@@ -530,15 +530,15 @@ impl<'a> Locator<'a> {
         self.app.settle().await;
     }
 
-    /// Chooses an item of the menu a `MenuButton` opens, or else of the
-    /// context menu a right-click here shows (see
+    /// Chooses an item of the menu a `MenuButton` or `SplitButton` opens,
+    /// or else of the context menu a right-click here shows (see
     /// [`context_menu`](Self::context_menu)), by the titles of its
     /// submenus and its own, as assistive technology would once it has
     /// shown the menu: `choose_menu_item(&["Sort By", "Name"])`.
     pub async fn choose_menu_item(&self, path: &[&str]) {
         self.app.settle().await;
         let id = self.id();
-        if self.app.ui().kind(id) == Some(WidgetKind::MenuButton) {
+        if matches!(self.app.ui().kind(id), Some(WidgetKind::MenuButton | WidgetKind::SplitButton)) {
             let menu = find_prop!(self.app.ui().props(id), Menu).unwrap_or_default();
             let Some(item) = find_menu_item(&menu, path) else {
                 self.fail(&format!("the menu of {} has no item {path:?}", self.query))

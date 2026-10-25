@@ -55,6 +55,7 @@ pub(super) fn measure(state: &State, id: NodeId, request: MeasureRequest) -> Siz
         // AppKit sizes pop-up buttons for their widest item.
         Widget::Select(v) => ceil_size(v.intrinsicContentSize()),
         Widget::MenuButton { popup, .. } => ceil_size(popup.intrinsicContentSize()),
+        Widget::SplitButton(button) => ceil_size(button.control.intrinsicContentSize()),
         // No natural width: they're as wide as the layout makes them.
         Widget::Slider { slider, .. } => intrinsic(slider),
         Widget::NumberInput(n) => n.natural_size(),

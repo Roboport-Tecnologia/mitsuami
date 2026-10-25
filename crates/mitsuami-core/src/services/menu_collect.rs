@@ -97,8 +97,8 @@ pub(crate) fn install_context_menu_on_open(ui: &Ui, id: NodeId, build: Rc<dyn Fn
     ui.set_prop(id, Prop::ContextMenuOnOpen(Some(on_open)));
 }
 
-/// Gives a `MenuButton` its menu, as [`Prop::Menu`], as a context menu is
-/// given (see `install_context_menu`). The menu's title isn't shown.
+/// Gives a `MenuButton` or `SplitButton` its menu, as [`Prop::Menu`], as a
+/// context menu is given (see `install_context_menu`). The menu's title isn't shown.
 #[doc(hidden)]
 pub fn install_button_menu(ui: &Ui, id: NodeId, menu: Menu) {
     install_menu(ui, id, menu, Prop::Menu, |event| match event {

@@ -381,6 +381,9 @@ define_class!(
             let TargetIvars { id, kind, events, snap, .. } = self.ivars();
             let event = match kind {
                 WidgetKind::Button => UiEvent::Click,
+                // Not its menu's segment, on a segmented control.
+                WidgetKind::SplitButton if crate::backend::is_split_button_press(sender) => UiEvent::Click,
+                WidgetKind::SplitButton => return,
                 WidgetKind::Checkbox => match sender.downcast_ref::<NSButton>() {
                     Some(b) => {
                         // A click leaves the mixed state; later clicks

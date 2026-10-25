@@ -37,9 +37,9 @@ pub(super) struct ButtonFace {
     color_rule: Option<IconColorRule>,
 }
 
-/// What a `gtk::Button` and a `gtk::MenuButton` both do with a caption
-/// and an icon, under different types.
-pub(super) trait Face: IsA<gtk::Accessible> + IsA<gtk::Widget> {
+/// What a `gtk::Button`, a `gtk::MenuButton` and an `adw::SplitButton` all
+/// do with a caption and an icon, under different types.
+pub(super) trait Face: IsA<gtk::Widget> {
     fn show_label(&self, label: &str);
     fn show_icon(&self, icon: &str);
     fn show_child(&self, child: &gtk::Widget);
@@ -111,6 +111,36 @@ impl Face for gtk::MenuButton {
     }
 }
 
+/// libadwaita's split button shows a caption, icon or child as a button
+/// does, on its own button, and always draws its arrow beside it.
+impl Face for adw::SplitButton {
+    fn show_label(&self, label: &str) {
+        self.set_label(label);
+    }
+    fn show_icon(&self, icon: &str) {
+        self.set_icon_name(icon);
+    }
+    fn show_child(&self, child: &gtk::Widget) {
+        self.set_child(Some(child));
+    }
+    // The style goes on its own button, as `icon-name` puts it.
+    fn show_image(&self, image: &gtk::Image) {
+        self.set_child(Some(image));
+        if let Some(inner) = self.first_child() {
+            inner.add_css_class("image-button");
+        }
+    }
+    fn shown_label(&self) -> Option<glib::GString> {
+        self.label()
+    }
+    fn shown_icon(&self) -> Option<glib::GString> {
+        self.icon_name()
+    }
+    fn shown_child(&self) -> Option<gtk::Widget> {
+        self.child()
+    }
+}
+
 impl ButtonFace {
     /// Shows the face, then colours its icon: the image may be a new one.
     pub(super) fn show(&mut self, button: &impl Face) {
@@ -126,12 +156,14 @@ impl ButtonFace {
         self.color_rule = rule;
     }
 
+    // Accessible through `gtk::Widget`: libadwaita's types don't say
+    // they're accessible themselves.
     fn show_face(&self, button: &impl Face) {
         if let Some(gicon) = self.vector.clone().flatten().and_then(|v| super::vector_icon::gicon(&v)) {
             let image = gtk::Image::from_gicon(&gicon);
             if self.icon_only == Some(true) {
                 button.show_image(&image);
-                button.update_property(&[gtk::accessible::Property::Label(&self.label)]);
+                button.upcast_ref::<gtk::Widget>().update_property(&[gtk::accessible::Property::Label(&self.label)]);
             } else {
                 // As libadwaita's `ButtonContent` lays out an icon and a
                 // label, which takes only icon names.
@@ -141,7 +173,7 @@ impl ButtonFace {
                 content.append(&gtk::Label::new(Some(&self.label)));
                 button.show_child(content.upcast_ref());
                 button.add_css_class("image-text-button");
-                button.reset_property(gtk::AccessibleProperty::Label);
+                button.upcast_ref::<gtk::Widget>().reset_property(gtk::AccessibleProperty::Label);
             }
             return;
         }
@@ -149,16 +181,16 @@ impl ButtonFace {
         let icon = self.icon.as_deref().unwrap_or_default();
         if icon.is_empty() {
             button.show_label(&self.label);
-            button.reset_property(gtk::AccessibleProperty::Label);
+            button.upcast_ref::<gtk::Widget>().reset_property(gtk::AccessibleProperty::Label);
         } else if self.icon_only == Some(true) {
             button.show_icon(icon);
-            button.update_property(&[gtk::accessible::Property::Label(&self.label)]);
+            button.upcast_ref::<gtk::Widget>().update_property(&[gtk::accessible::Property::Label(&self.label)]);
         } else {
             let content = adw::ButtonContent::new();
             content.set_icon_name(icon);
             content.set_label(&self.label);
             button.show_child(content.upcast_ref());
-            button.reset_property(gtk::AccessibleProperty::Label);
+            button.upcast_ref::<gtk::Widget>().reset_property(gtk::AccessibleProperty::Label);
         }
     }
 

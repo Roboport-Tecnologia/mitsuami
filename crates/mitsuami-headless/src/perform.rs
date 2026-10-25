@@ -28,7 +28,7 @@ impl HeadlessBackend {
             A11yAction::ContextMenuItem(item) => {
                 Some((find_prop!(node.props, ContextMenu), *item, UiEvent::ContextMenuItem(*item)))
             }
-            A11yAction::MenuItem(item) if kind == WidgetKind::MenuButton => {
+            A11yAction::MenuItem(item) if matches!(kind, WidgetKind::MenuButton | WidgetKind::SplitButton) => {
                 Some((find_prop!(node.props, Menu), *item, UiEvent::MenuItem(*item)))
             }
             _ => None,
@@ -53,7 +53,7 @@ impl HeadlessBackend {
                 }
                 state.emit(id, UiEvent::SuggestionChosen(*index));
             }
-            (A11yAction::Activate, WidgetKind::Button) => {
+            (A11yAction::Activate, WidgetKind::Button | WidgetKind::SplitButton) => {
                 state.focus(id);
                 state.emit(id, UiEvent::Click);
             }
@@ -241,6 +241,7 @@ impl HeadlessBackend {
             (
                 A11yAction::Focus,
                 WidgetKind::Button
+                | WidgetKind::SplitButton
                 | WidgetKind::ToggleButton
                 | WidgetKind::TextInput
                 | WidgetKind::PasswordInput

@@ -73,6 +73,7 @@ impl Inner {
                 WidgetKind::Button
                     | WidgetKind::ToggleButton
                     | WidgetKind::MenuButton
+                    | WidgetKind::SplitButton
                     | WidgetKind::TextInput
                     | WidgetKind::PasswordInput
                     | WidgetKind::SearchInput

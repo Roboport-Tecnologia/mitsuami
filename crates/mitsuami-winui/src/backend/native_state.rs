@@ -124,10 +124,14 @@ impl WinUiBackend {
                 props.extend(node.text_color.map(Prop::TextColor));
                 props.push(Prop::Checked(b.cast::<w::IToggleButton>().ok()?.IsChecked().unwrap_or(false)));
             }
-            Widget::MenuButton(b) => {
+            Widget::MenuButton(_) | Widget::SplitButton(_) => {
                 props.extend(button_content(node));
                 if let Some(menu) = &node.button_menu {
-                    let shown = b.cast::<w::IButton>().ok()?.Flyout().ok();
+                    let shown = match &node.widget {
+                        Widget::SplitButton(b) => b.cast::<w::ISplitButton>().ok()?.Flyout().ok(),
+                        Widget::MenuButton(b) => b.cast::<w::IButton>().ok()?.Flyout().ok(),
+                        _ => None,
+                    };
                     let ours =
                         menu.flyout.as_ref().filter(|flyout| shown.as_ref().is_some_and(|s| key(s) == key(*flyout)));
                     props.push(Prop::Menu(match ours {

@@ -150,6 +150,10 @@ name = "menu_button"
 harness = false
 
 [[test]]
+name = "split_button"
+harness = false
+
+[[test]]
 name = "group"
 harness = false
 

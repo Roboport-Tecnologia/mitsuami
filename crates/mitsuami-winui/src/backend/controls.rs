@@ -180,19 +180,20 @@ pub(super) fn button_content(node: &Node) -> Vec<Prop> {
     props
 }
 
-/// A menu button's look. Fluent has no subtle `DropDownButton`, and
-/// `SubtleButtonStyle` would replace its template (and its chevron), so
-/// borderless is a style over its own that only clears the fill and the
-/// border, as a subtle button's are at rest; its template still shows a
-/// fill on hover. An explicit style sets only what it says: the theme's
-/// template stays.
-pub(super) fn set_menu_button_style(button: &w::DropDownButton, button_style: ButtonStyle) -> R<()> {
-    let element = button.cast::<w::IFrameworkElement>()?;
+/// A menu or split button's look (`target` is its XAML type). Fluent has
+/// no subtle `DropDownButton` or `SplitButton`, and `SubtleButtonStyle`
+/// would replace its template (and its chevron), so borderless is a style
+/// over its own that only clears the fill and the border, as a subtle
+/// button's are at rest; its template still shows a fill on hover. An
+/// explicit style sets only what it says: the theme's template stays.
+pub(super) fn set_menu_button_style(element: &w::IFrameworkElement, target: &str, button_style: ButtonStyle) -> R<()> {
     if button_style != ButtonStyle::Borderless {
         return element.SetStyle(None::<&w::Style>);
     }
-    let markup = r#"<Style xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation" TargetType="DropDownButton"><Setter Property="Background" Value="{ThemeResource SubtleFillColorTransparentBrush}"/><Setter Property="BorderBrush" Value="{ThemeResource SubtleFillColorTransparentBrush}"/></Style>"#;
-    element.SetStyle(&w::XamlReader::Load(markup)?.cast::<w::Style>()?)
+    let markup = format!(
+        r#"<Style xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation" TargetType="{target}"><Setter Property="Background" Value="{{ThemeResource SubtleFillColorTransparentBrush}}"/><Setter Property="BorderBrush" Value="{{ThemeResource SubtleFillColorTransparentBrush}}"/></Style>"#
+    );
+    element.SetStyle(&w::XamlReader::Load(&markup)?.cast::<w::Style>()?)
 }
 
 /// A toggle button's look: Fluent has no subtle toggle button, so
