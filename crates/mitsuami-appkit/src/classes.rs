@@ -185,6 +185,40 @@ define_class!(
     }
 );
 
+define_class!(
+    /// A menu button's pull-down. A borderless one's icon is tinted the
+    /// secondary colour, as a borderless button's; pressed, a borderless
+    /// button's lights up to the label colour, so the pull-down drops its
+    /// tint while its menu is open. `mouseDown:` returns once the menu
+    /// closes.
+    #[unsafe(super(NSPopUpButton, NSButton, NSControl, NSView))]
+    #[thread_kind = MainThreadOnly]
+    pub(crate) struct PullDown;
+
+    impl PullDown {
+        #[unsafe(method(mouseDown:))]
+        fn mouse_down(&self, event: &NSEvent) {
+            let tint = self.contentTintColor();
+            if tint.is_some() {
+                self.setContentTintColor(None);
+                self.displayIfNeeded();
+            }
+            unsafe { msg_send![super(self), mouseDown: event] }
+            if tint.is_some() {
+                self.setContentTintColor(tint.as_deref());
+            }
+        }
+    }
+);
+
+impl PullDown {
+    pub(crate) fn create(mtm: MainThreadMarker) -> Retained<NSPopUpButton> {
+        let this: Retained<PullDown> =
+            unsafe { msg_send![PullDown::alloc(mtm), initWithFrame: zero_rect(), pullsDown: true] };
+        this.into_super()
+    }
+}
+
 impl EdgeScrollView {
     pub(crate) fn new(mtm: MainThreadMarker) -> Retained<EdgeScrollView> {
         let this = EdgeScrollView::alloc(mtm).set_ivars(Cell::new(0.0));

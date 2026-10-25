@@ -184,11 +184,7 @@ impl State {
                 Widget::Select(popup)
             }
             WidgetKind::MenuButton => {
-                let popup = NSPopUpButton::initWithFrame_pullsDown(
-                    NSPopUpButton::alloc(mtm),
-                    crate::classes::zero_rect(),
-                    true,
-                );
+                let popup = crate::classes::PullDown::create(mtm);
                 let events = self.events.clone();
                 let target = ClosureTarget::new(mtm, move |sender| {
                     if let Some(item) = sender.downcast_ref::<NSMenuItem>() {
