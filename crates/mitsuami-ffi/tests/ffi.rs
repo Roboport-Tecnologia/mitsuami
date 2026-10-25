@@ -1033,9 +1033,13 @@ async fn texts_can_be_selectable(app: TestApp) {
 #[mitsuami_test::test]
 async fn the_clipboard_and_links_go_to_the_platform(app: TestApp) {
     attach(app.ui());
+    heard();
     assert!(unsafe { mitsuami_set_clipboard_text(str("1a2b3c")) });
     app.settle().await;
     assert_eq!(app.services().clipboard().as_deref(), Some("1a2b3c"));
+    assert!(mitsuami_clipboard_text(open_answer, std::ptr::null_mut()));
+    app.settle().await;
+    assert_eq!(heard(), ["paths 1a2b3c"]);
 
     let window = app.window().raw();
     assert!(unsafe { mitsuami_launch(window, str("https://example.com/commit/1a2b3c"), true) });

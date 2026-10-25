@@ -2542,6 +2542,27 @@ pub unsafe extern "C" fn mitsuami_set_clipboard_text(text: MitsuamiStr) -> bool 
     .is_some()
 }
 
+/// Reads the clipboard's text: `answer(user, text, count)` gets it
+/// (`count` 1), or none (`count` 0) if it holds no text.
+#[unsafe(no_mangle)]
+pub extern "C" fn mitsuami_clipboard_text(
+    answer: extern "C" fn(*mut c_void, *const MitsuamiStr, usize),
+    user: *mut c_void,
+) -> bool {
+    let user = user as usize;
+    guard(|| {
+        let ui = ui()?;
+        let reply = ui.clipboard_text();
+        ui.spawn_local(async move {
+            let text = reply.await;
+            let strs: Vec<MitsuamiStr> = text.iter().map(|t| MitsuamiStr { ptr: t.as_ptr(), len: t.len() }).collect();
+            answer(user as *mut c_void, strs.as_ptr(), strs.len());
+        });
+        Ok(())
+    })
+    .is_some()
+}
+
 /// Opens `target` in another app, for `window` (0: the focused one): with
 /// `url`, a URL in the app set for its scheme (the browser for `https:`);
 /// otherwise a path, a file in the app set for its type, a folder in the
