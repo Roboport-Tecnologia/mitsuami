@@ -3,8 +3,8 @@
 //! Builder's text views come.
 
 use objc2::rc::Retained;
-use objc2::runtime::{NSObjectProtocol, ProtocolObject};
-use objc2::{ClassType, MainThreadMarker, msg_send, sel};
+use objc2::runtime::ProtocolObject;
+use objc2::{ClassType, MainThreadMarker};
 use objc2_app_kit::{
     NSAutoresizingMaskOptions, NSBorderType, NSColor, NSControlSize, NSFont, NSScrollView, NSScroller, NSTextView,
     NSTextViewDelegate,
@@ -19,8 +19,8 @@ const WIDTH: f64 = 200.0;
 pub(crate) struct TextArea {
     pub(crate) scroll: Retained<NSScrollView>,
     pub(crate) text: Retained<NSTextView>,
-    /// What the app gave, which AppKit can't read back (see
-    /// `set_placeholder`) or can't hold apart (a text view has no enabled
+    /// What the app gave, which AppKit has no place for (a text view has
+    /// no placeholder) or can't hold apart (a text view has no enabled
     /// state: disabled, it's neither editable nor selectable).
     pub(crate) placeholder: Option<String>,
     pub(crate) lines: u32,
@@ -55,21 +55,6 @@ impl TextArea {
         if self.text.string().to_string() != value {
             self.text.setString(&NSString::from_str(value));
             self.fit_width();
-        }
-    }
-
-    /// AppKit's own placeholder for a text view, which it draws while the
-    /// view is empty, as a field's. It isn't in the SDK's headers, but
-    /// every text view answers to it (macOS 26); without it, there's none.
-    pub(crate) fn set_placeholder(&mut self, placeholder: &str) {
-        self.placeholder = Some(placeholder.to_owned());
-        let text: &NSTextView = &self.text;
-        if text.respondsToSelector(sel!(setPlaceholderString:)) {
-            let string = NSString::from_str(placeholder);
-            unsafe {
-                let _: () = msg_send![text, setPlaceholderString: &*string];
-            }
-            text.setNeedsDisplay(true);
         }
     }
 
