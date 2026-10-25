@@ -206,6 +206,78 @@ async fn the_divider_is_drawn_where_the_app_moves_it(app: TestApp) {
     assert_eq!(at(split.x() + 200.0 + divider(&app) / 2.0), background, "a divider left where they met");
 }
 
+/// A hidden pane collapses, with the divider, and the other takes the
+/// whole split, as SourceGit hides its sidebar on its stashes page; shown
+/// again, it's back at its position.
+#[mitsuami_test::test]
+async fn a_hidden_pane_collapses_with_the_divider(app: TestApp) {
+    let hide_first = signal(false);
+    let hide_second = signal(false);
+    app.mount(move || {
+        Split::new()
+            .position(200.0)
+            .grow(1.0)
+            .test_id("split")
+            .children((pane("first").hidden(hide_first), pane("second").hidden(hide_second)))
+    });
+    app.resize(600.0, 300.0).await;
+    let split = app.get_by_test_id("split");
+
+    hide_first.set(true);
+    app.settle().await;
+    let whole = split.frame();
+    assert_eq!(app.get_by_test_id("second").frame(), whole);
+    assert!(split.native_state().props.contains(&Prop::PanesShown([false, true])));
+
+    hide_first.set(false);
+    hide_second.set(true);
+    app.settle().await;
+    assert_eq!(app.get_by_test_id("first").frame(), whole);
+    assert!(split.native_state().props.contains(&Prop::PanesShown([true, false])));
+
+    hide_second.set(false);
+    app.settle().await;
+    assert_eq!(app.get_by_test_id("first").frame().width(), 200.0);
+    assert_eq!(app.get_by_test_id("second").frame().x() - whole.x(), 200.0 + divider(&app));
+    assert!(split.native_state().props.contains(&Prop::PanesShown([true, true])));
+}
+
+/// No divider is drawn by a pane that's hidden.
+#[mitsuami_test::test]
+async fn a_hidden_pane_draws_no_divider(app: TestApp) {
+    let hide_first = signal(false);
+    app.mount(move || {
+        Split::new()
+            .position(200.0)
+            .grow(1.0)
+            .test_id("split")
+            .children((pane("first").hidden(hide_first), pane("second")))
+    });
+    app.resize(600.0, 300.0).await;
+    for _ in 0..2 {
+        let _ = app.ui().capture(app.window()).await;
+    }
+    hide_first.set(true);
+    app.settle().await;
+
+    let image = match app.ui().capture(app.window()).await {
+        Err(CaptureError::Unsupported) => return assert!(app.is_headless(), "only headless may lack capture"),
+        Err(e) => panic!("capture failed: {e:?}"),
+        Ok(image) => image,
+    };
+    let split = app.get_by_test_id("split").frame();
+    let at = |x: f32| {
+        let scale = image.scale_factor;
+        let (x, y) = ((x * scale) as usize, ((split.y() + split.height() / 2.0) * scale) as usize);
+        let i = (y * image.width as usize + x) * 4;
+        image.rgba[i..i + 3].to_vec()
+    };
+    let background = at(split.x() + 100.0);
+    for x in [divider(&app) / 2.0, 200.0 + divider(&app) / 2.0] {
+        assert_eq!(at(split.x() + x), background, "a divider at {x}");
+    }
+}
+
 mitsuami_test::main!();
 
 /// A pane whose content is taller than the split is cut to it: a scroll

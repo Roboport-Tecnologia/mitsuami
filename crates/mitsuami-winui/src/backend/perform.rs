@@ -44,6 +44,10 @@ impl WinUiBackend {
             // A splitter's value, as assistive technology sets it: the
             // divider moves there, which is reported.
             if let (A11yAction::SetValue(text), Widget::Split(split)) = (action, &node.widget) {
+                // No divider while a pane is hidden.
+                if !split.both_shown() {
+                    return Err(ActionError::Unsupported);
+                }
                 let position: f64 = text.trim().parse().map_err(|_| ActionError::Unsupported)?;
                 split.move_divider(&state.emitter(), id, position);
                 return Ok(());

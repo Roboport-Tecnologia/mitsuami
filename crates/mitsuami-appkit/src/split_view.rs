@@ -36,6 +36,8 @@ pub(crate) struct State {
     minimums: Cell<[f32; 2]>,
     /// The first pane's length last reported or set.
     position: Cell<Option<f64>>,
+    /// Which panes show: the divider shows only between two.
+    shown: Cell<[bool; 2]>,
     /// How far it runs up under its window's bars (see
     /// `SplitView::set_under_bar`).
     under_bar: Cell<f64>,
@@ -85,6 +87,16 @@ define_class!(
         /// moves the panes, as AppKit does.
         #[unsafe(method(resizeSubviewsWithOldSize:))]
         fn resize_subviews(&self, _old: NSSize) {}
+
+        /// No divider beside a hidden pane: none drawn, none to drag. The
+        /// delegate's `shouldHideDividerAtIndex:` still drew it.
+        #[unsafe(method(dividerThickness))]
+        fn divider_thickness(&self) -> CGFloat {
+            match self.ivars().shown.get() {
+                [true, true] => unsafe { msg_send![super(self), dividerThickness] },
+                _ => 0.0,
+            }
+        }
 
         /// AppKit tracks the drag inside this call.
         #[unsafe(method(mouseDown:))]
@@ -188,6 +200,25 @@ impl SplitView {
         self.state.minimums.set(minimums);
     }
 
+    /// Shows or hides the panes' hosts, and the divider with them.
+    pub(crate) fn set_shown(&self, shown: [bool; 2]) {
+        self.state.shown.set(shown);
+        for (index, (_, host)) in self.panes.borrow().iter().enumerate() {
+            host.setHidden(!shown.get(index).copied().unwrap_or(false));
+        }
+        self.panes_moved();
+    }
+
+    /// Which panes show, from their hosts.
+    pub(crate) fn shown(&self) -> [bool; 2] {
+        let panes = self.panes.borrow();
+        let mut shown = self.state.shown.get();
+        for (index, (_, host)) in panes.iter().take(2).enumerate() {
+            shown[index] = !host.isHidden();
+        }
+        shown
+    }
+
     /// The app's position: the core lays the panes out at it.
     pub(crate) fn set_position(&self, position: f64) {
         self.state.position.set(Some(position));
@@ -253,6 +284,10 @@ impl SplitView {
         }
         let index = index.min(panes.len());
         panes.insert(index, (id, host));
+        let shown = self.state.shown.get();
+        for (index, (_, host)) in panes.iter().enumerate() {
+            host.setHidden(!shown.get(index).copied().unwrap_or(false));
+        }
     }
 
     /// Takes a pane out, with its host.

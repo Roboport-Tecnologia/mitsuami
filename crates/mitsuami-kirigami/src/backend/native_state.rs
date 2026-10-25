@@ -258,6 +258,15 @@ impl KirigamiBackend {
                     root.real("mitsuamiMinimumFirst") as f32,
                     root.real("mitsuamiMinimumSecond") as f32,
                 ]));
+                // From the panes once they're in, else as given.
+                let shown = |pane: &str, given: &str| match root.object(pane) {
+                    Some(item) => item.bool("visible"),
+                    None => root.bool(given),
+                };
+                props.push(Prop::PanesShown([
+                    shown("mitsuamiFirst", "mitsuamiShownFirst"),
+                    shown("mitsuamiSecond", "mitsuamiShownSecond"),
+                ]));
             }
             // The flags are the strip's own properties, which its buttons
             // and handlers follow; there's nothing else to read them from.

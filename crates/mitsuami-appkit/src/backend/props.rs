@@ -37,6 +37,7 @@ impl State {
             (Prop::Orientation(o), Widget::SplitView(split)) => split.turn(!o.vertical()),
             (Prop::Number(position), Widget::SplitView(split)) => split.set_position(*position),
             (Prop::PaneMinimums(minimums), Widget::SplitView(split)) => split.set_minimums(*minimums),
+            (Prop::PanesShown(shown), Widget::SplitView(split)) => split.set_shown(*shown),
             (Prop::FileDrop(drop), Widget::Host(host) | Widget::Group { host, .. }) => {
                 host.set_file_drop(drop.clone().map(|files| crate::classes::Drop {
                     id,

@@ -59,7 +59,9 @@ Item {{
 /// preferred length; the second fills the rest, so the first keeps its
 /// length as the split grows. `mitsuamiMinimumFirst` and
 /// `mitsuamiMinimumSecond` are the panes' least lengths, where the split
-/// view stops its handle. A drag of the handle
+/// view stops its handle. `mitsuamiShownFirst` and `mitsuamiShownSecond`
+/// show or hide the panes: the split view hides the handle beside a hidden
+/// item itself. A drag of the handle
 /// (`resizing`) is reported with `mitsuamiMoved`, the first pane's length
 /// in `mitsuamiReported`; setting `mitsuamiMoveTo` moves the handle as a
 /// drag would, and reports it.
@@ -72,6 +74,8 @@ Item {{
     property real mitsuamiPosition: -1
     property real mitsuamiMinimumFirst: 0
     property real mitsuamiMinimumSecond: 0
+    property bool mitsuamiShownFirst: true
+    property bool mitsuamiShownSecond: true
     property real mitsuamiReported: -1
     property real mitsuamiMoveTo: -1
     property Item mitsuamiItem: null
@@ -104,12 +108,15 @@ Item {{
         }}
     }}
     // The panes' sizes as the split view takes them: the first at its
-    // position, the second filling the rest, each at least its least.
+    // position, the second filling the rest, each at least its least. With
+    // the second hidden, the first fills.
     function mitsuamiApply() {{
         const first = mitsuamiFirst, second = mitsuamiSecond
         if (first) {{
-            first.SplitView.fillWidth = false
-            first.SplitView.fillHeight = false
+            first.visible = mitsuamiShownFirst
+            const fills = !(second && mitsuamiShownSecond)
+            first.SplitView.fillWidth = fills && !mitsuamiVertical
+            first.SplitView.fillHeight = fills && mitsuamiVertical
             if (mitsuamiPosition >= 0) {{
                 if (mitsuamiVertical) first.SplitView.preferredHeight = mitsuamiPosition
                 else first.SplitView.preferredWidth = mitsuamiPosition
@@ -118,6 +125,7 @@ Item {{
             first.SplitView.minimumHeight = mitsuamiVertical ? mitsuamiMinimumFirst : 0
         }}
         if (second) {{
+            second.visible = mitsuamiShownSecond
             second.SplitView.fillWidth = !mitsuamiVertical
             second.SplitView.fillHeight = mitsuamiVertical
             second.SplitView.minimumWidth = mitsuamiVertical ? 0 : mitsuamiMinimumSecond
@@ -128,6 +136,8 @@ Item {{
     onMitsuamiMinimumFirstChanged: mitsuamiApply()
     onMitsuamiMinimumSecondChanged: mitsuamiApply()
     onMitsuamiVerticalChanged: mitsuamiApply()
+    onMitsuamiShownFirstChanged: mitsuamiApply()
+    onMitsuamiShownSecondChanged: mitsuamiApply()
     function mitsuamiInsert() {{
         mitsuamiSplit.insertItem(mitsuamiIndex, mitsuamiItem)
         mitsuamiItem = null

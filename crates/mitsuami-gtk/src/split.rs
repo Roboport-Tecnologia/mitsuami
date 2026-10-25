@@ -160,6 +160,21 @@ impl Split {
         self.state.minimums.get()
     }
 
+    /// Shows or hides the panes' wrappers: the paned hides its handle
+    /// while either child is hidden, and gives the other the whole split.
+    /// The wrappers are there from the start, so a pane inserted later
+    /// lands in the right one.
+    pub(crate) fn set_shown(&self, shown: [bool; 2]) {
+        for (wrapper, shown) in self.wrappers.iter().zip(shown) {
+            wrapper.set_visible(shown);
+        }
+    }
+
+    /// Which panes show, from their wrappers.
+    pub(crate) fn shown(&self) -> [bool; 2] {
+        [self.wrappers[0].is_visible(), self.wrappers[1].is_visible()]
+    }
+
     /// The app's position: the core lays the panes out at it.
     pub(crate) fn set_position(&self, position: f64) {
         self.state.position.set(Some(position));

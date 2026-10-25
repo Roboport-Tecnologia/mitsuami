@@ -152,6 +152,10 @@ impl KirigamiBackend {
             }
             // As if the handle were dragged there: reported.
             (A11yAction::SetValue(text), WidgetKind::Split) => {
+                // No handle while a pane is hidden.
+                if !item.bool("mitsuamiShownFirst") || !item.bool("mitsuamiShownSecond") {
+                    return Err(ActionError::Unsupported);
+                }
                 let position: f64 = text.trim().parse().map_err(|_| ActionError::Unsupported)?;
                 item.set_real("mitsuamiMoveTo", position.max(0.0));
             }

@@ -321,6 +321,7 @@ pub(super) fn native_state(state: &State, id: NodeId) -> Option<NativeState> {
             }));
             props.extend(split.state.position().map(Prop::Number));
             props.push(Prop::PaneMinimums(split.state.minimums()));
+            props.push(Prop::PanesShown(split.shown()));
         }
     }
     if node.file_drop

@@ -38,8 +38,9 @@ impl Inner {
             TextDirection::Ltr => false,
             TextDirection::Rtl => true,
         };
-        // A split's panes' least sizes, sent once the node is let go of.
-        let mut minimums = None;
+        // A split's panes' least sizes and which show, sent once the node
+        // is let go of.
+        let mut split_props = Vec::new();
         if let Some(t) = node.taffy {
             let cx = ResolveContext {
                 font_size,
@@ -75,8 +76,8 @@ impl Inner {
                 }
                 // The first pane, the divider, then the second pane.
                 WidgetKind::Split => {
-                    let (tracks, least) = self.split_tracks(id, &cx);
-                    minimums = Some(least);
+                    let (tracks, least, shown) = self.split_tracks(id, &cx);
+                    split_props = vec![least, shown];
                     let mut own = node.style.clone();
                     own.display = Display::Grid;
                     let vertical = crate::find_prop!(node.props, Orientation).is_some_and(|o| o.vertical());
@@ -172,13 +173,13 @@ impl Inner {
         if node.kind == WidgetKind::Text {
             self.resolve_text_align(id, rtl);
         }
-        if let Some(prop) = minimums
-            && self.nodes[&id].prop(&prop) != Some(&prop)
-        {
-            let node = self.nodes.get_mut(&id).unwrap();
-            node.props.retain(|p| p.key() != prop.key());
-            node.props.push(prop.clone());
-            self.queue_prop(id, prop);
+        for prop in split_props {
+            if self.nodes[&id].prop(&prop) != Some(&prop) {
+                let node = self.nodes.get_mut(&id).unwrap();
+                node.props.retain(|p| p.key() != prop.key());
+                node.props.push(prop.clone());
+                self.queue_prop(id, prop);
+            }
         }
         self.resolve_direction(id, rtl);
         let node = &self.nodes[&id];
@@ -259,8 +260,10 @@ impl Inner {
     /// user's size (its content's, until there's one), kept within the
     /// panes' least sizes and the split's last length; the divider; the
     /// second pane with what's left. And the least sizes, which the
-    /// platform stops the divider at.
-    fn split_tracks(&self, id: NodeId, cx: &ResolveContext<'_>) -> (Vec<Track>, Prop) {
+    /// platform stops the divider at, and which panes show: a hidden (or
+    /// missing) pane's track and the divider's are empty, and the other
+    /// pane fills the split.
+    fn split_tracks(&self, id: NodeId, cx: &ResolveContext<'_>) -> (Vec<Track>, Prop, Prop) {
         let node = &self.nodes[&id];
         let vertical = crate::find_prop!(node.props, Orientation).is_some_and(|o| o.vertical());
         let least = |pane: Option<&NodeId>| {
@@ -277,15 +280,22 @@ impl Inner {
         // grid works it out from the split's length, so a split turned to
         // the other axis isn't held to its last length along this one.
         let position = crate::find_prop!(node.props, Number).map(|p| (p as f32).max(first));
-        let tracks = vec![
-            match position {
-                Some(points) => Track::MinMax(Length::Px(first), Length::Px(points)),
-                None => Track::MinMax(Length::Px(first), Length::Auto),
-            },
-            Track::Size(Length::Px(divider)),
-            Track::MinMax(Length::Px(second), Length::Fr(1.0)),
-        ];
-        (tracks, Prop::PaneMinimums([first, second]))
+        let shown = |pane: Option<&NodeId>| pane.is_some_and(|p| !self.nodes[p].style.is_hidden());
+        let shown = [shown(node.children.first()), shown(node.children.get(1))];
+        let none = Track::Size(Length::Px(0.0));
+        let tracks = match shown {
+            [true, true] => vec![
+                match position {
+                    Some(points) => Track::MinMax(Length::Px(first), Length::Px(points)),
+                    None => Track::MinMax(Length::Px(first), Length::Auto),
+                },
+                Track::Size(Length::Px(divider)),
+                Track::MinMax(Length::Px(second), Length::Fr(1.0)),
+            ],
+            [true, false] => vec![Track::MinMax(Length::Px(first), Length::Fr(1.0)), none, none],
+            [false, _] => vec![none, none, Track::MinMax(Length::Px(second), Length::Fr(1.0))],
+        };
+        (tracks, Prop::PaneMinimums([first, second]), Prop::PanesShown(shown))
     }
 }
 

@@ -251,6 +251,7 @@ impl GtkBackend {
                 }));
                 props.extend(split.position().map(Prop::Number));
                 props.push(Prop::PaneMinimums(split.minimums()));
+                props.push(Prop::PanesShown(split.shown()));
             }
             Widget::Tabs(tabs) => {
                 props.push(Prop::TabTitles(tabs.titles()));

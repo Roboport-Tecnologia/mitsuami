@@ -108,6 +108,7 @@ fn describe_props(props: &[Prop]) -> String {
             Prop::PaneMinimums([first, second]) => {
                 extra.push(format!("pane_minimums={},{}", Num(*first), Num(*second)))
             }
+            Prop::PanesShown([first, second]) => extra.push(format!("panes_shown={first},{second}")),
             Prop::Image(ImageSource::File(path)) => extra.push(format!("file={:?}", path.display().to_string())),
             Prop::Image(ImageSource::Pixels(p)) => extra.push(format!("{p:?}")),
             Prop::ImageFit(fit) => extra.push(format!("fit={fit:?}")),

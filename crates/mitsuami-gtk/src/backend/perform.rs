@@ -125,6 +125,8 @@ impl GtkBackend {
             // The divider, as a drag moves it: the paned reports it.
             if let Widget::Split(split) = &node.widget {
                 return match action {
+                    // No divider while a pane is hidden.
+                    A11yAction::SetValue(_) if split.shown() != [true, true] => Err(ActionError::Unsupported),
                     A11yAction::SetValue(text) => {
                         let position: f64 = text.trim().parse().map_err(|_| ActionError::Unsupported)?;
                         split.move_divider(position);

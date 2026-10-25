@@ -226,6 +226,11 @@ impl State {
                 root.set_real("mitsuamiMinimumFirst", f64::from(*first));
                 root.set_real("mitsuamiMinimumSecond", f64::from(*second));
             }
+            // Kept on the root until the panes come.
+            (Prop::PanesShown([first, second]), Widget::Split { root, .. }) => {
+                root.set_bool("mitsuamiShownFirst", *first);
+                root.set_bool("mitsuamiShownSecond", *second);
+            }
             (Prop::Orientation(o), Widget::Slider(s)) => {
                 s.set_int("orientation", if o.vertical() { QT_VERTICAL } else { QT_HORIZONTAL });
                 node.orientation = Some(*o);

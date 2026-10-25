@@ -159,6 +159,7 @@ impl State {
                         let children = split.canvas.cast::<w::IPanel>()?.Children()?;
                         let index = (*index as u32 + crate::split::PARTS).min(children.Size()?);
                         children.InsertAt(index, &child_element)?;
+                        split.show()?;
                     }
                     Some(Widget::List(list)) => {
                         let Some(row) = self.nodes[child].row else {

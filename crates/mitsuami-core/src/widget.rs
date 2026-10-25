@@ -205,7 +205,9 @@ pub enum WidgetKind {
     /// the second, which takes what's left, so the first keeps its size as
     /// the split grows. Each pane is at least its style's least size
     /// ([`Prop::PaneMinimums`]). The platform draws the divider and reports
-    /// where the user drags it as `Changed(Number)`.
+    /// where the user drags it as `Changed(Number)`. A hidden pane
+    /// collapses, with the divider, and the other takes the whole split
+    /// ([`Prop::PanesShown`]); the position is kept for when it's back.
     Split,
     /// A platform's popover, attached to its parent (a container) while
     /// [`Prop::PopoverShown`]: an NSPopover, a gtk::Popover, a XAML Flyout,
@@ -1014,6 +1016,10 @@ pub enum Prop {
     /// their styles' least width (or height): the platform stops the
     /// divider there. Computed by the core.
     PaneMinimums([f32; 2]),
+    /// Which of a `Split`'s panes show, first then second: the divider
+    /// shows only between two. Computed by the core from the panes'
+    /// visibility.
+    PanesShown([bool; 2]),
     /// Text the platform shows when the pointer rests on the widget, as
     /// its tooltip, and assistive technology reads as its description.
     /// Any widget or container can have one; empty: none.

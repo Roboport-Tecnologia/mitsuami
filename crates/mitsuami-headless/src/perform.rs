@@ -115,6 +115,10 @@ impl HeadlessBackend {
             // value: no further than the panes' least sizes let it.
             (A11yAction::SetValue(text), WidgetKind::Split) => {
                 let node = &state.nodes[&id];
+                // No divider while a pane is hidden.
+                if find_prop!(node.props, PanesShown).is_some_and(|shown| shown != [true, true]) {
+                    return Err(ActionError::Unsupported);
+                }
                 let position: f32 = text.trim().parse().map_err(|_| ActionError::Unsupported)?;
                 let [first, second] = find_prop!(node.props, PaneMinimums).unwrap_or_default();
                 let vertical = find_prop!(node.props, Orientation).is_some_and(|o| o.vertical());

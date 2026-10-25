@@ -398,6 +398,7 @@ impl State {
             (Prop::Orientation(o), Widget::Split(split)) => split.set_vertical(o.vertical())?,
             (Prop::Number(position), Widget::Split(split)) => split.set_position(*position),
             (Prop::PaneMinimums(minimums), Widget::Split(split)) => split.set_minimums(*minimums),
+            (Prop::PanesShown(shown), Widget::Split(split)) => split.set_shown(*shown)?,
             (Prop::TabTitles(titles), Widget::DocumentTabs(tabs)) => tabs.set_titles(titles)?,
             (Prop::SelectedIndex(index), Widget::DocumentTabs(tabs)) => tabs.set_selected(*index)?,
             (Prop::TabsClosable(closable), Widget::DocumentTabs(tabs)) => tabs.set_closable(*closable)?,

@@ -40,7 +40,6 @@ const LINE_MARKUP: &str = r#"<Border xmlns="http://schemas.microsoft.com/winfx/2
 /// edges, which it overlaps.
 const GRIP_MARKUP: &str = r#"<Border xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation" Background="Transparent" Canvas.ZIndex="1"/>"#;
 
-#[derive(Default)]
 struct State {
     vertical: bool,
     /// The split's size.
@@ -52,6 +51,22 @@ struct State {
     position: Option<f64>,
     /// Where a drag started along the split, and the first pane's length then.
     drag: Option<(f64, f64)>,
+    /// Which panes show: the line and grip show only between two.
+    shown: [bool; 2],
+}
+
+impl Default for State {
+    fn default() -> State {
+        State {
+            vertical: false,
+            size: (0.0, 0.0),
+            first: 0.0,
+            minimums: [0.0; 2],
+            position: None,
+            drag: None,
+            shown: [true; 2],
+        }
+    }
 }
 
 impl State {
@@ -121,6 +136,44 @@ impl Split {
 
     pub(crate) fn minimums(&self) -> [f32; 2] {
         self.state.borrow().minimums
+    }
+
+    /// Which panes show: a hidden one's host is collapsed, and so are the
+    /// line and the grip, so there's nothing to see or drag.
+    pub(crate) fn set_shown(&self, shown: [bool; 2]) -> R<()> {
+        {
+            let mut state = self.state.borrow_mut();
+            state.shown = shown;
+            state.drag = None;
+        }
+        self.show()
+    }
+
+    pub(crate) fn shown(&self) -> [bool; 2] {
+        self.state.borrow().shown
+    }
+
+    /// Whether a pane is there to have its divider moved.
+    pub(crate) fn both_shown(&self) -> bool {
+        self.state.borrow().shown == [true, true]
+    }
+
+    /// Shows what shows: the panes after the line and grip, which show
+    /// only between two. Run again as panes are inserted, since the core
+    /// may say which show before they're in.
+    pub(crate) fn show(&self) -> R<()> {
+        let shown = self.state.borrow().shown;
+        let visibility = |on: bool| if on { w::Visibility::Visible } else { w::Visibility::Collapsed };
+        let both = visibility(shown == [true, true]);
+        self.line.cast::<w::IUIElement>()?.SetVisibility(both)?;
+        self.grip.cast::<w::IUIElement>()?.SetVisibility(both)?;
+        let children = self.canvas.cast::<w::IPanel>()?.Children()?;
+        for (index, on) in shown.into_iter().enumerate() {
+            if let Ok(pane) = children.GetAt(PARTS + index as u32) {
+                pane.cast::<w::IUIElement>()?.SetVisibility(visibility(on))?;
+            }
+        }
+        Ok(())
     }
 
     /// The app's position: the core lays the panes out at it.
