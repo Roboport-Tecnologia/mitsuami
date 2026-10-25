@@ -306,6 +306,7 @@ impl State {
                 header: None,
                 header_edge: None,
                 sidebar_pane: None,
+                click_through: false,
                 file_drop: None,
                 keys: None,
                 align: None,

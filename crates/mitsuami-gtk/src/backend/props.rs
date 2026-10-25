@@ -676,6 +676,11 @@ impl State {
                 }
                 node.sidebar_pane = Some(*on);
             }
+            // Not a target, GTK picks what's under it, children included.
+            (Prop::ClickThrough(on), Widget::Host(host)) => {
+                host.set_can_target(!*on);
+                node.click_through = true;
+            }
             _ => {}
         }
     }

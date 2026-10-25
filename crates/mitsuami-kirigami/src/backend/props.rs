@@ -521,6 +521,14 @@ impl State {
             (Prop::Header(on), Widget::Host(_)) => node.header = Some(*on),
             (Prop::HeaderEdge(edge), Widget::Host(_)) => node.header_edge = Some(*edge),
             (Prop::SidebarPane(on), Widget::Host(_)) => node.sidebar_pane = Some(*on),
+            // A disabled item and everything in it get no pointer events,
+            // which go on to the items under it: Qt Quick's way to let
+            // clicks through. Hosts aren't controls, so the app's `Enabled`
+            // never sets it.
+            (Prop::ClickThrough(on), Widget::Host(host)) => {
+                node.click_through = true;
+                host.set_bool("enabled", !*on);
+            }
             _ => {}
         }
         // A window's sidebar leaves its row or comes back, and the content

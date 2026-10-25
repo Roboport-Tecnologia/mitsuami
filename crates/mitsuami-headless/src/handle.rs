@@ -3,13 +3,14 @@
 use mitsuami_core::a11y::A11yProps;
 use mitsuami_core::backend::PlatformMetrics;
 use mitsuami_core::{
-    Command, Insets, NativeAppInfo, NativeIcon, NodeId, Prop, Size, SurfaceInput, UiEvent, WidgetKind, find_prop,
+    ActionError, Command, Insets, NativeAppInfo, NativeIcon, NodeId, Point, Prop, Size, SurfaceInput, UiEvent,
+    WidgetKind, find_prop,
 };
 
-use super::HeadlessHandle;
 use super::measure::png_size;
 use super::metrics::{SCREEN, WORK_AREA};
 use super::windows::at_least_min;
+use super::{HeadlessHandle, State};
 
 impl HeadlessHandle {
     /// Records the commands applied from now on, for `command_log` and
@@ -196,6 +197,36 @@ impl mitsuami_core::TestHooks for HeadlessHandle {
 
     fn node_count(&self) -> usize {
         HeadlessHandle::node_count(self)
+    }
+
+    /// The topmost node with a frame there (later children are over
+    /// earlier ones), past containers clicks pass through.
+    fn hit(&self, window: NodeId, at: Point) -> Result<Option<NodeId>, ActionError> {
+        fn reach(state: &State, id: NodeId, at: Point) -> Option<NodeId> {
+            let node = &state.nodes[&id];
+            // A scroll view's content is placed from its viewport's top-left.
+            let inside = match node.kind {
+                WidgetKind::ScrollView => Point::new(at.x + node.scroll_offset.x, at.y + node.scroll_offset.y),
+                _ => at,
+            };
+            for child in node.children.iter().rev() {
+                let c = &state.nodes[child];
+                let f = c.frame;
+                if f.width() <= 0.0 || f.height() <= 0.0 || find_prop!(c.props, ClickThrough) == Some(true) {
+                    continue;
+                }
+                if inside.x >= f.x() && inside.x < f.max_x() && inside.y >= f.y() && inside.y < f.max_y() {
+                    let local = Point::new(inside.x - f.x(), inside.y - f.y());
+                    return reach(state, *child, local).or(Some(*child));
+                }
+            }
+            None
+        }
+        let state = self.state.borrow();
+        if !state.nodes.contains_key(&window) {
+            return Err(ActionError::UnknownNode);
+        }
+        Ok(reach(&state, window, at))
     }
 
     /// The selected rows' files if the row is selected, else its own, as

@@ -50,6 +50,10 @@ pub struct PlatformMetrics {
     pub titled_group_insets: Insets,
     /// How thick a `Split`'s divider is, between its panes.
     pub split_divider: f32,
+    /// Where a `TextArea`'s first line starts: this far in from its edges,
+    /// past its border and the text's own margins. What a hint laid over
+    /// it lines up with.
+    pub text_area_insets: Insets,
 }
 
 /// Light or dark. Backends can force one (tests do, so captures don't
@@ -247,6 +251,13 @@ pub trait TestHooks {
     /// Nothing here can start a real drag; this goes through the backend's
     /// own drag handling up to where the platform takes the files.
     fn dragged_files(&self, node: NodeId) -> Option<Vec<std::path::PathBuf>>;
+    /// The node a click at `at`, in a window's content, reaches as the
+    /// platform hit-tests it: the topmost there, past containers clicks
+    /// pass through (`Prop::ClickThrough`). `None` if it reaches none;
+    /// `Unsupported` where the backend can't tell yet.
+    fn hit(&self, _window: NodeId, _at: Point) -> Result<Option<NodeId>, ActionError> {
+        Err(ActionError::Unsupported)
+    }
     /// Called after every settle: lets the platform catch up on work it
     /// does asynchronously (showing windows, allocating, delivering queued
     /// notifications) without waiting. Every backend has some: AppKit lays

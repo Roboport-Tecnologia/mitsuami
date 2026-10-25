@@ -1,10 +1,10 @@
 //! The backend's handle: its command log and test hooks.
 
-use mitsuami_core::{Command, NativeAppInfo, NativeIcon, NodeId, Size, WidgetKind};
+use mitsuami_core::{ActionError, Command, NativeAppInfo, NativeIcon, NodeId, Point, Size, WidgetKind};
 use objc2::Message;
 use objc2::rc::Retained;
 use objc2_app_kit::{NSApplication, NSView};
-use objc2_foundation::{NSBundle, NSDate, NSDefaultRunLoopMode, NSProcessInfo, NSRunLoop};
+use objc2_foundation::{NSBundle, NSDate, NSDefaultRunLoopMode, NSPoint, NSProcessInfo, NSRunLoop};
 
 use super::{AppKitHandle, State, Widget};
 
@@ -49,6 +49,28 @@ impl mitsuami_core::TestHooks for AppKitHandle {
             Widget::List(list) => list.dragged_files(host.row?),
             _ => None,
         }
+    }
+
+    /// AppKit's own `hitTest:` from the window's content view, then the
+    /// nearest view up from what it hit that's a node's.
+    fn hit(&self, window: NodeId, at: Point) -> Result<Option<NodeId>, ActionError> {
+        let state = self.state.borrow();
+        let content = state.nodes.get(&window).ok_or(ActionError::UnknownNode)?.widget.view().retain();
+        let height = content.bounds().size.height;
+        let local = NSPoint::new(at.x as f64, if content.isFlipped() { at.y as f64 } else { height - at.y as f64 });
+        // `hitTest:` takes a point in the view's superview.
+        let point = match unsafe { content.superview() } {
+            Some(parent) => content.convertPoint_toView(local, Some(&parent)),
+            None => local,
+        };
+        let mut view = content.hitTest(point);
+        while let Some(v) = view {
+            if let Some((id, _)) = state.nodes.iter().find(|(_, n)| *n.widget.view() == *v) {
+                return Ok(Some(*id));
+            }
+            view = unsafe { v.superview() };
+        }
+        Ok(None)
     }
 
     fn resize_window(&self, window: NodeId, size: Size) {

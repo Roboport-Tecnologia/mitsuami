@@ -75,6 +75,8 @@ pub(crate) struct HostIvars {
     /// A split's pane: how far it runs up under its window's bars with
     /// its split (see `SplitView::set_under_bar`).
     under_bar: Cell<f64>,
+    /// The pointer passes through it, and what's in it, to what's under it.
+    click_through: Cell<bool>,
 }
 
 /// A host's file drop: what it takes, where it reports, and whether
@@ -103,6 +105,16 @@ define_class!(
         #[unsafe(method(alignmentRectInsets))]
         fn alignment_rect_insets(&self) -> NSEdgeInsets {
             NSEdgeInsets { top: self.ivars().under_bar.get(), left: 0.0, bottom: 0.0, right: 0.0 }
+        }
+
+        /// Nothing in it is hit while clicks pass through: AppKit then
+        /// looks at the views under it.
+        #[unsafe(method(hitTest:))]
+        fn hit_test(&self, point: NSPoint) -> *mut NSView {
+            if self.ivars().click_through.get() {
+                return std::ptr::null_mut();
+            }
+            unsafe { msg_send![super(self), hitTest: point] }
         }
 
         #[unsafe(method(resizeSubviewsWithOldSize:))]
@@ -210,8 +222,17 @@ impl HostView {
             centers: Cell::new(false),
             keys: RefCell::new(None),
             under_bar: Cell::new(0.0),
+            click_through: Cell::new(false),
         });
         unsafe { msg_send![super(this), initWithFrame: zero_rect()] }
+    }
+
+    pub(crate) fn set_click_through(&self, through: bool) {
+        self.ivars().click_through.set(through);
+    }
+
+    pub(crate) fn click_through(&self) -> bool {
+        self.ivars().click_through.get()
     }
 
     /// Runs this far up under its window's bars, as a split's pane does

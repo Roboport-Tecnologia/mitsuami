@@ -24,6 +24,8 @@ pub enum Color {
     Warning,
     /// Something went well: the platform's green.
     Success,
+    /// A field's placeholder: the faint text it shows while it's empty.
+    Placeholder,
     Rgba(u8, u8, u8, u8),
 }
 

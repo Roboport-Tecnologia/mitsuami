@@ -193,6 +193,12 @@ impl TestApp {
         self.driver.dragged_files(node)
     }
 
+    /// The node a click at `at` in the window's content reaches, as the
+    /// platform hit-tests it (see `TestHooks::hit`).
+    pub fn hit(&self, at: mitsuami_core::Point) -> Result<Option<NodeId>, mitsuami_core::ActionError> {
+        self.driver.hit(self.window(), at)
+    }
+
     pub fn native_app_info(&self, window: NodeId) -> NativeAppInfo {
         self.driver.app_info(window)
     }

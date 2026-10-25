@@ -151,6 +151,13 @@ impl Container {
         self
     }
 
+    /// Lets the pointer through it and everything in it to what's under
+    /// it, as a hint laid over a text area lets clicks reach the text.
+    pub fn click_through(mut self, through: impl IntoValue<bool>) -> Container {
+        self.0.prop(through.into_value(), Prop::ClickThrough);
+        self
+    }
+
     pub fn flex_direction(mut self, direction: impl IntoValue<FlexDirection>) -> Container {
         self.0.style_prop(direction.into_value(), |s, v| s.flex_direction = v);
         self

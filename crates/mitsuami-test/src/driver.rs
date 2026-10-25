@@ -78,6 +78,14 @@ impl Driver {
     pub(crate) fn dragged_files(&self, node: NodeId) -> Option<Vec<std::path::PathBuf>> {
         self.hooks.dragged_files(node)
     }
+
+    pub(crate) fn hit(
+        &self,
+        window: NodeId,
+        at: mitsuami_core::Point,
+    ) -> Result<Option<NodeId>, mitsuami_core::ActionError> {
+        self.hooks.hit(window, at)
+    }
 }
 
 impl Drop for Driver {

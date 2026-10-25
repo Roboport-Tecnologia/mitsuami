@@ -561,6 +561,7 @@ impl State {
                 header: None,
                 header_edge: None,
                 sidebar_pane: None,
+                click_through: false,
                 on_commanding_layer: false,
                 keys: None,
                 direction: None,

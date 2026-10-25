@@ -56,6 +56,7 @@ pub(super) fn metrics() -> PlatformMetrics {
         group_insets: crate::group::insets(false),
         titled_group_insets: crate::group::insets(true),
         split_divider: crate::split::measure_divider(),
+        text_area_insets: text_area_insets(),
     }
 }
 
@@ -77,4 +78,22 @@ fn monitor_scale(monitor: &gdk::Monitor) -> f32 {
     // SAFETY: a live monitor.
     let scale = get.map_or(0.0, |get| unsafe { get(monitor.to_glib_none().0) });
     if scale > 0.0 { scale as f32 } else { monitor.scale_factor() as f32 }
+}
+
+/// Where a text area's first line starts: past the frame of its scrolled
+/// window, measured from a probe the size of a known child, and the text
+/// view's margins, which the backend sets (Adwaita gives a text view no
+/// padding of its own).
+fn text_area_insets() -> mitsuami_core::Insets {
+    let child = gtk::Box::new(gtk::Orientation::Horizontal, 0);
+    child.set_size_request(100, 100);
+    let probe = gtk::ScrolledWindow::new();
+    probe.set_policy(gtk::PolicyType::Never, gtk::PolicyType::Never);
+    probe.set_has_frame(true);
+    probe.set_child(Some(&child));
+    let width = probe.measure(gtk::Orientation::Horizontal, -1).0;
+    let height = probe.measure(gtk::Orientation::Vertical, -1).0;
+    let margin = super::text::TEXT_AREA_MARGIN as f32;
+    let (x, y) = ((width - 100).max(0) as f32 / 2.0 + margin, (height - 100).max(0) as f32 / 2.0 + margin);
+    mitsuami_core::Insets::new(y, x, y, x)
 }

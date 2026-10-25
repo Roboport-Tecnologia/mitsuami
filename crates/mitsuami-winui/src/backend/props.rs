@@ -751,6 +751,11 @@ impl State {
             (Prop::Header(on), Widget::Host(_)) => node.header = Some(*on),
             (Prop::HeaderEdge(edge), Widget::Host(_)) => node.header_edge = Some(*edge),
             (Prop::SidebarPane(on), Widget::Host(_)) => node.sidebar_pane = Some(*on),
+            // The canvas and everything in it let the pointer through.
+            (Prop::ClickThrough(on), Widget::Host(canvas)) => {
+                node.click_through = true;
+                canvas.cast::<w::IUIElement>()?.SetIsHitTestVisible(!on)?;
+            }
             _ => {}
         }
         // What a label shows depends on its text, font and limit.

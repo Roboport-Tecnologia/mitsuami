@@ -1150,6 +1150,10 @@ pub enum Prop {
     /// title bar, it's Mica Alt's commanding layer, as a header is; the
     /// others leave it as it is. Sent only if the app chose.
     SidebarPane(bool),
+    /// A container the pointer passes through, with everything in it, to
+    /// what's under it: a hint laid over a control. Sent only if the app
+    /// chose.
+    ClickThrough(bool),
     /// A `List`'s rows, in order.
     Rows(Vec<RowKey>),
     /// How high a `List`'s rows are likely to be, for platforms that must

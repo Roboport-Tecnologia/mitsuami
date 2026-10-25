@@ -88,7 +88,9 @@ pub(super) fn label_color(label: &gtk::Label, set: Option<Color>) -> Option<Colo
         return Some(*color);
     }
     let Some(fg) = find_attr(label, pango::AttrType::Foreground) else { return set.map(|_| Color::Label) };
-    if let Some(c @ (Color::Separator | Color::ControlBackground | Color::WindowBackground)) = set {
+    // Theme colours resolved when they were set: what was sent.
+    if let Some(c @ (Color::Separator | Color::ControlBackground | Color::WindowBackground | Color::Placeholder)) = set
+    {
         return Some(c);
     }
     let fg = fg.downcast_ref::<pango::AttrColor>()?.color();
@@ -209,7 +211,8 @@ pub(super) fn icon_color(image: &gtk::Image, set: Option<Color>) -> Option<Color
     let Some(hex) = classes.iter().find_map(|c| c.strip_prefix(ICON_COLOR_CLASS)) else {
         return set.map(|_| Color::Label);
     };
-    if let Some(c @ (Color::Separator | Color::ControlBackground | Color::WindowBackground)) = set {
+    if let Some(c @ (Color::Separator | Color::ControlBackground | Color::WindowBackground | Color::Placeholder)) = set
+    {
         return Some(c);
     }
     let byte = |at: usize| hex.get(at..at + 2).and_then(|h| u8::from_str_radix(h, 16).ok());

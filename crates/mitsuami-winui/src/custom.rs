@@ -414,6 +414,8 @@ fn brush(color: Color) -> String {
         Color::Error => "SystemFillColorCriticalBrush",
         Color::Warning => "SystemFillColorCautionBrush",
         Color::Success => "SystemFillColorSuccessBrush",
+        // What a TextBox's PlaceholderText is drawn in.
+        Color::Placeholder => "TextControlPlaceholderForeground",
         Color::Rgba(r, g, b, a) => return format!("#{a:02X}{r:02X}{g:02X}{b:02X}"),
     };
     format!("{{ThemeResource {resource}}}")

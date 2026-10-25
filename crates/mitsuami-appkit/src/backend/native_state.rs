@@ -354,6 +354,11 @@ pub(super) fn native_state(state: &State, id: NodeId) -> Option<NativeState> {
     props.extend(node.header.as_ref().map(|h| Prop::Header(h.on.get())));
     props.extend(node.header_edge.map(Prop::HeaderEdge));
     props.extend(node.sidebar_pane.map(Prop::SidebarPane));
+    if node.click_through
+        && let Widget::Host(host) = &node.widget
+    {
+        props.push(Prop::ClickThrough(host.click_through()));
+    }
     if let Some((_, recognizer)) = &node.click {
         props.push(Prop::Click(view.gestureRecognizers().iter().any(|r| *r == ***recognizer)));
     }

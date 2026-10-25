@@ -343,6 +343,8 @@ struct Node {
     /// Hosts: whether the app made it a sidebar pane, which this platform
     /// leaves as it is.
     sidebar_pane: Option<bool>,
+    /// Whether the app set `ClickThrough`, which the host holds.
+    click_through: bool,
     /// Hosts: what they take when files are dropped on them, once the app
     /// said (`None` inside: nothing).
     file_drop: Option<Option<FileDropTarget>>,

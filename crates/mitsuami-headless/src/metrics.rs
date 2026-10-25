@@ -41,6 +41,8 @@ pub(super) const RADIO_GAP: f32 = 6.0;
 pub(super) const SCREEN: Size = Size::new(1280.0, 800.0);
 /// What a maximized window's content fills: the screen less a bar and the
 /// window's title bar.
+/// A text area's text, as its measure has it.
+pub(super) const TEXT_AREA_INSETS: Insets = Insets::new(4.0, 4.0, 4.0, 4.0);
 /// A split's divider: a line, as AppKit's and GTK's thin ones.
 pub(super) const SPLIT_DIVIDER: f32 = 1.0;
 
@@ -67,5 +69,6 @@ pub fn metrics() -> PlatformMetrics {
         group_insets: GROUP_INSETS,
         titled_group_insets: TITLED_GROUP_INSETS,
         split_divider: SPLIT_DIVIDER,
+        text_area_insets: TEXT_AREA_INSETS,
     }
 }

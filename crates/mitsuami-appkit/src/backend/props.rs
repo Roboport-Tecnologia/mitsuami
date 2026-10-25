@@ -462,6 +462,10 @@ impl State {
                 }
             }
             (Prop::SidebarPane(on), Widget::Host(_)) => node.sidebar_pane = Some(*on),
+            (Prop::ClickThrough(on), Widget::Host(host)) => {
+                node.click_through = true;
+                host.set_click_through(*on);
+            }
             // On the host, so a click on any of its subviews counts.
             (Prop::DoubleClick(on), widget @ (Widget::Host(_) | Widget::Group { .. })) => {
                 let view = widget.view();

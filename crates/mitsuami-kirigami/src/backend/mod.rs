@@ -292,6 +292,8 @@ struct Node {
     /// Hosts: whether the app made it a sidebar pane, which this platform
     /// leaves as it is.
     sidebar_pane: Option<bool>,
+    /// Hosts: whether the app set `ClickThrough`, which the item holds.
+    click_through: bool,
     /// Menu buttons: their menu, once the app gave one.
     button_menu: Option<ContextMenu>,
     /// Hosts: the drop area over them while they take files, and whether

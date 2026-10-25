@@ -42,6 +42,8 @@ thread_local! {
     static UI: RefCell<Option<Ui>> = const { RefCell::new(None) };
     static LISTS: RefCell<HashMap<u32, ListState>> = RefCell::new(HashMap::new());
     static DRAWN: RefCell<HashMap<u32, DrawnState>> = RefCell::new(HashMap::new());
+    /// Scopes other crates' widgets keep (see [`extend::keep`]).
+    static KEPT: RefCell<HashMap<u32, Owner>> = RefCell::new(HashMap::new());
     static LAST_ERROR: RefCell<Vec<u8>> = const { RefCell::new(Vec::new()) };
 }
 
@@ -84,6 +86,42 @@ unsafe fn string(ptr: *const u8, len: usize) -> Result<String, String> {
 
 fn node(id: u32) -> NodeId {
     NodeId::from_raw(id)
+}
+
+/// For crates that add widgets of their own to this C ABI, built into the
+/// same library (mitsuami-extras' ABI): two copies of mitsuami in one
+/// process would be two cores. They build their widgets with mitsuami's
+/// builder API, in a scope this ABI disposes with the node.
+pub mod extend {
+    use mitsuami::core::Ui;
+    use mitsuami::reactive::Owner;
+
+    use super::MitsuamiStr;
+
+    /// The `Ui` this ABI drives.
+    pub fn ui() -> Result<Ui, String> {
+        super::ui()
+    }
+
+    /// Runs `f`, turning an error or a panic into `None` and this ABI's
+    /// last error.
+    pub fn guard<T>(f: impl FnOnce() -> Result<T, String>) -> Option<T> {
+        super::guard(f)
+    }
+
+    /// A string the caller passed.
+    ///
+    /// # Safety
+    /// `s` points to `len` bytes, or is null with `len` 0.
+    pub unsafe fn string(s: MitsuamiStr) -> Result<String, String> {
+        unsafe { super::string(s.ptr, s.len) }
+    }
+
+    /// Keeps `owner` until the node `id` is destroyed
+    /// (`mitsuami_destroy`), then disposes it.
+    pub fn keep(id: u32, owner: Owner) {
+        super::KEPT.with(|k| k.borrow_mut().insert(id, owner));
+    }
 }
 
 /// The last error on this thread, as UTF-8: its length, with `*ptr` set to
@@ -474,6 +512,9 @@ pub extern "C" fn mitsuami_destroy(id: u32) -> bool {
         if let Some(drawn) = DRAWN.with(|d| d.borrow_mut().remove(&id)) {
             drawn.owner.dispose();
         }
+        if let Some(owner) = KEPT.with(|k| k.borrow_mut().remove(&id)) {
+            owner.dispose();
+        }
         Ok(())
     })
     .is_some()
@@ -565,6 +606,9 @@ pub enum MitsuamiBoolProp {
     /// A search field searches on Return (and when cleared), not as the
     /// user types.
     SearchOnReturn = 11,
+    /// A container the pointer passes through, with everything in it, to
+    /// what's under it.
+    ClickThrough = 12,
 }
 
 #[unsafe(no_mangle)]
@@ -583,6 +627,7 @@ pub extern "C" fn mitsuami_set_bool(id: u32, prop: u32, value: bool) -> bool {
             9 => Prop::Selectable(value),
             10 => Prop::PopoverShown(value),
             11 => Prop::SearchOnReturn(value),
+            12 => Prop::ClickThrough(value),
             _ => return Err(format!("unknown bool prop {prop}")),
         };
         ui()?.set_prop(node(id), prop);
@@ -779,7 +824,8 @@ pub enum MitsuamiColorProp {
 /// Sets a colour: `semantic` is one of the platform's own, which follow
 /// dark mode, high contrast and the accent (`Label`, `SecondaryLabel`,
 /// `Accent`, `Separator`, `ControlBackground`, `WindowBackground`, `Error`,
-/// `Warning`, `Success`: 0 to 8), or 9 for the fixed `r`, `g`, `b`, `a`.
+/// `Warning`, `Success`: 0 to 8; `Placeholder`: 10), or 9 for the fixed
+/// `r`, `g`, `b`, `a`.
 #[unsafe(no_mangle)]
 pub extern "C" fn mitsuami_set_color(id: u32, prop: u32, semantic: u32, r: u8, g: u8, b: u8, a: u8) -> bool {
     guard(|| {
@@ -818,6 +864,7 @@ fn color(c: MitsuamiColor) -> Result<Color, String> {
         7 => Color::Warning,
         8 => Color::Success,
         9 => Color::Rgba(c.r, c.g, c.b, c.a),
+        10 => Color::Placeholder,
         other => return Err(format!("bad colour {other}")),
     })
 }

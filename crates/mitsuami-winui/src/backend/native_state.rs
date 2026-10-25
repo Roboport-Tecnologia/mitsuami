@@ -347,6 +347,11 @@ impl WinUiBackend {
         props.extend(node.header.map(Prop::Header));
         props.extend(node.header_edge.map(Prop::HeaderEdge));
         props.extend(node.sidebar_pane.map(Prop::SidebarPane));
+        if node.click_through
+            && let Widget::Host(canvas) = &node.widget
+        {
+            props.push(Prop::ClickThrough(!canvas.cast::<w::IUIElement>().ok()?.IsHitTestVisible().ok()?));
+        }
         props.extend(node.double_click.as_ref().map(|_| Prop::DoubleClick(true)));
         props.extend(node.click.as_ref().map(|_| Prop::Click(true)));
         if node.file_drop_sent {

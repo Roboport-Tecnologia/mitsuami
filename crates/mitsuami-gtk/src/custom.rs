@@ -371,6 +371,8 @@ pub(crate) fn rgba(widget: &gtk::Widget, color: Color) -> gdk::RGBA {
         Color::Error => theme_color(widget, &["error_color"], (0.75, 0.11, 0.16)),
         Color::Warning => theme_color(widget, &["warning_color"], (0.61, 0.43, 0.01)),
         Color::Success => theme_color(widget, &["success_color"], (0.11, 0.52, 0.33)),
+        // As Adwaita fades an entry's placeholder: the foreground at half.
+        Color::Placeholder => faded(0.5),
         Color::Rgba(r, g, b, a) => {
             let c = |v: u8| v as f32 / 255.0;
             gdk::RGBA::new(c(r), c(g), c(b), c(a))

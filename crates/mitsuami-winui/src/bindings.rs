@@ -13172,6 +13172,16 @@ impl IUIElement {
                 .ok()
         }
     }
+    pub fn IsHitTestVisible(&self) -> windows_core::Result<bool> {
+        unsafe {
+            let mut result__ = core::mem::zeroed();
+            (windows_core::Interface::vtable(self).IsHitTestVisible)(
+                windows_core::Interface::as_raw(self),
+                &mut result__,
+            )
+            .map(|| result__)
+        }
+    }
     pub fn SetIsHitTestVisible(&self, value: bool) -> windows_core::Result<()> {
         unsafe {
             (windows_core::Interface::vtable(self).SetIsHitTestVisible)(windows_core::Interface::as_raw(self), value)
@@ -13797,7 +13807,7 @@ pub struct IUIElement_Vtbl {
     SetTransform3D: usize,
     RenderTransformOrigin: usize,
     SetRenderTransformOrigin: usize,
-    IsHitTestVisible: usize,
+    pub IsHitTestVisible: unsafe extern "system" fn(*mut core::ffi::c_void, *mut bool) -> windows_core::HRESULT,
     pub SetIsHitTestVisible: unsafe extern "system" fn(*mut core::ffi::c_void, bool) -> windows_core::HRESULT,
     pub Visibility: unsafe extern "system" fn(*mut core::ffi::c_void, *mut Visibility) -> windows_core::HRESULT,
     pub SetVisibility: unsafe extern "system" fn(*mut core::ffi::c_void, Visibility) -> windows_core::HRESULT,

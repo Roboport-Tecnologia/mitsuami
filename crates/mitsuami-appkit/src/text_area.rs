@@ -11,7 +11,32 @@ use objc2_app_kit::{
 };
 use objc2_foundation::{NSRange, NSSize, NSString};
 
-use mitsuami_core::Size;
+use mitsuami_core::{Insets, Size};
+
+/// Where a text area's first line starts, as the backend makes one: past
+/// the bezel, the text container's inset and its line fragment padding,
+/// which the text system leaves before each line.
+pub(crate) fn insets(mtm: MainThreadMarker) -> Insets {
+    let scroll = NSTextView::scrollableTextView(mtm);
+    scroll.setBorderType(NSBorderType::BezelBorder);
+    let border = unsafe {
+        NSScrollView::frameSizeForContentSize_horizontalScrollerClass_verticalScrollerClass_borderType_controlSize_scrollerStyle(
+        NSSize::new(0.0, 0.0),
+        None,
+        None,
+        NSBorderType::BezelBorder,
+        NSControlSize::Regular,
+        objc2_app_kit::NSScrollerStyle::Overlay,
+        mtm,
+    )
+    };
+    let (border_x, border_y) = (border.width / 2.0, border.height / 2.0);
+    let Some(text) = scroll.documentView().and_then(|v| v.downcast::<NSTextView>().ok()) else { return Insets::ZERO };
+    let inset = text.textContainerInset();
+    let padding = unsafe { text.textContainer() }.map_or(0.0, |c| c.lineFragmentPadding());
+    let (x, y) = ((border_x + inset.width + padding) as f32, (border_y + inset.height) as f32);
+    Insets::new(y, x, y, x)
+}
 
 /// A text field's width, which a text area has on the other platforms too.
 const WIDTH: f64 = 200.0;

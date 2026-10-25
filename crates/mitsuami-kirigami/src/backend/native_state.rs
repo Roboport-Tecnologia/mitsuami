@@ -312,6 +312,9 @@ impl KirigamiBackend {
         props.extend(node.header.map(Prop::Header));
         props.extend(node.header_edge.map(Prop::HeaderEdge));
         props.extend(node.sidebar_pane.map(Prop::SidebarPane));
+        if node.click_through {
+            props.push(Prop::ClickThrough(!node.widget.item().bool("enabled")));
+        }
         props.extend(node.double_click.as_ref().map(|d| Prop::DoubleClick(d.is_on(node.widget.item()))));
         props.extend(node.click.as_ref().map(|c| Prop::Click(c.is_on(node.widget.item()))));
         props.push(Prop::Tooltip(if node.widget.has_tooltip() {

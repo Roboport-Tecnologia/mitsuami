@@ -335,6 +335,8 @@ struct Node {
     /// Hosts: whether the app made it a sidebar pane, which this platform
     /// leaves as it is.
     sidebar_pane: Option<bool>,
+    /// Whether the app set `ClickThrough`, which the host holds.
+    click_through: bool,
 }
 
 struct State {

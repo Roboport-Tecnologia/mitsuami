@@ -506,6 +506,9 @@ struct Node {
     header_edge: Option<mitsuami_core::HeaderEdge>,
     /// Hosts: whether the app made it a sidebar pane.
     sidebar_pane: Option<bool>,
+    /// Hosts: whether the app set `ClickThrough`, which the canvas holds
+    /// as `IsHitTestVisible`.
+    click_through: bool,
     /// Headers and sidebar panes: on Mica Alt's commanding layer, as the
     /// chosen tab is, while their window's tabs are in its title bar
     /// (`place_commanding_layer`).
@@ -803,6 +806,12 @@ fn set_hit_testable(node: &Node) -> R<()> {
     }
 }
 
+/// Where a TextBox's first line starts: the default template's
+/// `TextControlThemePadding` (10, 5, 6, 6: left, top, right, bottom) inside
+/// its `TextControlBorderThemeThickness` (1), WinUI 3's values. They're
+/// structs in the resources, which these bindings can't unbox.
+const TEXT_AREA_INSETS: Insets = Insets::new(6.0, 7.0, 7.0, 11.0);
+
 impl Backend for WinUiBackend {
     fn init(&mut self, events: EventSink) {
         self.state.borrow_mut().emitter.sink = events;
@@ -836,6 +845,7 @@ impl Backend for WinUiBackend {
             group_insets,
             titled_group_insets,
             split_divider: crate::split::DIVIDER,
+            text_area_insets: TEXT_AREA_INSETS,
         }
     }
 

@@ -7,7 +7,7 @@ use std::time::Duration;
 use gtk::prelude::*;
 use gtk::{glib, graphene, gsk};
 use mitsuami_core::services::MenuBarData;
-use mitsuami_core::{Command, NativeAppInfo, NativeIcon, NodeId, Rect, Size, UiEvent};
+use mitsuami_core::{ActionError, Command, NativeAppInfo, NativeIcon, NodeId, Point, Rect, Size, UiEvent};
 
 use crate::host::Host;
 
@@ -316,6 +316,24 @@ impl mitsuami_core::TestHooks for GtkHandle {
             Widget::List(list) => list.dragged_files(host.row?),
             _ => None,
         }
+    }
+
+    /// GTK's own `pick` on the window's content, then the nearest widget
+    /// up from what it picked that's a node's.
+    fn hit(&self, window: NodeId, at: Point) -> Result<Option<NodeId>, ActionError> {
+        let state = self.state.borrow();
+        let content = state.nodes.get(&window).ok_or(ActionError::UnknownNode)?.widget.widget().clone();
+        let mut picked = content.pick(at.x as f64, at.y as f64, gtk::PickFlags::DEFAULT);
+        while let Some(widget) = picked {
+            if let Some((id, _)) = state.nodes.iter().find(|(_, n)| *n.widget.widget() == widget) {
+                return Ok(Some(*id));
+            }
+            if widget == content {
+                break;
+            }
+            picked = widget.parent();
+        }
+        Ok(None)
     }
 
     fn resize_window(&self, window: NodeId, size: Size) {

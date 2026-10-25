@@ -157,7 +157,8 @@ macro_rules! color_binding {
         : [Kirigami.Theme.textColor, Kirigami.Theme.disabledTextColor, Kirigami.Theme.highlightColor,
             Kirigami.Theme.separatorColor, Kirigami.Theme.viewBackgroundColor, Kirigami.Theme.backgroundColor,
             Kirigami.Theme.negativeTextColor, Kirigami.Theme.neutralTextColor,
-            Kirigami.Theme.positiveTextColor][mitsuamiColor]"#
+            Kirigami.Theme.positiveTextColor, undefined,
+            Kirigami.Theme.disabledTextColor][mitsuamiColor]"#
     };
 }
 
@@ -223,6 +224,18 @@ QtObject {
         return thickness
     }
     property Item splitProbe: QQC2.SplitView {}
+    // A text field's placeholder colour, as the style draws it.
+    property color placeholderColor: placeholderProbe.placeholderTextColor
+    property Item placeholderProbe: QQC2.TextField {}
+    // A text area as `qml::text_area` makes one, for where its first line
+    // starts: past the scroll view's frame and the text area's padding.
+    property real textAreaTop: textAreaProbe.topPadding + textAreaProbeArea.topPadding
+    property real textAreaLeft: textAreaProbe.leftPadding + textAreaProbeArea.leftPadding
+    property real textAreaBottom: textAreaProbe.bottomPadding + textAreaProbeArea.bottomPadding
+    property real textAreaRight: textAreaProbe.rightPadding + textAreaProbeArea.rightPadding
+    property Item textAreaProbe: QQC2.ScrollView {
+        QQC2.TextArea { id: textAreaProbeArea; wrapMode: TextEdit.Wrap }
+    }
 }
 "#
     .into()

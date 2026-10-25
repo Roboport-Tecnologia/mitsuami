@@ -134,5 +134,6 @@ pub(super) fn metrics(mtm: MainThreadMarker, forced: Option<Appearance>) -> Plat
         group_insets: group_insets(mtm, ""),
         titled_group_insets: group_insets(mtm, "Title"),
         split_divider: crate::split_view::SplitView::divider(mtm),
+        text_area_insets: crate::text_area::insets(mtm),
     }
 }

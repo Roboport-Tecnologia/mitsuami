@@ -354,6 +354,7 @@ pub(crate) fn ns_color(color: Color) -> Retained<NSColor> {
         Color::Error => NSColor::systemRedColor(),
         Color::Warning => NSColor::systemOrangeColor(),
         Color::Success => NSColor::systemGreenColor(),
+        Color::Placeholder => NSColor::placeholderTextColor(),
         Color::Rgba(r, g, b, a) => {
             let c = |v: u8| v as f64 / 255.0;
             NSColor::colorWithSRGBRed_green_blue_alpha(c(r), c(g), c(b), c(a))

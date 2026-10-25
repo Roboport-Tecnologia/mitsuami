@@ -51,6 +51,7 @@ pub(crate) struct Colors {
     pub(crate) negative_text: Rgba,
     pub(crate) neutral_text: Rgba,
     pub(crate) positive_text: Rgba,
+    pub(crate) placeholder: Rgba,
 }
 
 pub(crate) fn colors() -> Colors {
@@ -66,6 +67,7 @@ pub(crate) fn colors() -> Colors {
         negative_text: color("negativeTextColor"),
         neutral_text: color("neutralTextColor"),
         positive_text: color("positiveTextColor"),
+        placeholder: color("placeholderColor"),
     }
 }
 
@@ -112,6 +114,12 @@ pub(crate) fn metrics() -> PlatformMetrics {
         titled_group_insets: group_insets(theme, "titledGroupProbe"),
         // The style's handle (Breeze's is a line).
         split_divider: theme.real("splitDivider").max(0.0).ceil() as f32,
+        text_area_insets: Insets::new(
+            theme.real("textAreaTop") as f32,
+            theme.real("textAreaRight") as f32,
+            theme.real("textAreaBottom") as f32,
+            theme.real("textAreaLeft") as f32,
+        ),
     }
 }
 
