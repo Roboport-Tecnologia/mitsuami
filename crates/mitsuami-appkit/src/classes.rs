@@ -12,17 +12,17 @@ use mitsuami_core::{
     WidgetKind,
 };
 use objc2::rc::Retained;
-use objc2::runtime::{AnyObject, NSObject, NSObjectProtocol, ProtocolObject, Sel};
+use objc2::runtime::{AnyObject, Bool, NSObject, NSObjectProtocol, ProtocolObject, Sel};
 use objc2::{
     AnyThread, ClassType, DefinedClass, MainThreadMarker, MainThreadOnly, Message, define_class, msg_send, sel,
 };
 use objc2_app_kit::{
     NSButton, NSClickGestureRecognizer, NSColor, NSControl, NSControlStateValueOn, NSControlTextEditingDelegate,
-    NSDragOperation, NSDraggingInfo, NSEvent, NSEventModifierFlags, NSEventType, NSMenu, NSMenuDelegate,
-    NSPasteboardTypeFileURL, NSPopUpButton, NSRectFill, NSResponder, NSScreen, NSScrollView, NSSearchFieldDelegate,
-    NSSlider, NSSwitch, NSText, NSTextDelegate, NSTextField, NSTextFieldDelegate, NSTextView, NSTextViewDelegate,
-    NSTrackingArea, NSTrackingAreaOptions, NSView, NSViewFrameDidChangeNotification, NSWindow, NSWindowDelegate,
-    NSWindowStyleMask,
+    NSDragOperation, NSDraggingInfo, NSEvent, NSEventModifierFlags, NSEventType, NSGestureRecognizer,
+    NSGestureRecognizerDelegate, NSMenu, NSMenuDelegate, NSPasteboardTypeFileURL, NSPopUpButton, NSRectFill,
+    NSResponder, NSScreen, NSScrollView, NSSearchFieldDelegate, NSSlider, NSSwitch, NSText, NSTextDelegate,
+    NSTextField, NSTextFieldDelegate, NSTextView, NSTextViewDelegate, NSTrackingArea, NSTrackingAreaOptions, NSView,
+    NSViewFrameDidChangeNotification, NSWindow, NSWindowDelegate, NSWindowStyleMask,
 };
 use objc2_foundation::{
     NSArray, NSEdgeInsets, NSKeyValueObservingOptions, NSNotification, NSNotificationCenter,
@@ -1228,9 +1228,13 @@ pub(crate) struct ClickIvars {
 }
 
 define_class!(
-    /// The target of a node's click or double-click recognizer: reports a
-    /// click on the view, or on what's in it that isn't a control (a
-    /// button or field keeps its own clicks).
+    /// The target and delegate of a node's click or double-click
+    /// recognizer: reports a click on the view, or on what's in it that
+    /// isn't a control. A click on a control (a button or field) is left
+    /// to it: a recognizer that took part in it kept the button from being
+    /// pressed, even with `delaysPrimaryMouseButtonEvents` off (SourceGit's
+    /// sidebar group buttons did nothing; a `swiftc` probe sending clicks
+    /// with `sendEvent:` showed it).
     #[unsafe(super(NSObject))]
     #[thread_kind = MainThreadOnly]
     #[ivars = ClickIvars]
@@ -1238,24 +1242,37 @@ define_class!(
 
     impl Clicker {
         #[unsafe(method(clicked:))]
-        fn clicked(&self, recognizer: &NSClickGestureRecognizer) {
-            let Some(view) = recognizer.view() else { return };
-            let at = recognizer.locationInView(unsafe { view.superview() }.as_deref());
-            let mut hit = view.hitTest(at);
-            while let Some(v) = hit.filter(|v| **v != *view) {
-                // A label is a text field too, one that takes no input.
-                let label = v.downcast_ref::<NSTextField>().is_some_and(|f| !f.isEditable() && !f.isSelectable());
-                if (v.isKindOfClass(NSControl::class()) && !label) || v.isKindOfClass(NSText::class()) {
-                    return;
-                }
-                hit = unsafe { v.superview() };
-            }
+        fn clicked(&self, _recognizer: &NSClickGestureRecognizer) {
             self.fire();
         }
     }
 
     unsafe impl NSObjectProtocol for Clicker {}
+
+    unsafe impl NSGestureRecognizerDelegate for Clicker {
+        #[unsafe(method(gestureRecognizer:shouldAttemptToRecognizeWithEvent:))]
+        fn should_attempt(&self, recognizer: &NSGestureRecognizer, event: &NSEvent) -> Bool {
+            Bool::new(!on_control(recognizer, event))
+        }
+    }
 );
+
+/// Whether `event` lands on a control inside the recognizer's view.
+fn on_control(recognizer: &NSGestureRecognizer, event: &NSEvent) -> bool {
+    let Some(view) = recognizer.view() else { return false };
+    let Some(superview) = (unsafe { view.superview() }) else { return false };
+    let at = superview.convertPoint_fromView(event.locationInWindow(), None);
+    let mut hit = view.hitTest(at);
+    while let Some(v) = hit.filter(|v| **v != *view) {
+        // A label is a text field too, one that takes no input.
+        let label = v.downcast_ref::<NSTextField>().is_some_and(|f| !f.isEditable() && !f.isSelectable());
+        if (v.isKindOfClass(NSControl::class()) && !label) || v.isKindOfClass(NSText::class()) {
+            return true;
+        }
+        hit = unsafe { v.superview() };
+    }
+    false
+}
 
 impl Clicker {
     /// Recognizes clicks (`clicks` 1) or double clicks (2) on `view`, its
@@ -1279,6 +1296,7 @@ impl Clicker {
         };
         recognizer.setNumberOfClicksRequired(clicks);
         recognizer.setDelaysPrimaryMouseButtonEvents(false);
+        recognizer.setDelegate(Some(ProtocolObject::from_ref(&*target)));
         view.addGestureRecognizer(&recognizer);
         (target, recognizer)
     }
