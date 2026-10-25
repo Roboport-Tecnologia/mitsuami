@@ -73,3 +73,6 @@ pub use tweak::{Tweakable, show_step_marks, tweak, tweak_with};
 // version the backend uses.
 #[cfg(target_os = "linux")]
 pub use gtk;
+// libadwaita's, for widgets the backend makes with it (a split button).
+#[cfg(target_os = "linux")]
+pub use adw;

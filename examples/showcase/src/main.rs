@@ -118,6 +118,9 @@ mod slider;
 #[path = "../../../crates/mitsuami/examples/spinner.rs"]
 mod spinner;
 #[allow(dead_code, unused_attributes)]
+#[path = "../../../crates/mitsuami/examples/split_button.rs"]
+mod split_button;
+#[allow(dead_code, unused_attributes)]
 #[path = "../../../crates/mitsuami/examples/switch.rs"]
 mod switch;
 #[allow(dead_code, unused_attributes)]
@@ -171,6 +174,7 @@ const SECTIONS: [(&str, &[Example]); 7] = [
             example("Select", || AnyView::new(select::page())),
             example("Radio group", || AnyView::new(radio_group::page())),
             example("Menu button", || AnyView::new(menu_button::page())),
+            example("Split button", || AnyView::new(split_button::page())),
         ],
     ),
     (
