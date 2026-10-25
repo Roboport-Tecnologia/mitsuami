@@ -304,6 +304,9 @@ enum Widget {
     TextArea {
         field: w::TextBox,
         lines: u32,
+        /// Keeps its end in view as its text is set (`Prop::FollowsEnd`):
+        /// a text box has no such setting.
+        follows_end: bool,
     },
     Password(w::PasswordBox),
     /// Windows' search box: an auto-suggest box with the find icon.

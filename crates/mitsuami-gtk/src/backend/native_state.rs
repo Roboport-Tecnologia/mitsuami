@@ -99,7 +99,8 @@ impl GtkBackend {
                     props.push(Prop::Placeholder(p.to_string()));
                 }
             }
-            Widget::TextArea { view, placeholder, lines, .. } => {
+            Widget::TextArea { view, placeholder, lines, follows_end, .. } => {
+                props.push(Prop::FollowsEnd(*follows_end));
                 props.push(Prop::Value(buffer_text(&view.buffer())));
                 props.extend(placeholder.clone().map(Prop::Placeholder));
                 props.push(Prop::ReadOnly(!view.is_editable()));
@@ -377,6 +378,8 @@ impl GtkBackend {
             Widget::Split(split) => (split.panes().iter().filter_map(|p| by_widget.get(p).copied()).collect(), None),
             // A leaf, whose bar is in the map too.
             Widget::DocumentTabs(_) => (Vec::new(), None),
+            // A leaf, which scrolls its text.
+            Widget::TextArea { scrolled, .. } => (Vec::new(), Some(scroll_offset(scrolled))),
             _ => {
                 let mut children = Vec::new();
                 // A header's are in its own host, wherever that is.

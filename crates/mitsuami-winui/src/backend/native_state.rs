@@ -74,8 +74,9 @@ impl WinUiBackend {
             Widget::Field(f) | Widget::TextArea { field: f, .. } => {
                 let field: w::ITextBox = f.cast().ok()?;
                 props.push(Prop::Value(box_text(&field).ok()?));
-                if let Widget::TextArea { lines, .. } = &node.widget {
+                if let Widget::TextArea { lines, follows_end, .. } = &node.widget {
                     props.push(Prop::Lines(*lines));
+                    props.push(Prop::FollowsEnd(*follows_end));
                     props.push(Prop::LineWrap(field.TextWrapping().ok()? != w::TextWrapping::NoWrap));
                 } else {
                     let scope = field.InputScope().ok();
@@ -423,6 +424,14 @@ impl WinUiBackend {
         let known = |element: &IInspectable| by_element.id(key(element));
         let (children, scroll_offset) = match &node.widget {
             Widget::List(list) => (list.children(), Some(list.scroll_offset())),
+            // Its template's scroll viewer, which it scrolls itself.
+            Widget::TextArea { field, .. } => {
+                let scroll = super::fields::text_box_scroll(field);
+                let offset = scroll.map_or(Point::new(0.0, 0.0), |s| {
+                    Point::new(s.HorizontalOffset().unwrap_or(0.0) as f32, s.VerticalOffset().unwrap_or(0.0) as f32)
+                });
+                (Vec::new(), Some(offset))
+            }
             Widget::Scroll(s) => {
                 let scroll: w::IScrollViewer = s.cast().ok()?;
                 let content = node.element.cast::<w::IContentControl>().ok()?.Content().ok();

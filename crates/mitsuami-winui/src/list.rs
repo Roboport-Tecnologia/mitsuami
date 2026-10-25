@@ -1404,7 +1404,7 @@ fn container_of(view: &w::ListView, element: &IInspectable) -> Option<(w::Depend
     }
 }
 
-fn find_scroll_viewer(root: &w::DependencyObject) -> Option<w::IScrollViewer> {
+pub(crate) fn find_scroll_viewer(root: &w::DependencyObject) -> Option<w::IScrollViewer> {
     let mut queue = std::collections::VecDeque::from([root.clone()]);
     while let Some(node) = queue.pop_front() {
         if let Ok(scroll) = node.cast::<w::IScrollViewer>() {

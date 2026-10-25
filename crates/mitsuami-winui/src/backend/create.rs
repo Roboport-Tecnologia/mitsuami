@@ -368,7 +368,7 @@ impl State {
                 )?;
                 revokers.push(report_text_changes(&field, &emitter, &shown_text, id)?);
                 let element = field.cast()?;
-                (Widget::TextArea { field, lines: 1 }, element)
+                (Widget::TextArea { field, lines: 1, follows_end: false }, element)
             }
             // With XAML's default reveal button, shown while there's text.
             WidgetKind::PasswordInput => {

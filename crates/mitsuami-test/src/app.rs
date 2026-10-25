@@ -488,9 +488,15 @@ impl TestApp {
                 let frame = self.ui.frame(node.id).unwrap_or_default();
                 assert_eq!(native.frame, frame, "backend desync: frame of {} {}", node.kind.name(), node.id);
             }
+            // A text area's offset is the platform's alone: the core
+            // never scrolls one.
+            let core_offset = match node.kind {
+                mitsuami_core::WidgetKind::TextArea => native.scroll_offset,
+                _ => self.ui.scroll_offset(node.id),
+            };
             assert_eq!(
                 native.scroll_offset,
-                self.ui.scroll_offset(node.id),
+                core_offset,
                 "backend desync: scroll offset of {} {}",
                 node.kind.name(),
                 node.id

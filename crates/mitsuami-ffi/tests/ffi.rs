@@ -7,7 +7,7 @@ use std::ffi::c_void;
 use std::sync::atomic::{AtomicU32, Ordering};
 
 use mitsuami::core::services::{Launch, Shortcut};
-use mitsuami::core::{Color, ImageSource, Modality, NodeId, Pixels, Prop, Size, Ui, VectorIcon, View};
+use mitsuami::core::{Color, ImageSource, Modality, NodeId, Pixels, Prop, Size, TextStyle, Ui, VectorIcon, View};
 use mitsuami_ffi::*;
 use mitsuami_test::prelude::*;
 
@@ -1224,4 +1224,23 @@ async fn search_fields_suggest_and_report_the_pick(app: TestApp) {
 
     app.get_by_label("Path").choose_suggestion("Program.cs").await;
     assert_eq!(heard(), ["suggestion 1"]);
+}
+
+#[mitsuami_test::test]
+async fn text_areas_can_be_logs(app: TestApp) {
+    attach(app.ui());
+    let log = create(MitsuamiKind::TextArea);
+    set_text(log, MitsuamiTextProp::A11yLabel, "Log");
+    assert!(mitsuami_set_bool(log, MitsuamiBoolProp::ReadOnly as u32, true));
+    assert!(mitsuami_set_bool(log, MitsuamiBoolProp::LineWrap as u32, false));
+    assert!(mitsuami_set_bool(log, MitsuamiBoolProp::FollowsEnd as u32, true));
+    assert!(mitsuami_set_enum(log, MitsuamiEnumProp::TextStyle as u32, 6));
+    app.mount(|| Adopt(log));
+    app.settle().await;
+    let props = app.get_by_label("Log").native_state().props;
+    for prop in
+        [Prop::ReadOnly(true), Prop::LineWrap(false), Prop::FollowsEnd(true), Prop::TextStyle(TextStyle::Monospace)]
+    {
+        assert!(props.contains(&prop), "{prop:?}");
+    }
 }

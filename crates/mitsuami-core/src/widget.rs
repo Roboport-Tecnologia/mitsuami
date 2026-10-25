@@ -994,6 +994,11 @@ pub enum Prop {
     /// as its text, and the area scrolls sideways. Sent only if the app
     /// chose.
     LineWrap(bool),
+    /// A `TextArea` keeps its end in view as the app sets its text, while
+    /// it's there (or the area was empty): a log that follows its output,
+    /// as Terminal and Console do. Scrolled up, it stays put. Sent only if
+    /// the app chose.
+    FollowsEnd(bool),
     /// What a `TextInput` is for; sent only if the app chose.
     InputPurpose(InputPurpose),
     /// Checked state of a `Checkbox`, `Switch` or `ToggleButton`.

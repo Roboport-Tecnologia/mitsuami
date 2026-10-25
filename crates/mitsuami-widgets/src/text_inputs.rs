@@ -1,7 +1,8 @@
 //! Text fields: single-line, password, search and multi-line.
 
 use mitsuami_core::{
-    Element, ElementBuilder, EventValue, InputPurpose, NodeId, Prop, Suggestion, Tweak, Ui, UiEvent, View, WidgetKind,
+    Element, ElementBuilder, EventValue, InputPurpose, NodeId, Prop, Suggestion, TextStyle, Tweak, Ui, UiEvent, View,
+    WidgetKind,
 };
 use mitsuami_reactive::{IntoValue, Signal, Value};
 
@@ -335,6 +336,20 @@ impl TextArea {
     /// scrolls sideways: for code, or logs.
     pub fn line_wrap(mut self, wrap: impl IntoValue<bool>) -> TextArea {
         self.0.prop(wrap.into_value(), Prop::LineWrap);
+        self
+    }
+
+    /// Its text in one of the platform's text styles, e.g. monospace for
+    /// code or logs.
+    pub fn text_style(mut self, style: impl IntoValue<TextStyle>) -> TextArea {
+        self.0.prop(style.into_value(), Prop::TextStyle);
+        self
+    }
+
+    /// Whether it keeps its end in view as its text is set, while it's
+    /// there: for a log that grows. Scrolled up, it stays put.
+    pub fn follows_end(mut self, follows: impl IntoValue<bool>) -> TextArea {
+        self.0.prop(follows.into_value(), Prop::FollowsEnd);
         self
     }
 

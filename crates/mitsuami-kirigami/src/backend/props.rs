@@ -331,9 +331,12 @@ impl State {
             }
             (Prop::Value(t), Widget::TextArea { root, .. }) => {
                 if root.str("text") != *t {
+                    root.invoke("mitsuamiBeforeSet");
                     set_area_text(*root, t);
+                    root.invoke("mitsuamiAfterSet");
                 }
             }
+            (Prop::FollowsEnd(on), Widget::TextArea { root, .. }) => root.set_bool("mitsuamiFollowsEnd", *on),
             (Prop::Placeholder(t), Widget::TextArea { root, .. }) => root.set_str("placeholderText", t),
             (Prop::ReadOnly(r), Widget::TextArea { root, .. }) => root.set_bool("readOnly", *r),
             (Prop::Lines(n), Widget::TextArea { root, .. }) => root.set_int("mitsuamiLines", *n as i32),

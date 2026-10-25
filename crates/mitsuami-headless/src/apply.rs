@@ -84,7 +84,11 @@ impl HeadlessBackend {
                     {
                         state.selection = None;
                     }
-                    state.set_prop(*id, prop.clone());
+                    if matches!(prop, Prop::Value(_)) && state.nodes[id].kind == WidgetKind::TextArea {
+                        state.set_text_area_value(*id, prop.clone());
+                    } else {
+                        state.set_prop(*id, prop.clone());
+                    }
                     // A grab focuses its surface.
                     if *prop == Prop::KeyboardGrab(true) {
                         state.focus(*id);
@@ -171,6 +175,12 @@ impl HeadlessBackend {
                         violation(command, "a sidebar's frame belongs to the platform");
                     }
                     node.frame = *frame;
+                    // A text area's text scrolls no further than its end.
+                    if node.kind == WidgetKind::TextArea {
+                        let end = state.text_area_end(*id);
+                        let offset = &mut state.nodes.get_mut(id).unwrap().scroll_offset;
+                        offset.y = offset.y.min(end);
+                    }
                     state.size_surface(*id);
                 }
                 Command::SetA11y { id, a11y } => state.node(*id, command).a11y = a11y.clone(),

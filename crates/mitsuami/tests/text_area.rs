@@ -363,4 +363,48 @@ async fn lines_wrap_unless_the_app_says_otherwise(app: TestApp) {
     app.expect(by_label("Log")).to_have_value("typed").await;
 }
 
+/// Following its end, it keeps its last line in view as the app adds to
+/// its text, and stays put once scrolled up, until scrolled back down;
+/// without, it stays where it is, at the top. Monospace, as a log is.
+#[mitsuami_test::test]
+async fn follows_its_end_while_it_is_there(app: TestApp) {
+    let log = signal(String::new());
+    let lines = |n: usize| (1..=n).map(|i| format!("line {i}\n")).collect::<String>();
+    app.mount(move || {
+        Column::new().align(Align::Start).children((
+            TextArea::new()
+                .a11y_label("Log")
+                .lines(3)
+                .read_only(true)
+                .text_style(TextStyle::Monospace)
+                .follows_end(true)
+                .value(log),
+            TextArea::new().a11y_label("Note").lines(3).value(log),
+        ))
+    });
+    assert!(has(&app, "Log", Prop::TextStyle(TextStyle::Monospace)));
+    let offset = |label: &str| app.get_by_label(label).native_state().scroll_offset.expect("text areas scroll").y;
+    log.set(lines(40));
+    app.settle().await;
+    let end = offset("Log");
+    assert!(end > 0.0, "the log shows its end");
+    assert_eq!(offset("Note"), 0.0);
+
+    log.set(lines(80));
+    app.settle().await;
+    assert!(offset("Log") > end, "the log follows its end");
+
+    app.get_by_label("Log").scroll_by(0.0, -100.0).await;
+    let up = offset("Log");
+    log.set(lines(120));
+    app.settle().await;
+    assert_eq!(offset("Log"), up, "scrolled up, it stays");
+
+    app.get_by_label("Log").scroll_by(0.0, 100_000.0).await;
+    let end = offset("Log");
+    log.set(lines(160));
+    app.settle().await;
+    assert!(offset("Log") > end, "back at its end, it follows again");
+}
+
 mitsuami_test::main!();

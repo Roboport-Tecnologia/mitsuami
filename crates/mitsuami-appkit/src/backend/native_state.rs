@@ -94,6 +94,7 @@ pub(super) fn native_state(state: &State, id: NodeId) -> Option<NativeState> {
             props.push(Prop::ReadOnly(area.read_only()));
             props.push(Prop::Enabled(area.text.isSelectable()));
             props.push(Prop::Lines(area.lines));
+            props.push(Prop::FollowsEnd(area.follows_end));
         }
         Widget::SplitButton(button) => {
             props.push(Prop::Label(button.title()));
@@ -480,6 +481,10 @@ pub(super) fn native_state(state: &State, id: NodeId) -> Option<NativeState> {
         Widget::List(list) => {
             let origin = crate::classes::scrolled(&list.scroll.contentView());
             (list.children(), Some(Point::new(origin.x as f32, origin.y as f32)))
+        }
+        Widget::TextArea(area) => {
+            let origin = crate::classes::scrolled(&area.scroll.contentView());
+            (Vec::new(), Some(Point::new(origin.x as f32, origin.y as f32)))
         }
         Widget::Tabs(tabs) => (tabs.ids(), None),
         // Each pane is in a host of its own (see `SplitView::insert`).

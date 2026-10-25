@@ -12,7 +12,7 @@ use mitsuami_core::{
 use crate::events::node_key;
 use crate::ffi::QmlObject;
 
-use super::{KirigamiBackend, Widget, pump_until};
+use super::{KirigamiBackend, TEXT_EDIT_NO_WRAP, Widget, pump_until};
 
 // Qt key codes (`Qt::Key`).
 const KEY_ESCAPE: i32 = 0x0100_0000;
@@ -181,6 +181,27 @@ impl KirigamiBackend {
                     view.invoke("positionViewAtEnd");
                 } else {
                     view.set_real("contentY", offset + origin);
+                }
+                Ok(())
+            }
+            // A text area's text, in its scroll view's flickable: sideways
+            // only when its lines don't wrap.
+            SyntheticInput::Scroll { dx, dy } if kind == WidgetKind::TextArea => {
+                let (root, wraps) = match &self.state.borrow().nodes[&id].widget {
+                    Widget::TextArea { root, area } => (*root, area.int("wrapMode") != TEXT_EDIT_NO_WRAP),
+                    _ => return Err(ActionError::Unsupported),
+                };
+                let flickable = root.object("contentItem").ok_or(ActionError::Unsupported)?;
+                for (offset, origin, content, size, by, on) in [
+                    ("contentX", "originX", "contentWidth", "width", *dx, !wraps),
+                    ("contentY", "originY", "contentHeight", "height", *dy, true),
+                ] {
+                    if on {
+                        let (origin, max) =
+                            (flickable.real(origin), (flickable.real(content) - flickable.real(size)).max(0.0));
+                        let at = (flickable.real(offset) - origin + by as f64).clamp(0.0, max);
+                        flickable.set_real(offset, at + origin);
+                    }
                 }
                 Ok(())
             }

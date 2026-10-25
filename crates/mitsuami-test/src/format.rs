@@ -88,6 +88,7 @@ fn describe_props(props: &[Prop]) -> String {
             Prop::ReadOnly(b) => extra.push(format!("read_only={b}")),
             Prop::Selectable(b) => extra.push(format!("selectable={b}")),
             Prop::LineWrap(b) => extra.push(format!("line_wrap={b}")),
+            Prop::FollowsEnd(b) => extra.push(format!("follows_end={b}")),
             Prop::InputPurpose(p) => extra.push(format!("input_purpose={p:?}")),
             Prop::WrapAround(b) => extra.push(format!("wrap_around={b}")),
             Prop::Lines(n) => extra.push(format!("lines={n}")),

@@ -617,6 +617,14 @@ pub enum MitsuamiBoolProp {
     /// A container the pointer passes through, with everything in it, to
     /// what's under it.
     ClickThrough = 12,
+    /// A text field or text area shows its text, which can be selected,
+    /// but not edited.
+    ReadOnly = 13,
+    /// A text area's lines wrap to its width (they do unless set false).
+    LineWrap = 14,
+    /// A text area keeps its end in view as its text is set, while it's
+    /// there: a log.
+    FollowsEnd = 15,
 }
 
 #[unsafe(no_mangle)]
@@ -636,6 +644,9 @@ pub extern "C" fn mitsuami_set_bool(id: u32, prop: u32, value: bool) -> bool {
             10 => Prop::PopoverShown(value),
             11 => Prop::SearchOnReturn(value),
             12 => Prop::ClickThrough(value),
+            13 => Prop::ReadOnly(value),
+            14 => Prop::LineWrap(value),
+            15 => Prop::FollowsEnd(value),
             _ => return Err(format!("unknown bool prop {prop}")),
         };
         ui()?.set_prop(node(id), prop);

@@ -82,6 +82,7 @@ impl KirigamiBackend {
                 if let Widget::TextArea { root, area } = &node.widget {
                     props.push(Prop::Lines(root.int("mitsuamiLines") as u32));
                     props.push(Prop::LineWrap(area.int("wrapMode") != TEXT_EDIT_NO_WRAP));
+                    props.push(Prop::FollowsEnd(root.bool("mitsuamiFollowsEnd")));
                 } else if node.kind == WidgetKind::TextInput {
                     let hints = f.int("inputMethodHints");
                     let shown = [InputPurpose::Phone, InputPurpose::Email, InputPurpose::Url]
@@ -392,6 +393,8 @@ impl KirigamiBackend {
             Widget::Window { .. } | Widget::Host(_) | Widget::ToolbarItem { .. } | Widget::Popover { .. } => {
                 (item.child_items(), None)
             }
+            // Its text scrolls in the scroll view's flickable.
+            Widget::TextArea { root, .. } => (Vec::new(), root.object("contentItem").map(scroll_offset)),
             Widget::Tabs { pages, .. } => (pages.child_items(), None),
             Widget::Group { content, .. } => (content.child_items(), None),
             Widget::Split { root, .. } => {

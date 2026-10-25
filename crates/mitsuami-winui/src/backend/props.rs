@@ -43,6 +43,7 @@ impl State {
             (Prop::Drawing(drawing), Widget::Drawn { view, .. }) => view.set_drawing(drawing)?,
             (Prop::Step(new), Widget::Slider { step, .. } | Widget::Number { step, .. }) => *step = *new,
             (Prop::Lines(n), Widget::TextArea { lines, .. }) => *lines = *n,
+            (Prop::FollowsEnd(on), Widget::TextArea { follows_end, .. }) => *follows_end = *on,
             // A dialog doesn't take full screen (its presenter is modal,
             // over its owner), as a sheet can't on macOS.
             (Prop::FullScreen(on), Widget::Window(parts)) => {
@@ -421,7 +422,14 @@ impl State {
             (Prop::SelectedIndex(index), Widget::Tabs(tabs)) => tabs.set_selected(*index)?,
             // Its tabs; its pages are the app's.
             (Prop::Enabled(e), Widget::Tabs(tabs)) => tabs.bar.cast::<w::IControl>()?.SetIsEnabled(*e)?,
-            (Prop::Value(t), Widget::Field(f) | Widget::TextArea { field: f, .. }) => {
+            (Prop::Value(t), Widget::TextArea { field, follows_end, .. }) => {
+                // Don't disturb the caret when the area already shows it.
+                if box_text(&field.cast()?)? != *t {
+                    *node.shown_text.borrow_mut() = t.clone();
+                    super::fields::set_text_area_text(field, t, *follows_end)?;
+                }
+            }
+            (Prop::Value(t), Widget::Field(f)) => {
                 let field: w::ITextBox = f.cast()?;
                 // Don't disturb the caret when the field already shows it.
                 if box_text(&field)? != *t {

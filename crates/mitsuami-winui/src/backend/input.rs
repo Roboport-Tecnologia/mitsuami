@@ -134,6 +134,29 @@ impl WinUiBackend {
                 };
             }
         }
+        // A text area scrolls its template's scroll viewer, which the core
+        // doesn't track: nothing is reported.
+        let area = match self.state.borrow().nodes.get(&id).map(|n| &n.widget) {
+            Some(Widget::TextArea { field, .. }) => Some(field.clone()),
+            _ => None,
+        };
+        if let SyntheticInput::Scroll { dx, dy } = input
+            && let Some(field) = area
+        {
+            let scroll = super::fields::text_box_scroll(&field).ok_or(ActionError::Unsupported)?;
+            let element: w::IUIElement = scroll.cast().map_err(|_| ActionError::Unsupported)?;
+            _ = element.UpdateLayout();
+            let clamp = |v: f64, max: f64| v.clamp(0.0, max.max(0.0));
+            let x =
+                clamp(scroll.HorizontalOffset().unwrap_or(0.0) + *dx as f64, scroll.ScrollableWidth().unwrap_or(0.0));
+            let y =
+                clamp(scroll.VerticalOffset().unwrap_or(0.0) + *dy as f64, scroll.ScrollableHeight().unwrap_or(0.0));
+            scroll
+                .ChangeViewWithOptionalAnimation(Some(x), Some(y), None, true)
+                .map_err(|_| ActionError::Unsupported)?;
+            _ = element.UpdateLayout();
+            return Ok(());
+        }
         if let SyntheticInput::Scroll { dx, dy } = input {
             let scroll: w::IScrollViewer = element.cast().map_err(|_| ActionError::Unsupported)?;
             _ = element.cast::<w::IUIElement>().and_then(|e| e.UpdateLayout());

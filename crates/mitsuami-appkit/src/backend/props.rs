@@ -383,6 +383,7 @@ impl State {
             (Prop::Enabled(e), Widget::TextArea(area)) => area.set_enabled(*e),
             (Prop::Lines(lines), Widget::TextArea(area)) => area.lines = *lines,
             (Prop::LineWrap(on), Widget::TextArea(area)) => area.set_line_wrap(*on),
+            (Prop::FollowsEnd(on), Widget::TextArea(area)) => area.follows_end = *on,
             // Still selectable, so its text can be copied; it takes focus
             // from a click, and from the keyboard only with Full Keyboard
             // Access.
@@ -414,6 +415,10 @@ impl State {
             (Prop::TextStyle(style), Widget::Label(l)) => {
                 node.text_style = Some(*style);
                 l.setFont(Some(&label_font(node.text_style, node.weight, node.italic)));
+            }
+            (Prop::TextStyle(style), Widget::TextArea(area)) => {
+                area.text.setFont(Some(&font(*style)));
+                node.text_style = Some(*style);
             }
             (Prop::TextStyle(style), w) if w.control().is_some() => {
                 w.control().unwrap().setFont(Some(&font(*style)));

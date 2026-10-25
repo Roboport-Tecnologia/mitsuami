@@ -105,6 +105,13 @@ impl HeadlessBackend {
                 }
                 return Ok(());
             }
+            // A text area scrolls its text, up and down.
+            SyntheticInput::Scroll { dy, .. } if kind == WidgetKind::TextArea => {
+                let end = state.text_area_end(id);
+                let node = state.nodes.get_mut(&id).unwrap();
+                node.scroll_offset.y = (node.scroll_offset.y + dy).clamp(0.0, end);
+                return Ok(());
+            }
             SyntheticInput::Scroll { dx, dy } => {
                 if !kind.scrolls() {
                     return Err(ActionError::Unsupported);

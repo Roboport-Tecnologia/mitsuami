@@ -50,6 +50,37 @@ pub(super) fn measure_lines(field: &w::TextBox, probe: &w::TextBox, lines: u32) 
     Ok(size)
 }
 
+/// The scroll viewer in a text box's template (`ContentElement`), once
+/// it's applied.
+pub(super) fn text_box_scroll(field: &w::TextBox) -> Option<w::IScrollViewer> {
+    crate::list::find_scroll_viewer(&field.cast().ok()?)
+}
+
+/// Whether a text box's last line is in view.
+fn at_end(scroll: &w::IScrollViewer) -> bool {
+    let (offset, end) = (scroll.VerticalOffset().unwrap_or(0.0), scroll.ScrollableHeight().unwrap_or(0.0));
+    offset >= end - 1.0
+}
+
+/// Sets a text area's text, then shows its last line if it follows its end
+/// and its end was in view, or it was empty, keeping its horizontal offset.
+/// Laid out first, so the extent is the new text's. Before its template is
+/// applied (not loaded yet), there's nothing to scroll, and it shows the
+/// text from the top.
+pub(super) fn set_text_area_text(field: &w::TextBox, text: &str, follows_end: bool) -> R<()> {
+    let iface: w::ITextBox = field.cast()?;
+    let scroll = if follows_end { text_box_scroll(field) } else { None };
+    let follow = scroll.as_ref().is_some_and(|s| iface.Text().is_ok_and(|t| t.is_empty()) || at_end(s));
+    iface.SetText(text)?;
+    if let Some(scroll) = scroll.filter(|_| follow) {
+        let element: w::IUIElement = scroll.cast()?;
+        element.UpdateLayout()?;
+        scroll.ChangeViewWithOptionalAnimation(None, Some(scroll.ScrollableHeight()?), None, true)?;
+        element.UpdateLayout()?;
+    }
+    Ok(())
+}
+
 /// A text box's text with its lines ending in `\n`: XAML ends them in
 /// `\r`, whatever they were set with. In one pass, and none without a
 /// line break: it runs on every keystroke, over the whole text.

@@ -134,7 +134,7 @@ impl WinUiBackend {
             // A text field's width, and as tall as an empty text box in
             // its font with that many lines: a text box is as big as its
             // text, which mustn't count.
-            Widget::TextArea { field, lines } => {
+            Widget::TextArea { field, lines, .. } => {
                 let size = state
                     .window_of(id)
                     .and_then(|parts| measure_lines(field, &parts.text_probe, *lines).ok())

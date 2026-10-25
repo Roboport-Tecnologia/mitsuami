@@ -78,7 +78,7 @@ impl GtkBackend {
         }
         if let SyntheticInput::Scroll { dx, dy } = input {
             let scrolled = match self.state.borrow().nodes.get(&id).map(|n| &n.widget) {
-                Some(Widget::Scroll { scrolled, .. }) => scrolled.clone(),
+                Some(Widget::Scroll { scrolled, .. } | Widget::TextArea { scrolled, .. }) => scrolled.clone(),
                 Some(Widget::List(list)) => {
                     self.state.borrow().lists_dirty.set(true);
                     list.scrolled.clone()

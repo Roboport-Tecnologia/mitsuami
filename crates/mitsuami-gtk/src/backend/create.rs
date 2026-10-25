@@ -256,7 +256,7 @@ impl State {
                 scrolled.set_policy(gtk::PolicyType::Never, gtk::PolicyType::Automatic);
                 scrolled.set_has_frame(true);
                 scrolled.set_child(Some(&view));
-                Widget::TextArea { scrolled, view, placeholder: None, lines: 1 }
+                Widget::TextArea { scrolled, view, placeholder: None, lines: 1, follows_end: false }
             }
             WidgetKind::ScrollView => {
                 let scrolled = gtk::ScrolledWindow::new();

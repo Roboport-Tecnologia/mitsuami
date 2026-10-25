@@ -9,7 +9,7 @@ use objc2_app_kit::{
     NSAutoresizingMaskOptions, NSBorderType, NSColor, NSControlSize, NSFont, NSScrollView, NSScroller, NSTextView,
     NSTextViewDelegate,
 };
-use objc2_foundation::{NSRange, NSSize, NSString};
+use objc2_foundation::{NSPoint, NSRange, NSSize, NSString};
 
 use mitsuami_core::{Insets, Size};
 
@@ -49,6 +49,9 @@ pub(crate) struct TextArea {
     /// state: disabled, it's neither editable nor selectable).
     pub(crate) placeholder: Option<String>,
     pub(crate) lines: u32,
+    /// Keeps its end in view as its text is set (`Prop::FollowsEnd`): a
+    /// text view has no such setting; Terminal and Console do it.
+    pub(crate) follows_end: bool,
     read_only: bool,
     enabled: bool,
 }
@@ -72,15 +75,40 @@ impl TextArea {
         text.setFont(Some(font));
         // Held weakly: the node keeps it alive as long as the view.
         text.setDelegate(delegate);
-        TextArea { scroll, text, placeholder: None, lines: 1, read_only: false, enabled: true }
+        TextArea { scroll, text, placeholder: None, lines: 1, follows_end: false, read_only: false, enabled: true }
     }
 
     pub(crate) fn set_string(&self, value: &str) {
         // Don't disturb the caret when it already shows it.
         if self.text.string().to_string() != value {
+            let follow = self.follows_end && (self.text.string().length() == 0 || self.at_end());
             self.text.setString(&NSString::from_str(value));
             self.fit_width();
+            if follow {
+                self.scroll_to_end();
+            }
         }
+    }
+
+    /// Whether the text's last line is in view.
+    fn at_end(&self) -> bool {
+        let visible = self.scroll.contentView().documentVisibleRect();
+        visible.origin.y + visible.size.height >= self.text.frame().size.height - 1.0
+    }
+
+    /// Shows the text's last line at the bottom, where it was across.
+    /// Laid out now, as the text view would only grow at the next display.
+    fn scroll_to_end(&self) {
+        if let (Some(container), Some(layout)) =
+            (unsafe { self.text.textContainer() }, unsafe { self.text.layoutManager() })
+        {
+            layout.ensureLayoutForTextContainer(&container);
+        }
+        self.text.sizeToFit();
+        let clip = self.scroll.contentView();
+        let bottom = (self.text.frame().size.height - clip.bounds().size.height).max(0.0);
+        clip.scrollToPoint(NSPoint::new(clip.bounds().origin.x, bottom));
+        self.scroll.reflectScrolledClipView(&clip);
     }
 
     pub(crate) fn set_read_only(&mut self, read_only: bool) {

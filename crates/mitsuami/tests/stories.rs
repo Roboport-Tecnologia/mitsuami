@@ -513,8 +513,8 @@ fn search_input_tweak() -> Tweak<SearchInput> {
 }
 
 /// Text areas: empty with a placeholder (shown on Qt and WinUI), filled
-/// with a line that wraps, more lines than fit, read-only, disabled, and
-/// tweaked: a fixed-pitch font on AppKit and GTK, lines broken inside words
+/// with a line that wraps, more lines than fit, read-only, disabled, a log
+/// (monospace, unwrapped, at its end), and tweaked: a fixed-pitch font on AppKit and GTK, lines broken inside words
 /// on Qt, a header on WinUI.
 #[mitsuami_test::story(sizes = [(240, fit)])]
 fn text_areas() -> impl View {
@@ -523,10 +523,18 @@ fn text_areas() -> impl View {
     Column::new().padding(16).gap(8).children((
         TextArea::new().a11y_label("Empty").placeholder("Comments"),
         TextArea::new().a11y_label("Filled").value(NOTE),
-        TextArea::new().a11y_label("Scrolled").lines(2).value(many),
+        TextArea::new().a11y_label("Scrolled").lines(2).value(many.clone()),
         TextArea::new().a11y_label("Unwrapped").lines(2).value(NOTE).line_wrap(false),
         TextArea::new().a11y_label("Read-only").value(NOTE).read_only(true),
         TextArea::new().a11y_label("Disabled").value(NOTE).enabled(false),
+        TextArea::new()
+            .a11y_label("Log")
+            .lines(2)
+            .value(many)
+            .read_only(true)
+            .line_wrap(false)
+            .text_style(TextStyle::Monospace)
+            .follows_end(true),
         TextArea::new().a11y_label("Tweaked").value(NOTE).native(text_area_tweak()),
     ))
 }

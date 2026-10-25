@@ -84,3 +84,28 @@ impl State {
 pub(super) fn violation(command: &Command, problem: &str) -> ! {
     panic!("headless backend: protocol violation in {command:?}: {problem}")
 }
+
+/// Text areas: their text scrolls inside them, a line of their font per
+/// line (no wrapping), in the insets `measure` gives them.
+impl State {
+    /// How far a text area's text scrolls: its end, past its height.
+    pub(super) fn text_area_end(&self, id: NodeId) -> f32 {
+        let node = &self.nodes[&id];
+        let font = self.metrics.font_sizes.get(find_prop!(node.props, TextStyle).unwrap_or_default());
+        let lines = find_prop!(node.props, Value).map_or(1, |v| v.split('\n').count()) as f32;
+        (lines * (font * 1.25).round() + 8.0 - node.frame.height()).max(0.0)
+    }
+
+    /// Sets a text area's text, keeping its end in view if it follows its
+    /// end and was there, or was empty.
+    pub(super) fn set_text_area_value(&mut self, id: NodeId, prop: Prop) {
+        let node = &self.nodes[&id];
+        let empty = find_prop!(node.props, Value).is_none_or(|v| v.is_empty());
+        let at_end = empty || node.scroll_offset.y >= self.text_area_end(id);
+        let follows = find_prop!(node.props, FollowsEnd) == Some(true);
+        self.set_prop(id, prop);
+        let end = self.text_area_end(id);
+        let node = self.nodes.get_mut(&id).unwrap();
+        node.scroll_offset.y = if follows && at_end { end } else { node.scroll_offset.y.min(end) };
+    }
+}

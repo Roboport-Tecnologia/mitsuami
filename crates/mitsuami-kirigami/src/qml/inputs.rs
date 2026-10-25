@@ -167,7 +167,34 @@ QQC2.ScrollView {{
     property alias readOnly: area.readOnly
     property int mitsuamiLines: 1
     property bool mitsuamiSetting: false
+    property alias mitsuamiTextStyle: area.mitsuamiTextStyle
+    // `Prop::FollowsEnd`: the app's text keeps the end in view while it's
+    // there (or the area was empty). Qt has no such setting; Terminal and
+    // Console do it. `mitsuamiFollow` lasts till the text's height settles.
+    property bool mitsuamiFollowsEnd: false
+    property bool mitsuamiFollow: false
     signal mitsuamiEdited()
+    function mitsuamiAtEnd() {{
+        var f = contentItem
+        return f.contentY - f.originY + f.height >= f.contentHeight - 1
+    }}
+    function mitsuamiToEnd() {{
+        var f = contentItem
+        f.contentY = f.originY + Math.max(0, f.contentHeight - f.height)
+    }}
+    function mitsuamiBeforeSet() {{
+        mitsuamiFollow = mitsuamiFollowsEnd && (area.length === 0 || mitsuamiAtEnd())
+    }}
+    function mitsuamiAfterSet() {{
+        if (mitsuamiFollow) {{
+            mitsuamiToEnd()
+            Qt.callLater(function() {{ if (mitsuamiFollow) mitsuamiToEnd(); mitsuamiFollow = false }})
+        }}
+    }}
+    Connections {{
+        target: scroll.contentItem
+        function onContentHeightChanged() {{ if (scroll.mitsuamiFollow) scroll.mitsuamiToEnd() }}
+    }}
     implicitWidth: 200
     implicitHeight: Math.ceil(topPadding + bottomPadding + area.topPadding + area.bottomPadding
         + mitsuamiLines * mitsuamiMetrics.height)

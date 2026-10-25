@@ -108,6 +108,10 @@ impl AppKitBackend {
                         if list.scroll.hasHorizontalScroller() { ScrollAxes::Both } else { ScrollAxes::Vertical };
                     (objc2::rc::Retained::into_super(list.scroll.clone()), axes)
                 }
+                Some((Widget::TextArea(area), _)) => {
+                    let axes = if area.line_wrap() { ScrollAxes::Vertical } else { ScrollAxes::Both };
+                    (area.scroll.clone(), axes)
+                }
                 Some(_) => return Err(ActionError::Unsupported),
                 None => return Err(ActionError::UnknownNode),
             };
