@@ -302,6 +302,15 @@ impl State {
                 }
             }
             (Prop::Placeholder(t), Widget::Field(f)) => f.set_str("placeholderText", t),
+            // Qt Quick's fields have no error state: Orca reads the message
+            // as the description, which the app shows by the field.
+            (Prop::Error(error), Widget::Field(_) | Widget::TextArea { .. }) => {
+                node.error = Some(error.clone());
+                let description = error.as_ref().or(node.description.as_ref());
+                node.widget
+                    .item()
+                    .set_str("mitsuamiA11yDescription", description.map(String::as_str).unwrap_or_default());
+            }
             (Prop::SearchOnReturn(on), Widget::Field(f)) if node.kind == WidgetKind::SearchInput => {
                 f.set_int("mitsuamiOnReturn", i32::from(*on))
             }

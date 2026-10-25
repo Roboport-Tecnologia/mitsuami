@@ -412,7 +412,13 @@ impl State {
                     Some(label) => widget.update_property(&[Property::Label(label)]),
                     None => widget.reset_property(gtk::AccessibleProperty::Label),
                 }
+                // A field's error is its description while it has one.
+                let node = self.nodes.get_mut(id).expect("a node");
+                node.description = description.clone();
+                let error = node.error.clone().flatten();
+                let field_has_error = error.is_some() && node.widget.text_widget() == Some(&widget);
                 match description {
+                    _ if field_has_error => {}
                     Some(description) => widget.update_property(&[Property::Description(description)]),
                     None => widget.reset_property(gtk::AccessibleProperty::Description),
                 }

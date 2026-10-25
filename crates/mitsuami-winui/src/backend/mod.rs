@@ -474,6 +474,10 @@ struct Node {
     /// place of the tooltip.
     description: Option<String>,
     tooltip: String,
+    /// Text fields: the error the app gave. XAML draws no error state
+    /// (WinUI 3 dropped input validation): UIA reads the field as invalid
+    /// for its form, with the message as its help text.
+    error: Option<Option<String>>,
     /// Buttons: their caption, icon (empty: none) and whether the icon
     /// shows alone, which their content is made of.
     caption: String,
@@ -715,10 +719,11 @@ fn key(element: &impl Interface) -> usize {
     element.cast::<IUnknown>().map_or(0, |u| u.as_raw() as usize)
 }
 
-/// UIA's help text: the app's description, else the tooltip, as the core's
-/// accessibility tree has it.
+/// UIA's help text: a field's error, else the app's description, else the
+/// tooltip, as the core's accessibility tree has it.
 fn set_help_text(node: &Node) -> R<()> {
-    let help = node.description.as_deref().unwrap_or(&node.tooltip);
+    let error = node.error.as_ref().and_then(|e| e.as_deref());
+    let help = error.or(node.description.as_deref()).unwrap_or(&node.tooltip);
     w::AutomationProperties::SetHelpText(node.control(), help)
 }
 

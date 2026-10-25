@@ -365,6 +365,14 @@ impl WinUiBackend {
         }
         // What its `KeyDown` handler takes: XAML has no keys to read back.
         props.extend(node.keys.as_ref().map(|k| Prop::Keys(k.keys())));
+        // Read from UIA: whether the field is valid, and its help text,
+        // which is the message while it isn't.
+        if node.error.is_some() {
+            let control = node.control();
+            let valid = w::AutomationProperties::GetIsDataValidForForm(control).ok()?;
+            let help = w::AutomationProperties::GetHelpText(control).ok()?;
+            props.push(Prop::Error((!valid).then(|| help.to_string())));
+        }
         // Kept: XAML can't give back the app's function.
         props.extend(node.context_menu.as_ref().and_then(|m| m.on_open()).map(|f| Prop::ContextMenuOnOpen(Some(f))));
         if let Some(menu) = &node.context_menu {

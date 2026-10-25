@@ -547,6 +547,8 @@ pub enum MitsuamiTextProp {
     Icon = 7,
     /// What tests find the node by (`by_test_id`).
     TestId = 8,
+    /// What's wrong with a text field's text; empty: nothing.
+    Error = 9,
 }
 
 /// # Safety
@@ -564,6 +566,7 @@ pub unsafe extern "C" fn mitsuami_set_text(id: u32, prop: u32, value: *const u8,
             4 => Prop::Placeholder(value),
             6 => Prop::Tooltip(value),
             7 => Prop::Icon(value),
+            9 => Prop::Error((!value.is_empty()).then_some(value)),
             8 => {
                 ui.set_test_id(node(id), value);
                 return Ok(());

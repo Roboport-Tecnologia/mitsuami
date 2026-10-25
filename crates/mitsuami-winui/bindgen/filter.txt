@@ -152,7 +152,7 @@ Microsoft.UI.Xaml.Input.DoubleTappedEventHandler
 Microsoft.UI.Xaml.Input.DoubleTappedRoutedEventArgs::{}
 Microsoft.UI.Xaml.Input.TappedEventHandler
 Microsoft.UI.Xaml.Input.TappedRoutedEventArgs::{}
-Microsoft.UI.Xaml.Automation.AutomationProperties::{SetName, SetHelpText, SetAccessibilityView}
+Microsoft.UI.Xaml.Automation.AutomationProperties::{SetName, SetHelpText, GetHelpText, SetAccessibilityView, SetIsDataValidForForm, GetIsDataValidForForm}
 Microsoft.UI.Xaml.Controls.ToolTipService::{SetToolTip, GetToolTip}
 Microsoft.UI.Xaml.Automation.Peers.AccessibilityView
 Microsoft.UI.Xaml.Automation.Peers.FrameworkElementAutomationPeer::CreatePeerForElement

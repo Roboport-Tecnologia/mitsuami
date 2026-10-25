@@ -20,6 +20,7 @@ fn describe_props(props: &[Prop]) -> String {
             Prop::Title(s) | Prop::Text(s) | Prop::Label(s) => quoted = Some(format!("{s:?}")),
             Prop::Value(s) => extra.push(format!("value={s:?}")),
             Prop::Placeholder(s) => extra.push(format!("placeholder={s:?}")),
+            Prop::Error(Some(e)) => extra.push(format!("error={e:?}")),
             Prop::Tooltip(s) => extra.push(format!("tooltip={s:?}")),
             Prop::ContextMenu(entries) => extra.push(format!("context_menu=[{}]", menu_entries(entries))),
             Prop::Menu(entries) => extra.push(format!("menu=[{}]", menu_entries(entries))),
@@ -32,7 +33,7 @@ fn describe_props(props: &[Prop]) -> String {
                 };
                 extra.push(format!("file_drop=[{files}{}]", if drop.folders { " folders" } else { "" }));
             }
-            Prop::FileDrop(None) | Prop::ContextMenuOnOpen(None) | Prop::MenuOnOpen(None) => {}
+            Prop::FileDrop(None) | Prop::ContextMenuOnOpen(None) | Prop::MenuOnOpen(None) | Prop::Error(None) => {}
             // Their names: the rest is the machine's.
             Prop::RowMoves(moves) => {
                 let on = [(moves.onto_rows, "onto"), (moves.between_rows, "between")];

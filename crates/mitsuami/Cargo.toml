@@ -182,6 +182,10 @@ name = "tooltip"
 harness = false
 
 [[test]]
+name = "field_errors"
+harness = false
+
+[[test]]
 name = "hover"
 harness = false
 

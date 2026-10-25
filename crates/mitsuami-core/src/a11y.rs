@@ -210,6 +210,9 @@ pub struct A11yNode {
     pub read_only: bool,
     /// Text fields: the text is hidden, and not in `value`.
     pub password: bool,
+    /// Text fields: the text has an error (`Prop::Error`), which is the
+    /// description.
+    pub invalid: bool,
     /// List rows: whether the row is selected.
     pub selected: Option<bool>,
     pub enabled: bool,

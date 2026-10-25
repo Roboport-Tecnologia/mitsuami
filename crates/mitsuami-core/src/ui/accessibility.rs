@@ -145,13 +145,18 @@ impl Inner {
             })
             .unwrap_or(false)
         });
+        let error = crate::find_prop!(props, Error).flatten();
         vec![A11yNode {
             id,
             role,
             name,
             // A tooltip is read as the description, as every platform
             // reads one, unless the app gave its own.
-            description: a11y.description.or_else(|| crate::find_prop!(props, Tooltip).filter(|t| !t.is_empty())),
+            // An error is read before anything else.
+            description: error
+                .clone()
+                .or(a11y.description)
+                .or_else(|| crate::find_prop!(props, Tooltip).filter(|t| !t.is_empty())),
             value: match node.kind {
                 WidgetKind::TextInput | WidgetKind::SearchInput | WidgetKind::TextArea => {
                     Some(crate::find_prop!(props, Value).unwrap_or_default())
@@ -180,6 +185,7 @@ impl Inner {
             mixed: node.kind == WidgetKind::Checkbox && crate::find_prop!(props, Mixed) == Some(true),
             read_only: crate::find_prop!(props, ReadOnly) == Some(true),
             password: node.kind == WidgetKind::PasswordInput,
+            invalid: error.is_some(),
             selected,
             enabled: crate::find_prop!(props, Enabled).unwrap_or(true),
             test_id: node.test_id.clone(),
@@ -208,6 +214,7 @@ impl Inner {
                 mixed: false,
                 read_only: false,
                 password: false,
+                invalid: false,
                 selected: Some(shown == Some(index)),
                 enabled: true,
                 test_id: None,
@@ -236,6 +243,7 @@ impl Inner {
             mixed: false,
             read_only: false,
             password: false,
+            invalid: false,
             selected,
             enabled,
             test_id: None,
@@ -274,6 +282,7 @@ impl Inner {
                 mixed: false,
                 read_only: false,
                 password: false,
+                invalid: false,
                 selected: None,
                 enabled,
                 test_id: None,
@@ -301,6 +310,7 @@ impl Inner {
             mixed: false,
             read_only: false,
             password: false,
+            invalid: false,
             selected,
             enabled: true,
             test_id: None,
@@ -349,6 +359,7 @@ impl Inner {
             mixed: false,
             read_only: false,
             password: false,
+            invalid: false,
             selected,
             enabled: true,
             test_id: None,

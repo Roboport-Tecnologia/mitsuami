@@ -74,6 +74,8 @@ impl KirigamiBackend {
                 props.push(Prop::ReadOnly(f.bool("readOnly")));
                 // Kept: the list shows only their texts.
                 props.extend(node.suggestions.clone().map(Prop::Suggestions));
+                // Kept: Qt Quick's fields have no error state.
+                props.extend(node.error.clone().map(Prop::Error));
                 if node.kind == WidgetKind::SearchInput && f.int("mitsuamiOnReturn") >= 0 {
                     props.push(Prop::SearchOnReturn(!f.bool("autoAccept")));
                 }

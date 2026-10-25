@@ -283,6 +283,11 @@ struct Node {
     truncation: Option<Truncation>,
     role: Option<ButtonRole>,
     button_style: Option<ButtonStyle>,
+    /// Text fields: the error the app gave, which AppKit has no state
+    /// for, and the description it gave, which the error replaces as the
+    /// field's help while there is one.
+    error: Option<Option<String>>,
+    help: Option<String>,
     /// Tabs: the style the app chose, which this platform doesn't have,
     /// and the icons it gave, which an `NSTabView` doesn't draw.
     tabs_style: Option<TabsStyle>,

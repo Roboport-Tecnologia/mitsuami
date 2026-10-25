@@ -372,7 +372,11 @@ impl State {
                 if !named_by_label || label.is_some() {
                     item.set_str("mitsuamiA11yName", label.as_deref().unwrap_or_default());
                 }
-                item.set_str("mitsuamiA11yDescription", description.as_deref().unwrap_or_default());
+                // A field's error is its description while it has one.
+                let node = self.nodes.get_mut(id).expect("a node");
+                node.description = description.clone();
+                let shown = node.error.clone().flatten().or(description.clone());
+                item.set_str("mitsuamiA11yDescription", shown.as_deref().unwrap_or_default());
                 item.set_bool("mitsuamiA11yHidden", *hidden);
             }
             // A window in full screen keeps the screen's size.

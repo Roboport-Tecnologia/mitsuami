@@ -367,6 +367,13 @@ impl State {
                 }
             }
             (Prop::Placeholder(t), Widget::Field(f)) => f.setPlaceholderString(Some(&ns(t))),
+            // AppKit has no error state for a field: VoiceOver reads the
+            // message as its help, which the app shows by it.
+            (Prop::Error(error), Widget::Field(_) | Widget::TextArea(_)) => {
+                node.error = Some(error.clone());
+                let help = error.as_ref().or(node.help.as_ref());
+                node.widget.view().setAccessibilityHelp(help.map(|h| ns(h)).as_deref());
+            }
             // For autofill; AppKit has no on-screen keyboard to pick.
             (Prop::InputPurpose(purpose), Widget::Field(f)) => f.setContentType(content_type(*purpose)),
             (Prop::Value(t), Widget::TextArea(area)) => area.set_string(t),

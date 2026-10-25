@@ -26,6 +26,11 @@ impl GtkBackend {
             gtk::TextDirection::Rtl => mitsuami_core::LayoutDirection::RightToLeft,
             _ => mitsuami_core::LayoutDirection::LeftToRight,
         }));
+        // The error style, read back; its message is kept.
+        if let Some(error) = &node.error {
+            let shown = node.widget.widget().has_css_class("error");
+            props.push(Prop::Error(if shown { error.clone() } else { None }));
+        }
         match &node.widget {
             Widget::Window(parts) => {
                 props.push(Prop::Title(text(parts.window.title())));

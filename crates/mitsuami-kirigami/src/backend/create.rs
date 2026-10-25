@@ -345,6 +345,8 @@ impl State {
                 text_style: None,
                 role: None,
                 button_style: None,
+                error: None,
+                description: None,
                 tabs_style: None,
                 document_tabs_style: None,
                 orientation: None,

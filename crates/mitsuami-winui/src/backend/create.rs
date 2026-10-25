@@ -560,6 +560,7 @@ impl State {
                 a11y_label: None,
                 description: None,
                 tooltip: String::new(),
+                error: None,
                 context_menu: None,
                 file_drop: None,
                 file_drop_sent: false,

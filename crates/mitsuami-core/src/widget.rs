@@ -977,6 +977,12 @@ pub enum Prop {
     /// What a text field shows while it's empty. Text areas show it where
     /// the platform's have one (Qt, WinUI).
     Placeholder(String),
+    /// What's wrong with a `TextInput`'s, `PasswordInput`'s or
+    /// `TextArea`'s text, or `None`: the platform marks the field where it
+    /// has a way to (GTK's `error` style), and assistive technology reads
+    /// it as invalid, with the message as its description. The app shows
+    /// the message, as apps on every platform place their own.
+    Error(Option<String>),
     /// A `TextInput` or `TextArea` shows its text, which can be selected
     /// and copied, but not edited: by typing, or by assistive technology.
     ReadOnly(bool),

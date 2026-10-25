@@ -452,6 +452,31 @@ impl State {
                 }
             }
             (Prop::Placeholder(t), Widget::Entry(e)) => e.set_placeholder_text(Some(t)),
+            // GNOME's way: the `error` style (a red entry; a text area's
+            // frame), and the invalid state, with the message as the
+            // description while there is one. The app shows the message.
+            (Prop::Error(error), Widget::Entry(_) | Widget::Password(_) | Widget::TextArea { .. }) => {
+                use gtk::accessible::{Property, State as A11yState};
+                let styled = node.widget.widget();
+                if error.is_some() {
+                    styled.add_css_class("error");
+                } else {
+                    styled.remove_css_class("error");
+                }
+                if let Some(field) = node.widget.text_widget() {
+                    let invalid = if error.is_some() {
+                        gtk::AccessibleInvalidState::True
+                    } else {
+                        gtk::AccessibleInvalidState::False
+                    };
+                    field.update_state(&[A11yState::Invalid(invalid)]);
+                    match error.as_ref().or(node.description.as_ref()) {
+                        Some(text) => field.update_property(&[Property::Description(text)]),
+                        None => field.reset_property(gtk::AccessibleProperty::Description),
+                    }
+                }
+                node.error = Some(error.clone());
+            }
             // Still focusable and selectable, so its text can be copied.
             (Prop::ReadOnly(r), Widget::Entry(e)) => e.set_editable(!r),
             // For the on-screen keyboard and input methods.

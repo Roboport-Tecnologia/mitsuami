@@ -35,6 +35,13 @@ impl TextInput {
         self
     }
 
+    /// What's wrong with its text, or `None`: see [`Prop::Error`]. Show
+    /// the message by it too, as the platform's apps do.
+    pub fn error(mut self, error: impl IntoValue<Option<String>>) -> TextInput {
+        self.0.prop(error.into_value(), Prop::Error);
+        self
+    }
+
     pub fn enabled(mut self, enabled: impl IntoValue<bool>) -> TextInput {
         self.0.prop(enabled.into_value(), Prop::Enabled);
         self
@@ -114,6 +121,13 @@ impl PasswordInput {
 
     pub fn placeholder(mut self, placeholder: impl IntoValue<String>) -> PasswordInput {
         self.0.prop(placeholder.into_value(), Prop::Placeholder);
+        self
+    }
+
+    /// What's wrong with its text, or `None`: see [`Prop::Error`]. Show
+    /// the message by it too, as the platform's apps do.
+    pub fn error(mut self, error: impl IntoValue<Option<String>>) -> PasswordInput {
+        self.0.prop(error.into_value(), Prop::Error);
         self
     }
 
@@ -287,6 +301,13 @@ impl TextArea {
     /// to assistive technology without a label.
     pub fn placeholder(mut self, placeholder: impl IntoValue<String>) -> TextArea {
         self.0.prop(placeholder.into_value(), Prop::Placeholder);
+        self
+    }
+
+    /// What's wrong with its text, or `None`: see [`Prop::Error`]. Show
+    /// the message by it too, as the platform's apps do.
+    pub fn error(mut self, error: impl IntoValue<Option<String>>) -> TextArea {
+        self.0.prop(error.into_value(), Prop::Error);
         self
     }
 

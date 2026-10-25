@@ -569,6 +569,23 @@ unsafe impl Sync for AutomationPeer {}
 pub struct AutomationProperties(windows_core::IUnknown);
 windows_core::imp::interface_hierarchy!(AutomationProperties, windows_core::IUnknown, windows_core::IInspectable);
 impl AutomationProperties {
+    pub fn GetHelpText<P0>(element: P0) -> windows_core::Result<String>
+    where
+        P0: windows_core::Param<DependencyObject>,
+    {
+        Self::IAutomationPropertiesStatics(|this| unsafe {
+            let mut result__ = core::mem::zeroed();
+            (windows_core::Interface::vtable(this).GetHelpText)(
+                windows_core::Interface::as_raw(this),
+                element.param().abi(),
+                &mut result__,
+            )
+            .map(|| {
+                let hstring: windows_core::HSTRING = core::mem::transmute(result__);
+                hstring.to_string_lossy()
+            })
+        })
+    }
     pub fn SetHelpText<P0>(element: P0, value: &str) -> windows_core::Result<()>
     where
         P0: windows_core::Param<DependencyObject>,
@@ -618,6 +635,33 @@ impl AutomationProperties {
     {
         Self::IAutomationPropertiesStatics(|this| unsafe {
             (windows_core::Interface::vtable(this).SetAccessibilityView)(
+                windows_core::Interface::as_raw(this),
+                element.param().abi(),
+                value,
+            )
+            .ok()
+        })
+    }
+    pub fn GetIsDataValidForForm<P0>(element: P0) -> windows_core::Result<bool>
+    where
+        P0: windows_core::Param<DependencyObject>,
+    {
+        Self::IAutomationPropertiesStatics(|this| unsafe {
+            let mut result__ = core::mem::zeroed();
+            (windows_core::Interface::vtable(this).GetIsDataValidForForm)(
+                windows_core::Interface::as_raw(this),
+                element.param().abi(),
+                &mut result__,
+            )
+            .map(|| result__)
+        })
+    }
+    pub fn SetIsDataValidForForm<P0>(element: P0, value: bool) -> windows_core::Result<()>
+    where
+        P0: windows_core::Param<DependencyObject>,
+    {
+        Self::IAutomationPropertiesStatics(|this| unsafe {
+            (windows_core::Interface::vtable(this).SetIsDataValidForForm)(
                 windows_core::Interface::as_raw(this),
                 element.param().abi(),
                 value,
@@ -4297,7 +4341,11 @@ pub struct IAutomationPropertiesStatics_Vtbl {
     GetAutomationId: usize,
     SetAutomationId: usize,
     HelpTextProperty: usize,
-    GetHelpText: usize,
+    pub GetHelpText: unsafe extern "system" fn(
+        *mut core::ffi::c_void,
+        *mut core::ffi::c_void,
+        *mut *mut core::ffi::c_void,
+    ) -> windows_core::HRESULT,
     pub SetHelpText: unsafe extern "system" fn(
         *mut core::ffi::c_void,
         *mut core::ffi::c_void,
@@ -4336,6 +4384,33 @@ pub struct IAutomationPropertiesStatics_Vtbl {
         *mut core::ffi::c_void,
         AccessibilityView,
     ) -> windows_core::HRESULT,
+    ControlledPeersProperty: usize,
+    GetControlledPeers: usize,
+    PositionInSetProperty: usize,
+    GetPositionInSet: usize,
+    SetPositionInSet: usize,
+    SizeOfSetProperty: usize,
+    GetSizeOfSet: usize,
+    SetSizeOfSet: usize,
+    LevelProperty: usize,
+    GetLevel: usize,
+    SetLevel: usize,
+    AnnotationsProperty: usize,
+    GetAnnotations: usize,
+    LandmarkTypeProperty: usize,
+    GetLandmarkType: usize,
+    SetLandmarkType: usize,
+    LocalizedLandmarkTypeProperty: usize,
+    GetLocalizedLandmarkType: usize,
+    SetLocalizedLandmarkType: usize,
+    IsPeripheralProperty: usize,
+    GetIsPeripheral: usize,
+    SetIsPeripheral: usize,
+    IsDataValidForFormProperty: usize,
+    pub GetIsDataValidForForm:
+        unsafe extern "system" fn(*mut core::ffi::c_void, *mut core::ffi::c_void, *mut bool) -> windows_core::HRESULT,
+    pub SetIsDataValidForForm:
+        unsafe extern "system" fn(*mut core::ffi::c_void, *mut core::ffi::c_void, bool) -> windows_core::HRESULT,
 }
 windows_core::imp::define_interface!(IBindCtx, IBindCtx_Vtbl, 0x0000000e_0000_0000_c000_000000000046);
 windows_core::imp::interface_hierarchy!(IBindCtx, windows_core::IUnknown);

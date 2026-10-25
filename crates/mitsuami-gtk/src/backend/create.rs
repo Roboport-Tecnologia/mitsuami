@@ -302,6 +302,8 @@ impl State {
                 text_color: None,
                 role: None,
                 button_style: None,
+                error: None,
+                description: None,
                 orientation: None,
                 mixed: None,
                 button: ButtonFace::default(),

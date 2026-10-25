@@ -213,6 +213,17 @@ enum Widget {
 type NativeMeasure = Rc<dyn Fn(&gtk::Widget, &MeasureRequest) -> Size>;
 
 impl Widget {
+    /// A text field's text widget, which assistive technology reads as
+    /// the field: an entry, or a text area's text view.
+    fn text_widget(&self) -> Option<&gtk::Widget> {
+        match self {
+            Widget::Entry(e) => Some(e.upcast_ref()),
+            Widget::Password(e) => Some(e.upcast_ref()),
+            Widget::TextArea { view, .. } => Some(view.upcast_ref()),
+            _ => None,
+        }
+    }
+
     /// The widget that stands for the node: a window's content host.
     fn widget(&self) -> &gtk::Widget {
         match self {
@@ -314,6 +325,11 @@ struct Node {
     text_color: Option<Color>,
     role: Option<ButtonRole>,
     button_style: Option<ButtonStyle>,
+    /// Text fields: the error the app gave (its message isn't read back),
+    /// and the description it gave, which the error replaces while there
+    /// is one.
+    error: Option<Option<String>>,
+    description: Option<String>,
     /// Sliders: whether the app gave an `Orientation`.
     orientation: Option<Orientation>,
     /// Checkboxes: whether the app gave `Mixed`.

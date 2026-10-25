@@ -352,6 +352,8 @@ impl State {
                 truncation: None,
                 role: None,
                 button_style: None,
+                error: None,
+                help: None,
                 tabs_style: None,
                 tab_icons: None,
                 orientation: None,

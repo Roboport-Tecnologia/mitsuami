@@ -469,6 +469,13 @@ impl State {
                 }
             }
             (Prop::Placeholder(t), Widget::Password(f)) => f.cast::<w::IPasswordBox>()?.SetPlaceholderText(t)?,
+            // Nothing to draw: XAML's fields have no error state. UIA reads
+            // the field as invalid, and the message as its help text.
+            (Prop::Error(error), Widget::Field(_) | Widget::TextArea { .. } | Widget::Password(_)) => {
+                w::AutomationProperties::SetIsDataValidForForm(node.control(), error.is_none())?;
+                node.error = Some(error.clone());
+                set_help_text(node)?;
+            }
             (Prop::Value(t), Widget::Search(s)) => {
                 let search: w::IAutoSuggestBox = s.cast()?;
                 if search.Text()? != *t {

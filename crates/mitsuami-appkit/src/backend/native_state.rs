@@ -391,6 +391,10 @@ pub(super) fn native_state(state: &State, id: NodeId) -> Option<NativeState> {
     if let Some((_, recognizer)) = &node.double_click {
         props.push(Prop::DoubleClick(view.gestureRecognizers().iter().any(|r| *r == ***recognizer)));
     }
+    // Kept: AppKit has no error state for a field.
+    if let Some(error) = &node.error {
+        props.push(Prop::Error(error.clone()));
+    }
     // Kept: AppKit can't give back the app's function.
     if let Some((opener, _)) = &node.menu_on_open {
         props.push(Prop::ContextMenuOnOpen(Some(opener.on_open())));

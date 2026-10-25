@@ -248,6 +248,11 @@ struct Node {
     text_style: Option<TextStyle>,
     role: Option<ButtonRole>,
     button_style: Option<ButtonStyle>,
+    /// Text fields: the error the app gave, which Qt Quick's fields have
+    /// no state for, and the description it gave, which the error
+    /// replaces as the field's while there is one.
+    error: Option<Option<String>>,
+    description: Option<String>,
     /// Tabs: the style the app chose, `Automatic` apart.
     tabs_style: Option<TabsStyle>,
     /// Document tabs: where the app asked for them, which is a strip in

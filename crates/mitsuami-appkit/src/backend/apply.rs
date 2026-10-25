@@ -695,7 +695,11 @@ impl State {
                 let view = self.view(*id, command);
                 let A11yProps { label, description, hidden, .. } = a11y;
                 view.setAccessibilityLabel(label.as_deref().map(ns).as_deref());
-                view.setAccessibilityHelp(description.as_deref().map(ns).as_deref());
+                // A field's error is its help while it has one.
+                let node = self.nodes.get_mut(id).expect("a node");
+                node.help = description.clone();
+                let help = node.error.clone().flatten().or(description.clone());
+                view.setAccessibilityHelp(help.as_deref().map(ns).as_deref());
                 if *hidden {
                     view.setAccessibilityElement(false);
                 }
