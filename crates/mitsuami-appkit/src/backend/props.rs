@@ -164,6 +164,13 @@ impl State {
             (Prop::ButtonStyle(style), Widget::SplitButton(_)) => node.button_style = Some(*style),
             (Prop::ButtonStyle(style), Widget::MenuButton { popup, .. }) => {
                 popup.setBordered(*style != ButtonStyle::Borderless);
+                // A borderless pull-down draws its template image in the
+                // label colour, a borderless button in the secondary one
+                // (85% and 55% white on dark, measured): side by side in a
+                // toolbar, the pull-down looked pressed. It takes the
+                // button's grey; an icon in a colour isn't a template.
+                let tint = (*style == ButtonStyle::Borderless).then(objc2_app_kit::NSColor::secondaryLabelColor);
+                popup.setContentTintColor(tint.as_deref());
                 set_prominent(popup, *style == ButtonStyle::Prominent);
                 node.button_style = Some(*style);
             }
