@@ -338,6 +338,22 @@ pub unsafe extern "C" fn mitsuami_create_scroll_view(axes: u32, content: *mut u3
     .unwrap_or(0)
 }
 
+/// Scrolls a scroll view to this offset of its content, in points,
+/// clamped to its content as laid out: past the end is the end. Call it
+/// once layout has run (`mitsuami_frame`).
+#[unsafe(no_mangle)]
+pub extern "C" fn mitsuami_scroll_to(id: u32, x: f32, y: f32) -> bool {
+    guard(|| {
+        let ui = ui()?;
+        if ui.kind(node(id)) != Some(WidgetKind::ScrollView) {
+            return Err(format!("node {id} isn't a scroll view"));
+        }
+        ui.scroll_to(node(id), Point::new(x, y));
+        Ok(())
+    })
+    .is_some()
+}
+
 /// Opens a window with `title` and a content size in points; a negative
 /// height follows the content's height, as a dialog's does. Closing it
 /// destroys it; the app ends with its last window.

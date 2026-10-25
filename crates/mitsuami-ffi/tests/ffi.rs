@@ -996,6 +996,15 @@ async fn scroll_views_scroll_their_content(app: TestApp) {
     assert_eq!(app.get_by_text("Line 0").frame().width(), app.get_by_test_id("scroll").frame().width());
     app.get_by_test_id("scroll").scroll_by(0.0, 1e6).await;
     app.expect(by_text("Line 59")).to_be_visible().await;
+
+    // The caller scrolls it too, clamped to its content.
+    assert!(mitsuami_scroll_to(scroll, 0.0, 0.0));
+    app.settle().await;
+    app.expect(by_text("Line 0")).to_be_visible().await;
+    assert!(mitsuami_scroll_to(scroll, 0.0, f32::MAX));
+    app.settle().await;
+    app.expect(by_text("Line 59")).to_be_visible().await;
+    assert!(!mitsuami_scroll_to(content, 0.0, 0.0));
 }
 
 mitsuami_test::main!();
