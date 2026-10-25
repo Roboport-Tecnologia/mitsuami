@@ -1710,8 +1710,10 @@ pub extern "C" fn mitsuami_create_list(callbacks: MitsuamiListCallbacks) -> u32 
             let (changed_cb, changed_id, set) = (cb.clone(), id.clone(), set.clone());
             watch(
                 move || selected.get(),
+                // What the caller set comes back once; from then on, the
+                // user can pick it again.
                 move |now, _| {
-                    if *now != *set.borrow() {
+                    if set.replace(now.clone()) != *now {
                         (changed_cb.selection_changed)(changed_cb.user, changed_id.get());
                     }
                 },
@@ -1914,8 +1916,10 @@ pub unsafe extern "C" fn mitsuami_create_table(
             let (changed_cb, changed_id, set) = (cb.clone(), id.clone(), set.clone());
             watch(
                 move || selected.get(),
+                // What the caller set comes back once; from then on, the
+                // user can pick it again.
                 move |now, _| {
-                    if *now != *set.borrow() {
+                    if set.replace(now.clone()) != *now {
                         (changed_cb.selection_changed)(changed_cb.user, changed_id.get());
                     }
                 },

@@ -694,6 +694,13 @@ async fn lists_ask_for_rows_and_report_the_selection(app: TestApp) {
     assert!(heard_now.contains(&"selected c".to_string()), "{heard_now:?}");
     assert!(heard_now.contains(&"activated b".to_string()), "{heard_now:?}");
 
+    // The user picking again what the caller selected is the user's.
+    assert!(unsafe { mitsuami_list_set_selected(list, selected.as_ptr(), selected.len()) });
+    app.settle().await;
+    app.get_by_role(Role::ListItem, "Repository c").select().await;
+    app.get_by_role(Role::ListItem, "Repository a").select().await;
+    assert_eq!(heard(), ["selected c", "selected a"]);
+
     // Rows dragged onto another (the list takes drops onto rows).
     app.get_by_role(Role::ListItem, "Repository a").drag_onto(&app.get_by_role(Role::ListItem, "Repository b")).await;
     assert_eq!(heard(), ["moved a onto b"]);
@@ -867,6 +874,14 @@ async fn tables_ask_for_cells_and_report_the_sort(app: TestApp) {
     let heard_now = heard();
     assert!(heard_now.contains(&"selected b".to_string()), "{heard_now:?}");
     assert!(heard_now.contains(&"activated c".to_string()), "{heard_now:?}");
+
+    // The user picking again what the caller selected is the user's.
+    let selected = strs(&["a"]);
+    assert!(unsafe { mitsuami_list_set_selected(table, selected.as_ptr(), selected.len()) });
+    app.settle().await;
+    app.get_by_role(Role::Cell, "Commit c").select().await;
+    app.get_by_role(Role::Cell, "Commit a").select().await;
+    assert_eq!(heard(), ["selected c", "selected a"]);
 
     // The caller's sort isn't reported back; the user's is, as the
     // platform sorts (another column ascending, the same one reversed).
