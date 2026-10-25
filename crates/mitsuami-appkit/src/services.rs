@@ -366,8 +366,10 @@ impl Services for AppKitServices {
             AlertStyle::Critical => NSAlertStyle::Critical,
         });
         let buttons = alert.effective_buttons();
-        for button in &buttons {
-            ns_alert.addButtonWithTitle(&ns(button));
+        for (i, button) in buttons.iter().enumerate() {
+            let button = ns_alert.addButtonWithTitle(&ns(button));
+            // An alert draws it red; a window's button doesn't.
+            button.setHasDestructiveAction(alert.destructive == Some(i));
         }
         let reply = once(reply);
         let answer = move |response: NSModalResponse| reply((response - NSAlertFirstButtonReturn).max(0) as usize);

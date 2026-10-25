@@ -296,6 +296,7 @@ async fn alerts_and_folder_dialogs_answer_through_callbacks(app: TestApp) {
             buttons.as_ptr(),
             2,
             2,
+            0,
             alert_answer,
             std::ptr::null_mut(),
         )
@@ -308,6 +309,7 @@ async fn alerts_and_folder_dialogs_answer_through_callbacks(app: TestApp) {
     let alert = app.services().take_alert().expect("an alert is showing");
     assert_eq!(alert.request.title, "Delete the group?");
     assert_eq!(alert.request.buttons, ["Delete", "Cancel"]);
+    assert_eq!(alert.request.destructive, Some(0));
     alert.respond(1);
     let open = app.services().take_open_file().expect("a folder dialog is showing");
     assert!(open.request.directories && !open.request.multiple);

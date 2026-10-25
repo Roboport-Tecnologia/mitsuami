@@ -2455,7 +2455,9 @@ pub unsafe extern "C" fn mitsuami_canvas_path(
 
 /// Shows an alert on `window` (0: the focused one), its buttons in order
 /// of importance, the first the default; `style` is `Info`, `Warning` or
-/// `Critical`, 0 to 2. `answer(user, index)` gets the button chosen.
+/// `Critical`, 0 to 2; `destructive` is the index of the button that
+/// destroys something (Delete), drawn so where the platform's alerts draw
+/// one, or negative for none. `answer(user, index)` gets the button chosen.
 ///
 /// # Safety
 /// The strings are as [`string`] and [`strings`] say.
@@ -2467,6 +2469,7 @@ pub unsafe extern "C" fn mitsuami_alert(
     buttons: *const MitsuamiStr,
     count: usize,
     style: u32,
+    destructive: isize,
     answer: extern "C" fn(*mut c_void, usize),
     user: *mut c_void,
 ) -> bool {
@@ -2484,6 +2487,11 @@ pub unsafe extern "C" fn mitsuami_alert(
             1 => AlertStyle::Warning,
             2 => AlertStyle::Critical,
             _ => return Err(format!("bad alert style {style}")),
+        };
+        alert.destructive = match usize::try_from(destructive) {
+            Ok(i) if i < count => Some(i),
+            Ok(_) => return Err(format!("no button {destructive} of {count} to be destructive")),
+            Err(_) => None,
         };
         let reply = ui.alert((window != 0).then(|| node(window)), alert);
         ui.spawn_local(async move {

@@ -19,11 +19,14 @@ pub struct Alert {
     /// In order of importance: the first is the default (Return) button.
     pub buttons: Vec<String>,
     pub style: AlertStyle,
+    /// The button that destroys something (Delete, Discard), drawn as
+    /// destructive where the platform's alerts draw one.
+    pub destructive: Option<usize>,
 }
 
 impl Alert {
     pub fn new(title: impl Into<String>) -> Alert {
-        Alert { title: title.into(), message: None, buttons: Vec::new(), style: AlertStyle::Info }
+        Alert { title: title.into(), message: None, buttons: Vec::new(), style: AlertStyle::Info, destructive: None }
     }
 
     pub fn message(mut self, message: impl Into<String>) -> Alert {
@@ -32,6 +35,14 @@ impl Alert {
     }
 
     pub fn button(mut self, title: impl Into<String>) -> Alert {
+        self.buttons.push(title.into());
+        self
+    }
+
+    /// A button, after the others, that destroys something: TextEdit's
+    /// Delete when closing a document never saved.
+    pub fn destructive_button(mut self, title: impl Into<String>) -> Alert {
+        self.destructive = Some(self.buttons.len());
         self.buttons.push(title.into());
         self
     }

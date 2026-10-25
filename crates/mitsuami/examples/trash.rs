@@ -75,7 +75,7 @@ async fn move_to_trash(paths: Vec<PathBuf>) -> String {
             let answer = alert(
                 Alert::new(format!("Delete {} immediately?", items(left.len())))
                     .message("This disk has no trash. You can't undo this action.")
-                    .button("Delete")
+                    .destructive_button("Delete")
                     .button("Cancel")
                     .style(AlertStyle::Warning),
             )

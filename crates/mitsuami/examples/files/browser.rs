@@ -315,7 +315,7 @@ impl Browser {
         let confirm = Alert::new(title)
             .message("This disk has no trash. You can't undo this action.")
             .style(AlertStyle::Warning)
-            .button("Delete")
+            .destructive_button("Delete")
             .button("Cancel");
         if alert(confirm).await != 0 {
             return;

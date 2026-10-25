@@ -294,17 +294,22 @@ mod checks {
         f.ui.tick();
         let answer = Rc::new(RefCell::new(None));
         let a = answer.clone();
-        let reply = f.ui.alert(Some(window), Alert::new("Proceed?").button("Yes").button("No"));
+        let alert = Alert::new("Proceed?").button("Yes").destructive_button("Delete").button("No");
+        let reply = f.ui.alert(Some(window), alert);
         f.ui.spawn_local(async move { *a.borrow_mut() = Some(reply.await) });
         pump(&f.ui);
 
         let ns_window = f.handle.ns_window(window).unwrap();
-        let sheet = sheet_of(&ns_window);
-        let no = find_button(&sheet.contentView().unwrap(), "No").expect("the No button");
+        let content = sheet_of(&ns_window).contentView().unwrap();
+        // The alert draws the destructive one red.
+        let delete = find_button(&content, "Delete").expect("the Delete button");
+        assert!(delete.hasDestructiveAction(), "Delete is destructive");
+        assert!(!find_button(&content, "Yes").unwrap().hasDestructiveAction(), "Yes isn't");
+        let no = find_button(&content, "No").expect("the No button");
         unsafe { no.performClick(None::<&AnyObject>) };
         pump(&f.ui);
 
-        assert_eq!(*answer.borrow(), Some(1));
+        assert_eq!(*answer.borrow(), Some(2));
         f.ui.destroy(window);
         f.ui.tick();
     }

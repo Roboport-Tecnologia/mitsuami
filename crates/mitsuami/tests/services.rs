@@ -45,7 +45,7 @@ fn editor() -> impl View {
                     let choice = alert(
                         Alert::new("Discard your notes?")
                             .message("This can't be undone.")
-                            .button("Discard")
+                            .destructive_button("Discard")
                             .button("Cancel")
                             .style(AlertStyle::Warning),
                     )
@@ -95,6 +95,7 @@ async fn alerts_wait_for_an_answer(app: TestApp) {
     let alert = app.services().take_alert().expect("an alert is showing");
     assert_eq!(alert.request.title, "Discard your notes?");
     assert_eq!(alert.request.buttons, ["Discard", "Cancel"]);
+    assert_eq!(alert.request.destructive, Some(0));
     assert_eq!(alert.request.style, AlertStyle::Warning);
 
     alert.respond(1); // Cancel
