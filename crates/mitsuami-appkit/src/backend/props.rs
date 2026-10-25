@@ -5,13 +5,13 @@ use mitsuami_core::{
     Prop, Truncation, UiEvent, WidgetKind,
 };
 use objc2::rc::Retained;
-use objc2::runtime::ProtocolObject;
-use objc2::{MainThreadMarker, MainThreadOnly, sel};
+use objc2::runtime::{NSObjectProtocol, ProtocolObject};
+use objc2::{MainThreadMarker, MainThreadOnly, msg_send, sel};
 use objc2_app_kit::{
-    NSAccessibility, NSControlStateValueMixed, NSControlStateValueOff, NSControlStateValueOn, NSImageScaling,
-    NSLineBreakMode, NSMenu, NSMenuItem, NSProgressIndicatorStyle, NSSlider, NSTextAlignment, NSTextContent,
-    NSTextContentType, NSTextContentTypeEmailAddress, NSTextContentTypeTelephoneNumber, NSTextContentTypeURL,
-    NSTextField, NSUserInterfaceLayoutDirection, NSView, NSWindowStyleMask,
+    NSAccessibility, NSButton, NSColor, NSControlStateValueMixed, NSControlStateValueOff, NSControlStateValueOn,
+    NSImageScaling, NSLineBreakMode, NSMenu, NSMenuItem, NSProgressIndicatorStyle, NSSlider, NSTextAlignment,
+    NSTextContent, NSTextContentType, NSTextContentTypeEmailAddress, NSTextContentTypeTelephoneNumber,
+    NSTextContentTypeURL, NSTextField, NSUserInterfaceLayoutDirection, NSView, NSWindowStyleMask,
 };
 
 use crate::classes::ClosureTarget;
@@ -138,6 +138,7 @@ impl State {
             (Prop::ButtonStyle(style), Widget::SplitButton(_)) => node.button_style = Some(*style),
             (Prop::ButtonStyle(style), Widget::MenuButton { popup, .. }) => {
                 popup.setBordered(*style != ButtonStyle::Borderless);
+                set_prominent(popup, *style == ButtonStyle::Prominent);
                 node.button_style = Some(*style);
             }
             (Prop::Options(options), Widget::Select(p)) => {
@@ -436,6 +437,7 @@ impl State {
             }
             (Prop::ButtonStyle(style), Widget::Button(b)) => {
                 b.setBordered(*style != ButtonStyle::Borderless);
+                set_prominent(b, *style == ButtonStyle::Prominent && node.kind == WidgetKind::Button);
                 node.button_style = Some(*style);
             }
             (Prop::LayoutDirection(direction), widget) => set_direction(widget, *direction),
@@ -709,6 +711,29 @@ fn set_line_limit(label: &NSTextField, lines: Option<u32>, truncation: Truncatio
     });
     if let Some(cell) = label.cell() {
         cell.setTruncatesLastVisibleLine(lines.is_some());
+    }
+}
+
+/// A button filled with the accent colour, without being the default
+/// button: macOS 26's primary tint prominence, and before it the accent
+/// colour as its bezel's, as apps tinted one then.
+pub(super) fn set_prominent(button: &NSButton, on: bool) {
+    if button.respondsToSelector(sel!(setTintProminence:)) {
+        // `NSTintProminence`: automatic 0, primary 2.
+        let prominence: isize = if on { 2 } else { 0 };
+        let _: () = unsafe { msg_send![button, setTintProminence: prominence] };
+    } else {
+        button.setBezelColor(on.then(NSColor::controlAccentColor).as_deref());
+    }
+}
+
+/// Whether a button shows as `set_prominent` makes it.
+pub(super) fn is_prominent(button: &NSButton) -> bool {
+    if button.respondsToSelector(sel!(tintProminence)) {
+        let prominence: isize = unsafe { msg_send![button, tintProminence] };
+        prominence == 2
+    } else {
+        button.bezelColor().is_some_and(|c| c.isEqual(Some(&NSColor::controlAccentColor())))
     }
 }
 

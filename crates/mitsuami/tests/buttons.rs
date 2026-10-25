@@ -70,6 +70,32 @@ async fn changing_the_role_or_style_doesnt_click(app: TestApp) {
     assert_eq!(clicks.get_untracked(), 1);
 }
 
+/// A prominent button shows the accent colour without being the default
+/// button, and gives it back when it's plain again; a default button that's
+/// prominent keeps its role (GTK's `suggested-action` is both).
+#[mitsuami_test::test]
+async fn a_prominent_button_shows_it_until_it_is_plain(app: TestApp) {
+    let style = signal(ButtonStyle::Prominent);
+    app.mount(move || {
+        Row::new().gap(8).children((
+            Button::new("Commit").button_style(style),
+            Button::new("Save").role(ButtonRole::Default).button_style(style),
+        ))
+    });
+
+    for name in ["Commit", "Save"] {
+        assert!(has(&app, name, Prop::ButtonStyle(ButtonStyle::Prominent)), "{name}");
+    }
+    assert!(!has(&app, "Commit", Prop::ButtonRole(ButtonRole::Default)));
+
+    style.set(ButtonStyle::Bordered);
+    app.settle().await;
+    for name in ["Commit", "Save"] {
+        assert!(has(&app, name, Prop::ButtonStyle(ButtonStyle::Bordered)), "{name}");
+    }
+    assert!(has(&app, "Save", Prop::ButtonRole(ButtonRole::Default)));
+}
+
 /// Logs whether the native button is enabled, each time the tweak runs.
 fn log_enabled(log: Rc<RefCell<Vec<bool>>>) -> Tweak<Button> {
     platform! {

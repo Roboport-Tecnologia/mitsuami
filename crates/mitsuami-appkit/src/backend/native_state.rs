@@ -2,7 +2,8 @@
 
 use mitsuami_core::backend::NativeState;
 use mitsuami_core::{
-    Color, HorizontalAlign, ImageFit, NodeId, Orientation, Point, Prop, Rect, ScrollAxes, Truncation, WidgetKind,
+    ButtonStyle, Color, HorizontalAlign, ImageFit, NodeId, Orientation, Point, Prop, Rect, ScrollAxes, Truncation,
+    WidgetKind,
 };
 use objc2_app_kit::{
     NSAccessibility, NSCellImagePosition, NSColor, NSColorSpace, NSControlStateValueMixed, NSControlStateValueOn,
@@ -350,7 +351,17 @@ pub(super) fn native_state(state: &State, id: NodeId) -> Option<NativeState> {
     }
     props.extend(node.text_style.map(Prop::TextStyle));
     props.extend(node.role.map(Prop::ButtonRole));
-    props.extend(node.button_style.map(Prop::ButtonStyle));
+    // Prominence as the button shows it; the rest as the core sent it.
+    let prominent = match &node.widget {
+        Widget::Button(b) if node.kind == WidgetKind::Button => Some(super::props::is_prominent(b)),
+        Widget::MenuButton { popup, .. } => Some(super::props::is_prominent(popup)),
+        _ => None,
+    };
+    props.extend(node.button_style.map(|style| match (style, prominent) {
+        (_, Some(true)) => Prop::ButtonStyle(ButtonStyle::Prominent),
+        (ButtonStyle::Prominent, Some(false)) => Prop::ButtonStyle(ButtonStyle::Bordered),
+        _ => Prop::ButtonStyle(style),
+    }));
     props.extend(node.tabs_style.map(Prop::TabsStyle));
     props.extend(node.tweak.clone().map(Prop::Tweak));
     let view = node.widget.view();

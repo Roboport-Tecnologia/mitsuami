@@ -6,8 +6,8 @@ use std::time::Duration;
 use gtk::prelude::*;
 use gtk::{gdk, glib, pango};
 use mitsuami_core::{
-    ButtonStyle, Color, Command, HorizontalAlign, ImageFit, ImageSource, InputPurpose, LayoutDirection, NodeId, Prop,
-    Truncation, UiEvent,
+    ButtonRole, ButtonStyle, Color, Command, HorizontalAlign, ImageFit, ImageSource, InputPurpose, LayoutDirection,
+    NodeId, Prop, Truncation, UiEvent, WidgetKind,
 };
 
 use crate::custom::NativePayload;
@@ -215,6 +215,7 @@ impl State {
             (Prop::Menu(entries), Widget::MenuButton { button, menu }) => menu.set(button.upcast_ref(), entries),
             (Prop::ButtonStyle(style), Widget::MenuButton { button, .. }) => {
                 button.set_has_frame(*style != ButtonStyle::Borderless);
+                set_suggested(button.upcast_ref(), *style == ButtonStyle::Prominent);
                 node.button_style = Some(*style);
             }
             (Prop::Label(t), Widget::SplitButton { button, .. }) => {
@@ -242,6 +243,7 @@ impl State {
                 } else {
                     button.remove_css_class("flat");
                 }
+                set_suggested(button.upcast_ref(), *style == ButtonStyle::Prominent);
                 node.button_style = Some(*style);
             }
             (Prop::Label(t), Widget::Checkbox(c)) => c.set_label(Some(t)),
@@ -527,10 +529,17 @@ impl State {
                 if let Some(class) = role_class(*role) {
                     b.add_css_class(class);
                 }
+                // A prominent style is the same class.
+                if node.button_style == Some(ButtonStyle::Prominent) {
+                    b.add_css_class("suggested-action");
+                }
                 node.role = Some(*role);
             }
             (Prop::ButtonStyle(style), Widget::Button(b)) => {
                 b.set_has_frame(*style != ButtonStyle::Borderless);
+                // A default button keeps the class it has for its role.
+                let prominent = *style == ButtonStyle::Prominent && node.kind == WidgetKind::Button;
+                set_suggested(b.upcast_ref(), prominent || node.role == Some(ButtonRole::Default));
                 node.button_style = Some(*style);
             }
             (Prop::Checked(c), Widget::Button(b)) => {
@@ -763,4 +772,15 @@ fn context_menu<'a>(
         let activate = move |item| events.emit(id, UiEvent::ContextMenuItem(item));
         ContextMenu::new(focus, Rc::new(activate))
     })
+}
+
+/// The accent colour GNOME gives the action it suggests among others:
+/// libadwaita's `suggested-action`, on buttons, menu buttons and split
+/// buttons alike.
+fn set_suggested(widget: &gtk::Widget, on: bool) {
+    if on {
+        widget.add_css_class("suggested-action");
+    } else {
+        widget.remove_css_class("suggested-action");
+    }
 }

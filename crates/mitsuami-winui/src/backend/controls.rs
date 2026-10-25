@@ -181,17 +181,25 @@ pub(super) fn button_content(node: &Node) -> Vec<Prop> {
 }
 
 /// A menu or split button's look (`target` is its XAML type). Fluent has
-/// no subtle `DropDownButton` or `SplitButton`, and `SubtleButtonStyle`
-/// would replace its template (and its chevron), so borderless is a style
-/// over its own that only clears the fill and the border, as a subtle
-/// button's are at rest; its template still shows a fill on hover. An
-/// explicit style sets only what it says: the theme's template stays.
+/// no subtle or accent `DropDownButton` or `SplitButton`, and
+/// `SubtleButtonStyle` or `AccentButtonStyle` would replace its template
+/// (and its chevron), so each is a style over its own: borderless only
+/// clears the fill and the border, as a subtle button's are at rest (its
+/// template still shows a fill on hover); prominent sets an accent
+/// button's fill, text and border brushes at rest. An explicit style sets
+/// only what it says: the theme's template stays.
 pub(super) fn set_menu_button_style(element: &w::IFrameworkElement, target: &str, button_style: ButtonStyle) -> R<()> {
-    if button_style != ButtonStyle::Borderless {
-        return element.SetStyle(None::<&w::Style>);
-    }
+    let setters = match button_style {
+        ButtonStyle::Borderless => {
+            r#"<Setter Property="Background" Value="{ThemeResource SubtleFillColorTransparentBrush}"/><Setter Property="BorderBrush" Value="{ThemeResource SubtleFillColorTransparentBrush}"/>"#
+        }
+        ButtonStyle::Prominent => {
+            r#"<Setter Property="Background" Value="{ThemeResource AccentFillColorDefaultBrush}"/><Setter Property="Foreground" Value="{ThemeResource TextOnAccentFillColorPrimaryBrush}"/><Setter Property="BorderBrush" Value="{ThemeResource AccentControlElevationBorderBrush}"/>"#
+        }
+        ButtonStyle::Automatic | ButtonStyle::Bordered => return element.SetStyle(None::<&w::Style>),
+    };
     let markup = format!(
-        r#"<Style xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation" TargetType="{target}"><Setter Property="Background" Value="{{ThemeResource SubtleFillColorTransparentBrush}}"/><Setter Property="BorderBrush" Value="{{ThemeResource SubtleFillColorTransparentBrush}}"/></Style>"#
+        r#"<Style xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation" TargetType="{target}">{setters}</Style>"#
     );
     element.SetStyle(&w::XamlReader::Load(&markup)?.cast::<w::Style>()?)
 }
@@ -209,8 +217,9 @@ pub(super) fn set_toggle_style(button: &w::ToggleButton, button_style: ButtonSty
 }
 
 /// A button's XAML style, from its role and style: one style has both.
-/// Borderless wins, since it's how the button is drawn. Fluent has no
-/// cancel or destructive style.
+/// Borderless wins, since it's how the button is drawn; a prominent one is
+/// the default button's accent style. Fluent has no cancel or destructive
+/// style.
 pub(super) fn set_button_style(
     button: &w::Button,
     role: Option<ButtonRole>,
@@ -218,7 +227,7 @@ pub(super) fn set_button_style(
 ) -> R<()> {
     let name = match (role.unwrap_or_default(), button_style.unwrap_or_default()) {
         (_, ButtonStyle::Borderless) => "SubtleButtonStyle",
-        (ButtonRole::Default, _) => "AccentButtonStyle",
+        (ButtonRole::Default, _) | (_, ButtonStyle::Prominent) => "AccentButtonStyle",
         _ => "DefaultButtonStyle",
     };
     button.cast::<w::IFrameworkElement>()?.SetStyle(&style(name))

@@ -5,10 +5,10 @@
 use mitsuami::prelude::*;
 use mitsuami_test::prelude::*;
 
-/// Every role, bordered and borderless, and disabled. Default buttons are
-/// the accent colour on AppKit, GTK and WinUI, and tinted on Qt (not
-/// borderless ones);
-/// cancel buttons look normal; only GTK draws destructive buttons.
+/// Every role, bordered, borderless and prominent, and disabled. Default
+/// and prominent buttons are the accent colour on AppKit, GTK and WinUI
+/// (not borderless ones); on Qt only default buttons are tinted; cancel
+/// buttons look normal; only GTK draws destructive buttons.
 #[mitsuami_test::story(sizes = [(420, fit)])]
 fn buttons() -> impl View {
     let roles = [
@@ -25,6 +25,7 @@ fn buttons() -> impl View {
     Column::new().padding(16).gap(8).align(Align::Start).children((
         row(ButtonStyle::Bordered, true),
         row(ButtonStyle::Borderless, true),
+        row(ButtonStyle::Prominent, true),
         row(ButtonStyle::Bordered, false),
     ))
 }
@@ -757,7 +758,8 @@ fn menu_buttons() -> impl View {
 
 /// Split buttons as each platform draws them: with a caption, an icon
 /// before it, the icon alone, borderless (AppKit's has one look), and
-/// disabled, beside a plain button for their arrows' room.
+/// disabled, beside a plain button for their arrows' room; prominent,
+/// beside a prominent button (AppKit's combo button has no prominence).
 #[mitsuami_test::story(sizes = [(420, fit)])]
 fn split_buttons() -> impl View {
     let plus = platform! {
@@ -778,6 +780,10 @@ fn split_buttons() -> impl View {
             SplitButton::new("Add").icon(plus).icon_only(true).menu(menu()),
             SplitButton::new("Add").icon(plus).button_style(ButtonStyle::Borderless).menu(menu()),
             SplitButton::new("Continue").enabled(false).menu(menu()),
+        )),
+        Row::new().gap(8).align(Align::Center).children((
+            Button::new("Commit").button_style(ButtonStyle::Prominent),
+            SplitButton::new("Continue").button_style(ButtonStyle::Prominent).menu(menu()),
         )),
     ))
 }

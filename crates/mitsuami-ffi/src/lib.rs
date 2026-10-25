@@ -955,7 +955,7 @@ pub enum MitsuamiEnumProp {
     TextStyle = 0,
     /// `Normal`, `Default`, `Cancel`, `Destructive`: 0 to 3.
     ButtonRole = 1,
-    /// `Automatic`, `Bordered`, `Borderless`: 0 to 2.
+    /// `Automatic`, `Bordered`, `Borderless`, `Prominent`: 0 to 3.
     ButtonStyle = 2,
     /// A list's: `None`, `Single`, `Multiple`, 0 to 2.
     SelectionMode = 3,
@@ -1002,6 +1002,7 @@ pub extern "C" fn mitsuami_set_enum(id: u32, prop: u32, value: u32) -> bool {
                 0 => ButtonStyle::Automatic,
                 1 => ButtonStyle::Bordered,
                 2 => ButtonStyle::Borderless,
+                3 => ButtonStyle::Prominent,
                 _ => return Err(bad()),
             }),
             3 => Prop::SelectionMode(match value {

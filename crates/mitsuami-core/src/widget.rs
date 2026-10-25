@@ -470,6 +470,14 @@ pub enum ButtonStyle {
     /// No bezel or frame until hovered, where the platform does that: for
     /// toolbars, and buttons that sit among text.
     Borderless,
+    /// Filled with the accent colour, as the platform marks the action it
+    /// suggests among others (AppKit's primary tint prominence, GTK's
+    /// `suggested-action`, WinUI's accent style), without being the
+    /// window's default button: Return doesn't press it. Buttons and menu
+    /// and split buttons; on others, `Bordered`. Breeze has no such style
+    /// (only its default button is tinted), nor AppKit's combo button, so
+    /// those stay bordered.
+    Prominent,
 }
 
 /// A suggestion of a `SearchInput`: what it says, and a second line in the
