@@ -2599,7 +2599,9 @@ fn shortcut(s: &MitsuamiShortcut) -> Result<Shortcut, String> {
 
 /// The keys a container, list or table takes while it, or a control in
 /// it, has keyboard focus and the focused control doesn't use them: each
-/// is reported as a `Key` event with its index here. None: it takes none.
+/// is reported as a `Key` event with its index here. On a text input or
+/// search field, the keys it takes before its own editing (the arrows,
+/// Return, Escape). None: it takes none.
 ///
 /// # Safety
 /// `keys` points to `count` shortcuts.

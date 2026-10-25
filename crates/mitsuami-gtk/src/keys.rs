@@ -2,7 +2,9 @@
 //! widget, in the bubble phase. GTK hands a key to the focused widget and
 //! then up its ancestors, so the widgets on the way use it first (a list
 //! view's arrows and Space, an entry's editing keys), and only keys none
-//! of them use reach the node.
+//! of them use reach the node. A text field's own keys are in the capture
+//! phase instead, before its editing; its search suggestions still take
+//! theirs first while they show.
 
 use gtk::prelude::*;
 use gtk::{gdk, glib};
@@ -28,11 +30,16 @@ pub(crate) fn set_keys(
     id: NodeId,
     events: &Events,
     keys: &[Shortcut],
+    first: bool,
 ) {
     let controller = kept.get_or_insert_with(|| {
         let controller = gtk::ShortcutController::new();
         controller.set_scope(gtk::ShortcutScope::Local);
-        controller.set_propagation_phase(gtk::PropagationPhase::Bubble);
+        controller.set_propagation_phase(if first {
+            gtk::PropagationPhase::Capture
+        } else {
+            gtk::PropagationPhase::Bubble
+        });
         widget.add_controller(controller.clone());
         controller
     });
@@ -42,12 +49,22 @@ pub(crate) fn set_keys(
     for &shortcut in keys {
         let Some((key, modifiers)) = gtk::accelerator_parse(trigger(&shortcut)) else { continue };
         let events = events.clone();
-        let action = gtk::CallbackAction::new(move |_, _| {
+        let action = gtk::CallbackAction::new(move |widget, _| {
+            // A search field's suggestions shown take their keys first.
+            if first && suggestions_shown(widget) {
+                return glib::Propagation::Proceed;
+            }
             events.emit(id, UiEvent::Key(shortcut));
             glib::Propagation::Stop
         });
         controller.add_shortcut(gtk::Shortcut::new(Some(gtk::KeyvalTrigger::new(key, modifiers)), Some(action)));
     }
+}
+
+/// Whether a search entry's suggestions (a popover child of it) show.
+fn suggestions_shown(widget: &gtk::Widget) -> bool {
+    std::iter::successors(widget.first_child(), |c| c.next_sibling())
+        .any(|child| child.downcast_ref::<gtk::Popover>().is_some_and(|p| p.is_visible()))
 }
 
 /// The keys the node's controller takes, read back from its triggers.

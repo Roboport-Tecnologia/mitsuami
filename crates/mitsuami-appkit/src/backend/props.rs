@@ -51,6 +51,11 @@ impl State {
                 host.set_keys(Some(crate::keys::Keys { id, keys: keys.clone(), events: events.clone() }));
             }
             (Prop::Keys(keys), Widget::List(list)) => list.set_keys(keys.clone()),
+            (Prop::Keys(keys), Widget::Field(_)) => {
+                if let Some(target) = &node._target {
+                    target.set_keys(keys.clone());
+                }
+            }
             (Prop::FullScreen(on), Widget::Window { window, _delegate, .. }) => _delegate.set_full_screen(window, *on),
             // AppKit's maximize is zoom: the title bar's green button with
             // Option, or a double-click on the title bar.

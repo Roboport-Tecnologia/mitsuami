@@ -8,6 +8,11 @@
 //! Not `KeyboardAccelerator`s: XAML looks at an element's accelerators
 //! before raising its `KeyDown`, so a list's would take its arrows ahead
 //! of the list view itself.
+//!
+//! A text box's or search box's own keys come before its editing: they're
+//! taken on `PreviewKeyDown`, which tunnels to it before its `KeyDown`.
+//! An auto-suggest box's open suggestion list keeps its arrows, Return and
+//! Escape.
 
 use std::cell::RefCell;
 use std::rc::Rc;
@@ -37,6 +42,37 @@ impl Keys {
                 let Some(args) = args.as_ref().and_then(|a| a.cast::<w::IKeyRoutedEventArgs>().ok()) else { return };
                 let Some(shortcut) = args.Key().ok().and_then(held) else { return };
                 if take(&events, id, &taken, shortcut) {
+                    _ = args.SetHandled(true);
+                }
+            }
+        })?;
+        Ok(Keys { id, events, taken, _key_down: key_down })
+    }
+
+    /// A text field's own keys, ahead of its editing; `suggestions` is the
+    /// auto-suggest box whose open list keeps its keys.
+    pub(super) fn before(
+        id: NodeId,
+        events: Events,
+        element: &w::UIElement,
+        suggestions: Option<w::AutoSuggestBox>,
+        keys: Vec<Shortcut>,
+    ) -> R<Keys> {
+        let taken = Rc::new(RefCell::new(keys));
+        let key_down = element.cast::<w::IUIElement>()?.PreviewKeyDown({
+            let (events, taken) = (events.clone(), taken.clone());
+            move |_, args| {
+                let Some(args) = args.as_ref().and_then(|a| a.cast::<w::IKeyRoutedEventArgs>().ok()) else { return };
+                let Some(shortcut) = args.Key().ok().and_then(held) else { return };
+                let listed = suggestions.as_ref().is_some_and(|s| s.IsSuggestionListOpen().unwrap_or(false))
+                    && matches!(
+                        shortcut.key,
+                        mitsuami_core::Key::Up
+                            | mitsuami_core::Key::Down
+                            | mitsuami_core::Key::Enter
+                            | mitsuami_core::Key::Escape
+                    );
+                if !listed && take(&events, id, &taken, shortcut) {
                     _ = args.SetHandled(true);
                 }
             }

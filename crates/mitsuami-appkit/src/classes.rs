@@ -365,6 +365,9 @@ pub(crate) struct TargetIvars {
     snap: Cell<Option<f64>>,
     /// A search field's suggestions, which its keys move through.
     suggestions: RefCell<Option<Rc<crate::suggestions::Suggestions>>>,
+    /// A text field's own keys (`Prop::Keys`), which come before its
+    /// editor's commands.
+    keys: RefCell<Option<Vec<mitsuami_core::services::Shortcut>>>,
 }
 
 define_class!(
@@ -471,8 +474,10 @@ define_class!(
             _text_view: &NSTextView,
             command: Sel,
         ) -> bool {
-            // A search field's suggestions take their keys first.
-            if self.take_suggestion_key(command) {
+            // A search field's suggestions take their keys first, then the
+            // field's own keys, before its editor uses them: the arrows
+            // moving through a list beside it.
+            if self.take_suggestion_key(command) || self.take_own_key() {
                 return true.into();
             }
             if command == sel!(noop:) {
@@ -559,6 +564,34 @@ impl ActionTarget {
         true
     }
 
+    /// The key being handled, if the field takes it itself.
+    fn take_own_key(&self) -> bool {
+        let keys = self.ivars().keys.borrow();
+        let Some(keys) = keys.as_ref() else { return false };
+        let app = objc2_app_kit::NSApplication::sharedApplication(MainThreadMarker::from(self));
+        let Some(shortcut) = app
+            .currentEvent()
+            .filter(|event| event.r#type() == objc2_app_kit::NSEventType::KeyDown)
+            .and_then(|event| crate::keys::shortcut_of(&event))
+        else {
+            return false;
+        };
+        let taken = keys.contains(&shortcut);
+        if taken {
+            self.ivars().events.emit(self.ivars().id, UiEvent::Key(shortcut));
+        }
+        taken
+    }
+
+    /// A text field's own keys.
+    pub(crate) fn set_keys(&self, keys: Vec<mitsuami_core::services::Shortcut>) {
+        *self.ivars().keys.borrow_mut() = Some(keys);
+    }
+
+    pub(crate) fn keys(&self) -> Option<Vec<mitsuami_core::services::Shortcut>> {
+        self.ivars().keys.borrow().clone()
+    }
+
     /// A search field's suggestions, for its keys.
     pub(crate) fn set_suggestions(&self, list: Rc<crate::suggestions::Suggestions>) {
         *self.ivars().suggestions.borrow_mut() = Some(list);
@@ -576,6 +609,7 @@ impl ActionTarget {
             events,
             snap: Cell::new(None),
             suggestions: RefCell::new(None),
+            keys: RefCell::new(None),
         });
         unsafe { msg_send![super(this), init] }
     }

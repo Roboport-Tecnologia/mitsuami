@@ -714,7 +714,12 @@ impl State {
             // On the list's scrolled window: after the view, which uses
             // its own keys first.
             (Prop::Keys(keys), widget @ (Widget::Host(_) | Widget::Group(_) | Widget::List(_))) => {
-                crate::keys::set_keys(&mut node.keys, widget.widget(), id, &self.events, keys)
+                crate::keys::set_keys(&mut node.keys, widget.widget(), id, &self.events, keys, false)
+            }
+            // A text field's own keys: before its editing (the capture
+            // phase), so the arrows can move through a list beside it.
+            (Prop::Keys(keys), widget @ (Widget::Entry(_) | Widget::Search(_))) => {
+                crate::keys::set_keys(&mut node.keys, widget.widget(), id, &self.events, keys, true)
             }
             (Prop::ScrollAxes(axes), Widget::Scroll { scrolled, .. }) => {
                 set_scroll_policy(scrolled, *axes, scroll_bars(scrolled))

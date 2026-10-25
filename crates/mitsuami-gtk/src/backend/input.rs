@@ -100,6 +100,24 @@ impl GtkBackend {
             step(scrolled.vadjustment(), *dy, v_on);
             return Ok(());
         }
+        // A text field's own keys come before its editing: through its
+        // capture-phase controller, as a key press runs it.
+        let shortcut = match input {
+            SyntheticInput::Key(key) => Some(Shortcut::new(*key)),
+            SyntheticInput::Shortcut(shortcut) => Some(*shortcut),
+            _ => None,
+        };
+        if let Some(shortcut) = shortcut {
+            let own = {
+                let state = self.state.borrow();
+                let node = state.nodes.get(&id).ok_or(ActionError::UnknownNode)?;
+                matches!(node.kind, WidgetKind::TextInput | WidgetKind::SearchInput)
+                    && node.keys.as_ref().is_some_and(|c| crate::keys::keys(c).contains(&shortcut))
+            };
+            if own {
+                return self.send_key(id, shortcut);
+            }
+        }
         let key = match input {
             SyntheticInput::Key(key) => key,
             SyntheticInput::Shortcut(shortcut) => {

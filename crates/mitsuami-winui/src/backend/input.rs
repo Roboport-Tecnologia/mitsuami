@@ -173,6 +173,24 @@ impl WinUiBackend {
         if enabled == Some(false) {
             return Err(ActionError::Disabled);
         }
+        // A text field's own keys come before its editing, as its
+        // `PreviewKeyDown` takes them (`keys.rs`).
+        if matches!(widget_kind, WidgetKind::TextInput | WidgetKind::SearchInput) {
+            let shortcut = match input {
+                SyntheticInput::Key(key) => Some(Shortcut::new(*key)),
+                SyntheticInput::Shortcut(shortcut) => Some(*shortcut),
+                _ => None,
+            };
+            let state = self.state.borrow();
+            if let Some(shortcut) = shortcut
+                && let Some(node) = state.nodes.get(&id)
+                && node.keys.as_ref().is_some_and(|k| k.keys().contains(&shortcut))
+            {
+                state.focus(id, w::FocusState::Keyboard);
+                node.keys.as_ref().unwrap().take(shortcut);
+                return Ok(());
+            }
+        }
         let key = match input {
             SyntheticInput::Key(key) => key,
             SyntheticInput::Shortcut(shortcut) => {

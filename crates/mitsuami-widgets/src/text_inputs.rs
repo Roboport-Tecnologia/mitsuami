@@ -82,6 +82,18 @@ impl TextInput {
         self
     }
 
+    /// Takes `key` before the field's own use of it (the arrows, Return,
+    /// Escape), and runs `handler` when it's pressed in the field: a field
+    /// that moves through a list beside it.
+    pub fn on_key(
+        mut self,
+        key: impl Into<mitsuami_core::services::Shortcut>,
+        handler: impl Fn() + 'static,
+    ) -> TextInput {
+        self.0.on_key(key.into(), handler);
+        self
+    }
+
     /// Called when the user confirms (Return / Enter).
     pub fn on_submit(mut self, handler: impl Fn() + 'static) -> TextInput {
         self.0.on(move |event| {
@@ -221,6 +233,18 @@ impl SearchInput {
     /// user types, after a pause where the platform waits for one (AppKit,
     /// GTK, Qt) and at once where it doesn't (WinUI); on Return; and when
     /// the field is cleared. Not for text the app set.
+    /// Takes `key` before the field's own use of it (the arrows, Return,
+    /// Escape; the suggestions' still come first), and runs `handler` when
+    /// it's pressed in the field.
+    pub fn on_key(
+        mut self,
+        key: impl Into<mitsuami_core::services::Shortcut>,
+        handler: impl Fn() + 'static,
+    ) -> SearchInput {
+        self.0.on_key(key.into(), handler);
+        self
+    }
+
     pub fn on_search(mut self, handler: impl Fn(String) + 'static) -> SearchInput {
         self.0.on(move |event| {
             if let UiEvent::Search(text) = event {

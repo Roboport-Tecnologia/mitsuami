@@ -446,7 +446,9 @@ impl State {
                     node.click = Some(crate::double_click::Tap::new(widget.item(), id, events, false));
                 }
             }
-            (Prop::Keys(keys), Widget::Host(_) | Widget::Group { .. } | Widget::List(_)) => {
+            // On a text field, the filter on its own item sees a key before
+            // the field does: its own keys come before its editing.
+            (Prop::Keys(keys), Widget::Host(_) | Widget::Group { .. } | Widget::List(_) | Widget::Field(_)) => {
                 let item = node.widget.item();
                 node.keys.get_or_insert_with(|| crate::keys::NodeKeys::new(item, id, events)).set(keys);
             }

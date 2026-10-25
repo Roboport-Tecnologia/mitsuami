@@ -349,6 +349,7 @@ pub(super) fn native_state(state: &State, id: NodeId) -> Option<NativeState> {
     match &node.widget {
         Widget::Host(host) | Widget::Group { host, .. } => props.extend(host.keys().map(Prop::Keys)),
         Widget::List(list) => props.extend(list.keys().map(Prop::Keys)),
+        Widget::Field(_) => props.extend(node._target.as_ref().and_then(|t| t.keys()).map(Prop::Keys)),
         _ => {}
     }
     if let Some(control) = node.widget.control() {

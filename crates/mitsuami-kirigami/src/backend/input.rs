@@ -139,6 +139,20 @@ impl KirigamiBackend {
             | SyntheticInput::SingleClick => unreachable!(),
             // Only a surface takes an input method's text.
             SyntheticInput::Text(_) | SyntheticInput::Compose(_) => Err(ActionError::Unsupported),
+            // A text field's own keys, as the keyboard sends them: its key
+            // filter sees them before the field does.
+            SyntheticInput::Shortcut(shortcut)
+                if matches!(kind, WidgetKind::TextInput | WidgetKind::SearchInput)
+                    && self
+                        .state
+                        .borrow()
+                        .nodes
+                        .get(&id)
+                        .and_then(|n| n.keys.as_ref())
+                        .is_some_and(|keys| keys.takes(shortcut)) =>
+            {
+                self.send_key(id, *shortcut, widget_item, window)
+            }
             // Text fields take keys with modifiers as editing commands,
             // which aren't simulated.
             SyntheticInput::Shortcut(_)

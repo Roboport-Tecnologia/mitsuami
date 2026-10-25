@@ -1288,8 +1288,11 @@ pub enum Prop {
     /// or a control inside it, has keyboard focus, and the focused control
     /// doesn't use them itself: they go up from the focused control, as the
     /// platform sends keys it doesn't use, to the nearest node that takes
-    /// them, which reports [`UiEvent::Key`](crate::UiEvent::Key). Sent only
-    /// if the app gave some.
+    /// them, which reports [`UiEvent::Key`](crate::UiEvent::Key). On a
+    /// `TextInput` or `SearchInput`, the keys it takes before its own use
+    /// of them (the arrows, Return, Escape): a field that moves through a
+    /// list beside it, as Xcode's Open Quickly. A search field's
+    /// suggestions still take theirs first. Sent only if the app gave some.
     Keys(Vec<Shortcut>),
     /// Raw platform settings for a built-in widget (see
     /// [`Tweak`](crate::Tweak)), in the backend's own form. Applied after

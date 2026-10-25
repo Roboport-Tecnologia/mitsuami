@@ -482,6 +482,11 @@ protected:
         if (k == Qt::Key_Enter) k = Qt::Key_Return;
         Qt::KeyboardModifiers mods =
             press->modifiers() & (Qt::ShiftModifier | Qt::ControlModifier | Qt::AltModifier | Qt::MetaModifier);
+        // A search field's suggestions take their keys first, while they
+        // show (`mitsuamiKeysPaused`).
+        if (mods == Qt::NoModifier && parent()->property("mitsuamiKeysPaused").toBool()
+            && (k == Qt::Key_Up || k == Qt::Key_Down || k == Qt::Key_Escape || k == Qt::Key_Return))
+            return false;
         for (int i = 0; i < keys.size(); i++) {
             if (keys[i].first == k && keys[i].second == mods) {
                 press->accept();

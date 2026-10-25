@@ -346,4 +346,47 @@ async fn suggests_and_reports_the_pick(app: TestApp) {
     );
 }
 
+/// Keys the app sets on a field come before the field's own use of them,
+/// as Open Quickly's field moves through its list: the arrows move a pick,
+/// Return runs it, and typing still types. A text field takes them too.
+#[mitsuami_test::test]
+async fn its_own_keys_come_before_its_editing(app: TestApp) {
+    let picked = signal(0);
+    let ran = signal(String::new());
+    app.mount(move || {
+        let field = |label: &'static str| {
+            (
+                SearchInput::new()
+                    .a11y_label(label)
+                    .on_key(Key::Down, move || picked.update(|p| *p += 1))
+                    .on_key(Key::Up, move || picked.update(|p| *p -= 1))
+                    .on_key(Key::Enter, move || ran.set(format!("ran {}", picked.get_untracked()))),
+                TextInput::new()
+                    .a11y_label(format!("{label} text"))
+                    .on_key(Key::Down, move || picked.update(|p| *p += 10)),
+            )
+        };
+        Column::new().padding(16).gap(8).children((
+            field("Open Quickly"),
+            Text::new(move || format!("picked {}", picked.get())),
+            Text::new(ran),
+        ))
+    });
+    let field = app.get_by_label("Open Quickly");
+    field.fill("rea").await;
+    field.press(Key::Down).await;
+    field.press(Key::Down).await;
+    field.press(Key::Up).await;
+    app.expect(by_text("picked 1")).to_exist().await;
+    field.press(Key::Enter).await;
+    app.expect(by_text("ran 1")).to_exist().await;
+    assert_eq!(field.value().as_deref(), Some("rea"), "the field keeps its text");
+
+    let text = app.get_by_label("Open Quickly text");
+    text.fill("x").await;
+    text.press(Key::Down).await;
+    app.expect(by_text("picked 11")).to_exist().await;
+    assert_eq!(text.value().as_deref(), Some("x"));
+}
+
 mitsuami_test::main!();

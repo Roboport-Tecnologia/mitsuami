@@ -181,14 +181,21 @@ impl AppKitBackend {
             table.keyDown(&event);
             return Ok(());
         }
-        let (view, kind) = {
+        let (view, kind, own) = {
             let state = self.state.borrow();
             let node = state.nodes.get(&id).ok_or(ActionError::UnknownNode)?;
             if node.widget.enabled() == Some(false) {
                 return Err(ActionError::Disabled);
             }
-            (node.widget.key_view(), node.kind)
+            let own =
+                node._target.as_ref().and_then(|t| t.keys()).is_some_and(|keys| keys.contains(&Shortcut::new(*key)));
+            (node.widget.key_view(), node.kind, own)
         };
+        // A key the field takes itself goes in as the keyboard's, through
+        // its editor to its delegate.
+        if own && matches!(kind, WidgetKind::TextInput | WidgetKind::SearchInput) {
+            return self.post_key(&view, Shortcut::new(*key));
+        }
         match (kind, key) {
             (
                 WidgetKind::TextInput | WidgetKind::PasswordInput | WidgetKind::SearchInput,
@@ -267,19 +274,36 @@ impl AppKitBackend {
     /// responder chain to a host or table that takes it. `Unsupported` if
     /// none around does: AppKit would beep.
     fn send_key(&self, id: NodeId, shortcut: Shortcut) -> Result<(), ActionError> {
-        let view = self.state.borrow().nodes.get(&id).ok_or(ActionError::UnknownNode)?.widget.key_view();
+        let (view, own) = {
+            let state = self.state.borrow();
+            let node = state.nodes.get(&id).ok_or(ActionError::UnknownNode)?;
+            let own = node._target.as_ref().and_then(|t| t.keys()).is_some_and(|keys| keys.contains(&shortcut));
+            (node.widget.key_view(), own)
+        };
+        // A text field's own keys go in as the keyboard's, through its
+        // editor to its delegate.
+        if own {
+            return self.post_key(&view, shortcut);
+        }
         if !crate::keys::taken_around(&view, shortcut) {
             return Err(ActionError::Unsupported);
         }
+        self.post_key(&view, shortcut)
+    }
+
+    fn post_key(&self, view: &NSView, shortcut: Shortcut) -> Result<(), ActionError> {
         let window = view.window().ok_or(ActionError::Unsupported)?;
-        if view.acceptsFirstResponder() {
-            window.makeFirstResponder(Some(&view));
+        // A field being edited keeps its editor: focusing it again would
+        // select all its text.
+        let editing = view.downcast_ref::<NSTextField>().is_some_and(|f| f.currentEditor().is_some());
+        if view.acceptsFirstResponder() && !editing {
+            window.makeFirstResponder(Some(view));
         }
         let event = crate::keys::key_event(&window, shortcut).ok_or(ActionError::Unsupported)?;
         // Through the event queue, as the keyboard's: the app's current
         // event is the last it took from there, and text views' delegates
         // read the key from it (`keys::take_unused`).
-        let app = NSApplication::sharedApplication(MainThreadMarker::from(&*view));
+        let app = NSApplication::sharedApplication(MainThreadMarker::from(view));
         app.postEvent_atStart(&event, true);
         let taken = unsafe {
             app.nextEventMatchingMask_untilDate_inMode_dequeue(

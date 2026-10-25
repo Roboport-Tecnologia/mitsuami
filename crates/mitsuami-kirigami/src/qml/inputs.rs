@@ -44,6 +44,8 @@ Kirigami.SearchField {{
     property bool mitsuamiDismissed: false
     property int mitsuamiChoice: -1
     property int mitsuamiOnReturn: -1
+    // The field's own keys (`Prop::Keys`) leave the list's to it.
+    property bool mitsuamiKeysPaused: mitsuamiSuggestions.visible
     autoAccept: mitsuamiOnReturn !== 1
     signal mitsuamiEdited()
     signal mitsuamiSearched()

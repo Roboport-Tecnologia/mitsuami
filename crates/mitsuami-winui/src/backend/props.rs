@@ -672,6 +672,22 @@ impl State {
                 }
                 set_hit_testable(node)?;
             }
+            (Prop::Keys(keys), Widget::Field(_) | Widget::Search(_)) => match &node.keys {
+                Some(taken) => taken.set(keys.clone()),
+                None => {
+                    let suggestions = match &node.widget {
+                        Widget::Search(search) => Some(search.clone()),
+                        _ => None,
+                    };
+                    node.keys = Some(super::keys::Keys::before(
+                        id,
+                        self.emitter.clone(),
+                        &node.element,
+                        suggestions,
+                        keys.clone(),
+                    )?);
+                }
+            },
             (Prop::Keys(keys), Widget::Host(_) | Widget::Group(_) | Widget::List(_)) => match &node.keys {
                 Some(taken) => taken.set(keys.clone()),
                 None => {
