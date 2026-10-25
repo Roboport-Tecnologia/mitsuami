@@ -213,6 +213,41 @@ mod checks {
         app_menu.performActionForItemAtIndex(2);
         f.ui.tick();
         assert_eq!(settings.get(), 1, "Settings… runs the app's item");
+
+        // A menu titled with the app's name joins the app menu.
+        let checked = Rc::new(Cell::new(0));
+        let c = checked.clone();
+        f.ui.set_menu(
+            MenuBar::new()
+                .menu(
+                    Menu::new(name.clone())
+                        .item(MenuItem::new("About the app").role(MenuRole::About))
+                        .item(MenuItem::new("Check for Updates…").on_select(move || c.set(c.get() + 1)))
+                        .separator()
+                        .item(MenuItem::new("Preferences").role(MenuRole::Settings)),
+                )
+                .menu(Menu::new("View").item(MenuItem::new("Show Sidebar"))),
+        );
+        let bar = main_menu();
+        let app_menu = bar.itemAtIndex(0).and_then(|i| i.submenu()).unwrap();
+        assert_eq!(
+            titles(&app_menu),
+            [
+                format!("About {name}"),
+                "-".into(),
+                "Settings…".into(),
+                "-".into(),
+                "Check for Updates…".into(),
+                "-".into(),
+                format!("Hide {name}"),
+                "-".into(),
+                format!("Quit {name}")
+            ]
+        );
+        assert_eq!(titles(&bar)[1..], ["Edit", "View"], "and isn't a menu of its own");
+        app_menu.performActionForItemAtIndex(4);
+        f.ui.tick();
+        assert_eq!(checked.get(), 1);
         f.ui.set_menu(MenuBar::new());
     }
 

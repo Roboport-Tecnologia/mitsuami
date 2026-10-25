@@ -722,7 +722,8 @@ pub(crate) fn find_tagged(menu: &NSMenu, id: u32) -> Option<(Retained<NSMenuItem
 
 /// The app menu, the app's File menu (if any), Edit (what makes ⌘C/⌘V/⌘Z
 /// work in text fields), then the app's other menus. Items with a role go
-/// to the app menu, with AppKit's titles and shortcuts, as Qt puts them.
+/// to the app menu, with AppKit's titles and shortcuts, as Qt puts them,
+/// and so do the items of a menu titled with the app's name.
 /// Titles of our own are in the app's language (`mitsuami.ftl`), and so
 /// is the File menu's, which the app's File menu is known by.
 fn menu_bar(mtm: MainThreadMarker, mut menus: MenuBarData, name: &str, target: &MenuTarget) -> Retained<NSMenu> {
@@ -737,6 +738,14 @@ fn menu_bar(mtm: MainThreadMarker, mut menus: MenuBarData, name: &str, target: &
     }
     if let Some(settings) = menus.take_role(MenuRole::Settings) {
         app_menu.push(app_item(mtm, &settings, &tr("mitsuami-menu-settings", &[]), command(','), target));
+        app_menu.push(NSMenuItem::separatorItem(mtm));
+    }
+    // The app's own menu, titled with its name, joins the app menu, where
+    // macOS apps put their app-wide commands (Check for Updates…).
+    let (own, others): (Vec<_>, Vec<_>) = std::mem::take(&mut menus.menus).into_iter().partition(|m| m.title == name);
+    menus.menus = others;
+    for menu in own {
+        app_menu.extend(app_items(mtm, &menu.entries, target));
         app_menu.push(NSMenuItem::separatorItem(mtm));
     }
     app_menu.push(item(mtm, &app("mitsuami-menu-hide"), Some(sel!(hide:)), "h"));
