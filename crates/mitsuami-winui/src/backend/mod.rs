@@ -184,6 +184,9 @@ pub(crate) struct TitleTabs {
     background: i64,
     /// The chosen tab's fill on Mica Alt, in the view's resources.
     on_mica: w::ResourceDictionary,
+    /// Keeps the title bar's content at full opacity while the window is
+    /// inactive.
+    _undim: EventRevoker,
 }
 
 /// The parts of a window: XAML's `Window`, a root grid with a row for the

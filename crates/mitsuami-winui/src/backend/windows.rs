@@ -399,7 +399,27 @@ pub(super) fn put_tabs_in_title_bar(parts: &mut WindowParts, id: NodeId, view: &
         .RegisterPropertyChangedCallback(&w::Control::BackgroundProperty()?, &painter)?;
     let on_mica = tabs_on_mica()?;
     view.cast::<w::IFrameworkElement>()?.Resources()?.MergedDictionaries()?.Append(&on_mica)?;
-    parts.title_tabs = Some(TitleTabs { id, view: view.clone(), _regrow: regrow, background, on_mica });
+    // The title bar halves its content's opacity while the window is
+    // inactive (`ContentDeactivated`), as for a title or a search box; the
+    // chosen tab is the content's surface, so it went lighter than the
+    // band under it, which Explorer's never does. Its content goes back to
+    // full opacity after the title bar has heard the same change (this
+    // listener came after the title bar's).
+    let undim = {
+        let title_bar = parts.title_bar.clone();
+        w::InputActivationListener::GetForWindowId(parts.id)?
+            .cast::<w::IInputActivationListener>()?
+            .InputActivationChanged(move |sender, _| {
+                let inactive = sender
+                    .as_ref()
+                    .and_then(|s| s.cast::<w::IInputActivationListener>().ok()?.State().ok())
+                    .is_some_and(|state| state == w::InputActivationState::Deactivated);
+                if inactive {
+                    _ = w::VisualStateManager::GoToState(&title_bar, "ContentVisible", false);
+                }
+            })?
+    };
+    parts.title_tabs = Some(TitleTabs { id, view: view.clone(), _regrow: regrow, background, on_mica, _undim: undim });
     chrome_changed(parts, before)?;
     sit_on_bottom(&parts.title_bar, &element, &dropped);
     Ok(())

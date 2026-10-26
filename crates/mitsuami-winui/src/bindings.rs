@@ -7605,6 +7605,97 @@ impl windows_core::RuntimeType for IImageSource {
 pub struct IImageSource_Vtbl {
     pub base__: windows_core::IInspectable_Vtbl,
 }
+windows_core::imp::define_interface!(
+    IInputActivationListener,
+    IInputActivationListener_Vtbl,
+    0x3b818627_6ce7_5e0d_a0f5_6684fd1aec78
+);
+impl windows_core::RuntimeType for IInputActivationListener {
+    const SIGNATURE: windows_core::imp::ConstBuffer = windows_core::imp::ConstBuffer::for_interface::<Self>();
+}
+impl IInputActivationListener {
+    pub fn State(&self) -> windows_core::Result<InputActivationState> {
+        unsafe {
+            let mut result__ = core::mem::zeroed();
+            (windows_core::Interface::vtable(self).State)(windows_core::Interface::as_raw(self), &mut result__)
+                .map(|| result__)
+        }
+    }
+    pub fn InputActivationChanged<F>(&self, handler: F) -> windows_core::Result<windows_core::EventRevoker>
+    where
+        F: Fn(
+                windows_core::Ref<InputActivationListener>,
+                windows_core::Ref<InputActivationListenerActivationChangedEventArgs>,
+            ) + 'static,
+    {
+        let handler: TypedEventHandler<InputActivationListener, InputActivationListenerActivationChangedEventArgs> = {
+            let com =
+                windows_core::imp::DelegateBox::<
+                    TypedEventHandler<InputActivationListener, InputActivationListenerActivationChangedEventArgs>,
+                    F,
+                >::new(
+                    &TypedEventHandlerBox::<
+                        InputActivationListener,
+                        InputActivationListenerActivationChangedEventArgs,
+                        F,
+                    >::VTABLE,
+                    handler,
+                );
+            unsafe { core::mem::transmute(windows_core::imp::box_new(com)) }
+        };
+        unsafe {
+            let mut result__ = core::mem::zeroed();
+            let token__ = (windows_core::Interface::vtable(self).InputActivationChanged)(
+                windows_core::Interface::as_raw(self),
+                windows_core::Interface::as_raw(&handler),
+                &mut result__,
+            )
+            .map(|| result__)?;
+            Ok(windows_core::EventRevoker::new(
+                self.clone(),
+                token__,
+                windows_core::Interface::vtable(self).RemoveInputActivationChanged,
+            ))
+        }
+    }
+}
+#[repr(C)]
+pub struct IInputActivationListener_Vtbl {
+    pub base__: windows_core::IInspectable_Vtbl,
+    pub State: unsafe extern "system" fn(*mut core::ffi::c_void, *mut InputActivationState) -> windows_core::HRESULT,
+    pub InputActivationChanged:
+        unsafe extern "system" fn(*mut core::ffi::c_void, *mut core::ffi::c_void, *mut i64) -> windows_core::HRESULT,
+    pub RemoveInputActivationChanged: unsafe extern "system" fn(*mut core::ffi::c_void, i64) -> windows_core::HRESULT,
+}
+windows_core::imp::define_interface!(
+    IInputActivationListenerActivationChangedEventArgs,
+    IInputActivationListenerActivationChangedEventArgs_Vtbl,
+    0x7978526b_00b6_5303_8f7d_55bef36da786
+);
+impl windows_core::RuntimeType for IInputActivationListenerActivationChangedEventArgs {
+    const SIGNATURE: windows_core::imp::ConstBuffer = windows_core::imp::ConstBuffer::for_interface::<Self>();
+}
+#[repr(C)]
+pub struct IInputActivationListenerActivationChangedEventArgs_Vtbl {
+    pub base__: windows_core::IInspectable_Vtbl,
+}
+windows_core::imp::define_interface!(
+    IInputActivationListenerStatics,
+    IInputActivationListenerStatics_Vtbl,
+    0xc4249843_f053_5c99_9d51_720ade94224d
+);
+impl windows_core::RuntimeType for IInputActivationListenerStatics {
+    const SIGNATURE: windows_core::imp::ConstBuffer = windows_core::imp::ConstBuffer::for_interface::<Self>();
+}
+#[repr(C)]
+pub struct IInputActivationListenerStatics_Vtbl {
+    pub base__: windows_core::IInspectable_Vtbl,
+    pub GetForWindowId: unsafe extern "system" fn(
+        *mut core::ffi::c_void,
+        WindowId,
+        *mut *mut core::ffi::c_void,
+    ) -> windows_core::HRESULT,
+}
 windows_core::imp::define_interface!(IInputCursor, IInputCursor_Vtbl, 0x359b15f9_19c2_5714_8432_75176826406b);
 impl windows_core::RuntimeType for IInputCursor {
     const SIGNATURE: windows_core::imp::ConstBuffer = windows_core::imp::ConstBuffer::for_interface::<Self>();
@@ -14573,6 +14664,41 @@ pub struct IVectorChangedEventArgs_Vtbl {
         unsafe extern "system" fn(*mut core::ffi::c_void, *mut CollectionChange) -> windows_core::HRESULT,
     pub Index: unsafe extern "system" fn(*mut core::ffi::c_void, *mut u32) -> windows_core::HRESULT,
 }
+windows_core::imp::define_interface!(
+    IVisualStateManager,
+    IVisualStateManager_Vtbl,
+    0x342c8d32_ad61_5925_93d1_0c704df2a7d1
+);
+impl windows_core::RuntimeType for IVisualStateManager {
+    const SIGNATURE: windows_core::imp::ConstBuffer = windows_core::imp::ConstBuffer::for_interface::<Self>();
+}
+#[repr(C)]
+pub struct IVisualStateManager_Vtbl {
+    pub base__: windows_core::IInspectable_Vtbl,
+}
+windows_core::imp::define_interface!(
+    IVisualStateManagerStatics,
+    IVisualStateManagerStatics_Vtbl,
+    0xa4d5147d_88c3_57ed_ad83_245df5f6b50d
+);
+impl windows_core::RuntimeType for IVisualStateManagerStatics {
+    const SIGNATURE: windows_core::imp::ConstBuffer = windows_core::imp::ConstBuffer::for_interface::<Self>();
+}
+#[repr(C)]
+pub struct IVisualStateManagerStatics_Vtbl {
+    pub base__: windows_core::IInspectable_Vtbl,
+    GetVisualStateGroups: usize,
+    CustomVisualStateManagerProperty: usize,
+    GetCustomVisualStateManager: usize,
+    SetCustomVisualStateManager: usize,
+    pub GoToState: unsafe extern "system" fn(
+        *mut core::ffi::c_void,
+        *mut core::ffi::c_void,
+        *mut core::ffi::c_void,
+        bool,
+        *mut bool,
+    ) -> windows_core::HRESULT,
+}
 windows_core::imp::define_interface!(IVisualTreeHelper, IVisualTreeHelper_Vtbl, 0x5f69ac1e_6504_5e3f_a11c_87684c1db814);
 impl windows_core::RuntimeType for IVisualTreeHelper {
     const SIGNATURE: windows_core::imp::ConstBuffer = windows_core::imp::ConstBuffer::for_interface::<Self>();
@@ -15209,6 +15335,93 @@ impl windows_core::RuntimeName for ImageSource {
 }
 unsafe impl Send for ImageSource {}
 unsafe impl Sync for ImageSource {}
+#[repr(transparent)]
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct InputActivationListener(windows_core::IUnknown);
+windows_core::imp::interface_hierarchy!(InputActivationListener, windows_core::IUnknown, windows_core::IInspectable);
+windows_core::imp::required_hierarchy!(InputActivationListener, InputObject);
+impl InputActivationListener {
+    pub fn GetForWindowId(windowid: WindowId) -> windows_core::Result<Self> {
+        Self::IInputActivationListenerStatics(|this| unsafe {
+            let mut result__ = core::mem::zeroed();
+            (windows_core::Interface::vtable(this).GetForWindowId)(
+                windows_core::Interface::as_raw(this),
+                windowid,
+                &mut result__,
+            )
+            .and_then(|| windows_core::imp::Type::from_abi(result__))
+        })
+    }
+    fn IInputActivationListenerStatics<R, F: FnOnce(&IInputActivationListenerStatics) -> windows_core::Result<R>>(
+        callback: F,
+    ) -> windows_core::Result<R> {
+        static SHARED: windows_core::imp::FactoryCache<InputActivationListener, IInputActivationListenerStatics> =
+            windows_core::imp::FactoryCache::new();
+        SHARED.call(callback)
+    }
+}
+impl windows_core::RuntimeType for InputActivationListener {
+    const SIGNATURE: windows_core::imp::ConstBuffer =
+        windows_core::imp::ConstBuffer::for_class::<Self, IInputActivationListener>();
+}
+unsafe impl windows_core::Interface for InputActivationListener {
+    type Vtable = <IInputActivationListener as windows_core::Interface>::Vtable;
+    const IID: windows_core::GUID = <IInputActivationListener as windows_core::Interface>::IID;
+}
+impl core::ops::Deref for InputActivationListener {
+    type Target = IInputActivationListener;
+    fn deref(&self) -> &Self::Target {
+        unsafe { core::mem::transmute(self) }
+    }
+}
+impl windows_core::RuntimeName for InputActivationListener {
+    const NAME: &'static str = "Microsoft.UI.Input.InputActivationListener";
+}
+unsafe impl Send for InputActivationListener {}
+unsafe impl Sync for InputActivationListener {}
+#[repr(transparent)]
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct InputActivationListenerActivationChangedEventArgs(windows_core::IUnknown);
+windows_core::imp::interface_hierarchy!(
+    InputActivationListenerActivationChangedEventArgs,
+    windows_core::IUnknown,
+    windows_core::IInspectable
+);
+impl windows_core::RuntimeType for InputActivationListenerActivationChangedEventArgs {
+    const SIGNATURE: windows_core::imp::ConstBuffer =
+        windows_core::imp::ConstBuffer::for_class::<Self, IInputActivationListenerActivationChangedEventArgs>();
+}
+unsafe impl windows_core::Interface for InputActivationListenerActivationChangedEventArgs {
+    type Vtable = <IInputActivationListenerActivationChangedEventArgs as windows_core::Interface>::Vtable;
+    const IID: windows_core::GUID =
+        <IInputActivationListenerActivationChangedEventArgs as windows_core::Interface>::IID;
+}
+impl core::ops::Deref for InputActivationListenerActivationChangedEventArgs {
+    type Target = IInputActivationListenerActivationChangedEventArgs;
+    fn deref(&self) -> &Self::Target {
+        unsafe { core::mem::transmute(self) }
+    }
+}
+impl windows_core::RuntimeName for InputActivationListenerActivationChangedEventArgs {
+    const NAME: &'static str = "Microsoft.UI.Input.InputActivationListenerActivationChangedEventArgs";
+}
+unsafe impl Send for InputActivationListenerActivationChangedEventArgs {}
+unsafe impl Sync for InputActivationListenerActivationChangedEventArgs {}
+#[repr(transparent)]
+#[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
+pub struct InputActivationState(pub i32);
+impl InputActivationState {
+    pub const None: Self = Self(0);
+    pub const Deactivated: Self = Self(1);
+    pub const Activated: Self = Self(2);
+}
+impl windows_core::imp::TypeKind for InputActivationState {
+    type TypeKind = windows_core::imp::CopyType;
+}
+impl windows_core::RuntimeType for InputActivationState {
+    const SIGNATURE: windows_core::imp::ConstBuffer =
+        windows_core::imp::ConstBuffer::from_slice(b"enum(Microsoft.UI.Input.InputActivationState;i4)");
+}
 #[repr(transparent)]
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct InputCursor(windows_core::IUnknown);
@@ -20757,6 +20970,55 @@ impl windows_core::RuntimeType for Visibility {
     const SIGNATURE: windows_core::imp::ConstBuffer =
         windows_core::imp::ConstBuffer::from_slice(b"enum(Microsoft.UI.Xaml.Visibility;i4)");
 }
+#[repr(transparent)]
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct VisualStateManager(windows_core::IUnknown);
+windows_core::imp::interface_hierarchy!(VisualStateManager, windows_core::IUnknown, windows_core::IInspectable);
+windows_core::imp::required_hierarchy!(VisualStateManager, DependencyObject);
+impl VisualStateManager {
+    pub fn GoToState<P0>(control: P0, statename: &str, usetransitions: bool) -> windows_core::Result<bool>
+    where
+        P0: windows_core::Param<Control>,
+    {
+        Self::IVisualStateManagerStatics(|this| unsafe {
+            let mut result__ = core::mem::zeroed();
+            (windows_core::Interface::vtable(this).GoToState)(
+                windows_core::Interface::as_raw(this),
+                control.param().abi(),
+                core::mem::transmute_copy(&windows_core::HSTRING::from(statename)),
+                usetransitions,
+                &mut result__,
+            )
+            .map(|| result__)
+        })
+    }
+    fn IVisualStateManagerStatics<R, F: FnOnce(&IVisualStateManagerStatics) -> windows_core::Result<R>>(
+        callback: F,
+    ) -> windows_core::Result<R> {
+        static SHARED: windows_core::imp::FactoryCache<VisualStateManager, IVisualStateManagerStatics> =
+            windows_core::imp::FactoryCache::new();
+        SHARED.call(callback)
+    }
+}
+impl windows_core::RuntimeType for VisualStateManager {
+    const SIGNATURE: windows_core::imp::ConstBuffer =
+        windows_core::imp::ConstBuffer::for_class::<Self, IVisualStateManager>();
+}
+unsafe impl windows_core::Interface for VisualStateManager {
+    type Vtable = <IVisualStateManager as windows_core::Interface>::Vtable;
+    const IID: windows_core::GUID = <IVisualStateManager as windows_core::Interface>::IID;
+}
+impl core::ops::Deref for VisualStateManager {
+    type Target = IVisualStateManager;
+    fn deref(&self) -> &Self::Target {
+        unsafe { core::mem::transmute(self) }
+    }
+}
+impl windows_core::RuntimeName for VisualStateManager {
+    const NAME: &'static str = "Microsoft.UI.Xaml.VisualStateManager";
+}
+unsafe impl Send for VisualStateManager {}
+unsafe impl Sync for VisualStateManager {}
 #[repr(transparent)]
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct VisualTreeHelper(windows_core::IUnknown);

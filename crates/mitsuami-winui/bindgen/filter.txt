@@ -615,3 +615,8 @@ Microsoft.UI.Xaml.Controls.TextControlPasteEventHandler
 Microsoft.UI.Xaml.Controls.ITextControlPasteEventArgs::{put_Handled}
 Microsoft.UI.Xaml.Input.GettingFocusEventArgs::{}
 Microsoft.UI.Xaml.Input.IGettingFocusEventArgs::{get_NewFocusedElement, TrySetNewFocusedElement}
+Microsoft.UI.Input.InputActivationListener::GetForWindowId
+Microsoft.UI.Input.IInputActivationListener::{get_State, add_InputActivationChanged, remove_InputActivationChanged}
+Microsoft.UI.Input.InputActivationState
+Microsoft.UI.Input.InputActivationListenerActivationChangedEventArgs::{}
+Microsoft.UI.Xaml.VisualStateManager::GoToState
