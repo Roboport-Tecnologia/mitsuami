@@ -1297,6 +1297,22 @@ async fn the_menu_bar_reports_the_item_chosen(app: TestApp) {
     assert!(!unsafe { mitsuami_set_menu_bar(loose.as_ptr(), loose.len(), menu_bar_chosen, std::ptr::null_mut()) });
 }
 
+/// A window's own menus, as SourceGit's launcher has them where each
+/// window shows its menus: they're that window's, not the app's.
+#[mitsuami_test::test]
+async fn a_window_takes_menus_of_its_own(app: TestApp) {
+    attach(app.ui());
+    app.mount(|| Adopt(create(MitsuamiKind::Text)));
+    let entries = [menu_entry(2, 0, "Repository", 0), menu_entry(0, 9, "Fetch", 0), menu_entry(3, 0, "", 0)];
+    let window = app.window().raw();
+    assert!(unsafe {
+        mitsuami_set_window_menu_bar(window, entries.as_ptr(), entries.len(), menu_bar_chosen, window as *mut c_void)
+    });
+    app.settle().await;
+    let own = app.services().window_menu(app.window()).expect("the window's menus");
+    assert_eq!(own.menus[0].title, "Repository");
+}
+
 #[mitsuami_test::test]
 async fn sliders_and_number_fields_report_the_number(app: TestApp) {
     attach(app.ui());

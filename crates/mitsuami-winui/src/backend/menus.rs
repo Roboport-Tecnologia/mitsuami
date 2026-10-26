@@ -10,8 +10,9 @@ use mitsuami_core::services::{MenuBarData, MenuCheck, MenuData, MenuEntry, MenuI
 use mitsuami_core::{Key, NodeId};
 use windows_core::{EventRevoker, Interface};
 
+use super::styles::style;
 use super::windows::{apply_min_size, chrome_height, resize_client, title_content, update_title_bar_height};
-use super::{ContextMenu, MenuItems, Menus, R, WinUiBackend, WindowParts, key, ok};
+use super::{ContextMenu, MenuBarPlace, MenuItems, Menus, R, WinUiBackend, WindowParts, boxed, key, ok};
 use crate::bindings as w;
 
 impl ContextMenu {
@@ -177,7 +178,8 @@ impl Menus {
 /// open, and rebuilt otherwise.
 pub(super) fn refresh_menu(parts: &mut WindowParts, menus: &Menus) {
     let shown = menus.shown(parts.node, parts.modal.is_some());
-    if parts.menu_bar.is_some() && shown.same_structure(&parts.menu_shown) {
+    let built = parts.menu_bar.is_some() || parts.menu_button.is_some();
+    if built && shown.same_structure(&parts.menu_shown) {
         update_menu(parts, &shown);
     } else if shown != parts.menu_shown {
         let activate = menus.activate.clone().unwrap_or_else(|| Rc::new(|_| {}));
@@ -212,6 +214,10 @@ fn show_check(item: &w::MenuFlyoutItemBase, check: MenuCheck) {
 }
 
 fn install_menu(parts: &mut WindowParts, menu: &MenuBarData, activate: &Rc<dyn Fn(u32)>) {
+    if parts.menu_bar_place == MenuBarPlace::ButtonInTitleBar {
+        install_menu_button(parts, menu, activate);
+        return;
+    }
     let before = chrome_height(parts);
     // Back from the full-screen popup first, where it's replaced, and the
     // new bar back in it after.
@@ -269,6 +275,34 @@ fn install_menu(parts: &mut WindowParts, menu: &MenuBarData, activate: &Rc<dyn F
     }
 }
 
+/// The menus behind a button at the title bar's start, its `LeftHeader`,
+/// before document tabs there: the title bar's own pane toggle button,
+/// WinUI's hamburger, opens a menu of the app's menus as submenus, as
+/// Visual Studio's compact menu does. The title bar and the content keep
+/// their size. It's built again whenever the menus change shape, as the
+/// bar is; XAML's flyout doesn't widen as the bar's menus do, so not after
+/// each close.
+fn install_menu_button(parts: &mut WindowParts, menu: &MenuBarData, activate: &Rc<dyn Fn(u32)>) {
+    parts.menu_revokers.clear();
+    parts.menu_items.borrow_mut().clear();
+    let title_bar = ok(parts.title_bar.cast::<w::ITitleBar>(), "title bar");
+    parts.menu_button = None;
+    if menu.menus.is_empty() {
+        _ = title_bar.SetLeftHeader(None::<&w::UIElement>);
+        return;
+    }
+    let mut built = MenuBuild {
+        activate,
+        revokers: &mut parts.menu_revokers,
+        items: &parts.menu_items,
+        closed: None,
+        scope: format!("window-{}", parts.node),
+    };
+    let button = ok(built.menu_button(menu), "building the menu button");
+    _ = title_bar.SetLeftHeader(&ok(button.cast::<w::UIElement>(), "menu button element"));
+    parts.menu_button = Some(button);
+}
+
 /// Builds the window's bar again, the same menus, once a menu of it has
 /// closed and none is open. XAML's menu widens by about 33 epx from its
 /// second opening on, and a checked toggle item's shortcut keeps the
@@ -322,6 +356,40 @@ impl MenuBuild<'_> {
             menus.Append(&item)?;
         }
         Ok(menu_bar)
+    }
+
+    /// A button opening the bar's menus as submenus, named by mitsuami's
+    /// "Main Menu", as GNOME's primary menu button is.
+    fn menu_button(&mut self, menu: &MenuBarData) -> R<w::Button> {
+        let button = w::Button::new()?;
+        button.cast::<w::IFrameworkElement>()?.SetStyle(&style("TitleBarPaneToggleButtonStyle"))?;
+        let name = mitsuami_core::l10n::tr("mitsuami-main-menu", &[]);
+        w::AutomationProperties::SetName(&button, &name)?;
+        w::ToolTipService::SetToolTip(&button, &boxed(&name))?;
+        let flyout = w::MenuFlyout::new()?;
+        let items = flyout.cast::<w::IMenuFlyout>()?.Items()?;
+        for data in &menu.menus {
+            let sub = w::MenuFlyoutSubItem::new()?;
+            let iface: w::IMenuFlyoutSubItem = sub.cast()?;
+            iface.SetText(&data.title)?;
+            self.entries(&iface.Items()?, data)?;
+            items.Append(&sub.cast::<w::MenuFlyoutItemBase>()?)?;
+        }
+        flyout.cast::<w::IFlyoutBase>()?.SetPlacement(w::FlyoutPlacementMode::BottomEdgeAlignedLeft)?;
+        button.cast::<w::IButton>()?.SetFlyout(&flyout)?;
+        // The title bar centres what's in its `LeftHeader`, so the button
+        // was only as tall as its icon; its own pane toggle button, in the
+        // column before, is as tall as the title bar. Its presenter is
+        // stretched, once the button is in it.
+        self.revokers.push(button.cast::<w::IFrameworkElement>()?.Loaded(|sender, _| {
+            let presenter = sender
+                .as_ref()
+                .and_then(|s| w::VisualTreeHelper::GetParent(&s.cast::<w::DependencyObject>().ok()?).ok());
+            if let Some(presenter) = presenter.and_then(|p| p.cast::<w::IFrameworkElement>().ok()) {
+                _ = presenter.SetVerticalAlignment(w::VerticalAlignment::Stretch);
+            }
+        })?);
+        Ok(button)
     }
 
     fn flyout(&mut self, entries: &[MenuEntry]) -> R<w::MenuFlyout> {

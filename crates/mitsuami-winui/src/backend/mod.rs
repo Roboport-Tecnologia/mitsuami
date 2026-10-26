@@ -111,21 +111,25 @@ pub enum ToolbarPlace {
 /// Where a window's menu bar goes: on its own row under the title bar (the
 /// default), or in the title bar, so the content gets the row: after the
 /// title, as in Paint and Visual Studio, or at its start, before the icon
-/// and the title (the `TitleBar`'s `LeftHeader`). An app picks it for all
-/// its windows with [`set_menu_bar_place`](crate::set_menu_bar_place)
-/// before [`run`](crate::run).
+/// and the title (the `TitleBar`'s `LeftHeader`). Or no bar at all: a
+/// button at the title bar's start opens the menus, as Visual Studio's
+/// compact menu does, and the title bar keeps room for document tabs. An
+/// app picks it for all its windows with
+/// [`set_menu_bar_place`](crate::set_menu_bar_place) before
+/// [`run`](crate::run).
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub enum MenuBarPlace {
     #[default]
     BelowTitleBar,
     InTitleBar,
     InTitleBarStart,
+    ButtonInTitleBar,
 }
 
 impl MenuBarPlace {
-    /// In the title bar, either side of the title.
+    /// A bar in the title bar, either side of the title.
     pub(super) fn in_title_bar(self) -> bool {
-        self != MenuBarPlace::BelowTitleBar
+        matches!(self, MenuBarPlace::InTitleBar | MenuBarPlace::InTitleBarStart)
     }
 }
 
@@ -203,6 +207,8 @@ pub(crate) struct WindowParts {
     pub(crate) hwnd: w::HWND,
     pub(crate) id: w::WindowId,
     menu_bar: Option<w::MenuBar>,
+    /// The button that opens the menus instead (`ButtonInTitleBar`).
+    menu_button: Option<w::Button>,
     menu_revokers: Vec<EventRevoker>,
     /// The menus the bar shows (the app's and the window's own), to tell
     /// what changed.

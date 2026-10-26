@@ -375,6 +375,7 @@ impl State {
             hwnd,
             id: window_id,
             menu_bar: None,
+            menu_button: None,
             menu_revokers: Vec::new(),
             menu_shown: MenuBarData::default(),
             menu_items: MenuItems::default(),

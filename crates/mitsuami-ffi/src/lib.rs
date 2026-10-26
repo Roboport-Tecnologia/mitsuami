@@ -173,6 +173,30 @@ pub unsafe extern "C" fn mitsuami_run(
     .is_some()
 }
 
+/// Where WinUI's windows show the app's menus: 0 a bar on its own row
+/// under the title bar (the default), 1 a bar in the title bar after the
+/// title, 2 a bar at the title bar's start, 3 a button at the title bar's
+/// start that opens them, beside document tabs there. Only WinUI has the
+/// choice; the others ignore it. Call it before `mitsuami_run`, on the
+/// thread that calls that.
+#[unsafe(no_mangle)]
+pub extern "C" fn mitsuami_set_menu_bar_place(place: u32) -> bool {
+    guard(|| {
+        if place > 3 {
+            return Err(format!("unknown menu bar place {place}"));
+        }
+        #[cfg(windows)]
+        mitsuami::winui::set_menu_bar_place(match place {
+            0 => mitsuami::winui::MenuBarPlace::BelowTitleBar,
+            1 => mitsuami::winui::MenuBarPlace::InTitleBar,
+            2 => mitsuami::winui::MenuBarPlace::InTitleBarStart,
+            _ => mitsuami::winui::MenuBarPlace::ButtonInTitleBar,
+        });
+        Ok(())
+    })
+    .is_some()
+}
+
 // Posting from other threads.
 
 type Posted = (extern "C" fn(*mut c_void), usize);
@@ -927,17 +951,55 @@ pub unsafe extern "C" fn mitsuami_set_menu_bar(
 ) -> bool {
     let user = user as usize;
     guard(|| {
-        let mut bar = MenuBar::new();
-        for entry in unsafe { menu_entries(entries, count)? } {
-            let MenuEntry::Submenu(menu) = entry else {
-                return Err("a menu bar holds menus".to_string());
-            };
-            bar = bar.menu(menu_of(menu, chosen, user));
-        }
+        let bar = unsafe { menu_bar_of(entries, count, chosen, user)? };
         ui()?.set_menu(bar);
         Ok(())
     })
     .is_some()
+}
+
+/// A window's own menus, as [`mitsuami_set_menu_bar`]'s: shown with the
+/// app's, and only in that window where each window has its menus
+/// (Windows, GNOME, KDE); on macOS in the bar while it's the main window.
+/// Set again to change them.
+///
+/// # Safety
+/// As [`mitsuami_set_menu`] says.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn mitsuami_set_window_menu_bar(
+    window: u32,
+    entries: *const MitsuamiMenuEntry,
+    count: usize,
+    chosen: extern "C" fn(*mut c_void, u32),
+    user: *mut c_void,
+) -> bool {
+    let user = user as usize;
+    guard(|| {
+        let bar = unsafe { menu_bar_of(entries, count, chosen, user)? };
+        ui()?.set_window_menu(node(window), bar);
+        Ok(())
+    })
+    .is_some()
+}
+
+/// A menu bar of `entries`' top-level submenus.
+///
+/// # Safety
+/// As [`mitsuami_set_menu`] says.
+unsafe fn menu_bar_of(
+    entries: *const MitsuamiMenuEntry,
+    count: usize,
+    chosen: extern "C" fn(*mut c_void, u32),
+    user: usize,
+) -> Result<MenuBar, String> {
+    let mut bar = MenuBar::new();
+    for entry in unsafe { menu_entries(entries, count)? } {
+        let MenuEntry::Submenu(menu) = entry else {
+            return Err("a menu bar holds menus".to_string());
+        };
+        bar = bar.menu(menu_of(menu, chosen, user));
+    }
+    Ok(bar)
 }
 
 /// A menu's data as the menu builder takes it, each item reporting its id.

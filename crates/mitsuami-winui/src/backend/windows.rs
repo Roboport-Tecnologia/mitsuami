@@ -146,7 +146,7 @@ pub(super) fn chrome_height(parts: &WindowParts) -> f64 {
     let title = set.unwrap_or_else(|| height(ok(parts.title_bar.cast(), "title bar element")));
     // In the title bar, it's part of the title bar's height.
     let menu = match parts.menu_bar_place {
-        MenuBarPlace::InTitleBar | MenuBarPlace::InTitleBarStart => 0.0,
+        MenuBarPlace::InTitleBar | MenuBarPlace::InTitleBarStart | MenuBarPlace::ButtonInTitleBar => 0.0,
         MenuBarPlace::BelowTitleBar => {
             parts.menu_bar.as_ref().map_or(0.0, |m| height(ok(m.cast(), "menu bar element")))
         }
