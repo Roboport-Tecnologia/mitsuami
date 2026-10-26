@@ -193,6 +193,22 @@ impl WinUiBackend {
                 range.SetValue(value.clamp(min, max)).map_err(|_| ActionError::Unsupported)?;
                 self.state.borrow().report_value(id);
             }
+            // As if picked in the flyout's picker, which never opens: the
+            // picker and swatch take it, and it's reported as the user's.
+            (A11yAction::SetValue(text), WidgetKind::ColorWell) => {
+                let color = mitsuami_core::Color::from_hex(text).ok_or(ActionError::Unsupported)?;
+                let mitsuami_core::Color::Rgba(r, g, b, _) = color else { return Err(ActionError::Unsupported) };
+                {
+                    let state = self.state.borrow();
+                    let Some(Widget::ColorWell { picker, swatch, .. }) = state.nodes.get(&id).map(|n| &n.widget) else {
+                        return Err(ActionError::Unsupported);
+                    };
+                    let color = w::Color { a: 255, r, g, b };
+                    picker.SetColor(color).map_err(|_| ActionError::Unsupported)?;
+                    super::controls::show_swatch(swatch, color).map_err(|_| ActionError::Unsupported)?;
+                }
+                self.state.borrow().report_value(id);
+            }
             (A11yAction::SetValue(text), WidgetKind::Select) => {
                 // As if the option were picked from the open drop-down.
                 let combo: w::ComboBox = element.cast().map_err(|_| ActionError::Unsupported)?;

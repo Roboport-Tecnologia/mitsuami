@@ -84,6 +84,7 @@ impl Inner {
                     | WidgetKind::RadioGroup
                     | WidgetKind::Slider
                     | WidgetKind::NumberInput
+                    | WidgetKind::ColorWell
                     | WidgetKind::List
                     | WidgetKind::Table
                     | WidgetKind::Sidebar

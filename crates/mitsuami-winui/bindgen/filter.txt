@@ -99,6 +99,10 @@ Microsoft.UI.Xaml.Controls.IContentControl::{get_Content, put_Content, get_Conte
 Microsoft.UI.Xaml.Controls.Button::CreateInstance
 Microsoft.UI.Xaml.Controls.IButton::{get_Flyout, put_Flyout}
 Microsoft.UI.Xaml.Controls.DropDownButton::CreateInstance
+Microsoft.UI.Xaml.Controls.ColorPicker::CreateInstance
+Microsoft.UI.Xaml.Controls.IColorPicker::{get_Color, put_Color, put_IsAlphaEnabled, add_ColorChanged, remove_ColorChanged}
+Microsoft.UI.Xaml.Controls.ColorChangedEventArgs::{}
+Microsoft.UI.Xaml.Controls.IColorChangedEventArgs::get_NewColor
 Microsoft.UI.Xaml.Controls.SplitButton::CreateInstance
 Microsoft.UI.Xaml.Controls.ISplitButton::{get_Flyout, put_Flyout, add_Click, remove_Click}
 Microsoft.UI.Xaml.Controls.SplitButtonClickEventArgs::{}

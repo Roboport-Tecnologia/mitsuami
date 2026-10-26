@@ -16,6 +16,36 @@ pub(super) const ICON_SIDE: f32 = 20.0;
 /// size at a button's font size, which its `FontIcon` pads to 20.
 const BUTTON_ICON_SIDE: f32 = 16.0;
 
+/// The swatch a colour well shows in its button: the size of the WinUI
+/// Gallery's, with the control corner radius.
+const SWATCH: (f64, f64) = (32.0, 16.0);
+
+/// A colour well's swatch, filled with nothing until it's given a colour.
+pub(super) fn color_swatch() -> R<w::Border> {
+    let swatch = w::Border::new()?;
+    let fe: w::IFrameworkElement = swatch.cast()?;
+    fe.SetWidth(SWATCH.0)?;
+    fe.SetHeight(SWATCH.1)?;
+    swatch.cast::<w::IBorder>()?.SetCornerRadius(w::CornerRadius {
+        top_left: 4.0,
+        top_right: 4.0,
+        bottom_right: 4.0,
+        bottom_left: 4.0,
+    })?;
+    Ok(swatch)
+}
+
+/// Fills a colour well's swatch.
+pub(super) fn show_swatch(swatch: &w::Border, color: w::Color) -> R<()> {
+    let brush = w::SolidColorBrush::CreateInstanceWithColor(w::Color { a: 255, ..color })?;
+    swatch.cast::<w::IBorder>()?.SetBackground(&brush.cast::<w::Brush>()?)
+}
+
+/// A picker's colour as the core keeps it: opaque.
+pub(super) fn opaque(color: w::Color) -> mitsuami_core::Color {
+    mitsuami_core::Color::rgb(color.r, color.g, color.b)
+}
+
 /// The app's own icon as a `PathIcon`, WinUI's way to show one: its path
 /// already fitted in a `side` square, drawn in the foreground, as glyphs
 /// are. XAML's path markup takes the fill rule first.

@@ -251,6 +251,7 @@ impl State {
                 | Widget::RadioGroup(_)
                 | Widget::Slider { .. }
                 | Widget::Number { .. }
+                | Widget::ColorWell { .. }
                 | Widget::Progress(_)
                 | Widget::Spinner(_)
                 | Widget::Image { .. }
@@ -297,6 +298,16 @@ impl State {
                 while items.Size()? > count as u32 {
                     items.RemoveAtEnd()?;
                 }
+            }
+            // Expected first, so the picker's report of it isn't the user's.
+            (Prop::ColorValue(color), Widget::ColorWell { swatch, picker, shown, .. }) => {
+                let mitsuami_core::Color::Rgba(r, g, b, _) = *color else {
+                    return Ok(());
+                };
+                shown.set(Some(mitsuami_core::Color::rgb(r, g, b)));
+                let color = w::Color { a: 255, r, g, b };
+                picker.SetColor(color)?;
+                super::controls::show_swatch(swatch, color)?;
             }
             (Prop::Range { min, max }, Widget::Slider { slider, .. }) => {
                 let range: w::IRangeBase = slider.cast()?;

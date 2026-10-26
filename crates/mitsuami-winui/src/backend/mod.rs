@@ -335,6 +335,15 @@ enum Widget {
         number: w::NumberBox,
         step: Option<f64>,
     },
+    /// A drop-down button (the node's element) showing a swatch, whose
+    /// flyout is a colour picker, as the WinUI Gallery pairs them, and the
+    /// colour it shows, set by the core or reported to it: the picker's
+    /// changes that match it are programmatic.
+    ColorWell {
+        swatch: w::Border,
+        picker: w::ColorPicker,
+        shown: Rc<Cell<Option<Color>>>,
+    },
     Progress(w::ProgressBar),
     Spinner(w::ProgressRing),
     /// XAML has no separator control: a `Border` in the divider brush.

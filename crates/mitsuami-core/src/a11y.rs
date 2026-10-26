@@ -53,6 +53,9 @@ pub enum Role {
     /// A field for a number with buttons that step it (a `NumberInput`).
     /// Its value is the number.
     SpinButton,
+    /// A button showing a colour that picks another (a `ColorWell`). Its
+    /// value is the colour, as `#rrggbb`.
+    ColorWell,
     List,
     ListItem,
     /// Rows of cells under column headers (a `Table`): its headers, then
@@ -136,7 +139,8 @@ pub enum A11yAction {
     Activate,
     Focus,
     /// Replace a text field's text, choose the `Select` or `RadioGroup`
-    /// option, or the tab, with this text, or move a `Slider` or `NumberInput` to this number.
+    /// option, or the tab, with this text, or move a `Slider` or `NumberInput` to this number,
+    /// or set a `ColorWell` to this colour (`#rrggbb`).
     SetValue(String),
     /// Step an adjustable control (a slider, a spin button) up or down.
     Increment,

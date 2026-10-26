@@ -62,6 +62,8 @@ impl HeadlessBackend {
             },
             // A field for a few digits, and its buttons.
             WidgetKind::NumberInput => Size::new(96.0, line + 8.0),
+            // A swatch in a button.
+            WidgetKind::ColorWell => Size::new(48.0, 24.0),
             WidgetKind::Progress => Size::new(160.0, 8.0),
             WidgetKind::Spinner => Size::new(16.0, 16.0),
             // A 1-point line; the layout gives it its length.

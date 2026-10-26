@@ -410,7 +410,8 @@ impl WinUiBackend {
                 | Widget::Toggle(_)
                 | Widget::Checkbox(_)
                 | Widget::MenuButton(_)
-                | Widget::SplitButton(_) => plain && matches!(key, Key::Enter | Key::Char(' ')),
+                | Widget::SplitButton(_)
+                | Widget::ColorWell { .. } => plain && matches!(key, Key::Enter | Key::Char(' ')),
                 Widget::Switch(_) => plain && key == Key::Char(' '),
                 // Typing picks an option; Alt+Up and Alt+Down open it.
                 Widget::Select(_) => {

@@ -122,6 +122,10 @@ name = "switch"
 harness = false
 
 [[test]]
+name = "color_well"
+harness = false
+
+[[test]]
 name = "select"
 harness = false
 

@@ -200,6 +200,7 @@ impl Inner {
                         EventValue::Index(index),
                     ) => Prop::SelectedIndex(Some(*index)),
                     (WidgetKind::Slider | WidgetKind::NumberInput, EventValue::Number(number)) => Prop::Number(*number),
+                    (WidgetKind::ColorWell, EventValue::Color(color)) => Prop::ColorValue(*color),
                     // The divider the user dragged: the panes follow.
                     (WidgetKind::Split, EventValue::Number(number)) => {
                         self.styles_dirty = true;

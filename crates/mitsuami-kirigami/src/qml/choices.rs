@@ -109,3 +109,57 @@ ColumnLayout {{
         a11y_hover("\"\"")
     )
 }
+
+/// A colour well, as KDE's Qt Quick apps make one (KQuickControls'
+/// `ColorButton`): a button showing the colour as a swatch, which opens
+/// Qt Quick's `ColorDialog` (Plasma's own through its platform theme),
+/// without alpha. Rust sets `mitsuamiRgb` (`0xRRGGBB`), which emits
+/// nothing; a pick sets it and emits `mitsuamiPicked`, only for the user:
+/// the dialog accepted, or `mitsuamiPick` set as assistive technology sets
+/// a value (the dialog never opens then).
+pub(crate) fn color_well() -> String {
+    format!(
+        r#"
+import QtQuick.Dialogs
+QQC2.Button {{
+    id: mitsuamiWell
+    property int mitsuamiRgb: 0
+    property int mitsuamiPick: -1
+    signal mitsuamiPicked()
+    readonly property color mitsuamiSwatch: Qt.rgba(((mitsuamiRgb >> 16) & 255) / 255,
+        ((mitsuamiRgb >> 8) & 255) / 255, (mitsuamiRgb & 255) / 255, 1)
+    function mitsuamiRgbOf(c) {{
+        return (Math.round(c.r * 255) << 16) | (Math.round(c.g * 255) << 8) | Math.round(c.b * 255)
+    }}
+    onMitsuamiPickChanged: if (mitsuamiPick >= 0) {{
+        mitsuamiRgb = mitsuamiPick
+        mitsuamiPick = -1
+        mitsuamiPicked()
+    }}
+    contentItem: Rectangle {{
+        implicitWidth: Kirigami.Units.gridUnit * 2
+        implicitHeight: Kirigami.Units.gridUnit
+        radius: Kirigami.Units.cornerRadius
+        color: mitsuamiWell.mitsuamiSwatch
+        border.width: 1
+        border.color: Qt.rgba(Kirigami.Theme.textColor.r, Kirigami.Theme.textColor.g,
+            Kirigami.Theme.textColor.b, 0.25)
+        opacity: mitsuamiWell.enabled ? 1 : 0.5
+    }}
+    onClicked: {{
+        mitsuamiDialog.selectedColor = mitsuamiSwatch
+        mitsuamiDialog.open()
+    }}
+    ColorDialog {{
+        id: mitsuamiDialog
+        onAccepted: {{
+            mitsuamiWell.mitsuamiRgb = mitsuamiWell.mitsuamiRgbOf(selectedColor)
+            mitsuamiWell.mitsuamiPicked()
+        }}
+    }}
+    {}
+}}
+"#,
+        a11y("\"\"")
+    )
+}

@@ -132,6 +132,8 @@ enum Widget {
         steps: Rc<Steps>,
     },
     SpinButton(gtk::SpinButton),
+    /// A colour dialog button, its dialog without alpha.
+    ColorWell(gtk::ColorDialogButton),
     /// A text view in a framed scrolled window, and what GTK has no place
     /// for: a text view has no placeholder, no number of lines, and doesn't
     /// follow its end (`Prop::FollowsEnd`).
@@ -243,6 +245,7 @@ impl Widget {
             Widget::RadioGroup(group) => group.column.upcast_ref(),
             Widget::Slider { scale, .. } => scale.upcast_ref(),
             Widget::SpinButton(w) => w.upcast_ref(),
+            Widget::ColorWell(w) => w.upcast_ref(),
             Widget::TextArea { scrolled, .. } => scrolled.upcast_ref(),
             Widget::Progress { bar, .. } => bar.upcast_ref(),
             Widget::Spinner(w) => w.upcast_ref(),
@@ -280,6 +283,7 @@ impl Widget {
                 | Widget::RadioGroup(_)
                 | Widget::Slider { .. }
                 | Widget::SpinButton(_)
+                | Widget::ColorWell(_)
                 | Widget::TextArea { .. }
                 | Widget::DocumentTabs(_)
         )
@@ -617,5 +621,22 @@ impl Backend for GtkBackend {
     /// layout (so changes made before the call are included).
     fn capture(&mut self, id: NodeId, reply: Reply<Result<Image, CaptureError>>) {
         self.capture_node(id, reply);
+    }
+}
+
+/// A colour well's colour as the core keeps it: opaque, its channels
+/// rounded to bytes.
+pub(crate) fn opaque(rgba: &gtk::gdk::RGBA) -> mitsuami_core::Color {
+    let c = |v: f32| (v * 255.0).round().clamp(0.0, 255.0) as u8;
+    mitsuami_core::Color::rgb(c(rgba.red()), c(rgba.green()), c(rgba.blue()))
+}
+
+/// An opaque colour for a colour well; a semantic one isn't a well's.
+pub(crate) fn well_rgba(color: mitsuami_core::Color) -> Option<gtk::gdk::RGBA> {
+    match color {
+        mitsuami_core::Color::Rgba(r, g, b, _) => {
+            Some(gtk::gdk::RGBA::new(r as f32 / 255.0, g as f32 / 255.0, b as f32 / 255.0, 1.0))
+        }
+        _ => None,
     }
 }

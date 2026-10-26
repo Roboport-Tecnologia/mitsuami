@@ -278,6 +278,13 @@ impl<'a> Locator<'a> {
         self.act(A11yAction::SetValue(number.to_string())).await;
     }
 
+    /// Sets a `ColorWell` to this opaque colour, as assistive technology
+    /// would (its value, `#rrggbb`): the platform's picker never opens.
+    pub async fn set_color(&self, color: mitsuami_core::Color) {
+        let hex = color.hex().expect("a colour well takes an Rgba colour");
+        self.act(A11yAction::SetValue(hex)).await;
+    }
+
     /// Types text one key at a time, like a user would.
     pub async fn type_text(&self, text: &str) {
         self.app.settle().await;

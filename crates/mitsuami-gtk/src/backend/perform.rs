@@ -213,6 +213,13 @@ impl GtkBackend {
                 let value: f64 = text.trim().parse().map_err(|_| ActionError::Unsupported)?;
                 range.emit_by_name::<bool>("change-value", &[&gtk::ScrollType::Jump, &value]);
             }
+            // As if picked in its dialog, which never opens: the button
+            // reports the new colour.
+            (A11yAction::SetValue(text), WidgetKind::ColorWell) => {
+                let button = widget.downcast_ref::<gtk::ColorDialogButton>().ok_or(ActionError::Unsupported)?;
+                let color = mitsuami_core::Color::from_hex(text).ok_or(ActionError::Unsupported)?;
+                button.set_rgba(&super::well_rgba(color).ok_or(ActionError::Unsupported)?);
+            }
             // What choosing from the pop-up does.
             (A11yAction::SetValue(text), WidgetKind::Select) => {
                 let dropdown = widget.downcast_ref::<gtk::DropDown>().ok_or(ActionError::Unsupported)?;

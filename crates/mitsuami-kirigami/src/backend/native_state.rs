@@ -2,7 +2,8 @@
 
 use mitsuami_core::backend::NativeState;
 use mitsuami_core::{
-    HorizontalAlign, InputPurpose, Modality, NodeId, Orientation, Point, Prop, Rect, TabsStyle, Truncation, WidgetKind,
+    Color, HorizontalAlign, InputPurpose, Modality, NodeId, Orientation, Point, Prop, Rect, TabsStyle, Truncation,
+    WidgetKind,
 };
 
 use crate::events::{node_from_key, node_key};
@@ -147,6 +148,11 @@ impl KirigamiBackend {
                 props.push(Prop::Step(Some(s.int("stepSize").into())));
                 props.push(Prop::WrapAround(s.bool("wrap")));
                 props.push(Prop::Number(s.int("value").into()));
+            }
+            Widget::ColorWell(w) => {
+                props.extend(node.a11y_label.clone().map(Prop::Label));
+                let [_, r, g, b] = (w.int("mitsuamiRgb") as u32).to_be_bytes();
+                props.push(Prop::ColorValue(Color::rgb(r, g, b)));
             }
             Widget::Progress(p) => {
                 props.extend(node.a11y_label.clone().map(Prop::Label));

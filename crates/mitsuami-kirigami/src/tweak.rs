@@ -6,9 +6,9 @@ use mitsuami_core::reactive::{IntoValue, Value};
 use mitsuami_core::{List, Opaque, Table, Tweak};
 use mitsuami_widgets::Sidebar;
 use mitsuami_widgets::{
-    Button, Checkbox, FileIcon, Group, Icon, Image, MenuButton, NumberInput, PasswordInput, Progress, RadioGroup,
-    ScrollView, SearchInput, Select, Separator, Slider, Spinner, Split, SplitButton, Switch, Text, TextArea, TextInput,
-    ToggleButton,
+    Button, Checkbox, ColorWell, FileIcon, Group, Icon, Image, MenuButton, NumberInput, PasswordInput, Progress,
+    RadioGroup, ScrollView, SearchInput, Select, Separator, Slider, Spinner, Split, SplitButton, Switch, Text,
+    TextArea, TextInput, ToggleButton,
 };
 
 use crate::ffi::QmlObject;
@@ -52,6 +52,9 @@ impl Tweakable for Slider {}
 
 /// A `QQC2.SpinBox`.
 impl Tweakable for NumberInput {}
+
+/// A `QQC2.Button` showing the colour, with its `ColorDialog` inside.
+impl Tweakable for ColorWell {}
 
 /// A `QQC2.ProgressBar`.
 impl Tweakable for Progress {}

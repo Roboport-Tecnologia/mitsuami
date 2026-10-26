@@ -91,6 +91,7 @@ pub(super) fn is_control(widget: &Widget) -> bool {
             | Widget::RadioGroup(_)
             | Widget::Slider { .. }
             | Widget::Number { .. }
+            | Widget::ColorWell { .. }
             | Widget::Scroll(_)
             | Widget::List(_)
     )

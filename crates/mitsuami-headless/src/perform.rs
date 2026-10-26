@@ -111,6 +111,12 @@ impl HeadlessBackend {
                 state.set_prop(id, Prop::Number(value));
                 state.emit(id, UiEvent::Changed(EventValue::Number(value)));
             }
+            // As assistive technology sets one: its picker never opens.
+            (A11yAction::SetValue(text), WidgetKind::ColorWell) => {
+                let color = mitsuami_core::Color::from_hex(text).ok_or(ActionError::Unsupported)?;
+                state.set_prop(id, Prop::ColorValue(color));
+                state.emit(id, UiEvent::Changed(EventValue::Color(color)));
+            }
             // Moves the divider, as assistive technology sets a splitter's
             // value: no further than the panes' least sizes let it.
             (A11yAction::SetValue(text), WidgetKind::Split) => {
@@ -253,6 +259,7 @@ impl HeadlessBackend {
                 | WidgetKind::RadioGroup
                 | WidgetKind::Slider
                 | WidgetKind::NumberInput
+                | WidgetKind::ColorWell
                 | WidgetKind::List
                 | WidgetKind::Table
                 | WidgetKind::Sidebar

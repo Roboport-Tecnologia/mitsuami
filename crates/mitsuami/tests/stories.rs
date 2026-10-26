@@ -286,6 +286,25 @@ fn select_tweak() -> Tweak<Select> {
     }
 }
 
+/// Colour wells, each labelled beside it: one per colour, then one off.
+#[mitsuami_test::story(sizes = [(240, fit)])]
+fn color_wells() -> impl View {
+    let well = |name: &str, color: Color| {
+        Row::new()
+            .gap(8)
+            .align(Align::Center)
+            .children((ColorWell::new(name.to_owned()).color(color), Text::new(name.to_owned())))
+    };
+    Column::new().padding(16).gap(12).children((
+        well("Blue", Color::rgb(0, 120, 215)),
+        well("Orange", Color::rgb(255, 140, 0)),
+        Row::new()
+            .gap(8)
+            .align(Align::Center)
+            .children((ColorWell::new("Off").color(Color::rgb(16, 124, 16)).enabled(false), Text::new("Off"))),
+    ))
+}
+
 /// Vertical sliders, as tall as the story makes them: up is more on every
 /// platform.
 #[mitsuami_test::story(sizes = [(240, fit)])]

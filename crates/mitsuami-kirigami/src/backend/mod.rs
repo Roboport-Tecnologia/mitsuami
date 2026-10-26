@@ -155,6 +155,8 @@ enum Widget {
     RadioGroup(QmlObject),
     Slider(QmlObject),
     NumberInput(QmlObject),
+    /// A button showing the colour, which opens Qt's `ColorDialog`.
+    ColorWell(QmlObject),
     Progress(QmlObject),
     Spinner(QmlObject),
     Separator(QmlObject),

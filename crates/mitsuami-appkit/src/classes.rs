@@ -452,6 +452,10 @@ define_class!(
                     }
                     None => return,
                 },
+                WidgetKind::ColorWell => match sender.downcast_ref::<objc2_app_kit::NSColorWell>() {
+                    Some(well) => UiEvent::Changed(EventValue::Color(crate::backend::opaque(&well.color()))),
+                    None => return,
+                },
                 WidgetKind::Select => match sender.downcast_ref::<NSPopUpButton>().map(|p| p.indexOfSelectedItem()) {
                     Some(index) if index >= 0 => UiEvent::Changed(EventValue::Index(index as usize)),
                     _ => return,

@@ -209,6 +209,12 @@ pub(super) fn native_state(state: &State, id: NodeId) -> Option<NativeState> {
                 }));
             }
         }
+        Widget::ColorWell(well) => {
+            if let Some(label) = well.accessibilityLabel() {
+                props.push(Prop::Label(label.to_string()));
+            }
+            props.push(Prop::ColorValue(super::opaque(&well.color())));
+        }
         Widget::NumberInput(n) => {
             if let Some(label) = n.field().accessibilityLabel() {
                 props.push(Prop::Label(label.to_string()));
@@ -567,7 +573,7 @@ fn focused(widget: &Widget) -> bool {
 }
 
 /// A colour as sRGB components, for reporting one that isn't the given one.
-fn rgba(color: &NSColor) -> Color {
+pub(crate) fn rgba(color: &NSColor) -> Color {
     let Some(color) = color.colorUsingColorSpace(&NSColorSpace::sRGBColorSpace()) else {
         return Color::Rgba(0, 0, 0, 0);
     };

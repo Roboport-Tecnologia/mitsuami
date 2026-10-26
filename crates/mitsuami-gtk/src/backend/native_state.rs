@@ -156,6 +156,10 @@ impl GtkBackend {
                     }));
                 }
             }
+            Widget::ColorWell(button) => {
+                props.extend(node.a11y_label.clone().map(Prop::Label));
+                props.push(Prop::ColorValue(super::opaque(&button.rgba())));
+            }
             Widget::SpinButton(spin) => {
                 props.extend(node.a11y_label.clone().map(Prop::Label));
                 let adjustment = spin.adjustment();

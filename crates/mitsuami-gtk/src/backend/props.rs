@@ -279,6 +279,15 @@ impl State {
             }
             (Prop::Options(options), Widget::RadioGroup(group)) => group.set_options(options),
             (Prop::SelectedIndex(index), Widget::RadioGroup(group)) => group.set_selected(*index),
+            (Prop::Label(t), Widget::ColorWell(button)) => {
+                button.update_property(&[gtk::accessible::Property::Label(t)]);
+                node.a11y_label = Some(t.clone());
+            }
+            (Prop::ColorValue(color), Widget::ColorWell(button)) => {
+                if let Some(rgba) = super::well_rgba(*color) {
+                    button.set_rgba(&rgba);
+                }
+            }
             (Prop::Label(t), Widget::Slider { scale, .. }) => {
                 scale.update_property(&[gtk::accessible::Property::Label(t)]);
                 node.a11y_label = Some(t.clone());

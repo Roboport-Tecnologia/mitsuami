@@ -245,6 +245,8 @@ impl State {
                 slider.setVertical(o.vertical());
                 node.orientation = Some(*o);
             }
+            (Prop::Label(t), Widget::ColorWell(well)) => well.setAccessibilityLabel(Some(&ns(t))),
+            (Prop::ColorValue(color), Widget::ColorWell(well)) => well.setColor(&crate::custom::ns_color(*color)),
             (Prop::Label(t), Widget::NumberInput(n)) => {
                 n.field().setAccessibilityLabel(Some(&ns(t)));
                 n.stepper().setAccessibilityLabel(Some(&ns(t)));

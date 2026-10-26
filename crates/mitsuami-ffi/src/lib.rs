@@ -268,6 +268,10 @@ pub enum MitsuamiKind {
     /// The platform's field for a whole number, with buttons that step it:
     /// its `Number` in its range, reported as `Changed`.
     NumberInput = 24,
+    /// The platform's colour well: its colour (`mitsuami_set_color`'s
+    /// `ColorValue`, fixed and opaque), reported as `Changed` with a
+    /// `Color` value when the user picks another.
+    ColorWell = 25,
 }
 
 fn widget_kind(kind: u32) -> Result<WidgetKind, String> {
@@ -297,6 +301,7 @@ fn widget_kind(kind: u32) -> Result<WidgetKind, String> {
         22 => WidgetKind::SplitButton,
         23 => WidgetKind::Slider,
         24 => WidgetKind::NumberInput,
+        25 => WidgetKind::ColorWell,
         _ => return Err(format!("unknown kind {kind}")),
     })
 }
@@ -991,6 +996,8 @@ pub unsafe extern "C" fn mitsuami_set_file_drop(
 pub enum MitsuamiColorProp {
     /// A text's or an icon's colour; an icon in full colour keeps its own.
     TextColor = 0,
+    /// A colour well's colour: fixed, its alpha ignored.
+    ColorValue = 1,
 }
 
 /// Sets a colour: `semantic` is one of the platform's own, which follow
@@ -1004,6 +1011,10 @@ pub extern "C" fn mitsuami_set_color(id: u32, prop: u32, semantic: u32, r: u8, g
         let color = color(MitsuamiColor { semantic, r, g, b, a })?;
         let prop = match prop {
             0 => Prop::TextColor(color),
+            1 => match color {
+                Color::Rgba(r, g, b, _) => Prop::ColorValue(Color::rgb(r, g, b)),
+                _ => return Err("a colour well's colour is fixed (semantic 9)".into()),
+            },
             _ => return Err(format!("unknown colour prop {prop}")),
         };
         ui()?.set_prop(node(id), prop);
@@ -1562,6 +1573,8 @@ pub enum MitsuamiValueKind {
     Bool = 2,
     Number = 3,
     Index = 4,
+    /// A colour well's colour, as `0xRRGGBB` in `index`.
+    Color = 5,
 }
 
 /// An event, with the value that came with it in the field its
@@ -1717,6 +1730,10 @@ pub extern "C" fn mitsuami_on_event(
                     EventValue::Index(i) => {
                         out.value_kind = MitsuamiValueKind::Index as u32;
                         out.index = *i as u64;
+                    }
+                    EventValue::Color(Color::Rgba(r, g, b, _)) => {
+                        out.value_kind = MitsuamiValueKind::Color as u32;
+                        out.index = u64::from_be_bytes([0, 0, 0, 0, 0, *r, *g, *b]);
                     }
                     _ => {}
                 }

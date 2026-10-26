@@ -92,6 +92,7 @@ impl Inner {
             WidgetKind::RadioGroup => Role::RadioGroup,
             WidgetKind::Slider => Role::Slider,
             WidgetKind::NumberInput => Role::SpinButton,
+            WidgetKind::ColorWell => Role::ColorWell,
             // A spinner reads as a progress bar without a value, as in ARIA.
             WidgetKind::Progress | WidgetKind::Spinner => Role::ProgressBar,
             WidgetKind::Separator => Role::Separator,
@@ -120,6 +121,7 @@ impl Inner {
                 | WidgetKind::DocumentTabs
                 | WidgetKind::Slider
                 | WidgetKind::NumberInput
+                | WidgetKind::ColorWell
                 | WidgetKind::Progress
                 | WidgetKind::Spinner
                 | WidgetKind::Image
@@ -170,6 +172,7 @@ impl Inner {
                     Some(chosen.and_then(|i| options.get(i).cloned()).unwrap_or_default())
                 }
                 WidgetKind::Slider | WidgetKind::NumberInput => crate::find_prop!(props, Number).map(|n| n.to_string()),
+                WidgetKind::ColorWell => crate::find_prop!(props, ColorValue).and_then(crate::draw::Color::hex),
                 // As screen readers read progress bars.
                 WidgetKind::Progress => {
                     crate::find_prop!(props, Progress).flatten().map(|f| format!("{}%", (f * 100.0).round()))

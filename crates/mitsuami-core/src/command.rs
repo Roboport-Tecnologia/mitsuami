@@ -99,6 +99,8 @@ pub enum EventValue {
     Bool(bool),
     /// A `Slider`'s or `NumberInput`'s new value.
     Number(f64),
+    /// A `ColorWell`'s new colour, an opaque [`Color::Rgba`].
+    Color(crate::draw::Color),
     /// A `List`'s or `Table`'s selected rows.
     Rows(Vec<RowKey>),
     /// The column a `Table` is sorted by now, and which way.

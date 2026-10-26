@@ -152,6 +152,7 @@ impl WinUiBackend {
             | Widget::Toggle(_)
             | Widget::MenuButton(_)
             | Widget::SplitButton(_)
+            | Widget::ColorWell { .. }
             | Widget::Checkbox(_)
             | Widget::Switch(_)
             | Widget::Select(_)

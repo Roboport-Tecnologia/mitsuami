@@ -41,6 +41,7 @@ impl State {
                 | WidgetKind::Switch
                 | WidgetKind::Select
                 | WidgetKind::Slider
+                | WidgetKind::ColorWell
                 | WidgetKind::TextInput
                 | WidgetKind::PasswordInput
                 | WidgetKind::SearchInput
@@ -211,6 +212,20 @@ impl State {
                 Widget::Slider { slider, step: None }
             }
             WidgetKind::NumberInput => Widget::NumberInput(NumberField::new(mtm, id, self.events.clone())),
+            // AppKit's default style: a swatch, which opens the colour
+            // panel; continuous, so a pick reports as it's dragged.
+            WidgetKind::ColorWell => {
+                let well = objc2_app_kit::NSColorWell::new(mtm);
+                // Opaque colours only; `supportsAlpha` is macOS 14's.
+                if objc2::runtime::NSObjectProtocol::respondsToSelector(&*well, sel!(setSupportsAlpha:)) {
+                    well.setSupportsAlpha(false);
+                }
+                unsafe {
+                    well.setTarget(target_obj);
+                    well.setAction(action);
+                }
+                Widget::ColorWell(well)
+            }
             // Not editable, framed or animated: what `NSImageView` is
             // made as.
             WidgetKind::Image => Widget::Image(NSImageView::new(mtm)),

@@ -28,6 +28,9 @@ mod button;
 #[path = "../../../crates/mitsuami/examples/checkbox.rs"]
 mod checkbox;
 #[allow(dead_code, unused_attributes)]
+#[path = "../../../crates/mitsuami/examples/color_well.rs"]
+mod color_well;
+#[allow(dead_code, unused_attributes)]
 #[path = "../../../crates/mitsuami/examples/context_menu.rs"]
 mod context_menu;
 #[allow(dead_code, unused_attributes)]
@@ -171,6 +174,7 @@ const SECTIONS: [(&str, &[Example]); 7] = [
             example("Switch", || AnyView::new(switch::page())),
             example("Slider", || AnyView::new(slider::page())),
             example("Number input", || AnyView::new(number_input::page())),
+            example("Colour well", || AnyView::new(color_well::page())),
             example("Select", || AnyView::new(select::page())),
             example("Radio group", || AnyView::new(radio_group::page())),
             example("Menu button", || AnyView::new(menu_button::page())),

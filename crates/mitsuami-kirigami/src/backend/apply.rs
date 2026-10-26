@@ -362,6 +362,7 @@ impl State {
                         | Widget::RadioGroup(_)
                         | Widget::Slider(_)
                         | Widget::NumberInput(_)
+                        | Widget::ColorWell(_)
                         | Widget::Progress(_)
                         | Widget::Spinner(_)
                         | Widget::Icon(_)

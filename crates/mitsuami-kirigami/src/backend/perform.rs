@@ -1,7 +1,7 @@
 //! Performing what assistive technology does.
 
 use mitsuami_core::a11y::{A11yAction, ActionError};
-use mitsuami_core::{EventValue, NodeId, SelectionMode, UiEvent, WidgetKind};
+use mitsuami_core::{Color, EventValue, NodeId, SelectionMode, UiEvent, WidgetKind};
 
 use crate::custom::Emitter;
 
@@ -91,6 +91,13 @@ impl KirigamiBackend {
             // What the arrow keys do.
             (A11yAction::Increment | A11yAction::Decrement, WidgetKind::Slider | WidgetKind::NumberInput) => {
                 item.set_int("mitsuamiStepBy", if *action == A11yAction::Increment { 1 } else { -1 });
+            }
+            // As a pick in the dialog, which never opens.
+            (A11yAction::SetValue(text), WidgetKind::ColorWell) => {
+                let Some(Color::Rgba(r, g, b, _)) = Color::from_hex(text) else {
+                    return Err(ActionError::Unsupported);
+                };
+                item.set_int("mitsuamiPick", u32::from_be_bytes([0, r, g, b]) as i32);
             }
             (A11yAction::SetValue(text), WidgetKind::Slider | WidgetKind::NumberInput) => {
                 item.set_real("mitsuamiMoveTo", text.trim().parse().map_err(|_| ActionError::Unsupported)?);

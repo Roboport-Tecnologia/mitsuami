@@ -114,6 +114,13 @@ pub enum WidgetKind {
     /// Whole numbers that fit an `i32`, because Qt's spin box holds an
     /// `int`.
     NumberInput,
+    /// A native colour well: a button showing a colour, which opens the
+    /// platform's own way to pick another (NSColorWell, its colour panel;
+    /// GTK's ColorDialogButton; WinUI's ColorPicker in a flyout under a
+    /// DropDownButton; on Qt a button opening the ColorDialog, as KDE apps
+    /// pair them). Its colour is [`Prop::ColorValue`], opaque; the user's
+    /// pick comes as `Changed(Color)`.
+    ColorWell,
     /// A native progress bar (NSProgressIndicator, ProgressBar,
     /// gtk::ProgressBar, QQC2.ProgressBar): a [`Prop::Progress`].
     Progress,
@@ -293,6 +300,7 @@ impl WidgetKind {
             WidgetKind::RadioGroup => "RadioGroup",
             WidgetKind::Slider => "Slider",
             WidgetKind::NumberInput => "NumberInput",
+            WidgetKind::ColorWell => "ColorWell",
             WidgetKind::Progress => "Progress",
             WidgetKind::Spinner => "Spinner",
             WidgetKind::Separator => "Separator",
@@ -1023,6 +1031,9 @@ pub enum Prop {
     /// first pane's size along it, in points, which the core keeps within
     /// the panes' least sizes.
     Number(f64),
+    /// A `ColorWell`'s colour: an opaque [`Color::Rgba`] (semantic
+    /// colours and alpha aren't a colour well's).
+    ColorValue(Color),
     /// The values a `Slider` or `NumberInput` can take.
     Range {
         min: f64,

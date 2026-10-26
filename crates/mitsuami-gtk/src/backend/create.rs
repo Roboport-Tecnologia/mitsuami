@@ -174,6 +174,17 @@ impl State {
                 spin.connect_value_changed(move |s| events.emit(id, UiEvent::Changed(EventValue::Number(s.value()))));
                 Widget::SpinButton(spin)
             }
+            // GNOME's colour button: it opens GTK's colour dialog, which
+            // reports the pick once it's accepted. Opaque colours only.
+            WidgetKind::ColorWell => {
+                let dialog = gtk::ColorDialog::new();
+                dialog.set_with_alpha(false);
+                let button = gtk::ColorDialogButton::new(Some(dialog));
+                button.connect_rgba_notify(move |b| {
+                    events.emit(id, UiEvent::Changed(EventValue::Color(super::opaque(&b.rgba()))))
+                });
+                Widget::ColorWell(button)
+            }
             WidgetKind::Progress => Widget::Progress { bar: gtk::ProgressBar::new(), pulsing: Rc::default() },
             WidgetKind::Spinner => Widget::Spinner(gtk::Spinner::new()),
             WidgetKind::Separator => Widget::Separator(gtk::Separator::new(gtk::Orientation::Horizontal)),

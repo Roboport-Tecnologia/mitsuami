@@ -503,6 +503,7 @@ Button::new("Continue").role(ButtonRole::Default).native(platform! {
 | `RadioGroup` | `NSStackView` | `gtk::Box` | `ColumnLayout` | `RadioButtons` |
 | `Slider` | `NSSlider` | `gtk::Scale` | `QQC2.Slider` | `Slider` |
 | `NumberInput` | `appkit::NumberField` (its `field()` and `stepper()`) | `gtk::SpinButton` | `QQC2.SpinBox` | `NumberBox` |
+| `ColorWell` | `NSColorWell` | `gtk::ColorDialogButton` (its `dialog()`) | `QQC2.Button` (its `ColorDialog` inside) | `DropDownButton` (its flyout's `ColorPicker`) |
 | `Progress` | `NSProgressIndicator` | `gtk::ProgressBar` | `QQC2.ProgressBar` | `ProgressBar` |
 | `Spinner` | `NSProgressIndicator` | `gtk::Spinner` | `QQC2.BusyIndicator` | `ProgressRing` |
 | `Separator` | `NSBox` | `gtk::Separator` | `Kirigami.Separator` | `Border` |
@@ -812,6 +813,7 @@ Every built-in widget is the platform's own control. §14 covers windows and the
 | Select | `NSPopUpButton` | `gtk::DropDown` | `QQC2.ComboBox` | `ComboBox` |
 | Slider | `NSSlider` | `gtk::Scale` | `QQC2.Slider` | `Slider` |
 | NumberInput | `NSTextField` + `NSStepper` | `gtk::SpinButton` | `QQC2.SpinBox` | `NumberBox` |
+| ColorWell | `NSColorWell` | `gtk::ColorDialogButton` | `QQC2.Button` + `ColorDialog` | `DropDownButton` + `ColorPicker` |
 | Progress | `NSProgressIndicator` (bar) | `gtk::ProgressBar` | `QQC2.ProgressBar` | `ProgressBar` |
 | Spinner | `NSProgressIndicator` (spinning) | `gtk::Spinner` | `QQC2.BusyIndicator` | `ProgressRing` |
 | Separator | `NSBox` (separator) | `gtk::Separator` | `Kirigami.Separator` | `Border` in the divider brush |
@@ -1485,6 +1487,16 @@ From the survey of the widgets' native options, each missing on one platform, so
 - **The example** (`examples/split_button.rs`, in the showcase too): a gallery, a rebase stopped at a commit (Continue, and a menu to commit the message typed as the commit to edit, skip or abort), and a tweak each: AppKit's unified style (one segment whose menu opens when held down), GTK's popover opening upwards (`direction`), `flat` on Qt, a pill-shaped `CornerRadius` on WinUI. `mitsuami-gtk` re-exports `adw` beside `gtk` for it.
 - **Before macOS 13,** which has no `NSComboButton`, AppKit's is a two-segment `NSSegmentedControl` with the menu on the second segment, as apps paired them then; its action reports a click only from the first segment. Only type-checked: this machine runs macOS 26.
 - **Where it has run:** AppKit and headless (`tests/split_button.rs`, the `split_buttons` story, the C ABI's `split_buttons_report_clicks_and_the_item_chosen`) and in SourceGit's local changes. GTK, Kirigami and WinUI only type-check; a native run must confirm on each the click and the menu's items, the icon alone (GTK puts `image-button` on libadwaita's inner button, its first child), the borderless look, and on Kirigami that Breeze keeps its own padding beside the arrow's inset and how the two framed buttons look joined.
+
+### 13.38 ColorWell
+
+- **A button showing a colour, which opens the platform's own way to pick another,** as every platform has one: AppKit's `NSColorWell` (its default style, a swatch in a pill on macOS 26, which opens the shared colour panel), GTK's `ColorDialogButton` with a `ColorDialog` (in GTK 4.10, the floor), and on WinUI and Qt what their apps pair, since neither has a well: WinUI's `DropDownButton` with a swatch (32 × 16, the control corner radius) and a `ColorPicker` in its flyout, as the WinUI Gallery shows one; a `QQC2.Button` with a swatch (2 × 1 grid units, Kirigami's corner radius, a faint border in the text colour) that opens Qt Quick's `ColorDialog` (Plasma's own through its platform theme), as KQuickControls' `ColorButton` does. Upstream SourceGit draws a grid of Fluent's 48 swatches for a workspace's colour; the port uses this instead (the maintainer's choice, 2026-10-25).
+- **Opaque colours only** (`Prop::ColorValue`, a `Color::Rgba`; `UiEvent::Changed(EventValue::Color)`): the builder drops alpha, and each backend turns its picker's off (AppKit `supportsAlpha`, macOS 14's; GTK `with_alpha(false)`; WinUI `IsAlphaEnabled`; Qt's dialog shows none by default). The core doesn't refuse a semantic colour, but backends ignore one, and the C ABI refuses it. Colours are read back as sRGB bytes, which round-trip exactly on AppKit (a `swiftc` probe).
+- **When a pick is reported is each platform's:** AppKit's well is continuous and WinUI's picker reports as it's dragged; GTK's and Qt's dialogs report once accepted. GTK's `notify::rgba` and WinUI's `ColorChanged` fire for the app's sets too, so GTK sets the colour while its events are muted, and WinUI keeps the colour shown (`shown`, set first) and reports only another; AppKit's action and Qt's `accepted` are the user's only.
+- **To assistive technology it's a colour well** (`Role::ColorWell`, AppKit's `AXColorWell`), named by its label, its value `#rrggbb` (`Color::hex`). `SetValue("#rrggbb")` sets it as a pick would and reports it; nothing opens, as `perform` never opens modal UI. The test kit's `set_color` does that. `Activate` isn't taken: it would open the picker.
+- **Measure:** the platform's. AppKit's is 48 × 24 in every style but `expanded` (72 × 24), and headless uses 48 × 24.
+- **The example** (`examples/color_well.rs`, in the showcase too): a gallery, a playground whose buttons set the colour from the app (counted apart from the user's picks, which they aren't), and a tweak each: AppKit's `expanded` style, GTK's dialog title, `flat` on Qt, a pill-shaped `CornerRadius` on WinUI.
+- **Where it has run:** AppKit and headless (`tests/color_well.rs`, the `color_wells` story, the C ABI's `color_wells_report_the_colour_picked`), and in SourceGit's Configure Workspaces sheet, captured; not yet tried by hand (the panel opening, a pick dragged in it). GTK, Kirigami and WinUI were written by forked agents and only type-check. A native run must confirm: on GTK, that `notify::rgba` fires once per accepted pick and not for a set to the same colour, and that Orca reads the label; on Kirigami, that the QML loads (`import QtQuick.Dialogs` in the snippet, `Kirigami.Units.cornerRadius`, a `ColorDialog` declared inside the button, not yet `qmllint`ed), the button's width under Breeze's minimum, and that the dialog opens over the right window; on WinUI, whether `ColorChanged` fires for `SetColor` before the flyout has ever opened (the guard and `report_value` cover either), the swatch beside a menu button's chevron, and that UIA reads the name. Everywhere, the mirror check reading the colour back.
 
 ## 14. Windows and the app shell
 

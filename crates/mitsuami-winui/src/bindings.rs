@@ -1280,6 +1280,73 @@ impl windows_core::RuntimeType for Color {
 }
 #[repr(transparent)]
 #[derive(Clone, Debug, Eq, PartialEq)]
+pub struct ColorChangedEventArgs(windows_core::IUnknown);
+windows_core::imp::interface_hierarchy!(ColorChangedEventArgs, windows_core::IUnknown, windows_core::IInspectable);
+impl windows_core::RuntimeType for ColorChangedEventArgs {
+    const SIGNATURE: windows_core::imp::ConstBuffer =
+        windows_core::imp::ConstBuffer::for_class::<Self, IColorChangedEventArgs>();
+}
+unsafe impl windows_core::Interface for ColorChangedEventArgs {
+    type Vtable = <IColorChangedEventArgs as windows_core::Interface>::Vtable;
+    const IID: windows_core::GUID = <IColorChangedEventArgs as windows_core::Interface>::IID;
+}
+impl core::ops::Deref for ColorChangedEventArgs {
+    type Target = IColorChangedEventArgs;
+    fn deref(&self) -> &Self::Target {
+        unsafe { core::mem::transmute(self) }
+    }
+}
+impl windows_core::RuntimeName for ColorChangedEventArgs {
+    const NAME: &'static str = "Microsoft.UI.Xaml.Controls.ColorChangedEventArgs";
+}
+unsafe impl Send for ColorChangedEventArgs {}
+unsafe impl Sync for ColorChangedEventArgs {}
+#[repr(transparent)]
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct ColorPicker(windows_core::IUnknown);
+windows_core::imp::interface_hierarchy!(ColorPicker, windows_core::IUnknown, windows_core::IInspectable);
+windows_core::imp::required_hierarchy!(ColorPicker, Control, FrameworkElement, UIElement, DependencyObject);
+impl ColorPicker {
+    pub fn new() -> windows_core::Result<Self> {
+        Self::IColorPickerFactory(|this| unsafe {
+            let mut result__ = core::mem::zeroed();
+            (windows_core::Interface::vtable(this).CreateInstance)(
+                windows_core::Interface::as_raw(this),
+                core::ptr::null_mut(),
+                core::ptr::null_mut(),
+                &mut result__,
+            )
+            .and_then(|| windows_core::imp::Type::from_abi(result__))
+        })
+    }
+    fn IColorPickerFactory<R, F: FnOnce(&IColorPickerFactory) -> windows_core::Result<R>>(
+        callback: F,
+    ) -> windows_core::Result<R> {
+        static SHARED: windows_core::imp::FactoryCache<ColorPicker, IColorPickerFactory> =
+            windows_core::imp::FactoryCache::new();
+        SHARED.call(callback)
+    }
+}
+impl windows_core::RuntimeType for ColorPicker {
+    const SIGNATURE: windows_core::imp::ConstBuffer = windows_core::imp::ConstBuffer::for_class::<Self, IColorPicker>();
+}
+unsafe impl windows_core::Interface for ColorPicker {
+    type Vtable = <IColorPicker as windows_core::Interface>::Vtable;
+    const IID: windows_core::GUID = <IColorPicker as windows_core::Interface>::IID;
+}
+impl core::ops::Deref for ColorPicker {
+    type Target = IColorPicker;
+    fn deref(&self) -> &Self::Target {
+        unsafe { core::mem::transmute(self) }
+    }
+}
+impl windows_core::RuntimeName for ColorPicker {
+    const NAME: &'static str = "Microsoft.UI.Xaml.Controls.ColorPicker";
+}
+unsafe impl Send for ColorPicker {}
+unsafe impl Sync for ColorPicker {}
+#[repr(transparent)]
+#[derive(Clone, Debug, Eq, PartialEq)]
 pub struct ColumnDefinition(windows_core::IUnknown);
 windows_core::imp::interface_hierarchy!(ColumnDefinition, windows_core::IUnknown, windows_core::IInspectable);
 windows_core::imp::required_hierarchy!(ColumnDefinition, DependencyObject);
@@ -4888,6 +4955,139 @@ pub struct IClipboardStatics_Vtbl {
         unsafe extern "system" fn(*mut core::ffi::c_void, *mut *mut core::ffi::c_void) -> windows_core::HRESULT,
     pub SetContent: unsafe extern "system" fn(*mut core::ffi::c_void, *mut core::ffi::c_void) -> windows_core::HRESULT,
     pub Flush: unsafe extern "system" fn(*mut core::ffi::c_void) -> windows_core::HRESULT,
+}
+windows_core::imp::define_interface!(
+    IColorChangedEventArgs,
+    IColorChangedEventArgs_Vtbl,
+    0x148d57a2_b1cb_5f5d_b6b5_512805d71761
+);
+impl windows_core::RuntimeType for IColorChangedEventArgs {
+    const SIGNATURE: windows_core::imp::ConstBuffer = windows_core::imp::ConstBuffer::for_interface::<Self>();
+}
+impl IColorChangedEventArgs {
+    pub fn NewColor(&self) -> windows_core::Result<Color> {
+        unsafe {
+            let mut result__ = core::mem::zeroed();
+            (windows_core::Interface::vtable(self).NewColor)(windows_core::Interface::as_raw(self), &mut result__)
+                .map(|| result__)
+        }
+    }
+}
+#[repr(C)]
+pub struct IColorChangedEventArgs_Vtbl {
+    pub base__: windows_core::IInspectable_Vtbl,
+    OldColor: usize,
+    pub NewColor: unsafe extern "system" fn(*mut core::ffi::c_void, *mut Color) -> windows_core::HRESULT,
+}
+windows_core::imp::define_interface!(IColorPicker, IColorPicker_Vtbl, 0xae72b24b_f93f_5a19_8ce4_a18b73c3356d);
+impl windows_core::RuntimeType for IColorPicker {
+    const SIGNATURE: windows_core::imp::ConstBuffer = windows_core::imp::ConstBuffer::for_interface::<Self>();
+}
+impl IColorPicker {
+    pub fn Color(&self) -> windows_core::Result<Color> {
+        unsafe {
+            let mut result__ = core::mem::zeroed();
+            (windows_core::Interface::vtable(self).Color)(windows_core::Interface::as_raw(self), &mut result__)
+                .map(|| result__)
+        }
+    }
+    pub fn SetColor(&self, value: Color) -> windows_core::Result<()> {
+        unsafe { (windows_core::Interface::vtable(self).SetColor)(windows_core::Interface::as_raw(self), value).ok() }
+    }
+    pub fn SetIsAlphaEnabled(&self, value: bool) -> windows_core::Result<()> {
+        unsafe {
+            (windows_core::Interface::vtable(self).SetIsAlphaEnabled)(windows_core::Interface::as_raw(self), value).ok()
+        }
+    }
+    pub fn ColorChanged<F>(&self, handler: F) -> windows_core::Result<windows_core::EventRevoker>
+    where
+        F: Fn(windows_core::Ref<ColorPicker>, windows_core::Ref<ColorChangedEventArgs>) + 'static,
+    {
+        let handler: TypedEventHandler<ColorPicker, ColorChangedEventArgs> = {
+            let com = windows_core::imp::DelegateBox::<TypedEventHandler<ColorPicker, ColorChangedEventArgs>, F>::new(
+                &TypedEventHandlerBox::<ColorPicker, ColorChangedEventArgs, F>::VTABLE,
+                handler,
+            );
+            unsafe { core::mem::transmute(windows_core::imp::box_new(com)) }
+        };
+        unsafe {
+            let mut result__ = core::mem::zeroed();
+            let token__ = (windows_core::Interface::vtable(self).ColorChanged)(
+                windows_core::Interface::as_raw(self),
+                windows_core::Interface::as_raw(&handler),
+                &mut result__,
+            )
+            .map(|| result__)?;
+            Ok(windows_core::EventRevoker::new(
+                self.clone(),
+                token__,
+                windows_core::Interface::vtable(self).RemoveColorChanged,
+            ))
+        }
+    }
+}
+#[repr(C)]
+pub struct IColorPicker_Vtbl {
+    pub base__: windows_core::IInspectable_Vtbl,
+    pub Color: unsafe extern "system" fn(*mut core::ffi::c_void, *mut Color) -> windows_core::HRESULT,
+    pub SetColor: unsafe extern "system" fn(*mut core::ffi::c_void, Color) -> windows_core::HRESULT,
+    PreviousColor: usize,
+    SetPreviousColor: usize,
+    IsAlphaEnabled: usize,
+    pub SetIsAlphaEnabled: unsafe extern "system" fn(*mut core::ffi::c_void, bool) -> windows_core::HRESULT,
+    IsColorSpectrumVisible: usize,
+    SetIsColorSpectrumVisible: usize,
+    IsColorPreviewVisible: usize,
+    SetIsColorPreviewVisible: usize,
+    IsColorSliderVisible: usize,
+    SetIsColorSliderVisible: usize,
+    IsAlphaSliderVisible: usize,
+    SetIsAlphaSliderVisible: usize,
+    IsMoreButtonVisible: usize,
+    SetIsMoreButtonVisible: usize,
+    IsColorChannelTextInputVisible: usize,
+    SetIsColorChannelTextInputVisible: usize,
+    IsAlphaTextInputVisible: usize,
+    SetIsAlphaTextInputVisible: usize,
+    IsHexInputVisible: usize,
+    SetIsHexInputVisible: usize,
+    MinHue: usize,
+    SetMinHue: usize,
+    MaxHue: usize,
+    SetMaxHue: usize,
+    MinSaturation: usize,
+    SetMinSaturation: usize,
+    MaxSaturation: usize,
+    SetMaxSaturation: usize,
+    MinValue: usize,
+    SetMinValue: usize,
+    MaxValue: usize,
+    SetMaxValue: usize,
+    ColorSpectrumShape: usize,
+    SetColorSpectrumShape: usize,
+    ColorSpectrumComponents: usize,
+    SetColorSpectrumComponents: usize,
+    pub ColorChanged:
+        unsafe extern "system" fn(*mut core::ffi::c_void, *mut core::ffi::c_void, *mut i64) -> windows_core::HRESULT,
+    pub RemoveColorChanged: unsafe extern "system" fn(*mut core::ffi::c_void, i64) -> windows_core::HRESULT,
+}
+windows_core::imp::define_interface!(
+    IColorPickerFactory,
+    IColorPickerFactory_Vtbl,
+    0x72c350e2_0a20_5b9b_ac54_633b97d7ffde
+);
+impl windows_core::RuntimeType for IColorPickerFactory {
+    const SIGNATURE: windows_core::imp::ConstBuffer = windows_core::imp::ConstBuffer::for_interface::<Self>();
+}
+#[repr(C)]
+pub struct IColorPickerFactory_Vtbl {
+    pub base__: windows_core::IInspectable_Vtbl,
+    pub CreateInstance: unsafe extern "system" fn(
+        *mut core::ffi::c_void,
+        *mut core::ffi::c_void,
+        *mut *mut core::ffi::c_void,
+        *mut *mut core::ffi::c_void,
+    ) -> windows_core::HRESULT,
 }
 windows_core::imp::define_interface!(IColumnDefinition, IColumnDefinition_Vtbl, 0x454cea14_87ec_5890_bb62_f1d82a94758e);
 impl windows_core::RuntimeType for IColumnDefinition {

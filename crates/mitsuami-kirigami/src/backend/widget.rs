@@ -23,6 +23,7 @@ impl Widget {
             | Widget::RadioGroup(i)
             | Widget::Slider(i)
             | Widget::NumberInput(i)
+            | Widget::ColorWell(i)
             | Widget::Progress(i)
             | Widget::Spinner(i)
             | Widget::Separator(i)
@@ -108,6 +109,7 @@ impl Widget {
                 | Widget::RadioGroup(_)
                 | Widget::Slider(_)
                 | Widget::NumberInput(_)
+                | Widget::ColorWell(_)
                 | Widget::DocumentTabs { .. }
         )
     }
@@ -127,6 +129,7 @@ impl Widget {
                 | Widget::RadioGroup(_)
                 | Widget::Slider(_)
                 | Widget::NumberInput(_)
+                | Widget::ColorWell(_)
                 | Widget::Custom { .. }
                 | Widget::Native { .. }
                 | Widget::List(_)

@@ -224,6 +224,13 @@ impl WinUiBackend {
                 props.push(Prop::Number(iface.Value().ok()?));
                 props.push(Prop::WrapAround(iface.IsWrapEnabled().ok()?));
             }
+            Widget::ColorWell { picker, .. } => {
+                let name = w::AutomationProperties::GetName(&node.element).unwrap_or_default();
+                if !name.is_empty() {
+                    props.push(Prop::Label(name));
+                }
+                props.push(Prop::ColorValue(super::controls::opaque(picker.Color().ok()?)));
+            }
             Widget::Progress(p) => {
                 let name = w::AutomationProperties::GetName(&node.element).unwrap_or_default();
                 if !name.is_empty() {

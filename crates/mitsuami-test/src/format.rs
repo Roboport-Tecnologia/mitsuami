@@ -74,6 +74,9 @@ fn describe_props(props: &[Prop]) -> String {
                 extra.push(format!("selected={}", index.map_or("none".to_owned(), |i| i.to_string())))
             }
             Prop::Number(n) => extra.push(format!("value={}", Num(*n as f32))),
+            Prop::ColorValue(color) => {
+                extra.push(format!("color={}", color.hex().unwrap_or_else(|| format!("{color:?}"))))
+            }
             Prop::Range { min, max } => extra.push(format!("range={}..{}", Num(*min as f32), Num(*max as f32))),
             Prop::Step(step) => {
                 extra.push(format!("step={}", step.map_or("default".to_owned(), |s| Num(s as f32).to_string())))
@@ -470,6 +473,7 @@ pub(crate) fn wireframe(root: &NodeInfo) -> String {
             WidgetKind::Select
             | WidgetKind::Slider
             | WidgetKind::NumberInput
+            | WidgetKind::ColorWell
             | WidgetKind::Progress
             | WidgetKind::Spinner => "#1f8a8a",
             WidgetKind::Image | WidgetKind::Icon | WidgetKind::FileIcon => "#b8860b",

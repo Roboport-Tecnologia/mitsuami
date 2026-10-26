@@ -33,6 +33,25 @@ impl Color {
     pub const fn rgb(r: u8, g: u8, b: u8) -> Color {
         Color::Rgba(r, g, b, 255)
     }
+
+    /// A fixed colour as `#rrggbb`, as a colour well's value reads; `None`
+    /// for a semantic one.
+    pub fn hex(self) -> Option<String> {
+        match self {
+            Color::Rgba(r, g, b, _) => Some(format!("#{r:02x}{g:02x}{b:02x}")),
+            _ => None,
+        }
+    }
+
+    /// `#rrggbb` (or `rrggbb`) as an opaque colour.
+    pub fn from_hex(hex: &str) -> Option<Color> {
+        let hex = hex.trim().trim_start_matches('#');
+        if hex.len() != 6 || !hex.is_ascii() {
+            return None;
+        }
+        let byte = |i: usize| u8::from_str_radix(&hex[i..i + 2], 16).ok();
+        Some(Color::rgb(byte(0)?, byte(2)?, byte(4)?))
+    }
 }
 
 #[derive(Clone, Copy, Debug, PartialEq)]

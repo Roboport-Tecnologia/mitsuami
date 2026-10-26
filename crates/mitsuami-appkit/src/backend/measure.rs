@@ -59,6 +59,7 @@ pub(super) fn measure(state: &State, id: NodeId, request: MeasureRequest) -> Siz
         // No natural width: they're as wide as the layout makes them.
         Widget::Slider { slider, .. } => intrinsic(slider),
         Widget::NumberInput(n) => n.natural_size(),
+        Widget::ColorWell(v) => ceil_size(v.intrinsicContentSize()),
         Widget::TextArea(area) => area.natural_size(state.mtm),
         // The image's size in points; nothing shown, none.
         Widget::Image(view) | Widget::Icon(view) => view.image().map_or(Size::ZERO, |image| ceil_size(image.size())),

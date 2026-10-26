@@ -167,6 +167,14 @@ impl AppKitBackend {
                 };
                 split.move_divider(position);
             }
+            // As if picked in the colour panel: the well sends its action.
+            // The panel itself never opens.
+            (A11yAction::SetValue(text), WidgetKind::ColorWell) => {
+                let well: &objc2_app_kit::NSColorWell = widget_view.downcast_ref().ok_or(ActionError::Unsupported)?;
+                let color = mitsuami_core::Color::from_hex(text).ok_or(ActionError::Unsupported)?;
+                well.setColor(&crate::custom::ns_color(color));
+                unsafe { well.sendAction_to(well.action(), well.target().as_deref()) };
+            }
             (A11yAction::SetValue(text), WidgetKind::Slider) => {
                 let slider: &NSSlider = widget_view.downcast_ref().ok_or(ActionError::Unsupported)?;
                 let value: f64 = text.trim().parse().map_err(|_| ActionError::Unsupported)?;

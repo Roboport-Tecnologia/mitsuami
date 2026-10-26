@@ -144,6 +144,33 @@ impl State {
                 let element = button.cast()?;
                 (Widget::SplitButton(button), element)
             }
+            // A swatch in a drop-down button, which opens the colour
+            // picker in its flyout, under it as menus open. The picker
+            // reports every change, the app's sets too: only a colour the
+            // core doesn't know about is the user's.
+            WidgetKind::ColorWell => {
+                let button = w::DropDownButton::new()?;
+                let swatch = super::controls::color_swatch()?;
+                button.cast::<w::IContentControl>()?.SetContent(&swatch.cast::<IInspectable>()?)?;
+                let picker = w::ColorPicker::new()?;
+                picker.SetIsAlphaEnabled(false)?;
+                let flyout = w::Flyout::new()?;
+                flyout.cast::<w::IFlyout>()?.SetContent(&picker.cast::<w::UIElement>()?)?;
+                flyout.cast::<w::IFlyoutBase>()?.SetPlacement(w::FlyoutPlacementMode::Bottom)?;
+                button.cast::<w::IButton>()?.SetFlyout(&flyout.cast::<w::FlyoutBase>()?)?;
+                let shown: Rc<Cell<Option<mitsuami_core::Color>>> = Rc::default();
+                let (emitter, reported, sw) = (emitter.clone(), shown.clone(), swatch.clone());
+                revokers.push(picker.ColorChanged(move |_, args| {
+                    let Some(color) = args.as_ref().and_then(|a| a.NewColor().ok()) else { return };
+                    let _ = super::controls::show_swatch(&sw, color);
+                    let color = super::controls::opaque(color);
+                    if reported.replace(Some(color)) != Some(color) {
+                        emitter.emit(id, UiEvent::Changed(EventValue::Color(color)));
+                    }
+                })?);
+                let element = button.cast()?;
+                (Widget::ColorWell { swatch, picker, shown }, element)
+            }
             // No click of its own: a click opens its flyout.
             WidgetKind::MenuButton => {
                 let button = w::DropDownButton::new()?;

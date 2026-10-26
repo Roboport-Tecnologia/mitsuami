@@ -25,6 +25,7 @@ extern "C" fn record(_user: *mut c_void, _node: u32, event: *const MitsuamiEvent
         }
         1 if event.value_kind == MitsuamiValueKind::Bool as u32 => format!("changed {}", event.flag),
         1 if event.value_kind == MitsuamiValueKind::Number as u32 => format!("changed {}", event.number),
+        1 if event.value_kind == MitsuamiValueKind::Color as u32 => format!("changed #{:06x}", event.index),
         6 => {
             let text = unsafe { std::slice::from_raw_parts(event.text, event.text_len) };
             format!("search {}", std::str::from_utf8(text).unwrap())
@@ -1321,6 +1322,25 @@ async fn sliders_and_number_fields_report_the_number(app: TestApp) {
     app.get_by_label("Tab width").increment().await;
     assert_eq!(heard(), ["changed 5"]);
     assert!(!mitsuami_set_range(number, 3.0, 1.0, 0.0));
+}
+
+#[mitsuami_test::test]
+async fn color_wells_report_the_colour_picked(app: TestApp) {
+    attach(app.ui());
+    let well = create(MitsuamiKind::ColorWell);
+    set_text(well, MitsuamiTextProp::Label, "Workspace colour");
+    assert!(mitsuami_set_color(well, MitsuamiColorProp::ColorValue as u32, 9, 0, 120, 215, 255));
+    assert!(mitsuami_on_event(well, record, std::ptr::null_mut()));
+    app.mount(|| Adopt(well));
+    app.settle().await;
+    let picked = app.get_by_role(Role::ColorWell, "Workspace colour");
+    assert!(picked.native_state().props.contains(&Prop::ColorValue(Color::rgb(0, 120, 215))));
+
+    heard();
+    picked.set_color(Color::rgb(255, 140, 0)).await;
+    assert_eq!(heard(), ["changed #ff8c00"]);
+    // A well's colour is fixed: no semantic colour.
+    assert!(!mitsuami_set_color(well, MitsuamiColorProp::ColorValue as u32, 2, 0, 0, 0, 0));
 }
 
 #[mitsuami_test::test]

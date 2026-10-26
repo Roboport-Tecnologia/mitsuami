@@ -5,9 +5,9 @@ use std::rc::Rc;
 use mitsuami_core::reactive::{IntoValue, Value};
 use mitsuami_core::{List, Opaque, Table, Tweak};
 use mitsuami_widgets::{
-    Button, Checkbox, FileIcon, Group, Icon, Image, MenuButton, NumberInput, PasswordInput, Progress, RadioGroup,
-    ScrollView, SearchInput, Select, Separator, Slider, Spinner, Split, SplitButton, Switch, Text, TextArea, TextInput,
-    ToggleButton,
+    Button, Checkbox, ColorWell, FileIcon, Group, Icon, Image, MenuButton, NumberInput, PasswordInput, Progress,
+    RadioGroup, ScrollView, SearchInput, Select, Separator, Slider, Spinner, Split, SplitButton, Switch, Text,
+    TextArea, TextInput, ToggleButton,
 };
 use mitsuami_widgets::{DocumentTabs, Sidebar};
 use objc2::DowncastTarget;
@@ -48,6 +48,10 @@ impl Tweakable for RadioGroup {
 
 impl Tweakable for Slider {
     type Native = NSSlider;
+}
+
+impl Tweakable for ColorWell {
+    type Native = objc2_app_kit::NSColorWell;
 }
 
 impl Tweakable for NumberInput {

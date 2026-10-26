@@ -129,6 +129,7 @@ enum Widget {
         step: Option<f64>,
     },
     NumberInput(Retained<NumberField>),
+    ColorWell(Retained<objc2_app_kit::NSColorWell>),
     Progress(Retained<NSProgressIndicator>),
     /// A spinning indicator, and whether it's animating: AppKit can't say.
     Spinner {
@@ -178,6 +179,7 @@ impl Widget {
             Widget::RadioGroup(group) => &group.stack,
             Widget::Slider { slider, .. } => slider,
             Widget::NumberInput(v) => v,
+            Widget::ColorWell(v) => v,
             Widget::Progress(v) => v,
             Widget::Spinner { indicator, .. } => indicator,
             Widget::Separator(v) => v,
@@ -202,6 +204,7 @@ impl Widget {
             Widget::Select(v) | Widget::MenuButton { popup: v, .. } => Some(v),
             Widget::SplitButton(b) => Some(&b.control),
             Widget::Slider { slider, .. } => Some(slider),
+            Widget::ColorWell(v) => Some(v),
             // Its field: what's focused, and what text styles apply to.
             Widget::NumberInput(n) => Some(n.field()),
             // Its buttons each: see `RadioGroup`.
@@ -546,5 +549,13 @@ impl Backend for AppKitBackend {
     fn capture(&mut self, id: NodeId, reply: mitsuami_core::services::Reply<Result<Image, CaptureError>>) {
         // Drawing into a bitmap is synchronous on AppKit: answer right away.
         reply(self.capture_now(id));
+    }
+}
+
+/// A colour well's colour, as the core keeps it: sRGB, opaque.
+pub(crate) fn opaque(color: &objc2_app_kit::NSColor) -> mitsuami_core::Color {
+    match native_state::rgba(color) {
+        mitsuami_core::Color::Rgba(r, g, b, _) => mitsuami_core::Color::rgb(r, g, b),
+        other => other,
     }
 }

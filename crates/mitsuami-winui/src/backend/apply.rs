@@ -367,6 +367,7 @@ impl State {
                         | Widget::RadioGroup(_)
                         | Widget::Slider { .. }
                         | Widget::Number { .. }
+                        | Widget::ColorWell { .. }
                         | Widget::Progress(_)
                         | Widget::Spinner(_)
                 );
@@ -708,6 +709,11 @@ impl State {
                 .ok()
                 .filter(|v| !v.is_nan())
                 .and_then(|v| (node.shown_number.replace(v) != v).then_some(EventValue::Number(v))),
+            Widget::ColorWell { picker, shown, .. } => picker
+                .Color()
+                .ok()
+                .map(super::controls::opaque)
+                .and_then(|c| (shown.replace(Some(c)) != Some(c)).then_some(EventValue::Color(c))),
             Widget::Select(combo) => combo
                 .cast::<w::ISelector>()
                 .and_then(|s| s.SelectedIndex())

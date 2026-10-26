@@ -3,7 +3,7 @@
 use std::cell::{Cell, RefCell};
 use std::rc::Rc;
 
-use mitsuami_core::{Command, DisplayList, EventValue, NodeId, PointerEvent, UiEvent, WidgetKind, find_prop};
+use mitsuami_core::{Color, Command, DisplayList, EventValue, NodeId, PointerEvent, UiEvent, WidgetKind, find_prop};
 
 use crate::custom::{ErasedRender, KirigamiCx, NativePayload};
 use crate::events::node_key;
@@ -249,6 +249,16 @@ impl State {
                     events.emit(id, UiEvent::Changed(EventValue::Number(spin.int("value").into())))
                 });
                 Widget::NumberInput(spin)
+            }
+            WidgetKind::ColorWell => {
+                let well = QmlObject::load(&qml::color_well());
+                // `mitsuamiPicked` is the user's (the dialog accepted);
+                // setting `mitsuamiRgb` emits nothing.
+                well.connect("mitsuamiPicked()", move || {
+                    let [_, r, g, b] = (well.int("mitsuamiRgb") as u32).to_be_bytes();
+                    events.emit(id, UiEvent::Changed(EventValue::Color(Color::rgb(r, g, b))))
+                });
+                Widget::ColorWell(well)
             }
             WidgetKind::Progress => Widget::Progress(QmlObject::load(&qml::progress())),
             WidgetKind::Spinner => Widget::Spinner(QmlObject::load(&qml::spinner())),

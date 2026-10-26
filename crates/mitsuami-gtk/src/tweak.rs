@@ -7,9 +7,9 @@ use mitsuami_core::reactive::{IntoValue, Value};
 use mitsuami_core::{List, Opaque, Table, Tweak};
 use mitsuami_widgets::Sidebar;
 use mitsuami_widgets::{
-    Button, Checkbox, FileIcon, Group, Icon, Image, MenuButton, NumberInput, PasswordInput, Progress, RadioGroup,
-    ScrollView, SearchInput, Select, Separator, Slider, Spinner, Split, SplitButton, Switch, Text, TextArea, TextInput,
-    ToggleButton,
+    Button, Checkbox, ColorWell, FileIcon, Group, Icon, Image, MenuButton, NumberInput, PasswordInput, Progress,
+    RadioGroup, ScrollView, SearchInput, Select, Separator, Slider, Spinner, Split, SplitButton, Switch, Text,
+    TextArea, TextInput, ToggleButton,
 };
 
 use crate::backend::{STEPS, Steps, update_marks};
@@ -46,6 +46,11 @@ impl Tweakable for RadioGroup {
 
 impl Tweakable for Slider {
     type Native = gtk::Scale;
+}
+
+/// The colour dialog button; its `gtk::ColorDialog` is `dialog()`.
+impl Tweakable for ColorWell {
+    type Native = gtk::ColorDialogButton;
 }
 
 impl Tweakable for NumberInput {
