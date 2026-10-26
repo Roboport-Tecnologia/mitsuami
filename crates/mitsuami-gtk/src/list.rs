@@ -71,6 +71,11 @@ struct Data {
     moves: Option<RowMoves>,
     /// The cell a drag over the list is shown at.
     drop_cell: Option<glib::WeakRef<gtk::Widget>>,
+    /// Tables with a column that fills its rows only: the shown rows'
+    /// heights without those cells, as reported, and whether a report is on
+    /// its way.
+    bare_heights: HashMap<RowKey, f32>,
+    heights_queued: bool,
 }
 
 /// What a drag of rows within a list carries: the list's id, so another
@@ -142,7 +147,8 @@ fn item(key: RowKey) -> gtk::StringObject {
 }
 
 /// Rows exactly as high as their hosts, with nothing between them. The
-/// theme draws `show-separators` as a row border, so that one stays.
+/// theme draws `show-separators` as a row border, so that one stays. A
+/// table's cells that fill their rows have none of the theme's padding.
 fn install_css() {
     thread_local!(static INSTALLED: Cell<bool> = const { Cell::new(false) });
     if INSTALLED.replace(true) {
@@ -152,6 +158,7 @@ fn install_css() {
     provider.load_from_data(
         "listview.mitsuami-list > row { padding: 0; margin: 0; min-height: 0; }
          listview.mitsuami-list:not(.separators) > row { border: none; }
+         columnview > listview > row > cell.mitsuami-fills-row { padding: 0; }
          .mitsuami-drop-on { outline: 2px solid @accent_bg_color; outline-offset: -2px; }
          .mitsuami-drop-before { box-shadow: inset 0 2px @accent_bg_color; }
          .mitsuami-drop-after { box-shadow: inset 0 -2px @accent_bg_color; }",
@@ -182,6 +189,8 @@ fn new_data() -> Rc<RefCell<Data>> {
         file_of: HashMap::new(),
         moves: None,
         drop_cell: None,
+        bare_heights: HashMap::new(),
+        heights_queued: false,
     }))
 }
 
@@ -469,6 +478,7 @@ impl List {
     /// A table: a column view, with the theme's own cells and header. Its
     /// columns come with `set_columns`. Its columns can be wider than it.
     pub(crate) fn new_table(id: NodeId, events: Events) -> List {
+        install_css();
         let data = new_data();
         let view = gtk::ColumnView::new(None::<gtk::NoSelection>);
         view.set_single_click_activate(false);
@@ -545,10 +555,20 @@ impl List {
         for (index, column) in columns.iter().enumerate() {
             let data = self.data.clone();
             let report = self.width_reporter();
+            let fills = column.fills_row;
             let make = move || {
                 let cell = ItemCell::new(index, Some(report.clone()));
                 // Empty until its host comes, at the estimate's height.
                 cell.set_height_request(data.borrow().estimate());
+                // The column view's cell widget around it, which the
+                // theme pads.
+                if fills {
+                    cell.connect_parent_notify(|cell| {
+                        if let Some(parent) = cell.parent() {
+                            parent.add_css_class("mitsuami-fills-row");
+                        }
+                    });
+                }
                 cell.upcast()
             };
             let factory = factory(&self.data, &self.events, self.id, index, make);
@@ -846,13 +866,15 @@ impl List {
     }
 
     /// Without the app's estimate, the first row measured sets it. A row
-    /// scrolled to before it had its size is scrolled to again.
+    /// scrolled to before it had its size is scrolled to again. A table's
+    /// cells that fill their rows follow the others.
     pub(crate) fn row_measured(&self, key: RowKey, height: f32) {
         let again = {
             let mut data = self.data.borrow_mut();
             if data.estimate.is_none() && data.learned.is_none() && height > 0.0 {
                 data.learned = Some(height.round() as i32);
             }
+            queue_heights(&self.data, &mut data, &self.events, self.id);
             data.scrolling_to.take_if(|k| *k == key).is_some()
         };
         if again {
@@ -1052,12 +1074,50 @@ fn queue_report(data: &Rc<RefCell<Data>>, d: &mut Data, events: &Events, id: Nod
         hidden.sort_by_key(|k| d.index.get(k).copied());
         shown.sort_by_key(|k| d.index.get(k).copied());
         for row in hidden {
+            // Shown again, its height is reported again.
+            d.bare_heights.remove(&row);
             events.emit(id, UiEvent::RowHidden(row));
         }
         for row in shown {
             events.emit(id, UiEvent::RowShown(row));
         }
         d.shown = now;
+    });
+}
+
+/// Reports, once the main loop is idle, the shown rows' heights without
+/// their cells that fill them, in a table with such a column: as high as
+/// GTK makes their other cells, the theme's padding in. Those cells are
+/// laid out at least as high, so they fill the row GTK makes.
+fn queue_heights(data: &Rc<RefCell<Data>>, d: &mut Data, events: &Events, id: NodeId) {
+    if d.heights_queued || !d.columns.iter().any(|c| c.fills_row) {
+        return;
+    }
+    d.heights_queued = true;
+    let (data, events) = (Rc::downgrade(data), events.clone());
+    glib::idle_add_local_once(move || {
+        let Some(data) = data.upgrade() else { return };
+        let mut d = data.borrow_mut();
+        d.heights_queued = false;
+        let mut bare: HashMap<RowKey, f32> = HashMap::new();
+        for ((key, column), cell) in &d.cells {
+            if !d.shown.contains(key) || d.columns.get(*column).is_none_or(|c| c.fills_row) {
+                continue;
+            }
+            // The column view's cell widget, with the theme's padding.
+            let around = cell.parent().unwrap_or_else(|| cell.clone());
+            let width = Some(around.width()).filter(|w| *w > 0).unwrap_or(-1);
+            let height = around.measure(gtk::Orientation::Vertical, width).1 as f32;
+            let row = bare.entry(*key).or_default();
+            *row = row.max(height);
+        }
+        let Data { bare_heights, shown, .. } = &mut *d;
+        bare_heights.retain(|key, _| shown.contains(key));
+        for (key, height) in bare {
+            if height > 0.0 && bare_heights.insert(key, height) != Some(height) {
+                events.emit(id, UiEvent::RowHeight(key, height));
+            }
+        }
     });
 }
 

@@ -1999,6 +1999,9 @@ pub struct MitsuamiTableColumn {
     pub expand: bool,
     /// Pressing its header sorts the table by it.
     pub sortable: bool,
+    /// Its cells fill their row, without the platform's padding (a graph
+    /// whose lines join from row to row).
+    pub fills_row: bool,
 }
 
 /// What a table asks of its caller. The table's id comes with each call.
@@ -2075,6 +2078,9 @@ pub unsafe extern "C" fn mitsuami_create_table(
                 }
                 if column.sortable {
                     data = data.sort_key(index);
+                }
+                if column.fills_row {
+                    data = data.fills_row();
                 }
                 table = table.column(data);
             }

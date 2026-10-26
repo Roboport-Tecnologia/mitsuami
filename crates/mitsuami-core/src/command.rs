@@ -192,6 +192,12 @@ pub enum UiEvent {
     /// once they're known, and whenever they change (the user resized a
     /// column, the table was resized). Cells are laid out at them.
     ColumnWidths(Vec<f32>),
+    /// How high a `Table`'s row is without its cells that fill their row
+    /// (`ColumnData::fills_row`): as its other cells make it, and at least
+    /// the platform's row height. Sent for tables with such a column, once
+    /// known and whenever it changes; those cells are laid out at least
+    /// this high, so they fill the row the platform makes.
+    RowHeight(RowKey, f32),
     /// A pointer event on a drawn custom widget, in its coordinates.
     Pointer(PointerEvent),
     /// A widget's natural size changed on its own (an image finished

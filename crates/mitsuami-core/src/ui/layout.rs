@@ -217,43 +217,55 @@ impl Inner {
         let node = &self.nodes[&list];
         let width = node.row_width.unwrap_or(node.frame.width());
         for host in node.native_children.clone() {
-            self.layout_hosted(host, width);
+            self.layout_hosted(host, width, None);
         }
     }
 
     /// Lays out a `Table`'s mounted cells, each on its own at the width
     /// its column gives its cells, and as high as its content. Their sizes
     /// are sent; where they go is the platform's to decide, and it makes
-    /// each row as high as its highest cell, at least.
+    /// each row as high as its highest cell, at least. A cell that fills
+    /// its row is at least as high as the platform says the row is
+    /// without it.
     fn layout_table(&mut self, table: NodeId) {
         let node = &self.nodes[&table];
+        let columns = crate::find_prop!(node.props, Columns).unwrap_or_default();
         // Until the platform says, the widths the columns start at.
-        let widths = node.column_widths.clone().unwrap_or_else(|| {
-            let columns = crate::find_prop!(node.props, Columns).unwrap_or_default();
-            columns.iter().map(|c| c.width.unwrap_or(100.0)).collect()
-        });
+        let widths =
+            node.column_widths.clone().unwrap_or_else(|| columns.iter().map(|c| c.width.unwrap_or(100.0)).collect());
         for host in node.native_children.clone() {
             let Some(cell) = crate::find_prop!(self.nodes[&host].props, Cell) else { continue };
             let width = widths.get(cell.column).copied().unwrap_or(0.0);
-            self.layout_hosted(host, width);
+            let fills = columns.get(cell.column).is_some_and(|c| c.fills_row);
+            let at_least = fills.then(|| self.nodes[&table].row_heights.get(&cell.row).copied()).flatten();
+            self.layout_hosted(host, width, at_least);
         }
     }
 
     /// Lays out a row's or cell's host on its own, at this width and as
-    /// high as its content, and sends its size.
-    fn layout_hosted(&mut self, host: NodeId, width: f32) {
+    /// high as its content (or `at_least`, if higher), and sends its size.
+    fn layout_hosted(&mut self, host: NodeId, width: f32, at_least: Option<f32>) {
         let Some(t) = self.nodes[&host].taffy else { return };
-        if let Ok(style) = self.taffy.style(t)
-            && style.size.width != taffy::Dimension::length(width)
-        {
-            let mut style = style.clone();
-            style.size.width = taffy::Dimension::length(width);
-            let _ = self.taffy.set_style(t, style);
-        }
+        let set_size = |taffy: &mut taffy::TaffyTree<NodeId>, height: taffy::Dimension| {
+            let size = taffy::Size { width: taffy::Dimension::length(width), height };
+            if let Ok(style) = taffy.style(t)
+                && style.size != size
+            {
+                let mut style = style.clone();
+                style.size = size;
+                let _ = taffy.set_style(t, style);
+            }
+        };
+        set_size(&mut self.taffy, taffy::Dimension::auto());
         let available =
             taffy::Size { width: taffy::AvailableSpace::Definite(width), height: taffy::AvailableSpace::MaxContent };
         self.compute_layout(t, available);
-        let height = self.taffy.layout(t).map_or(0.0, |l| l.size.height);
+        let mut height = self.taffy.layout(t).map_or(0.0, |l| l.size.height);
+        if let Some(at_least) = at_least.filter(|h| *h > height) {
+            set_size(&mut self.taffy, taffy::Dimension::length(at_least));
+            self.compute_layout(t, available);
+            height = at_least;
+        }
         let frame = Rect::new(0.0, 0.0, width, height);
         let node = self.nodes.get_mut(&host).unwrap();
         if node.frame != frame || !node.framed {

@@ -68,6 +68,9 @@ pub(crate) struct ListData {
     answered: HashMap<RowKey, f64>,
     /// Tables only: their cells' hosts' heights.
     cell_heights: HashMap<Slot, f64>,
+    /// Tables with a column that fills its rows only: the rows' heights
+    /// without those cells, as reported.
+    bare_heights: HashMap<RowKey, f64>,
     estimate: Option<f64>,
     /// Without the app's estimate: the first row measured.
     learned: Option<f64>,
@@ -184,6 +187,17 @@ impl ListData {
         }
         let cells = (0..self.columns.len()).filter_map(|column| self.cell_heights.get(&(key, column)).copied());
         cells.reduce(f64::max).map(|h| h.max(table.rowHeight()))
+    }
+
+    /// A row's height without its cells that fill it, if it has any: its
+    /// other cells' highest, and at least the row height.
+    fn bare_height(&self, table: &NSTableView, key: RowKey) -> Option<f64> {
+        if !self.columns.iter().any(|c| c.fills_row) {
+            return None;
+        }
+        let others = self.columns.iter().enumerate().filter(|(_, c)| !c.fills_row);
+        let cells = others.filter_map(|(column, _)| self.cell_heights.get(&(key, column)).copied());
+        Some(cells.fold(table.rowHeight(), f64::max))
     }
 }
 
@@ -498,6 +512,8 @@ impl ListIvars {
         hidden.sort_by_key(|k| data.index.get(k).copied());
         shown.sort_by_key(|k| data.index.get(k).copied());
         for row in hidden {
+            // Shown again, its height is reported again.
+            data.bare_heights.remove(&row);
             events.emit(*id, UiEvent::RowHidden(row));
         }
         for row in shown {
@@ -902,6 +918,7 @@ impl List {
             let change = RowChange::between(&data.rows, &data.index, &rows, &index);
             data.heights.retain(|key, _| index.contains_key(key));
             data.cell_heights.retain(|(key, _), _| index.contains_key(key));
+            data.bare_heights.retain(|key, _| index.contains_key(key));
             match &change {
                 // The table asks again as it reloads.
                 None => data.answered.clear(),
@@ -1044,6 +1061,13 @@ impl List {
                 data.cell_heights.insert((key, column), height);
                 if let Some(cell) = data.cells.get(&key).and_then(|cells| cells.get(&column)) {
                     cell.center_subviews();
+                }
+                // The cells that fill the row follow the others.
+                if let Some(bare) = data.bare_height(&self.table, key)
+                    && data.bare_heights.insert(key, bare) != Some(bare)
+                {
+                    let ListIvars { id, events, .. } = self._source.ivars();
+                    events.emit(*id, UiEvent::RowHeight(key, bare as f32));
                 }
             }
             let Some(height) = (if data.table { data.row_height(&self.table, key) } else { Some(height) }) else {

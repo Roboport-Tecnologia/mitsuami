@@ -285,6 +285,16 @@ impl Inner {
                     node.column_widths = Some(widths.clone());
                 }
             }
+            UiEvent::RowHeight(row, height) => {
+                if let Some(node) = self.nodes.get_mut(&id) {
+                    node.row_heights.insert(*row, *height);
+                }
+            }
+            UiEvent::RowHidden(row) => {
+                if let Some(node) = self.nodes.get_mut(&id) {
+                    node.row_heights.remove(row);
+                }
+            }
             UiEvent::WindowResized(size) => {
                 if let Some(node) = self.nodes.get_mut(&id) {
                     // A following window's height is one the core asked for

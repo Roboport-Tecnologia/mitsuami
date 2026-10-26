@@ -163,6 +163,59 @@ async fn a_row_is_as_high_as_its_highest_cell(app: TestApp) {
     assert!(second.y() - first.y() >= first.height());
 }
 
+/// A column's cells can fill their rows: as high as the row the platform
+/// makes, however high that is (GTK's and WinUI's rows are higher than
+/// their content), and one right below the other, so a drawing joins from
+/// row to row; and at least as wide as other cells in a column as wide
+/// (wider where the platform pads cells: GTK, WinUI; AppKit's cells have
+/// no padding, only the room between columns).
+#[mitsuami_test::test]
+async fn a_columns_cells_can_fill_their_rows(app: TestApp) {
+    let (data, tall) = (signal(files(4)), signal(true));
+    app.mount(move || {
+        Table::new(data, |f: &File| f.id)
+            .column(
+                TableColumn::new("Graph", |f: File| {
+                    Container::new().min_height(10).a11y_label(format!("Graph {}", f.id))
+                })
+                .width(40)
+                .fills_row(),
+            )
+            .column(TableColumn::new("Name", |f: File| Text::new(f.name)).expand())
+            .column(TableColumn::new("Mark", |f: File| Container::new().a11y_label(format!("Mark {}", f.id))).width(40))
+            .column(TableColumn::new("Preview", move |f: File| {
+                Container::new()
+                    .height(move || Length::Px(if f.id == 1 && tall.get() { 60.0 } else { 10.0 }))
+                    .a11y_label(format!("Preview {}", f.id))
+            }))
+            .height(300)
+            .test_id("table")
+    });
+    app.settle().await;
+
+    let graph = |id: u32| app.get_by_role(Role::Group, format!("Graph {id}")).frame();
+    // As high as the tall row, and a short row, at least as high as its
+    // text.
+    assert!(graph(1).height() >= 60.0, "{:?}", graph(1));
+    assert!(graph(0).height() >= cell(&app, "File 0").frame().height(), "{:?}", graph(0));
+    // One right below the other.
+    for id in 0..3 {
+        assert!((graph(id + 1).y() - graph(id).max_y()).abs() <= 0.5, "{:?} then {:?}", graph(id), graph(id + 1));
+    }
+    // The row's other cells are centred in it.
+    let (name, row) = (cell(&app, "File 1").frame(), graph(1));
+    let middle = |r: Rect| r.y() + r.height() / 2.0;
+    assert!((middle(name) - middle(row)).abs() <= 1.0, "{name:?} isn't centred beside {row:?}");
+    let mark = app.get_by_role(Role::Group, "Mark 0").frame();
+    assert!(graph(0).width() >= mark.width(), "{:?} beside {mark:?}", graph(0));
+
+    // A row that gets lower takes its filling cell down with it.
+    tall.set(false);
+    app.settle().await;
+    assert_eq!(graph(1).height(), graph(0).height());
+    assert!((graph(2).y() - graph(1).max_y()).abs() <= 0.5, "{:?} then {:?}", graph(1), graph(2));
+}
+
 /// Pressing a sortable column's header sorts by it, ascending, and again
 /// the other way round; the app's data follows, and the header shows it.
 #[mitsuami_test::test]

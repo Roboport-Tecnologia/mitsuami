@@ -58,14 +58,15 @@ impl State {
         }
     }
 
-    /// Sizes a table's columns, reporting their widths when they change:
-    /// each as wide as the app says, or the default, the room left shared
-    /// by the ones that expand.
+    /// Sizes a table's columns, reporting the widths they give their cells
+    /// when they change: each as wide as the app says, or the default, the
+    /// room left shared by the ones that expand, less the room between
+    /// cells, unless its cells fill their rows.
     pub(super) fn size_columns(&mut self, table: NodeId) {
         let node = &self.nodes[&table];
         let columns = find_prop!(node.props, Columns).unwrap_or_default();
-        let mut widths: Vec<f32> = columns.iter().map(|c| c.width.unwrap_or(COLUMN_WIDTH)).collect();
-        let used: f32 = widths.iter().map(|w| w + COLUMN_SPACING).sum();
+        let mut widths: Vec<f32> = columns.iter().map(|c| c.width.unwrap_or(COLUMN_WIDTH) + COLUMN_SPACING).collect();
+        let used: f32 = widths.iter().sum();
         let expanding = columns.iter().filter(|c| c.expand).count();
         let left = node.frame.width() - used;
         if expanding > 0 && left > 0.0 {
@@ -77,18 +78,23 @@ impl State {
             }
         }
         if widths != node.column_widths {
-            self.nodes.get_mut(&table).unwrap().column_widths = widths.clone();
-            self.emit(table, UiEvent::ColumnWidths(widths));
+            let cells = widths.iter().zip(&columns).map(|(w, c)| if c.fills_row { *w } else { w - COLUMN_SPACING });
+            let cells = cells.collect();
+            self.nodes.get_mut(&table).unwrap().column_widths = widths;
+            self.emit(table, UiEvent::ColumnWidths(cells));
         }
     }
 
     /// Where a table put a cell of this size, in its content: across from
-    /// the columns before it, below its header and the rows above,
-    /// centred in its row's height.
+    /// the columns before it (in from its column's edge, unless it fills
+    /// its row), below its header and the rows above, centred in its row's
+    /// height.
     pub(super) fn cell_frame(&self, table: NodeId, cell: CellKey, size: Size) -> Option<Rect> {
         let row = self.row(table, cell.row)?;
-        let widths = &self.nodes[&table].column_widths;
-        let x: f32 = widths.iter().take(cell.column).map(|w| w + COLUMN_SPACING).sum::<f32>() + COLUMN_SPACING / 2.0;
+        let node = &self.nodes[&table];
+        let fills = find_prop!(node.props, Columns).and_then(|c| c.get(cell.column).map(|c| c.fills_row));
+        let inset = if fills == Some(true) { 0.0 } else { COLUMN_SPACING / 2.0 };
+        let x: f32 = node.column_widths.iter().take(cell.column).sum::<f32>() + inset;
         let y = TABLE_HEADER_HEIGHT + row.top + ((row.height - size.height) / 2.0).round();
         Some(Rect::new(x, y, size.width, size.height))
     }
@@ -101,11 +107,20 @@ impl State {
     pub(super) fn place_rows(&mut self, list: NodeId) {
         let node = &self.nodes[&list];
         let rows: HashSet<RowKey> = row_keys(node).iter().copied().collect();
+        let fill: Vec<bool> = find_prop!(node.props, Columns).unwrap_or_default().iter().map(|c| c.fills_row).collect();
         let mut measured: BTreeMap<RowKey, f32> = BTreeMap::new();
+        // Tables with cells that fill their rows: each row's height without them.
+        let mut bare: BTreeMap<RowKey, f32> = BTreeMap::new();
         for host in &node.children {
             let host = &self.nodes[host];
             let (key, height) = match find_prop!(host.props, Cell) {
-                Some(cell) => (cell.row, host.frame.height().max(TABLE_ROW_HEIGHT)),
+                Some(cell) => {
+                    let row = bare.entry(cell.row).or_insert(TABLE_ROW_HEIGHT);
+                    if !fill.get(cell.column).copied().unwrap_or(false) {
+                        *row = row.max(host.frame.height());
+                    }
+                    (cell.row, host.frame.height().max(TABLE_ROW_HEIGHT))
+                }
                 None => match find_prop!(host.props, Row) {
                     Some(key) => (key, host.frame.height()),
                     None => continue,
@@ -114,6 +129,15 @@ impl State {
             if host.frame.height() > 0.0 {
                 let row = measured.entry(key).or_default();
                 *row = row.max(height);
+            }
+        }
+        if fill.contains(&true) {
+            let node = self.nodes.get_mut(&list).unwrap();
+            node.bare_heights.retain(|key, _| bare.contains_key(key));
+            let changed: Vec<(RowKey, f32)> =
+                bare.into_iter().filter(|(key, h)| node.bare_heights.insert(*key, *h) != Some(*h)).collect();
+            for (key, height) in changed {
+                self.emit(list, UiEvent::RowHeight(key, height));
             }
         }
         let heights = &mut self.nodes.get_mut(&list).unwrap().heights;

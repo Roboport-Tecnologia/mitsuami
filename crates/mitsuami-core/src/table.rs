@@ -22,6 +22,7 @@ use crate::command::{EventValue, UiEvent};
 use crate::element::{Element, ElementBuilder};
 use crate::list::{FileFn, KeyFn, ListHandle, Mount, RowParts, build_rows};
 use crate::services::Shortcut;
+use crate::style::{Display, Style, Track};
 use crate::tweak::Tweak;
 use crate::ui::Ui;
 use crate::units::Length;
@@ -58,9 +59,13 @@ pub struct TableColumn<T: 'static> {
     title: Value<String>,
     width: Option<f32>,
     expand: bool,
+    fills_row: bool,
     sort_key: Option<Rc<dyn Any>>,
-    render: Rc<dyn Fn(T) -> AnyView>,
+    render: Render<T>,
 }
+
+/// What a column's cell shows for an item.
+type Render<T> = Rc<dyn Fn(T) -> AnyView>;
 
 impl<T: 'static> TableColumn<T> {
     /// `title` can be a message (`t!`), which follows the language.
@@ -69,6 +74,7 @@ impl<T: 'static> TableColumn<T> {
             title: title.into_value(),
             width: None,
             expand: false,
+            fills_row: false,
             sort_key: None,
             render: Rc::new(move |item| AnyView::new(render(item))),
         }
@@ -88,6 +94,17 @@ impl<T: 'static> TableColumn<T> {
     /// the other columns that do: a file's name, say.
     pub fn expand(mut self) -> TableColumn<T> {
         self.expand = true;
+        self
+    }
+
+    /// Its cells fill their row: as wide as the column and as high as the
+    /// row, without the space the platform puts around a cell's content,
+    /// for drawings that join from row to row (a commit graph). The row is
+    /// as high as the platform makes it, which is the platform's own row
+    /// height on some (GTK's, WinUI's are higher than AppKit's), so draw to
+    /// the cell's size rather than a fixed one.
+    pub fn fills_row(mut self) -> TableColumn<T> {
+        self.fills_row = true;
         self
     }
 
@@ -311,7 +328,13 @@ impl<T: Clone + 'static, K: Eq + Hash + Clone + 'static> View for Table<T, K> {
                     ),
                     _ => false,
                 };
-                let data = ColumnData { title: String::new(), width: column.width, expand: column.expand, sortable };
+                let data = ColumnData {
+                    title: String::new(),
+                    width: column.width,
+                    expand: column.expand,
+                    sortable,
+                    fills_row: column.fills_row,
+                };
                 (column.title.clone(), data)
             })
             .collect();
@@ -325,13 +348,18 @@ impl<T: Clone + 'static, K: Eq + Hash + Clone + 'static> View for Table<T, K> {
             element.prop(Value::Static(titled()), Prop::Columns);
         }
         let keys: SortKeys = columns.iter().map(|c| c.sort_key.clone()).collect();
-        let renders: Vec<Rc<dyn Fn(T) -> AnyView>> = columns.into_iter().map(|c| c.render).collect();
+        let renders: Vec<(Render<T>, bool)> = columns.into_iter().map(|c| (c.render, c.fills_row)).collect();
         let mount: Mount<T> = Rc::new(move |ui: &Ui, row, item: T| {
             renders
                 .iter()
                 .enumerate()
-                .map(|(column, render)| {
+                .map(|(column, (render, fills_row))| {
                     let host = ui.create(WidgetKind::Container, vec![Prop::Cell(CellKey { row, column })]);
+                    // One cell of a grid, which its content fills both
+                    // ways when the row is higher.
+                    if *fills_row {
+                        ui.set_style(host, fill_style());
+                    }
                     let content = render(item.clone()).build(ui);
                     ui.append_child(host, content);
                     host
@@ -347,6 +375,16 @@ impl<T: Clone + 'static, K: Eq + Hash + Clone + 'static> View for Table<T, K> {
             (sort.install)(ui, id, keys);
         }
         id
+    }
+}
+
+/// A filling cell's host: its content fills it.
+fn fill_style() -> Style {
+    Style {
+        display: Display::Grid,
+        grid_template_columns: vec![Track::MinMax(Length::Px(0.0), Length::Fr(1.0))],
+        grid_template_rows: vec![Track::Size(Length::Fr(1.0))],
+        ..Style::default()
     }
 }
 

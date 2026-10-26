@@ -835,6 +835,11 @@ pub struct ColumnData {
     pub expand: bool,
     /// Its header sorts the table by it when pressed.
     pub sortable: bool,
+    /// Its cells fill their row, without the platform's padding: as wide as
+    /// the column and as high as the row (a commit graph whose lines join
+    /// from row to row). Report its full width in `ColumnWidths`, and the
+    /// row's height without it in `RowHeight`.
+    pub fills_row: bool,
 }
 
 /// Which way a `Table` is sorted.

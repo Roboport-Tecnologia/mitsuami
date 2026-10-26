@@ -1044,17 +1044,25 @@ QQC2.ScrollView {{
 /// share the room left, and the user resizes them from the header
 /// (`resizableColumns`, Qt 6.5); a column resized stays at its width. The
 /// widths cells get are `mitsuamiCellWidths` (comma-separated), updated
-/// each time the view lays out.
+/// each time the view lays out. A column whose cells fill their rows
+/// (`fillsRow`) has no padding: its cells get its whole width, and its
+/// hosts start at the cell's corner. Its rows' heights without those cells
+/// (their other cells', at least the style's row height) are
+/// `mitsuamiBareHeights` (`key:height`, comma-separated), for the rows
+/// whose other cells have their hosts, coalesced to once per event loop
+/// turn with `mitsuamiBareChanged()`.
 ///
 /// Rust sets, on the table view (`mitsuamiTableView`), `model`,
-/// `mitsuamiColumnsJson` (JSON: `title`, `width`, `expand`, `sortable`),
+/// `mitsuamiColumnsJson` (JSON: `title`, `width`, `expand`, `sortable`,
+/// `fillsRow`),
 /// `mitsuamiKeys`,
 /// `mitsuamiSelected`, `mitsuamiMode` (0 none, 1 single, 2 multiple),
 /// `mitsuamiEstimate`, `mitsuamiScrollTo` (an index), `mitsuamiSortColumn`
 /// and `mitsuamiDescending` (the sort shown), and `mitsuamiPressed` (a
 /// column whose header to press), and listens to `mitsuamiRowsChanged()`,
-/// `mitsuamiSelectionChanged()`, `mitsuamiActivate()` (as a list's) and
-/// `mitsuamiSortPressed()` (a header pressed changed the sort).
+/// `mitsuamiSelectionChanged()`, `mitsuamiActivate()` (as a list's),
+/// `mitsuamiSortPressed()` (a header pressed changed the sort) and
+/// `mitsuamiBareChanged()`.
 pub(crate) fn table() -> String {
     format!(
         r#"
@@ -1186,6 +1194,37 @@ Item {{
             signal mitsuamiSelectionChanged()
             signal mitsuamiActivate()
             signal mitsuamiSortPressed()
+            signal mitsuamiBareChanged()
+            // Whether a column's cells fill their rows.
+            function mitsuamiFills(column) {{ return mitsuamiColumns[column]?.fillsRow === true }}
+            readonly property bool mitsuamiAnyFills: mitsuamiColumns.some(c => c.fillsRow === true)
+            // The rows whose height without their filling cells may have
+            // changed, measured once the turn's changes are in.
+            property var mitsuamiBarePending: ({{}})
+            property string mitsuamiBareHeights: ""
+            function mitsuamiBareDirty(key) {{
+                if (!mitsuamiAnyFills) return
+                const first = Object.keys(mitsuamiBarePending).length === 0
+                mitsuamiBarePending[key] = true
+                if (first) Qt.callLater(mitsuamiBareFlush)
+            }}
+            function mitsuamiBareFlush() {{
+                const heights = []
+                for (const key of Object.keys(mitsuamiBarePending)) {{
+                    let height = mitsuamiMinRow, known = true
+                    for (let column = 0; column < mitsuamiColumns.length; column++) {{
+                        if (mitsuamiFills(column)) continue
+                        const other = mitsuamiDelegates[key + ":" + column] ?? null
+                        if (!other || !other.mitsuamiHost) {{ known = false; break }}
+                        height = Math.max(height, other.implicitHeight)
+                    }}
+                    if (known) heights.push(key + ":" + height)
+                }}
+                mitsuamiBarePending = {{}}
+                if (heights.length === 0) return
+                mitsuamiBareHeights = heights.join(",")
+                mitsuamiBareChanged()
+            }}
             clip: true
             boundsBehavior: Flickable.StopAtBounds
             reuseItems: false
@@ -1246,7 +1285,8 @@ Item {{
             onWidthChanged: mitsuamiRelayout()
             onLayoutChanged: mitsuamiCellWidths = mitsuamiColumns.map((_, column) => {{
                 const explicit = explicitColumnWidth(column)
-                return Math.max(0, (explicit >= 0 ? explicit : mitsuamiWidth(column)) - 2 * mitsuamiPadding)
+                const padding = mitsuamiFills(column) ? 0 : 2 * mitsuamiPadding
+                return Math.max(0, (explicit >= 0 ? explicit : mitsuamiWidth(column)) - padding)
             }}).join(",")
             function mitsuamiShow(index) {{
                 if (index >= 0 && index < mitsuamiKeys.length) positionViewAtRow(index, TableView.Contain)
@@ -1334,21 +1374,28 @@ Item {{
                 property int mitsuamiColumn: column
                 readonly property string mitsuamiSlot: mitsuamiKey + ":" + column
                 property Item mitsuamiHost: null
+                // A filling cell has no padding: its host is laid out as
+                // high as the row without it.
+                readonly property bool mitsuamiFills: view.mitsuamiFills(column)
+                readonly property real mitsuamiInset: mitsuamiFills ? 0 : view.mitsuamiPadding
                 // Without its host yet, as high as the last row with its
                 // hosts: `TableView` loses track of its extent when rows
                 // it placed change height, and the scroll range shrank
                 // each time rows were scrolled past quickly.
                 implicitHeight: mitsuamiHost
-                    ? Math.max(view.mitsuamiMinRow, mitsuamiHost.height + 2 * view.mitsuamiPadding)
+                    ? Math.max(view.mitsuamiMinRow, mitsuamiHost.height + 2 * mitsuamiInset)
                     : Math.max(view.mitsuamiMinRow, view.mitsuamiLastRowHeight >= 0 ? view.mitsuamiLastRowHeight
                         : view.mitsuamiEstimate)
-                onMitsuamiHostChanged: if (mitsuamiHost) view.mitsuamiLearn(row, implicitHeight)
+                onMitsuamiHostChanged: {{
+                    if (mitsuamiHost) view.mitsuamiLearn(row, implicitHeight)
+                    if (!mitsuamiFills) view.mitsuamiBareDirty(mitsuamiKey)
+                }}
                 color: view.mitsuamiSelectedSet[mitsuamiKey] === true ? Kirigami.Theme.highlightColor
                     : view.alternatingRows && row % 2 === 1 ? Kirigami.Theme.alternateBackgroundColor : "transparent"
                 // The host, centred in the row's height.
                 Item {{
                     objectName: "mitsuamiCellSlot"
-                    x: view.mitsuamiPadding
+                    x: cell.mitsuamiInset
                     y: Math.round((cell.height - height) / 2)
                     width: cell.mitsuamiHost ? cell.mitsuamiHost.width : 0
                     height: cell.mitsuamiHost ? cell.mitsuamiHost.height : 0
@@ -1374,7 +1421,10 @@ Item {{
                 Drag.dragType: Drag.Automatic
                 Drag.supportedActions: Qt.CopyAction
                 Drag.mimeData: ({{ "text/uri-list": view.mitsuamiUriList(cell.mitsuamiKey) }})
-                onImplicitHeightChanged: view.mitsuamiRelayout()
+                onImplicitHeightChanged: {{
+                    view.mitsuamiRelayout()
+                    if (!mitsuamiFills) view.mitsuamiBareDirty(mitsuamiKey)
+                }}
                 Component.onCompleted: view.mitsuamiAdd(cell)
                 Component.onDestruction: view.mitsuamiForget(cell)
             }}

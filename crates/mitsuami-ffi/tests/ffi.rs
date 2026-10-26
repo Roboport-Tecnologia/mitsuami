@@ -854,6 +854,7 @@ async fn tables_ask_for_cells_and_report_the_sort(app: TestApp) {
         width,
         expand,
         sortable: true,
+        fills_row: false,
     };
     let columns = [column("Subject", 0.0, true), column("Author", 120.0, false)];
     let callbacks = MitsuamiTableCallbacks {

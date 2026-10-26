@@ -173,6 +173,9 @@ struct Data {
     /// up to (`row_hosts`): cells may come before their columns do.
     host_columns: usize,
     heights: HashMap<Slot, f64>,
+    /// Tables with a column that fills its rows only: the shown rows'
+    /// heights without those cells, as reported.
+    bare_heights: HashMap<RowKey, f64>,
     /// The cells of the rows realised, with how many containers each is
     /// realised in.
     /// The row each container was last realised for.
@@ -229,6 +232,23 @@ impl Data {
         cells.reduce(f64::max).unwrap_or_else(|| self.estimate()).max(TABLE_ROW_MIN)
     }
 
+    /// A row's height without its cells that fill it, if it has any: its
+    /// other cells' highest, and at least a `ListViewItem`'s height.
+    fn bare_height(&self, key: RowKey) -> Option<f64> {
+        if !self.columns.iter().any(|c| c.fills_row) {
+            return None;
+        }
+        let others = self.columns.iter().enumerate().filter(|(_, c)| !c.fills_row);
+        let cells = others.filter_map(|(column, _)| self.heights.get(&(key, column)).copied());
+        Some(cells.fold(TABLE_ROW_MIN, f64::max))
+    }
+
+    /// The room at each side of a column's cells: none for one whose cells
+    /// fill their rows.
+    fn padding(&self, column: usize) -> f64 {
+        if self.columns.get(column).is_some_and(|c| c.fills_row) { 0.0 } else { CELL_PADDING }
+    }
+
     /// Where a table's column starts, in a row.
     fn column_x(&self, column: usize) -> f64 {
         self.widths.iter().take(column).sum()
@@ -268,7 +288,7 @@ fn place_row(d: &Data, key: RowKey) {
     for column in 0..d.columns.len() {
         let Some((_, host)) = d.hosts.get(&(key, column)) else { continue };
         let own = d.heights.get(&(key, column)).copied().unwrap_or(0.0);
-        _ = w::Canvas::SetLeft(host, d.column_x(column) + CELL_PADDING);
+        _ = w::Canvas::SetLeft(host, d.column_x(column) + d.padding(column));
         _ = w::Canvas::SetTop(host, ((height - own) / 2.0).round().max(0.0));
     }
 }
@@ -292,7 +312,7 @@ fn size_columns(d: &mut Data) -> Option<Vec<f32>> {
         }
     }
     d.widths = widths;
-    let cells: Vec<f32> = d.widths.iter().map(|w| (w - 2.0 * CELL_PADDING).max(0.0) as f32).collect();
+    let cells: Vec<f32> = d.widths.iter().enumerate().map(|(c, w)| (w - 2.0 * d.padding(c)).max(0.0) as f32).collect();
     (cells != d.reported).then(|| {
         d.reported = cells.clone();
         cells
@@ -752,6 +772,14 @@ impl List {
             let header = d.header.as_mut().expect("a table");
             header.columns = parts;
             header.revokers = revokers;
+            // Which cells fill their rows may have changed.
+            d.bare_heights.clear();
+            for key in d.cells.keys().copied().collect::<Vec<_>>() {
+                if let Some(bare) = d.bare_height(key) {
+                    d.bare_heights.insert(key, bare);
+                    self.events.emit(self.id, UiEvent::RowHeight(key, bare as f32));
+                }
+            }
         }
         relayout(&self.data, &self.events, self.id);
         Ok(())
@@ -901,6 +929,7 @@ impl List {
             d.index = rows.iter().enumerate().map(|(i, r)| (*r, i)).collect();
             let index = std::mem::take(&mut d.index);
             d.heights.retain(|(k, _), _| index.contains_key(k));
+            d.bare_heights.retain(|k, _| index.contains_key(k));
             d.index = index;
             d.rows = rows;
             replace_all.then(|| d.items.iter().cloned().map(Some).collect::<Vec<_>>())
@@ -1147,6 +1176,12 @@ impl List {
         d.heights.insert((key, column), height);
         if d.estimate.is_none() && d.learned.is_none() && height > 0.0 {
             d.learned = Some(height);
+        }
+        // The cells that fill the row follow the others.
+        if let Some(bare) = d.bare_height(key)
+            && d.bare_heights.insert(key, bare) != Some(bare)
+        {
+            self.events.emit(self.id, UiEvent::RowHeight(key, bare as f32));
         }
         place_row(&d, key);
     }
@@ -1451,6 +1486,10 @@ fn report(data: &Rc<RefCell<Data>>, events: &Events, id: NodeId) {
     hidden.sort_by_key(|k| d.index.get(k).copied());
     shown.sort_by_key(|k| d.index.get(k).copied());
     d.shown = now;
+    // Shown again, a row's height is reported again.
+    for row in &hidden {
+        d.bare_heights.remove(row);
+    }
     drop(d);
     for row in hidden {
         events.emit(id, UiEvent::RowHidden(row));

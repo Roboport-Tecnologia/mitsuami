@@ -171,8 +171,8 @@ fn describe_props(props: &[Prop]) -> String {
             Prop::EstimatedRowHeight(h) => extra.push(format!("estimated_row_height={}", Num(*h))),
             Prop::Row(key) => extra.push(format!("row={}", key.0)),
             Prop::Cell(cell) => extra.push(format!("cell={},{}", cell.row.0, cell.column)),
-            // `Name*, Size 80`: titles, the widths the app gave, and which
-            // ones expand (`*`).
+            // `Name*, Size 80, Graph| 40`: titles, the widths the app gave,
+            // which ones expand (`*`) and which fill their rows (`|`).
             Prop::Columns(columns) => {
                 let columns: Vec<String> = columns
                     .iter()
@@ -180,6 +180,9 @@ fn describe_props(props: &[Prop]) -> String {
                         let mut column = c.title.clone();
                         if c.expand {
                             column.push('*');
+                        }
+                        if c.fills_row {
+                            column.push('|');
                         }
                         if let Some(width) = c.width {
                             column.push_str(&format!(" {}", Num(width)));

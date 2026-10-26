@@ -31,7 +31,7 @@ use crate::geometry::{Insets, Point, Rect, Size};
 use crate::services::Services;
 use crate::style::Style;
 use crate::task::{Clock, Executor, Sleep, TaskHandle};
-use crate::widget::{NodeId, Prop, WidgetKind};
+use crate::widget::{NodeId, Prop, RowKey, WidgetKind};
 
 /// A window's toolbar items and sidebar, and popovers, are the platform's
 /// to place, around its content or by their parent: they aren't in their
@@ -78,6 +78,9 @@ struct Node {
     viewport_insets: Insets,
     /// Tables only: the widths the platform gives their columns' cells.
     column_widths: Option<Vec<f32>>,
+    /// Tables only: their rows' heights without their cells that fill
+    /// them, as the platform reported them.
+    row_heights: BTreeMap<RowKey, f32>,
     /// Tabs and groups only: the size of their tab strip, or heading, and
     /// border, with no content.
     strip: Size,

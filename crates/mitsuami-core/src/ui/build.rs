@@ -1,5 +1,6 @@
 //! Creating nodes and setting their props, styles and handlers.
 
+use std::collections::BTreeMap;
 use std::rc::Rc;
 
 use crate::a11y::A11yProps;
@@ -54,6 +55,7 @@ impl Ui {
                     row_width: None,
                     viewport_insets: Insets::ZERO,
                     column_widths: None,
+                    row_heights: BTreeMap::new(),
                     strip: Size::ZERO,
                     insets: None,
                     drawn_at: None,

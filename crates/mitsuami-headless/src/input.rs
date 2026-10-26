@@ -141,7 +141,7 @@ impl HeadlessBackend {
                     WidgetKind::Table => (
                         mitsuami_core::ScrollAxes::Both,
                         Size::new(
-                            node.column_widths.iter().map(|w| w + super::metrics::COLUMN_SPACING).sum(),
+                            node.column_widths.iter().sum(),
                             state.rows(id).iter().map(|r| r.height).sum::<f32>() + super::metrics::TABLE_HEADER_HEIGHT,
                         ),
                     ),

@@ -55,6 +55,9 @@ struct Data {
     widths: Vec<f32>,
     /// The rows reported shown.
     shown: HashSet<RowKey>,
+    /// Tables with a column that fills its rows only: the shown rows'
+    /// heights without those cells, as reported.
+    bare: HashMap<RowKey, f32>,
     estimate: Option<f64>,
     /// Without the app's estimate: the first row measured.
     learned: Option<f64>,
@@ -180,6 +183,26 @@ impl List {
                         d.widths = widths.clone();
                         drop(d);
                         events.emit(id, UiEvent::ColumnWidths(widths));
+                    }
+                });
+            }
+            {
+                // Rows' heights without their filling cells, which those
+                // cells are laid out at.
+                let (data, events) = (data.clone(), events.clone());
+                view.connect("mitsuamiBareChanged()", move || {
+                    let text = view.str("mitsuamiBareHeights");
+                    let mut d = data.borrow_mut();
+                    let mut changed = Vec::new();
+                    for (key, height) in text.split(',').filter_map(|pair| pair.split_once(':')) {
+                        let (Some(key), Ok(height)) = (parse(key), height.parse::<f32>()) else { continue };
+                        if d.shown.contains(&key) && d.bare.insert(key, height) != Some(height) {
+                            changed.push((key, height));
+                        }
+                    }
+                    drop(d);
+                    for (key, height) in changed {
+                        events.emit(id, UiEvent::RowHeight(key, height));
                     }
                 });
             }
@@ -453,11 +476,12 @@ impl List {
             .iter()
             .map(|c| {
                 format!(
-                    r#"{{"title":{},"width":{},"expand":{},"sortable":{}}}"#,
+                    r#"{{"title":{},"width":{},"expand":{},"sortable":{},"fillsRow":{}}}"#,
                     json_string(&c.title),
                     c.width.map_or(-1.0, f64::from),
                     c.expand,
-                    c.sortable
+                    c.sortable,
+                    c.fills_row
                 )
             })
             .collect();
@@ -639,6 +663,10 @@ fn rows_changed(view: QmlObject, data: &Rc<RefCell<Data>>, events: &Events, id: 
     hidden.sort_by_key(|k| d.index.get(k).copied());
     shown.sort_by_key(|k| d.index.get(k).copied());
     d.shown = now;
+    // Shown again, its height is reported again.
+    for row in &hidden {
+        d.bare.remove(row);
+    }
     drop(d);
     for row in hidden {
         events.emit(id, UiEvent::RowHidden(row));

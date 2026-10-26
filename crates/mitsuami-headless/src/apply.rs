@@ -58,6 +58,7 @@ impl HeadlessBackend {
                             placed_index: Default::default(),
                             heights: BTreeMap::new(),
                             column_widths: Vec::new(),
+                            bare_heights: BTreeMap::new(),
                             surface: None,
                             windowed: None,
                             restored: None,

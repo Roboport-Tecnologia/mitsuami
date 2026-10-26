@@ -56,8 +56,11 @@ struct HeadlessNode {
     /// Lists only: the heights of the rows measured so far, kept when
     /// they're let go, as native lists keep them.
     heights: BTreeMap<RowKey, f32>,
-    /// Tables only: the widths their columns give their cells, as reported.
+    /// Tables only: their columns' widths, the room between cells in.
     column_widths: Vec<f32>,
+    /// Tables only: their rows' heights without their cells that fill
+    /// them, as reported.
+    bare_heights: BTreeMap<RowKey, f32>,
     /// GPU surfaces only: what the app got.
     surface: Option<SurfaceHandle>,
     /// Windows in full screen only: their size before, to go back to.
