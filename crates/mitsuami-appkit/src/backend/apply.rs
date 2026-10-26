@@ -573,6 +573,16 @@ impl State {
                         list.detach();
                         list.scroll.removeFromSuperview();
                     }
+                    // The colour panel is the well's while it's active: it
+                    // goes with it, as the other platforms' pickers go with
+                    // their window. Otherwise it stayed open over nothing.
+                    Widget::ColorWell(well) => {
+                        if well.isActive() {
+                            well.deactivate();
+                            objc2_app_kit::NSColorPanel::sharedColorPanel(self.mtm).orderOut(None);
+                        }
+                        well.removeFromSuperview();
+                    }
                     // The app's handle may keep it: it just stops showing.
                     Widget::GpuSurface(view) => {
                         view.detach();
