@@ -144,7 +144,8 @@ WinUI bindings are generated: add types and members to
 ## Releasing
 
 1. Bump the version in `Cargo.toml`: `[workspace.package]`'s `version` and
-   every `=X.Y.Z` in `[workspace.dependencies]`. Any cargo command then
+   every `=X.Y.Z` in `[workspace.dependencies]`, and, for a minor or major
+   version, the README's install snippets (`mitsuami = "1.3"`). Any cargo command then
    updates `Cargo.lock`; refresh the examples' own lockfiles too
    (`cargo metadata --manifest-path examples/<name>/Cargo.toml` for
    `showcase` and `gpu-surface`).

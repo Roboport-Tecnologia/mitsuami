@@ -93,12 +93,14 @@ mitsuami-test = { version = "1.3", features = ["kde"] }
   - `GpuSurface` is a surface the app presents to with its own GPU API
     (wgpu, Metal, Vulkan, Direct3D), from its own thread.
 
-Built-in widgets: `Text`, `Button`, `ToggleButton`, `TextInput`,
-`PasswordInput`, `SearchInput`, `TextArea`, `Checkbox`, `Switch`,
-`RadioGroup`, `Slider`, `NumberInput`, `Select`, `Progress`, `Spinner`,
-`Separator`, `Image`, `Icon`, `FileIcon`, `ScrollView`, `List` and `Table` (virtualised), `Group`,
-`Sidebar`, `Tabs`, `Toolbar`, `MenuButton`, menus, context menus, tooltips,
-windows and dialogs. [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md) §13
+Built-in widgets: `Text`, `Button`, `ToggleButton`, `MenuButton`,
+`SplitButton`, `TextInput`, `PasswordInput`, `SearchInput` (with
+suggestions), `TextArea`, `Checkbox`, `Switch`, `RadioGroup`, `Slider`,
+`NumberInput`, `ColorWell`, `Select`, `Progress`, `Spinner`, `Separator`,
+`Image`, `Icon` (the platform's own or the app's vector icons), `FileIcon`,
+`ScrollView`, `List` and `Table` (virtualised, with rows the user drags to
+move), `Group`, `Split`, `Popover`, `Sidebar`, `Tabs`, `DocumentTabs`,
+`Toolbar`, menus, context menus, tooltips, windows and dialogs. [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md) §13
 lists the native control each one is on every platform.
 
 ## Examples
@@ -111,13 +113,14 @@ cargo run -p mitsuami --example button
 ```
 
 The others in [`crates/mitsuami/examples`](crates/mitsuami/examples) run the
-same way: `checkbox`, `context_menu`, `file_drag`, `file_drop`, `file_icon`,
-`focus`, `group`, `hover`, `icon`, `image`, `keys`, `launch`, `list`,
-`measurements`, `menu_button`, `menus`, `number_input`, `password_input`,
-`progress`, `radio_group`, `scroll_view`, `search_input`, `select`,
-`separator`, `shortcuts`, `sidebar`, `slider`, `spinner`, `switch`, `table`,
-`tabs`, `text`, `text_area`, `text_input`, `toolbar`, `tooltip`, `trash`,
-`windows`.
+same way: `checkbox`, `color_well`, `context_menu`, `document_tabs`,
+`file_drag`, `file_drop`, `file_icon`, `focus`, `glass`, `group`, `hover`,
+`icon`, `image`, `keys`, `launch`, `list`, `measurements`, `menu_button`,
+`menus`, `number_input`, `password_input`, `popover`, `progress`,
+`radio_group`, `row_moves`, `scroll_view`, `search_input`, `select`,
+`separator`, `shortcuts`, `sidebar`, `slider`, `spinner`, `split`,
+`split_button`, `switch`, `table`, `tabs`, `text`, `text_area`,
+`text_input`, `toolbar`, `tooltip`, `trash`, `windows`.
 
 Whole apps:
 
@@ -200,6 +203,7 @@ review` shows the changed captures in the browser.
 | `mitsuami-kirigami` | Qt Quick and Kirigami backend (Linux, KDE Plasma; the `kde` feature) |
 | `mitsuami-linux` | `GpuSurface` for GTK and Kirigami: a Wayland subsurface or an X11 child window |
 | `mitsuami-winui` | WinUI 3 backend (Windows) |
+| `mitsuami-ffi` | A C ABI over the core's `Ui`, for bindings to other languages (not published yet) |
 
 ## Working on mitsuami
 
