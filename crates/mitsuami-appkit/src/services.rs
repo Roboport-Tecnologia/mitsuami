@@ -15,7 +15,7 @@ use mitsuami_core::services::{
 use mitsuami_core::{Key, NodeId};
 use objc2::rc::Retained;
 use objc2::runtime::{AnyObject, NSObject, NSObjectProtocol, Sel};
-use objc2::{DefinedClass, MainThreadMarker, MainThreadOnly, Message, define_class, msg_send, sel};
+use objc2::{ClassType, DefinedClass, MainThreadMarker, MainThreadOnly, Message, define_class, msg_send, sel};
 use objc2_app_kit::{
     NSAlert, NSAlertFirstButtonReturn, NSAlertStyle, NSApplication, NSControlStateValueOff, NSControlStateValueOn,
     NSEventModifierFlags, NSMenu, NSMenuItem, NSModalResponse, NSModalResponseCancel, NSModalResponseOK, NSOpenPanel,
@@ -240,6 +240,18 @@ fn launch_error(error: &NSError) -> ServiceError {
     }
 }
 
+/// AppKit gives a sandboxed process no open or save panel without the
+/// user-selected files entitlement (a child that inherits its parent's
+/// sandbox never has it), and objc2-app-kit's bindings panic on that nil:
+/// the request is answered as a cancel instead, and the reason said here,
+/// since the user sees nothing happen.
+fn no_panel(kind: &str) {
+    eprintln!(
+        "mitsuami: AppKit gave no {kind} panel; in the App Sandbox, the app needs the \
+         com.apple.security.files.user-selected.read-only or .read-write entitlement"
+    );
+}
+
 /// Runs `f` on the main run loop soon, outside whatever is calling us now.
 fn later(f: impl Fn() + 'static) {
     let block = RcBlock::new(f);
@@ -391,7 +403,11 @@ impl Services for AppKitServices {
     }
 
     fn open_file(&mut self, parent: Option<NodeId>, request: &OpenFile, reply: Reply<Option<Vec<PathBuf>>>) {
-        let panel = NSOpenPanel::openPanel(self.mtm);
+        let panel: Option<Retained<NSOpenPanel>> = unsafe { msg_send![NSOpenPanel::class(), openPanel] };
+        let Some(panel) = panel else {
+            no_panel("open");
+            return reply(None);
+        };
         panel.setCanChooseFiles(!request.directories);
         panel.setCanChooseDirectories(request.directories);
         // A folder can be made where one is chosen, as GTK's, Qt's and
@@ -425,7 +441,11 @@ impl Services for AppKitServices {
     }
 
     fn save_file(&mut self, parent: Option<NodeId>, request: &SaveFile, reply: Reply<Option<PathBuf>>) {
-        let panel = NSSavePanel::savePanel(self.mtm);
+        let panel: Option<Retained<NSSavePanel>> = unsafe { msg_send![NSSavePanel::class(), savePanel] };
+        let Some(panel) = panel else {
+            no_panel("save");
+            return reply(None);
+        };
         if let Some(title) = &request.title {
             panel.setMessage(Some(&ns(title)));
         }
