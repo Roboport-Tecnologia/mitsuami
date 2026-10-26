@@ -8,6 +8,10 @@
 //! - A machine's actions: items that change with its state (Start or
 //!   Stop, a disabled Reset while it's off), a submenu of radio items, a
 //!   check item and separators. The log under it says what was chosen.
+//! - A menu built as it opens (`menu_on_open`), as a Git client's
+//!   Git-Flow menu: Finish names the branch chosen beside it when the
+//!   menu opens, and isn't there on main. What it reads is read then, not
+//!   followed, so the menu isn't built again while the branch changes.
 //! - A raw platform setting, through `.native()`.
 
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
@@ -83,6 +87,30 @@ fn machine() -> impl View {
     }
 }
 
+const BRANCHES: [&str; 3] = ["main", "feature/login", "release/2.0"];
+
+/// A menu that depends on the moment it opens: the branch chosen then.
+fn git_flow() -> impl View {
+    let branch = signal(0usize);
+    let log = signal(String::from("Nothing chosen yet"));
+    let menu = move || {
+        let name = BRANCHES[branch.get_untracked()];
+        let finish = (name != "main")
+            .then(|| MenuItem::new(format!("Finish {name}")).on_select(move || log.set(format!("Finished {name}"))));
+        (MenuItem::new("Start Feature…").on_select(move || log.set("Started a feature".into())), finish)
+    };
+    view! {
+        <Column gap=Spacing::Md>
+            {heading("Built as it opens")}
+            <Row gap=Spacing::Md align=Align::Center>
+                <Select label="Branch" options=BRANCHES bind=branch/>
+                {MenuButton::new("Git-Flow").menu_on_open(menu)}
+            </Row>
+            <Text text_style=TextStyle::Caption>{log}</Text>
+        </Column>
+    }
+}
+
 /// A setting only this platform has, straight on the native button.
 fn platform_option() -> impl View {
     let (tweak, about): (Tweak<MenuButton>, &str) = platform! {
@@ -132,6 +160,7 @@ pub fn page() -> impl View {
         <Column padding=Spacing::Xl gap=Spacing::Xl>
             {gallery()}
             {machine()}
+            {git_flow()}
             {platform_option()}
         </Column>
     }

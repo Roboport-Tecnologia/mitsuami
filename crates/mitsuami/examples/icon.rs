@@ -8,7 +8,11 @@
 //!   theme's on Linux, Segoe Fluent Icons on Windows.
 //! - The drive is in a group, the platform's box around related content,
 //!   under its heading.
-//! - Move the slider: the drive's icon grows, as the platform sizes icons.
+//! - The floppy drive's icon is the app's own, from SVG path data: no
+//!   platform's set has a floppy, so the app draws one, and each platform
+//!   draws it as it draws its symbolic icons, in their colours and sizes.
+//!   Its Insert button shows the same icon.
+//! - Move the slider: the drives' icons grow, as the platform sizes icons.
 //! - The drive's icon is the accent colour and the rows' the secondary
 //!   one: the platform's own, so they follow dark mode, high contrast and
 //!   the user's accent. Switch to dark mode to see them follow.
@@ -99,6 +103,12 @@ fn add() -> &'static str {
     }
 }
 
+/// A floppy disk on a 24 grid, its shutter and label cut out (drawn the
+/// other way round, so they're holes).
+fn floppy() -> VectorIcon {
+    VectorIcon::new("M2 2H18L22 6V22H2Z M6 4V9H16V4Z M6 13V20H18V13Z").expect("the floppy's path")
+}
+
 #[derive(Clone, PartialEq)]
 struct Disc {
     id: u32,
@@ -179,6 +189,16 @@ pub fn library() -> impl View {
                         <Text color=Color::Accent>"In the drive"</Text>
                     </Column>
                     <Button icon=eject()>"Eject"</Button>
+                </Row>
+            </Group>
+            <Group title="Floppy drive">
+                <Row gap=Spacing::Lg align=Align::Center>
+                    <Icon name="" vector=floppy() label="Floppy" color=Color::Accent icon_size=move || size.get() as f32/>
+                    <Column grow=1.0>
+                        <Text text_style=TextStyle::Headline>"Empty"</Text>
+                        <Text color=Color::SecondaryLabel>"No disk in the drive"</Text>
+                    </Column>
+                    <Button vector_icon=floppy()>"Insert"</Button>
                 </Row>
             </Group>
             <Row gap=Spacing::Md align=Align::Center>

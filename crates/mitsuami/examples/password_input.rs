@@ -1,7 +1,8 @@
 //! Password input: `cargo run -p mitsuami --example password_input`.
 //!
 //! - A sign-in form: Return in the password field signs in.
-//! - A playground: a new password and its confirmation, which must match,
+//! - A playground: a new password and its confirmation, which must match
+//!   (the confirmation has an error while they don't, marked red on GTK),
 //!   and a switch to turn the fields off.
 //! - A raw platform setting, through `.native()`. Password fields have no
 //!   semantic options past a text field's: how each platform hides the
@@ -72,7 +73,11 @@ fn playground() -> impl View {
                 <Text>"New"</Text>
                 <PasswordInput a11y_label="New password" bind=new enabled=enabled/>
                 <Text>"Confirm"</Text>
-                <PasswordInput a11y_label="Confirm password" bind=confirm enabled=enabled/>
+                <PasswordInput a11y_label="Confirm password" bind=confirm enabled=enabled
+                    error=move || {
+                        let (new, confirm) = (new.get(), confirm.get());
+                        (!confirm.is_empty() && new != confirm).then(|| "The passwords don't match".to_string())
+                    }/>
                 <Text>"Enabled"</Text>
                 <Switch bind=enabled>"Enabled"</Switch>
             </Grid>

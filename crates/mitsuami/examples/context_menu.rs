@@ -7,6 +7,10 @@
 //! - A machine list whose rows each have a menu: a title that changes, an
 //!   item disabled while the machine runs, a submenu of radio items, a
 //!   check item, separators.
+//! - A list whose menus are built as they open
+//!   (`context_menu_on_open`), from the selection then: a selected row's
+//!   menu deletes every selected machine ("Delete 2 Machines"), another
+//!   row's only its own. Select several with Shift or Command (Control).
 //! - A box with a menu, over its text but not over the button in it,
 //!   which has its own.
 //! - A text field with none of ours: the platform's Cut, Copy and Paste.
@@ -84,6 +88,37 @@ fn machines() -> impl View {
     ))
 }
 
+/// Menus that act on the selection, read as each opens.
+fn selection() -> impl View {
+    let machines = signal(vec![
+        Machine { id: 1, name: "Windows 98".into() },
+        Machine { id: 2, name: "Windows XP".into() },
+        Machine { id: 3, name: "Windows 7".into() },
+    ]);
+    let selected = signal(Vec::<u32>::new());
+    let row = move |machine: Machine| {
+        let (id, name) = (machine.id, machine.name.clone());
+        Row::new().padding_x(8).height(28).align(Align::Center).child(Text::new(machine.name)).context_menu_on_open(
+            move || {
+                let chosen = selected.get_untracked();
+                let doomed = if chosen.contains(&id) { chosen } else { vec![id] };
+                let title = match doomed.len() {
+                    1 => format!("Delete {name}"),
+                    n => format!("Delete {n} Machines"),
+                };
+                MenuItem::new(title).on_select(move || machines.update(|all| all.retain(|m| !doomed.contains(&m.id))))
+            },
+        )
+    };
+    Column::new().gap(Spacing::Sm).children((
+        Text::new("The selection").text_style(TextStyle::Headline),
+        List::new(machines, |m: &Machine| m.id, row)
+            .selection_mode(SelectionMode::Multiple)
+            .selected(selected)
+            .height(120),
+    ))
+}
+
 fn boxes() -> impl View {
     let said = signal("Nothing chosen yet".to_owned());
     view! {
@@ -109,11 +144,12 @@ pub fn page() -> impl View {
     view! {
         <Column padding=Spacing::Xl gap=Spacing::Xl>
             {machines()}
+            {selection()}
             {boxes()}
         </Column>
     }
 }
 
 fn main() {
-    App::new().window("Context Menus", WindowSize::FitHeight(420.0), page).run();
+    App::new().window("Context Menus", WindowSize::FitHeight(560.0), page).run();
 }

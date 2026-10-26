@@ -7,8 +7,14 @@
 //!   field, each with its colour on a second line. The field keeps the
 //!   keyboard: the arrows move through the list, Return or a click picks,
 //!   Escape hides it.
+//! - Open Quickly, as Xcode's: the fruit matching what's typed, listed
+//!   beside the field. The field takes the arrows and Return before its
+//!   own editing (`on_key`): the arrows move through the list while typing
+//!   goes on in the field, and Return opens the one marked.
 //! - A playground: what's typed next to what was searched for, and how
-//!   many searches came, with a switch to turn the field off.
+//!   many searches came, with switches to search only on Return (and when
+//!   cleared, for searches that take a while: `search_on_return`) and to
+//!   turn the field off.
 //! - A raw platform setting, through `.native()`: when each platform
 //!   searches is its own.
 
@@ -92,12 +98,59 @@ fn suggest_fruit() -> impl View {
     ))
 }
 
+/// A field that moves through the list under it while it keeps the
+/// keyboard: its own keys come before its editing.
+fn open_quickly() -> impl View {
+    let text = signal(String::new());
+    let marked = signal(0usize);
+    let opened = signal(String::from("Nothing opened yet."));
+    let matches = move || {
+        let typed = text.get().to_lowercase();
+        FRUIT.iter().filter(|f| f.to_lowercase().contains(&typed)).copied().collect::<Vec<_>>()
+    };
+    // Typing starts the marking over at the first match.
+    let field = SearchInput::new()
+        .a11y_label("Open Quickly")
+        .placeholder("Open Quickly")
+        .bind(text)
+        .width(280)
+        .on_input(move |_| marked.set(0))
+        .on_key(Key::Down, move || marked.update(|m| *m = (*m + 1).min(matches().len().saturating_sub(1))))
+        .on_key(Key::Up, move || marked.update(|m| *m = m.saturating_sub(1)))
+        .on_key(Key::Enter, move || {
+            if let Some(fruit) = matches().get(marked.get_untracked()) {
+                opened.set(format!("Opened {fruit}."));
+            }
+        });
+    // Every fruit, shown while it matches, the marked one in bold.
+    let list: Vec<Text> = FRUIT
+        .into_iter()
+        .map(|fruit| {
+            Text::new(fruit)
+                .weight(move || {
+                    let marked = matches().get(marked.get()) == Some(&fruit);
+                    if marked { FontWeight::Bold } else { FontWeight::Regular }
+                })
+                .hidden(move || !matches().contains(&fruit))
+        })
+        .collect();
+    Column::new().gap(Spacing::Md).children((
+        heading("Open Quickly"),
+        Row::new()
+            .gap(Spacing::Xl)
+            .align(Align::Start)
+            .children((field, Column::new().gap(Spacing::Xs).children(list))),
+        Text::new(opened),
+    ))
+}
+
 /// What the field holds, and what the platform asked to search for.
 fn playground() -> impl View {
     let text = signal(String::new());
     let searched = signal(None::<String>);
     let searches = signal(0);
     let enabled = signal(true);
+    let on_return = signal(false);
     let search = move |q: String| {
         searched.set(Some(q));
         searches.update(|n| *n += 1);
@@ -112,7 +165,10 @@ fn playground() -> impl View {
                 align=Align::Center
             >
                 <Text>"Search"</Text>
-                <SearchInput a11y_label="Playground" bind=text enabled=enabled @search=search/>
+                <SearchInput a11y_label="Playground" bind=text enabled=enabled search_on_return=on_return
+                    @search=search/>
+                <Text>"Search on Return"</Text>
+                <Switch bind=on_return>"Search on Return"</Switch>
                 <Text>"Enabled"</Text>
                 <Switch bind=enabled>"Enabled"</Switch>
             </Grid>
@@ -172,6 +228,7 @@ pub fn page() -> impl View {
         <Column padding=Spacing::Xl gap=Spacing::Xl>
             {find_fruit()}
             {suggest_fruit()}
+            {open_quickly()}
             {playground()}
             {platform_option()}
         </Column>

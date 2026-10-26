@@ -2,6 +2,10 @@
 //!
 //! - A few fields: empty with a placeholder, with text, read-only,
 //!   disabled, and one with more text than fits.
+//! - Checked fields: an email address and a port, each with an error
+//!   while what's typed isn't one, the message under it. GTK marks the
+//!   field red; elsewhere the message is the mark, and assistive
+//!   technology reads the field as invalid everywhere.
 //! - A playground: type, change the placeholder, say what it's for, make
 //!   it read-only or turn it off, press Return to submit.
 //! - A raw platform setting, through `.native()`. Read-only and what it's
@@ -51,6 +55,52 @@ fn gallery() -> impl View {
                     a11y_label="Long"
                     value="A line of text much longer than the field is wide, to scroll through"
                 />
+            </Grid>
+        </Column>
+    }
+}
+
+/// What's wrong with an email address, if anything: an empty field isn't
+/// wrong yet.
+fn email_error(text: &str) -> Option<String> {
+    let valid = text.split_once('@').is_some_and(|(user, host)| !user.is_empty() && host.contains('.'));
+    (!text.is_empty() && !valid).then(|| "An email address has a name, an @ and a domain".to_string())
+}
+
+fn port_error(text: &str) -> Option<String> {
+    (!text.is_empty() && !text.parse::<u16>().is_ok_and(|port| port > 0))
+        .then(|| "A port is a number from 1 to 65535".to_string())
+}
+
+/// Fields that say what's wrong with what's typed.
+fn checked() -> impl View {
+    let email = signal(String::new());
+    let port = signal("8080x".to_string());
+    let email_error = move || email_error(&email.get());
+    let port_error = move || port_error(&port.get());
+    view! {
+        <Column gap=Spacing::Md>
+            {heading("Checked")}
+            <Grid
+                columns=[Track::MaxContent, Track::Size(1.fr())]
+                column_gap=Spacing::Md
+                row_gap=Spacing::Sm
+                align=Align::Center
+            >
+                <Text>"Email"</Text>
+                <TextInput a11y_label="Email" placeholder="name@example.com" input_purpose=InputPurpose::Email
+                    bind=email error=email_error/>
+                // The message under the field, while there's one.
+                <Text hidden=move || email_error().is_none()/>
+                <Text text_style=TextStyle::Caption hidden=move || email_error().is_none()>
+                    {move || email_error().unwrap_or_default()}
+                </Text>
+                <Text>"Port"</Text>
+                <TextInput a11y_label="Port" bind=port error=port_error/>
+                <Text hidden=move || port_error().is_none()/>
+                <Text text_style=TextStyle::Caption hidden=move || port_error().is_none()>
+                    {move || port_error().unwrap_or_default()}
+                </Text>
             </Grid>
         </Column>
     }
@@ -146,6 +196,7 @@ pub fn page() -> impl View {
     view! {
         <Column padding=Spacing::Xl gap=Spacing::Xl>
             {gallery()}
+            {checked()}
             {playground()}
             {platform_option()}
         </Column>

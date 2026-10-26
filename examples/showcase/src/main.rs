@@ -91,6 +91,9 @@ mod number_input;
 #[path = "../../../crates/mitsuami/examples/password_input.rs"]
 mod password_input;
 #[allow(dead_code, unused_attributes)]
+#[path = "../../../crates/mitsuami/examples/popover.rs"]
+mod popover;
+#[allow(dead_code, unused_attributes)]
 #[path = "../../../crates/mitsuami/examples/progress.rs"]
 mod progress;
 #[allow(dead_code, unused_attributes)]
@@ -120,6 +123,9 @@ mod slider;
 #[allow(dead_code, unused_attributes)]
 #[path = "../../../crates/mitsuami/examples/spinner.rs"]
 mod spinner;
+#[allow(dead_code, unused_attributes)]
+#[path = "../../../crates/mitsuami/examples/split.rs"]
+mod split;
 #[allow(dead_code, unused_attributes)]
 #[path = "../../../crates/mitsuami/examples/split_button.rs"]
 mod split_button;
@@ -211,6 +217,7 @@ const SECTIONS: [(&str, &[Example]); 7] = [
             example("Moving rows", || AnyView::new(row_moves::page())),
             example("Table", || AnyView::new(table::page())),
             example("Scroll view", || AnyView::new(scroll_view::page())),
+            example("Split", || AnyView::new(split::page())),
             example("Tabs", || AnyView::new(tabs::preferences())),
             example("Document tabs", || AnyView::new(document_tabs::notepad())),
             example("Measurements", || AnyView::new(measurements::content())),
@@ -222,6 +229,7 @@ const SECTIONS: [(&str, &[Example]); 7] = [
             example("Toolbar", || AnyView::new(toolbar::launcher())),
             example("Menus", || AnyView::new(menus::launcher())),
             example("Context menu", || AnyView::new(context_menu::page())),
+            example("Popover", || AnyView::new(popover::page())),
             example("Tooltip", || AnyView::new(tooltip::page())),
             example("Hover", || AnyView::new(hover::page())),
             example("Windows", || AnyView::new(windows::page())),

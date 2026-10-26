@@ -3,7 +3,11 @@
 //! - Every role in every style, and disabled: what the semantic props look
 //!   like on this platform.
 //! - A playground: pick the role, style, label and whether it's enabled.
+//! - A suggested action: Commit, prominent among the others with the accent
+//!   a default button has, but Return doesn't press it.
 //! - Toggle buttons, which stay pressed until they're clicked again.
+//! - Icons in colours of their own, as a bookmark picker has them: only the
+//!   icon takes the colour, the caption and bezel stay the platform's.
 //! - A raw platform setting, through `.native()`: a different one on each
 //!   platform, since each has its own.
 
@@ -19,10 +23,11 @@ const ROLES: [(&str, ButtonRole); 4] = [
     ("Destructive", ButtonRole::Destructive),
 ];
 
-const STYLES: [(&str, ButtonStyle); 3] = [
+const STYLES: [(&str, ButtonStyle); 4] = [
     ("Automatic", ButtonStyle::Automatic),
     ("Bordered", ButtonStyle::Bordered),
     ("Borderless", ButtonStyle::Borderless),
+    ("Prominent", ButtonStyle::Prominent),
 ];
 
 fn heading(text: &str) -> impl View {
@@ -97,6 +102,22 @@ fn playground() -> impl View {
     }
 }
 
+/// The action a view suggests among others, in the accent fill, as a Git
+/// client's Commit: unlike a default button, it doesn't take Return.
+fn suggested() -> impl View {
+    let done = signal("Nothing done yet");
+    view! {
+        <Column gap=Spacing::Md>
+            {heading("A suggested action")}
+            <Row gap=Spacing::Md align=Align::Center>
+                <Button @click=move || done.set("Stashed")>"Stash"</Button>
+                <Button button_style=ButtonStyle::Prominent @click=move || done.set("Committed")>"Commit"</Button>
+                <Text>{move || done.get().to_string()}</Text>
+            </Row>
+        </Column>
+    }
+}
+
 /// Buttons that stay pressed, bordered and borderless, one with only an
 /// icon, as a text editor's formatting bar has them.
 fn toggles() -> impl View {
@@ -123,6 +144,46 @@ fn toggles() -> impl View {
                     }
                     .to_string()}
                 </Text>
+            </Row>
+        </Column>
+    }
+}
+
+/// A bookmark per colour, as a Git client's bookmark picker: the icon takes
+/// the colour, the rest of the button stays the platform's.
+fn icon_colors() -> impl View {
+    let icon = platform! {
+        macos => "bookmark.fill",
+        gtk => "user-bookmarks-symbolic",
+        kde => "bookmarks",
+        windows => "\u{E8A4}",
+    };
+    let colors = [
+        ("Red", Color::rgb(230, 60, 60)),
+        ("Orange", Color::rgb(240, 150, 30)),
+        ("Green", Color::rgb(50, 170, 80)),
+        ("Blue", Color::rgb(50, 120, 230)),
+    ];
+    let picked = signal("None");
+    let starred = signal(true);
+    let buttons: Vec<AnyView> = colors
+        .into_iter()
+        .map(|(name, color)| {
+            AnyView::new(view! {
+                <Button icon=icon icon_only=true icon_color=color button_style=ButtonStyle::Borderless
+                    @click=move || picked.set(name)>{name}</Button>
+            })
+        })
+        .collect();
+    view! {
+        <Column gap=Spacing::Md>
+            {heading("Icon colours")}
+            <Row gap=Spacing::Sm align=Align::Center>
+                {buttons}
+                <Text>{move || format!("Bookmark: {}", picked.get())}</Text>
+            </Row>
+            <Row gap=Spacing::Md align=Align::Center>
+                <ToggleButton bind=starred icon=icon icon_color=Color::rgb(240, 150, 30)>"Bookmarked"</ToggleButton>
             </Row>
         </Column>
     }
@@ -175,7 +236,9 @@ pub fn page() -> impl View {
         <Column padding=Spacing::Xl gap=Spacing::Xl>
             {gallery()}
             {playground()}
+            {suggested()}
             {toggles()}
+            {icon_colors()}
             {platform_option()}
         </Column>
     }

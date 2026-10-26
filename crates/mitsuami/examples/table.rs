@@ -1,7 +1,7 @@
 //! Table: `cargo run -p mitsuami --example table`.
 //!
-//! - Files under column headers: Name (with an icon, taking the room
-//!   left), Size, Kind and Modified. Resize the columns by their headers'
+//! - Files under column headers: a lane, Name (with an icon, taking the
+//!   room left), Size, Kind and Modified. Resize the columns by their headers'
 //!   edges, as the platform lets you.
 //! - Press a header to sort by it; again, the other way round. Kind has no
 //!   sort key, so its header doesn't sort. The app sorts the data: the
@@ -9,6 +9,10 @@
 //! - Select one or several rows (a switch changes the selection mode),
 //!   activate one (double-click or Return), add and remove rows, and
 //!   scroll to the last.
+//! - The lane is drawn by the app, as a Git client draws its commit graph:
+//!   a line through every row and a dot in the kind's colour. Its cells
+//!   fill their rows (`fills_row`), without the room the platform puts
+//!   around a cell, so the line joins from row to row.
 //! - A raw platform setting, through `.native()`.
 
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
@@ -66,6 +70,51 @@ fn icon_for(kind: &str) -> &'static str {
     }
 }
 
+/// Each kind's dot in the lane.
+fn color_for(kind: &str) -> Color {
+    match kind {
+        "Plain Text" => Color::rgb(50, 120, 230),
+        "PNG Image" => Color::rgb(50, 170, 80),
+        "PDF Document" => Color::rgb(230, 60, 60),
+        _ => Color::rgb(240, 150, 30),
+    }
+}
+
+/// A lane through the rows, drawn to the cell's size: the row is as high
+/// as the platform makes it.
+struct Lane;
+
+impl CustomWidget for Lane {
+    const NAME: &'static str = "Lane";
+    type Props = Color;
+    type Event = ();
+
+    fn a11y(_dot: &Color) -> A11yProps {
+        A11yProps::new(Role::Image)
+    }
+}
+
+impl Drawn for Lane {
+    fn measure(_dot: &Color, _request: &MeasureRequest, metrics: &PlatformMetrics) -> Size {
+        let side = metrics.font_sizes.body.round();
+        Size::new(side, side)
+    }
+
+    fn draw(dot: &Color, canvas: &mut Canvas) {
+        let Size { width, height } = canvas.size();
+        let x = width / 2.0;
+        canvas.stroke(Path::new().move_to(x, 0.0).line_to(x, height), Color::SecondaryLabel, 2.0);
+        let d = 8.0;
+        canvas.fill(Shape::Ellipse(Rect::new(x - d / 2.0, height / 2.0 - d / 2.0, d, d)), *dot);
+    }
+}
+
+impl Render for Lane {
+    fn renderer() -> Renderer<Self> {
+        Renderer::drawn()
+    }
+}
+
 fn heading(text: &str) -> impl View {
     let text = text.to_string();
     view! { <Text text_style=TextStyle::Headline>{text}</Text> }
@@ -73,6 +122,7 @@ fn heading(text: &str) -> impl View {
 
 fn columns() -> Vec<TableColumn<File>> {
     vec![
+        TableColumn::new("Lane", |f: File| Custom::<Lane>::new(color_for(f.kind))).width(44).fills_row(),
         TableColumn::new("Name", |f: File| {
             Row::new().gap(Spacing::Sm).align(Align::Center).children((
                 Icon::new(icon_for(f.kind)).a11y_hidden(),

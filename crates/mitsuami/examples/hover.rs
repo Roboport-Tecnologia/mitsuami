@@ -8,6 +8,10 @@
 //!   machines do; their context menu has Start too, for the keyboard.
 //! - A label that turns into a field when double-clicked, as a name is
 //!   renamed in place (the button beside it keeps its own clicks).
+//! - A hint laid over a text area's first line, in the placeholder colour:
+//!   it lets the pointer through, so a click on it reaches the text area.
+//!   Turn "Clicks pass through" off and the hint takes the click instead,
+//!   as anything laid over a control does.
 
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
@@ -98,12 +102,39 @@ fn rename() -> impl View {
     }
 }
 
+/// A hint over a text area, as an app lays one where the platform's text
+/// area shows no placeholder.
+fn hint() -> impl View {
+    let text = signal(String::new());
+    let through = signal(true);
+    view! {
+        <Column gap=Spacing::Md>
+            {heading("A hint over a text area")}
+            <Column width=320 height=100>
+                <TextArea a11y_label="Message" bind=text grow=1.0/>
+                {Column::new()
+                    .absolute()
+                    .top(4)
+                    .start(6)
+                    .click_through(through)
+                    .hidden(move || !text.get().is_empty())
+                    .child(Text::new("Write a message").color(Color::Placeholder))}
+            </Column>
+            <Row gap=Spacing::Md align=Align::Center>
+                <Text>"Clicks pass through"</Text>
+                <Switch bind=through>"Clicks pass through"</Switch>
+            </Row>
+        </Column>
+    }
+}
+
 pub fn page() -> impl View {
     view! {
         <Column padding=Spacing::Xl gap=Spacing::Xl>
             {a_box()}
             {rows()}
             {rename()}
+            {hint()}
         </Column>
     }
 }
