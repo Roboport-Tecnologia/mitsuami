@@ -383,6 +383,9 @@ impl MenuBuild<'_> {
                 modifiers |= w::VirtualKeyModifiers::Menu;
             }
             accel.SetModifiers(modifiers)?;
+            // A surface that heard of the key first holds it back for this,
+            // and drops it: the menu item took it.
+            self.revokers.push(accel.Invoked(|_, _| crate::surface::key_taken())?);
             element.cast::<w::IUIElement>()?.KeyboardAccelerators()?.Append(&accelerator)?;
         }
         // XAML flips a toggle or radio item as it's clicked. What it shows

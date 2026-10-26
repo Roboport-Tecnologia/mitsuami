@@ -97,6 +97,8 @@ impl Keys {
 fn take(events: &Events, id: NodeId, taken: &RefCell<Vec<Shortcut>>, shortcut: Shortcut) -> bool {
     let takes = taken.borrow().contains(&shortcut);
     if takes {
+        // A surface that heard of the key first holds it back for this.
+        crate::surface::key_taken();
         events.emit(id, UiEvent::Key(shortcut));
     }
     takes

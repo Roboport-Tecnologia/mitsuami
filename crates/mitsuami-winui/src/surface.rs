@@ -76,6 +76,25 @@ thread_local! {
     static SUBCLASSED: RefCell<HashSet<isize>> = RefCell::new(HashSet::new());
     /// XAML windows showing a `ContentDialog`, whose surfaces hide.
     static COVERED: RefCell<HashSet<isize>> = RefCell::new(HashSet::new());
+    /// Keys a window took for its shortcuts (a node's keys, a menu item's
+    /// accelerator), counted, so a surface that held a chord back can tell
+    /// whether the window took it.
+    static TAKEN: Cell<u64> = const { Cell::new(0) };
+}
+
+/// A window took a key for one of its shortcuts.
+pub(crate) fn key_taken() {
+    TAKEN.set(TAKEN.get().wrapping_add(1));
+}
+
+/// A key report held back until XAML is done with the key, with the count of
+/// keys taken when it came.
+struct Held {
+    input: SurfaceInput,
+    at: u64,
+    /// A chord the window's shortcuts may take, and the surface then doesn't
+    /// get.
+    chord: bool,
 }
 
 /// A `ContentDialog` went up in `window`, or came down. XAML draws nothing
@@ -192,6 +211,11 @@ struct HostState {
     /// only for its text controls, so they compose in this one, and what
     /// they commit to it is the surface's text. Keys never reach it.
     text_box: Option<TextBox>,
+    /// Key reports held back, in order, until XAML is done with the key
+    /// they came with: see [`HostState::report_key`].
+    held: Vec<Held>,
+    /// A flush of `held` is queued on the dispatcher.
+    flush_queued: bool,
 }
 
 /// The text box an input method composes in, and its events.
@@ -231,6 +255,8 @@ impl SurfaceHost {
                 focused: false,
                 tracking: false,
                 keys_down: HashSet::new(),
+                held: Vec::new(),
+                flush_queued: false,
                 hooked_down: HashSet::new(),
                 cursor: None,
                 made: None,
@@ -783,12 +809,58 @@ impl HostState {
         if pressed && self.dead_shown && (text.is_some() || dead.is_some() || !is_modifier(code)) {
             self.end_dead();
         }
-        self.report(SurfaceInput::Key { code, native, pressed, repeat, modifiers, text, unmodified });
+        // A chord that types nothing may be one of the window's shortcuts.
+        let chord = pressed && (modifiers.control || modifiers.alt) && !self.grabbed && text.is_none();
+        self.report_key(SurfaceInput::Key { code, native, pressed, repeat, modifiers, text, unmodified }, chord);
         if let Some(accent) = dead.filter(|_| self.takes_text()) {
             self.dead_shown = true;
-            self.report(SurfaceInput::Preedit { text: accent.to_string(), cursor: Some(accent.len_utf8()) });
+            let preedit = SurfaceInput::Preedit { text: accent.to_string(), cursor: Some(accent.len_utf8()) };
+            self.report_key(preedit, false);
         }
         Ok(())
+    }
+
+    /// Reports what a key did, after XAML is done with the key when it's a
+    /// chord. XAML runs the window's accelerators off the focused element's
+    /// path only while `KeyDown` goes unhandled, so a chord is left
+    /// unhandled for them, and they run after the surface heard of it: a
+    /// chord a menu item has as its shortcut reached both the menu and the
+    /// surface. So a chord waits for the end of the key's dispatch, and goes
+    /// to the surface only if nothing took it (a node's keys, an
+    /// accelerator: [`key_taken`]), as on the other platforms. What comes
+    /// after it waits too, to keep the order.
+    fn report_key(&mut self, input: SurfaceInput, chord: bool) {
+        if !chord && self.held.is_empty() {
+            self.report(input);
+            return;
+        }
+        self.held.push(Held { input, at: TAKEN.get(), chord });
+        if !std::mem::replace(&mut self.flush_queued, true) {
+            queue_flush(self.me.clone());
+        }
+    }
+
+    /// Reports the key reports held back, but a chord the window took
+    /// (something was taken between it and what came next), and its
+    /// release: it went to the window instead.
+    fn flush_held(&mut self) {
+        self.flush_queued = false;
+        let held = std::mem::take(&mut self.held);
+        let ends: Vec<u64> = held.iter().skip(1).map(|h| h.at).chain([TAKEN.get()]).collect();
+        let mut taken = HashSet::new();
+        for (held, end) in held.into_iter().zip(ends) {
+            if let SurfaceInput::Key { native, pressed, .. } = &held.input {
+                if held.chord && end != held.at {
+                    taken.insert(*native);
+                    self.keys_down.remove(native);
+                    continue;
+                }
+                if !pressed && taken.contains(native) {
+                    continue;
+                }
+            }
+            self.report(held.input);
+        }
     }
 
     /// Ends a dead key's composition, if one shows.
@@ -883,6 +955,8 @@ impl HostState {
     /// Reports every key it has down as released: focus left, or the
     /// window stopped being the active one, so their releases go elsewhere.
     fn release_keys(&mut self) {
+        // What's held back goes first: it came before.
+        self.flush_held();
         let modifiers = Modifiers::default();
         for native in std::mem::take(&mut self.keys_down) {
             let code = KeyCode::from_windows_scancode(native);
@@ -1294,6 +1368,28 @@ fn is_input_method_key(key: w::VirtualKey) -> bool {
 fn same(a: &impl Interface, b: &impl Interface) -> bool {
     let (Ok(a), Ok(b)) = (a.cast::<windows_core::IUnknown>(), b.cast::<windows_core::IUnknown>()) else { return false };
     a.as_raw() == b.as_raw()
+}
+
+/// Flushes the surface's held key reports once the dispatcher is done with
+/// the key message going on, or again later while the surface is busy.
+fn queue_flush(state: Weak<RefCell<HostState>>) {
+    let Ok(queue) = w::DispatcherQueue::GetForCurrentThread() else {
+        // No queue to wait on (the window is going): report them now.
+        if let Some(state) = state.upgrade()
+            && let Ok(mut state) = state.try_borrow_mut()
+        {
+            state.flush_held();
+        }
+        return;
+    };
+    let ticket = crate::later::park_until(&queue, state);
+    crate::later::on_ui_take(&queue, ticket, |state: Weak<RefCell<HostState>>| {
+        let Some(host) = state.upgrade() else { return };
+        match host.try_borrow_mut() {
+            Ok(mut host) => host.flush_held(),
+            Err(_) => queue_flush(state),
+        }
+    });
 }
 
 /// The text box an input method composes in, in `canvas`, under the
