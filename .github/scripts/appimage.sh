@@ -3,8 +3,13 @@
 #
 #   appimage.sh <gtk|kde> <binary> <app id> <output.AppImage>
 #
-# The desktop entry and icon are `.github/apps/<app id>.{desktop,svg}`,
-# named after the app's id, as GTK and KDE find an app's icon by it.
+# The binary can also be a folder, for an app that runs from one (a
+# runtime and its files beside the executable): its files all go beside
+# the executable, which is the desktop entry's `Exec`.
+#
+# The desktop entry and icon are `.github/apps/<app id>.{desktop,svg}` (or
+# APPS_DIR's; the icon can be a PNG), named after the app's id, as GTK and
+# KDE find an app's icon by it.
 # linuxdeploy bundles what the binary links, and its GTK or Qt plugin what
 # the toolkit loads at run time; glibc and the GPU drivers stay the host's,
 # so the build's glibc is the oldest one the AppImage runs on.
@@ -15,7 +20,7 @@ binary=$2
 id=$3
 output=$4
 
-here=$(cd "$(dirname "$0")/.." && pwd)
+apps=${APPS_DIR:-$(cd "$(dirname "$0")/.." && pwd)/apps}
 tools=${APPIMAGE_TOOLS:-$PWD/.appimage-tools}
 appdir=$(mktemp -d)/AppDir
 
@@ -44,10 +49,22 @@ fetch linuxdeploy-x86_64.AppImage \
   https://github.com/linuxdeploy/linuxdeploy/releases/download/1-alpha-20251107-1/linuxdeploy-x86_64.AppImage \
   c20cd71e3a4e3b80c3483cef793cda3f4e990aca14014d23c544ca3ce1270b4d
 
-name=$(basename "$binary")
-install -Dm755 "$binary" "$appdir/usr/bin/$name"
-install -Dm644 "$here/apps/$id.desktop" "$appdir/usr/share/applications/$id.desktop"
-install -Dm644 "$here/apps/$id.svg" "$appdir/usr/share/icons/hicolor/scalable/apps/$id.svg"
+if [ -d "$binary" ]; then
+  mkdir -p "$appdir/usr/bin"
+  cp -a "$binary/." "$appdir/usr/bin/"
+else
+  install -Dm755 "$binary" "$appdir/usr/bin/$(basename "$binary")"
+fi
+install -Dm644 "$apps/$id.desktop" "$appdir/usr/share/applications/$id.desktop"
+if [ -f "$apps/$id.svg" ]; then
+  icon="$appdir/usr/share/icons/hicolor/scalable/apps/$id.svg"
+  install -Dm644 "$apps/$id.svg" "$icon"
+else
+  # A PNG goes in its size's folder: the width is the header's bytes 16-19.
+  size=$(od -An -tu1 -j16 -N4 "$apps/$id.png" | awk '{ print $1 * 16777216 + $2 * 65536 + $3 * 256 + $4 }')
+  icon="$appdir/usr/share/icons/hicolor/${size}x${size}/apps/$id.png"
+  install -Dm644 "$apps/$id.png" "$icon"
+fi
 
 case "$toolkit" in
   gtk)
@@ -139,5 +156,5 @@ esac
 
 LDAI_OUTPUT=$output OUTPUT=$output "$tools/linuxdeploy-x86_64.AppImage" --appdir "$appdir" \
   --desktop-file "$appdir/usr/share/applications/$id.desktop" \
-  --icon-file "$appdir/usr/share/icons/hicolor/scalable/apps/$id.svg" \
+  --icon-file "$icon" \
   --output appimage
