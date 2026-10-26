@@ -39,6 +39,8 @@ pub(crate) struct State {
     /// The popover is closing because the core asked: not reported. It
     /// animates out, so AppKit says it closed later.
     closing: Cell<bool>,
+    /// Shown again while closing: AppKit shows it once the close is done.
+    reopening: Cell<bool>,
     anchor: RefCell<Option<Retained<NSView>>>,
     /// Windows are shown: off in tests (see above).
     on_screen: bool,
@@ -54,6 +56,19 @@ define_class!(
     unsafe impl NSObjectProtocol for PopoverDelegate {}
 
     unsafe impl NSPopoverDelegate for PopoverDelegate {
+        #[unsafe(method(popoverDidShow:))]
+        fn did_show(&self, notification: &NSNotification) {
+            let state = self.ivars();
+            state.reopening.set(false);
+            // Shown again after a close, but no longer wanted by then.
+            if !state.wanted.get()
+                && let Some(popover) = notification.object().and_then(|o| o.downcast::<NSPopover>().ok())
+            {
+                state.closing.set(true);
+                popover.close();
+            }
+        }
+
         #[unsafe(method(popoverDidClose:))]
         fn did_close(&self, _notification: &NSNotification) {
             let state = self.ivars();
@@ -90,6 +105,7 @@ impl Popover {
             events,
             wanted: Cell::new(false),
             closing: Cell::new(false),
+            reopening: Cell::new(false),
             anchor: RefCell::new(None),
             on_screen,
         });
@@ -129,7 +145,12 @@ impl Popover {
     /// Shows it once it's wanted, has a size and its parent is in a
     /// window; closes it when it's no longer wanted.
     fn sync(&self) {
-        let shown = self.popover.isShown();
+        // Closing, it still says it shows; shown again then, AppKit ends
+        // the close and shows it again once that's done (a probe's log:
+        // `willClose`, `didClose`, `didShow`), so it's shown as if closed,
+        // and counts as shown till it's back.
+        let state = &self.state;
+        let shown = (self.popover.isShown() && !state.closing.get()) || state.reopening.get();
         if !self.state.wanted.get() {
             if shown {
                 self.close();
@@ -146,10 +167,12 @@ impl Popover {
         }
         // Under its parent where it fits, as menus and pickers open.
         let edge = if anchor.isFlipped() { NSRectEdge::MaxY } else { NSRectEdge::MinY };
+        state.reopening.set(state.closing.get());
         self.popover.showRelativeToRect_ofView_preferredEdge(anchor.bounds(), &anchor, edge);
     }
 
     fn close(&self) {
+        self.state.reopening.set(false);
         if self.popover.isShown() {
             self.state.closing.set(true);
             self.popover.close();

@@ -8,8 +8,13 @@
 //!   button renames it. Dismissing the popover (a click outside, Escape)
 //!   drops what was typed, as a cancelled edit; the next opening starts
 //!   from the name again.
+//! - Close and Reopen, in the Rename popover: closes it, then opens it
+//!   again a tenth of a second later, while it's still animating out (on
+//!   macOS). It should close and come back.
 
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
+
+use std::time::Duration;
 
 use mitsuami::prelude::*;
 
@@ -44,6 +49,13 @@ pub fn page() -> impl View {
                 Button::new("Rename").on_click(move || {
                     name.set(draft.get_untracked());
                     rename.set(false);
+                }),
+                Button::new("Close and Reopen").on_click(move || {
+                    rename.set(false);
+                    spawn_local(async move {
+                        sleep(Duration::from_millis(100)).await;
+                        rename.set(true);
+                    });
                 }),
             )),
         )),
