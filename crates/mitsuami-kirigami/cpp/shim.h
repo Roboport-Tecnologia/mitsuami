@@ -239,6 +239,7 @@ char* mq_trash(const char* path);
 // `source`, the generic one as `fallback`) once it's found, off the main
 // thread; a later call for the icon wins. The loads still in progress.
 void mq_file_icon(QObject* icon, const char* path);
+void mq_file_icon_by_name(QObject* icon, const char* path, int32_t folder);
 int32_t mq_file_icon_loads(void);
 // Opens a local path (is_path) or a URL in its app; 0 if nothing did.
 int32_t mq_open_url(const char* target, int32_t is_path);

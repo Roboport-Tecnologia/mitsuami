@@ -31,10 +31,10 @@ use mitsuami::core::services::{
 use mitsuami::core::style::{Edges, Position};
 use mitsuami::core::{
     A11yAction, A11yProps, Align, ButtonRole, ButtonStyle, Canvas, Color, Custom, CustomWidget, DocumentTabsStyle,
-    Drawn, EventValue, FileDrop, FlexDirection, HeaderEdge, ImageSource, Justify, Key, Length, List, ListHandle,
-    ListStyle, MeasureRequest, Modality, NodeId, PathStep, Pixels, PlatformMetrics, Point, PointerKind, Prop, Rect,
-    Render, Renderer, Role, RowDrop, RowMoves, ScrollAxes, SelectionMode, Shape, Size, Sort, SortOrder, Spacing, Table,
-    TableColumn, TextStyle, Tree, Ui, UiEvent, VectorIcon, View, WidgetKind, WindowSize,
+    Drawn, EventValue, FileDrop, FileLookup, FlexDirection, HeaderEdge, ImageSource, Justify, Key, Length, List,
+    ListHandle, ListStyle, MeasureRequest, Modality, NodeId, PathStep, Pixels, PlatformMetrics, Point, PointerKind,
+    Prop, Rect, Render, Renderer, Role, RowDrop, RowMoves, ScrollAxes, SelectionMode, Shape, Size, Sort, SortOrder,
+    Spacing, Table, TableColumn, TextStyle, Tree, Ui, UiEvent, VectorIcon, View, WidgetKind, WindowSize,
 };
 use mitsuami::reactive::{Owner, Signal, on_cleanup, signal, watch};
 
@@ -300,7 +300,8 @@ pub enum MitsuamiKind {
     ColorWell = 25,
     /// A file's or folder's own icon, as the platform's file manager shows
     /// it: its `File` (`mitsuami_set_text`), in a square of its
-    /// `IconSize`, 16 points unless set.
+    /// `IconSize`, 16 points unless set; by name (its `FileLookup`), the
+    /// icon of the name's type, or a plain folder's, with nothing read.
     FileIcon = 26,
 }
 
@@ -1225,6 +1226,9 @@ pub enum MitsuamiEnumProp {
     /// Tabs', where the platform has more than one way to show them:
     /// `Automatic`, `TabBar`, `Navigation`, 0 to 2.
     TabsStyle = 9,
+    /// Where a file icon gets its icon: `Disk`, `FileName`, `Folder`, 0
+    /// to 2. By name, nothing is read.
+    FileLookup = 10,
 }
 
 #[unsafe(no_mangle)]
@@ -1297,6 +1301,12 @@ pub extern "C" fn mitsuami_set_enum(id: u32, prop: u32, value: u32) -> bool {
                 0 => mitsuami::core::TabsStyle::Automatic,
                 1 => mitsuami::core::TabsStyle::TabBar,
                 2 => mitsuami::core::TabsStyle::Navigation,
+                _ => return Err(bad()),
+            }),
+            10 => Prop::FileLookup(match value {
+                0 => FileLookup::Disk,
+                1 => FileLookup::FileName,
+                2 => FileLookup::Folder,
                 _ => return Err(bad()),
             }),
             _ => return Err(format!("unknown enum prop {prop}")),

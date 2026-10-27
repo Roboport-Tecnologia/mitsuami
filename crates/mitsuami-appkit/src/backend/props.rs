@@ -280,18 +280,20 @@ impl State {
             (Prop::Label(t), Widget::Image(view) | Widget::Icon(view) | Widget::FileIcon(view)) => {
                 view.setAccessibilityLabel(Some(&ns(t)))
             }
-            (Prop::File(_) | Prop::IconSize(_) | Prop::Thumbnail(_), Widget::FileIcon(view)) => {
+            (Prop::File(_) | Prop::IconSize(_) | Prop::Thumbnail(_) | Prop::FileLookup(_), Widget::FileIcon(view)) => {
                 match prop {
                     Prop::File(path) => node.file = Some(path.clone()),
                     Prop::IconSize(points) => node.icon_size = Some(*points),
                     Prop::Thumbnail(on) => node.thumbnail = Some(*on),
+                    Prop::FileLookup(lookup) => node.file_lookup = Some(*lookup),
                     _ => {}
                 }
                 // A new icon loads once its props are all in (`load_file_icon`):
                 // each would read the file's icon again, and ask QuickLook again.
                 if !matches!(command, Command::Create { .. }) {
                     let side = node.icon_size.unwrap_or(FILE_ICON_SIZE);
-                    show_file_icon(mtm, view, node.file.as_deref(), side, node.thumbnail == Some(true));
+                    let lookup = node.file_lookup.unwrap_or_default();
+                    show_file_icon(mtm, view, node.file.as_deref(), side, node.thumbnail == Some(true), lookup);
                 }
             }
             (Prop::Icon(_) | Prop::VectorIcon(_) | Prop::IconSize(_), Widget::Icon(view)) => {
@@ -664,7 +666,8 @@ impl State {
         let Some(node) = self.nodes.get(&id) else { return };
         if let Widget::FileIcon(view) = &node.widget {
             let side = node.icon_size.unwrap_or(FILE_ICON_SIZE);
-            show_file_icon(self.mtm, view, node.file.as_deref(), side, node.thumbnail == Some(true));
+            let lookup = node.file_lookup.unwrap_or_default();
+            show_file_icon(self.mtm, view, node.file.as_deref(), side, node.thumbnail == Some(true), lookup);
         }
     }
 }

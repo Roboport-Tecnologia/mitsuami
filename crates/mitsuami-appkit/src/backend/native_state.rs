@@ -163,6 +163,7 @@ pub(super) fn native_state(state: &State, id: NodeId) -> Option<NativeState> {
             props.extend(node.file.clone().map(Prop::File));
             props.extend(node.icon_size.map(Prop::IconSize));
             props.extend(node.thumbnail.map(Prop::Thumbnail));
+            props.extend(node.file_lookup.map(Prop::FileLookup));
         }
         Widget::Checkbox(b) => {
             props.push(Prop::Label(b.title().to_string()));

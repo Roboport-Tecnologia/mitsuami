@@ -1,8 +1,8 @@
 //! Setting a prop on a node's widget.
 
 use mitsuami_core::{
-    ButtonRole, ButtonStyle, Color, Command, HorizontalAlign, ImageFit, ImageSource, LayoutDirection, Modality, NodeId,
-    Prop, ScrollAxes, TabsStyle, Truncation, UiEvent, WidgetKind,
+    ButtonRole, ButtonStyle, Color, Command, FileLookup, HorizontalAlign, ImageFit, ImageSource, LayoutDirection,
+    Modality, NodeId, Prop, ScrollAxes, TabsStyle, Truncation, UiEvent, WidgetKind,
 };
 
 use crate::custom::{NativePayload, flatten};
@@ -400,12 +400,13 @@ impl State {
                 b.set_str("mitsuamiIconFile", &icon.as_ref().map(vector_icon::file_url).unwrap_or_default());
                 node.vector_icon = Some(icon.clone());
             }
-            // Not the last file's icon while this one's type is found.
             (Prop::File(path), Widget::FileIcon(i)) => {
                 i.set_str("mitsuamiFile", &path.to_string_lossy());
-                i.set_str("fallback", "");
-                i.set_str("source", "");
-                i.load_file_icon(path);
+                load_file_icon(*i);
+            }
+            (Prop::FileLookup(lookup), Widget::FileIcon(i)) => {
+                i.set_int("mitsuamiLookup", lookup_number(*lookup));
+                load_file_icon(*i);
             }
             (Prop::Thumbnail(on), Widget::FileIcon(i)) => i.set_bool("mitsuamiThumbnail", *on),
             (Prop::IconSize(points), Widget::Icon(i) | Widget::FileIcon(i)) => {
@@ -613,5 +614,40 @@ fn set_elide(label: QmlObject, lines: Option<u32>, truncation: Truncation) {
     if !label.bool("mitsuamiSelectable") {
         let unwrapped = matches!(elide, ELIDE_LEFT | ELIDE_MIDDLE);
         label.set_int("wrapMode", if unwrapped { TEXT_NO_WRAP } else { TEXT_WORD_WRAP });
+    }
+}
+
+/// `FileLookup` as the icon's `mitsuamiLookup` keeps it.
+fn lookup_number(lookup: FileLookup) -> i32 {
+    match lookup {
+        FileLookup::Disk => 0,
+        FileLookup::FileName => 1,
+        FileLookup::Folder => 2,
+    }
+}
+
+pub(super) fn lookup_of(number: i32) -> FileLookup {
+    match number {
+        1 => FileLookup::FileName,
+        2 => FileLookup::Folder,
+        _ => FileLookup::Disk,
+    }
+}
+
+/// Shows a file icon's file as its lookup says: from disk off the UI
+/// thread, by name now. Not the last file's icon while this one's type is
+/// found.
+fn load_file_icon(icon: QmlObject) {
+    let path = std::path::PathBuf::from(icon.str("mitsuamiFile"));
+    match lookup_of(icon.int("mitsuamiLookup")) {
+        FileLookup::Disk => {
+            icon.set_str("fallback", "");
+            icon.set_str("source", "");
+            if !path.as_os_str().is_empty() {
+                icon.load_file_icon(&path);
+            }
+        }
+        FileLookup::FileName => icon.file_icon_by_name(&path, false),
+        FileLookup::Folder => icon.file_icon_by_name(&path, true),
     }
 }

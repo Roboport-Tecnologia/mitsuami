@@ -6,8 +6,8 @@ use std::time::Duration;
 use gtk::prelude::*;
 use gtk::{gdk, glib, pango};
 use mitsuami_core::{
-    ButtonRole, ButtonStyle, Color, Command, HorizontalAlign, ImageFit, ImageSource, InputPurpose, LayoutDirection,
-    NodeId, Prop, Truncation, UiEvent, WidgetKind,
+    ButtonRole, ButtonStyle, Color, Command, FileLookup, HorizontalAlign, ImageFit, ImageSource, InputPurpose,
+    LayoutDirection, NodeId, Prop, Truncation, UiEvent, WidgetKind,
 };
 
 use crate::custom::NativePayload;
@@ -375,10 +375,14 @@ impl State {
                 image.set_pixel_size(points.round() as i32);
                 *size = Some(*points);
             }
-            (Prop::File(_) | Prop::Thumbnail(_), Widget::FileIcon { image, file, thumbnail, loading, .. }) => {
+            (
+                Prop::File(_) | Prop::Thumbnail(_) | Prop::FileLookup(_),
+                Widget::FileIcon { image, file, thumbnail, lookup, loading, .. },
+            ) => {
                 match prop {
                     Prop::File(path) => *file = Some(path.clone()),
                     Prop::Thumbnail(on) => *thumbnail = Some(*on),
+                    Prop::FileLookup(by) => *lookup = Some(*by),
                     _ => {}
                 }
                 if let Some(old) = loading.take() {
@@ -389,7 +393,14 @@ impl State {
                 let events = self.events.clone();
                 let shown = move || events.emit(id, UiEvent::Remeasure);
                 let thumbnail = *thumbnail == Some(true);
-                *loading = super::file_icon::show(image, file.as_deref(), thumbnail, &self.loads, shown);
+                *loading = match lookup.unwrap_or_default() {
+                    FileLookup::Disk => super::file_icon::show(image, file.as_deref(), thumbnail, &self.loads, shown),
+                    by_name => {
+                        super::file_icon::show_by_name(image, file.as_deref(), by_name);
+                        shown();
+                        None
+                    }
+                };
             }
             (Prop::IconSize(points), Widget::FileIcon { image, size, .. }) => {
                 image.set_pixel_size(points.round() as i32);

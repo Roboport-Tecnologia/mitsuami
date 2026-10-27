@@ -143,13 +143,14 @@ impl WinUiBackend {
                     }));
                 }
             }
-            Widget::FileIcon { file, thumbnail, size, .. } => {
+            Widget::FileIcon { file, thumbnail, lookup, size, .. } => {
                 let name = w::AutomationProperties::GetName(&node.element).unwrap_or_default();
                 if !name.is_empty() {
                     props.push(Prop::Label(name));
                 }
                 props.extend(file.clone().map(Prop::File));
                 props.extend(thumbnail.map(Prop::Thumbnail));
+                props.extend(lookup.map(Prop::FileLookup));
                 props.extend(size.map(Prop::IconSize));
             }
             Widget::Icon(icon) => {

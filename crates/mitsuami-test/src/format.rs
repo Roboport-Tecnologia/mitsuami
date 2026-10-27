@@ -132,6 +132,7 @@ fn describe_props(props: &[Prop]) -> String {
                 extra.push(format!("file={:?}", path.file_name().unwrap_or_default().to_string_lossy()))
             }
             Prop::Thumbnail(on) => extra.push(format!("thumbnail={on}")),
+            Prop::FileLookup(lookup) => extra.push(format!("lookup={lookup:?}")),
             Prop::Modal { owner, modality } => {
                 extra.push(format!("modal={modality:?}"));
                 extra.extend(owner.map(|o| format!("owner={o}")));

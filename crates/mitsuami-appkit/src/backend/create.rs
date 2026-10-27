@@ -384,6 +384,7 @@ impl State {
                 icon_only: None,
                 file: None,
                 thumbnail: None,
+                file_lookup: None,
                 modal: None,
                 mixed: None,
                 checked: false,

@@ -104,6 +104,7 @@ unsafe extern "C" {
     fn mq_trash(path: *const c_char) -> *mut c_char;
     fn mq_open_url(target: *const c_char, is_path: i32) -> i32;
     fn mq_file_icon(icon: Raw, path: *const c_char);
+    fn mq_file_icon_by_name(icon: Raw, path: *const c_char, folder: i32);
     fn mq_file_icon_loads() -> i32;
 
     fn mq_ui_languages(locale: *const c_char) -> *mut c_char;
@@ -756,6 +757,13 @@ impl QmlObject {
     pub(crate) fn load_file_icon(self, path: &std::path::Path) {
         let Some(raw) = self.live() else { return };
         unsafe { mq_file_icon(raw, c(&path.to_string_lossy()).as_ptr()) }
+    }
+
+    /// Shows the icon of a file of `path`'s type by its name alone, or a
+    /// plain folder's, now: nothing is read.
+    pub(crate) fn file_icon_by_name(self, path: &std::path::Path, folder: bool) {
+        let Some(raw) = self.live() else { return };
+        unsafe { mq_file_icon_by_name(raw, c(&path.to_string_lossy()).as_ptr(), folder as i32) }
     }
 
     /// A `url` or `list<url>` property as local paths.

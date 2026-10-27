@@ -208,10 +208,11 @@ impl GtkBackend {
                     props.push(Prop::IconSize(if shown == size.round() { *size } else { shown }));
                 }
             }
-            Widget::FileIcon { image, file, thumbnail, size, .. } => {
+            Widget::FileIcon { image, file, thumbnail, lookup, size, .. } => {
                 props.extend(node.a11y_label.clone().map(Prop::Label));
                 props.extend(file.clone().map(Prop::File));
                 props.extend(thumbnail.map(Prop::Thumbnail));
+                props.extend(lookup.map(Prop::FileLookup));
                 if let Some(size) = size {
                     let shown = image.pixel_size() as f32;
                     props.push(Prop::IconSize(if shown == size.round() { *size } else { shown }));

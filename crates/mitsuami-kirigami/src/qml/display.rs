@@ -66,6 +66,8 @@ pub(crate) fn file_icon() -> String {
 Kirigami.Icon {{
     property string mitsuamiFile: ""
     property bool mitsuamiThumbnail: false
+    // mitsuami's FileLookup: 0 the file on disk, 1 a file's name, 2 a folder.
+    property int mitsuamiLookup: 0
     property real mitsuamiSize: Kirigami.Units.iconSizes.small
     implicitWidth: mitsuamiSize
     implicitHeight: mitsuamiSize

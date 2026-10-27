@@ -7,7 +7,9 @@ use std::ffi::c_void;
 use std::sync::atomic::{AtomicU32, Ordering};
 
 use mitsuami::core::services::{Launch, MenuRole, Shortcut};
-use mitsuami::core::{Color, ImageSource, Modality, NodeId, Pixels, Prop, Size, TextStyle, Ui, VectorIcon, View};
+use mitsuami::core::{
+    Color, FileLookup, ImageSource, Modality, NodeId, Pixels, Prop, Size, TextStyle, Ui, VectorIcon, View,
+};
 use mitsuami_ffi::*;
 use mitsuami_test::prelude::*;
 
@@ -1438,6 +1440,14 @@ async fn file_icons_show_their_files_icon(app: TestApp) {
     assert!(shown.native_state().props.contains(&Prop::File(file)));
     // A square of the size given, on every platform.
     assert_eq!((shown.frame().width(), shown.frame().height()), (24.0, 24.0));
+
+    // By name: a file that isn't there.
+    set_text(icon, MitsuamiTextProp::File, "report.pdf");
+    assert!(mitsuami_set_enum(icon, MitsuamiEnumProp::FileLookup as u32, 1));
+    app.settle().await;
+    let props = app.get_by_test_id("icon").native_state().props;
+    assert!(props.contains(&Prop::FileLookup(FileLookup::FileName)), "{props:?}");
+    assert!(!mitsuami_set_enum(icon, MitsuamiEnumProp::FileLookup as u32, 3));
 }
 
 #[mitsuami_test::test]

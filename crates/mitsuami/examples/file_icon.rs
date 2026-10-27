@@ -10,6 +10,9 @@
 //!   shell's on Windows, and on GNOME those the desktop has made already
 //!   (open the folder in Files first). KDE's are KIO's, which a Qt Quick
 //!   app doesn't have, so there it shows icons.
+//! - By Name shows each item's icon from its name alone (a plain folder's
+//!   for folders), as for files that aren't on disk: nothing is read, so
+//!   apps and custom folder icons turn generic.
 
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
@@ -33,6 +36,7 @@ pub fn page() -> impl View {
     let files = computed(move || listing(&folder.get()));
     let size = signal(1usize);
     let thumbnails = signal(false);
+    let by_name = signal(false);
     let side = move || SIZES[size.get()].1;
     let choose = move || {
         spawn_local(async move {
@@ -51,10 +55,19 @@ pub fn page() -> impl View {
             <Row gap=Spacing::Md align=Align::Center>
                 <Select label="Size" options=SIZES.map(|(name, _)| name) bind=size/>
                 <Switch bind=thumbnails>"Thumbnails"</Switch>
+                <Switch bind=by_name>"By Name"</Switch>
             </Row>
             <List each=files key=|p: &PathBuf| p.clone() list_style=ListStyle::Framed grow=1.0 min_height=160 let:path>
                 <Row padding_x=Spacing::Md padding_y=Spacing::Xs gap=Spacing::Sm align=Align::Center>
-                    {FileIcon::new(&path).icon_size(side).thumbnail(thumbnails)}
+                    {
+                        let folder = path.is_dir();
+                        let lookup = move || match (by_name.get(), folder) {
+                            (false, _) => FileLookup::Disk,
+                            (true, false) => FileLookup::FileName,
+                            (true, true) => FileLookup::Folder,
+                        };
+                        FileIcon::new(&path).icon_size(side).thumbnail(thumbnails).lookup(lookup)
+                    }
                     <Text max_lines=1u32>{path.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_default()}</Text>
                 </Row>
             </List>

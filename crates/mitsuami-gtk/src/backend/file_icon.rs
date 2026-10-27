@@ -16,6 +16,7 @@ use std::rc::Rc;
 use gtk::glib::translate::from_glib_full;
 use gtk::prelude::*;
 use gtk::{gdk, gio, glib};
+use mitsuami_core::FileLookup;
 
 /// How many loads are in progress: tests' settles wait for them.
 pub(crate) type Loads = Rc<Cell<usize>>;
@@ -88,6 +89,22 @@ pub(super) fn show(
         },
     );
     Some(cancellable)
+}
+
+/// Shows the icon of a file of `path`'s type, by its name alone (GIO's
+/// MIME database by name, which knows whole names such as `Makefile`), or
+/// a plain folder's: what Files shows for a file it hasn't read. Nothing
+/// is read, so it's shown now.
+pub(super) fn show_by_name(image: &gtk::Image, path: Option<&Path>, lookup: FileLookup) {
+    let content_type = match (lookup, path) {
+        (FileLookup::Folder, _) => glib::GString::from("inode/directory"),
+        (_, None) => return image.clear(),
+        (_, Some(path)) => {
+            let name = path.file_name().unwrap_or(path.as_os_str());
+            gio::content_type_guess(Some(name), None::<&[u8]>).0
+        }
+    };
+    image.set_from_gicon(&gio::content_type_get_icon(&content_type));
 }
 
 /// An image file decoded, on any thread. GDK's loaders are thread-safe
