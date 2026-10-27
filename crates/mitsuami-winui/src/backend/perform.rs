@@ -113,6 +113,26 @@ impl WinUiBackend {
                 }
                 return Ok(());
             }
+            // A tree's row, as UI Automation's selection item and
+            // expand-collapse patterns do.
+            if let (Some(row), Some(Widget::Tree(tree))) =
+                (node.row, node.parent.and_then(|p| state.nodes.get(&p)).map(|p| &p.widget))
+            {
+                match action {
+                    A11yAction::Select if tree.mode() != SelectionMode::None => {
+                        tree.select(row).map_err(|_| ActionError::Unsupported)?
+                    }
+                    A11yAction::Activate => tree.activate(row),
+                    A11yAction::Expand | A11yAction::Collapse => {
+                        if !tree.expand(row, *action == A11yAction::Expand).map_err(|_| ActionError::Unsupported)? {
+                            return Err(ActionError::Unsupported);
+                        }
+                    }
+                    A11yAction::ScrollIntoView => {}
+                    _ => return Err(ActionError::Unsupported),
+                }
+                return Ok(());
+            }
         }
         let (element, kind, enabled, shown_text, events, custom, on_return) = {
             let state = self.state.borrow();

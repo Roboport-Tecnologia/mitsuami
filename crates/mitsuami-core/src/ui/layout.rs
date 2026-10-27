@@ -4,7 +4,7 @@
 use crate::backend::{AvailableSpace, MeasureRequest};
 use crate::command::Command;
 use crate::geometry::{Point, Rect, Size};
-use crate::widget::{NodeId, Prop, WidgetKind};
+use crate::widget::{NodeId, Prop, RowKey, WidgetKind};
 
 use super::{Fit, Inner, Observer, Ui};
 
@@ -212,12 +212,18 @@ impl Inner {
 
     /// Lays out a `List`'s mounted rows, each on its own at the width the
     /// list gives its rows. Their sizes are sent; where they go is the
-    /// platform's to decide.
+    /// platform's to decide. A `Tree`'s are narrower by their indent.
     fn layout_list(&mut self, list: NodeId) {
         let node = &self.nodes[&list];
         let width = node.row_width.unwrap_or(node.frame.width());
+        let depths: std::collections::HashMap<RowKey, u32> = crate::find_prop!(node.props, TreeRows)
+            .map(|rows| rows.iter().map(|r| (r.row, r.depth)).collect())
+            .unwrap_or_default();
+        let indent = node.tree_indent;
         for host in node.native_children.clone() {
-            self.layout_hosted(host, width, None);
+            let depth = crate::find_prop!(self.nodes[&host].props, Row).and_then(|row| depths.get(&row).copied());
+            let inset = depth.map_or(0.0, |depth| indent.at(depth));
+            self.layout_hosted(host, (width - inset).max(0.0), None);
         }
     }
 
@@ -314,7 +320,7 @@ impl Inner {
 
     fn collect_frames(&mut self, parent: NodeId) {
         match self.nodes[&parent].kind {
-            WidgetKind::List => return self.layout_list(parent),
+            WidgetKind::List | WidgetKind::Tree => return self.layout_list(parent),
             WidgetKind::Table => return self.layout_table(parent),
             _ => {}
         }

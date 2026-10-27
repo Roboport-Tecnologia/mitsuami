@@ -3,7 +3,7 @@
 use std::rc::Rc;
 
 use mitsuami_core::reactive::{IntoValue, Value};
-use mitsuami_core::{List, Opaque, Table, Tweak};
+use mitsuami_core::{List, Opaque, Table, Tree, Tweak};
 use mitsuami_widgets::{
     Button, Checkbox, ColorWell, FileIcon, Group, Icon, Image, MenuButton, NumberInput, PasswordInput, Progress,
     RadioGroup, ScrollView, SearchInput, Select, Separator, Slider, Spinner, Split, SplitButton, Switch, Text,
@@ -130,6 +130,11 @@ impl Tweakable for Table {
     type Native = w::ListView;
 }
 
+/// Its `TreeView`, whose rows are its own list's (`ListControl`).
+impl<T, K, R> Tweakable for Tree<T, K, R> {
+    type Native = w::TreeView;
+}
+
 /// Its `TabView`, whose items have no content. Its colours are its theme
 /// resources (`TabViewItemHeaderBackgroundSelected` for the chosen tab);
 /// its background (`TabViewBackground`, transparent) is its strip's, and
@@ -171,13 +176,38 @@ pub fn tweak_with<W: Tweakable, T: Clone + 'static>(
     })
 }
 
-/// A list's or table's rows without XAML's item animations: `ListView`
-/// slides and fades rows in as they're added, and again when they're all
-/// replaced, as a file manager's are on every folder it opens. An app whose
-/// rows change wholesale may prefer them to just show, as File Explorer's
-/// do: `.native(winui::without_item_animations())`.
-pub fn without_item_animations<W: Tweakable<Native = w::ListView>>() -> Tweak<W> {
-    tweak(remove_item_animations)
+/// A list's, table's or tree's rows without XAML's item animations:
+/// `ListView` slides and fades rows in as they're added, and again when
+/// they're all replaced, as a file manager's are on every folder it opens.
+/// An app whose rows change wholesale may prefer them to just show, as File
+/// Explorer's do: `.native(winui::without_item_animations())`.
+pub fn without_item_animations<W: Tweakable>() -> Tweak<W>
+where
+    W::Native: ItemAnimations,
+{
+    tweak(|native: &W::Native| native.remove_item_animations())
+}
+
+/// The XAML controls whose rows animate in: a list view, and a tree view,
+/// which gives its transitions to its own list.
+pub trait ItemAnimations {
+    fn remove_item_animations(&self) -> windows_core::Result<()>;
+}
+
+impl ItemAnimations for w::ListView {
+    fn remove_item_animations(&self) -> windows_core::Result<()> {
+        remove_item_animations(self)
+    }
+}
+
+impl ItemAnimations for w::TreeView {
+    fn remove_item_animations(&self) -> windows_core::Result<()> {
+        // Its own collection, set before its list exists, as a list's is.
+        let none: w::TransitionCollection =
+            windows_core::factory::<w::TransitionCollection, windows_core::imp::IGenericFactory>()?
+                .ActivateInstance()?;
+        self.cast::<w::ITreeView2>()?.SetItemContainerTransitions(&none)
+    }
 }
 
 /// What [`without_item_animations`] does, for a tweak of the app's own

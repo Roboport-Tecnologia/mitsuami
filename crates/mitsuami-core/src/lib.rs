@@ -26,6 +26,7 @@ pub mod style;
 mod surface;
 mod table;
 pub mod task;
+mod tree;
 mod tweak;
 mod ui;
 pub mod units;
@@ -54,6 +55,7 @@ pub use store::{Store, provide_stores, use_store};
 pub use style::{Align, Display, FlexDirection, GridPlacement, Justify, Style, TextDirection, Track, repeat};
 pub use surface::{NativeSurface, SurfaceHandle, SurfaceSize};
 pub use table::{Sort, Table, TableColumn, TableWithoutEach, TableWithoutKey};
+pub use tree::Tree;
 pub use tweak::Tweak;
 pub use ui::{NodeInfo, Ui, WeakUi};
 pub use units::{Length, LengthExt, Spacing};
@@ -63,8 +65,8 @@ pub use widget::{
     ButtonRole, ButtonStyle, CellKey, ColumnData, ColumnSort, CurrentWindow, Cursor, DocumentTabsStyle, FileDrop,
     FontWeight, HeaderEdge, HorizontalAlign, ImageFit, ImageSource, InputPurpose, LayoutDirection, ListStyle, Modality,
     NodeId, Orientation, Pixels, Prop, RowDrop, RowKey, RowMoves, ScrollAxes, SelectionMode, SidebarItemData,
-    SidebarSectionData, SortOrder, Suggestion, SystemCursor, TabsStyle, TextAlign, TextStyle, Truncation, WidgetKind,
-    moved_index,
+    SidebarSectionData, SortOrder, Suggestion, SystemCursor, TabsStyle, TextAlign, TextStyle, TreeIndent, TreeRow,
+    Truncation, WidgetKind, moved_index,
 };
 
 pub use mitsuami_reactive as reactive;

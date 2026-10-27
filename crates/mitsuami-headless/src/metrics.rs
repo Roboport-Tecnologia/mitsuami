@@ -34,6 +34,9 @@ pub(super) const TABLE_HEADER_HEIGHT: f32 = 24.0;
 pub(super) const TABLE_ROW_HEIGHT: f32 = 24.0;
 pub(super) const COLUMN_SPACING: f32 = 4.0;
 pub(super) const COLUMN_WIDTH: f32 = 100.0;
+/// A tree's rows' content: after a disclosure this wide, and in this much
+/// more each level.
+pub(super) const TREE_INDENT: mitsuami_core::TreeIndent = mitsuami_core::TreeIndent { start: 16.0, per_level: 16.0 };
 /// Between a radio group's buttons.
 pub(super) const RADIO_GAP: f32 = 6.0;
 

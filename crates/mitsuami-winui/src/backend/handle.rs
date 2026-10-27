@@ -251,6 +251,7 @@ impl mitsuami_core::TestHooks for WinUiHandle {
         let host = state.nodes.get(&node)?;
         match &state.nodes.get(&host.parent?)?.widget {
             Widget::List(list) => list.dragged_files(host.row?),
+            Widget::Tree(tree) => tree.dragged_files(host.row?),
             _ => None,
         }
     }

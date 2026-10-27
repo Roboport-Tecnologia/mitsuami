@@ -1,6 +1,7 @@
-//! `List` and `Table`: a view-based `NSTableView` in an `NSScrollView`,
-//! with one column and no header for a list, and the app's columns under
-//! a header for a table.
+//! `List`, `Table` and `Tree`: a view-based `NSTableView` in an
+//! `NSScrollView`, with one column and no header for a list, and the app's
+//! columns under a header for a table; a tree's is an `NSOutlineView`, an
+//! `NSTableView` too, with one column that's its outline column.
 //!
 //! The table virtualises: it adds row views for the rows it shows and
 //! removes them when they scroll away, and we report both (`RowShown`,
@@ -20,7 +21,7 @@ use std::rc::Rc;
 
 use mitsuami_core::{
     ColumnData, ColumnSort, EventSink, EventValue, ListStyle, NodeId, Rect, RowDrop, RowKey, RowMoves, SelectionMode,
-    SortOrder, UiEvent,
+    SortOrder, TreeIndent, TreeRow, UiEvent,
 };
 
 use mitsuami_core::services::Shortcut;
@@ -29,11 +30,11 @@ use objc2::runtime::{AnyObject, NSObject, NSObjectProtocol, ProtocolObject};
 use objc2::{DefinedClass, MainThreadMarker, MainThreadOnly, define_class, msg_send, sel};
 use objc2_app_kit::{
     NSAnimationContext, NSBorderType, NSControlTextEditingDelegate, NSDragOperation, NSDraggingInfo, NSEvent,
-    NSEventModifierFlags, NSImage, NSMenu, NSPasteboardItem, NSPasteboardTypeFileURL, NSPasteboardWriting, NSResponder,
-    NSScrollView, NSTableColumn, NSTableColumnResizingOptions, NSTableRowView, NSTableView,
-    NSTableViewAnimationOptions, NSTableViewColumnAutoresizingStyle, NSTableViewDataSource, NSTableViewDelegate,
-    NSTableViewDropOperation, NSTableViewStyle, NSView, NSViewBoundsDidChangeNotification,
-    NSViewFrameDidChangeNotification,
+    NSEventModifierFlags, NSImage, NSMenu, NSOutlineView, NSOutlineViewDataSource, NSOutlineViewDelegate,
+    NSPasteboardItem, NSPasteboardTypeFileURL, NSPasteboardWriting, NSResponder, NSScrollView, NSTableColumn,
+    NSTableColumnResizingOptions, NSTableRowView, NSTableView, NSTableViewAnimationOptions,
+    NSTableViewColumnAutoresizingStyle, NSTableViewDataSource, NSTableViewDelegate, NSTableViewDropOperation,
+    NSTableViewStyle, NSView, NSViewBoundsDidChangeNotification, NSViewFrameDidChangeNotification,
 };
 use objc2_foundation::{
     NSArray, NSIndexSet, NSInteger, NSKeyValueObservingOptions, NSMutableIndexSet, NSNotFound, NSNotification,
@@ -107,6 +108,17 @@ pub(crate) struct ListData {
     row_width: Option<f32>,
     /// Where rows dragged within it can go (`Prop::RowMoves`).
     moves: Option<RowMoves>,
+    /// Trees only: each row that shows, as sent; the children of each open
+    /// row (and the top rows, under `None`), which the data source gives;
+    /// an object per row, the item the outline view knows it by, kept while
+    /// the row is there, as the outline view tells items apart by identity;
+    /// whether the backend is opening and closing rows itself; and the
+    /// indent last reported.
+    tree: HashMap<RowKey, TreeRow>,
+    children: HashMap<Option<RowKey>, Vec<RowKey>>,
+    items: HashMap<RowKey, Retained<NSString>>,
+    expanding: bool,
+    indent: Option<TreeIndent>,
 }
 
 impl ListData {
@@ -159,6 +171,79 @@ impl ListData {
         Some((target, row, on))
     }
 
+    /// What an outline view's proposal (an item, or the top, and a child
+    /// index; -1 for onto the item) is as a drop: onto the item, before
+    /// the child at the index, or, past a folder's last child, before the
+    /// row after everything in the folder (or the end).
+    fn tree_proposal(&self, item: Option<RowKey>, index: isize) -> RowDrop<RowKey> {
+        let Ok(index) = usize::try_from(index) else {
+            return item.map_or(RowDrop::End, RowDrop::On);
+        };
+        if let Some(child) = self.children.get(&item).and_then(|c| c.get(index)) {
+            return RowDrop::Before(*child);
+        }
+        let Some((key, at)) = item.and_then(|key| Some((key, *self.index.get(&key)?))) else { return RowDrop::End };
+        let depth = self.tree.get(&key).map_or(0, |r| r.depth);
+        let after = self.rows[at + 1..].iter().find(|r| self.tree.get(r).is_none_or(|r| r.depth <= depth));
+        after.map_or(RowDrop::End, |row| RowDrop::Before(*row))
+    }
+
+    /// The row under a drag's pointer, and what the pointer proposes there,
+    /// as every tree proposes (`RowMoves::tree_proposal`): below the rows,
+    /// the end. The outline's own proposal (`tree_proposal`) stands in when
+    /// there's no row to read.
+    fn pointer_proposal(
+        &self,
+        outline: &NSOutlineView,
+        info: &ProtocolObject<dyn NSDraggingInfo>,
+        fallback: RowDrop<RowKey>,
+    ) -> (Option<RowKey>, RowDrop<RowKey>) {
+        let point = outline.convertPoint_fromView(info.draggingLocation(), None);
+        let row = outline.rowAtPoint(point);
+        let Some(key) = usize::try_from(row).ok().and_then(|i| self.rows.get(i)).copied() else {
+            return (None, if row < 0 { RowDrop::End } else { fallback });
+        };
+        let rect = outline.rectOfRow(row);
+        // The outline is flipped: y grows down the row.
+        let y = (point.y - rect.origin.y) as f32;
+        let next = self.index.get(&key).and_then(|i| self.rows.get(i + 1)).copied();
+        // Across the outline, whose rows start at its edge: it picks the
+        // level, as AppKit's outlines pick it.
+        let x = self.indent.map(|_| point.x as f32);
+        let indent = self.indent.unwrap_or_default();
+        let proposed =
+            RowMoves::tree_proposal(key, x, y, rect.size.height as f32, indent, next, |r| self.tree.get(&r).copied());
+        (Some(key), proposed)
+    }
+
+    /// Where a drop in a tree lands, by `RowMoves::tree_target` (only
+    /// folders take rows onto them, nothing lands over a dragged row,
+    /// `over`), with the item and child index the outline view shows it at
+    /// (-1: onto the item). A drop onto a folder that isn't the row under
+    /// the pointer is at the end of it, below its last row, so the outline
+    /// shows it there, past its last child. `None`: refused.
+    fn tree_drop_target(
+        &self,
+        dragged: &[RowKey],
+        over: Option<RowKey>,
+        proposed: RowDrop<RowKey>,
+    ) -> Option<(RowDrop<RowKey>, Option<RowKey>, isize)> {
+        let moves = self.moves?;
+        let target = moves.tree_target(dragged, over, proposed, |row| self.tree.get(&row).copied())?;
+        let (item, index) = match target {
+            RowDrop::On(key) if over.is_some_and(|o| o != key) => {
+                (Some(key), self.children.get(&Some(key)).map_or(0, |c| c.len()) as isize)
+            }
+            RowDrop::On(key) => (Some(key), -1),
+            RowDrop::Before(key) => {
+                let parent = self.tree.get(&key)?.parent;
+                (parent, self.children.get(&parent)?.iter().position(|c| *c == key)? as isize)
+            }
+            RowDrop::End => (None, self.children.get(&None).map_or(0, |c| c.len()) as isize),
+        };
+        Some((target, item, index))
+    }
+
     /// The rows a drag carries, in the list's order: the keys on its
     /// pasteboard, from this list only.
     fn dragged(&self, table: &NSTableView, info: &ProtocolObject<dyn NSDraggingInfo>) -> Vec<RowKey> {
@@ -201,6 +286,19 @@ impl ListData {
     }
 }
 
+/// A tree's row, by the item the outline view has for it.
+fn item_key(item: &AnyObject) -> Option<RowKey> {
+    item.downcast_ref::<NSString>()?.to_string().parse().ok().map(RowKey)
+}
+
+/// The keys of an outline view's rows at these indexes, as it shows them.
+fn outline_keys(outline: &NSOutlineView, indexes: &NSIndexSet) -> Vec<RowKey> {
+    indices(indexes)
+        .into_iter()
+        .filter_map(|i| outline.itemAtRow(i as NSInteger).and_then(|item| item_key(&item)))
+        .collect()
+}
+
 pub(crate) type SharedList = Rc<RefCell<ListData>>;
 
 pub(crate) struct ListIvars {
@@ -222,9 +320,7 @@ define_class!(
         /// in view.
         #[unsafe(method(clipBoundsChanged:))]
         fn clip_bounds_changed(&self, notification: &NSNotification) {
-            let clip = notification.object().and_then(|o| o.downcast::<NSView>().ok());
-            let document = clip.and_then(|c| c.subviews().firstObject());
-            if let Some(table) = document.and_then(|d| d.downcast::<NSTableView>().ok()) {
+            if let Some((_, table)) = clip_parts(notification) {
                 self.ivars().report_shown(&table);
             }
         }
@@ -235,11 +331,7 @@ define_class!(
         /// it).
         #[unsafe(method(clipFrameChanged:))]
         fn clip_frame_changed(&self, notification: &NSNotification) {
-            let clip = notification.object().and_then(|o| o.downcast::<NSView>().ok());
-            // SAFETY: the clip view is in its scroll view, on the main thread.
-            let scroll = clip.as_ref().and_then(|c| unsafe { c.superview() }).and_then(|s| s.downcast::<NSScrollView>().ok());
-            let document = clip.and_then(|c| c.subviews().firstObject());
-            if let (Some(scroll), Some(table)) = (scroll, document.and_then(|d| d.downcast::<NSTableView>().ok())) {
+            if let Some((Some(scroll), table)) = clip_parts(notification) {
                 self.ivars().fit_rows(&scroll, &table);
             }
         }
@@ -431,6 +523,237 @@ define_class!(
     }
 );
 
+/// The scroll view and table of a clip view's notification.
+fn clip_parts(notification: &NSNotification) -> Option<(Option<Retained<NSScrollView>>, Retained<NSTableView>)> {
+    let clip = notification.object().and_then(|o| o.downcast::<NSView>().ok())?;
+    // SAFETY: the clip view is in its scroll view, on the main thread.
+    let scroll = unsafe { clip.superview() }.and_then(|s| s.downcast::<NSScrollView>().ok());
+    let table = clip.subviews().firstObject()?.downcast::<NSTableView>().ok()?;
+    Some((scroll, table))
+}
+
+define_class!(
+    /// A tree's data source and delegate, and the target of its double
+    /// click: the list's, answering by item. Each item is its row's key, so
+    /// what it reads is the tree's rows as the core sent them.
+    #[unsafe(super(NSObject))]
+    #[thread_kind = MainThreadOnly]
+    #[ivars = ListIvars]
+    pub(crate) struct TreeSource;
+
+    impl TreeSource {
+        #[unsafe(method(clipBoundsChanged:))]
+        fn clip_bounds_changed(&self, notification: &NSNotification) {
+            if let Some((_, table)) = clip_parts(notification) {
+                self.ivars().report_shown(&table);
+            }
+        }
+
+        #[unsafe(method(clipFrameChanged:))]
+        fn clip_frame_changed(&self, notification: &NSNotification) {
+            if let Some((Some(scroll), table)) = clip_parts(notification) {
+                self.ivars().fit_rows(&scroll, &table);
+            }
+        }
+
+        #[unsafe(method(activated:))]
+        fn activated(&self, sender: &AnyObject) {
+            let Some(table) = sender.downcast_ref::<NSTableView>() else { return };
+            self.ivars().activate(table.clickedRow());
+        }
+    }
+
+    unsafe impl NSObjectProtocol for TreeSource {}
+
+    unsafe impl NSControlTextEditingDelegate for TreeSource {}
+
+    unsafe impl NSOutlineViewDataSource for TreeSource {
+        /// The children of an open row, or the top rows: those sent. A
+        /// closed row has none until it opens and the core sends them.
+        #[unsafe(method(outlineView:numberOfChildrenOfItem:))]
+        fn number_of_children(&self, _outline: &NSOutlineView, item: Option<&AnyObject>) -> NSInteger {
+            let parent = match item {
+                Some(item) => match item_key(item) {
+                    Some(key) => Some(key),
+                    None => return 0,
+                },
+                None => None,
+            };
+            self.ivars().data.borrow().children.get(&parent).map_or(0, |c| c.len() as NSInteger)
+        }
+
+        #[unsafe(method_id(outlineView:child:ofItem:))]
+        fn child(&self, _outline: &NSOutlineView, index: NSInteger, item: Option<&AnyObject>) -> Retained<AnyObject> {
+            let data = self.ivars().data.borrow();
+            let parent = item.and_then(item_key);
+            let child = data.children.get(&parent).and_then(|c| c.get(index as usize)).and_then(|k| data.items.get(k));
+            // It only asks for the children it was told of.
+            let child = child.cloned().unwrap_or_else(NSString::new);
+            Retained::into_super(Retained::into_super(child))
+        }
+
+        #[unsafe(method(outlineView:isItemExpandable:))]
+        fn is_item_expandable(&self, _outline: &NSOutlineView, item: &AnyObject) -> bool {
+            let data = self.ivars().data.borrow();
+            item_key(item).and_then(|key| data.tree.get(&key)).is_some_and(|r| r.expandable)
+        }
+
+        #[unsafe(method_id(outlineView:pasteboardWriterForItem:))]
+        fn pasteboard_writer_for_item(
+            &self,
+            _outline: &NSOutlineView,
+            item: &AnyObject,
+        ) -> Option<Retained<ProtocolObject<dyn NSPasteboardWriting>>> {
+            let data = self.ivars().data.borrow();
+            item_key(item).and_then(|key| data.pasteboard_writer(key))
+        }
+
+        /// A drag over the tree: rows from this tree, shown where they'd
+        /// land (`RowMoves::tree_target`), as a move.
+        #[unsafe(method(outlineView:validateDrop:proposedItem:proposedChildIndex:))]
+        fn validate_drop(
+            &self,
+            outline: &NSOutlineView,
+            info: &ProtocolObject<dyn NSDraggingInfo>,
+            item: Option<&AnyObject>,
+            index: NSInteger,
+        ) -> NSDragOperation {
+            let data = self.ivars().data.borrow();
+            let dragged = data.dragged(outline, info);
+            if dragged.is_empty() {
+                return NSDragOperation::None;
+            }
+            let fallback = data.tree_proposal(item.and_then(item_key), index);
+            let (over, proposed) = data.pointer_proposal(outline, info, fallback);
+            match data.tree_drop_target(&dragged, over, proposed) {
+                Some((_, item, index)) => {
+                    let item = item.and_then(|key| data.items.get(&key));
+                    unsafe { outline.setDropItem_dropChildIndex(item.map(|i| i as &AnyObject), index) };
+                    NSDragOperation::Move
+                }
+                None => NSDragOperation::None,
+            }
+        }
+
+        #[unsafe(method(outlineView:acceptDrop:item:childIndex:))]
+        fn accept_drop(
+            &self,
+            outline: &NSOutlineView,
+            info: &ProtocolObject<dyn NSDraggingInfo>,
+            item: Option<&AnyObject>,
+            index: NSInteger,
+        ) -> bool {
+            let ListIvars { id, events, data } = self.ivars();
+            let moved = {
+                let data = data.borrow();
+                let dragged = data.dragged(outline, info);
+                let fallback = data.tree_proposal(item.and_then(item_key), index);
+                let (over, proposed) = data.pointer_proposal(outline, info, fallback);
+                data.tree_drop_target(&dragged, over, proposed).map(|(to, ..)| (dragged, to))
+            };
+            match moved {
+                Some((rows, to)) if !rows.is_empty() => {
+                    events.emit(*id, UiEvent::RowsMoved { rows, to });
+                    true
+                }
+                _ => false,
+            }
+        }
+    }
+
+    unsafe impl NSOutlineViewDelegate for TreeSource {
+        #[unsafe(method(outlineView:heightOfRowByItem:))]
+        fn height_of_row(&self, _outline: &NSOutlineView, item: &AnyObject) -> f64 {
+            let mut data = self.ivars().data.borrow_mut();
+            let key = item_key(item);
+            // AppKit wants rows at least a point high.
+            let height = key.and_then(|key| data.heights.get(&key).copied()).unwrap_or(data.estimate()).max(1.0);
+            if let Some(key) = key {
+                data.answered.insert(key, height);
+            }
+            height
+        }
+
+        #[unsafe(method_id(outlineView:viewForTableColumn:item:))]
+        fn view_for_item(
+            &self,
+            _outline: &NSOutlineView,
+            _column: Option<&NSTableColumn>,
+            item: &AnyObject,
+        ) -> Option<Retained<NSView>> {
+            let cell = HostView::new(self.mtm());
+            let mut data = self.ivars().data.borrow_mut();
+            if let Some(key) = item_key(item) {
+                if let Some((_, host)) = data.hosts.get(&(key, 0)) {
+                    cell.addSubview(host);
+                }
+                data.cells.entry(key).or_default().insert(0, cell.clone());
+            }
+            Some(Retained::into_super(cell))
+        }
+
+        /// By its item, not its index: while rows open and close, the
+        /// outline view's indexes run ahead of the rows the list has.
+        #[unsafe(method(outlineView:didAddRowView:forRow:))]
+        fn did_add_row_view(&self, outline: &NSOutlineView, row_view: &NSTableRowView, row: NSInteger) {
+            let Some(key) = outline.itemAtRow(row).and_then(|item| item_key(&item)) else { return };
+            self.ivars().data.borrow_mut().row_views.insert(row_view as *const _ as usize, key);
+            self.ivars().row_views_changed(outline);
+        }
+
+        #[unsafe(method(outlineView:didRemoveRowView:forRow:))]
+        fn did_remove_row_view(&self, outline: &NSOutlineView, row_view: &NSTableRowView, _row: NSInteger) {
+            {
+                let mut data = self.ivars().data.borrow_mut();
+                let Some(key) = data.row_views.remove(&(row_view as *const _ as usize)) else { return };
+                data.cells.remove(&key);
+            }
+            self.ivars().row_views_changed(outline);
+        }
+
+        #[unsafe(method(outlineView:shouldSelectItem:))]
+        fn should_select_item(&self, _outline: &NSOutlineView, _item: &AnyObject) -> bool {
+            self.ivars().data.borrow().mode != SelectionMode::None
+        }
+
+        /// By the items: closing a row deselects its children's rows
+        /// before the list's rows follow.
+        #[unsafe(method(outlineViewSelectionDidChange:))]
+        fn selection_did_change(&self, notification: &NSNotification) {
+            let Some(outline) = notification.object().and_then(|o| o.downcast::<NSOutlineView>().ok()) else {
+                return;
+            };
+            let ListIvars { id, events, data } = self.ivars();
+            if !data.borrow().muted {
+                let keys = outline_keys(&outline, &outline.selectedRowIndexes());
+                events.emit(*id, UiEvent::Changed(EventValue::Rows(keys)));
+            }
+        }
+
+        /// Row views come and go as a row opens or closes: they're
+        /// reported once it's done, with the rows it shows then.
+        #[unsafe(method(outlineViewItemWillExpand:))]
+        fn item_will_expand(&self, _notification: &NSNotification) {
+            self.ivars().data.borrow_mut().laying_out += 1;
+        }
+
+        #[unsafe(method(outlineViewItemDidExpand:))]
+        fn item_did_expand(&self, notification: &NSNotification) {
+            self.ivars().expanded(notification, true);
+        }
+
+        #[unsafe(method(outlineViewItemWillCollapse:))]
+        fn item_will_collapse(&self, _notification: &NSNotification) {
+            self.ivars().data.borrow_mut().laying_out += 1;
+        }
+
+        #[unsafe(method(outlineViewItemDidCollapse:))]
+        fn item_did_collapse(&self, notification: &NSNotification) {
+            self.ivars().expanded(notification, false);
+        }
+    }
+);
+
 /// How far past the visible rows a list builds rows, in screenfuls on
 /// each side, and how far it keeps rows it built. AppKit's table makes row
 /// views only for what's in view, which a fast scroll replaces all at
@@ -543,6 +866,71 @@ impl ListIvars {
             self.events.emit(self.id, UiEvent::RowActivated(key));
         }
     }
+
+    /// A tree's row opened or closed: the user's (its disclosure, the arrow
+    /// keys; ⌥ opens its folders too, each reported) or the backend's. The
+    /// rows follow the outline view's, the row views it added and removed
+    /// meanwhile are reported once, and the user's is reported.
+    fn expanded(&self, notification: &NSNotification, open: bool) {
+        let Some(outline) = notification.object().and_then(|o| o.downcast::<NSOutlineView>().ok()) else { return };
+        let item = notification.userInfo().and_then(|info| info.objectForKey(&NSString::from_str("NSObject")));
+        self.sync_rows(&outline);
+        let stale = {
+            let mut data = self.data.borrow_mut();
+            data.laying_out = data.laying_out.saturating_sub(1);
+            data.laying_out == 0 && std::mem::take(&mut data.shown_stale)
+        };
+        if stale {
+            self.report_shown(&outline);
+        }
+        let expanding = self.data.borrow().expanding;
+        if let (false, Some(key)) = (expanding, item.and_then(|item| item_key(&item))) {
+            self.events.emit(self.id, UiEvent::RowExpanded(key, open));
+        }
+    }
+
+    /// A tree's rows as its outline view shows them: the user opening and
+    /// closing rows changes them before the core sends them.
+    fn sync_rows(&self, outline: &NSOutlineView) {
+        let rows: Vec<RowKey> =
+            (0..outline.numberOfRows()).filter_map(|i| outline.itemAtRow(i).and_then(|item| item_key(&item))).collect();
+        let mut data = self.data.borrow_mut();
+        data.index = rows.iter().enumerate().map(|(i, r)| (*r, i)).collect();
+        data.rows = rows;
+    }
+
+    /// Reports how far a tree indents its rows' content, when it changes:
+    /// where the outline column's cell of a top row starts (the
+    /// disclosure's room), and the outline view's indentation per level.
+    fn report_indent(&self, outline: &NSOutlineView) {
+        if outline.numberOfRows() == 0 {
+            return;
+        }
+        let row = outline.rectOfRow(0);
+        let cell = outline.frameOfCellAtColumn_row(0, 0);
+        let start = (cell.origin.x - row.origin.x) as f32;
+        let indent = TreeIndent { start, per_level: outline.indentationPerLevel() as f32 };
+        let mut data = self.data.borrow_mut();
+        if data.indent != Some(indent) {
+            data.indent = Some(indent);
+            drop(data);
+            self.events.emit(self.id, UiEvent::TreeIndent(indent));
+        }
+    }
+
+    /// Whether the app gave the list this key (`Prop::Keys`).
+    fn takes(&self, shortcut: Shortcut) -> bool {
+        self.data.borrow().keys.as_ref().is_some_and(|keys| keys.contains(&shortcut))
+    }
+
+    /// Reports the shortcut if the app gave the list it.
+    fn take(&self, shortcut: Shortcut) -> bool {
+        let taken = self.takes(shortcut);
+        if taken {
+            self.events.emit(self.id, UiEvent::Key(shortcut));
+        }
+        taken
+    }
 }
 
 define_class!(
@@ -582,9 +970,46 @@ define_class!(
         /// show only its own menu (the `List`'s).
         #[unsafe(method_id(menuForEvent:))]
         fn menu_for_event(&self, event: &NSEvent) -> Option<Retained<NSMenu>> {
-            self.row_menu(event).or_else(|| unsafe { msg_send![super(self), menuForEvent: event] })
+            row_menu(self, event).or_else(|| unsafe { msg_send![super(self), menuForEvent: event] })
         }
 
+    }
+);
+
+define_class!(
+    /// A tree's outline view, with the list table's own handling: rows
+    /// built past the view, Return, and its rows' menus. Its arrows open
+    /// and close rows, as any outline view's.
+    #[unsafe(super(NSOutlineView))]
+    #[thread_kind = MainThreadOnly]
+    #[ivars = ListIvars]
+    pub(crate) struct TreeTable;
+
+    impl TreeTable {
+        #[unsafe(method(layout))]
+        fn layout(&self) {
+            self.ivars().batching_row_views(self, || unsafe { msg_send![super(self), layout] });
+        }
+
+        #[unsafe(method(prepareContentInRect:))]
+        fn prepare_content_in_rect(&self, rect: NSRect) {
+            self.ivars().batching_row_views(self, || unsafe { msg_send![super(self), prepareContentInRect: rect] });
+        }
+
+        #[unsafe(method(keyDown:))]
+        fn key_down(&self, event: &NSEvent) {
+            let held = NSEventModifierFlags::Command | NSEventModifierFlags::Option | NSEventModifierFlags::Control;
+            if matches!(event.keyCode(), 36 | 76) && !event.modifierFlags().intersects(held) && self.selectedRow() >= 0 {
+                self.ivars().activate(self.selectedRow());
+                return;
+            }
+            unsafe { msg_send![super(self), keyDown: event] }
+        }
+
+        #[unsafe(method_id(menuForEvent:))]
+        fn menu_for_event(&self, event: &NSEvent) -> Option<Retained<NSMenu>> {
+            row_menu(self, event).or_else(|| unsafe { msg_send![super(self), menuForEvent: event] })
+        }
     }
 );
 
@@ -610,46 +1035,48 @@ define_class!(
     }
 );
 
-impl ListTable {
-    /// Whether the app gave the list this key (`Prop::Keys`).
-    pub(crate) fn takes(&self, shortcut: Shortcut) -> bool {
-        self.ivars().data.borrow().keys.as_ref().is_some_and(|keys| keys.contains(&shortcut))
+/// The list's state of a list's or tree's table view, if `view` is one.
+fn ivars_of(view: &NSView) -> Option<&ListIvars> {
+    if let Some(table) = view.downcast_ref::<ListTable>() {
+        return Some(table.ivars());
     }
+    view.downcast_ref::<TreeTable>().map(|tree| tree.ivars())
+}
 
-    /// Reports the shortcut if the app gave the list it.
-    pub(crate) fn take(&self, shortcut: Shortcut) -> bool {
-        let taken = self.takes(shortcut);
-        if taken {
-            let ListIvars { id, events, .. } = self.ivars();
-            events.emit(*id, UiEvent::Key(shortcut));
-        }
-        taken
-    }
+/// Whether `view` is a list's table that the app gave this key
+/// (`Prop::Keys`).
+pub(crate) fn takes(view: &NSView, shortcut: Shortcut) -> bool {
+    ivars_of(view).is_some_and(|ivars| ivars.takes(shortcut))
+}
 
-    /// The menu of the view under the pointer in a row, or of the nearest
-    /// view around it. The table's `hitTest:` answers itself over its
-    /// rows' labels, so the search starts from the cell.
-    fn row_menu(&self, event: &NSEvent) -> Option<Retained<NSMenu>> {
-        let point = self.convertPoint_fromView(event.locationInWindow(), None);
-        let (row, column) = (self.rowAtPoint(point), self.columnAtPoint(point));
-        if row < 0 || column < 0 {
-            return None;
-        }
-        let cell = self.viewAtColumn_row_makeIfNecessary(column, row, false)?;
-        // `hitTest:` takes a point in the superview's coordinates.
-        let around = unsafe { cell.superview() }?;
-        let mut view = cell.hitTest(around.convertPoint_fromView(point, Some(self)));
-        while let Some(v) = view {
-            if let Some(menu) = v.menu() {
-                return Some(menu);
-            }
-            if std::ptr::eq(&*v, &*cell) {
-                break;
-            }
-            view = unsafe { v.superview() };
-        }
-        None
+/// Reports the shortcut if `view` is a list's table that the app gave it.
+pub(crate) fn take(view: &NSView, shortcut: Shortcut) -> bool {
+    ivars_of(view).is_some_and(|ivars| ivars.take(shortcut))
+}
+
+/// The menu of the view under the pointer in a row, or of the nearest
+/// view around it. The table's `hitTest:` answers itself over its rows'
+/// labels, so the search starts from the cell.
+fn row_menu(table: &NSTableView, event: &NSEvent) -> Option<Retained<NSMenu>> {
+    let point = table.convertPoint_fromView(event.locationInWindow(), None);
+    let (row, column) = (table.rowAtPoint(point), table.columnAtPoint(point));
+    if row < 0 || column < 0 {
+        return None;
     }
+    let cell = table.viewAtColumn_row_makeIfNecessary(column, row, false)?;
+    // `hitTest:` takes a point in the superview's coordinates.
+    let around = unsafe { cell.superview() }?;
+    let mut view = cell.hitTest(around.convertPoint_fromView(point, Some(table)));
+    while let Some(v) = view {
+        if let Some(menu) = v.menu() {
+            return Some(menu);
+        }
+        if std::ptr::eq(&*v, &*cell) {
+            break;
+        }
+        view = unsafe { v.superview() };
+    }
+    None
 }
 
 fn indices(set: &NSIndexSet) -> Vec<usize> {
@@ -818,13 +1245,33 @@ fn in_order(values: &[usize]) -> Vec<usize> {
 /// A list's native parts.
 pub(crate) struct List {
     pub scroll: Retained<crate::classes::EdgeScrollView>,
-    pub table: Retained<ListTable>,
-    _source: Retained<ListSource>,
+    /// The table view: a list's or table's `ListTable`, or a tree's
+    /// `TreeTable`, an outline view.
+    pub table: Retained<NSTableView>,
+    /// A tree's outline view: the table, as one.
+    outline: Option<Retained<TreeTable>>,
+    /// The table's data source and delegate: a `ListSource`, or a tree's
+    /// `TreeSource`.
+    source: Retained<NSObject>,
     /// The table's next responder, which the table doesn't retain.
     _keys: Retained<ListKeys>,
+    ivars: ListIvars,
     data: SharedList,
     /// AppKit can't tell `Automatic` from `Plain`.
     style: Cell<Option<ListStyle>>,
+}
+
+/// A list's one column, with no header: rows exactly as high as their
+/// hosts, one right below the other.
+fn one_column(mtm: MainThreadMarker, table: &NSTableView) -> Retained<NSTableColumn> {
+    table.setHeaderView(None);
+    table.setStyle(NSTableViewStyle::Plain);
+    table.setIntercellSpacing(NSSize::new(0.0, 0.0));
+    table.setColumnAutoresizingStyle(NSTableViewColumnAutoresizingStyle::FirstColumnOnlyAutoresizingStyle);
+    let column = NSTableColumn::initWithIdentifier(NSTableColumn::alloc(mtm), &NSString::from_str("row"));
+    column.setResizingMask(NSTableColumnResizingOptions::AutoresizingMask);
+    table.addTableColumn(&column);
+    column
 }
 
 impl List {
@@ -837,8 +1284,6 @@ impl List {
         let source: Retained<ListSource> = unsafe { msg_send![super(ListSource::alloc(mtm).set_ivars(ivars())), init] };
         let table: Retained<ListTable> =
             unsafe { msg_send![super(ListTable::alloc(mtm).set_ivars(ivars())), initWithFrame: zero_rect()] };
-        table.setUsesAutomaticRowHeights(false);
-        table.setAllowsEmptySelection(true);
         if columns {
             // The table's own header, style and spacing; the columns that
             // expand share its width.
@@ -847,23 +1292,55 @@ impl List {
             }
             table.setColumnAutoresizingStyle(NSTableViewColumnAutoresizingStyle::UniformColumnAutoresizingStyle);
         } else {
-            table.setHeaderView(None);
-            // Rows exactly as high as their hosts, one right below the other.
-            table.setStyle(NSTableViewStyle::Plain);
-            table.setIntercellSpacing(NSSize::new(0.0, 0.0));
-            table.setColumnAutoresizingStyle(NSTableViewColumnAutoresizingStyle::FirstColumnOnlyAutoresizingStyle);
-            let column = NSTableColumn::initWithIdentifier(NSTableColumn::alloc(mtm), &NSString::from_str("row"));
-            column.setResizingMask(NSTableColumnResizingOptions::AutoresizingMask);
-            table.addTableColumn(&column);
+            one_column(mtm, &table);
         }
+        unsafe {
+            table.setDataSource(Some(ProtocolObject::from_ref(&*source)));
+            table.setDelegate(Some(ProtocolObject::from_ref(&*source)));
+        }
+        let (table, source) = (Retained::into_super(table), Retained::into_super(source));
+        List::finish(mtm, table, None, source, ivars(), columns)
+    }
+
+    /// A tree: an outline view whose one column is its outline column, which
+    /// it indents and puts the disclosures in.
+    pub(crate) fn new_tree(mtm: MainThreadMarker, id: NodeId, events: EventSink) -> List {
+        let data = SharedList::default();
+        let ivars = || ListIvars { id, events: events.clone(), data: data.clone() };
+        let source: Retained<TreeSource> = unsafe { msg_send![super(TreeSource::alloc(mtm).set_ivars(ivars())), init] };
+        let outline: Retained<TreeTable> =
+            unsafe { msg_send![super(TreeTable::alloc(mtm).set_ivars(ivars())), initWithFrame: zero_rect()] };
+        let column = one_column(mtm, &outline);
+        unsafe { outline.setOutlineTableColumn(Some(&column)) };
+        // The column is as wide as the rows, which `fit_rows` keeps; the
+        // outline view would widen it to its deepest row.
+        outline.setAutoresizesOutlineColumn(false);
+        unsafe {
+            outline.setDataSource(Some(ProtocolObject::from_ref(&*source)));
+            outline.setDelegate(Some(ProtocolObject::from_ref(&*source)));
+        }
+        let table = Retained::into_super(Retained::into_super(outline.clone()));
+        List::finish(mtm, table, Some(outline), Retained::into_super(source), ivars(), false)
+    }
+
+    /// What lists, tables and trees share: selection, dragging, activation,
+    /// the scroll view, and the keys.
+    fn finish(
+        mtm: MainThreadMarker,
+        table: Retained<NSTableView>,
+        outline: Option<Retained<TreeTable>>,
+        source: Retained<NSObject>,
+        ivars: ListIvars,
+        columns: bool,
+    ) -> List {
+        table.setUsesAutomaticRowHeights(false);
+        table.setAllowsEmptySelection(true);
         // Rows dragged out (`Prop::RowFiles`) are copied, as from apps that
         // aren't the file manager; the table offers nothing outside the app
         // by default.
         table.setDraggingSourceOperationMask_forLocal(NSDragOperation::Copy, false);
         table.setDraggingSourceOperationMask_forLocal(NSDragOperation::Copy, true);
         unsafe {
-            table.setDataSource(Some(ProtocolObject::from_ref(&*source)));
-            table.setDelegate(Some(ProtocolObject::from_ref(&*source)));
             table.setTarget(Some(&source));
             table.setDoubleAction(Some(sel!(activated:)));
         }
@@ -896,14 +1373,132 @@ impl List {
         }
         // Keys the table passes on reach the list's own keys first. The
         // table's superview (its next responder) stays put from here.
-        let keys: Retained<ListKeys> = unsafe { msg_send![super(ListKeys::alloc(mtm).set_ivars(ivars())), init] };
+        let keys_ivars = ListIvars { id: ivars.id, events: ivars.events.clone(), data: ivars.data.clone() };
+        let keys: Retained<ListKeys> = unsafe { msg_send![super(ListKeys::alloc(mtm).set_ivars(keys_ivars)), init] };
         // SAFETY: both responders live as long as the list, which keeps
         // `keys` (a next responder isn't retained).
         unsafe {
             keys.setNextResponder(table.nextResponder().as_deref());
             table.setNextResponder(Some(&keys));
         }
-        List { scroll, table, _source: source, _keys: keys, data, style: Cell::new(None) }
+        let data = ivars.data.clone();
+        List { scroll, table, outline, source, _keys: keys, ivars, data, style: Cell::new(None) }
+    }
+
+    /// A tree's rows that show, each with its place in the tree. The data
+    /// source gives each open row's children as sent, and none for a closed
+    /// row; the outline view reloads, then, from the top, each row is opened
+    /// or closed as sent, which shows or drops its children's rows, so the
+    /// outline view shows the rows in their order. Rows that stay keep their
+    /// hosts, and only the difference in rows shown is reported.
+    pub(crate) fn set_tree_rows(&self, rows: Vec<TreeRow>) {
+        let Some(outline) = &self.outline else { return };
+        let selected = self.selected();
+        {
+            let mut data = self.data.borrow_mut();
+            let index: HashMap<RowKey, usize> = rows.iter().enumerate().map(|(i, r)| (r.row, i)).collect();
+            data.heights.retain(|key, _| index.contains_key(key));
+            // The outline view asks again as it reloads.
+            data.answered.clear();
+            data.children.clear();
+            for row in &rows {
+                data.children.entry(row.parent).or_default().push(row.row);
+            }
+            data.items.retain(|key, _| index.contains_key(key));
+            for row in &rows {
+                data.items.entry(row.row).or_insert_with(|| NSString::from_str(&row.row.0.to_string()));
+            }
+            data.tree = rows.iter().map(|r| (r.row, *r)).collect();
+            data.index = index;
+            data.rows = rows.iter().map(|r| r.row).collect();
+            data.muted = true;
+            data.reloading = true;
+            data.expanding = true;
+        }
+        without_animation(|| {
+            outline.reloadData();
+            for (position, row) in rows.iter().enumerate() {
+                let Some(item) = outline.itemAtRow(position as NSInteger) else { break };
+                if item_key(&item) != Some(row.row) {
+                    break;
+                }
+                // SAFETY: the item is one of the outline view's own.
+                unsafe {
+                    match (outline.isItemExpanded(Some(&item)), row.expanded) {
+                        (false, true) => outline.expandItem(Some(&item)),
+                        (true, false) => outline.collapseItem(Some(&item)),
+                        _ => {}
+                    }
+                }
+            }
+        });
+        self.ivars.sync_rows(outline);
+        // The table adds its row views back at its next layout: have it
+        // now, so rows that stay are seen to stay (and keep their state).
+        self.table.setNeedsLayout(true);
+        self.table.layoutSubtreeIfNeeded();
+        let kept: Vec<RowKey> = {
+            let data = self.data.borrow();
+            selected.iter().copied().filter(|k| data.index.contains_key(k)).collect()
+        };
+        self.select(&kept);
+        {
+            let mut data = self.data.borrow_mut();
+            data.muted = false;
+            data.reloading = false;
+            data.expanding = false;
+        }
+        if kept != selected {
+            self.report_selection();
+        }
+        self.ivars.report_shown(&self.table);
+        self.ivars.report_indent(outline);
+    }
+
+    /// Opens or closes a tree's row as assistive technology does (the
+    /// outline view's `AXDisclosing`), reporting it. Closing it drops its
+    /// children's rows; opening it shows them once the core sends them.
+    /// False for a row that doesn't open.
+    pub(crate) fn expand(&self, key: RowKey, open: bool) -> bool {
+        let Some(outline) = &self.outline else { return false };
+        let Some(item) = self.data.borrow().items.get(&key).cloned() else { return false };
+        // SAFETY: the item is one of the outline view's own.
+        unsafe {
+            if !outline.isExpandable(Some(&item)) {
+                return false;
+            }
+            if outline.isItemExpanded(Some(&item)) != open {
+                self.data.borrow_mut().expanding = true;
+                without_animation(|| match open {
+                    true => outline.expandItem(Some(&item)),
+                    false => outline.collapseItem(Some(&item)),
+                });
+                self.data.borrow_mut().expanding = false;
+                self.ivars.events.emit(self.ivars.id, UiEvent::RowExpanded(key, open));
+            }
+        }
+        true
+    }
+
+    /// A tree's rows as its outline view shows them: each with its parent,
+    /// depth, and whether it opens and is open.
+    pub(crate) fn tree_rows(&self) -> Vec<TreeRow> {
+        let Some(outline) = &self.outline else { return Vec::new() };
+        (0..outline.numberOfRows())
+            .filter_map(|i| {
+                let item = outline.itemAtRow(i)?;
+                // SAFETY: the item is one of the outline view's own.
+                unsafe {
+                    Some(TreeRow {
+                        row: item_key(&item)?,
+                        parent: outline.parentForItem(Some(&item)).and_then(|p| item_key(&p)),
+                        depth: outline.levelForRow(i).max(0) as u32,
+                        expandable: outline.isExpandable(Some(&item)),
+                        expanded: outline.isItemExpanded(Some(&item)),
+                    })
+                }
+            })
+            .collect()
     }
 
     /// New rows: the table takes the change (rows removed, moved and
@@ -952,7 +1547,7 @@ impl List {
         if kept != selected {
             self.report_selection();
         }
-        self.table.ivars().report_shown(&self.table);
+        self.ivars.report_shown(&self.table);
     }
 
     pub(crate) fn set_keys(&self, keys: Vec<Shortcut>) {
@@ -989,7 +1584,7 @@ impl List {
     /// Reports the selection as the user's: what a screen reader's select
     /// does.
     pub(crate) fn report_selection(&self) {
-        let ListIvars { id, events, .. } = self.table.ivars();
+        let ListIvars { id, events, .. } = &self.ivars;
         events.emit(*id, UiEvent::Changed(EventValue::Rows(self.selected())));
     }
 
@@ -1066,7 +1661,7 @@ impl List {
                 if let Some(bare) = data.bare_height(&self.table, key)
                     && data.bare_heights.insert(key, bare) != Some(bare)
                 {
-                    let ListIvars { id, events, .. } = self._source.ivars();
+                    let ListIvars { id, events, .. } = &self.ivars;
                     events.emit(*id, UiEvent::RowHeight(key, bare as f32));
                 }
             }
@@ -1108,7 +1703,7 @@ impl List {
     /// may run up under the window's bar, outside where the core put it.
     pub(crate) fn set_frame(&self, frame: objc2_foundation::NSRect) {
         self.scroll.setFrame(self.scroll.frameForAlignmentRect(frame));
-        self.table.ivars().fit_rows(&self.scroll, &self.table);
+        self.ivars.fit_rows(&self.scroll, &self.table);
     }
 
     /// A table's columns: their titles, the widths they start at, the ones
@@ -1141,7 +1736,7 @@ impl List {
             self.table.addTableColumn(&column);
             unsafe {
                 column.addObserver_forKeyPath_options_context(
-                    &self._source,
+                    &self.source,
                     &NSString::from_str(WIDTH),
                     NSKeyValueObservingOptions::New,
                     std::ptr::null_mut(),
@@ -1152,7 +1747,7 @@ impl List {
         self.table.sizeToFit();
         self.set_sort(sort.filter(|s| columns.get(s.column).is_some_and(|c| c.sortable)));
         self.data.borrow_mut().muted = false;
-        self.table.ivars().report_widths(&self.table);
+        self.ivars.report_widths(&self.table);
     }
 
     pub(crate) fn columns(&self) -> Vec<ColumnData> {
@@ -1209,19 +1804,19 @@ impl List {
     pub(crate) fn activate(&self, key: RowKey) {
         let index = self.data.borrow().index.get(&key).copied();
         if let Some(index) = index {
-            self.table.ivars().activate(index as NSInteger);
+            self.ivars.activate(index as NSInteger);
         }
     }
 
     fn unwatch(&self, column: &NSTableColumn) {
         if self.data.borrow().table {
-            unsafe { column.removeObserver_forKeyPath(&self._source, &NSString::from_str(WIDTH)) };
+            unsafe { column.removeObserver_forKeyPath(&self.source, &NSString::from_str(WIDTH)) };
         }
     }
 
     /// Stops the table from calling its data source, which goes with the list.
     pub(crate) fn detach(&self) {
-        unsafe { NSNotificationCenter::defaultCenter().removeObserver(&self._source) };
+        unsafe { NSNotificationCenter::defaultCenter().removeObserver(&self.source) };
         for column in self.table.tableColumns().iter() {
             self.unwatch(&column);
         }
@@ -1238,7 +1833,12 @@ impl List {
     /// Where the table put a row, in its content's coordinates.
     pub(crate) fn row_rect(&self, key: RowKey) -> Option<Rect> {
         let index = *self.data.borrow().index.get(&key)?;
-        let r = self.table.rectOfRow(index as NSInteger);
+        let mut r = self.table.rectOfRow(index as NSInteger);
+        // A tree's row is its outline cell, in by its indent.
+        if self.outline.is_some() {
+            let cell = self.table.frameOfCellAtColumn_row(0, index as NSInteger);
+            (r.origin.x, r.size.width) = (cell.origin.x, cell.size.width);
+        }
         Some(Rect::new(r.origin.x as f32, r.origin.y as f32, r.size.width as f32, r.size.height as f32))
     }
 
@@ -1272,7 +1872,7 @@ impl List {
     /// the same targeting as a real drop: for tests, which can't start a
     /// drag.
     pub(crate) fn move_rows(&self, rows: &[RowKey], to: RowDrop<RowKey>) {
-        let ListIvars { id, events, data } = self._source.ivars();
+        let ListIvars { id, events, data } = &self.ivars;
         let moved = {
             let data = data.borrow();
             let (row, on) = match to {
@@ -1282,7 +1882,16 @@ impl List {
             };
             let mut rows: Vec<RowKey> = rows.iter().filter(|row| data.index.contains_key(row)).copied().collect();
             rows.sort_by_key(|row| data.index[row]);
-            data.drop_target(&rows, row, on).map(|(to, ..)| (rows, to))
+            // A tree's rows nest: the outline's targeting, the pointer over
+            // the row dropped onto or before, as a drag's.
+            let over = match to {
+                RowDrop::On(key) | RowDrop::Before(key) => Some(key),
+                RowDrop::End => None,
+            };
+            match self.outline {
+                Some(_) => data.tree_drop_target(&rows, over, to).map(|(to, ..)| (rows, to)),
+                None => data.drop_target(&rows, row, on).map(|(to, ..)| (rows, to)),
+            }
         };
         if let Some((rows, to)) = moved.filter(|(rows, _)| !rows.is_empty()) {
             events.emit(*id, UiEvent::RowsMoved { rows, to });
@@ -1310,6 +1919,12 @@ impl List {
     pub(crate) fn dragged_files(&self, row: RowKey) -> Option<Vec<PathBuf>> {
         let selected = self.selected();
         let rows = if selected.contains(&row) { selected } else { vec![row] };
+        // A tree's rows don't move, so each one's writer is its file's URL.
+        if self.outline.is_some() {
+            let data = self.data.borrow();
+            let paths: Vec<PathBuf> = rows.iter().filter_map(|row| data.file_of.get(row).cloned()).collect();
+            return (!paths.is_empty()).then_some(paths);
+        }
         // SAFETY: the data source is the list's own `ListSource`, alive as
         // long as the list.
         let source = unsafe { self.table.dataSource() }?;
@@ -1343,7 +1958,10 @@ impl List {
     }
 
     pub(crate) fn selected(&self) -> Vec<RowKey> {
-        self.data.borrow().keys(&self.table.selectedRowIndexes())
+        match &self.outline {
+            Some(outline) => outline_keys(outline, &outline.selectedRowIndexes()),
+            None => self.data.borrow().keys(&self.table.selectedRowIndexes()),
+        }
     }
 
     /// The hosted rows, in row order.

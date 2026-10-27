@@ -10,16 +10,17 @@ impl HeadlessBackend {
     pub(super) fn read_native_state(&self, id: NodeId) -> Option<NativeState> {
         let state = self.state.borrow();
         let node = state.nodes.get(&id)?;
-        // A list places its rows itself: the core only gives their sizes.
+        // A list places its rows itself: the core only gives their sizes. A
+        // tree's are in by their indent.
         let row = find_prop!(node.props, Row)
-            .zip(node.parent.filter(|p| state.nodes[p].kind == WidgetKind::List))
-            .and_then(|(key, list)| state.row(list, key));
+            .zip(node.parent.filter(|p| matches!(state.nodes[p].kind, WidgetKind::List | WidgetKind::Tree)))
+            .and_then(|(key, list)| Some((state.row(list, key)?, state.tree_inset(list, key))));
         // So does a table its cells.
         let cell = find_prop!(node.props, Cell)
             .zip(node.parent.filter(|p| state.nodes[p].kind == WidgetKind::Table))
             .and_then(|(cell, table)| state.cell_frame(table, cell, node.frame.size));
         let frame = match row {
-            Some(row) => Rect::new(0.0, row.top, node.frame.width(), node.frame.height()),
+            Some((row, inset)) => Rect::new(inset, row.top, node.frame.width(), node.frame.height()),
             None if let Some(cell) = cell => cell,
             None if node.kind == WidgetKind::ToolbarItem => state.toolbar_item_frame(id),
             None if node.kind == WidgetKind::Sidebar => state.sidebar_frame(id),

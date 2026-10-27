@@ -48,6 +48,8 @@ impl<'a> Locator<'a> {
                             password: false,
                             invalid: false,
                             selected: None,
+                            expanded: None,
+                            level: None,
                             enabled: true,
                             test_id: node.test_id.clone(),
                             frame: node.frame,
@@ -231,6 +233,18 @@ impl<'a> Locator<'a> {
             }
             _ => self.act(A11yAction::Select).await,
         }
+    }
+
+    /// Opens a tree's item, as assistive technology does: its children's
+    /// rows show once the app has them.
+    pub async fn expand(&self) {
+        self.act(A11yAction::Expand).await;
+    }
+
+    /// Closes a tree's item, as assistive technology does: its children's
+    /// rows go.
+    pub async fn collapse(&self) {
+        self.act(A11yAction::Collapse).await;
     }
 
     /// The index of a document tab (the first with its title), as its tabs
@@ -673,6 +687,26 @@ impl<'a> Expectation<'a> {
     pub async fn not_to_be_checked(&self) {
         self.check(|l| if l.try_node()?.checked == Some(false) { Ok(()) } else { Err("not to be checked".into()) })
             .await;
+    }
+
+    /// A tree's item is open.
+    pub async fn to_be_expanded(&self) {
+        self.check(|l| if l.try_node()?.expanded == Some(true) { Ok(()) } else { Err("to be expanded".into()) }).await;
+    }
+
+    /// A tree's item that opens is closed.
+    pub async fn to_be_collapsed(&self) {
+        self.check(|l| if l.try_node()?.expanded == Some(false) { Ok(()) } else { Err("to be collapsed".into()) })
+            .await;
+    }
+
+    /// A tree's item is this deep, 1 at the top.
+    pub async fn to_have_level(&self, level: usize) {
+        self.check(|l| {
+            let node = l.try_node()?;
+            if node.level == Some(level) { Ok(()) } else { Err(format!("to have level {level}, not {:?}", node.level)) }
+        })
+        .await;
     }
 
     pub async fn to_be_focused(&self) {

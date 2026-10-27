@@ -625,6 +625,102 @@ private:
     int columns;
 };
 
+// A tree's rows: each a key, under its parent (the top under key 0), with
+// the children Rust sent, which are those of open rows. `hasChildren` is
+// whether a row opens, children or not, so the view shows its indicator
+// and opens it while its children are still to come. Rust changes it a run
+// of a parent's rows at a time, as a Qt model does, so the view keeps its
+// delegates and its rows' open state; removing a row removes its subtree.
+class TreeModel : public QAbstractItemModel {
+public:
+    explicit TreeModel(QObject* parent) : QAbstractItemModel(parent) { nodes.insert(0, &root); }
+    ~TreeModel() override {
+        for (Node* child : root.children) destroy(child);
+    }
+    QModelIndex index(int row, int column, const QModelIndex& parent = QModelIndex()) const override {
+        const Node* p = nodeOf(parent);
+        if (column != 0 || row < 0 || row >= p->children.size()) return QModelIndex();
+        return createIndex(row, 0, p->children.at(row));
+    }
+    QModelIndex parent(const QModelIndex& child) const override {
+        if (!child.isValid()) return QModelIndex();
+        return indexOf(nodeOf(child)->parent);
+    }
+    int rowCount(const QModelIndex& parent = QModelIndex()) const override {
+        return parent.column() > 0 ? 0 : nodeOf(parent)->children.size();
+    }
+    int columnCount(const QModelIndex& = QModelIndex()) const override { return 1; }
+    bool hasChildren(const QModelIndex& parent = QModelIndex()) const override {
+        return parent.isValid() ? nodeOf(parent)->expandable : !root.children.isEmpty();
+    }
+    QVariant data(const QModelIndex& index, int role) const override {
+        if ((role != Qt::DisplayRole && role != KeyRole) || !checkIndex(index, CheckIndexOption::IndexIsValid))
+            return QVariant();
+        return nodeOf(index)->text;
+    }
+    QHash<int, QByteArray> roleNames() const override {
+        return {{Qt::DisplayRole, "display"}, {KeyRole, "mitsuamiKey"}};
+    }
+
+    void insert(uint64_t parentKey, int at, const uint64_t* keys, const uint8_t* expandable, int32_t count) {
+        Node* p = nodes.value(parentKey);
+        if (!p || count <= 0) return;
+        beginInsertRows(indexOf(p), at, at + count - 1);
+        for (int i = 0; i < count; i++) {
+            Node* node = new Node{keys[i], QString::number(keys[i]), p, {}, expandable[i] != 0};
+            nodes.insert(keys[i], node);
+            p->children.insert(at + i, node);
+        }
+        endInsertRows();
+    }
+    void remove(uint64_t parentKey, int at, int count) {
+        Node* p = nodes.value(parentKey);
+        if (!p || count <= 0) return;
+        beginRemoveRows(indexOf(p), at, at + count - 1);
+        for (int i = 0; i < count; i++) destroy(p->children.at(at + i));
+        p->children.remove(at, count);
+        endRemoveRows();
+    }
+    // `to`: where the first row is after the move, as `RowModel::move`.
+    void move(uint64_t parentKey, int from, int count, int to) {
+        Node* p = nodes.value(parentKey);
+        if (!p || count <= 0) return;
+        QModelIndex index = indexOf(p);
+        int before = to > from ? to + count : to;
+        if (!beginMoveRows(index, from, from + count - 1, index, before)) return;
+        QList<Node*> moved = p->children.mid(from, count);
+        p->children.remove(from, count);
+        for (int i = 0; i < count; i++) p->children.insert(to + i, moved.at(i));
+        endMoveRows();
+    }
+
+private:
+    static constexpr int KeyRole = Qt::UserRole;
+    struct Node {
+        uint64_t key;
+        QString text;
+        Node* parent;
+        QList<Node*> children;
+        bool expandable;
+    };
+    Node root{0, QString(), nullptr, {}, true};
+    QHash<uint64_t, Node*> nodes;
+
+    Node* nodeOf(const QModelIndex& index) const {
+        return index.isValid() ? static_cast<Node*>(index.internalPointer()) : const_cast<Node*>(&root);
+    }
+    QModelIndex indexOf(const Node* node) const {
+        if (!node || node == &root) return QModelIndex();
+        Node* mutable_node = const_cast<Node*>(node);
+        return createIndex(node->parent->children.indexOf(mutable_node), 0, mutable_node);
+    }
+    void destroy(Node* node) {
+        for (Node* child : node->children) destroy(child);
+        if (nodes.value(node->key) == node) nodes.remove(node->key);
+        delete node;
+    }
+};
+
 extern "C" {
 
 // ------------------------------------------------------------ application
@@ -1380,4 +1476,21 @@ void mq_rows_reset(QObject* model, const uint64_t* keys, int32_t count) {
 }
 
 void mq_rows_set_columns(QObject* model, int32_t count) { static_cast<RowModel*>(model)->setColumns(count); }
+
+// -------------------------------------------------------------- tree models
+
+QObject* mq_tree_new(QObject* parent) { return new TreeModel(parent); }
+
+void mq_tree_insert(QObject* model, uint64_t parent, int32_t at, const uint64_t* keys, const uint8_t* expandable,
+                    int32_t count) {
+    static_cast<TreeModel*>(model)->insert(parent, at, keys, expandable, count);
+}
+
+void mq_tree_remove(QObject* model, uint64_t parent, int32_t at, int32_t count) {
+    static_cast<TreeModel*>(model)->remove(parent, at, count);
+}
+
+void mq_tree_move(QObject* model, uint64_t parent, int32_t from, int32_t count, int32_t to) {
+    static_cast<TreeModel*>(model)->move(parent, from, count, to);
+}
 }

@@ -454,6 +454,7 @@ impl State {
                 });
             }
             (Prop::Rows(rows), Widget::List(list)) => list.set_rows(rows.clone()),
+            (Prop::TreeRows(rows), Widget::List(list)) => list.set_tree_rows(rows.clone()),
             (Prop::RowFiles(files), Widget::List(list)) => list.set_row_files(files.clone()),
             (Prop::RowMoves(moves), Widget::List(list)) => list.set_moves(*moves),
             (Prop::SelectionMode(mode), Widget::List(list)) => list.set_mode(*mode),

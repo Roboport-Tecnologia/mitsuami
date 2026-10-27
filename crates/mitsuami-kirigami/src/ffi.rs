@@ -136,6 +136,11 @@ unsafe extern "C" {
     fn mq_rows_reset(model: Raw, keys: *const u64, count: i32);
     fn mq_rows_set_columns(model: Raw, count: i32);
 
+    fn mq_tree_new(parent: Raw) -> Raw;
+    fn mq_tree_insert(model: Raw, parent: u64, at: i32, keys: *const u64, expandable: *const u8, count: i32);
+    fn mq_tree_remove(model: Raw, parent: u64, at: i32, count: i32);
+    fn mq_tree_move(model: Raw, parent: u64, from: i32, count: i32, to: i32);
+
     fn mq_set_input_callback(callback: extern "C" fn(u64, i32, i32, i32, f64, f64, *const c_char, u32));
     fn mq_set_gone_callback(callback: extern "C" fn(Raw));
     fn mq_watch_gone(object: Raw);
@@ -325,6 +330,15 @@ pub(crate) enum RowEdit<'a> {
     Move { from: usize, count: usize, to: usize },
     Reset { keys: &'a [u64] },
     Columns(usize),
+}
+
+/// A change to a tree model, to a parent's rows (the top rows' parent is
+/// 0): as a row model's, with whether each inserted row opens. Removing a
+/// row removes the rows under it.
+pub(crate) enum TreeEdit<'a> {
+    Insert { parent: u64, at: usize, keys: &'a [u64], expandable: &'a [u8] },
+    Remove { parent: u64, at: usize, count: usize },
+    Move { parent: u64, from: usize, count: usize, to: usize },
 }
 
 /// A single-shot timer. Stopped and freed when dropped.
@@ -892,6 +906,33 @@ impl QmlObject {
                 RowEdit::Move { from, count, to } => mq_rows_move(raw, from as i32, count as i32, to as i32),
                 RowEdit::Reset { keys } => mq_rows_reset(raw, keys.as_ptr(), keys.len() as i32),
                 RowEdit::Columns(count) => mq_rows_set_columns(raw, count as i32),
+            }
+        }
+    }
+
+    /// A tree's model, owned by `self`: see `mq_tree_new`.
+    pub(crate) fn tree_model(self) -> QmlObject {
+        let Some(raw) = self.live() else { return QmlObject::dead() };
+        QmlObject::from_raw(unsafe { mq_tree_new(raw) }).expect("a tree model")
+    }
+
+    /// Changes a tree model (one made with [`tree_model`](Self::tree_model)).
+    pub(crate) fn edit_tree(self, edit: TreeEdit<'_>) {
+        let Some(raw) = self.live() else { return };
+        unsafe {
+            match edit {
+                TreeEdit::Insert { parent, at, keys, expandable } => mq_tree_insert(
+                    raw,
+                    parent,
+                    at as i32,
+                    keys.as_ptr(),
+                    expandable.as_ptr(),
+                    keys.len().min(expandable.len()) as i32,
+                ),
+                TreeEdit::Remove { parent, at, count } => mq_tree_remove(raw, parent, at as i32, count as i32),
+                TreeEdit::Move { parent, from, count, to } => {
+                    mq_tree_move(raw, parent, from as i32, count as i32, to as i32)
+                }
             }
         }
     }

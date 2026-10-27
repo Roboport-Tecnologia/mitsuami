@@ -725,6 +725,69 @@ async fn lists_ask_for_rows_and_report_the_selection(app: TestApp) {
     assert!(heard().contains(&"released".to_string()));
 }
 
+extern "C" fn expanded_changed(_user: *mut c_void, tree: u32) {
+    let keys: Vec<String> = (0..mitsuami_tree_expanded_count(tree))
+        .map(|i| {
+            let mut ptr = std::ptr::null();
+            let len = unsafe { mitsuami_tree_expanded_key(tree, i, &mut ptr) };
+            String::from_utf8(unsafe { std::slice::from_raw_parts(ptr, len) }.to_vec()).unwrap()
+        })
+        .collect();
+    HEARD.with(|h| h.borrow_mut().push(format!("open {}", keys.join(","))));
+}
+
+fn tree_node(key: &'static str, parent: &'static str, opens: bool) -> MitsuamiTreeNode {
+    MitsuamiTreeNode { key: str(key), parent: str(parent), opens: opens as u32 }
+}
+
+#[mitsuami_test::test]
+async fn trees_show_open_nodes_children_and_report_the_open_rows(app: TestApp) {
+    attach(app.ui());
+    heard();
+    let tree = mitsuami_create_tree(MitsuamiTreeCallbacks {
+        build_row,
+        release_row,
+        selection_changed,
+        activated,
+        expanded_changed,
+        user: std::ptr::null_mut(),
+        still: 1,
+        moves: 1,
+        moved,
+    });
+    assert_ne!(tree, 0);
+    assert!(mitsuami_set_size(tree, px(300.0), px(200.0)));
+    // A folder whose children aren't read yet opens all the same.
+    let nodes = [tree_node("a", "", true), tree_node("b", "", false)];
+    assert!(unsafe { mitsuami_tree_set_nodes(tree, nodes.as_ptr(), nodes.len()) });
+    app.mount(|| Adopt(tree));
+    app.expect(by_role(Role::TreeItem, "Repository b")).to_be_visible().await;
+    app.expect(by_role(Role::TreeItem, "Repository a")).to_be_collapsed().await;
+
+    // The user opens it; the caller hears it and gives its children.
+    app.get_by_role(Role::TreeItem, "Repository a").expand().await;
+    assert_eq!(heard(), ["open a"]);
+    let nodes = [tree_node("a", "", true), tree_node("a/1", "a", false), tree_node("b", "", false)];
+    assert!(unsafe { mitsuami_tree_set_nodes(tree, nodes.as_ptr(), nodes.len()) });
+    app.expect(by_role(Role::TreeItem, "Repository a/1")).to_have_level(2).await;
+
+    // The caller's own opening and closing isn't reported back.
+    assert!(unsafe { mitsuami_tree_set_expanded(tree, std::ptr::null(), 0) });
+    app.expect(by_role(Role::TreeItem, "Repository a/1")).not_to_exist().await;
+    assert!(heard().iter().all(|h| !h.starts_with("open")));
+
+    // Selection is the list functions'.
+    let selected = strs(&["b"]);
+    assert!(unsafe { mitsuami_list_set_selected(tree, selected.as_ptr(), selected.len()) });
+    app.settle().await;
+    assert_eq!(app.get_by_role(Role::TreeItem, "Repository b").node().selected, Some(true));
+
+    // Rows dragged onto a folder (the tree takes drops onto rows).
+    heard();
+    app.get_by_role(Role::TreeItem, "Repository b").drag_onto(&app.get_by_role(Role::TreeItem, "Repository a")).await;
+    assert_eq!(heard(), ["moved b onto a"]);
+}
+
 /// Two bookmark swatches, the chosen one framed: what a binding's drawn
 /// widget draws.
 extern "C" fn draw_swatches(_user: *mut c_void, _node: u32, canvas: *mut MitsuamiCanvas, width: f32, height: f32) {

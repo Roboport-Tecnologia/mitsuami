@@ -369,7 +369,20 @@ impl<T: Clone + 'static, K: Eq + Hash + Clone + 'static> View for Table<T, K> {
         let id = build_rows(
             ui,
             element,
-            RowParts { each, key, mount, mode, style, selected, on_activate, estimate, handle, files, moves: None },
+            RowParts {
+                each,
+                key,
+                mount,
+                mode,
+                style,
+                selected,
+                on_activate,
+                estimate,
+                handle,
+                files,
+                moves: None,
+                tree: None,
+            },
         );
         if let Some(sort) = sort {
             (sort.install)(ui, id, keys);

@@ -34,13 +34,15 @@ use mitsuami::core::{
     Drawn, EventValue, FileDrop, FlexDirection, HeaderEdge, ImageSource, Justify, Key, Length, List, ListHandle,
     ListStyle, MeasureRequest, Modality, NodeId, PathStep, Pixels, PlatformMetrics, Point, PointerKind, Prop, Rect,
     Render, Renderer, Role, RowDrop, RowMoves, ScrollAxes, SelectionMode, Shape, Size, Sort, SortOrder, Spacing, Table,
-    TableColumn, TextStyle, Ui, UiEvent, VectorIcon, View, WidgetKind, WindowSize,
+    TableColumn, TextStyle, Tree, Ui, UiEvent, VectorIcon, View, WidgetKind, WindowSize,
 };
 use mitsuami::reactive::{Owner, Signal, on_cleanup, signal, watch};
 
 thread_local! {
     static UI: RefCell<Option<Ui>> = const { RefCell::new(None) };
     static LISTS: RefCell<HashMap<u32, ListState>> = RefCell::new(HashMap::new());
+    /// Trees' nodes and open rows; their selection and scope are in `LISTS`.
+    static TREES: RefCell<HashMap<u32, TreeState>> = RefCell::new(HashMap::new());
     static DRAWN: RefCell<HashMap<u32, DrawnState>> = RefCell::new(HashMap::new());
     /// Scopes other crates' widgets keep (see [`extend::keep`]).
     static KEPT: RefCell<HashMap<u32, Owner>> = RefCell::new(HashMap::new());
@@ -586,6 +588,7 @@ pub extern "C" fn mitsuami_destroy(id: u32) -> bool {
         if let Some(list) = LISTS.with(|l| l.borrow_mut().remove(&id)) {
             list.owner.dispose();
         }
+        TREES.with(|t| t.borrow_mut().remove(&id));
         if let Some(drawn) = DRAWN.with(|d| d.borrow_mut().remove(&id)) {
             drawn.owner.dispose();
         }
@@ -1824,6 +1827,21 @@ pub struct MitsuamiStr {
     pub len: usize,
 }
 
+/// What a list's or tree's `moved` gets.
+type Moved = extern "C" fn(*mut c_void, u32, *const MitsuamiStr, usize, u32, *const u8, usize);
+
+/// Tells the caller rows were dragged and dropped: their keys, and where
+/// (0 onto `key`, 1 before it, 2 at the end).
+fn report_moved(moved: &Moved, user: *mut c_void, id: u32, keys: &[String], to: &RowDrop<String>) {
+    let strs: Vec<MitsuamiStr> = keys.iter().map(|k| MitsuamiStr { ptr: k.as_ptr(), len: k.len() }).collect();
+    let (kind, key) = match to {
+        RowDrop::On(key) => (0, key.as_str()),
+        RowDrop::Before(key) => (1, key.as_str()),
+        RowDrop::End => (2, ""),
+    };
+    moved(user, id, strs.as_ptr(), strs.len(), kind, key.as_ptr(), key.len());
+}
+
 /// What a list asks of its caller. The list's id comes with each call.
 #[repr(C)]
 #[derive(Clone, Copy)]
@@ -1938,23 +1956,7 @@ pub extern "C" fn mitsuami_create_list(callbacks: MitsuamiListCallbacks) -> u32 
                     let moves = RowMoves { onto_rows: moves & 1 != 0, between_rows: moves & 2 != 0 };
                     let (moved_cb, moved_id) = (cb.clone(), id.clone());
                     list.on_move(moves, move |keys: Vec<String>, to: RowDrop<String>| {
-                        let strs: Vec<MitsuamiStr> =
-                            keys.iter().map(|k| MitsuamiStr { ptr: k.as_ptr(), len: k.len() }).collect();
-                        let (kind, key) = match &to {
-                            RowDrop::On(key) => (0, key.as_str()),
-                            RowDrop::Before(key) => (1, key.as_str()),
-                            RowDrop::End => (2, ""),
-                        };
-                        let user = moved_cb.user;
-                        (moved_cb.moved)(
-                            user,
-                            moved_id.get(),
-                            strs.as_ptr(),
-                            strs.len(),
-                            kind,
-                            key.as_ptr(),
-                            key.len(),
-                        );
+                        report_moved(&moved_cb.moved, moved_cb.user, moved_id.get(), &keys, &to)
                     })
                 }
             };
@@ -2040,6 +2042,220 @@ pub unsafe extern "C" fn mitsuami_list_selected_key(id: u32, index: usize, ptr: 
         list(id, |l| {
             l.selected.with(|s| {
                 let key = s.get(index).map(|k| (k.as_ptr(), k.len())).unwrap_or((std::ptr::null(), 0));
+                unsafe { *ptr = key.0 };
+                key.1
+            })
+        })
+    })
+    .unwrap_or(0)
+}
+
+// Trees.
+
+/// What a tree asks of its caller: a list's, and the user opening and
+/// closing rows. The tree's id comes with each call.
+#[repr(C)]
+#[derive(Clone, Copy)]
+pub struct MitsuamiTreeCallbacks {
+    /// Builds the row for a key when the platform shows it: a node in no
+    /// tree yet (0 for an empty row).
+    pub build_row: extern "C" fn(*mut c_void, u32, *const u8, usize) -> u32,
+    /// The platform let a row go: its node is destroyed.
+    pub release_row: extern "C" fn(*mut c_void, u32, u32),
+    /// The user changed the selection; `mitsuami_list_selected` has it.
+    pub selection_changed: extern "C" fn(*mut c_void, u32),
+    /// The user activated a row (double-click, Return): its key. It opens
+    /// nothing.
+    pub activated: extern "C" fn(*mut c_void, u32, *const u8, usize),
+    /// The user opened or closed rows; `mitsuami_tree_expanded_key` has
+    /// the open ones. Children of a row just opened can be set then.
+    pub expanded_changed: extern "C" fn(*mut c_void, u32),
+    pub user: *mut c_void,
+    /// As a list's `still`.
+    pub still: u32,
+    /// As a list's `moves`: onto a row is into it, before one at its place
+    /// among its parent's rows, and a node never goes inside itself.
+    pub moves: u32,
+    /// As a list's `moved`.
+    pub moved: extern "C" fn(*mut c_void, u32, *const MitsuamiStr, usize, u32, *const u8, usize),
+}
+
+/// A node of a tree, as the caller gives it.
+#[repr(C)]
+#[derive(Clone, Copy)]
+pub struct MitsuamiTreeNode {
+    pub key: MitsuamiStr,
+    /// The key of the node it's in; empty at the top.
+    pub parent: MitsuamiStr,
+    /// Nonzero: it opens even without children (a folder not read yet). A
+    /// node with children opens either way.
+    pub opens: u32,
+}
+
+/// A tree's nodes: the top ones, in order, and the children of each that
+/// opens.
+#[derive(Default)]
+struct TreeNodes {
+    roots: Vec<String>,
+    children: HashMap<String, Vec<String>>,
+}
+
+struct TreeState {
+    nodes: Signal<Rc<TreeNodes>>,
+    expanded: Signal<Vec<String>>,
+    /// The open rows as the caller last set them, so setting them isn't
+    /// reported back as the user's.
+    set: Rc<RefCell<Vec<String>>>,
+}
+
+fn tree<T>(id: u32, f: impl FnOnce(&TreeState) -> T) -> Result<T, String> {
+    TREES.with(|t| t.borrow().get(&id).map(f)).ok_or_else(|| format!("node {id} isn't a tree"))
+}
+
+/// Makes a tree: the platform's own tree control, which builds rows (with
+/// `build_row`) only as it shows them, and shows a node's children while
+/// it's open. Rows are keyed by strings, unique in the tree. Selection,
+/// activation and scrolling are the list functions'. It selects one row at
+/// a time until its `SelectionMode` says otherwise.
+#[unsafe(no_mangle)]
+pub extern "C" fn mitsuami_create_tree(callbacks: MitsuamiTreeCallbacks) -> u32 {
+    guard(|| {
+        let ui = ui()?;
+        let cb = Rc::new(callbacks);
+        let id = Rc::new(Cell::new(0));
+        let owner = Owner::new_root();
+        let (set, open_set) = (Rc::new(RefCell::new(Vec::new())), Rc::new(RefCell::new(Vec::new())));
+        let handle = ListHandle::new();
+        let (keys, selected, nodes, expanded, tree) = owner.with(|| {
+            let (keys, selected) = (signal(Vec::<String>::new()), signal(Vec::<String>::new()));
+            let (nodes, expanded) = (signal(Rc::new(TreeNodes::default())), signal(Vec::<String>::new()));
+            let (row_cb, row_id) = (cb.clone(), id.clone());
+            let (activate_cb, activate_id) = (cb.clone(), id.clone());
+            let tree = Tree::new(
+                move || nodes.with(|n| n.roots.clone()),
+                |key: &String| key.clone(),
+                move |key: &String| nodes.with(|n| n.children.get(key).cloned()),
+                move |key: String| {
+                    let (cb, tree) = (row_cb.clone(), row_id.get());
+                    let row = (cb.build_row)(cb.user, tree, key.as_ptr(), key.len());
+                    if row != 0 {
+                        on_cleanup(move || (cb.release_row)(cb.user, tree, row));
+                    }
+                    Adopt(row)
+                },
+            )
+            .expanded(expanded)
+            .selected(selected)
+            .handle(handle.clone())
+            .on_activate(move |key: String| {
+                (activate_cb.activated)(activate_cb.user, activate_id.get(), key.as_ptr(), key.len())
+            });
+            let tree = match cb.still {
+                0 => tree,
+                _ => tree.native(mitsuami::platform! {
+                    windows => mitsuami::winui::without_item_animations(),
+                    _ => mitsuami::core::Tweak::none(),
+                }),
+            };
+            let tree = match cb.moves {
+                0 => tree,
+                moves => {
+                    let moves = RowMoves { onto_rows: moves & 1 != 0, between_rows: moves & 2 != 0 };
+                    let (moved_cb, moved_id) = (cb.clone(), id.clone());
+                    tree.on_move(moves, move |keys: Vec<String>, to: RowDrop<String>| {
+                        report_moved(&moved_cb.moved, moved_cb.user, moved_id.get(), &keys, &to)
+                    })
+                }
+            };
+            let (changed_cb, changed_id, set) = (cb.clone(), id.clone(), set.clone());
+            watch(
+                move || selected.get(),
+                move |now, _| {
+                    if set.replace(now.clone()) != *now {
+                        (changed_cb.selection_changed)(changed_cb.user, changed_id.get());
+                    }
+                },
+            );
+            let (open_cb, open_id, open_set) = (cb.clone(), id.clone(), open_set.clone());
+            watch(
+                move || expanded.get(),
+                move |now, _| {
+                    if open_set.replace(now.clone()) != *now {
+                        (open_cb.expanded_changed)(open_cb.user, open_id.get());
+                    }
+                },
+            );
+            (keys, selected, nodes, expanded, tree.build(&ui))
+        });
+        id.set(tree.raw());
+        LISTS.with(|l| l.borrow_mut().insert(tree.raw(), ListState { keys, selected, set, sort: None, handle, owner }));
+        TREES.with(|t| t.borrow_mut().insert(tree.raw(), TreeState { nodes, expanded, set: open_set }));
+        Ok(tree.raw())
+    })
+    .unwrap_or(0)
+}
+
+/// The tree's nodes: every node the caller has, each with its parent's
+/// key, in order within its parent. Only the children of open nodes show.
+///
+/// # Safety
+/// `nodes` points to `count` nodes, their strings as [`string`] says.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn mitsuami_tree_set_nodes(id: u32, nodes: *const MitsuamiTreeNode, count: usize) -> bool {
+    guard(|| {
+        let given = if count == 0 { &[][..] } else { unsafe { std::slice::from_raw_parts(nodes, count) } };
+        let mut built = TreeNodes::default();
+        for node in given {
+            let key = unsafe { string(node.key.ptr, node.key.len)? };
+            let parent = unsafe { string(node.parent.ptr, node.parent.len)? };
+            if node.opens != 0 {
+                built.children.entry(key.clone()).or_default();
+            }
+            match parent.is_empty() {
+                true => built.roots.push(key),
+                false => built.children.entry(parent).or_default().push(key),
+            }
+        }
+        tree(id, |t| t.nodes)?.set(Rc::new(built));
+        Ok(())
+    })
+    .is_some()
+}
+
+/// Opens the rows with these keys, and closes the others. A key of a node
+/// in a closed one opens it once that shows.
+///
+/// # Safety
+/// `keys` points to `count` strings.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn mitsuami_tree_set_expanded(id: u32, keys: *const MitsuamiStr, count: usize) -> bool {
+    guard(|| {
+        let new = unsafe { strings(keys, count)? };
+        let (expanded, set) = tree(id, |t| (t.expanded, t.set.clone()))?;
+        *set.borrow_mut() = new.clone();
+        expanded.set(new);
+        Ok(())
+    })
+    .is_some()
+}
+
+/// How many rows are open; `mitsuami_tree_expanded_key` gives each.
+#[unsafe(no_mangle)]
+pub extern "C" fn mitsuami_tree_expanded_count(id: u32) -> usize {
+    guard(|| tree(id, |t| t.expanded.with(|e| e.len()))).unwrap_or(0)
+}
+
+/// The key of the `index`th open row: its length, with `*ptr` set to its
+/// bytes, valid until the open rows change.
+///
+/// # Safety
+/// `ptr` is valid for a write.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn mitsuami_tree_expanded_key(id: u32, index: usize, ptr: *mut *const u8) -> usize {
+    guard(|| {
+        tree(id, |t| {
+            t.expanded.with(|e| {
+                let key = e.get(index).map(|k| (k.as_ptr(), k.len())).unwrap_or((std::ptr::null(), 0));
                 unsafe { *ptr = key.0 };
                 key.1
             })

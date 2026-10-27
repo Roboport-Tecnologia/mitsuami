@@ -59,6 +59,12 @@ impl AppKitBackend {
                         list.report_selection();
                     }
                     A11yAction::Activate => list.activate(row),
+                    // A tree's row, as the outline view's `AXDisclosing`.
+                    A11yAction::Expand | A11yAction::Collapse => {
+                        if !list.expand(row, *action == A11yAction::Expand) {
+                            return Err(ActionError::Unsupported);
+                        }
+                    }
                     A11yAction::ScrollIntoView => {}
                     _ => return Err(ActionError::Unsupported),
                 }

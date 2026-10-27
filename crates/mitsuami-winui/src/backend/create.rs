@@ -545,6 +545,11 @@ impl State {
                 inner = Some(list.view.cast()?);
                 (Widget::List(list), element)
             }
+            WidgetKind::Tree => {
+                let tree = crate::list::Tree::new(id, emitter.clone())?;
+                let element = tree.view.cast()?;
+                (Widget::Tree(tree), element)
+            }
         };
         // The core assumes new nodes start with a zero frame and only sends
         // frames that differ.

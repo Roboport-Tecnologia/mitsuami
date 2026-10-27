@@ -181,6 +181,14 @@ pub enum WidgetKind {
     /// them: it reports the width each column gives its cells
     /// (`ColumnWidths`).
     Table,
+    /// A native tree: a `List` whose rows nest, opened and closed by a
+    /// disclosure the platform draws (NSOutlineView, a gtk::ListView over a
+    /// gtk::TreeListModel with gtk::TreeExpanders, a QML TreeView, WinUI's
+    /// TreeView). Its data is [`Prop::TreeRows`], the rows that show; its
+    /// selection, scrolling and native children are a `List`'s. The user
+    /// opens and closes rows (`RowExpanded`), and the platform says how
+    /// far it indents their content (`TreeIndent`).
+    Tree,
     /// A native tab view: pages, one shown at a time, and a strip of their
     /// titles to pick one (NSTabView, libadwaita's inline view switcher or
     /// a gtk::Notebook, a SelectorBar over its pages on WinUI, Kirigami's
@@ -262,12 +270,12 @@ impl WidgetKind {
 
     /// Scrolls its content: `ScrollTo` and `Scrolled` apply.
     pub fn scrolls(self) -> bool {
-        matches!(self, WidgetKind::ScrollView | WidgetKind::List | WidgetKind::Table)
+        matches!(self, WidgetKind::ScrollView | WidgetKind::List | WidgetKind::Table | WidgetKind::Tree)
     }
 
-    /// Has rows the platform realises: a `List` or a `Table`.
+    /// Has rows the platform realises: a `List`, a `Table` or a `Tree`.
     pub fn has_rows(self) -> bool {
-        matches!(self, WidgetKind::List | WidgetKind::Table)
+        matches!(self, WidgetKind::List | WidgetKind::Table | WidgetKind::Tree)
     }
 
     pub fn name(self) -> &'static str {
@@ -279,6 +287,7 @@ impl WidgetKind {
             WidgetKind::ScrollView => "ScrollView",
             WidgetKind::List => "List",
             WidgetKind::Table => "Table",
+            WidgetKind::Tree => "Tree",
             WidgetKind::Tabs => "Tabs",
             WidgetKind::DocumentTabs => "DocumentTabs",
             WidgetKind::Group => "Group",
@@ -789,6 +798,105 @@ impl RowMoves {
             target => Some(target),
         }
     }
+
+    /// `target` in a `Tree`, whose rows nest (`row` gives a row's place, as
+    /// `TreeRows` says): onto a row is into it, so only a row that opens
+    /// takes rows onto it, and before one is at its place among its
+    /// parent's rows. Nothing lands while the pointer is over a dragged row
+    /// (`over`, the row under it), or anywhere inside one: the rows would
+    /// stay where they are, or a folder would go inside itself.
+    pub fn tree_target(
+        &self,
+        dragged: &[RowKey],
+        over: Option<RowKey>,
+        proposed: RowDrop<RowKey>,
+        row: impl Fn(RowKey) -> Option<crate::TreeRow>,
+    ) -> Option<RowDrop<RowKey>> {
+        let inside_dragged = |key: RowKey| {
+            let mut at = Some(key);
+            while let Some(r) = at {
+                if dragged.contains(&r) {
+                    return true;
+                }
+                at = row(r).and_then(|r| r.parent);
+            }
+            false
+        };
+        if over.is_some_and(inside_dragged) {
+            return None;
+        }
+        let target = self.target(dragged, proposed)?;
+        match target {
+            RowDrop::On(r) if !row(r).is_some_and(|r| r.expandable) => None,
+            RowDrop::On(r) | RowDrop::Before(r) if inside_dragged(r) => None,
+            target => Some(target),
+        }
+    }
+
+    /// What the pointer, `x` across the tree (from its rows' left edge, if
+    /// known) and `y` of `height` down the row `key`, proposes in a `Tree`
+    /// (`row` gives a row's place, as `TreeRows` says). Over a row that
+    /// opens, its top quarter is before it, its bottom quarter after it,
+    /// and the middle onto it; over a row that doesn't, its top half is
+    /// before it and its bottom half after it.
+    ///
+    /// After an open folder is before its first row. After another row,
+    /// the levels from the row's own down to the next row's (`next`) are
+    /// all places: at the next row's level, before it; at a deeper one, the
+    /// end of the folder at that level (onto it, where a folder's last rows
+    /// put rows). `x` picks the level, as outlines pick it: the level whose
+    /// content starts nearest it, by `indent`; without it, the row's own.
+    /// Past the last top row, at the top level, the end. Backends that
+    /// propose by the pointer ask this, so every tree proposes alike, and
+    /// show an end-of-folder drop as a line under the row, at the level.
+    pub fn tree_proposal(
+        key: RowKey,
+        x: Option<f32>,
+        y: f32,
+        height: f32,
+        indent: crate::TreeIndent,
+        next: Option<RowKey>,
+        row: impl Fn(RowKey) -> Option<crate::TreeRow>,
+    ) -> RowDrop<RowKey> {
+        let Some(me) = row(key) else { return RowDrop::End };
+        let next_row = next.and_then(&row);
+        let after = || {
+            if let (Some(next), Some(n)) = (next, next_row)
+                && n.parent == Some(key)
+            {
+                return RowDrop::Before(next);
+            }
+            let shallowest = next_row.map_or(0, |n| n.depth).min(me.depth);
+            let level = match x {
+                Some(x) if indent.per_level > 0.0 => {
+                    let level = ((x - indent.start) / indent.per_level + 0.5).floor();
+                    (level.max(0.0) as u32).clamp(shallowest, me.depth)
+                }
+                _ => me.depth,
+            };
+            if let (Some(next), Some(n)) = (next, next_row)
+                && level == n.depth
+            {
+                return RowDrop::Before(next);
+            }
+            // The row's folder at that level: its own, or one it's in.
+            let mut at = me;
+            while at.depth > level {
+                match at.parent.and_then(&row) {
+                    Some(parent) => at = parent,
+                    None => break,
+                }
+            }
+            at.parent.map_or(RowDrop::End, RowDrop::On)
+        };
+        match me.expandable {
+            true if y < height / 4.0 => RowDrop::Before(key),
+            true if y > height * 3.0 / 4.0 => after(),
+            true => RowDrop::On(key),
+            false if y < height / 2.0 => RowDrop::Before(key),
+            false => after(),
+        }
+    }
 }
 
 /// Where rows dragged within a list were dropped: onto a row, before one,
@@ -814,6 +922,41 @@ impl<K> RowDrop<K> {
 /// data. Assigned by the core.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub struct RowKey(pub u64);
+
+/// A row of a `Tree` that shows, as backends get it: its place in the
+/// tree, and whether it opens.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+pub struct TreeRow {
+    pub row: RowKey,
+    /// The row it's in, `None` at the top. It comes before this row, which
+    /// it's open to show.
+    pub parent: Option<RowKey>,
+    /// 0 at the top, one more than its parent's.
+    pub depth: u32,
+    /// It opens, children or not (a folder, empty or not yet read): the
+    /// platform shows its disclosure.
+    pub expandable: bool,
+    /// It's open: its children's rows, if it has any, follow it.
+    pub expanded: bool,
+}
+
+/// How far a `Tree` indents its rows' content, as its platform draws it
+/// (`TreeIndent`): a row's content is the rows' width less `start +
+/// per_level × depth`.
+#[derive(Clone, Copy, Debug, Default, PartialEq)]
+pub struct TreeIndent {
+    /// Where a top row's content starts: the disclosure's room.
+    pub start: f32,
+    /// What each level adds.
+    pub per_level: f32,
+}
+
+impl TreeIndent {
+    /// How far the content of a row at `depth` starts.
+    pub fn at(self, depth: u32) -> f32 {
+        self.start + self.per_level * depth as f32
+    }
+}
 
 /// A cell of a `Table`: its row, and its column's index.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
@@ -1206,6 +1349,9 @@ pub enum Prop {
     ClickThrough(bool),
     /// A `List`'s rows, in order.
     Rows(Vec<RowKey>),
+    /// A `Tree`'s rows that show, in order: a row, then its open
+    /// children's rows. Children of closed rows aren't sent.
+    TreeRows(Vec<TreeRow>),
     /// How high a `List`'s rows are likely to be, for platforms that must
     /// size rows before they're shown.
     EstimatedRowHeight(f32),

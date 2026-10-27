@@ -53,6 +53,7 @@ impl Ui {
                     heights: Vec::new(),
                     scroll_offset: Point::ZERO,
                     row_width: None,
+                    tree_indent: crate::TreeIndent::default(),
                     viewport_insets: Insets::ZERO,
                     column_widths: None,
                     row_heights: BTreeMap::new(),

@@ -60,6 +60,13 @@ impl GtkBackend {
                 match action {
                     A11yAction::Select if list.mode() != SelectionMode::None => list.select(row),
                     A11yAction::Activate => list.activate(row),
+                    // What the expander's `listitem.expand` and
+                    // `listitem.collapse` do.
+                    A11yAction::Expand | A11yAction::Collapse => {
+                        if !list.expand(row, *action == A11yAction::Expand) {
+                            return Err(ActionError::Unsupported);
+                        }
+                    }
                     A11yAction::ScrollIntoView => {}
                     _ => return Err(ActionError::Unsupported),
                 }

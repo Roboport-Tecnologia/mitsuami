@@ -238,7 +238,10 @@ impl GtkBackend {
                     props.push(Prop::Columns(list.columns()));
                     props.push(Prop::Sort(list.sort()));
                 }
-                props.push(Prop::Rows(list.rows()));
+                match node.kind {
+                    WidgetKind::Tree => props.push(Prop::TreeRows(list.tree_rows())),
+                    _ => props.push(Prop::Rows(list.rows())),
+                }
                 props.extend(list.estimate().map(Prop::EstimatedRowHeight));
                 props.push(Prop::SelectionMode(list.mode()));
                 props.extend(list.style().map(Prop::ListStyle));

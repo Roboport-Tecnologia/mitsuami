@@ -74,6 +74,8 @@ struct Node {
     scroll_offset: Point,
     /// Lists only: the width the platform gives their rows, if not their own.
     row_width: Option<f32>,
+    /// Trees only: how far the platform indents their rows' content.
+    tree_indent: crate::TreeIndent,
     /// ScrollViews only: where the platform's viewport is in the frame.
     viewport_insets: Insets,
     /// Tables only: the widths the platform gives their columns' cells.

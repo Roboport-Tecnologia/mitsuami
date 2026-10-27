@@ -11,7 +11,6 @@ use objc2_app_kit::{NSApplication, NSEvent, NSEventModifierFlags, NSEventType, N
 use objc2_foundation::{NSPoint, NSString};
 
 use crate::classes::HostView;
-use crate::list::ListTable;
 use crate::services::{event_character, key_of};
 
 /// What a node takes, and where it reports it.
@@ -104,9 +103,7 @@ pub(crate) fn taken_around(view: &NSView, shortcut: Shortcut) -> bool {
         {
             return true;
         }
-        if let Some(table) = view.downcast_ref::<ListTable>()
-            && table.takes(shortcut)
-        {
+        if crate::list::takes(&view, shortcut) {
             return true;
         }
         at = unsafe { view.superview() };
@@ -124,9 +121,7 @@ pub(crate) fn take_around(view: &NSView, shortcut: Shortcut) -> bool {
         {
             return true;
         }
-        if let Some(table) = view.downcast_ref::<ListTable>()
-            && table.take(shortcut)
-        {
+        if crate::list::take(&view, shortcut) {
             return true;
         }
         at = unsafe { view.superview() };

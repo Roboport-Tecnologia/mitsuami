@@ -94,6 +94,7 @@ pub(super) fn is_control(widget: &Widget) -> bool {
             | Widget::ColorWell { .. }
             | Widget::Scroll(_)
             | Widget::List(_)
+            | Widget::Tree(_)
     )
 }
 

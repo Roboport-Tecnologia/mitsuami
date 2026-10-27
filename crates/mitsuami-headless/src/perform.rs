@@ -296,6 +296,13 @@ impl HeadlessBackend {
                     state.select(list, vec![row]);
                 }
             }
+            // A tree's row, as assistive technology opens and closes one.
+            (A11yAction::Expand | A11yAction::Collapse, WidgetKind::Container) => {
+                let row = find_prop!(state.nodes[&id].props, Row);
+                let tree = state.nodes[&id].parent.filter(|p| state.nodes[p].kind == WidgetKind::Tree);
+                let (Some(row), Some(tree)) = (row, tree) else { return Err(ActionError::Unsupported) };
+                state.expand(tree, row, *action == A11yAction::Expand).map_err(|()| ActionError::Unsupported)?;
+            }
             (A11yAction::ScrollIntoView, _) => {}
             _ => return Err(ActionError::Unsupported),
         }

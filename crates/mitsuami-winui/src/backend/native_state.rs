@@ -339,6 +339,15 @@ impl WinUiBackend {
                 props.extend(list.row_files().map(Prop::RowFiles));
                 props.extend(list.moves().map(Prop::RowMoves));
             }
+            Widget::Tree(tree) => {
+                props.push(Prop::TreeRows(tree.tree_rows()));
+                props.extend(tree.estimate().map(Prop::EstimatedRowHeight));
+                props.push(Prop::SelectionMode(tree.mode()));
+                props.extend(tree.style().map(Prop::ListStyle));
+                props.push(Prop::Selected(tree.selected()));
+                props.extend(tree.row_files().map(Prop::RowFiles));
+                props.extend(tree.moves().map(Prop::RowMoves));
+            }
             // Shown or not as XAML shows it, while the core wants it.
             Widget::Popover(popover) => props.push(Prop::PopoverShown(popover.wanted() && popover.shown())),
             Widget::Host(_) => props.extend(node.row.map(|row| match node.column {
@@ -346,7 +355,7 @@ impl WinUiBackend {
                 None => Prop::Row(row),
             })),
         }
-        if is_control(&node.widget) && !matches!(node.widget, Widget::Scroll(_) | Widget::List(_)) {
+        if is_control(&node.widget) && !matches!(node.widget, Widget::Scroll(_) | Widget::List(_) | Widget::Tree(_)) {
             props.push(Prop::Enabled(node.element.cast::<w::IControl>().ok()?.IsEnabled().ok()?));
         }
         props.extend(node.text_style.map(Prop::TextStyle));
@@ -411,6 +420,7 @@ impl WinUiBackend {
         let frame = match node.parent.and_then(|p| state.nodes.get(&p)).map(|p| &p.widget) {
             Some(Widget::List(list)) if node.column.is_some() => list.cell_rect(&node.element, frame),
             Some(Widget::List(list)) => list.row_rect(&node.element, frame),
+            Some(Widget::Tree(tree)) => tree.row_rect(&node.element, frame),
             Some(Widget::Window(parts)) if node.kind == WidgetKind::ToolbarItem => {
                 toolbar_item_frame(parts, id, &node.element).unwrap_or(frame)
             }
@@ -431,6 +441,7 @@ impl WinUiBackend {
         let known = |element: &IInspectable| by_element.id(key(element));
         let (children, scroll_offset) = match &node.widget {
             Widget::List(list) => (list.children(), Some(list.scroll_offset())),
+            Widget::Tree(tree) => (tree.children(), Some(tree.scroll_offset())),
             // Its template's scroll viewer, which it scrolls itself.
             Widget::TextArea { field, .. } => {
                 let scroll = super::fields::text_box_scroll(field);

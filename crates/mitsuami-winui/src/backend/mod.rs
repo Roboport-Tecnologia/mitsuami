@@ -393,6 +393,7 @@ enum Widget {
     GpuSurface(SurfaceHost),
     Scroll(w::ScrollViewer),
     List(crate::list::List),
+    Tree(crate::list::Tree),
     Sidebar(crate::sidebar::Sidebar),
     Tabs(crate::tabs::Tabs),
     DocumentTabs(crate::document_tabs::DocumentTabs),

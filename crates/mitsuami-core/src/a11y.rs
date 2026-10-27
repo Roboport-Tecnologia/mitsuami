@@ -69,6 +69,13 @@ pub enum Role {
     Row,
     /// A cell of a `Table`'s row, named by its text.
     Cell,
+    /// Rows that nest, opened and closed (a `Tree`): its items that show,
+    /// in order, each with its level.
+    Tree,
+    /// A row of a `Tree`, named by its text, with its `level`, `expanded`
+    /// while it's open (`None` if it never opens), and selected while it's
+    /// selected.
+    TreeItem,
     ScrollArea,
     /// Pages with a tab each, one shown (a `Tabs`): its tabs, then the
     /// shown page's content.
@@ -146,6 +153,11 @@ pub enum A11yAction {
     Increment,
     Decrement,
     ScrollIntoView,
+    /// Open a `Tree`'s item, as assistive technology does: its children
+    /// show. Only items that open.
+    Expand,
+    /// Close a `Tree`'s item: its children's rows go.
+    Collapse,
     /// Select a `List` row or a `Table` row (on a row or one of its cells;
     /// in a single-selection list, instead of the selected one; in a
     /// multiple-selection list, as the only one).
@@ -219,6 +231,10 @@ pub struct A11yNode {
     pub invalid: bool,
     /// List rows: whether the row is selected.
     pub selected: Option<bool>,
+    /// Tree items that open: whether the item is open.
+    pub expanded: Option<bool>,
+    /// Tree items: how deep, 1 at the top.
+    pub level: Option<usize>,
     pub enabled: bool,
     pub test_id: Option<String>,
     /// In window coordinates.

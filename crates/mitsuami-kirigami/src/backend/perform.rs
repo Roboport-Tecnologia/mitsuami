@@ -35,6 +35,13 @@ impl KirigamiBackend {
                 match action {
                     A11yAction::Select if list.mode() != SelectionMode::None => list.select(row),
                     A11yAction::Activate => list.activate(row),
+                    // A tree's row, as its indicator opens and closes it:
+                    // the view reports it.
+                    A11yAction::Expand | A11yAction::Collapse => {
+                        if !list.expand(row, *action == A11yAction::Expand) {
+                            return Err(ActionError::Unsupported);
+                        }
+                    }
                     A11yAction::ScrollIntoView => {}
                     _ => return Err(ActionError::Unsupported),
                 }

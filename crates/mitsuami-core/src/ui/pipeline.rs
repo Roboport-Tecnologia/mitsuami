@@ -189,7 +189,9 @@ impl Inner {
                     (WidgetKind::Checkbox | WidgetKind::Switch | WidgetKind::ToggleButton, EventValue::Bool(b)) => {
                         Prop::Checked(*b)
                     }
-                    (WidgetKind::List | WidgetKind::Table, EventValue::Rows(rows)) => Prop::Selected(rows.clone()),
+                    (WidgetKind::List | WidgetKind::Table | WidgetKind::Tree, EventValue::Rows(rows)) => {
+                        Prop::Selected(rows.clone())
+                    }
                     (WidgetKind::Table, EventValue::Sort(sort)) => Prop::Sort(Some(*sort)),
                     (
                         WidgetKind::Select
@@ -283,6 +285,21 @@ impl Inner {
             UiEvent::ColumnWidths(widths) => {
                 if let Some(node) = self.nodes.get_mut(&id) {
                     node.column_widths = Some(widths.clone());
+                }
+            }
+            UiEvent::TreeIndent(indent) => {
+                if let Some(node) = self.nodes.get_mut(&id) {
+                    node.tree_indent = *indent;
+                }
+            }
+            // The platform shows the row open or closed already; its
+            // children come with the rows the tree sends next.
+            UiEvent::RowExpanded(row, open) => {
+                if let Some(node) = self.nodes.get_mut(&id)
+                    && let Some(Prop::TreeRows(rows)) = node.props.iter_mut().find(|p| matches!(p, Prop::TreeRows(_)))
+                    && let Some(tree_row) = rows.iter_mut().find(|r| r.row == *row)
+                {
+                    tree_row.expanded = *open;
                 }
             }
             UiEvent::RowHeight(row, height) => {

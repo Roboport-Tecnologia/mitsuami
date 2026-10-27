@@ -21,6 +21,11 @@
 //! host goes in its delegate; a table's cells' hosts in their delegates,
 //! and a row is shown while any of its cells has one.
 //!
+//! A tree is a QML `TreeView` over a tree model of the shim's
+//! (`mq_tree_new`), changed a run of a parent's rows at a time, with the
+//! style's tree delegates (see [`qml::tree`](crate::qml::tree)); its
+//! delegates hold hosts as a table's cells do.
+//!
 //! The list view's signals come from Qt's event processing, never from our
 //! own `apply`; they still only touch the list's own data and emit.
 
@@ -31,11 +36,11 @@ use std::rc::Rc;
 
 use mitsuami_core::{
     ColumnData, ColumnSort, EventValue, ListStyle, NodeId, Point, Rect, RowDrop, RowKey, RowMoves, SelectionMode,
-    SortOrder, UiEvent,
+    SortOrder, TreeIndent, TreeRow, UiEvent,
 };
 
 use crate::events::Events;
-use crate::ffi::{QmlObject, RowEdit};
+use crate::ffi::{QmlObject, RowEdit, TreeEdit};
 use crate::qml;
 
 /// A cell: its row, and its column (a list's is 0).
@@ -70,26 +75,83 @@ struct Data {
     files: Option<Vec<(RowKey, PathBuf)>>,
     /// Where rows dragged within it can go (`Prop::RowMoves`).
     moves: Option<RowMoves>,
+    /// A tree: a `TreeView` over a tree model. Its model's rows under each
+    /// parent (the top rows under 0), whether each opens, each row's parent
+    /// as sent, and the indent last reported.
+    tree: bool,
+    kids: HashMap<u64, Vec<RowKey>>,
+    parents: HashMap<RowKey, Option<RowKey>>,
+    expandable: HashMap<RowKey, bool>,
+    indent: Option<TreeIndent>,
+}
+
+impl Data {
+    /// Takes a row and the rows under it out of the model's rows.
+    fn forget(&mut self, key: RowKey) {
+        self.expandable.remove(&key);
+        for kid in self.kids.remove(&key.0).unwrap_or_default() {
+            self.forget(kid);
+        }
+    }
 }
 
 impl Data {
     /// Where a drag of `rows` (keys, comma-separated, as the drag carries
     /// them) proposed at `target` (`on:KEY`, `before:KEY` or `end`, as the
-    /// view proposes) lands: `RowMoves::target`, with the rows that are
-    /// still here, in the list's order. `None`: refused.
-    fn drop_target(&self, rows: &str, target: &str) -> Option<(Vec<RowKey>, RowDrop<RowKey>)> {
+    /// view proposes) lands: `RowMoves::target` (a tree's `tree_target`:
+    /// only folders take rows onto them, nothing lands while the pointer is
+    /// over a dragged row, `over`, and a folder doesn't go inside itself),
+    /// with the rows that are still here, in the list's order. `None`:
+    /// refused.
+    fn drop_target(&self, rows: &str, target: &str, over: &str) -> Option<(Vec<RowKey>, RowDrop<RowKey>)> {
         let moves = self.moves?;
         let mut rows: Vec<RowKey> =
             rows.split(',').filter_map(parse).filter(|row| self.index.contains_key(row)).collect();
         rows.sort_by_key(|row| self.index[row]);
+        let known = |key: &str| parse(key).filter(|k| self.index.contains_key(k));
         let proposed = match target.split_once(':') {
-            Some(("on", key)) => RowDrop::On(parse(key).filter(|k| self.index.contains_key(k))?),
-            Some(("before", key)) => RowDrop::Before(parse(key).filter(|k| self.index.contains_key(k))?),
+            Some(("on", key)) => RowDrop::On(known(key)?),
+            Some(("before", key)) => RowDrop::Before(known(key)?),
+            // A tree's row under the pointer and where in it, across the
+            // row and down it (`at:KEY:X:Y:HEIGHT`), proposed as every
+            // tree's (`RowMoves::tree_proposal`).
+            Some(("at", at)) => {
+                let mut parts = at.split(':');
+                let key = known(parts.next()?)?;
+                let x: f32 = parts.next()?.parse().ok()?;
+                let y: f32 = parts.next()?.parse().ok()?;
+                let height: f32 = parts.next()?.parse().ok()?;
+                let next = self.rows.get(self.index[&key] + 1).copied();
+                let x = self.indent.map(|_| x);
+                RowMoves::tree_proposal(key, x, y, height, self.indent.unwrap_or_default(), next, |r| self.tree_row(r))
+            }
             _ if target == "end" => RowDrop::End,
             _ => return None,
         };
-        let to = moves.target(&rows, proposed)?;
+        let to = match self.tree {
+            true => {
+                let over = parse(over).filter(|k| self.index.contains_key(k));
+                moves.tree_target(&rows, over, proposed, |r| self.tree_row(r))?
+            }
+            false => moves.target(&rows, proposed)?,
+        };
         (!rows.is_empty()).then_some((rows, to))
+    }
+}
+
+impl Data {
+    /// A tree's row as sent: its parent, its depth (its parents counted),
+    /// and whether it opens.
+    fn tree_row(&self, row: RowKey) -> Option<TreeRow> {
+        let parent = self.parents.get(&row).copied()?;
+        let mut depth = 0;
+        let mut above = parent;
+        while let Some(p) = above {
+            depth += 1;
+            above = self.parents.get(&p).copied().flatten();
+        }
+        let expandable = self.expandable.get(&row).copied().unwrap_or(false);
+        Some(TreeRow { row, parent, depth, expandable, expanded: false })
     }
 }
 
@@ -240,12 +302,13 @@ impl List {
             // while it's over it, and reports the drop (see `qml::list`).
             let data_ = data.clone();
             view.connect("mitsuamiAskDrop()", move || {
-                let answer = data_.borrow().drop_target(&view.str("mitsuamiAskRows"), &view.str("mitsuamiAskTarget"));
+                let answer =
+                    data_.borrow().drop_target(&view.str("mitsuamiAskRows"), &view.str("mitsuamiAskTarget"), "");
                 view.set_str("mitsuamiDropAnswer", &answer.map(|(_, to)| target_text(to)).unwrap_or_default());
             });
             let (data, events) = (data.clone(), events.clone());
             view.connect("mitsuamiDropped()", move || {
-                let moved = data.borrow().drop_target(&view.str("mitsuamiAskRows"), &view.str("mitsuamiAskTarget"));
+                let moved = data.borrow().drop_target(&view.str("mitsuamiAskRows"), &view.str("mitsuamiAskTarget"), "");
                 if let Some((rows, to)) = moved {
                     events.emit(id, UiEvent::RowsMoved { rows, to });
                 }
@@ -264,6 +327,228 @@ impl List {
             view.connect(signal, move || events.emit(id, UiEvent::Scrolled(scroll_offset(view))));
         }
         List { root, view, model, id, events, data }
+    }
+
+    /// A tree: a `TreeView` over a tree model (see [`qml::tree`]).
+    pub(crate) fn new_tree(id: NodeId, events: Events) -> List {
+        let root = QmlObject::load(&qml::tree());
+        let view = root.child("mitsuamiTreeView").expect("trees have a tree view");
+        let model = view.tree_model();
+        view.set_object("model", Some(model));
+        let data = Rc::new(RefCell::new(Data { tree: true, ..Data::default() }));
+        {
+            let (data, events) = (data.clone(), events.clone());
+            view.connect("mitsuamiRowsChanged()", move || rows_changed(view, &data, &events, id));
+        }
+        {
+            let events = events.clone();
+            view.connect("mitsuamiSelectionChanged()", move || {
+                events.emit(id, UiEvent::Changed(EventValue::Rows(selected(view))));
+            });
+        }
+        {
+            let events = events.clone();
+            view.connect("mitsuamiActivate()", move || {
+                if let Some(key) = parse(&view.str("mitsuamiActivated")) {
+                    events.emit(id, UiEvent::RowActivated(key));
+                }
+            });
+        }
+        {
+            // The view's own opening and closing: its indicator, its keys.
+            let events = events.clone();
+            view.connect("mitsuamiToggle()", move || {
+                if let Some(key) = parse(&view.str("mitsuamiToggled")) {
+                    events.emit(id, UiEvent::RowExpanded(key, view.bool("mitsuamiToggledOpen")));
+                }
+            });
+        }
+        {
+            // Where a delegate put its content: the indent, and the rows'
+            // width past it, as the style draws them.
+            let (data, events) = (data.clone(), events.clone());
+            view.connect("mitsuamiIndented()", move || {
+                let text = view.str("mitsuamiIndentText");
+                let numbers: Vec<f32> = text.split(',').filter_map(|n| n.parse().ok()).collect();
+                let [start, per_level, end] = numbers[..] else { return };
+                let indent = TreeIndent { start, per_level };
+                let mut d = data.borrow_mut();
+                let indented = d.indent.replace(indent) != Some(indent);
+                let wider = d.row_width.replace(end as f64) != Some(end as f64);
+                drop(d);
+                if wider {
+                    events.emit(id, UiEvent::RowWidth(end));
+                }
+                if indented {
+                    events.emit(id, UiEvent::TreeIndent(indent));
+                }
+            });
+        }
+        {
+            // Its own rows dragged within it, as a list's: QML asks where
+            // a drag would land while it's over it, and reports the drop
+            // (see `qml::tree`).
+            let (data_, data, events) = (data.clone(), data.clone(), events.clone());
+            view.connect("mitsuamiAskDrop()", move || {
+                let answer = data_.borrow().drop_target(
+                    &view.str("mitsuamiAskRows"),
+                    &view.str("mitsuamiAskTarget"),
+                    &view.str("mitsuamiAskOver"),
+                );
+                view.set_str("mitsuamiDropAnswer", &answer.map(|(_, to)| target_text(to)).unwrap_or_default());
+            });
+            view.connect("mitsuamiDropped()", move || {
+                let moved = data.borrow().drop_target(
+                    &view.str("mitsuamiAskRows"),
+                    &view.str("mitsuamiAskTarget"),
+                    &view.str("mitsuamiAskOver"),
+                );
+                if let Some((rows, to)) = moved {
+                    events.emit(id, UiEvent::RowsMoved { rows, to });
+                }
+            });
+        }
+        for signal in ["contentXChanged()", "contentYChanged()", "originXChanged()", "originYChanged()"] {
+            let events = events.clone();
+            view.connect(signal, move || events.emit(id, UiEvent::Scrolled(scroll_offset(view))));
+        }
+        List { root, view, model, id, events, data }
+    }
+
+    /// A tree's rows that show. The model's rows under each parent become
+    /// the rows sent, as runs of rows that went, came or moved, so the view
+    /// keeps its delegates and the open rows that stay: first the rows that
+    /// don't stay where they were (gone, under another parent, or no longer
+    /// opening, or a closed row's children) go, with the rows under them;
+    /// then, from the top, each parent's rows come or move into place. The
+    /// view then opens and closes rows from the top as sent, which shows or
+    /// drops their children's rows, without reporting it.
+    pub(crate) fn set_tree_rows(&self, rows: Vec<TreeRow>) {
+        let selected = self.selected();
+        let mut kids: HashMap<u64, Vec<RowKey>> = HashMap::new();
+        kids.insert(0, Vec::new());
+        let mut parent: HashMap<RowKey, u64> = HashMap::new();
+        for row in &rows {
+            let p = row.parent.map_or(0, |p| p.0);
+            kids.entry(p).or_default().push(row.row);
+            parent.insert(row.row, p);
+        }
+        let opens: HashMap<RowKey, bool> = rows.iter().map(|r| (r.row, r.expandable)).collect();
+        let mut data = self.data.borrow_mut();
+        // The rows that go, from each parent still in the model down.
+        let mut parents = vec![0u64];
+        while let Some(p) = parents.pop() {
+            let mut now = data.kids.get(&p).cloned().unwrap_or_default();
+            let stays =
+                |key: &RowKey, data: &Data| parent.get(key) == Some(&p) && opens.get(key) == data.expandable.get(key);
+            let mut end = now.len();
+            while end > 0 {
+                if stays(&now[end - 1], &data) {
+                    end -= 1;
+                    continue;
+                }
+                let mut at = end - 1;
+                while at > 0 && !stays(&now[at - 1], &data) {
+                    at -= 1;
+                }
+                self.model.edit_tree(TreeEdit::Remove { parent: p, at, count: end - at });
+                for key in now.drain(at..end) {
+                    data.forget(key);
+                }
+                end = at;
+            }
+            parents.extend(now.iter().map(|k| k.0));
+            data.kids.insert(p, now);
+        }
+        // The rows that come or move, from the top: a row's parent is in
+        // the model by the time its rows come.
+        let order = std::iter::once(0).chain(rows.iter().filter(|r| r.expanded).map(|r| r.row.0));
+        for p in order {
+            let old = data.kids.get(&p).cloned().unwrap_or_default();
+            let new = kids.remove(&p).unwrap_or_default();
+            let insert = |data: &mut Data, at: usize, keys: &[RowKey]| {
+                let raw: Vec<u64> = keys.iter().map(|k| k.0).collect();
+                let flags: Vec<u8> = keys.iter().map(|k| opens.get(k).copied().unwrap_or(false) as u8).collect();
+                self.model.edit_tree(TreeEdit::Insert { parent: p, at, keys: &raw, expandable: &flags });
+                for key in keys {
+                    data.expandable.insert(*key, opens.get(key).copied().unwrap_or(false));
+                    data.kids.insert(key.0, Vec::new());
+                }
+            };
+            match edits(&old, &new) {
+                Some(edits) => {
+                    for edit in edits {
+                        match edit {
+                            Edit::Insert { at, count } => insert(&mut data, at, &new[at..at + count]),
+                            Edit::Remove { at, count } => {
+                                self.model.edit_tree(TreeEdit::Remove { parent: p, at, count });
+                                for key in &old[at..at + count] {
+                                    data.forget(*key);
+                                }
+                            }
+                            Edit::Move { from, count, to } => {
+                                self.model.edit_tree(TreeEdit::Move { parent: p, from, count, to })
+                            }
+                        }
+                    }
+                }
+                // Too many: all of them again.
+                None => {
+                    self.model.edit_tree(TreeEdit::Remove { parent: p, at: 0, count: old.len() });
+                    for key in &old {
+                        data.forget(*key);
+                    }
+                    insert(&mut data, 0, &new);
+                }
+            }
+            data.kids.insert(p, new);
+        }
+        data.index = rows.iter().enumerate().map(|(i, r)| (r.row, i)).collect();
+        data.rows = rows.iter().map(|r| r.row).collect();
+        data.parents = rows.iter().map(|r| (r.row, r.parent)).collect();
+        drop(data);
+        let keys: Vec<String> = rows.iter().map(|r| r.row.0.to_string()).collect();
+        let open: Vec<String> = rows.iter().filter(|r| r.expanded).map(|r| r.row.0.to_string()).collect();
+        self.view.set_str_list("mitsuamiKeys", &keys);
+        self.view.set_str_list("mitsuamiOpen", &open);
+        self.view.invoke("mitsuamiSync");
+        let kept: Vec<RowKey> = {
+            let data = self.data.borrow();
+            selected.iter().copied().filter(|k| data.index.contains_key(k)).collect()
+        };
+        self.set_selected(&kept);
+        if kept != selected {
+            self.events.emit_always(self.id, UiEvent::Changed(EventValue::Rows(kept)));
+        }
+    }
+
+    /// Opens or closes a tree's row as the user does: the view reports it.
+    /// False for a row that doesn't open.
+    pub(crate) fn expand(&self, key: RowKey, open: bool) -> bool {
+        self.view.set_str("mitsuamiExpandKey", &key.0.to_string());
+        self.view.set_bool("mitsuamiExpandOpen", open);
+        self.view.invoke("mitsuamiExpand");
+        self.view.bool("mitsuamiExpandDone")
+    }
+
+    /// A tree's rows as its view shows them.
+    pub(crate) fn tree_rows(&self) -> Vec<TreeRow> {
+        self.view.invoke("mitsuamiReadRows");
+        let text = self.view.str("mitsuamiRowsText");
+        text.split(',')
+            .filter_map(|row| {
+                let mut parts = row.split(':');
+                let (key, parent, depth, opens, open) =
+                    (parts.next()?, parts.next()?, parts.next()?, parts.next()?, parts.next()?);
+                Some(TreeRow {
+                    row: parse(key)?,
+                    parent: parse(parent),
+                    depth: depth.parse().ok()?,
+                    expandable: opens == "1",
+                    expanded: open == "1",
+                })
+            })
+            .collect()
     }
 
     /// New rows: the model takes the rows that came, went and moved, as a
@@ -336,7 +621,12 @@ impl List {
     /// to report: for tests, which can't start a drag.
     pub(crate) fn move_rows(&self, rows: &[RowKey], to: RowDrop<RowKey>) -> Option<(Vec<RowKey>, RowDrop<RowKey>)> {
         let keys: Vec<String> = rows.iter().map(|row| row.0.to_string()).collect();
-        self.data.borrow().drop_target(&keys.join(","), &target_text(to))
+        // The pointer is over the row dropped onto or before, as a drag's.
+        let over = match to {
+            RowDrop::On(row) | RowDrop::Before(row) => row.0.to_string(),
+            RowDrop::End => String::new(),
+        };
+        self.data.borrow().drop_target(&keys.join(","), &target_text(to), &over)
     }
 
     /// The rows' files, which the view's delegates drag (see `qml::list`).
@@ -401,8 +691,9 @@ impl List {
         let keys: Vec<String> = keys.iter().map(|k| k.0.to_string()).collect();
         self.view.set_str_list("mitsuamiSelected", &keys);
         let current = current.map_or(-1, |i| i as i32);
-        // A table's current row is ours; a list's is the view's.
-        if self.data.borrow().table {
+        // A table's and a tree's current row is ours; a list's is the
+        // view's.
+        if self.data.borrow().table || self.data.borrow().tree {
             self.view.set_int("mitsuamiCurrent", current);
             return;
         }
@@ -527,6 +818,15 @@ impl List {
     /// table a cell's host, in its content below the header (in the
     /// table's coordinates, as scrolled back to the start).
     pub(crate) fn row_rect(&self, host: QmlObject, size: Rect) -> Rect {
+        // A tree's host is in its delegate's content, in by its indent.
+        if self.data.borrow().tree {
+            if delegate_holding(host).is_none_or(|d| d.str("mitsuamiKey").is_empty()) {
+                return size;
+            }
+            let (at, origin, offset) =
+                (host.map_to_scene(Point::ZERO), self.view.map_to_scene(Point::ZERO), scroll_offset(self.view));
+            return Rect::new(at.x - origin.x + offset.x, at.y - origin.y + offset.y, size.width(), size.height());
+        }
         if self.data.borrow().table {
             if delegate_holding(host).is_none_or(|d| d.str("mitsuamiKey").is_empty()) {
                 return size;

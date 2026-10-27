@@ -207,6 +207,7 @@ impl WinUiBackend {
             | Widget::Popover(_)
             | Widget::Scroll(_)
             | Widget::List(_)
+            | Widget::Tree(_)
             | Widget::Sidebar(_) => Size::ZERO,
         };
         Size::new(request.known_width.unwrap_or(natural.width), request.known_height.unwrap_or(natural.height))

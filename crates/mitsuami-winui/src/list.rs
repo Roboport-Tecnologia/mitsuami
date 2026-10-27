@@ -33,6 +33,13 @@ use crate::backend::{Events, boxed};
 use crate::bindings as w;
 use crate::later;
 
+mod edge;
+mod mark;
+mod track;
+mod tree;
+
+pub(crate) use tree::Tree;
+
 type R<T> = windows_core::Result<T>;
 
 /// The data format rows dragged within their list carry: a marker only,
@@ -180,6 +187,8 @@ struct Data {
     /// realised in.
     /// The row each container was last realised for.
     container_rows: HashMap<usize, RowKey>,
+    /// The names given the containers (`name_rows`), by container.
+    names: HashMap<usize, String>,
     cells: HashMap<RowKey, w::Canvas>,
     bound: HashMap<RowKey, usize>,
     /// The rows reported shown, and the selection last reported or set.
@@ -208,6 +217,12 @@ struct Data {
     file_of: HashMap<RowKey, PathBuf>,
     /// Where rows dragged within it can go (`Prop::RowMoves`).
     moves: Option<RowMoves>,
+    /// Scrolls while its own rows are dragged near an edge.
+    edge: edge::EdgeScroll,
+    /// Shows where they'd land.
+    mark: mark::DropMark,
+    /// Follows the pointer between `DragOver`s.
+    track: track::Tracker,
 }
 
 impl Data {
@@ -422,8 +437,8 @@ fn drop_target(d: &Data, dragged: &[RowKey], proposed: RowDrop<RowKey>) -> Optio
 /// pointer in its middle half, before it in its top quarter, before the
 /// next row in its bottom quarter (at the end past the last row), and at
 /// the end where no row is.
-fn proposed(view: &w::ListView, d: &Data, args: &w::DragEventArgs) -> RowDrop<RowKey> {
-    let Some((row, y, height)) = row_under(view, args) else { return RowDrop::End };
+fn proposed(view: &w::ListView, d: &Data, at: w::Point, key: ItemKey) -> RowDrop<RowKey> {
+    let Some((row, y, height)) = row_under(view, at, key) else { return RowDrop::End };
     let Some(index) = d.index.get(&row).copied() else { return RowDrop::End };
     if height <= 0.0 || (y >= height / 4.0 && y <= height * 3.0 / 4.0) {
         RowDrop::On(row)
@@ -434,26 +449,128 @@ fn proposed(view: &w::ListView, d: &Data, args: &w::DragEventArgs) -> RowDrop<Ro
     }
 }
 
-/// The row under a drag's pointer, the pointer's height in it and the
-/// row's height. A drag's `OriginalSource` is the list view itself, not
-/// the row under it, so the rows XAML has made are each asked where the
-/// pointer is.
-fn row_under(view: &w::ListView, args: &w::DragEventArgs) -> Option<(RowKey, f64, f64)> {
+/// The row under a drag's pointer, at `at` in the list, the pointer's
+/// height in it and the row's height. A drag's `OriginalSource` is the
+/// list view itself, not the row under it, so the rows XAML has made are
+/// each asked where they are. `key` reads an item's row: a list's item,
+/// or a tree's node.
+fn row_under(view: &w::ListView, at: w::Point, key: ItemKey) -> Option<(RowKey, f64, f64)> {
+    container_under(view, at, key).map(|(row, _, y, height)| (row, y, height))
+}
+
+/// The container of the row under a drag's pointer, at `at` in the list,
+/// with its row, and the pointer's height in it and its own.
+fn container_under(view: &w::ListView, at: w::Point, key: ItemKey) -> Option<(RowKey, w::UIElement, f64, f64)> {
+    let list = view.cast::<w::UIElement>().ok()?;
     let panel = view.cast::<w::IItemsControl>().ok()?.ItemsPanelRoot().ok()?;
     let mapping = view.cast::<w::IItemContainerMapping>().ok()?;
     let children = panel.cast::<w::IPanel>().ok()?.Children().ok()?;
     for container in (0..children.Size().unwrap_or(0)).filter_map(|i| children.GetAt(i).ok()) {
         let height = container.cast::<w::IFrameworkElement>().and_then(|e| e.ActualHeight()).unwrap_or(0.0);
-        let Ok(at) = args.GetPosition(&container) else { continue };
-        let y = f64::from(at.y);
+        let top = container.TransformToVisual(&list).and_then(|t| t.TransformPoint(w::Point { x: 0.0, y: 0.0 }));
+        let Ok(top) = top else { continue };
+        let y = f64::from(at.y - top.y);
         if (0.0..height).contains(&y)
             && let Ok(item) = mapping.ItemFromContainer(&container.cast::<w::DependencyObject>().ok()?)
-            && let Some(row) = key_of(&item)
+            && let Some(row) = key(&item)
         {
-            return Some((row, y, height));
+            return Some((row, container, y, height));
         }
     }
     None
+}
+
+/// Where a drop at `to` shows over the list (`mark`), the pointer over
+/// the row in `under`, or below every row. A line starts at `line_x`:
+/// a list's edge, the drop's level in a tree.
+fn mark_for(
+    view: &w::ListView,
+    under: Option<(RowKey, w::UIElement, f64, f64)>,
+    to: &RowDrop<RowKey>,
+    line_x: f64,
+) -> Option<mark::Mark> {
+    let list = view.cast::<w::UIElement>().ok()?;
+    let rect = |container: &w::UIElement| -> Option<(f64, f64, f64, f64)> {
+        let at = container.TransformToVisual(&list).ok()?.TransformPoint(w::Point { x: 0.0, y: 0.0 }).ok()?;
+        let fe = container.cast::<w::IFrameworkElement>().ok()?;
+        Some((f64::from(at.x), f64::from(at.y), fe.ActualWidth().ok()?, fe.ActualHeight().ok()?))
+    };
+    let Some((row, container, _, _)) = under else {
+        // Below the rows: under the last one there is.
+        let panel = view.cast::<w::IItemsControl>().ok()?.ItemsPanelRoot().ok()?;
+        let children = panel.cast::<w::IPanel>().ok()?.Children().ok()?;
+        let bottom = (0..children.Size().unwrap_or(0))
+            .filter_map(|i| children.GetAt(i).ok())
+            .filter_map(|c| rect(&c))
+            .map(|(_, y, _, height)| y + height)
+            .fold(0.0, f64::max);
+        return Some(mark::Mark::Line { x: line_x, y: bottom });
+    };
+    let (x, top, width, height) = rect(&container)?;
+    Some(match to {
+        // Only the middle of the row under the pointer drops onto it.
+        RowDrop::On(r) if *r == row => mark::Mark::Ring { x, y: top, width, height },
+        RowDrop::Before(r) if *r == row => mark::Mark::Line { x: line_x, y: top },
+        // The next row, or the end of a folder or of the rows: under it.
+        RowDrop::On(_) | RowDrop::Before(_) | RowDrop::End => mark::Mark::Line { x: line_x, y: top + height },
+    })
+}
+
+/// Where the list's own rows dragged to `at` in it would land: the mark
+/// shows it, and the list scrolls near its edges.
+fn follow_drag(view: &w::ListView, data: &Rc<RefCell<Data>>, id: NodeId, at: w::Point) {
+    let Some(dragged) = dragging(id) else { return };
+    let Ok(list) = view.cast::<w::UIElement>() else { return };
+    let (target, edge, drop_mark) = {
+        let d = data.borrow();
+        let target = within(&list, at).then(|| drop_target(&d, &dragged, proposed(view, &d, at, key_of))).flatten();
+        (target, d.edge.clone(), d.mark.clone())
+    };
+    if let Some(scroll) = view.cast().ok().and_then(|v| find_scroll_viewer(&v)) {
+        edge.drag_at(&scroll, &list, at);
+    }
+    match target.and_then(|(_, to)| mark_for(view, container_under(view, at, key_of), &to, 0.0)) {
+        Some(shown) => drop_mark.show(&list, shown),
+        None => _ = drop_mark.hide(),
+    }
+}
+
+/// A drag of a list's or tree's own rows started, through `scroll`: XAML's
+/// edge scrolling is off for it (`edge`), and the pointer is followed
+/// (`track`).
+fn start_following(data: &Rc<RefCell<Data>>, scroll: &w::IScrollViewer, follow: &track::Follow) {
+    let (edge, track) = {
+        let d = data.borrow();
+        if d.moves.is_none() {
+            return;
+        }
+        (d.edge.clone(), d.track.clone())
+    };
+    edge.hold(scroll);
+    track.start(follow.clone());
+}
+
+/// A drag of the list's own rows dropped or ended.
+fn end_drag(data: &Rc<RefCell<Data>>) {
+    let (edge, drop_mark, track) = {
+        let d = data.borrow();
+        (d.edge.clone(), d.mark.clone(), d.track.clone())
+    };
+    track.stop();
+    edge.release();
+    _ = drop_mark.hide();
+}
+
+/// The rows of list `id` being dragged, if they are.
+fn dragging(id: NodeId) -> Option<Vec<RowKey>> {
+    DRAGGED.with(|d| d.borrow().clone()).filter(|(list, _)| *list == id).map(|(_, rows)| rows)
+}
+
+/// Whether `at` is inside `element`.
+fn within(element: &w::UIElement, at: w::Point) -> bool {
+    let Ok(fe) = element.cast::<w::IFrameworkElement>() else { return false };
+    let (width, height) = (fe.ActualWidth().unwrap_or(0.0), fe.ActualHeight().unwrap_or(0.0));
+    (0.0..width).contains(&f64::from(at.x)) && (0.0..height).contains(&f64::from(at.y))
 }
 
 /// Whether a drag over the list is its own rows', as `DragItemsStarting`
@@ -462,6 +579,40 @@ fn own_drag(args: &w::DragEventArgs, id: NodeId) -> Option<Vec<RowKey>> {
     let marked = args.DataView().and_then(|v| v.Contains(ROW_FORMAT)).unwrap_or(false);
     let (list, rows) = DRAGGED.with(|d| d.borrow().clone())?;
     (marked && list == id).then_some(rows)
+}
+
+/// Fills a drag of `rows` out of list `id`'s (or tree's) item drag: a
+/// marker for rows that move within it (`Prop::RowMoves`), kept here, and
+/// the rows' files (`Prop::RowFiles`) as a copy. False when it carries
+/// neither, and the drag is cancelled.
+fn start_drag(d: &Data, id: NodeId, rows: Vec<RowKey>, package: &w::DataPackage) -> bool {
+    let (paths, moves) = (files_of(d, &rows), d.moves.is_some());
+    if paths.is_empty() && !moves {
+        return false;
+    }
+    let mut operation = w::DataPackageOperation::None;
+    if moves {
+        // A tree takes its own rows as a copy (`Tree`'s `DragOver`); no
+        // other app takes the marker.
+        operation |= w::DataPackageOperation::Move | w::DataPackageOperation::Copy;
+        DRAGGED.with(|d| *d.borrow_mut() = Some((id, rows)));
+        // Asked for by no one: it only marks the drag as the list's.
+        let marker = w::DataProviderHandler::new(|_| {});
+        _ = package.SetDataProvider(ROW_FORMAT, &marker);
+    }
+    if paths.is_empty() {
+        _ = package.SetRequestedOperation(operation);
+        return true;
+    }
+    _ = package.SetRequestedOperation(operation | w::DataPackageOperation::Copy);
+    let Ok(format) = w::StandardDataFormats::StorageItems() else { return true };
+    let provider = w::DataProviderHandler::new(move |request| {
+        if let Some(request) = request.as_ref() {
+            provide_files(request, paths.clone());
+        }
+    });
+    _ = package.SetDataProvider(&format.to_string(), &provider);
+    true
 }
 
 fn files_of(d: &Data, rows: &[RowKey]) -> Vec<PathBuf> {
@@ -505,8 +656,55 @@ fn identity(object: &impl Interface) -> usize {
     object.cast::<IUnknown>().map_or(0, |u| u.as_raw() as usize)
 }
 
+/// Reads the row of an item of a list view.
+type ItemKey = fn(&IInspectable) -> Option<RowKey>;
+
 fn key_of(item: &IInspectable) -> Option<RowKey> {
     item.cast::<w::IPropertyValue>().ok()?.GetString().ok()?.to_string().parse().ok().map(RowKey)
+}
+
+/// A container realised for a row (`key`, its item's), or put in the
+/// recycle queue: the row's hosts go in its cell, or leave it.
+fn container_changed(
+    data: &Rc<RefCell<Data>>,
+    events: &Events,
+    id: NodeId,
+    args: &w::IContainerContentChangingEventArgs,
+    key: Option<RowKey>,
+) {
+    let (Ok(container), Some(key)) = (args.ItemContainer(), key) else { return };
+    let recycled = args.InRecycleQueue().unwrap_or(false);
+    let mut d = data.borrow_mut();
+    let Some(cell) = container
+        .cast::<w::IContentControl>()
+        .and_then(|c| c.ContentTemplateRoot())
+        .ok()
+        .and_then(|root| root.cast::<w::Canvas>().ok())
+    else {
+        return;
+    };
+    // XAML may reuse a container without recycling it first: whatever row
+    // it showed goes, either way.
+    let container_key = identity(&container);
+    if let Some(old) = d.container_rows.remove(&container_key)
+        && (recycled || old != key)
+    {
+        release(&mut d, old, &cell);
+    }
+    if !recycled {
+        let hosts: Vec<w::UIElement> = row_hosts(&d, key).cloned().collect();
+        for host in hosts {
+            if let Some(old) = d.cells.get(&key).filter(|c| **c != cell) {
+                take_out(old, &host);
+            }
+            put_in(&cell, &host);
+        }
+        d.cells.insert(key, cell);
+        place_row(&d, key);
+        d.container_rows.insert(container_key, key);
+        *d.bound.entry(key).or_default() += 1;
+    }
+    queue_report(data, &mut d, events, id);
 }
 
 /// Removes an element from the panel it's in, if it's in `panel`.
@@ -548,46 +746,10 @@ impl List {
         revokers.push(view.cast::<w::IListViewBase>()?.ContainerContentChanging({
             let (data, events) = (data.clone(), events.clone());
             move |_, args| {
-                let Some(args) = args.as_ref().and_then(|a| a.cast::<w::IContainerContentChangingEventArgs>().ok())
-                else {
-                    return;
-                };
-                let (Ok(container), Some(key)) = (args.ItemContainer(), args.Item().ok().as_ref().and_then(key_of))
-                else {
-                    return;
-                };
-                let recycled = args.InRecycleQueue().unwrap_or(false);
-                let mut d = data.borrow_mut();
-                let Some(cell) = container
-                    .cast::<w::IContentControl>()
-                    .and_then(|c| c.ContentTemplateRoot())
-                    .ok()
-                    .and_then(|root| root.cast::<w::Canvas>().ok())
-                else {
-                    return;
-                };
-                // XAML may reuse a container without recycling it first:
-                // whatever row it showed goes, either way.
-                let container_key = identity(&container);
-                if let Some(old) = d.container_rows.remove(&container_key)
-                    && (recycled || old != key)
-                {
-                    release(&mut d, old, &cell);
+                if let Some(args) = args.as_ref().and_then(|a| a.cast::<w::IContainerContentChangingEventArgs>().ok()) {
+                    let key = args.Item().ok().as_ref().and_then(key_of);
+                    container_changed(&data, &events, id, &args, key);
                 }
-                if !recycled {
-                    let hosts: Vec<w::UIElement> = row_hosts(&d, key).cloned().collect();
-                    for host in hosts {
-                        if let Some(old) = d.cells.get(&key).filter(|c| **c != cell) {
-                            take_out(old, &host);
-                        }
-                        put_in(&cell, &host);
-                    }
-                    d.cells.insert(key, cell);
-                    place_row(&d, key);
-                    d.container_rows.insert(container_key, key);
-                    *d.bound.entry(key).or_default() += 1;
-                }
-                queue_report(&data, &mut d, &events, id);
             }
         })?);
 
@@ -622,59 +784,68 @@ impl List {
         // Rows with files (`Prop::RowFiles`) drag them out, as a copy, and
         // rows that move within the list (`Prop::RowMoves`) carry a marker
         // for it; dragging is turned on once either is there.
+        // Where its own rows dragged over it would land, followed as the
+        // pointer moves (`track`): the mark, and the edge scrolling.
+        let follow: track::Follow = Rc::new({
+            let (data, view) = (data.clone(), view.clone());
+            move |at| follow_drag(&view, &data, id, at)
+        });
         revokers.push(view.cast::<w::IListViewBase>()?.DragItemsStarting({
-            let data = data.clone();
+            let (data, view) = (data.clone(), view.clone());
             move |_, args| {
                 let Some(args) = args.as_ref() else { return };
                 let rows: Vec<RowKey> = args
                     .Items()
                     .map(|items| (&items).into_iter().filter_map(|i| key_of(&i)).collect())
                     .unwrap_or_default();
-                let (paths, moves) = {
-                    let d = data.borrow();
-                    (files_of(&d, &rows), d.moves.is_some())
-                };
                 let Ok(package) = args.Data() else { return };
-                if paths.is_empty() && !moves {
+                if !start_drag(&data.borrow(), id, rows, &package) {
                     _ = args.SetCancel(true);
                     return;
                 }
-                let mut operation = w::DataPackageOperation::None;
-                if moves {
-                    operation |= w::DataPackageOperation::Move;
-                    DRAGGED.with(|d| *d.borrow_mut() = Some((id, rows.clone())));
-                    // Asked for by no one: it only marks the drag as the list's.
-                    let marker = w::DataProviderHandler::new(|_| {});
-                    _ = package.SetDataProvider(ROW_FORMAT, &marker);
+                if let Some(scroll) = view.cast().ok().and_then(|v| find_scroll_viewer(&v)) {
+                    start_following(&data, &scroll, &follow);
                 }
-                if paths.is_empty() {
-                    _ = package.SetRequestedOperation(operation);
-                    return;
-                }
-                _ = package.SetRequestedOperation(operation | w::DataPackageOperation::Copy);
-                let Ok(format) = w::StandardDataFormats::StorageItems() else { return };
-                let provider = w::DataProviderHandler::new(move |request| {
-                    if let Some(request) = request.as_ref() {
-                        provide_files(request, paths.clone());
-                    }
-                });
-                _ = package.SetDataProvider(&format.to_string(), &provider);
             }
         })?);
-        // Its own rows dragged over it (`Prop::RowMoves`): taken as a move
-        // where `RowMoves::target` puts them, else refused.
+        // Its own rows dragged over it (`Prop::RowMoves`): they go where
+        // `RowMoves::target` puts them. Always taken as a move: XAML raises
+        // nothing where the pointer comes to rest, so a refusal would show
+        // where it had been; the mark shows where they land, and a drop
+        // where they land nowhere does nothing. Handled, XAML's own edge
+        // scrolling is off too.
         revokers.push(view.cast::<w::IUIElement>()?.DragOver({
             let (data, view) = (data.clone(), view.clone());
             move |_, args| {
                 let Some(args) = args.as_ref() else { return };
-                let Some(dragged) = own_drag(args, id) else { return };
-                let d = data.borrow();
-                let target = drop_target(&d, &dragged, proposed(&view, &d, args));
-                let operation =
-                    if target.is_some() { w::DataPackageOperation::Move } else { w::DataPackageOperation::None };
-                _ = args.SetAcceptedOperation(operation);
+                if own_drag(args, id).is_none() {
+                    return;
+                }
+                let Ok(list) = view.cast::<w::UIElement>() else { return };
+                let Ok(at) = args.GetPosition(&list) else { return };
+                _ = args.SetAcceptedOperation(w::DataPackageOperation::Move);
                 _ = args.SetHandled(true);
+                let track = data.borrow().track.clone();
+                track.anchor(&list, at);
+                follow_drag(&view, &data, id, at);
             }
+        })?);
+        revokers.push(view.cast::<w::IUIElement>()?.DragLeave({
+            let (data, view) = (data.clone(), view.clone());
+            move |_, args| {
+                if let (Some(args), Ok(list)) = (args.as_ref(), view.cast::<w::UIElement>())
+                    && mark::still_over(&list, args)
+                {
+                    return;
+                }
+                let d = data.borrow();
+                d.edge.stop();
+                _ = d.mark.hide();
+            }
+        })?);
+        revokers.push(view.cast::<w::IListViewBase>()?.DragItemsCompleted({
+            let data = data.clone();
+            move |_, _| end_drag(&data)
         })?);
         revokers.push(view.cast::<w::IUIElement>()?.Drop({
             let (data, events, view) = (data.clone(), events.clone(), view.clone());
@@ -682,9 +853,13 @@ impl List {
                 let Some(args) = args.as_ref() else { return };
                 let Some(dragged) = own_drag(args, id) else { return };
                 DRAGGED.with(|d| d.borrow_mut().take());
+                end_drag(&data);
+                let Some(at) = view.cast::<w::UIElement>().ok().and_then(|l| args.GetPosition(&l).ok()) else {
+                    return;
+                };
                 let moved = {
                     let d = data.borrow();
-                    drop_target(&d, &dragged, proposed(&view, &d, args))
+                    drop_target(&d, &dragged, proposed(&view, &d, at, key_of))
                 };
                 if let Some((rows, to)) = moved {
                     events.emit(id, UiEvent::RowsMoved { rows, to });
@@ -1494,12 +1669,74 @@ fn report(data: &Rc<RefCell<Data>>, events: &Events, id: NodeId) {
         d.bare_heights.remove(row);
     }
     drop(d);
+    name_rows(data);
     for row in hidden {
         events.emit(id, UiEvent::RowHidden(row));
     }
     for row in shown {
         events.emit(id, UiEvent::RowShown(row));
     }
+}
+
+/// Names each realised row's container by the text in it, as the core's
+/// tree names rows and as screen readers read native rows: XAML names a
+/// container by its item, which is the row's key, so UI Automation read
+/// SourceGit's branches and the examples' rows as "1", "2", "3".
+fn name_rows(data: &Rc<RefCell<Data>>) {
+    let cells: Vec<w::Canvas> = data.borrow().cells.values().cloned().collect();
+    for cell in cells {
+        let Some(container) = container_of_cell(&cell) else { continue };
+        let name = text_in(&cell);
+        let key = identity(&container);
+        if data.borrow().names.get(&key) == Some(&name) {
+            continue;
+        }
+        if w::AutomationProperties::SetName(&container, &name).is_ok() {
+            data.borrow_mut().names.insert(key, name);
+        }
+    }
+}
+
+/// The container a row's cell is in: up the visual tree to its item.
+fn container_of_cell(cell: &w::Canvas) -> Option<w::UIElement> {
+    let mut at: w::DependencyObject = cell.cast().ok()?;
+    loop {
+        at = w::VisualTreeHelper::GetParent(&at).ok()?;
+        if at.cast::<w::SelectorItem>().is_ok() {
+            return at.cast().ok();
+        }
+    }
+}
+
+/// The text a row shows, its labels' in order, as assistive technology
+/// reads them: a label's own accessible name where it has one (a label
+/// cut off at its start or middle is named by its whole text), and
+/// nothing of what's hidden from it.
+fn text_in(cell: &w::Canvas) -> String {
+    let mut parts = Vec::new();
+    let mut stack: Vec<w::DependencyObject> = cell.cast().into_iter().collect();
+    while let Some(node) = stack.pop() {
+        let hidden = node.cast::<w::UIElement>().ok().is_some_and(|e| {
+            w::AutomationProperties::GetAccessibilityView(&e).is_ok_and(|v| v == w::AccessibilityView::Raw)
+        });
+        if hidden {
+            continue;
+        }
+        if let Ok(block) = node.cast::<w::ITextBlock>() {
+            let named = node.cast::<w::UIElement>().ok().and_then(|e| w::AutomationProperties::GetName(&e).ok());
+            let text = named.filter(|n| !n.is_empty()).or_else(|| block.Text().ok().map(|t| t.to_string()));
+            parts.extend(text.filter(|t| !t.is_empty()));
+            continue;
+        }
+        let count = w::VisualTreeHelper::GetChildrenCount(&node).unwrap_or(0);
+        // Last first, so the first child comes off the stack first.
+        for i in (0..count).rev() {
+            if let Ok(child) = w::VisualTreeHelper::GetChild(&node, i) {
+                stack.push(child);
+            }
+        }
+    }
+    parts.join(" ")
 }
 
 /// Reports once the dispatcher is free: a row whose container is recycled

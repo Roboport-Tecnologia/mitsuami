@@ -1436,3 +1436,421 @@ Item {{
         context_menu_handlers("table")
     )
 }
+
+/// A tree: a QML `TreeView` over Rust's tree model (`mq_tree_new`), in the
+/// style's scroll view, with the style's `TreeViewDelegate` (Breeze's draws
+/// the branch indicator and its lines), one column as wide as the view. A
+/// delegate holds its row's host in its content item (`mitsuamiCellSlot`),
+/// after the indent and indicator, and is as high as it and the style's
+/// padding, or the estimate until it comes; the selection is its highlight.
+///
+/// Rust sets, on the tree view (`mitsuamiTreeView`), `model`,
+/// `mitsuamiKeys` (the rows that show, in order), `mitsuamiOpen` (the keys
+/// of the rows open), `mitsuamiSelected`, `mitsuamiCurrent`,
+/// `mitsuamiMode`, `mitsuamiEstimate` and `mitsuamiScrollTo`, as a table's,
+/// calls `mitsuamiSync()` (opens and closes the rows, from the top, as
+/// `mitsuamiOpen` says, without reporting it) and `mitsuamiExpand()` (opens
+/// or closes the row `mitsuamiExpandKey` as `mitsuamiExpandOpen` says, as
+/// the user does; `mitsuamiExpandDone` is whether it opens at all) and
+/// `mitsuamiReadRows()` (`mitsuamiRowsText`: each row the view shows, as
+/// `key:parent:depth:opens:open`, comma-separated). It listens to
+/// `mitsuamiRowsChanged()`, `mitsuamiSelectionChanged()` and
+/// `mitsuamiActivate()`, as a table's; `mitsuamiToggle()` (the user opened,
+/// or closed, the row `mitsuamiToggled`: `mitsuamiToggledOpen`); and
+/// `mitsuamiIndented()` (`mitsuamiIndentText`: where a top row's content
+/// starts, what each level adds, and where content ends, as a delegate
+/// measured them).
+///
+/// Rows moved within the tree (`Prop::RowMoves`) are a list's
+/// (`qml::list`): the same drag, quarters, question to Rust
+/// (`mitsuamiAskDrop()`) and highlight; onto a row is into it.
+pub(crate) fn tree() -> String {
+    format!(
+        r#"
+QQC2.ScrollView {{
+    id: scroll
+    property bool mitsuamiFramed: false
+    Accessible.role: Accessible.Tree
+    QQC2.ScrollBar.horizontal.policy: QQC2.ScrollBar.AlwaysOff
+    {}
+    TreeView {{
+        id: view
+        objectName: "mitsuamiTreeView"
+        {}
+        Binding {{
+            target: scroll.background
+            when: scroll.background !== null
+            property: "visible"
+            value: scroll.mitsuamiFramed
+        }}
+        property var mitsuamiKeys: []
+        property var mitsuamiOpen: []
+        readonly property var mitsuamiOpenSet: {{
+            const set = {{}}
+            for (const key of mitsuamiOpen) set[key] = true
+            return set
+        }}
+        property var mitsuamiSelected: []
+        readonly property string mitsuamiSelectedKeys: mitsuamiSelected.join(",")
+        // The selection by key, for delegates to look rows up in.
+        readonly property var mitsuamiSelectedSet: {{
+            const set = {{}}
+            for (const key of mitsuamiSelected) set[key] = true
+            return set
+        }}
+        property int mitsuamiMode: 0
+        property real mitsuamiEstimate: 24
+        property int mitsuamiScrollTo: -1
+        property string mitsuamiActivated: ""
+        property int mitsuamiCurrent: -1
+        property bool mitsuamiMuted: false
+        property string mitsuamiToggled: ""
+        property bool mitsuamiToggledOpen: false
+        property string mitsuamiExpandKey: ""
+        property bool mitsuamiExpandOpen: false
+        property bool mitsuamiExpandDone: false
+        property string mitsuamiRowsText: ""
+        property string mitsuamiIndentText: ""
+        // The rows' files (`Prop::RowFiles`), as file URLs by row key.
+        property var mitsuamiFileKeys: []
+        property var mitsuamiFileUrls: []
+        readonly property var mitsuamiFiles: {{
+            const files = {{}}
+            for (let i = 0; i < mitsuamiFileKeys.length; i++) files[mitsuamiFileKeys[i]] = mitsuamiFileUrls[i]
+            return files
+        }}
+        // What dragging a row carries: the selected rows' files when it's
+        // selected, as Dolphin drags a selection, else its own.
+        readonly property var mitsuamiSelectedUrls: mitsuamiSelected.map(k => mitsuamiFiles[k]).filter(u => u !== undefined)
+        readonly property string mitsuamiSelectedUriList: mitsuamiSelectedUrls.join("\r\n")
+        function mitsuamiDragUrls(key) {{
+            if (mitsuamiSelectedSet[key] === true) return mitsuamiSelectedUrls
+            return mitsuamiFiles[key] !== undefined ? [mitsuamiFiles[key]] : []
+        }}
+        function mitsuamiUriList(key) {{
+            return mitsuamiSelectedSet[key] === true ? mitsuamiSelectedUriList : (mitsuamiFiles[key] ?? "")
+        }}
+        // Rows moved within the tree (`Prop::RowMoves`), as a list's
+        // (`qml::list`); Rust answers with `RowMoves::tree_target`.
+        property bool mitsuamiMoves: false
+        property string mitsuamiListId: ""
+        readonly property string mitsuamiRowsMime: "application/x-mitsuami-rows"
+        property string mitsuamiAskRows: ""
+        property string mitsuamiAskTarget: ""
+        // The row under the pointer: nothing lands over a dragged one.
+        property string mitsuamiAskOver: ""
+        property string mitsuamiDropAnswer: ""
+        property string mitsuamiDropShown: ""
+        signal mitsuamiAskDrop()
+        signal mitsuamiDropped()
+        function mitsuamiMovedKeys(key) {{
+            return (mitsuamiSelectedSet[key] === true ? mitsuamiSelected : [key]).join(",")
+        }}
+        function mitsuamiOwnRows(drag) {{
+            if (!mitsuamiMoves || !drag.formats || drag.formats.indexOf(mitsuamiRowsMime) < 0) return ""
+            const data = drag.getDataAsString(mitsuamiRowsMime)
+            const bar = data.indexOf("|")
+            return bar > 0 && data.slice(0, bar) === mitsuamiListId ? data.slice(bar + 1) : ""
+        }}
+        function mitsuamiAsk(rows, target) {{
+            mitsuamiAskRows = rows
+            mitsuamiAskTarget = target
+            mitsuamiDropAnswer = ""
+            mitsuamiAskDrop()
+            return mitsuamiDropAnswer
+        }}
+        function mitsuamiDragOver(drag, target) {{
+            const rows = mitsuamiOwnRows(drag)
+            const answer = rows === "" ? "" : mitsuamiAsk(rows, target)
+            mitsuamiDropShown = answer
+            if (answer === "") drag.accepted = false
+            else drag.accept(Qt.MoveAction)
+        }}
+        function mitsuamiDropOn(drop, target) {{
+            const rows = mitsuamiOwnRows(drop)
+            const answer = rows === "" ? "" : mitsuamiAsk(rows, target)
+            mitsuamiDropShown = ""
+            if (answer === "") {{ drop.accepted = false; return }}
+            drop.accept(Qt.MoveAction)
+            mitsuamiAskRows = rows
+            mitsuamiAskTarget = answer
+            mitsuamiDropped()
+        }}
+        // The view's empty part: a drop there is at the end, after the top
+        // rows. Below the delegates, whose own areas take drags over rows.
+        DropArea {{
+            parent: view
+            anchors.fill: parent
+            z: -1
+            keys: [view.mitsuamiRowsMime]
+            onEntered: (drag) => {{ view.mitsuamiAskOver = ""; view.mitsuamiDragOver(drag, "end") }}
+            onPositionChanged: (drag) => {{ view.mitsuamiAskOver = ""; view.mitsuamiDragOver(drag, "end") }}
+            onExited: view.mitsuamiDropShown = ""
+            onDropped: (drop) => {{ view.mitsuamiAskOver = ""; view.mitsuamiDropOn(drop, "end") }}
+        }}
+        signal mitsuamiRowsChanged()
+        signal mitsuamiSelectionChanged()
+        signal mitsuamiActivate()
+        signal mitsuamiToggle()
+        signal mitsuamiIndented()
+        clip: true
+        boundsBehavior: Flickable.StopAtBounds
+        reuseItems: false
+        activeFocusOnTab: true
+        // One column, as wide as the view.
+        columnWidthProvider: function(column) {{ return view.width }}
+        onWidthChanged: Qt.callLater(view.forceLayout)
+        function mitsuamiRelayout() {{ Qt.callLater(view.forceLayout) }}
+        function mitsuamiNotify() {{ Qt.callLater(view.mitsuamiRowsChanged) }}
+        // The delegates by slot ("key:0"), as a table's.
+        property var mitsuamiDelegates: ({{}})
+        property string mitsuamiLookup: ""
+        property Item mitsuamiFound: null
+        function mitsuamiFind() {{
+            const found = mitsuamiDelegates[mitsuamiLookup] ?? null
+            if (!found) delete mitsuamiDelegates[mitsuamiLookup]
+            mitsuamiFound = found
+        }}
+        function mitsuamiAdd(delegate) {{
+            mitsuamiDelegates[delegate.mitsuamiSlot] = delegate
+            mitsuamiNotify()
+        }}
+        function mitsuamiForget(delegate) {{
+            if (mitsuamiDelegates[delegate.mitsuamiSlot] === delegate) delete mitsuamiDelegates[delegate.mitsuamiSlot]
+            mitsuamiNotify()
+        }}
+        // A row's key, as the model has it.
+        function mitsuamiKeyAt(row) {{
+            const index = view.index(row, 0)
+            return index.valid ? String(view.model.data(index, 256)) : ""
+        }}
+        // Whether a row opens: the model's `hasChildren`.
+        function mitsuamiOpens(row) {{
+            const index = view.index(row, 0)
+            return index.valid && view.model.hasChildren(index)
+        }}
+        // From the top, each row opened or closed as Rust says: opening
+        // one shows its children's rows below it, which come next.
+        function mitsuamiSync() {{
+            mitsuamiMuted = true
+            for (let row = 0; row < mitsuamiKeys.length; row++) {{
+                const key = mitsuamiKeyAt(row)
+                if (key !== mitsuamiKeys[row]) break
+                const open = mitsuamiOpenSet[key] === true
+                if (open !== isExpanded(row)) {{
+                    if (open) expand(row)
+                    else collapse(row)
+                }}
+            }}
+            mitsuamiMuted = false
+        }}
+        function mitsuamiExpand() {{
+            const row = mitsuamiKeys.indexOf(mitsuamiExpandKey)
+            mitsuamiExpandDone = row >= 0 && mitsuamiOpens(row)
+            if (mitsuamiExpandDone && mitsuamiExpandOpen !== isExpanded(row)) {{
+                if (mitsuamiExpandOpen) expand(row)
+                else collapse(row)
+            }}
+        }}
+        // The view's own opening and closing (its indicator, the keys),
+        // as the user's.
+        function mitsuamiReport(row, open) {{
+            if (mitsuamiMuted) return
+            mitsuamiToggled = mitsuamiKeyAt(row)
+            mitsuamiToggledOpen = open
+            mitsuamiToggle()
+        }}
+        onExpanded: (row, depth) => mitsuamiReport(row, true)
+        onCollapsed: (row, recursively) => mitsuamiReport(row, false)
+        function mitsuamiReadRows() {{
+            const rows = []
+            for (let row = 0; ; row++) {{
+                const index = view.index(row, 0)
+                if (!index.valid) break
+                const parent = index.parent
+                rows.push([String(view.model.data(index, 256)), parent.valid ? String(view.model.data(parent, 256)) : "",
+                    depth(row), mitsuamiOpens(row) ? 1 : 0, isExpanded(row) ? 1 : 0].join(":"))
+            }}
+            mitsuamiRowsText = rows.join(",")
+        }}
+        function mitsuamiMeasured(start, perLevel, end) {{
+            const text = [start, perLevel, end].join(",")
+            if (text === mitsuamiIndentText) return
+            mitsuamiIndentText = text
+            mitsuamiIndented()
+        }}
+        function mitsuamiShow(index) {{
+            if (index >= 0 && index < mitsuamiKeys.length) positionViewAtRow(index, TableView.Contain)
+        }}
+        onMitsuamiScrollToChanged: if (mitsuamiScrollTo >= 0) {{
+            const index = mitsuamiScrollTo
+            mitsuamiScrollTo = -1
+            Qt.callLater(() => mitsuamiShow(index))
+        }}
+        // Multiple selection is KDE's, as the list's (`qml::list`).
+        property string mitsuamiAnchor: ""
+        function mitsuamiPick(key, modifiers) {{
+            if (mitsuamiMode === 0) return
+            const anchor = mitsuamiKeys.indexOf(mitsuamiAnchor)
+            if (mitsuamiMode === 2 && (modifiers & Qt.ShiftModifier) && anchor >= 0) {{
+                const index = mitsuamiKeys.indexOf(key)
+                mitsuamiSelected = mitsuamiKeys.slice(Math.min(anchor, index), Math.max(anchor, index) + 1)
+            }} else if (mitsuamiMode === 2 && (modifiers & Qt.ControlModifier)) {{
+                const on = mitsuamiSelectedSet[key] !== true
+                mitsuamiSelected = mitsuamiKeys.filter(k => k === key ? on : mitsuamiSelectedSet[k] === true)
+                mitsuamiAnchor = key
+            }} else {{
+                mitsuamiSelected = [key]
+                mitsuamiAnchor = key
+            }}
+            mitsuamiCurrent = mitsuamiKeys.indexOf(key)
+            mitsuamiSelectionChanged()
+        }}
+        function mitsuamiOpenRow(key) {{
+            mitsuamiActivated = key
+            mitsuamiActivate()
+        }}
+        // The arrows, Home and End move the current row, which is the
+        // selection; Right opens it and Left closes it, as Qt's trees do;
+        // Return activates it.
+        Keys.onPressed: (event) => {{
+            const count = mitsuamiKeys.length
+            const last = count - 1
+            let next = -2
+            if (event.matches(StandardKey.SelectAll) && mitsuamiMode === 2) {{
+                mitsuamiSelected = mitsuamiKeys.slice()
+                mitsuamiSelectionChanged()
+                event.accepted = true
+            }}
+            else if (event.key === Qt.Key_Up) next = mitsuamiCurrent < 0 ? last : Math.max(0, mitsuamiCurrent - 1)
+            else if (event.key === Qt.Key_Down) next = mitsuamiCurrent < 0 ? 0 : Math.min(last, mitsuamiCurrent + 1)
+            else if (event.key === Qt.Key_Home) next = 0
+            else if (event.key === Qt.Key_End) next = last
+            else if ((event.key === Qt.Key_Right || event.key === Qt.Key_Left) && mitsuamiCurrent >= 0) {{
+                const open = event.key === Qt.Key_Right
+                if (mitsuamiOpens(mitsuamiCurrent) && isExpanded(mitsuamiCurrent) !== open) {{
+                    if (open) expand(mitsuamiCurrent)
+                    else collapse(mitsuamiCurrent)
+                }}
+                event.accepted = true
+            }}
+            // Return with Ctrl, Alt or Meta goes on up, to a node's keys.
+            else if ((event.key === Qt.Key_Return || event.key === Qt.Key_Enter) && mitsuamiCurrent >= 0
+                     && !(event.modifiers & (Qt.ControlModifier | Qt.AltModifier | Qt.MetaModifier))) {{
+                mitsuamiOpenRow(mitsuamiKeys[mitsuamiCurrent])
+                event.accepted = true
+            }}
+            if (next > -2) {{
+                if (count > 0 && mitsuamiMode !== 0) {{
+                    mitsuamiShow(next)
+                    mitsuamiPick(mitsuamiKeys[next], event.modifiers & Qt.ShiftModifier)
+                }}
+                event.accepted = true
+            }}
+        }}
+        delegate: QQC2.TreeViewDelegate {{
+            id: cell
+            required property string mitsuamiKey
+            property int mitsuamiColumn: 0
+            readonly property string mitsuamiSlot: mitsuamiKey + ":0"
+            property Item mitsuamiHost: null
+            implicitHeight: (mitsuamiHost ? mitsuamiHost.height : view.mitsuamiEstimate) + topPadding + bottomPadding
+            highlighted: view.mitsuamiSelectedSet[mitsuamiKey] === true
+            contentItem: Item {{ objectName: "mitsuamiCellSlot" }}
+            // Where this row's content starts, less its levels, and ends.
+            function mitsuamiMeasure() {{
+                if (contentItem && width > 0)
+                    view.mitsuamiMeasured(contentItem.x - depth * indentation, indentation, contentItem.x + contentItem.width)
+            }}
+            onWidthChanged: Qt.callLater(mitsuamiMeasure)
+            onLeftPaddingChanged: Qt.callLater(mitsuamiMeasure)
+            onImplicitHeightChanged: view.mitsuamiRelayout()
+            // `tapped` says which modifiers were held.
+            TapHandler {{
+                onTapped: view.mitsuamiPick(cell.mitsuamiKey, point.modifiers)
+                onDoubleTapped: view.mitsuamiOpenRow(cell.mitsuamiKey)
+            }}
+            // Dragging a row with a file carries it (or the selection's) out
+            // as a copy, and with moves the dragged rows' keys too, as a
+            // list's rows do.
+            readonly property var mitsuamiDragUrls: view.mitsuamiDragUrls(cell.mitsuamiKey)
+            DragHandler {{
+                id: mitsuamiDrag
+                target: null
+                enabled: view.mitsuamiFiles[cell.mitsuamiKey] !== undefined || view.mitsuamiMoves
+                acceptedDevices: PointerDevice.Mouse
+                grabPermissions: PointerHandler.CanTakeOverFromAnything | PointerHandler.ApprovesTakeOverByHandlersOfSameType
+            }}
+            Drag.active: mitsuamiDrag.active
+            Drag.dragType: Drag.Automatic
+            Drag.supportedActions: view.mitsuamiMoves ? (Qt.CopyAction | Qt.MoveAction) : Qt.CopyAction
+            Drag.mimeData: {{
+                const data = {{}}
+                const uris = view.mitsuamiUriList(cell.mitsuamiKey)
+                if (uris !== "") data["text/uri-list"] = uris
+                if (view.mitsuamiMoves) data[view.mitsuamiRowsMime] = view.mitsuamiListId + "|" + view.mitsuamiMovedKeys(cell.mitsuamiKey)
+                return data
+            }}
+            // A drag of the tree's own rows over this one: Rust proposes,
+            // as every tree does (`RowMoves::tree_proposal`), from the row
+            // and where the pointer is in it.
+            function mitsuamiOver(x, y) {{
+                view.mitsuamiAskOver = cell.mitsuamiKey
+                return "at:" + cell.mitsuamiKey + ":" + x + ":" + y + ":" + height
+            }}
+            DropArea {{
+                anchors.fill: parent
+                keys: [view.mitsuamiRowsMime]
+                onEntered: (drag) => view.mitsuamiDragOver(drag, cell.mitsuamiOver(drag.x, drag.y))
+                onPositionChanged: (drag) => view.mitsuamiDragOver(drag, cell.mitsuamiOver(drag.x, drag.y))
+                onExited: view.mitsuamiDropShown = ""
+                onDropped: (drop) => view.mitsuamiDropOn(drop, cell.mitsuamiOver(drop.x, drop.y))
+            }}
+            // Where the drop would land, in the theme's highlight, as a
+            // list's: a frame round the row it goes into, a line where it
+            // goes between.
+            Rectangle {{
+                anchors.fill: parent
+                z: 2
+                // Into this row, only while the pointer is over it: a drop
+                // onto a folder from its last row is at its end, a line.
+                visible: view.mitsuamiDropShown === "on:" + cell.mitsuamiKey && view.mitsuamiAskOver === cell.mitsuamiKey
+                color: "transparent"
+                border.color: Kirigami.Theme.highlightColor
+                border.width: 2
+                radius: Kirigami.Units.cornerRadius
+            }}
+            Rectangle {{
+                z: 2
+                height: 2
+                // Under this row: at the end of the view, or of the folder
+                // it's the last row of (onto that folder, from here).
+                readonly property bool mitsuamiUnder: (view.mitsuamiDropShown === "end"
+                        && view.mitsuamiKeys[view.mitsuamiKeys.length - 1] === cell.mitsuamiKey)
+                    || (view.mitsuamiAskOver === cell.mitsuamiKey && view.mitsuamiDropShown.startsWith("on:")
+                        && view.mitsuamiDropShown !== "on:" + cell.mitsuamiKey)
+                y: mitsuamiUnder ? parent.height - 1 : -1
+                // From where the rows of its level start: this row's before
+                // it; under it, the folder's rows it ends (the top's at the
+                // end), out by levels.
+                readonly property int mitsuamiLevel: !mitsuamiUnder ? cell.depth
+                    : view.mitsuamiDropShown === "end" ? 0
+                    : view.depth(view.mitsuamiKeys.indexOf(view.mitsuamiDropShown.slice(3))) + 1
+                x: cell.contentItem.x - (cell.depth - mitsuamiLevel) * cell.indentation
+                width: parent.width - x
+                visible: view.mitsuamiDropShown === "before:" + cell.mitsuamiKey || mitsuamiUnder
+                color: Kirigami.Theme.highlightColor
+            }}
+            Component.onCompleted: {{
+                view.mitsuamiAdd(cell)
+                Qt.callLater(mitsuamiMeasure)
+            }}
+            Component.onDestruction: view.mitsuamiForget(cell)
+        }}
+    }}
+}}
+"#,
+        a11y_with("\"\"", "hovered"),
+        context_menu_handlers("scroll")
+    )
+}

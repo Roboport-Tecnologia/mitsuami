@@ -332,6 +332,7 @@ impl State {
             WidgetKind::List | WidgetKind::Table => {
                 Widget::List(crate::list::List::new(id, events.clone(), kind == WidgetKind::Table))
             }
+            WidgetKind::Tree => Widget::List(crate::list::List::new_tree(id, events.clone())),
         };
         let item = widget.item();
         item.set_node(node_key(id));

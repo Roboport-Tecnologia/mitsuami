@@ -1,6 +1,8 @@
-//! `List` and `Table`: a `gtk::ListView`, or a `gtk::ColumnView` with a
-//! column per table column, in a `gtk::ScrolledWindow`, over a
-//! `gio::ListStore` of row keys.
+//! `List`, `Table` and `Tree`: a `gtk::ListView`, or a `gtk::ColumnView`
+//! with a column per table column, in a `gtk::ScrolledWindow`, over a
+//! `gio::ListStore` of row keys; a tree's over a `gtk::TreeListModel` of
+//! a store of its top rows' keys and one of each opening row's children,
+//! each row in a `gtk::TreeExpander`.
 //!
 //! The view virtualises: its factories bind the rows it shows to item
 //! widgets and unbind them when they scroll away, and we report the rows
@@ -23,7 +25,7 @@ use gtk::subclass::prelude::*;
 use gtk::{gdk, gio, glib, graphene, gsk};
 use mitsuami_core::{
     ColumnData, ColumnSort, EventValue, ListStyle, NodeId, Point, Rect, RowDrop, RowKey, RowMoves, SelectionMode,
-    SortOrder, UiEvent,
+    SortOrder, TreeIndent, TreeRow, UiEvent,
 };
 
 use crate::host::Events;
@@ -33,6 +35,9 @@ type Slot = (RowKey, usize);
 
 /// Reports a table column's cells' width, from a cell as it's allocated.
 type WidthReport = Rc<dyn Fn(usize, i32)>;
+
+/// Hears a tree's cell allocated, to read how far GTK indents it.
+type Placed = Rc<dyn Fn(&gtk::Widget)>;
 
 /// What the list shows, shared with the factories' and the selection's
 /// signal handlers.
@@ -76,6 +81,20 @@ struct Data {
     /// its way.
     bare_heights: HashMap<RowKey, f32>,
     heights_queued: bool,
+    /// Trees only: each row that shows, as sent; a store of the children
+    /// of each that opens, which the tree list model shows while it's
+    /// open; the handler hearing each row's `expanded`, on the row object
+    /// it was connected to; whether the backend is opening and closing rows
+    /// itself; and the indent last reported.
+    tree: HashMap<RowKey, TreeRow>,
+    stores: HashMap<RowKey, gio::ListStore>,
+    expanders: HashMap<RowKey, (glib::WeakRef<gtk::TreeListRow>, glib::SignalHandlerId)>,
+    expanding: bool,
+    indent: Option<TreeIndent>,
+    /// Some row opens: rows that don't are indented by the disclosure's
+    /// width, as GTK's trees indent them. A tree where none does is a flat
+    /// list, unindented, as GTK's apps show one.
+    any_opens: bool,
 }
 
 /// What a drag of rows within a list carries: the list's id, so another
@@ -91,18 +110,36 @@ struct DraggedRows {
 /// Where a drop lands, by `RowMoves::target`: the rows (those still in the
 /// list, in its order) and where. The drop targets and the test hook both
 /// ask it.
-fn landing(data: &Data, rows: &[RowKey], proposed: RowDrop<RowKey>) -> Option<(Vec<RowKey>, RowDrop<RowKey>)> {
+fn landing(
+    data: &Data,
+    rows: &[RowKey],
+    over: Option<RowKey>,
+    proposed: RowDrop<RowKey>,
+) -> Option<(Vec<RowKey>, RowDrop<RowKey>)> {
     let moves = data.moves?;
     let mut rows: Vec<RowKey> = rows.iter().filter(|row| data.index.contains_key(row)).copied().collect();
     rows.sort_by_key(|row| data.index[row]);
-    let to = moves.target(&rows, proposed)?;
+    // A tree's rows nest: only folders take rows onto them, and nothing
+    // lands over a dragged row.
+    let to = match data.tree.is_empty() {
+        true => moves.target(&rows, proposed)?,
+        false => moves.tree_target(&rows, over, proposed, |row| data.tree.get(&row).copied())?,
+    };
     (!rows.is_empty()).then_some((rows, to))
 }
 
-/// What a drag at `y` over `key`'s cell, `height` high, proposes: before
-/// the row in its top quarter, before the next one (or the end) in its
-/// bottom quarter, onto it in between.
-fn proposal(data: &Data, key: RowKey, y: f64, height: f64) -> RowDrop<RowKey> {
+/// What a drag at `x`, `y` over `key`'s cell, `height` high, proposes:
+/// before the row in its top quarter, before the next one (or the end) in
+/// its bottom quarter, onto it in between. A tree's, as every tree's
+/// (`RowMoves::tree_proposal`), with `x` across the tree: a cell starts
+/// where its row's content does.
+fn proposal(data: &Data, key: RowKey, x: f64, y: f64, height: f64) -> RowDrop<RowKey> {
+    if let Some(row) = data.tree.get(&key) {
+        let next = data.index.get(&key).and_then(|i| data.rows.get(i + 1)).copied();
+        let indent = data.indent.unwrap_or_default();
+        let x = data.indent.map(|i| x as f32 + i.at(row.depth));
+        return RowMoves::tree_proposal(key, x, y as f32, height as f32, indent, next, |r| data.tree.get(&r).copied());
+    }
     if y < height / 4.0 {
         return RowDrop::Before(key);
     }
@@ -119,10 +156,12 @@ impl Data {
     }
 }
 
-/// The view: a list's, or a table's.
+/// The view: a list's, a table's, or a tree's (a list view over the tree
+/// list model).
 enum View {
     List(gtk::ListView),
     Table(gtk::ColumnView),
+    Tree(gtk::ListView, gtk::TreeListModel),
 }
 
 pub(crate) struct List {
@@ -138,8 +177,26 @@ pub(crate) struct List {
     muted: Rc<Cell<bool>>,
 }
 
+/// A row's key: its item's, or, in a tree, its tree list row's item's.
 fn key_of(item: &glib::Object) -> Option<RowKey> {
+    if let Some(row) = item.downcast_ref::<gtk::TreeListRow>() {
+        return key_of(&row.item()?);
+    }
     item.downcast_ref::<gtk::StringObject>()?.string().parse().ok().map(RowKey)
+}
+
+/// Makes a store hold these keys, by the fewest changes: the items before
+/// and after the part that changed stay, and their rows stay bound.
+fn splice_keys(store: &gio::ListStore, keys: &[RowKey]) {
+    let old: Vec<Option<RowKey>> = (0..store.n_items()).map(|i| store.item(i).as_ref().and_then(key_of)).collect();
+    let prefix = old.iter().zip(keys).take_while(|(a, b)| **a == Some(**b)).count();
+    let suffix =
+        old[prefix..].iter().rev().zip(keys[prefix..].iter().rev()).take_while(|(a, b)| **a == Some(**b)).count();
+    if prefix == old.len() && prefix == keys.len() {
+        return;
+    }
+    let added: Vec<glib::Object> = keys[prefix..keys.len() - suffix].iter().map(|k| item(*k).upcast()).collect();
+    store.splice(prefix as u32, (old.len() - prefix - suffix) as u32, &added);
 }
 
 fn item(key: RowKey) -> gtk::StringObject {
@@ -160,8 +217,8 @@ fn install_css() {
          listview.mitsuami-list:not(.separators) > row { border: none; }
          columnview > listview > row > cell.mitsuami-fills-row { padding: 0; }
          .mitsuami-drop-on { outline: 2px solid @accent_bg_color; outline-offset: -2px; }
-         .mitsuami-drop-before { box-shadow: inset 0 2px @accent_bg_color; }
-         .mitsuami-drop-after { box-shadow: inset 0 -2px @accent_bg_color; }",
+         .mitsuami-cell:drop(active) { box-shadow: none; }
+         .mitsuami-drop-line { background-color: @accent_bg_color; }",
     );
     if let Some(display) = gtk::gdk::Display::default() {
         gtk::style_context_add_provider_for_display(&display, &provider, gtk::STYLE_PROVIDER_PRIORITY_APPLICATION);
@@ -191,6 +248,12 @@ fn new_data() -> Rc<RefCell<Data>> {
         drop_cell: None,
         bare_heights: HashMap::new(),
         heights_queued: false,
+        tree: HashMap::new(),
+        stores: HashMap::new(),
+        expanders: HashMap::new(),
+        expanding: false,
+        indent: None,
+        any_opens: false,
     }))
 }
 
@@ -201,23 +264,52 @@ fn dragged_rows(data: &Data, key: RowKey, model: Option<&gtk::SelectionModel>) -
     if selected.contains(&key) { selected } else { vec![key] }
 }
 
-const DROP_CLASSES: [&str; 3] = ["mitsuami-drop-on", "mitsuami-drop-before", "mitsuami-drop-after"];
-
 /// Shows where a drag over `cell` lands: a ring on the row it drops onto,
-/// a line above or below it otherwise. `None` takes it away.
+/// a line above or below it otherwise, over the row's content. `None`
+/// takes it away.
 fn show_drop(data: &mut Data, cell: Option<(&gtk::Widget, RowKey, RowDrop<RowKey>)>) {
     if let Some(old) = data.drop_cell.take().and_then(|w| w.upgrade()) {
-        for class in DROP_CLASSES {
-            old.remove_css_class(class);
+        old.remove_css_class("mitsuami-drop-on");
+        if let Some(old) = old.downcast_ref::<ItemCell>() {
+            old.show_line(None);
         }
     }
     let Some((cell, key, to)) = cell else { return };
-    let class = match to {
-        RowDrop::On(row) if row == key => "mitsuami-drop-on",
-        RowDrop::Before(row) if row == key => "mitsuami-drop-before",
-        _ => "mitsuami-drop-after",
+    // A line goes at the top of the row the rows go before, where it's
+    // bound: in a tree its indent says the level they land at, which the
+    // row under the pointer's needn't (the last row in a folder, before the
+    // row after the folder).
+    // The end of a folder from a row inside it: under that row, from
+    // where the folder's rows start, left of the row's own if it's deeper.
+    let level = |folder: RowKey| {
+        let indent = data.indent.unwrap_or_default();
+        let (Some(folder), Some(row)) = (data.tree.get(&folder), data.tree.get(&key)) else { return 0.0 };
+        indent.at(folder.depth + 1) - indent.at(row.depth)
     };
-    cell.add_css_class(class);
+    let (cell, edge, x) = match to {
+        RowDrop::On(row) if row == key => {
+            cell.add_css_class("mitsuami-drop-on");
+            data.drop_cell = Some(cell.downgrade());
+            return;
+        }
+        RowDrop::Before(row) => match data.cells.get(&(row, 0)) {
+            Some(before) => (before.clone(), Edge::Top, 0.0),
+            None if row == key => (cell.clone(), Edge::Top, 0.0),
+            None => (cell.clone(), Edge::Bottom, 0.0),
+        },
+        RowDrop::On(folder) => (cell.clone(), Edge::Bottom, level(folder)),
+        RowDrop::End => (
+            cell.clone(),
+            Edge::Bottom,
+            -data.tree.get(&key).map_or(0.0, |r| {
+                let indent = data.indent.unwrap_or_default();
+                indent.at(r.depth) - indent.at(0)
+            }),
+        ),
+    };
+    if let Some(item) = cell.downcast_ref::<ItemCell>() {
+        item.show_line(Some((edge, x)));
+    }
     data.drop_cell = Some(cell.downgrade());
 }
 
@@ -230,22 +322,23 @@ fn row_drop_target(data: &Rc<RefCell<Data>>, events: &Events, id: NodeId, cell: 
     target.set_preload(true);
     let land = {
         let (data, weak) = (Rc::downgrade(data), cell.downgrade());
-        move |target: &gtk::DropTarget, y: f64| -> Option<(RowKey, Vec<RowKey>, RowDrop<RowKey>)> {
+        move |target: &gtk::DropTarget, x: f64, y: f64| -> Option<(RowKey, Vec<RowKey>, RowDrop<RowKey>)> {
             let (data, cell) = (data.upgrade()?, weak.upgrade()?);
             let dragged = target.value()?.get::<DraggedRows>().ok().filter(|d| d.list == id.raw())?;
             let data = data.borrow();
             let key = data.cells.iter().find(|(_, c)| **c == cell).map(|((key, _), _)| *key)?;
             let rows: Vec<RowKey> = dragged.rows.iter().map(|r| RowKey(*r)).collect();
-            let (rows, to) = landing(&data, &rows, proposal(&data, key, y, f64::from(cell.height())))?;
+            let proposed = proposal(&data, key, x, y, f64::from(cell.height()));
+            let (rows, to) = landing(&data, &rows, Some(key), proposed)?;
             Some((key, rows, to))
         }
     };
     let land = Rc::new(land);
     {
         let (land, data, weak) = (land.clone(), Rc::downgrade(data), cell.downgrade());
-        target.connect_motion(move |target, _, y| {
+        target.connect_motion(move |target, x, y| {
             let (Some(data), Some(cell)) = (data.upgrade(), weak.upgrade()) else { return gdk::DragAction::empty() };
-            let landed = land(target, y);
+            let landed = land(target, x, y);
             let mut data = data.borrow_mut();
             match landed {
                 Some((key, _, to)) => {
@@ -269,11 +362,11 @@ fn row_drop_target(data: &Rc<RefCell<Data>>, events: &Events, id: NodeId, cell: 
     }
     {
         let (events, data) = (events.clone(), Rc::downgrade(data));
-        target.connect_drop(move |target, _, _, y| {
+        target.connect_drop(move |target, _, x, y| {
             if let Some(data) = data.upgrade() {
                 show_drop(&mut data.borrow_mut(), None);
             }
-            match land(target, y) {
+            match land(target, x, y) {
                 Some((_, rows, to)) => {
                     events.emit(id, UiEvent::RowsMoved { rows, to });
                     true
@@ -295,7 +388,7 @@ fn end_drop_target(data: &Rc<RefCell<Data>>, events: &Events, id: NodeId, view: 
             let data = data.upgrade()?;
             let dragged = target.value()?.get::<DraggedRows>().ok().filter(|d| d.list == id.raw())?;
             let rows: Vec<RowKey> = dragged.rows.iter().map(|r| RowKey(*r)).collect();
-            landing(&data.borrow(), &rows, RowDrop::End)
+            landing(&data.borrow(), &rows, None, RowDrop::End)
         }
     };
     let land = Rc::new(land);
@@ -373,27 +466,100 @@ fn view_model(cell: &gtk::Widget) -> Option<gtk::SelectionModel> {
     cell.ancestor(gtk::ColumnView::static_type()).and_downcast::<gtk::ColumnView>()?.model()
 }
 
-/// Puts a host in its cell.
+/// Puts a host in its cell, under a drop's line if it shows one.
 fn attach(cell: &gtk::Widget, host: &gtk::Widget) {
     host.unparent();
     host.set_parent(cell);
     cell.set_height_request(-1);
+    if let Some(line) = cell.downcast_ref::<ItemCell>().and_then(|c| c.imp().line.borrow().clone()) {
+        line.insert_before(cell, None::<&gtk::Widget>);
+    }
+}
+
+/// Unpads the column view's cell widget around a cell of a column that
+/// fills its rows. Done as the cell is bound, not as it's parented: GTK
+/// parents it while it's still making the cell widget, and a handler on
+/// `notify::parent` that changed the widget's classes there left GTK with
+/// no parent to read (a crash opening SourceGit's own repository).
+fn fill_row(cell: &gtk::Widget) {
+    if cell.has_css_class("mitsuami-fills")
+        && let Some(parent) = cell.parent()
+    {
+        parent.add_css_class("mitsuami-fills-row");
+    }
 }
 
 /// Takes the hosts out of a cell, which waits at the estimate's height.
 fn detach(cell: &gtk::Widget) {
-    while let Some(child) = cell.first_child() {
+    while let Some(child) = host_of(cell) {
         child.unparent();
     }
 }
 
+/// A cell's host: its child that isn't a drop's line.
+fn host_of(cell: &gtk::Widget) -> Option<gtk::Widget> {
+    let mut child = cell.first_child();
+    while let Some(c) = child {
+        if !c.has_css_class("mitsuami-drop-line") {
+            return Some(c);
+        }
+        child = c.next_sibling();
+    }
+    None
+}
+
+/// Which edge of a row a drop's line is on.
+#[derive(Clone, Copy, PartialEq)]
+enum Edge {
+    Top,
+    Bottom,
+}
+
+/// A list item's cell: its child, or, in a tree, its expander's.
+fn cell_of(item: &gtk::ListItem) -> Option<gtk::Widget> {
+    let child = item.child()?;
+    match child.downcast_ref::<gtk::TreeExpander>() {
+        Some(expander) => expander.child(),
+        None => Some(child),
+    }
+}
+
+/// Hears the user open and close a tree's row (its expander, GTK's keys),
+/// once per row object: GTK makes a new one when the row comes again.
+fn hear_expanded(
+    data: &Rc<RefCell<Data>>,
+    d: &mut Data,
+    events: &Events,
+    id: NodeId,
+    key: RowKey,
+    row: &gtk::TreeListRow,
+) {
+    if d.expanders.get(&key).and_then(|(r, _)| r.upgrade()).as_ref() == Some(row) {
+        return;
+    }
+    let (data, events) = (Rc::downgrade(data), events.clone());
+    let handler = row.connect_expanded_notify(move |row| {
+        let Some(data) = data.upgrade() else { return };
+        if !data.try_borrow().is_ok_and(|d| d.expanding) {
+            events.emit(id, UiEvent::RowExpanded(key, row.is_expanded()));
+        }
+    });
+    if let Some((old, handler)) = d.expanders.insert(key, (row.downgrade(), handler))
+        && let Some(old) = old.upgrade()
+    {
+        old.disconnect(handler);
+    }
+}
+
 /// A factory binding one column's cells: a list's one, or a table's. `make`
-/// makes an empty cell.
+/// makes an empty cell. A tree's cells are in expanders, bound to their
+/// rows.
 fn factory(
     data: &Rc<RefCell<Data>>,
     events: &Events,
     id: NodeId,
     column: usize,
+    tree: bool,
     make: impl Fn() -> gtk::Widget + 'static,
 ) -> gtk::SignalListItemFactory {
     let factory = gtk::SignalListItemFactory::new();
@@ -404,14 +570,33 @@ fn factory(
             let cell = make();
             drag_source(&data, id, &cell);
             row_drop_target(&data, &events, id, &cell);
-            item.set_child(Some(&cell));
+            if tree {
+                let expander = gtk::TreeExpander::new();
+                // An expander gives its child its natural width, and a cell
+                // asks for none: it takes the rest of the row, as a list's
+                // does, so what's drawn on it (a drop's ring) shows.
+                cell.set_hexpand(true);
+                expander.set_child(Some(&cell));
+                item.set_child(Some(&expander));
+            } else {
+                item.set_child(Some(&cell));
+            }
         });
     }
     {
         let (data, events) = (data.clone(), events.clone());
         factory.connect_bind(move |_, item| {
             let Some(item) = item.downcast_ref::<gtk::ListItem>() else { return };
-            let (Some(key), Some(cell)) = (item.item().as_ref().and_then(key_of), item.child()) else { return };
+            let (Some(key), Some(cell)) = (item.item().as_ref().and_then(key_of), cell_of(item)) else { return };
+            fill_row(&cell);
+            if let (Some(expander), Some(row)) =
+                (item.child().and_downcast::<gtk::TreeExpander>(), item.item().and_downcast::<gtk::TreeListRow>())
+            {
+                let any_opens = data.borrow().any_opens;
+                expander.set_indent_for_icon(any_opens);
+                expander.set_list_row(Some(&row));
+                hear_expanded(&data, &mut data.borrow_mut(), &events, id, key, &row);
+            }
             let mut d = data.borrow_mut();
             match d.hosts.get(&(key, column)).map(|(_, host)| host.clone()) {
                 Some(host) => attach(&cell, &host),
@@ -426,7 +611,10 @@ fn factory(
         let (data, events) = (data.clone(), events.clone());
         factory.connect_unbind(move |_, item| {
             let Some(item) = item.downcast_ref::<gtk::ListItem>() else { return };
-            let (Some(key), Some(cell)) = (item.item().as_ref().and_then(key_of), item.child()) else { return };
+            if let Some(expander) = item.child().and_downcast::<gtk::TreeExpander>() {
+                expander.set_list_row(None);
+            }
+            let (Some(key), Some(cell)) = (item.item().as_ref().and_then(key_of), cell_of(item)) else { return };
             let mut d = data.borrow_mut();
             // The host goes with the row, wherever it's bound next.
             detach(&cell);
@@ -449,7 +637,7 @@ impl List {
     pub(crate) fn new(id: NodeId, events: Events) -> List {
         install_css();
         let data = new_data();
-        let factory = factory(&data, &events, id, 0, || ItemCell::new(0, None).upcast());
+        let factory = factory(&data, &events, id, 0, false, || ItemCell::new(0, None).upcast());
         let view = gtk::ListView::new(None::<gtk::NoSelection>, Some(factory));
         view.add_css_class("mitsuami-list");
         end_drop_target(&data, &events, id, view.upcast_ref());
@@ -472,7 +660,60 @@ impl List {
                 }
             });
         }
-        List::finish(scrolled, View::List(view), id, events, data)
+        let store = gio::ListStore::new::<gtk::StringObject>();
+        List::finish(scrolled, View::List(view), store, id, events, data)
+    }
+
+    /// A tree: a list view over a tree list model of the top rows' store,
+    /// which gives each row that opens its own store of its children's
+    /// keys. GTK doesn't open rows itself, and its rows are in expanders.
+    pub(crate) fn new_tree(id: NodeId, events: Events) -> List {
+        install_css();
+        let data = new_data();
+        let store = gio::ListStore::new::<gtk::StringObject>();
+        let model = {
+            let data = Rc::downgrade(&data);
+            gtk::TreeListModel::new(store.clone(), false, false, move |item| {
+                let (data, key) = (data.upgrade()?, key_of(item)?);
+                let d = data.try_borrow().ok()?;
+                d.tree.get(&key).filter(|r| r.expandable)?;
+                d.stores.get(&key).map(|s| s.clone().upcast())
+            })
+        };
+        let placed: Placed = {
+            let (data, events) = (Rc::downgrade(&data), events.clone());
+            Rc::new(move |cell: &gtk::Widget| {
+                if let Some(data) = data.upgrade() {
+                    report_indent(&data, &events, id, cell);
+                }
+            })
+        };
+        let factory = factory(&data, &events, id, 0, true, move || {
+            let cell = ItemCell::new(0, None);
+            *cell.imp().placed.borrow_mut() = Some(placed.clone());
+            cell.upcast()
+        });
+        let view = gtk::ListView::new(None::<gtk::NoSelection>, Some(factory));
+        view.add_css_class("mitsuami-list");
+        end_drop_target(&data, &events, id, view.upcast_ref());
+        // Activation is double-click or Enter, as in Files.
+        view.set_single_click_activate(false);
+        {
+            let (data, events) = (data.clone(), events.clone());
+            view.connect_activate(move |_, position| activated(&data, &events, id, position));
+        }
+        let scrolled = gtk::ScrolledWindow::new();
+        scrolled.set_policy(gtk::PolicyType::Never, gtk::PolicyType::Automatic);
+        {
+            let (data, events) = (data.clone(), events.clone());
+            scrolled.hadjustment().connect_page_size_notify(move |h| {
+                let width = h.page_size();
+                if width > 0.0 && data.borrow_mut().row_width.replace(width) != Some(width) {
+                    events.emit(id, UiEvent::RowWidth(width as f32));
+                }
+            });
+        }
+        List::finish(scrolled, View::Tree(view, model), store, id, events, data)
     }
 
     /// A table: a column view, with the theme's own cells and header. Its
@@ -489,7 +730,8 @@ impl List {
         }
         let scrolled = gtk::ScrolledWindow::new();
         scrolled.set_policy(gtk::PolicyType::Automatic, gtk::PolicyType::Automatic);
-        let list = List::finish(scrolled, View::Table(view.clone()), id, events, data);
+        let store = gio::ListStore::new::<gtk::StringObject>();
+        let list = List::finish(scrolled, View::Table(view.clone()), store, id, events, data);
         // Pressing a sortable header changes the view's sorter: the app
         // sorts. The view owns its sorter, so it's held weakly here, or it
         // would never be freed.
@@ -507,9 +749,16 @@ impl List {
         list
     }
 
-    fn finish(scrolled: gtk::ScrolledWindow, typed: View, id: NodeId, events: Events, data: Rc<RefCell<Data>>) -> List {
+    fn finish(
+        scrolled: gtk::ScrolledWindow,
+        typed: View,
+        store: gio::ListStore,
+        id: NodeId,
+        events: Events,
+        data: Rc<RefCell<Data>>,
+    ) -> List {
         let view: gtk::Widget = match &typed {
-            View::List(v) => v.clone().upcast(),
+            View::List(v) | View::Tree(v, _) => v.clone().upcast(),
             View::Table(v) => v.clone().upcast(),
         };
         scrolled.set_child(Some(&view));
@@ -530,7 +779,6 @@ impl List {
                 events.emit(id, UiEvent::Scrolled(Point::new(h.value() as f32, y as f32)))
             });
         }
-        let store = gio::ListStore::new::<gtk::StringObject>();
         let list = List { scrolled, view, typed, store, id, events, data, muted: Rc::default() };
         list.set_mode(SelectionMode::None);
         list
@@ -560,18 +808,14 @@ impl List {
                 let cell = ItemCell::new(index, Some(report.clone()));
                 // Empty until its host comes, at the estimate's height.
                 cell.set_height_request(data.borrow().estimate());
-                // The column view's cell widget around it, which the
-                // theme pads.
+                // Its parent, the column view's cell widget that the theme
+                // pads, is unpadded as it's bound (`fill_row`).
                 if fills {
-                    cell.connect_parent_notify(|cell| {
-                        if let Some(parent) = cell.parent() {
-                            parent.add_css_class("mitsuami-fills-row");
-                        }
-                    });
+                    cell.add_css_class("mitsuami-fills");
                 }
                 cell.upcast()
             };
-            let factory = factory(&self.data, &self.events, self.id, index, make);
+            let factory = factory(&self.data, &self.events, self.id, index, false, make);
             let native = gtk::ColumnViewColumn::new(Some(&column.title), Some(factory));
             native.set_resizable(true);
             native.set_expand(column.expand);
@@ -627,7 +871,16 @@ impl List {
     pub(crate) fn sort(&self) -> Option<ColumnSort> {
         match &self.typed {
             View::Table(view) => sort_of(view),
-            View::List(_) => None,
+            View::List(_) | View::Tree(..) => None,
+        }
+    }
+
+    /// What the view shows, which its selection model wraps: the store, or
+    /// a tree's tree list model of it.
+    fn items(&self) -> gio::ListModel {
+        match &self.typed {
+            View::Tree(_, model) => model.clone().upcast(),
+            View::List(_) | View::Table(_) => self.store.clone().upcast(),
         }
     }
 
@@ -684,6 +937,94 @@ impl List {
         }
     }
 
+    /// A tree's rows that show, each with its place in the tree. The top
+    /// rows' store and each opening row's store take their children's keys
+    /// by the fewest changes; then, from the top, each row is opened or
+    /// closed as sent, which shows or drops its children's rows, so the
+    /// tree list model shows the rows in their order. A closed row's store
+    /// is emptied: its children come with the rows that open it.
+    pub(crate) fn set_tree_rows(&self, rows: Vec<TreeRow>) {
+        let View::Tree(_, model) = &self.typed else { return };
+        let selected = self.selected();
+        let mut children: HashMap<Option<RowKey>, Vec<RowKey>> = HashMap::new();
+        for row in &rows {
+            children.entry(row.parent).or_default().push(row.row);
+        }
+        // Expanders to indent again, set once the data is let go: GTK asks
+        // `create_func` whether an unbound row opens, and keeps the answer.
+        let mut reindent: Vec<gtk::TreeExpander> = Vec::new();
+        let stores: Vec<(gio::ListStore, Vec<RowKey>)> = {
+            let mut data = self.data.borrow_mut();
+            data.index = rows.iter().enumerate().map(|(i, r)| (r.row, i)).collect();
+            data.rows = rows.iter().map(|r| r.row).collect();
+            data.tree = rows.iter().map(|r| (r.row, *r)).collect();
+            let any_opens = rows.iter().any(|r| r.expandable);
+            if data.any_opens != any_opens {
+                data.any_opens = any_opens;
+                reindent = data.cells.values().filter_map(|c| c.parent().and_downcast::<gtk::TreeExpander>()).collect();
+            }
+            let Data { stores, tree, expanders, .. } = &mut *data;
+            stores.retain(|key, _| tree.get(key).is_some_and(|r| r.expandable));
+            expanders.retain(|key, _| tree.contains_key(key));
+            rows.iter()
+                .filter(|r| r.expandable)
+                .map(|r| {
+                    let store = stores.entry(r.row).or_insert_with(gio::ListStore::new::<gtk::StringObject>).clone();
+                    (store, children.remove(&Some(r.row)).unwrap_or_default())
+                })
+                .collect()
+        };
+        let any_opens = self.data.borrow().any_opens;
+        for expander in reindent {
+            expander.set_indent_for_icon(any_opens);
+        }
+        let focused = self.focused();
+        self.muted.set(true);
+        self.data.borrow_mut().expanding = true;
+        splice_keys(&self.store, &children.remove(&None).unwrap_or_default());
+        for (store, keys) in &stores {
+            splice_keys(store, keys);
+        }
+        for (position, row) in rows.iter().enumerate() {
+            let Some(native) = model.row(position as u32) else { break };
+            if key_of(native.upcast_ref()) != Some(row.row) {
+                break;
+            }
+            if native.is_expanded() != row.expanded {
+                native.set_expanded(row.expanded);
+            }
+        }
+        self.data.borrow_mut().expanding = false;
+        self.muted.set(false);
+        if focused && !self.focused() {
+            self.view.grab_focus();
+        }
+        let kept: Vec<RowKey> = {
+            let data = self.data.borrow();
+            selected.iter().copied().filter(|k| data.index.contains_key(k)).collect()
+        };
+        self.set_selected(&kept);
+        if kept != selected {
+            self.report_selection();
+        }
+    }
+
+    /// Opens or closes a tree's row as assistive technology does, reporting
+    /// it. Closing it drops its children's rows; opening it shows them once
+    /// the core sends them. False for a row that doesn't open.
+    pub(crate) fn expand(&self, key: RowKey, open: bool) -> bool {
+        let View::Tree(_, model) = &self.typed else { return false };
+        let Some(position) = self.data.borrow().index.get(&key).copied() else { return false };
+        let Some(native) = model.row(position as u32).filter(|r| r.is_expandable()) else { return false };
+        if native.is_expanded() != open {
+            self.data.borrow_mut().expanding = true;
+            native.set_expanded(open);
+            self.data.borrow_mut().expanding = false;
+            self.events.emit(self.id, UiEvent::RowExpanded(key, open));
+        }
+        true
+    }
+
     /// Whether the focus is in the view: on it or on a row.
     fn focused(&self) -> bool {
         self.view.root().and_then(|r| r.focus()).is_some_and(|f| f.is_ancestor(&self.view))
@@ -695,16 +1036,17 @@ impl List {
     pub(crate) fn set_mode(&self, mode: SelectionMode) {
         let selected = self.selected();
         self.data.borrow_mut().mode = mode;
+        let items = self.items();
         let model: gtk::SelectionModel = match mode {
-            SelectionMode::None => gtk::NoSelection::new(Some(self.store.clone())).upcast(),
+            SelectionMode::None => gtk::NoSelection::new(Some(items)).upcast(),
             SelectionMode::Single => {
-                let single = gtk::SingleSelection::new(Some(self.store.clone()));
+                let single = gtk::SingleSelection::new(Some(items));
                 single.set_autoselect(false);
                 single.set_can_unselect(true);
                 single.set_selected(gtk::INVALID_LIST_POSITION);
                 single.upcast()
             }
-            SelectionMode::Multiple => gtk::MultiSelection::new(Some(self.store.clone())).upcast(),
+            SelectionMode::Multiple => gtk::MultiSelection::new(Some(items)).upcast(),
         };
         let (data, events, muted, id) = (self.data.clone(), self.events.clone(), self.muted.clone(), self.id);
         model.connect_selection_changed(move |model, _, _| {
@@ -718,7 +1060,7 @@ impl List {
         // list, as in AppKit's tables.
         let focused = self.focused();
         match &self.typed {
-            View::List(view) => view.set_model(Some(&model)),
+            View::List(view) | View::Tree(view, _) => view.set_model(Some(&model)),
             View::Table(view) => view.set_model(Some(&model)),
         }
         if focused {
@@ -777,7 +1119,7 @@ impl List {
             for index in indexes {
                 selection.add(index);
             }
-            model.set_selection(&selection, &gtk::Bitset::new_range(0, self.store.n_items()));
+            model.set_selection(&selection, &gtk::Bitset::new_range(0, self.items().n_items()));
         }
         self.muted.set(false);
     }
@@ -791,7 +1133,7 @@ impl List {
     /// The selection model: the view's.
     fn model(&self) -> Option<gtk::SelectionModel> {
         match &self.typed {
-            View::List(view) => view.model(),
+            View::List(view) | View::Tree(view, _) => view.model(),
             View::Table(view) => view.model(),
         }
     }
@@ -825,7 +1167,12 @@ impl List {
     /// A drag of `rows` dropped where `to` proposes, through the targeting
     /// the drop targets use: for tests, as GTK can't start a drag.
     pub(crate) fn move_rows(&self, rows: &[RowKey], to: RowDrop<RowKey>) {
-        let landed = landing(&self.data.borrow(), rows, to);
+        // The pointer is over the row dropped onto or before, as a drag's.
+        let over = match to {
+            RowDrop::On(row) | RowDrop::Before(row) => Some(row),
+            RowDrop::End => None,
+        };
+        let landed = landing(&self.data.borrow(), rows, over, to);
         if let Some((rows, to)) = landed {
             self.events.emit(self.id, UiEvent::RowsMoved { rows, to });
         }
@@ -886,7 +1233,7 @@ impl List {
     /// a table's column view (`ColumnView::scroll_to` needs GTK 4.12).
     fn list_view(&self) -> Option<gtk::Widget> {
         match &self.typed {
-            View::List(view) => Some(view.clone().upcast()),
+            View::List(view) | View::Tree(view, _) => Some(view.clone().upcast()),
             View::Table(view) => {
                 let mut child = view.first_child();
                 while let Some(c) = child {
@@ -931,6 +1278,24 @@ impl List {
         (0..self.store.n_items()).filter_map(|i| self.store.item(i).as_ref().and_then(key_of)).collect()
     }
 
+    /// A tree's rows as its tree list model shows them: each with its
+    /// parent, depth, and whether it opens and is open.
+    pub(crate) fn tree_rows(&self) -> Vec<TreeRow> {
+        let View::Tree(_, model) = &self.typed else { return Vec::new() };
+        (0..model.n_items())
+            .filter_map(|i| {
+                let row = model.row(i)?;
+                Some(TreeRow {
+                    row: key_of(row.upcast_ref())?,
+                    parent: row.parent().and_then(|p| key_of(p.upcast_ref())),
+                    depth: row.depth(),
+                    expandable: row.is_expandable(),
+                    expanded: row.is_expanded(),
+                })
+            })
+            .collect()
+    }
+
     /// Where GTK placed a host, in the view's content (a table's below its
     /// header), if it did: it only allocates the rows in view.
     fn placed_at(&self, host: &gtk::Widget) -> Option<Point> {
@@ -968,7 +1333,12 @@ impl List {
                 beside_placed(&data, index, hosted.collect(), |k| host_of(k).and_then(|h| self.placed(h)), height)?
             }
         };
-        Some(Rect { origin: Point::new(0.0, y), size })
+        // A tree's row is in by its indent.
+        let x = match (data.indent, data.tree.get(&key)) {
+            (Some(indent), Some(row)) => indent.at(row.depth),
+            _ => 0.0,
+        };
+        Some(Rect { origin: Point::new(x, y), size })
     }
 
     /// Where a table put a cell's host, in its content, at the host's
@@ -1055,6 +1425,27 @@ fn beside_placed(
 fn selected_keys(data: &Data, model: &gtk::SelectionModel) -> Vec<RowKey> {
     let selection = model.selection();
     (0..selection.size()).filter_map(|i| data.rows.get(selection.nth(i as u32) as usize).copied()).collect()
+}
+
+/// Reports how far a tree indents its rows' content, from a cell GTK just
+/// allocated in its expander: where a top row's starts, and what each level
+/// adds, from a deeper row's (until one shows, as much as the start, since
+/// GTK indents each level by an expander's width).
+fn report_indent(data: &Rc<RefCell<Data>>, events: &Events, id: NodeId, cell: &gtk::Widget) {
+    let Some(expander) = cell.parent().and_downcast::<gtk::TreeExpander>() else { return };
+    let (Some(row), Some(item)) = (expander.list_row(), expander.parent()) else { return };
+    let Some(x) = cell.compute_point(&item, &graphene::Point::new(0.0, 0.0)).map(|p| p.x()) else { return };
+    let Ok(mut d) = data.try_borrow_mut() else { return };
+    let indent = match (row.depth(), d.indent) {
+        (0, old) => TreeIndent { start: x, per_level: old.map_or(x, |o| o.per_level) },
+        (_, None) => return,
+        (depth, Some(old)) => TreeIndent { per_level: (x - old.start) / depth as f32, ..old },
+    };
+    if d.indent != Some(indent) {
+        d.indent = Some(indent);
+        drop(d);
+        events.emit(id, UiEvent::TreeIndent(indent));
+    }
 }
 
 /// Reports the rows bound and unbound since the last report, once the main
@@ -1154,6 +1545,12 @@ mod imp {
     pub(crate) struct ItemCell {
         pub(super) column: Cell<usize>,
         pub(super) report: RefCell<Option<WidthReport>>,
+        /// A tree's cell: hears it allocated.
+        pub(super) placed: RefCell<Option<Placed>>,
+        /// A drop's line, and the edge it's on while a drag shows it, from
+        /// how far across the cell (left of it, for a level out).
+        pub(super) line: RefCell<Option<gtk::Widget>>,
+        pub(super) line_at: Cell<Option<(Edge, f32)>>,
     }
 
     #[glib::object_subclass]
@@ -1176,12 +1573,18 @@ mod imp {
             if orientation == gtk::Orientation::Horizontal {
                 return (0, 0, -1, -1);
             }
-            let height = self.obj().first_child().map_or(0, |c| c.measure(gtk::Orientation::Vertical, -1).0);
+            let height = host_of(self.obj().upcast_ref()).map_or(0, |c| c.measure(gtk::Orientation::Vertical, -1).0);
             (height, height, -1, -1)
         }
 
         fn size_allocate(&self, width: i32, height: i32, _baseline: i32) {
-            if let Some(child) = self.obj().first_child() {
+            // A drop's line, over the row's content at its edge.
+            if let (Some(line), Some((edge, x))) = (self.line.borrow().as_ref(), self.line_at.get()) {
+                let y = if edge == Edge::Top { 0 } else { height - 2 };
+                let transform = gsk::Transform::new().translate(&graphene::Point::new(x, y as f32));
+                line.allocate((width as f32 - x).round() as i32, 2, -1, Some(transform));
+            }
+            if let Some(child) = host_of(self.obj().upcast_ref()) {
                 let (w, ..) = child.measure(gtk::Orientation::Horizontal, -1);
                 let (h, ..) = child.measure(gtk::Orientation::Vertical, w);
                 let y = ((height - h) / 2).max(0);
@@ -1191,6 +1594,10 @@ mod imp {
             let report = self.report.borrow().clone();
             if let Some(report) = report {
                 report(self.column.get(), width);
+            }
+            let placed = self.placed.borrow().clone();
+            if let Some(placed) = placed {
+                placed(self.obj().upcast_ref());
             }
         }
     }
@@ -1206,8 +1613,38 @@ impl ItemCell {
     /// A cell in `column`, which reports its width to `report` (a table's).
     fn new(column: usize, report: Option<WidthReport>) -> ItemCell {
         let cell: ItemCell = glib::Object::new();
+        // The theme rings every widget a drag is over (`:drop(active)`);
+        // a cell shows where a drop lands itself, as libadwaita's places
+        // sidebar does, so it has no ring of the theme's.
+        cell.add_css_class("mitsuami-cell");
         cell.imp().column.set(column);
         *cell.imp().report.borrow_mut() = report;
         cell
+    }
+
+    /// Shows a drop's line at an edge, or takes it away. It's a child made
+    /// last, so it's drawn over the row's content: the theme's inset shadow
+    /// on the cell was drawn under it, and the content hid it.
+    fn show_line(&self, edge: Option<(Edge, f32)>) {
+        self.imp().line_at.set(edge);
+        let line = self
+            .imp()
+            .line
+            .borrow_mut()
+            .get_or_insert_with(|| {
+                let line = gtk::Box::new(gtk::Orientation::Horizontal, 0);
+                line.add_css_class("mitsuami-drop-line");
+                line.set_can_target(false);
+                line.upcast()
+            })
+            .clone();
+        match edge {
+            Some(_) => {
+                line.insert_before(self, None::<&gtk::Widget>);
+                line.set_visible(true);
+            }
+            None => line.set_visible(false),
+        }
+        self.queue_allocate();
     }
 }

@@ -1,26 +1,72 @@
-//! Lists and tables: placing, showing, selecting and scrolling rows, sizing
-//! tables' columns, and checking row and cell hosts.
+//! Lists, tables and trees: placing, showing, selecting and scrolling rows,
+//! sizing tables' columns, opening and closing trees' rows, and checking
+//! row and cell hosts.
 
 use std::collections::{BTreeMap, BTreeSet, HashSet};
 
 use mitsuami_core::{
-    CellKey, Command, EventValue, NodeId, Point, Prop, Rect, RowKey, Size, UiEvent, WidgetKind, find_prop,
+    CellKey, Command, EventValue, NodeId, Point, Prop, Rect, RowKey, Size, TreeRow, UiEvent, WidgetKind, find_prop,
 };
 
-use super::metrics::{COLUMN_SPACING, COLUMN_WIDTH, TABLE_HEADER_HEIGHT, TABLE_ROW_HEIGHT};
+use super::metrics::{COLUMN_SPACING, COLUMN_WIDTH, TABLE_HEADER_HEIGHT, TABLE_ROW_HEIGHT, TREE_INDENT};
 use super::state::violation;
 use super::{HeadlessNode, Placed, State};
 
-/// A list's rows, looked at in place: a copy of ten thousand keys per batch
-/// adds up.
-fn row_keys(node: &HeadlessNode) -> &[RowKey] {
+/// A list's rows, or a tree's that show, looked at in place: a copy of ten
+/// thousand keys per batch adds up.
+fn row_keys(node: &HeadlessNode) -> Box<dyn Iterator<Item = RowKey> + '_> {
+    match node.props.iter().find(|p| matches!(p, Prop::Rows(_) | Prop::TreeRows(_))) {
+        Some(Prop::Rows(rows)) => Box::new(rows.iter().copied()),
+        Some(Prop::TreeRows(rows)) => Box::new(rows.iter().map(|r| r.row)),
+        _ => Box::new(std::iter::empty()),
+    }
+}
+
+/// A tree's rows that show, looked at in place.
+pub(super) fn tree_rows(node: &HeadlessNode) -> &[TreeRow] {
     node.props
         .iter()
         .find_map(|p| match p {
-            Prop::Rows(rows) => Some(rows.as_slice()),
+            Prop::TreeRows(rows) => Some(rows.as_slice()),
             _ => None,
         })
         .unwrap_or_default()
+}
+
+/// Checks a tree's rows: each after its parent, which opens and is open,
+/// one level below it, and right after its parent's other rows, as a
+/// native tree shows them.
+pub(super) fn check_tree_rows(command: &Command, rows: &[TreeRow]) {
+    let mut seen = HashSet::new();
+    // The open rows down to the last row, and their depths.
+    let mut path: Vec<&TreeRow> = Vec::new();
+    for row in rows {
+        if !seen.insert(row.row) {
+            violation(command, &format!("tree row {:?} shows twice", row.row));
+        }
+        if row.expanded && !row.expandable {
+            violation(command, &format!("tree row {:?} is open but doesn't open", row.row));
+        }
+        while path.last().is_some_and(|p| Some(p.row) != row.parent) {
+            path.pop();
+        }
+        match (row.parent, path.last()) {
+            (None, _) if row.depth != 0 => violation(command, &format!("top tree row {:?} isn't at depth 0", row.row)),
+            (None, _) => {}
+            (Some(parent), None) => {
+                violation(command, &format!("tree row {:?} isn't right after its parent {parent:?}'s rows", row.row))
+            }
+            (Some(_), Some(parent)) => {
+                if !parent.expanded {
+                    violation(command, &format!("tree row {:?} shows in a closed row", row.row));
+                }
+                if row.depth != parent.depth + 1 {
+                    violation(command, &format!("tree row {:?} isn't one level below its parent", row.row));
+                }
+            }
+        }
+        path.push(row);
+    }
 }
 
 impl State {
@@ -106,7 +152,7 @@ impl State {
     /// two lines of text).
     pub(super) fn place_rows(&mut self, list: NodeId) {
         let node = &self.nodes[&list];
-        let rows: HashSet<RowKey> = row_keys(node).iter().copied().collect();
+        let rows: HashSet<RowKey> = row_keys(node).collect();
         let fill: Vec<bool> = find_prop!(node.props, Columns).unwrap_or_default().iter().map(|c| c.fills_row).collect();
         let mut measured: BTreeMap<RowKey, f32> = BTreeMap::new();
         // Tables with cells that fill their rows: each row's height without them.
@@ -158,8 +204,7 @@ impl State {
         });
         let mut top = 0.0;
         row_keys(node)
-            .iter()
-            .map(|&key| {
+            .map(|key| {
                 let height = heights.get(&key).copied().unwrap_or(estimate);
                 top += height;
                 Placed { key, top: top - height, height }
@@ -218,6 +263,41 @@ impl State {
         self.scroll(list, Point::new(offset.x, y));
     }
 
+    /// Opens or closes a tree's row as the user does, reporting it. Closing
+    /// it drops the rows below it at once, as platforms do; opening it shows
+    /// it open, and its children's rows come from the core.
+    pub(super) fn expand(&mut self, tree: NodeId, row: RowKey, open: bool) -> Result<(), ()> {
+        let rows = tree_rows(&self.nodes[&tree]);
+        let Some(at) = rows.iter().position(|r| r.row == row).filter(|i| rows[*i].expandable) else { return Err(()) };
+        if rows[at].expanded == open {
+            return Ok(());
+        }
+        let mut rows = rows.to_vec();
+        rows[at].expanded = open;
+        if !open {
+            let depth = rows[at].depth;
+            let end = rows[at + 1..].iter().position(|r| r.depth <= depth).map_or(rows.len(), |i| at + 1 + i);
+            rows.drain(at + 1..end);
+        }
+        let kept: HashSet<RowKey> = rows.iter().map(|r| r.row).collect();
+        self.set_prop(tree, Prop::TreeRows(rows));
+        // Like a native tree, closing a row deselects the rows it hid.
+        let selected = find_prop!(self.nodes[&tree].props, Selected).unwrap_or_default();
+        let still: Vec<RowKey> = selected.iter().copied().filter(|k| kept.contains(k)).collect();
+        if still != selected {
+            self.select(tree, still);
+        }
+        self.place_rows(tree);
+        self.show_rows(tree);
+        self.emit(tree, UiEvent::RowExpanded(row, open));
+        Ok(())
+    }
+
+    /// Where a tree's row's content starts.
+    pub(super) fn tree_inset(&self, tree: NodeId, row: RowKey) -> f32 {
+        tree_rows(&self.nodes[&tree]).iter().find(|r| r.row == row).map_or(0.0, |r| TREE_INDENT.at(r.depth))
+    }
+
     /// Checks what a native list needs of its row hosts, once a batch is
     /// in. Only `touched` lists can have changed.
     pub(super) fn check_lists(&self, command: &Command, touched: &BTreeSet<NodeId>) {
@@ -225,7 +305,7 @@ impl State {
             if node.kind == WidgetKind::Table {
                 self.check_table(command, *id);
             }
-            if node.kind != WidgetKind::List {
+            if !matches!(node.kind, WidgetKind::List | WidgetKind::Tree) {
                 continue;
             }
             let mut last = None;

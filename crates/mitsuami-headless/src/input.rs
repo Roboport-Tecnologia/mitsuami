@@ -4,8 +4,8 @@ use mitsuami_core::a11y::{A11yAction, ActionError};
 use mitsuami_core::backend::{Backend, Key, SyntheticInput};
 use mitsuami_core::services::Shortcut;
 use mitsuami_core::{
-    EventValue, KeyCode, Modifiers, MouseButton, NodeId, Point, PointerEvent, PointerKind, Prop, RowKey, ScrollDelta,
-    SelectionMode, Size, SurfaceInput, UiEvent, WidgetKind, find_prop,
+    EventValue, KeyCode, Modifiers, MouseButton, NodeId, Point, PointerEvent, PointerKind, Prop, RowDrop, RowKey,
+    ScrollDelta, SelectionMode, Size, SurfaceInput, UiEvent, WidgetKind, find_prop,
 };
 
 use super::{HeadlessBackend, State};
@@ -65,9 +65,26 @@ impl HeadlessBackend {
         // them, the rows in the list's order.
         if let SyntheticInput::MoveRows { rows, to } = input {
             let moves = find_prop!(node.props, RowMoves).ok_or(ActionError::Unsupported)?;
-            let order = find_prop!(node.props, Rows).unwrap_or_default();
+            // A tree's rows, with their parents: a folder doesn't go inside
+            // itself.
+            let tree = super::lists::tree_rows(node);
+            let order: Vec<RowKey> = match kind {
+                WidgetKind::Tree => tree.iter().map(|r| r.row).collect(),
+                _ => find_prop!(node.props, Rows).unwrap_or_default(),
+            };
             let rows: Vec<RowKey> = order.iter().filter(|row| rows.contains(row)).copied().collect();
-            if let Some(to) = moves.target(&rows, *to)
+            let target = match kind {
+                // The pointer is over the row dropped onto or before.
+                WidgetKind::Tree => {
+                    let over = match to {
+                        RowDrop::On(row) | RowDrop::Before(row) => Some(*row),
+                        RowDrop::End => None,
+                    };
+                    moves.tree_target(&rows, over, *to, |row| tree.iter().find(|r| r.row == row).copied())
+                }
+                _ => moves.target(&rows, *to),
+            };
+            if let Some(to) = target
                 && !rows.is_empty()
             {
                 state.emit(id, UiEvent::RowsMoved { rows, to });
@@ -133,7 +150,7 @@ impl HeadlessBackend {
                 }
                 let node = &state.nodes[&id];
                 let (axes, content) = match kind {
-                    WidgetKind::List => (
+                    WidgetKind::List | WidgetKind::Tree => (
                         mitsuami_core::ScrollAxes::Vertical,
                         Size::new(node.frame.width(), state.rows(id).iter().map(|r| r.height).sum()),
                     ),
@@ -237,9 +254,20 @@ impl HeadlessBackend {
                 drop(state);
                 return self.perform(id, &A11yAction::Activate);
             }
+            // Right opens the selected row of a tree, Left closes it, as
+            // most platforms' trees do (GTK's take Shift with them).
+            (WidgetKind::Tree, Key::Left | Key::Right) => {
+                let selected = find_prop!(state.nodes[&id].props, Selected).unwrap_or_default();
+                let Some(row) = selected.first() else { return Err(ActionError::Unsupported) };
+                state.focus(id);
+                let _ = state.expand(id, *row, *key == Key::Right);
+            }
             // Arrows, Home and End move the selection (from the first
             // selected row) and show it; Enter activates it.
-            (WidgetKind::List | WidgetKind::Table, Key::Up | Key::Down | Key::Home | Key::End | Key::Enter) => {
+            (
+                WidgetKind::List | WidgetKind::Table | WidgetKind::Tree,
+                Key::Up | Key::Down | Key::Home | Key::End | Key::Enter,
+            ) => {
                 if find_prop!(state.nodes[&id].props, SelectionMode).unwrap_or_default() == SelectionMode::None {
                     return Err(ActionError::Unsupported);
                 }

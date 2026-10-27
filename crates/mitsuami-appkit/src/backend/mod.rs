@@ -238,7 +238,7 @@ impl Widget {
     /// view.
     fn key_view(&self) -> Retained<NSView> {
         match self {
-            Widget::List(list) => Retained::into_super(Retained::into_super(Retained::into_super(list.table.clone()))),
+            Widget::List(list) => Retained::into_super(Retained::into_super(list.table.clone())),
             Widget::Sidebar(sidebar) => Retained::into_super(Retained::into_super(sidebar.table.clone())),
             Widget::NumberInput(n) => Retained::into_super(Retained::into_super(n.field().retain())),
             Widget::RadioGroup(group) => group.key_view(),

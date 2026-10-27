@@ -59,8 +59,17 @@ impl Inner {
         let labelled = a11y.label.is_some() || a11y.labelled_by.is_some();
         let row = crate::find_prop!(node.props, Row);
         let cell = crate::find_prop!(node.props, Cell);
+        // A tree's row: its place in the tree, looked up in place.
+        let tree_row = row.and_then(|key| {
+            let tree = node.native_parent.and_then(|p| self.nodes.get(&p))?;
+            tree.props.iter().find_map(|p| match p {
+                Prop::TreeRows(rows) => rows.iter().find(|r| r.row == key).copied(),
+                _ => None,
+            })
+        });
         let role = a11y.role.unwrap_or(match node.kind {
             WidgetKind::Window => Role::Window,
+            WidgetKind::Container if tree_row.is_some() => Role::TreeItem,
             WidgetKind::Container if row.is_some() => Role::ListItem,
             WidgetKind::Container if cell.is_some() => Role::Cell,
             WidgetKind::Container if labelled => Role::Group,
@@ -69,6 +78,7 @@ impl Inner {
             WidgetKind::ScrollView => Role::ScrollArea,
             WidgetKind::List | WidgetKind::Sidebar => Role::List,
             WidgetKind::Table => Role::Table,
+            WidgetKind::Tree => Role::Tree,
             WidgetKind::Tabs => Role::TabGroup,
             WidgetKind::DocumentTabs => Role::TabList,
             // Named by its heading, as a fieldset by its legend.
@@ -190,6 +200,8 @@ impl Inner {
             password: node.kind == WidgetKind::PasswordInput,
             invalid: error.is_some(),
             selected,
+            expanded: tree_row.filter(|r| r.expandable).map(|r| r.expanded),
+            level: tree_row.map(|r| r.depth as usize + 1),
             enabled: crate::find_prop!(props, Enabled).unwrap_or(true),
             test_id: node.test_id.clone(),
             frame,
@@ -219,6 +231,8 @@ impl Inner {
                 password: false,
                 invalid: false,
                 selected: Some(shown == Some(index)),
+                expanded: None,
+                level: None,
                 enabled: true,
                 test_id: None,
                 frame,
@@ -248,6 +262,8 @@ impl Inner {
             password: false,
             invalid: false,
             selected,
+            expanded: None,
+            level: None,
             enabled,
             test_id: None,
             frame,
@@ -287,6 +303,8 @@ impl Inner {
                 password: false,
                 invalid: false,
                 selected: None,
+                expanded: None,
+                level: None,
                 enabled,
                 test_id: None,
                 frame,
@@ -315,6 +333,8 @@ impl Inner {
             password: false,
             invalid: false,
             selected,
+            expanded: None,
+            level: None,
             enabled: true,
             test_id: None,
             frame,
@@ -364,6 +384,8 @@ impl Inner {
             password: false,
             invalid: false,
             selected,
+            expanded: None,
+            level: None,
             enabled: true,
             test_id: None,
             frame,

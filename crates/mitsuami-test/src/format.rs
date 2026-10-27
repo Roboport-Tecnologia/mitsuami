@@ -168,6 +168,22 @@ fn describe_props(props: &[Prop]) -> String {
             }
             // A list's data can be long: its size is enough.
             Prop::Rows(rows) => extra.push(format!("rows={}", rows.len())),
+            // `tree=[1 ▾2 ·3 ▸4]`: each row's key, after a dot per level,
+            // and a triangle if it opens, down while it's open.
+            Prop::TreeRows(rows) => {
+                let rows: Vec<String> = rows
+                    .iter()
+                    .map(|r| {
+                        let mark = match (r.expandable, r.expanded) {
+                            (false, _) => "",
+                            (true, false) => "▸",
+                            (true, true) => "▾",
+                        };
+                        format!("{}{mark}{}", "·".repeat(r.depth as usize), r.row.0)
+                    })
+                    .collect();
+                extra.push(format!("tree=[{}]", rows.join(" ")));
+            }
             Prop::EstimatedRowHeight(h) => extra.push(format!("estimated_row_height={}", Num(*h))),
             Prop::Row(key) => extra.push(format!("row={}", key.0)),
             Prop::Cell(cell) => extra.push(format!("cell={},{}", cell.row.0, cell.column)),
@@ -458,6 +474,7 @@ pub(crate) fn wireframe(root: &NodeInfo) -> String {
             WidgetKind::ScrollView
             | WidgetKind::List
             | WidgetKind::Table
+            | WidgetKind::Tree
             | WidgetKind::Sidebar
             | WidgetKind::Tabs
             | WidgetKind::DocumentTabs

@@ -111,7 +111,9 @@ impl Inner {
                 crate::find_prop!(node.props, ScrollAxes).unwrap_or_default(),
                 node.native_children.first().map_or(Size::ZERO, |c| self.nodes[c].frame.size),
             ),
-            WidgetKind::List => (crate::ScrollAxes::Vertical, Size::new(node.frame.width(), f32::INFINITY)),
+            WidgetKind::List | WidgetKind::Tree => {
+                (crate::ScrollAxes::Vertical, Size::new(node.frame.width(), f32::INFINITY))
+            }
             // Its columns can be wider than it: the platform clamps.
             WidgetKind::Table => (crate::ScrollAxes::Both, Size::new(f32::INFINITY, f32::INFINITY)),
             _ => return None,

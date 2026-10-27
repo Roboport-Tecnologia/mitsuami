@@ -159,7 +159,10 @@ impl Inner {
         let node = &self.nodes[&id];
         let placed_natively = in_chrome(node.kind)
             || node.native_parent.is_some_and(|p| {
-                matches!(self.nodes[&p].kind, WidgetKind::List | WidgetKind::Table | WidgetKind::Tabs)
+                matches!(
+                    self.nodes[&p].kind,
+                    WidgetKind::List | WidgetKind::Table | WidgetKind::Tree | WidgetKind::Tabs
+                )
             });
         if !placed_natively {
             return node.frame;

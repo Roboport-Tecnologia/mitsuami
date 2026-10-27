@@ -600,6 +600,13 @@ impl State {
             (Prop::ListStyle(style), Widget::List(list)) => list.set_style(*style)?,
             (Prop::Selected(rows), Widget::List(list)) => list.set_selected(rows)?,
             (Prop::EstimatedRowHeight(height), Widget::List(list)) => list.set_estimate(*height),
+            (Prop::TreeRows(rows), Widget::Tree(tree)) => tree.set_tree_rows(rows.clone())?,
+            (Prop::RowFiles(files), Widget::Tree(tree)) => tree.set_row_files(files.clone())?,
+            (Prop::RowMoves(moves), Widget::Tree(tree)) => tree.set_moves(*moves)?,
+            (Prop::SelectionMode(mode), Widget::Tree(tree)) => tree.set_mode(*mode)?,
+            (Prop::ListStyle(style), Widget::Tree(tree)) => tree.set_style(*style)?,
+            (Prop::Selected(rows), Widget::Tree(tree)) => tree.set_selected(rows)?,
+            (Prop::EstimatedRowHeight(height), Widget::Tree(tree)) => tree.set_estimate(*height),
             (Prop::Row(row), Widget::Host(_)) => node.row = Some(*row),
             (Prop::Cell(cell), Widget::Host(_)) => {
                 node.row = Some(cell.row);
@@ -699,7 +706,9 @@ impl State {
                     )?);
                 }
             },
-            (Prop::Keys(keys), Widget::Host(_) | Widget::Group(_) | Widget::List(_)) => match &node.keys {
+            (Prop::Keys(keys), Widget::Host(_) | Widget::Group(_) | Widget::List(_) | Widget::Tree(_)) => match &node
+                .keys
+            {
                 Some(taken) => taken.set(keys.clone()),
                 None => {
                     node.keys = Some(super::keys::Keys::new(id, self.emitter.clone(), &node.element, keys.clone())?);
@@ -714,7 +723,12 @@ impl State {
                 let holds_ours = node.element.cast::<w::Canvas>().is_ok()
                     || matches!(
                         widget,
-                        Widget::Scroll(_) | Widget::List(_) | Widget::Tabs(_) | Widget::Group(_) | Widget::Split(_)
+                        Widget::Scroll(_)
+                            | Widget::List(_)
+                            | Widget::Tree(_)
+                            | Widget::Tabs(_)
+                            | Widget::Group(_)
+                            | Widget::Split(_)
                     );
                 let flow = match direction {
                     LayoutDirection::RightToLeft if !holds_ours => w::FlowDirection::RightToLeft,

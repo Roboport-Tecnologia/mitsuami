@@ -291,6 +291,7 @@ impl State {
             WidgetKind::Fragment => violation(command, "fragments are core-only"),
             WidgetKind::List => Widget::List(crate::list::List::new(id, events.clone())),
             WidgetKind::Table => Widget::List(crate::list::List::new_table(id, events.clone())),
+            WidgetKind::Tree => Widget::List(crate::list::List::new_tree(id, events.clone())),
         };
         if matches!(widget, Widget::List(_)) {
             self.lists += 1;

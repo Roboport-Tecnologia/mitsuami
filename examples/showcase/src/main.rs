@@ -157,6 +157,9 @@ mod tooltip;
 #[path = "../../../crates/mitsuami/examples/trash.rs"]
 mod trash;
 #[allow(dead_code, unused_attributes)]
+#[path = "../../../crates/mitsuami/examples/tree.rs"]
+mod tree;
+#[allow(dead_code, unused_attributes)]
 #[path = "../../../crates/mitsuami/examples/windows.rs"]
 mod windows;
 
@@ -216,6 +219,7 @@ const SECTIONS: [(&str, &[Example]); 7] = [
             example("List", || AnyView::new(list::page())),
             example("Moving rows", || AnyView::new(row_moves::page())),
             example("Table", || AnyView::new(table::page())),
+            example("Tree", || AnyView::new(tree::page())),
             example("Scroll view", || AnyView::new(scroll_view::page())),
             example("Split", || AnyView::new(split::page())),
             example("Tabs", || AnyView::new(tabs::preferences())),

@@ -134,11 +134,11 @@ Microsoft.UI.Xaml.Controls.Symbol
 Microsoft.UI.Xaml.Controls.PasswordBox::CreateInstance
 Microsoft.UI.Xaml.Controls.IPasswordBox::{get_Password, put_Password, SelectAll, get_PasswordChar, put_PasswordChar, get_PlaceholderText, put_PlaceholderText, add_PasswordChanged, remove_PasswordChanged}
 Microsoft.UI.Xaml.Controls.ScrollViewer::{CreateInstance, SetVerticalScrollBarVisibility, SetHorizontalScrollBarVisibility}
-Microsoft.UI.Xaml.Controls.IScrollViewer::{get_HorizontalOffset, get_IsScrollInertiaEnabled, put_IsScrollInertiaEnabled, get_VerticalOffset, get_ScrollableWidth, get_ScrollableHeight, get_ViewportWidth, get_ViewportHeight, get_HorizontalScrollBarVisibility, put_HorizontalScrollBarVisibility, get_VerticalScrollBarVisibility, put_VerticalScrollBarVisibility, put_HorizontalScrollMode, put_VerticalScrollMode, ChangeViewWithOptionalAnimation, add_ViewChanged, remove_ViewChanged}
+Microsoft.UI.Xaml.Controls.IScrollViewer::{get_HorizontalOffset, get_IsScrollInertiaEnabled, put_IsScrollInertiaEnabled, get_VerticalOffset, get_ScrollableWidth, get_ScrollableHeight, get_ViewportWidth, get_ViewportHeight, get_HorizontalScrollBarVisibility, put_HorizontalScrollBarVisibility, get_VerticalScrollBarVisibility, put_VerticalScrollBarVisibility, put_HorizontalScrollMode, put_VerticalScrollMode, get_VerticalScrollMode, ChangeViewWithOptionalAnimation, add_ViewChanged, remove_ViewChanged}
 Microsoft.UI.Xaml.Controls.ScrollBarVisibility
 Microsoft.UI.Xaml.Controls.ScrollMode
 Microsoft.UI.Xaml.Controls.ListView::CreateInstance
-Microsoft.UI.Xaml.Controls.IListViewBase::{get_SelectionMode, get_SingleSelectionFollowsFocus, put_SingleSelectionFollowsFocus, put_SelectionMode, get_SelectedItems, ScrollIntoView, add_ContainerContentChanging, remove_ContainerContentChanging, get_CanDragItems, put_CanDragItems, add_DragItemsStarting, remove_DragItemsStarting}
+Microsoft.UI.Xaml.Controls.IListViewBase::{get_SelectionMode, get_SingleSelectionFollowsFocus, put_SingleSelectionFollowsFocus, put_SelectionMode, get_SelectedItems, ScrollIntoView, add_ContainerContentChanging, remove_ContainerContentChanging, get_CanDragItems, put_CanDragItems, add_DragItemsStarting, remove_DragItemsStarting, add_DragItemsCompleted, remove_DragItemsCompleted}
 Microsoft.UI.Xaml.Controls.ListViewSelectionMode
 Microsoft.UI.Xaml.Controls.IContainerContentChangingEventArgs::{get_ItemContainer, get_InRecycleQueue, get_Item, put_Handled}
 Microsoft.UI.Xaml.Controls.ListViewItem::{}
@@ -150,13 +150,32 @@ Microsoft.UI.Xaml.Media.Animation.TransitionCollection::{}
 Microsoft.UI.Xaml.DataTemplate::{}
 Microsoft.UI.Xaml.Controls.IItemContainerMapping::{ItemFromContainer, ContainerFromItem}
 Microsoft.UI.Xaml.Controls.ItemCollection::{}
+Microsoft.UI.Xaml.Controls.TreeView::CreateInstance
+Microsoft.UI.Xaml.Controls.ITreeView::{get_RootNodes, get_SelectionMode, put_SelectionMode, get_SelectedNodes, Expand, Collapse, add_Expanding, remove_Expanding, add_Collapsed, remove_Collapsed}
+Microsoft.UI.Xaml.Controls.ITreeView2::{NodeFromContainer, ContainerFromNode, put_ItemTemplate, get_SelectedNode, put_SelectedNode, get_CanDragItems, put_CanDragItems, get_CanReorderItems, put_CanReorderItems, add_DragItemsStarting, remove_DragItemsStarting, add_DragItemsCompleted, remove_DragItemsCompleted, put_ItemContainerTransitions}
+Microsoft.UI.Xaml.Controls.TreeViewDragItemsStartingEventArgs::{}
+Microsoft.UI.Xaml.Controls.ITreeViewDragItemsStartingEventArgs::{get_Items, get_Data, put_Cancel}
+Microsoft.UI.Xaml.Controls.ITreeView3::{add_SelectionChanged, remove_SelectionChanged}
+Microsoft.UI.Xaml.Controls.TreeViewSelectionMode
+Microsoft.UI.Xaml.Controls.TreeViewNode::CreateInstance
+Microsoft.UI.Xaml.Controls.ITreeViewNode::{get_Content, put_Content, get_Parent, get_IsExpanded, put_IsExpanded, get_HasChildren, get_HasUnrealizedChildren, put_HasUnrealizedChildren, get_Children}
+Microsoft.UI.Xaml.Controls.TreeViewExpandingEventArgs::{}
+Microsoft.UI.Xaml.Controls.ITreeViewExpandingEventArgs::get_Node
+Microsoft.UI.Xaml.Controls.TreeViewCollapsedEventArgs::{}
+Microsoft.UI.Xaml.Controls.ITreeViewCollapsedEventArgs::get_Node
+Microsoft.UI.Xaml.Controls.TreeViewSelectionChangedEventArgs::{}
+Microsoft.UI.Xaml.Controls.TreeViewList::{}
+Microsoft.UI.Xaml.Controls.TreeViewItem::{}
+Microsoft.UI.Xaml.Controls.ITreeViewItem::get_TreeViewItemTemplateSettings
+Microsoft.UI.Xaml.Controls.TreeViewItemTemplateSettings::{}
+Microsoft.UI.Xaml.Controls.ITreeViewItemTemplateSettings::get_Indentation
 Microsoft.UI.Xaml.Media.IGeneralTransform::TransformPoint
 Microsoft.UI.Xaml.Media.GeneralTransform::{}
 Microsoft.UI.Xaml.Input.DoubleTappedEventHandler
 Microsoft.UI.Xaml.Input.DoubleTappedRoutedEventArgs::{}
 Microsoft.UI.Xaml.Input.TappedEventHandler
 Microsoft.UI.Xaml.Input.TappedRoutedEventArgs::{}
-Microsoft.UI.Xaml.Automation.AutomationProperties::{SetName, SetHelpText, GetHelpText, SetAccessibilityView, SetIsDataValidForForm, GetIsDataValidForForm}
+Microsoft.UI.Xaml.Automation.AutomationProperties::{SetName, SetHelpText, GetHelpText, SetAccessibilityView, GetAccessibilityView, SetIsDataValidForForm, GetIsDataValidForForm}
 Microsoft.UI.Xaml.Controls.ToolTipService::{SetToolTip, GetToolTip}
 Microsoft.UI.Xaml.Automation.Peers.AccessibilityView
 Microsoft.UI.Xaml.Automation.Peers.FrameworkElementAutomationPeer::CreatePeerForElement
@@ -210,7 +229,9 @@ Windows.ApplicationModel.DataTransfer.DataPackageOperation
 Windows.Storage.IStorageItem::get_Path
 Microsoft.UI.Xaml.DragEventHandler
 Microsoft.UI.Xaml.DragEventArgs::{}
-Microsoft.UI.Xaml.IDragEventArgs::{get_DataView, get_AcceptedOperation, put_AcceptedOperation, get_Handled, put_Handled, GetPosition}
+Microsoft.UI.Xaml.IDragEventArgs::{get_DataView, get_AcceptedOperation, put_AcceptedOperation, get_Handled, put_Handled, GetPosition, get_DragUIOverride}
+Microsoft.UI.Xaml.DragUIOverride::{}
+Microsoft.UI.Xaml.IDragUIOverride::{put_IsGlyphVisible}
 Microsoft.Windows.Storage.Pickers.IFileOpenPickerFactory::CreateInstance
 Microsoft.Windows.Storage.Pickers.IFileOpenPicker::{get_FileTypeFilter, PickSingleFileAsync, PickMultipleFilesAsync}
 Microsoft.Windows.Storage.Pickers.IFileOpenPicker2::{get_FileTypeChoices, put_SuggestedFolder}

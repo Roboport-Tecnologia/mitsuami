@@ -67,6 +67,11 @@ impl HeadlessBackend {
                     if find_prop!(props, Maximized) == Some(true) {
                         state.maximize(*id, true);
                     }
+                    // A tree says how it indents its rows, as platforms do
+                    // once they've made it.
+                    if *kind == WidgetKind::Tree {
+                        state.emit(*id, UiEvent::TreeIndent(super::metrics::TREE_INDENT));
+                    }
                     if *kind == WidgetKind::GpuSurface {
                         let surface = SurfaceHandle::new(HeadlessSurface);
                         state.nodes.get_mut(id).unwrap().surface = Some(surface.clone());
@@ -103,11 +108,18 @@ impl HeadlessBackend {
                         }
                         _ => {}
                     }
+                    if let Prop::TreeRows(rows) = prop {
+                        super::lists::check_tree_rows(command, rows);
+                    }
                     // Like native lists, removing rows deselects them.
-                    if let Prop::Rows(rows) = prop {
+                    let rows: Option<Box<dyn Iterator<Item = RowKey>>> = match prop {
+                        Prop::Rows(rows) => Some(Box::new(rows.iter().copied())),
+                        Prop::TreeRows(rows) => Some(Box::new(rows.iter().map(|r| r.row))),
+                        _ => None,
+                    };
+                    if let Some(rows) = rows {
                         let selected = find_prop!(state.nodes[id].props, Selected).unwrap_or_default();
-                        let rows: BTreeSet<RowKey> =
-                            if selected.is_empty() { BTreeSet::new() } else { rows.iter().copied().collect() };
+                        let rows: BTreeSet<RowKey> = if selected.is_empty() { BTreeSet::new() } else { rows.collect() };
                         let kept: Vec<RowKey> = selected.iter().copied().filter(|k| rows.contains(k)).collect();
                         if kept != selected {
                             state.select(*id, kept);

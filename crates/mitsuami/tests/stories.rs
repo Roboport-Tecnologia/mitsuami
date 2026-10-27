@@ -1106,6 +1106,41 @@ async fn select_grace(app: &TestApp) {
     app.get_by_role(Role::ListItem, "Grace Hopper grace@example.com").select().await;
 }
 
+/// A tree with a folder open, one inside it open too, and a row selected:
+/// the platform draws the disclosures, the indentation and the selection.
+#[mitsuami_test::story(sizes = [(280, fit)], play = select_button)]
+fn tree() -> impl View {
+    #[derive(Clone)]
+    struct Entry {
+        name: &'static str,
+        kids: Option<Vec<Entry>>,
+    }
+    let file = |name| Entry { name, kids: None };
+    let folder = |name, kids| Entry { name, kids: Some(kids) };
+    let roots = vec![
+        folder("src", vec![file("main.rs"), folder("ui", vec![file("button.rs"), file("list.rs")]), file("app.rs")]),
+        folder("docs", vec![file("guide.md")]),
+        file("Cargo.toml"),
+        file("README.md"),
+    ];
+    let (open, selected) = (signal(vec!["src", "ui"]), signal(Vec::<&str>::new()));
+    Column::new().child(
+        Tree::new(
+            roots,
+            |e: &Entry| e.name,
+            |e| e.kids.clone(),
+            |e| Row::new().padding_x(4).padding_y(3).child(Text::new(e.name)),
+        )
+        .expanded(open)
+        .selected(selected)
+        .height(220),
+    )
+}
+
+async fn select_button(app: &TestApp) {
+    app.get_by_role(Role::TreeItem, "button.rs").select().await;
+}
+
 /// A raw platform setting through `.native()`, on the list view: striped
 /// rows on AppKit, separators on GTK. Qt's and WinUI's tweaks change key
 /// navigation, which a still capture doesn't show.

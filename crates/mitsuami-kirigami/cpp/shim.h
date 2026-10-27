@@ -287,4 +287,15 @@ void mq_rows_remove(QObject* model, int32_t at, int32_t count);
 void mq_rows_move(QObject* model, int32_t from, int32_t count, int32_t to);
 void mq_rows_reset(QObject* model, const uint64_t* keys, int32_t count);
 void mq_rows_set_columns(QObject* model, int32_t count);
+
+// A tree's model: its rows' keys, each under its parent's (the top rows
+// under 0), with whether it opens (`hasChildren`), each showing its key
+// (roles `mitsuamiKey` and `display`). A parent's rows are inserted, removed
+// (with their subtrees) and moved as runs; `to` is where a moved run's first
+// row ends up.
+QObject* mq_tree_new(QObject* parent);
+void mq_tree_insert(QObject* model, uint64_t parent, int32_t at, const uint64_t* keys, const uint8_t* expandable,
+                    int32_t count);
+void mq_tree_remove(QObject* model, uint64_t parent, int32_t at, int32_t count);
+void mq_tree_move(QObject* model, uint64_t parent, int32_t from, int32_t count, int32_t to);
 }

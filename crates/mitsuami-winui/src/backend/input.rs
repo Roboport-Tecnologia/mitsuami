@@ -43,6 +43,10 @@ impl WinUiBackend {
                     list.move_rows(rows, *to);
                     Ok(())
                 }
+                Some(Widget::Tree(tree)) => {
+                    tree.move_rows(rows, *to);
+                    Ok(())
+                }
                 Some(_) => Err(ActionError::Unsupported),
                 None => Err(ActionError::UnknownNode),
             };
@@ -122,6 +126,37 @@ impl WinUiBackend {
                         }
                     }
                     SyntheticInput::Shortcut(shortcut) if list.uses(*shortcut) => Err(ActionError::Unsupported),
+                    SyntheticInput::Key(key) => {
+                        drop(state);
+                        self.send_key(id, Shortcut::new(*key))
+                    }
+                    SyntheticInput::Shortcut(shortcut) => {
+                        drop(state);
+                        self.send_key(id, *shortcut)
+                    }
+                    _ => Err(ActionError::Unsupported),
+                };
+            }
+            if let Some(Widget::Tree(tree)) = state.nodes.get(&id).map(|n| &n.widget) {
+                return match input {
+                    SyntheticInput::Scroll { dy, .. } => {
+                        let scroll = tree.scroll_viewer().ok_or(ActionError::Unsupported)?;
+                        let max = scroll.ScrollableHeight().unwrap_or(0.0).max(0.0);
+                        let y = (scroll.VerticalOffset().unwrap_or(0.0) + *dy as f64).clamp(0.0, max);
+                        tree.scroll_to(Point::new(0.0, y as f32)).map_err(|_| ActionError::Unsupported)
+                    }
+                    // The tree view's own keys, as a list's.
+                    SyntheticInput::Key(key) if tree.uses(Shortcut::new(*key)) => {
+                        if tree.mode() == SelectionMode::None {
+                            return Err(ActionError::Unsupported);
+                        }
+                        _ = tree.view.cast::<w::IUIElement>().and_then(|e| e.Focus(w::FocusState::Keyboard));
+                        match tree.key(*key) {
+                            Ok(true) => Ok(()),
+                            _ => Err(ActionError::Unsupported),
+                        }
+                    }
+                    SyntheticInput::Shortcut(shortcut) if tree.uses(*shortcut) => Err(ActionError::Unsupported),
                     SyntheticInput::Key(key) => {
                         drop(state);
                         self.send_key(id, Shortcut::new(*key))
@@ -423,6 +458,7 @@ impl WinUiBackend {
                     plain && (arrow || matches!(key, Key::Home | Key::End | Key::Enter | Key::Char(' ')))
                 }
                 Widget::List(list) => list.uses(shortcut),
+                Widget::Tree(tree) => tree.uses(shortcut),
                 Widget::Custom { .. } | Widget::Native { .. } => true,
                 _ => false,
             }

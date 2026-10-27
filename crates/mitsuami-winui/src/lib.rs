@@ -97,7 +97,7 @@ pub use custom::{Emitter, NativeRender, NativeView, WinUiCx, ad_hoc, native};
 #[cfg(all(windows, target_env = "msvc"))]
 pub use services::WinUiServices;
 #[cfg(all(windows, target_env = "msvc"))]
-pub use tweak::{Tweakable, remove_item_animations, tweak, tweak_with, without_item_animations};
+pub use tweak::{ItemAnimations, Tweakable, remove_item_animations, tweak, tweak_with, without_item_animations};
 
 // What native renders and native views are written with, at the versions
 // the backend uses: `cast`, `Result`, event revokers, and collections to

@@ -104,9 +104,10 @@ suggestions), `TextArea`, `Checkbox`, `Switch`, `RadioGroup`, `Slider`,
 `NumberInput`, `ColorWell`, `Select`, `Progress`, `Spinner`, `Separator`,
 `Image`, `Icon` (the platform's own or the app's vector icons), `FileIcon`,
 `ScrollView`, `List` and `Table` (virtualised, with rows the user drags to
-move), `Group`, `Split`, `Popover`, `Sidebar`, `Tabs`, `DocumentTabs`,
-`Toolbar`, menus, context menus, tooltips, windows and dialogs. [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md) §13
-lists the native control each one is on every platform.
+move), `Tree` (virtualised), `Group`, `Split`, `Popover`, `Sidebar`, `Tabs`,
+`DocumentTabs`, `Toolbar`, menus, context menus, tooltips, windows and
+dialogs. [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md) §13 lists the native
+control each one is on every platform.
 
 ## Examples
 
@@ -125,7 +126,7 @@ same way: `checkbox`, `color_well`, `context_menu`, `document_tabs`,
 `radio_group`, `row_moves`, `scroll_view`, `search_input`, `select`,
 `separator`, `shortcuts`, `sidebar`, `slider`, `spinner`, `split`,
 `split_button`, `switch`, `table`, `tabs`, `text`, `text_area`,
-`text_input`, `toolbar`, `tooltip`, `trash`, `windows`.
+`text_input`, `toolbar`, `tooltip`, `trash`, `tree`, `windows`.
 
 Whole apps:
 

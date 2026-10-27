@@ -49,6 +49,7 @@ impl State {
                 | WidgetKind::ScrollView
                 | WidgetKind::List
                 | WidgetKind::Table
+                | WidgetKind::Tree
         )
         .then(|| ActionTarget::new(mtm, id, kind, self.events.clone()));
         let action = Some(sel!(fire:));
@@ -332,6 +333,11 @@ impl State {
             }
             WidgetKind::List | WidgetKind::Table => {
                 let list = crate::list::List::new(mtm, id, self.events.clone(), kind == WidgetKind::Table);
+                observe_scrolling(&list.scroll, target.as_deref());
+                Widget::List(list)
+            }
+            WidgetKind::Tree => {
+                let list = crate::list::List::new_tree(mtm, id, self.events.clone());
                 observe_scrolling(&list.scroll, target.as_deref());
                 Widget::List(list)
             }

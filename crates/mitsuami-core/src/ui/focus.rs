@@ -87,6 +87,7 @@ impl Inner {
                     | WidgetKind::ColorWell
                     | WidgetKind::List
                     | WidgetKind::Table
+                    | WidgetKind::Tree
                     | WidgetKind::Sidebar
                     | WidgetKind::Tabs
                     | WidgetKind::DocumentTabs

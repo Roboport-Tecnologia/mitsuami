@@ -48,7 +48,7 @@ impl State {
                 match &self.nodes[id].widget {
                     Widget::Window(_) => self.windows.push(*id),
                     Widget::GpuSurface(_) => self.unattached_surfaces.push(*id),
-                    Widget::List(_) => _ = self.lists.insert(*id),
+                    Widget::List(_) | Widget::Tree(_) => _ = self.lists.insert(*id),
                     _ => {}
                 }
                 for prop in props {
@@ -167,6 +167,12 @@ impl State {
                         };
                         list.insert(row, self.nodes[child].column.unwrap_or(0), *child, child_element.clone());
                     }
+                    Some(Widget::Tree(tree)) => {
+                        let Some(row) = self.nodes[child].row else {
+                            violation(command, "a Tree's children are row hosts")
+                        };
+                        tree.insert(row, *child, child_element.clone());
+                    }
                     Some(Widget::Scroll(scroll)) => {
                         let content = scroll.cast::<w::IContentControl>()?;
                         if content.Content().is_ok_and(|c| !c.as_raw().is_null()) {
@@ -227,6 +233,7 @@ impl State {
                         self.nodes[child].row.expect("inserted with a row"),
                         self.nodes[child].column.unwrap_or(0),
                     ),
+                    Widget::Tree(tree) => tree.remove(self.nodes[child].row.expect("inserted with a row")),
                     Widget::Scroll(scroll) => {
                         scroll.cast::<w::IContentControl>()?.SetContent(None::<&IInspectable>)?;
                         self.nodes.get_mut(parent).unwrap().shift_wheel = None;
@@ -343,6 +350,9 @@ impl State {
                 if let Widget::List(list) = &self.nodes[id].widget {
                     list.set_width(frame.width());
                 }
+                if let Widget::Tree(tree) = &self.nodes[id].widget {
+                    tree.set_width(frame.width());
+                }
                 let node = self.nodes.get_mut(id).unwrap();
                 if matches!(node.widget, Widget::Label(_)) && node.label.width != Some(frame.width()) {
                     node.label.width = Some(frame.width());
@@ -369,6 +379,11 @@ impl State {
                     (self.nodes[id].row, self.nodes[id].parent.and_then(|p| self.nodes.get(&p)).map(|p| &p.widget))
                 {
                     list.set_row_height(row, self.nodes[id].column.unwrap_or(0), frame.height());
+                }
+                if let (Some(row), Some(Widget::Tree(tree))) =
+                    (self.nodes[id].row, self.nodes[id].parent.and_then(|p| self.nodes.get(&p)).map(|p| &p.widget))
+                {
+                    tree.set_row_height(row, frame.height());
                 }
             }
             Command::SetA11y { id, a11y } => {
@@ -431,7 +446,8 @@ impl State {
                     scroll_now(&self.emitter, *id, &node.offset, &scroll.cast()?, *offset)?;
                 }
                 Some(Widget::List(list)) => list.scroll_to(*offset)?,
-                _ => violation(command, "not a ScrollView, List or Table"),
+                Some(Widget::Tree(tree)) => tree.scroll_to(*offset)?,
+                _ => violation(command, "not a ScrollView, List, Table or Tree"),
             },
             Command::Focus { id } => {
                 self.element(*id, command);
@@ -458,6 +474,7 @@ impl State {
             }
             Command::ScrollToRow { id, row } => match self.nodes.get(id).map(|n| &n.widget) {
                 Some(Widget::List(list)) => list.scroll_to_row(*row)?,
+                Some(Widget::Tree(tree)) => tree.scroll_to_row(*row)?,
                 _ => violation(command, "not a List"),
             },
         }
@@ -579,8 +596,10 @@ impl State {
     /// report themselves.
     pub(super) fn layout_lists(&self, lists: &[NodeId]) {
         for id in lists {
-            if let Some(Widget::List(list)) = self.nodes.get(id).map(|n| &n.widget) {
-                list.layout();
+            match self.nodes.get(id).map(|n| &n.widget) {
+                Some(Widget::List(list)) => list.layout(),
+                Some(Widget::Tree(tree)) => tree.layout(),
+                _ => {}
             }
         }
     }

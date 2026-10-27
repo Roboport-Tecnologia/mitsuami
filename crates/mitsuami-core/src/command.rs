@@ -6,7 +6,7 @@ use crate::geometry::{Insets, Point, Rect, Size};
 use crate::input::SurfaceInput;
 use crate::services::Shortcut;
 use crate::surface::{SurfaceHandle, SurfaceSize};
-use crate::widget::{ColumnSort, NodeId, Prop, RowKey, WidgetKind};
+use crate::widget::{ColumnSort, NodeId, Prop, RowKey, TreeIndent, WidgetKind};
 
 /// A change the backend must apply to the native widget tree.
 ///
@@ -198,6 +198,14 @@ pub enum UiEvent {
     /// known and whenever it changes; those cells are laid out at least
     /// this high, so they fill the row the platform makes.
     RowHeight(RowKey, f32),
+    /// The user opened (`true`) or closed a `Tree`'s row: its disclosure,
+    /// the platform's keys, assistive technology. The core takes it into
+    /// the open set and sends the rows again. A platform that opens
+    /// several rows at once reports each.
+    RowExpanded(RowKey, bool),
+    /// How far a `Tree` indents its rows' content: once known, and
+    /// whenever it changes. Rows are laid out at the rows' width less it.
+    TreeIndent(TreeIndent),
     /// A pointer event on a drawn custom widget, in its coordinates.
     Pointer(PointerEvent),
     /// A widget's natural size changed on its own (an image finished

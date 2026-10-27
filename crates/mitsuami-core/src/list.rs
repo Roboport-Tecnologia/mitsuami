@@ -22,7 +22,7 @@ use crate::tweak::Tweak;
 use crate::ui::{Ui, WeakUi};
 use crate::units::Length;
 use crate::view::{AnyView, View};
-use crate::widget::{ListStyle, NodeId, Prop, RowDrop, RowKey, RowMoves, SelectionMode, WidgetKind};
+use crate::widget::{ListStyle, NodeId, Prop, RowDrop, RowKey, RowMoves, SelectionMode, TreeRow, WidgetKind};
 
 pub(crate) type KeyFn<T, K> = Rc<dyn Fn(&T) -> K>;
 /// The file a row's item stands for, which dragging the row carries.
@@ -33,6 +33,16 @@ pub(crate) type MoveFn<K> = Rc<dyn Fn(Vec<K>, RowDrop<K>)>;
 
 /// How a `List` renders a row.
 pub struct RowRender<T>(Rc<dyn Fn(T) -> AnyView>);
+
+impl<T> RowRender<T> {
+    pub(crate) fn new(render: impl Fn(T) -> AnyView + 'static) -> RowRender<T> {
+        RowRender(Rc::new(render))
+    }
+
+    pub(crate) fn render(&self, item: T) -> AnyView {
+        (self.0)(item)
+    }
+}
 
 /// A virtualised list of rows, shown by the platform's own list control.
 ///
@@ -311,6 +321,26 @@ pub(crate) struct RowParts<T: 'static, K: 'static> {
     pub handle: Option<ListHandle<K>>,
     pub files: Option<FileFn<T>>,
     pub moves: Option<(RowMoves, MoveFn<K>)>,
+    /// A `Tree`'s: where each item is in the tree, and what the user opens
+    /// and closes.
+    pub tree: Option<TreeParts<T, K>>,
+}
+
+/// Where an item of a `Tree`'s rows is in the tree.
+#[derive(Clone, Copy, Debug)]
+pub(crate) struct Shape {
+    /// Its parent's index in the rows.
+    pub parent: Option<usize>,
+    pub depth: u32,
+    pub expandable: bool,
+    pub expanded: bool,
+}
+
+/// What a `Tree` adds to its rows.
+pub(crate) struct TreeParts<T: 'static, K: 'static> {
+    pub shape: Rc<dyn Fn(&T) -> Shape>,
+    /// The user opened (`true`) or closed the row with this key.
+    pub on_expand: Rc<dyn Fn(K, bool)>,
 }
 
 impl<T: Clone + 'static, K: Eq + Hash + Clone + 'static> View for List<T, K> {
@@ -323,7 +353,20 @@ impl<T: Clone + 'static, K: Eq + Hash + Clone + 'static> View for List<T, K> {
             ui.append_child(host, content);
             vec![host]
         });
-        let parts = RowParts { each, key, mount, mode, style, selected, on_activate, estimate, handle, files, moves };
+        let parts = RowParts {
+            each,
+            key,
+            mount,
+            mode,
+            style,
+            selected,
+            on_activate,
+            estimate,
+            handle,
+            files,
+            moves,
+            tree: None,
+        };
         build_rows(ui, element, parts)
     }
 }
@@ -335,13 +378,16 @@ pub(crate) fn build_rows<T: Clone + 'static, K: Eq + Hash + Clone + 'static>(
     mut element: Element,
     parts: RowParts<T, K>,
 ) -> NodeId {
-    let RowParts { each, key, mount, mode, style, selected, on_activate, estimate, handle, files, moves } = parts;
+    let RowParts { each, key, mount, mode, style, selected, on_activate, estimate, handle, files, moves, tree } = parts;
     let mode = mode.unwrap_or(Value::Static(match selected {
         Some(_) => SelectionMode::Single,
         None => SelectionMode::None,
     }));
     element.prop(mode, Prop::SelectionMode);
-    element.prop(Value::Static(Vec::new()), Prop::Rows);
+    match tree {
+        Some(_) => element.prop(Value::Static(Vec::new()), Prop::TreeRows),
+        None => element.prop(Value::Static(Vec::new()), Prop::Rows),
+    }
     element.prop(Value::Static(Vec::new()), Prop::Selected);
     if let Some(style) = style {
         element.prop(Value::Static(style), Prop::ListStyle);
@@ -438,10 +484,12 @@ pub(crate) fn build_rows<T: Clone + 'static, K: Eq + Hash + Clone + 'static>(
     {
         let (ui, rows) = (ui.clone(), rows.clone());
         let pending = handle.as_ref().map(|h| h.0.clone());
+        let shape = tree.as_ref().map(|t| t.shape.clone());
         let update = move || {
             let items = each.get();
             untrack(|| {
                 let mut row_files = Vec::new();
+                let mut shapes = Vec::new();
                 let (order, was) = {
                     let mut rows = rows.borrow_mut();
                     let rows = &mut *rows;
@@ -462,6 +510,9 @@ pub(crate) fn build_rows<T: Clone + 'static, K: Eq + Hash + Clone + 'static>(
                                 RowKey(rows.next_key - 1)
                             }
                         };
+                        if let Some(shape) = &shape {
+                            shapes.push(shape(&item));
+                        }
                         if let Some(path) = files.as_ref().and_then(|file| file(&item)) {
                             row_files.push((row, path));
                         }
@@ -486,11 +537,28 @@ pub(crate) fn build_rows<T: Clone + 'static, K: Eq + Hash + Clone + 'static>(
                 if files.is_some() {
                     ui.set_prop(id, Prop::RowFiles(row_files));
                 }
+                // A tree's rows carry their place in it.
+                let rows_prop = |order: Vec<RowKey>| match shape {
+                    Some(_) => Prop::TreeRows(
+                        order
+                            .iter()
+                            .zip(&shapes)
+                            .map(|(row, s)| TreeRow {
+                                row: *row,
+                                parent: s.parent.map(|i| order[i]),
+                                depth: s.depth,
+                                expandable: s.expandable,
+                                expanded: s.expanded,
+                            })
+                            .collect(),
+                    ),
+                    None => Prop::Rows(order),
+                };
                 // A key scrolled to before its item came.
                 let pending = pending.as_ref().and_then(|state| state.borrow_mut().pending.take());
                 let scroll = pending.and_then(|k| rows.borrow().row_keys.get(&k).copied());
                 let Some(selected) = selected else {
-                    ui.set_prop(id, Prop::Rows(order));
+                    ui.set_prop(id, rows_prop(order));
                     if let Some(row) = scroll {
                         ui.scroll_to_row(id, row);
                     }
@@ -509,7 +577,7 @@ pub(crate) fn build_rows<T: Clone + 'static, K: Eq + Hash + Clone + 'static>(
                 };
                 let staying = shown.iter().filter(|row| was.contains(row)).copied().collect();
                 ui.set_prop(id, Prop::Selected(staying));
-                ui.set_prop(id, Prop::Rows(order));
+                ui.set_prop(id, rows_prop(order));
                 // With the rows in, keys selected before theirs came.
                 ui.set_prop(id, Prop::Selected(shown));
                 if let Some(row) = scroll {
@@ -577,6 +645,17 @@ pub(crate) fn build_rows<T: Clone + 'static, K: Eq + Hash + Clone + 'static>(
                 };
                 if !keys.is_empty() {
                     on_move(keys, to);
+                }
+            }
+        });
+    }
+    if let Some(TreeParts { on_expand, .. }) = tree {
+        let rows = rows.clone();
+        ui.on_event(id, move |event| {
+            if let UiEvent::RowExpanded(row, open) = event {
+                let key = rows.borrow().keys.get(row).cloned();
+                if let Some(key) = key {
+                    on_expand(key, *open);
                 }
             }
         });
