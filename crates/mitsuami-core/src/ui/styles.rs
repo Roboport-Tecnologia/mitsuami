@@ -156,6 +156,11 @@ impl Inner {
             {
                 style.min_size.width = taffy::LengthPercentageAuto::length(0.0);
             }
+            // A list scrolls its rows, as a scroll view does its content:
+            // as high as its rows, it shrinks below that, to nothing.
+            if node.kind.has_rows() {
+                style.overflow = taffy::Point { x: taffy::Overflow::Scroll, y: taffy::Overflow::Scroll };
+            }
             if node.kind == WidgetKind::Window {
                 style.size = taffy::Size {
                     width: taffy::Dimension::length(node.window_size.width),

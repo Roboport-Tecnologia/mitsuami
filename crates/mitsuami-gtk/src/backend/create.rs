@@ -191,9 +191,14 @@ impl State {
             WidgetKind::Icon => {
                 Widget::Icon { image: gtk::Image::new(), size: None, color: None, name: String::new(), vector: None }
             }
-            WidgetKind::FileIcon => {
-                Widget::FileIcon { image: gtk::Image::new(), file: None, thumbnail: None, size: None, loading: None }
-            }
+            WidgetKind::FileIcon => Widget::FileIcon {
+                image: gtk::Image::new(),
+                file: None,
+                thumbnail: None,
+                lookup: None,
+                size: None,
+                loading: None,
+            },
             WidgetKind::Image => Widget::Picture { picture: gtk::Picture::new(), source: None, fit: None },
             WidgetKind::GpuSurface => Widget::GpuSurface(SurfaceArea::new(id, events.clone())),
             WidgetKind::TextInput => {

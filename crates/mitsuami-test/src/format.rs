@@ -132,6 +132,7 @@ fn describe_props(props: &[Prop]) -> String {
                 extra.push(format!("file={:?}", path.file_name().unwrap_or_default().to_string_lossy()))
             }
             Prop::Thumbnail(on) => extra.push(format!("thumbnail={on}")),
+            Prop::FileLookup(lookup) => extra.push(format!("lookup={lookup:?}")),
             Prop::Modal { owner, modality } => {
                 extra.push(format!("modal={modality:?}"));
                 extra.extend(owner.map(|o| format!("owner={o}")));
@@ -394,6 +395,7 @@ fn draw(drawing: &DisplayList, origin: Point, out: &mut String) {
             Color::Warning => "#e98a15".into(),
             Color::Success => "#2e933c".into(),
             Color::Placeholder => "#aaaaaa".into(),
+            Color::OnAccent => "#ffffff".into(),
             Color::Separator => "#cccccc".into(),
             Color::ControlBackground | Color::WindowBackground => "#f4f4f4".into(),
             Color::Rgba(r, g, b, a) => format!("rgba({r},{g},{b},{})", Num(a as f32 / 255.0)),

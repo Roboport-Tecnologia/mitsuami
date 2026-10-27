@@ -159,6 +159,33 @@ async fn draws_the_file_s_icon(app: TestApp) {
     assert!(drawn > 100, "{drawn} pixels of the icon drawn");
 }
 
+/// By name, a file that isn't there shows its type's icon, and a folder
+/// the plain folder's: nothing is read, as file managers show an archive's
+/// contents or a download.
+#[mitsuami_test::test]
+async fn by_name_shows_the_icon_of_a_file_that_isnt_there(app: TestApp) {
+    let files = Files::new(&app);
+    let (report, folder) = (files.path("gone/report.pdf"), files.path("gone/Photos"));
+    app.mount(move || {
+        Row::new().align(Align::Start).padding(10).gap(10).children((
+            FileIcon::new(&report).label("Report").icon_size(32.0).lookup(FileLookup::FileName),
+            FileIcon::new(&folder).label("Folder").icon_size(32.0).lookup(FileLookup::Folder),
+        ))
+    });
+    app.expect(icon("Folder")).to_be_visible().await;
+    assert!(has(&app, icon("Report"), Prop::FileLookup(FileLookup::FileName)));
+    assert!(has(&app, icon("Folder"), Prop::FileLookup(FileLookup::Folder)));
+    assert_eq!(app.get(icon("Report")).frame().size, Size::new(32.0, 32.0));
+
+    let Some(image) = capture(&app).await else { return };
+    let background = pixels_in(&image, Rect::new(0.0, 0.0, 5.0, 5.0))[0];
+    for label in ["Report", "Folder"] {
+        let frame = app.get(icon(label)).frame();
+        let drawn = pixels_in(&image, frame).into_iter().filter(|p| p != &background).count();
+        assert!(drawn > 100, "{drawn} pixels of {label}'s icon drawn");
+    }
+}
+
 /// With a thumbnail, a picture shows what's in it (blue and red), where
 /// the platform makes thumbnails: AppKit's QuickLook and the Windows shell,
 /// soon after its icon. GTK shows only those the desktop has made, and

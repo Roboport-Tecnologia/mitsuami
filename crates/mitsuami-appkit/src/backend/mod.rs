@@ -318,10 +318,11 @@ struct Node {
     vector_icon: Option<Option<mitsuami_core::VectorIcon>>,
     icon_size: Option<f32>,
     icon_only: Option<bool>,
-    /// File icons: the file, and whether the app asked for a thumbnail,
-    /// which an image view can't give back.
+    /// File icons: the file, whether the app asked for a thumbnail, and
+    /// where the icon comes from, which an image view can't give back.
     file: Option<std::path::PathBuf>,
     thumbnail: Option<bool>,
+    file_lookup: Option<mitsuami_core::FileLookup>,
     /// Windows: modal, and the window they belong to.
     modal: Option<(Option<NodeId>, Modality)>,
     /// The app's raw settings, run after every other prop.

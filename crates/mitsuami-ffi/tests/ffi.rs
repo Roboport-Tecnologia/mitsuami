@@ -7,7 +7,9 @@ use std::ffi::c_void;
 use std::sync::atomic::{AtomicU32, Ordering};
 
 use mitsuami::core::services::{Launch, MenuRole, Shortcut};
-use mitsuami::core::{Color, ImageSource, Modality, NodeId, Pixels, Prop, Size, TextStyle, Ui, VectorIcon, View};
+use mitsuami::core::{
+    Color, FileLookup, ImageSource, Modality, NodeId, Pixels, Prop, Size, TextStyle, Ui, VectorIcon, View,
+};
 use mitsuami_ffi::*;
 use mitsuami_test::prelude::*;
 
@@ -142,7 +144,9 @@ async fn nodes_it_makes_are_laid_out_and_found(app: TestApp) {
     assert!(app.ui().props(title).contains(&Prop::TextColor(Color::rgb(255, 0, 0))));
     assert!(mitsuami_set_color(title.raw(), MitsuamiColorProp::TextColor as u32, 10, 0, 0, 0, 0));
     assert!(app.ui().props(title).contains(&Prop::TextColor(Color::Placeholder)));
-    assert!(!mitsuami_set_color(title.raw(), MitsuamiColorProp::TextColor as u32, 11, 0, 0, 0, 0));
+    assert!(mitsuami_set_color(title.raw(), MitsuamiColorProp::TextColor as u32, 11, 0, 0, 0, 0));
+    assert!(app.ui().props(title).contains(&Prop::TextColor(Color::OnAccent)));
+    assert!(!mitsuami_set_color(title.raw(), MitsuamiColorProp::TextColor as u32, 12, 0, 0, 0, 0));
     assert!(mitsuami_set_min_size(column.raw(), px(600.0), auto()));
     app.expect(by_text("Clone a repository")).to_be_visible().await;
     assert!(app.ui().frame(column).unwrap().width() >= 600.0);
@@ -1421,6 +1425,31 @@ async fn color_wells_report_the_colour_picked(app: TestApp) {
     assert_eq!(heard(), ["changed #ff8c00"]);
     // A well's colour is fixed: no semantic colour.
     assert!(!mitsuami_set_color(well, MitsuamiColorProp::ColorValue as u32, 2, 0, 0, 0, 0));
+}
+
+#[mitsuami_test::test]
+async fn file_icons_show_their_files_icon(app: TestApp) {
+    attach(app.ui());
+    let icon = create(MitsuamiKind::FileIcon);
+    let file = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("Cargo.toml");
+    set_text(icon, MitsuamiTextProp::File, file.to_str().unwrap());
+    set_text(icon, MitsuamiTextProp::TestId, "icon");
+    assert!(mitsuami_set_number(icon, MitsuamiNumberProp::IconSize as u32, 24.0));
+    assert!(mitsuami_set_align_self(icon, 1));
+    app.mount(|| Adopt(icon));
+    app.settle().await;
+    let shown = app.get_by_test_id("icon");
+    assert!(shown.native_state().props.contains(&Prop::File(file)));
+    // A square of the size given, on every platform.
+    assert_eq!((shown.frame().width(), shown.frame().height()), (24.0, 24.0));
+
+    // By name: a file that isn't there.
+    set_text(icon, MitsuamiTextProp::File, "report.pdf");
+    assert!(mitsuami_set_enum(icon, MitsuamiEnumProp::FileLookup as u32, 1));
+    app.settle().await;
+    let props = app.get_by_test_id("icon").native_state().props;
+    assert!(props.contains(&Prop::FileLookup(FileLookup::FileName)), "{props:?}");
+    assert!(!mitsuami_set_enum(icon, MitsuamiEnumProp::FileLookup as u32, 3));
 }
 
 #[mitsuami_test::test]

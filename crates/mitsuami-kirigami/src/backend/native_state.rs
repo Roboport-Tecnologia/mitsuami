@@ -170,6 +170,7 @@ impl KirigamiBackend {
                     props.push(Prop::File(file.into()));
                 }
                 props.push(Prop::Thumbnail(i.bool("mitsuamiThumbnail")));
+                props.push(Prop::FileLookup(super::props::lookup_of(i.int("mitsuamiLookup"))));
                 if node.icon_size {
                     props.push(Prop::IconSize(i.real("implicitWidth") as f32));
                 }

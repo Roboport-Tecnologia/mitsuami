@@ -3,8 +3,8 @@
 use std::rc::Rc;
 
 use mitsuami_core::{
-    Color, Cursor, Element, ElementBuilder, ImageFit, ImageSource, NodeId, Pixels, Prop, Rect, SurfaceHandle,
-    SurfaceInput, SurfaceSize, Tweak, Ui, UiEvent, VectorIcon, View, WidgetKind,
+    Color, Cursor, Element, ElementBuilder, FileLookup, ImageFit, ImageSource, NodeId, Pixels, Prop, Rect,
+    SurfaceHandle, SurfaceInput, SurfaceSize, Tweak, Ui, UiEvent, VectorIcon, View, WidgetKind,
 };
 use mitsuami_reactive::{IntoValue, Signal, Value};
 
@@ -133,12 +133,14 @@ impl Icon {
 /// icon theme's on Linux). It's a square as big as the platform's small
 /// icons (16 points) unless `icon_size` says otherwise. With `thumbnail`,
 /// a preview of what's in the file (a picture's, a document's first page)
-/// where the platform makes one. The file is read when it's set. Its
-/// label is its accessible name; without one it's decorative, as it
-/// usually sits beside the file's name.
+/// where the platform makes one. The file is read when it's set, unless
+/// `lookup` says to go by its name alone. Its label is its accessible
+/// name; without one it's decorative, as it usually sits beside the
+/// file's name.
 ///
 /// ```ignore
 /// FileIcon::new(&entry.path).icon_size(32.0).thumbnail(true)
+/// FileIcon::new(&member.name).lookup(FileLookup::FileName)
 /// ```
 pub struct FileIcon(Element);
 
@@ -167,6 +169,14 @@ impl FileIcon {
     /// (macOS, Windows, and GNOME's cached ones), its icon until then.
     pub fn thumbnail(mut self, thumbnail: impl IntoValue<bool>) -> FileIcon {
         self.0.prop(thumbnail.into_value(), Prop::Thumbnail);
+        self
+    }
+
+    /// Where its icon comes from: the file on disk (the default), or only
+    /// its name, for a file that isn't there (nothing is read, and
+    /// `thumbnail` is ignored).
+    pub fn lookup(mut self, lookup: impl IntoValue<FileLookup>) -> FileIcon {
+        self.0.prop(lookup.into_value(), Prop::FileLookup);
         self
     }
 

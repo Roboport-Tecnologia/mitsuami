@@ -385,6 +385,7 @@ enum Widget {
         image: w::Image,
         file: Option<std::path::PathBuf>,
         thumbnail: Option<bool>,
+        lookup: Option<mitsuami_core::FileLookup>,
         size: Option<f32>,
         asked: Rc<Cell<u64>>,
         shown: Rc<Cell<u64>>,

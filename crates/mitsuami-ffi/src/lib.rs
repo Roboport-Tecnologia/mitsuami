@@ -31,10 +31,10 @@ use mitsuami::core::services::{
 use mitsuami::core::style::{Edges, Position};
 use mitsuami::core::{
     A11yAction, A11yProps, Align, ButtonRole, ButtonStyle, Canvas, Color, Custom, CustomWidget, DocumentTabsStyle,
-    Drawn, EventValue, FileDrop, FlexDirection, HeaderEdge, ImageSource, Justify, Key, Length, List, ListHandle,
-    ListStyle, MeasureRequest, Modality, NodeId, PathStep, Pixels, PlatformMetrics, Point, PointerKind, Prop, Rect,
-    Render, Renderer, Role, RowDrop, RowMoves, ScrollAxes, SelectionMode, Shape, Size, Sort, SortOrder, Spacing, Table,
-    TableColumn, TextStyle, Tree, Ui, UiEvent, VectorIcon, View, WidgetKind, WindowSize,
+    Drawn, EventValue, FileDrop, FileLookup, FlexDirection, HeaderEdge, ImageSource, Justify, Key, Length, List,
+    ListHandle, ListStyle, MeasureRequest, Modality, NodeId, PathStep, Pixels, PlatformMetrics, Point, PointerKind,
+    Prop, Rect, Render, Renderer, Role, RowDrop, RowMoves, ScrollAxes, SelectionMode, Shape, Size, Sort, SortOrder,
+    Spacing, Table, TableColumn, TextStyle, Tree, Ui, UiEvent, VectorIcon, View, WidgetKind, WindowSize,
 };
 use mitsuami::reactive::{Owner, Signal, on_cleanup, signal, watch};
 
@@ -298,6 +298,11 @@ pub enum MitsuamiKind {
     /// `ColorValue`, fixed and opaque), reported as `Changed` with a
     /// `Color` value when the user picks another.
     ColorWell = 25,
+    /// A file's or folder's own icon, as the platform's file manager shows
+    /// it: its `File` (`mitsuami_set_text`), in a square of its
+    /// `IconSize`, 16 points unless set; by name (its `FileLookup`), the
+    /// icon of the name's type, or a plain folder's, with nothing read.
+    FileIcon = 26,
 }
 
 fn widget_kind(kind: u32) -> Result<WidgetKind, String> {
@@ -328,6 +333,7 @@ fn widget_kind(kind: u32) -> Result<WidgetKind, String> {
         23 => WidgetKind::Slider,
         24 => WidgetKind::NumberInput,
         25 => WidgetKind::ColorWell,
+        26 => WidgetKind::FileIcon,
         _ => return Err(format!("unknown kind {kind}")),
     })
 }
@@ -624,6 +630,8 @@ pub enum MitsuamiTextProp {
     TestId = 8,
     /// What's wrong with a text field's text; empty: nothing.
     Error = 9,
+    /// The file or folder a file icon shows the icon of.
+    File = 10,
 }
 
 /// # Safety
@@ -642,6 +650,7 @@ pub unsafe extern "C" fn mitsuami_set_text(id: u32, prop: u32, value: *const u8,
             6 => Prop::Tooltip(value),
             7 => Prop::Icon(value),
             9 => Prop::Error((!value.is_empty()).then_some(value)),
+            10 => Prop::File(value.into()),
             8 => {
                 ui.set_test_id(node(id), value);
                 return Ok(());
@@ -1068,7 +1077,7 @@ pub enum MitsuamiColorProp {
 /// Sets a colour: `semantic` is one of the platform's own, which follow
 /// dark mode, high contrast and the accent (`Label`, `SecondaryLabel`,
 /// `Accent`, `Separator`, `ControlBackground`, `WindowBackground`, `Error`,
-/// `Warning`, `Success`: 0 to 8; `Placeholder`: 10), or 9 for the fixed
+/// `Warning`, `Success`: 0 to 8; `Placeholder`: 10; `OnAccent`: 11), or 9 for the fixed
 /// `r`, `g`, `b`, `a`.
 #[unsafe(no_mangle)]
 pub extern "C" fn mitsuami_set_color(id: u32, prop: u32, semantic: u32, r: u8, g: u8, b: u8, a: u8) -> bool {
@@ -1113,6 +1122,7 @@ fn color(c: MitsuamiColor) -> Result<Color, String> {
         8 => Color::Success,
         9 => Color::Rgba(c.r, c.g, c.b, c.a),
         10 => Color::Placeholder,
+        11 => Color::OnAccent,
         other => return Err(format!("bad colour {other}")),
     })
 }
@@ -1217,6 +1227,9 @@ pub enum MitsuamiEnumProp {
     /// Tabs', where the platform has more than one way to show them:
     /// `Automatic`, `TabBar`, `Navigation`, 0 to 2.
     TabsStyle = 9,
+    /// Where a file icon gets its icon: `Disk`, `FileName`, `Folder`, 0
+    /// to 2. By name, nothing is read.
+    FileLookup = 10,
 }
 
 #[unsafe(no_mangle)]
@@ -1289,6 +1302,12 @@ pub extern "C" fn mitsuami_set_enum(id: u32, prop: u32, value: u32) -> bool {
                 0 => mitsuami::core::TabsStyle::Automatic,
                 1 => mitsuami::core::TabsStyle::TabBar,
                 2 => mitsuami::core::TabsStyle::Navigation,
+                _ => return Err(bad()),
+            }),
+            10 => Prop::FileLookup(match value {
+                0 => FileLookup::Disk,
+                1 => FileLookup::FileName,
+                2 => FileLookup::Folder,
                 _ => return Err(bad()),
             }),
             _ => return Err(format!("unknown enum prop {prop}")),

@@ -355,6 +355,8 @@ pub(crate) fn ns_color(color: Color) -> Retained<NSColor> {
         Color::Warning => NSColor::systemOrangeColor(),
         Color::Success => NSColor::systemGreenColor(),
         Color::Placeholder => NSColor::placeholderTextColor(),
+        // What a selected row's text is drawn in, on the accent.
+        Color::OnAccent => NSColor::alternateSelectedControlTextColor(),
         Color::Rgba(r, g, b, a) => {
             let c = |v: u8| v as f64 / 255.0;
             NSColor::colorWithSRGBRed_green_blue_alpha(c(r), c(g), c(b), c(a))

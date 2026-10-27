@@ -82,13 +82,15 @@ impl GtkBackend {
             }
             // As large as the layout makes it.
             Widget::GpuSurface(_) => Size::new(request.known_width.unwrap_or(0.0), request.known_height.unwrap_or(0.0)),
+            // As high as its rows; the width is its style's.
+            Widget::List(list) => Size::new(
+                request.known_width.unwrap_or(0.0),
+                request.known_height.unwrap_or_else(|| list.natural_height()),
+            ),
             // Measured by the core, or never (the sidebar is the window's).
-            Widget::Drawn { .. }
-            | Widget::Window(_)
-            | Widget::Host(_)
-            | Widget::Scroll { .. }
-            | Widget::List(_)
-            | Widget::Sidebar(_) => Size::ZERO,
+            Widget::Drawn { .. } | Widget::Window(_) | Widget::Host(_) | Widget::Scroll { .. } | Widget::Sidebar(_) => {
+                Size::ZERO
+            }
             widget => measure_widget(widget.widget(), matches!(widget, Widget::Label(_)), request),
         }
     }

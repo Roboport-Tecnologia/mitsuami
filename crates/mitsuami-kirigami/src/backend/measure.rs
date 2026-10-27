@@ -58,12 +58,16 @@ impl KirigamiBackend {
                     request.known_height.unwrap_or(group.real("implicitHeight").ceil() as f32),
                 )
             }
+            // As high as its rows; the width is its style's.
+            Widget::List(list) => Size::new(
+                request.known_width.unwrap_or(0.0),
+                request.known_height.unwrap_or_else(|| list.natural_height()),
+            ),
             // Measured by the core, or never (the sidebar is the window's).
             Widget::Drawn { .. }
             | Widget::Window { .. }
             | Widget::Host(_)
             | Widget::Scroll { .. }
-            | Widget::List(_)
             | Widget::Split { .. }
             | Widget::Sidebar { .. } => Size::ZERO,
             widget => measure_item(widget.item(), matches!(widget, Widget::Label(_)), request),

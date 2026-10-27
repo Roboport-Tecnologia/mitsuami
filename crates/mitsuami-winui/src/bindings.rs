@@ -76,6 +76,7 @@ windows_core::link!("user32.dll" "system" fn RegisterRawInputDevices(prawinputde
 windows_core::link!("user32.dll" "system" fn ReleaseCapture() -> windows_core::BOOL);
 windows_core::link!("comctl32.dll" "system" fn RemoveWindowSubclass(hwnd : HWND, pfnsubclass : SUBCLASSPROC, uidsubclass : usize) -> windows_core::BOOL);
 windows_core::link!("shell32.dll" "system" fn SHCreateItemFromParsingName(pszpath : windows_core::PCWSTR, pbc : *mut core::ffi::c_void, riid : *const windows_core::GUID, ppv : *mut *mut core::ffi::c_void) -> windows_core::HRESULT);
+windows_core::link!("shell32.dll" "system" fn SHGetFileInfoW(pszpath : windows_core::PCWSTR, dwfileattributes : u32, psfi : *mut SHFILEINFOW, cbfileinfo : u32, uflags : u32) -> usize);
 windows_core::link!("user32.dll" "system" fn ScreenToClient(hwnd : HWND, lppoint : *mut POINT) -> windows_core::BOOL);
 windows_core::link!("user32.dll" "system" fn SendMessageW(hwnd : HWND, msg : u32, wparam : WPARAM, lparam : LPARAM) -> LRESULT);
 windows_core::link!("user32.dll" "system" fn SetCapture(hwnd : HWND) -> HWND);
@@ -2870,6 +2871,8 @@ pub struct FILETIME {
     pub dwLowDateTime: u32,
     pub dwHighDateTime: u32,
 }
+pub const FILE_ATTRIBUTE_DIRECTORY: i32 = 16;
+pub const FILE_ATTRIBUTE_NORMAL: i32 = 128;
 pub const FOFX_RECYCLEONDELETE: i32 = 524288;
 pub const FOF_ALLOWUNDO: i32 = 64;
 #[repr(transparent)]
@@ -19198,6 +19201,42 @@ impl Default for SHELLEXECUTEINFOW_0 {
         unsafe { core::mem::zeroed() }
     }
 }
+#[repr(C, packed(1))]
+#[cfg(target_arch = "x86")]
+#[derive(Clone, Copy)]
+pub struct SHFILEINFOW {
+    pub hIcon: HICON,
+    pub iIcon: i32,
+    pub dwAttributes: u32,
+    pub szDisplayName: [u16; 260],
+    pub szTypeName: [u16; 80],
+}
+#[cfg(target_arch = "x86")]
+impl Default for SHFILEINFOW {
+    fn default() -> Self {
+        unsafe { core::mem::zeroed() }
+    }
+}
+#[repr(C)]
+#[cfg(any(target_arch = "aarch64", target_arch = "arm64ec", target_arch = "x86_64"))]
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub struct SHFILEINFOW {
+    pub hIcon: HICON,
+    pub iIcon: i32,
+    pub dwAttributes: u32,
+    pub szDisplayName: [u16; 260],
+    pub szTypeName: [u16; 80],
+}
+#[cfg(any(target_arch = "aarch64", target_arch = "arm64ec", target_arch = "x86_64"))]
+impl Default for SHFILEINFOW {
+    fn default() -> Self {
+        unsafe { core::mem::zeroed() }
+    }
+}
+pub const SHGFI_ICON: i32 = 256;
+pub const SHGFI_LARGEICON: i32 = 0;
+pub const SHGFI_SMALLICON: i32 = 1;
+pub const SHGFI_USEFILEATTRIBUTES: i32 = 16;
 pub type SIIGBF = i32;
 pub const SIIGBF_ICONONLY: SIIGBF = 4;
 pub const SIIGBF_RESIZETOFIT: SIIGBF = 0;

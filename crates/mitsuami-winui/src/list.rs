@@ -198,6 +198,13 @@ struct Data {
     estimate: Option<f64>,
     /// Without the app's estimate: the first row measured.
     learned: Option<f64>,
+    /// Each row's container's height as XAML last laid it out, its margins
+    /// in, and how much higher than its cell a container was last: what a
+    /// row takes in the list (`natural_height`).
+    slots: HashMap<RowKey, f64>,
+    extra: f64,
+    /// The natural height last measured.
+    natural: f64,
     mode: SelectionMode,
     /// XAML can't tell `Automatic` from `Plain`.
     style: Option<ListStyle>,
@@ -279,6 +286,20 @@ impl Data {
     /// border and the check box.
     fn available(&self) -> f32 {
         (self.inside() - self.inset as f32).max(0.0)
+    }
+
+    /// How high the list is with all its rows: as XAML laid out the
+    /// containers of the rows it realised, the others as high as their
+    /// cells and what their containers add, and the header and a frame's
+    /// border.
+    fn natural_height(&self) -> f64 {
+        let border = if self.style.is_some_and(ListStyle::framed) { 2.0 * FRAME_BORDER as f64 } else { 0.0 };
+        let header = if self.is_table() { HEADER_HEIGHT } else { 0.0 };
+        let rows = self.rows.iter().map(|key| match self.slots.get(key) {
+            Some(slot) => *slot,
+            None => self.height(*key) + self.extra,
+        });
+        border + header + rows.sum::<f64>()
     }
 
     /// The list's width, less a frame's border.
@@ -1105,6 +1126,7 @@ impl List {
             let index = std::mem::take(&mut d.index);
             d.heights.retain(|(k, _), _| index.contains_key(k));
             d.bare_heights.retain(|k, _| index.contains_key(k));
+            d.slots.retain(|k, _| index.contains_key(k));
             d.index = index;
             d.rows = rows;
             replace_all.then(|| d.items.iter().cloned().map(Some).collect::<Vec<_>>())
@@ -1395,10 +1417,16 @@ impl List {
     pub(crate) fn layout(&self) {
         _ = self.view.cast::<w::IUIElement>().and_then(|e| e.UpdateLayout());
         self.measure_inset();
+        measure_rows(&self.data, &self.events, self.id);
         if let Some(scroll) = self.scroll_viewer() {
             report_offset(&self.events, self.id, &self.offset, &scroll, self.is_table());
         }
         report(&self.data, &self.events, self.id);
+    }
+
+    /// How high the list is with all its rows.
+    pub(crate) fn natural_height(&self) -> f32 {
+        self.data.borrow().natural_height() as f32
     }
 
     /// Finds where rows' content starts in their containers, from a row
@@ -1651,6 +1679,33 @@ fn release(d: &mut Data, key: RowKey, cell: &w::Canvas) {
         if *count == 0 {
             d.bound.remove(&key);
         }
+    }
+}
+
+/// Measures the realised rows' containers as XAML laid them out, margins
+/// in: `ListViewItem`s add nothing to their cells (`ITEM_STYLE`), but a
+/// tree's `TreeViewItem`s have margins and a least height of their own.
+/// Reports `Remeasure` when the list's natural height changes.
+fn measure_rows(data: &Rc<RefCell<Data>>, events: &Events, id: NodeId) {
+    let mut d = data.borrow_mut();
+    let cells: Vec<(RowKey, w::Canvas)> = d.cells.iter().map(|(k, c)| (*k, c.clone())).collect();
+    for (key, cell) in cells {
+        let Some(container) = container_of_cell(&cell).and_then(|c| c.cast::<w::FrameworkElement>().ok()) else {
+            continue;
+        };
+        let Ok(slot) = w::LayoutInformation::GetLayoutSlot(&container) else { continue };
+        // Not laid out yet.
+        if slot.height <= 0.0 {
+            continue;
+        }
+        let slot = f64::from(slot.height);
+        d.extra = (slot - d.height(key)).max(0.0);
+        d.slots.insert(key, slot);
+    }
+    let natural = d.natural_height();
+    if std::mem::replace(&mut d.natural, natural) != natural {
+        drop(d);
+        events.emit(id, UiEvent::Remeasure);
     }
 }
 

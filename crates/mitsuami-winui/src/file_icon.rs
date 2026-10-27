@@ -1,12 +1,15 @@
 //! Files' icons: the image the shell gives a file, as Explorer shows it
 //! (its icon, or with a thumbnail the preview in its place), read on a
-//! thread of their own, since the shell may read the file to make it.
+//! thread of their own, since the shell may read the file to make it. By
+//! name, the icon of the name's type (or a plain folder's), which the
+//! shell gives without the file.
 
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::mpsc::{self, Sender};
 use std::sync::{Arc, OnceLock};
 
+use mitsuami_core::FileLookup;
 use windows_core::{HSTRING, Interface};
 
 use crate::bindings as w;
@@ -24,6 +27,7 @@ pub(crate) struct Request {
     pub path: PathBuf,
     pub pixels: i32,
     pub thumbnail: bool,
+    pub lookup: FileLookup,
     pub ticket: u64,
     pub latest: Arc<AtomicU64>,
 }
@@ -52,7 +56,11 @@ fn worker() -> &'static Sender<Job> {
                     done(None);
                     continue;
                 }
-                done(read(&request.path, request.pixels, request.thumbnail && !icons_only()));
+                done(match request.lookup {
+                    FileLookup::Disk => read(&request.path, request.pixels, request.thumbnail && !icons_only()),
+                    FileLookup::FileName => read_by_name(&request.path, false, request.pixels),
+                    FileLookup::Folder => read_by_name(&request.path, true, request.pixels),
+                });
             }
         });
         sender
@@ -104,6 +112,50 @@ fn read(path: &Path, pixels: i32, thumbnail: bool) -> Option<ShellImage> {
         let image = bits(bitmap);
         _ = w::DeleteObject(bitmap);
         image
+    }
+}
+
+/// The icon Explorer shows for a file of `path`'s type, by its name, or
+/// for a plain folder: `SHGFI_USEFILEATTRIBUTES` has the shell go by the
+/// name and the attributes given, never the disk. Its small (16) or large
+/// (32) icon, whichever is the closer one at least as large; XAML scales
+/// it to the square.
+fn read_by_name(path: &Path, folder: bool, pixels: i32) -> Option<ShellImage> {
+    let name = HSTRING::from(path.file_name().unwrap_or(path.as_os_str()));
+    let attributes = if folder { w::FILE_ATTRIBUTE_DIRECTORY } else { w::FILE_ATTRIBUTE_NORMAL };
+    let size = if pixels <= 16 { w::SHGFI_SMALLICON } else { w::SHGFI_LARGEICON };
+    let mut info = w::SHFILEINFOW::default();
+    let flags = w::SHGFI_ICON | w::SHGFI_USEFILEATTRIBUTES | size;
+    unsafe {
+        let found = w::SHGetFileInfoW(
+            windows_core::PCWSTR(name.as_ptr()),
+            attributes as u32,
+            &mut info,
+            size_of::<w::SHFILEINFOW>() as u32,
+            flags as u32,
+        );
+        if found == 0 || info.hIcon.is_null() {
+            return None;
+        }
+        let mut icon = w::ICONINFO::default();
+        let read = w::GetIconInfo(info.hIcon, &mut icon).as_bool();
+        _ = w::DestroyIcon(info.hIcon);
+        if !read {
+            return None;
+        }
+        let image = if icon.hbmColor.is_null() { None } else { bits(icon.hbmColor) };
+        _ = w::DeleteObject(icon.hbmColor);
+        _ = w::DeleteObject(icon.hbmMask);
+        // An icon's colours aren't premultiplied, as XAML takes them.
+        image.map(|mut image| {
+            for p in image.bgra.chunks_exact_mut(4) {
+                let a = p[3] as u16;
+                for c in &mut p[..3] {
+                    *c = ((*c as u16 * a + 127) / 255) as u8;
+                }
+            }
+            image
+        })
     }
 }
 

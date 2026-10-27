@@ -416,6 +416,9 @@ fn brush(color: Color) -> String {
         Color::Success => "SystemFillColorSuccessBrush",
         // What a TextBox's PlaceholderText is drawn in.
         Color::Placeholder => "TextControlPlaceholderForeground",
+        // What an accent button's text is drawn in: dark on the light
+        // accent of the dark theme.
+        Color::OnAccent => "TextOnAccentFillColorPrimaryBrush",
         Color::Rgba(r, g, b, a) => return format!("#{a:02X}{r:02X}{g:02X}{b:02X}"),
     };
     format!("{{ThemeResource {resource}}}")

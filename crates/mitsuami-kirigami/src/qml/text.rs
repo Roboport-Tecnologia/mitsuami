@@ -40,6 +40,7 @@ pub(crate) fn color(color: Color) -> i32 {
         Color::Warning => 7,
         Color::Success => 8,
         Color::Placeholder => PLACEHOLDER_COLOR,
+        Color::OnAccent => ON_ACCENT_COLOR,
         Color::Rgba(..) => RGBA_COLOR,
     }
 }
@@ -48,6 +49,8 @@ pub(crate) const RGBA_COLOR: i32 = 9;
 /// A field's placeholder: KDE's desktop style draws it in
 /// `disabledTextColor`, and the drawing tier reads the style's own.
 pub(crate) const PLACEHOLDER_COLOR: i32 = 10;
+/// Text on the accent: `highlightedTextColor`, a selected row's.
+pub(crate) const ON_ACCENT_COLOR: i32 = 11;
 
 /// The colour `color` gives `mitsuamiColor`, back.
 pub(crate) fn color_from(index: i32, rgba: u32) -> Option<Color> {
@@ -64,6 +67,7 @@ pub(crate) fn color_from(index: i32, rgba: u32) -> Option<Color> {
         8 => Color::Success,
         RGBA_COLOR => Color::Rgba(r, g, b, a),
         PLACEHOLDER_COLOR => Color::Placeholder,
+        ON_ACCENT_COLOR => Color::OnAccent,
         _ => return None,
     })
 }

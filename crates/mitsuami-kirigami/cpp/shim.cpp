@@ -8,6 +8,7 @@
 #include <QCursor>
 #include <QDesktopServices>
 #include <QFile>
+#include <QFileInfo>
 #include <QFontInfo>
 #include <QHash>
 #include <QIcon>
@@ -1246,6 +1247,19 @@ void mq_file_icon(QObject* icon, const char* path) {
             target->setProperty("source", name);
         }, Qt::QueuedConnection);
     });
+}
+
+// What Dolphin shows for a file it hasn't read (an archive's contents):
+// the MIME type of its name alone, or a plain folder's. Nothing is read,
+// so it's set now, and a load still on its way for an earlier file is
+// dropped.
+void mq_file_icon_by_name(QObject* icon, const char* path, int32_t folder) {
+    icon->setProperty("_mitsuamiIconLoad", icon->property("_mitsuamiIconLoad").toULongLong() + 1);
+    QMimeDatabase db;
+    QMimeType type = folder ? db.mimeTypeForName(QStringLiteral("inode/directory"))
+                            : db.mimeTypeForFile(QFileInfo(QString::fromUtf8(path)).fileName(), QMimeDatabase::MatchExtension);
+    icon->setProperty("fallback", type.genericIconName());
+    icon->setProperty("source", type.iconName());
 }
 
 int32_t mq_file_icon_loads(void) { return g_icon_loads; }

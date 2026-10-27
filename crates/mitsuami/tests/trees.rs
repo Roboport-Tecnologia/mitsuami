@@ -295,4 +295,52 @@ async fn only_folders_take_rows_onto_them_and_nothing_lands_on_the_rows_dragged(
     assert_eq!(moved.get(), [(vec!["README"], RowDrop::Before("main.rs"))]);
 }
 
+/// A tree the app doesn't size is as high as the rows that show: opening a
+/// folder makes it higher, closing it brings it back. How high each
+/// platform's rows are, around the app's, is its own.
+#[mitsuami_test::test]
+async fn opening_and_closing_rows_changes_a_trees_height(app: TestApp) {
+    let (roots, open) = (signal(project()), signal(Vec::new()));
+    app.mount(move || {
+        Column::new().children((
+            Tree::new(roots, |n: &Node| n.name, |n| n.kids.clone(), |n| row(n.name))
+                .expanded(open)
+                .width(300)
+                .test_id("tree"),
+            Text::new("Below").test_id("below"),
+        ))
+    });
+    app.settle().await;
+    let closed = app.get_by_test_id("tree").frame();
+    assert!(closed.height() >= 60.0, "three rows in {closed:?}");
+    assert_eq!(app.get_by_test_id("below").frame().y(), closed.max_y());
+
+    open.set(vec!["src"]);
+    app.settle().await;
+    assert_eq!(names(&app), ["src", "main.rs", "ui", "docs", "README"]);
+    let opened = app.get_by_test_id("tree").frame();
+    assert!(opened.height() >= closed.height() + 40.0, "open in {opened:?}, closed in {closed:?}");
+    assert_eq!(app.get_by_test_id("below").frame().y(), opened.max_y());
+
+    open.set(Vec::new());
+    app.settle().await;
+    assert_eq!(app.get_by_test_id("tree").frame().height(), closed.height());
+}
+
+/// A row's content ends where the platform's row does, at every level: the
+/// rows' width is where a row's content ends in the platform's item, not
+/// the tree's width (WinUI's `TreeViewItem` keeps room at its sides, and
+/// rows laid out as wide as the tree had their end cut off).
+#[mitsuami_test::test]
+async fn rows_end_inside_the_tree(app: TestApp) {
+    let (roots, open) = (signal(project()), signal(vec!["src", "ui"]));
+    app.mount(move || tree(roots, open));
+    app.settle().await;
+    let tree = app.get_by_test_id("tree").frame();
+    for name in ["src", "main.rs", "ui", "button.rs", "docs", "README"] {
+        let row = app.get_by_role(Role::TreeItem, name).frame();
+        assert!(row.max_x() <= tree.max_x(), "{name} at {row:?} in {tree:?}");
+    }
+}
+
 mitsuami_test::main!();

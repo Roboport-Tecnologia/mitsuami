@@ -642,3 +642,11 @@ Microsoft.UI.Input.IInputActivationListener::{get_State, add_InputActivationChan
 Microsoft.UI.Input.InputActivationState
 Microsoft.UI.Input.InputActivationListenerActivationChangedEventArgs::{}
 Microsoft.UI.Xaml.VisualStateManager::GoToState
+Windows.Win32.SHGetFileInfoW
+Windows.Win32.SHFILEINFOW
+Windows.Win32.SHGFI_ICON
+Windows.Win32.SHGFI_SMALLICON
+Windows.Win32.SHGFI_LARGEICON
+Windows.Win32.SHGFI_USEFILEATTRIBUTES
+Windows.Win32.FILE_ATTRIBUTE_NORMAL
+Windows.Win32.FILE_ATTRIBUTE_DIRECTORY

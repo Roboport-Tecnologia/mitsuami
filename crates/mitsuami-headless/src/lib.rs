@@ -56,6 +56,8 @@ struct HeadlessNode {
     /// Lists only: the heights of the rows measured so far, kept when
     /// they're let go, as native lists keep them.
     heights: BTreeMap<RowKey, f32>,
+    /// Lists only: how high their rows and header are, as last placed.
+    natural_height: f32,
     /// Tables only: their columns' widths, the room between cells in.
     column_widths: Vec<f32>,
     /// Tables only: their rows' heights without their cells that fill

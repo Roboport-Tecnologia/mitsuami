@@ -89,7 +89,13 @@ pub(super) fn label_color(label: &gtk::Label, set: Option<Color>) -> Option<Colo
     }
     let Some(fg) = find_attr(label, pango::AttrType::Foreground) else { return set.map(|_| Color::Label) };
     // Theme colours resolved when they were set: what was sent.
-    if let Some(c @ (Color::Separator | Color::ControlBackground | Color::WindowBackground | Color::Placeholder)) = set
+    if let Some(
+        c @ (Color::Separator
+        | Color::ControlBackground
+        | Color::WindowBackground
+        | Color::Placeholder
+        | Color::OnAccent),
+    ) = set
     {
         return Some(c);
     }
@@ -211,7 +217,13 @@ pub(super) fn icon_color(image: &gtk::Image, set: Option<Color>) -> Option<Color
     let Some(hex) = classes.iter().find_map(|c| c.strip_prefix(ICON_COLOR_CLASS)) else {
         return set.map(|_| Color::Label);
     };
-    if let Some(c @ (Color::Separator | Color::ControlBackground | Color::WindowBackground | Color::Placeholder)) = set
+    if let Some(
+        c @ (Color::Separator
+        | Color::ControlBackground
+        | Color::WindowBackground
+        | Color::Placeholder
+        | Color::OnAccent),
+    ) = set
     {
         return Some(c);
     }

@@ -305,6 +305,7 @@ fn resolve(color: Color, colors: &theme::Colors) -> Rgba {
         Color::Warning => colors.neutral_text,
         Color::Success => colors.positive_text,
         Color::Placeholder => colors.placeholder,
+        Color::OnAccent => colors.highlighted_text,
         Color::Rgba(r, g, b, a) => [r, g, b, a].map(|c| c as f32 / 255.0),
     }
 }

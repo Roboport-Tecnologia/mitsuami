@@ -186,6 +186,7 @@ async fn colour_weight_italics_and_alignment_reach_the_label(app: TestApp) {
         Column::new().children((
             Text::new("Failed").color(Color::Error).test_id("error"),
             Text::new("Fixed").color(Color::rgb(0x33, 0x66, 0x99)).test_id("rgb"),
+            Text::new("3").color(Color::OnAccent).test_id("on-accent"),
             Text::new("Bold").weight(FontWeight::Bold).test_id("bold"),
             Text::new("Slanted").italic(true).test_id("italic"),
             Text::new("Centred").text_align(TextAlign::Center).test_id("centred"),
@@ -193,6 +194,7 @@ async fn colour_weight_italics_and_alignment_reach_the_label(app: TestApp) {
     });
     assert!(has(&app, "error", Prop::TextColor(Color::Error)));
     assert!(has(&app, "rgb", Prop::TextColor(Color::rgb(0x33, 0x66, 0x99))));
+    assert!(has(&app, "on-accent", Prop::TextColor(Color::OnAccent)));
     assert!(has(&app, "bold", Prop::FontWeight(FontWeight::Bold)));
     assert!(has(&app, "italic", Prop::Italic(true)));
     assert!(has(&app, "centred", Prop::TextAlign(HorizontalAlign::Center)));

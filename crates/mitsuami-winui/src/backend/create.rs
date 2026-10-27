@@ -182,7 +182,17 @@ impl State {
                 image.SetStretch(w::Stretch::Uniform)?;
                 let element = image.cast()?;
                 let (asked, shown, latest) = (Rc::default(), Rc::default(), Default::default());
-                (Widget::FileIcon { image, file: None, thumbnail: None, size: None, asked, shown, latest }, element)
+                let widget = Widget::FileIcon {
+                    image,
+                    file: None,
+                    thumbnail: None,
+                    lookup: None,
+                    size: None,
+                    asked,
+                    shown,
+                    latest,
+                };
+                (widget, element)
             }
             WidgetKind::Icon => {
                 let Command::Create { props, .. } = command else { unreachable!() };

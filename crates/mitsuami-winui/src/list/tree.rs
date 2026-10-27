@@ -23,8 +23,8 @@ use windows_core::{EventRevoker, IInspectable, Interface};
 
 use super::{
     DRAGGED, Data, FRAME_BORDER, ITEM_TEMPLATE, R, container_changed, container_under, dragging, end_drag, files_of,
-    find_scroll_viewer, identity, key_of, mark_for, offset_of, own_drag, place_row, put_in, queue_report, report,
-    report_offset, row_under, start_drag, start_following, take_out, track, within,
+    find_scroll_viewer, identity, key_of, mark_for, measure_rows, offset_of, own_drag, place_row, put_in, queue_report,
+    report, report_offset, row_under, start_drag, start_following, take_out, track, within,
 };
 use crate::backend::{Events, boxed};
 use crate::bindings as w;
@@ -53,6 +53,9 @@ struct Nodes {
     rows: HashMap<RowKey, TreeRow>,
     /// The indent last reported.
     indent: Option<TreeIndent>,
+    /// How far short of the tree's inside a top row's content ends: the
+    /// room `TreeViewItem` keeps at its sides (`report_row_width`).
+    short: Option<f32>,
     /// The closed folder a drag of its own rows rests on, and since when
     /// (`OPEN_AFTER`).
     hover: Option<(RowKey, std::time::Instant)>,
@@ -559,6 +562,7 @@ impl Tree {
             d.rows = rows.iter().map(|r| r.row).collect();
             let index = std::mem::take(&mut d.index);
             d.heights.retain(|(k, _), _| index.contains_key(k));
+            d.slots.retain(|k, _| index.contains_key(k));
             d.index = index;
         }
         let mut children: HashMap<Option<RowKey>, Vec<w::TreeViewNode>> = HashMap::new();
@@ -768,13 +772,20 @@ impl Tree {
         self.report_row_width();
     }
 
+    /// The rows' width, which their content is laid out in less its
+    /// indent: where a top row's content ends in its `TreeViewItem`,
+    /// which keeps room at its sides (4 at the start in Windows 11's
+    /// style), so the tree's width less what that leaves, once a row
+    /// shows. Rows laid out as wide as the tree ran past the item's end,
+    /// which cut their last points off (SourceGit's branch filters,
+    /// 2026-10-27).
     fn report_row_width(&self) {
+        let short = self.nodes.borrow().short.unwrap_or(0.0);
         let mut d = self.data.borrow_mut();
         if d.width.is_none() {
             return;
         }
-        let border = if d.style.is_some_and(ListStyle::framed) { 2.0 * FRAME_BORDER } else { 0.0 };
-        let row_width = (d.width.unwrap_or(0.0) - border).max(0.0);
+        let row_width = (inside(&d) - short).max(0.0);
         if d.row_width.replace(row_width) != Some(row_width) {
             drop(d);
             self.events.emit(self.id, UiEvent::RowWidth(row_width));
@@ -837,6 +848,11 @@ impl Tree {
 
     pub(crate) fn estimate(&self) -> Option<f32> {
         self.data.borrow().estimate.map(|h| h as f32)
+    }
+
+    /// How high the tree is with all its rows that show.
+    pub(crate) fn natural_height(&self) -> f32 {
+        self.data.borrow().natural_height() as f32
     }
 
     /// Hosts a mounted row in its cell if the row is realised.
@@ -926,6 +942,7 @@ impl Tree {
         _ = self.view.cast::<w::IUIElement>().and_then(|e| e.UpdateLayout());
         self.inner();
         self.measure_indent();
+        measure_rows(&self.data, &self.events, self.id);
         if let Some(scroll) = self.scroll_viewer() {
             report_offset(&self.events, self.id, &self.offset, &scroll, false);
         }
@@ -947,22 +964,30 @@ impl Tree {
                 .collect()
         };
         let Ok(view) = self.view.cast::<w::ITreeView2>() else { return };
-        let at = |cell: &w::Canvas, node: &w::TreeViewNode| -> Option<f32> {
+        let at = |cell: &w::Canvas, node: &w::TreeViewNode| -> Option<(f32, f32)> {
             let container: w::UIElement = view.ContainerFromNode(node).ok()?.cast().ok()?;
             inset_in(cell, &container)
         };
         let top = cells.iter().filter(|(depth, ..)| *depth == 0).find_map(|(_, cell, node)| at(cell, node));
-        let Some(start) = top else { return };
+        let Some((start, width)) = top else { return };
         let below = cells
             .iter()
             .filter(|(depth, ..)| *depth > 0)
-            .find_map(|(depth, cell, node)| at(cell, node).map(|x| (x - start) / *depth as f32));
+            .find_map(|(depth, cell, node)| at(cell, node).map(|(x, _)| (x - start) / *depth as f32));
         let indent = TreeIndent { start, per_level: below.unwrap_or(PER_LEVEL) };
+        let inside = inside(&self.data.borrow());
+        let short = (inside - (start + width)).max(0.0).round();
         let mut n = self.nodes.borrow_mut();
+        let narrower = n.short.replace(short) != Some(short);
         if n.indent != Some(indent) {
             n.indent = Some(indent);
             drop(n);
             self.events.emit(self.id, UiEvent::TreeIndent(indent));
+        } else {
+            drop(n);
+        }
+        if narrower {
+            self.report_row_width();
         }
     }
 
@@ -1043,9 +1068,17 @@ impl Tree {
     }
 }
 
-/// How far a cell is into its container: each element's layout slot up to
-/// it. One not laid out yet has an empty slot: not measured.
-fn inset_in(cell: &w::Canvas, container: &w::UIElement) -> Option<f32> {
+/// The tree's width, less a frame's border.
+fn inside(d: &Data) -> f32 {
+    let border = if d.style.is_some_and(ListStyle::framed) { 2.0 * FRAME_BORDER } else { 0.0 };
+    (d.width.unwrap_or(0.0) - border).max(0.0)
+}
+
+/// How far a cell is into its container, and how wide the container makes
+/// it: each element's layout slot up to it. One not laid out yet has an
+/// empty slot: not measured.
+fn inset_in(cell: &w::Canvas, container: &w::UIElement) -> Option<(f32, f32)> {
+    let width = w::LayoutInformation::GetLayoutSlot(&cell.cast::<w::FrameworkElement>().ok()?).ok()?.width;
     let (mut element, mut x): (w::DependencyObject, f32) = (cell.cast().ok()?, 0.0);
     loop {
         let slot = w::LayoutInformation::GetLayoutSlot(&element.cast::<w::FrameworkElement>().ok()?).ok()?;
@@ -1055,7 +1088,7 @@ fn inset_in(cell: &w::Canvas, container: &w::UIElement) -> Option<f32> {
         x += slot.x;
         let parent = w::VisualTreeHelper::GetParent(&element).ok()?;
         if parent.cast::<w::UIElement>().ok()? == *container {
-            return Some(x.max(0.0).round());
+            return Some((x.max(0.0).round(), width));
         }
         element = parent;
     }

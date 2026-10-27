@@ -176,6 +176,7 @@ enum Widget {
         image: gtk::Image,
         file: Option<std::path::PathBuf>,
         thumbnail: Option<bool>,
+        lookup: Option<mitsuami_core::FileLookup>,
         size: Option<f32>,
         /// The icon being read, cancelled by a new one or the node going.
         loading: Option<gtk::gio::Cancellable>,

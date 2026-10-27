@@ -719,8 +719,8 @@ fn vector_icons() -> impl View {
 /// Files' icons as each platform's file manager shows them: a folder, a
 /// document and a picture at the small size and larger, and the picture's
 /// thumbnail where the platform makes one (AppKit and Windows; GTK only
-/// if the desktop has one cached, Kirigami never). The files are the
-/// crate's own, so every machine has them.
+/// if the desktop has one cached, Kirigami never); then files by name
+/// alone. The files are the crate's own, so every machine has them.
 #[mitsuami_test::story(sizes = [(320, fit)])]
 fn file_icons() -> impl View {
     let crate_dir = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"));
@@ -737,6 +737,13 @@ fn file_icons() -> impl View {
             FileIcon::new(&document).label("Large document").icon_size(48.0),
             FileIcon::new(&picture).label("Large picture").icon_size(48.0),
             FileIcon::new(&picture).label("Thumbnail").icon_size(48.0).thumbnail(true),
+        )),
+        // By name: files that aren't there, by their types.
+        Row::new().gap(12).align(Align::Center).children((
+            FileIcon::new(std::path::PathBuf::from("Photos")).label("Folder by name").lookup(FileLookup::Folder),
+            FileIcon::new(std::path::PathBuf::from("report.pdf")).label("PDF by name").lookup(FileLookup::FileName),
+            FileIcon::new(std::path::PathBuf::from("main.rs")).label("Rust by name").lookup(FileLookup::FileName),
+            FileIcon::new(std::path::PathBuf::from("Makefile")).label("Makefile by name").lookup(FileLookup::FileName),
         )),
     ))
 }

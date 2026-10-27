@@ -734,6 +734,9 @@ pub(crate) fn list() -> String {
 QQC2.ScrollView {{
     id: scroll
     property bool mitsuamiFramed: false
+    // How high it is with all its rows: as high as the view lays them
+    // out, and estimates the rows it hasn't made (`List::natural_height`).
+    readonly property real mitsuamiNaturalHeight: view.contentHeight + topPadding + bottomPadding
     QQC2.ScrollBar.horizontal.policy: QQC2.ScrollBar.AlwaysOff
     {}
     ListView {{
@@ -1069,6 +1072,9 @@ pub(crate) fn table() -> String {
 Item {{
     id: table
     property bool mitsuamiFramed: false
+    // How high it is with all its rows: its header, and its rows as the
+    // view lays them out and estimates the ones it hasn't made.
+    readonly property real mitsuamiNaturalHeight: header.height + view.contentHeight + scroll.topPadding + scroll.bottomPadding
     Accessible.role: Accessible.Table
     HoverHandler {{ id: mitsuamiHover }}
     {}
@@ -1470,6 +1476,9 @@ pub(crate) fn tree() -> String {
 QQC2.ScrollView {{
     id: scroll
     property bool mitsuamiFramed: false
+    // How high it is with all its rows: as high as the view lays them
+    // out, and estimates the rows it hasn't made (`List::natural_height`).
+    readonly property real mitsuamiNaturalHeight: view.contentHeight + topPadding + bottomPadding
     Accessible.role: Accessible.Tree
     QQC2.ScrollBar.horizontal.policy: QQC2.ScrollBar.AlwaysOff
     {}

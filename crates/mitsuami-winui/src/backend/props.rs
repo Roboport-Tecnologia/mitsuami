@@ -110,14 +110,15 @@ impl State {
                 *source = Some(new.clone());
             }
             // Loaded once after the batch (`load_file_icons`): a new icon
-            // comes with its file, size and thumbnail together.
+            // comes with its file, size, thumbnail and lookup together.
             (
-                Prop::File(_) | Prop::IconSize(_) | Prop::Thumbnail(_),
-                Widget::FileIcon { image, file, thumbnail, size, asked, shown, latest },
+                Prop::File(_) | Prop::IconSize(_) | Prop::Thumbnail(_) | Prop::FileLookup(_),
+                Widget::FileIcon { image, file, thumbnail, lookup, size, asked, shown, latest },
             ) => {
                 match prop {
                     Prop::File(path) => *file = Some(path.clone()),
                     Prop::Thumbnail(on) => *thumbnail = Some(*on),
+                    Prop::FileLookup(by) => *lookup = Some(*by),
                     Prop::IconSize(points) => *size = Some(*points),
                     _ => {}
                 }
@@ -872,7 +873,7 @@ impl State {
     pub(super) fn load_file_icons(&mut self) {
         self.pending_icon_set.clear();
         for id in std::mem::take(&mut self.pending_icons) {
-            let Some(Widget::FileIcon { image, file: Some(path), thumbnail, size, asked, shown, latest }) =
+            let Some(Widget::FileIcon { image, file: Some(path), thumbnail, lookup, size, asked, shown, latest }) =
                 self.nodes.get(&id).map(|n| &n.widget)
             else {
                 continue;
@@ -891,6 +892,7 @@ impl State {
                 path: path.clone(),
                 pixels,
                 thumbnail: *thumbnail == Some(true),
+                lookup: lookup.unwrap_or_default(),
                 ticket,
                 latest: latest.clone(),
             };

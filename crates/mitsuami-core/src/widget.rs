@@ -151,7 +151,8 @@ pub enum WidgetKind {
     /// [`Prop::File`] names it; it's a square as big as the platform's
     /// small icons unless [`Prop::IconSize`] says otherwise. With
     /// [`Prop::Thumbnail`], a preview of what's in the file where the
-    /// platform makes one.
+    /// platform makes one; with [`Prop::FileLookup`], a type's icon from
+    /// the name alone.
     FileIcon,
     /// A native surface the app presents to with its own GPU API, off the
     /// UI thread (an `NSView` backed by a `CAMetalLayer`, a Wayland
@@ -368,6 +369,23 @@ pub enum Truncation {
     Middle,
     #[default]
     End,
+}
+
+/// Where a `FileIcon` gets its icon. From disk, the platform reads the
+/// file or folder for its own icon; by name, nothing is read, as file
+/// managers show files that aren't on disk (a download, an archive's
+/// contents, a file only in an old revision).
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Hash)]
+pub enum FileLookup {
+    /// The file or folder at the path: an app's own icon, a folder's
+    /// custom one, a document's by its type.
+    #[default]
+    Disk,
+    /// A file of the type the path's name says (its extension, or the
+    /// whole name where the platform knows one, `Makefile`).
+    FileName,
+    /// A plain folder.
+    Folder,
 }
 
 /// A [`TextAlign`] the core has resolved against the text's direction, as
@@ -1263,6 +1281,9 @@ pub enum Prop {
     /// a document's first page) in place of its icon, where the platform
     /// makes one; its icon until then, and where it makes none.
     Thumbnail(bool),
+    /// Where a `FileIcon` gets its icon: the file on disk, or only its
+    /// name. By name, `Thumbnail` is ignored.
+    FileLookup(FileLookup),
     /// A button shows its icon without its caption, which stays its
     /// accessible name. Without an icon it shows its caption.
     IconOnly(bool),
@@ -1561,6 +1582,7 @@ static_value!(
     FontWeight,
     TextAlign,
     Truncation,
+    FileLookup,
     crate::draw::Color,
     ButtonRole,
     ButtonStyle,

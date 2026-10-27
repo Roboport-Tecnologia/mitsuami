@@ -26,6 +26,9 @@ pub enum Color {
     Success,
     /// A field's placeholder: the faint text it shows while it's empty.
     Placeholder,
+    /// Text and icons on an `Accent` fill (a badge, a selected row): the
+    /// platform's pairing, dark on a light accent where it makes one.
+    OnAccent,
     Rgba(u8, u8, u8, u8),
 }
 

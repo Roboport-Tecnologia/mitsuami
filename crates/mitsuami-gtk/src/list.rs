@@ -81,6 +81,10 @@ struct Data {
     /// its way.
     bare_heights: HashMap<RowKey, f32>,
     heights_queued: bool,
+    /// The natural height last measured, and whether a measure is on its
+    /// way (`List::queue_remeasure`).
+    natural: f32,
+    remeasure_queued: bool,
     /// Trees only: each row that shows, as sent; a store of the children
     /// of each that opens, which the tree list model shows while it's
     /// open; the handler hearing each row's `expanded`, on the row object
@@ -248,6 +252,8 @@ fn new_data() -> Rc<RefCell<Data>> {
         drop_cell: None,
         bare_heights: HashMap::new(),
         heights_queued: false,
+        natural: 0.0,
+        remeasure_queued: false,
         tree: HashMap::new(),
         stores: HashMap::new(),
         expanders: HashMap::new(),
@@ -762,6 +768,8 @@ impl List {
             View::Table(v) => v.clone().upcast(),
         };
         scrolled.set_child(Some(&view));
+        // Its natural height is its rows' (`natural_height`).
+        scrolled.set_propagate_natural_height(true);
         // Each adjustment's handler reads the other one weakly: a table's
         // would otherwise hold each other.
         let (h, v) = (scrolled.hadjustment(), scrolled.vadjustment());
@@ -935,6 +943,7 @@ impl List {
         if kept != selected {
             self.report_selection();
         }
+        self.queue_remeasure();
     }
 
     /// A tree's rows that show, each with its place in the tree. The top
@@ -1007,6 +1016,7 @@ impl List {
         if kept != selected {
             self.report_selection();
         }
+        self.queue_remeasure();
     }
 
     /// Opens or closes a tree's row as assistive technology does, reporting
@@ -1097,6 +1107,36 @@ impl List {
     pub(crate) fn set_style(&self, style: ListStyle) {
         self.data.borrow_mut().style = Some(style);
         self.scrolled.set_has_frame(style.framed());
+        self.queue_remeasure();
+    }
+
+    /// How high the list is with all its rows: its scrolled window's
+    /// natural height, which is its view's, and a frame's border. GTK's
+    /// list view measures the rows it has bound, and the others as high as
+    /// the rows it measured; a column view adds its header.
+    pub(crate) fn natural_height(&self) -> f32 {
+        natural_height(&self.scrolled)
+    }
+
+    /// Measures the list again once the main loop is idle, when GTK has
+    /// bound and measured its rows, and reports `Remeasure` if its natural
+    /// height changed.
+    fn queue_remeasure(&self) {
+        let mut d = self.data.borrow_mut();
+        if std::mem::replace(&mut d.remeasure_queued, true) {
+            return;
+        }
+        let (data, scrolled) = (Rc::downgrade(&self.data), self.scrolled.downgrade());
+        let (events, id) = (self.events.clone(), self.id);
+        glib::idle_add_local_once(move || {
+            let (Some(data), Some(scrolled)) = (data.upgrade(), scrolled.upgrade()) else { return };
+            let natural = natural_height(&scrolled);
+            let mut d = data.borrow_mut();
+            d.remeasure_queued = false;
+            if std::mem::replace(&mut d.natural, natural) != natural {
+                events.emit(id, UiEvent::Remeasure);
+            }
+        });
     }
 
     pub(crate) fn style(&self) -> Option<ListStyle> {
@@ -1147,6 +1187,7 @@ impl List {
 
     pub(crate) fn set_estimate(&self, height: f32) {
         self.data.borrow_mut().estimate = Some(height.round() as i32);
+        self.queue_remeasure();
     }
 
     pub(crate) fn set_row_files(&self, files: Vec<(RowKey, PathBuf)>) {
@@ -1224,6 +1265,7 @@ impl List {
             queue_heights(&self.data, &mut data, &self.events, self.id);
             data.scrolling_to.take_if(|k| *k == key).is_some()
         };
+        self.queue_remeasure();
         if again {
             self.scroll_to_row(key);
         }
@@ -1510,6 +1552,12 @@ fn queue_heights(data: &Rc<RefCell<Data>>, d: &mut Data, events: &Events, id: No
             }
         }
     });
+}
+
+/// A list's scrolled window's natural height at its width.
+fn natural_height(scrolled: &gtk::ScrolledWindow) -> f32 {
+    let width = Some(scrolled.width()).filter(|w| *w > 0).unwrap_or(-1);
+    scrolled.measure(gtk::Orientation::Vertical, width).1 as f32
 }
 
 /// A row was activated: double-clicked, or Enter pressed on it.

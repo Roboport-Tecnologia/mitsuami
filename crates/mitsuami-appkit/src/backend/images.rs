@@ -6,7 +6,7 @@ use std::collections::HashMap;
 use std::path::Path;
 
 use block2::RcBlock;
-use mitsuami_core::{Color, ImageSource, PathStep, VectorIcon};
+use mitsuami_core::{Color, FileLookup, ImageSource, PathStep, VectorIcon};
 use objc2::rc::{Retained, Weak};
 use objc2::runtime::Bool;
 use objc2::{AnyThread, MainThreadMarker};
@@ -20,6 +20,7 @@ use objc2_quick_look_thumbnailing::{
     QLThumbnailGenerationRequest, QLThumbnailGenerationRequestRepresentationTypes, QLThumbnailGenerator,
     QLThumbnailRepresentation,
 };
+use objc2_uniform_type_identifiers::{UTType, UTTypeData, UTTypeFolder};
 
 use super::ns;
 
@@ -205,24 +206,39 @@ pub(super) fn thumbnails_pending() -> bool {
 /// Shows the icon Finder shows for `path` (an app's own, a folder's custom
 /// one, a document's by its type) in a `side`-point square; with
 /// `thumbnail`, QuickLook's preview replaces it once made, drawn as Finder
-/// draws thumbnails in place of icons.
+/// draws thumbnails in place of icons. By name, it's the icon of the
+/// name's type (by its extension: macOS types files by nothing else), or
+/// a plain folder's, and nothing is read.
 pub(super) fn show_file_icon(
     mtm: MainThreadMarker,
     view: &NSImageView,
     path: Option<&Path>,
     side: f32,
     thumbnail: bool,
+    lookup: FileLookup,
 ) {
     let address = view as *const NSImageView as usize;
     THUMBNAILS.with(|t| t.borrow_mut().remove(&address));
-    let Some(path) = path else { return view.setImage(None) };
-    let icon = NSWorkspace::sharedWorkspace().iconForFile(&super::ns(&path.to_string_lossy()));
+    let workspace = NSWorkspace::sharedWorkspace();
+    let icon = match (lookup, path) {
+        (FileLookup::Folder, _) => workspace.iconForContentType(unsafe { UTTypeFolder }),
+        (_, None) => return view.setImage(None),
+        (FileLookup::Disk, Some(path)) => workspace.iconForFile(&super::ns(&path.to_string_lossy())),
+        (FileLookup::FileName, Some(path)) => {
+            let extension = path.extension().map(|e| e.to_string_lossy());
+            let typed = extension.and_then(|e| UTType::typeWithFilenameExtension(&super::ns(&e)));
+            match typed {
+                Some(typed) => workspace.iconForContentType(&typed),
+                // No extension: a document of no particular type, as Finder
+                // shows one.
+                None => workspace.iconForContentType(unsafe { UTTypeData }),
+            }
+        }
+    };
     // Icons come in several sizes; this picks the one drawn.
     icon.setSize(NSSize::new(side as f64, side as f64));
     view.setImage(Some(&icon));
-    if !thumbnail {
-        return;
-    }
+    let Some(path) = path.filter(|_| thumbnail && lookup == FileLookup::Disk) else { return };
     let scale = view
         .window()
         .map(|w| w.backingScaleFactor())

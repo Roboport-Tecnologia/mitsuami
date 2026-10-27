@@ -52,6 +52,7 @@ pub(crate) struct Colors {
     pub(crate) neutral_text: Rgba,
     pub(crate) positive_text: Rgba,
     pub(crate) placeholder: Rgba,
+    pub(crate) highlighted_text: Rgba,
 }
 
 pub(crate) fn colors() -> Colors {
@@ -68,6 +69,7 @@ pub(crate) fn colors() -> Colors {
         neutral_text: color("neutralTextColor"),
         positive_text: color("positiveTextColor"),
         placeholder: color("placeholderColor"),
+        highlighted_text: color("highlightedTextColor"),
     }
 }
 
