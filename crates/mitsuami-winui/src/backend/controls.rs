@@ -154,11 +154,12 @@ pub(super) fn fit_icon_padding(node: &Node) -> R<()> {
     control.SetPadding(w::Thickness { left: side, right: side, ..shown })
 }
 
-/// Whether a button shows its icon alone, centred in what padding fits.
-/// A menu button's chevron needs its padding.
+/// Whether a button shows its icon alone, centred in what padding fits. A
+/// menu button's chevron stays after its icon, both in that room: a
+/// 32-wide one (SourceGit's toolbar) had room for its chevron alone.
 pub(super) fn centres_icon(node: &Node) -> bool {
     node.icon_only == Some(true)
-        && matches!(node.widget, Widget::Button(_) | Widget::Toggle(_))
+        && matches!(node.widget, Widget::Button(_) | Widget::Toggle(_) | Widget::MenuButton(_))
         && (!node.icon.is_empty() || node.vector_icon.as_ref().is_some_and(Option::is_some))
 }
 

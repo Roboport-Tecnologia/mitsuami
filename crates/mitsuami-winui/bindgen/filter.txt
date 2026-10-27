@@ -192,7 +192,7 @@ Microsoft.UI.Xaml.Controls.IMenuFlyout::get_Items
 Microsoft.UI.Xaml.Controls.Primitives.FlyoutBase::{}
 Microsoft.UI.Xaml.Controls.Flyout::CreateInstance
 Microsoft.UI.Xaml.Controls.IFlyout::{get_Content, put_Content}
-Microsoft.UI.Xaml.Controls.Primitives.IFlyoutBase::{put_Placement, add_Opening, remove_Opening, add_Closed, remove_Closed, Hide, ShowAt, get_IsOpen}
+Microsoft.UI.Xaml.Controls.Primitives.IFlyoutBase::{put_Placement, add_Opening, remove_Opening, add_Closed, remove_Closed, Hide, ShowAt, get_IsOpen, put_ShouldConstrainToRootBounds}
 Microsoft.UI.Xaml.Controls.Primitives.FlyoutPlacementMode
 Windows.System.VirtualKey
 Windows.System.VirtualKeyModifiers

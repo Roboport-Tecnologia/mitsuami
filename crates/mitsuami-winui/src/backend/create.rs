@@ -613,6 +613,7 @@ impl State {
                 vector_icon: None,
                 icon_only: None,
                 icon_size: false,
+                no_room: false,
             },
         );
         Ok(())

@@ -560,6 +560,9 @@ struct Node {
     /// Password boxes: all their text is selected (`SelectText`), which
     /// XAML can't tell, so typing replaces it.
     password_all: Cell<bool>,
+    /// Clear and not hit-testable for a frame with no room (`SetFrame`),
+    /// and back once it has some.
+    no_room: bool,
 }
 
 type Callback = Rc<dyn Fn()>;

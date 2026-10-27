@@ -224,6 +224,30 @@ async fn unhiding_restores_the_original_display(app: TestApp) {
 }
 
 #[mitsuami_test::test]
+async fn controls_hidden_from_the_start_have_their_size_once_shown(app: TestApp) {
+    // Each platform hides what has no room, its own way (AppKit hides the
+    // view, WinUI makes it clear): shown again, its controls still measure.
+    let hidden = signal(true);
+    app.mount(move || {
+        Column::new().align(Align::Start).children((
+            Column::new()
+                .hidden(hidden)
+                .children((Button::new("Private").test_id("button"), Checkbox::new("Reset Author").test_id("check"))),
+            Checkbox::new("Amend").test_id("after"),
+        ))
+    });
+    assert_eq!(frame_of(&app, "after").await.y(), 0.0);
+
+    hidden.set(false);
+
+    let button = frame_of(&app, "button").await;
+    let check = frame_of(&app, "check").await;
+    assert!(button.width() > 0.0 && button.height() > 0.0, "button {button}");
+    assert!(check.width() > 0.0 && check.height() > 0.0, "check {check}");
+    assert!(frame_of(&app, "after").await.y() >= check.max_y());
+}
+
+#[mitsuami_test::test]
 async fn style_with_edits_several_fields_reactively(app: TestApp) {
     let compact = signal(false);
     app.mount(move || {

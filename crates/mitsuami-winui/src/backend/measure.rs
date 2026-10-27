@@ -143,7 +143,7 @@ impl WinUiBackend {
             }
             // An icon alone may have less side padding, to fit the app's
             // width; its natural width is still a button's.
-            Widget::Button(_) | Widget::Toggle(_) if super::controls::centres_icon(node) => {
+            Widget::Button(_) | Widget::Toggle(_) | Widget::MenuButton(_) if super::controls::centres_icon(node) => {
                 let size = ceil(measure_element(&node.element, infinite));
                 let inner = super::controls::icon_button_inner(node).unwrap_or(0.0);
                 Size::new((inner + super::controls::BUTTON_SIDE_PADDING).ceil() as f32, size.height)

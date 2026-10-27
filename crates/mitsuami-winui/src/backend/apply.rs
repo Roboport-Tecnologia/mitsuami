@@ -320,7 +320,22 @@ impl State {
                 let fe: w::IFrameworkElement = element.cast()?;
                 fe.SetWidth(frame.width() as f64)?;
                 fe.SetHeight(frame.height() as f64)?;
-                if let Widget::Button(_) | Widget::Toggle(_) = &self.nodes[id].widget {
+                // A frame with no room (a hidden node, or one squeezed out)
+                // shows nothing: a control's template minimums (a check
+                // box's `MinWidth`, a button's padding) and a label's text
+                // draw past a zero `Width`, and a canvas doesn't clip. Made
+                // clear rather than collapsed: XAML never loads a collapsed
+                // element, and some measure only once loaded (a progress
+                // ring). A host shows nothing of its own, and keeps its
+                // hit testing for `ClickThrough`.
+                let empty = frame.width() <= 0.0 || frame.height() <= 0.0;
+                let node = self.nodes.get_mut(id).unwrap();
+                if node.no_room != empty && !matches!(node.widget, Widget::Host(_)) {
+                    node.no_room = empty;
+                    element.SetOpacity(if empty { 0.0 } else { 1.0 })?;
+                    element.SetIsHitTestVisible(!empty)?;
+                }
+                if let Widget::Button(_) | Widget::Toggle(_) | Widget::MenuButton(_) = &self.nodes[id].widget {
                     super::controls::fit_icon_padding(&self.nodes[id])?;
                 }
                 if let Widget::List(list) = &self.nodes[id].widget {

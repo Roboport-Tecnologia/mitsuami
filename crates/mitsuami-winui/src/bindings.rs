@@ -6688,6 +6688,15 @@ impl IFlyoutBase {
             (windows_core::Interface::vtable(self).SetPlacement)(windows_core::Interface::as_raw(self), value).ok()
         }
     }
+    pub fn SetShouldConstrainToRootBounds(&self, value: bool) -> windows_core::Result<()> {
+        unsafe {
+            (windows_core::Interface::vtable(self).SetShouldConstrainToRootBounds)(
+                windows_core::Interface::as_raw(self),
+                value,
+            )
+            .ok()
+        }
+    }
     pub fn IsOpen(&self) -> windows_core::Result<bool> {
         unsafe {
             let mut result__ = core::mem::zeroed();
@@ -6781,7 +6790,8 @@ pub struct IFlyoutBase_Vtbl {
     AreOpenCloseAnimationsEnabled: usize,
     SetAreOpenCloseAnimationsEnabled: usize,
     ShouldConstrainToRootBounds: usize,
-    SetShouldConstrainToRootBounds: usize,
+    pub SetShouldConstrainToRootBounds:
+        unsafe extern "system" fn(*mut core::ffi::c_void, bool) -> windows_core::HRESULT,
     IsConstrainedToRootBounds: usize,
     ElementSoundMode: usize,
     SetElementSoundMode: usize,

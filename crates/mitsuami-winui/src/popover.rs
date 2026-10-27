@@ -1,6 +1,6 @@
 //! `Popover`: a XAML `Flyout` whose content is the node's host, a canvas
 //! the core sizes, shown at its parent's element (`ShowAt`) while the core
-//! says so, under it. Light dismiss is the flyout's own: a click outside
+//! says so, under it, past the window's edge if need be. Light dismiss is the flyout's own: a click outside
 //! or Escape closes it, which is reported.
 //!
 //! A flyout opens only in a window on screen, and tests never show
@@ -48,6 +48,10 @@ impl Popover {
         flyout.cast::<w::IFlyout>()?.SetContent(&host.cast::<w::UIElement>()?)?;
         let base: w::IFlyoutBase = flyout.cast()?;
         base.SetPlacement(w::FlyoutPlacementMode::Bottom)?;
+        // Under its parent even past the window's edge, as a menu
+        // flyout opens: kept inside it, a flyout with no room above or
+        // below a button went beside it, against the window's top.
+        base.SetShouldConstrainToRootBounds(false)?;
         let state = Rc::new(State { wanted: Cell::new(false), anchor: RefCell::new(None), on_screen });
         let (closing, reported) = (state.clone(), events.clone());
         let closed = base.Closed(move |_, _| {
@@ -146,8 +150,8 @@ impl Popover {
         let (width, height) = (fe.Width().ok()?, fe.Height().ok()?);
         if !self.state.on_screen {
             let anchor: w::IFrameworkElement = anchor.cast().ok()?;
-            let height = anchor.Height().ok().filter(|h| !h.is_nan()).or_else(|| anchor.ActualHeight().ok())?;
-            let below = height + GAP;
+            let anchor_height = anchor.Height().ok().filter(|h| !h.is_nan()).or_else(|| anchor.ActualHeight().ok())?;
+            let below = anchor_height + GAP;
             return Some((0.0, below, width, height));
         }
         let transform = self.host.cast::<w::IUIElement>().ok()?.TransformToVisual(&anchor).ok()?;
