@@ -327,4 +327,20 @@ async fn opening_and_closing_rows_changes_a_trees_height(app: TestApp) {
     assert_eq!(app.get_by_test_id("tree").frame().height(), closed.height());
 }
 
+/// A row's content ends where the platform's row does, at every level: the
+/// rows' width is where a row's content ends in the platform's item, not
+/// the tree's width (WinUI's `TreeViewItem` keeps room at its sides, and
+/// rows laid out as wide as the tree had their end cut off).
+#[mitsuami_test::test]
+async fn rows_end_inside_the_tree(app: TestApp) {
+    let (roots, open) = (signal(project()), signal(vec!["src", "ui"]));
+    app.mount(move || tree(roots, open));
+    app.settle().await;
+    let tree = app.get_by_test_id("tree").frame();
+    for name in ["src", "main.rs", "ui", "button.rs", "docs", "README"] {
+        let row = app.get_by_role(Role::TreeItem, name).frame();
+        assert!(row.max_x() <= tree.max_x(), "{name} at {row:?} in {tree:?}");
+    }
+}
+
 mitsuami_test::main!();
