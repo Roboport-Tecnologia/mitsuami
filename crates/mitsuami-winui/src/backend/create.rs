@@ -614,6 +614,7 @@ impl State {
                 icon_only: None,
                 icon_size: false,
                 no_room: false,
+                a11y_hidden: false,
             },
         );
         Ok(())

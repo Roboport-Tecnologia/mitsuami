@@ -963,14 +963,17 @@ impl List {
     }
 
     /// XAML clears the selection when the mode changes, whichever way:
-    /// report the rows it let go.
+    /// report the rows it let go. Several rows are XAML's `Extended`, as
+    /// File Explorer's: a click selects one row, and Ctrl- and Shift-clicks
+    /// more. Its `Multiple` is a touch list's, a check box on every row
+    /// that a click toggles.
     pub(crate) fn set_mode(&self, mode: SelectionMode) -> R<()> {
         self.data.borrow_mut().mode = mode;
         self.data.borrow_mut().muted = true;
         let set = self.view.cast::<w::IListViewBase>()?.SetSelectionMode(match mode {
             SelectionMode::None => w::ListViewSelectionMode::None,
             SelectionMode::Single => w::ListViewSelectionMode::Single,
-            SelectionMode::Multiple => w::ListViewSelectionMode::Multiple,
+            SelectionMode::Multiple => w::ListViewSelectionMode::Extended,
         });
         self.data.borrow_mut().muted = false;
         set?;

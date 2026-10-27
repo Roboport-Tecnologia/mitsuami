@@ -560,9 +560,11 @@ struct Node {
     /// Password boxes: all their text is selected (`SelectText`), which
     /// XAML can't tell, so typing replaces it.
     password_all: Cell<bool>,
-    /// Clear and not hit-testable for a frame with no room (`SetFrame`),
-    /// and back once it has some.
+    /// Clear, not hit-testable and out of UI Automation's view for a frame
+    /// with no room (`SetFrame`), and back once it has some.
     no_room: bool,
+    /// Whether the app hid it from assistive technology (`SetA11y`).
+    a11y_hidden: bool,
 }
 
 type Callback = Rc<dyn Fn()>;
@@ -751,6 +753,15 @@ fn set_help_text(node: &Node) -> R<()> {
     let error = node.error.as_ref().and_then(|e| e.as_deref());
     let help = error.or(node.description.as_deref()).unwrap_or(&node.tooltip);
     w::AutomationProperties::SetHelpText(node.control(), help)
+}
+
+/// In UIA's content view unless the app hid it, or it has no room.
+fn set_accessibility_view(node: &Node) -> R<()> {
+    let hidden = node.a11y_hidden || node.no_room;
+    w::AutomationProperties::SetAccessibilityView(
+        &node.element,
+        if hidden { w::AccessibilityView::Raw } else { w::AccessibilityView::Content },
+    )
 }
 
 pub(crate) fn boxed(text: &str) -> IInspectable {

@@ -14,7 +14,7 @@ use super::windows::{
     remove_sidebar, remove_toolbar_item, resize_client, resize_client_with, scale_of, take_tabs_from_title_bar,
     takes_title_tabs, update_toolbar,
 };
-use super::{R, State, Widget, WindowParts, set_help_text, set_hit_testable, violation};
+use super::{R, State, Widget, WindowParts, set_accessibility_view, set_help_text, set_hit_testable, violation};
 use crate::bindings as w;
 
 impl State {
@@ -326,14 +326,16 @@ impl State {
                 // draw past a zero `Width`, and a canvas doesn't clip. Made
                 // clear rather than collapsed: XAML never loads a collapsed
                 // element, and some measure only once loaded (a progress
-                // ring). A host shows nothing of its own, and keeps its
-                // hit testing for `ClickThrough`.
+                // ring). Assistive technology doesn't find it either, as
+                // the core's tree has no hidden node. A host shows nothing
+                // of its own, and keeps its hit testing for `ClickThrough`.
                 let empty = frame.width() <= 0.0 || frame.height() <= 0.0;
                 let node = self.nodes.get_mut(id).unwrap();
                 if node.no_room != empty && !matches!(node.widget, Widget::Host(_)) {
                     node.no_room = empty;
                     element.SetOpacity(if empty { 0.0 } else { 1.0 })?;
                     element.SetIsHitTestVisible(!empty)?;
+                    set_accessibility_view(node)?;
                 }
                 if let Widget::Button(_) | Widget::Toggle(_) | Widget::MenuButton(_) = &self.nodes[id].widget {
                     super::controls::fit_icon_padding(&self.nodes[id])?;
@@ -397,10 +399,8 @@ impl State {
                 }
                 node.description = description.clone();
                 set_help_text(node)?;
-                w::AutomationProperties::SetAccessibilityView(
-                    &element,
-                    if *hidden { w::AccessibilityView::Raw } else { w::AccessibilityView::Content },
-                )?;
+                node.a11y_hidden = *hidden;
+                set_accessibility_view(node)?;
             }
             Command::SetWindowSize { id, size } => match self.nodes.get_mut(id).map(|n| &mut n.widget) {
                 Some(Widget::Window(parts)) => {

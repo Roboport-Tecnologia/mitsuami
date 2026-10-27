@@ -355,9 +355,9 @@ async fn tables_are_tags(app: TestApp) {
     assert_eq!(row_names(&app), ["File 0 0 KB", "File 1 37 KB"]);
 }
 
-/// Multiple selection leaves the columns the table's width: WinUI's rows
-/// show a check box before their cells, and the columns (with the header)
-/// start after it.
+/// Multiple selection leaves the columns the table's width. Where rows show
+/// a check box before their cells (XAML's touch `Multiple`, which a tweak
+/// can set on WinUI), the columns (with the header) start after it.
 #[mitsuami_test::test]
 async fn multiple_selection_keeps_the_columns_in_the_table(app: TestApp) {
     let data = signal(files(3));
