@@ -298,6 +298,10 @@ pub enum MitsuamiKind {
     /// `ColorValue`, fixed and opaque), reported as `Changed` with a
     /// `Color` value when the user picks another.
     ColorWell = 25,
+    /// A file's or folder's own icon, as the platform's file manager shows
+    /// it: its `File` (`mitsuami_set_text`), in a square of its
+    /// `IconSize`, 16 points unless set.
+    FileIcon = 26,
 }
 
 fn widget_kind(kind: u32) -> Result<WidgetKind, String> {
@@ -328,6 +332,7 @@ fn widget_kind(kind: u32) -> Result<WidgetKind, String> {
         23 => WidgetKind::Slider,
         24 => WidgetKind::NumberInput,
         25 => WidgetKind::ColorWell,
+        26 => WidgetKind::FileIcon,
         _ => return Err(format!("unknown kind {kind}")),
     })
 }
@@ -624,6 +629,8 @@ pub enum MitsuamiTextProp {
     TestId = 8,
     /// What's wrong with a text field's text; empty: nothing.
     Error = 9,
+    /// The file or folder a file icon shows the icon of.
+    File = 10,
 }
 
 /// # Safety
@@ -642,6 +649,7 @@ pub unsafe extern "C" fn mitsuami_set_text(id: u32, prop: u32, value: *const u8,
             6 => Prop::Tooltip(value),
             7 => Prop::Icon(value),
             9 => Prop::Error((!value.is_empty()).then_some(value)),
+            10 => Prop::File(value.into()),
             8 => {
                 ui.set_test_id(node(id), value);
                 return Ok(());

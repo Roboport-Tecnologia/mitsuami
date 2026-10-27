@@ -1424,6 +1424,23 @@ async fn color_wells_report_the_colour_picked(app: TestApp) {
 }
 
 #[mitsuami_test::test]
+async fn file_icons_show_their_files_icon(app: TestApp) {
+    attach(app.ui());
+    let icon = create(MitsuamiKind::FileIcon);
+    let file = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("Cargo.toml");
+    set_text(icon, MitsuamiTextProp::File, file.to_str().unwrap());
+    set_text(icon, MitsuamiTextProp::TestId, "icon");
+    assert!(mitsuami_set_number(icon, MitsuamiNumberProp::IconSize as u32, 24.0));
+    assert!(mitsuami_set_align_self(icon, 1));
+    app.mount(|| Adopt(icon));
+    app.settle().await;
+    let shown = app.get_by_test_id("icon");
+    assert!(shown.native_state().props.contains(&Prop::File(file)));
+    // A square of the size given, on every platform.
+    assert_eq!((shown.frame().width(), shown.frame().height()), (24.0, 24.0));
+}
+
+#[mitsuami_test::test]
 async fn containers_report_the_pointer_over_them(app: TestApp) {
     attach(app.ui());
     heard();
