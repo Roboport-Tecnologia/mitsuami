@@ -158,7 +158,7 @@ macro_rules! color_binding {
             Kirigami.Theme.separatorColor, Kirigami.Theme.viewBackgroundColor, Kirigami.Theme.backgroundColor,
             Kirigami.Theme.negativeTextColor, Kirigami.Theme.neutralTextColor,
             Kirigami.Theme.positiveTextColor, undefined,
-            Kirigami.Theme.disabledTextColor][mitsuamiColor]"#
+            Kirigami.Theme.disabledTextColor, Kirigami.Theme.highlightedTextColor][mitsuamiColor]"#
     };
 }
 
@@ -195,6 +195,7 @@ QtObject {
     property color textColor: Kirigami.Theme.textColor
     property color disabledTextColor: Kirigami.Theme.disabledTextColor
     property color highlightColor: Kirigami.Theme.highlightColor
+    property color highlightedTextColor: Kirigami.Theme.highlightedTextColor
     property color backgroundColor: Kirigami.Theme.backgroundColor
     property color viewBackgroundColor: viewProbe.Kirigami.Theme.backgroundColor
     property color separatorColor: Kirigami.ColorUtils.linearInterpolation(

@@ -144,7 +144,9 @@ async fn nodes_it_makes_are_laid_out_and_found(app: TestApp) {
     assert!(app.ui().props(title).contains(&Prop::TextColor(Color::rgb(255, 0, 0))));
     assert!(mitsuami_set_color(title.raw(), MitsuamiColorProp::TextColor as u32, 10, 0, 0, 0, 0));
     assert!(app.ui().props(title).contains(&Prop::TextColor(Color::Placeholder)));
-    assert!(!mitsuami_set_color(title.raw(), MitsuamiColorProp::TextColor as u32, 11, 0, 0, 0, 0));
+    assert!(mitsuami_set_color(title.raw(), MitsuamiColorProp::TextColor as u32, 11, 0, 0, 0, 0));
+    assert!(app.ui().props(title).contains(&Prop::TextColor(Color::OnAccent)));
+    assert!(!mitsuami_set_color(title.raw(), MitsuamiColorProp::TextColor as u32, 12, 0, 0, 0, 0));
     assert!(mitsuami_set_min_size(column.raw(), px(600.0), auto()));
     app.expect(by_text("Clone a repository")).to_be_visible().await;
     assert!(app.ui().frame(column).unwrap().width() >= 600.0);

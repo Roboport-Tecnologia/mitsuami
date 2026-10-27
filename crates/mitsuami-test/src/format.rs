@@ -395,6 +395,7 @@ fn draw(drawing: &DisplayList, origin: Point, out: &mut String) {
             Color::Warning => "#e98a15".into(),
             Color::Success => "#2e933c".into(),
             Color::Placeholder => "#aaaaaa".into(),
+            Color::OnAccent => "#ffffff".into(),
             Color::Separator => "#cccccc".into(),
             Color::ControlBackground | Color::WindowBackground => "#f4f4f4".into(),
             Color::Rgba(r, g, b, a) => format!("rgba({r},{g},{b},{})", Num(a as f32 / 255.0)),

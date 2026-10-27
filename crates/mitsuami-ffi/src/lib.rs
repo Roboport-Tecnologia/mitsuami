@@ -1077,7 +1077,7 @@ pub enum MitsuamiColorProp {
 /// Sets a colour: `semantic` is one of the platform's own, which follow
 /// dark mode, high contrast and the accent (`Label`, `SecondaryLabel`,
 /// `Accent`, `Separator`, `ControlBackground`, `WindowBackground`, `Error`,
-/// `Warning`, `Success`: 0 to 8; `Placeholder`: 10), or 9 for the fixed
+/// `Warning`, `Success`: 0 to 8; `Placeholder`: 10; `OnAccent`: 11), or 9 for the fixed
 /// `r`, `g`, `b`, `a`.
 #[unsafe(no_mangle)]
 pub extern "C" fn mitsuami_set_color(id: u32, prop: u32, semantic: u32, r: u8, g: u8, b: u8, a: u8) -> bool {
@@ -1122,6 +1122,7 @@ fn color(c: MitsuamiColor) -> Result<Color, String> {
         8 => Color::Success,
         9 => Color::Rgba(c.r, c.g, c.b, c.a),
         10 => Color::Placeholder,
+        11 => Color::OnAccent,
         other => return Err(format!("bad colour {other}")),
     })
 }
