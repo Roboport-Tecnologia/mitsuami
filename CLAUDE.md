@@ -145,7 +145,11 @@ WinUI bindings are generated: add types and members to
 
 1. Bump the version in `Cargo.toml`: `[workspace.package]`'s `version` and
    every `=X.Y.Z` in `[workspace.dependencies]`, and, for a minor or major
-   version, the README's install snippets (`mitsuami = "1.3"`). Any cargo command then
+   version, the README's install snippets (`mitsuami = "1.3"`).
+   mitsuami-extras (`../mitsuami-extras`) depends on this checkout by path
+   with a version: bump its `Cargo.toml`'s `version = "X.Y.Z"` for
+   `mitsuami` and `mitsuami-test` in the same push, or extras, and the
+   SourceGit port's edge build with it, stop building. Any cargo command then
    updates `Cargo.lock`; refresh the examples' own lockfiles too
    (`cargo metadata --manifest-path examples/<name>/Cargo.toml` for
    `showcase` and `gpu-surface`).
