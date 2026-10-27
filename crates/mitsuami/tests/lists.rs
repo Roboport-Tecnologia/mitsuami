@@ -571,4 +571,90 @@ async fn rows_follow_the_list_as_the_window_narrows(app: TestApp) {
     assert!(row.width() <= list.width(), "row {row:?} in list {list:?}");
 }
 
+/// A list the app doesn't size is as high as its rows, as a scroll view's
+/// content is: what the platform puts around and between them is its own,
+/// so it's at least the rows' 20 px each, and more rows make it higher.
+#[mitsuami_test::test]
+async fn a_list_without_a_height_is_as_high_as_its_rows(app: TestApp) {
+    let data = signal(items(3));
+    app.mount(move || {
+        Column::new().children((
+            List::new(data, |i: &Item| i.id, |i| row(i.name, 20.0)).test_id("list"),
+            Text::new("Below").test_id("below"),
+        ))
+    });
+    app.settle().await;
+    let three = app.get_by_test_id("list").frame();
+    assert!(three.height() >= 60.0, "three rows in {three:?}");
+    assert!(three.height() < 120.0, "three rows in {three:?}");
+    assert_eq!(app.get_by_test_id("below").frame().y(), three.max_y());
+    assert!(in_view(&app) == [0, 1, 2], "{:?} in view", in_view(&app));
+
+    data.set(items(6));
+    app.settle().await;
+    let six = app.get_by_test_id("list").frame();
+    assert!(six.height() >= three.height() + 60.0, "six rows in {six:?}, three in {three:?}");
+    assert_eq!(app.get_by_test_id("below").frame().y(), six.max_y());
+    assert!(in_view(&app) == [0, 1, 2, 3, 4, 5], "{:?} in view", in_view(&app));
+
+    data.set(items(2));
+    app.settle().await;
+    let two = app.get_by_test_id("list").frame();
+    assert!(two.height() < three.height(), "two rows in {two:?}, three in {three:?}");
+}
+
+/// With less room than its rows take, a list that isn't sized shrinks to
+/// the room, as flexbox shrinks any node, and scrolls. Its rows don't hold
+/// up what's around it.
+#[mitsuami_test::test]
+async fn a_list_without_a_height_shrinks_to_the_room_and_scrolls(app: TestApp) {
+    let (data, handle) = (signal(items(50)), ListHandle::new());
+    let h = handle.clone();
+    app.mount(move || {
+        Column::new().height(100).test_id("room").children((
+            List::new(data, |i: &Item| i.id, |i| row(i.name, 20.0)).handle(h).test_id("list"),
+            Text::new("Below").test_id("below"),
+        ))
+    });
+    app.settle().await;
+    let (room, list) = (app.get_by_test_id("room").frame(), app.get_by_test_id("list").frame());
+    let below = app.get_by_test_id("below").frame();
+    assert!(list.height() > 0.0, "{list:?}");
+    assert_eq!(below.y(), list.max_y());
+    assert!(below.max_y() <= room.max_y(), "{below:?} in {room:?}");
+    assert!(!shows(&app, 49));
+
+    handle.scroll_to(&49);
+    app.settle().await;
+    assert!(shows(&app, 49));
+}
+
+/// `max_height` stops a list that isn't sized, as it does any node.
+#[mitsuami_test::test]
+async fn a_list_without_a_height_stops_at_its_max_height(app: TestApp) {
+    let data = signal(items(50));
+    app.mount(move || {
+        Column::new().child(List::new(data, |i: &Item| i.id, |i| row(i.name, 20.0)).max_height(50).test_id("list"))
+    });
+    app.settle().await;
+    assert_eq!(app.get_by_test_id("list").frame().height(), 50.0);
+}
+
+/// A list that isn't sized and grows takes the room left, as before it had
+/// a height of its own; the room is more than its rows'.
+#[mitsuami_test::test]
+async fn a_list_that_grows_takes_the_room_left(app: TestApp) {
+    let data = signal(items(2));
+    app.mount(move || {
+        Column::new().height(300).test_id("room").children((
+            List::new(data, |i: &Item| i.id, |i| row(i.name, 20.0)).grow(1.0).test_id("list"),
+            Text::new("Below").test_id("below"),
+        ))
+    });
+    app.settle().await;
+    let (room, below) = (app.get_by_test_id("room").frame(), app.get_by_test_id("below").frame());
+    assert_eq!(below.max_y(), room.max_y());
+    assert_eq!(app.get_by_test_id("list").frame().max_y(), below.y());
+}
+
 mitsuami_test::main!();

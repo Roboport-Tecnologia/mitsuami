@@ -199,6 +199,9 @@ impl WinUiBackend {
             Widget::DocumentTabs(tabs) => ceil(tabs.strip()),
             // Its heading and card: the core adds the content.
             Widget::Group(group) => ceil(group.strip()),
+            // As high as its rows; the width is its style's.
+            Widget::List(list) => Size::new(0.0, list.natural_height()),
+            Widget::Tree(tree) => Size::new(0.0, tree.natural_height()),
             // Measured by the core, or never (the sidebar is the window's).
             Widget::Drawn { .. }
             | Widget::Split(_)
@@ -206,8 +209,6 @@ impl WinUiBackend {
             | Widget::Host(_)
             | Widget::Popover(_)
             | Widget::Scroll(_)
-            | Widget::List(_)
-            | Widget::Tree(_)
             | Widget::Sidebar(_) => Size::ZERO,
         };
         Size::new(request.known_width.unwrap_or(natural.width), request.known_height.unwrap_or(natural.height))

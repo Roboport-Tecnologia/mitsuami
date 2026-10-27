@@ -291,6 +291,11 @@ impl List {
             view.connect("mitsuamiRowsChanged()", move || rows_changed(view, &data, &events, id));
         }
         {
+            // Rows came, went or turned out higher or lower than estimated.
+            let events = events.clone();
+            root.connect("mitsuamiNaturalHeightChanged()", move || events.emit(id, UiEvent::Remeasure));
+        }
+        {
             let events = events.clone();
             view.connect("mitsuamiSelectionChanged()", move || {
                 let selected = selected(view);
@@ -339,6 +344,11 @@ impl List {
         {
             let (data, events) = (data.clone(), events.clone());
             view.connect("mitsuamiRowsChanged()", move || rows_changed(view, &data, &events, id));
+        }
+        {
+            // Rows came, went or turned out higher or lower than estimated.
+            let events = events.clone();
+            root.connect("mitsuamiNaturalHeightChanged()", move || events.emit(id, UiEvent::Remeasure));
         }
         {
             let events = events.clone();
@@ -714,6 +724,13 @@ impl List {
 
     pub(crate) fn activate(&self, key: RowKey) {
         self.events.emit(self.id, UiEvent::RowActivated(key));
+    }
+
+    /// How high the list is with all its rows: the view's content height,
+    /// which Qt keeps as it lays rows out and estimates from them for the
+    /// rows it hasn't made, a frame's padding and a table's header.
+    pub(crate) fn natural_height(&self) -> f32 {
+        self.root.real("mitsuamiNaturalHeight").ceil() as f32
     }
 
     pub(crate) fn set_estimate(&self, height: f32) {

@@ -193,6 +193,14 @@ impl State {
         let node = self.nodes.get_mut(&list).unwrap();
         node.placed_index = placed.iter().enumerate().map(|(i, r)| (r.key, i)).collect();
         node.placed = placed;
+        // The list is as high as its rows, as native lists measure: when
+        // that changes, it's measured again.
+        let header = if node.kind == WidgetKind::Table { TABLE_HEADER_HEIGHT } else { 0.0 };
+        let natural = header + node.placed.iter().map(|r| r.height).sum::<f32>();
+        if node.natural_height != natural {
+            node.natural_height = natural;
+            self.emit(list, UiEvent::Remeasure);
+        }
     }
 
     pub(super) fn placement(&self, list: NodeId) -> Vec<Placed> {

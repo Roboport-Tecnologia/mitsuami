@@ -374,4 +374,28 @@ async fn multiple_selection_keeps_the_columns_in_the_table(app: TestApp) {
     assert_eq!(multiple.width(), single.width());
 }
 
+/// A table the app doesn't size is as high as its header and rows: more
+/// rows make it higher. Each platform's header and rows are its own size.
+#[mitsuami_test::test]
+async fn a_table_without_a_height_is_as_high_as_its_header_and_rows(app: TestApp) {
+    let data = signal(files(2));
+    app.mount(move || {
+        Column::new().children((
+            Table::new(data, |f: &File| f.id).column(name_column()).column(size_column()).test_id("table"),
+            Text::new("Below").test_id("below"),
+        ))
+    });
+    app.settle().await;
+    let two = app.get_by_test_id("table").frame();
+    assert!(two.height() > 0.0, "{two:?}");
+    assert_eq!(app.get_by_test_id("below").frame().y(), two.max_y());
+
+    data.set(files(5));
+    app.settle().await;
+    let five = app.get_by_test_id("table").frame();
+    assert!(five.height() > two.height(), "five rows in {five:?}, two in {two:?}");
+    assert_eq!(app.get_by_test_id("below").frame().y(), five.max_y());
+    assert_eq!(row_names(&app).len(), 5);
+}
+
 mitsuami_test::main!();

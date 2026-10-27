@@ -94,6 +94,8 @@ pub(super) fn measure(state: &State, id: NodeId, request: MeasureRequest) -> Siz
         Widget::DocumentTabs(tabs) => tabs.natural_size(),
         // Its title and border, empty.
         Widget::Group { frame, .. } => group_natural_size(&state.group_probes, frame),
+        // As high as its rows; the width is its style's.
+        Widget::List(list) => Size::new(0.0, list.natural_height()),
         // Measured by the core, or never (the sidebar is the window's).
         Widget::Drawn { .. }
         | Widget::SplitView(_)
@@ -101,7 +103,6 @@ pub(super) fn measure(state: &State, id: NodeId, request: MeasureRequest) -> Siz
         | Widget::Host(_)
         | Widget::Popover(_)
         | Widget::Scroll(_)
-        | Widget::List(_)
         | Widget::Sidebar(_) => Size::ZERO,
     };
     // A toolbar's control is as big as its toolbar makes it: its glass

@@ -295,4 +295,36 @@ async fn only_folders_take_rows_onto_them_and_nothing_lands_on_the_rows_dragged(
     assert_eq!(moved.get(), [(vec!["README"], RowDrop::Before("main.rs"))]);
 }
 
+/// A tree the app doesn't size is as high as the rows that show: opening a
+/// folder makes it higher, closing it brings it back. How high each
+/// platform's rows are, around the app's, is its own.
+#[mitsuami_test::test]
+async fn opening_and_closing_rows_changes_a_trees_height(app: TestApp) {
+    let (roots, open) = (signal(project()), signal(Vec::new()));
+    app.mount(move || {
+        Column::new().children((
+            Tree::new(roots, |n: &Node| n.name, |n| n.kids.clone(), |n| row(n.name))
+                .expanded(open)
+                .width(300)
+                .test_id("tree"),
+            Text::new("Below").test_id("below"),
+        ))
+    });
+    app.settle().await;
+    let closed = app.get_by_test_id("tree").frame();
+    assert!(closed.height() >= 60.0, "three rows in {closed:?}");
+    assert_eq!(app.get_by_test_id("below").frame().y(), closed.max_y());
+
+    open.set(vec!["src"]);
+    app.settle().await;
+    assert_eq!(names(&app), ["src", "main.rs", "ui", "docs", "README"]);
+    let opened = app.get_by_test_id("tree").frame();
+    assert!(opened.height() >= closed.height() + 40.0, "open in {opened:?}, closed in {closed:?}");
+    assert_eq!(app.get_by_test_id("below").frame().y(), opened.max_y());
+
+    open.set(Vec::new());
+    app.settle().await;
+    assert_eq!(app.get_by_test_id("tree").frame().height(), closed.height());
+}
+
 mitsuami_test::main!();

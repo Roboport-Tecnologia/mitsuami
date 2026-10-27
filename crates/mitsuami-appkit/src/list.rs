@@ -1259,6 +1259,8 @@ pub(crate) struct List {
     data: SharedList,
     /// AppKit can't tell `Automatic` from `Plain`.
     style: Cell<Option<ListStyle>>,
+    /// The natural height last measured.
+    natural: Cell<f64>,
 }
 
 /// A list's one column, with no header: rows exactly as high as their
@@ -1382,7 +1384,17 @@ impl List {
             table.setNextResponder(Some(&keys));
         }
         let data = ivars.data.clone();
-        List { scroll, table, outline, source, _keys: keys, ivars, data, style: Cell::new(None) }
+        List {
+            scroll,
+            table,
+            outline,
+            source,
+            _keys: keys,
+            ivars,
+            data,
+            style: Cell::new(None),
+            natural: Cell::new(0.0),
+        }
     }
 
     /// A tree's rows that show, each with its place in the tree. The data
@@ -1696,6 +1708,47 @@ impl List {
             let end = (self.table.frame().size.height - clip.bounds().size.height).max(0.0);
             clip.scrollToPoint(NSPoint::new(clip.bounds().origin.x, end));
             self.scroll.reflectScrolledClipView(&clip);
+        }
+    }
+
+    /// How high the list is with all its rows: each as high as the table
+    /// is told it is (its host's, or the estimate), the spacing between
+    /// them, a table's header, and a framed list's border. Counted from the
+    /// heights, not asked of the table: asking where rows out of view are
+    /// has it measure them, which moves a scroll under way.
+    pub(crate) fn natural_height(&self) -> f32 {
+        let content = {
+            let data = self.data.borrow();
+            let least = if data.table { self.table.rowHeight() } else { 0.0 };
+            let estimate = data.estimate().max(least);
+            let rows: f64 =
+                data.rows.iter().map(|key| data.heights.get(key).copied().unwrap_or(estimate).max(1.0)).sum();
+            rows + self.table.intercellSpacing().height * data.rows.len() as f64
+        };
+        let header = self.table.headerView().map_or(0.0, |header| header.frame().size.height);
+        // Without scroller classes: rows that fit need no scroll bar.
+        let size = unsafe {
+            NSScrollView::frameSizeForContentSize_horizontalScrollerClass_verticalScrollerClass_borderType_controlSize_scrollerStyle(
+                NSSize::new(0.0, content + header),
+                None,
+                None,
+                self.scroll.borderType(),
+                objc2_app_kit::NSControlSize::Regular,
+                self.scroll.scrollerStyle(),
+                MainThreadMarker::from(&*self.table),
+            )
+        };
+        // The core's frames are alignment rects.
+        let frame = NSRect::new(NSPoint::new(0.0, 0.0), size);
+        self.scroll.alignmentRectForFrame(frame).size.height.ceil() as f32
+    }
+
+    /// Reports `Remeasure` when the list's natural height changed.
+    pub(crate) fn remeasure(&self) {
+        let natural = self.natural_height() as f64;
+        if self.natural.replace(natural) != natural {
+            let ListIvars { id, events, .. } = &self.ivars;
+            events.emit(*id, UiEvent::Remeasure);
         }
     }
 

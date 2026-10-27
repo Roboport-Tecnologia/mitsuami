@@ -23,8 +23,8 @@ use windows_core::{EventRevoker, IInspectable, Interface};
 
 use super::{
     DRAGGED, Data, FRAME_BORDER, ITEM_TEMPLATE, R, container_changed, container_under, dragging, end_drag, files_of,
-    find_scroll_viewer, identity, key_of, mark_for, offset_of, own_drag, place_row, put_in, queue_report, report,
-    report_offset, row_under, start_drag, start_following, take_out, track, within,
+    find_scroll_viewer, identity, key_of, mark_for, measure_rows, offset_of, own_drag, place_row, put_in, queue_report,
+    report, report_offset, row_under, start_drag, start_following, take_out, track, within,
 };
 use crate::backend::{Events, boxed};
 use crate::bindings as w;
@@ -559,6 +559,7 @@ impl Tree {
             d.rows = rows.iter().map(|r| r.row).collect();
             let index = std::mem::take(&mut d.index);
             d.heights.retain(|(k, _), _| index.contains_key(k));
+            d.slots.retain(|k, _| index.contains_key(k));
             d.index = index;
         }
         let mut children: HashMap<Option<RowKey>, Vec<w::TreeViewNode>> = HashMap::new();
@@ -839,6 +840,11 @@ impl Tree {
         self.data.borrow().estimate.map(|h| h as f32)
     }
 
+    /// How high the tree is with all its rows that show.
+    pub(crate) fn natural_height(&self) -> f32 {
+        self.data.borrow().natural_height() as f32
+    }
+
     /// Hosts a mounted row in its cell if the row is realised.
     pub(crate) fn insert(&self, key: RowKey, id: NodeId, host: w::UIElement) {
         let mut d = self.data.borrow_mut();
@@ -926,6 +932,7 @@ impl Tree {
         _ = self.view.cast::<w::IUIElement>().and_then(|e| e.UpdateLayout());
         self.inner();
         self.measure_indent();
+        measure_rows(&self.data, &self.events, self.id);
         if let Some(scroll) = self.scroll_viewer() {
             report_offset(&self.events, self.id, &self.offset, &scroll, false);
         }

@@ -141,6 +141,8 @@ impl HeadlessBackend {
                 let heading = text_size(&title, font, None, None).width;
                 Size::new(heading + insets.left + insets.right, insets.top + insets.bottom)
             }
+            // As high as its rows are placed, and a table's header.
+            WidgetKind::List | WidgetKind::Table | WidgetKind::Tree => Size::new(0.0, node.natural_height),
             // Native renders are stood in for by the drawn one, if any.
             // Native views have no stand-in: size them with styles.
             WidgetKind::Custom(_) => find_prop!(node.props, Custom)

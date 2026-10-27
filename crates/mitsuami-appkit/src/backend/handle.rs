@@ -372,5 +372,6 @@ fn layout_list(widget: &Widget) {
         // follow at the next display.
         list.table.setNeedsLayout(true);
         list.scroll.layoutSubtreeIfNeeded();
+        list.remeasure();
     }
 }

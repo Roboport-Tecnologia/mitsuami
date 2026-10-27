@@ -195,10 +195,16 @@ impl Inner {
                                 let size = custom.measure_drawn(&request, metrics).unwrap_or(Size::ZERO);
                                 Size::new(known.width.unwrap_or(size.width), known.height.unwrap_or(size.height))
                             }
-                            // Like a scroll view, a list has no natural size
-                            // of its own: it's as big as its style makes it.
+                            // A list is as high as the platform places its
+                            // rows, and scrolls in whatever it gets: at
+                            // least, nothing. Otherwise a row or column
+                            // holding it would be at least as high as all
+                            // its rows, as in CSS without `min-height: 0`.
                             None if node.is_some_and(|n| n.kind.has_rows()) => {
-                                Size::new(known.width.unwrap_or(0.0), known.height.unwrap_or(0.0))
+                                let natural = backend.measure(*id, request);
+                                let least = known.height.is_none()
+                                    && matches!(available.height, taffy::AvailableSpace::MinContent);
+                                if least { Size::new(natural.width, 0.0) } else { natural }
                             }
                             None => backend.measure(*id, request),
                         };
