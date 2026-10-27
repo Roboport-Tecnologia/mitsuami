@@ -1,4 +1,5 @@
-//! Menus: `cargo run -p mitsuami --example menus`.
+//! Menus: `cargo run -p mitsuami --example menus`, and on Windows
+//! `-- title`, `-- title-start` or `-- button` for the title bar's places.
 //!
 //! 2ksbox's launcher with a menu bar: the app's menus (File, Help), and
 //! each window's own (the Launcher's Machine and View, the Editor's
@@ -17,6 +18,12 @@
 //!   Editor is the main window.
 //! - Settings… opens a dialog: on Windows, GNOME and KDE it has no menus,
 //!   as dialogs there don't; on macOS the menu bar stays the app's.
+//! - On Windows the bar is on its own row under the title bar by default;
+//!   `-- title` puts it in the title bar after the title, as Paint's,
+//!   `-- title-start` before the title, and `-- button` shows no bar but
+//!   a button at the title bar's start that opens the menus, as Visual
+//!   Studio's compact menu. The other platforms have no choice and
+//!   ignore it.
 
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
@@ -111,5 +118,18 @@ pub fn launcher() -> impl View {
 }
 
 fn main() {
+    // A WinUI-only choice, made before `run`.
+    platform! {
+        windows => {
+            use mitsuami::winui::{MenuBarPlace, set_menu_bar_place};
+            set_menu_bar_place(match std::env::args().nth(1).as_deref() {
+                Some("title") => MenuBarPlace::InTitleBar,
+                Some("title-start") => MenuBarPlace::InTitleBarStart,
+                Some("button") => MenuBarPlace::ButtonInTitleBar,
+                _ => MenuBarPlace::BelowTitleBar,
+            });
+        },
+        _ => {},
+    }
     App::new().window("Launcher", WindowSize::FitHeight(480.0), launcher).run();
 }
