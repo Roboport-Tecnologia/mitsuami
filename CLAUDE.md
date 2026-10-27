@@ -171,6 +171,15 @@ crates.io, tag `vX.Y.Z+ghfixN`: it rebuilds them without publishing.
 
 ## Conventions
 
+- A public enum mitsuami hands to the app to match on (in a callback, an
+  event, a future's output) is `#[non_exhaustive]`. One the app only picks
+  from, or that the backends map (the protocol, props' values like
+  `ButtonStyle`, `Color`, `Key`), stays exhaustive, and backends match it
+  without a `_` arm so each new variant fails to compile until handled.
+  New variants in exhaustive enums can go in a minor version; making an
+  enum `#[non_exhaustive]` waits for a major. `docs/ARCHITECTURE.md` §10,
+  "Enums that grow".
+
 - Everything is formatted: run `cargo fmt --all` before committing (and in
   `examples/gpu-surface`, `examples/showcase` and
   `crates/mitsuami-winui/bindgen`, which are crates of their own when you

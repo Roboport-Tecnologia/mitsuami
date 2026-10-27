@@ -37,6 +37,8 @@ You also touch these places outside your crate:
 
 A second toolkit on an OS is a cargo feature rather than a `cfg(target_os)`: Kirigami next to GTK on Linux is `mitsuami`'s `kde` feature (which wins over the default `gtk`), `mitsuami-test`'s `kde` feature, and the `kde` and `gtk` arms of `platform!`. A backend whose native libraries may be missing where the workspace builds keeps them behind a feature of its own (`mitsuami-kirigami`'s `qt`), so it builds empty without it.
 
+The protocol's enums (`WidgetKind`, `Prop`, `Event`, `Command`) and the props' values (`ButtonStyle`, `TextStyle`, `Color`, `Key`, …) are exhaustive on purpose, and gain variants in minor versions: match them without a `_` arm, so the compiler shows you each new one, and depend on mitsuami's minor version (`~2.0`) if your backend lives outside this repository (ARCHITECTURE.md §10, "Enums that grow").
+
 Keep a shareable handle (`Rc<RefCell<State>>` inside the backend, with a cloneable handle outside). `Ui::new` takes ownership of the backend, but tests, services and the run loop still need to reach it.
 
 ## 3. Commands

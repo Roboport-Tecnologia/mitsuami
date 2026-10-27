@@ -638,6 +638,15 @@ which builds the same tree as `Column::new().gap(…).children((Text::new(…).t
 - **`#[component]`** turns the function into a builder struct with one method per parameter, usable without `view!` (`Counter::new().initial(3)`). Each required prop is a type parameter, `()` until set, and the builder is a `View` only once all are set, so a missing prop is a compile error. `#[prop(default)]`, `#[prop(default = expr)]`, `Option<T>`, `Callback<T>` and `children: Slot` are optional; `#[prop(into)]` accepts `impl Into<T>`, and `Value<T>` accepts a literal, a signal or a closure.
 - **A component runs once, when it's built, in a scope of its own.** What it `provide`s reaches its children but not its siblings, and its scope is disposed with it.
 
+### Enums that grow
+
+New platform features mean new variants, so whether an enum is `#[non_exhaustive]` depends on who matches on it (since 2.0):
+
+- **Enums mitsuami hands to the app are `#[non_exhaustive]`:** `SurfaceInput`, `KeyCode` and `MouseButton` (a surface's input), and `ServiceError` (the services' futures). Apps match on them, and a new kind of input or error shouldn't stop an app compiling: it matches what it handles and leaves the rest to a `_` arm. The backends only make these values, so they lose nothing.
+- **Enums the app only picks from stay exhaustive** (`ButtonStyle`, `TextStyle`, `Color`, `Key`, and the rest of the props' values): choosing a variant can't break when another is added. The backends map each of them to the platform's own, and an exhaustive match is what makes every backend handle a new one: a `_` arm there would let a new button style fall through to a default unnoticed.
+- **The backend protocol stays exhaustive** (`WidgetKind`, `Prop`, `Event`, `Command`), for the same reason: a new widget kind fails to compile in every backend until each creates it (`CLAUDE.md`, "Adding a widget").
+- **Exhaustive enums gain variants in minor versions.** An app that matches one exhaustively, or a backend outside this repository, handles the new variants when it updates; a backend should depend on mitsuami's minor version (`~2.0`). Making an enum `#[non_exhaustive]`, or removing a variant, waits for a major version.
+
 ---
 
 ## 11. Platform versions and capabilities

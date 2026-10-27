@@ -45,6 +45,11 @@ mitsuami-test = "1.3"
 The backend is picked by the target OS; there's nothing to configure. Rust
 1.95 or newer (edition 2024).
 
+What mitsuami hands your app to match on (a `GpuSurface`'s `SurfaceInput`,
+`ServiceError`) is `#[non_exhaustive]`: match what you handle, and leave
+the rest to a `_` arm, so new kinds of input and errors in later versions
+don't stop your app compiling.
+
 | Platform | Backend | Needs |
 |---|---|---|
 | macOS 11+ | AppKit | Nothing else |
