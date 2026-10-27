@@ -8067,6 +8067,11 @@ impl IKeyboardAccelerator {
             (windows_core::Interface::vtable(self).SetModifiers)(windows_core::Interface::as_raw(self), value).ok()
         }
     }
+    pub fn SetIsEnabled(&self, value: bool) -> windows_core::Result<()> {
+        unsafe {
+            (windows_core::Interface::vtable(self).SetIsEnabled)(windows_core::Interface::as_raw(self), value).ok()
+        }
+    }
     pub fn Invoked<F>(&self, handler: F) -> windows_core::Result<windows_core::EventRevoker>
     where
         F: Fn(windows_core::Ref<KeyboardAccelerator>, windows_core::Ref<KeyboardAcceleratorInvokedEventArgs>) + 'static,
@@ -8105,7 +8110,7 @@ pub struct IKeyboardAccelerator_Vtbl {
     pub Modifiers: unsafe extern "system" fn(*mut core::ffi::c_void, *mut VirtualKeyModifiers) -> windows_core::HRESULT,
     pub SetModifiers: unsafe extern "system" fn(*mut core::ffi::c_void, VirtualKeyModifiers) -> windows_core::HRESULT,
     IsEnabled: usize,
-    SetIsEnabled: usize,
+    pub SetIsEnabled: unsafe extern "system" fn(*mut core::ffi::c_void, bool) -> windows_core::HRESULT,
     ScopeOwner: usize,
     SetScopeOwner: usize,
     pub Invoked:
@@ -8542,6 +8547,15 @@ impl IMenuFlyoutItem {
             .ok()
         }
     }
+    pub fn SetKeyboardAcceleratorTextOverride(&self, value: &str) -> windows_core::Result<()> {
+        unsafe {
+            (windows_core::Interface::vtable(self).SetKeyboardAcceleratorTextOverride)(
+                windows_core::Interface::as_raw(self),
+                core::mem::transmute_copy(&windows_core::HSTRING::from(value)),
+            )
+            .ok()
+        }
+    }
     pub fn Click<F>(&self, handler: F) -> windows_core::Result<windows_core::EventRevoker>
     where
         F: Fn(windows_core::Ref<windows_core::IInspectable>, windows_core::Ref<RoutedEventArgs>) + 'static,
@@ -8581,7 +8595,8 @@ pub struct IMenuFlyoutItem_Vtbl {
     Icon: usize,
     SetIcon: usize,
     KeyboardAcceleratorTextOverride: usize,
-    SetKeyboardAcceleratorTextOverride: usize,
+    pub SetKeyboardAcceleratorTextOverride:
+        unsafe extern "system" fn(*mut core::ffi::c_void, *mut core::ffi::c_void) -> windows_core::HRESULT,
     TemplateSettings: usize,
     pub Click:
         unsafe extern "system" fn(*mut core::ffi::c_void, *mut core::ffi::c_void, *mut i64) -> windows_core::HRESULT,
@@ -13289,6 +13304,27 @@ pub struct ITitleBar_Vtbl {
     pub PaneToggleRequested:
         unsafe extern "system" fn(*mut core::ffi::c_void, *mut core::ffi::c_void, *mut i64) -> windows_core::HRESULT,
     pub RemovePaneToggleRequested: unsafe extern "system" fn(*mut core::ffi::c_void, i64) -> windows_core::HRESULT,
+}
+windows_core::imp::define_interface!(ITitleBar2, ITitleBar2_Vtbl, 0x55533ac5_80bf_5b29_8be9_4fadb734db0a);
+impl windows_core::RuntimeType for ITitleBar2 {
+    const SIGNATURE: windows_core::imp::ConstBuffer = windows_core::imp::ConstBuffer::for_interface::<Self>();
+}
+impl ITitleBar2 {
+    pub fn SetAutoRefreshDragRegions(&self, value: bool) -> windows_core::Result<()> {
+        unsafe {
+            (windows_core::Interface::vtable(self).SetAutoRefreshDragRegions)(
+                windows_core::Interface::as_raw(self),
+                value,
+            )
+            .ok()
+        }
+    }
+}
+#[repr(C)]
+pub struct ITitleBar2_Vtbl {
+    pub base__: windows_core::IInspectable_Vtbl,
+    AutoRefreshDragRegions: usize,
+    pub SetAutoRefreshDragRegions: unsafe extern "system" fn(*mut core::ffi::c_void, bool) -> windows_core::HRESULT,
 }
 windows_core::imp::define_interface!(IToggleButton, IToggleButton_Vtbl, 0x686fbaa4_c866_568b_8f75_481d8d545291);
 impl windows_core::RuntimeType for IToggleButton {

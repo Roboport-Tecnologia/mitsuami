@@ -210,8 +210,10 @@ pub(crate) struct WindowParts {
     pub(crate) hwnd: w::HWND,
     pub(crate) id: w::WindowId,
     menu_bar: Option<w::MenuBar>,
-    /// The button that opens the menus instead (`ButtonInTitleBar`).
-    menu_button: Option<w::Button>,
+    /// The button that opens the menus instead (`ButtonInTitleBar`), its
+    /// menu, and what stretches it to the title bar's height once it's
+    /// loaded.
+    menu_button: Option<(w::Button, w::MenuFlyout, EventRevoker)>,
     menu_revokers: Vec<EventRevoker>,
     /// The menus the bar shows (the app's and the window's own), to tell
     /// what changed.

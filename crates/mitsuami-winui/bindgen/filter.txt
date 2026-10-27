@@ -64,7 +64,7 @@ Microsoft.UI.Xaml.Input.KeyEventHandler
 Microsoft.UI.Xaml.Input.IKeyRoutedEventArgs::{get_Key, get_KeyStatus, put_Handled}
 Windows.UI.Core.CorePhysicalKeyStatus
 Microsoft.UI.Xaml.Input.KeyboardAccelerator::CreateInstance
-Microsoft.UI.Xaml.Input.IKeyboardAccelerator::{get_Key, put_Key, get_Modifiers, put_Modifiers, add_Invoked, remove_Invoked}
+Microsoft.UI.Xaml.Input.IKeyboardAccelerator::{get_Key, put_Key, get_Modifiers, put_Modifiers, put_IsEnabled, add_Invoked, remove_Invoked}
 Microsoft.UI.Xaml.Input.KeyboardAcceleratorInvokedEventArgs::{}
 Microsoft.UI.Xaml.Input.IKeyboardAcceleratorInvokedEventArgs::{put_Handled}
 Microsoft.UI.Xaml.Media.VisualTreeHelper::{GetParent, GetChildrenCount, GetChild, GetOpenPopupsForXamlRoot}
@@ -178,7 +178,7 @@ Microsoft.UI.Xaml.Controls.ICommandBar::get_PrimaryCommands
 Microsoft.UI.Xaml.Controls.ICommandBarElement::get_IsInOverflow
 Microsoft.UI.Xaml.Controls.AppBarElementContainer::CreateInstance
 Microsoft.UI.Xaml.Controls.MenuFlyoutItem::CreateInstance
-Microsoft.UI.Xaml.Controls.IMenuFlyoutItem::{get_Text, put_Text, add_Click, remove_Click}
+Microsoft.UI.Xaml.Controls.IMenuFlyoutItem::{get_Text, put_Text, add_Click, remove_Click, put_KeyboardAcceleratorTextOverride}
 Microsoft.UI.Xaml.Controls.MenuFlyoutSubItem::CreateInstance
 Microsoft.UI.Xaml.Controls.IMenuFlyoutSubItem::{get_Items, get_Text, put_Text}
 Microsoft.UI.Xaml.Controls.ToggleMenuFlyoutItem::CreateInstance
@@ -292,6 +292,7 @@ Microsoft.UI.Windowing.TitleBarTheme
 Microsoft.UI.Windowing.TitleBarHeightOption
 Microsoft.UI.Xaml.Controls.TitleBar::{}
 Microsoft.UI.Xaml.Controls.ITitleBar::{get_Title, put_Title, put_LeftHeader, put_Content, put_IsPaneToggleButtonVisible, add_PaneToggleRequested, remove_PaneToggleRequested}
+Microsoft.UI.Xaml.Controls.ITitleBar2::{put_AutoRefreshDragRegions}
 Microsoft.UI.Xaml.Input.PointerEventHandler
 Microsoft.UI.Xaml.Input.IPointerRoutedEventArgs::{GetCurrentPoint, get_KeyModifiers, get_Pointer, put_Handled}
 Microsoft.UI.Xaml.Input.Pointer::{}

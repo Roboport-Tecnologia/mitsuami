@@ -62,6 +62,7 @@ impl ContextMenu {
                     items: &self.items,
                     closed: None,
                     scope,
+                    accelerators: None,
                 };
                 self.flyout = Some(built.flyout(entries)?);
             }
@@ -154,7 +155,7 @@ fn fill(
     revokers.borrow_mut().clear();
     items.borrow_mut().clear();
     let mut revokers = revokers.borrow_mut();
-    let mut built = MenuBuild { activate, revokers: &mut revokers, items, closed: None, scope };
+    let mut built = MenuBuild { activate, revokers: &mut revokers, items, closed: None, scope, accelerators: None };
     built.entries(&shown, &MenuData { title: String::new(), entries: entries.to_vec() })?;
     *sent.borrow_mut() = entries.to_vec();
     Ok(())
@@ -243,6 +244,7 @@ fn install_menu(parts: &mut WindowParts, menu: &MenuBarData, activate: &Rc<dyn F
             items: &parts.menu_items,
             closed: Some(parts.menu_stale.clone()),
             scope: format!("window-{}", parts.node),
+            accelerators: None,
         };
         let menu_bar = ok(built.menu_bar(menu), "building the menu bar");
         let element: w::UIElement = ok(menu_bar.cast(), "menu bar element");
@@ -279,28 +281,66 @@ fn install_menu(parts: &mut WindowParts, menu: &MenuBarData, activate: &Rc<dyn F
 /// before document tabs there: the title bar's own pane toggle button,
 /// WinUI's hamburger, opens a menu of the app's menus as submenus, as
 /// Visual Studio's compact menu does. The title bar and the content keep
-/// their size. It's built again whenever the menus change shape, as the
-/// bar is; XAML's flyout doesn't widen as the bar's menus do, so not after
-/// each close.
+/// their size. Its menu is built again whenever the menus change shape, as
+/// the bar is (XAML's flyout doesn't widen as the bar's menus do, so not
+/// after each close); the button stays, since a new tab changes the menus,
+/// and a pressed button taken out of the tree is what XAML was seen
+/// crashing on.
 fn install_menu_button(parts: &mut WindowParts, menu: &MenuBarData, activate: &Rc<dyn Fn(u32)>) {
     parts.menu_revokers.clear();
     parts.menu_items.borrow_mut().clear();
     let title_bar = ok(parts.title_bar.cast::<w::ITitleBar>(), "title bar");
-    parts.menu_button = None;
     if menu.menus.is_empty() {
         _ = title_bar.SetLeftHeader(None::<&w::UIElement>);
+        parts.menu_button = None;
         return;
     }
+    if parts.menu_button.is_none() {
+        let button = ok(menu_button(), "building the menu button");
+        _ = title_bar.SetLeftHeader(&ok(button.0.cast::<w::UIElement>(), "menu button element"));
+        parts.menu_button = Some(button);
+    }
+    let Some((button, flyout, _)) = &parts.menu_button else { return };
+    let accelerators =
+        ok(button.cast::<w::IUIElement>().and_then(|b| b.KeyboardAccelerators()), "menu button's shortcuts");
+    _ = accelerators.Clear();
     let mut built = MenuBuild {
         activate,
         revokers: &mut parts.menu_revokers,
         items: &parts.menu_items,
         closed: None,
         scope: format!("window-{}", parts.node),
+        accelerators: Some(accelerators),
     };
-    let button = ok(built.menu_button(menu), "building the menu button");
-    _ = title_bar.SetLeftHeader(&ok(button.cast::<w::UIElement>(), "menu button element"));
-    parts.menu_button = Some(button);
+    ok(built.fill_menu_button(flyout, menu), "building the menu button's menu");
+}
+
+/// The title bar's pane toggle button, named by mitsuami's "Main Menu",
+/// as GNOME's primary menu button is. The title bar centres what's in its
+/// `LeftHeader`, so the button was only as tall as its icon; its own pane
+/// toggle button, in the column before, is as tall as the title bar. Its
+/// presenter is stretched, once the button is in it. Its menu's
+/// shortcuts are on the button itself (`MenuBuild::accelerators`): XAML
+/// finds the shortcuts of a button's menu only as the button is loaded, so
+/// the items of a menu built after had none (Ctrl+T opened one tab, then
+/// nothing), and the button stays in the tree.
+fn menu_button() -> R<(w::Button, w::MenuFlyout, EventRevoker)> {
+    let button = w::Button::new()?;
+    let flyout = w::MenuFlyout::new()?;
+    flyout.cast::<w::IFlyoutBase>()?.SetPlacement(w::FlyoutPlacementMode::BottomEdgeAlignedLeft)?;
+    button.cast::<w::IButton>()?.SetFlyout(&flyout)?;
+    button.cast::<w::IFrameworkElement>()?.SetStyle(&style("TitleBarPaneToggleButtonStyle"))?;
+    let name = mitsuami_core::l10n::tr("mitsuami-main-menu", &[]);
+    w::AutomationProperties::SetName(&button, &name)?;
+    w::ToolTipService::SetToolTip(&button, &boxed(&name))?;
+    let stretch = button.cast::<w::IFrameworkElement>()?.Loaded(|sender, _| {
+        let presenter =
+            sender.as_ref().and_then(|s| w::VisualTreeHelper::GetParent(&s.cast::<w::DependencyObject>().ok()?).ok());
+        if let Some(presenter) = presenter.and_then(|p| p.cast::<w::IFrameworkElement>().ok()) {
+            _ = presenter.SetVerticalAlignment(w::VerticalAlignment::Stretch);
+        }
+    })?;
+    Ok((button, flyout, stretch))
 }
 
 /// Builds the window's bar again, the same menus, once a menu of it has
@@ -330,6 +370,10 @@ struct MenuBuild<'a> {
     items: &'a MenuItems,
     /// A menu bar's: set when one of its menus closes (`menu_stale`).
     closed: Option<Rc<Cell<bool>>>,
+    /// A menu button's: where its items' shortcuts go, on the button,
+    /// which stays in the tree. Each item keeps its own, off, which only
+    /// shows the shortcut.
+    accelerators: Option<windows_collections::IVector<w::KeyboardAccelerator>>,
     /// Where its radio groups' names are unique: XAML's are the thread's,
     /// and ids only the menu's.
     scope: String,
@@ -358,16 +402,11 @@ impl MenuBuild<'_> {
         Ok(menu_bar)
     }
 
-    /// A button opening the bar's menus as submenus, named by mitsuami's
-    /// "Main Menu", as GNOME's primary menu button is.
-    fn menu_button(&mut self, menu: &MenuBarData) -> R<w::Button> {
-        let button = w::Button::new()?;
-        button.cast::<w::IFrameworkElement>()?.SetStyle(&style("TitleBarPaneToggleButtonStyle"))?;
-        let name = mitsuami_core::l10n::tr("mitsuami-main-menu", &[]);
-        w::AutomationProperties::SetName(&button, &name)?;
-        w::ToolTipService::SetToolTip(&button, &boxed(&name))?;
-        let flyout = w::MenuFlyout::new()?;
+    /// The menu button's menu: the bar's menus as submenus, in place of
+    /// what it held.
+    fn fill_menu_button(&mut self, flyout: &w::MenuFlyout, menu: &MenuBarData) -> R<()> {
         let items = flyout.cast::<w::IMenuFlyout>()?.Items()?;
+        items.Clear()?;
         for data in &menu.menus {
             let sub = w::MenuFlyoutSubItem::new()?;
             let iface: w::IMenuFlyoutSubItem = sub.cast()?;
@@ -375,21 +414,7 @@ impl MenuBuild<'_> {
             self.entries(&iface.Items()?, data)?;
             items.Append(&sub.cast::<w::MenuFlyoutItemBase>()?)?;
         }
-        flyout.cast::<w::IFlyoutBase>()?.SetPlacement(w::FlyoutPlacementMode::BottomEdgeAlignedLeft)?;
-        button.cast::<w::IButton>()?.SetFlyout(&flyout)?;
-        // The title bar centres what's in its `LeftHeader`, so the button
-        // was only as tall as its icon; its own pane toggle button, in the
-        // column before, is as tall as the title bar. Its presenter is
-        // stretched, once the button is in it.
-        self.revokers.push(button.cast::<w::IFrameworkElement>()?.Loaded(|sender, _| {
-            let presenter = sender
-                .as_ref()
-                .and_then(|s| w::VisualTreeHelper::GetParent(&s.cast::<w::DependencyObject>().ok()?).ok());
-            if let Some(presenter) = presenter.and_then(|p| p.cast::<w::IFrameworkElement>().ok()) {
-                _ = presenter.SetVerticalAlignment(w::VerticalAlignment::Stretch);
-            }
-        })?);
-        Ok(button)
+        Ok(())
     }
 
     fn flyout(&mut self, entries: &[MenuEntry]) -> R<w::MenuFlyout> {
@@ -455,6 +480,25 @@ impl MenuBuild<'_> {
             // and drops it: the menu item took it.
             self.revokers.push(accel.Invoked(|_, _| crate::surface::key_taken())?);
             element.cast::<w::IUIElement>()?.KeyboardAccelerators()?.Append(&accelerator)?;
+            if let Some(target) = &self.accelerators {
+                accel.SetIsEnabled(false)?;
+                let twin = w::KeyboardAccelerator::new()?;
+                let twin_accel: w::IKeyboardAccelerator = twin.cast()?;
+                twin_accel.SetKey(key)?;
+                twin_accel.SetModifiers(modifiers)?;
+                // As the item would: only while it's enabled.
+                let (id, activate, item) = (data.id, self.activate.clone(), element.clone());
+                self.revokers.push(twin_accel.Invoked(move |_, args| {
+                    if item.cast::<w::IControl>().and_then(|c| c.IsEnabled()).unwrap_or(false) {
+                        crate::surface::key_taken();
+                        activate(id);
+                        if let Some(args) = args.as_ref() {
+                            _ = args.SetHandled(true);
+                        }
+                    }
+                })?);
+                target.Append(&twin)?;
+            }
         }
         // XAML flips a toggle or radio item as it's clicked. What it shows
         // is the app's state, so put it back: the app's choice comes back

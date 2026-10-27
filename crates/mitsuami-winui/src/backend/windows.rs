@@ -365,12 +365,17 @@ pub(super) fn put_tabs_in_title_bar(parts: &mut WindowParts, id: NodeId, view: &
     title_bar.SetTitle("")?;
     window.SetTitle(&title)?;
     let element: w::UIElement = view.cast()?;
-    title_bar.SetContent(&element)?;
     // The title bar keeps its content out of the drag region by the
     // content's bounds when it's given, and not again as it grows: tabs
     // laid out after the first were in the drag region, where a press drags
-    // the window and a tab can't be dropped. Given again at each new width,
-    // it takes them in.
+    // the window and a tab can't be dropped. With `AutoRefreshDragRegions`
+    // (`ITitleBar2`) it follows the content's layout itself. Without it (an
+    // older runtime), the view is given again at each new width, which
+    // takes it out of the tree for a moment, and a button pressed in it
+    // with it, the kind of thing XAML was seen crashing on as tabs came and
+    // went.
+    let refreshes = parts.title_bar.cast::<w::ITitleBar2>().and_then(|t| t.SetAutoRefreshDragRegions(true)).is_ok();
+    title_bar.SetContent(&element)?;
     let width = Cell::new(0.0);
     let dropped = Rc::new(Cell::new(0.0));
     let regrow = fe.SizeChanged({
@@ -378,7 +383,7 @@ pub(super) fn put_tabs_in_title_bar(parts: &mut WindowParts, id: NodeId, view: &
             (title_bar.clone(), parts.title_bar.clone(), element.clone(), dropped.clone());
         move |_, _| {
             let now = element.cast::<w::IFrameworkElement>().and_then(|e| e.ActualWidth()).unwrap_or(0.0);
-            if now > 0.0 && width.replace(now) != now {
+            if !refreshes && now > 0.0 && width.replace(now) != now {
                 _ = title_bar.SetContent(None::<&w::UIElement>);
                 _ = title_bar.SetContent(&element);
             }
@@ -481,6 +486,7 @@ pub(super) fn take_tabs_from_title_bar(parts: &mut WindowParts) -> R<()> {
     let before = chrome_height(parts);
     let title_bar: w::ITitleBar = parts.title_bar.cast()?;
     title_bar.SetContent(None::<&w::UIElement>)?;
+    _ = parts.title_bar.cast::<w::ITitleBar2>().and_then(|t| t.SetAutoRefreshDragRegions(false));
     title_bar.SetTitle(&parts.window.cast::<w::IWindow>()?.Title()?)?;
     chrome_changed(parts, before)
 }
