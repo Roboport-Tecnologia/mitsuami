@@ -39,6 +39,7 @@ pub type Reply<T> = Box<dyn FnOnce(T)>;
 
 /// Why a service request failed.
 #[derive(Clone, Debug, PartialEq, Eq)]
+#[non_exhaustive]
 pub enum ServiceError {
     /// The platform doesn't offer this service (or not right now).
     Unavailable,

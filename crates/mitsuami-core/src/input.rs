@@ -7,6 +7,7 @@ use crate::geometry::Point;
 /// Input on a `GpuSurface` that takes it, reported as
 /// [`UiEvent::SurfaceInput`](crate::UiEvent::SurfaceInput).
 #[derive(Clone, Debug, PartialEq)]
+#[non_exhaustive]
 pub enum SurfaceInput {
     /// A key went down, or up, while the surface had focus. `repeat`: the
     /// platform's own repeat of a key held down. On a surface that takes
@@ -88,6 +89,7 @@ pub enum ScrollDelta {
 /// A pointer button, as the platform names it: the primary one is the
 /// left one for right-handed users.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+#[non_exhaustive]
 pub enum MouseButton {
     Primary,
     Secondary,
@@ -114,6 +116,7 @@ macro_rules! key_codes {
         /// it types: the W3C UI Events `code` names (`KeyA` is the key
         /// right of Caps Lock, also on an AZERTY keyboard).
         #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+        #[non_exhaustive]
         pub enum KeyCode {
             $($name,)*
             /// A key without a name here: see the event's `native` code.
