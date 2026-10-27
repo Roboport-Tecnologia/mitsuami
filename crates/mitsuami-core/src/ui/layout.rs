@@ -123,7 +123,7 @@ impl Inner {
             }
             self.nodes.get_mut(&window).unwrap().frame = Rect { origin: Point::ZERO, size };
             self.layout_toolbar(window);
-            self.collect_frames(window);
+            self.collect_frames(window, Point::ZERO);
         }
         self.update_drawings();
     }
@@ -272,7 +272,7 @@ impl Inner {
         let available =
             taffy::Size { width: taffy::AvailableSpace::Definite(width), height: taffy::AvailableSpace::MaxContent };
         self.compute_layout(t, available);
-        let mut height = self.taffy.layout(t).map_or(0.0, |l| l.size.height);
+        let mut height = self.taffy.layout(t).map_or(0.0, |l| round(l.size.height));
         if let Some(at_least) = at_least.filter(|h| *h > height) {
             set_size(&mut self.taffy, taffy::Dimension::length(at_least));
             self.compute_layout(t, available);
@@ -284,7 +284,7 @@ impl Inner {
             (node.frame, node.framed) = (frame, true);
             self.pending.push(Command::SetFrame { id: host, frame });
         }
-        self.collect_frames(host);
+        self.collect_frames(host, Point::ZERO);
     }
 
     /// Lays out a window's toolbar items, each on its own at its natural
@@ -324,7 +324,13 @@ impl Inner {
         }
     }
 
-    fn collect_frames(&mut self, parent: NodeId) {
+    /// Sends the frames of `parent`'s native children that changed, and
+    /// theirs. `origin` is where `parent` is in its layout's root,
+    /// unrounded: a frame is rounded from where the node is there, as
+    /// browsers round, so a node half a point down in a parent half a
+    /// point down isn't a whole point off (each rounded on its own, a
+    /// button centred on a row's middle sat a point low).
+    fn collect_frames(&mut self, parent: NodeId, origin: Point) {
         match self.nodes[&parent].kind {
             WidgetKind::List | WidgetKind::Tree => return self.layout_list(parent),
             WidgetKind::Table => return self.layout_table(parent),
@@ -341,21 +347,36 @@ impl Inner {
                 self.compute_layout(t, available);
             }
             let node = &self.nodes[&child];
+            // Laid out on its own (a popover, a toolbar item): from its own
+            // origin.
+            let mut at = Point::ZERO;
             // A sidebar's frame is the platform's.
             if node.kind != WidgetKind::Sidebar
                 && let Some(t) = node.taffy
                 && let Ok(layout) = self.taffy.layout(t)
             {
-                let frame = Rect::new(layout.location.x, layout.location.y, layout.size.width, layout.size.height);
+                if self.taffy.parent(t).is_some() {
+                    at = Point::new(origin.x + layout.location.x, origin.y + layout.location.y);
+                }
+                let (x, y) = (round(at.x) - round(origin.x), round(at.y) - round(origin.y));
+                let width = round(at.x + layout.size.width) - round(at.x);
+                let height = round(at.y + layout.size.height) - round(at.y);
+                let frame = Rect::new(x, y, width, height);
                 if frame != node.frame || !node.framed {
                     let node = self.nodes.get_mut(&child).unwrap();
                     (node.frame, node.framed) = (frame, true);
                     self.pending.push(Command::SetFrame { id: child, frame });
                 }
             }
-            self.collect_frames(child);
+            self.collect_frames(child, at);
         }
     }
+}
+
+/// To the nearest point, halves down the page and to the end, as Taffy
+/// rounds.
+fn round(value: f32) -> f32 {
+    (value + 0.5).floor()
 }
 
 fn space(s: taffy::AvailableSpace) -> AvailableSpace {

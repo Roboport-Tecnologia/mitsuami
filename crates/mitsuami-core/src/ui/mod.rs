@@ -248,7 +248,13 @@ impl Ui {
                 events,
                 metrics,
                 nodes: BTreeMap::new(),
-                taffy: TaffyTree::new(),
+                // Frames are rounded from where nodes are in their window
+                // (`collect_frames`), not each on its own.
+                taffy: {
+                    let mut taffy = TaffyTree::new();
+                    taffy.disable_rounding();
+                    taffy
+                },
                 next_id: 1,
                 pending: Vec::new(),
                 created: Default::default(),

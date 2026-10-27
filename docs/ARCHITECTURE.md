@@ -160,6 +160,7 @@ This is the React Native and Yoga model:
   - GTK: `gtk_widget_measure`.
   - Kirigami: `implicitWidth`/`implicitHeight` (§15, Kirigami).
 - [Taffy](https://github.com/DioxusLabs/taffy) computes flexbox, grid and block layout, using those sizes for leaves. It caches measurements per node and constraints; a prop that `affects_measure` marks the node dirty.
+- **Frames are whole points, rounded from where a node is in its window,** as browsers round: a node's position is the rounded position of its edge there less its parent's, and its size the rounded positions of its edges apart, so nothing drifts however deep it is. Taffy's own rounding (turned off) rounds each position on its own, relative to its parent, so halves added up: a button centred on a zero-height slot in a row's middle sat a point low on WinUI (SourceGit's branch filters, 2026-10-27). Nodes laid out on their own (rows, toolbar items, popovers) round from their own origin.
 
 Pros: the same layout semantics on every backend, the CSS mental model, and one layout engine to test headless. Cons: we give up native auto-layout, and measuring crosses into native code synchronously.
 
