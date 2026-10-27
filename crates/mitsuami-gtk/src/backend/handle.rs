@@ -191,8 +191,9 @@ impl GtkHandle {
         self.pump();
     }
 
-    /// Lets tab views that switched pages, or got new ones, place them now,
-    /// rather than at the next frame, as header bars do.
+    /// Lets tab views that switched pages, or got new ones, and splits whose
+    /// divider moved or whose panes changed, place them now, rather than at
+    /// the next frame, as header bars do.
     fn layout_tabs(&self) {
         let views: Vec<gtk::Widget> = {
             let state = self.state.borrow();
@@ -202,6 +203,9 @@ impl GtkHandle {
                 .filter_map(|n| match &n.widget {
                     Widget::Tabs(tabs) if tabs.root().is_mapped() && tabs.root().should_layout() => {
                         Some(tabs.root().clone())
+                    }
+                    Widget::Split(split) if split.paned.is_mapped() && split.paned.should_layout() => {
+                        Some(split.paned.clone().upcast())
                     }
                     _ => None,
                 })

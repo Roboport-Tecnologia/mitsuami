@@ -16,12 +16,14 @@ impl State {
     /// Leaves with an empty frame (hidden ones, or not laid out yet) are
     /// kept out of GTK's allocation: controls can't be allocated smaller
     /// than their padding. Containers stay, since content may overflow them,
-    /// except tab views, which can't be smaller than their tabs either, and
+    /// except tab views, which can't be smaller than their tabs either,
     /// lists and tables, which scroll their rows and can't be smaller than
-    /// their scroll bars and header.
+    /// their scroll bars and header, and splits, whose paned would pin its
+    /// divider at the first pane's least length (a page hidden with its
+    /// split, as SourceGit's rail hides them).
     fn update_child_visible(&self, id: NodeId) {
         let Some(node) = self.nodes.get(&id) else { return };
-        if node.widget.is_leaf() || matches!(node.widget, Widget::Tabs(_) | Widget::List(_)) {
+        if node.widget.is_leaf() || matches!(node.widget, Widget::Tabs(_) | Widget::List(_) | Widget::Split(_)) {
             let widget = node.widget.widget();
             let empty = self.frames.borrow().get(widget).is_none_or(|f| f.size.is_empty());
             widget.set_child_visible(!empty);

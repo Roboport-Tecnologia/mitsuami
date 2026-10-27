@@ -242,6 +242,31 @@ async fn a_hidden_pane_collapses_with_the_divider(app: TestApp) {
     assert!(split.native_state().props.contains(&Prop::PanesShown([true, true])));
 }
 
+/// Hidden with the page it's on and shown again, the divider is back at
+/// its position, as SourceGit's rail switches pages that each have a split.
+#[mitsuami_test::test]
+async fn shown_again_with_its_page_the_divider_is_where_it_was(app: TestApp) {
+    let hidden = signal(false);
+    app.mount(move || {
+        Column::new().grow(1.0).hidden(hidden).child(
+            Split::new()
+                .position(200.0)
+                .grow(1.0)
+                .test_id("split")
+                .children((pane("first").min_width(100), pane("second").min_width(100))),
+        )
+    });
+    app.resize(600.0, 300.0).await;
+
+    hidden.set(true);
+    app.settle().await;
+    hidden.set(false);
+    app.settle().await;
+    let split = app.get_by_test_id("split").frame();
+    assert_eq!(app.get_by_test_id("first").frame().width(), 200.0);
+    assert_eq!(app.get_by_test_id("second").frame().x() - split.x(), 200.0 + divider(&app));
+}
+
 /// No divider is drawn by a pane that's hidden.
 #[mitsuami_test::test]
 async fn a_hidden_pane_draws_no_divider(app: TestApp) {
