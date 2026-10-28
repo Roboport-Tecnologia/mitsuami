@@ -167,7 +167,7 @@ impl WinUiBackend {
                 // A theme resource in its style, as for text.
                 props.extend(node.text_color.map(Prop::TextColor));
             }
-            Widget::VectorIcon(path) => {
+            Widget::VectorIcon { side, .. } => {
                 let name = w::AutomationProperties::GetName(&node.element).unwrap_or_default();
                 if !name.is_empty() {
                     props.push(Prop::Label(name));
@@ -176,7 +176,7 @@ impl WinUiBackend {
                 props.push(Prop::Icon(node.icon.clone()));
                 props.extend(node.vector_icon.clone().map(Prop::VectorIcon));
                 if node.icon_size {
-                    props.push(Prop::IconSize(path.cast::<w::IFrameworkElement>().ok()?.Width().ok()? as f32));
+                    props.push(Prop::IconSize(side.get()));
                 }
                 props.extend(node.text_color.map(Prop::TextColor));
             }

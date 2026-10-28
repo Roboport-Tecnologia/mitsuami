@@ -375,8 +375,12 @@ enum Widget {
     Icon(w::FontIcon),
     /// The app's own icon, a `PathIcon`. Which of the two an icon is is
     /// decided as it's made, from its first props: an element can't change
-    /// type, so an icon made named shows only names.
-    VectorIcon(w::PathIcon),
+    /// type, so an icon made named shows only names. Its side, which its
+    /// `Width` can't keep: the frame and measuring use it.
+    VectorIcon {
+        path: w::PathIcon,
+        side: Cell<f32>,
+    },
     /// A file's icon in an `Image`, what the app gave (the image has only
     /// pixels), and its loads: the latest one asked for, and the latest
     /// one shown. `latest` is `asked` for the loading thread, which skips

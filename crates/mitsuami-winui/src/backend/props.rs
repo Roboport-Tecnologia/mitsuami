@@ -217,20 +217,21 @@ impl State {
             // An icon made named stays a glyph: the node keeps the app's
             // own icon, for the mirror check, but can't show it.
             (Prop::VectorIcon(icon), Widget::Icon(_)) => node.vector_icon = Some(icon.clone()),
-            (Prop::Icon(name), Widget::VectorIcon(_)) => node.icon = name.clone(),
+            (Prop::Icon(name), Widget::VectorIcon { .. }) => node.icon = name.clone(),
             // `None` keeps the last path: the element can't become a glyph.
-            (Prop::VectorIcon(icon), Widget::VectorIcon(path)) => {
+            (Prop::VectorIcon(icon), Widget::VectorIcon { path, side }) => {
                 node.vector_icon = Some(icon.clone());
                 if let Some(icon) = icon {
-                    set_path_icon(path, icon, path.cast::<w::IFrameworkElement>()?.Width()? as f32)?;
+                    set_path_icon(path, icon, side.get())?;
                 }
             }
-            (Prop::TextColor(color), Widget::VectorIcon(path)) => {
+            (Prop::TextColor(color), Widget::VectorIcon { path, .. }) => {
                 node.text_color = Some(*color);
                 path.cast::<w::IFrameworkElement>()?.SetStyle(&foreground_style("PathIcon", *color)?)?;
             }
-            (Prop::IconSize(points), Widget::VectorIcon(path)) => {
+            (Prop::IconSize(points), Widget::VectorIcon { path, side }) => {
                 node.icon_size = true;
+                side.set(*points);
                 if let Some(Some(icon)) = &node.vector_icon {
                     set_path_icon(path, icon, *points)?;
                 }
@@ -257,7 +258,7 @@ impl State {
                 | Widget::Spinner(_)
                 | Widget::Image { .. }
                 | Widget::Icon(_)
-                | Widget::VectorIcon(_)
+                | Widget::VectorIcon { .. }
                 | Widget::FileIcon { .. }
                 | Widget::GpuSurface(_),
             ) => {

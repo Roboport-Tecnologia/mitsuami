@@ -199,9 +199,9 @@ impl State {
                 match find_prop!(props, VectorIcon).flatten() {
                     Some(vector) => {
                         let side = find_prop!(props, IconSize).unwrap_or(ICON_SIDE);
-                        let icon = path_icon(&vector, side)?;
-                        let element = icon.cast()?;
-                        (Widget::VectorIcon(icon), element)
+                        let path = path_icon(&vector, side)?;
+                        let element = path.cast()?;
+                        (Widget::VectorIcon { path, side: Cell::new(side) }, element)
                     }
                     None => {
                         let icon = w::FontIcon::new()?;
