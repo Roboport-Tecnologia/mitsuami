@@ -1074,6 +1074,49 @@ async fn tabs_show_one_page_and_report_the_user_s_pick(app: TestApp) {
     assert_eq!(heard(), Vec::<String>::new());
 }
 
+/// Tabs whose caller chooses none show their first page, and a select its
+/// first option, as GTK's can show nothing else: WinUI's selector bar
+/// showed no page (SourceGit's statistics). Choosing none is refused while
+/// there are tabs or options.
+#[mitsuami_test::test]
+async fn tabs_and_selects_chosen_by_nobody_show_their_first(app: TestApp) {
+    attach(app.ui());
+    let tabs = create(MitsuamiKind::Tabs);
+    let titles = strs(&["Overview", "This month", "This week"]);
+    assert!(unsafe {
+        mitsuami_set_strings(tabs, MitsuamiStringsProp::TabTitles as u32, titles.as_ptr(), titles.len())
+    });
+    for text in ["Everything", "October", "This week's"] {
+        let page = create(MitsuamiKind::Container);
+        let label = create(MitsuamiKind::Text);
+        set_text(label, MitsuamiTextProp::Text, text);
+        assert!(mitsuami_append_child(page, label));
+        assert!(mitsuami_append_child(tabs, page));
+    }
+    assert!(mitsuami_set_size(tabs, px(400.0), px(200.0)));
+    let select = create(MitsuamiKind::Select);
+    set_text(select, MitsuamiTextProp::Label, "Branch");
+    let options = strs(&["All", "main"]);
+    assert!(unsafe { mitsuami_set_strings(select, MitsuamiStringsProp::Options as u32, options.as_ptr(), 2) });
+    let column = create(MitsuamiKind::Container);
+    assert!(mitsuami_append_child(column, select));
+    assert!(mitsuami_append_child(column, tabs));
+    app.mount(move || Adopt(column));
+    app.expect(by_text("Everything")).to_be_visible().await;
+    let (tabs, select) = (NodeId::from_raw(tabs), NodeId::from_raw(select));
+    assert!(app.ui().props(tabs).contains(&Prop::SelectedIndex(Some(0))));
+    assert!(app.ui().props(select).contains(&Prop::SelectedIndex(Some(0))));
+
+    // None, or one past the end, is the first.
+    assert!(mitsuami_set_index(tabs.raw(), MitsuamiIndexProp::SelectedIndex as u32, 2));
+    app.expect(by_text("This week's")).to_be_visible().await;
+    assert!(mitsuami_set_index(tabs.raw(), MitsuamiIndexProp::SelectedIndex as u32, -1));
+    app.expect(by_text("Everything")).to_be_visible().await;
+    assert!(mitsuami_set_index(select.raw(), MitsuamiIndexProp::SelectedIndex as u32, 5));
+    app.settle().await;
+    assert!(app.ui().props(select).contains(&Prop::SelectedIndex(Some(0))));
+}
+
 #[mitsuami_test::test]
 async fn scroll_views_scroll_their_content(app: TestApp) {
     attach(app.ui());

@@ -124,6 +124,12 @@ impl Ui {
 
     /// Sets a prop, sending it to the backend only if it changed.
     pub fn set_prop(&self, id: NodeId, prop: Prop) {
+        // A choice of none, or of a tab or option that isn't there, is the
+        // first, before the backend sees it (`always_chosen`).
+        let prop = match prop {
+            Prop::SelectedIndex(index) => Prop::SelectedIndex(self.choosable(id, index)),
+            prop => prop,
+        };
         {
             let mut inner = self.inner.borrow_mut();
             let inner = &mut *inner;
@@ -168,6 +174,43 @@ impl Ui {
             }
         }
         self.changed();
+        if let Some(chosen) = self.always_chosen(id) {
+            self.set_prop(id, Prop::SelectedIndex(chosen));
+        }
+    }
+
+    /// A `Tabs` or `Select` with tabs or options always has one chosen, the
+    /// first unless the app chose another that's there: GTK's notebook and
+    /// drop-down can't show none. WinUI's selector bar can, and a tab view
+    /// whose app chose no tab (the C ABI's, SourceGit's statistics) showed
+    /// an empty page there. What to choose, if not what's chosen now.
+    fn always_chosen(&self, id: NodeId) -> Option<Option<usize>> {
+        let chosen = {
+            let inner = self.inner.borrow();
+            let node = inner.nodes.get(&id)?;
+            matches!(node.kind, WidgetKind::Tabs | WidgetKind::Select)
+                .then(|| crate::find_prop!(node.props, SelectedIndex).flatten())?
+        };
+        let wanted = self.choosable(id, chosen);
+        (wanted != chosen).then_some(wanted)
+    }
+
+    /// What a `Tabs` or `Select` can have chosen for `index`: it, if it's
+    /// there, or else the first; none only without tabs or options. Any
+    /// other node's index as it is.
+    fn choosable(&self, id: NodeId, index: Option<usize>) -> Option<usize> {
+        let inner = self.inner.borrow();
+        let Some(node) = inner.nodes.get(&id) else { return index };
+        let count = match node.kind {
+            WidgetKind::Tabs => crate::find_prop!(node.props, TabTitles).map(|t| t.len()),
+            WidgetKind::Select => crate::find_prop!(node.props, Options).map(|o| o.len()),
+            _ => return index,
+        };
+        match count {
+            // Titles or options may come after the index.
+            None => index,
+            Some(count) => (count > 0).then(|| index.filter(|i| *i < count).unwrap_or(0)),
+        }
     }
 
     pub fn set_style(&self, id: NodeId, style: Style) {
