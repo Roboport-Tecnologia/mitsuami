@@ -193,11 +193,12 @@ enum Widget {
         group: QmlObject,
         content: QmlObject,
     },
-    /// A split (`qml::split`): its host, and the position the app gave,
-    /// which may be past where the core could put the divider.
+    /// A split (`qml::split`): its host, and the position the app gave or
+    /// the user moved it to, which may be past where the core could put
+    /// the divider.
     Split {
         root: QmlObject,
-        position: Option<f64>,
+        position: Rc<Cell<Option<f64>>>,
     },
     /// A window's sidebar page, the sections it was given, and its items'
     /// context menus.

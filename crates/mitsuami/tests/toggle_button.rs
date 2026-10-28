@@ -136,9 +136,10 @@ async fn is_drawn_as_tall_as_its_frame(app: TestApp) {
         let i = (((y * s) as usize) * image.width as usize + (x * s) as usize) * 4;
         image.rgba[i..i + 3].to_vec()
     };
-    // Near its top, the bezel, not the window behind it.
-    let (top, beside) = (at(frame.x() + 20.0, frame.y() + 4.0), at(frame.x() + frame.width() + 6.0, frame.y() + 4.0));
-    assert_ne!(top, beside, "nothing drawn near the top of a 42-high toggle");
+    // Near its top, the bezel, not the window above it (not beside it: a
+    // GTK button is no narrower than its label needs, wider than 41).
+    let (top, above) = (at(frame.x() + 20.0, frame.y() + 4.0), at(frame.x() + 20.0, frame.y() - 6.0));
+    assert_ne!(top, above, "nothing drawn near the top of a 42-high toggle");
 }
 
 mitsuami_test::main!();

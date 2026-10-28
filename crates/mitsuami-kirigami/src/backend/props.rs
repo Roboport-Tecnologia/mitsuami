@@ -229,7 +229,7 @@ impl State {
             }
             (Prop::Orientation(o), Widget::Split { root, .. }) => root.set_bool("mitsuamiVertical", o.vertical()),
             // The core places the panes at it (`SetFrame`); kept as given.
-            (Prop::Number(n), Widget::Split { position, .. }) => *position = Some(*n),
+            (Prop::Number(n), Widget::Split { position, .. }) => position.set(Some(*n)),
             (Prop::PaneMinimums([first, second]), Widget::Split { root, .. }) => {
                 root.set_real("mitsuamiMinimumFirst", f64::from(*first));
                 root.set_real("mitsuamiMinimumSecond", f64::from(*second));

@@ -173,8 +173,11 @@ QQC2.ScrollView {{
     // `Prop::FollowsEnd`: the app's text keeps the end in view while it's
     // there (or the area was empty). Qt has no such setting; Terminal and
     // Console do it. `mitsuamiFollow` lasts till the text's height settles.
+    // Otherwise it stays where it was scrolled (`mitsuamiKeptY`): Qt puts
+    // the cursor at the start of the new text, and scrolls to show it.
     property bool mitsuamiFollowsEnd: false
     property bool mitsuamiFollow: false
+    property real mitsuamiKeptY: 0
     signal mitsuamiEdited()
     function mitsuamiAtEnd() {{
         var f = contentItem
@@ -186,11 +189,19 @@ QQC2.ScrollView {{
     }}
     function mitsuamiBeforeSet() {{
         mitsuamiFollow = mitsuamiFollowsEnd && (area.length === 0 || mitsuamiAtEnd())
+        mitsuamiKeptY = contentItem.contentY - contentItem.originY
+    }}
+    function mitsuamiKeep() {{
+        var f = contentItem
+        f.contentY = f.originY + Math.max(0, Math.min(mitsuamiKeptY, f.contentHeight - f.height))
     }}
     function mitsuamiAfterSet() {{
         if (mitsuamiFollow) {{
             mitsuamiToEnd()
             Qt.callLater(function() {{ if (mitsuamiFollow) mitsuamiToEnd(); mitsuamiFollow = false }})
+        }} else {{
+            mitsuamiKeep()
+            Qt.callLater(mitsuamiKeep)
         }}
     }}
     Connections {{

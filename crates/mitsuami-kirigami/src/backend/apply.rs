@@ -336,7 +336,9 @@ impl State {
                 item.set_geometry(at.x as f64, at.y as f64, frame.width() as f64, frame.height() as f64);
                 // Leaves with an empty frame (hidden, or not laid out yet)
                 // aren't shown: controls draw their frames regardless of size.
-                if widget.is_leaf() {
+                // Nor is a split: its split view would still lay its panes
+                // out, at its least lengths.
+                if widget.is_leaf() || matches!(widget, Widget::Split { .. }) {
                     item.set_bool("visible", !frame.size.is_empty());
                 }
                 if let Some(Widget::List(list)) = parent {

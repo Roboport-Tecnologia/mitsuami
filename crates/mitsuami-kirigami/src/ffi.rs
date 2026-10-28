@@ -106,6 +106,7 @@ unsafe extern "C" {
     fn mq_file_icon(icon: Raw, path: *const c_char);
     fn mq_file_icon_by_name(icon: Raw, path: *const c_char, folder: i32);
     fn mq_file_icon_loads() -> i32;
+    fn mq_add_icon_fallback_path(path: *const c_char);
 
     fn mq_ui_languages(locale: *const c_char) -> *mut c_char;
     fn mq_format_number(
@@ -437,6 +438,11 @@ pub(crate) fn trash(path: &std::path::Path) -> Result<(), String> {
 /// [`QmlObject::load_file_icon`]).
 pub(crate) fn file_icon_loads() -> usize {
     unsafe { mq_file_icon_loads() }.max(0) as usize
+}
+
+/// Finds icons by name in `dir` too, after the icon theme.
+pub(crate) fn add_icon_fallback_path(dir: &std::path::Path) {
+    unsafe { mq_add_icon_fallback_path(c(&dir.to_string_lossy()).as_ptr()) }
 }
 
 /// Opens a local path or a URL in its app; `false` if nothing did.

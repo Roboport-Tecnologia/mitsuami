@@ -272,7 +272,32 @@ impl State {
                 scrolled.set_policy(gtk::PolicyType::Never, gtk::PolicyType::Automatic);
                 scrolled.set_has_frame(true);
                 scrolled.set_child(Some(&view));
-                Widget::TextArea { scrolled, view, placeholder: None, lines: 1, follows_end: false }
+                // GTK lays text out lazily, and the scrolled window's range
+                // grows as it does: an area following its end keeps to it,
+                // until it's scrolled back up.
+                let following = Rc::new(Cell::new(false));
+                let v = scrolled.vadjustment();
+                let (follow, queued) = (following.clone(), Rc::new(Cell::new(false)));
+                v.connect_changed(move |v| {
+                    // Once GTK is done with it: the text view sets the
+                    // value it keeps as it updates the range.
+                    if follow.get() && !queued.replace(true) {
+                        let (v, follow, queued) = (v.clone(), follow.clone(), queued.clone());
+                        glib::idle_add_local_once(move || {
+                            queued.set(false);
+                            if follow.get() {
+                                v.set_value(v.upper() - v.page_size());
+                            }
+                        });
+                    }
+                });
+                let (follow, last) = (following.clone(), Cell::new(0.0));
+                v.connect_value_changed(move |v| {
+                    if v.value() < last.replace(v.value()) - 0.5 {
+                        follow.set(false);
+                    }
+                });
+                Widget::TextArea { scrolled, view, placeholder: None, lines: 1, follows_end: false, following }
             }
             WidgetKind::ScrollView => {
                 let scrolled = gtk::ScrolledWindow::new();

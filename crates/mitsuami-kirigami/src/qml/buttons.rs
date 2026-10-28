@@ -6,7 +6,8 @@ use super::{TEXT_STYLE, a11y};
 /// desktop style draws from `Accessible.defaultButton` (`highlighted` only
 /// draws it as focused).
 /// Its icon is a themed icon's name (`mitsuamiIcon`, empty for none), or
-/// the app's own (`mitsuamiIconFile`, an SVG file's URL, which wins),
+/// the app's own (`mitsuamiIconFile`, an SVG file's URL, which wins and
+/// is shown by its name, see `vector_icon.rs`),
 /// tinted in the button's text colour as the style tints symbolic icons;
 /// beside the text unless `mitsuamiIconOnly`, which keeps the text as its
 /// accessible name, as Qt's `IconOnly` buttons do. A colour the app gave
@@ -33,6 +34,10 @@ pub(crate) fn menu_button() -> String {
     property bool mitsuamiButtonMenuOnOpen: false
     signal mitsuamiButtonMenuWanted()
     Accessible.role: Accessible.ButtonMenu
+    // As wide as the style draws it, the menu's arrow included: the style
+    // makes an icon-only button square, which has no room for both.
+    implicitWidth: Math.max(implicitBackgroundWidth + leftInset + rightInset,
+        implicitContentWidth + leftPadding + rightPadding)
     down: pressed || (mitsuamiButtonMenu !== null && mitsuamiButtonMenu.visible)
     onClicked: {
         if (mitsuamiButtonMenuOnOpen && !(mitsuamiButtonMenu && mitsuamiButtonMenu.visible))
@@ -58,7 +63,8 @@ pub(crate) fn menu_button() -> String {
 /// inset on its trailing side, and an arrow button joined to it there,
 /// which pops up `mitsuamiButtonMenu` under the pair (Alt+Down does too,
 /// as for a combo box). The arrow takes no focus, so the pair is one stop;
-/// it's named by `mitsuamiMoreText` and reads as `ButtonMenu`.
+/// it's named by `mitsuamiMoreText` and reads as `ButtonDropDown`, as a split
+/// tool button's arrow does.
 pub(crate) fn split_button() -> String {
     button_with(
         r#"
@@ -81,7 +87,8 @@ pub(crate) fn split_button() -> String {
     rightInset: mirrored ? 0 : mitsuamiArrow.width
     leftPadding: padding + leftInset
     rightPadding: padding + rightInset
-    // Not `onPressed`, which the context menu's keys have.
+    // Not `Keys.onPressed`, which the context menu's handler has: a key's
+    // own handler runs first, and what it leaves goes on to that one.
     Keys.onDownPressed: (event) => {
         event.accepted = (event.modifiers & Qt.AltModifier) !== 0
         if (event.accepted) mitsuamiPopupButtonMenu()
@@ -95,7 +102,10 @@ pub(crate) fn split_button() -> String {
         focusPolicy: Qt.NoFocus
         display: QQC2.AbstractButton.IconOnly
         icon.name: "arrow-down"
-        Accessible.role: Accessible.ButtonMenu
+        // Qt's role for a split tool button's arrow. Not `ButtonMenu`,
+        // which the style draws with its menu arrow at the right of an
+        // empty button, off its centre.
+        Accessible.role: Accessible.ButtonDropDown
         Accessible.name: parent.mitsuamiMoreText
         down: pressed || (parent.mitsuamiButtonMenu !== null && parent.mitsuamiButtonMenu.visible)
         onClicked: parent.mitsuamiPopupButtonMenu()
@@ -114,12 +124,15 @@ QQC2.Button {{
     property string mitsuamiIcon: ""
     property string mitsuamiIconFile: ""
     property bool mitsuamiIconOnly: false
+    // The file's icon name: its folder is on the icon search path.
+    readonly property string mitsuamiIconFileName:
+        mitsuamiIconFile.substring(mitsuamiIconFile.lastIndexOf("/") + 1).replace(/\.svg$/, "")
     readonly property string mitsuamiShownIcon: mitsuamiIconFile !== "" ? mitsuamiIcon : icon.name
-    readonly property string mitsuamiShownIconFile: mitsuamiIconFile !== "" ? icon.source.toString() : ""
+    readonly property string mitsuamiShownIconFile:
+        mitsuamiIconFile !== "" && icon.name === mitsuamiIconFileName ? mitsuamiIconFile : ""
     readonly property bool mitsuamiShownIconOnly: display === QQC2.AbstractButton.IconOnly
     Accessible.defaultButton: mitsuamiDefault
-    icon.name: mitsuamiIconFile !== "" ? "" : mitsuamiIcon
-    icon.source: mitsuamiIconFile
+    icon.name: mitsuamiIconFile !== "" ? mitsuamiIconFileName : mitsuamiIcon
     icon.color: {} ?? (mitsuamiIconFile !== "" ? palette.buttonText : "transparent")
     display: mitsuamiIconOnly && (mitsuamiIcon !== "" || mitsuamiIconFile !== "") ? QQC2.AbstractButton.IconOnly : QQC2.AbstractButton.TextBesideIcon
     {TEXT_STYLE}

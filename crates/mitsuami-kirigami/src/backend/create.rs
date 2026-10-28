@@ -34,10 +34,11 @@ impl State {
                 let popup = QmlObject::load(&qml::popover());
                 popup.set_object("contentItem", Some(host));
                 // The user's only: a press outside, Escape. The core's own
-                // close came with it no longer wanted.
+                // close came with it no longer wanted. As it starts to
+                // close: `closed()` waits for the style's exit transition.
                 let wanted = Rc::new(Cell::new(false));
                 let shown = wanted.clone();
-                popup.connect("closed()", move || {
+                popup.connect("aboutToHide()", move || {
                     if shown.replace(false) {
                         events.emit(id, UiEvent::PopoverShownChanged(false));
                     }
@@ -119,11 +120,14 @@ impl State {
                 let root = QmlObject::load(&qml::split());
                 // A drag of the handle, or assistive technology's move: the
                 // app's position and the core's frames don't emit it.
-                let moved = events.clone();
+                let (moved, position) = (events.clone(), Rc::new(Cell::new(None)));
+                let reported = position.clone();
                 root.connect("mitsuamiMoved()", move || {
-                    moved.emit(id, UiEvent::Changed(EventValue::Number(root.real("mitsuamiReported"))));
+                    let at = root.real("mitsuamiReported");
+                    reported.set(Some(at));
+                    moved.emit(id, UiEvent::Changed(EventValue::Number(at)));
                 });
-                Widget::Split { root, position: None }
+                Widget::Split { root, position }
             }
             WidgetKind::Group => {
                 let root = QmlObject::load(&qml::group());

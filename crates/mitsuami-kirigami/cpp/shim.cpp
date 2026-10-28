@@ -1264,6 +1264,12 @@ void mq_file_icon_by_name(QObject* icon, const char* path, int32_t folder) {
 
 int32_t mq_file_icon_loads(void) { return g_icon_loads; }
 
+void mq_add_icon_fallback_path(const char* path) {
+    QStringList paths = QIcon::fallbackSearchPaths();
+    const QString dir = QString::fromUtf8(path);
+    if (!paths.contains(dir)) QIcon::setFallbackSearchPaths(paths << dir);
+}
+
 // kde-open (or xdg-open, or the portal), as KDE apps open files and links.
 int32_t mq_open_url(const char* target, int32_t is_path) {
     QString text = QString::fromUtf8(target);

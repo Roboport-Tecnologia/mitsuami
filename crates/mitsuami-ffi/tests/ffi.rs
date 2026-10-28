@@ -498,7 +498,9 @@ async fn windows_capture_to_png_files(app: TestApp) {
 
     assert!(unsafe { mitsuami_capture_png(app.window().raw(), str(&path_str), captured, std::ptr::null_mut()) });
     app.expect(by_text("Captured")).to_exist().await;
-    // In real time: WinUI renders asynchronously.
+    // In real time: WinUI renders asynchronously, and GTK captures at its
+    // next frame, which on a display nobody watches can be most of a
+    // second away.
     let deadline = std::time::Instant::now() + std::time::Duration::from_secs(5);
     while HEARD.with(|h| h.borrow().is_empty()) && std::time::Instant::now() < deadline {
         app.settle().await;

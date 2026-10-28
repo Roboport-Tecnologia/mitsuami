@@ -1,6 +1,9 @@
 //! The app's own icons as SVG files, which Kirigami's icons and Qt Quick's
 //! buttons take as their source: written once per icon to the user's cache,
-//! named by their content, and reused for as long as they're there.
+//! named by their content, and reused for as long as they're there. The
+//! folder is on Qt's icon search path, so buttons show them by name: the
+//! desktop style colours icons it finds by name, and draws files as they
+//! are.
 
 use std::collections::hash_map::DefaultHasher;
 use std::hash::{Hash, Hasher};
@@ -14,7 +17,14 @@ const SIDE: f32 = 16.0;
 /// A `file://` URL of the icon's SVG, written if it isn't there yet; empty
 /// if it can't be written, which shows no icon.
 pub(super) fn file_url(icon: &VectorIcon) -> String {
-    let svg = icon.svg(SIDE);
+    // Filled as Breeze's symbolic icons are: KDE's icon loader colours
+    // only `ColorScheme-Text`, with the icon's colour or the text's.
+    let svg = icon.svg(SIDE).replacen(
+        "<path fill=\"#000\"",
+        "<style id=\"current-color-scheme\">.ColorScheme-Text{color:#232629;}</style>\
+         <path class=\"ColorScheme-Text\" fill=\"currentColor\"",
+        1,
+    );
     let mut hasher = DefaultHasher::new();
     svg.hash(&mut hasher);
     let dir = cache_dir().join("mitsuami").join("icons");
@@ -23,6 +33,7 @@ pub(super) fn file_url(icon: &VectorIcon) -> String {
     if !path.exists() && (std::fs::create_dir_all(&dir).is_err() || std::fs::write(&path, svg).is_err()) {
         return String::new();
     }
+    crate::ffi::add_icon_fallback_path(&dir);
     format!("file://{}", path.display())
 }
 

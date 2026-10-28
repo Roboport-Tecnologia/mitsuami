@@ -25,9 +25,6 @@ use super::text::{
 use super::window::{escape_closes, prop_owner, resize};
 use super::{State, Widget, violation};
 
-/// The mark a text area that follows its end scrolls to.
-const END_MARK: &str = "mitsuami-end";
-
 impl State {
     pub(super) fn set_prop(&mut self, id: NodeId, prop: &Prop, command: &Command) {
         // Transient for the window it belongs to, and modal. GTK's modal
@@ -530,25 +527,24 @@ impl State {
                     cell.set(Some(*on));
                 }
             }
-            (Prop::Value(t), Widget::TextArea { scrolled, view, follows_end, .. }) => {
+            (Prop::Value(t), Widget::TextArea { scrolled, view, follows_end, following, .. }) => {
                 let buffer = view.buffer();
-                if buffer_text(&buffer) != *t {
+                let old = buffer_text(&buffer);
+                if old != *t {
                     let v = scrolled.vadjustment();
                     let at_end = buffer.char_count() == 0 || v.value() + v.page_size() >= v.upper() - 1.0;
-                    buffer.set_text(t);
-                    if *follows_end && at_end {
-                        // GTK lays text out lazily: scrolling to a mark waits
-                        // until the end's line is laid out. Not aligned, so
-                        // it scrolls only as far as the end needs.
-                        let end = buffer.end_iter();
-                        let mark = match buffer.mark(END_MARK) {
-                            Some(mark) => {
-                                buffer.move_mark(&mark, &end);
-                                mark
-                            }
-                            None => buffer.create_mark(Some(END_MARK), &end, false),
-                        };
-                        view.scroll_to_mark(&mark, 0.0, false, 0.0, 1.0);
+                    // Text added at the end (a log's) is appended: setting
+                    // it all scrolls the view back up, to where its first
+                    // line was.
+                    match t.strip_prefix(old.as_str()) {
+                        Some(added) => buffer.insert(&mut buffer.end_iter(), added),
+                        None => buffer.set_text(t),
+                    }
+                    // Followed as the scrolled window's range grows (see
+                    // `create`).
+                    following.set(*follows_end && at_end);
+                    if following.get() {
+                        v.set_value(v.upper() - v.page_size());
                     }
                 }
             }

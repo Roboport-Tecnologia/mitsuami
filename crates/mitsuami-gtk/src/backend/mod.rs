@@ -136,13 +136,15 @@ enum Widget {
     ColorWell(gtk::ColorDialogButton),
     /// A text view in a framed scrolled window, and what GTK has no place
     /// for: a text view has no placeholder, no number of lines, and doesn't
-    /// follow its end (`Prop::FollowsEnd`).
+    /// follow its end (`Prop::FollowsEnd`); `following` while it keeps to
+    /// its end as its text grows.
     TextArea {
         scrolled: gtk::ScrolledWindow,
         view: gtk::TextView,
         placeholder: Option<String>,
         lines: u32,
         follows_end: bool,
+        following: Rc<Cell<bool>>,
     },
     /// A progress bar, and whether it pulses: GTK shows work of unknown
     /// length by `pulse()` calls, which a timer makes while it's set.

@@ -384,6 +384,16 @@ impl GtkBackend {
             ),
             Widget::Tabs(tabs) => (tabs.pages().iter().filter_map(|p| by_widget.get(p).copied()).collect(), None),
             Widget::Split(split) => (split.panes().iter().filter_map(|p| by_widget.get(p).copied()).collect(), None),
+            // In its host, inside the popover's own contents.
+            Widget::Popover(popover) => {
+                let mut children = Vec::new();
+                let mut next = popover.host.first_child();
+                while let Some(child) = next {
+                    children.extend(by_widget.get(&child).copied());
+                    next = child.next_sibling();
+                }
+                (children, None)
+            }
             // A leaf, whose bar is in the map too.
             Widget::DocumentTabs(_) => (Vec::new(), None),
             // A leaf, which scrolls its text.

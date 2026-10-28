@@ -81,9 +81,10 @@ struct Data {
     /// its way.
     bare_heights: HashMap<RowKey, f32>,
     heights_queued: bool,
-    /// The natural height last measured, and whether a measure is on its
-    /// way (`List::queue_remeasure`).
+    /// The natural height last measured once idle, whether it was, and
+    /// whether a measure is on its way (`List::queue_remeasure`).
     natural: f32,
+    remeasured: bool,
     remeasure_queued: bool,
     /// Trees only: each row that shows, as sent; a store of the children
     /// of each that opens, which the tree list model shows while it's
@@ -253,6 +254,7 @@ fn new_data() -> Rc<RefCell<Data>> {
         bare_heights: HashMap::new(),
         heights_queued: false,
         natural: 0.0,
+        remeasured: false,
         remeasure_queued: false,
         tree: HashMap::new(),
         stores: HashMap::new(),
@@ -265,8 +267,8 @@ fn new_data() -> Rc<RefCell<Data>> {
 
 /// The rows dragging `key` carries: the selection when it's selected, as
 /// GTK's lists drag, else the row.
-fn dragged_rows(data: &Data, key: RowKey, model: Option<&gtk::SelectionModel>) -> Vec<RowKey> {
-    let selected = model.map(|m| selected_keys(data, m)).unwrap_or_default();
+fn dragged_rows(key: RowKey, model: Option<&gtk::SelectionModel>) -> Vec<RowKey> {
+    let selected = model.map(selected_keys).unwrap_or_default();
     if selected.contains(&key) { selected } else { vec![key] }
 }
 
@@ -419,7 +421,7 @@ fn end_drop_target(data: &Rc<RefCell<Data>>, events: &Events, id: NodeId, view: 
 /// The files dragging `key` carries: the selected rows' when it's
 /// selected, as Files drags a selection, else its own.
 fn dragged(data: &Data, key: RowKey, model: Option<&gtk::SelectionModel>) -> Vec<PathBuf> {
-    let selected = model.map(|m| selected_keys(data, m)).unwrap_or_default();
+    let selected = model.map(selected_keys).unwrap_or_default();
     let rows = if selected.contains(&key) { selected } else { vec![key] };
     rows.iter().filter_map(|row| data.file_of.get(row).cloned()).collect()
 }
@@ -445,7 +447,7 @@ fn drag_source(data: &Rc<RefCell<Data>>, id: NodeId, cell: &gtk::Widget) {
             providers.push(gdk::ContentProvider::for_value(&gdk::FileList::from_array(&files).to_value()));
         }
         if data.moves.is_some() {
-            let rows = dragged_rows(&data, key, model.as_ref()).iter().map(|r| r.0).collect();
+            let rows = dragged_rows(key, model.as_ref()).iter().map(|r| r.0).collect();
             providers.push(gdk::ContentProvider::for_value(&DraggedRows { list: id.raw(), rows }.to_value()));
         }
         match providers.len() {
@@ -1058,10 +1060,10 @@ impl List {
             }
             SelectionMode::Multiple => gtk::MultiSelection::new(Some(items)).upcast(),
         };
-        let (data, events, muted, id) = (self.data.clone(), self.events.clone(), self.muted.clone(), self.id);
+        let (events, muted, id) = (self.events.clone(), self.muted.clone(), self.id);
         model.connect_selection_changed(move |model, _, _| {
             if !muted.get() {
-                let keys = selected_keys(&data.borrow(), model);
+                let keys = selected_keys(model);
                 events.emit(id, UiEvent::Changed(EventValue::Rows(keys)));
             }
         });
@@ -1112,10 +1114,16 @@ impl List {
 
     /// How high the list is with all its rows: its scrolled window's
     /// natural height, which is its view's, and a frame's border. GTK's
-    /// list view measures the rows it has bound, and the others as high as
-    /// the rows it measured; a column view adds its header.
+    /// list view measures only the rows it has bound; the others count as
+    /// high as those on average. A column view adds its header. As last
+    /// measured once idle: while the core lays the list out, the hosts of
+    /// rows it just mounted have no height yet.
     pub(crate) fn natural_height(&self) -> f32 {
-        natural_height(&self.scrolled)
+        let d = self.data.borrow();
+        match d.remeasured {
+            true => d.natural,
+            false => natural_height(&self.scrolled),
+        }
     }
 
     /// Measures the list again once the main loop is idle, when GTK has
@@ -1133,6 +1141,7 @@ impl List {
             let natural = natural_height(&scrolled);
             let mut d = data.borrow_mut();
             d.remeasure_queued = false;
+            d.remeasured = true;
             if std::mem::replace(&mut d.natural, natural) != natural {
                 events.emit(id, UiEvent::Remeasure);
             }
@@ -1180,7 +1189,7 @@ impl List {
 
     pub(crate) fn selected(&self) -> Vec<RowKey> {
         match self.model() {
-            Some(model) => selected_keys(&self.data.borrow(), &model),
+            Some(model) => selected_keys(&model),
             None => Vec::new(),
         }
     }
@@ -1464,9 +1473,11 @@ fn beside_placed(
     }
 }
 
-fn selected_keys(data: &Data, model: &gtk::SelectionModel) -> Vec<RowKey> {
+/// The selected rows, by the model's own items: a tree's rows move as GTK
+/// opens and closes folders, before the core sends them.
+fn selected_keys(model: &gtk::SelectionModel) -> Vec<RowKey> {
     let selection = model.selection();
-    (0..selection.size()).filter_map(|i| data.rows.get(selection.nth(i as u32) as usize).copied()).collect()
+    (0..selection.size()).filter_map(|i| model.item(selection.nth(i as u32)).as_ref().and_then(key_of)).collect()
 }
 
 /// Reports how far a tree indents its rows' content, from a cell GTK just
@@ -1554,10 +1565,43 @@ fn queue_heights(data: &Rc<RefCell<Data>>, d: &mut Data, events: &Events, id: No
     });
 }
 
-/// A list's scrolled window's natural height at its width.
+/// A list's scrolled window's natural height at its width, with all its
+/// rows: GTK's list view measures only the rows it has bound, which are
+/// those its allocation shows.
 fn natural_height(scrolled: &gtk::ScrolledWindow) -> f32 {
     let width = Some(scrolled.width()).filter(|w| *w > 0).unwrap_or(-1);
-    scrolled.measure(gtk::Orientation::Vertical, width).1 as f32
+    let measured = scrolled.measure(gtk::Orientation::Vertical, width).1 as f32;
+    // The rows GTK hasn't bound, as high as those it has on average, as
+    // GTK estimates them when it scrolls.
+    let Some(view) = scrolled.child().and_then(|view| rows_view(&view)) else { return measured };
+    let items = view.model().map_or(0, |model| model.n_items()) as f32;
+    let mut bound = 0.0;
+    let mut child = view.first_child();
+    while let Some(c) = child {
+        bound += 1.0;
+        child = c.next_sibling();
+    }
+    if bound == 0.0 || bound >= items {
+        return measured;
+    }
+    let rows = view.measure(gtk::Orientation::Vertical, width).1 as f32;
+    measured + rows / bound * (items - bound)
+}
+
+/// The list view that holds the rows: the view itself, or the one inside
+/// a table's column view.
+fn rows_view(view: &gtk::Widget) -> Option<gtk::ListView> {
+    if let Some(list) = view.downcast_ref::<gtk::ListView>() {
+        return Some(list.clone());
+    }
+    let mut child = view.first_child();
+    while let Some(c) = child {
+        if let Ok(list) = c.clone().downcast::<gtk::ListView>() {
+            return Some(list);
+        }
+        child = c.next_sibling();
+    }
+    None
 }
 
 /// A row was activated: double-clicked, or Enter pressed on it.

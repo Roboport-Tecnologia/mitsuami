@@ -241,6 +241,8 @@ char* mq_trash(const char* path);
 void mq_file_icon(QObject* icon, const char* path);
 void mq_file_icon_by_name(QObject* icon, const char* path, int32_t folder);
 int32_t mq_file_icon_loads(void);
+// Where icons are found by name when the theme has none of that name.
+void mq_add_icon_fallback_path(const char* path);
 // Opens a local path (is_path) or a URL in its app; 0 if nothing did.
 int32_t mq_open_url(const char* target, int32_t is_path);
 

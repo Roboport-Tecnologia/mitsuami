@@ -115,21 +115,21 @@ Item {{
         if (first) {{
             first.visible = mitsuamiShownFirst
             const fills = !(second && mitsuamiShownSecond)
-            first.SplitView.fillWidth = fills && !mitsuamiVertical
-            first.SplitView.fillHeight = fills && mitsuamiVertical
+            first.QQC2.SplitView.fillWidth = fills && !mitsuamiVertical
+            first.QQC2.SplitView.fillHeight = fills && mitsuamiVertical
             if (mitsuamiPosition >= 0) {{
-                if (mitsuamiVertical) first.SplitView.preferredHeight = mitsuamiPosition
-                else first.SplitView.preferredWidth = mitsuamiPosition
+                if (mitsuamiVertical) first.QQC2.SplitView.preferredHeight = mitsuamiPosition
+                else first.QQC2.SplitView.preferredWidth = mitsuamiPosition
             }}
-            first.SplitView.minimumWidth = mitsuamiVertical ? 0 : mitsuamiMinimumFirst
-            first.SplitView.minimumHeight = mitsuamiVertical ? mitsuamiMinimumFirst : 0
+            first.QQC2.SplitView.minimumWidth = mitsuamiVertical ? 0 : mitsuamiMinimumFirst
+            first.QQC2.SplitView.minimumHeight = mitsuamiVertical ? mitsuamiMinimumFirst : 0
         }}
         if (second) {{
             second.visible = mitsuamiShownSecond
-            second.SplitView.fillWidth = !mitsuamiVertical
-            second.SplitView.fillHeight = mitsuamiVertical
-            second.SplitView.minimumWidth = mitsuamiVertical ? 0 : mitsuamiMinimumSecond
-            second.SplitView.minimumHeight = mitsuamiVertical ? mitsuamiMinimumSecond : 0
+            second.QQC2.SplitView.fillWidth = !mitsuamiVertical
+            second.QQC2.SplitView.fillHeight = mitsuamiVertical
+            second.QQC2.SplitView.minimumWidth = mitsuamiVertical ? 0 : mitsuamiMinimumSecond
+            second.QQC2.SplitView.minimumHeight = mitsuamiVertical ? mitsuamiMinimumSecond : 0
         }}
     }}
     onMitsuamiPositionChanged: mitsuamiApply()
@@ -164,8 +164,8 @@ Item {{
         const total = mitsuamiVertical ? mitsuamiSplit.height : mitsuamiSplit.width
         const handle = mitsuamiSecond ? total - mitsuamiLength(mitsuamiFirst) - mitsuamiLength(mitsuamiSecond) : 0
         const length = Math.max(mitsuamiMinimumFirst, Math.min(target, total - handle - mitsuamiMinimumSecond))
-        if (mitsuamiVertical) mitsuamiFirst.SplitView.preferredHeight = length
-        else mitsuamiFirst.SplitView.preferredWidth = length
+        if (mitsuamiVertical) mitsuamiFirst.QQC2.SplitView.preferredHeight = length
+        else mitsuamiFirst.QQC2.SplitView.preferredWidth = length
         mitsuamiReported = length
         mitsuamiMoved()
     }}

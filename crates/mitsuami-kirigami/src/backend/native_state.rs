@@ -262,7 +262,7 @@ impl KirigamiBackend {
             }
             Widget::Group { group, .. } => props.push(Prop::Title(group.str("title"))),
             // Where the handle is shows in the panes' frames; the position
-            // is kept as given.
+            // is kept as given or as the user moved it.
             Widget::Split { root, position } => {
                 let split = root.child("mitsuamiSplitView").unwrap_or(*root);
                 props.push(Prop::Orientation(if split.int("orientation") == QT_VERTICAL {
@@ -270,15 +270,16 @@ impl KirigamiBackend {
                 } else {
                     Orientation::Horizontal
                 }));
-                props.extend(position.map(Prop::Number));
+                props.extend(position.get().map(Prop::Number));
                 props.push(Prop::PaneMinimums([
                     root.real("mitsuamiMinimumFirst") as f32,
                     root.real("mitsuamiMinimumSecond") as f32,
                 ]));
-                // From the panes once they're in, else as given.
+                // From the panes once they're in and the split shows, else
+                // as given.
                 let shown = |pane: &str, given: &str| match root.object(pane) {
-                    Some(item) => item.bool("visible"),
-                    None => root.bool(given),
+                    Some(item) if root.bool("visible") => item.bool("visible"),
+                    _ => root.bool(given),
                 };
                 props.push(Prop::PanesShown([
                     shown("mitsuamiFirst", "mitsuamiShownFirst"),
@@ -395,6 +396,10 @@ impl KirigamiBackend {
                     Rect::new(at.x - origin.x, at.y - origin.y, frame.width(), frame.height())
                 }
             }
+            // A split's pane is where the split view put it while it's
+            // shown; hidden (or on a hidden page), the core has no frame
+            // for it.
+            (Some(Widget::Split { .. }), _) if !item.bool("visible") => Rect::ZERO,
             _ => frame,
         };
         let (children, scroll_offset) = match &node.widget {
