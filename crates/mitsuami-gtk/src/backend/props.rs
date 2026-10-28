@@ -631,10 +631,7 @@ impl State {
                 }
                 if *on {
                     let motion = gtk::EventControllerMotion::new();
-                    let events = self.events.clone();
-                    motion.connect_enter(move |_, _, _| events.emit(id, UiEvent::Hover(true)));
-                    let events = self.events.clone();
-                    motion.connect_leave(move |_| events.emit(id, UiEvent::Hover(false)));
+                    track_hover(&motion, id, self.events.clone());
                     widget.widget().add_controller(motion.clone());
                     node.hover = Some(motion);
                 }
@@ -832,6 +829,69 @@ fn on_control(host: &gtk::Widget, x: f64, y: f64) -> bool {
         at = widget.parent();
     }
     false
+}
+
+/// Reports the pointer entering and leaving what `motion` is on, once
+/// each. A popover takes a grab as it opens, and GTK tells the widgets
+/// around it the pointer left, though it's still over them: a leave while
+/// a popover inside the host is open waits for it to close, and then
+/// counts only if the pointer is gone. Otherwise a row that shows a menu
+/// button on hover hid the button, which closed its menu at once.
+fn track_hover(motion: &gtk::EventControllerMotion, id: NodeId, events: Events) {
+    let over = Rc::new(std::cell::Cell::new(false));
+    let report = {
+        let over = over.clone();
+        move |now: bool| {
+            if over.replace(now) != now {
+                events.emit(id, UiEvent::Hover(now));
+            }
+        }
+    };
+    let enter = report.clone();
+    motion.connect_enter(move |_, _, _| enter(true));
+    motion.connect_leave(move |motion| {
+        let popover = motion.widget().and_then(|host| open_popover(&host));
+        let Some(popover) = popover else { return report(false) };
+        let motion = motion.downgrade();
+        let report = report.clone();
+        let handler = Rc::new(std::cell::Cell::new(None));
+        let id = popover.connect_closed({
+            let handler = handler.clone();
+            move |popover| {
+                if let Some(id) = handler.take() {
+                    popover.disconnect(id);
+                }
+                // After GTK's crossing for the grab's end.
+                let motion = motion.clone();
+                let report = report.clone();
+                glib::idle_add_local_once(move || {
+                    if let Some(motion) = motion.upgrade() {
+                        report(motion.contains_pointer());
+                    }
+                });
+            }
+        });
+        handler.set(Some(id));
+    });
+}
+
+/// A popover shown from inside `widget`: a menu button's, a context menu's.
+fn open_popover(widget: &gtk::Widget) -> Option<gtk::Popover> {
+    let mut child = widget.first_child();
+    while let Some(c) = child {
+        match c.downcast_ref::<gtk::Popover>() {
+            Some(popover) if popover.is_visible() => return Some(popover.clone()),
+            Some(_) => {}
+            None if c.is_visible() => {
+                if let Some(popover) = open_popover(&c) {
+                    return Some(popover);
+                }
+            }
+            None => {}
+        }
+        child = c.next_sibling();
+    }
+    None
 }
 
 /// The node's context menu, made the first time it's given one.
