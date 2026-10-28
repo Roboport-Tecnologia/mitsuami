@@ -40,7 +40,7 @@ Microsoft.UI.WindowId
 Microsoft.UI.IconId
 Microsoft.UI.Xaml.UIElement::{}
 Microsoft.UI.Xaml.IUIElement::{UpdateLayout, put_Clip, get_FocusState, put_TabIndex, put_IsTabStop, Measure, get_DesiredSize, get_XamlRoot, put_XamlRoot, Focus, put_TabFocusNavigation, get_KeyboardAccelerators, add_GotFocus, remove_GotFocus, add_LostFocus, remove_LostFocus, add_KeyDown, remove_KeyDown, add_PreviewKeyDown, remove_PreviewKeyDown, add_PointerPressed, remove_PointerPressed, add_PointerReleased, remove_PointerReleased, add_PointerWheelChanged, remove_PointerWheelChanged, add_PointerMoved, remove_PointerMoved, add_PointerEntered, remove_PointerEntered, add_PointerExited, remove_PointerExited, add_KeyUp, remove_KeyUp, CapturePointer, add_DoubleTapped, remove_DoubleTapped, add_Tapped, remove_Tapped, TransformToVisual, get_Visibility, put_Visibility, get_ContextFlyout, put_ContextFlyout, put_AllowDrop, get_AllowDrop, add_DragEnter, remove_DragEnter, add_DragOver, remove_DragOver, add_DragLeave, remove_DragLeave, add_Drop, remove_Drop, put_Opacity, put_IsHitTestVisible, get_IsHitTestVisible, add_GettingFocus, remove_GettingFocus, add_PreviewKeyUp, remove_PreviewKeyUp}
-Microsoft.UI.Xaml.IFrameworkElement::{get_Width, put_Width, get_Height, put_Height, put_HorizontalAlignment, put_VerticalAlignment, put_RequestedTheme, put_Style, get_ActualWidth, get_ActualHeight, put_MinWidth, get_Resources, add_SizeChanged, remove_SizeChanged, add_Loaded, remove_Loaded, add_Unloaded, remove_Unloaded, get_IsLoaded, put_Margin, get_FlowDirection, put_FlowDirection, add_LayoutUpdated, remove_LayoutUpdated}
+Microsoft.UI.Xaml.IFrameworkElement::{get_Width, put_Width, get_Height, put_Height, put_HorizontalAlignment, put_VerticalAlignment, put_RequestedTheme, put_Style, get_ActualWidth, get_ActualHeight, FindName, put_MinWidth, get_Resources, add_SizeChanged, remove_SizeChanged, add_Loaded, remove_Loaded, add_Unloaded, remove_Unloaded, get_IsLoaded, put_Margin, get_FlowDirection, put_FlowDirection, add_LayoutUpdated, remove_LayoutUpdated}
 Microsoft.UI.Xaml.FlowDirection
 Microsoft.UI.Xaml.ISizeChangedEventArgs::get_NewSize
 Microsoft.UI.Xaml.IRoutedEventArgs::get_OriginalSource
@@ -141,7 +141,7 @@ Microsoft.UI.Xaml.Controls.ListView::CreateInstance
 Microsoft.UI.Xaml.Controls.IListViewBase::{get_SelectionMode, get_SingleSelectionFollowsFocus, put_SingleSelectionFollowsFocus, put_SelectionMode, get_SelectedItems, ScrollIntoView, add_ContainerContentChanging, remove_ContainerContentChanging, get_CanDragItems, put_CanDragItems, add_DragItemsStarting, remove_DragItemsStarting, add_DragItemsCompleted, remove_DragItemsCompleted}
 Microsoft.UI.Xaml.Controls.ListViewSelectionMode
 Microsoft.UI.Xaml.Controls.IContainerContentChangingEventArgs::{get_ItemContainer, get_InRecycleQueue, get_Item, put_Handled}
-Microsoft.UI.Xaml.Controls.ListViewItem::{}
+Microsoft.UI.Xaml.Controls.ListViewItem::CreateInstance
 Microsoft.UI.Xaml.Controls.Primitives.SelectorItem::{}
 Microsoft.UI.Xaml.Controls.Primitives.ISelector::{get_SelectedIndex, put_SelectedIndex, add_SelectionChanged, remove_SelectionChanged}
 Microsoft.UI.Xaml.Controls.SelectionChangedEventHandler
@@ -293,6 +293,8 @@ Windows.Win32.GetDpiForSystem
 Windows.Win32.GetKeyState
 Windows.Win32.VK_SHIFT
 Microsoft.UI.Xaml.Automation.AutomationProperties::GetName
+Microsoft.UI.Xaml.Automation.AutomationProperties::{SetAutomationControlType, SetLevel, SetPositionInSet, SetSizeOfSet}
+Microsoft.UI.Xaml.Automation.Peers.AutomationControlType
 Windows.Win32.WS_EX_TRANSPARENT
 Microsoft.UI.Xaml.Markup.XamlReader::Load
 Windows.Win32.EnumWindows
@@ -650,3 +652,13 @@ Windows.Win32.SHGFI_LARGEICON
 Windows.Win32.SHGFI_USEFILEATTRIBUTES
 Windows.Win32.FILE_ATTRIBUTE_NORMAL
 Windows.Win32.FILE_ATTRIBUTE_DIRECTORY
+Microsoft.UI.Xaml.Controls.IItemsControlOverrides
+Microsoft.UI.Xaml.IUIElementOverrides
+Microsoft.UI.Xaml.Automation.Peers.ListViewItemAutomationPeer::CreateInstanceWithOwner
+Microsoft.UI.Xaml.Automation.Peers.IAutomationPeerOverrides
+Microsoft.UI.Xaml.Automation.Peers.IAutomationPeer::RaisePropertyChangedEvent
+Microsoft.UI.Xaml.Automation.Peers.FrameworkElementAutomationPeer::FromElement
+Microsoft.UI.Xaml.Automation.Provider.IExpandCollapseProvider
+Microsoft.UI.Xaml.Automation.ExpandCollapsePatternIdentifiers::get_ExpandCollapseStateProperty
+Microsoft.UI.Xaml.Automation.ExpandCollapseState
+Microsoft.UI.Xaml.Automation.Peers.PatternInterface

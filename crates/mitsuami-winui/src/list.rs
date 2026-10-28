@@ -230,6 +230,9 @@ struct Data {
     mark: mark::DropMark,
     /// Follows the pointer between `DragOver`s.
     track: track::Tracker,
+    /// A tree's: where its rows dragged land, and what resting over a
+    /// folder does. A tree reports its rows' width itself.
+    tree: Option<Rc<dyn tree::Landing>>,
 }
 
 impl Data {
@@ -239,6 +242,10 @@ impl Data {
 
     fn is_table(&self) -> bool {
         self.header.is_some()
+    }
+
+    fn is_tree(&self) -> bool {
+        self.tree.is_some()
     }
 
     /// A row's cell height: as measured last (a table's highest cell's, and
@@ -537,20 +544,38 @@ fn mark_for(
     })
 }
 
+/// Where the list's own rows dragged to `at` in it land, and where the
+/// mark's line starts: a list's, or a tree's (`tree::Landing`).
+fn landing(
+    view: &w::ListView,
+    d: &Data,
+    dragged: &[RowKey],
+    at: w::Point,
+) -> Option<(Vec<RowKey>, RowDrop<RowKey>, f64)> {
+    match &d.tree {
+        Some(tree) => tree.target(view, d, dragged, at),
+        None => drop_target(d, dragged, proposed(view, d, at, key_of)).map(|(rows, to)| (rows, to, 0.0)),
+    }
+}
+
 /// Where the list's own rows dragged to `at` in it would land: the mark
 /// shows it, and the list scrolls near its edges.
 fn follow_drag(view: &w::ListView, data: &Rc<RefCell<Data>>, id: NodeId, at: w::Point) {
     let Some(dragged) = dragging(id) else { return };
     let Ok(list) = view.cast::<w::UIElement>() else { return };
-    let (target, edge, drop_mark) = {
+    let (target, edge, drop_mark, tree) = {
         let d = data.borrow();
-        let target = within(&list, at).then(|| drop_target(&d, &dragged, proposed(view, &d, at, key_of))).flatten();
-        (target, d.edge.clone(), d.mark.clone())
+        let target = within(&list, at).then(|| landing(view, &d, &dragged, at)).flatten();
+        (target, d.edge.clone(), d.mark.clone(), d.tree.clone())
     };
     if let Some(scroll) = view.cast().ok().and_then(|v| find_scroll_viewer(&v)) {
         edge.drag_at(&scroll, &list, at);
     }
-    match target.and_then(|(_, to)| mark_for(view, container_under(view, at, key_of), &to, 0.0)) {
+    let under = container_under(view, at, key_of);
+    if let Some(tree) = tree {
+        tree.rest(target.as_ref().map(|(_, to, _)| to), under.as_ref().map(|(row, ..)| *row));
+    }
+    match target.and_then(|(_, to, x)| mark_for(view, under, &to, x)) {
         Some(shown) => drop_mark.show(&list, shown),
         None => _ = drop_mark.hide(),
     }
@@ -756,7 +781,13 @@ impl List {
     /// A list, or with `table` a table, whose columns come with
     /// `set_columns`.
     pub(crate) fn new(id: NodeId, events: Events, table: bool) -> R<List> {
-        let view = w::ListView::new()?;
+        // XAML's own, not composed: a tree's is (`tree::rows`).
+        let view = windows_core::factory::<w::ListView, windows_core::imp::IGenericFactory>()?.ActivateInstance()?;
+        Self::with_view(view, id, events, table)
+    }
+
+    /// A list on a view of its own: a tree's, which makes its rows.
+    fn with_view(view: w::ListView, id: NodeId, events: Events, table: bool) -> R<List> {
         let style: w::Style = w::XamlReader::Load(ITEM_STYLE)?.cast()?;
         view.cast::<w::IItemsControl>()?.SetItemContainerStyle(&style)?;
         let template: w::DataTemplate = w::XamlReader::Load(ITEM_TEMPLATE)?.cast()?;
@@ -878,10 +909,7 @@ impl List {
                 let Some(at) = view.cast::<w::UIElement>().ok().and_then(|l| args.GetPosition(&l).ok()) else {
                     return;
                 };
-                let moved = {
-                    let d = data.borrow();
-                    drop_target(&d, &dragged, proposed(&view, &d, at, key_of))
-                };
+                let moved = landing(&view, &data.borrow(), &dragged, at).map(|(rows, to, _)| (rows, to));
                 if let Some((rows, to)) = moved {
                     events.emit(id, UiEvent::RowsMoved { rows, to });
                 }
@@ -1224,10 +1252,10 @@ impl List {
         relayout(&self.data, &self.events, self.id);
     }
 
-    /// A table reports its columns' widths instead.
+    /// A table reports its columns' widths instead, and a tree its own.
     fn report_row_width(&self) {
         let mut d = self.data.borrow_mut();
-        if d.width.is_none() || d.is_table() {
+        if d.width.is_none() || d.is_table() || d.is_tree() {
             return;
         }
         let row_width = d.available();
@@ -1237,45 +1265,9 @@ impl List {
         }
     }
 
-    /// Selects rows without reporting it: the selection it expects is set
-    /// first, so the view's `SelectionChanged` finds it reported.
+    /// Selects rows without reporting it (`set_selected`).
     pub(crate) fn set_selected(&self, keys: &[RowKey]) -> R<()> {
-        let (indexes, items, mode) = {
-            let mut d = self.data.borrow_mut();
-            d.selection = keys.to_vec();
-            let indexes: Vec<usize> = keys.iter().filter_map(|k| d.index.get(k).copied()).collect();
-            // Already shown (every change of rows sets it again): a multiple
-            // selection would be cleared and made again, row by row.
-            let mut wanted = indexes.clone();
-            wanted.sort_unstable();
-            let wanted: Vec<RowKey> = wanted.iter().map(|i| d.rows[*i]).collect();
-            if selected(&self.view, &d) == wanted {
-                return Ok(());
-            }
-            let items: Vec<IInspectable> = indexes.iter().map(|i| d.items[*i].clone()).collect();
-            (indexes, items, d.mode)
-        };
-        self.data.borrow_mut().muted = true;
-        let result = self.select_natively(mode, &indexes, &items);
-        self.data.borrow_mut().muted = false;
-        result
-    }
-
-    fn select_natively(&self, mode: SelectionMode, indexes: &[usize], items: &[IInspectable]) -> R<()> {
-        match mode {
-            SelectionMode::None => Ok(()),
-            SelectionMode::Single => {
-                self.view.cast::<w::ISelector>()?.SetSelectedIndex(indexes.first().map_or(-1, |i| *i as i32))
-            }
-            SelectionMode::Multiple => {
-                let selected = self.view.cast::<w::IListViewBase>()?.SelectedItems()?;
-                selected.Clear()?;
-                for item in items {
-                    selected.Append(item)?;
-                }
-                Ok(())
-            }
-        }
+        set_selected(&self.view, &self.data, keys)
     }
 
     pub(crate) fn selected(&self) -> Vec<RowKey> {
@@ -1438,6 +1430,9 @@ impl List {
     fn measure_inset(&self) {
         let inset = {
             let d = self.data.borrow();
+            if d.is_tree() {
+                return;
+            }
             let Some((key, cell)) = d.cells.iter().next() else { return };
             let Some(item) = d.index.get(key).and_then(|i| d.items.get(*i)) else { return };
             let measured = (|| -> R<Option<f32>> {
@@ -1607,6 +1602,45 @@ fn report_offset(events: &Events, id: NodeId, last: &Cell<Point>, scroll: &w::IS
     if last.replace(offset) != offset {
         events.emit(id, UiEvent::Scrolled(offset));
     }
+}
+
+/// Selects rows without reporting it: the selection it expects is set
+/// first, so the view's `SelectionChanged` finds it reported.
+fn set_selected(view: &w::ListView, data: &RefCell<Data>, keys: &[RowKey]) -> R<()> {
+    let (indexes, items, mode) = {
+        let mut d = data.borrow_mut();
+        d.selection = keys.to_vec();
+        let indexes: Vec<usize> = keys.iter().filter_map(|k| d.index.get(k).copied()).collect();
+        // Already shown (every change of rows sets it again): a multiple
+        // selection would be cleared and made again, row by row.
+        let mut wanted = indexes.clone();
+        wanted.sort_unstable();
+        let wanted: Vec<RowKey> = wanted.iter().map(|i| d.rows[*i]).collect();
+        if selected(view, &d) == wanted {
+            return Ok(());
+        }
+        let items: Vec<IInspectable> = indexes.iter().map(|i| d.items[*i].clone()).collect();
+        (indexes, items, d.mode)
+    };
+    data.borrow_mut().muted = true;
+    let result = (|| -> R<()> {
+        match mode {
+            SelectionMode::None => Ok(()),
+            SelectionMode::Single => {
+                view.cast::<w::ISelector>()?.SetSelectedIndex(indexes.first().map_or(-1, |i| *i as i32))
+            }
+            SelectionMode::Multiple => {
+                let selected = view.cast::<w::IListViewBase>()?.SelectedItems()?;
+                selected.Clear()?;
+                for item in &items {
+                    selected.Append(item)?;
+                }
+                Ok(())
+            }
+        }
+    })();
+    data.borrow_mut().muted = false;
+    result
 }
 
 fn selected(view: &w::ListView, d: &Data) -> Vec<RowKey> {

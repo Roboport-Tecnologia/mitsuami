@@ -130,9 +130,10 @@ impl Tweakable for Table {
     type Native = w::ListView;
 }
 
-/// Its `TreeView`, whose rows are its own list's (`ListControl`).
+/// Its list view, whose rows are styled as `TreeViewItem`s: XAML's
+/// `TreeView` selects a folder's rows with the folder.
 impl<T, K, R> Tweakable for Tree<T, K, R> {
-    type Native = w::TreeView;
+    type Native = w::ListView;
 }
 
 /// Its `TabView`, whose items have no content. Its colours are its theme

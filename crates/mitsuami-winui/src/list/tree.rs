@@ -1,17 +1,18 @@
-//! `Tree`: WinUI's `TreeView` of `TreeViewNode`s, a node per row that
-//! shows, whose content is its key (a boxed string, as a list's items
-//! are). A row that opens but whose children aren't sent (it's closed, or
-//! its folder is empty) has `HasUnrealizedChildren`, so the view shows its
-//! glyph. The tree view draws the glyphs, indents the levels, and opens and
-//! closes rows with its own keys; `Expanding` and `Collapsed` report the
-//! user's.
+//! `Tree`: a `List` whose rows nest. XAML's `TreeView` selects several
+//! rows only through its view model, which selects a folder's rows with
+//! the folder and a folder with all its rows (on screen, even where its
+//! list's selection says otherwise), so a tree is the list view a list is,
+//! with its rows' containers styled as `TreeViewItem`s are: the template is
+//! `TreeViewItem.xaml`'s, its chevron and indentation set per row here.
 //!
-//! Its rows are its own `TreeViewList`'s, a `ListView` in its template
-//! (`ListControl`), whose items are the nodes that show: once the template
-//! is applied, its containers are followed as a list's are, each showing a
-//! `Canvas` cell (the tree view's item template) that holds the row's host.
+//! The list's items are the rows that show (`TreeRows`), keyed as a list's;
+//! opening and closing rows is the core's, which sends the rows again. The
+//! chevron, Right and Left, a drag resting on a closed folder and UI
+//! Automation open and close rows as `TreeView` does, and report it. Rows
+//! are tree items to UI Automation, at their level and place among their
+//! siblings, as `TreeViewItem`'s peer has them.
 
-use std::cell::{Cell, RefCell};
+use std::cell::RefCell;
 use std::collections::HashMap;
 use std::path::PathBuf;
 use std::rc::Rc;
@@ -19,115 +20,256 @@ use std::rc::Rc;
 use mitsuami_core::{
     EventValue, ListStyle, NodeId, Point, Rect, RowDrop, RowKey, RowMoves, SelectionMode, TreeIndent, TreeRow, UiEvent,
 };
-use windows_core::{EventRevoker, IInspectable, Interface};
+use windows_core::{EventRevoker, Interface};
 
 use super::{
-    DRAGGED, Data, FRAME_BORDER, ITEM_TEMPLATE, R, container_changed, container_under, dragging, end_drag, files_of,
-    find_scroll_viewer, identity, key_of, mark_for, measure_rows, offset_of, own_drag, place_row, put_in, queue_report,
-    report, report_offset, row_under, start_drag, start_following, take_out, track, within,
+    Data, List, R, container_of, container_of_cell, identity, key_of, measure_rows, report, report_offset, row_under,
 };
-use crate::backend::{Events, boxed};
+use crate::backend::Events;
 use crate::bindings as w;
 
-/// A framed tree: a card's border and background, as a framed list's.
-const FRAMED_STYLE: &str = r#"<Style xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation" TargetType="TreeView">
-    <Setter Property="BorderThickness" Value="1"/>
-    <Setter Property="BorderBrush" Value="{ThemeResource CardStrokeColorDefaultBrush}"/>
-    <Setter Property="Background" Value="{ThemeResource CardBackgroundFillColorDefaultBrush}"/>
+mod rows;
+
+/// Each row's container: `TreeViewItem`'s template (`TreeViewItem.xaml`,
+/// microsoft-ui-xaml), on a `ListViewItem`, without its check box: its
+/// visual states, which the list view drives as it drives a
+/// `TreeViewItem`'s, its padding, height and selection indicator, and its
+/// chevron, whose glyph, opacity and indentation are set per row
+/// (`decorate`). The count of rows dragged shows as `ListViewItem`'s does
+/// (`MultipleDraggingPrimary`).
+const ITEM_STYLE: &str = r#"<Style xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation" xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml" TargetType="ListViewItem">
+    <Setter Property="Padding" Value="0"/>
+    <Setter Property="Margin" Value="0"/>
+    <Setter Property="Background" Value="{ThemeResource TreeViewItemBackground}"/>
+    <Setter Property="BorderBrush" Value="{ThemeResource TreeViewItemBorderBrush}"/>
+    <Setter Property="BorderThickness" Value="{ThemeResource TreeViewItemBorderThemeThickness}"/>
+    <Setter Property="MinHeight" Value="{ThemeResource TreeViewItemMinHeight}"/>
     <Setter Property="CornerRadius" Value="{ThemeResource ControlCornerRadius}"/>
+    <Setter Property="FocusVisualMargin" Value="0,-1,0,-1"/>
+    <Setter Property="HorizontalContentAlignment" Value="Stretch"/>
+    <Setter Property="VerticalContentAlignment" Value="Center"/>
+    <Setter Property="Template">
+        <Setter.Value>
+            <ControlTemplate TargetType="ListViewItem">
+                <Grid x:Name="ContentPresenterGrid" Background="{TemplateBinding Background}" BorderBrush="{TemplateBinding BorderBrush}" BorderThickness="{TemplateBinding BorderThickness}" Margin="{ThemeResource TreeViewItemPresenterMargin}" Padding="{ThemeResource TreeViewItemPresenterPadding}" CornerRadius="{TemplateBinding CornerRadius}">
+                    <VisualStateManager.VisualStateGroups>
+                        <VisualStateGroup x:Name="CommonStates">
+                            <VisualState x:Name="Normal"/>
+                            <VisualState x:Name="PointerOver">
+                                <VisualState.Setters>
+                                    <Setter Target="ContentPresenterGrid.Background" Value="{ThemeResource TreeViewItemBackgroundPointerOver}"/>
+                                    <Setter Target="ContentPresenter.Foreground" Value="{ThemeResource TreeViewItemForegroundPointerOver}"/>
+                                    <Setter Target="SelectionIndicator.Fill" Value="{ThemeResource TreeViewItemSelectionIndicatorForegroundPointerOver}"/>
+                                    <Setter Target="CollapsedGlyph.Foreground" Value="{ThemeResource TreeViewItemForegroundPointerOver}"/>
+                                    <Setter Target="ExpandedGlyph.Foreground" Value="{ThemeResource TreeViewItemForegroundPointerOver}"/>
+                                    <Setter Target="ContentPresenterGrid.BorderBrush" Value="{ThemeResource TreeViewItemBorderBrushPointerOver}"/>
+                                    <Setter Target="SelectionIndicator.Opacity" Value="0"/>
+                                </VisualState.Setters>
+                            </VisualState>
+                            <VisualState x:Name="Pressed">
+                                <VisualState.Setters>
+                                    <Setter Target="ContentPresenterGrid.Background" Value="{ThemeResource TreeViewItemBackgroundPressed}"/>
+                                    <Setter Target="ContentPresenter.Foreground" Value="{ThemeResource TreeViewItemForegroundPressed}"/>
+                                    <Setter Target="SelectionIndicator.Fill" Value="{ThemeResource TreeViewItemSelectionIndicatorForegroundPressed}"/>
+                                    <Setter Target="CollapsedGlyph.Foreground" Value="{ThemeResource TreeViewItemForegroundPressed}"/>
+                                    <Setter Target="ExpandedGlyph.Foreground" Value="{ThemeResource TreeViewItemForegroundPressed}"/>
+                                    <Setter Target="ContentPresenterGrid.BorderBrush" Value="{ThemeResource TreeViewItemBorderBrushPressed}"/>
+                                    <Setter Target="SelectionIndicator.Opacity" Value="0"/>
+                                </VisualState.Setters>
+                            </VisualState>
+                            <VisualState x:Name="Selected">
+                                <VisualState.Setters>
+                                    <Setter Target="ContentPresenterGrid.Background" Value="{ThemeResource TreeViewItemBackgroundSelected}"/>
+                                    <Setter Target="ContentPresenter.Foreground" Value="{ThemeResource TreeViewItemForegroundSelected}"/>
+                                    <Setter Target="SelectionIndicator.Fill" Value="{ThemeResource TreeViewItemSelectionIndicatorForeground}"/>
+                                    <Setter Target="CollapsedGlyph.Foreground" Value="{ThemeResource TreeViewItemForegroundSelected}"/>
+                                    <Setter Target="ExpandedGlyph.Foreground" Value="{ThemeResource TreeViewItemForegroundSelected}"/>
+                                    <Setter Target="ContentPresenterGrid.BorderBrush" Value="{ThemeResource TreeViewItemBorderBrushSelected}"/>
+                                    <Setter Target="SelectionIndicator.Opacity" Value="1"/>
+                                </VisualState.Setters>
+                            </VisualState>
+                            <VisualState x:Name="Disabled">
+                                <VisualState.Setters>
+                                    <Setter Target="ContentPresenterGrid.Background" Value="{ThemeResource TreeViewItemBackgroundDisabled}"/>
+                                    <Setter Target="ContentPresenter.Foreground" Value="{ThemeResource TreeViewItemForegroundDisabled}"/>
+                                    <Setter Target="SelectionIndicator.Fill" Value="{ThemeResource TreeViewItemSelectionIndicatorForegroundDisabled}"/>
+                                    <Setter Target="CollapsedGlyph.Foreground" Value="{ThemeResource TreeViewItemForegroundDisabled}"/>
+                                    <Setter Target="ExpandedGlyph.Foreground" Value="{ThemeResource TreeViewItemForegroundDisabled}"/>
+                                    <Setter Target="ContentPresenterGrid.BorderBrush" Value="{ThemeResource TreeViewItemBorderBrushDisabled}"/>
+                                </VisualState.Setters>
+                            </VisualState>
+                            <VisualState x:Name="PointerOverSelected">
+                                <VisualState.Setters>
+                                    <Setter Target="ContentPresenterGrid.Background" Value="{ThemeResource TreeViewItemBackgroundSelectedPointerOver}"/>
+                                    <Setter Target="ContentPresenter.Foreground" Value="{ThemeResource TreeViewItemForegroundSelectedPointerOver}"/>
+                                    <Setter Target="SelectionIndicator.Fill" Value="{ThemeResource TreeViewItemSelectionIndicatorForegroundPointerOver}"/>
+                                    <Setter Target="CollapsedGlyph.Foreground" Value="{ThemeResource TreeViewItemForegroundSelectedPointerOver}"/>
+                                    <Setter Target="ExpandedGlyph.Foreground" Value="{ThemeResource TreeViewItemForegroundSelectedPointerOver}"/>
+                                    <Setter Target="ContentPresenterGrid.BorderBrush" Value="{ThemeResource TreeViewItemBorderBrushSelectedPointerOver}"/>
+                                    <Setter Target="SelectionIndicator.Opacity" Value="1"/>
+                                </VisualState.Setters>
+                            </VisualState>
+                            <VisualState x:Name="PressedSelected">
+                                <VisualState.Setters>
+                                    <Setter Target="ContentPresenterGrid.Background" Value="{ThemeResource TreeViewItemBackgroundSelectedPressed}"/>
+                                    <Setter Target="ContentPresenter.Foreground" Value="{ThemeResource TreeViewItemForegroundSelectedPressed}"/>
+                                    <Setter Target="SelectionIndicator.Fill" Value="{ThemeResource TreeViewItemSelectionIndicatorForegroundPressed}"/>
+                                    <Setter Target="CollapsedGlyph.Foreground" Value="{ThemeResource TreeViewItemForegroundSelectedPressed}"/>
+                                    <Setter Target="ExpandedGlyph.Foreground" Value="{ThemeResource TreeViewItemForegroundSelectedPressed}"/>
+                                    <Setter Target="ContentPresenterGrid.BorderBrush" Value="{ThemeResource TreeViewItemBorderBrushSelectedPressed}"/>
+                                    <Setter Target="SelectionIndicator.Opacity" Value="1"/>
+                                </VisualState.Setters>
+                            </VisualState>
+                            <VisualState x:Name="SelectedDisabled">
+                                <VisualState.Setters>
+                                    <Setter Target="ContentPresenterGrid.Background" Value="{ThemeResource TreeViewItemBackgroundSelectedDisabled}"/>
+                                    <Setter Target="ContentPresenter.Foreground" Value="{ThemeResource TreeViewItemForegroundSelectedDisabled}"/>
+                                    <Setter Target="SelectionIndicator.Fill" Value="{ThemeResource TreeViewItemSelectionIndicatorForegroundDisabled}"/>
+                                    <Setter Target="CollapsedGlyph.Foreground" Value="{ThemeResource TreeViewItemForegroundSelectedDisabled}"/>
+                                    <Setter Target="ExpandedGlyph.Foreground" Value="{ThemeResource TreeViewItemForegroundSelectedDisabled}"/>
+                                    <Setter Target="ContentPresenterGrid.BorderBrush" Value="{ThemeResource TreeViewItemBorderBrushSelectedDisabled}"/>
+                                    <Setter Target="SelectionIndicator.Opacity" Value="1"/>
+                                </VisualState.Setters>
+                            </VisualState>
+                        </VisualStateGroup>
+                        <VisualStateGroup x:Name="DragStates">
+                            <VisualState x:Name="NotDragging"/>
+                            <VisualState x:Name="MultipleDraggingPrimary">
+                                <VisualState.Setters>
+                                    <Setter Target="MultiArrangeOverlayTextBorder.Visibility" Value="Visible"/>
+                                </VisualState.Setters>
+                            </VisualState>
+                        </VisualStateGroup>
+                    </VisualStateManager.VisualStateGroups>
+                    <Rectangle x:Name="SelectionIndicator" Width="3" Height="16" Fill="{ThemeResource TreeViewItemSelectionIndicatorForeground}" Opacity="0" HorizontalAlignment="Left" VerticalAlignment="Center" RadiusX="2" RadiusY="2"/>
+                    <Grid>
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="Auto"/>
+                            <ColumnDefinition/>
+                        </Grid.ColumnDefinitions>
+                        <Grid x:Name="ExpandCollapseChevron" Padding="14,0" Background="Transparent">
+                            <TextBlock x:Name="CollapsedGlyph" Foreground="{ThemeResource TreeViewItemForeground}" Width="12" Height="12" FontSize="8" Text="&#xE76C;" FontFamily="{StaticResource SymbolThemeFontFamily}" Padding="2" VerticalAlignment="Center" AutomationProperties.AccessibilityView="Raw" IsTextScaleFactorEnabled="False" IsHitTestVisible="False"/>
+                            <TextBlock x:Name="ExpandedGlyph" Foreground="{ThemeResource TreeViewItemForeground}" Width="12" Height="12" FontSize="8" Text="&#xE70D;" FontFamily="{StaticResource SymbolThemeFontFamily}" Padding="2" VerticalAlignment="Center" Visibility="Collapsed" AutomationProperties.AccessibilityView="Raw" IsTextScaleFactorEnabled="False" IsHitTestVisible="False"/>
+                        </Grid>
+                        <Border x:Name="MultiArrangeOverlayTextBorder" Visibility="Collapsed" IsHitTestVisible="False" MinWidth="20" Height="20" VerticalAlignment="Center" HorizontalAlignment="Center" Background="{ThemeResource SystemControlBackgroundAccentBrush}" BorderThickness="1" BorderBrush="{ThemeResource SystemControlBackgroundChromeWhiteBrush}" CornerRadius="{ThemeResource ControlCornerRadius}">
+                            <TextBlock Text="{Binding RelativeSource={RelativeSource TemplatedParent}, Path=TemplateSettings.DragItemsCount}" Style="{ThemeResource CaptionTextBlockStyle}" Foreground="{ThemeResource SystemControlForegroundChromeWhiteBrush}" IsHitTestVisible="False" VerticalAlignment="Center" HorizontalAlignment="Center" AutomationProperties.AccessibilityView="Raw"/>
+                        </Border>
+                        <ContentPresenter x:Name="ContentPresenter" Grid.Column="1" ContentTransitions="{TemplateBinding ContentTransitions}" ContentTemplate="{TemplateBinding ContentTemplate}" Content="{TemplateBinding Content}" Foreground="{TemplateBinding Foreground}" HorizontalAlignment="{TemplateBinding HorizontalContentAlignment}" VerticalAlignment="{TemplateBinding VerticalContentAlignment}" MinHeight="{ThemeResource TreeViewItemContentHeight}" Margin="{TemplateBinding Padding}"/>
+                    </Grid>
+                </Grid>
+            </ControlTemplate>
+        </Setter.Value>
+    </Setter>
 </Style>"#;
 
-const PLAIN_STYLE: &str =
-    r#"<Style xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation" TargetType="TreeView"/>"#;
-
-/// How far `TreeViewItem` indents each level (its template settings'
-/// `Indentation` is 16 a level), until a row below the top shows.
+/// How far each level is indented (`TreeViewItem::UpdateIndentation`'s
+/// 16 a level), until a row below the top shows.
 const PER_LEVEL: f32 = 16.0;
 
-/// The nodes, and what was sent.
+/// How long rows dragged onto a closed folder rest there before it opens,
+/// so they can go further in, as AppKit's outline view and GTK's tree
+/// expander open one: XAML's own (`TreeViewItem`'s `c_dragOverInterval`).
+const OPEN_AFTER: std::time::Duration = std::time::Duration::from_secs(1);
+
+/// What was sent, and what's measured from it.
 #[derive(Default)]
 struct Nodes {
-    by_key: HashMap<RowKey, w::TreeViewNode>,
     /// Each row as sent: its parent, depth, and whether it opens and is
-    /// open.
+    /// open; and its place among its siblings, and how many there are.
     rows: HashMap<RowKey, TreeRow>,
+    sets: HashMap<RowKey, (i32, i32)>,
     /// The indent last reported.
     indent: Option<TreeIndent>,
     /// How far short of the tree's inside a top row's content ends: the
-    /// room `TreeViewItem` keeps at its sides (`report_row_width`).
+    /// room the item keeps at its sides (`report_row_width`).
     short: Option<f32>,
     /// The closed folder a drag of its own rows rests on, and since when
     /// (`OPEN_AFTER`).
     hover: Option<(RowKey, std::time::Instant)>,
+    /// Each container's chevron's handler, by container.
+    chevrons: HashMap<usize, EventRevoker>,
 }
 
-/// How long rows dragged onto a closed folder rest there before it opens,
-/// so they can go further in, as AppKit's outline view and GTK's tree
-/// expander open one: XAML's own (`TreeViewItem`'s `c_dragOverInterval`),
-/// which it only keeps while it reorders the rows itself.
-const OPEN_AFTER: std::time::Duration = std::time::Duration::from_secs(1);
+/// Where a list's own rows dragged over it land, when the list is a
+/// tree's, and what resting over a folder does (`super::landing`).
+pub(super) trait Landing {
+    /// The rows that move from `dragged` to `at`, where to, and where the
+    /// mark's line starts; `None` when they're refused.
+    fn target(
+        &self,
+        view: &w::ListView,
+        d: &Data,
+        dragged: &[RowKey],
+        at: w::Point,
+    ) -> Option<(Vec<RowKey>, RowDrop<RowKey>, f64)>;
+    /// The pointer moved over `under`, where the rows would land at `to`.
+    fn rest(&self, to: Option<&RowDrop<RowKey>>, under: Option<RowKey>);
+}
 
-pub(crate) struct Tree {
-    pub view: w::TreeView,
+/// A tree's `Landing`: rows go where every tree puts them
+/// (`RowMoves::tree_target`), and a closed folder opens under them.
+struct Folders {
+    view: w::ListView,
     id: NodeId,
     events: Events,
-    data: Rc<RefCell<Data>>,
     nodes: Rc<RefCell<Nodes>>,
-    /// Set while the backend opens and closes rows itself: `Expanding` and
-    /// `Collapsed` are the user's otherwise.
-    expanding: Rc<Cell<bool>>,
-    /// The scroll offset last reported.
-    pub offset: Rc<Cell<Point>>,
-    /// Finds the tree view's list.
-    hook: Hook,
-    revokers: Rc<RefCell<Vec<EventRevoker>>>,
 }
 
-type DragHandler = Rc<dyn Fn(&w::DragEventArgs)>;
-
-/// What following the tree view's own list takes, once its template is
-/// applied: the tree has it, and so does its first layout's handler.
-#[derive(Clone)]
-struct Hook {
-    view: w::TreeView,
-    id: NodeId,
-    events: Events,
-    data: Rc<RefCell<Data>>,
-    /// The tree view's own list, once its template is applied: a drag over
-    /// the tree asks its containers where the pointer is.
-    inner: Rc<RefCell<Option<w::ListView>>>,
-    /// What a drag of its own rows over it does, and a drop: on the tree
-    /// view, and on its list once that's found, which handles them first.
-    drag_over: DragHandler,
-    drop_rows: DragHandler,
-    /// The tree's, which hold this hook's handler too.
-    revokers: std::rc::Weak<RefCell<Vec<EventRevoker>>>,
-}
-
-/// A row's key: its node's content's, or the item's own.
-fn node_key(item: &IInspectable) -> Option<RowKey> {
-    match item.cast::<w::ITreeViewNode>() {
-        Ok(node) => key_of(&node.Content().ok()?),
-        Err(_) => key_of(item),
+impl Landing for Folders {
+    fn target(
+        &self,
+        view: &w::ListView,
+        d: &Data,
+        dragged: &[RowKey],
+        at: w::Point,
+    ) -> Option<(Vec<RowKey>, RowDrop<RowKey>, f64)> {
+        let nodes = self.nodes.borrow();
+        let (over, proposed) = proposed(view, d, &nodes, at);
+        let (rows, to) = drop_target(d, &nodes.rows, dragged, over, proposed)?;
+        // From where the rows of the level they land at start: the row's
+        // before one, inside the folder for the end of one, the top rows'
+        // for the end.
+        let level = match &to {
+            RowDrop::Before(r) => nodes.rows.get(r).map_or(0, |r| r.depth),
+            RowDrop::On(f) => nodes.rows.get(f).map_or(0, |f| f.depth + 1),
+            RowDrop::End => 0,
+        };
+        let indent = nodes.indent.unwrap_or(TreeIndent { start: 0.0, per_level: PER_LEVEL });
+        Some((rows, to, f64::from(indent.start + level as f32 * indent.per_level)))
     }
-}
 
-/// Makes a node collection hold these nodes, by the fewest changes: the
-/// nodes before and after the part that changed stay, and so do their
-/// containers.
-fn sync(vector: &windows_collections::IVector<w::TreeViewNode>, nodes: &[w::TreeViewNode]) -> R<()> {
-    let old: Vec<usize> = (0..vector.Size()?).filter_map(|i| vector.GetAt(i).ok()).map(|n| identity(&n)).collect();
-    let new: Vec<usize> = nodes.iter().map(identity).collect();
-    let prefix = old.iter().zip(&new).take_while(|(a, b)| a == b).count();
-    let suffix = old[prefix..].iter().rev().zip(new[prefix..].iter().rev()).take_while(|(a, b)| a == b).count();
-    // From the end, so the nodes still to go don't move.
-    for i in (prefix..old.len() - suffix).rev() {
-        vector.RemoveAt(i as u32)?;
+    /// Onto the closed folder under the pointer, for long enough: it opens,
+    /// as the user would open it.
+    fn rest(&self, to: Option<&RowDrop<RowKey>>, under: Option<RowKey>) {
+        let onto = match (to, under) {
+            (Some(RowDrop::On(folder)), Some(row)) if *folder == row => Some(row),
+            _ => None,
+        };
+        let open = {
+            let mut nodes = self.nodes.borrow_mut();
+            let closed = onto.filter(|f| nodes.rows.get(f).is_some_and(|r| r.expandable && !r.expanded));
+            match (closed, nodes.hover) {
+                (Some(folder), Some((resting, since))) if resting == folder => {
+                    let due = since.elapsed() >= OPEN_AFTER;
+                    if due {
+                        nodes.hover = None;
+                    }
+                    due.then_some(folder)
+                }
+                (Some(folder), _) => {
+                    nodes.hover = Some((folder, std::time::Instant::now()));
+                    None
+                }
+                (None, _) => {
+                    nodes.hover = None;
+                    None
+                }
+            }
+        };
+        if let Some(folder) = open {
+            set_open(&self.view, &self.nodes, &self.events, self.id, folder, true);
+        }
     }
-    for (i, node) in nodes[prefix..nodes.len() - suffix].iter().enumerate() {
-        vector.InsertAt((prefix + i) as u32, node)?;
-    }
-    Ok(())
 }
 
 /// Where rows dragged within the tree land: `RowMoves::tree_target` of
@@ -150,691 +292,413 @@ fn drop_target(
 
 /// The row under a drag's pointer, and what the pointer proposes there, as
 /// every tree proposes (`RowMoves::tree_proposal`): below the rows, the end.
-fn tree_proposed(list: &w::ListView, d: &Data, nodes: &Nodes, at: w::Point) -> (Option<RowKey>, RowDrop<RowKey>) {
-    let Some((row, y, height)) = row_under(list, at, node_key) else { return (None, RowDrop::End) };
+fn proposed(view: &w::ListView, d: &Data, nodes: &Nodes, at: w::Point) -> (Option<RowKey>, RowDrop<RowKey>) {
+    let Some((row, y, height)) = row_under(view, at, key_of) else { return (None, RowDrop::End) };
     let next = d.index.get(&row).and_then(|i| d.rows.get(i + 1)).copied();
     // Across the list, whose rows start at its edge: it picks the level.
-    let x = Some(at.x);
     let indent = nodes.indent.unwrap_or(TreeIndent { start: 0.0, per_level: PER_LEVEL });
-    let proposed =
-        RowMoves::tree_proposal(row, x, y as f32, height as f32, indent, next, |r| nodes.rows.get(&r).copied());
+    let proposed = RowMoves::tree_proposal(row, Some(at.x), y as f32, height as f32, indent, next, |r| {
+        nodes.rows.get(&r).copied()
+    });
     (Some(row), proposed)
 }
 
-/// Where the tree's own rows dragged to `at` in its list would land: the
-/// mark shows it, a line from where the rows of the level they land at
-/// start (the row's before one, inside the folder for the end of one, the
-/// top rows' for the end), and the list scrolls near its edges.
-fn follow_drag(
-    view: &w::TreeView,
-    list: &w::ListView,
-    data: &Rc<RefCell<Data>>,
+/// Opens or closes a row as the user does, and reports it: the core takes
+/// the row as shown open already, as `TreeView` shows it, and sends its
+/// rows next.
+fn set_open(view: &w::ListView, nodes: &Rc<RefCell<Nodes>>, events: &Events, id: NodeId, row: RowKey, open: bool) {
+    let Some(sent) = nodes.borrow_mut().rows.get_mut(&row).map(|r| {
+        r.expanded = open;
+        *r
+    }) else {
+        return;
+    };
+    let container = (|| {
+        let item = item_of(view, row)?;
+        view.cast::<w::IItemContainerMapping>().ok()?.ContainerFromItem(&item).ok()?.cast::<w::DependencyObject>().ok()
+    })();
+    if let Some(container) = container {
+        decorate(view, nodes, events, id, &container);
+        announce(&container, open);
+    }
+    events.emit(id, UiEvent::RowExpanded(sent.row, open));
+}
+
+/// Tells UI Automation a row opened or closed, through its peer, if a
+/// client made one, as `TreeViewItemAutomationPeer` does.
+fn announce(container: &w::DependencyObject, open: bool) {
+    let state = |open| if open { w::ExpandCollapseState::Expanded } else { w::ExpandCollapseState::Collapsed };
+    let Some(peer) = container
+        .cast::<w::UIElement>()
+        .ok()
+        .and_then(|element| w::FrameworkElementAutomationPeer::FromElement(&element).ok())
+        .and_then(|peer| peer.cast::<w::IAutomationPeer>().ok())
+    else {
+        return;
+    };
+    let Ok(property) = w::ExpandCollapsePatternIdentifiers::ExpandCollapseStateProperty() else { return };
+    let old: windows_core::IInspectable = windows_reference::IReference::from(state(!open)).into();
+    let new: windows_core::IInspectable = windows_reference::IReference::from(state(open)).into();
+    _ = peer.RaisePropertyChangedEvent(&property, &old, &new);
+}
+
+/// The list's item for a row, if it shows.
+fn item_of(view: &w::ListView, row: RowKey) -> Option<windows_core::IInspectable> {
+    let items = view.cast::<w::IItemsControl>().ok()?.Items().ok()?;
+    (0..items.Size().ok()?).filter_map(|i| items.GetAt(i).ok()).find(|item| key_of(item) == Some(row))
+}
+
+/// A part of a container's template, by name.
+fn part<T: Interface>(container: &w::DependencyObject, name: &str) -> Option<T> {
+    let root: w::FrameworkElement = w::VisualTreeHelper::GetChild(container, 0).ok()?.cast().ok()?;
+    root.cast::<w::IFrameworkElement>().ok()?.FindName(name).ok()?.cast().ok()
+}
+
+/// Shows a row in its container as `TreeViewItem` shows it: indented by
+/// its depth, its chevron (open or closed) only where it opens, and to UI
+/// Automation a tree item at its level and place among its siblings. The
+/// chevron opens and closes the row the container shows (`chevron`).
+fn decorate(
+    view: &w::ListView,
     nodes: &Rc<RefCell<Nodes>>,
+    events: &Events,
     id: NodeId,
-    at: w::Point,
+    container: &w::DependencyObject,
 ) {
-    let Some(dragged) = dragging(id) else { return };
-    let Ok(element) = list.cast::<w::UIElement>() else { return };
-    let under = container_under(list, at, node_key);
-    let (to, line_x, edge, drop_mark) = {
-        let d = data.borrow();
-        let nodes = nodes.borrow();
-        let target = within(&element, at)
-            .then(|| {
-                let (over, proposed) = tree_proposed(list, &d, &nodes, at);
-                drop_target(&d, &nodes.rows, &dragged, over, proposed)
-            })
-            .flatten();
-        let to = target.map(|(_, to)| to);
-        let line_x = to.as_ref().map_or(0.0, |to| {
-            let level = match to {
-                RowDrop::Before(r) => nodes.rows.get(r).map_or(0, |r| r.depth),
-                RowDrop::On(f) => nodes.rows.get(f).map_or(0, |f| f.depth + 1),
-                RowDrop::End => 0,
-            };
-            let indent = nodes.indent.unwrap_or(TreeIndent { start: 0.0, per_level: PER_LEVEL });
-            f64::from(indent.start + level as f32 * indent.per_level)
-        });
-        (to, line_x, d.edge.clone(), d.mark.clone())
+    let Some(key) = view
+        .cast::<w::IItemContainerMapping>()
+        .ok()
+        .and_then(|m| m.ItemFromContainer(container).ok())
+        .as_ref()
+        .and_then(key_of)
+    else {
+        return;
     };
-    if let Some(scroll) = list.cast().ok().and_then(|l| find_scroll_viewer(&l)) {
-        edge.drag_at(&scroll, &element, at);
+    let (row, set) = {
+        let n = nodes.borrow();
+        let Some(row) = n.rows.get(&key).copied() else { return };
+        (row, n.sets.get(&key).copied().unwrap_or((1, 1)))
+    };
+    if let Ok(element) = container.cast::<w::UIElement>() {
+        _ = w::AutomationProperties::SetAutomationControlType(&element, w::AutomationControlType::TreeItem);
     }
-    // Onto the closed folder under the pointer, for long enough: it opens,
-    // as the user would open it (`Expanding` reports it).
-    let onto = match (&to, &under) {
-        (Some(RowDrop::On(folder)), Some((row, ..))) if folder == row => Some(*folder),
-        _ => None,
-    };
-    let open = {
-        let mut nodes = nodes.borrow_mut();
-        let closed = onto.filter(|f| nodes.rows.get(f).is_some_and(|r| r.expandable && !r.expanded));
-        match (closed, nodes.hover) {
-            (Some(folder), Some((resting, since))) if resting == folder => {
-                let due = since.elapsed() >= OPEN_AFTER;
-                if due {
-                    nodes.hover = None;
-                }
-                due.then(|| nodes.by_key.get(&folder).cloned()).flatten()
-            }
-            (Some(folder), _) => {
-                nodes.hover = Some((folder, std::time::Instant::now()));
-                None
-            }
-            (None, _) => {
-                nodes.hover = None;
-                None
-            }
+    _ = w::AutomationProperties::SetLevel(container, row.depth as i32 + 1);
+    _ = w::AutomationProperties::SetPositionInSet(container, set.0);
+    _ = w::AutomationProperties::SetSizeOfSet(container, set.1);
+    let Some(chevron) = part::<w::FrameworkElement>(container, "ExpandCollapseChevron") else { return };
+    let margin = w::Thickness { left: f64::from(row.depth) * f64::from(PER_LEVEL), top: 0.0, right: 0.0, bottom: 0.0 };
+    _ = chevron.cast::<w::IFrameworkElement>().and_then(|c| c.SetMargin(margin));
+    // A row that doesn't open keeps the chevron's room, as `TreeViewItem`
+    // does (its `GlyphOpacity`).
+    if let Ok(element) = chevron.cast::<w::IUIElement>() {
+        _ = element.SetOpacity(if row.expandable { 1.0 } else { 0.0 });
+        _ = element.SetIsHitTestVisible(row.expandable);
+    }
+    let shown = |name: &str, show: bool| {
+        if let Some(glyph) = part::<w::IUIElement>(container, name) {
+            _ = glyph.SetVisibility(if show { w::Visibility::Visible } else { w::Visibility::Collapsed });
         }
     };
-    if let Some(node) = open {
-        _ = view.cast::<w::ITreeView>().and_then(|v| v.Expand(&node));
-    }
-    match to.and_then(|to| mark_for(list, under, &to, line_x)) {
-        Some(shown) => drop_mark.show(&element, shown),
-        None => _ = drop_mark.hide(),
-    }
+    shown("CollapsedGlyph", !row.expanded);
+    shown("ExpandedGlyph", row.expanded);
+    chevron_follows(view, nodes, events, id, container, &chevron);
 }
 
-/// A drag of the tree's own rows over `element`, its drop, and its leaving.
-fn listen_to_drags(
-    element: &w::UIElement,
-    data: &Rc<RefCell<Data>>,
-    drag_over: &DragHandler,
-    drop_rows: &DragHandler,
-) -> R<Vec<EventRevoker>> {
-    let element = element.cast::<w::IUIElement>()?;
-    let (over, dropped, data) = (drag_over.clone(), drop_rows.clone(), data.clone());
-    // A row the pointer comes into sets the drag to nothing
-    // (`TreeViewItem::OnDragEnter`), which showed as refused until the
-    // pointer moved again: coming in is answered as moving over.
-    let entered = over.clone();
-    Ok(vec![
-        element.DragEnter(move |_, args| {
-            if let Some(args) = args.as_ref() {
-                entered(args);
-            }
-        })?,
-        element.DragOver(move |_, args| {
-            if let Some(args) = args.as_ref() {
-                over(args);
-            }
-        })?,
-        element.Drop(move |_, args| {
-            if let Some(args) = args.as_ref() {
-                dropped(args);
-            }
-        })?,
-        element.DragLeave({
-            let element = element.cast::<w::UIElement>()?;
-            move |_, args| {
-                if args.as_ref().is_some_and(|args| super::mark::still_over(&element, args)) {
-                    return;
-                }
-                let d = data.borrow();
-                d.edge.stop();
-                _ = d.mark.hide();
-            }
-        })?,
-    ])
-}
-
-/// The rows a node collection shows, down through the open ones.
-fn walk(
-    vector: &windows_collections::IVector<w::TreeViewNode>,
-    parent: Option<RowKey>,
-    depth: u32,
-    out: &mut Vec<TreeRow>,
+/// A press on a container's chevron opens or closes the row it shows, and
+/// isn't a press on the row (it doesn't select it), as `TreeViewItem`'s
+/// `OnExpandCollapseChevronPointerPressed` has it. Once per container.
+fn chevron_follows(
+    view: &w::ListView,
+    nodes: &Rc<RefCell<Nodes>>,
+    events: &Events,
+    id: NodeId,
+    container: &w::DependencyObject,
+    chevron: &w::FrameworkElement,
 ) {
-    for node in (0..vector.Size().unwrap_or(0)).filter_map(|i| vector.GetAt(i).ok()) {
-        let Some(row) = node.cast::<IInspectable>().ok().as_ref().and_then(node_key) else { continue };
-        let Ok(node) = node.cast::<w::ITreeViewNode>() else { continue };
-        let expandable = node.HasChildren().unwrap_or(false) || node.HasUnrealizedChildren().unwrap_or(false);
-        let expanded = node.IsExpanded().unwrap_or(false);
-        out.push(TreeRow { row, parent, depth, expandable, expanded });
-        if expanded && let Ok(children) = node.Children() {
-            walk(&children, Some(row), depth + 1, out);
+    let container_key = identity(container);
+    if nodes.borrow().chevrons.contains_key(&container_key) {
+        return;
+    }
+    let Ok(element) = chevron.cast::<w::IUIElement>() else { return };
+    // Weak: the chevron holds its handler, and the handler what it reads.
+    let (view, weak, events, container) = (view.clone(), Rc::downgrade(nodes), events.clone(), container.clone());
+    let revoker = element.PointerPressed(move |_, args| {
+        let Some(nodes) = weak.upgrade() else { return };
+        let item = view.cast::<w::IItemContainerMapping>().ok().and_then(|m| m.ItemFromContainer(&container).ok());
+        let Some(row) = item.as_ref().and_then(key_of).and_then(|k| nodes.borrow().rows.get(&k).copied()) else {
+            return;
+        };
+        if row.expandable {
+            set_open(&view, &nodes, &events, id, row.row, !row.expanded);
         }
+        if let Some(args) = args.as_ref().and_then(|a| a.cast::<w::IPointerRoutedEventArgs>().ok()) {
+            _ = args.SetHandled(true);
+        }
+    });
+    if let Ok(revoker) = revoker {
+        nodes.borrow_mut().chevrons.insert(container_key, revoker);
     }
 }
 
-impl Hook {
-    /// The tree view's own list, from its template once it's applied (in
-    /// a window, at its first layout), with its containers followed as a
-    /// list's. The containers it realised before are taken in as they are.
-    fn find(&self) -> Option<w::ListView> {
-        if let Some(inner) = self.inner.borrow().clone() {
-            return Some(inner);
+/// Right and Left on a row, as `TreeViewItem::HandleExpandCollapse` has
+/// them: Right opens a closed folder, and goes into an open one (to its
+/// first row); Left closes an open folder, and goes out of a row (to its
+/// folder). Going to a row selects it, as the arrows do. False when
+/// there's nowhere to go.
+fn arrow(tree: &Arrows, row: RowKey, right: bool) -> bool {
+    let (sent, rows) = {
+        let n = tree.nodes.borrow();
+        let Some(sent) = n.rows.get(&row).copied() else { return false };
+        (sent, tree.data.borrow().rows.clone())
+    };
+    let to = match (right, sent.expandable, sent.expanded) {
+        (true, true, false) | (false, true, true) => {
+            set_open(&tree.view, &tree.nodes, &tree.events, tree.id, row, right);
+            return true;
         }
-        let revokers = self.revokers.upgrade()?;
-        let inner = find_tree_list(&self.view.cast().ok()?)?;
-        let (data, events, id) = (self.data.clone(), self.events.clone(), self.id);
-        let revoker = inner.cast::<w::IListViewBase>().ok()?.ContainerContentChanging(move |_, args| {
-            if let Some(args) = args.as_ref().and_then(|a| a.cast::<w::IContainerContentChangingEventArgs>().ok()) {
-                let key = args.Item().ok().as_ref().and_then(node_key);
-                container_changed(&data, &events, id, &args, key);
+        (true, true, true) => {
+            let at = rows.iter().position(|r| *r == row).map(|i| i + 1);
+            let child = at.and_then(|i| rows.get(i)).copied();
+            child.filter(|c| tree.nodes.borrow().rows.get(c).is_some_and(|r| r.parent == Some(row)))
+        }
+        (false, ..) => sent.parent,
+        (true, false, _) => None,
+    };
+    let Some(to) = to else { return false };
+    tree.go_to(to);
+    true
+}
+
+/// What the keys and UI Automation reach of a tree from its handlers.
+#[derive(Clone)]
+struct Arrows {
+    view: w::ListView,
+    data: Rc<RefCell<Data>>,
+    nodes: Rc<RefCell<Nodes>>,
+    events: Events,
+    id: NodeId,
+}
+
+impl Arrows {
+    /// Moves to a row as the arrows do: it's selected, shown and focused.
+    fn go_to(&self, row: RowKey) {
+        if self.data.borrow().mode != SelectionMode::None {
+            let before = super::selected(&self.view, &self.data.borrow());
+            if super::set_selected(&self.view, &self.data, &[row]).is_ok() && before != [row] {
+                self.events.emit(self.id, UiEvent::Changed(EventValue::Rows(vec![row])));
             }
-        });
-        if let Ok(revoker) = revoker {
-            revokers.borrow_mut().push(revoker);
         }
-        let revoker = inner.cast::<w::ISelector>().ok()?.SelectionChanged({
-            let (view, list, data, events, id) =
-                (self.view.clone(), inner.clone(), self.data.clone(), self.events.clone(), self.id);
-            move |_, _| report_selection(&view, Some(&list), &data, &events, id)
-        });
-        if let Ok(revoker) = revoker {
-            revokers.borrow_mut().push(revoker);
-        }
-        if let Ok(element) = inner.cast::<w::UIElement>()
-            && let Ok(drags) = listen_to_drags(&element, &self.data, &self.drag_over, &self.drop_rows)
+        let item = {
+            let d = self.data.borrow();
+            d.index.get(&row).map(|i| d.items[*i].clone())
+        };
+        let Some(item) = item else { return };
+        _ = self.view.cast::<w::IListViewBase>().and_then(|l| l.ScrollIntoView(&item));
+        _ = self.view.cast::<w::IUIElement>().and_then(|e| e.UpdateLayout());
+        if let Ok(container) = self.view.cast::<w::IItemContainerMapping>().and_then(|m| m.ContainerFromItem(&item))
+            && let Ok(container) = container.cast::<w::IUIElement>()
         {
-            revokers.borrow_mut().extend(drags);
+            _ = container.Focus(w::FocusState::Keyboard);
         }
-        *self.inner.borrow_mut() = Some(inner.clone());
-        let mode = self.data.borrow().mode;
-        if extend(&inner, mode).is_ok() && mode == SelectionMode::Multiple {
-            // What the app selected before the list was found.
-            select_items(&inner, &self.data);
-        }
-        self.take_realised(&inner);
-        Some(inner)
     }
+}
 
-    /// The containers the list realised before it was followed: each
-    /// takes its row's hosts, as when it's realised.
-    fn take_realised(&self, inner: &w::ListView) {
-        let Some(panel) = inner.cast::<w::IItemsControl>().ok().and_then(|c| c.ItemsPanelRoot().ok()) else { return };
-        let Ok(mapping) = inner.cast::<w::IItemContainerMapping>() else { return };
-        let Ok(children) = panel.cast::<w::IPanel>().and_then(|p| p.Children()) else { return };
-        let mut d = self.data.borrow_mut();
-        for container in (0..children.Size().unwrap_or(0)).filter_map(|i| children.GetAt(i).ok()) {
-            let Ok(container) = container.cast::<w::DependencyObject>() else { continue };
-            let Some(key) = mapping.ItemFromContainer(&container).ok().as_ref().and_then(node_key) else { continue };
-            let Some(cell) = container
-                .cast::<w::IContentControl>()
-                .and_then(|c| c.ContentTemplateRoot())
-                .ok()
-                .and_then(|root| root.cast::<w::Canvas>().ok())
-            else {
-                continue;
-            };
-            let container_key = identity(&container);
-            if d.container_rows.contains_key(&container_key) {
-                continue;
-            }
-            let hosts: Vec<w::UIElement> = super::row_hosts(&d, key).cloned().collect();
-            for host in hosts {
-                put_in(&cell, &host);
-            }
-            d.cells.insert(key, cell);
-            place_row(&d, key);
-            d.container_rows.insert(container_key, key);
-            *d.bound.entry(key).or_default() += 1;
-        }
-        queue_report(&self.data, &mut d, &self.events, self.id);
-    }
+pub(crate) struct Tree {
+    pub view: w::ListView,
+    list: List,
+    arrows: Arrows,
 }
 
 impl Tree {
     pub(crate) fn new(id: NodeId, events: Events) -> R<Tree> {
-        let view = w::TreeView::new()?;
-        let template: w::DataTemplate = w::XamlReader::Load(ITEM_TEMPLATE)?.cast()?;
-        view.cast::<w::ITreeView2>()?.SetItemTemplate(&template)?;
-        let data = Rc::new(RefCell::new(Data::default()));
         let nodes: Rc<RefCell<Nodes>> = Rc::default();
-        let inner: Rc<RefCell<Option<w::ListView>>> = Rc::default();
-        let expanding = Rc::new(Cell::new(false));
+        let rows = rows::Rows { nodes: Rc::downgrade(&nodes), events: events.clone(), id };
+        let view = w::ListView::compose(rows::TreeList::new(rows))?;
+        let list = List::with_view(view.clone(), id, events.clone(), false)?;
+        let style: w::Style = w::XamlReader::Load(ITEM_STYLE)?.cast()?;
+        view.cast::<w::IItemsControl>()?.SetItemContainerStyle(&style)?;
+        // Rows just show as folders open, without the list view's slide and
+        // fade (the maintainer's choice, 2026-10-28; `TreeView` had them
+        // too). A tweak can give them back.
+        crate::tweak::remove_item_animations(&view)?;
+        w::AutomationProperties::SetAutomationControlType(
+            &view.cast::<w::UIElement>()?,
+            w::AutomationControlType::Tree,
+        )?;
+        list.data.borrow_mut().tree =
+            Some(Rc::new(Folders { view: view.clone(), id, events: events.clone(), nodes: nodes.clone() })
+                as Rc<dyn Landing>);
+        let arrows = Arrows { view: view.clone(), data: list.data.clone(), nodes, events, id };
+
         let mut revokers = Vec::new();
-
-        // XAML's tree view drags its nodes, and moves them itself where
-        // they're dropped. The app moves its data here, so the tree view
-        // never reorders, and drags only once its rows move within it or
-        // carry files (`set_moves`, `set_row_files`).
-        let tree = view.cast::<w::ITreeView2>()?;
-        tree.SetCanReorderItems(false)?;
-        tree.SetCanDragItems(false)?;
-        view.cast::<w::IUIElement>()?.SetAllowDrop(false)?;
-        // Where its own rows dragged over it would land, followed as the
-        // pointer moves (`track`): the mark, and the edge scrolling.
-        let follow: track::Follow = Rc::new({
-            let (view, data, nodes, inner) = (view.clone(), data.clone(), nodes.clone(), inner.clone());
-            move |at| {
-                if let Some(list) = inner.borrow().clone() {
-                    follow_drag(&view, &list, &data, &nodes, id, at);
-                }
-            }
-        });
-        revokers.push(tree.DragItemsStarting({
-            let (data, inner) = (data.clone(), inner.clone());
+        // After the list's own handler, which put the row's host in it.
+        revokers.push(view.cast::<w::IListViewBase>()?.ContainerContentChanging({
+            let arrows = arrows.clone();
             move |_, args| {
-                let Some(args) = args.as_ref() else { return };
-                let rows: Vec<RowKey> = args
-                    .Items()
-                    .map(|items| (&items).into_iter().filter_map(|i| node_key(&i)).collect())
-                    .unwrap_or_default();
-                let Ok(package) = args.Data() else { return };
-                if !start_drag(&data.borrow(), id, rows, &package) {
-                    _ = args.SetCancel(true);
-                    return;
-                }
-                if let Some(scroll) = inner.borrow().as_ref().and_then(|l| find_scroll_viewer(&l.cast().ok()?)) {
-                    start_following(&data, &scroll, &follow);
-                }
-            }
-        })?);
-        // Its own rows dragged over it: they go where `RowMoves::
-        // tree_target` puts them. The events come from its list, which
-        // takes drops itself only while it reorders, and scrolls near its
-        // edges, too eagerly for a short tree (`edge`): its list handles
-        // them, once found (`inner`), and the tree view until then.
-        //
-        // Always taken, and as a copy. A copy, not a move: XAML's tree view
-        // moves the nodes itself on a drop accepted as a move, before any
-        // handler hears of it (`TreeViewItem::OnDrop` into the row under
-        // the pointer, file or folder, and `TreeViewList::OnDrop` to a slot
-        // it keeps from its own reorder), however `CanReorderItems` is set;
-        // the copy's glyph doesn't show. Always: XAML raises nothing where
-        // the pointer comes to rest, so a refusal would show where it had
-        // been; the mark shows where they land, and a drop where they land
-        // nowhere does nothing.
-        let drag_over: DragHandler = Rc::new({
-            let (view, data, nodes, inner) = (view.clone(), data.clone(), nodes.clone(), inner.clone());
-            move |args| {
-                if own_drag(args, id).is_none() {
-                    return;
-                }
-                let Some(list) = inner.borrow().clone() else { return };
-                let Ok(element) = list.cast::<w::UIElement>() else { return };
-                let Ok(at) = args.GetPosition(&element) else { return };
-                _ = args.SetAcceptedOperation(w::DataPackageOperation::Copy);
-                _ = args.DragUIOverride().and_then(|ui| ui.SetIsGlyphVisible(false));
-                _ = args.SetHandled(true);
-                let track = data.borrow().track.clone();
-                track.anchor(&element, at);
-                follow_drag(&view, &list, &data, &nodes, id, at);
-            }
-        });
-        let drop_rows: DragHandler = Rc::new({
-            let (data, events, nodes, inner) = (data.clone(), events.clone(), nodes.clone(), inner.clone());
-            move |args| {
-                let Some(dragged) = own_drag(args, id) else { return };
-                DRAGGED.with(|d| d.borrow_mut().take());
-                end_drag(&data);
-                let Some(list) = inner.borrow().clone() else { return };
-                let Some(at) = list.cast::<w::UIElement>().ok().and_then(|l| args.GetPosition(&l).ok()) else {
+                let Some(args) = args.as_ref().and_then(|a| a.cast::<w::IContainerContentChangingEventArgs>().ok())
+                else {
                     return;
                 };
-                let moved = {
-                    let d = data.borrow();
-                    let nodes = nodes.borrow();
-                    let (over, proposed) = tree_proposed(&list, &d, &nodes, at);
-                    drop_target(&d, &nodes.rows, &dragged, over, proposed)
-                };
-                if let Some((rows, to)) = moved {
-                    events.emit(id, UiEvent::RowsMoved { rows, to });
-                }
-                _ = args.SetHandled(true);
-            }
-        });
-        revokers.extend(listen_to_drags(&view.cast()?, &data, &drag_over, &drop_rows)?);
-        revokers.push(tree.DragItemsCompleted({
-            let data = data.clone();
-            move |_, _| end_drag(&data)
-        })?);
-
-        // The user opening and closing rows: the glyph, the keys, UI
-        // Automation's expand-collapse pattern.
-        revokers.push(view.cast::<w::ITreeView>()?.Expanding({
-            let (events, expanding) = (events.clone(), expanding.clone());
-            move |_, args| {
-                let node = args.as_ref().and_then(|a| a.cast::<w::ITreeViewExpandingEventArgs>().ok()?.Node().ok());
-                if let Some(key) = node.and_then(|n| node_key(&n.cast().ok()?))
-                    && !expanding.get()
+                if !args.InRecycleQueue().unwrap_or(true)
+                    && let Ok(container) = args.ItemContainer().and_then(|c| c.cast::<w::DependencyObject>())
                 {
-                    events.emit(id, UiEvent::RowExpanded(key, true));
+                    decorate(&arrows.view, &arrows.nodes, &arrows.events, arrows.id, &container);
                 }
             }
         })?);
-        revokers.push(view.cast::<w::ITreeView>()?.Collapsed({
-            let (events, expanding) = (events.clone(), expanding.clone());
-            move |_, args| {
-                let node = args.as_ref().and_then(|a| a.cast::<w::ITreeViewCollapsedEventArgs>().ok()?.Node().ok());
-                if let Some(key) = node.and_then(|n| node_key(&n.cast().ok()?))
-                    && !expanding.get()
-                {
-                    events.emit(id, UiEvent::RowExpanded(key, false));
-                }
-            }
-        })?);
-
-        // The user's selection: the tree view's, and with several rows its
-        // list's (`Hook::find`).
-        revokers.push(view.cast::<w::ITreeView3>()?.SelectionChanged({
-            let (data, events, view, inner) = (data.clone(), events.clone(), view.clone(), inner.clone());
-            move |_, _| report_selection(&view, inner.borrow().as_ref(), &data, &events, id)
-        })?);
-
-        // Double-click: the row under the pointer. Return: the selected
-        // row, without Control or Alt, as a list's.
-        revokers.push(view.cast::<w::IUIElement>()?.DoubleTapped({
-            let (data, events, view) = (data.clone(), events.clone(), view.clone());
-            move |_, args| {
-                let source = args.as_ref().and_then(|a| a.cast::<w::IRoutedEventArgs>().ok()?.OriginalSource().ok());
-                let key = source.and_then(|s| row_of_element(&view, &s));
-                if let Some(key) = key.filter(|k| data.borrow().index.contains_key(k)) {
-                    events.emit(id, UiEvent::RowActivated(key));
-                }
-            }
-        })?);
+        // Right and Left, on the focused row, without modifiers.
         revokers.push(view.cast::<w::IUIElement>()?.PreviewKeyDown({
-            let (data, events, view, inner) = (data.clone(), events.clone(), view.clone(), inner.clone());
+            let arrows = arrows.clone();
             move |_, args| {
                 let Some(args) = args.as_ref().and_then(|a| a.cast::<w::IKeyRoutedEventArgs>().ok()) else { return };
                 let held = |key: i32| unsafe { w::GetKeyState(key) } < 0;
-                if args.Key().is_ok_and(|k| k == w::VirtualKey::Enter)
-                    && !held(w::VK_CONTROL)
-                    && !held(w::VK_MENU)
-                    && let Some(key) = selected(&view, inner.borrow().as_ref(), &data.borrow()).first()
+                let right = match args.Key() {
+                    Ok(w::VirtualKey::Right) => true,
+                    Ok(w::VirtualKey::Left) => false,
+                    _ => return,
+                };
+                if held(w::VK_SHIFT) || held(w::VK_CONTROL) || held(w::VK_MENU) {
+                    return;
+                }
+                let focused = args
+                    .cast::<w::IRoutedEventArgs>()
+                    .and_then(|a| a.OriginalSource())
+                    .ok()
+                    .and_then(|source| container_of(&arrows.view, &source));
+                if let Some((_, row)) = focused
+                    && arrow(&arrows, row, right)
                 {
-                    events.emit(id, UiEvent::RowActivated(*key));
                     _ = args.SetHandled(true);
                 }
             }
         })?);
-
-        let revokers = Rc::new(RefCell::new(revokers));
-        let hook = Hook {
-            view: view.clone(),
-            id,
-            events: events.clone(),
-            data: data.clone(),
-            inner: inner.clone(),
-            drag_over,
-            drop_rows,
-            revokers: Rc::downgrade(&revokers),
-        };
-        // Its list is followed as soon as it's laid out: a tree made on a
-        // hidden page (a tab not chosen) gets its template, and realises its
-        // rows, in XAML's own layout when the page shows, where nothing of
-        // the backend's lays it out. Its rows had stayed empty until the
-        // tree changed (SourceGit's changes, 2026-10-27).
-        revokers.borrow_mut().push(view.cast::<w::IFrameworkElement>()?.SizeChanged({
-            let hook = hook.clone();
-            move |_, _| {
-                hook.find();
-            }
-        })?);
-        Ok(Tree { view, id, events, data, nodes, expanding, offset: Rc::default(), hook, revokers })
+        list.revokers.borrow_mut().extend(revokers);
+        Ok(Tree { view, list, arrows })
     }
 
-    /// The tree view's own list (`Hook::find`).
-    fn inner(&self) -> Option<w::ListView> {
-        self.hook.find()
+    fn data(&self) -> &Rc<RefCell<Data>> {
+        &self.list.data
     }
 
-    /// The rows that show, each with its place in the tree. Each node
-    /// collection (the top rows', each opening row's children) takes its
-    /// nodes by the fewest changes; a row that opens with no children sent
-    /// has unrealised ones, so its glyph shows; then, from the top, each
-    /// row is opened or closed as sent. A row that moved to another parent
-    /// gets a new node: a node is in one collection only.
+    /// The rows that show, each with its place in the tree: the list's
+    /// rows, by the fewest changes, and the containers shown again.
     pub(crate) fn set_tree_rows(&self, rows: Vec<TreeRow>) -> R<()> {
-        let selected = self.data.borrow().selection.clone();
         {
-            let mut d = self.data.borrow_mut();
-            d.index = rows.iter().enumerate().map(|(i, r)| (r.row, i)).collect();
-            d.rows = rows.iter().map(|r| r.row).collect();
-            let index = std::mem::take(&mut d.index);
-            d.heights.retain(|(k, _), _| index.contains_key(k));
-            d.slots.retain(|k, _| index.contains_key(k));
-            d.index = index;
-        }
-        let mut children: HashMap<Option<RowKey>, Vec<w::TreeViewNode>> = HashMap::new();
-        let nodes: Vec<(TreeRow, w::TreeViewNode, bool)> = {
-            let mut n = self.nodes.borrow_mut();
-            let Nodes { by_key, rows: sent, .. } = &mut *n;
-            let new: HashMap<RowKey, TreeRow> = rows.iter().map(|r| (r.row, *r)).collect();
-            // A node stays while its row and every row above it keep their
-            // parents (parents come first): one whose parent's node is new
-            // would be in two collections.
-            let mut kept = std::collections::HashSet::new();
+            let mut n = self.arrows.nodes.borrow_mut();
+            n.rows = rows.iter().map(|r| (r.row, *r)).collect();
+            let mut siblings: HashMap<Option<RowKey>, Vec<RowKey>> = HashMap::new();
             for row in &rows {
-                if sent.get(&row.row).is_some_and(|old| old.parent == row.parent)
-                    && row.parent.is_none_or(|p| kept.contains(&p))
-                {
-                    kept.insert(row.row);
-                }
+                siblings.entry(row.parent).or_default().push(row.row);
             }
-            by_key.retain(|k, _| kept.contains(k));
-            let mut made = Vec::with_capacity(rows.len());
-            for row in &rows {
-                let node = match by_key.get(&row.row) {
-                    Some(node) => node.clone(),
-                    None => {
-                        let node = w::TreeViewNode::new()?;
-                        node.cast::<w::ITreeViewNode>()?.SetContent(&boxed(&row.row.0.to_string()))?;
-                        by_key.insert(row.row, node.clone());
-                        node
-                    }
-                };
-                children.entry(row.parent).or_default().push(node.clone());
-                made.push((*row, node, false));
-            }
-            *sent = new;
-            for (row, _, empty) in &mut made {
-                *empty = !children.contains_key(&Some(row.row));
-            }
-            made
-        };
-        self.expanding.set(true);
-        self.data.borrow_mut().muted = true;
-        let changed = (|| -> R<()> {
-            let roots = self.view.cast::<w::ITreeView>()?.RootNodes()?;
-            sync(&roots, children.get(&None).map_or(&[], Vec::as_slice))?;
-            for (row, node, empty) in &nodes {
-                let node = node.cast::<w::ITreeViewNode>()?;
-                if row.expandable {
-                    sync(&node.Children()?, children.get(&Some(row.row)).map_or(&[], Vec::as_slice))?;
-                }
-                if node.HasUnrealizedChildren()? != (row.expandable && *empty) {
-                    node.SetHasUnrealizedChildren(row.expandable && *empty)?;
-                }
-            }
-            for (row, node, _) in &nodes {
-                let node = node.cast::<w::ITreeViewNode>()?;
-                if node.IsExpanded()? != row.expanded {
-                    node.SetIsExpanded(row.expanded)?;
-                }
-            }
-            Ok(())
-        })();
-        self.data.borrow_mut().muted = false;
-        self.expanding.set(false);
-        changed?;
-        let kept: Vec<RowKey> = {
-            let d = self.data.borrow();
-            selected.iter().copied().filter(|k| d.index.contains_key(k)).collect()
-        };
-        self.set_selected(&kept)?;
-        if kept != selected {
-            self.events.emit(self.id, UiEvent::Changed(EventValue::Rows(kept)));
+            n.sets = siblings
+                .values()
+                .flat_map(|keys| keys.iter().enumerate().map(|(i, k)| (*k, (i as i32 + 1, keys.len() as i32))))
+                .collect();
         }
+        self.list.set_rows(rows.iter().map(|r| r.row).collect())?;
+        self.decorate_shown();
         Ok(())
     }
 
-    /// The rows the tree view shows, with their parents, depths, and
-    /// whether they open and are open.
-    pub(crate) fn tree_rows(&self) -> Vec<TreeRow> {
-        let mut out = Vec::new();
-        if let Ok(roots) = self.view.cast::<w::ITreeView>().and_then(|t| t.RootNodes()) {
-            walk(&roots, None, 0, &mut out);
+    /// The realised containers, shown as their rows are now.
+    fn decorate_shown(&self) {
+        let cells: Vec<w::Canvas> = self.data().borrow().cells.values().cloned().collect();
+        for cell in cells {
+            if let Some(container) = container_of_cell(&cell).and_then(|c| c.cast::<w::DependencyObject>().ok()) {
+                let a = &self.arrows;
+                decorate(&a.view, &a.nodes, &a.events, a.id, &container);
+            }
         }
-        out
+    }
+
+    /// The rows the tree shows, with their parents, depths, and whether
+    /// they open and are open.
+    pub(crate) fn tree_rows(&self) -> Vec<TreeRow> {
+        let n = self.arrows.nodes.borrow();
+        self.list.rows().iter().filter_map(|k| n.rows.get(k).copied()).collect()
     }
 
     /// Opens or closes a row as UI Automation's expand-collapse pattern
     /// does, reporting it. False for a row that doesn't open.
     pub(crate) fn expand(&self, key: RowKey, open: bool) -> R<bool> {
-        let (node, expandable) = {
-            let n = self.nodes.borrow();
-            (n.by_key.get(&key).cloned(), n.rows.get(&key).is_some_and(|r| r.expandable))
+        let Some(row) = self.arrows.nodes.borrow().rows.get(&key).copied().filter(|r| r.expandable) else {
+            return Ok(false);
         };
-        let Some(node) = node.filter(|_| expandable) else { return Ok(false) };
-        if node.cast::<w::ITreeViewNode>()?.IsExpanded()? != open {
-            self.expanding.set(true);
-            let view = self.view.cast::<w::ITreeView>()?;
-            let done = if open { view.Expand(&node) } else { view.Collapse(&node) };
-            self.expanding.set(false);
-            done?;
-            self.events.emit(self.id, UiEvent::RowExpanded(key, open));
+        if row.expanded != open {
+            let a = &self.arrows;
+            set_open(&a.view, &a.nodes, &a.events, a.id, key, open);
         }
         Ok(true)
     }
 
-    /// XAML's tree view keeps what it can of the selection when the mode
-    /// changes: the rows it let go are reported. Several rows select in its
-    /// list (`Extended`), as a list's do, with the tree view in `None`: its
-    /// own `Multiple` selects them with check boxes, and a folder's rows
-    /// with the folder, and a folder with all its rows. In `Single` it
-    /// keeps its list to the row selected last.
+    /// As a list's: several rows are the list view's `Extended`.
     pub(crate) fn set_mode(&self, mode: SelectionMode) -> R<()> {
-        self.data.borrow_mut().mode = mode;
-        self.data.borrow_mut().muted = true;
-        let set = self.view.cast::<w::ITreeView>()?.SetSelectionMode(match mode {
-            SelectionMode::None => w::TreeViewSelectionMode::None,
-            SelectionMode::Single => w::TreeViewSelectionMode::Single,
-            SelectionMode::Multiple => w::TreeViewSelectionMode::None,
-        });
-        let extended = self.inner().map(|inner| extend(&inner, mode));
-        self.data.borrow_mut().muted = false;
-        set?;
-        extended.transpose()?;
-        let now = self.selected();
-        let changed = {
-            let mut d = self.data.borrow_mut();
-            let changed = d.selection != now;
-            d.selection = now.clone();
-            changed
-        };
-        if changed {
-            self.events.emit(self.id, UiEvent::Changed(EventValue::Rows(now)));
-        }
-        Ok(())
+        self.list.set_mode(mode)
     }
 
     pub(crate) fn mode(&self) -> SelectionMode {
-        self.data.borrow().mode
+        self.list.mode()
     }
 
-    /// Selects rows without reporting it, through the tree view's selected
-    /// node, or its list's selected items.
     pub(crate) fn set_selected(&self, keys: &[RowKey]) -> R<()> {
-        let inner = self.inner();
-        let (nodes, mode) = {
-            let mut d = self.data.borrow_mut();
-            d.selection = keys.to_vec();
-            let mut wanted: Vec<RowKey> = keys.iter().filter(|k| d.index.contains_key(k)).copied().collect();
-            wanted.sort_by_key(|k| d.index[k]);
-            if selected(&self.view, inner.as_ref(), &d) == wanted {
-                return Ok(());
-            }
-            let n = self.nodes.borrow();
-            let nodes: Vec<w::TreeViewNode> = wanted.iter().filter_map(|k| n.by_key.get(k).cloned()).collect();
-            (nodes, d.mode)
-        };
-        self.data.borrow_mut().muted = true;
-        let result = (|| -> R<()> {
-            match mode {
-                SelectionMode::None => Ok(()),
-                SelectionMode::Single => {
-                    let view = self.view.cast::<w::ITreeView2>()?;
-                    match nodes.first() {
-                        Some(node) => view.SetSelectedNode(node),
-                        None => view.SetSelectedNode(None::<&w::TreeViewNode>),
-                    }
-                }
-                SelectionMode::Multiple => {
-                    let Some(inner) = &inner else { return Ok(()) };
-                    let selected = inner.cast::<w::IListViewBase>()?.SelectedItems()?;
-                    selected.Clear()?;
-                    for node in &nodes {
-                        selected.Append(&node.cast::<IInspectable>()?)?;
-                    }
-                    Ok(())
-                }
-            }
-        })();
-        self.data.borrow_mut().muted = false;
-        result
+        self.list.set_selected(keys)
     }
 
     pub(crate) fn selected(&self) -> Vec<RowKey> {
-        selected(&self.view, self.inner().as_ref(), &self.data.borrow())
+        self.list.selected()
     }
 
-    /// Selects a row as the user would, reporting it.
     pub(crate) fn select(&self, key: RowKey) -> R<()> {
-        self.set_selected(&[key])?;
-        self.events.emit(self.id, UiEvent::Changed(EventValue::Rows(vec![key])));
-        self.scroll_to_row(key)
+        self.list.select(key)
     }
 
     pub(crate) fn activate(&self, key: RowKey) {
-        self.events.emit(self.id, UiEvent::RowActivated(key));
+        self.list.activate(key);
     }
 
-    /// A framed tree has a card's border.
+    /// A framed tree has a card's border, as a framed list.
     pub(crate) fn set_style(&self, style: ListStyle) -> R<()> {
-        let markup = if style.framed() { FRAMED_STYLE } else { PLAIN_STYLE };
-        let xaml: w::Style = w::XamlReader::Load(markup)?.cast()?;
-        self.view.cast::<w::IFrameworkElement>()?.SetStyle(&xaml)?;
-        self.data.borrow_mut().style = Some(style);
+        self.list.set_style(style)?;
         self.report_row_width();
         Ok(())
     }
 
     pub(crate) fn style(&self) -> Option<ListStyle> {
-        self.data.borrow().style
+        self.list.style()
     }
 
     /// The tree's width: rows get it, less a frame's border, and their
     /// content less its indent.
     pub(crate) fn set_width(&self, width: f32) {
-        self.data.borrow_mut().width = Some(width);
+        self.list.set_width(width);
         self.report_row_width();
     }
 
     /// The rows' width, which their content is laid out in less its
-    /// indent: where a top row's content ends in its `TreeViewItem`,
-    /// which keeps room at its sides (4 at the start in Windows 11's
-    /// style), so the tree's width less what that leaves, once a row
-    /// shows. Rows laid out as wide as the tree ran past the item's end,
-    /// which cut their last points off (SourceGit's branch filters,
-    /// 2026-10-27).
+    /// indent: where a top row's content ends in its item, which keeps
+    /// room at its sides (`TreeViewItemPresenterMargin`'s 4), so the
+    /// tree's width less what that leaves, once a row shows. Rows laid out
+    /// as wide as the tree ran past the item's end, which cut their last
+    /// points off (SourceGit's branch filters, 2026-10-27).
     fn report_row_width(&self) {
-        let short = self.nodes.borrow().short.unwrap_or(0.0);
-        let mut d = self.data.borrow_mut();
+        let short = self.arrows.nodes.borrow().short.unwrap_or(0.0);
+        let mut d = self.data().borrow_mut();
         if d.width.is_none() {
             return;
         }
-        let row_width = (inside(&d) - short).max(0.0);
+        let row_width = (d.inside() - short).max(0.0);
         if d.row_width.replace(row_width) != Some(row_width) {
             drop(d);
-            self.events.emit(self.id, UiEvent::RowWidth(row_width));
+            self.arrows.events.emit(self.arrows.id, UiEvent::RowWidth(row_width));
         }
     }
 
-    /// Rows move within the tree: it drags its rows, and takes their drops.
     pub(crate) fn set_moves(&self, moves: RowMoves) -> R<()> {
-        self.data.borrow_mut().moves = Some(moves);
-        self.view.cast::<w::ITreeView2>()?.SetCanDragItems(true)?;
-        self.view.cast::<w::IUIElement>()?.SetAllowDrop(true)
+        self.list.set_moves(moves)
     }
 
-    /// What the app gave, which XAML can't give back.
     pub(crate) fn moves(&self) -> Option<RowMoves> {
-        self.data.borrow().moves
+        self.list.moves()
     }
 
     /// A drag of `rows` dropped where the pointer proposed `to`, through
@@ -846,176 +710,105 @@ impl Tree {
             RowDrop::On(row) | RowDrop::Before(row) => Some(row),
             RowDrop::End => None,
         };
-        let moved = drop_target(&self.data.borrow(), &self.nodes.borrow().rows, rows, over, to);
+        let moved = drop_target(&self.data().borrow(), &self.arrows.nodes.borrow().rows, rows, over, to);
         if let Some((rows, to)) = moved {
-            self.events.emit(self.id, UiEvent::RowsMoved { rows, to });
+            self.arrows.events.emit(self.arrows.id, UiEvent::RowsMoved { rows, to });
         }
     }
 
-    /// Rows with files drag them out, as a list's do.
     pub(crate) fn set_row_files(&self, files: Vec<(RowKey, PathBuf)>) -> R<()> {
-        let moves = self.data.borrow().moves.is_some();
-        self.view.cast::<w::ITreeView2>()?.SetCanDragItems(moves || !files.is_empty())?;
-        let mut data = self.data.borrow_mut();
-        data.file_of = files.iter().cloned().collect();
-        data.files = Some(files);
-        Ok(())
+        self.list.set_row_files(files)
     }
 
     pub(crate) fn row_files(&self) -> Option<Vec<(RowKey, PathBuf)>> {
-        self.data.borrow().files.clone()
+        self.list.row_files()
     }
 
-    /// What dragging `row` carries: the rows XAML drags (the selection if
-    /// the row is in it, else the row), as `DragItemsStarting` has them.
     pub(crate) fn dragged_files(&self, row: RowKey) -> Option<Vec<PathBuf>> {
-        let selected = self.selected();
-        let rows = if selected.contains(&row) { selected } else { vec![row] };
-        let files = files_of(&self.data.borrow(), &rows);
-        (!files.is_empty()).then_some(files)
+        self.list.dragged_files(row)
     }
 
     pub(crate) fn set_estimate(&self, height: f32) {
-        self.data.borrow_mut().estimate = Some(height as f64);
+        self.list.set_estimate(height);
     }
 
     pub(crate) fn estimate(&self) -> Option<f32> {
-        self.data.borrow().estimate.map(|h| h as f32)
+        self.list.estimate()
     }
 
     /// How high the tree is with all its rows that show.
     pub(crate) fn natural_height(&self) -> f32 {
-        self.data.borrow().natural_height() as f32
+        self.list.natural_height()
     }
 
-    /// Hosts a mounted row in its cell if the row is realised.
     pub(crate) fn insert(&self, key: RowKey, id: NodeId, host: w::UIElement) {
-        let mut d = self.data.borrow_mut();
-        d.hosts.insert((key, 0), (id, host.clone()));
-        d.host_columns = d.host_columns.max(1);
-        if let Some(cell) = d.cells.get(&key).cloned() {
-            put_in(&cell, &host);
-            place_row(&d, key);
-        }
+        self.list.insert(key, 0, id, host);
     }
 
     pub(crate) fn remove(&self, key: RowKey) {
-        let mut d = self.data.borrow_mut();
-        if let Some((_, host)) = d.hosts.remove(&(key, 0))
-            && let Some(cell) = d.cells.get(&key).cloned()
-        {
-            take_out(&cell, &host);
-            place_row(&d, key);
-        }
+        self.list.remove(key, 0);
     }
 
-    /// A host's new height: its cell follows, and without the app's
-    /// estimate, the first row measured sets it.
     pub(crate) fn set_row_height(&self, key: RowKey, height: f32) {
-        let mut d = self.data.borrow_mut();
-        let height = height as f64;
-        d.heights.insert((key, 0), height);
-        if d.estimate.is_none() && d.learned.is_none() && height > 0.0 {
-            d.learned = Some(height);
-        }
-        place_row(&d, key);
+        self.list.set_row_height(key, 0, height);
     }
 
-    /// The tree view's scroll viewer, its list's, from its template once
-    /// applied.
     pub(crate) fn scroll_viewer(&self) -> Option<w::IScrollViewer> {
-        if let Some(scroll) = self.data.borrow().scroll.clone() {
-            return Some(scroll);
-        }
-        let scroll = find_scroll_viewer(&self.view.cast().ok()?)?;
-        let (events, last, id) = (self.events.clone(), self.offset.clone(), self.id);
-        if let Ok(revoker) = scroll.ViewChanged(move |sender, _| {
-            if let Some(scroll) = sender.as_ref().and_then(|s| s.cast::<w::IScrollViewer>().ok()) {
-                report_offset(&events, id, &last, &scroll, false);
-            }
-        }) {
-            self.revokers.borrow_mut().push(revoker);
-        }
-        self.data.borrow_mut().scroll = Some(scroll.clone());
-        Some(scroll)
+        self.list.scroll_viewer()
     }
 
     pub(crate) fn scroll_to(&self, offset: Point) -> R<()> {
-        let Some(scroll) = self.scroll_viewer() else { return Ok(()) };
-        let element: w::IUIElement = scroll.cast()?;
-        element.UpdateLayout()?;
-        scroll.ChangeViewWithOptionalAnimation(None, Some(offset.y as f64), None, true)?;
-        element.UpdateLayout()?;
-        report_offset(&self.events, self.id, &self.offset, &scroll, false);
-        Ok(())
+        self.list.scroll_to(offset)
     }
 
-    /// Through the tree view's list, whose items are the nodes that show.
     pub(crate) fn scroll_to_row(&self, key: RowKey) -> R<()> {
-        let node = self.nodes.borrow().by_key.get(&key).cloned();
-        if let (Some(node), Some(inner)) = (node, self.inner()) {
-            inner.cast::<w::IListViewBase>()?.ScrollIntoView(&node)?;
-            self.view.cast::<w::IUIElement>()?.UpdateLayout()?;
-            if let Some(scroll) = self.scroll_viewer() {
-                report_offset(&self.events, self.id, &self.offset, &scroll, false);
-            }
-        }
-        Ok(())
+        self.list.scroll_to_row(key)
     }
 
     pub(crate) fn scroll_offset(&self) -> Point {
-        let Some(scroll) = self.scroll_viewer() else { return Point::ZERO };
-        offset_of(&scroll, false)
+        self.list.scroll_offset()
     }
 
-    /// Lays the view out now, realising the containers of the rows in view
-    /// (and, the first time in a window, applying its template), and
-    /// reports the rows realised and the indent.
+    /// Lays the view out now, realising the containers of the rows in view,
+    /// and reports the rows realised and the indent.
     pub(crate) fn layout(&self) {
         _ = self.view.cast::<w::IUIElement>().and_then(|e| e.UpdateLayout());
-        self.inner();
+        self.decorate_shown();
         self.measure_indent();
-        measure_rows(&self.data, &self.events, self.id);
+        let (data, events, id) = (self.data(), &self.arrows.events, self.arrows.id);
+        measure_rows(data, events, id);
         if let Some(scroll) = self.scroll_viewer() {
-            report_offset(&self.events, self.id, &self.offset, &scroll, false);
+            report_offset(events, id, &self.list.offset, &scroll, false);
         }
-        report(&self.data, &self.events, self.id);
+        report(data, events, id);
     }
 
-    /// How far rows' content starts in their containers: past the glyph
-    /// column (and the check box, with multiple selection) at the top
-    /// level, and a level's indentation more each level down. Where layout
-    /// put a top row's cell, and a deeper one's for the indentation, or
-    /// `TreeViewItem`'s 16 a level until one shows.
+    /// How far rows' content starts in their containers: past the chevron
+    /// at the top level, and a level's indentation more each level down.
+    /// Where layout put a top row's cell, and a deeper one's for the
+    /// indentation, or 16 a level until one shows.
     fn measure_indent(&self) {
-        let cells: Vec<(u32, w::Canvas, w::TreeViewNode)> = {
-            let d = self.data.borrow();
-            let n = self.nodes.borrow();
-            d.cells
-                .iter()
-                .filter_map(|(key, cell)| Some((n.rows.get(key)?.depth, cell.clone(), n.by_key.get(key)?.clone())))
-                .collect()
+        let cells: Vec<(u32, w::Canvas)> = {
+            let d = self.data().borrow();
+            let n = self.arrows.nodes.borrow();
+            d.cells.iter().filter_map(|(key, cell)| Some((n.rows.get(key)?.depth, cell.clone()))).collect()
         };
-        let Ok(view) = self.view.cast::<w::ITreeView2>() else { return };
-        let at = |cell: &w::Canvas, node: &w::TreeViewNode| -> Option<(f32, f32)> {
-            let container: w::UIElement = view.ContainerFromNode(node).ok()?.cast().ok()?;
-            inset_in(cell, &container)
-        };
-        let top = cells.iter().filter(|(depth, ..)| *depth == 0).find_map(|(_, cell, node)| at(cell, node));
+        let at = |cell: &w::Canvas| -> Option<(f32, f32)> { inset_in(cell, &container_of_cell(cell)?) };
+        let top = cells.iter().filter(|(depth, _)| *depth == 0).find_map(|(_, cell)| at(cell));
         let Some((start, width)) = top else { return };
         let below = cells
             .iter()
-            .filter(|(depth, ..)| *depth > 0)
-            .find_map(|(depth, cell, node)| at(cell, node).map(|(x, _)| (x - start) / *depth as f32));
+            .filter(|(depth, _)| *depth > 0)
+            .find_map(|(depth, cell)| at(cell).map(|(x, _)| (x - start) / *depth as f32));
         let indent = TreeIndent { start, per_level: below.unwrap_or(PER_LEVEL) };
-        let inside = inside(&self.data.borrow());
+        let inside = self.data().borrow().inside();
         let short = (inside - (start + width)).max(0.0).round();
-        let mut n = self.nodes.borrow_mut();
+        let mut n = self.arrows.nodes.borrow_mut();
         let narrower = n.short.replace(short) != Some(short);
         if n.indent != Some(indent) {
             n.indent = Some(indent);
             drop(n);
-            self.events.emit(self.id, UiEvent::TreeIndent(indent));
+            self.arrows.events.emit(self.arrows.id, UiEvent::TreeIndent(indent));
         } else {
             drop(n);
         }
@@ -1024,87 +817,47 @@ impl Tree {
         }
     }
 
-    /// Where the tree view put a row: its host's position in the scroll
-    /// viewer's content, in by its indent, at the host's size.
+    /// Where the tree put a row: its host's position in the scroll viewer's
+    /// content, in by its indent, at the host's size.
     pub(crate) fn row_rect(&self, host: &w::UIElement, size: Rect) -> Rect {
-        match self.placed(host) {
+        match self.list.placed(host) {
             Some((x, y)) => Rect::new(x, y, size.width(), size.height()),
             None => size,
         }
     }
 
-    fn placed(&self, host: &w::UIElement) -> Option<(f32, f32)> {
-        let content = self.scroll_viewer()?.cast::<w::IContentControl>().ok()?.Content().ok()?;
-        let content: w::UIElement = content.cast().ok()?;
-        let point = host.cast::<w::IUIElement>().ok()?.TransformToVisual(&content).ok()?;
-        let point = point.cast::<w::IGeneralTransform>().ok()?.TransformPoint(w::Point { x: 0.0, y: 0.0 }).ok()?;
-        Some((point.x, point.y))
-    }
-
     /// The hosted rows, in row order.
     pub(crate) fn children(&self) -> Vec<NodeId> {
-        let d = self.data.borrow();
-        let mut hosts: Vec<(usize, NodeId)> =
-            d.hosts.iter().filter_map(|((key, _), (id, _))| Some((*d.index.get(key)?, *id))).collect();
-        hosts.sort();
-        hosts.into_iter().map(|(_, id)| id).collect()
+        self.list.children()
     }
 
-    /// Whether the tree view uses a key itself, ahead of a node's keys: a
+    /// Whether the tree uses a key itself, ahead of a node's keys: a
     /// list's, and Left and Right, which close and open the focused row.
     pub(crate) fn uses(&self, shortcut: mitsuami_core::services::Shortcut) -> bool {
         use mitsuami_core::Key;
-        let selects = self.mode() != SelectionMode::None;
-        !shortcut.alt
-            && match shortcut.key {
-                Key::Up | Key::Down | Key::Left | Key::Right | Key::Home | Key::End | Key::PageUp | Key::PageDown => {
-                    true
-                }
-                Key::Char(' ') => selects,
-                Key::Char('a') => shortcut.primary && self.mode() == SelectionMode::Multiple,
-                Key::Enter => !shortcut.primary && !self.selected().is_empty(),
-                _ => false,
-            }
+        self.list.uses(shortcut) || (!shortcut.alt && matches!(shortcut.key, Key::Left | Key::Right))
     }
 
-    /// Keyboard navigation: a list's, and Right opens the selected row,
-    /// Left closes it, as the tree view does.
+    /// Keyboard navigation: a list's, and Right and Left on the selected
+    /// row (`arrow`).
     pub(crate) fn key(&self, key: mitsuami_core::Key) -> R<bool> {
         use mitsuami_core::Key;
-        let rows = self.data.borrow().rows.clone();
-        let selected = self.selected();
         if matches!(key, Key::Left | Key::Right) {
-            if let Some(row) = selected.first() {
-                self.expand(*row, key == Key::Right)?;
+            if let Some(row) = self.selected().first() {
+                arrow(&self.arrows, *row, key == Key::Right);
             }
             return Ok(true);
         }
-        if key == Key::Enter {
-            if let Some(row) = selected.first() {
-                self.activate(*row);
-            }
-            return Ok(true);
-        }
-        let current = selected.first().and_then(|k| rows.iter().position(|r| r == k));
-        let last = rows.len().checked_sub(1);
-        let next = match (key, current) {
-            (Key::Home, _) | (Key::Down, None) => rows.first().map(|_| 0),
-            (Key::End, _) | (Key::Up, None) => last,
-            (Key::Up, Some(i)) => Some(i.saturating_sub(1)),
-            (Key::Down, Some(i)) => Some((i + 1).min(last.unwrap_or(0))),
-            _ => return Ok(false),
-        };
-        if let Some(row) = next.map(|i| rows[i]) {
-            self.select(row)?;
-        }
-        Ok(true)
+        self.list.key(key)
     }
 }
 
-/// The tree's width, less a frame's border.
-fn inside(d: &Data) -> f32 {
-    let border = if d.style.is_some_and(ListStyle::framed) { 2.0 * FRAME_BORDER } else { 0.0 };
-    (d.width.unwrap_or(0.0) - border).max(0.0)
+/// The chevrons' handlers hold the tree's rows weakly; they go with it.
+impl Drop for Tree {
+    fn drop(&mut self) {
+        let chevrons = std::mem::take(&mut self.arrows.nodes.borrow_mut().chevrons);
+        drop(chevrons);
+    }
 }
 
 /// How far a cell is into its container, and how wide the container makes
@@ -1124,104 +877,5 @@ fn inset_in(cell: &w::Canvas, container: &w::UIElement) -> Option<(f32, f32)> {
             return Some((x.max(0.0).round(), width));
         }
         element = parent;
-    }
-}
-
-/// Reports the user's selection, when it changed.
-fn report_selection(
-    view: &w::TreeView,
-    inner: Option<&w::ListView>,
-    data: &RefCell<Data>,
-    events: &Events,
-    id: NodeId,
-) {
-    if data.borrow().muted {
-        return;
-    }
-    let now = selected(view, inner, &data.borrow());
-    let mut d = data.borrow_mut();
-    if d.selection != now {
-        d.selection = now.clone();
-        drop(d);
-        events.emit(id, UiEvent::Changed(EventValue::Rows(now)));
-    }
-}
-
-/// Several rows select in the tree view's own list, as a list's do, with
-/// the tree view selecting none itself (`Tree::set_mode`).
-fn extend(inner: &w::ListView, mode: SelectionMode) -> R<()> {
-    if mode == SelectionMode::Multiple {
-        inner.cast::<w::IListViewBase>()?.SetSelectionMode(w::ListViewSelectionMode::Extended)?;
-    }
-    Ok(())
-}
-
-/// Selects the rows the app has selected among its list's items, without
-/// reporting it.
-fn select_items(inner: &w::ListView, data: &RefCell<Data>) {
-    let wanted = data.borrow().selection.clone();
-    let (Ok(items), Ok(selected)) = (
-        inner.cast::<w::IItemsControl>().and_then(|c| c.Items()),
-        inner.cast::<w::IListViewBase>().and_then(|l| l.SelectedItems()),
-    ) else {
-        return;
-    };
-    data.borrow_mut().muted = true;
-    for item in (0..items.Size().unwrap_or(0)).filter_map(|i| items.GetAt(i).ok()) {
-        if node_key(&item).is_some_and(|k| wanted.contains(&k)) {
-            _ = selected.Append(&item);
-        }
-    }
-    data.borrow_mut().muted = false;
-}
-
-/// The tree view's `TreeViewList`, in its template.
-fn find_tree_list(root: &w::DependencyObject) -> Option<w::ListView> {
-    let mut queue = std::collections::VecDeque::from([root.clone()]);
-    while let Some(node) = queue.pop_front() {
-        if node.cast::<w::TreeViewList>().is_ok() {
-            return node.cast().ok();
-        }
-        for i in 0..w::VisualTreeHelper::GetChildrenCount(&node).unwrap_or(0) {
-            if let Ok(child) = w::VisualTreeHelper::GetChild(&node, i) {
-                queue.push_back(child);
-            }
-        }
-    }
-    None
-}
-
-/// The selected rows, in row order: the tree view's selected node, or its
-/// list's selected items.
-fn selected(view: &w::TreeView, inner: Option<&w::ListView>, d: &Data) -> Vec<RowKey> {
-    let key = |node: w::TreeViewNode| node.cast::<IInspectable>().ok().as_ref().and_then(node_key);
-    let mut keys: Vec<RowKey> = match d.mode {
-        SelectionMode::None => Vec::new(),
-        SelectionMode::Single => {
-            view.cast::<w::ITreeView2>().and_then(|v| v.SelectedNode()).ok().and_then(key).into_iter().collect()
-        }
-        SelectionMode::Multiple => {
-            let Some(items) = inner.and_then(|l| l.cast::<w::IListViewBase>().ok()?.SelectedItems().ok()) else {
-                return Vec::new();
-            };
-            (0..items.Size().unwrap_or(0)).filter_map(|i| node_key(&items.GetAt(i).ok()?)).collect()
-        }
-    };
-    keys.retain(|k| d.index.contains_key(k));
-    keys.sort_by_key(|k| d.index[k]);
-    keys
-}
-
-/// The row an element is in: up the visual tree to its `TreeViewItem`, and
-/// the node the tree view has for it.
-fn row_of_element(view: &w::TreeView, element: &IInspectable) -> Option<RowKey> {
-    let view = view.cast::<w::ITreeView2>().ok()?;
-    let mut current: w::DependencyObject = element.cast().ok()?;
-    loop {
-        if current.cast::<w::TreeViewItem>().is_ok() {
-            let node = view.NodeFromContainer(&current).ok()?;
-            return node_key(&node.cast().ok()?);
-        }
-        current = w::VisualTreeHelper::GetParent(&current).ok()?;
     }
 }

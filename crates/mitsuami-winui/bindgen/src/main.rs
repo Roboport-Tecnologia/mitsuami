@@ -1,6 +1,7 @@
 //! Generates `src/bindings.rs` for `mitsuami-winui`, the same way
 //! `windows-reactor` generates its own: minimal mode, member-level filters,
-//! `Application` composed from Rust. The NuGet packages are cached under
+//! `Application`, and a tree's list view, rows and their automation
+//! peers, composed from Rust. The NuGet packages are cached under
 //! this tool's `target/` directory.
 
 use std::path::{Path, PathBuf};
@@ -26,8 +27,20 @@ fn main() {
     }
     bindgen
         .output(&output)
-        .implements(["Microsoft.UI.Xaml.IApplicationOverrides", "Microsoft.UI.Xaml.Markup.IXamlMetadataProvider"])
-        .compose("Microsoft.UI.Xaml.Application")
+        .implements([
+            "Microsoft.UI.Xaml.IApplicationOverrides",
+            "Microsoft.UI.Xaml.Markup.IXamlMetadataProvider",
+            "Microsoft.UI.Xaml.Controls.IItemsControlOverrides",
+            "Microsoft.UI.Xaml.IUIElementOverrides",
+            "Microsoft.UI.Xaml.Automation.Peers.IAutomationPeerOverrides",
+            "Microsoft.UI.Xaml.Automation.Provider.IExpandCollapseProvider",
+        ])
+        .composes([
+            "Microsoft.UI.Xaml.Application",
+            "Microsoft.UI.Xaml.Controls.ListView",
+            "Microsoft.UI.Xaml.Controls.ListViewItem",
+            "Microsoft.UI.Xaml.Automation.Peers.ListViewItemAutomationPeer",
+        ])
         .minimal()
         .flat()
         .filter_file(tool.join("filter.txt"))
