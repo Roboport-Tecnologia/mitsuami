@@ -527,6 +527,10 @@ struct Node {
     /// Search fields: the app's `SearchOnReturn`, if it gave one. On, only
     /// `QuerySubmitted` and an emptied field search.
     search_on_return: Rc<Cell<Option<bool>>>,
+    /// Search fields: the user typed since they last picked a suggestion,
+    /// so new suggestions open the list. The app's text after a pick has
+    /// suggestions too, which don't.
+    suggesting: Rc<Cell<bool>>,
     /// Hosts and groups: the files they take and the drag over them, while
     /// they take some, and whether the core ever sent `FileDrop`.
     file_drop: Option<crate::drop::DropTarget>,

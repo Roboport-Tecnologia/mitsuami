@@ -3,7 +3,8 @@
 //! popover parented to the entry, without autohide or focus, holds a list
 //! of rows: the title, and the detail as a dim caption under it. The keys
 //! stay in the entry: Down and Up move through the list, Return picks the
-//! row they reached, Escape hides the list until it changes.
+//! row they reached, Escape hides the list, as a pick does, until the user
+//! types again.
 
 use std::cell::{Cell, RefCell};
 use std::rc::Rc;
@@ -29,7 +30,8 @@ struct Inner {
     scrolled: gtk::ScrolledWindow,
     focus: gtk::EventControllerFocus,
     data: RefCell<Vec<Suggestion>>,
-    /// Escape hid the list, which stays hidden until it changes.
+    /// Escape or a pick hid the list, which stays hidden until the user
+    /// types again: the app's text after a pick has suggestions too.
     dismissed: Cell<bool>,
 }
 
@@ -98,10 +100,22 @@ impl Suggestions {
             Suggestions(inner).key(key)
         });
         entry.add_controller(keys);
+        // The user's typing, not the app's text (set while events are
+        // muted), shows a hidden list again.
+        let weak = Rc::downgrade(&this.0);
+        entry.connect_changed(move |_| {
+            if let Some(inner) = weak.upgrade()
+                && !inner.events.is_muted()
+            {
+                inner.dismissed.set(false);
+                Suggestions(inner).sync();
+            }
+        });
         this
     }
 
-    /// The app's suggestions for the text: shown anew, even after Escape.
+    /// The app's suggestions for the text, shown unless Escape or a pick
+    /// hid the list since the user last typed.
     pub(crate) fn set(&self, suggestions: &[Suggestion]) {
         let inner = &self.0;
         if *inner.data.borrow() != suggestions {
@@ -112,7 +126,6 @@ impl Suggestions {
                 inner.list.append(&row(suggestion));
             }
             *inner.data.borrow_mut() = suggestions.to_vec();
-            inner.dismissed.set(false);
         }
         self.sync();
     }

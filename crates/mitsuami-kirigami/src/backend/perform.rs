@@ -74,6 +74,8 @@ impl KirigamiBackend {
                 if *index >= count {
                     return Err(ActionError::Unsupported);
                 }
+                // Hidden, as a click on it hides the list.
+                item.set_bool("mitsuamiDismissed", true);
                 events.emit(id, UiEvent::SuggestionChosen(*index));
             }
             // What a screen reader does, through the items' accessible

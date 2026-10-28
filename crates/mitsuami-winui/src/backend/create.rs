@@ -22,6 +22,7 @@ impl State {
         let emitter = self.emitter();
         let shown_text = Rc::new(RefCell::new(String::new()));
         let search_on_return = Rc::new(Cell::new(None));
+        let suggesting = Rc::new(Cell::new(false));
         let shown_checked = Rc::new(Cell::new(false));
         let shown_mixed = Rc::new(Cell::new(false));
         let shown_index = Rc::new(Cell::new(-1));
@@ -452,11 +453,12 @@ impl State {
                 // the field.
                 revokers.push(iface.TextChanged({
                     let (emitter, shown, field) = (emitter.clone(), shown_text.clone(), RefCell::new(None));
-                    let on_return = search_on_return.clone();
+                    let (on_return, suggesting) = (search_on_return.clone(), suggesting.clone());
                     move |sender, _| {
                         let Some(text) = sender.as_ref().and_then(|s| search_text_with(s, &field)) else { return };
                         if *shown.borrow() != text {
                             *shown.borrow_mut() = text.clone();
+                            suggesting.set(true);
                             emitter.emit(id, UiEvent::Changed(EventValue::Text(text.clone())));
                             if on_return.get() != Some(true) || text.is_empty() {
                                 emitter.emit(id, UiEvent::Search(text));
@@ -468,10 +470,11 @@ impl State {
                 // suggestion, or Return on the one the arrows reached, picks
                 // it instead.
                 revokers.push(iface.QuerySubmitted({
-                    let emitter = emitter.clone();
+                    let (emitter, suggesting) = (emitter.clone(), suggesting.clone());
                     move |sender, args| {
                         let Some(args) = args.as_ref() else { return };
                         if let Some(chosen) = args.ChosenSuggestion().ok().filter(|c| !c.as_raw().is_null()) {
+                            suggesting.set(false);
                             let items = sender.as_ref().and_then(|s| s.cast::<w::IItemsControl>().ok()?.Items().ok());
                             let index = items.and_then(|items| {
                                 (0..items.Size().ok()?).find(|i| items.GetAt(*i).is_ok_and(|item| item == chosen))
@@ -623,6 +626,7 @@ impl State {
                 button_menu: None,
                 suggestions: None,
                 search_on_return,
+                suggesting,
                 caption: String::new(),
                 icon: String::new(),
                 vector_icon: None,

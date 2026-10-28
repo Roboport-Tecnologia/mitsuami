@@ -35,6 +35,7 @@ impl WinUiBackend {
                 if node.suggestions.as_ref().is_none_or(|list| *index >= list.len()) {
                     return Err(ActionError::Unsupported);
                 }
+                node.suggesting.set(false);
                 state.emitter().emit(id, UiEvent::SuggestionChosen(*index));
                 return Ok(());
             }

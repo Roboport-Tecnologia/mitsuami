@@ -25,9 +25,10 @@ pub(crate) fn password_field() -> String {
 /// emptied field (by the user, or the clear button) searches at once.
 ///
 /// Its suggestions (`mitsuamiTitles`, `mitsuamiDetails`, set by Rust) are a
-/// list of `SubtitleDelegate`s in a popup under it that never takes the
-/// keyboard, shown while there are some, the field has focus, and Escape
-/// hasn't hidden them since they last changed (`mitsuamiDismissed`). The
+/// list of item delegates, each a `TitleSubtitle`, in a popup under it that never takes the
+/// keyboard, shown while there are some, the field has focus, and neither
+/// Escape nor a pick has hidden them since the user last typed
+/// (`mitsuamiDismissed`): the app's text after a pick has suggestions too. The
 /// arrows move through the list and Return picks the current one, a click
 /// any one: `mitsuamiChoice`, `mitsuamiSuggestionChosen()`. Only the user's
 /// picks are reported.
@@ -50,10 +51,7 @@ Kirigami.SearchField {{
     signal mitsuamiEdited()
     signal mitsuamiSearched()
     signal mitsuamiSuggestionChosen()
-    onMitsuamiTitlesChanged: {{
-        mitsuamiDismissed = false
-        mitsuamiList.currentIndex = -1
-    }}
+    onMitsuamiTitlesChanged: mitsuamiList.currentIndex = -1
     function mitsuamiChoose(index) {{
         mitsuamiChoice = index
         mitsuamiDismissed = true
@@ -63,6 +61,8 @@ Kirigami.SearchField {{
         id: mitsuamiSuggestions
         y: field.height
         width: field.width
+        // A menu's margin, as a combo box's list has, not a popup's.
+        padding: Kirigami.Units.smallSpacing
         focus: false
         modal: false
         closePolicy: QQC2.Popup.NoAutoClose
@@ -72,14 +72,30 @@ Kirigami.SearchField {{
             implicitHeight: Math.min(contentHeight, Kirigami.Units.gridUnit * 16)
             clip: true
             model: field.mitsuamiTitles.length
-            delegate: KD.SubtitleDelegate {{
+            // None reached until the arrows reach one: a list view makes
+            // its first item current as it fills.
+            onCountChanged: currentIndex = -1
+            // A title over its detail, without the room a `SubtitleDelegate`
+            // keeps for an icon.
+            delegate: QQC2.ItemDelegate {{
+                id: mitsuamiRow
                 required property int index
                 width: ListView.view.width
                 text: field.mitsuamiTitles[index] ?? ""
-                subtitle: field.mitsuamiDetails[index] ?? ""
                 highlighted: ListView.isCurrentItem
                 focusPolicy: Qt.NoFocus
                 onClicked: field.mitsuamiChoose(index)
+                contentItem: KD.TitleSubtitle {{
+                    title: mitsuamiRow.text
+                    subtitle: field.mitsuamiDetails[mitsuamiRow.index] ?? ""
+                    selected: mitsuamiRow.highlighted || mitsuamiRow.down
+                    font: mitsuamiRow.font
+                    // As a caption's (`TEXT_STYLE`): outside Plasma the
+                    // theme's small font can be larger than its default.
+                    subtitleFont: Kirigami.Theme.smallFont.pointSize < mitsuamiRow.font.pointSize
+                        ? Kirigami.Theme.smallFont
+                        : Qt.font({{ family: mitsuamiRow.font.family, pointSize: mitsuamiRow.font.pointSize * 0.8 }})
+                }}
             }}
         }}
     }}
@@ -97,6 +113,7 @@ Kirigami.SearchField {{
         mitsuamiDismissed = true
     }}
     onTextEdited: {{
+        mitsuamiDismissed = false
         mitsuamiShown = text
         mitsuamiPending = true
         mitsuamiEdited()

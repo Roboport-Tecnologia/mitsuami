@@ -507,8 +507,9 @@ impl State {
             (Prop::Placeholder(t), Widget::Search(s)) => s.cast::<w::IAutoSuggestBox>()?.SetPlaceholderText(t)?,
             // The box's own list: a title, or a title over its detail in
             // the secondary caption style, as a sidebar item's subtitle.
-            // It opens with items while the box has focus, as XAML opens
-            // it as the user types, and closes empty.
+            // It opens with items while the box has focus and the user has
+            // typed since their last pick, as XAML opens it as the user
+            // types, and closes empty.
             (Prop::SearchOnReturn(on), Widget::Search(_)) => node.search_on_return.set(Some(*on)),
             (Prop::Suggestions(list), Widget::Search(s)) => {
                 if node.suggestions.as_ref() != Some(list) {
@@ -518,7 +519,8 @@ impl State {
                         items.Append(&suggestion_item(suggestion)?)?;
                     }
                     let focused = s.cast::<w::IUIElement>()?.FocusState()? != w::FocusState::Unfocused;
-                    s.cast::<w::IAutoSuggestBox>()?.SetIsSuggestionListOpen(focused && !list.is_empty())?;
+                    let open = focused && !list.is_empty() && node.suggesting.get();
+                    s.cast::<w::IAutoSuggestBox>()?.SetIsSuggestionListOpen(open)?;
                     node.suggestions = Some(list.clone());
                 }
             }
