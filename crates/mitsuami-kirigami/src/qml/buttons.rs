@@ -24,18 +24,18 @@ pub(crate) fn button() -> String {
 /// up `mitsuamiButtonMenu` under it, and it shows pressed while that's
 /// open. The menu is a context menu's (see `ContextMenu::for_button`): in
 /// the window's overlay while it's open, back in the button once closed.
-/// One the app builds as it opens (`mitsuamiMenuOnOpen`) is asked for
+/// One the app builds as it opens (`mitsuamiButtonMenuOnOpen`) is asked for
 /// first, and the backend makes it again if it changed.
 pub(crate) fn menu_button() -> String {
     button_with(
         r#"
     property QtObject mitsuamiButtonMenu: null
-    property bool mitsuamiMenuOnOpen: false
+    property bool mitsuamiButtonMenuOnOpen: false
     signal mitsuamiButtonMenuWanted()
     Accessible.role: Accessible.ButtonMenu
     down: pressed || (mitsuamiButtonMenu !== null && mitsuamiButtonMenu.visible)
     onClicked: {
-        if (mitsuamiMenuOnOpen && !(mitsuamiButtonMenu && mitsuamiButtonMenu.visible))
+        if (mitsuamiButtonMenuOnOpen && !(mitsuamiButtonMenu && mitsuamiButtonMenu.visible))
             mitsuamiButtonMenuWanted()
         const menu = mitsuamiButtonMenu
         if (!menu || menu.visible) return
@@ -81,11 +81,10 @@ pub(crate) fn split_button() -> String {
     rightInset: mirrored ? 0 : mitsuamiArrow.width
     leftPadding: padding + leftInset
     rightPadding: padding + rightInset
-    Keys.onPressed: (event) => {
-        if (event.key === Qt.Key_Down && (event.modifiers & Qt.AltModifier)) {
-            mitsuamiPopupButtonMenu()
-            event.accepted = true
-        }
+    // Not `onPressed`, which the context menu's keys have.
+    Keys.onDownPressed: (event) => {
+        event.accepted = (event.modifiers & Qt.AltModifier) !== 0
+        if (event.accepted) mitsuamiPopupButtonMenu()
     }
     QQC2.Button {
         id: mitsuamiArrow

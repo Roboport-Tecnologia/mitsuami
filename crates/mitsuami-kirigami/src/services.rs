@@ -480,7 +480,7 @@ impl ContextMenu {
     /// `on_open`, and makes it again if what's built changed. The `Menu`
     /// that follows from the core finds it holding those entries already.
     fn connect_button(&self, item: QmlObject) {
-        item.set_bool("mitsuamiMenuOnOpen", self.on_open.borrow().is_some());
+        item.set_bool("mitsuamiButtonMenuOnOpen", self.on_open.borrow().is_some());
         if self.item.replace(Some(item)) == Some(item) {
             return;
         }
