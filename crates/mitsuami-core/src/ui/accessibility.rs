@@ -67,6 +67,11 @@ impl Inner {
                 _ => None,
             })
         });
+        // A tree's row whose children are being read.
+        let busy = tree_row.is_some_and(|r| {
+            let tree = node.native_parent.and_then(|p| self.nodes.get(&p));
+            tree.is_some_and(|t| crate::find_prop!(t.props, TreeLoading).is_some_and(|rows| rows.contains(&r.row)))
+        });
         let role = a11y.role.unwrap_or(match node.kind {
             WidgetKind::Window => Role::Window,
             WidgetKind::Container if tree_row.is_some() => Role::TreeItem,
@@ -202,6 +207,7 @@ impl Inner {
             selected,
             expanded: tree_row.filter(|r| r.expandable).map(|r| r.expanded),
             level: tree_row.map(|r| r.depth as usize + 1),
+            busy,
             enabled: crate::find_prop!(props, Enabled).unwrap_or(true),
             test_id: node.test_id.clone(),
             frame,
@@ -233,6 +239,7 @@ impl Inner {
                 selected: Some(shown == Some(index)),
                 expanded: None,
                 level: None,
+                busy: false,
                 enabled: true,
                 test_id: None,
                 frame,
@@ -264,6 +271,7 @@ impl Inner {
             selected,
             expanded: None,
             level: None,
+            busy: false,
             enabled,
             test_id: None,
             frame,
@@ -305,6 +313,7 @@ impl Inner {
                 selected: None,
                 expanded: None,
                 level: None,
+                busy: false,
                 enabled,
                 test_id: None,
                 frame,
@@ -335,6 +344,7 @@ impl Inner {
             selected,
             expanded: None,
             level: None,
+            busy: false,
             enabled: true,
             test_id: None,
             frame,
@@ -386,6 +396,7 @@ impl Inner {
             selected,
             expanded: None,
             level: None,
+            busy: false,
             enabled: true,
             test_id: None,
             frame,

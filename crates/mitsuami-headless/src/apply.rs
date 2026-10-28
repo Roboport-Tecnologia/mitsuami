@@ -112,6 +112,13 @@ impl HeadlessBackend {
                     if let Prop::TreeRows(rows) = prop {
                         super::lists::check_tree_rows(command, rows);
                     }
+                    // The rows that load are rows that show, sent after them.
+                    if let Prop::TreeLoading(loading) = prop {
+                        let rows = super::lists::tree_rows(&state.nodes[id]);
+                        if let Some(row) = loading.iter().find(|r| !rows.iter().any(|t| t.row == **r)) {
+                            violation(command, &format!("loading tree row {row:?} doesn't show"));
+                        }
+                    }
                     // Like native lists, removing rows deselects them.
                     let rows: Option<Box<dyn Iterator<Item = RowKey>>> = match prop {
                         Prop::Rows(rows) => Some(Box::new(rows.iter().copied())),

@@ -342,6 +342,7 @@ impl WinUiBackend {
             }
             Widget::Tree(tree) => {
                 props.push(Prop::TreeRows(tree.tree_rows()));
+                props.extend(tree.tree_loading().map(Prop::TreeLoading));
                 props.extend(tree.estimate().map(Prop::EstimatedRowHeight));
                 props.push(Prop::SelectionMode(tree.mode()));
                 props.extend(tree.style().map(Prop::ListStyle));

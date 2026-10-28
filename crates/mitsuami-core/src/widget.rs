@@ -1373,6 +1373,11 @@ pub enum Prop {
     /// A `Tree`'s rows that show, in order: a row, then its open
     /// children's rows. Children of closed rows aren't sent.
     TreeRows(Vec<TreeRow>),
+    /// A `Tree`'s rows whose children are being read (a folder on a
+    /// network share opening), of the rows that show: the platform shows
+    /// its spinner where the row's disclosure is. Sent only if the app
+    /// said which rows load.
+    TreeLoading(Vec<RowKey>),
     /// How high a `List`'s rows are likely to be, for platforms that must
     /// size rows before they're shown.
     EstimatedRowHeight(f32),

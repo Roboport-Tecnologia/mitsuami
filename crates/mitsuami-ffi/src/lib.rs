@@ -2214,6 +2214,8 @@ struct TreeNodes {
 struct TreeState {
     nodes: Signal<Rc<TreeNodes>>,
     expanded: Signal<Vec<String>>,
+    /// The rows whose children are being read.
+    loading: Signal<Vec<String>>,
     /// The open rows as the caller last set them, so setting them isn't
     /// reported back as the user's.
     set: Rc<RefCell<Vec<String>>>,
@@ -2237,9 +2239,10 @@ pub extern "C" fn mitsuami_create_tree(callbacks: MitsuamiTreeCallbacks) -> u32 
         let owner = Owner::new_root();
         let (set, open_set) = (Rc::new(RefCell::new(Vec::new())), Rc::new(RefCell::new(Vec::new())));
         let handle = ListHandle::new();
-        let (keys, selected, nodes, expanded, tree) = owner.with(|| {
+        let (keys, selected, nodes, expanded, loading, tree) = owner.with(|| {
             let (keys, selected) = (signal(Vec::<String>::new()), signal(Vec::<String>::new()));
             let (nodes, expanded) = (signal(Rc::new(TreeNodes::default())), signal(Vec::<String>::new()));
+            let loading = signal(Vec::<String>::new());
             let (row_cb, row_id) = (cb.clone(), id.clone());
             let (activate_cb, activate_id) = (cb.clone(), id.clone());
             let tree = Tree::new(
@@ -2256,6 +2259,7 @@ pub extern "C" fn mitsuami_create_tree(callbacks: MitsuamiTreeCallbacks) -> u32 
                 },
             )
             .expanded(expanded)
+            .loading(move |key: &String| loading.with(|l| l.contains(key)))
             .selected(selected)
             .handle(handle.clone())
             .on_activate(move |key: String| {
@@ -2296,11 +2300,11 @@ pub extern "C" fn mitsuami_create_tree(callbacks: MitsuamiTreeCallbacks) -> u32 
                     }
                 },
             );
-            (keys, selected, nodes, expanded, tree.build(&ui))
+            (keys, selected, nodes, expanded, loading, tree.build(&ui))
         });
         id.set(tree.raw());
         LISTS.with(|l| l.borrow_mut().insert(tree.raw(), ListState { keys, selected, set, sort: None, handle }));
-        TREES.with(|t| t.borrow_mut().insert(tree.raw(), TreeState { nodes, expanded, set: open_set }));
+        TREES.with(|t| t.borrow_mut().insert(tree.raw(), TreeState { nodes, expanded, loading, set: open_set }));
         free_with_node(&ui, tree, owner);
         Ok(tree.raw())
     })
@@ -2346,6 +2350,22 @@ pub unsafe extern "C" fn mitsuami_tree_set_expanded(id: u32, keys: *const Mitsua
         let (expanded, set) = tree(id, |t| (t.expanded, t.set.clone()))?;
         *set.borrow_mut() = new.clone();
         expanded.set(new);
+        Ok(())
+    })
+    .is_some()
+}
+
+/// The rows whose children are being read, as a folder on a network share
+/// opening: the platform's spinner shows where their disclosure is, until
+/// the caller sets them again without it.
+///
+/// # Safety
+/// `keys` points to `count` strings.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn mitsuami_tree_set_loading(id: u32, keys: *const MitsuamiStr, count: usize) -> bool {
+    guard(|| {
+        let new = unsafe { strings(keys, count)? };
+        tree(id, |t| t.loading)?.set(new);
         Ok(())
     })
     .is_some()

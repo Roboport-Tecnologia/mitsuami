@@ -13,7 +13,7 @@
 //! siblings, as `TreeViewItem`'s peer has them.
 
 use std::cell::RefCell;
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::path::PathBuf;
 use std::rc::Rc;
 
@@ -150,6 +150,7 @@ const ITEM_STYLE: &str = r#"<Style xmlns="http://schemas.microsoft.com/winfx/200
                         <Grid x:Name="ExpandCollapseChevron" Padding="14,0" Background="Transparent">
                             <TextBlock x:Name="CollapsedGlyph" Foreground="{ThemeResource TreeViewItemForeground}" Width="12" Height="12" FontSize="8" Text="&#xE76C;" FontFamily="{StaticResource SymbolThemeFontFamily}" Padding="2" VerticalAlignment="Center" AutomationProperties.AccessibilityView="Raw" IsTextScaleFactorEnabled="False" IsHitTestVisible="False"/>
                             <TextBlock x:Name="ExpandedGlyph" Foreground="{ThemeResource TreeViewItemForeground}" Width="12" Height="12" FontSize="8" Text="&#xE70D;" FontFamily="{StaticResource SymbolThemeFontFamily}" Padding="2" VerticalAlignment="Center" Visibility="Collapsed" AutomationProperties.AccessibilityView="Raw" IsTextScaleFactorEnabled="False" IsHitTestVisible="False"/>
+                            <ProgressRing x:Name="LoadingRing" Width="16" Height="16" MinWidth="16" MinHeight="16" Margin="-2" IsActive="False" VerticalAlignment="Center" Visibility="Collapsed" IsHitTestVisible="False"/>
                         </Grid>
                         <Border x:Name="MultiArrangeOverlayTextBorder" Visibility="Collapsed" IsHitTestVisible="False" MinWidth="20" Height="20" VerticalAlignment="Center" HorizontalAlignment="Center" Background="{ThemeResource SystemControlBackgroundAccentBrush}" BorderThickness="1" BorderBrush="{ThemeResource SystemControlBackgroundChromeWhiteBrush}" CornerRadius="{ThemeResource ControlCornerRadius}">
                             <TextBlock Text="{Binding RelativeSource={RelativeSource TemplatedParent}, Path=TemplateSettings.DragItemsCount}" Style="{ThemeResource CaptionTextBlockStyle}" Foreground="{ThemeResource SystemControlForegroundChromeWhiteBrush}" IsHitTestVisible="False" VerticalAlignment="Center" HorizontalAlignment="Center" AutomationProperties.AccessibilityView="Raw"/>
@@ -188,6 +189,8 @@ struct Nodes {
     hover: Option<(RowKey, std::time::Instant)>,
     /// Each container's chevron's handler, by container.
     chevrons: HashMap<usize, EventRevoker>,
+    /// The rows whose children are being read, as sent (`TreeLoading`).
+    loading: Option<HashSet<RowKey>>,
 }
 
 /// Where a list's own rows dragged over it land, when the list is a
@@ -374,10 +377,11 @@ fn decorate(
     else {
         return;
     };
-    let (row, set) = {
+    let (row, set, loading) = {
         let n = nodes.borrow();
         let Some(row) = n.rows.get(&key).copied() else { return };
-        (row, n.sets.get(&key).copied().unwrap_or((1, 1)))
+        let loading = n.loading.as_ref().is_some_and(|l| l.contains(&key));
+        (row, n.sets.get(&key).copied().unwrap_or((1, 1)), loading)
     };
     if let Ok(element) = container.cast::<w::UIElement>() {
         _ = w::AutomationProperties::SetAutomationControlType(&element, w::AutomationControlType::TreeItem);
@@ -391,16 +395,23 @@ fn decorate(
     // A row that doesn't open keeps the chevron's room, as `TreeViewItem`
     // does (its `GlyphOpacity`).
     if let Ok(element) = chevron.cast::<w::IUIElement>() {
-        _ = element.SetOpacity(if row.expandable { 1.0 } else { 0.0 });
-        _ = element.SetIsHitTestVisible(row.expandable);
+        _ = element.SetOpacity(if row.expandable || loading { 1.0 } else { 0.0 });
+        _ = element.SetIsHitTestVisible(row.expandable && !loading);
     }
     let shown = |name: &str, show: bool| {
         if let Some(glyph) = part::<w::IUIElement>(container, name) {
             _ = glyph.SetVisibility(if show { w::Visibility::Visible } else { w::Visibility::Collapsed });
         }
     };
-    shown("CollapsedGlyph", !row.expanded);
-    shown("ExpandedGlyph", row.expanded);
+    shown("CollapsedGlyph", !row.expanded && !loading);
+    shown("ExpandedGlyph", row.expanded && !loading);
+    // While its children are being read, a progress ring in the chevron's
+    // place: `TreeView` has none of its own, and a ring is how WinUI
+    // shows work under way.
+    shown("LoadingRing", loading);
+    if let Some(ring) = part::<w::IProgressRing>(container, "LoadingRing") {
+        _ = ring.SetIsActive(loading);
+    }
     chevron_follows(view, nodes, events, id, container, &chevron);
 }
 
@@ -609,6 +620,29 @@ impl Tree {
                 decorate(&a.view, &a.nodes, &a.events, a.id, &container);
             }
         }
+    }
+
+    /// The rows whose children are being read: their containers show a
+    /// progress ring in place of their chevron.
+    pub(crate) fn set_tree_loading(&self, rows: &[RowKey]) {
+        self.arrows.nodes.borrow_mut().loading = Some(rows.iter().copied().collect());
+        self.decorate_shown();
+    }
+
+    /// The rows whose rings show: of those sent, the ones whose realised
+    /// container's ring is active, and those not realised, which get it
+    /// when they are.
+    pub(crate) fn tree_loading(&self) -> Option<Vec<RowKey>> {
+        let loading = self.arrows.nodes.borrow().loading.clone()?;
+        let data = self.data().borrow();
+        let shows = |key: &RowKey| match data.cells.get(key) {
+            Some(cell) => container_of_cell(cell)
+                .and_then(|c| c.cast::<w::DependencyObject>().ok())
+                .and_then(|c| part::<w::IProgressRing>(&c, "LoadingRing"))
+                .is_some_and(|ring| ring.IsActive().unwrap_or(false)),
+            None => true,
+        };
+        Some(self.list.rows().into_iter().filter(|key| loading.contains(key) && shows(key)).collect())
     }
 
     /// The rows the tree shows, with their parents, depths, and whether

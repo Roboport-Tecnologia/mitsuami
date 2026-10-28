@@ -50,6 +50,7 @@ impl<'a> Locator<'a> {
                             selected: None,
                             expanded: None,
                             level: None,
+                            busy: false,
                             enabled: true,
                             test_id: node.test_id.clone(),
                             frame: node.frame,
@@ -698,6 +699,16 @@ impl<'a> Expectation<'a> {
     pub async fn to_be_collapsed(&self) {
         self.check(|l| if l.try_node()?.expanded == Some(false) { Ok(()) } else { Err("to be collapsed".into()) })
             .await;
+    }
+
+    /// A tree's item's children are being read: its spinner shows.
+    pub async fn to_be_busy(&self) {
+        self.check(|l| if l.try_node()?.busy { Ok(()) } else { Err("to be busy".into()) }).await;
+    }
+
+    /// A tree's item's children aren't being read.
+    pub async fn not_to_be_busy(&self) {
+        self.check(|l| if l.try_node()?.busy { Err("not to be busy".into()) } else { Ok(()) }).await;
     }
 
     /// A tree's item is this deep, 1 at the top.

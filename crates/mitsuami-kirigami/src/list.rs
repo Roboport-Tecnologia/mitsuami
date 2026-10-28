@@ -83,6 +83,8 @@ struct Data {
     parents: HashMap<RowKey, Option<RowKey>>,
     expandable: HashMap<RowKey, bool>,
     indent: Option<TreeIndent>,
+    /// The app said which rows load (`Prop::TreeLoading`).
+    loading: bool,
 }
 
 impl Data {
@@ -530,6 +532,23 @@ impl List {
         if kept != selected {
             self.events.emit_always(self.id, UiEvent::Changed(EventValue::Rows(kept)));
         }
+    }
+
+    /// The rows whose children are being read: their delegates show a
+    /// busy indicator.
+    pub(crate) fn set_tree_loading(&self, rows: &[RowKey]) {
+        let keys: Vec<String> = rows.iter().map(|r| r.0.to_string()).collect();
+        self.view.set_str_list("mitsuamiLoading", &keys);
+        self.data.borrow_mut().loading = true;
+    }
+
+    /// The rows loading, as the view shows them, once any were sent.
+    pub(crate) fn tree_loading(&self) -> Option<Vec<RowKey>> {
+        if !self.data.borrow().loading {
+            return None;
+        }
+        self.view.invoke("mitsuamiReadLoading");
+        Some(self.view.str("mitsuamiLoadingText").split(',').filter_map(parse).collect())
     }
 
     /// Opens or closes a tree's row as the user does: the view reports it.

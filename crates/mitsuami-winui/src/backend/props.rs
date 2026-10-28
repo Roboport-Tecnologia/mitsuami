@@ -605,6 +605,7 @@ impl State {
             (Prop::Selected(rows), Widget::List(list)) => list.set_selected(rows)?,
             (Prop::EstimatedRowHeight(height), Widget::List(list)) => list.set_estimate(*height),
             (Prop::TreeRows(rows), Widget::Tree(tree)) => tree.set_tree_rows(rows.clone())?,
+            (Prop::TreeLoading(rows), Widget::Tree(tree)) => tree.set_tree_loading(rows),
             (Prop::RowFiles(files), Widget::Tree(tree)) => tree.set_row_files(files.clone())?,
             (Prop::RowMoves(moves), Widget::Tree(tree)) => tree.set_moves(*moves)?,
             (Prop::SelectionMode(mode), Widget::Tree(tree)) => tree.set_mode(*mode)?,

@@ -235,6 +235,8 @@ pub struct A11yNode {
     pub expanded: Option<bool>,
     /// Tree items: how deep, 1 at the top.
     pub level: Option<usize>,
+    /// Tree items: their children are being read (`Prop::TreeLoading`).
+    pub busy: bool,
     pub enabled: bool,
     pub test_id: Option<String>,
     /// In window coordinates.

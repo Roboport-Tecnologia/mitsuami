@@ -19,7 +19,9 @@ use std::cell::{Cell, RefCell};
 use std::collections::{BTreeMap, HashMap, HashSet};
 use std::path::PathBuf;
 use std::rc::Rc;
+use std::sync::OnceLock;
 
+use gtk::glib::translate::from_glib;
 use gtk::prelude::*;
 use gtk::subclass::prelude::*;
 use gtk::{gdk, gio, glib, graphene, gsk};
@@ -100,6 +102,8 @@ struct Data {
     /// width, as GTK's trees indent them. A tree where none does is a flat
     /// list, unindented, as GTK's apps show one.
     any_opens: bool,
+    /// The rows whose children are being read, as sent (`TreeLoading`).
+    loading: Option<HashSet<RowKey>>,
 }
 
 /// What a drag of rows within a list carries: the list's id, so another
@@ -262,6 +266,7 @@ fn new_data() -> Rc<RefCell<Data>> {
         expanding: false,
         indent: None,
         any_opens: false,
+        loading: None,
     }))
 }
 
@@ -526,10 +531,90 @@ enum Edge {
 /// A list item's cell: its child, or, in a tree, its expander's.
 fn cell_of(item: &gtk::ListItem) -> Option<gtk::Widget> {
     let child = item.child()?;
-    match child.downcast_ref::<gtk::TreeExpander>() {
+    match expander_of(item) {
         Some(expander) => expander.child(),
         None => Some(child),
     }
+}
+
+/// A tree's list item's expander, in the overlay that holds its spinner.
+fn expander_of(item: &gtk::ListItem) -> Option<gtk::TreeExpander> {
+    item.child().and_downcast::<gtk::Overlay>()?.child().and_downcast()
+}
+
+/// libadwaita's spinner, if the libadwaita the app runs with has one (1.6
+/// and later). It's looked up at run time, so the backend builds against
+/// libadwaita 1.4.
+fn adw_spinner_type() -> Option<glib::Type> {
+    static TYPE: OnceLock<Option<glib::Type>> = OnceLock::new();
+    *TYPE.get_or_init(|| {
+        // SAFETY: the symbol, if libadwaita has it, is its type's getter,
+        // `GType adw_spinner_get_type(void)`.
+        unsafe {
+            let getter = libc::dlsym(libc::RTLD_DEFAULT, c"adw_spinner_get_type".as_ptr());
+            (!getter.is_null()).then(|| {
+                let getter: extern "C" fn() -> glib::ffi::GType = std::mem::transmute(getter);
+                from_glib(getter())
+            })
+        }
+    })
+}
+
+/// A tree row's spinner, hidden, showing at once when it's shown: Nautilus's
+/// rows' `AdwSpinner`, which spins while it's mapped and draws in full from
+/// its first frame. GTK's own spinner, since 4.20 an animated icon, fades
+/// in over half a second as it starts spinning, after the core's own wait
+/// (`Tree::loading`); without libadwaita 1.6 it's the one, and it spins
+/// from the start, so only its visibility changes.
+fn row_spinner() -> gtk::Widget {
+    let spinner = match adw_spinner_type().and_then(|t| glib::Object::with_type(t).downcast::<gtk::Widget>().ok()) {
+        Some(spinner) => spinner,
+        None => {
+            let spinner = gtk::Spinner::new();
+            spinner.set_spinning(true);
+            spinner.upcast()
+        }
+    };
+    spinner.set_visible(false);
+    spinner.set_can_target(false);
+    spinner
+}
+
+/// A tree's row in an expander, with a spinner over the room of the
+/// expander's arrow, which shows while the row's children are being read
+/// (Nautilus shows a spinner as a folder loads). GTK's tree expander has
+/// no spinner, so the arrow is hidden, and its room kept
+/// (`indent-for-icon`), while it shows.
+fn tree_item(cell: &gtk::Widget) -> gtk::Overlay {
+    let expander = gtk::TreeExpander::new();
+    expander.set_child(Some(cell));
+    let spinner = row_spinner();
+    let overlay = gtk::Overlay::new();
+    overlay.set_child(Some(&expander));
+    overlay.add_overlay(&spinner);
+    // In the arrow's room: the indent before the cell, as the expander
+    // lays it out without its arrow.
+    overlay.connect_get_child_position(|overlay, spinner| {
+        let expander = overlay.child().and_downcast::<gtk::TreeExpander>()?;
+        let room = expander.child()?.prev_sibling()?.compute_bounds(overlay)?;
+        let (_, width, _, _) = spinner.measure(gtk::Orientation::Horizontal, -1);
+        let (_, height, _, _) = spinner.measure(gtk::Orientation::Vertical, width);
+        let x = room.x() + (room.width() - width as f32) / 2.0;
+        let y = room.y() + (room.height() - height as f32) / 2.0;
+        Some(gdk::Rectangle::new(x.round() as i32, y.round() as i32, width, height))
+    });
+    overlay
+}
+
+/// Shows a tree item's spinner in place of its arrow while it loads.
+fn show_loading(expander: &gtk::TreeExpander, loading: bool) {
+    let Some(spinner) = expander.parent().and_downcast::<gtk::Overlay>().and_then(|o| o.last_child()) else { return };
+    if spinner.is_visible() == loading {
+        return;
+    }
+    expander.set_hide_expander(loading);
+    expander.update_state(&[gtk::accessible::State::Busy(loading)]);
+    spinner.set_visible(loading);
 }
 
 /// Hears the user open and close a tree's row (its expander, GTK's keys),
@@ -579,13 +664,11 @@ fn factory(
             drag_source(&data, id, &cell);
             row_drop_target(&data, &events, id, &cell);
             if tree {
-                let expander = gtk::TreeExpander::new();
                 // An expander gives its child its natural width, and a cell
                 // asks for none: it takes the rest of the row, as a list's
                 // does, so what's drawn on it (a drop's ring) shows.
                 cell.set_hexpand(true);
-                expander.set_child(Some(&cell));
-                item.set_child(Some(&expander));
+                item.set_child(Some(&tree_item(&cell)));
             } else {
                 item.set_child(Some(&cell));
             }
@@ -597,12 +680,14 @@ fn factory(
             let Some(item) = item.downcast_ref::<gtk::ListItem>() else { return };
             let (Some(key), Some(cell)) = (item.item().as_ref().and_then(key_of), cell_of(item)) else { return };
             fill_row(&cell);
-            if let (Some(expander), Some(row)) =
-                (item.child().and_downcast::<gtk::TreeExpander>(), item.item().and_downcast::<gtk::TreeListRow>())
-            {
-                let any_opens = data.borrow().any_opens;
+            if let (Some(expander), Some(row)) = (expander_of(item), item.item().and_downcast::<gtk::TreeListRow>()) {
+                let (any_opens, loading) = {
+                    let d = data.borrow();
+                    (d.any_opens, d.loading.as_ref().is_some_and(|l| l.contains(&key)))
+                };
                 expander.set_indent_for_icon(any_opens);
                 expander.set_list_row(Some(&row));
+                show_loading(&expander, loading);
                 hear_expanded(&data, &mut data.borrow_mut(), &events, id, key, &row);
             }
             let mut d = data.borrow_mut();
@@ -619,7 +704,7 @@ fn factory(
         let (data, events) = (data.clone(), events.clone());
         factory.connect_unbind(move |_, item| {
             let Some(item) = item.downcast_ref::<gtk::ListItem>() else { return };
-            if let Some(expander) = item.child().and_downcast::<gtk::TreeExpander>() {
+            if let Some(expander) = expander_of(item) {
                 expander.set_list_row(None);
             }
             let (Some(key), Some(cell)) = (item.item().as_ref().and_then(key_of), cell_of(item)) else { return };
@@ -1019,6 +1104,39 @@ impl List {
             self.report_selection();
         }
         self.queue_remeasure();
+    }
+
+    /// The rows whose children are being read: their spinners show, in the
+    /// rows bound now and in those bound later.
+    pub(crate) fn set_tree_loading(&self, rows: &[RowKey]) {
+        let loading: HashSet<RowKey> = rows.iter().copied().collect();
+        let cells: Vec<(RowKey, gtk::Widget)> = {
+            let mut data = self.data.borrow_mut();
+            data.loading = Some(loading.clone());
+            data.cells.iter().map(|((key, _), cell)| (*key, cell.clone())).collect()
+        };
+        for (key, cell) in cells {
+            if let Some(expander) = cell.parent().and_downcast::<gtk::TreeExpander>() {
+                show_loading(&expander, loading.contains(&key));
+            }
+        }
+    }
+
+    /// The rows whose spinners show: of those sent, the ones bound with
+    /// their spinner showing, and those not bound, which show it when
+    /// they are.
+    pub(crate) fn tree_loading(&self) -> Option<Vec<RowKey>> {
+        let data = self.data.borrow();
+        let shows = |key: &RowKey| match data.cells.get(&(*key, 0)) {
+            Some(cell) => cell
+                .parent()
+                .and_then(|expander| expander.parent())
+                .and_then(|overlay| overlay.last_child())
+                .is_some_and(|spinner| spinner.is_visible()),
+            None => true,
+        };
+        let loading = data.loading.as_ref()?;
+        Some(data.rows.iter().filter(|key| loading.contains(key) && shows(key)).copied().collect())
     }
 
     /// Opens or closes a tree's row as assistive technology does, reporting

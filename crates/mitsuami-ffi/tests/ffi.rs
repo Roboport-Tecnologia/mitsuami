@@ -796,9 +796,17 @@ async fn trees_show_open_nodes_children_and_report_the_open_rows(app: TestApp) {
     // The user opens it; the caller hears it and gives its children.
     app.get_by_role(Role::TreeItem, "Repository a").expand().await;
     assert_eq!(heard(), ["open a"]);
+    // It shows its spinner while the caller reads it, after half a second.
+    let loading = strs(&["a"]);
+    assert!(unsafe { mitsuami_tree_set_loading(tree, loading.as_ptr(), loading.len()) });
+    app.settle().await;
+    app.advance(std::time::Duration::from_millis(500)).await;
+    app.expect(by_role(Role::TreeItem, "Repository a")).to_be_busy().await;
     let nodes = [tree_node("a", "", true), tree_node("a/1", "a", false), tree_node("b", "", false)];
     assert!(unsafe { mitsuami_tree_set_nodes(tree, nodes.as_ptr(), nodes.len()) });
+    assert!(unsafe { mitsuami_tree_set_loading(tree, std::ptr::null(), 0) });
     app.expect(by_role(Role::TreeItem, "Repository a/1")).to_have_level(2).await;
+    app.expect(by_role(Role::TreeItem, "Repository a")).not_to_be_busy().await;
 
     // The caller's own opening and closing isn't reported back.
     assert!(unsafe { mitsuami_tree_set_expanded(tree, std::ptr::null(), 0) });

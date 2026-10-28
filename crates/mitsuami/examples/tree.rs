@@ -5,9 +5,11 @@
 //! - A playground: open and close folders (the disclosure, the platform's
 //!   keys, or the buttons, through the app's set of open rows), add a file
 //!   to the selected folder, activate a row (double-click or Return), open
-//!   a folder whose files take a moment to read, and drag rows: onto a
-//!   folder to put them in it, between rows to put them there. The tree
-//!   shows nothing moved until the app moves its data, as here.
+//!   a folder whose files take a moment to read (the platform's spinner
+//!   shows meanwhile), and drag rows: onto a folder to put them in it,
+//!   between rows to put them there. A drag resting on a closed folder
+//!   opens it. The tree shows nothing moved until the app moves its data,
+//!   as here.
 //! - "Select several rows" switches between selecting several rows, the
 //!   platform's way (a click selects one, Shift a range, Command or
 //!   Control adds one), and one at a time; a drag then moves the
@@ -201,8 +203,18 @@ fn renamed(path: &str, moves: &[(String, String)]) -> String {
     path.to_string()
 }
 
-/// A tree to open and close, add to, activate and drag rows in, with a
-/// folder read as it opens.
+/// The remote folders, and how long each takes to read, as a folder on a
+/// network share does: one quicker than the tree's spinner waits, which
+/// shows none, and one slow.
+const REMOTES: [(&str, u64); 2] = [("fast remote", 300), ("slow remote", 3000)];
+
+/// Whether a path is in a remote folder, or is one: not ours to change.
+fn remote(path: &str) -> bool {
+    REMOTES.iter().any(|(name, _)| path == *name || path.starts_with(&format!("{name}/")))
+}
+
+/// A tree to open and close, add to, activate and drag rows in, with
+/// folders read as they open.
 fn playground() -> impl View {
     let entries = signal(project());
     let open = signal(Vec::<String>::new());
@@ -210,28 +222,37 @@ fn playground() -> impl View {
     let several = signal(true);
     let activated = signal(None::<String>);
     let next = signal(1u32);
-    // The remote folder's files, once read: they take a moment, as a
-    // folder on a network share does.
-    let remote = signal(None::<Vec<Entry>>);
+    // Each remote folder's files, once read, and the folders being read:
+    // a folder is read the first time it opens.
+    let read = signal(Vec::<(String, Vec<Entry>)>::new());
+    let reading = signal(Vec::<String>::new());
     effect(move || {
-        if open.get().iter().any(|p| p == "remote") && remote.get_untracked().is_none() {
-            spawn_local(async move {
-                sleep(Duration::from_millis(700)).await;
-                remote.set(Some((1..=3).map(|n| file(&format!("remote/report {n}.pdf"))).collect()));
-            });
+        for (name, millis) in REMOTES {
+            let wanted = open.get().iter().any(|p| p == name);
+            let started = reading.get_untracked().iter().any(|p| p == name)
+                || read.get_untracked().iter().any(|(p, _)| p == name);
+            if wanted && !started {
+                reading.update(|r| r.push(name.to_string()));
+                spawn_local(async move {
+                    sleep(Duration::from_millis(millis)).await;
+                    let files = (1..=3).map(|n| file(&format!("{name}/report {n}.pdf"))).collect();
+                    read.update(|r| r.push((name.to_string(), files)));
+                    reading.update(|r| r.retain(|p| p != name));
+                });
+            }
         }
     });
     let roots = move || {
-        let mut roots = vec![folder("remote", Vec::new())];
+        let mut roots: Vec<Entry> = REMOTES.iter().map(|(name, _)| folder(name, Vec::new())).collect();
         roots.extend(entries.get());
         roots
     };
-    let children = move |e: &Entry| match e.path.as_str() {
-        "remote" => Some(remote.get().unwrap_or_default()),
-        _ => e.kids.clone(),
+    let children = move |e: &Entry| match REMOTES.iter().any(|(name, _)| e.path == *name) {
+        true => Some(read.get().into_iter().find(|(p, _)| *p == e.path).map(|(_, files)| files).unwrap_or_default()),
+        false => e.kids.clone(),
     };
     let open_all = move || {
-        let mut all = vec!["remote".to_string()];
+        let mut all: Vec<String> = REMOTES.iter().map(|(name, _)| name.to_string()).collect();
         folders(&entries.get_untracked(), &mut all);
         open.set(all);
     };
@@ -263,13 +284,15 @@ fn playground() -> impl View {
                 <Switch bind=several>"Select several rows"</Switch>
             </Row>
             {Tree::new(roots, |e: &Entry| e.path.clone(), children, row)
+                // A remote folder's spinner shows while it's read, after
+                // half a second: the fast one's never does.
+                .loading(move |e| reading.get().contains(&e.path))
                 .expanded(open)
                 .selected(selected)
                 .selection_mode(move || if several.get() { SelectionMode::Multiple } else { SelectionMode::Single })
                 .on_activate(move |path| activated.set(Some(path)))
                 .on_move(RowMoves::onto_rows().and_between_rows(), move |paths, to| {
-                    // The remote folder isn't ours to change.
-                    let remote = |p: &String| p == "remote" || p.starts_with("remote/");
+                    // The remote folders aren't ours to change.
                     let into_remote = matches!(&to, RowDrop::On(p) | RowDrop::Before(p) if remote(p));
                     let paths: Vec<String> = paths.into_iter().filter(|p| !remote(p)).collect();
                     if into_remote || paths.is_empty() {

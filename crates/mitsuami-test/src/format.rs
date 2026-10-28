@@ -185,6 +185,12 @@ fn describe_props(props: &[Prop]) -> String {
                     .collect();
                 extra.push(format!("tree=[{}]", rows.join(" ")));
             }
+            // `loading=[2]`: the rows whose spinner shows, when any do.
+            Prop::TreeLoading(rows) if rows.is_empty() => {}
+            Prop::TreeLoading(rows) => {
+                let rows: Vec<String> = rows.iter().map(|r| r.0.to_string()).collect();
+                extra.push(format!("loading=[{}]", rows.join(" ")));
+            }
             Prop::EstimatedRowHeight(h) => extra.push(format!("estimated_row_height={}", Num(*h))),
             Prop::Row(key) => extra.push(format!("row={}", key.0)),
             Prop::Cell(cell) => extra.push(format!("cell={},{}", cell.row.0, cell.column)),

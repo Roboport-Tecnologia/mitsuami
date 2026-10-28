@@ -9,10 +9,12 @@
 //! levels and reports the user opening and closing rows (`RowExpanded`),
 //! which the open set follows.
 
-use std::collections::HashSet;
+use std::cell::{Cell, RefCell};
+use std::collections::{HashMap, HashSet};
 use std::hash::Hash;
 use std::path::PathBuf;
 use std::rc::Rc;
+use std::time::Duration;
 
 use mitsuami_reactive::{IntoValue, Signal, Value, signal};
 
@@ -28,6 +30,9 @@ use crate::widget::{ListStyle, NodeId, Prop, RowDrop, RowMoves, SelectionMode, W
 /// An item's children: `None` for a row that never opens, `Some` for one
 /// that does, empty or not.
 type ChildrenFn<T> = Rc<dyn Fn(&T) -> Option<Vec<T>>>;
+
+/// Whether an item's children are being read.
+type LoadingFn<T> = Rc<dyn Fn(&T) -> bool>;
 
 /// A virtualised tree of rows, shown by the platform's own tree control,
 /// which draws the disclosures and indents the levels.
@@ -66,6 +71,7 @@ pub struct Tree<T: 'static = (), K: 'static = (), R = RowRender<T>> {
     handle: Option<ListHandle<K>>,
     files: Option<FileFn<T>>,
     moves: Option<(RowMoves, MoveFn<K>)>,
+    loading: Option<LoadingFn<T>>,
 }
 
 impl<T: Clone + 'static, K: Eq + Hash + Clone + 'static> Tree<T, K> {
@@ -108,6 +114,7 @@ impl<T: 'static, K: 'static, R> Tree<T, K, R> {
             handle: None,
             files: None,
             moves: None,
+            loading: None,
         }
     }
 
@@ -122,6 +129,18 @@ impl<T: 'static, K: 'static, R> Tree<T, K, R> {
     /// reachable from the keyboard or assistive technology.
     pub fn on_move(mut self, moves: RowMoves, handler: impl Fn(Vec<K>, RowDrop<K>) + 'static) -> Self {
         self.moves = Some((moves, Rc::new(handler)));
+        self
+    }
+
+    /// Which rows' children are being read: a folder whose files take a
+    /// moment to come, as on a network share. Once `loading` has said so
+    /// for half a second, the platform's spinner shows where the row's
+    /// disclosure is, as Finder shows one in place of a folder's triangle;
+    /// a folder read quicker opens without one flashing. Signals it reads
+    /// are tracked, as `children`'s are. The tree doesn't read children
+    /// itself: the app says when they're read, and `children` gives them.
+    pub fn loading(mut self, loading: impl Fn(&T) -> bool + 'static) -> Self {
+        self.loading = Some(Rc::new(loading));
         self
     }
 
@@ -215,6 +234,58 @@ impl<T: 'static, K: 'static, R> ElementBuilder for Tree<T, K, R> {
     }
 }
 
+/// How long a row loads before its spinner shows: a folder read quicker
+/// opens without one flashing, as Nautilus waits before showing its own.
+const SPINNER_DELAY: Duration = Duration::from_millis(500);
+
+/// The app's `loading`, held back for `SPINNER_DELAY`: when each row that
+/// shows began loading, on the `Ui`'s clock, and a signal a timer bumps
+/// when a row's time is up. A row that stops loading, or isn't walked (in
+/// a closed folder), starts again.
+struct Delayed<T: 'static, K: 'static> {
+    ui: Ui,
+    key: KeyFn<T, K>,
+    loading: LoadingFn<T>,
+    since: RefCell<HashMap<K, (Duration, u64)>>,
+    walk: Cell<u64>,
+    due: Signal<u64>,
+}
+
+impl<T, K: Eq + Hash + Clone> Delayed<T, K> {
+    /// Whether the item's spinner shows. It's asked of each row walked.
+    fn shows(&self, item: &T) -> bool {
+        if !(self.loading)(item) {
+            return false;
+        }
+        // Walked again when a timer is due.
+        self.due.get();
+        let now = self.ui.executor().now();
+        let mut since = self.since.borrow_mut();
+        let walk = self.walk.get();
+        let entry = since.entry((self.key)(item)).or_insert_with(|| {
+            let (ui, due) = (self.ui.clone(), self.due);
+            self.ui.spawn_local(async move {
+                ui.sleep(SPINNER_DELAY).await;
+                if due.is_alive() {
+                    due.update(|n| *n += 1);
+                }
+            });
+            (now, walk)
+        });
+        entry.1 = walk;
+        now.saturating_sub(entry.0) >= SPINNER_DELAY
+    }
+
+    /// Walks the rows, forgetting those not loading in it.
+    fn walk<R>(&self, f: impl FnOnce() -> R) -> R {
+        let walk = self.walk.get() + 1;
+        self.walk.set(walk);
+        let out = f();
+        self.since.borrow_mut().retain(|_, (_, seen)| *seen == walk);
+        out
+    }
+}
+
 /// A row that shows: its item and its place in the tree.
 #[derive(Clone)]
 struct Flat<T> {
@@ -229,11 +300,13 @@ fn flatten<T: Clone, K: Eq + Hash>(
     roots: Vec<T>,
     key: &dyn Fn(&T) -> K,
     children: &dyn Fn(&T) -> Option<Vec<T>>,
+    loading: Option<&dyn Fn(&T) -> bool>,
     open: &HashSet<K>,
 ) -> Vec<Flat<T>> {
     struct Walk<'a, T, K> {
         key: &'a dyn Fn(&T) -> K,
         children: &'a dyn Fn(&T) -> Option<Vec<T>>,
+        loading: Option<&'a dyn Fn(&T) -> bool>,
         open: &'a HashSet<K>,
         /// The open rows above the one being walked.
         folders: Vec<K>,
@@ -247,8 +320,9 @@ fn flatten<T: Clone, K: Eq + Hash>(
                 let kids = (self.children)(&item);
                 let expandable = kids.is_some();
                 let expanded = expandable && self.open.contains(&k) && !self.folders.contains(&k);
+                let loading = self.loading.is_some_and(|loading| loading(&item));
                 let index = self.out.len();
-                self.out.push(Flat { item, shape: Shape { parent, depth, expandable, expanded } });
+                self.out.push(Flat { item, shape: Shape { parent, depth, expandable, expanded, loading } });
                 if let (true, Some(kids)) = (expanded, kids) {
                     self.folders.push(k);
                     self.visit(kids, Some(index), depth + 1);
@@ -258,7 +332,7 @@ fn flatten<T: Clone, K: Eq + Hash>(
         }
     }
 
-    let mut walk = Walk { key, children, open, folders: Vec::new(), out: Vec::new() };
+    let mut walk = Walk { key, children, loading, open, folders: Vec::new(), out: Vec::new() };
     walk.visit(roots, None, 0);
     walk.out
 }
@@ -280,13 +354,29 @@ impl<T: Clone + 'static, K: Eq + Hash + Clone + 'static> View for Tree<T, K> {
             handle,
             files,
             moves,
+            loading,
         } = self;
         let expanded = expanded.unwrap_or_else(|| signal(Vec::new()));
+        let loads = loading.is_some();
+        let delayed = loading.map(|loading| Delayed {
+            ui: ui.clone(),
+            key: key.clone(),
+            loading,
+            since: RefCell::default(),
+            walk: Cell::new(0),
+            due: signal(0),
+        });
         let each = {
             let (key, children) = (key.clone(), children.clone());
             Value::Dynamic(Rc::new(move || {
                 let open: HashSet<K> = expanded.get().into_iter().collect();
-                flatten(roots.get(), &*key, &*children, &open)
+                match &delayed {
+                    Some(delayed) => {
+                        let shows = |item: &T| delayed.shows(item);
+                        delayed.walk(|| flatten(roots.get(), &*key, &*children, Some(&shows), &open))
+                    }
+                    None => flatten(roots.get(), &*key, &*children, None, &open),
+                }
             }))
         };
         let mount: Mount<Flat<T>> = Rc::new(move |ui: &Ui, row, flat: Flat<T>| {
@@ -305,6 +395,7 @@ impl<T: Clone + 'static, K: Eq + Hash + Clone + 'static> View for Tree<T, K> {
                     _ => {}
                 }
             }),
+            loading: loads,
         };
         let item_key = key.clone();
         let parts = RowParts {
@@ -406,6 +497,7 @@ impl<T: Clone + 'static, K: Eq + Hash + Clone + 'static> Tree<T, K, ()> {
             handle,
             files,
             moves,
+            loading,
             ..
         } = self;
         Tree {
@@ -423,6 +515,7 @@ impl<T: Clone + 'static, K: Eq + Hash + Clone + 'static> Tree<T, K, ()> {
             handle,
             files,
             moves,
+            loading,
         }
     }
 }

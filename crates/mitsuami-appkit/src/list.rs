@@ -27,14 +27,15 @@ use mitsuami_core::{
 use mitsuami_core::services::Shortcut;
 use objc2::rc::Retained;
 use objc2::runtime::{AnyObject, NSObject, NSObjectProtocol, ProtocolObject};
-use objc2::{DefinedClass, MainThreadMarker, MainThreadOnly, define_class, msg_send, sel};
+use objc2::{ClassType, DefinedClass, MainThreadMarker, MainThreadOnly, define_class, msg_send, sel};
 use objc2_app_kit::{
-    NSAnimationContext, NSBorderType, NSControlTextEditingDelegate, NSDragOperation, NSDraggingInfo, NSEvent,
-    NSEventModifierFlags, NSImage, NSMenu, NSOutlineView, NSOutlineViewDataSource, NSOutlineViewDelegate,
-    NSPasteboardItem, NSPasteboardTypeFileURL, NSPasteboardWriting, NSResponder, NSScrollView, NSTableColumn,
-    NSTableColumnResizingOptions, NSTableRowView, NSTableView, NSTableViewAnimationOptions,
-    NSTableViewColumnAutoresizingStyle, NSTableViewDataSource, NSTableViewDelegate, NSTableViewDropOperation,
-    NSTableViewStyle, NSView, NSViewBoundsDidChangeNotification, NSViewFrameDidChangeNotification,
+    NSAnimationContext, NSBorderType, NSControlSize, NSControlTextEditingDelegate, NSDragOperation, NSDraggingInfo,
+    NSEvent, NSEventModifierFlags, NSImage, NSMenu, NSOutlineView, NSOutlineViewDataSource, NSOutlineViewDelegate,
+    NSPasteboardItem, NSPasteboardTypeFileURL, NSPasteboardWriting, NSProgressIndicator, NSProgressIndicatorStyle,
+    NSResponder, NSScrollView, NSTableColumn, NSTableColumnResizingOptions, NSTableRowView, NSTableView,
+    NSTableViewAnimationOptions, NSTableViewColumnAutoresizingStyle, NSTableViewDataSource, NSTableViewDelegate,
+    NSTableViewDropOperation, NSTableViewStyle, NSView, NSViewBoundsDidChangeNotification,
+    NSViewFrameDidChangeNotification,
 };
 use objc2_foundation::{
     NSArray, NSIndexSet, NSInteger, NSKeyValueObservingOptions, NSMutableIndexSet, NSNotFound, NSNotification,
@@ -119,6 +120,8 @@ pub(crate) struct ListData {
     items: HashMap<RowKey, Retained<NSString>>,
     expanding: bool,
     indent: Option<TreeIndent>,
+    /// The rows whose children are being read, as sent (`TreeLoading`).
+    loading: Option<HashSet<RowKey>>,
 }
 
 impl ListData {
@@ -697,7 +700,15 @@ define_class!(
         #[unsafe(method(outlineView:didAddRowView:forRow:))]
         fn did_add_row_view(&self, outline: &NSOutlineView, row_view: &NSTableRowView, row: NSInteger) {
             let Some(key) = outline.itemAtRow(row).and_then(|item| item_key(&item)) else { return };
-            self.ivars().data.borrow_mut().row_views.insert(row_view as *const _ as usize, key);
+            let loading = {
+                let mut data = self.ivars().data.borrow_mut();
+                data.row_views.insert(row_view as *const _ as usize, key);
+                data.loading.as_ref().is_some_and(|loading| loading.contains(&key))
+            };
+            // A row view the table reuses has the spinner of the row it had.
+            if let Some(outline) = outline.downcast_ref::<TreeTable>() {
+                show_spinner(outline, row_view, row, loading);
+            }
             self.ivars().row_views_changed(outline);
         }
 
@@ -1010,8 +1021,58 @@ define_class!(
         fn menu_for_event(&self, event: &NSEvent) -> Option<Retained<NSMenu>> {
             row_menu(self, event).or_else(|| unsafe { msg_send![super(self), menuForEvent: event] })
         }
+
+        /// No disclosure on a row whose children are being read: its
+        /// spinner is there instead (`show_spinner`).
+        #[unsafe(method(frameOfOutlineCellAtRow:))]
+        fn frame_of_outline_cell_at_row(&self, row: NSInteger) -> NSRect {
+            let loading = self.itemAtRow(row).and_then(|item| item_key(&item)).is_some_and(|key| {
+                self.ivars().data.borrow().loading.as_ref().is_some_and(|loading| loading.contains(&key))
+            });
+            if loading { NSRect::ZERO } else { disclosure_frame(self, row) }
+        }
     }
 );
+
+/// Where the outline view puts a row's disclosure, as it would without
+/// `TreeTable`'s.
+fn disclosure_frame(outline: &TreeTable, row: NSInteger) -> NSRect {
+    unsafe { msg_send![super(outline, NSOutlineView::class()), frameOfOutlineCellAtRow: row] }
+}
+
+/// A tree's row's spinner, in place of its disclosure while its children
+/// are being read, as Finder shows one in a folder it opens. The outline
+/// view has none of its own.
+fn show_spinner(outline: &TreeTable, row_view: &NSTableRowView, row: NSInteger, loading: bool) {
+    let spinner = row_view.subviews().iter().find_map(|view| view.downcast::<NSProgressIndicator>().ok());
+    match (spinner, loading) {
+        (Some(spinner), false) => spinner.removeFromSuperview(),
+        (None, true) => {
+            let frame = disclosure_frame(outline, row);
+            if frame.size.width <= 0.0 {
+                return;
+            }
+            let spinner = NSProgressIndicator::new(outline.mtm());
+            spinner.setStyle(NSProgressIndicatorStyle::Spinning);
+            spinner.setControlSize(NSControlSize::Small);
+            spinner.setIndeterminate(true);
+            spinner.setDisplayedWhenStopped(false);
+            spinner.sizeToFit();
+            let size = spinner.frame().size;
+            let room = row_view.convertRect_fromView(frame, Some(outline));
+            spinner.setFrameOrigin(NSPoint::new(
+                (room.origin.x + (room.size.width - size.width) / 2.0).round(),
+                (room.origin.y + (room.size.height - size.height) / 2.0).round(),
+            ));
+            row_view.addSubview(&spinner);
+            unsafe { spinner.startAnimation(None) };
+        }
+        _ => {}
+    }
+    // The outline view asks for its disclosure's frame again.
+    row_view.setNeedsLayout(true);
+    row_view.setNeedsDisplay(true);
+}
 
 define_class!(
     /// The table's next responder, ahead of its clip view: the keys the
@@ -1490,6 +1551,45 @@ impl List {
             }
         }
         true
+    }
+
+    /// The rows whose children are being read: their spinners show in
+    /// place of their disclosures, in the row views there now and in those
+    /// added later.
+    pub(crate) fn set_tree_loading(&self, rows: &[RowKey]) {
+        let Some(outline) = &self.outline else { return };
+        let loading: HashSet<RowKey> = rows.iter().copied().collect();
+        self.data.borrow_mut().loading = Some(loading.clone());
+        for row in 0..outline.numberOfRows() {
+            let (Some(key), Some(row_view)) = (
+                outline.itemAtRow(row).and_then(|item| item_key(&item)),
+                outline.rowViewAtRow_makeIfNecessary(row, false),
+            ) else {
+                continue;
+            };
+            show_spinner(outline, &row_view, row, loading.contains(&key));
+        }
+    }
+
+    /// The rows whose spinners show: of those sent, the ones whose row view
+    /// has its spinner, and those without a row view, which get it when
+    /// they're shown.
+    pub(crate) fn tree_loading(&self) -> Option<Vec<RowKey>> {
+        let outline = self.outline.as_ref()?;
+        let loading = self.data.borrow().loading.clone()?;
+        let shows = |row: NSInteger| match outline.rowViewAtRow_makeIfNecessary(row, false) {
+            Some(row_view) => {
+                row_view.subviews().iter().any(|view| view.downcast_ref::<NSProgressIndicator>().is_some())
+            }
+            None => true,
+        };
+        Some(
+            (0..outline.numberOfRows())
+                .filter_map(|row| Some((row, outline.itemAtRow(row).and_then(|item| item_key(&item))?)))
+                .filter(|(row, key)| loading.contains(key) && shows(*row))
+                .map(|(_, key)| key)
+                .collect(),
+        )
     }
 
     /// A tree's rows as its outline view shows them: each with its parent,

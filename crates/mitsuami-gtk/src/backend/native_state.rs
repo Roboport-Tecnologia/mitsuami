@@ -240,7 +240,10 @@ impl GtkBackend {
                     props.push(Prop::Sort(list.sort()));
                 }
                 match node.kind {
-                    WidgetKind::Tree => props.push(Prop::TreeRows(list.tree_rows())),
+                    WidgetKind::Tree => {
+                        props.push(Prop::TreeRows(list.tree_rows()));
+                        props.extend(list.tree_loading().map(Prop::TreeLoading));
+                    }
                     _ => props.push(Prop::Rows(list.rows())),
                 }
                 props.extend(list.estimate().map(Prop::EstimatedRowHeight));

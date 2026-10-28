@@ -1144,6 +1144,36 @@ fn tree() -> impl View {
     )
 }
 
+/// A tree with a folder open whose files are still being read: the
+/// platform's spinner shows where the folder's disclosure is, once it's
+/// been read for half a second.
+#[mitsuami_test::story(sizes = [(280, fit)], play = spinner_shows)]
+fn tree_loading() -> impl View {
+    #[derive(Clone)]
+    struct Entry {
+        name: &'static str,
+        kids: Option<Vec<Entry>>,
+    }
+    let file = |name| Entry { name, kids: None };
+    let folder = |name, kids| Entry { name, kids: Some(kids) };
+    let roots = vec![folder("remote", vec![]), folder("src", vec![file("main.rs"), file("app.rs")]), file("README.md")];
+    Column::new().child(
+        Tree::new(
+            roots,
+            |e: &Entry| e.name,
+            |e| e.kids.clone(),
+            |e| Row::new().padding_x(4).padding_y(3).child(Text::new(e.name)),
+        )
+        .loading(|e| e.name == "remote")
+        .expanded(signal(vec!["remote", "src"]))
+        .height(140),
+    )
+}
+
+async fn spinner_shows(app: &TestApp) {
+    app.advance(std::time::Duration::from_millis(500)).await;
+}
+
 async fn select_button(app: &TestApp) {
     app.get_by_role(Role::TreeItem, "button.rs").select().await;
 }

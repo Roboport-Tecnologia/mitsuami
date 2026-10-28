@@ -7,6 +7,8 @@
 //! that a row's content starts further in, and is narrower, than its
 //! folder's. It runs natively as well.
 
+use std::time::Duration;
+
 use mitsuami::prelude::*;
 use mitsuami_test::prelude::*;
 
@@ -148,6 +150,68 @@ async fn children_that_come_later_show_in_their_open_folder(app: TestApp) {
     app.get_by_role(Role::TreeItem, "a").expand().await;
     assert_eq!(names(&app), ["remote", "a", "c", "b", "local"]);
     app.expect(by_role(Role::TreeItem, "remote")).to_be_expanded().await;
+}
+
+/// A tree whose "remote" folder is read as it opens, saying so until it's
+/// read.
+fn remote_tree(read: Signal<Option<Vec<Node>>>, open: Signal<Vec<&'static str>>) -> Tree<Node, &'static str> {
+    let roots = vec![folder("remote", vec![]), folder("local", vec![file("a")])];
+    Tree::new(
+        roots,
+        |n: &Node| n.name,
+        move |n| match n.name {
+            "remote" => Some(read.get().unwrap_or_default()),
+            _ => n.kids.clone(),
+        },
+        |n| row(n.name),
+    )
+    .loading(move |n| n.name == "remote" && open.get().contains(&"remote") && read.get().is_none())
+    .expanded(open)
+    .height(200)
+}
+
+#[mitsuami_test::test]
+async fn a_folder_being_read_shows_its_spinner_until_its_children_come(app: TestApp) {
+    let (read, open) = (signal(None::<Vec<Node>>), signal(Vec::<&'static str>::new()));
+    app.mount(move || remote_tree(read, open));
+    app.settle().await;
+    app.expect(by_role(Role::TreeItem, "remote")).not_to_be_busy().await;
+
+    // The spinner waits half a second, so a quick read doesn't flash one.
+    app.get_by_role(Role::TreeItem, "remote").expand().await;
+    app.expect(by_role(Role::TreeItem, "remote")).to_be_expanded().await;
+    app.advance(Duration::from_millis(400)).await;
+    app.expect(by_role(Role::TreeItem, "remote")).not_to_be_busy().await;
+    app.advance(Duration::from_millis(100)).await;
+    app.expect(by_role(Role::TreeItem, "remote")).to_be_busy().await;
+    app.expect(by_role(Role::TreeItem, "local")).not_to_be_busy().await;
+
+    // Closed while it's read, and opened again: still read, and waits again.
+    app.get_by_role(Role::TreeItem, "remote").collapse().await;
+    app.expect(by_role(Role::TreeItem, "remote")).not_to_be_busy().await;
+    app.get_by_role(Role::TreeItem, "remote").expand().await;
+    app.expect(by_role(Role::TreeItem, "remote")).not_to_be_busy().await;
+    app.advance(Duration::from_millis(500)).await;
+    app.expect(by_role(Role::TreeItem, "remote")).to_be_busy().await;
+
+    read.set(Some(vec![file("b")]));
+    app.settle().await;
+    assert_eq!(names(&app), ["remote", "b", "local"]);
+    app.expect(by_role(Role::TreeItem, "remote")).not_to_be_busy().await;
+}
+
+#[mitsuami_test::test]
+async fn a_folder_read_quickly_shows_no_spinner(app: TestApp) {
+    let (read, open) = (signal(None::<Vec<Node>>), signal(Vec::<&'static str>::new()));
+    app.mount(move || remote_tree(read, open));
+    app.settle().await;
+    app.get_by_role(Role::TreeItem, "remote").expand().await;
+    app.advance(Duration::from_millis(300)).await;
+    read.set(Some(vec![file("b")]));
+    app.settle().await;
+    app.advance(Duration::from_millis(300)).await;
+    app.expect(by_role(Role::TreeItem, "remote")).not_to_be_busy().await;
+    assert_eq!(names(&app), ["remote", "b", "local"]);
 }
 
 #[mitsuami_test::test]

@@ -334,6 +334,8 @@ pub(crate) struct Shape {
     pub depth: u32,
     pub expandable: bool,
     pub expanded: bool,
+    /// Its children are being read.
+    pub loading: bool,
 }
 
 /// What a `Tree` adds to its rows.
@@ -341,6 +343,8 @@ pub(crate) struct TreeParts<T: 'static, K: 'static> {
     pub shape: Rc<dyn Fn(&T) -> Shape>,
     /// The user opened (`true`) or closed the row with this key.
     pub on_expand: Rc<dyn Fn(K, bool)>,
+    /// The app says which rows load (`Tree::loading`).
+    pub loading: bool,
 }
 
 impl<T: Clone + 'static, K: Eq + Hash + Clone + 'static> View for List<T, K> {
@@ -485,6 +489,7 @@ pub(crate) fn build_rows<T: Clone + 'static, K: Eq + Hash + Clone + 'static>(
         let (ui, rows) = (ui.clone(), rows.clone());
         let pending = handle.as_ref().map(|h| h.0.clone());
         let shape = tree.as_ref().map(|t| t.shape.clone());
+        let loading = tree.as_ref().is_some_and(|t| t.loading);
         let update = move || {
             let items = each.get();
             untrack(|| {
@@ -537,7 +542,8 @@ pub(crate) fn build_rows<T: Clone + 'static, K: Eq + Hash + Clone + 'static>(
                 if files.is_some() {
                     ui.set_prop(id, Prop::RowFiles(row_files));
                 }
-                // A tree's rows carry their place in it.
+                // A tree's rows carry their place in it, and the rows that
+                // load follow them.
                 let rows_prop = |order: Vec<RowKey>| match shape {
                     Some(_) => Prop::TreeRows(
                         order
@@ -554,11 +560,21 @@ pub(crate) fn build_rows<T: Clone + 'static, K: Eq + Hash + Clone + 'static>(
                     ),
                     None => Prop::Rows(order),
                 };
+                let set_rows = |order: Vec<RowKey>| {
+                    if loading {
+                        let rows = order.iter().zip(&shapes).filter(|(_, s)| s.loading).map(|(row, _)| *row);
+                        let loading = Prop::TreeLoading(rows.collect());
+                        ui.set_prop(id, rows_prop(order));
+                        ui.set_prop(id, loading);
+                    } else {
+                        ui.set_prop(id, rows_prop(order));
+                    }
+                };
                 // A key scrolled to before its item came.
                 let pending = pending.as_ref().and_then(|state| state.borrow_mut().pending.take());
                 let scroll = pending.and_then(|k| rows.borrow().row_keys.get(&k).copied());
                 let Some(selected) = selected else {
-                    ui.set_prop(id, rows_prop(order));
+                    set_rows(order);
                     if let Some(row) = scroll {
                         ui.scroll_to_row(id, row);
                     }
@@ -577,7 +593,7 @@ pub(crate) fn build_rows<T: Clone + 'static, K: Eq + Hash + Clone + 'static>(
                 };
                 let staying = shown.iter().filter(|row| was.contains(row)).copied().collect();
                 ui.set_prop(id, Prop::Selected(staying));
-                ui.set_prop(id, rows_prop(order));
+                set_rows(order);
                 // With the rows in, keys selected before theirs came.
                 ui.set_prop(id, Prop::Selected(shown));
                 if let Some(row) = scroll {

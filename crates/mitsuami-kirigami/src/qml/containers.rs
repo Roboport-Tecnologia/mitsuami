@@ -1496,6 +1496,24 @@ QQC2.ScrollView {{
         }}
         property var mitsuamiKeys: []
         property var mitsuamiOpen: []
+        // The rows whose children are being read (`Prop::TreeLoading`):
+        // a busy indicator shows in place of their branch indicator.
+        property var mitsuamiLoading: []
+        readonly property var mitsuamiLoadingSet: {{
+            const set = {{}}
+            for (const key of mitsuamiLoading) set[key] = true
+            return set
+        }}
+        property string mitsuamiLoadingText: ""
+        // Of the rows loading, those whose delegate shows its busy
+        // indicator, and those without a delegate yet, which will.
+        function mitsuamiReadLoading() {{
+            mitsuamiLoadingText = mitsuamiKeys.filter(key => {{
+                if (mitsuamiLoadingSet[key] !== true) return false
+                const delegate = mitsuamiDelegates[key + ":0"]
+                return !delegate || delegate.mitsuamiBusyShown
+            }}).join(",")
+        }}
         readonly property var mitsuamiOpenSet: {{
             const set = {{}}
             for (const key of mitsuamiOpen) set[key] = true
@@ -1809,13 +1827,66 @@ QQC2.ScrollView {{
                 view.mitsuamiAskOver = cell.mitsuamiKey
                 return "at:" + cell.mitsuamiKey + ":" + x + ":" + y + ":" + height
             }}
+            // A closed folder a drag rests on opens, so rows can go further
+            // in, as Dolphin's views open one after 750 ms
+            // (`KItemListController`'s auto-activation): while the drop
+            // would go onto it.
+            function mitsuamiSpring() {{
+                if (view.mitsuamiDropShown === "on:" + cell.mitsuamiKey && cell.hasChildren && !cell.expanded) {{
+                    if (!mitsuamiSpringTimer.running) mitsuamiSpringTimer.start()
+                }} else {{
+                    mitsuamiSpringTimer.stop()
+                }}
+            }}
+            Timer {{
+                id: mitsuamiSpringTimer
+                interval: 750
+                onTriggered: {{
+                    const row = view.mitsuamiKeys.indexOf(cell.mitsuamiKey)
+                    if (row >= 0 && view.mitsuamiDropShown === "on:" + cell.mitsuamiKey && !view.isExpanded(row))
+                        view.expand(row)
+                }}
+            }}
             DropArea {{
                 anchors.fill: parent
                 keys: [view.mitsuamiRowsMime]
-                onEntered: (drag) => view.mitsuamiDragOver(drag, cell.mitsuamiOver(drag.x, drag.y))
-                onPositionChanged: (drag) => view.mitsuamiDragOver(drag, cell.mitsuamiOver(drag.x, drag.y))
-                onExited: view.mitsuamiDropShown = ""
-                onDropped: (drop) => view.mitsuamiDropOn(drop, cell.mitsuamiOver(drop.x, drop.y))
+                onEntered: (drag) => {{
+                    view.mitsuamiDragOver(drag, cell.mitsuamiOver(drag.x, drag.y))
+                    cell.mitsuamiSpring()
+                }}
+                onPositionChanged: (drag) => {{
+                    view.mitsuamiDragOver(drag, cell.mitsuamiOver(drag.x, drag.y))
+                    cell.mitsuamiSpring()
+                }}
+                onExited: {{
+                    view.mitsuamiDropShown = ""
+                    mitsuamiSpringTimer.stop()
+                }}
+                onDropped: (drop) => {{
+                    mitsuamiSpringTimer.stop()
+                    view.mitsuamiDropOn(drop, cell.mitsuamiOver(drop.x, drop.y))
+                }}
+            }}
+            // While its children are being read, the platform's busy
+            // indicator in place of the style's branch indicator, which
+            // keeps its room.
+            readonly property bool mitsuamiBusyShown: view.mitsuamiLoadingSet[mitsuamiKey] === true
+            Binding {{
+                target: cell.indicator
+                when: cell.indicator !== null
+                property: "opacity"
+                value: cell.mitsuamiBusyShown ? 0 : 1
+            }}
+            QQC2.BusyIndicator {{
+                objectName: "mitsuamiBusy"
+                visible: cell.mitsuamiBusyShown
+                running: visible
+                padding: 0
+                width: Kirigami.Units.iconSizes.small
+                height: width
+                x: cell.indicator ? cell.indicator.x + (cell.indicator.width - width) / 2 : cell.leftPadding - width
+                y: (cell.height - height) / 2
+                z: 3
             }}
             // Where the drop would land, in the theme's highlight, as a
             // list's: a frame round the row it goes into, a line where it
