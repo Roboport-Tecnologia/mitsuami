@@ -34,18 +34,18 @@ use mitsuami::core::{
     Drawn, EventValue, FileDrop, FileLookup, FlexDirection, HeaderEdge, ImageSource, Justify, Key, Length, List,
     ListHandle, ListStyle, MeasureRequest, Modality, NodeId, PathStep, Pixels, PlatformMetrics, Point, PointerKind,
     Prop, Rect, Render, Renderer, Role, RowDrop, RowMoves, ScrollAxes, SelectionMode, Shape, Size, Sort, SortOrder,
-    Spacing, Table, TableColumn, TextStyle, Tree, Ui, UiEvent, VectorIcon, View, WidgetKind, WindowSize,
+    Spacing, Table, TableColumn, TextStyle, Tree, Ui, UiEvent, VectorIcon, View, WeakUi, WidgetKind, WindowSize,
 };
 use mitsuami::reactive::{Owner, Signal, on_cleanup, signal, watch};
 
 thread_local! {
-    static UI: RefCell<Option<Ui>> = const { RefCell::new(None) };
+    /// Weak: the app or host owns its `Ui`, which mustn't outlive the
+    /// platform (see [`free_with_node`]).
+    static UI: RefCell<Option<WeakUi>> = const { RefCell::new(None) };
     static LISTS: RefCell<HashMap<u32, ListState>> = RefCell::new(HashMap::new());
     /// Trees' nodes and open rows; their selection and scope are in `LISTS`.
     static TREES: RefCell<HashMap<u32, TreeState>> = RefCell::new(HashMap::new());
     static DRAWN: RefCell<HashMap<u32, DrawnState>> = RefCell::new(HashMap::new());
-    /// Scopes other crates' widgets keep (see [`extend::keep`]).
-    static KEPT: RefCell<HashMap<u32, Owner>> = RefCell::new(HashMap::new());
     static LAST_ERROR: RefCell<Vec<u8>> = const { RefCell::new(Vec::new()) };
 }
 
@@ -53,12 +53,36 @@ thread_local! {
 /// callbacks on it. `mitsuami_run` calls it; tests and hosts that make
 /// their own `Ui` call it themselves.
 pub fn attach(ui: &Ui) {
-    UI.with(|u| *u.borrow_mut() = Some(ui.clone()));
+    UI.with(|u| *u.borrow_mut() = Some(ui.downgrade()));
     ui.spawn_local(take_posted());
 }
 
 fn ui() -> Result<Ui, String> {
-    UI.with(|u| u.borrow().clone()).ok_or_else(|| "no Ui: call from mitsuami_run's setup".to_string())
+    UI.with(|u| u.borrow().as_ref().and_then(WeakUi::upgrade))
+        .ok_or_else(|| "no Ui: call from mitsuami_run's setup".to_string())
+}
+
+/// Disposes `owner`, and forgets what this ABI keeps for the node, when the
+/// node goes: destroyed, with its parent or with its `Ui`. Kept by a handler
+/// that does nothing, as the core keeps a node's scope. A scope left over
+/// would be dropped with the thread's locals, after the platform is gone,
+/// which WinUI fails fast on.
+fn free_with_node(ui: &Ui, id: NodeId, owner: Owner) {
+    struct Free(u32, Owner);
+    impl Drop for Free {
+        fn drop(&mut self) {
+            let id = self.0;
+            let list = LISTS.try_with(|l| l.borrow_mut().remove(&id));
+            let tree = TREES.try_with(|t| t.borrow_mut().remove(&id));
+            let drawn = DRAWN.try_with(|d| d.borrow_mut().remove(&id));
+            drop((list, tree, drawn));
+            self.1.dispose();
+        }
+    }
+    let free = Free(id.raw(), owner);
+    ui.on_event(id, move |_| {
+        let _ = &free;
+    });
 }
 
 /// Runs `f`, turning an error or a panic into `None` and the last error.
@@ -119,10 +143,13 @@ pub mod extend {
         unsafe { super::string(s.ptr, s.len) }
     }
 
-    /// Keeps `owner` until the node `id` is destroyed
-    /// (`mitsuami_destroy`), then disposes it.
+    /// Keeps `owner` until the node `id` is destroyed (with its parent
+    /// too), then disposes it.
     pub fn keep(id: u32, owner: Owner) {
-        super::KEPT.with(|k| k.borrow_mut().insert(id, owner));
+        match super::ui() {
+            Ok(ui) => super::free_with_node(&ui, super::node(id), owner),
+            Err(_) => owner.dispose(),
+        }
     }
 }
 
@@ -590,17 +617,6 @@ pub extern "C" fn mitsuami_append_child(parent: u32, child: u32) -> bool {
 pub extern "C" fn mitsuami_destroy(id: u32) -> bool {
     guard(|| {
         ui()?.destroy(node(id));
-        // Known gap: a list inside a destroyed node keeps its scope.
-        if let Some(list) = LISTS.with(|l| l.borrow_mut().remove(&id)) {
-            list.owner.dispose();
-        }
-        TREES.with(|t| t.borrow_mut().remove(&id));
-        if let Some(drawn) = DRAWN.with(|d| d.borrow_mut().remove(&id)) {
-            drawn.owner.dispose();
-        }
-        if let Some(owner) = KEPT.with(|k| k.borrow_mut().remove(&id)) {
-            owner.dispose();
-        }
         Ok(())
     })
     .is_some()
@@ -1974,7 +1990,6 @@ struct ListState {
     sort: Option<TableSort>,
     /// Scrolls it to a row.
     handle: ListHandle<String>,
-    owner: Owner,
 }
 
 /// A table's sort, by column index, and as the caller last set it, so
@@ -2069,7 +2084,8 @@ pub extern "C" fn mitsuami_create_list(callbacks: MitsuamiListCallbacks) -> u32 
             (keys, selected, list.build(&ui))
         });
         id.set(list.raw());
-        LISTS.with(|l| l.borrow_mut().insert(list.raw(), ListState { keys, selected, set, sort: None, handle, owner }));
+        LISTS.with(|l| l.borrow_mut().insert(list.raw(), ListState { keys, selected, set, sort: None, handle }));
+        free_with_node(&ui, list, owner);
         Ok(list.raw())
     })
     .unwrap_or(0)
@@ -2283,8 +2299,9 @@ pub extern "C" fn mitsuami_create_tree(callbacks: MitsuamiTreeCallbacks) -> u32 
             (keys, selected, nodes, expanded, tree.build(&ui))
         });
         id.set(tree.raw());
-        LISTS.with(|l| l.borrow_mut().insert(tree.raw(), ListState { keys, selected, set, sort: None, handle, owner }));
+        LISTS.with(|l| l.borrow_mut().insert(tree.raw(), ListState { keys, selected, set, sort: None, handle }));
         TREES.with(|t| t.borrow_mut().insert(tree.raw(), TreeState { nodes, expanded, set: open_set }));
+        free_with_node(&ui, tree, owner);
         Ok(tree.raw())
     })
     .unwrap_or(0)
@@ -2495,7 +2512,8 @@ pub unsafe extern "C" fn mitsuami_create_table(
             (keys, selected, sort, table.build(&ui))
         });
         id.set(table.raw());
-        LISTS.with(|l| l.borrow_mut().insert(table.raw(), ListState { keys, selected, set, sort, handle, owner }));
+        LISTS.with(|l| l.borrow_mut().insert(table.raw(), ListState { keys, selected, set, sort, handle }));
+        free_with_node(&ui, table, owner);
         Ok(table.raw())
     })
     .unwrap_or(0)
@@ -2633,7 +2651,6 @@ impl Render for FfiDrawn {
 
 struct DrawnState {
     props: Signal<DrawnProps>,
-    owner: Owner,
 }
 
 fn drawn(id: u32) -> Result<Signal<DrawnProps>, String> {
@@ -2672,7 +2689,8 @@ pub unsafe extern "C" fn mitsuami_create_drawn(
             (props, Custom::<FfiDrawn>::new(move || props.get()).build(&ui))
         });
         callbacks.node.set(id.raw());
-        DRAWN.with(|d| d.borrow_mut().insert(id.raw(), DrawnState { props, owner }));
+        DRAWN.with(|d| d.borrow_mut().insert(id.raw(), DrawnState { props }));
+        free_with_node(&ui, id, owner);
         Ok(id.raw())
     })
     .unwrap_or(0)

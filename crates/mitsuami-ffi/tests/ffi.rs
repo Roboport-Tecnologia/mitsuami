@@ -41,7 +41,7 @@ extern "C" fn record(_user: *mut c_void, _node: u32, event: *const MitsuamiEvent
         12 => {
             let text = unsafe { std::slice::from_raw_parts(event.text, event.text_len) };
             let paths: Vec<&str> = std::str::from_utf8(text).unwrap().split_terminator('\0').collect();
-            let names: Vec<&str> = paths.iter().map(|p| p.rsplit('/').next().unwrap()).collect();
+            let names: Vec<&str> = paths.iter().map(|p| p.rsplit(['/', '\\']).next().unwrap()).collect();
             format!("dropped {}", names.join(","))
         }
         13 => format!("pointer {} at {},{}", if event.flag { "down" } else { "up" }, event.x, event.y),
@@ -498,11 +498,11 @@ async fn windows_capture_to_png_files(app: TestApp) {
 
     assert!(unsafe { mitsuami_capture_png(app.window().raw(), str(&path_str), captured, std::ptr::null_mut()) });
     app.expect(by_text("Captured")).to_exist().await;
-    for _ in 0..50 {
-        if HEARD.with(|h| !h.borrow().is_empty()) {
-            break;
-        }
-        app.advance(std::time::Duration::from_millis(20)).await;
+    // In real time: WinUI renders asynchronously.
+    let deadline = std::time::Instant::now() + std::time::Duration::from_secs(5);
+    while HEARD.with(|h| h.borrow().is_empty()) && std::time::Instant::now() < deadline {
+        app.settle().await;
+        std::thread::sleep(std::time::Duration::from_millis(2));
     }
 
     // Headless has no pixels to capture.

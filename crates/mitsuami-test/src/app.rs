@@ -537,5 +537,10 @@ impl Drop for TestApp {
         if self.owner.is_alive() {
             self.owner.dispose();
         }
+        // Then the window, as closing one does: nodes no scope built (a C
+        // caller's) go with it.
+        if let Some(window) = self.window.get() {
+            self.ui.destroy(window);
+        }
     }
 }

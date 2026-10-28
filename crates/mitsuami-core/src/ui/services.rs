@@ -109,12 +109,15 @@ impl Ui {
         // can spawn tasks that live as long as it.
         let scope = mitsuami_reactive::Owner::current();
         let activate = self.menu_activate();
-        let (ui, services) = (self.clone(), self.services.clone());
+        // Weak: menus installed outside any scope (a C caller's) keep their
+        // effect, which mustn't keep the `Ui` and the platform alive.
+        let weak = self.downgrade();
         let mut ids = Vec::new();
         let effect = mitsuami_reactive::effect(move || {
             // Backends title some items themselves (AppKit's Quit, GNOME's
             // and KDE's), in the app's language.
             crate::l10n::track();
+            let Some(ui) = weak.upgrade() else { return };
             let mut new_id = || {
                 let mut inner = ui.inner.borrow_mut();
                 inner.next_menu_id += 1;
@@ -139,7 +142,7 @@ impl Ui {
                 None => _ = inner.quit_items.remove(&target),
             }
             drop(inner);
-            services.borrow_mut().set_menu(target, &data, activate.clone());
+            ui.services.borrow_mut().set_menu(target, &data, activate.clone());
         });
         if let Some(replaced) = self.inner.borrow_mut().menu_effects.insert(target, effect) {
             replaced.dispose();
