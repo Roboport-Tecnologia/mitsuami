@@ -76,19 +76,33 @@ pub(crate) struct Tree {
     /// Set while the backend opens and closes rows itself: `Expanding` and
     /// `Collapsed` are the user's otherwise.
     expanding: Rc<Cell<bool>>,
+    /// The scroll offset last reported.
+    pub offset: Rc<Cell<Point>>,
+    /// Finds the tree view's list.
+    hook: Hook,
+    revokers: Rc<RefCell<Vec<EventRevoker>>>,
+}
+
+type DragHandler = Rc<dyn Fn(&w::DragEventArgs)>;
+
+/// What following the tree view's own list takes, once its template is
+/// applied: the tree has it, and so does its first layout's handler.
+#[derive(Clone)]
+struct Hook {
+    view: w::TreeView,
+    id: NodeId,
+    events: Events,
+    data: Rc<RefCell<Data>>,
     /// The tree view's own list, once its template is applied: a drag over
     /// the tree asks its containers where the pointer is.
     inner: Rc<RefCell<Option<w::ListView>>>,
-    /// The scroll offset last reported.
-    pub offset: Rc<Cell<Point>>,
     /// What a drag of its own rows over it does, and a drop: on the tree
     /// view, and on its list once that's found, which handles them first.
     drag_over: DragHandler,
     drop_rows: DragHandler,
-    revokers: RefCell<Vec<EventRevoker>>,
+    /// The tree's, which hold this hook's handler too.
+    revokers: std::rc::Weak<RefCell<Vec<EventRevoker>>>,
 }
-
-type DragHandler = Rc<dyn Fn(&w::DragEventArgs)>;
 
 /// A row's key: its node's content's, or the item's own.
 fn node_key(item: &IInspectable) -> Option<RowKey> {
@@ -284,6 +298,82 @@ fn walk(
     }
 }
 
+impl Hook {
+    /// The tree view's own list, from its template once it's applied (in
+    /// a window, at its first layout), with its containers followed as a
+    /// list's. The containers it realised before are taken in as they are.
+    fn find(&self) -> Option<w::ListView> {
+        if let Some(inner) = self.inner.borrow().clone() {
+            return Some(inner);
+        }
+        let revokers = self.revokers.upgrade()?;
+        let inner = find_tree_list(&self.view.cast().ok()?)?;
+        let (data, events, id) = (self.data.clone(), self.events.clone(), self.id);
+        let revoker = inner.cast::<w::IListViewBase>().ok()?.ContainerContentChanging(move |_, args| {
+            if let Some(args) = args.as_ref().and_then(|a| a.cast::<w::IContainerContentChangingEventArgs>().ok()) {
+                let key = args.Item().ok().as_ref().and_then(node_key);
+                // XAML shows each row's check box as the selection mode
+                // changes, on the rows realised then; one recycled with it
+                // came back with it after the mode had become single (rows
+                // moved by a drag, the maintainer, 2026-10-27).
+                let multiple = data.borrow().mode == SelectionMode::Multiple;
+                if !multiple
+                    && !args.InRecycleQueue().unwrap_or(true)
+                    && let Ok(container) = args.ItemContainer()
+                {
+                    _ = w::VisualStateManager::GoToState(&container, "TreeViewMultiSelectDisabled", false);
+                }
+                container_changed(&data, &events, id, &args, key);
+            }
+        });
+        if let Ok(revoker) = revoker {
+            revokers.borrow_mut().push(revoker);
+        }
+        if let Ok(element) = inner.cast::<w::UIElement>()
+            && let Ok(drags) = listen_to_drags(&element, &self.data, &self.drag_over, &self.drop_rows)
+        {
+            revokers.borrow_mut().extend(drags);
+        }
+        *self.inner.borrow_mut() = Some(inner.clone());
+        self.take_realised(&inner);
+        Some(inner)
+    }
+
+    /// The containers the list realised before it was followed: each
+    /// takes its row's hosts, as when it's realised.
+    fn take_realised(&self, inner: &w::ListView) {
+        let Some(panel) = inner.cast::<w::IItemsControl>().ok().and_then(|c| c.ItemsPanelRoot().ok()) else { return };
+        let Ok(mapping) = inner.cast::<w::IItemContainerMapping>() else { return };
+        let Ok(children) = panel.cast::<w::IPanel>().and_then(|p| p.Children()) else { return };
+        let mut d = self.data.borrow_mut();
+        for container in (0..children.Size().unwrap_or(0)).filter_map(|i| children.GetAt(i).ok()) {
+            let Ok(container) = container.cast::<w::DependencyObject>() else { continue };
+            let Some(key) = mapping.ItemFromContainer(&container).ok().as_ref().and_then(node_key) else { continue };
+            let Some(cell) = container
+                .cast::<w::IContentControl>()
+                .and_then(|c| c.ContentTemplateRoot())
+                .ok()
+                .and_then(|root| root.cast::<w::Canvas>().ok())
+            else {
+                continue;
+            };
+            let container_key = identity(&container);
+            if d.container_rows.contains_key(&container_key) {
+                continue;
+            }
+            let hosts: Vec<w::UIElement> = super::row_hosts(&d, key).cloned().collect();
+            for host in hosts {
+                put_in(&cell, &host);
+            }
+            d.cells.insert(key, cell);
+            place_row(&d, key);
+            d.container_rows.insert(container_key, key);
+            *d.bound.entry(key).or_default() += 1;
+        }
+        queue_report(&self.data, &mut d, &self.events, self.id);
+    }
+}
+
 impl Tree {
     pub(crate) fn new(id: NodeId, events: Events) -> R<Tree> {
         let view = w::TreeView::new()?;
@@ -460,92 +550,34 @@ impl Tree {
             }
         })?);
 
-        Ok(Tree {
-            view,
+        let revokers = Rc::new(RefCell::new(revokers));
+        let hook = Hook {
+            view: view.clone(),
             id,
-            events,
-            data,
-            nodes,
-            expanding,
-            inner,
-            offset: Rc::default(),
+            events: events.clone(),
+            data: data.clone(),
+            inner: inner.clone(),
             drag_over,
             drop_rows,
-            revokers: RefCell::new(revokers),
-        })
+            revokers: Rc::downgrade(&revokers),
+        };
+        // Its list is followed as soon as it's laid out: a tree made on a
+        // hidden page (a tab not chosen) gets its template, and realises its
+        // rows, in XAML's own layout when the page shows, where nothing of
+        // the backend's lays it out. Its rows had stayed empty until the
+        // tree changed (SourceGit's changes, 2026-10-27).
+        revokers.borrow_mut().push(view.cast::<w::IFrameworkElement>()?.SizeChanged({
+            let hook = hook.clone();
+            move |_, _| {
+                hook.find();
+            }
+        })?);
+        Ok(Tree { view, id, events, data, nodes, expanding, offset: Rc::default(), hook, revokers })
     }
 
-    /// The tree view's own list, from its template once it's applied (in
-    /// a window, at its first layout), with its containers followed as a
-    /// list's. The containers it realised before are taken in as they are.
+    /// The tree view's own list (`Hook::find`).
     fn inner(&self) -> Option<w::ListView> {
-        if let Some(inner) = self.inner.borrow().clone() {
-            return Some(inner);
-        }
-        let inner = find_tree_list(&self.view.cast().ok()?)?;
-        let (data, events, id) = (self.data.clone(), self.events.clone(), self.id);
-        let revoker = inner.cast::<w::IListViewBase>().ok()?.ContainerContentChanging(move |_, args| {
-            if let Some(args) = args.as_ref().and_then(|a| a.cast::<w::IContainerContentChangingEventArgs>().ok()) {
-                let key = args.Item().ok().as_ref().and_then(node_key);
-                // XAML shows each row's check box as the selection mode
-                // changes, on the rows realised then; one recycled with it
-                // came back with it after the mode had become single (rows
-                // moved by a drag, the maintainer, 2026-10-27).
-                let multiple = data.borrow().mode == SelectionMode::Multiple;
-                if !multiple
-                    && !args.InRecycleQueue().unwrap_or(true)
-                    && let Ok(container) = args.ItemContainer()
-                {
-                    _ = w::VisualStateManager::GoToState(&container, "TreeViewMultiSelectDisabled", false);
-                }
-                container_changed(&data, &events, id, &args, key);
-            }
-        });
-        if let Ok(revoker) = revoker {
-            self.revokers.borrow_mut().push(revoker);
-        }
-        if let Ok(element) = inner.cast::<w::UIElement>()
-            && let Ok(revokers) = listen_to_drags(&element, &self.data, &self.drag_over, &self.drop_rows)
-        {
-            self.revokers.borrow_mut().extend(revokers);
-        }
-        *self.inner.borrow_mut() = Some(inner.clone());
-        self.take_realised(&inner);
-        Some(inner)
-    }
-
-    /// The containers the list realised before it was followed: each
-    /// takes its row's hosts, as when it's realised.
-    fn take_realised(&self, inner: &w::ListView) {
-        let Some(panel) = inner.cast::<w::IItemsControl>().ok().and_then(|c| c.ItemsPanelRoot().ok()) else { return };
-        let Ok(mapping) = inner.cast::<w::IItemContainerMapping>() else { return };
-        let Ok(children) = panel.cast::<w::IPanel>().and_then(|p| p.Children()) else { return };
-        let mut d = self.data.borrow_mut();
-        for container in (0..children.Size().unwrap_or(0)).filter_map(|i| children.GetAt(i).ok()) {
-            let Ok(container) = container.cast::<w::DependencyObject>() else { continue };
-            let Some(key) = mapping.ItemFromContainer(&container).ok().as_ref().and_then(node_key) else { continue };
-            let Some(cell) = container
-                .cast::<w::IContentControl>()
-                .and_then(|c| c.ContentTemplateRoot())
-                .ok()
-                .and_then(|root| root.cast::<w::Canvas>().ok())
-            else {
-                continue;
-            };
-            let container_key = identity(&container);
-            if d.container_rows.contains_key(&container_key) {
-                continue;
-            }
-            let hosts: Vec<w::UIElement> = super::row_hosts(&d, key).cloned().collect();
-            for host in hosts {
-                put_in(&cell, &host);
-            }
-            d.cells.insert(key, cell);
-            place_row(&d, key);
-            d.container_rows.insert(container_key, key);
-            *d.bound.entry(key).or_default() += 1;
-        }
-        queue_report(&self.data, &mut d, &self.events, self.id);
+        self.hook.find()
     }
 
     /// The rows that show, each with its place in the tree. Each node

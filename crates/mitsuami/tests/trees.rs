@@ -343,4 +343,26 @@ async fn rows_end_inside_the_tree(app: TestApp) {
     }
 }
 
+/// A tree on a tab that isn't chosen shows its rows when its tab is: the
+/// platform lays it out first then, on its own (WinUI applies the tree
+/// view's template, and realises its rows, only once its page shows, and
+/// they'd stayed empty: SourceGit's changes, 2026-10-27).
+#[mitsuami_test::test]
+async fn a_tree_on_a_hidden_tab_shows_its_rows_when_the_tab_does(app: TestApp) {
+    let (roots, open, page) = (signal(project()), signal(Vec::new()), signal(0u8));
+    app.mount(move || {
+        Tabs::new(page).height(300).children((
+            Tab::new("Information", 0).child(Text::new("A commit")),
+            Tab::new("Changes", 1).child(tree(roots, open)),
+        ))
+    });
+    app.settle().await;
+    page.set(1);
+    app.settle().await;
+    assert_eq!(names(&app), ["src", "docs", "README"]);
+    for name in ["src", "docs", "README"] {
+        app.expect(by_role(Role::TreeItem, name)).to_be_visible().await;
+    }
+}
+
 mitsuami_test::main!();
