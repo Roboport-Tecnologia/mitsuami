@@ -28,6 +28,11 @@ pub enum Length {
     Token(Spacing),
     #[default]
     Auto,
+    /// The node's natural size: what it measures with no limit, as CSS's
+    /// `max-content`. For the least and most sizes of a measured node (a
+    /// list, as high as its rows; a label, its one line), so a list that
+    /// grows from nothing stops at its rows. Elsewhere it acts as `Auto`.
+    MaxContent,
 }
 
 /// Spacing tokens. Each backend decides what they mean, so spacing follows
@@ -142,7 +147,8 @@ impl Length {
             Length::Vmax(v) => Resolved::Length(v * vw.max(vh)),
             Length::Fr(v) => Resolved::Fr(v),
             Length::Token(t) => Resolved::Length(cx.spacing.get(t)),
-            Length::Auto => Resolved::Auto,
+            // Measured at layout (`Inner::content_limits`).
+            Length::Auto | Length::MaxContent => Resolved::Auto,
         }
     }
 }

@@ -156,6 +156,29 @@ async fn nodes_it_makes_are_laid_out_and_found(app: TestApp) {
     // A narrower title wraps, moving what's under it: back as it was.
     assert!(mitsuami_set_max_size(title.raw(), auto(), auto()));
     app.settle().await;
+    // At least its natural size, its one line, which beats a smaller most.
+    let natural = app.ui().frame(title).unwrap().width();
+    let content = MitsuamiLength { unit: 6, value: 0.0 };
+    assert!(mitsuami_set_max_size(title.raw(), px(50.0), auto()));
+    assert!(mitsuami_set_min_size(title.raw(), content, auto()));
+    app.settle().await;
+    assert_eq!(app.ui().frame(title).unwrap().width(), natural);
+    assert!(mitsuami_set_min_size(title.raw(), auto(), auto()));
+    assert!(mitsuami_set_max_size(title.raw(), auto(), auto()));
+    // Grid rows that grow from nothing up to what's in them.
+    let share = MitsuamiTrack { min: px(0.0), max: MitsuamiLength { unit: 6, value: 0.0 } };
+    let rows = [MitsuamiTrack { min: auto(), max: auto() }, share];
+    let grid = create(MitsuamiKind::Container);
+    assert!(unsafe { mitsuami_set_grid_rows(grid, rows.as_ptr(), rows.len()) });
+    assert!(unsafe { mitsuami_set_grid_columns(grid, std::ptr::null(), 0) });
+    let bad = [MitsuamiTrack { min: MitsuamiLength { unit: 7, value: 0.0 }, max: auto() }];
+    assert!(!unsafe { mitsuami_set_grid_rows(grid, bad.as_ptr(), bad.len()) });
+    // A basis: where its size starts before the room is shared.
+    assert!(mitsuami_set_basis(title.raw(), px(0.0)));
+    assert!(mitsuami_set_basis(title.raw(), auto()));
+    assert!(!mitsuami_set_basis(title.raw(), MitsuamiLength { unit: 7, value: 0.0 }));
+    assert!(!mitsuami_set_max_size(title.raw(), MitsuamiLength { unit: 7, value: 0.0 }, auto()));
+    app.settle().await;
 
     // Lengths in the platform's tokens: a tree's indentation, say.
     let token = |t: f32| MitsuamiLength { unit: 2, value: t };

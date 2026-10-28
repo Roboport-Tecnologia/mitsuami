@@ -238,6 +238,9 @@ fn lp(l: Length, cx: &ResolveContext<'_>) -> taffy::LengthPercentage {
 }
 
 fn min_track(l: Length, cx: &ResolveContext<'_>) -> taffy::MinTrackSizingFunction {
+    if l == Length::MaxContent {
+        return taffy::MinTrackSizingFunction::max_content();
+    }
     match l.resolve(cx) {
         Resolved::Length(v) => taffy::MinTrackSizingFunction::length(v),
         Resolved::Percent(v) => taffy::MinTrackSizingFunction::percent(v),
@@ -246,6 +249,9 @@ fn min_track(l: Length, cx: &ResolveContext<'_>) -> taffy::MinTrackSizingFunctio
 }
 
 fn max_track(l: Length, cx: &ResolveContext<'_>) -> taffy::MaxTrackSizingFunction {
+    if l == Length::MaxContent {
+        return taffy::MaxTrackSizingFunction::max_content();
+    }
     match l.resolve(cx) {
         Resolved::Length(v) => taffy::MaxTrackSizingFunction::length(v),
         Resolved::Percent(v) => taffy::MaxTrackSizingFunction::percent(v),

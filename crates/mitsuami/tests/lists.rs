@@ -657,4 +657,49 @@ async fn a_list_that_grows_takes_the_room_left(app: TestApp) {
     assert_eq!(app.get_by_test_id("list").frame().max_y(), below.y());
 }
 
+/// Lists that share a grid's height, each in a row track that grows from
+/// nothing up to its rows (`minmax(0, max-content)`): together as high as
+/// their rows while they fit; when they don't, a list whose rows fit in its
+/// share keeps them and the other takes the rest, and two that don't share
+/// it evenly. The grid gives up its room after a list that shrinks first
+/// (SourceGit's local and remote branches above its tags, as upstream
+/// shares them).
+#[mitsuami_test::test]
+async fn lists_in_rows_that_grow_to_them_share_a_grid(app: TestApp) {
+    let (few, many, tags) = (signal(items(2)), signal(items(50)), signal(items(3)));
+    let list =
+        |data: Signal<Vec<Item>>, id: &'static str| List::new(data, |i: &Item| i.id, |i| row(i.name, 20.0)).test_id(id);
+    let share = Track::MinMax(Length::Px(0.0), Length::MaxContent);
+    app.mount(move || {
+        Column::new().height(300).test_id("room").children((
+            Container::new()
+                .rows([Track::Size(Length::Auto), share, Track::Size(Length::Auto), share])
+                .test_id("branches")
+                .children((Text::new("Local"), list(few, "few"), Text::new("Remote"), list(many, "many"))),
+            list(tags, "tags").shrink(1000.0).min_height(40),
+        ))
+    });
+    app.settle().await;
+    let height = |id: &str| app.get_by_test_id(id).frame().height();
+    let room = height("room");
+    // The tags gave up their room first, down to their least.
+    assert_eq!(height("tags"), 40.0);
+    assert_eq!(height("branches") + height("tags"), room);
+    // The few rows fit in half: they keep them.
+    assert!(height("few") >= 40.0 && height("few") < height("many"), "{} {}", height("few"), height("many"));
+
+    few.set(items(50));
+    app.settle().await;
+    assert_eq!(height("few"), height("many"));
+
+    few.set(items(2));
+    many.set(items(3));
+    tags.set(items(1));
+    app.settle().await;
+    // Everything fits: each as high as its rows, the room left below.
+    assert!(height("few") >= 40.0 && height("many") >= 60.0);
+    assert!(height("few") < height("many"));
+    assert!(height("branches") + height("tags") < room);
+}
+
 mitsuami_test::main!();

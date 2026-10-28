@@ -28,7 +28,7 @@ use mitsuami::core::services::{
     Alert, AlertStyle, Launch, Menu, MenuBar, MenuCheck, MenuData, MenuEntry, MenuItem, MenuItemData, MenuOnOpen,
     MenuRole, OpenFile, SaveFile, Shortcut,
 };
-use mitsuami::core::style::{Edges, Position};
+use mitsuami::core::style::{Display, Edges, Position, Track};
 use mitsuami::core::{
     A11yAction, A11yProps, Align, ButtonRole, ButtonStyle, Canvas, Color, Custom, CustomWidget, DocumentTabsStyle,
     Drawn, EventValue, FileDrop, FileLookup, FlexDirection, HeaderEdge, ImageSource, Justify, Key, Length, List,
@@ -1323,7 +1323,9 @@ pub extern "C" fn mitsuami_set_enum(id: u32, prop: u32, value: u32) -> bool {
 /// A length: `Auto` (unit 0, so a zeroed length is auto), points (1), a
 /// platform spacing token (2: `None`, `Xs`, `Sm`, `Md`, `Lg`, `Xl`,
 /// `Indent` as 0 to 6 in `value`), a percentage of the container (3), or
-/// the node's (4, `em`) or the platform body's (5, `rem`) font size.
+/// the node's (4, `em`) or the platform body's (5, `rem`) font size, or
+/// the node's natural size (6, `MaxContent`: a list's least or most size,
+/// as high as its rows).
 #[repr(C)]
 #[derive(Clone, Copy)]
 pub struct MitsuamiLength {
@@ -1348,6 +1350,7 @@ fn length(l: MitsuamiLength) -> Result<Length, String> {
         3 => Length::Percent(l.value),
         4 => Length::Em(l.value),
         5 => Length::Rem(l.value),
+        6 => Length::MaxContent,
         other => return Err(format!("bad length unit {other}")),
     })
 }
@@ -1520,6 +1523,79 @@ pub extern "C" fn mitsuami_set_size(id: u32, width: MitsuamiLength, height: Mits
 pub extern "C" fn mitsuami_set_grow(id: u32, grow: f32) -> bool {
     guard(|| {
         ui()?.update_style(node(id), |s| s.flex_grow = grow);
+        Ok(())
+    })
+    .is_some()
+}
+
+/// A grid track: as small as `min` and as large as `max` (CSS's
+/// `minmax(min, max)`; both `Auto` is an auto track, both a length a fixed
+/// one). `MaxContent` is the track's content's natural size, so a row
+/// `minmax(0, max-content)` grows from nothing up to what's in it.
+#[repr(C)]
+#[derive(Clone, Copy)]
+pub struct MitsuamiTrack {
+    pub min: MitsuamiLength,
+    pub max: MitsuamiLength,
+}
+
+/// The tracks of a container's grid, made a grid by them: its rows' or
+/// columns', in order. Its children fill them in order, a row (or column)
+/// at a time.
+unsafe fn tracks(tracks: *const MitsuamiTrack, count: usize) -> Result<Vec<Track>, String> {
+    if count == 0 {
+        return Ok(Vec::new());
+    }
+    if tracks.is_null() {
+        return Err("no tracks".into());
+    }
+    let tracks = unsafe { std::slice::from_raw_parts(tracks, count) };
+    tracks.iter().map(|t| Ok(Track::MinMax(length(t.min)?, length(t.max)?))).collect()
+}
+
+/// A container's grid rows (`mitsuami_set_grid_columns` for its columns),
+/// which make it a grid.
+///
+/// # Safety
+/// `rows` points to `count` tracks.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn mitsuami_set_grid_rows(id: u32, rows: *const MitsuamiTrack, count: usize) -> bool {
+    guard(|| {
+        let rows = unsafe { tracks(rows, count) }?;
+        ui()?.update_style(node(id), |s| {
+            s.display = Display::Grid;
+            s.grid_template_rows = rows;
+        });
+        Ok(())
+    })
+    .is_some()
+}
+
+/// A container's grid columns, which make it a grid.
+///
+/// # Safety
+/// `columns` points to `count` tracks.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn mitsuami_set_grid_columns(id: u32, columns: *const MitsuamiTrack, count: usize) -> bool {
+    guard(|| {
+        let columns = unsafe { tracks(columns, count) }?;
+        ui()?.update_style(node(id), |s| {
+            s.display = Display::Grid;
+            s.grid_template_columns = columns;
+        });
+        Ok(())
+    })
+    .is_some()
+}
+
+/// Where a node's size starts before its container shares out the room
+/// left or takes back what's missing (CSS's `flex-basis`): `Auto`, its own
+/// size, by default; 0 for nodes that share the room by `grow` alone.
+#[unsafe(no_mangle)]
+pub extern "C" fn mitsuami_set_basis(id: u32, basis: MitsuamiLength) -> bool {
+    guard(|| {
+        let basis = length(basis)?;
+        ui()?.update_style(node(id), |s| s.flex_basis = basis);
         Ok(())
     })
     .is_some()

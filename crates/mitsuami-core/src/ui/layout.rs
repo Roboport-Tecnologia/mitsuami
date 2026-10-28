@@ -70,6 +70,7 @@ impl Ui {
 impl Inner {
     pub(super) fn layout(&mut self) {
         self.size_tab_strips();
+        self.content_limits();
         for window in self.windows.clone() {
             let node = &self.nodes[&window];
             let Some(root) = node.taffy else { continue };
@@ -162,6 +163,54 @@ impl Inner {
         // Their styles take the new minimums.
         if changed {
             self.resolve_styles();
+        }
+    }
+
+    /// Gives the least and most sizes set to `Length::MaxContent` the
+    /// node's natural size, measured now: Taffy's flexbox treats an
+    /// intrinsic limit as none. Only measured nodes (leaves) have one; a
+    /// list's changes with its rows, which its backend reports
+    /// (`Remeasure`), so it's measured again each layout.
+    fn content_limits(&mut self) {
+        let limited: Vec<(NodeId, taffy::NodeId)> = self
+            .nodes
+            .iter()
+            .filter(|(_, n)| {
+                let s = &n.style;
+                [s.min_width, s.min_height, s.max_width, s.max_height].contains(&crate::units::Length::MaxContent)
+            })
+            .filter_map(|(id, n)| Some((*id, n.taffy?)))
+            .filter(|(_, t)| self.taffy.children(*t).is_ok_and(|c| c.is_empty()))
+            .collect();
+        for (id, t) in limited {
+            let request = MeasureRequest {
+                known_width: None,
+                known_height: None,
+                available_width: AvailableSpace::MaxContent,
+                available_height: AvailableSpace::MaxContent,
+            };
+            let node = &self.nodes[&id];
+            let natural = match node.drawn() {
+                Some(custom) => custom.measure_drawn(&request, &self.metrics).unwrap_or(Size::ZERO),
+                None => self.backend.measure(id, request),
+            };
+            let content = |l: crate::units::Length, v: f32, old: taffy::LengthPercentageAuto| match l {
+                crate::units::Length::MaxContent => taffy::LengthPercentageAuto::length(v),
+                _ => old,
+            };
+            let (s, Ok(mut style)) = (&node.style, self.taffy.style(t).cloned()) else { continue };
+            let min = taffy::Size {
+                width: content(s.min_width, natural.width, style.min_size.width),
+                height: content(s.min_height, natural.height, style.min_size.height),
+            };
+            let max = taffy::Size {
+                width: content(s.max_width, natural.width, style.max_size.width),
+                height: content(s.max_height, natural.height, style.max_size.height),
+            };
+            if style.min_size != min || style.max_size != max {
+                (style.min_size, style.max_size) = (min, max);
+                let _ = self.taffy.set_style(t, style);
+            }
         }
     }
 
