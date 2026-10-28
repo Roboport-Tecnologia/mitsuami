@@ -1139,8 +1139,11 @@ async fn scroll_views_scroll_their_content(app: TestApp) {
     assert!(unsafe { mitsuami_frame(scroll, frame.as_mut_ptr()) });
     assert_eq!(frame[2..], [300.0, 120.0]);
 
-    // The content is as wide as the view, and longer: it scrolls.
-    assert_eq!(app.get_by_text("Line 0").frame().width(), app.get_by_test_id("scroll").frame().width());
+    // The content is as wide as the viewport (the view, less scroll bars
+    // that take room, as AppKit's legacy scrollers do), and longer: it
+    // scrolls.
+    let viewport = app.ui().viewport(app.get_by_test_id("scroll").id()).unwrap();
+    assert_eq!(app.get_by_text("Line 0").frame().width(), viewport.width());
     app.get_by_test_id("scroll").scroll_by(0.0, 1e6).await;
     app.expect(by_text("Line 59")).to_be_visible().await;
 
