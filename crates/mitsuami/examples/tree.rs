@@ -9,8 +9,8 @@
 //!   folder to put them in it, between rows to put them there. The tree
 //!   shows nothing moved until the app moves its data, as here.
 //! - "Select several rows" switches between selecting several rows, the
-//!   platform's way (check boxes on Windows, whose tree shows several
-//!   selected rows no other way), and one at a time; a drag then moves the
+//!   platform's way (a click selects one, Shift a range, Command or
+//!   Control adds one), and one at a time; a drag then moves the
 //!   selection, or the one row.
 
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]

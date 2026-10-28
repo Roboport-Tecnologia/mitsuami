@@ -312,19 +312,16 @@ impl Hook {
         let revoker = inner.cast::<w::IListViewBase>().ok()?.ContainerContentChanging(move |_, args| {
             if let Some(args) = args.as_ref().and_then(|a| a.cast::<w::IContainerContentChangingEventArgs>().ok()) {
                 let key = args.Item().ok().as_ref().and_then(node_key);
-                // XAML shows each row's check box as the selection mode
-                // changes, on the rows realised then; one recycled with it
-                // came back with it after the mode had become single (rows
-                // moved by a drag, the maintainer, 2026-10-27).
-                let multiple = data.borrow().mode == SelectionMode::Multiple;
-                if !multiple
-                    && !args.InRecycleQueue().unwrap_or(true)
-                    && let Ok(container) = args.ItemContainer()
-                {
-                    _ = w::VisualStateManager::GoToState(&container, "TreeViewMultiSelectDisabled", false);
-                }
                 container_changed(&data, &events, id, &args, key);
             }
+        });
+        if let Ok(revoker) = revoker {
+            revokers.borrow_mut().push(revoker);
+        }
+        let revoker = inner.cast::<w::ISelector>().ok()?.SelectionChanged({
+            let (view, list, data, events, id) =
+                (self.view.clone(), inner.clone(), self.data.clone(), self.events.clone(), self.id);
+            move |_, _| report_selection(&view, Some(&list), &data, &events, id)
         });
         if let Ok(revoker) = revoker {
             revokers.borrow_mut().push(revoker);
@@ -335,6 +332,11 @@ impl Hook {
             revokers.borrow_mut().extend(drags);
         }
         *self.inner.borrow_mut() = Some(inner.clone());
+        let mode = self.data.borrow().mode;
+        if extend(&inner, mode).is_ok() && mode == SelectionMode::Multiple {
+            // What the app selected before the list was found.
+            select_items(&inner, &self.data);
+        }
         self.take_realised(&inner);
         Some(inner)
     }
@@ -506,20 +508,11 @@ impl Tree {
             }
         })?);
 
+        // The user's selection: the tree view's, and with several rows its
+        // list's (`Hook::find`).
         revokers.push(view.cast::<w::ITreeView3>()?.SelectionChanged({
-            let (data, events, view) = (data.clone(), events.clone(), view.clone());
-            move |_, _| {
-                if data.borrow().muted {
-                    return;
-                }
-                let now = selected(&view, &data.borrow());
-                let mut d = data.borrow_mut();
-                if d.selection != now {
-                    d.selection = now.clone();
-                    drop(d);
-                    events.emit(id, UiEvent::Changed(EventValue::Rows(now)));
-                }
-            }
+            let (data, events, view, inner) = (data.clone(), events.clone(), view.clone(), inner.clone());
+            move |_, _| report_selection(&view, inner.borrow().as_ref(), &data, &events, id)
         })?);
 
         // Double-click: the row under the pointer. Return: the selected
@@ -535,14 +528,14 @@ impl Tree {
             }
         })?);
         revokers.push(view.cast::<w::IUIElement>()?.PreviewKeyDown({
-            let (data, events, view) = (data.clone(), events.clone(), view.clone());
+            let (data, events, view, inner) = (data.clone(), events.clone(), view.clone(), inner.clone());
             move |_, args| {
                 let Some(args) = args.as_ref().and_then(|a| a.cast::<w::IKeyRoutedEventArgs>().ok()) else { return };
                 let held = |key: i32| unsafe { w::GetKeyState(key) } < 0;
                 if args.Key().is_ok_and(|k| k == w::VirtualKey::Enter)
                     && !held(w::VK_CONTROL)
                     && !held(w::VK_MENU)
-                    && let Some(key) = selected(&view, &data.borrow()).first()
+                    && let Some(key) = selected(&view, inner.borrow().as_ref(), &data.borrow()).first()
                 {
                     events.emit(id, UiEvent::RowActivated(*key));
                     _ = args.SetHandled(true);
@@ -700,17 +693,23 @@ impl Tree {
     }
 
     /// XAML's tree view keeps what it can of the selection when the mode
-    /// changes: the rows it let go are reported.
+    /// changes: the rows it let go are reported. Several rows select in its
+    /// list (`Extended`), as a list's do, with the tree view in `None`: its
+    /// own `Multiple` selects them with check boxes, and a folder's rows
+    /// with the folder, and a folder with all its rows. In `Single` it
+    /// keeps its list to the row selected last.
     pub(crate) fn set_mode(&self, mode: SelectionMode) -> R<()> {
         self.data.borrow_mut().mode = mode;
         self.data.borrow_mut().muted = true;
         let set = self.view.cast::<w::ITreeView>()?.SetSelectionMode(match mode {
             SelectionMode::None => w::TreeViewSelectionMode::None,
             SelectionMode::Single => w::TreeViewSelectionMode::Single,
-            SelectionMode::Multiple => w::TreeViewSelectionMode::Multiple,
+            SelectionMode::Multiple => w::TreeViewSelectionMode::None,
         });
+        let extended = self.inner().map(|inner| extend(&inner, mode));
         self.data.borrow_mut().muted = false;
         set?;
+        extended.transpose()?;
         let now = self.selected();
         let changed = {
             let mut d = self.data.borrow_mut();
@@ -729,14 +728,15 @@ impl Tree {
     }
 
     /// Selects rows without reporting it, through the tree view's selected
-    /// node, or nodes.
+    /// node, or its list's selected items.
     pub(crate) fn set_selected(&self, keys: &[RowKey]) -> R<()> {
+        let inner = self.inner();
         let (nodes, mode) = {
             let mut d = self.data.borrow_mut();
             d.selection = keys.to_vec();
             let mut wanted: Vec<RowKey> = keys.iter().filter(|k| d.index.contains_key(k)).copied().collect();
             wanted.sort_by_key(|k| d.index[k]);
-            if selected(&self.view, &d) == wanted {
+            if selected(&self.view, inner.as_ref(), &d) == wanted {
                 return Ok(());
             }
             let n = self.nodes.borrow();
@@ -755,10 +755,11 @@ impl Tree {
                     }
                 }
                 SelectionMode::Multiple => {
-                    let selected = self.view.cast::<w::ITreeView>()?.SelectedNodes()?;
+                    let Some(inner) = &inner else { return Ok(()) };
+                    let selected = inner.cast::<w::IListViewBase>()?.SelectedItems()?;
                     selected.Clear()?;
                     for node in &nodes {
-                        selected.Append(node)?;
+                        selected.Append(&node.cast::<IInspectable>()?)?;
                     }
                     Ok(())
                 }
@@ -769,7 +770,7 @@ impl Tree {
     }
 
     pub(crate) fn selected(&self) -> Vec<RowKey> {
-        selected(&self.view, &self.data.borrow())
+        selected(&self.view, self.inner().as_ref(), &self.data.borrow())
     }
 
     /// Selects a row as the user would, reporting it.
@@ -1126,6 +1127,54 @@ fn inset_in(cell: &w::Canvas, container: &w::UIElement) -> Option<(f32, f32)> {
     }
 }
 
+/// Reports the user's selection, when it changed.
+fn report_selection(
+    view: &w::TreeView,
+    inner: Option<&w::ListView>,
+    data: &RefCell<Data>,
+    events: &Events,
+    id: NodeId,
+) {
+    if data.borrow().muted {
+        return;
+    }
+    let now = selected(view, inner, &data.borrow());
+    let mut d = data.borrow_mut();
+    if d.selection != now {
+        d.selection = now.clone();
+        drop(d);
+        events.emit(id, UiEvent::Changed(EventValue::Rows(now)));
+    }
+}
+
+/// Several rows select in the tree view's own list, as a list's do, with
+/// the tree view selecting none itself (`Tree::set_mode`).
+fn extend(inner: &w::ListView, mode: SelectionMode) -> R<()> {
+    if mode == SelectionMode::Multiple {
+        inner.cast::<w::IListViewBase>()?.SetSelectionMode(w::ListViewSelectionMode::Extended)?;
+    }
+    Ok(())
+}
+
+/// Selects the rows the app has selected among its list's items, without
+/// reporting it.
+fn select_items(inner: &w::ListView, data: &RefCell<Data>) {
+    let wanted = data.borrow().selection.clone();
+    let (Ok(items), Ok(selected)) = (
+        inner.cast::<w::IItemsControl>().and_then(|c| c.Items()),
+        inner.cast::<w::IListViewBase>().and_then(|l| l.SelectedItems()),
+    ) else {
+        return;
+    };
+    data.borrow_mut().muted = true;
+    for item in (0..items.Size().unwrap_or(0)).filter_map(|i| items.GetAt(i).ok()) {
+        if node_key(&item).is_some_and(|k| wanted.contains(&k)) {
+            _ = selected.Append(&item);
+        }
+    }
+    data.borrow_mut().muted = false;
+}
+
 /// The tree view's `TreeViewList`, in its template.
 fn find_tree_list(root: &w::DependencyObject) -> Option<w::ListView> {
     let mut queue = std::collections::VecDeque::from([root.clone()]);
@@ -1142,9 +1191,9 @@ fn find_tree_list(root: &w::DependencyObject) -> Option<w::ListView> {
     None
 }
 
-/// The selected rows, in row order: the tree view's selected node, or
-/// nodes.
-fn selected(view: &w::TreeView, d: &Data) -> Vec<RowKey> {
+/// The selected rows, in row order: the tree view's selected node, or its
+/// list's selected items.
+fn selected(view: &w::TreeView, inner: Option<&w::ListView>, d: &Data) -> Vec<RowKey> {
     let key = |node: w::TreeViewNode| node.cast::<IInspectable>().ok().as_ref().and_then(node_key);
     let mut keys: Vec<RowKey> = match d.mode {
         SelectionMode::None => Vec::new(),
@@ -1152,8 +1201,10 @@ fn selected(view: &w::TreeView, d: &Data) -> Vec<RowKey> {
             view.cast::<w::ITreeView2>().and_then(|v| v.SelectedNode()).ok().and_then(key).into_iter().collect()
         }
         SelectionMode::Multiple => {
-            let Ok(nodes) = view.cast::<w::ITreeView>().and_then(|v| v.SelectedNodes()) else { return Vec::new() };
-            (0..nodes.Size().unwrap_or(0)).filter_map(|i| nodes.GetAt(i).ok()).filter_map(key).collect()
+            let Some(items) = inner.and_then(|l| l.cast::<w::IListViewBase>().ok()?.SelectedItems().ok()) else {
+                return Vec::new();
+            };
+            (0..items.Size().unwrap_or(0)).filter_map(|i| node_key(&items.GetAt(i).ok()?)).collect()
         }
     };
     keys.retain(|k| d.index.contains_key(k));

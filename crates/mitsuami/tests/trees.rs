@@ -251,6 +251,26 @@ async fn several_rows_stay_selected_as_folders_open_and_close(app: TestApp) {
     assert_eq!(app.get_by_role(Role::TreeItem, "main.rs").node().selected, Some(true));
 }
 
+/// A folder is selected on its own, as any row is: its rows aren't
+/// selected with it, and its rows all selected don't select it. XAML's
+/// tree view does both with its check boxes, so WinUI selects several rows
+/// in its inner list instead.
+#[mitsuami_test::test]
+async fn a_folder_and_its_rows_are_selected_apart(app: TestApp) {
+    let (roots, open, selected) = (signal(project()), signal(vec!["src", "ui"]), signal(Vec::new()));
+    app.mount(move || tree(roots, open).selected(selected).selection_mode(SelectionMode::Multiple));
+    app.settle().await;
+    selected.set(vec!["ui"]);
+    app.settle().await;
+    assert_eq!(selected.get(), ["ui"]);
+    assert_eq!(app.get_by_role(Role::TreeItem, "button.rs").node().selected, Some(false));
+
+    selected.set(vec!["button.rs", "list.rs"]);
+    app.settle().await;
+    assert_eq!(selected.get(), ["button.rs", "list.rs"]);
+    assert_eq!(app.get_by_role(Role::TreeItem, "ui").node().selected, Some(false));
+}
+
 #[mitsuami_test::test]
 async fn a_selection_dragged_goes_in_the_trees_order(app: TestApp) {
     let (roots, open, moved, selected) =
