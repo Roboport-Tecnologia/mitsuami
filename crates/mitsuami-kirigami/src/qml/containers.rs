@@ -635,14 +635,16 @@ Item {{
             acceptedButtons: Qt.MiddleButton
             onTapped: mitsuamiDocTabs.mitsuamiAskClose(mitsuamiTab.mitsuamiIndex)
         }}
-        // With the mouse only: a touch drag scrolls the bar. The tab
+        // With the mouse or a touchpad (Qt's own device type, which a
+        // mouse-only handler never sees): a touchscreen drag scrolls the
+        // bar. The tab
         // follows the pointer, and lands where it's let go.
         DragHandler {{
             id: mitsuamiDrag
             target: null
             enabled: mitsuamiDocTabs.mitsuamiReorderable
             yAxis.enabled: false
-            acceptedDevices: PointerDevice.Mouse
+            acceptedDevices: PointerDevice.Mouse | PointerDevice.TouchPad
             grabPermissions: PointerHandler.CanTakeOverFromAnything
             onActiveTranslationChanged: if (active) mitsuamiTab.mitsuamiDragged = activeTranslation.x
             onActiveChanged: if (!active) {{
@@ -961,14 +963,14 @@ QQC2.ScrollView {{
             }}
             // Dragging a row with a file carries it (or the selection's)
             // out as a copy, as a platform drag (`Drag.Automatic`). With
-            // the mouse only: a touch drag scrolls. The list can't take the
-            // drag over once it's begun.
+            // the mouse or a touchpad: a touchscreen drag scrolls. The list
+            // can't take the drag over once it's begun.
             readonly property var mitsuamiDragUrls: view.mitsuamiDragUrls(mitsuamiKey)
             DragHandler {{
                 id: mitsuamiDrag
                 target: null
                 enabled: view.mitsuamiFiles[mitsuamiKey] !== undefined || view.mitsuamiMoves
-                acceptedDevices: PointerDevice.Mouse
+                acceptedDevices: PointerDevice.Mouse | PointerDevice.TouchPad
                 grabPermissions: PointerHandler.CanTakeOverFromAnything | PointerHandler.ApprovesTakeOverByHandlersOfSameType
             }}
             Drag.active: mitsuamiDrag.active
@@ -1413,14 +1415,14 @@ Item {{
                 }}
                 // Dragging a row's cell with a file carries it (or the selection's)
                 // out as a copy, as a platform drag (`Drag.Automatic`). With
-                // the mouse only: a touch drag scrolls. The table can't take the
-                // drag over once it's begun.
+                // the mouse or a touchpad: a touchscreen drag scrolls. The
+                // table can't take the drag over once it's begun.
                 readonly property var mitsuamiDragUrls: view.mitsuamiDragUrls(cell.mitsuamiKey)
                 DragHandler {{
                     id: mitsuamiDrag
                     target: null
                     enabled: view.mitsuamiFiles[cell.mitsuamiKey] !== undefined
-                    acceptedDevices: PointerDevice.Mouse
+                    acceptedDevices: PointerDevice.Mouse | PointerDevice.TouchPad
                     grabPermissions: PointerHandler.CanTakeOverFromAnything | PointerHandler.ApprovesTakeOverByHandlersOfSameType
                 }}
                 Drag.active: mitsuamiDrag.active
@@ -1787,7 +1789,7 @@ QQC2.ScrollView {{
                 id: mitsuamiDrag
                 target: null
                 enabled: view.mitsuamiFiles[cell.mitsuamiKey] !== undefined || view.mitsuamiMoves
-                acceptedDevices: PointerDevice.Mouse
+                acceptedDevices: PointerDevice.Mouse | PointerDevice.TouchPad
                 grabPermissions: PointerHandler.CanTakeOverFromAnything | PointerHandler.ApprovesTakeOverByHandlersOfSameType
             }}
             Drag.active: mitsuamiDrag.active
