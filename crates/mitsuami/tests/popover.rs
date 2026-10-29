@@ -50,6 +50,32 @@ async fn shows_when_the_app_says(app: TestApp) {
     app.expect(by_text("develop")).to_be_hidden().await;
 }
 
+/// Shown again as it closes, it stays shown: Qt's popup is still visible
+/// through its exit transition, and turns back to open.
+#[mitsuami_test::test]
+async fn shows_again_while_it_closes(app: TestApp) {
+    let open = signal(true);
+    app.mount(move || page(open));
+    app.expect(by_text("develop")).to_be_visible().await;
+
+    open.set(false);
+    app.settle().await;
+    open.set(true);
+    // Past where the exit transition would have ended.
+    for _ in 0..10 {
+        std::thread::sleep(std::time::Duration::from_millis(50));
+        app.settle().await;
+    }
+    app.expect(by_text("develop")).to_be_visible().await;
+    assert_eq!(shown(&app), Some(true));
+
+    open.set(false);
+    app.expect(by_text("develop")).to_be_hidden().await;
+    app.get_by_role(Role::Button, "Contains in").click().await;
+    app.expect(by_text("develop")).to_be_visible().await;
+    assert_eq!(shown(&app), Some(true));
+}
+
 /// Its content is laid out on its own, at its natural size: a column of
 /// the texts and the button, inside its padding.
 #[mitsuami_test::test]

@@ -26,19 +26,21 @@ impl State {
     }
 
     /// Opens a popover the core wants, once it has a size and something to
-    /// point at; closes one it no longer wants (unreported: `closed()`
+    /// point at; closes one it no longer wants (unreported: `aboutToHide()`
     /// sees it isn't wanted).
     pub(super) fn sync_popover(&self, id: NodeId) {
         let Some(node) = self.nodes.get(&id) else { return };
         let Widget::Popover { host, popup, wanted } = &node.widget else { return };
-        let open = popup.bool("visible");
         if !wanted.get() {
-            if open {
+            if popup.bool("visible") {
                 popup.invoke("close");
             }
             return;
         }
-        if !open && node.parent.is_some() && host.real("width") > 0.0 && host.real("height") > 0.0 {
+        // Not `visible`: a popup stays visible through its exit transition,
+        // and `open()` then turns it back. `opened` is false while either
+        // transition runs; `open()` during the enter one does nothing.
+        if !popup.bool("opened") && node.parent.is_some() && host.real("width") > 0.0 && host.real("height") > 0.0 {
             popup.invoke("open");
         }
     }

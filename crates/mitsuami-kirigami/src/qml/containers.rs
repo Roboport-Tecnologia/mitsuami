@@ -9,16 +9,27 @@ pub(crate) fn container() -> String {
 
 /// A popover: a `QQC2.Popup` under its parent (the item it points at),
 /// as KDE's pop-ups open under what opened them. It closes on Escape and
-/// on a press outside, as theirs do, and isn't modal. Its content item is
+/// on a press outside, as theirs do, and isn't modal: a press elsewhere
+/// still reaches what's there. A press on its parent closes it and goes
+/// no further, as Kirigami's buttons do with their menus: it would reach
+/// the button that opens it, which opened it again. Its content item is
 /// the node's host, which the core lays out at its natural size, inside
 /// the style's padding, as every platform's popover insets its content.
 pub(crate) fn popover() -> String {
     r#"
 QQC2.Popup {
+    id: popup
     modal: false
     focus: true
-    closePolicy: QQC2.Popup.CloseOnEscape | QQC2.Popup.CloseOnPressOutside
+    closePolicy: QQC2.Popup.CloseOnEscape | QQC2.Popup.CloseOnPressOutsideParent
     y: parent ? parent.height : 0
+    property Item mitsuamiCatcher: MouseArea {
+        parent: popup.parent
+        anchors.fill: parent
+        z: 1000000
+        visible: popup.visible
+        onPressed: popup.close()
+    }
 }
 "#
     .to_owned()
