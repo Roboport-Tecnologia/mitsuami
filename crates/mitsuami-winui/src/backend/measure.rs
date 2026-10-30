@@ -96,6 +96,16 @@ impl WinUiBackend {
     pub(super) fn measure_node(&mut self, id: NodeId, request: MeasureRequest) -> Size {
         let state = self.state.borrow();
         let Some(node) = state.nodes.get(&id) else { return Size::ZERO };
+        if !node.element.cast::<w::IFrameworkElement>().and_then(|f| f.IsLoaded()).unwrap_or(true) {
+            let mut parent = node.parent.and_then(|p| state.nodes.get(&p));
+            while let Some(above) = parent {
+                if let Widget::Popover(popover) = &above.widget {
+                    popover.measured_unstyled(id);
+                    break;
+                }
+                parent = above.parent.and_then(|p| state.nodes.get(&p));
+            }
+        }
         let infinite = w::Size { width: f32::INFINITY, height: f32::INFINITY };
         let natural = match &node.widget {
             Widget::Label(label) => {

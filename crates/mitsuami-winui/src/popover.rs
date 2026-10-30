@@ -9,6 +9,7 @@
 //! light dismiss does (`dismiss`).
 
 use std::cell::{Cell, RefCell};
+use std::collections::HashSet;
 use std::rc::Rc;
 
 use mitsuami_core::{NodeId, UiEvent};
@@ -30,6 +31,9 @@ struct State {
     anchor: RefCell<Option<w::FrameworkElement>>,
     /// Windows are shown: off in tests (see above).
     on_screen: bool,
+    /// What's in it that was measured out of a live tree, where controls
+    /// have no style: a `Button` measures 0 × 19.
+    unstyled: RefCell<HashSet<NodeId>>,
 }
 
 pub(crate) struct Popover {
@@ -39,6 +43,7 @@ pub(crate) struct Popover {
     id: NodeId,
     events: Events,
     _closed: EventRevoker,
+    _loaded: EventRevoker,
 }
 
 impl Popover {
@@ -52,14 +57,32 @@ impl Popover {
         // flyout opens: kept inside it, a flyout with no room above or
         // below a button went beside it, against the window's top.
         base.SetShouldConstrainToRootBounds(false)?;
-        let state = Rc::new(State { wanted: Cell::new(false), anchor: RefCell::new(None), on_screen });
+        let state = Rc::new(State {
+            wanted: Cell::new(false),
+            anchor: RefCell::new(None),
+            on_screen,
+            unstyled: RefCell::default(),
+        });
         let (closing, reported) = (state.clone(), events.clone());
         let closed = base.Closed(move |_, _| {
             if closing.wanted.replace(false) {
                 reported.emit(id, UiEvent::PopoverShownChanged(false));
             }
         })?;
-        Ok(Popover { host, flyout, state, id, events, _closed: closed })
+        // Its content joins a live tree only as it opens.
+        let (opening, emitter) = (state.clone(), events.clone());
+        let loaded = host.cast::<w::IFrameworkElement>()?.Loaded(move |_, _| {
+            for measured in opening.unstyled.take() {
+                emitter.emit(measured, UiEvent::Remeasure);
+            }
+        })?;
+        Ok(Popover { host, flyout, state, id, events, _closed: closed, _loaded: loaded })
+    }
+
+    /// Something in it was measured out of a live tree: it's measured again
+    /// when the popover opens.
+    pub(crate) fn measured_unstyled(&self, id: NodeId) {
+        self.state.unstyled.borrow_mut().insert(id);
     }
 
     /// The element it shows at: its parent's. None: it's out of the tree.
