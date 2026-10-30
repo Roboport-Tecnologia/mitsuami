@@ -145,7 +145,7 @@ Microsoft.UI.Xaml.Controls.ListViewItem::CreateInstance
 Microsoft.UI.Xaml.Controls.Primitives.SelectorItem::{}
 Microsoft.UI.Xaml.Controls.Primitives.ISelector::{get_SelectedIndex, put_SelectedIndex, add_SelectionChanged, remove_SelectionChanged}
 Microsoft.UI.Xaml.Controls.SelectionChangedEventHandler
-Microsoft.UI.Xaml.Controls.IItemsControl::{get_Items, put_ItemContainerStyle, put_ItemTemplate, get_ItemContainerTransitions, put_ItemContainerTransitions, get_ItemsPanelRoot}
+Microsoft.UI.Xaml.Controls.IItemsControl::{get_Items, get_ItemsSource, put_ItemsSource, put_ItemContainerStyle, put_ItemTemplate, get_ItemContainerTransitions, put_ItemContainerTransitions, get_ItemsPanelRoot}
 Microsoft.UI.Xaml.Media.Animation.TransitionCollection::{}
 Microsoft.UI.Xaml.DataTemplate::{}
 Microsoft.UI.Xaml.Controls.IItemContainerMapping::{ItemFromContainer, ContainerFromItem}

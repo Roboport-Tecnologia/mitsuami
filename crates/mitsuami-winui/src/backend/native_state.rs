@@ -15,6 +15,27 @@ use super::windows::{height_locked, in_full_screen, is_maximized, overlapped, si
 use super::{Widget, WinUiBackend, key, unboxed};
 use crate::bindings as w;
 
+/// The rows of a search box's list, from its `ItemsSource`, the only thing
+/// the list shows (its `Items` aren't). The list in the template's popup
+/// has them only once it's opened.
+fn shown_suggestions(search: &w::AutoSuggestBox) -> Vec<mitsuami_core::Suggestion> {
+    let source = search.cast::<w::IItemsControl>().and_then(|s| s.ItemsSource());
+    let Ok(items) = source.and_then(|s| s.cast::<windows_collections::IVector<IInspectable>>()) else {
+        return Vec::new();
+    };
+    (0..items.Size().unwrap_or(0)).filter_map(|i| shown_suggestion(items.GetAt(i).ok()?)).collect()
+}
+
+/// A row of that list: a string, or a panel of its title and detail.
+fn shown_suggestion(item: IInspectable) -> Option<mitsuami_core::Suggestion> {
+    let Ok(panel) = item.cast::<w::IPanel>() else {
+        return Some(mitsuami_core::Suggestion { title: unboxed(Ok(item))?, detail: None });
+    };
+    let lines = panel.Children().ok()?;
+    let line = |i| lines.GetAt(i).ok()?.cast::<w::ITextBlock>().ok()?.Text().ok();
+    Some(mitsuami_core::Suggestion { title: line(0)?, detail: Some(line(1)?) })
+}
+
 impl WinUiBackend {
     pub(super) fn read_native_state(&self, id: NodeId) -> Option<NativeState> {
         let state = self.state.borrow();
@@ -98,8 +119,9 @@ impl WinUiBackend {
             Widget::Search(s) => {
                 let search: w::IAutoSuggestBox = s.cast().ok()?;
                 props.push(Prop::Value(search_text(s)?));
-                // Kept: the list's items are views.
-                props.extend(node.suggestions.clone().map(Prop::Suggestions));
+                if node.suggestions.is_some() {
+                    props.push(Prop::Suggestions(shown_suggestions(s)));
+                }
                 // Kept: XAML has no such setting to read.
                 props.extend(node.search_on_return.get().map(Prop::SearchOnReturn));
                 let placeholder = search.PlaceholderText().ok()?;

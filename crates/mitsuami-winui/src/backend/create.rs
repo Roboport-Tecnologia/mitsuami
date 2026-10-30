@@ -463,6 +463,12 @@ impl State {
                             if on_return.get() != Some(true) || text.is_empty() {
                                 emitter.emit(id, UiEvent::Search(text));
                             }
+                        } else if !suggesting.get()
+                            && let Some(search) = sender.as_ref().and_then(|s| s.cast::<w::IAutoSuggestBox>().ok())
+                        {
+                            // The app's text after a Return pick: XAML has
+                            // the list open again by now, showing the pick.
+                            _ = search.SetIsSuggestionListOpen(false);
                         }
                     }
                 })?);

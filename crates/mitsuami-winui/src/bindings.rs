@@ -10220,6 +10220,25 @@ impl windows_core::RuntimeType for IItemsControl {
     const SIGNATURE: windows_core::imp::ConstBuffer = windows_core::imp::ConstBuffer::for_interface::<Self>();
 }
 impl IItemsControl {
+    pub fn ItemsSource(&self) -> windows_core::Result<windows_core::IInspectable> {
+        unsafe {
+            let mut result__ = core::mem::zeroed();
+            (windows_core::Interface::vtable(self).ItemsSource)(windows_core::Interface::as_raw(self), &mut result__)
+                .and_then(|| windows_core::imp::Type::from_abi(result__))
+        }
+    }
+    pub fn SetItemsSource<P0>(&self, value: P0) -> windows_core::Result<()>
+    where
+        P0: windows_core::Param<windows_core::IInspectable>,
+    {
+        unsafe {
+            (windows_core::Interface::vtable(self).SetItemsSource)(
+                windows_core::Interface::as_raw(self),
+                value.param().abi(),
+            )
+            .ok()
+        }
+    }
     pub fn Items(&self) -> windows_core::Result<ItemCollection> {
         unsafe {
             let mut result__ = core::mem::zeroed();
@@ -10284,8 +10303,10 @@ impl IItemsControl {
 #[repr(C)]
 pub struct IItemsControl_Vtbl {
     pub base__: windows_core::IInspectable_Vtbl,
-    ItemsSource: usize,
-    SetItemsSource: usize,
+    pub ItemsSource:
+        unsafe extern "system" fn(*mut core::ffi::c_void, *mut *mut core::ffi::c_void) -> windows_core::HRESULT,
+    pub SetItemsSource:
+        unsafe extern "system" fn(*mut core::ffi::c_void, *mut core::ffi::c_void) -> windows_core::HRESULT,
     pub Items: unsafe extern "system" fn(*mut core::ffi::c_void, *mut *mut core::ffi::c_void) -> windows_core::HRESULT,
     ItemTemplate: usize,
     pub SetItemTemplate:

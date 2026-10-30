@@ -513,11 +513,11 @@ impl State {
             (Prop::SearchOnReturn(on), Widget::Search(_)) => node.search_on_return.set(Some(*on)),
             (Prop::Suggestions(list), Widget::Search(s)) => {
                 if node.suggestions.as_ref() != Some(list) {
-                    let items = s.cast::<w::IItemsControl>()?.Items()?;
-                    items.Clear()?;
-                    for suggestion in list {
-                        items.Append(&suggestion_item(suggestion)?)?;
-                    }
+                    // The list shows the box's `ItemsSource`, not its `Items`:
+                    // it opened empty with those.
+                    let items = list.iter().map(|s| suggestion_item(s).map(Some)).collect::<R<Vec<_>>>()?;
+                    let items: windows_collections::IVector<IInspectable> = items.into();
+                    s.cast::<w::IItemsControl>()?.SetItemsSource(&items)?;
                     let focused = s.cast::<w::IUIElement>()?.FocusState()? != w::FocusState::Unfocused;
                     let open = focused && !list.is_empty() && node.suggesting.get();
                     s.cast::<w::IAutoSuggestBox>()?.SetIsSuggestionListOpen(open)?;
