@@ -218,6 +218,13 @@ impl Inner {
                 }
                 // A tab view's page shown is in the Tab order.
                 self.focus_dirty |= matches!(prop, Prop::SelectedIndex(_));
+                // The user's choice can change the widget's size as the app's
+                // can (`set_prop`), which won't see a change when it's echoed.
+                if prop.affects_measure(node.kind)
+                    && let Some(t) = node.taffy
+                {
+                    let _ = self.taffy.mark_dirty(t);
+                }
                 node.props.retain(|p| p.key() != prop.key());
                 node.props.push(prop);
             }

@@ -161,6 +161,24 @@ async fn is_sized_for_its_options(app: TestApp) {
     assert!(long.width() > short.width(), "{long} is not wider than {short}");
 }
 
+// The user's choice resizes it as the app's does, on the platforms that size
+// it for the chosen option.
+#[mitsuami_test::test]
+async fn resizes_for_the_option_the_user_chooses(app: TestApp) {
+    let names = ["A", "A considerably longer option"];
+    app.mount(move || {
+        Column::new()
+            .align(Align::Start)
+            .children((Select::new("Picked").options(names), Select::new("Given").options(names).selected(1)))
+    });
+
+    app.get_by_role(Role::ComboBox, "Picked").select_option(names[1]).await;
+
+    let picked = app.get_by_role(Role::ComboBox, "Picked").frame();
+    let given = app.get_by_role(Role::ComboBox, "Given").frame();
+    assert_eq!(picked.width(), given.width(), "{picked} is not as wide as {given}");
+}
+
 // Whether Tab reaches it is the platform's call: macOS skips pop-up buttons
 // unless Full Keyboard Access is on, as it skips buttons.
 #[mitsuami_test::test]
