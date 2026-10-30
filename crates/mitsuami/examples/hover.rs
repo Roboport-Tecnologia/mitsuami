@@ -102,6 +102,27 @@ fn rename() -> impl View {
     }
 }
 
+/// The hint, where the text area's first line starts on this platform.
+struct FirstLineHint {
+    text: Signal<String>,
+    through: Signal<bool>,
+}
+
+impl View for FirstLineHint {
+    fn build(self, ui: &Ui) -> NodeId {
+        let FirstLineHint { text, through } = self;
+        let insets = ui.metrics().text_area_insets;
+        Column::new()
+            .absolute()
+            .top(insets.top)
+            .start(insets.left)
+            .click_through(through)
+            .hidden(move || !text.get().is_empty())
+            .child(Text::new("Write a message").color(Color::Placeholder))
+            .build(ui)
+    }
+}
+
 /// A hint over a text area, as an app lays one where the platform's text
 /// area shows no placeholder.
 fn hint() -> impl View {
@@ -112,13 +133,7 @@ fn hint() -> impl View {
             {heading("A hint over a text area")}
             <Column width=320 height=100>
                 <TextArea a11y_label="Message" bind=text grow=1.0/>
-                {Column::new()
-                    .absolute()
-                    .top(4)
-                    .start(6)
-                    .click_through(through)
-                    .hidden(move || !text.get().is_empty())
-                    .child(Text::new("Write a message").color(Color::Placeholder))}
+                {FirstLineHint { text, through }}
             </Column>
             <Row gap=Spacing::Md align=Align::Center>
                 <Text>"Clicks pass through"</Text>
