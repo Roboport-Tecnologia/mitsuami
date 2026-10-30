@@ -1685,13 +1685,20 @@ fn queue_heights(data: &Rc<RefCell<Data>>, d: &mut Data, events: &Events, id: No
 
 /// A list's scrolled window's natural height at its width, with all its
 /// rows: GTK's list view measures only the rows it has bound, which are
-/// those its allocation shows.
+/// those its allocation shows. Its view's and its own border's, not the
+/// scrolled window's: that is no less than its scroll bar's natural
+/// height (64 px with Adwaita), so two rows and three were as high, and a
+/// list that short has no bar (`fit_scroll_bar`).
 fn natural_height(scrolled: &gtk::ScrolledWindow) -> f32 {
     let width = Some(scrolled.width()).filter(|w| *w > 0).unwrap_or(-1);
-    let measured = scrolled.measure(gtk::Orientation::Vertical, width).1 as f32;
+    let Some(content) = scrolled.child() else { return scrolled.measure(gtk::Orientation::Vertical, width).1 as f32 };
+    #[allow(deprecated)] // The only way to read a widget's CSS padding.
+    let (padding, border) = { (scrolled.style_context().padding(), scrolled.style_context().border()) };
+    let around = (padding.top() + padding.bottom() + border.top() + border.bottom()) as f32;
+    let measured = content.measure(gtk::Orientation::Vertical, width).1 as f32 + around;
     // The rows GTK hasn't bound, as high as those it has on average, as
     // GTK estimates them when it scrolls.
-    let Some(view) = scrolled.child().and_then(|view| rows_view(&view)) else { return measured };
+    let Some(view) = rows_view(&content) else { return measured };
     let items = view.model().map_or(0, |model| model.n_items()) as f32;
     let mut bound = 0.0;
     let mut child = view.first_child();

@@ -281,10 +281,14 @@ impl WindowRoot {
 
     /// Resizes it to what the app asked for, no smaller than its minimum,
     /// and reports the size it gets. Before it's shown, the core's size
-    /// is what it asked for: a minimum that grows it is reported too.
+    /// is what it asked for, reported now: the core lays out at the size it
+    /// opened with until it hears, and the host reports only a size other
+    /// than this one (an app that resized the window while building its
+    /// content kept its first layout). A minimum that grows it is reported
+    /// too.
     pub(super) fn resize_to(&self, asked: Size) {
-        if !self.has_rendered() {
-            self.size.set(asked);
+        if !self.has_rendered() && self.size.replace(asked) != asked {
+            self.events.emit(self.id, UiEvent::WindowResized(asked));
         }
         let size = self.at_least_min(asked);
         self.requested.set(Some(size));

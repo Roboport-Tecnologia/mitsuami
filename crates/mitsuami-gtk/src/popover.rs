@@ -71,10 +71,24 @@ impl Popover {
         let Some(parent) = self.popover.parent().filter(|_| self.shown() && self.host.is_mapped()) else {
             return Rect::ZERO;
         };
-        match self.host.compute_bounds(&parent) {
-            Some(b) => Rect::new(b.x(), b.y(), b.width(), b.height()),
-            None => Rect::ZERO,
+        if let Some(b) = self.host.compute_bounds(&parent) {
+            return Rect::new(b.x(), b.y(), b.width(), b.height());
         }
+        // GTK 4.14 relates no widgets across surfaces, and a popover is one
+        // of its own: through its popup's place on its parent's surface.
+        self.across_surfaces(&parent).unwrap_or(Rect::ZERO)
+    }
+
+    /// The popup's place is in its parent window's coordinates (past the
+    /// window's shadow): what 4.24's `compute_bounds` gives.
+    fn across_surfaces(&self, parent: &gtk::Widget) -> Option<Rect> {
+        let popup = self.popover.surface()?.downcast::<gtk::gdk::Popup>().ok()?;
+        let at = parent.compute_bounds(&parent.native()?)?;
+        let (inset_x, inset_y) = self.popover.surface_transform();
+        let host = self.host.compute_bounds(&self.popover)?;
+        let x = popup.position_x() as f64 + inset_x + host.x() as f64 - at.x() as f64;
+        let y = popup.position_y() as f64 + inset_y + host.y() as f64 - at.y() as f64;
+        Some(Rect::new(x as f32, y as f32, host.width(), host.height()))
     }
 }
 

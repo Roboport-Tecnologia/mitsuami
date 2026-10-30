@@ -474,8 +474,11 @@ public:
     ~KeyFilter() override { call(key, MQ_DROPPED); }
     QList<QPair<int, Qt::KeyboardModifiers>> keys;
 protected:
+    // The shortcuts' offer of a key comes up from the focused item as its
+    // press does: taking it keeps the window's own (a dialog's Escape)
+    // from running, and the press then comes.
     bool eventFilter(QObject*, QEvent* event) override {
-        if (event->type() != QEvent::KeyPress) return false;
+        if (event->type() != QEvent::KeyPress && event->type() != QEvent::ShortcutOverride) return false;
         auto* press = static_cast<QKeyEvent*>(event);
         // Shift+Tab comes as Backtab, and the keypad's Enter is Return.
         int k = press->key();
@@ -491,7 +494,7 @@ protected:
         for (int i = 0; i < keys.size(); i++) {
             if (keys[i].first == k && keys[i].second == mods) {
                 press->accept();
-                call(key, MQ_KEY, i);
+                if (event->type() == QEvent::KeyPress) call(key, MQ_KEY, i);
                 return true;
             }
         }
@@ -1089,10 +1092,19 @@ int32_t mq_a11y_action(QObject* item, const char* action) {
 
 // Qt Gui's, exported for QTest (qtestkeyboard.h declares it the same way):
 // offers a key to the shortcuts, as Qt does with the platform's keys.
+// And QTest's friend of QEvent (qtestspontaneevent.h), which marks a key
+// as the platform's, as QTest's are: Qt Quick offers a key that isn't to
+// the shortcuts again as it's pressed, and only through the focused item,
+// so an item round it that takes the key (a node's keys) never saw that
+// offer, and a dialog's Escape closed it.
 extern "C++" {
 QT_BEGIN_NAMESPACE
 Q_GUI_EXPORT bool qt_sendShortcutOverrideEvent(QObject* o, ulong timestamp, int k, Qt::KeyboardModifiers mods,
                                                const QString& text, bool autorep, ushort count);
+class QSpontaneKeyEvent {
+public:
+    static inline void setSpontaneous(QEvent* ev) { ev->setSpontaneous(); }
+};
 QT_END_NAMESPACE
 }
 
@@ -1106,8 +1118,11 @@ void mq_key(QObject* window, int32_t key, int32_t flags, const char* text) {
     if (qt_sendShortcutOverrideEvent(quick, 0, key, modifiers, t, false, 1)) return;
     QKeyEvent press(QEvent::KeyPress, key, modifiers, t);
     QKeyEvent release(QEvent::KeyRelease, key, modifiers, t);
-    QCoreApplication::sendEvent(quick, &press);
-    QCoreApplication::sendEvent(quick, &release);
+    QSpontaneKeyEvent::setSpontaneous(&press);
+    QSpontaneKeyEvent::setSpontaneous(&release);
+    // As QTest sends them: `sendEvent` would make them not the platform's.
+    qApp->notify(quick, &press);
+    qApp->notify(quick, &release);
 }
 
 // A real primary-button click at a point of the window's scene.
@@ -1432,8 +1447,11 @@ void mq_surface_key(QObject* window, int32_t key, uint32_t scan_code, const char
     if (qt_sendShortcutOverrideEvent(quick, 0, key, Qt::NoModifier, t, false, 1)) return;
     QKeyEvent press(QEvent::KeyPress, key, Qt::NoModifier, scan_code, 0, 0, t);
     QKeyEvent release(QEvent::KeyRelease, key, Qt::NoModifier, scan_code, 0, 0, t);
-    QCoreApplication::sendEvent(quick, &press);
-    QCoreApplication::sendEvent(quick, &release);
+    QSpontaneKeyEvent::setSpontaneous(&press);
+    QSpontaneKeyEvent::setSpontaneous(&release);
+    // As QTest sends them: `sendEvent` would make them not the platform's.
+    qApp->notify(quick, &press);
+    qApp->notify(quick, &release);
 }
 
 void mq_surface_input_text(QObject* item, int32_t on) { static_cast<SurfaceInputItem*>(item)->setTextInput(on); }
