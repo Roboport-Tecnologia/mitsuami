@@ -121,8 +121,14 @@ fn heading(text: &str) -> impl View {
 }
 
 fn columns() -> Vec<TableColumn<File>> {
+    // WinUI's header pads its title more than the others and keeps room for
+    // the sort glyph.
+    let lane = platform! {
+        windows => 72,
+        _ => 44,
+    };
     vec![
-        TableColumn::new("Lane", |f: File| Custom::<Lane>::new(color_for(f.kind))).width(44).fills_row(),
+        TableColumn::new("Lane", |f: File| Custom::<Lane>::new(color_for(f.kind))).width(lane).fills_row(),
         TableColumn::new("Name", |f: File| {
             Row::new().gap(Spacing::Sm).align(Align::Center).children((
                 Icon::new(icon_for(f.kind)).a11y_hidden(),
