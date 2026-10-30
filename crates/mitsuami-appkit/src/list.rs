@@ -27,14 +27,15 @@ use mitsuami_core::{
 use mitsuami_core::services::Shortcut;
 use objc2::rc::Retained;
 use objc2::runtime::{AnyObject, NSObject, NSObjectProtocol, ProtocolObject};
-use objc2::{ClassType, DefinedClass, MainThreadMarker, MainThreadOnly, define_class, msg_send, sel};
+use objc2::{DefinedClass, MainThreadMarker, MainThreadOnly, define_class, msg_send, sel};
 use objc2_app_kit::{
     NSAnimationContext, NSBorderType, NSControlSize, NSControlTextEditingDelegate, NSDragOperation, NSDraggingInfo,
     NSEvent, NSEventModifierFlags, NSImage, NSMenu, NSOutlineView, NSOutlineViewDataSource, NSOutlineViewDelegate,
-    NSPasteboardItem, NSPasteboardTypeFileURL, NSPasteboardWriting, NSProgressIndicator, NSProgressIndicatorStyle,
-    NSResponder, NSScrollView, NSTableColumn, NSTableColumnResizingOptions, NSTableRowView, NSTableView,
-    NSTableViewAnimationOptions, NSTableViewColumnAutoresizingStyle, NSTableViewDataSource, NSTableViewDelegate,
-    NSTableViewDropOperation, NSTableViewStyle, NSView, NSViewBoundsDidChangeNotification,
+    NSOutlineViewDisclosureButtonKey, NSPasteboardItem, NSPasteboardTypeFileURL, NSPasteboardWriting,
+    NSProgressIndicator, NSProgressIndicatorStyle, NSResponder, NSScrollView, NSTableColumn,
+    NSTableColumnResizingOptions, NSTableRowView, NSTableView, NSTableViewAnimationOptions,
+    NSTableViewColumnAutoresizingStyle, NSTableViewDataSource, NSTableViewDelegate, NSTableViewDropOperation,
+    NSTableViewStyle, NSUserInterfaceItemIdentification, NSView, NSViewBoundsDidChangeNotification,
     NSViewFrameDidChangeNotification,
 };
 use objc2_foundation::{
@@ -1021,34 +1022,28 @@ define_class!(
         fn menu_for_event(&self, event: &NSEvent) -> Option<Retained<NSMenu>> {
             row_menu(self, event).or_else(|| unsafe { msg_send![super(self), menuForEvent: event] })
         }
-
-        /// No disclosure on a row whose children are being read: its
-        /// spinner is there instead (`show_spinner`).
-        #[unsafe(method(frameOfOutlineCellAtRow:))]
-        fn frame_of_outline_cell_at_row(&self, row: NSInteger) -> NSRect {
-            let loading = self.itemAtRow(row).and_then(|item| item_key(&item)).is_some_and(|key| {
-                self.ivars().data.borrow().loading.as_ref().is_some_and(|loading| loading.contains(&key))
-            });
-            if loading { NSRect::ZERO } else { disclosure_frame(self, row) }
-        }
     }
 );
 
-/// Where the outline view puts a row's disclosure, as it would without
-/// `TreeTable`'s.
-fn disclosure_frame(outline: &TreeTable, row: NSInteger) -> NSRect {
-    unsafe { msg_send![super(outline, NSOutlineView::class()), frameOfOutlineCellAtRow: row] }
+/// A row view's disclosure button, which the outline view adds to the
+/// rows that open.
+fn disclosure_button(row_view: &NSTableRowView) -> Option<Retained<NSView>> {
+    let key = unsafe { NSOutlineViewDisclosureButtonKey };
+    row_view.subviews().iter().find(|view| view.identifier().is_some_and(|id| &*id == key))
 }
 
 /// A tree's row's spinner, in place of its disclosure while its children
 /// are being read, as Finder shows one in a folder it opens. The outline
-/// view has none of its own.
+/// view has none of its own. The disclosure is hidden under it, not given
+/// no frame: the outline view keeps a disclosure's frame from its last
+/// layout of the row, and dropped the button laid out with none, so the
+/// row couldn't close until another opened.
 fn show_spinner(outline: &TreeTable, row_view: &NSTableRowView, row: NSInteger, loading: bool) {
     let spinner = row_view.subviews().iter().find_map(|view| view.downcast::<NSProgressIndicator>().ok());
     match (spinner, loading) {
         (Some(spinner), false) => spinner.removeFromSuperview(),
         (None, true) => {
-            let frame = disclosure_frame(outline, row);
+            let frame = outline.frameOfOutlineCellAtRow(row);
             if frame.size.width <= 0.0 {
                 return;
             }
@@ -1069,9 +1064,10 @@ fn show_spinner(outline: &TreeTable, row_view: &NSTableRowView, row: NSInteger, 
         }
         _ => {}
     }
-    // The outline view asks for its disclosure's frame again.
-    row_view.setNeedsLayout(true);
-    row_view.setNeedsDisplay(true);
+    let spinning = row_view.subviews().iter().any(|view| view.downcast_ref::<NSProgressIndicator>().is_some());
+    if let Some(button) = disclosure_button(row_view) {
+        button.setHidden(spinning);
+    }
 }
 
 define_class!(
