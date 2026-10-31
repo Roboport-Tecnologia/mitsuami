@@ -843,6 +843,10 @@ static QPalette palette_of(const QString& path) {
         palette.setColor(group, QPalette::AlternateBase, color("View", "BackgroundAlternate"));
         palette.setColor(group, QPalette::Button, color("Button", "BackgroundNormal"));
         palette.setColor(group, QPalette::Highlight, color("Selection", "BackgroundNormal"));
+#if QT_VERSION >= QT_VERSION_CHECK(6, 6, 0)
+        // Breeze's folders and accented icons take it (KF6 maps it so).
+        palette.setColor(group, QPalette::Accent, color("Selection", "BackgroundNormal"));
+#endif
         palette.setColor(group, QPalette::ToolTipBase, color("Tooltip", "BackgroundNormal"));
         palette.setColor(group, QPalette::ToolTipText, color("Tooltip", "ForegroundNormal"));
         palette.setColor(group, QPalette::Link, color("View", "ForegroundLink"));
