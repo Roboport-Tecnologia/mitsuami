@@ -759,6 +759,10 @@ fn file_icons() -> impl View {
 
 /// A button with its popover shown: a heading and three branches, under
 /// the button, as the platform shows popovers.
+///
+/// AppKit's capture draws the popover's content on a plain panel with a
+/// hairline border: macOS 26's glass and arrow are the window server's,
+/// and can't be captured in the app.
 #[mitsuami_test::story(sizes = [(420, 240)])]
 fn popovers() -> impl View {
     let shown = signal(true);

@@ -8,10 +8,11 @@ use objc2::rc::Retained;
 use objc2::runtime::{AnyClass, NSObjectProtocol};
 use objc2::{Message, msg_send, sel};
 use objc2_app_kit::{
-    NSAffineTransformNSAppKitAdditions, NSBitmapFormat, NSBitmapImageRep, NSGraphicsContext, NSScroller,
-    NSScrollerPart, NSScrollerStyle, NSUsableScrollerParts, NSView,
+    NSAffineTransformNSAppKitAdditions, NSAppearanceCustomization, NSBezierPath, NSBitmapFormat, NSBitmapImageRep,
+    NSColor, NSCompositingOperation, NSGraphicsContext, NSScroller, NSScrollerPart, NSScrollerStyle,
+    NSUsableScrollerParts, NSView,
 };
-use objc2_foundation::NSAffineTransform;
+use objc2_foundation::{NSAffineTransform, NSPoint, NSRect, NSSize};
 
 use super::{AppKitBackend, Widget};
 
@@ -26,7 +27,7 @@ pub(crate) fn capturing() -> bool {
 
 impl AppKitBackend {
     pub(super) fn capture_now(&self, id: NodeId) -> Result<Image, CaptureError> {
-        let (view, window_host, headers) = {
+        let (view, window_host, headers, popovers) = {
             let state = self.state.borrow();
             let widget = &state.nodes.get(&id).ok_or(CaptureError::UnknownNode)?.widget;
             let host = match widget {
@@ -41,7 +42,16 @@ impl AppKitBackend {
                     Some((n.widget.view().retain(), Retained::into_super(header.content.clone())))
                 })
                 .collect();
-            (widget.view().retain(), host, headers)
+            // The popovers shown over it, each a window of its own.
+            let popovers: Vec<Retained<NSView>> = state
+                .nodes
+                .values()
+                .filter_map(|n| match &n.widget {
+                    Widget::Popover(popover) => popover.content(),
+                    _ => None,
+                })
+                .collect();
+            (widget.view().retain(), host, headers, popovers)
         };
         // Views that lay out their own subviews (a table's rows) do it in
         // a layout pass, which offscreen windows only get when asked.
@@ -83,6 +93,7 @@ impl AppKitBackend {
         key_state_changed(&view);
         view.cacheDisplayInRect_toBitmapImageRep(bounds, &rep);
         draw_scrollers(&view, &rep);
+        draw_popovers(&view, &rep, &popovers);
         CAPTURING.set(false);
         key_state_changed(&view);
         for (content, superview, frame) in moved {
@@ -154,6 +165,65 @@ fn draw_scrollers(view: &NSView, rep: &NSBitmapImageRep) {
     }
     NSGraphicsContext::restoreGraphicsState_class();
 }
+
+/// Draws the popovers shown over `view` into its capture, where they are:
+/// each is a window of its own, which a capture of its parent's doesn't
+/// hold. macOS 26 draws a popover's glass on the window server, and
+/// drawn here it's its effect's map, a rainbow: the content is drawn on a
+/// panel in the window's background colour, with a hairline border, in
+/// place of the glass and its arrow.
+fn draw_popovers(view: &NSView, rep: &NSBitmapImageRep, popovers: &[Retained<NSView>]) {
+    let Some(window) = view.window() else { return };
+    let Some(context) = NSGraphicsContext::graphicsContextWithBitmapImageRep(rep) else { return };
+    let height = view.bounds().size.height;
+    for content in popovers {
+        let Some(own) = content.window() else { continue };
+        // Where it is over the captured view, whose origin is at the bottom.
+        let on_screen = own.convertRectToScreen(content.convertRect_toView(content.bounds(), None));
+        let rect = view.convertRect_fromView(window.convertRectFromScreen(on_screen), None);
+        let rect = NSRect::new(
+            NSPoint::new(
+                rect.origin.x,
+                if view.isFlipped() { height - rect.origin.y - rect.size.height } else { rect.origin.y },
+            ),
+            rect.size,
+        );
+        let bounds = content.bounds();
+        let Some(image) = content.bitmapImageRepForCachingDisplayInRect(bounds) else { continue };
+        content.cacheDisplayInRect_toBitmapImageRep(bounds, &image);
+        NSGraphicsContext::saveGraphicsState_class();
+        NSGraphicsContext::setCurrentContext(Some(&context));
+        // In its colours as the captured window has them, light or dark.
+        let draw = block2::RcBlock::new(move || {
+            let edge = NSRect::new(
+                NSPoint::new(rect.origin.x + 0.5, rect.origin.y + 0.5),
+                NSSize::new(rect.size.width - 1.0, rect.size.height - 1.0),
+            );
+            let panel = NSBezierPath::bezierPathWithRoundedRect_xRadius_yRadius(edge, PANEL_RADIUS, PANEL_RADIUS);
+            NSColor::windowBackgroundColor().setFill();
+            panel.fill();
+            NSColor::separatorColor().setStroke();
+            panel.setLineWidth(1.0);
+            panel.stroke();
+        });
+        view.effectiveAppearance().performAsCurrentDrawingAppearance(&draw);
+        // Over the panel: its views draw no background of their own.
+        unsafe {
+            image.drawInRect_fromRect_operation_fraction_respectFlipped_hints(
+                rect,
+                NSRect::ZERO,
+                NSCompositingOperation::SourceOver,
+                1.0,
+                false,
+                None,
+            )
+        };
+        NSGraphicsContext::restoreGraphicsState_class();
+    }
+}
+
+/// A captured popover's panel's corners, about the popover's own.
+const PANEL_RADIUS: f64 = 16.0;
 
 /// Tells `view` and the views in it that their window's key state changed,
 /// as AppKit does when a window becomes or stops being key: controls keep

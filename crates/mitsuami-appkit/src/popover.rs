@@ -8,9 +8,11 @@
 //! WinUI's and Qt's popovers inset their content themselves.
 //!
 //! AppKit shows a popover only from a window on screen, and tests never
-//! show windows: there, it keeps what the core asked and says it shows
-//! under its parent, where it would, and Escape in it closes it as the
-//! popover's own window does (`dismiss`).
+//! show windows: there, its parent's window is ordered in, invisible and
+//! leaving the pointer to what's under it, and so is the popover's own.
+//! It really shows, where it would, and a capture draws it in. Its window
+//! is never key there, so Escape in it closes it as the popover's own
+//! window would (`dismiss`).
 
 use std::cell::{Cell, RefCell};
 use std::rc::Rc;
@@ -19,14 +21,10 @@ use mitsuami_core::{EventSink, NodeId, UiEvent};
 use objc2::rc::Retained;
 use objc2::runtime::{NSObject, NSObjectProtocol, ProtocolObject};
 use objc2::{DefinedClass, MainThreadMarker, MainThreadOnly, Message, define_class, msg_send};
-use objc2_app_kit::{NSPopover, NSPopoverBehavior, NSPopoverDelegate, NSView, NSViewController};
+use objc2_app_kit::{NSPopover, NSPopoverBehavior, NSPopoverDelegate, NSView, NSViewController, NSWindow};
 use objc2_foundation::{NSNotification, NSRect, NSRectEdge, NSSize};
 
 use crate::classes::HostView;
-
-/// How far under its parent a popover's content is in tests: about where
-/// its arrow and inset put it.
-const GAP: f64 = 33.0;
 
 /// Between the popover's edges and its content.
 const INSET: f64 = 20.0;
@@ -100,6 +98,8 @@ impl Popover {
         let popover = NSPopover::new(mtm);
         popover.setContentViewController(Some(&controller));
         popover.setBehavior(NSPopoverBehavior::Transient);
+        // Tests read it as soon as it's shown or closed.
+        popover.setAnimates(on_screen);
         let state = Rc::new(State {
             id,
             events,
@@ -162,13 +162,20 @@ impl Popover {
             return;
         }
         let Some(anchor) = self.state.anchor.borrow().clone() else { return };
-        if !self.state.on_screen || anchor.window().is_none() {
-            return;
+        let Some(window) = anchor.window() else { return };
+        if !self.state.on_screen && !window.isVisible() {
+            unseen(&window);
+            window.orderFrontRegardless();
         }
         // Under its parent where it fits, as menus and pickers open.
         let edge = if anchor.isFlipped() { NSRectEdge::MaxY } else { NSRectEdge::MinY };
         state.reopening.set(state.closing.get());
         self.popover.showRelativeToRect_ofView_preferredEdge(anchor.bounds(), &anchor, edge);
+        if !self.state.on_screen
+            && let Some(window) = self.host.window()
+        {
+            unseen(&window);
+        }
     }
 
     fn close(&self) {
@@ -179,13 +186,16 @@ impl Popover {
         }
     }
 
-    /// Whether it shows: as AppKit shows it, or in tests as the core
-    /// asked while it has a parent.
+    /// Whether it shows, as AppKit shows it.
     pub(crate) fn shown(&self) -> bool {
-        match self.state.on_screen {
-            true => self.popover.isShown(),
-            false => self.state.wanted.get() && self.state.anchor.borrow().is_some(),
-        }
+        self.popover.isShown()
+    }
+
+    /// What it shows, its content view, while it shows: a capture of its
+    /// parent's window draws it in where it is.
+    pub(crate) fn content(&self) -> Option<Retained<NSView>> {
+        let content = unsafe { self.host.superview() }?;
+        (self.popover.isShown() && content.window().is_some()).then_some(content)
     }
 
     /// The user's Escape in it, in tests: it closes, and says so, as
@@ -195,24 +205,27 @@ impl Popover {
             return false;
         }
         self.state.wanted.set(false);
+        self.close();
         self.state.events.emit(self.state.id, UiEvent::PopoverShownChanged(false));
         true
     }
 
     /// Where it shows, in its parent's coordinates; None while it's
-    /// hidden. In tests, under its parent, as it would.
+    /// hidden.
     pub(crate) fn frame(&self) -> Option<NSRect> {
         if !self.shown() {
             return None;
-        }
-        if !self.state.on_screen {
-            let anchor = self.state.anchor.borrow().clone()?;
-            let below = anchor.bounds().size.height + GAP;
-            return Some(NSRect::new(objc2_foundation::NSPoint::new(0.0, below), self.host.frame().size));
         }
         let anchor = self.state.anchor.borrow().clone()?;
         let (window, anchor_window) = (self.host.window()?, anchor.window()?);
         let on_screen = window.convertRectToScreen(self.host.convertRect_toView(self.host.bounds(), None));
         Some(anchor.convertRect_fromView(anchor_window.convertRectFromScreen(on_screen), None))
     }
+}
+
+/// A test's window, on screen for a popover to show from: invisible, and
+/// leaving the pointer to what's under it, so nothing shows as tests run.
+fn unseen(window: &NSWindow) {
+    window.setAlphaValue(0.0);
+    window.setIgnoresMouseEvents(true);
 }
