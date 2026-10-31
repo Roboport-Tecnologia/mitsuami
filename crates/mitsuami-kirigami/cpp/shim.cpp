@@ -24,6 +24,8 @@
 #include <QPainter>
 #include <QPainterPath>
 #include <QPalette>
+#include <QPixmapCache>
+#include <QSettings>
 #include <QPixmap>
 #include <QPointer>
 #include <QQmlComponent>
@@ -821,19 +823,59 @@ void mq_set_app_font(const char* family, double point_size) {
     QGuiApplication::setFont(font);
 }
 
+// The application palette from a color scheme, as KColorScheme's
+// `createApplicationPalette` maps its groups to roles, without its colour
+// effects: Qt derives the shades and the disabled group's text from the
+// button and window colours. In a Plasma session the platform theme sets
+// it; tests run on Qt's offscreen platform, which doesn't, and KDE's icon
+// loader colours buttons' symbolic icons from it.
+static QPalette palette_of(const QString& path) {
+    QSettings scheme(path, QSettings::IniFormat);
+    auto color = [&](const char* group, const char* key) {
+        const QStringList rgb =
+            scheme.value(QStringLiteral("Colors:%1/%2").arg(QLatin1String(group), QLatin1String(key))).toStringList();
+        return rgb.size() >= 3 ? QColor(rgb[0].toInt(), rgb[1].toInt(), rgb[2].toInt()) : QColor();
+    };
+    QPalette palette(color("Button", "BackgroundNormal"), color("Window", "BackgroundNormal"));
+    for (auto group : {QPalette::Active, QPalette::Inactive, QPalette::Disabled}) {
+        palette.setColor(group, QPalette::Window, color("Window", "BackgroundNormal"));
+        palette.setColor(group, QPalette::Base, color("View", "BackgroundNormal"));
+        palette.setColor(group, QPalette::AlternateBase, color("View", "BackgroundAlternate"));
+        palette.setColor(group, QPalette::Button, color("Button", "BackgroundNormal"));
+        palette.setColor(group, QPalette::Highlight, color("Selection", "BackgroundNormal"));
+        palette.setColor(group, QPalette::ToolTipBase, color("Tooltip", "BackgroundNormal"));
+        palette.setColor(group, QPalette::ToolTipText, color("Tooltip", "ForegroundNormal"));
+        palette.setColor(group, QPalette::Link, color("View", "ForegroundLink"));
+        palette.setColor(group, QPalette::LinkVisited, color("View", "ForegroundVisited"));
+        if (group == QPalette::Disabled) continue;
+        palette.setColor(group, QPalette::WindowText, color("Window", "ForegroundNormal"));
+        palette.setColor(group, QPalette::Text, color("View", "ForegroundNormal"));
+        palette.setColor(group, QPalette::ButtonText, color("Button", "ForegroundNormal"));
+        palette.setColor(group, QPalette::HighlightedText, color("Selection", "ForegroundNormal"));
+        palette.setColor(group, QPalette::PlaceholderText, color("View", "ForegroundInactive"));
+    }
+    return palette;
+}
+
 // What KDE apps' color scheme menus do (KColorSchemeManager): Kirigami's
 // desktop theme reads the scheme at this path, and rereads it when the
-// application palette changes.
+// application palette changes, which is the scheme's. Styles cache what
+// they draw by its shape, not its colours (Breeze's alternate list rows
+// kept the last scheme's): the cache goes with the scheme.
 void mq_set_color_scheme(const char* path) {
     qApp->setProperty("KDE_COLOR_SCHEME_PATH", QString::fromUtf8(path));
-    QPalette palette = QGuiApplication::palette();
-    // A palette that differs, so the change is delivered. A bit flips
-    // rather than the colour drifting: lightening it each time reaches
-    // white, and from then on the palette doesn't change.
-    QColor tip = palette.color(QPalette::ToolTipBase);
-    tip.setBlue(tip.blue() ^ 1);
-    palette.setColor(QPalette::ToolTipBase, tip);
+    QPalette palette = palette_of(QString::fromUtf8(path));
+    // A palette that differs, so the change is delivered even when the
+    // scheme is the same. A bit flips rather than the colour drifting:
+    // lightening it each time reaches white, and from then on the palette
+    // doesn't change.
+    if (palette == QGuiApplication::palette()) {
+        QColor tip = palette.color(QPalette::ToolTipBase);
+        tip.setBlue(tip.blue() ^ 1);
+        palette.setColor(QPalette::ToolTipBase, tip);
+    }
     QGuiApplication::setPalette(palette);
+    QPixmapCache::clear();
 }
 
 double mq_device_pixel_ratio(void) { return qApp->devicePixelRatio(); }

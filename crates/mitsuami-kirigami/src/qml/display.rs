@@ -28,14 +28,15 @@ Image {{
 /// or the colour the app gave, bound as a label's (`LABEL_OPTIONS`):
 /// `transparent`, Kirigami's default, leaves them to the theme. Icons in
 /// full colour keep theirs. The app's own icon is a mask, so it's drawn
-/// as a symbolic one is: in the icon's colour.
+/// as a symbolic one is: in the icon's colour, or the theme's text colour,
+/// which a mask doesn't take on its own (it stayed black in dark).
 pub(crate) fn icon() -> String {
     format!(
         r#"
 Kirigami.Icon {{
     property int mitsuamiColor: -1
     property int mitsuamiRgba: 0
-    color: {} ?? "transparent"
+    color: {} ?? (isMask ? Kirigami.Theme.textColor : "transparent")
     property string mitsuamiName: ""
     property string mitsuamiFile: ""
     property real mitsuamiSize: Kirigami.Units.iconSizes.small
