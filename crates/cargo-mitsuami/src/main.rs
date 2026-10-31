@@ -7,6 +7,8 @@
 //!     --no-open                           print the page's URL, don't open it
 //!     --port <port>                       serve on this port (default: any free one)
 //! cargo mitsuami visual accept [filter]   accept pending captures (those whose path contains filter)
+//! cargo mitsuami visual baselines [filter] see the accepted baselines in the browser, to reject any
+//!     --no-open, --port <port>            as for review
 //! ```
 //!
 //! Pending captures are the `<name>.new.png` files tests write next to
@@ -25,7 +27,8 @@ use changes::Change;
 const USAGE: &str = "usage:
     cargo mitsuami visual                   run the native tests, then list what to review
     cargo mitsuami visual review [--out <dir>] [--no-open] [--port <port>]
-    cargo mitsuami visual accept [filter]";
+    cargo mitsuami visual accept [filter]
+    cargo mitsuami visual baselines [filter] [--no-open] [--port <port>]";
 
 fn main() -> ExitCode {
     let mut args: Vec<String> = std::env::args().skip(1).collect();
@@ -40,6 +43,7 @@ fn main() -> ExitCode {
         ["visual", "review", options @ ..] => review(&root, options),
         ["visual", "accept"] => accept(&root, None),
         ["visual", "accept", filter] => accept(&root, Some(filter)),
+        ["visual", "baselines", options @ ..] => baselines(&root, options),
         ["help" | "--help" | "-h"] | [] => {
             println!("{USAGE}");
             Ok(())
@@ -88,7 +92,7 @@ fn review(root: &Path, options: &[&str]) -> Result<(), String> {
         println!("Nothing to review: every capture matches its baseline.");
         return Ok(());
     }
-    server::serve(&pending, port, |url| {
+    server::serve(&pending, server::Session::Review, port, |url| {
         println!("Reviewing {} changes at {url}", pending.len());
         println!("Click Done on the page to apply your decisions; Ctrl-C stops without applying them.");
         if open {
@@ -96,6 +100,37 @@ fn review(root: &Path, options: &[&str]) -> Result<(), String> {
         }
     })
     .map_err(|e| format!("cannot serve the review: {e}"))
+}
+
+/// Serves every accepted baseline (those whose path contains the filter),
+/// to reject any: a rejected one is deleted, and captured again next run.
+fn baselines(root: &Path, options: &[&str]) -> Result<(), String> {
+    let (mut filter, mut open, mut port) = (None, true, 0);
+    let mut options = options.iter();
+    while let Some(option) = options.next() {
+        match *option {
+            "--no-open" => open = false,
+            "--port" => port = options.next().and_then(|p| p.parse().ok()).ok_or("--port needs a number")?,
+            other if other.starts_with("--") => return Err(format!("unknown option {other}\n{USAGE}")),
+            other => filter = Some(other.to_owned()),
+        }
+    }
+    let baselines: Vec<Change> = changes::baselines(root)
+        .into_iter()
+        .filter(|b| filter.as_deref().is_none_or(|f| b.display.contains(f)))
+        .collect();
+    if baselines.is_empty() {
+        println!("No baselines.");
+        return Ok(());
+    }
+    server::serve(&baselines, server::Session::Baselines, port, |url| {
+        println!("Showing {} baselines at {url}", baselines.len());
+        println!("Click Done on the page to remove the rejected ones; Ctrl-C stops without removing any.");
+        if open {
+            open_browser(url);
+        }
+    })
+    .map_err(|e| format!("cannot serve the baselines: {e}"))
 }
 
 fn write_static(pending: &[Change], out: &Path) -> Result<(), String> {

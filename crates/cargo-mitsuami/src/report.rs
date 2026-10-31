@@ -159,6 +159,152 @@ pub fn page(changes: &[Change], decisions: &[Option<Decision>], mode: &Mode) -> 
     )
 }
 
+/// The accepted baselines, a section per snapshot with a tile per machine
+/// image side by side, to reject any: `decisions` as in [`page`].
+pub fn baselines_page(baselines: &[Change], decisions: &[Option<Decision>], token: &str) -> String {
+    let mode = Mode::Live { token };
+    let mut names: Vec<&str> = baselines.iter().map(|b| b.name.as_str()).collect();
+    names.sort_unstable();
+    names.dedup();
+    let mut images: Vec<String> = baselines.iter().map(|b| format!("{}/{}", b.backend, b.image)).collect();
+    images.sort_unstable();
+    images.dedup();
+    let mut sections = String::new();
+    for name in &names {
+        let mut tiles = String::new();
+        for (index, baseline) in baselines.iter().enumerate().filter(|(_, b)| b.name == *name) {
+            let rejected =
+                if decisions.get(index).copied().flatten() == Some(Decision::Rejected) { " rejected" } else { "" };
+            let machine = format!("{}/{}", baseline.backend, baseline.image);
+            tiles.push_str(&format!(
+                r#"
+        <figure class="tile{rejected}" id="change-{index}" data-image="{machine}" data-scale="{scale}">
+          <figcaption><span>{machine}</span>
+            <button class="reject" data-action="reject" data-index="{index}">Reject</button>
+            <button class="undo" data-action="undo" data-index="{index}">Undo</button>
+          </figcaption>
+          <img loading="lazy" src="{src}" alt="{name} on {machine}">
+        </figure>"#,
+                machine = escape(&machine),
+                scale = baseline.scale(),
+                src = image_url(&mode, index, "baseline"),
+                name = escape(name),
+            ));
+        }
+        sections.push_str(&format!(
+            r#"
+    <section class="snapshot" data-name="{name}">
+      <h2>{name}</h2>
+      <div class="tiles">{tiles}
+      </div>
+    </section>"#,
+            name = escape(name),
+        ));
+    }
+    let filters: String = images
+        .iter()
+        .map(|image| {
+            let image = escape(image);
+            format!(r#"<label><input type="checkbox" data-image="{image}" checked> {image}</label>"#)
+        })
+        .collect();
+    let summary = format!(
+        "{} baselines of {} snapshots. Nothing changes until Done, which deletes the rejected ones; the next run captures them again, for review.",
+        baselines.len(),
+        names.len()
+    );
+    format!(
+        r#"<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Visual baselines</title>
+<link rel="icon" href="data:,">
+<style>{STYLE}{BASELINES_STYLE}</style>
+</head>
+<body data-token="{token}">
+  <main>
+    <header class="top">
+      <div>
+        <h1>Visual baselines</h1>
+        <p class="summary">{summary}</p>
+      </div>
+      <div class="bulk"><button data-action="done">Done</button></div>
+    </header>
+    <div class="filters">
+      <input type="search" id="filter" placeholder="Filter by name" aria-label="Filter by name">
+      {filters}
+    </div>{sections}
+  </main>
+  <script>{BASELINES_SCRIPT}</script>
+</body>
+</html>
+"#
+    )
+}
+
+const BASELINES_STYLE: &str = r#"
+.filters { display: flex; flex-wrap: wrap; gap: 8px 16px; align-items: center; margin-bottom: 16px; }
+.filters input[type="search"] { font: inherit; padding: 6px 10px; border: 1px solid var(--line); border-radius: 6px;
+  background: var(--card); color: var(--text); min-width: 240px; }
+.snapshot { background: var(--card); border: 1px solid var(--line); border-radius: 10px; padding: 16px; margin-bottom: 16px; }
+.tiles { display: flex; flex-wrap: wrap; gap: 16px; margin-top: 12px; align-items: flex-start; }
+.tile { margin: 0; min-width: 0; }
+.tile figcaption { display: flex; align-items: center; gap: 8px; margin-bottom: 6px; color: var(--muted); font-size: 12px; }
+.tile img { display: block; max-width: 100%; height: auto;
+  background: repeating-conic-gradient(var(--check-a) 0 25%, var(--check-b) 0 50%) 0 0 / 16px 16px; }
+.tile .undo { display: none; }
+.tile.rejected img { opacity: .35; }
+.tile.rejected figcaption::after { content: "Rejected"; color: var(--bad); }
+.tile.rejected .reject { display: none; }
+.tile.rejected .undo { display: inline-block; }
+[hidden] { display: none !important; }
+"#;
+
+const BASELINES_SCRIPT: &str = r#"
+const token = document.body.dataset.token;
+// Captures are in physical pixels: show them at their logical size.
+for (const tile of document.querySelectorAll(".tile")) {
+  const img = tile.querySelector("img"), scale = Number(tile.dataset.scale) || 1;
+  const size = () => { if (img.naturalWidth) img.style.width = `${img.naturalWidth / scale}px`; };
+  img.complete ? size() : img.addEventListener("load", size);
+}
+const filter = document.getElementById("filter");
+const filters = [...document.querySelectorAll(".filters input[type=checkbox]")];
+function apply() {
+  const text = filter.value.trim().toLowerCase();
+  const shown = new Set(filters.filter(f => f.checked).map(f => f.dataset.image));
+  for (const section of document.querySelectorAll(".snapshot")) {
+    let any = false;
+    for (const tile of section.querySelectorAll(".tile")) {
+      tile.hidden = !shown.has(tile.dataset.image);
+      any ||= !tile.hidden;
+    }
+    section.hidden = !any || !section.dataset.name.toLowerCase().includes(text);
+  }
+}
+filter.addEventListener("input", apply);
+for (const f of filters) f.addEventListener("change", apply);
+// The server only records a decision; Done applies them all.
+document.addEventListener("click", async (event) => {
+  const button = event.target.closest("button[data-action]");
+  if (!button) return;
+  const { action, index } = button.dataset;
+  if (action === "reject" || action === "undo") {
+    const response = await fetch(`/${action}/${index}?token=${token}`, { method: "POST" });
+    if (!response.ok) return alert(`Could not ${action}: ${await response.text()}`);
+    document.getElementById(`change-${index}`).classList.toggle("rejected", action === "reject");
+  }
+  if (action === "done") {
+    const response = await fetch(`/done?token=${token}`, { method: "POST" });
+    if (!response.ok) return alert(`Some baselines weren't removed:\n${await response.text()}`);
+    document.querySelector(".summary").textContent = "Done: the rejected baselines are removed. You can close this page.";
+    for (const b of document.querySelectorAll("button")) b.disabled = true;
+  }
+});
+"#;
+
 const STYLE: &str = r#"
 :root {
   --bg: #f6f6f4; --card: #ffffff; --text: #1d1d1b; --muted: #6b6b66; --line: #e2e2dd;

@@ -189,6 +189,51 @@ fn the_review_server_accepts_and_rejects_with_its_token_only() {
     assert!(rest.iter().any(|l| l.contains("rejected") && l.contains("toggles")), "{rest:?}");
 }
 
+/// Every accepted baseline is shown, a pending capture's too, but not the
+/// captures; a rejected one is deleted with its layout at Done, for the
+/// next run to capture again, and Undo keeps one.
+#[test]
+fn the_baselines_page_shows_every_baseline_and_removes_the_rejected() {
+    let ws = Workspace::new("baselines");
+    let mut child = Command::new(BIN)
+        .args(["visual", "baselines", "--no-open"])
+        .current_dir(&ws.root)
+        .stdout(Stdio::piped())
+        .spawn()
+        .unwrap();
+    let mut lines = BufReader::new(child.stdout.take().unwrap()).lines();
+    let first = lines.next().unwrap().unwrap();
+    assert!(first.starts_with("Showing 2 baselines at http://127.0.0.1:"), "{first}");
+    let url = first.split_whitespace().last().unwrap().to_owned();
+    let (port, query) = url.trim_start_matches("http://127.0.0.1:").split_once("/?").unwrap();
+    let port: u16 = port.parse().unwrap();
+
+    let (status, page) = request(port, "GET", &format!("/?{query}"));
+    assert_eq!(status, 200);
+    assert!(page.contains("stories__buttons@340xfit-light") && page.contains("stories__text@240xfit-light"), "{page}");
+    assert!(!page.contains("stories__toggles@200xfit-light"), "a capture with no baseline isn't one");
+    assert!(page.contains(r#"data-image="appkit/macos-26@2x""#));
+    let (status, image) = request(port, "GET", &format!("/image/0/baseline?{query}"));
+    assert_eq!((status, image.as_str()), (200, "old pixels"));
+
+    assert_eq!(request(port, "POST", "/reject/1").0, 403, "not without the token");
+    assert_eq!(request(port, "POST", &format!("/accept/0?{query}")).0, 404, "baselines are already accepted");
+    assert_eq!(request(port, "POST", &format!("/reject/0?{query}")).0, 200);
+    assert_eq!(request(port, "POST", &format!("/undo/0?{query}")).0, 200);
+    assert_eq!(request(port, "POST", &format!("/reject/1?{query}")).0, 200);
+    let (_, page) = request(port, "GET", &format!("/?{query}"));
+    assert!(page.contains(r#"class="tile rejected" id="change-1""#), "a reload shows it");
+    assert_eq!(ws.read("stories__text@240xfit-light.png").as_deref(), Some("unchanged"), "not before Done");
+
+    assert_eq!(request(port, "POST", &format!("/done?{query}")).0, 200);
+    assert!(child.wait().unwrap().success());
+    assert_eq!(ws.read("stories__text@240xfit-light.png"), None);
+    assert_eq!(ws.read("stories__buttons@340xfit-light.png").as_deref(), Some("old pixels"), "undone, it stays");
+    assert!(ws.read("stories__buttons@340xfit-light.layout.txt").is_some());
+    let rest: Vec<String> = lines.map_while(Result::ok).collect();
+    assert!(rest.iter().any(|l| l.contains("removed") && l.contains("stories__text")), "{rest:?}");
+}
+
 #[test]
 fn nothing_pending_means_nothing_to_review() {
     let ws = Workspace::new("empty");

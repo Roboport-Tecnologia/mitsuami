@@ -1,5 +1,6 @@
 //! A small HTTP server on the loopback interface, for the review page: it
-//! serves the page and the images, and accepts or rejects changes.
+//! serves the page and the images, and accepts or rejects changes. It
+//! serves the accepted baselines the same way, to reject any of them.
 //!
 //! Every request needs the token from the page's URL, so other pages open
 //! in the browser can't act on the baselines.
@@ -24,9 +25,19 @@ fn same_token(given: &str, token: &str) -> bool {
     given.len() == token.len() && given.bytes().zip(token.bytes()).fold(0, |diff, (a, b)| diff | (a ^ b)) == 0
 }
 
-/// Serves the review of `changes` on `port` (0 for any free port) until
-/// the page says it's done. `ready` gets the page's URL.
-pub fn serve(changes: &[Change], port: u16, ready: impl FnOnce(&str)) -> io::Result<()> {
+/// What's served: pending changes, or the baselines already accepted.
+#[derive(Clone, Copy, PartialEq, Eq)]
+pub enum Session {
+    /// Captures to accept or reject.
+    Review,
+    /// Baselines to keep or reject: a rejected one is deleted, for the next
+    /// run to capture again.
+    Baselines,
+}
+
+/// Serves `changes` on `port` (0 for any free port) until the page says
+/// it's done. `ready` gets the page's URL.
+pub fn serve(changes: &[Change], session: Session, port: u16, ready: impl FnOnce(&str)) -> io::Result<()> {
     let listener = TcpListener::bind(("127.0.0.1", port))?;
     let token = token()?;
     let url = format!("http://127.0.0.1:{}/?token={token}", listener.local_addr()?.port());
@@ -35,7 +46,7 @@ pub fn serve(changes: &[Change], port: u16, ready: impl FnOnce(&str)) -> io::Res
     let mut applied = vec![false; changes.len()];
     for stream in listener.incoming() {
         let Ok(stream) = stream else { continue };
-        match handle(stream, changes, &mut decisions, &mut applied, &token) {
+        match handle(stream, changes, session, &mut decisions, &mut applied, &token) {
             Ok(Flow::Done) => break,
             Ok(Flow::Continue) => {}
             Err(e) => eprintln!("cargo-mitsuami: {e}"),
@@ -55,6 +66,7 @@ enum Flow {
 fn handle(
     mut stream: TcpStream,
     changes: &[Change],
+    session: Session,
     decisions: &mut [Option<Decision>],
     applied: &mut [bool],
     token: &str,
@@ -82,7 +94,10 @@ fn handle(
     let change = |index: &str| index.parse::<usize>().ok().and_then(|i| changes.get(i));
     match (method, segments.as_slice()) {
         ("GET", [""]) => {
-            let page = report::page(changes, decisions, &Mode::Live { token });
+            let page = match session {
+                Session::Review => report::page(changes, decisions, &Mode::Live { token }),
+                Session::Baselines => report::baselines_page(changes, decisions, token),
+            };
             respond(&mut stream, 200, "text/html; charset=utf-8", page.as_bytes())?;
         }
         ("GET", ["image", index, kind]) => {
@@ -102,6 +117,11 @@ fn handle(
             let Some(i) = index.parse::<usize>().ok().filter(|&i| i < changes.len()) else {
                 return respond(&mut stream, 404, "text/plain", b"no such change").map(|_| Flow::Continue);
             };
+            // A baseline is kept or rejected; there's nothing to accept.
+            if session == Session::Baselines && *action == "accept" {
+                return respond(&mut stream, 404, "text/plain", b"baselines are already accepted")
+                    .map(|_| Flow::Continue);
+            }
             // Its files moved when an earlier Done applied it.
             if applied[i] {
                 return respond(&mut stream, 409, "text/plain", b"already applied").map(|_| Flow::Continue);
@@ -114,7 +134,7 @@ fn handle(
             respond(&mut stream, 200, "text/plain", b"ok")?;
         }
         ("POST", ["done"]) => {
-            let failures = apply(changes, decisions, applied);
+            let failures = apply(changes, session, decisions, applied);
             if !failures.is_empty() {
                 // The ones that failed stay pending; the page can try again.
                 return respond(&mut stream, 500, "text/plain", failures.join("\n").as_bytes()).map(|_| Flow::Continue);
@@ -127,22 +147,24 @@ fn handle(
     Ok(Flow::Continue)
 }
 
-/// Accepts and rejects the changes as decided, those not applied yet.
-/// Returns what couldn't be applied.
-fn apply(changes: &[Change], decisions: &[Option<Decision>], applied: &mut [bool]) -> Vec<String> {
+/// Accepts and rejects the changes as decided, those not applied yet: a
+/// rejected baseline is deleted. Returns what couldn't be applied.
+fn apply(changes: &[Change], session: Session, decisions: &[Option<Decision>], applied: &mut [bool]) -> Vec<String> {
     let mut failures = Vec::new();
     for ((change, decision), applied) in changes.iter().zip(decisions).zip(applied.iter_mut()) {
         if *applied {
             continue;
         }
-        let (result, verb) = match decision {
-            Some(Decision::Accepted) => (change.accept(), "accept"),
-            Some(Decision::Rejected) => (change.reject(), "reject"),
-            None => continue,
+        let (result, verb, done) = match (session, decision) {
+            (_, None) => continue,
+            (Session::Review, Some(Decision::Accepted)) => (change.accept(), "accept", "accepted"),
+            (Session::Review, Some(Decision::Rejected)) => (change.reject(), "reject", "rejected"),
+            (Session::Baselines, Some(Decision::Rejected)) => (change.remove_baseline(), "remove", "removed"),
+            (Session::Baselines, Some(Decision::Accepted)) => continue,
         };
         match result {
             Ok(()) => {
-                println!("{verb}ed {}", change.display);
+                println!("{done} {}", change.display);
                 *applied = true;
             }
             Err(e) => failures.push(format!("cannot {verb} {}: {e}", change.display)),

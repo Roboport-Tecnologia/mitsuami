@@ -72,6 +72,13 @@ impl Change {
         remove(&self.diff())
     }
 
+    /// Deletes the baseline and its layout, for the next run to capture
+    /// it again and leave it for review, as a new one.
+    pub fn remove_baseline(&self) -> io::Result<()> {
+        remove(&self.baseline)?;
+        remove(&self.layout())
+    }
+
     /// Deletes the capture, keeping the baseline.
     pub fn reject(&self) -> io::Result<()> {
         remove(&self.capture())?;
@@ -129,12 +136,25 @@ pub fn workspace_root(dir: &Path) -> PathBuf {
 /// Every pending change under `root`, sorted by path.
 pub fn find(root: &Path) -> Vec<Change> {
     let mut changes = Vec::new();
-    walk(root, root, &mut changes);
+    walk(root, root, &mut changes, &|name| name.strip_suffix(".new.png").map(|stem| format!("{stem}.png")));
     changes.sort_by(|a, b| a.display.cmp(&b.display));
     changes
 }
 
-fn walk(root: &Path, dir: &Path, out: &mut Vec<Change>) {
+/// Every accepted baseline under `root`, sorted by path, as changes with
+/// nothing pending.
+pub fn baselines(root: &Path) -> Vec<Change> {
+    let mut changes = Vec::new();
+    walk(root, root, &mut changes, &|name| {
+        let pending = name.ends_with(".new.png") || name.ends_with(".diff.png");
+        (name.ends_with(".png") && !pending).then(|| name.to_owned())
+    });
+    changes.sort_by(|a, b| a.display.cmp(&b.display));
+    changes
+}
+
+/// Walks `dir` for files `baseline` maps to the name of a baseline.
+fn walk(root: &Path, dir: &Path, out: &mut Vec<Change>, baseline: &dyn Fn(&str) -> Option<String>) {
     let Ok(entries) = std::fs::read_dir(dir) else { return };
     for entry in entries.flatten() {
         let path = entry.path();
@@ -142,10 +162,10 @@ fn walk(root: &Path, dir: &Path, out: &mut Vec<Change>) {
         // Not following links, which could lead back up the tree.
         if entry.file_type().is_ok_and(|t| t.is_dir()) {
             if !name.starts_with('.') && name != "target" && name != "node_modules" {
-                walk(root, &path, out);
+                walk(root, &path, out, baseline);
             }
-        } else if let Some(stem) = name.strip_suffix(".new.png")
-            && let Some(change) = change(root, &path.with_file_name(format!("{stem}.png")))
+        } else if let Some(file) = baseline(&name)
+            && let Some(change) = change(root, &path.with_file_name(file))
         {
             out.push(change);
         }
