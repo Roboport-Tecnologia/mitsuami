@@ -16,6 +16,10 @@
 //! with the current layout says why: the layout moved, or the platform
 //! draws the same layout differently. It never fails on its own.
 //!
+//! A capture left for review has the notes its story gave next to it,
+//! `<name>.notes.txt`: what to expect of each platform's capture (a look
+//! a platform doesn't have, a size that differs), for whoever reviews it.
+//!
 //! The diff is pixelmatch's: colours are compared by their distance in YIQ,
 //! which follows how different they look, and pixels that differ only by
 //! anti-aliasing (an edge that moved by a fraction of a pixel, a glyph
@@ -46,11 +50,12 @@ pub struct VisualOptions {
     pub(crate) max_changed: f64,
     pub(crate) ignore: Vec<Query>,
     pub(crate) ignore_rects: Vec<Rect>,
+    pub(crate) notes: Option<String>,
 }
 
 impl Default for VisualOptions {
     fn default() -> VisualOptions {
-        VisualOptions { threshold: 0.1, max_changed: 0.001, ignore: Vec::new(), ignore_rects: Vec::new() }
+        VisualOptions { threshold: 0.1, max_changed: 0.001, ignore: Vec::new(), ignore_rects: Vec::new(), notes: None }
     }
 }
 
@@ -87,6 +92,13 @@ impl VisualOptions {
         self.ignore_rects.push(rect);
         self
     }
+
+    /// What to expect of the capture on each platform, shown when it's
+    /// reviewed: a story's doc comment.
+    pub fn notes(mut self, notes: impl Into<String>) -> VisualOptions {
+        self.notes = Some(notes.into());
+        self
+    }
 }
 
 fn write_png(path: &Path, width: u32, height: u32, rgba: &[u8]) {
@@ -118,6 +130,12 @@ fn read_png(path: &Path) -> Option<(u32, u32, Vec<u8>)> {
 fn sibling(path: &Path, suffix: &str) -> PathBuf {
     let stem = path.file_stem().unwrap_or_default().to_string_lossy();
     path.with_file_name(format!("{stem}.{suffix}.png"))
+}
+
+/// `<name>.notes.txt`, the notes beside a capture left for review.
+fn notes_file(png: &Path) -> PathBuf {
+    let stem = png.file_stem().unwrap_or_default().to_string_lossy();
+    png.with_file_name(format!("{stem}.notes.txt"))
 }
 
 /// `<name>.layout.txt`, and its pending `<name>.layout.txt.new`.
@@ -180,6 +198,14 @@ pub(crate) fn assert(
     let pending = sibling(&file, "new");
     let diff_path = sibling(&file, "diff");
     let (layout_file, layout_pending) = layout_files(&file);
+    let notes = notes_file(&file);
+    // Beside each capture left for review, whatever leaves it.
+    let leave_notes = || match &options.notes {
+        Some(text) => write_text(&notes, text),
+        None => {
+            let _ = std::fs::remove_file(&notes);
+        }
+    };
     let update = crate::snapshot::updating();
     let ci = crate::snapshot::on_ci();
 
@@ -187,6 +213,7 @@ pub(crate) fn assert(
         if ci && !update {
             write_png(&pending, image.width, image.height, &image.rgba);
             write_text(&layout_pending, layout);
+            leave_notes();
             context.fail_snapshot(format!(
                 "visual baseline {} is missing (not created on CI); the capture is in {}",
                 file.display(),
@@ -228,6 +255,7 @@ pub(crate) fn assert(
         None => {
             let _ = std::fs::remove_file(&pending);
             let _ = std::fs::remove_file(&diff_path);
+            let _ = std::fs::remove_file(&notes);
             // The pixels are what's compared: a layout that differs only
             // follows along when updating.
             match expected_layout {
@@ -236,6 +264,7 @@ pub(crate) fn assert(
                 // A baseline from before layouts were recorded.
                 None if ci && !update => {
                     write_text(&layout_pending, layout);
+                    leave_notes();
                     context.fail_snapshot(format!(
                         "visual baseline {} has no layout (not created on CI); it is in {}",
                         file.display(),
@@ -253,10 +282,12 @@ pub(crate) fn assert(
             let _ = std::fs::remove_file(&pending);
             let _ = std::fs::remove_file(&diff_path);
             let _ = std::fs::remove_file(&layout_pending);
+            let _ = std::fs::remove_file(&notes);
         }
         Some(problem) => {
             write_png(&pending, image.width, image.height, &image.rgba);
             write_text(&layout_pending, layout);
+            leave_notes();
             let why = explain(expected_layout.as_deref(), layout);
             // Captures of different sizes have no diff image.
             let diff = if diff_path.exists() { format!("\ndiff: {}", diff_path.display()) } else { String::new() };

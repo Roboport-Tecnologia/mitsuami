@@ -92,6 +92,10 @@ pub fn test(attr: TokenStream, item: TokenStream) -> TokenStream {
 /// - `ignore`: queries whose nodes' frames are left out of the comparison,
 ///   like `[by_test_id("clock")]`: a blinking caret's field, a clock.
 ///
+/// The story's doc comment is its notes (`VisualOptions::notes`), shown
+/// beside its captures when they're reviewed: say there what each
+/// platform's capture should look like where they differ.
+///
 /// See `VisualOptions`, which tests pass to `assert_visual_snapshot_with`.
 ///
 /// Headless has no pixels: there, stories only check that the view mounts
@@ -196,6 +200,7 @@ pub fn story(attr: TokenStream, item: TokenStream) -> TokenStream {
     let play = play.map(|play| quote! { #play(app).await; });
     let threshold = threshold.map(|t| quote! { .threshold((#t) as f64) });
     let max_changed = max_changed.map(|m| quote! { .max_changed((#m) as f64) });
+    let notes = doc_comment(&func.attrs).map(|notes| quote! { .notes(#notes) });
     quote! {
         #func
 
@@ -207,7 +212,7 @@ pub fn story(attr: TokenStream, item: TokenStream) -> TokenStream {
                 variants: &[#(::mitsuami_test::Variant::#variants),*],
                 visual: {
                     fn __mitsuami_visual() -> ::mitsuami_test::VisualOptions {
-                        ::mitsuami_test::VisualOptions::new() #threshold #max_changed #(.ignore(#ignore))*
+                        ::mitsuami_test::VisualOptions::new() #threshold #max_changed #notes #(.ignore(#ignore))*
                     }
                     __mitsuami_visual
                 },
@@ -226,4 +231,24 @@ pub fn story(attr: TokenStream, item: TokenStream) -> TokenStream {
         }
     }
     .into()
+}
+
+/// The text of an item's doc comment, its lines joined into paragraphs as
+/// rustdoc reads them; `None` without one.
+fn doc_comment(attrs: &[syn::Attribute]) -> Option<String> {
+    let lines: Vec<String> = attrs
+        .iter()
+        .filter(|attr| attr.path().is_ident("doc"))
+        .filter_map(|attr| match &attr.meta {
+            syn::Meta::NameValue(syn::MetaNameValue {
+                value: syn::Expr::Lit(syn::ExprLit { lit: syn::Lit::Str(text), .. }),
+                ..
+            }) => Some(text.value()),
+            _ => None,
+        })
+        .map(|line| line.strip_prefix(' ').unwrap_or(&line).trim_end().to_owned())
+        .collect();
+    let paragraphs: Vec<String> =
+        lines.split(|line| line.is_empty()).filter(|lines| !lines.is_empty()).map(|lines| lines.join(" ")).collect();
+    (!paragraphs.is_empty()).then(|| paragraphs.join("\n\n"))
 }

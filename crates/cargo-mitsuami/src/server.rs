@@ -8,7 +8,7 @@ use std::io::{self, BufRead, BufReader, Read, Write};
 use std::net::{TcpListener, TcpStream};
 use std::time::Duration;
 
-use crate::changes::Change;
+use crate::changes::{Change, Decision};
 use crate::report::{self, Mode};
 
 /// A token no other page can guess: 128 bits from the OS's secure RNG.
@@ -31,9 +31,11 @@ pub fn serve(changes: &[Change], port: u16, ready: impl FnOnce(&str)) -> io::Res
     let token = token()?;
     let url = format!("http://127.0.0.1:{}/?token={token}", listener.local_addr()?.port());
     ready(&url);
+    let mut decisions = vec![None; changes.len()];
+    let mut applied = vec![false; changes.len()];
     for stream in listener.incoming() {
         let Ok(stream) = stream else { continue };
-        match handle(stream, changes, &token) {
+        match handle(stream, changes, &mut decisions, &mut applied, &token) {
             Ok(Flow::Done) => break,
             Ok(Flow::Continue) => {}
             Err(e) => eprintln!("cargo-mitsuami: {e}"),
@@ -50,7 +52,13 @@ enum Flow {
     Done,
 }
 
-fn handle(mut stream: TcpStream, changes: &[Change], token: &str) -> io::Result<Flow> {
+fn handle(
+    mut stream: TcpStream,
+    changes: &[Change],
+    decisions: &mut [Option<Decision>],
+    applied: &mut [bool],
+    token: &str,
+) -> io::Result<Flow> {
     // Requests are handled one at a time, so a connection that sends
     // nothing, or never ends a line, mustn't hold up the review.
     stream.set_read_timeout(Some(Duration::from_secs(5)))?;
@@ -74,7 +82,7 @@ fn handle(mut stream: TcpStream, changes: &[Change], token: &str) -> io::Result<
     let change = |index: &str| index.parse::<usize>().ok().and_then(|i| changes.get(i));
     match (method, segments.as_slice()) {
         ("GET", [""]) => {
-            let page = report::page(changes, &Mode::Live { token });
+            let page = report::page(changes, decisions, &Mode::Live { token });
             respond(&mut stream, 200, "text/html; charset=utf-8", page.as_bytes())?;
         }
         ("GET", ["image", index, kind]) => {
@@ -88,20 +96,29 @@ fn handle(mut stream: TcpStream, changes: &[Change], token: &str) -> io::Result<
                 None => respond(&mut stream, 404, "text/plain", b"no such image")?,
             }
         }
-        ("POST", [action @ ("accept" | "reject"), index]) => {
-            let Some(change) = change(index) else {
+        // A decision is only recorded, so it can be changed or undone
+        // until Done applies them all.
+        ("POST", [action @ ("accept" | "reject" | "undo"), index]) => {
+            let Some(i) = index.parse::<usize>().ok().filter(|&i| i < changes.len()) else {
                 return respond(&mut stream, 404, "text/plain", b"no such change").map(|_| Flow::Continue);
             };
-            let result = if *action == "accept" { change.accept() } else { change.reject() };
-            match result {
-                Ok(()) => {
-                    println!("{}ed {}", action.trim_end_matches('e'), change.display);
-                    respond(&mut stream, 200, "text/plain", b"ok")?;
-                }
-                Err(e) => respond(&mut stream, 500, "text/plain", e.to_string().as_bytes())?,
+            // Its files moved when an earlier Done applied it.
+            if applied[i] {
+                return respond(&mut stream, 409, "text/plain", b"already applied").map(|_| Flow::Continue);
             }
+            decisions[i] = match *action {
+                "accept" => Some(Decision::Accepted),
+                "reject" => Some(Decision::Rejected),
+                _ => None,
+            };
+            respond(&mut stream, 200, "text/plain", b"ok")?;
         }
         ("POST", ["done"]) => {
+            let failures = apply(changes, decisions, applied);
+            if !failures.is_empty() {
+                // The ones that failed stay pending; the page can try again.
+                return respond(&mut stream, 500, "text/plain", failures.join("\n").as_bytes()).map(|_| Flow::Continue);
+            }
             respond(&mut stream, 200, "text/plain", b"ok")?;
             return Ok(Flow::Done);
         }
@@ -110,11 +127,36 @@ fn handle(mut stream: TcpStream, changes: &[Change], token: &str) -> io::Result<
     Ok(Flow::Continue)
 }
 
+/// Accepts and rejects the changes as decided, those not applied yet.
+/// Returns what couldn't be applied.
+fn apply(changes: &[Change], decisions: &[Option<Decision>], applied: &mut [bool]) -> Vec<String> {
+    let mut failures = Vec::new();
+    for ((change, decision), applied) in changes.iter().zip(decisions).zip(applied.iter_mut()) {
+        if *applied {
+            continue;
+        }
+        let (result, verb) = match decision {
+            Some(Decision::Accepted) => (change.accept(), "accept"),
+            Some(Decision::Rejected) => (change.reject(), "reject"),
+            None => continue,
+        };
+        match result {
+            Ok(()) => {
+                println!("{verb}ed {}", change.display);
+                *applied = true;
+            }
+            Err(e) => failures.push(format!("cannot {verb} {}: {e}", change.display)),
+        }
+    }
+    failures
+}
+
 fn respond(stream: &mut TcpStream, status: u16, content_type: &str, body: &[u8]) -> io::Result<()> {
     let reason = match status {
         200 => "OK",
         403 => "Forbidden",
         404 => "Not Found",
+        409 => "Conflict",
         _ => "Internal Server Error",
     };
     write!(

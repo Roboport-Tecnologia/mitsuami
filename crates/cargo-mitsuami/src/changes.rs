@@ -4,6 +4,14 @@
 use std::io;
 use std::path::{Path, PathBuf};
 
+/// What the review decided for a change. The review server keeps it, to
+/// show on the page and to change until Done applies it.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Decision {
+    Accepted,
+    Rejected,
+}
+
 /// A capture waiting for review.
 #[derive(Clone, Debug)]
 pub struct Change {
@@ -40,6 +48,11 @@ impl Change {
         self.sibling(".layout.txt.new")
     }
 
+    /// What its story says to expect on each platform, if it says.
+    pub fn notes(&self) -> Option<String> {
+        std::fs::read_to_string(self.sibling(".notes.txt")).ok().filter(|notes| !notes.trim().is_empty())
+    }
+
     /// The display scale the image was captured at: `macos-26@2x` is 2.
     pub fn scale(&self) -> f32 {
         self.image.rsplit_once('@').and_then(|(_, s)| s.strip_suffix('x')?.parse().ok()).unwrap_or(1.0)
@@ -55,6 +68,7 @@ impl Change {
         if self.pending_layout().exists() {
             std::fs::rename(self.pending_layout(), self.layout())?;
         }
+        remove(&self.sibling(".notes.txt"))?;
         remove(&self.diff())
     }
 
@@ -62,6 +76,7 @@ impl Change {
     pub fn reject(&self) -> io::Result<()> {
         remove(&self.capture())?;
         remove(&self.pending_layout())?;
+        remove(&self.sibling(".notes.txt"))?;
         remove(&self.diff())
     }
 

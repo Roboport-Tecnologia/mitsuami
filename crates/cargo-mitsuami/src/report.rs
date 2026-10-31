@@ -1,7 +1,8 @@
 //! The review page: every pending change with its baseline and capture,
-//! four ways to compare them, and why the pixels changed.
+//! four ways to compare them, why the pixels changed, and what the review
+//! decided for it so far.
 
-use crate::changes::Change;
+use crate::changes::{Change, Decision};
 
 /// Where the page gets images from, and whether it can act.
 pub enum Mode<'a> {
@@ -24,17 +25,24 @@ fn escape(s: &str) -> String {
     s.replace('&', "&amp;").replace('<', "&lt;").replace('>', "&gt;").replace('"', "&quot;")
 }
 
-pub fn page(changes: &[Change], mode: &Mode) -> String {
+/// `decisions` has one for each change, `None` while it's pending.
+pub fn page(changes: &[Change], decisions: &[Option<Decision>], mode: &Mode) -> String {
     let live = matches!(mode, Mode::Live { .. });
     let mut cards = String::new();
     for (index, change) in changes.iter().enumerate() {
         let image = |kind: &str| image_url(mode, index, kind);
+        let decided = match decisions.get(index).copied().flatten() {
+            Some(Decision::Accepted) => " accepted",
+            Some(Decision::Rejected) => " rejected",
+            None => "",
+        };
         let status = if change.is_new() { "new" } else { "changed" };
         let actions = if live {
             format!(
                 r#"<div class="actions">
           <button class="accept" data-action="accept" data-index="{index}">Accept</button>
           <button class="reject" data-action="reject" data-index="{index}">Reject</button>
+          <button class="undo" data-action="undo" data-index="{index}">Undo</button>
         </div>"#
             )
         } else {
@@ -76,7 +84,7 @@ pub fn page(changes: &[Change], mode: &Mode) -> String {
         };
         cards.push_str(&format!(
             r#"
-    <article class="change" id="change-{index}" data-status="{status}" data-scale="{scale}">
+    <article class="change{decided}" id="change-{index}" data-status="{status}" data-scale="{scale}">
       <header>
         <div>
           <h2>{name}</h2>
@@ -84,7 +92,7 @@ pub fn page(changes: &[Change], mode: &Mode) -> String {
         </div>
         {actions}
       </header>
-      <pre class="why">{why}</pre>
+      {notes}<pre class="why">{why}</pre>
       {views}
       <p class="path">{path}</p>
     </article>"#,
@@ -92,6 +100,11 @@ pub fn page(changes: &[Change], mode: &Mode) -> String {
             scale = change.scale(),
             backend = escape(&change.backend),
             image_name = escape(&change.image),
+            notes = change.notes().map_or(String::new(), |notes| {
+                let paragraphs: String =
+                    notes.split("\n\n").map(|p| format!("<p>{}</p>", escape(p.trim()))).collect();
+                format!(r#"<div class="notes"><h3>Expected</h3>{paragraphs}</div>"#)
+            }),
             why = escape(change.explanation().trim_end()),
             path = escape(&change.display),
         ));
@@ -101,8 +114,15 @@ pub fn page(changes: &[Change], mode: &Mode) -> String {
         1 => "1 change to review.".to_owned(),
         n => format!("{n} changes to review."),
     };
+    let summary = if live && !changes.is_empty() {
+        format!(
+            "{summary} Nothing changes until Done, which accepts and rejects them as decided; until then a decision can be undone."
+        )
+    } else {
+        summary
+    };
     let bulk = if live && !changes.is_empty() {
-        r#"<button class="accept" data-action="accept-all">Accept all</button><button data-action="done">Done</button>"#
+        r#"<button class="accept" data-action="accept-all">Accept the rest</button><button data-action="done">Done</button>"#
     } else if !live && !changes.is_empty() {
         r#"<p class="note">Accept these with <code>cargo mitsuami visual accept</code>, or review them with <code>cargo mitsuami visual review</code>.</p>"#
     } else {
@@ -177,6 +197,9 @@ button:disabled { opacity: .5; cursor: default; }
 .tag { font-size: 12px; padding: 1px 8px; border-radius: 999px; border: 1px solid var(--line); color: var(--muted); }
 .tag.new { color: var(--accent); border-color: var(--accent); }
 .tag.changed { color: var(--warn); border-color: var(--warn); }
+.notes { border-left: 3px solid var(--accent); padding: 4px 12px; margin: 12px 0; }
+.notes h3 { font-size: 12px; text-transform: uppercase; letter-spacing: .06em; color: var(--muted); margin: 0 0 4px; }
+.notes p { margin: 0 0 6px; max-width: 75ch; }
 .why { background: var(--bg); border-radius: 6px; padding: 8px 10px; margin: 12px 0; overflow-x: auto;
   font: 12px/1.5 ui-monospace, SFMono-Regular, Menlo, monospace; white-space: pre; }
 .tabs { display: flex; gap: 4px; margin-bottom: 8px; flex-wrap: wrap; }
@@ -196,10 +219,12 @@ figcaption { color: var(--muted); font-size: 12px; margin-bottom: 4px; }
 .stage[data-view="onion"] .view-onion { display: block; }
 .stage[data-view="side"] .view-side { display: grid; }
 .stage[data-view="diff"] .view-diff { display: block; }
-.change.accepted, .change.rejected { opacity: .55; }
-.change.accepted .actions::after { content: "Accepted"; color: var(--good); }
-.change.rejected .actions::after { content: "Rejected"; color: var(--bad); }
+.change.accepted .stage, .change.rejected .stage { opacity: .55; }
+.actions .undo { display: none; }
+.change.accepted .actions::before { content: "Accepted"; color: var(--good); }
+.change.rejected .actions::before { content: "Rejected"; color: var(--bad); }
 .change.accepted .actions button, .change.rejected .actions button { display: none; }
+.change.accepted .actions .undo, .change.rejected .actions .undo { display: inline-block; }
 "#;
 
 const SCRIPT: &str = r#"
@@ -232,22 +257,25 @@ for (const change of document.querySelectorAll(".change")) {
     range.addEventListener("input", apply); apply();
   }
 }
+// The server only records a decision; Done applies them all.
 async function act(action, index) {
   const change = document.getElementById(`change-${index}`);
-  if (change.classList.contains("accepted") || change.classList.contains("rejected")) return;
   const response = await fetch(`/${action}/${index}?token=${token}`, { method: "POST" });
-  if (response.ok) change.classList.add(action === "accept" ? "accepted" : "rejected");
-  else alert(`Could not ${action}: ${await response.text()}`);
+  if (!response.ok) return alert(`Could not ${action}: ${await response.text()}`);
+  change.classList.remove("accepted", "rejected");
+  if (action !== "undo") change.classList.add(action === "accept" ? "accepted" : "rejected");
 }
+const decided = (c) => c.classList.contains("accepted") || c.classList.contains("rejected");
 document.addEventListener("click", async (event) => {
   const button = event.target.closest("button[data-action]");
   if (!button) return;
   const { action, index } = button.dataset;
-  if (action === "accept" || action === "reject") await act(action, index);
-  if (action === "accept-all") for (const c of document.querySelectorAll(".change")) await act("accept", c.id.slice(7));
+  if (action === "accept" || action === "reject" || action === "undo") await act(action, index);
+  if (action === "accept-all") for (const c of document.querySelectorAll(".change")) if (!decided(c)) await act("accept", c.id.slice(7));
   if (action === "done") {
-    await fetch(`/done?token=${token}`, { method: "POST" });
-    document.querySelector(".summary").textContent = "Done. You can close this page.";
+    const response = await fetch(`/done?token=${token}`, { method: "POST" });
+    if (!response.ok) return alert(`Some decisions weren't applied:\n${await response.text()}`);
+    document.querySelector(".summary").textContent = "Done: the decisions are applied. You can close this page.";
     for (const b of document.querySelectorAll("button")) b.disabled = true;
   }
 });

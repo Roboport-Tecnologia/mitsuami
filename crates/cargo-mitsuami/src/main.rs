@@ -90,7 +90,7 @@ fn review(root: &Path, options: &[&str]) -> Result<(), String> {
     }
     server::serve(&pending, port, |url| {
         println!("Reviewing {} changes at {url}", pending.len());
-        println!("Click Done on the page, or press Ctrl-C, to stop.");
+        println!("Click Done on the page to apply your decisions; Ctrl-C stops without applying them.");
         if open {
             open_browser(url);
         }
@@ -111,7 +111,7 @@ fn write_static(pending: &[Change], out: &Path) -> Result<(), String> {
         }
     }
     let page = out.join("index.html");
-    std::fs::write(&page, report::page(pending, &report::Mode::Static))
+    std::fs::write(&page, report::page(pending, &vec![None; pending.len()], &report::Mode::Static))
         .map_err(|e| format!("cannot write {}: {e}", page.display()))?;
     println!("Wrote the review of {} changes to {}", pending.len(), page.display());
     Ok(())

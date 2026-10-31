@@ -5,6 +5,7 @@ target
 *.new
 *.new.png
 *.diff.png
+*.notes.txt
 snapshots.tar
 # This machine's captures (Arch has no VERSION_ID); only CI's are kept
 crates/mitsuami/tests/*/*/arch-unknown/

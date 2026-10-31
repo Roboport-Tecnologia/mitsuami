@@ -28,6 +28,10 @@ impl Workspace {
             ("stories__buttons@340xfit-light.diff.png", "diff pixels"),
             ("stories__buttons@340xfit-light.layout.txt", "Window [0,0 340×56]\n  Button \"OK\" [16,16 68×24]\n"),
             ("stories__buttons@340xfit-light.layout.txt.new", "Window [0,0 340×64]\n  Button \"OK\" [20,20 68×24]\n"),
+            (
+                "stories__buttons@340xfit-light.notes.txt",
+                "Only GTK draws destructive buttons.\n\nAppKit's <combo> button has no prominence.",
+            ),
             ("stories__toggles@200xfit-light.new.png", "first pixels"),
             ("stories__toggles@200xfit-light.layout.txt.new", "Window [0,0 200×240]\n"),
             ("stories__text@240xfit-light.png", "unchanged"),
@@ -76,6 +80,13 @@ fn the_static_report_shows_each_change_with_its_images_and_why() {
     assert!(!page.contains("stories__text@240xfit-light"), "unchanged baselines aren't listed");
     assert!(page.contains("The layout changed:") && page.contains("+   Button &quot;OK&quot; [20,20 68×24]"));
     assert!(page.contains("New baseline."));
+    // The story's notes, a paragraph each.
+    assert!(
+        page.contains(
+            "<p>Only GTK draws destructive buttons.</p><p>AppKit's &lt;combo&gt; button has no prominence.</p>"
+        )
+    );
+    assert_eq!(page.matches(r#"class="notes""#).count(), 1, "only the change whose story has notes");
     assert!(!page.contains("data-action=\"accept\""), "a static report can't accept");
 
     // Changes are sorted by path: buttons first. A new one has no baseline.
@@ -151,15 +162,28 @@ fn the_review_server_accepts_and_rejects_with_its_token_only() {
     assert_eq!(request(port, "POST", "/accept/0?token=guess").0, 403);
     assert_eq!(ws.read("stories__buttons@340xfit-light.png").as_deref(), Some("old pixels"));
 
+    // Decisions are only recorded: a reload shows them, and they can be
+    // changed or undone, until Done applies them.
+    assert_eq!(request(port, "POST", &format!("/reject/0?{query}")).0, 200);
+    assert_eq!(request(port, "POST", &format!("/accept/1?{query}")).0, 200);
+    assert_eq!(ws.read("stories__buttons@340xfit-light.png").as_deref(), Some("old pixels"));
+    assert_eq!(ws.read("stories__toggles@200xfit-light.png"), None);
+    let (_, page) = request(port, "GET", &format!("/?{query}"));
+    assert!(page.contains(r#"class="change rejected" id="change-0""#), "{page}");
+    assert!(page.contains(r#"class="change accepted" id="change-1""#), "{page}");
+    let (status, image) = request(port, "GET", &format!("/image/0/capture?{query}"));
+    assert_eq!((status, image.as_str()), (200, "new pixels"), "a reload still shows the capture");
     assert_eq!(request(port, "POST", &format!("/accept/0?{query}")).0, 200);
-    assert_eq!(ws.read("stories__buttons@340xfit-light.png").as_deref(), Some("new pixels"));
+    assert_eq!(request(port, "POST", &format!("/undo/1?{query}")).0, 200);
     assert_eq!(request(port, "POST", &format!("/reject/1?{query}")).0, 200);
-    assert_eq!(ws.read("stories__toggles@200xfit-light.new.png"), None);
-    assert_eq!(ws.read("stories__toggles@200xfit-light.png"), None, "rejecting a new capture records nothing");
     assert_eq!(request(port, "POST", &format!("/accept/7?{query}")).0, 404);
 
     assert_eq!(request(port, "POST", &format!("/done?{query}")).0, 200);
     assert!(child.wait().unwrap().success());
+    assert_eq!(ws.read("stories__buttons@340xfit-light.png").as_deref(), Some("new pixels"));
+    assert_eq!(ws.read("stories__buttons@340xfit-light.notes.txt"), None, "the notes go with the capture");
+    assert_eq!(ws.read("stories__toggles@200xfit-light.new.png"), None);
+    assert_eq!(ws.read("stories__toggles@200xfit-light.png"), None, "rejecting a new capture records nothing");
     let rest: Vec<String> = lines.map_while(Result::ok).collect();
     assert!(rest.iter().any(|l| l.contains("accepted") && l.contains("buttons")), "{rest:?}");
     assert!(rest.iter().any(|l| l.contains("rejected") && l.contains("toggles")), "{rest:?}");
