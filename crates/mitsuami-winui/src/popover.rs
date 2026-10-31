@@ -132,9 +132,11 @@ impl Popover {
         hide(&self.flyout, &self.state)
     }
 
-    /// Whether it shows, as XAML shows it.
+    /// Whether it shows, as XAML shows it. While the backend's own hide
+    /// is under way, as the core wants it: shown again then, it opens again
+    /// once the close is done (`Closed`), as AppKit's does.
     pub(crate) fn shown(&self) -> bool {
-        self.is_open()
+        if self.state.hiding.get() { self.state.wanted.get() } else { self.is_open() }
     }
 
     /// The user's Escape in it, in tests: it closes, and says so, as the
