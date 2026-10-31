@@ -1,3 +1,3 @@
-Window "mitsuami test" [0,0 480×55]
-  Container [0,0 480×55]
-    DocumentTabs document_tabs_style=Strip new_tab=true selected=1 tabs=["notes.txt", "todo.md", "A long title that the strip cuts off.txt"] closable=true reorderable=true [0,0 480×55]
+Window "mitsuami test" [0,0 480×47]
+  Container [0,0 480×47]
+    DocumentTabs document_tabs_style=Strip new_tab=true selected=1 tabs=["notes.txt", "todo.md", "A long title that the strip cuts off.txt"] closable=true reorderable=true [0,0 480×47]
