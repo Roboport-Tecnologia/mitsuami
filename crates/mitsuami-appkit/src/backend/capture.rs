@@ -7,7 +7,11 @@ use mitsuami_core::backend::{CaptureError, Image};
 use objc2::rc::Retained;
 use objc2::runtime::{AnyClass, NSObjectProtocol};
 use objc2::{Message, msg_send, sel};
-use objc2_app_kit::{NSBitmapFormat, NSBitmapImageRep, NSView};
+use objc2_app_kit::{
+    NSAffineTransformNSAppKitAdditions, NSBitmapFormat, NSBitmapImageRep, NSGraphicsContext, NSScroller,
+    NSScrollerPart, NSScrollerStyle, NSUsableScrollerParts, NSView,
+};
+use objc2_foundation::NSAffineTransform;
 
 use super::{AppKitBackend, Widget};
 
@@ -78,6 +82,7 @@ impl AppKitBackend {
         CAPTURING.set(true);
         key_state_changed(&view);
         view.cacheDisplayInRect_toBitmapImageRep(bounds, &rep);
+        draw_scrollers(&view, &rep);
         CAPTURING.set(false);
         key_state_changed(&view);
         for (content, superview, frame) in moved {
@@ -95,6 +100,59 @@ impl AppKitBackend {
         let scale = if bounds.size.width > 0.0 { width as f32 / bounds.size.width as f32 } else { 1.0 };
         Ok(Image { width: width as u32, height: height as u32, scale_factor: scale, rgba })
     }
+}
+
+/// Draws the legacy scroll bars in `view` into its capture, where they
+/// are: `cacheDisplayInRect:` leaves them out (macOS 26 draws a scroller
+/// on its layer), and a capture showed the room they take, empty. Drawn
+/// by the scroller itself, its slot and its knob. Overlay scroll bars
+/// show only while scrolling, as captures don't.
+fn draw_scrollers(view: &NSView, rep: &NSBitmapImageRep) {
+    fn find(view: &NSView, out: &mut Vec<Retained<NSScroller>>) {
+        for subview in view.subviews().iter() {
+            match subview.downcast::<NSScroller>() {
+                Ok(scroller) => out.push(scroller),
+                Err(subview) => find(&subview, out),
+            }
+        }
+    }
+    let mut scrollers = Vec::new();
+    find(view, &mut scrollers);
+    scrollers.retain(|s| {
+        s.scrollerStyle() == NSScrollerStyle::Legacy
+            && !s.isHiddenOrHasHiddenAncestor()
+            && s.alphaValue() > 0.0
+            && s.frame().size.width > 0.0
+            && s.frame().size.height > 0.0
+    });
+    let Some(context) =
+        (!scrollers.is_empty()).then(|| NSGraphicsContext::graphicsContextWithBitmapImageRep(rep)).flatten()
+    else {
+        return;
+    };
+    NSGraphicsContext::saveGraphicsState_class();
+    NSGraphicsContext::setCurrentContext(Some(&context));
+    let height = view.bounds().size.height;
+    for scroller in scrollers {
+        // Where it is in the capture, whose origin is at the bottom.
+        let rect = scroller.convertRect_toView(scroller.bounds(), Some(view));
+        let y = if view.isFlipped() { height - rect.origin.y - rect.size.height } else { rect.origin.y };
+        context.saveGraphicsState();
+        let transform = NSAffineTransform::transform();
+        transform.translateXBy_yBy(rect.origin.x, y);
+        if scroller.isFlipped() {
+            transform.translateXBy_yBy(0.0, rect.size.height);
+            transform.scaleXBy_yBy(1.0, -1.0);
+        }
+        transform.concat();
+        scroller.drawKnobSlotInRect_highlight(scroller.rectForPart(NSScrollerPart::KnobSlot), false);
+        // With nothing to scroll, a legacy scroll bar is its empty slot.
+        if scroller.usableParts() == NSUsableScrollerParts::AllScrollerParts {
+            scroller.drawKnob();
+        }
+        context.restoreGraphicsState();
+    }
+    NSGraphicsContext::restoreGraphicsState_class();
 }
 
 /// Tells `view` and the views in it that their window's key state changed,
