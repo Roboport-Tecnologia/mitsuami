@@ -194,6 +194,9 @@ QQC2.ScrollView {{
     // the cursor at the start of the new text, and scrolls to show it.
     property bool mitsuamiFollowsEnd: false
     property bool mitsuamiFollow: false
+    // At its end as it last scrolled: a following area keeps to it as it's
+    // resized (its bars come and take room), until the user scrolls up.
+    property bool mitsuamiPinned: false
     property real mitsuamiKeptY: 0
     signal mitsuamiEdited()
     function mitsuamiAtEnd() {{
@@ -206,7 +209,9 @@ QQC2.ScrollView {{
     }}
     function mitsuamiBeforeSet() {{
         mitsuamiFollow = mitsuamiFollowsEnd && (area.length === 0 || mitsuamiAtEnd())
-        mitsuamiKeptY = contentItem.contentY - contentItem.originY
+        // Empty, nothing's scrolled: a new area's origin isn't settled yet,
+        // and kept its offset from it, scrolling its first text 30 px in.
+        mitsuamiKeptY = area.length === 0 ? 0 : contentItem.contentY - contentItem.originY
     }}
     function mitsuamiKeep() {{
         var f = contentItem
@@ -223,16 +228,40 @@ QQC2.ScrollView {{
     }}
     // Turned on, it starts at its end, whichever of its text and this came
     // first, as setting the text at its end does.
-    onMitsuamiFollowsEndChanged: if (mitsuamiFollowsEnd) {{ mitsuamiFollow = true; mitsuamiAfterSet() }}
+    onMitsuamiFollowsEndChanged: if (mitsuamiFollowsEnd) {{ mitsuamiFollow = true; mitsuamiPinned = true; mitsuamiAfterSet() }}
     Connections {{
         target: scroll.contentItem
+        function onContentYChanged() {{ scroll.mitsuamiPinned = scroll.mitsuamiAtEnd() }}
         function onContentHeightChanged() {{ if (scroll.mitsuamiFollow) scroll.mitsuamiToEnd() }}
-        function onHeightChanged() {{ if (scroll.mitsuamiFollow) scroll.mitsuamiToEnd() }}
+        function onHeightChanged() {{
+            if (scroll.mitsuamiFollow || (scroll.mitsuamiFollowsEnd && scroll.mitsuamiPinned)) scroll.mitsuamiToEnd()
+        }}
     }}
     implicitWidth: 200
     implicitHeight: Math.ceil(topPadding + bottomPadding + area.topPadding + area.bottomPadding
         + mitsuamiLines * mitsuamiMetrics.height)
     FontMetrics {{ id: mitsuamiMetrics; font: area.font }}
+    // Unwrapped, its text can be wider than it, and Breeze's horizontal
+    // scroll bar then takes room below its lines (`measure`): the bar's
+    // height while it doesn't show yet.
+    readonly property real mitsuamiBarRoom: area.wrapMode === TextEdit.NoWrap && QQC2.ScrollBar.horizontal
+        && !QQC2.ScrollBar.horizontal.visible ? QQC2.ScrollBar.horizontal.height : 0
+    // Its widest line with the paddings, from the font as it is now: Qt
+    // lays the text out again later, and a log measured as its monospace
+    // style came still had the old font's width. Asked for as it's
+    // measured, not on every edit.
+    // With more lines than it shows, the vertical bar takes room beside
+    // them first, while it doesn't show yet.
+    property real mitsuamiTextWidth: 0
+    function mitsuamiMeasureText() {{
+        const lines = area.text.split("\n")
+        var widest = 0
+        for (const line of lines)
+            widest = Math.max(widest, mitsuamiMetrics.advanceWidth(line))
+        const bar = QQC2.ScrollBar.vertical
+        const beside = lines.length > mitsuamiLines && bar && !bar.visible ? bar.width : 0
+        mitsuamiTextWidth = widest + area.leftPadding + area.rightPadding + leftPadding + rightPadding + beside
+    }}
     QQC2.TextArea {{
         id: area
         objectName: "mitsuamiTextArea"

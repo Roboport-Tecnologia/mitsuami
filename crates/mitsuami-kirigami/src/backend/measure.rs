@@ -58,6 +58,22 @@ impl KirigamiBackend {
                     request.known_height.unwrap_or(group.real("implicitHeight").ceil() as f32),
                 )
             }
+            // Its lines, and unwrapped with text wider than it, Breeze's
+            // horizontal scroll bar below them: the bar takes room once it
+            // shows, after the area is measured, and its lines were cut to
+            // fewer (a window fitted to them is fitted once).
+            Widget::TextArea { root, .. } => {
+                let size = measure_item(*root, false, request);
+                let room = root.real("mitsuamiBarRoom") as f32;
+                if room > 0.0 {
+                    root.invoke("mitsuamiMeasureText");
+                }
+                let wider = root.real("mitsuamiTextWidth") as f32 > size.width + 0.5;
+                match request.known_height {
+                    None if room > 0.0 && wider => Size::new(size.width, size.height + room.ceil()),
+                    _ => size,
+                }
+            }
             // As high as its rows; the width is its style's.
             Widget::List(list) => Size::new(
                 request.known_width.unwrap_or(0.0),
