@@ -90,15 +90,24 @@ impl TextArea {
         }
     }
 
+    /// Turned on, it starts at its end, as a log following its output
+    /// does, whichever of its text and this came first.
+    pub(crate) fn set_follows_end(&mut self, on: bool) {
+        if on && !self.follows_end {
+            self.scroll_to_end();
+        }
+        self.follows_end = on;
+    }
+
     /// Whether the text's last line is in view.
-    fn at_end(&self) -> bool {
+    pub(crate) fn at_end(&self) -> bool {
         let visible = self.scroll.contentView().documentVisibleRect();
         visible.origin.y + visible.size.height >= self.text.frame().size.height - 1.0
     }
 
     /// Shows the text's last line at the bottom, where it was across.
     /// Laid out now, as the text view would only grow at the next display.
-    fn scroll_to_end(&self) {
+    pub(crate) fn scroll_to_end(&self) {
         if let (Some(container), Some(layout)) =
             (unsafe { self.text.textContainer() }, unsafe { self.text.layoutManager() })
         {

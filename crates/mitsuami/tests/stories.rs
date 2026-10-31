@@ -533,23 +533,29 @@ fn search_input_tweak() -> Tweak<SearchInput> {
 
 /// Text areas: empty with a placeholder (shown on Qt and WinUI), filled
 /// with a line that wraps, more lines than fit, read-only, disabled, a log
-/// (monospace, unwrapped, at its end), and tweaked: a fixed-pitch font on AppKit and GTK, lines broken inside words
-/// on Qt, a header on WinUI.
+/// (monospace, unwrapped), and tweaked: a fixed-pitch font on AppKit and
+/// GTK, lines broken inside words on Qt, a header on WinUI.
+///
+/// The log shows its end on every platform: its last two lines, "Running
+/// showcase" and "Window opened", not its first.
 #[mitsuami_test::story(sizes = [(240, fit)])]
 fn text_areas() -> impl View {
     const NOTE: &str = "A note that runs past the edge of the area, and wraps.\nAnd a second paragraph.";
+    // Its end looks unlike its start, so a capture shows which is in view.
+    const LOG: &str = "Compiling mitsuami-core\nCompiling mitsuami-widgets\nCompiling mitsuami\n\
+        Finished in 4.2s\nRunning showcase\nWindow opened";
     let many = (1..=8).map(|n| format!("Line {n}")).collect::<Vec<_>>().join("\n");
     Column::new().padding(16).gap(8).children((
         TextArea::new().a11y_label("Empty").placeholder("Comments"),
         TextArea::new().a11y_label("Filled").value(NOTE),
-        TextArea::new().a11y_label("Scrolled").lines(2).value(many.clone()),
+        TextArea::new().a11y_label("Scrolled").lines(2).value(many),
         TextArea::new().a11y_label("Unwrapped").lines(2).value(NOTE).line_wrap(false),
         TextArea::new().a11y_label("Read-only").value(NOTE).read_only(true),
         TextArea::new().a11y_label("Disabled").value(NOTE).enabled(false),
         TextArea::new()
             .a11y_label("Log")
             .lines(2)
-            .value(many)
+            .value(LOG)
             .read_only(true)
             .line_wrap(false)
             .text_style(TextStyle::Monospace)

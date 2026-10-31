@@ -407,4 +407,30 @@ async fn follows_its_end_while_it_is_there(app: TestApp) {
     assert!(offset("Log") > end, "back at its end, it follows again");
 }
 
+/// Given its text from the start, before or after `follows_end`, a log
+/// shows its end once it's laid out, unwrapped and monospace too, as the
+/// stories' log is: the platforms' own text views have no such setting,
+/// and an area made with its text is laid out after it's set.
+#[mitsuami_test::test]
+async fn a_log_given_its_text_from_the_start_shows_its_end(app: TestApp) {
+    let text = (1..=40).map(|i| format!("line {i}")).collect::<Vec<_>>().join("\n");
+    let log = |label: &'static str| TextArea::new().a11y_label(label).lines(2).read_only(true);
+    app.mount(move || {
+        Column::new().align(Align::Start).children((
+            log("Text first").value(text.clone()).follows_end(true),
+            log("Follows first").follows_end(true).value(text.clone()),
+            log("Unwrapped").value(text.clone()).line_wrap(false).text_style(TextStyle::Monospace).follows_end(true),
+        ))
+    });
+    app.settle().await;
+    let offset = |label: &str| app.get_by_label(label).native_state().scroll_offset.expect("text areas scroll").y;
+    for label in ["Text first", "Follows first", "Unwrapped"] {
+        let shown = offset(label);
+        app.get_by_label(label).scroll_by(0.0, 100_000.0).await;
+        let end = offset(label);
+        assert!(end > 0.0, "{label}: its text is longer than it");
+        assert!((shown - end).abs() < 1.0, "{label}: shown at {shown}, its end is at {end}");
+    }
+}
+
 mitsuami_test::main!();

@@ -405,8 +405,20 @@ impl State {
                     w::ScrollBarVisibility::Auto,
                 )?;
                 revokers.push(report_text_changes(&field, &emitter, &shown_text, id)?);
+                // Its text and `FollowsEnd` come before XAML has applied its
+                // template, with no scroll viewer to move: a log made with
+                // its text starts at its end once it has one.
+                let follows_end = Rc::new(Cell::new(false));
+                revokers.push(field.cast::<w::IFrameworkElement>()?.Loaded({
+                    let (field, follows_end) = (field.clone(), follows_end.clone());
+                    move |_, _| {
+                        if follows_end.get() {
+                            let _ = super::fields::scroll_text_area_to_end(&field);
+                        }
+                    }
+                })?);
                 let element = field.cast()?;
-                (Widget::TextArea { field, lines: 1, follows_end: false }, element)
+                (Widget::TextArea { field, lines: 1, follows_end }, element)
             }
             // With XAML's default reveal button, shown while there's text.
             WidgetKind::PasswordInput => {

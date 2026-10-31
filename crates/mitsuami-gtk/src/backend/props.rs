@@ -548,7 +548,16 @@ impl State {
                     }
                 }
             }
-            (Prop::FollowsEnd(on), Widget::TextArea { follows_end, .. }) => *follows_end = *on,
+            // Turned on, it starts at its end, whichever of its text and
+            // this came first, and keeps to it as GTK lays the text out.
+            (Prop::FollowsEnd(on), Widget::TextArea { scrolled, follows_end, following, .. }) => {
+                if *on && !*follows_end {
+                    following.set(true);
+                    let v = scrolled.vadjustment();
+                    v.set_value(v.upper() - v.page_size());
+                }
+                *follows_end = *on;
+            }
             (Prop::Placeholder(t), Widget::TextArea { placeholder, .. }) => *placeholder = Some(t.clone()),
             // Still focusable and selectable, so its text can be copied.
             (Prop::ReadOnly(r), Widget::TextArea { view, .. }) => view.set_editable(!r),

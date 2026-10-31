@@ -96,6 +96,12 @@ impl State {
         (lines * (font * 1.25).round() + 8.0 - node.frame.height()).max(0.0)
     }
 
+    /// Scrolls a text area to its end.
+    pub(super) fn follow_to_end(&mut self, id: NodeId) {
+        let end = self.text_area_end(id);
+        self.nodes.get_mut(&id).unwrap().scroll_offset.y = end;
+    }
+
     /// Sets a text area's text, keeping its end in view if it follows its
     /// end and was there, or was empty.
     pub(super) fn set_text_area_value(&mut self, id: NodeId, prop: Prop) {

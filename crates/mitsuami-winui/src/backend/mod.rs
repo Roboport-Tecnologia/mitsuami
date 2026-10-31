@@ -316,8 +316,9 @@ enum Widget {
         field: w::TextBox,
         lines: u32,
         /// Keeps its end in view as its text is set (`Prop::FollowsEnd`):
-        /// a text box has no such setting.
-        follows_end: bool,
+        /// a text box has no such setting. Shared with its `Loaded`
+        /// handler, which takes it to its end once there's a scroll viewer.
+        follows_end: Rc<Cell<bool>>,
     },
     Password(w::PasswordBox),
     /// Windows' search box: an auto-suggest box with the find icon.

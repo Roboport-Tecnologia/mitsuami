@@ -689,10 +689,19 @@ impl State {
                 // Layout places what the user sees, the alignment rect, as
                 // Auto Layout does; controls draw their bezels inset from
                 // their frames (a push button by 7pt a side before macOS 26).
+                // A log at its end stays there as it's resized: the clip
+                // view keeps its offset, or cuts it short.
+                let following = match &self.nodes[id].widget {
+                    Widget::TextArea(area) => area.follows_end && area.at_end(),
+                    _ => false,
+                };
                 // A split's pane is in a host of its own.
                 match parent {
                     Some(Widget::SplitView(split)) => split.place(*id, &view, rect),
                     _ => view.setFrame(view.frameForAlignmentRect(rect)),
+                }
+                if following && let Widget::TextArea(area) = &self.nodes[id].widget {
+                    area.scroll_to_end();
                 }
                 // The split or a pane moved: the divider follows.
                 for widget in [Some(&self.nodes[id].widget), parent].into_iter().flatten() {

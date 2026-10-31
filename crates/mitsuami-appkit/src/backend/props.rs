@@ -392,7 +392,7 @@ impl State {
             (Prop::Enabled(e), Widget::TextArea(area)) => area.set_enabled(*e),
             (Prop::Lines(lines), Widget::TextArea(area)) => area.lines = *lines,
             (Prop::LineWrap(on), Widget::TextArea(area)) => area.set_line_wrap(*on),
-            (Prop::FollowsEnd(on), Widget::TextArea(area)) => area.follows_end = *on,
+            (Prop::FollowsEnd(on), Widget::TextArea(area)) => area.set_follows_end(*on),
             // Still selectable, so its text can be copied; it takes focus
             // from a click, and from the keyboard only with Full Keyboard
             // Access.

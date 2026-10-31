@@ -73,6 +73,10 @@ impl HeadlessBackend {
                     if *kind == WidgetKind::Tree {
                         state.emit(*id, UiEvent::TreeIndent(super::metrics::TREE_INDENT));
                     }
+                    // A log given its text and `FollowsEnd` starts at its end.
+                    if *kind == WidgetKind::TextArea && find_prop!(props, FollowsEnd) == Some(true) {
+                        state.follow_to_end(*id);
+                    }
                     if *kind == WidgetKind::GpuSurface {
                         let surface = SurfaceHandle::new(HeadlessSurface);
                         state.nodes.get_mut(id).unwrap().surface = Some(surface.clone());
@@ -91,8 +95,14 @@ impl HeadlessBackend {
                     {
                         state.selection = None;
                     }
-                    if matches!(prop, Prop::Value(_)) && state.nodes[id].kind == WidgetKind::TextArea {
+                    let text_area = state.nodes[id].kind == WidgetKind::TextArea;
+                    let following = find_prop!(state.nodes[id].props, FollowsEnd) == Some(true);
+                    if matches!(prop, Prop::Value(_)) && text_area {
                         state.set_text_area_value(*id, prop.clone());
+                    } else if *prop == Prop::FollowsEnd(true) && text_area && !following {
+                        // Turned on, it starts at its end.
+                        state.set_prop(*id, prop.clone());
+                        state.follow_to_end(*id);
                     } else {
                         state.set_prop(*id, prop.clone());
                     }
@@ -195,12 +205,17 @@ impl HeadlessBackend {
                     if node.kind == WidgetKind::Sidebar {
                         violation(command, "a sidebar's frame belongs to the platform");
                     }
-                    node.frame = *frame;
-                    // A text area's text scrolls no further than its end.
+                    // A text area's text scrolls no further than its end, and
+                    // one following its end keeps to it as it's resized.
                     if node.kind == WidgetKind::TextArea {
+                        let follows = find_prop!(node.props, FollowsEnd) == Some(true);
+                        let was_at_end = node.scroll_offset.y >= state.text_area_end(*id) - 0.5;
+                        state.nodes.get_mut(id).unwrap().frame = *frame;
                         let end = state.text_area_end(*id);
                         let offset = &mut state.nodes.get_mut(id).unwrap().scroll_offset;
-                        offset.y = offset.y.min(end);
+                        offset.y = if follows && was_at_end { end } else { offset.y.min(end) };
+                    } else {
+                        node.frame = *frame;
                     }
                     state.size_surface(*id);
                 }

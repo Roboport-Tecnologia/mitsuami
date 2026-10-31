@@ -97,7 +97,7 @@ impl WinUiBackend {
                 props.push(Prop::Value(box_text(&field).ok()?));
                 if let Widget::TextArea { lines, follows_end, .. } = &node.widget {
                     props.push(Prop::Lines(*lines));
-                    props.push(Prop::FollowsEnd(*follows_end));
+                    props.push(Prop::FollowsEnd(follows_end.get()));
                     props.push(Prop::LineWrap(field.TextWrapping().ok()? != w::TextWrapping::NoWrap));
                 } else {
                     let scope = field.InputScope().ok();

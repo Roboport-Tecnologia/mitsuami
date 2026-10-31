@@ -43,7 +43,13 @@ impl State {
             (Prop::Drawing(drawing), Widget::Drawn { view, .. }) => view.set_drawing(drawing)?,
             (Prop::Step(new), Widget::Slider { step, .. } | Widget::Number { step, .. }) => *step = *new,
             (Prop::Lines(n), Widget::TextArea { lines, .. }) => *lines = *n,
-            (Prop::FollowsEnd(on), Widget::TextArea { follows_end, .. }) => *follows_end = *on,
+            // Turned on, it starts at its end, whichever of its text and
+            // this came first; before it's loaded, `Loaded` does it.
+            (Prop::FollowsEnd(on), Widget::TextArea { field, follows_end, .. }) => {
+                if *on && !follows_end.replace(*on) {
+                    super::fields::scroll_text_area_to_end(field)?;
+                }
+            }
             // A dialog doesn't take full screen (its presenter is modal,
             // over its owner), as a sheet can't on macOS.
             (Prop::FullScreen(on), Widget::Window(parts)) => {
@@ -439,7 +445,7 @@ impl State {
                 // Don't disturb the caret when the area already shows it.
                 if box_text(&field.cast()?)? != *t {
                     *node.shown_text.borrow_mut() = t.clone();
-                    super::fields::set_text_area_text(field, t, *follows_end)?;
+                    super::fields::set_text_area_text(field, t, follows_end.get())?;
                 }
             }
             (Prop::Value(t), Widget::Field(f)) => {

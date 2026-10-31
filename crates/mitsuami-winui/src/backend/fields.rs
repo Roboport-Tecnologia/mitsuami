@@ -64,20 +64,34 @@ fn at_end(scroll: &w::IScrollViewer) -> bool {
 
 /// Sets a text area's text, then shows its last line if it follows its end
 /// and its end was in view, or it was empty, keeping its horizontal offset.
-/// Laid out first, so the extent is the new text's. Before its template is
-/// applied (not loaded yet), there's nothing to scroll, and it shows the
-/// text from the top.
+/// Before its template is applied (not loaded yet), there's nothing to
+/// scroll: the text area's `Loaded` handler takes it to its end then.
 pub(super) fn set_text_area_text(field: &w::TextBox, text: &str, follows_end: bool) -> R<()> {
     let iface: w::ITextBox = field.cast()?;
     let scroll = if follows_end { text_box_scroll(field) } else { None };
     let follow = scroll.as_ref().is_some_and(|s| iface.Text().is_ok_and(|t| t.is_empty()) || at_end(s));
     iface.SetText(text)?;
     if let Some(scroll) = scroll.filter(|_| follow) {
-        let element: w::IUIElement = scroll.cast()?;
-        element.UpdateLayout()?;
-        scroll.ChangeViewWithOptionalAnimation(None, Some(scroll.ScrollableHeight()?), None, true)?;
-        element.UpdateLayout()?;
+        to_end(&scroll)?;
     }
+    Ok(())
+}
+
+/// Shows a text area's last line, keeping its horizontal offset. Before
+/// its template is applied there's nothing to scroll, and it does nothing.
+pub(super) fn scroll_text_area_to_end(field: &w::TextBox) -> R<()> {
+    match text_box_scroll(field) {
+        Some(scroll) => to_end(&scroll),
+        None => Ok(()),
+    }
+}
+
+/// Laid out first, so the extent is the text's.
+fn to_end(scroll: &w::IScrollViewer) -> R<()> {
+    let element: w::IUIElement = scroll.cast()?;
+    element.UpdateLayout()?;
+    scroll.ChangeViewWithOptionalAnimation(None, Some(scroll.ScrollableHeight()?), None, true)?;
+    element.UpdateLayout()?;
     Ok(())
 }
 

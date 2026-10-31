@@ -221,9 +221,13 @@ QQC2.ScrollView {{
             Qt.callLater(mitsuamiKeep)
         }}
     }}
+    // Turned on, it starts at its end, whichever of its text and this came
+    // first, as setting the text at its end does.
+    onMitsuamiFollowsEndChanged: if (mitsuamiFollowsEnd) {{ mitsuamiFollow = true; mitsuamiAfterSet() }}
     Connections {{
         target: scroll.contentItem
         function onContentHeightChanged() {{ if (scroll.mitsuamiFollow) scroll.mitsuamiToEnd() }}
+        function onHeightChanged() {{ if (scroll.mitsuamiFollow) scroll.mitsuamiToEnd() }}
     }}
     implicitWidth: 200
     implicitHeight: Math.ceil(topPadding + bottomPadding + area.topPadding + area.bottomPadding

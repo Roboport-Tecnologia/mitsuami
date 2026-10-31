@@ -292,8 +292,11 @@ impl State {
                     }
                 });
                 let (follow, last) = (following.clone(), Cell::new(0.0));
+                // Scrolled up, it stops; a value cut short at the end, as
+                // the page grows, is still there.
                 v.connect_value_changed(move |v| {
-                    if v.value() < last.replace(v.value()) - 0.5 {
+                    let at_end = v.value() + v.page_size() >= v.upper() - 1.0;
+                    if v.value() < last.replace(v.value()) - 0.5 && !at_end {
                         follow.set(false);
                     }
                 });
