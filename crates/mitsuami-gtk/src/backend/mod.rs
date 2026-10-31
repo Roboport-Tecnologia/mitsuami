@@ -494,6 +494,11 @@ impl GtkBackend {
         {
             // libadwaita takes the scheme from its style manager, and warns
             // about GTK's setting.
+            // libadwaita has its own stylesheet, which it keeps by giving GTK
+            // an empty theme: naming GTK's Adwaita brought GTK's back over
+            // it, and tests drew GTK's look, which apps don't (flat and
+            // suggested split buttons didn't show, the maintainer's review,
+            // 2026-10-31). Without libadwaita, GTK's own, whatever the user's.
             if adw::is_initialized() {
                 adw::StyleManager::default().set_color_scheme(match appearance {
                     Appearance::Dark => adw::ColorScheme::ForceDark,
@@ -501,8 +506,8 @@ impl GtkBackend {
                 });
             } else {
                 settings.set_gtk_application_prefer_dark_theme(appearance == Appearance::Dark);
+                settings.set_gtk_theme_name(Some("Adwaita"));
             }
-            settings.set_gtk_theme_name(Some("Adwaita"));
         }
         let state = Rc::new(RefCell::new(State {
             options,
