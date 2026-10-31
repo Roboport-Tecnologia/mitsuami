@@ -111,6 +111,8 @@ Backend rules the tests enforce:
   the other platforms' captures) are expected; don't treat them as
   regressions, and don't try to fix them. The maintainer will review every
   capture by eye in a later pass. Still add a story for each new widget.
+  Releases are the exception: CI's visual baselines must pass (step 4 of
+  Releasing); only this machine's local ones may fail.
 
 ## Checking other platforms from macOS
 
@@ -162,7 +164,11 @@ WinUI bindings are generated: add types and members to
 3. Commit both as "Bump the version to X.Y.Z" and push `main`.
 4. Validate, the one exception to "don't run CI": `cargo test --workspace`,
    `MITSUAMI_NATIVE=1 cargo test --workspace`, the type-checks above, and
-   `gh workflow run test.yml --ref main`. Tag only once it's green.
+   `gh workflow run test.yml --ref main`. Tag only once it's green, visual
+   baselines included: unpack a failed run's captures as pending ones
+   (`<name>.new.png`, `<name>.layout.txt.new` next to their baselines) for
+   the maintainer to review in `cargo mitsuami visual review`, commit what
+   they accept, and run CI again.
 5. `git tag vX.Y.Z && git push origin vX.Y.Z`. `release.yml` checks
    the tag matches the version, runs the headless tests, publishes the
    crates, builds the showcase and Files apps, and creates the GitHub
