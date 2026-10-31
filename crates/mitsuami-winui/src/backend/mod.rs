@@ -1000,6 +1000,17 @@ impl Backend for WinUiBackend {
             }
         };
         let Some((element, under)) = element else { return reply(Err(CaptureError::UnknownNode)) };
-        crate::capture::capture_with_popups(element, under, reply);
+        // The popovers shown, each in a popup of its own.
+        let popovers: Vec<w::UIElement> = self
+            .state
+            .borrow()
+            .nodes
+            .values()
+            .filter_map(|node| match &node.widget {
+                Widget::Popover(popover) if popover.shown() => popover.host.cast().ok(),
+                _ => None,
+            })
+            .collect();
+        crate::capture::capture_with_popups(element, under, &popovers, reply);
     }
 }

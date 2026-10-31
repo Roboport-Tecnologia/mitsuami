@@ -1,6 +1,6 @@
 //! `Backend::capture`: `RenderTargetBitmap`, which renders asynchronously.
-//! It doesn't render popups (a popover's flyout): each open one is
-//! rendered on its own and drawn over the capture where it is.
+//! It doesn't render popups (a popover's flyout): each shown popover's
+//! popup is rendered on its own and drawn over the capture where it is.
 
 use mitsuami_core::backend::{CaptureError, Image};
 use mitsuami_core::services::Reply;
@@ -24,14 +24,16 @@ fn failed(error: windows_core::Error) -> CaptureError {
     CaptureError::Failed(error.to_string())
 }
 
-/// Captures `element`, with the popups open over it drawn in. A popup that
-/// can't be is left out, and said so: the capture would look as if it
-/// weren't open.
-pub(crate) fn capture_with_popups(element: w::UIElement, under: Option<w::Color>, reply: CaptureReply) {
-    let popups = open_popups(&element).unwrap_or_else(|e| {
-        eprintln!("mitsuami-winui: a capture can't find the open popups: {e}");
-        Vec::new()
-    });
+/// Captures `element`, with the popovers shown over it (their content,
+/// `popovers`) drawn in. One that can't be is left out, and said so: the
+/// capture would look as if it weren't open.
+pub(crate) fn capture_with_popups(
+    element: w::UIElement,
+    under: Option<w::Color>,
+    popovers: &[w::UIElement],
+    reply: CaptureReply,
+) {
+    let popups = popups_of(&element, popovers);
     capture(
         element,
         under,
@@ -42,16 +44,37 @@ pub(crate) fn capture_with_popups(element: w::UIElement, under: Option<w::Color>
     );
 }
 
-/// The content of each popup open in `element`'s window, and where it is
-/// over `element`, in logical units.
-fn open_popups(element: &w::UIElement) -> windows_core::Result<Vec<(w::UIElement, f64, f64)>> {
-    let root = element.cast::<w::IUIElement>()?.XamlRoot()?;
+/// The top of each popover's popup (its flyout's presenter, with its
+/// border), from its content up, and where it is over `element`, in
+/// logical units. XAML's list of a window's open popups
+/// (`GetOpenPopupsForXamlRoot`) came back empty in tests with a flyout
+/// open.
+fn popups_of(element: &w::UIElement, popovers: &[w::UIElement]) -> Vec<(w::UIElement, f64, f64)> {
     let mut popups = Vec::new();
-    for popup in w::VisualTreeHelper::GetOpenPopupsForXamlRoot(&root)? {
-        let child = match popup.cast::<w::IPopup>().and_then(|p| p.Child()) {
+    for content in popovers {
+        let mut top: w::DependencyObject = match content.cast() {
+            Ok(top) => top,
+            Err(e) => {
+                eprintln!("mitsuami-winui: a capture can't read a popover: {e}");
+                continue;
+            }
+        };
+        // Up to the popup, not past it into the window's tree, whichever
+        // way XAML links them.
+        while let Ok(parent) = w::VisualTreeHelper::GetParent(&top) {
+            let class = parent.cast::<windows_core::IInspectable>().and_then(|p| p.GetRuntimeClassName());
+            if class.is_ok_and(|c| {
+                let c = c.to_string_lossy();
+                c.ends_with(".Popup") || c.ends_with("PopupRoot")
+            }) {
+                break;
+            }
+            top = parent;
+        }
+        let child: w::UIElement = match top.cast() {
             Ok(child) => child,
             Err(e) => {
-                eprintln!("mitsuami-winui: a capture can't read an open popup's content: {e}");
+                eprintln!("mitsuami-winui: a capture can't read a popover's popup: {e}");
                 continue;
             }
         };
@@ -68,7 +91,7 @@ fn open_popups(element: &w::UIElement) -> windows_core::Result<Vec<(w::UIElement
         };
         popups.push((child, at.x as f64, at.y as f64));
     }
-    Ok(popups)
+    popups
 }
 
 /// Captures each popup's content in turn and draws it over `image`; one
