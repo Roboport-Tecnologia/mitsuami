@@ -1000,6 +1000,6 @@ impl Backend for WinUiBackend {
             }
         };
         let Some((element, under)) = element else { return reply(Err(CaptureError::UnknownNode)) };
-        crate::capture::capture(element, under, reply);
+        crate::capture::capture_with_popups(element, under, reply);
     }
 }

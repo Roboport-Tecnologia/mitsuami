@@ -1,4 +1,6 @@
-//! Capturing what GTK has drawn.
+//! Capturing what GTK has drawn. A popover is a surface of its own, which
+//! a capture of its window doesn't hold: each shown over the captured
+//! widget is rendered too, and drawn over the capture where it is.
 
 use std::cell::Cell;
 use std::rc::Rc;
@@ -42,6 +44,57 @@ pub(super) fn render(widget: &gtk::Widget, size: (i32, i32)) -> Result<Image, Ca
     Ok(Image { width: width as u32, height: height as u32, scale_factor: scale as f32, rgba: to_rgba(&bytes) })
 }
 
+/// Draws each popover shown over `widget` onto its capture, where it is.
+fn with_popovers(mut image: Image, widget: &gtk::Widget, popovers: &[gtk::Popover]) -> Image {
+    for popover in popovers {
+        let Some((x, y)) = place_over(popover, widget) else { continue };
+        let Ok(over) = render(popover.upcast_ref(), (popover.width(), popover.height())) else { continue };
+        let scale = image.scale_factor as f64;
+        draw_over(&mut image, &over, (x * scale).round() as i64, (y * scale).round() as i64);
+    }
+    image
+}
+
+/// Where a popover is over `widget`, in `widget`'s coordinates, if it
+/// shows in `widget`'s window: through its popup's place on the window's
+/// surface, as `Popover::frame` finds it.
+fn place_over(popover: &gtk::Popover, widget: &gtk::Widget) -> Option<(f64, f64)> {
+    if !popover.is_visible() || popover.parent()?.native()? != widget.native()? {
+        return None;
+    }
+    let popup = popover.surface()?.downcast::<gdk::Popup>().ok()?;
+    let at = widget.compute_bounds(&widget.native()?)?;
+    let (inset_x, inset_y) = popover.surface_transform();
+    Some((popup.position_x() as f64 + inset_x - at.x() as f64, popup.position_y() as f64 + inset_y - at.y() as f64))
+}
+
+/// Draws `over`, straight RGBA, onto `image` with its top left at (x, y)
+/// in physical pixels, clipped to `image`.
+fn draw_over(image: &mut Image, over: &Image, x: i64, y: i64) {
+    for row in 0..over.height as i64 {
+        let ty = y + row;
+        if ty < 0 || ty >= image.height as i64 {
+            continue;
+        }
+        for col in 0..over.width as i64 {
+            let tx = x + col;
+            if tx < 0 || tx >= image.width as i64 {
+                continue;
+            }
+            let src = &over.rgba[((row * over.width as i64 + col) * 4) as usize..][..4];
+            let i = ((ty * image.width as i64 + tx) * 4) as usize;
+            let dst = &mut image.rgba[i..i + 4];
+            let a = src[3] as u32;
+            let under = dst[3] as u32 * (255 - a) / 255;
+            let out = a + under;
+            for c in 0..3 {
+                dst[c] = (src[c] as u32 * a + dst[c] as u32 * under).checked_div(out).unwrap_or(0) as u8;
+            }
+            dst[3] = out as u8;
+        }
+    }
+}
+
 /// How long a capture waits for a window's resize to arrive.
 const RESIZE_WAIT: std::time::Duration = std::time::Duration::from_secs(2);
 
@@ -50,7 +103,7 @@ impl GtkBackend {
         // A window on its way to another size (a sidebar's width changed,
         // say) is captured at that size: GTK gets there at a later frame,
         // and on a display nobody watches frames are far apart.
-        let (widget, size, resizing) = {
+        let (widget, size, resizing, popovers) = {
             let state = self.state.borrow();
             let Some(node) = state.nodes.get(&id) else { return reply(Err(CaptureError::UnknownNode)) };
             let (size, resizing) = match &node.widget {
@@ -60,7 +113,17 @@ impl GtkBackend {
                 }
                 _ => (state.frames.borrow().get(node.widget.widget()).map(|f| f.size).unwrap_or_default(), false),
             };
-            (node.widget.widget().clone(), size, resizing)
+            let popovers: Vec<gtk::Popover> = state
+                .nodes
+                .values()
+                .filter_map(|n| match &n.widget {
+                    Widget::Popover(popover) => Some(popover),
+                    _ => None,
+                })
+                .filter(|p| p.shown())
+                .map(|p| p.popover.clone())
+                .collect();
+            (node.widget.widget().clone(), size, resizing, popovers)
         };
         let target = (size.width.round() as i32, size.height.round() as i32);
         let reply = Rc::new(Cell::new(Some(reply)));
@@ -75,11 +138,11 @@ impl GtkBackend {
                 return glib::ControlFlow::Continue;
             }
             let handler: Rc<Cell<Option<glib::SignalHandlerId>>> = Rc::default();
-            let (reply, widget, slot) = (reply.clone(), widget.clone(), handler.clone());
+            let (reply, widget, slot, popovers) = (reply.clone(), widget.clone(), handler.clone(), popovers.clone());
             handler.set(Some(clock.connect_after_paint(move |clock| {
                 if let Some(reply) = reply.take() {
                     reply(if (widget.width(), widget.height()) == target {
-                        render(&widget, target)
+                        render(&widget, target).map(|image| with_popovers(image, &widget, &popovers))
                     } else {
                         Err(CaptureError::Failed(format!(
                             "the widget is {}×{}, not {}×{}",

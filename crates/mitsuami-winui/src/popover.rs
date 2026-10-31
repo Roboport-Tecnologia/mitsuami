@@ -3,10 +3,11 @@
 //! says so, under it, past the window's edge if need be. Light dismiss is the flyout's own: a click outside
 //! or Escape closes it, which is reported.
 //!
-//! A flyout opens only in a window on screen, and tests never show
-//! windows: there, it keeps what the core asked and says it shows under
-//! its parent, where it would, and Escape in it closes it as the flyout's
-//! light dismiss does (`dismiss`).
+//! Tests' windows are transparent: there, the flyout opens inside its
+//! window (constrained to its bounds, which a flyout past the window's
+//! edge would leave, in a window of its own that shows), so it's as
+//! unseen as the window, and a capture draws it in. Escape in it closes it
+//! as the flyout's light dismiss does (`dismiss`).
 
 use std::cell::{Cell, RefCell};
 use std::collections::HashSet;
@@ -19,10 +20,6 @@ use crate::backend::Events;
 use crate::bindings as w;
 
 type R<T> = windows_core::Result<T>;
-
-/// How far under its parent a popover's content is in tests: about where
-/// the flyout's margin puts it.
-const GAP: f64 = 4.0;
 
 struct State {
     /// What the core asked for. The flyout's `Closed` comes after it
@@ -55,8 +52,9 @@ impl Popover {
         base.SetPlacement(w::FlyoutPlacementMode::Bottom)?;
         // Under its parent even past the window's edge, as a menu
         // flyout opens: kept inside it, a flyout with no room above or
-        // below a button went beside it, against the window's top.
-        base.SetShouldConstrainToRootBounds(false)?;
+        // below a button went beside it, against the window's top. In
+        // tests, inside it (see above).
+        base.SetShouldConstrainToRootBounds(!on_screen)?;
         let state = Rc::new(State {
             wanted: Cell::new(false),
             anchor: RefCell::new(None),
@@ -125,7 +123,7 @@ impl Popover {
         }
         let fe: w::IFrameworkElement = self.host.cast()?;
         let empty = |v: f64| v.is_nan() || v <= 0.0;
-        if open || !self.state.on_screen || empty(fe.Width()?) || empty(fe.Height()?) {
+        if open || empty(fe.Width()?) || empty(fe.Height()?) {
             return Ok(());
         }
         let Some(anchor) = self.state.anchor.borrow().clone() else { return Ok(()) };
@@ -142,13 +140,9 @@ impl Popover {
         Ok(())
     }
 
-    /// Whether it shows: as XAML shows it, or in tests as the core asked
-    /// while it has a parent.
+    /// Whether it shows, as XAML shows it.
     pub(crate) fn shown(&self) -> bool {
-        match self.state.on_screen {
-            true => self.is_open(),
-            false => self.state.wanted.get() && self.state.anchor.borrow().is_some(),
-        }
+        self.is_open()
     }
 
     /// The user's Escape in it, in tests: it closes, and says so, as the
@@ -157,13 +151,15 @@ impl Popover {
         if self.state.on_screen || !self.shown() {
             return false;
         }
+        // No longer wanted, its `Closed` isn't reported again.
         self.state.wanted.set(false);
+        _ = self.hide();
         self.events.emit(self.id, UiEvent::PopoverShownChanged(false));
         true
     }
 
     /// Where it shows, in its parent's coordinates (x, y, width, height);
-    /// None while it's hidden. In tests, under its parent, as it would.
+    /// None while it's hidden.
     pub(crate) fn frame(&self) -> Option<(f64, f64, f64, f64)> {
         if !self.shown() {
             return None;
@@ -171,12 +167,6 @@ impl Popover {
         let anchor = self.state.anchor.borrow().clone()?;
         let fe: w::IFrameworkElement = self.host.cast().ok()?;
         let (width, height) = (fe.Width().ok()?, fe.Height().ok()?);
-        if !self.state.on_screen {
-            let anchor: w::IFrameworkElement = anchor.cast().ok()?;
-            let anchor_height = anchor.Height().ok().filter(|h| !h.is_nan()).or_else(|| anchor.ActualHeight().ok())?;
-            let below = anchor_height + GAP;
-            return Some((0.0, below, width, height));
-        }
         let transform = self.host.cast::<w::IUIElement>().ok()?.TransformToVisual(&anchor).ok()?;
         let at = transform.TransformPoint(w::Point { x: 0.0, y: 0.0 }).ok()?;
         Some((at.x as f64, at.y as f64, width, height))

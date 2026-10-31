@@ -1,4 +1,6 @@
 //! `Backend::capture`: `RenderTargetBitmap`, which renders asynchronously.
+//! It doesn't render popups (a popover's flyout): each open one is
+//! rendered on its own and drawn over the capture where it is.
 
 use mitsuami_core::backend::{CaptureError, Image};
 use mitsuami_core::services::Reply;
@@ -20,6 +22,82 @@ struct Pending {
 
 fn failed(error: windows_core::Error) -> CaptureError {
     CaptureError::Failed(error.to_string())
+}
+
+/// Captures `element`, with the popups open over it drawn in.
+pub(crate) fn capture_with_popups(element: w::UIElement, under: Option<w::Color>, reply: CaptureReply) {
+    let popups = open_popups(&element).unwrap_or_default();
+    capture(
+        element,
+        under,
+        Box::new(move |captured| match captured {
+            Ok(image) => draw_popups(image, popups, reply),
+            Err(error) => reply(Err(error)),
+        }),
+    );
+}
+
+/// The content of each popup open in `element`'s window, and where it is
+/// over `element`, in logical units.
+fn open_popups(element: &w::UIElement) -> windows_core::Result<Vec<(w::UIElement, f64, f64)>> {
+    let root = element.cast::<w::IUIElement>()?.XamlRoot()?;
+    let mut popups = Vec::new();
+    for popup in w::VisualTreeHelper::GetOpenPopupsForXamlRoot(&root)? {
+        let Ok(child) = popup.cast::<w::IPopup>().and_then(|p| p.Child()) else { continue };
+        let Ok(at) = child
+            .cast::<w::IUIElement>()
+            .and_then(|c| c.TransformToVisual(element))
+            .and_then(|t| t.TransformPoint(w::Point { x: 0.0, y: 0.0 }))
+        else {
+            continue;
+        };
+        popups.push((child, at.x as f64, at.y as f64));
+    }
+    Ok(popups)
+}
+
+/// Captures each popup's content in turn and draws it over `image`; one
+/// that can't be captured is left out.
+fn draw_popups(mut image: Image, mut popups: Vec<(w::UIElement, f64, f64)>, reply: CaptureReply) {
+    let Some((child, x, y)) = popups.pop() else { return reply(Ok(image)) };
+    capture(
+        child,
+        None,
+        Box::new(move |captured| {
+            if let Ok(over) = captured {
+                let scale = image.scale_factor as f64;
+                draw_over(&mut image, &over, (x * scale).round() as i64, (y * scale).round() as i64);
+            }
+            draw_popups(image, popups, reply);
+        }),
+    );
+}
+
+/// Draws `over`, straight RGBA, onto `image` with its top left at (x, y)
+/// in physical pixels, clipped to `image`.
+fn draw_over(image: &mut Image, over: &Image, x: i64, y: i64) {
+    for row in 0..over.height as i64 {
+        let ty = y + row;
+        if ty < 0 || ty >= image.height as i64 {
+            continue;
+        }
+        for col in 0..over.width as i64 {
+            let tx = x + col;
+            if tx < 0 || tx >= image.width as i64 {
+                continue;
+            }
+            let src = &over.rgba[((row * over.width as i64 + col) * 4) as usize..][..4];
+            let i = ((ty * image.width as i64 + tx) * 4) as usize;
+            let dst = &mut image.rgba[i..i + 4];
+            let a = src[3] as u32;
+            let under = dst[3] as u32 * (255 - a) / 255;
+            let out = a + under;
+            for c in 0..3 {
+                dst[c] = (src[c] as u32 * a + dst[c] as u32 * under).checked_div(out).unwrap_or(0) as u8;
+            }
+            dst[3] = out as u8;
+        }
+    }
 }
 
 pub(crate) fn capture(element: w::UIElement, under: Option<w::Color>, reply: CaptureReply) {
