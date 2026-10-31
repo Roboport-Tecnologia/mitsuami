@@ -9,7 +9,10 @@ use mitsuami_test::prelude::*;
 /// and prominent buttons are the accent colour on AppKit, GTK and WinUI
 /// (not borderless ones); on Qt only default buttons are tinted; cancel
 /// buttons look normal; only GTK draws destructive buttons.
-#[mitsuami_test::story(sizes = [(420, fit)])]
+///
+/// Wide enough for GTK's row, its widest: every button whole, none cut
+/// off at the window's edge.
+#[mitsuami_test::story(sizes = [(480, fit)])]
 fn buttons() -> impl View {
     let roles = [
         ("Normal", ButtonRole::Normal),
@@ -800,7 +803,10 @@ fn menu_buttons() -> impl View {
 /// before it, the icon alone, borderless (AppKit's has one look), and
 /// disabled, beside a plain button for their arrows' room; prominent,
 /// beside a prominent button (AppKit's combo button has no prominence).
-#[mitsuami_test::story(sizes = [(420, fit)])]
+///
+/// Wide enough for GTK's and WinUI's second row, their widest: every
+/// button whole, none cut off at the window's edge.
+#[mitsuami_test::story(sizes = [(500, fit)])]
 fn split_buttons() -> impl View {
     let plus = platform! {
         macos => "plus",
