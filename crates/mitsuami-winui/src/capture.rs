@@ -24,9 +24,14 @@ fn failed(error: windows_core::Error) -> CaptureError {
     CaptureError::Failed(error.to_string())
 }
 
-/// Captures `element`, with the popups open over it drawn in.
+/// Captures `element`, with the popups open over it drawn in. A popup that
+/// can't be is left out, and said so: the capture would look as if it
+/// weren't open.
 pub(crate) fn capture_with_popups(element: w::UIElement, under: Option<w::Color>, reply: CaptureReply) {
-    let popups = open_popups(&element).unwrap_or_default();
+    let popups = open_popups(&element).unwrap_or_else(|e| {
+        eprintln!("mitsuami-winui: a capture can't find the open popups: {e}");
+        Vec::new()
+    });
     capture(
         element,
         under,
@@ -43,13 +48,23 @@ fn open_popups(element: &w::UIElement) -> windows_core::Result<Vec<(w::UIElement
     let root = element.cast::<w::IUIElement>()?.XamlRoot()?;
     let mut popups = Vec::new();
     for popup in w::VisualTreeHelper::GetOpenPopupsForXamlRoot(&root)? {
-        let Ok(child) = popup.cast::<w::IPopup>().and_then(|p| p.Child()) else { continue };
-        let Ok(at) = child
+        let child = match popup.cast::<w::IPopup>().and_then(|p| p.Child()) {
+            Ok(child) => child,
+            Err(e) => {
+                eprintln!("mitsuami-winui: a capture can't read an open popup's content: {e}");
+                continue;
+            }
+        };
+        let at = match child
             .cast::<w::IUIElement>()
             .and_then(|c| c.TransformToVisual(element))
             .and_then(|t| t.TransformPoint(w::Point { x: 0.0, y: 0.0 }))
-        else {
-            continue;
+        {
+            Ok(at) => at,
+            Err(e) => {
+                eprintln!("mitsuami-winui: a capture can't place an open popup: {e}");
+                continue;
+            }
         };
         popups.push((child, at.x as f64, at.y as f64));
     }
@@ -64,9 +79,12 @@ fn draw_popups(mut image: Image, mut popups: Vec<(w::UIElement, f64, f64)>, repl
         child,
         None,
         Box::new(move |captured| {
-            if let Ok(over) = captured {
-                let scale = image.scale_factor as f64;
-                draw_over(&mut image, &over, (x * scale).round() as i64, (y * scale).round() as i64);
+            match captured {
+                Ok(over) => {
+                    let scale = image.scale_factor as f64;
+                    draw_over(&mut image, &over, (x * scale).round() as i64, (y * scale).round() as i64);
+                }
+                Err(e) => eprintln!("mitsuami-winui: a capture can't render an open popup: {e:?}"),
             }
             draw_popups(image, popups, reply);
         }),
