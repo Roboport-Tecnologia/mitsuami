@@ -699,6 +699,33 @@ define_class!(
     pub(crate) struct NodeWindow;
 
     impl NodeWindow {
+        // Drawn for a capture with the active window's appearance, as the
+        // user sees the window they work in: AppKit tints default and
+        // prominent buttons only in the active key window, and a test's
+        // window, never shown, in an app that's never active, has the
+        // inactive one. Controls ask these, not `isKeyWindow` (found by
+        // tracing a capture's messages); AppKit's own, so a macOS that
+        // stops asking them only loses the tint.
+        #[unsafe(method(_hasActiveAppearance))]
+        fn has_active_appearance(&self) -> bool {
+            crate::backend::capturing() || unsafe { msg_send![super(self), _hasActiveAppearance] }
+        }
+
+        #[unsafe(method(_hasActiveAppearanceIgnoringKeyFocus))]
+        fn has_active_appearance_ignoring_key_focus(&self) -> bool {
+            crate::backend::capturing() || unsafe { msg_send![super(self), _hasActiveAppearanceIgnoringKeyFocus] }
+        }
+
+        #[unsafe(method(hasKeyAppearance))]
+        fn has_key_appearance(&self) -> bool {
+            crate::backend::capturing() || unsafe { msg_send![super(self), hasKeyAppearance] }
+        }
+
+        #[unsafe(method(hasMainAppearance))]
+        fn has_main_appearance(&self) -> bool {
+            crate::backend::capturing() || unsafe { msg_send![super(self), hasMainAppearance] }
+        }
+
         #[unsafe(method(keyDown:))]
         fn key_down(&self, event: &NSEvent) {
             let delegate = self.delegate();

@@ -48,6 +48,7 @@ use crate::surface::SurfaceView;
 use crate::tabs::Tabs;
 use crate::toolbar::Toolbar;
 
+pub(crate) use capture::capturing;
 use fonts::metrics;
 use group::group_probe_like;
 pub(crate) use images::ns_image;

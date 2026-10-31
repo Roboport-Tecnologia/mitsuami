@@ -1,13 +1,24 @@
 //! Capturing a view's pixels.
 
+use std::cell::Cell;
+
 use mitsuami_core::NodeId;
 use mitsuami_core::backend::{CaptureError, Image};
-use objc2::Message;
 use objc2::rc::Retained;
 use objc2::runtime::{AnyClass, NSObjectProtocol};
+use objc2::{Message, msg_send, sel};
 use objc2_app_kit::{NSBitmapFormat, NSBitmapImageRep, NSView};
 
 use super::{AppKitBackend, Widget};
+
+thread_local! {
+    static CAPTURING: Cell<bool> = const { Cell::new(false) };
+}
+
+/// Whether a capture is being drawn, which windows draw as the key one.
+pub(crate) fn capturing() -> bool {
+    CAPTURING.get()
+}
 
 impl AppKitBackend {
     pub(super) fn capture_now(&self, id: NodeId) -> Result<Image, CaptureError> {
@@ -61,7 +72,14 @@ impl AppKitBackend {
                 Some((content, superview, frame))
             })
             .collect();
+        // Drawn as the active window, as the user sees the one they work
+        // in (see `NodeWindow`): its views take the key state again, as
+        // AppKit has them do when a window becomes key, and after.
+        CAPTURING.set(true);
+        key_state_changed(&view);
         view.cacheDisplayInRect_toBitmapImageRep(bounds, &rep);
+        CAPTURING.set(false);
+        key_state_changed(&view);
         for (content, superview, frame) in moved {
             content.removeFromSuperview();
             content.setFrame(frame);
@@ -76,6 +94,19 @@ impl AppKitBackend {
         let (width, height, rgba) = pixels(&rep)?;
         let scale = if bounds.size.width > 0.0 { width as f32 / bounds.size.width as f32 } else { 1.0 };
         Ok(Image { width: width as u32, height: height as u32, scale_factor: scale, rgba })
+    }
+}
+
+/// Tells `view` and the views in it that their window's key state changed,
+/// as AppKit does when a window becomes or stops being key: controls keep
+/// the state they draw (a default button's accent), and ask for it again
+/// only then. AppKit's own message; a view without it is left as it is.
+fn key_state_changed(view: &NSView) {
+    if view.respondsToSelector(sel!(_windowChangedKeyState)) {
+        let _: () = unsafe { msg_send![view, _windowChangedKeyState] };
+    }
+    for subview in view.subviews().iter() {
+        key_state_changed(&subview);
     }
 }
 
