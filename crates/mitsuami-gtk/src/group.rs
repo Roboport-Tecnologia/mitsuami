@@ -60,7 +60,10 @@ impl Group {
     /// Sizes the heading and card to the group's frame.
     pub(crate) fn place(&self) {
         let size = self.frames.borrow().get(self.host.upcast_ref::<gtk::Widget>()).map(|f| f.size).unwrap_or_default();
-        let top = if self.heading.is_visible() { heading_height() + HEADING_GAP } else { 0.0 };
+        // Its own flag: `is_visible` asks its ancestors too, and placed
+        // before the window shows, a titled group put its card over the
+        // heading.
+        let top = if self.heading.get_visible() { heading_height() + HEADING_GAP } else { 0.0 };
         let mut frames = self.frames.borrow_mut();
         frames.insert(self.heading.clone().upcast(), Rect::new(0.0, 0.0, size.width, heading_height()));
         frames.insert(self.card.clone().upcast(), Rect::new(0.0, top, size.width, (size.height - top).max(0.0)));

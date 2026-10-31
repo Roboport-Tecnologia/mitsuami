@@ -609,7 +609,7 @@ fn tree_item(cell: &gtk::Widget) -> gtk::Overlay {
 /// Shows a tree item's spinner in place of its arrow while it loads.
 fn show_loading(expander: &gtk::TreeExpander, loading: bool) {
     let Some(spinner) = expander.parent().and_downcast::<gtk::Overlay>().and_then(|o| o.last_child()) else { return };
-    if spinner.is_visible() == loading {
+    if spinner.get_visible() == loading {
         return;
     }
     expander.set_hide_expander(loading);
@@ -1132,7 +1132,7 @@ impl List {
                 .parent()
                 .and_then(|expander| expander.parent())
                 .and_then(|overlay| overlay.last_child())
-                .is_some_and(|spinner| spinner.is_visible()),
+                .is_some_and(|spinner| spinner.get_visible()),
             None => true,
         };
         let loading = data.loading.as_ref()?;

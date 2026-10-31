@@ -172,7 +172,7 @@ impl Split {
 
     /// Which panes show, from their wrappers.
     pub(crate) fn shown(&self) -> [bool; 2] {
-        [self.wrappers[0].is_visible(), self.wrappers[1].is_visible()]
+        [self.wrappers[0].get_visible(), self.wrappers[1].get_visible()]
     }
 
     /// The app's position: the core lays the panes out at it.
