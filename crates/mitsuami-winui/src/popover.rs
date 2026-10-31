@@ -25,6 +25,9 @@ struct State {
     /// What the core asked for. The flyout's `Closed` comes after it
     /// closes, so one that closes while it's still wanted is the user's.
     wanted: Cell<bool>,
+    /// The backend is closing it: its `Closed` isn't the user's. Wanted
+    /// again before that, it shows again then.
+    hiding: Cell<bool>,
     anchor: RefCell<Option<w::FrameworkElement>>,
     /// Windows are shown: off in tests (see above).
     on_screen: bool,
@@ -57,13 +60,20 @@ impl Popover {
         base.SetShouldConstrainToRootBounds(!on_screen)?;
         let state = Rc::new(State {
             wanted: Cell::new(false),
+            hiding: Cell::new(false),
             anchor: RefCell::new(None),
             on_screen,
             unstyled: RefCell::default(),
         });
-        let (closing, reported) = (state.clone(), events.clone());
+        let (closing, reported, shown, content) = (state.clone(), events.clone(), flyout.clone(), host.clone());
         let closed = base.Closed(move |_, _| {
-            if closing.wanted.replace(false) {
+            if closing.hiding.replace(false) {
+                // Shown again while it closed: XAML ignored that, as it
+                // was still open.
+                if closing.wanted.get() {
+                    _ = sync(&shown, &content, &closing);
+                }
+            } else if closing.wanted.replace(false) {
                 reported.emit(id, UiEvent::PopoverShownChanged(false));
             }
         })?;
@@ -111,33 +121,15 @@ impl Popover {
     }
 
     fn is_open(&self) -> bool {
-        self.flyout.cast::<w::IFlyoutBase>().and_then(|f| f.IsOpen()).unwrap_or(false)
+        is_open(&self.flyout)
     }
 
-    /// Shows it once it's wanted, has a size and its parent is in a
-    /// window; hides it when it's no longer wanted.
     fn sync(&self) -> R<()> {
-        let open = self.is_open();
-        if !self.state.wanted.get() {
-            return if open { self.hide() } else { Ok(()) };
-        }
-        let fe: w::IFrameworkElement = self.host.cast()?;
-        let empty = |v: f64| v.is_nan() || v <= 0.0;
-        if open || empty(fe.Width()?) || empty(fe.Height()?) {
-            return Ok(());
-        }
-        let Some(anchor) = self.state.anchor.borrow().clone() else { return Ok(()) };
-        if anchor.cast::<w::IUIElement>()?.XamlRoot().is_err() {
-            return Ok(());
-        }
-        self.flyout.cast::<w::IFlyoutBase>()?.ShowAt(&anchor)
+        sync(&self.flyout, &self.host, &self.state)
     }
 
     fn hide(&self) -> R<()> {
-        if self.is_open() {
-            self.flyout.cast::<w::IFlyoutBase>()?.Hide()?;
-        }
-        Ok(())
+        hide(&self.flyout, &self.state)
     }
 
     /// Whether it shows, as XAML shows it.
@@ -171,4 +163,36 @@ impl Popover {
         let at = transform.TransformPoint(w::Point { x: 0.0, y: 0.0 }).ok()?;
         Some((at.x as f64, at.y as f64, width, height))
     }
+}
+
+fn is_open(flyout: &w::Flyout) -> bool {
+    flyout.cast::<w::IFlyoutBase>().and_then(|f| f.IsOpen()).unwrap_or(false)
+}
+
+/// Shows it once it's wanted, has a size and its parent is in a window;
+/// hides it when it's no longer wanted. While it closes, it's left to
+/// `Closed`, which shows it again if it's wanted by then.
+fn sync(flyout: &w::Flyout, host: &w::Canvas, state: &State) -> R<()> {
+    let open = is_open(flyout);
+    if !state.wanted.get() {
+        return if open { hide(flyout, state) } else { Ok(()) };
+    }
+    let fe: w::IFrameworkElement = host.cast()?;
+    let empty = |v: f64| v.is_nan() || v <= 0.0;
+    if open || empty(fe.Width()?) || empty(fe.Height()?) {
+        return Ok(());
+    }
+    let Some(anchor) = state.anchor.borrow().clone() else { return Ok(()) };
+    if anchor.cast::<w::IUIElement>()?.XamlRoot().is_err() {
+        return Ok(());
+    }
+    flyout.cast::<w::IFlyoutBase>()?.ShowAt(&anchor)
+}
+
+fn hide(flyout: &w::Flyout, state: &State) -> R<()> {
+    if is_open(flyout) {
+        state.hiding.set(true);
+        flyout.cast::<w::IFlyoutBase>()?.Hide()?;
+    }
+    Ok(())
 }
