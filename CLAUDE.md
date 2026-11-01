@@ -147,12 +147,8 @@ WinUI bindings are generated: add types and members to
 
 1. Bump the version in `Cargo.toml`: `[workspace.package]`'s `version` and
    every `=X.Y.Z` in `[workspace.dependencies]`, and, for a minor or major
-   version, the README's install snippets (`mitsuami = "1.3"`).
-   mitsuami-extras (`../mitsuami-extras`) depends on this checkout by path
-   with a version: bump its `Cargo.toml`'s `version = "X.Y.Z"` for
-   `mitsuami` and `mitsuami-test` in the same push, or extras, and the
-   SourceGit port's edge build with it, stop building. Any cargo command then
-   updates `Cargo.lock`; refresh the examples' own lockfiles too
+   version, the README's install snippets (`mitsuami = "1.3"`). Any cargo
+   command then updates `Cargo.lock`; refresh the examples' own lockfiles too
    (`cargo metadata --manifest-path examples/<name>/Cargo.toml` for
    `showcase` and `gpu-surface`).
 2. Write `docs/release-notes/vX.Y.Z.md`: a one-line summary
@@ -173,6 +169,10 @@ WinUI bindings are generated: add types and members to
    the tag matches the version, runs the headless tests, publishes the
    crates, builds the showcase and Files apps, and creates the GitHub
    release from the notes file.
+6. Once the crates are out, move mitsuami-extras (`../mitsuami-extras`) to
+   the release: in its `Cargo.toml`, `=X.Y.Z` for `mitsuami`, `mitsuami-test`
+   and the patch, and `tag = "vX.Y.Z"` for `mitsuami-ffi`. The SourceGit
+   port's edge build gets mitsuami through extras.
 
 To fix a release's text afterwards, edit the notes file and
 `gh release edit vX.Y.Z` with the same text, link and Full Changelog
