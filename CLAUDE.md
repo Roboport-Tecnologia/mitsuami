@@ -170,9 +170,10 @@ WinUI bindings are generated: add types and members to
    crates, builds the showcase and Files apps, and creates the GitHub
    release from the notes file.
 6. Once the crates are out, move mitsuami-extras (`../mitsuami-extras`) to
-   the release: in its `Cargo.toml`, `=X.Y.Z` for `mitsuami`, `mitsuami-test`
-   and the patch, and `tag = "vX.Y.Z"` for `mitsuami-ffi`. The SourceGit
-   port's edge build gets mitsuami through extras.
+   the release: in its `Cargo.toml`, `X.Y.Z` (a caret version: extras is a
+   library) for `mitsuami` and `mitsuami-test`, `=X.Y.Z` for the patch, and
+   `tag = "vX.Y.Z"` for `mitsuami-ffi`. The SourceGit port's edge build gets
+   mitsuami through extras.
 
 To fix a release's text afterwards, edit the notes file and
 `gh release edit vX.Y.Z` with the same text, link and Full Changelog
