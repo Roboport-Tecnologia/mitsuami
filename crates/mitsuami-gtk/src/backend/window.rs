@@ -421,6 +421,8 @@ impl State {
             }
         });
         let e = events.clone();
+        window.connect_is_active_notify(move |window| e.emit(id, UiEvent::WindowActiveChanged(window.is_active())));
+        let e = events.clone();
         window.connect_scale_factor_notify(move |_| e.emit(id, UiEvent::MetricsChanged));
         let full_screen = FullScreen::default();
         let (e, fs) = (events.clone(), full_screen.clone());

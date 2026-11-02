@@ -382,6 +382,8 @@ impl State {
             }
         });
         let e = events.clone();
+        window.connect("activeChanged()", move || e.emit(id, UiEvent::WindowActiveChanged(window.is_active())));
+        let e = events.clone();
         window.connect("devicePixelRatioChanged()", move || e.emit(id, UiEvent::MetricsChanged));
         self.pending_show.push(id);
         if drawer.is_some()

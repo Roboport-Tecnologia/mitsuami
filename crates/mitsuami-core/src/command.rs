@@ -130,6 +130,10 @@ pub enum UiEvent {
     FocusOut,
     WindowResized(Size),
     WindowCloseRequested,
+    /// A window became the active one, the one taking keys, or stopped being it. It keeps its
+    /// focused control through this, so no `FocusOut` comes. The core passes it on to the
+    /// `GpuSurface`s in the window, which paint their own carets.
+    WindowActiveChanged(bool),
     /// The user put a window in full screen, or took it out (the title
     /// bar's button, the window manager's key), or the platform did. Not
     /// reported for the app's own `FullScreen`. The core absorbs it as

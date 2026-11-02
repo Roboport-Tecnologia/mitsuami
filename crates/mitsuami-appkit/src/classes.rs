@@ -808,6 +808,17 @@ define_class!(
             false
         }
 
+        // A window resigns key as its app stops being the active one too.
+        #[unsafe(method(windowDidBecomeKey:))]
+        fn window_did_become_key(&self, _notification: &NSNotification) {
+            self.ivars().events.emit(self.ivars().id, UiEvent::WindowActiveChanged(true));
+        }
+
+        #[unsafe(method(windowDidResignKey:))]
+        fn window_did_resign_key(&self, _notification: &NSNotification) {
+            self.ivars().events.emit(self.ivars().id, UiEvent::WindowActiveChanged(false));
+        }
+
         #[unsafe(method(windowDidResize:))]
         fn window_did_resize(&self, notification: &NSNotification) {
             let Some(object) = notification.object() else { return };

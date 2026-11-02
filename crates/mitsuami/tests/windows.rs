@@ -574,6 +574,34 @@ async fn the_user_changes_full_screen_too(app: TestApp) {
     assert!(!full.get_untracked());
 }
 
+/// The app hears its window become active and stop being it, and so does a surface in it, which
+/// keeps its focus. Other windows' surfaces hear nothing.
+#[mitsuami_test::test(headless)]
+async fn the_active_window_is_reported(app: TestApp) {
+    let heard = signal(Vec::<bool>::new());
+    let surface = signal(Vec::<bool>::new());
+    let elsewhere = signal(Vec::<bool>::new());
+    app.mount(move || {
+        Column::new().children((
+            Window::new("Machine").on_active_changed(move |active| heard.update(|h| h.push(active))).content(
+                move || {
+                    GpuSurface::new().label("here").on_window_active(move |active| surface.update(|s| s.push(active)))
+                },
+            ),
+            GpuSurface::new().label("there").on_window_active(move |active| elsewhere.update(|e| e.push(active))),
+        ))
+    });
+    let window = machine(&app).expect("open");
+
+    app.headless().set_window_active(window, false);
+    app.settle().await;
+    app.headless().set_window_active(window, true);
+    app.settle().await;
+    assert_eq!(heard.get_untracked(), [false, true]);
+    assert_eq!(surface.get_untracked(), [false, true]);
+    assert!(elsewhere.get_untracked().is_empty());
+}
+
 /// A window smaller than its minimum grows to it, whenever the minimum
 /// changes, and the app's sizes go no smaller.
 #[mitsuami_test::test]

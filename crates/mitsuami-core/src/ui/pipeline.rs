@@ -33,7 +33,15 @@ impl Ui {
                 inner.absorb(id, &event);
                 let node = inner.nodes.get(&id);
                 let drawn = node.and_then(|n| n.drawn().map(|c| (c.clone(), n.frame.size)));
-                (node.map(|n| n.handlers.clone()).unwrap_or_default(), drawn)
+                let mut handlers = node.map(|n| n.handlers.clone()).unwrap_or_default();
+                if matches!(event, UiEvent::WindowActiveChanged(_)) {
+                    for (surface, node) in &inner.nodes {
+                        if node.kind == WidgetKind::GpuSurface && inner.window_of(*surface) == Some(id) {
+                            handlers.extend(node.handlers.iter().cloned());
+                        }
+                    }
+                }
+                (handlers, drawn)
             };
             // A drawn widget decides what a pointer event means, with the
             // tree free to borrow.

@@ -242,6 +242,17 @@ impl GpuSurface {
         self
     }
 
+    /// The window it's in became the active one, or stopped being it. The surface keeps its
+    /// focus through this: a caret it paints should stop anyway, as a text field's does.
+    pub fn on_window_active(mut self, handler: impl Fn(bool) + 'static) -> GpuSurface {
+        self.0.on(move |event| {
+            if let UiEvent::WindowActiveChanged(active) = event {
+                handler(*active);
+            }
+        });
+        self
+    }
+
     /// The native surface exists: make the GPU surface on it. Called once.
     pub fn on_ready(mut self, handler: impl Fn(SurfaceHandle) + 'static) -> GpuSurface {
         self.0.on(move |event| {

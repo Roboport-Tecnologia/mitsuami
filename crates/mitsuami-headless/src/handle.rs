@@ -65,6 +65,11 @@ impl HeadlessHandle {
         SCREEN
     }
 
+    /// Simulates a window becoming the active one, or another taking over.
+    pub fn set_window_active(&self, window: NodeId, active: bool) {
+        self.state.borrow_mut().emit(window, UiEvent::WindowActiveChanged(active));
+    }
+
     /// Simulates the user putting a window in full screen, or taking it
     /// out (the title bar's button, the window manager's key).
     pub fn set_full_screen(&self, window: NodeId, on: bool) {

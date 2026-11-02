@@ -36,6 +36,7 @@ pub struct Window<T = Value<String>> {
     min_size: Option<Value<Size>>,
     on_open: Option<Rc<dyn Fn()>>,
     on_close_request: Option<Rc<dyn Fn()>>,
+    on_active_changed: Option<Rc<dyn Fn(bool)>>,
     content: Option<Rc<dyn Fn() -> AnyView>>,
 }
 
@@ -53,6 +54,7 @@ impl Window {
             min_size: None,
             on_open: None,
             on_close_request: None,
+            on_active_changed: None,
             content: None,
         }
     }
@@ -146,6 +148,12 @@ impl<T> Window<T> {
         self
     }
 
+    /// Called when it becomes the active window, the one taking keys, or stops being it.
+    pub fn on_active_changed(mut self, handler: impl Fn(bool) + 'static) -> Window<T> {
+        self.on_active_changed = Some(Rc::new(handler));
+        self
+    }
+
     /// What it shows, built each time it opens.
     pub fn content<V: View>(mut self, content: impl Fn() -> V + 'static) -> Window<T> {
         self.content = Some(Rc::new(move || AnyView::new(content())));
@@ -169,6 +177,7 @@ impl View for Window {
             min_size,
             on_open,
             on_close_request,
+            on_active_changed,
             content,
         } = self;
         // The window it's declared in, which a modal window belongs to.
@@ -225,6 +234,13 @@ impl View for Window {
                     }
                 });
             }
+            if let Some(handler) = on_active_changed.clone() {
+                ui.on_event(window, move |event| {
+                    if let UiEvent::WindowActiveChanged(active) = event {
+                        handler(*active);
+                    }
+                });
+            }
             let ui = ui.clone();
             on_cleanup(move || ui.destroy(window));
         };
@@ -277,6 +293,7 @@ impl<T> Window<T> {
             min_size,
             on_open,
             on_close_request,
+            on_active_changed,
             content,
         } = self;
         Window {
@@ -290,6 +307,7 @@ impl<T> Window<T> {
             min_size,
             on_open,
             on_close_request,
+            on_active_changed,
             content,
         }
     }

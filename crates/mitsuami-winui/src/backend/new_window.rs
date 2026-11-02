@@ -315,10 +315,16 @@ impl State {
         revokers.push(iwindow.Activated({
             let (emitter, by_element, focus, tab_order, root) =
                 (emitter.clone(), self.by_element.clone(), focus.clone(), tab_order.clone(), root.clone());
+            // `Activated` also comes for a click on a window that's active already.
+            let active = std::cell::Cell::new(None);
             move |_, args| {
                 let state = args
                     .as_ref()
                     .and_then(|a| a.cast::<w::IWindowActivatedEventArgs>().ok()?.WindowActivationState().ok());
+                let now = state != Some(w::WindowActivationState::Deactivated);
+                if active.replace(Some(now)) != Some(now) {
+                    emitter.emit(id, UiEvent::WindowActiveChanged(now));
+                }
                 if state == Some(w::WindowActivationState::Deactivated) {
                     // GPU surfaces' pointer locks and keyboard grabs end
                     // when the window stops being the active one.
