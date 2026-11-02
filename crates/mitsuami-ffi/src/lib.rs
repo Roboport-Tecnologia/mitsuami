@@ -445,9 +445,15 @@ pub extern "C" fn mitsuami_scroll_to(id: u32, x: f32, y: f32) -> bool {
     .is_some()
 }
 
+thread_local! {
+    /// The windows whose app decides whether they close.
+    static ASKING: std::cell::RefCell<std::collections::HashSet<u32>> = Default::default();
+}
+
 /// Opens a window with `title` and a content size in points; a negative
 /// height follows the content's height, as a dialog's does. Closing it
-/// destroys it; the app ends with its last window.
+/// destroys it, unless `mitsuami_set_asks_before_closing` says the app decides;
+/// the app ends with its last window.
 ///
 /// # Safety
 /// The title is as [`string`] says.
@@ -461,6 +467,7 @@ pub unsafe extern "C" fn mitsuami_create_window(title: *const u8, title_len: usi
         let weak = ui.downgrade();
         ui.on_event(window, move |event| {
             if *event == UiEvent::WindowCloseRequested
+                && !ASKING.with(|asking| asking.borrow().contains(&window.raw()))
                 && let Some(ui) = weak.upgrade()
             {
                 ui.destroy(window);
@@ -469,6 +476,26 @@ pub unsafe extern "C" fn mitsuami_create_window(title: *const u8, title_len: usi
         Ok(window.raw())
     })
     .unwrap_or(0)
+}
+
+/// Whether the app decides if `window` closes. While it does, the user's asking to close it
+/// (its close button, Escape on a modal one, quitting) only reports `CloseRequested`, and the
+/// window stays until the app destroys it.
+#[unsafe(no_mangle)]
+pub extern "C" fn mitsuami_set_asks_before_closing(window: u32, asks: bool) -> bool {
+    guard(|| {
+        ui()?;
+        ASKING.with(|asking| {
+            let mut asking = asking.borrow_mut();
+            if asks {
+                asking.insert(window);
+            } else {
+                asking.remove(&window);
+            }
+        });
+        Ok(())
+    })
+    .is_some()
 }
 
 /// Makes a window just made modal, before it shows: `modality` 0 blocks
@@ -616,6 +643,7 @@ pub extern "C" fn mitsuami_append_child(parent: u32, child: u32) -> bool {
 #[unsafe(no_mangle)]
 pub extern "C" fn mitsuami_destroy(id: u32) -> bool {
     guard(|| {
+        ASKING.with(|asking| asking.borrow_mut().remove(&id));
         ui()?.destroy(node(id));
         Ok(())
     })

@@ -292,6 +292,28 @@ async fn dialogs_are_modal_to_their_window(app: TestApp) {
     assert_eq!(heard(), ["event 5"]);
 }
 
+/// A window whose app decides stays up, and goes when the app destroys it.
+#[mitsuami_test::test]
+async fn an_app_can_decide_whether_a_window_closes(app: TestApp) {
+    attach(app.ui());
+    heard();
+    let title = "Unsaved";
+    let window = unsafe { mitsuami_create_window(title.as_ptr(), title.len(), 400.0, 300.0) };
+    assert!(mitsuami_set_asks_before_closing(window, true));
+    assert!(mitsuami_on_event(window, record, std::ptr::null_mut()));
+    app.settle().await;
+    let found = app.window_titled("Unsaved").expect("it opened");
+
+    app.close_window(found).await;
+    assert_eq!(heard(), ["event 5"]);
+    assert!(app.window_titled("Unsaved").is_some(), "it only asked");
+
+    assert!(mitsuami_set_asks_before_closing(window, false));
+    app.close_window(found).await;
+    assert!(app.window_titled("Unsaved").is_none(), "it no longer asks");
+    assert_eq!(heard(), ["event 5"]);
+}
+
 extern "C" fn alert_answer(_user: *mut c_void, index: usize) {
     HEARD.with(|h| h.borrow_mut().push(format!("button {index}")));
 }
