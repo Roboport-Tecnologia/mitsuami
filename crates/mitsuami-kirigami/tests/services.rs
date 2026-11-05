@@ -1,5 +1,5 @@
 //! The real KDE services, end to end: clipboard, the global drawer menu,
-//! alert dialogs, file dialogs and the trash. App tests use scripted
+//! alert dialogs, file dialogs, the trash and notifications. App tests use scripted
 //! services instead, so this is where the native ones are checked. Runs on
 //! Qt's offscreen platform, whose clipboard is the process's own.
 //!
@@ -319,6 +319,15 @@ mod checks {
         std::fs::remove_file(trashed).unwrap();
         std::fs::remove_file(info).unwrap();
     }
+
+    /// Withdrawing a notification never shown asks the server nothing and
+    /// changes nothing. None is posted here: one would show on the desktop
+    /// of whoever runs the tests.
+    pub fn withdrawing_an_unknown_notification_does_nothing(f: &Fixture) {
+        f.ui.withdraw_notification("never-shown");
+        f.handle.pump();
+        f.ui.tick();
+    }
 }
 
 #[cfg(target_os = "linux")]
@@ -326,7 +335,7 @@ fn main() {
     use std::panic::{AssertUnwindSafe, catch_unwind};
 
     type Check = (&'static str, fn(&checks::Fixture));
-    let checks: [Check; 12] = [
+    let checks: [Check; 13] = [
         ("clipboard_round_trips", checks::clipboard_round_trips),
         ("menus_are_installed_and_activate", checks::menus_are_installed_and_activate),
         ("submenus_check_marks_and_radio_groups", checks::submenus_check_marks_and_radio_groups),
@@ -342,6 +351,7 @@ fn main() {
             checks::file_dialogs_start_in_their_folder_and_offer_every_file,
         ),
         ("trash_moves_files_to_the_home_trash", checks::trash_moves_files_to_the_home_trash),
+        ("withdrawing_an_unknown_notification_does_nothing", checks::withdrawing_an_unknown_notification_does_nothing),
     ];
     let filter: Vec<String> = std::env::args().skip(1).filter(|a| !a.starts_with('-')).collect();
     let fixture = checks::fixture();

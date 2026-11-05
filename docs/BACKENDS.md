@@ -21,7 +21,7 @@ Native wins (ARCHITECTURE.md §1): widgets behave, size and respond as the platf
 | Piece | Where | Reference |
 |---|---|---|
 | `Backend` | `mitsuami_core::Backend` | `mitsuami-appkit/src/backend/` |
-| `Services` (clipboard, dialogs, the trash, launching, menus) | `mitsuami_core::services::Services` | `mitsuami-appkit/src/services.rs` |
+| `Services` (clipboard, dialogs, the trash, launching, notifications, menus) | `mitsuami_core::services::Services` | `mitsuami-appkit/src/services.rs` |
 | `TestHooks` on your shareable handle | `mitsuami_core::TestHooks` | `impl TestHooks for AppKitHandle` |
 | `run(info, setup)`: the app's run loop | your crate | `mitsuami-appkit/src/app.rs` |
 | `init_for_tests()` | your crate | same file |
@@ -480,6 +480,7 @@ Implement `Services`. **Never block**: reply later, from the platform's completi
 | open / save | `NSOpenPanel` / `NSSavePanel` sheets with `UTType` filters | `gtk::FileDialog` (`open`/`open_multiple`/`save`) with `gtk::FileFilter` | the Windows App SDK's pickers (`Microsoft.Windows.Storage.Pickers`: `FileOpenPicker`, `FolderPicker`, `FileSavePicker`), created with the window's `WindowId` | Qt Quick's `FileDialog` / `FolderDialog` (Plasma's own through its platform theme) |
 | trash (async reply, can fail) | `NSFileManager.trashItemAtURL`, on a GCD queue | `gio::File::trash_async`, one after another | `IFileOperation` with `FOF_ALLOWUNDO` and `FOFX_RECYCLEONDELETE`, owned by the window, started from the dispatcher queue | `QFile::moveToTrash` (replies at once) |
 | launch (async reply, can fail) | `NSWorkspace.openURL(_:configuration:completionHandler:)`, the reply sent back to the main queue | GIO's default app (`launch_default_for_uri_async`); `gtk::FileLauncher` / `gtk::UriLauncher` on the window, which ask, for types with none | `ShellExecuteExW` (default verb) owned by the window, from the dispatcher queue | `QDesktopServices::openUrl` (replies at once) |
+| notifications (async reply, can fail) | `UNUserNotificationCenter`: `requestAuthorizationWithOptions`, then `addNotificationRequest` with the id as identifier; `removeDeliveredNotificationsWithIdentifiers` withdraws | `gio::Application::send_notification(Some(id))` from a `GApplication` with the app's id, registered on the session bus without its loop; `withdraw_notification` | `AppNotificationManager::Show` with the id as tag, `RemoveByTagAsync`; registered on first use | `org.freedesktop.Notifications` over QtDBus: `Notify` with `replaces_id`, the `desktop-entry` hint and a `default` action; `CloseNotification` |
 | menus | the global `NSMenu` bar: the app menu, the app's File, Edit, the rest; a window's own menus while it's main | the header bar's primary menu (a `gio::Menu` section per menu) in each window, the sidebar's header bar in a window with one | a `MenuBar` in each window, under the title bar or, with `winui::set_menu_bar_place(MenuBarPlace::InTitleBar)`, in the `TitleBar`'s `Content` after the title, or with `MenuBarPlace::InTitleBarStart` in its `LeftHeader` before it | a `Kirigami.GlobalDrawer` shown as a menu (`isMenu`) in each window |
 | submenus | `NSMenuItem.submenu` | `gio::Menu::append_submenu` | `MenuFlyoutSubItem` | nested `Kirigami.Action`s |
 | check / radio items | `NSMenuItem.state` | a stateful action (boolean; a radio item's holds its id, its target) | `ToggleMenuFlyoutItem` / `RadioMenuFlyoutItem` (`GroupName`) | `checkable` actions; a radio group in one `QQC2.ActionGroup` |
@@ -491,6 +492,8 @@ Implement `Services`. **Never block**: reply later, from the platform's completi
 - **A file dialog's `start_folder`** is where it opens: take `services::existing_folder(&request.start_folder)`, which is `None` for a folder that isn't there, and leave the choice to the platform then. **A `FileFilter` with no extensions** (`FileFilter::all`, `is_all`) lets every file through: a filter of its own where the platform offers a choice of filters, and no restriction at all where it only has one list of allowed types (AppKit). `OpenFile::directories` opens folders.
 - **Trash** each item in turn and reply with the first failure (or in one operation, where the platform's own trashes a selection that way, as WinUI's `IFileOperation` does): `ServiceError::Unavailable` when the item's disk has no trash (so the app can offer to delete it), `Cancelled` when the user said no to the platform's own question, `Failed` with the platform's reason otherwise.
 - **Launch** as the file manager's double-click does, and let the platform handle an unset app (its own "which app?" or "no app" UI). `Cancelled` when the user dismissed that, `Unavailable` when there is no app. Don't run an opener as a process. A URL in a scheme the platform's maker turned off or warned against after attacks used it is `Unavailable` without asking the system: on Windows `ms-msdt:`, `search-ms:`, `search:`, `ms-officecmd:` and `ms-appinstaller:`, compared without case.
+
+- **Notify** where the platform shows its apps' notifications, replacing the one with the same id (`notification.id` is always set), and reply once the platform has it: `Cancelled` where the platform says the user turned the app's notifications off (macOS's authorization, WinUI's `Setting`), `Unavailable` where there's nothing to show it (no bundle on macOS, no session bus or server on Linux). Never `Cancelled` where the platform doesn't say: GNOME Shell and Plasma drop or hide them themselves. On a click, bring the app forward as the platform's own apps come forward (on Wayland, with the activation token the server gives), then call the last `activated` with the id, on the main thread. Add nothing the platform's notifications don't have.
 
 ### 8.1 Menus
 
@@ -718,6 +721,7 @@ The contract is async wherever **any** platform might complete the work later. R
 | `alert`, `open_file`, `save_file` | the user answers later |
 | `trash` | GTK's trash is async, and Windows may ask the user first |
 | `launch` | the platform may ask which app, and AppKit's and GTK's answers come later |
+| `notify` | macOS asks the user first, and Kirigami's server answers over D-Bus |
 
 | Sync | Why it can stay sync |
 |---|---|

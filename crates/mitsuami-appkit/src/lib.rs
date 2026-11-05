@@ -30,6 +30,8 @@ mod list;
 #[cfg(target_os = "macos")]
 mod locale;
 #[cfg(target_os = "macos")]
+mod notifications;
+#[cfg(target_os = "macos")]
 mod number_field;
 #[cfg(target_os = "macos")]
 mod popover;

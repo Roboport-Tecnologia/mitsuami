@@ -42,6 +42,8 @@ fn in_chrome(kind: WidgetKind) -> bool {
 
 pub(crate) type Handler = Rc<dyn Fn(&UiEvent)>;
 type Handler0 = Rc<dyn Fn()>;
+/// Runs with the id of a notification the user clicked.
+type NotificationHandler = Rc<dyn Fn(&str)>;
 
 struct Node {
     kind: WidgetKind,
@@ -159,6 +161,14 @@ struct Inner {
     /// The app's Quit item in each menu bar (the app's, `None`, or a
     /// window's), if it has one that's enabled.
     quit_items: BTreeMap<Option<NodeId>, u32>,
+    /// What runs when the user clicks a notification, by the token
+    /// `on_notification_activated` removes it with when its scope ends.
+    notification_handlers: BTreeMap<u64, NotificationHandler>,
+    next_notification_handler: u64,
+    /// The ids of the notifications clicked, for the next dispatch.
+    notification_queue: std::collections::VecDeque<String>,
+    /// For the ids the core gives notifications the app didn't name.
+    next_notification: u64,
     /// Last focus order sent, per window.
     focus_orders: BTreeMap<NodeId, Vec<NodeId>>,
     /// Whether a tab index, or what a page shown or a surface taking input
@@ -272,6 +282,10 @@ impl Ui {
                 next_menu_id: 1,
                 menu_queue: Default::default(),
                 quit_items: BTreeMap::new(),
+                notification_handlers: BTreeMap::new(),
+                next_notification_handler: 1,
+                notification_queue: Default::default(),
+                next_notification: 1,
                 commit_scheduler: None,
                 commit_scheduled: false,
                 language: None,

@@ -9,7 +9,7 @@ use std::task::{Poll, Waker};
 
 use crate::ui::Ui;
 
-use super::{Alert, Launch, MenuBar, OpenFile, Reply, SaveFile, ServiceError};
+use super::{Alert, Launch, MenuBar, Notification, OpenFile, Reply, SaveFile, ServiceError};
 
 struct OneShot<T> {
     value: Option<T>,
@@ -83,6 +83,24 @@ pub fn launch(path: &Path) -> impl Future<Output = Result<(), ServiceError>> + u
 /// Opens a URL in the app set for its scheme (the browser for `https:`).
 pub fn launch_url(url: &str) -> impl Future<Output = Result<(), ServiceError>> + use<> {
     ui().launch(None, Launch::Url(url.to_owned()))
+}
+
+/// Shows a notification outside the app's windows, as the platform shows
+/// its apps'; see [`Services::notify`](super::Services::notify). Resolves
+/// once the platform has it.
+pub fn notify(notification: Notification) -> impl Future<Output = Result<(), ServiceError>> + use<> {
+    ui().notify(notification)
+}
+
+/// Takes away the notification with this id, if it's still there.
+pub fn withdraw_notification(id: &str) {
+    ui().withdraw_notification(id);
+}
+
+/// Runs `handler` with a notification's id when the user clicks it, until
+/// the current scope ends; see [`Ui::on_notification_activated`].
+pub fn on_notification_activated(handler: impl Fn(&str) + 'static) {
+    ui().on_notification_activated(handler);
 }
 
 /// Installs the app's menus; see [`Ui::set_menu`]. A window's own menus

@@ -8,7 +8,8 @@ use std::rc::Rc;
 
 use mitsuami_core::NodeId;
 use mitsuami_core::services::{
-    Alert, Launch, MenuBarData, MenuItemData, OpenFile, Reply, SaveFile, ServiceError, Services, find_menu_item,
+    Alert, Launch, MenuBarData, MenuItemData, Notification, OpenFile, Reply, SaveFile, ServiceError, Services,
+    find_menu_item,
 };
 
 /// A request waiting for the test to answer it.
@@ -52,6 +53,12 @@ struct State {
     saves: VecDeque<PendingSave>,
     trashes: VecDeque<PendingTrash>,
     launches: VecDeque<PendingLaunch>,
+    /// The notifications showing, oldest first.
+    notifications: Vec<Notification>,
+    /// What `notify` answers: the platform taking it, until a test says
+    /// the user turned notifications off.
+    notification_answer: Option<ServiceError>,
+    notification_activated: Option<Rc<dyn Fn(String)>>,
     menu: Option<MenuBarData>,
     window_menus: BTreeMap<NodeId, MenuBarData>,
     activate: Option<Rc<dyn Fn(u32)>>,
@@ -109,6 +116,36 @@ impl FakeServicesHandle {
     /// The oldest request to open something in another app.
     pub fn take_launch(&self) -> Option<PendingLaunch> {
         self.state.borrow_mut().launches.pop_front()
+    }
+
+    /// The notifications showing, oldest first: those withdrawn or
+    /// clicked are gone, and one replaced by another with its id is where
+    /// it was, with the new text.
+    pub fn notifications(&self) -> Vec<Notification> {
+        self.state.borrow().notifications.clone()
+    }
+
+    /// Makes `notify` fail with `error` from now on (`Cancelled`: the user
+    /// turned the app's notifications off; `Unavailable`: nothing to show
+    /// them), or show them again with `None`.
+    pub fn set_notification_error(&self, error: Option<ServiceError>) {
+        self.state.borrow_mut().notification_answer = error;
+    }
+
+    /// Clicks the notification with this id, as the user would: it goes
+    /// from the list and the app hears of it. Returns `false` if there's
+    /// none.
+    pub fn click_notification(&self, id: &str) -> bool {
+        let activated = {
+            let mut state = self.state.borrow_mut();
+            let Some(at) = state.notifications.iter().position(|n| n.id.as_deref() == Some(id)) else { return false };
+            state.notifications.remove(at);
+            state.notification_activated.clone()
+        };
+        if let Some(activated) = activated {
+            activated(id.to_owned());
+        }
+        true
     }
 
     /// Requests of any kind still waiting for an answer.
@@ -181,6 +218,33 @@ impl Services for FakeServices {
 
     fn launch(&mut self, parent: Option<NodeId>, target: &Launch, reply: Reply<Result<(), ServiceError>>) {
         self.state.borrow_mut().launches.push_back(Pending { request: target.clone(), parent, reply });
+    }
+
+    fn notify(
+        &mut self,
+        notification: &Notification,
+        activated: Rc<dyn Fn(String)>,
+        reply: Reply<Result<(), ServiceError>>,
+    ) {
+        let answer = {
+            let mut state = self.state.borrow_mut();
+            match state.notification_answer.clone() {
+                Some(error) => Err(error),
+                None => {
+                    match state.notifications.iter_mut().find(|n| n.id == notification.id) {
+                        Some(shown) => *shown = notification.clone(),
+                        None => state.notifications.push(notification.clone()),
+                    }
+                    state.notification_activated = Some(activated);
+                    Ok(())
+                }
+            }
+        };
+        reply(answer);
+    }
+
+    fn withdraw_notification(&mut self, id: &str) {
+        self.state.borrow_mut().notifications.retain(|n| n.id.as_deref() != Some(id));
     }
 
     /// Alerts and file dialogs asked for on the window answer as their

@@ -242,6 +242,14 @@ Microsoft.Windows.Storage.Pickers.IFolderPicker::PickSingleFolderAsync
 Microsoft.Windows.Storage.Pickers.IFolderPicker2::put_SuggestedFolder
 Microsoft.Windows.Storage.Pickers.IPickFileResult::get_Path
 Microsoft.Windows.Storage.Pickers.IPickFolderResult::get_Path
+Microsoft.Windows.AppNotifications.AppNotificationManager::{get_Default, IsSupported}
+Microsoft.Windows.AppNotifications.IAppNotificationManager::{Register, Unregister, add_NotificationInvoked, remove_NotificationInvoked, Show, RemoveByTagAsync, get_Setting}
+Microsoft.Windows.AppNotifications.AppNotificationSetting
+Microsoft.Windows.AppNotifications.AppNotification::{}
+Microsoft.Windows.AppNotifications.AppNotificationActivatedEventArgs::{}
+Microsoft.Windows.AppNotifications.IAppNotificationActivatedEventArgs2::get_Arguments
+Microsoft.Windows.AppNotifications.Builder.AppNotificationBuilder::CreateInstance
+Microsoft.Windows.AppNotifications.Builder.IAppNotificationBuilder::{AddArgument, AddText, SetTag, BuildNotification}
 Windows.UI.ViewManagement.UISettings::CreateInstance
 Windows.UI.ViewManagement.IUISettings::get_AnimationsEnabled
 Windows.UI.ViewManagement.IUISettings2::get_TextScaleFactor
@@ -554,6 +562,9 @@ Windows.Win32.ERROR_CANCELLED
 Windows.Win32.ShellExecuteExW
 Windows.Win32.SHELLEXECUTEINFOW
 Windows.Win32.SW_SHOWNORMAL
+Windows.Win32.SW_RESTORE
+Windows.Win32.ShowWindow
+Windows.Win32.IsIconic
 Windows.Win32.GetLastError
 Windows.Win32.ERROR_NO_ASSOCIATION
 Windows.Win32.IShellItemImageFactory::GetImage

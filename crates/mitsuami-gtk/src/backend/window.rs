@@ -420,8 +420,13 @@ impl State {
                 }
             }
         });
-        let e = events.clone();
-        window.connect_is_active_notify(move |window| e.emit(id, UiEvent::WindowActiveChanged(window.is_active())));
+        let (e, last_active) = (events.clone(), self.last_active.clone());
+        window.connect_is_active_notify(move |window| {
+            if window.is_active() {
+                last_active.set(Some(id));
+            }
+            e.emit(id, UiEvent::WindowActiveChanged(window.is_active()))
+        });
         let e = events.clone();
         window.connect_scale_factor_notify(move |_| e.emit(id, UiEvent::MetricsChanged));
         let full_screen = FullScreen::default();

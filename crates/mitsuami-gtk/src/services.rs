@@ -1,4 +1,5 @@
-//! Clipboard, dialogs, the trash, launching and menus on GTK 4.
+//! Clipboard, dialogs, the trash, launching, notifications and menus on
+//! GTK 4.
 //!
 //! GNOME apps have no menu bar: the app's menus go in a menu button at the
 //! end of each window's header bar (the "primary menu", F10), one section
@@ -18,8 +19,8 @@ use std::rc::{Rc, Weak};
 use gtk::prelude::*;
 use gtk::{gdk, gio, glib};
 use mitsuami_core::services::{
-    Alert, Launch, MenuBarData, MenuCheck, MenuData, MenuEntry, MenuItemData, MenuOnOpen, MenuRole, OpenFile, Reply,
-    SaveFile, ServiceError, Services, Shortcut, existing_folder, menu_item_by_id,
+    Alert, Launch, MenuBarData, MenuCheck, MenuData, MenuEntry, MenuItemData, MenuOnOpen, MenuRole, Notification,
+    OpenFile, Reply, SaveFile, ServiceError, Services, Shortcut, existing_folder, menu_item_by_id,
 };
 use mitsuami_core::{ActionError, Key, NodeId};
 
@@ -955,6 +956,22 @@ impl Services for GtkServices {
                 result => reply(result.map_err(|error| ServiceError::Failed(error.message().to_owned()))),
             }
         });
+    }
+
+    /// A `GNotification` under the app's id, as GNOME apps send them; see
+    /// the `notifications` module. GIO sends it on without an answer, so
+    /// it's the platform's once sent.
+    fn notify(
+        &mut self,
+        notification: &Notification,
+        activated: Rc<dyn Fn(String)>,
+        reply: Reply<Result<(), ServiceError>>,
+    ) {
+        reply(crate::notifications::notify(&self.backend, notification, activated));
+    }
+
+    fn withdraw_notification(&mut self, id: &str) {
+        crate::notifications::withdraw(&self.backend, id);
     }
 
     /// GTK's dialogs take a cancellable for this: cancelled, they close and

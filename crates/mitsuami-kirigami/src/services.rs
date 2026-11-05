@@ -1,4 +1,5 @@
-//! Clipboard, dialogs, the trash, launching and menus on KDE.
+//! Clipboard, dialogs, the trash, launching, notifications and menus on
+//! KDE.
 //!
 //! Kirigami apps put their menus in a global drawer shown as a menu
 //! (`isMenu`): a hamburger button in the page toolbar, one submenu per app
@@ -18,12 +19,13 @@ use std::rc::Rc;
 use mitsuami_core::l10n::tr;
 use mitsuami_core::services::{
     Alert, AlertStyle, FileFilter, Launch, MenuBarData, MenuCheck, MenuData, MenuEntry, MenuItemData, MenuOnOpen,
-    MenuRole, OpenFile, Reply, SaveFile, ServiceError, Services, Shortcut, existing_folder,
+    MenuRole, Notification, OpenFile, Reply, SaveFile, ServiceError, Services, Shortcut, existing_folder,
 };
 use mitsuami_core::{Key, NodeId};
 
 use crate::backend::{KirigamiHandle, WindowRoot, dialog_parent};
 use crate::ffi::{self, QmlObject, js_string};
+use crate::notifications::Notifications;
 
 /// The menus the app installed: the app's, and each window's own.
 #[derive(Default)]
@@ -601,11 +603,12 @@ fn retire(menu: QmlObject) {
 
 pub struct KirigamiServices {
     backend: KirigamiHandle,
+    notifications: Notifications,
 }
 
 impl KirigamiServices {
     pub(crate) fn new(backend: KirigamiHandle) -> KirigamiServices {
-        KirigamiServices { backend }
+        KirigamiServices { backend, notifications: Notifications::default() }
     }
 }
 
@@ -804,6 +807,23 @@ impl Services for KirigamiServices {
             Launch::Url(url) => ffi::open_url(url, false),
         };
         reply(if opened { Ok(()) } else { Err(ServiceError::Unavailable) });
+    }
+
+    /// Through the session's notification server, as KNotification sends
+    /// Plasma's apps' (see `notifications`). The server takes what the user
+    /// turned off and doesn't show it, so this never answers `Cancelled`;
+    /// no session bus or no server is `Unavailable`.
+    fn notify(
+        &mut self,
+        notification: &Notification,
+        activated: Rc<dyn Fn(String)>,
+        reply: Reply<Result<(), ServiceError>>,
+    ) {
+        self.notifications.notify(notification.clone(), activated, reply);
+    }
+
+    fn withdraw_notification(&mut self, id: &str) {
+        self.notifications.withdraw(id);
     }
 
     /// Rejected as Escape would, while the window (whose overlay holds an

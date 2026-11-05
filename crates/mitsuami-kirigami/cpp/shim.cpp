@@ -6,6 +6,11 @@
 #include <QApplication>
 #include <QClipboard>
 #include <QCursor>
+#include <QDBusConnection>
+#include <QDBusError>
+#include <QDBusMessage>
+#include <QDBusPendingCallWatcher>
+#include <QDBusPendingReply>
 #include <QDesktopServices>
 #include <QFile>
 #include <QFileInfo>
@@ -50,12 +55,16 @@
 #include <QUrl>
 #include <atomic>
 #include <cstring>
+#include <functional>
 #include <optional>
+#include <utility>
 
 static mq_callback g_callback = nullptr;
 static mq_input_callback g_input = nullptr;
 static mq_gone_callback g_gone = nullptr;
 static QQmlEngine* g_engine = nullptr;
+// The window the user last used, which a click on a notification raises.
+static QPointer<QWindow> g_last_focus;
 
 // Pixels the app has in memory, for QML `Image`s: `image://mitsuami/<key>`.
 // Qt may ask from its image loading thread, hence the lock; QImages are
@@ -751,6 +760,7 @@ void mq_init(mq_callback callback) {
     // QML's `active` is also true for a focused window's transient parent,
     // and so for its siblings, and Qt's window shortcuts match by it.
     QObject::connect(app, &QGuiApplication::focusWindowChanged, app, [](QWindow* focus) {
+        if (focus && focus->type() != Qt::Popup && focus->type() != Qt::ToolTip) g_last_focus = focus;
         for (QWindow* window : QGuiApplication::allWindows()) {
             if (window->metaObject()->indexOfProperty("mitsuamiFocused") >= 0) {
                 window->setProperty("mitsuamiFocused", window == focus);
@@ -1623,4 +1633,144 @@ void mq_tree_remove(QObject* model, uint64_t parent, int32_t at, int32_t count) 
 void mq_tree_move(QObject* model, uint64_t parent, int32_t from, int32_t count, int32_t to) {
     static_cast<TreeModel*>(model)->move(parent, from, count, to);
 }
+}
+
+// ------------------------------------------------------------ notifications
+
+// What Plasma's own notifications are under KNotification: the
+// freedesktop.org server on the session bus.
+static const QString kNotifyService = QStringLiteral("org.freedesktop.Notifications");
+static const QString kNotifyPath = QStringLiteral("/org/freedesktop/Notifications");
+
+static mq_notify_callback g_notify = nullptr;
+
+static void notify_call(uint64_t key, int32_t kind, uint32_t id = 0, uint32_t reason = 0, const QString& text = {}) {
+    if (!g_notify || g_exiting) return;
+    QByteArray bytes = text.toUtf8();
+    g_notify(key, kind, id, reason, bytes.constData());
+}
+
+void NotificationWatcher::actionInvoked(uint id, const QString& action) {
+    notify_call(key, MQ_NOTIFICATION_ACTION, id, 0, action);
+}
+
+void NotificationWatcher::activationToken(uint id, const QString& token) {
+    notify_call(key, MQ_NOTIFICATION_TOKEN, id, 0, token);
+}
+
+void NotificationWatcher::closed(uint id, uint reason) { notify_call(key, MQ_NOTIFICATION_CLOSED, id, reason); }
+
+void mq_set_notify_callback(mq_notify_callback callback) { g_notify = callback; }
+
+int32_t mq_watch_notifications(uint64_t key) {
+    QDBusConnection bus = QDBusConnection::sessionBus();
+    if (!bus.isConnected()) return 0;
+    // By the service's name: Qt follows whoever owns it, and a server that
+    // starts later (D-Bus activates it for the first notification).
+    auto* watcher = new NotificationWatcher(key);
+    watcher->setParent(qApp);
+    bus.connect(kNotifyService, kNotifyPath, kNotifyService, QStringLiteral("ActionInvoked"), watcher,
+                SLOT(actionInvoked(uint, QString)));
+    bus.connect(kNotifyService, kNotifyPath, kNotifyService, QStringLiteral("ActivationToken"), watcher,
+                SLOT(activationToken(uint, QString)));
+    bus.connect(kNotifyService, kNotifyPath, kNotifyService, QStringLiteral("NotificationClosed"), watcher,
+                SLOT(closed(uint, uint)));
+    return 1;
+}
+
+// What the server can do (`actions`, `body-markup`), asked once, before
+// the first notification, as KNotification does; those sent meanwhile wait.
+static std::optional<QStringList> g_notify_capabilities;
+static QList<std::function<void()>> g_notify_waiting;
+
+static void with_capabilities(QDBusConnection bus, std::function<void()> then) {
+    if (g_notify_capabilities) return then();
+    g_notify_waiting.append(std::move(then));
+    if (g_notify_waiting.size() > 1) return;
+    auto message = QDBusMessage::createMethodCall(kNotifyService, kNotifyPath, kNotifyService,
+                                                  QStringLiteral("GetCapabilities"));
+    auto* watcher = new QDBusPendingCallWatcher(bus.asyncCall(message), qApp);
+    QObject::connect(watcher, &QDBusPendingCallWatcher::finished, qApp, [](QDBusPendingCallWatcher* call) {
+        QDBusPendingReply<QStringList> reply = *call;
+        call->deleteLater();
+        // Without an answer, none: the notification then says what's wrong.
+        g_notify_capabilities = reply.isError() ? QStringList() : reply.value();
+        const auto waiting = std::exchange(g_notify_waiting, {});
+        for (const auto& then : waiting) then();
+    });
+}
+
+// Nothing on the bus to show it: no server, or one D-Bus couldn't start.
+static bool no_server(const QDBusError& error) {
+    switch (error.type()) {
+    case QDBusError::ServiceUnknown:
+    case QDBusError::NoServer:
+    case QDBusError::Disconnected:
+        return true;
+    default:
+        return error.name() == QLatin1String("org.freedesktop.DBus.Error.NameHasNoOwner")
+               || error.name().startsWith(QLatin1String("org.freedesktop.DBus.Error.Spawn."));
+    }
+}
+
+void mq_notify(uint64_t key, uint32_t replaces, const char* title, const char* body) {
+    QDBusConnection bus = QDBusConnection::sessionBus();
+    if (!bus.isConnected()) return notify_call(key, MQ_NOTIFY_UNAVAILABLE);
+    const QString summary = QString::fromUtf8(title), text = body ? QString::fromUtf8(body) : QString();
+    with_capabilities(bus, [bus, key, replaces, summary, text]() {
+        const QStringList& capabilities = *g_notify_capabilities;
+        // The app's name and icon, and its desktop file, by which Plasma
+        // groups its notifications and lists the app in its settings.
+        QString name = QGuiApplication::applicationDisplayName();
+        if (name.isEmpty()) name = QGuiApplication::applicationName();
+        QVariantMap hints;
+        if (const QString id = QGuiApplication::desktopFileName(); !id.isEmpty())
+            hints.insert(QStringLiteral("desktop-entry"), id);
+        // The click is the default action, which servers show as no button.
+        QStringList actions;
+        if (capabilities.contains(QLatin1String("actions"))) actions << QStringLiteral("default") << QString();
+        // The app's text is plain: where the server reads markup, `<` is text.
+        const bool markup = capabilities.contains(QLatin1String("body-markup"));
+        auto message = QDBusMessage::createMethodCall(kNotifyService, kNotifyPath, kNotifyService,
+                                                      QStringLiteral("Notify"));
+        message << name << uint(replaces) << QGuiApplication::windowIcon().name() << summary
+                << (markup ? text.toHtmlEscaped() : text) << actions << hints << int32_t(-1);
+        auto* watcher = new QDBusPendingCallWatcher(bus.asyncCall(message), qApp);
+        QObject::connect(watcher, &QDBusPendingCallWatcher::finished, qApp, [key](QDBusPendingCallWatcher* call) {
+            QDBusPendingReply<uint> reply = *call;
+            call->deleteLater();
+            if (!reply.isError()) return notify_call(key, MQ_NOTIFY_SHOWN, reply.value());
+            if (no_server(reply.error())) return notify_call(key, MQ_NOTIFY_UNAVAILABLE);
+            notify_call(key, MQ_NOTIFY_FAILED, 0, 0, reply.error().message());
+        });
+    });
+}
+
+void mq_close_notification(uint32_t id) {
+    QDBusConnection bus = QDBusConnection::sessionBus();
+    auto message = QDBusMessage::createMethodCall(kNotifyService, kNotifyPath, kNotifyService,
+                                                  QStringLiteral("CloseNotification"));
+    message << uint(id);
+    bus.send(message);
+}
+
+// As KDE apps answer a click on their notification (KWindowSystem): the
+// server's token goes where Qt's Wayland plugin takes it from as a window
+// asks to be active, and the window the user last used comes up. With no
+// window open, the app's next one takes it as it shows. X11 has no token:
+// the window asks, and KWin's focus stealing prevention decides.
+void mq_raise_app(const char* token) {
+    if (token && on_wayland()) qputenv("XDG_ACTIVATION_TOKEN", token);
+    QWindow* window = g_last_focus;
+    if (!window || !window->isVisible()) {
+        window = nullptr;
+        for (QWindow* candidate : QGuiApplication::topLevelWindows())
+            if (candidate->isVisible() && qobject_cast<QQuickWindow*>(candidate)) {
+                window = candidate;
+                break;
+            }
+    }
+    if (!window) return;
+    window->raise();
+    window->requestActivate();
 }

@@ -106,6 +106,11 @@ unsafe extern "C" {
     fn mq_set_clipboard_text(text: *const c_char);
     fn mq_trash(path: *const c_char) -> *mut c_char;
     fn mq_open_url(target: *const c_char, is_path: i32) -> i32;
+    fn mq_set_notify_callback(callback: extern "C" fn(u64, i32, u32, u32, *const c_char));
+    fn mq_watch_notifications(key: u64) -> i32;
+    fn mq_notify(key: u64, replaces: u32, title: *const c_char, body: *const c_char);
+    fn mq_close_notification(id: u32);
+    fn mq_raise_app(token: *const c_char);
     fn mq_file_icon(icon: Raw, path: *const c_char);
     fn mq_file_icon_by_name(icon: Raw, path: *const c_char, folder: i32);
     fn mq_file_icon_loads() -> i32;
@@ -191,6 +196,23 @@ pub(crate) enum Callback {
     Input(SurfaceEvent),
     /// A node took the key at this index of its keys.
     Key(usize),
+    /// What the notification server answered or says.
+    Notification(NotificationEvent),
+}
+
+/// What the notification server answers a request (the first three), or
+/// says of a notification by its id: see `mq_notify_callback`.
+#[derive(Clone, Debug)]
+pub(crate) enum NotificationEvent {
+    Shown(u32),
+    Unavailable,
+    Failed(String),
+    /// The activation token for the action that follows.
+    Token(u32, String),
+    /// The user invoked an action (`default`: clicked it).
+    Action(u32, String),
+    /// It went, for this reason (the freedesktop.org spec's numbers).
+    Closed(u32, u32),
 }
 
 /// What a GPU surface's input item reports: see `mq_input_callback`.
@@ -260,6 +282,27 @@ extern "C" fn dispatch_input(
     handler(Callback::Input(SurfaceEvent { kind, code, flags, x, y, text, unmodified }));
 }
 
+extern "C" fn dispatch_notify(key: u64, kind: i32, id: u32, reason: u32, text: *const c_char) {
+    // SAFETY: the shim's UTF-8, alive for the call.
+    let text =
+        if text.is_null() { String::new() } else { unsafe { CStr::from_ptr(text) }.to_string_lossy().into_owned() };
+    let (event, answer) = match kind {
+        0 => (NotificationEvent::Shown(id), true),
+        1 => (NotificationEvent::Unavailable, true),
+        2 => (NotificationEvent::Failed(text), true),
+        3 => (NotificationEvent::Token(id, text), false),
+        4 => (NotificationEvent::Action(id, text), false),
+        5 => (NotificationEvent::Closed(id, reason), false),
+        _ => return,
+    };
+    let Ok(Some(handler)) = HANDLERS.try_with(|h| h.borrow().get(&key).cloned()) else { return };
+    // A request's key is answered once.
+    if answer {
+        unregister(key);
+    }
+    handler(Callback::Notification(event));
+}
+
 // ------------------------------------------------------------ application
 
 pub(crate) fn init() {
@@ -267,6 +310,7 @@ pub(crate) fn init() {
         mq_init(dispatch);
         mq_set_input_callback(dispatch_input);
         mq_set_gone_callback(gone);
+        mq_set_notify_callback(dispatch_notify);
     }
 }
 
@@ -470,6 +514,57 @@ pub(crate) fn add_icon_fallback_path(dir: &std::path::Path) {
 /// Opens a local path or a URL in its app; `false` if nothing did.
 pub(crate) fn open_url(target: &str, is_path: bool) -> bool {
     unsafe { mq_open_url(c(target).as_ptr(), i32::from(is_path)) != 0 }
+}
+
+/// Calls `f` with what the notification server says of notifications;
+/// `false` without a session bus.
+pub(crate) fn watch_notifications(f: impl Fn(NotificationEvent) + 'static) -> bool {
+    let key = register(move |callback| {
+        if let Callback::Notification(event) = callback {
+            f(event)
+        }
+    });
+    let watching = unsafe { mq_watch_notifications(key) != 0 };
+    if !watching {
+        unregister(key);
+    }
+    watching
+}
+
+/// Sends a notification, replacing the server's `replaces` (0 for none),
+/// and answers with the server's id for it. May answer before it returns.
+pub(crate) fn notify(
+    replaces: u32,
+    title: &str,
+    body: Option<&str>,
+    answer: impl FnOnce(Result<u32, mitsuami_core::services::ServiceError>) + 'static,
+) {
+    use mitsuami_core::services::ServiceError;
+    let answer = Cell::new(Some(answer));
+    let key = register(move |callback| {
+        let result = match callback {
+            Callback::Notification(NotificationEvent::Shown(id)) => Ok(id),
+            Callback::Notification(NotificationEvent::Unavailable) => Err(ServiceError::Unavailable),
+            Callback::Notification(NotificationEvent::Failed(why)) => Err(ServiceError::Failed(why)),
+            _ => return,
+        };
+        if let Some(answer) = answer.take() {
+            answer(result);
+        }
+    });
+    let (title, body) = (c(title), body.map(c));
+    unsafe { mq_notify(key, replaces, title.as_ptr(), body.as_ref().map_or(std::ptr::null(), |b| b.as_ptr())) }
+}
+
+pub(crate) fn close_notification(id: u32) {
+    unsafe { mq_close_notification(id) }
+}
+
+/// Brings the app forward after a click on its notification, with the
+/// server's activation token if it gave one.
+pub(crate) fn raise_app(token: Option<&str>) {
+    let token = token.map(c);
+    unsafe { mq_raise_app(token.as_ref().map_or(std::ptr::null(), |t| t.as_ptr())) }
 }
 
 /// The user's languages, from the system locale (KDE's settings) or the

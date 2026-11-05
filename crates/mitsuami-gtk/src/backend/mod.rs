@@ -416,6 +416,11 @@ pub(crate) struct State {
     headers: usize,
     /// File icons being read, which tests' settles wait for.
     loads: file_icon::Loads,
+    /// The app's id, which notifications are sent under.
+    pub(crate) app_id: Option<String>,
+    /// The window that was active last, which a click on a notification
+    /// brings forward.
+    pub(crate) last_active: Rc<Cell<Option<NodeId>>>,
 }
 
 impl Drop for State {
@@ -523,6 +528,8 @@ impl GtkBackend {
             headers: 0,
             lists: 0,
             loads: file_icon::Loads::default(),
+            app_id: None,
+            last_active: Rc::default(),
         }));
         state.borrow_mut().menus.backend = Rc::downgrade(&state);
         GtkBackend { state }
@@ -615,6 +622,7 @@ impl Backend for GtkBackend {
     /// and GNOME apps install theirs named after their id, so windows show
     /// the icon of that name; the app's image is for the other platforms.
     fn set_app_info(&mut self, info: &AppInfo) {
+        self.state.borrow_mut().app_id = info.id.clone();
         if let Some(id) = &info.id {
             glib::set_prgname(Some(id.as_str()));
             gtk::Window::set_default_icon_name(id);

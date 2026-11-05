@@ -5,7 +5,9 @@
 use std::path::PathBuf;
 use std::process::Command;
 
-const MODULES: [&str; 5] = ["Qt6Widgets", "Qt6Quick", "Qt6Qml", "Qt6QuickControls2", "Qt6Gui"];
+// QtDBus for notifications: Plasma's notification server is on the session
+// bus.
+const MODULES: [&str; 6] = ["Qt6Widgets", "Qt6Quick", "Qt6Qml", "Qt6QuickControls2", "Qt6Gui", "Qt6DBus"];
 
 fn main() {
     println!("cargo:rerun-if-changed=cpp/shim.h");

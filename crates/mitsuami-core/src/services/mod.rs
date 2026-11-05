@@ -1,5 +1,5 @@
-//! Platform services: clipboard, dialogs, the menu bar, the trash and
-//! opening files in other apps.
+//! Platform services: clipboard, dialogs, the menu bar, the trash,
+//! opening files in other apps and notifications.
 //! Widgets' context menus are made of the same menus.
 //!
 //! [`Services`] is the contract each platform implements, separately from
@@ -14,11 +14,13 @@ mod futures;
 mod menu;
 mod menu_collect;
 mod menu_data;
+mod notifications;
 
 pub use dialogs::{Alert, AlertStyle, FileFilter, Launch, OpenFile, SaveFile, existing_folder};
 pub(crate) use futures::reply_future;
 pub use futures::{
-    alert, clipboard_text, launch, launch_url, open_file, save_file, set_clipboard_text, set_menu, trash,
+    alert, clipboard_text, launch, launch_url, notify, on_notification_activated, open_file, save_file,
+    set_clipboard_text, set_menu, trash, withdraw_notification,
 };
 pub use menu::{Menu, MenuBar, MenuEntries, MenuItem, MenuSeparator, Menus};
 #[doc(hidden)]
@@ -28,6 +30,7 @@ pub use menu_data::{
     MenuBarData, MenuCheck, MenuData, MenuEntry, MenuItemData, MenuOnOpen, MenuRole, Shortcut, find_menu_item,
     menu_item_by_id,
 };
+pub use notifications::Notification;
 
 use std::path::PathBuf;
 use std::rc::Rc;
@@ -96,6 +99,24 @@ pub trait Services {
     /// `Unavailable` if no app opens it. Replies once the platform has
     /// handed it over, not when the app has opened it.
     fn launch(&mut self, parent: Option<NodeId>, target: &Launch, reply: Reply<Result<(), ServiceError>>);
+
+    /// Shows a notification outside the app's windows, as the platform
+    /// shows its apps', replacing the one with the same id
+    /// (`notification.id` is always set). Replies once the platform has it:
+    /// `Cancelled` if the user turned the app's notifications off or said
+    /// no when the platform asked, `Unavailable` if there's nothing to show
+    /// it (no notification server, a macOS app outside a bundle). When the
+    /// user clicks it, the platform brings the app forward, as it does for
+    /// its own apps, and the backend calls `activated` with its id.
+    fn notify(
+        &mut self,
+        notification: &Notification,
+        activated: Rc<dyn Fn(String)>,
+        reply: Reply<Result<(), ServiceError>>,
+    );
+    /// Takes the notification with this id away, from the screen and the
+    /// platform's list. Nothing happens if there's none.
+    fn withdraw_notification(&mut self, id: &str);
 
     /// Installs a menu bar: the app's (`window` is `None`), or one
     /// window's own menus, which it shows with the app's

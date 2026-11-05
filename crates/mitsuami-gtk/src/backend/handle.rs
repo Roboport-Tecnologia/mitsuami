@@ -284,6 +284,20 @@ impl GtkHandle {
         windows
     }
 
+    /// The app's id, as `Ui::set_app_info` gave it.
+    pub(crate) fn app_id(&self) -> Option<String> {
+        self.state.borrow().app_id.clone()
+    }
+
+    /// The window the app comes forward with: the one active last, as
+    /// `GtkApplication` keeps them, or the first if none was.
+    pub(crate) fn last_active_window(&self) -> Option<gtk::Window> {
+        let last = self.state.borrow().last_active.get();
+        let windows = self.windows();
+        let found = windows.iter().find(|(id, _)| Some(*id) == last).or_else(|| windows.first());
+        found.map(|(_, window)| window.clone())
+    }
+
     /// Asks the app to close every window (the Quit command).
     pub(crate) fn request_quit(&self) {
         let events = self.state.borrow().events.clone();

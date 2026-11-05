@@ -63,6 +63,7 @@ windows_core::link!("imm32.dll" "system" fn ImmGetContext(param0 : HWND) -> HIMC
 windows_core::link!("imm32.dll" "system" fn ImmReleaseContext(param0 : HWND, param1 : HIMC) -> windows_core::BOOL);
 windows_core::link!("imm32.dll" "system" fn ImmSetCandidateWindow(param0 : HIMC, lpcandidate : *const CANDIDATEFORM) -> windows_core::BOOL);
 windows_core::link!("imm32.dll" "system" fn ImmSetCompositionWindow(param0 : HIMC, lpcompform : *const COMPOSITIONFORM) -> windows_core::BOOL);
+windows_core::link!("user32.dll" "system" fn IsIconic(hwnd : HWND) -> windows_core::BOOL);
 windows_core::link!("user32.dll" "system" fn IsWindowEnabled(hwnd : HWND) -> windows_core::BOOL);
 windows_core::link!("user32.dll" "system" fn IsWindowVisible(hwnd : HWND) -> windows_core::BOOL);
 windows_core::link!("user32.dll" "system" fn LoadCursorW(hinstance : HINSTANCE, lpcursorname : windows_core::PCWSTR) -> HCURSOR);
@@ -101,6 +102,7 @@ windows_core::link!("comctl32.dll" "system" fn SetWindowSubclass(hwnd : HWND, pf
 windows_core::link!("user32.dll" "system" fn SetWindowsHookExW(idhook : i32, lpfn : HOOKPROC, hmod : HINSTANCE, dwthreadid : u32) -> HHOOK);
 windows_core::link!("shell32.dll" "system" fn ShellExecuteExW(pexecinfo : *mut SHELLEXECUTEINFOW) -> windows_core::BOOL);
 windows_core::link!("user32.dll" "system" fn ShowCursor(bshow : windows_core::BOOL) -> i32);
+windows_core::link!("user32.dll" "system" fn ShowWindow(hwnd : HWND, ncmdshow : i32) -> windows_core::BOOL);
 windows_core::link!("user32.dll" "system" fn ShutdownBlockReasonCreate(hwnd : HWND, pwszreason : windows_core::PCWSTR) -> windows_core::BOOL);
 windows_core::link!("user32.dll" "system" fn ShutdownBlockReasonDestroy(hwnd : HWND) -> windows_core::BOOL);
 windows_core::link!("kernel32.dll" "system" fn SystemTimeToTzSpecificLocalTime(lptimezoneinformation : *const TIME_ZONE_INFORMATION, lpuniversaltime : *const SYSTEMTIME, lplocaltime : *mut SYSTEMTIME) -> windows_core::BOOL);
@@ -276,6 +278,190 @@ impl windows_core::RuntimeName for AppBarElementContainer {
 }
 unsafe impl Send for AppBarElementContainer {}
 unsafe impl Sync for AppBarElementContainer {}
+#[repr(transparent)]
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct AppNotification(windows_core::IUnknown);
+windows_core::imp::interface_hierarchy!(AppNotification, windows_core::IUnknown, windows_core::IInspectable);
+impl windows_core::RuntimeType for AppNotification {
+    const SIGNATURE: windows_core::imp::ConstBuffer =
+        windows_core::imp::ConstBuffer::for_class::<Self, IAppNotification>();
+}
+unsafe impl windows_core::Interface for AppNotification {
+    type Vtable = <IAppNotification as windows_core::Interface>::Vtable;
+    const IID: windows_core::GUID = <IAppNotification as windows_core::Interface>::IID;
+}
+impl core::ops::Deref for AppNotification {
+    type Target = IAppNotification;
+    fn deref(&self) -> &Self::Target {
+        unsafe { core::mem::transmute(self) }
+    }
+}
+impl windows_core::RuntimeName for AppNotification {
+    const NAME: &'static str = "Microsoft.Windows.AppNotifications.AppNotification";
+}
+unsafe impl Send for AppNotification {}
+unsafe impl Sync for AppNotification {}
+#[repr(transparent)]
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct AppNotificationActivatedEventArgs(windows_core::IUnknown);
+windows_core::imp::interface_hierarchy!(
+    AppNotificationActivatedEventArgs,
+    windows_core::IUnknown,
+    windows_core::IInspectable
+);
+impl windows_core::RuntimeType for AppNotificationActivatedEventArgs {
+    const SIGNATURE: windows_core::imp::ConstBuffer =
+        windows_core::imp::ConstBuffer::for_class::<Self, IAppNotificationActivatedEventArgs>();
+}
+unsafe impl windows_core::Interface for AppNotificationActivatedEventArgs {
+    type Vtable = <IAppNotificationActivatedEventArgs as windows_core::Interface>::Vtable;
+    const IID: windows_core::GUID = <IAppNotificationActivatedEventArgs as windows_core::Interface>::IID;
+}
+impl core::ops::Deref for AppNotificationActivatedEventArgs {
+    type Target = IAppNotificationActivatedEventArgs;
+    fn deref(&self) -> &Self::Target {
+        unsafe { core::mem::transmute(self) }
+    }
+}
+impl windows_core::RuntimeName for AppNotificationActivatedEventArgs {
+    const NAME: &'static str = "Microsoft.Windows.AppNotifications.AppNotificationActivatedEventArgs";
+}
+unsafe impl Send for AppNotificationActivatedEventArgs {}
+unsafe impl Sync for AppNotificationActivatedEventArgs {}
+#[repr(transparent)]
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct AppNotificationBuilder(windows_core::IUnknown);
+windows_core::imp::interface_hierarchy!(AppNotificationBuilder, windows_core::IUnknown, windows_core::IInspectable);
+impl AppNotificationBuilder {
+    pub fn new() -> windows_core::Result<Self> {
+        Self::IActivationFactory(|f| f.ActivateInstance::<Self>())
+    }
+    fn IActivationFactory<R, F: FnOnce(&windows_core::imp::IGenericFactory) -> windows_core::Result<R>>(
+        callback: F,
+    ) -> windows_core::Result<R> {
+        static SHARED: windows_core::imp::FactoryCache<AppNotificationBuilder, windows_core::imp::IGenericFactory> =
+            windows_core::imp::FactoryCache::new();
+        SHARED.call(callback)
+    }
+}
+impl windows_core::RuntimeType for AppNotificationBuilder {
+    const SIGNATURE: windows_core::imp::ConstBuffer =
+        windows_core::imp::ConstBuffer::for_class::<Self, IAppNotificationBuilder>();
+}
+unsafe impl windows_core::Interface for AppNotificationBuilder {
+    type Vtable = <IAppNotificationBuilder as windows_core::Interface>::Vtable;
+    const IID: windows_core::GUID = <IAppNotificationBuilder as windows_core::Interface>::IID;
+}
+impl core::ops::Deref for AppNotificationBuilder {
+    type Target = IAppNotificationBuilder;
+    fn deref(&self) -> &Self::Target {
+        unsafe { core::mem::transmute(self) }
+    }
+}
+impl windows_core::RuntimeName for AppNotificationBuilder {
+    const NAME: &'static str = "Microsoft.Windows.AppNotifications.Builder.AppNotificationBuilder";
+}
+unsafe impl Send for AppNotificationBuilder {}
+unsafe impl Sync for AppNotificationBuilder {}
+#[repr(transparent)]
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct AppNotificationManager(windows_core::IUnknown);
+windows_core::imp::interface_hierarchy!(AppNotificationManager, windows_core::IUnknown, windows_core::IInspectable);
+impl AppNotificationManager {
+    pub fn Default() -> windows_core::Result<Self> {
+        Self::IAppNotificationManagerStatics(|this| unsafe {
+            let mut result__ = core::mem::zeroed();
+            (windows_core::Interface::vtable(this).Default)(windows_core::Interface::as_raw(this), &mut result__)
+                .and_then(|| windows_core::imp::Type::from_abi(result__))
+        })
+    }
+    pub fn IsSupported() -> windows_core::Result<bool> {
+        Self::IAppNotificationManagerStatics2(|this| unsafe {
+            let mut result__ = core::mem::zeroed();
+            (windows_core::Interface::vtable(this).IsSupported)(windows_core::Interface::as_raw(this), &mut result__)
+                .map(|| result__)
+        })
+    }
+    fn IAppNotificationManagerStatics<R, F: FnOnce(&IAppNotificationManagerStatics) -> windows_core::Result<R>>(
+        callback: F,
+    ) -> windows_core::Result<R> {
+        static SHARED: windows_core::imp::FactoryCache<AppNotificationManager, IAppNotificationManagerStatics> =
+            windows_core::imp::FactoryCache::new();
+        SHARED.call(callback)
+    }
+    fn IAppNotificationManagerStatics2<R, F: FnOnce(&IAppNotificationManagerStatics2) -> windows_core::Result<R>>(
+        callback: F,
+    ) -> windows_core::Result<R> {
+        static SHARED: windows_core::imp::FactoryCache<AppNotificationManager, IAppNotificationManagerStatics2> =
+            windows_core::imp::FactoryCache::new();
+        SHARED.call(callback)
+    }
+}
+impl windows_core::RuntimeType for AppNotificationManager {
+    const SIGNATURE: windows_core::imp::ConstBuffer =
+        windows_core::imp::ConstBuffer::for_class::<Self, IAppNotificationManager>();
+}
+unsafe impl windows_core::Interface for AppNotificationManager {
+    type Vtable = <IAppNotificationManager as windows_core::Interface>::Vtable;
+    const IID: windows_core::GUID = <IAppNotificationManager as windows_core::Interface>::IID;
+}
+impl core::ops::Deref for AppNotificationManager {
+    type Target = IAppNotificationManager;
+    fn deref(&self) -> &Self::Target {
+        unsafe { core::mem::transmute(self) }
+    }
+}
+impl windows_core::RuntimeName for AppNotificationManager {
+    const NAME: &'static str = "Microsoft.Windows.AppNotifications.AppNotificationManager";
+}
+unsafe impl Send for AppNotificationManager {}
+unsafe impl Sync for AppNotificationManager {}
+#[repr(transparent)]
+#[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
+pub struct AppNotificationSetting(pub i32);
+impl AppNotificationSetting {
+    pub const Enabled: Self = Self(0);
+    pub const DisabledForApplication: Self = Self(1);
+    pub const DisabledForUser: Self = Self(2);
+    pub const DisabledByGroupPolicy: Self = Self(3);
+    pub const DisabledByManifest: Self = Self(4);
+    pub const Unsupported: Self = Self(5);
+}
+impl windows_core::imp::TypeKind for AppNotificationSetting {
+    type TypeKind = windows_core::imp::CopyType;
+}
+impl windows_core::RuntimeType for AppNotificationSetting {
+    const SIGNATURE: windows_core::imp::ConstBuffer = windows_core::imp::ConstBuffer::from_slice(
+        b"enum(Microsoft.Windows.AppNotifications.AppNotificationSetting;i4)",
+    );
+}
+#[repr(transparent)]
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct AppNotificationTextProperties(windows_core::IUnknown);
+windows_core::imp::interface_hierarchy!(
+    AppNotificationTextProperties,
+    windows_core::IUnknown,
+    windows_core::IInspectable
+);
+impl windows_core::RuntimeType for AppNotificationTextProperties {
+    const SIGNATURE: windows_core::imp::ConstBuffer =
+        windows_core::imp::ConstBuffer::for_class::<Self, IAppNotificationTextProperties>();
+}
+unsafe impl windows_core::Interface for AppNotificationTextProperties {
+    type Vtable = <IAppNotificationTextProperties as windows_core::Interface>::Vtable;
+    const IID: windows_core::GUID = <IAppNotificationTextProperties as windows_core::Interface>::IID;
+}
+impl core::ops::Deref for AppNotificationTextProperties {
+    type Target = IAppNotificationTextProperties;
+    fn deref(&self) -> &Self::Target {
+        unsafe { core::mem::transmute(self) }
+    }
+}
+impl windows_core::RuntimeName for AppNotificationTextProperties {
+    const NAME: &'static str = "Microsoft.Windows.AppNotifications.Builder.AppNotificationTextProperties";
+}
+unsafe impl Send for AppNotificationTextProperties {}
+unsafe impl Sync for AppNotificationTextProperties {}
 #[repr(transparent)]
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct AppWindow(windows_core::IUnknown);
@@ -4153,6 +4339,307 @@ pub struct IAppBarElementContainerFactory_Vtbl {
         *mut *mut core::ffi::c_void,
         *mut *mut core::ffi::c_void,
     ) -> windows_core::HRESULT,
+}
+windows_core::imp::define_interface!(IAppNotification, IAppNotification_Vtbl, 0x373a6917_4116_5657_936a_15f99afdd667);
+impl windows_core::RuntimeType for IAppNotification {
+    const SIGNATURE: windows_core::imp::ConstBuffer = windows_core::imp::ConstBuffer::for_interface::<Self>();
+}
+#[repr(C)]
+pub struct IAppNotification_Vtbl {
+    pub base__: windows_core::IInspectable_Vtbl,
+}
+windows_core::imp::define_interface!(
+    IAppNotificationActivatedEventArgs,
+    IAppNotificationActivatedEventArgs_Vtbl,
+    0x7a8afaf9_31cb_51d5_82be_db6bd5878b77
+);
+impl windows_core::RuntimeType for IAppNotificationActivatedEventArgs {
+    const SIGNATURE: windows_core::imp::ConstBuffer = windows_core::imp::ConstBuffer::for_interface::<Self>();
+}
+#[repr(C)]
+pub struct IAppNotificationActivatedEventArgs_Vtbl {
+    pub base__: windows_core::IInspectable_Vtbl,
+}
+windows_core::imp::define_interface!(
+    IAppNotificationActivatedEventArgs2,
+    IAppNotificationActivatedEventArgs2_Vtbl,
+    0x52c06b9b_2c50_5037_9416_a3be47b9d5bd
+);
+impl windows_core::RuntimeType for IAppNotificationActivatedEventArgs2 {
+    const SIGNATURE: windows_core::imp::ConstBuffer = windows_core::imp::ConstBuffer::for_interface::<Self>();
+}
+impl IAppNotificationActivatedEventArgs2 {
+    pub fn Arguments(
+        &self,
+    ) -> windows_core::Result<windows_collections::IMap<windows_core::HSTRING, windows_core::HSTRING>> {
+        unsafe {
+            let mut result__ = core::mem::zeroed();
+            (windows_core::Interface::vtable(self).Arguments)(windows_core::Interface::as_raw(self), &mut result__)
+                .and_then(|| windows_core::imp::Type::from_abi(result__))
+        }
+    }
+}
+#[repr(C)]
+pub struct IAppNotificationActivatedEventArgs2_Vtbl {
+    pub base__: windows_core::IInspectable_Vtbl,
+    pub Arguments:
+        unsafe extern "system" fn(*mut core::ffi::c_void, *mut *mut core::ffi::c_void) -> windows_core::HRESULT,
+}
+windows_core::imp::define_interface!(
+    IAppNotificationBuilder,
+    IAppNotificationBuilder_Vtbl,
+    0xe801d31f_ce03_505c_adec_8a02724ec9de
+);
+impl windows_core::RuntimeType for IAppNotificationBuilder {
+    const SIGNATURE: windows_core::imp::ConstBuffer = windows_core::imp::ConstBuffer::for_interface::<Self>();
+}
+impl IAppNotificationBuilder {
+    pub fn AddArgument(&self, key: &str, value: &str) -> windows_core::Result<AppNotificationBuilder> {
+        unsafe {
+            let mut result__ = core::mem::zeroed();
+            (windows_core::Interface::vtable(self).AddArgument)(
+                windows_core::Interface::as_raw(self),
+                core::mem::transmute_copy(&windows_core::HSTRING::from(key)),
+                core::mem::transmute_copy(&windows_core::HSTRING::from(value)),
+                &mut result__,
+            )
+            .and_then(|| windows_core::imp::Type::from_abi(result__))
+        }
+    }
+    pub fn AddText(&self, text: &str) -> windows_core::Result<AppNotificationBuilder> {
+        unsafe {
+            let mut result__ = core::mem::zeroed();
+            (windows_core::Interface::vtable(self).AddText)(
+                windows_core::Interface::as_raw(self),
+                core::mem::transmute_copy(&windows_core::HSTRING::from(text)),
+                &mut result__,
+            )
+            .and_then(|| windows_core::imp::Type::from_abi(result__))
+        }
+    }
+    pub fn AddText2<P1>(&self, text: &str, properties: P1) -> windows_core::Result<AppNotificationBuilder>
+    where
+        P1: windows_core::Param<AppNotificationTextProperties>,
+    {
+        unsafe {
+            let mut result__ = core::mem::zeroed();
+            (windows_core::Interface::vtable(self).AddText2)(
+                windows_core::Interface::as_raw(self),
+                core::mem::transmute_copy(&windows_core::HSTRING::from(text)),
+                properties.param().abi(),
+                &mut result__,
+            )
+            .and_then(|| windows_core::imp::Type::from_abi(result__))
+        }
+    }
+    pub fn BuildNotification(&self) -> windows_core::Result<AppNotification> {
+        unsafe {
+            let mut result__ = core::mem::zeroed();
+            (windows_core::Interface::vtable(self).BuildNotification)(
+                windows_core::Interface::as_raw(self),
+                &mut result__,
+            )
+            .and_then(|| windows_core::imp::Type::from_abi(result__))
+        }
+    }
+    pub fn SetTag(&self, value: &str) -> windows_core::Result<AppNotificationBuilder> {
+        unsafe {
+            let mut result__ = core::mem::zeroed();
+            (windows_core::Interface::vtable(self).SetTag)(
+                windows_core::Interface::as_raw(self),
+                core::mem::transmute_copy(&windows_core::HSTRING::from(value)),
+                &mut result__,
+            )
+            .and_then(|| windows_core::imp::Type::from_abi(result__))
+        }
+    }
+}
+#[repr(C)]
+pub struct IAppNotificationBuilder_Vtbl {
+    pub base__: windows_core::IInspectable_Vtbl,
+    pub AddArgument: unsafe extern "system" fn(
+        *mut core::ffi::c_void,
+        *mut core::ffi::c_void,
+        *mut core::ffi::c_void,
+        *mut *mut core::ffi::c_void,
+    ) -> windows_core::HRESULT,
+    SetTimeStamp: usize,
+    SetDuration: usize,
+    SetScenario: usize,
+    pub AddText: unsafe extern "system" fn(
+        *mut core::ffi::c_void,
+        *mut core::ffi::c_void,
+        *mut *mut core::ffi::c_void,
+    ) -> windows_core::HRESULT,
+    pub AddText2: unsafe extern "system" fn(
+        *mut core::ffi::c_void,
+        *mut core::ffi::c_void,
+        *mut core::ffi::c_void,
+        *mut *mut core::ffi::c_void,
+    ) -> windows_core::HRESULT,
+    SetAttributionText: usize,
+    SetAttributionText2: usize,
+    SetInlineImage: usize,
+    SetInlineImage2: usize,
+    SetInlineImage3: usize,
+    SetAppLogoOverride: usize,
+    SetAppLogoOverride2: usize,
+    SetAppLogoOverride3: usize,
+    SetHeroImage: usize,
+    SetHeroImage2: usize,
+    SetAudioUri: usize,
+    SetAudioUri2: usize,
+    SetAudioEvent: usize,
+    SetAudioEvent2: usize,
+    MuteAudio: usize,
+    AddTextBox: usize,
+    AddTextBox2: usize,
+    AddButton: usize,
+    AddComboBox: usize,
+    AddProgressBar: usize,
+    pub BuildNotification:
+        unsafe extern "system" fn(*mut core::ffi::c_void, *mut *mut core::ffi::c_void) -> windows_core::HRESULT,
+    pub SetTag: unsafe extern "system" fn(
+        *mut core::ffi::c_void,
+        *mut core::ffi::c_void,
+        *mut *mut core::ffi::c_void,
+    ) -> windows_core::HRESULT,
+}
+windows_core::imp::define_interface!(
+    IAppNotificationManager,
+    IAppNotificationManager_Vtbl,
+    0x55129688_b4bd_550b_ae6b_c24061954d91
+);
+impl windows_core::RuntimeType for IAppNotificationManager {
+    const SIGNATURE: windows_core::imp::ConstBuffer = windows_core::imp::ConstBuffer::for_interface::<Self>();
+}
+impl IAppNotificationManager {
+    pub fn Register(&self) -> windows_core::Result<()> {
+        unsafe { (windows_core::Interface::vtable(self).Register)(windows_core::Interface::as_raw(self)).ok() }
+    }
+    pub fn Unregister(&self) -> windows_core::Result<()> {
+        unsafe { (windows_core::Interface::vtable(self).Unregister)(windows_core::Interface::as_raw(self)).ok() }
+    }
+    pub fn NotificationInvoked<F>(&self, handler: F) -> windows_core::Result<windows_core::EventRevoker>
+    where
+        F: Fn(windows_core::Ref<AppNotificationManager>, windows_core::Ref<AppNotificationActivatedEventArgs>)
+            + 'static,
+    {
+        let handler: TypedEventHandler<AppNotificationManager, AppNotificationActivatedEventArgs> = {
+            let com = windows_core::imp::DelegateBox::<
+                TypedEventHandler<AppNotificationManager, AppNotificationActivatedEventArgs>,
+                F,
+            >::new(
+                &TypedEventHandlerBox::<AppNotificationManager, AppNotificationActivatedEventArgs, F>::VTABLE,
+                handler,
+            );
+            unsafe { core::mem::transmute(windows_core::imp::box_new(com)) }
+        };
+        unsafe {
+            let mut result__ = core::mem::zeroed();
+            let token__ = (windows_core::Interface::vtable(self).NotificationInvoked)(
+                windows_core::Interface::as_raw(self),
+                windows_core::Interface::as_raw(&handler),
+                &mut result__,
+            )
+            .map(|| result__)?;
+            Ok(windows_core::EventRevoker::new(
+                self.clone(),
+                token__,
+                windows_core::Interface::vtable(self).RemoveNotificationInvoked,
+            ))
+        }
+    }
+    pub fn Show<P0>(&self, notification: P0) -> windows_core::Result<()>
+    where
+        P0: windows_core::Param<AppNotification>,
+    {
+        unsafe {
+            (windows_core::Interface::vtable(self).Show)(
+                windows_core::Interface::as_raw(self),
+                notification.param().abi(),
+            )
+            .ok()
+        }
+    }
+    pub fn Setting(&self) -> windows_core::Result<AppNotificationSetting> {
+        unsafe {
+            let mut result__ = core::mem::zeroed();
+            (windows_core::Interface::vtable(self).Setting)(windows_core::Interface::as_raw(self), &mut result__)
+                .map(|| result__)
+        }
+    }
+    pub fn RemoveByTagAsync(&self, tag: &str) -> windows_core::Result<windows_future::IAsyncAction> {
+        unsafe {
+            let mut result__ = core::mem::zeroed();
+            (windows_core::Interface::vtable(self).RemoveByTagAsync)(
+                windows_core::Interface::as_raw(self),
+                core::mem::transmute_copy(&windows_core::HSTRING::from(tag)),
+                &mut result__,
+            )
+            .and_then(|| windows_core::imp::Type::from_abi(result__))
+        }
+    }
+}
+#[repr(C)]
+pub struct IAppNotificationManager_Vtbl {
+    pub base__: windows_core::IInspectable_Vtbl,
+    pub Register: unsafe extern "system" fn(*mut core::ffi::c_void) -> windows_core::HRESULT,
+    pub Unregister: unsafe extern "system" fn(*mut core::ffi::c_void) -> windows_core::HRESULT,
+    UnregisterAll: usize,
+    pub NotificationInvoked:
+        unsafe extern "system" fn(*mut core::ffi::c_void, *mut core::ffi::c_void, *mut i64) -> windows_core::HRESULT,
+    pub RemoveNotificationInvoked: unsafe extern "system" fn(*mut core::ffi::c_void, i64) -> windows_core::HRESULT,
+    pub Show: unsafe extern "system" fn(*mut core::ffi::c_void, *mut core::ffi::c_void) -> windows_core::HRESULT,
+    UpdateAsync: usize,
+    UpdateAsync2: usize,
+    pub Setting:
+        unsafe extern "system" fn(*mut core::ffi::c_void, *mut AppNotificationSetting) -> windows_core::HRESULT,
+    RemoveByIdAsync: usize,
+    pub RemoveByTagAsync: unsafe extern "system" fn(
+        *mut core::ffi::c_void,
+        *mut core::ffi::c_void,
+        *mut *mut core::ffi::c_void,
+    ) -> windows_core::HRESULT,
+}
+windows_core::imp::define_interface!(
+    IAppNotificationManagerStatics,
+    IAppNotificationManagerStatics_Vtbl,
+    0x6cfc0d8d_84a3_5592_b4c6_e3e7e7c680e4
+);
+impl windows_core::RuntimeType for IAppNotificationManagerStatics {
+    const SIGNATURE: windows_core::imp::ConstBuffer = windows_core::imp::ConstBuffer::for_interface::<Self>();
+}
+#[repr(C)]
+pub struct IAppNotificationManagerStatics_Vtbl {
+    pub base__: windows_core::IInspectable_Vtbl,
+    pub Default:
+        unsafe extern "system" fn(*mut core::ffi::c_void, *mut *mut core::ffi::c_void) -> windows_core::HRESULT,
+}
+windows_core::imp::define_interface!(
+    IAppNotificationManagerStatics2,
+    IAppNotificationManagerStatics2_Vtbl,
+    0x6eb42a35_e82f_5732_98f1_129705602f2e
+);
+impl windows_core::RuntimeType for IAppNotificationManagerStatics2 {
+    const SIGNATURE: windows_core::imp::ConstBuffer = windows_core::imp::ConstBuffer::for_interface::<Self>();
+}
+#[repr(C)]
+pub struct IAppNotificationManagerStatics2_Vtbl {
+    pub base__: windows_core::IInspectable_Vtbl,
+    pub IsSupported: unsafe extern "system" fn(*mut core::ffi::c_void, *mut bool) -> windows_core::HRESULT,
+}
+windows_core::imp::define_interface!(
+    IAppNotificationTextProperties,
+    IAppNotificationTextProperties_Vtbl,
+    0x23a30d0b_5258_5853_932e_9521a3642afb
+);
+impl windows_core::RuntimeType for IAppNotificationTextProperties {
+    const SIGNATURE: windows_core::imp::ConstBuffer = windows_core::imp::ConstBuffer::for_interface::<Self>();
+}
+#[repr(C)]
+pub struct IAppNotificationTextProperties_Vtbl {
+    pub base__: windows_core::IInspectable_Vtbl,
 }
 windows_core::imp::define_interface!(IAppWindow, IAppWindow_Vtbl, 0xcfa788b3_643b_5c5e_ad4e_321d48a82acd);
 impl windows_core::RuntimeType for IAppWindow {
@@ -22426,6 +22913,7 @@ pub const SWP_NOACTIVATE: i32 = 16;
 pub const SWP_NOMOVE: i32 = 2;
 pub const SWP_NOSIZE: i32 = 1;
 pub const SWP_SHOWWINDOW: i32 = 64;
+pub const SW_RESTORE: i32 = 9;
 pub const SW_SHOWNORMAL: i32 = 1;
 #[repr(C)]
 #[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]

@@ -128,6 +128,7 @@ pub fn run(info: AppInfo, setup: impl FnOnce(&Ui)) {
         panic!("winui: XAML's event loop failed: {error}");
     }
     SCHEDULE.with(|s| s.borrow_mut().take());
+    crate::notifications::unregister();
     // Close everything while XAML is still running.
     drop(ui);
     runtime::pump();

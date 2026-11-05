@@ -98,6 +98,10 @@ name = "launch"
 harness = false
 
 [[test]]
+name = "notifications"
+harness = false
+
+[[test]]
 name = "file_icon"
 harness = false
 

@@ -1,4 +1,5 @@
-//! Clipboard, dialogs, the trash, launching and the menu bar on macOS.
+//! Clipboard, dialogs, the trash, launching, notifications and the menu
+//! bar on macOS.
 
 use mitsuami_core::l10n::{ToArg, tr};
 use std::cell::{Cell, RefCell};
@@ -10,7 +11,7 @@ use block2::RcBlock;
 use dispatch2::{DispatchQoS, DispatchQueue, GlobalQueueIdentifier};
 use mitsuami_core::services::{
     Alert, AlertStyle, FileFilter, Launch, MenuBarData, MenuCheck, MenuData, MenuEntry, MenuItemData, MenuRole,
-    OpenFile, Reply, SaveFile, ServiceError, Services, Shortcut, existing_folder, menu_item_by_id,
+    Notification, OpenFile, Reply, SaveFile, ServiceError, Services, Shortcut, existing_folder, menu_item_by_id,
 };
 use mitsuami_core::{Key, NodeId};
 use objc2::rc::Retained;
@@ -209,14 +210,14 @@ thread_local! {
 }
 
 /// Keeps a reply, which stays on the main thread, until [`answer`].
-fn wait(reply: Reply<Result<(), ServiceError>>) -> u64 {
+pub(crate) fn wait(reply: Reply<Result<(), ServiceError>>) -> u64 {
     let ticket = NEXT_TICKET.replace(NEXT_TICKET.get() + 1);
     WAITING.with(|w| w.borrow_mut().insert(ticket, reply));
     ticket
 }
 
 /// Answers a kept reply from any thread, on the main one.
-fn answer(ticket: u64, result: Result<(), ServiceError>) {
+pub(crate) fn answer(ticket: u64, result: Result<(), ServiceError>) {
     DispatchQueue::main().exec_async(move || {
         if let Some(reply) = WAITING.with(|w| w.borrow_mut().remove(&ticket)) {
             reply(result);
@@ -502,6 +503,19 @@ impl Services for AppKitServices {
         });
         let configuration = NSWorkspaceOpenConfiguration::configuration();
         NSWorkspace::sharedWorkspace().openURL_configuration_completionHandler(&url, &configuration, Some(&done));
+    }
+
+    fn notify(
+        &mut self,
+        notification: &Notification,
+        activated: Rc<dyn Fn(String)>,
+        reply: Reply<Result<(), ServiceError>>,
+    ) {
+        crate::notifications::notify(notification, activated, reply);
+    }
+
+    fn withdraw_notification(&mut self, id: &str) {
+        crate::notifications::withdraw(id);
     }
 
     /// Each sheet on the window ends with its cancel response, as Escape

@@ -64,6 +64,21 @@ objc2-quick-look-thumbnailing = { version = "0.3", default-features = false, fea
     "objc2-app-kit",
     "objc2-core-foundation",
 ] }
+# Notifications, through the User Notifications framework.
+objc2-user-notifications = { version = "0.3", default-features = false, features = [
+    "std",
+    "bitflags",
+    "block2",
+    "UNError",
+    "UNNotification",
+    "UNNotificationContent",
+    "UNNotificationRequest",
+    "UNNotificationResponse",
+    "UNNotificationSettings",
+    "UNNotificationSound",
+    "UNNotificationTrigger",
+    "UNUserNotificationCenter",
+] }
 block2 = "0.6"
 dispatch2 = "0.3"
 

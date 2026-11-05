@@ -12,7 +12,8 @@
 //! - [`run`] drives the app: the UI ticks whenever Qt's event loop is about
 //!   to sleep.
 //! - Services: Qt's clipboard, `Kirigami.PromptDialog`, Qt Quick's file
-//!   dialogs, and the app's menus in a Kirigami global drawer.
+//!   dialogs, the app's menus in a Kirigami global drawer, and notifications
+//!   through the session's notification server.
 //!
 //! The backend is built with the `qt` feature (which `mitsuami`'s `kde`
 //! feature turns on); without it this crate is empty, so workspaces build
@@ -41,6 +42,8 @@ mod keys;
 mod list;
 #[cfg(all(target_os = "linux", feature = "qt"))]
 mod locale;
+#[cfg(all(target_os = "linux", feature = "qt"))]
+mod notifications;
 #[cfg(all(target_os = "linux", feature = "qt"))]
 mod qml;
 #[cfg(all(target_os = "linux", feature = "qt"))]

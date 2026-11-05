@@ -1,7 +1,7 @@
 //! The real GTK services, end to end: clipboard, the header bar menu, alert
-//! dialogs, file dialogs and the trash. App tests use scripted services instead, so
-//! this is where the native ones are checked. Runs on the private test
-//! display, whose clipboard is its own.
+//! dialogs, file dialogs, the trash and notifications. App tests use
+//! scripted services instead, so this is where the native ones are checked.
+//! Runs on the private test display, whose clipboard is its own.
 //!
 //! A plain `main` (harness = false): GTK has to run on the main thread.
 
@@ -14,7 +14,9 @@ mod checks {
     use gtk::glib;
     use gtk::prelude::*;
     use mitsuami_core::NodeId;
-    use mitsuami_core::services::{Alert, FileFilter, Menu, MenuBar, MenuItem, MenuRole, OpenFile, Shortcut};
+    use mitsuami_core::services::{
+        Alert, FileFilter, Menu, MenuBar, MenuItem, MenuRole, Notification, OpenFile, ServiceError, Shortcut,
+    };
     use mitsuami_core::{Modality, Prop, Size, Ui};
     use mitsuami_gtk::{BackendOptions, GtkBackend, GtkHandle};
     use mitsuami_reactive::signal;
@@ -445,6 +447,19 @@ mod checks {
         std::fs::remove_file(trashed).unwrap();
         std::fs::remove_file(info).unwrap();
     }
+
+    /// Notifications go under the app's id, which the shell knows the app
+    /// by: without one there's nothing to send them from. Nothing shows.
+    pub fn notifications_need_an_app_id(f: &Fixture) {
+        let answer = Rc::new(RefCell::new(None));
+        let a = answer.clone();
+        let reply = f.ui.notify(Notification::new("Done").body("Nothing to see"));
+        f.ui.spawn_local(async move { *a.borrow_mut() = Some(reply.await) });
+        pump_until(f, "the answer", || answer.borrow().is_some());
+        assert_eq!(*answer.borrow(), Some(Err(ServiceError::Unavailable)));
+        // Withdrawing one that was never sent does nothing.
+        f.ui.withdraw_notification("missing");
+    }
 }
 
 #[cfg(target_os = "linux")]
@@ -452,7 +467,7 @@ fn main() {
     use std::panic::{AssertUnwindSafe, catch_unwind};
 
     type Check = (&'static str, fn(&checks::Fixture));
-    let checks: [Check; 11] = [
+    let checks: [Check; 12] = [
         ("clipboard_round_trips", checks::clipboard_round_trips),
         ("menus_are_installed_and_activate", checks::menus_are_installed_and_activate),
         ("items_check_nest_and_take_roles", checks::items_check_nest_and_take_roles),
@@ -467,6 +482,7 @@ fn main() {
             checks::file_dialogs_start_in_their_folder_and_offer_every_file,
         ),
         ("trash_moves_files_to_the_home_trash", checks::trash_moves_files_to_the_home_trash),
+        ("notifications_need_an_app_id", checks::notifications_need_an_app_id),
     ];
     let filter: Vec<String> = std::env::args().skip(1).filter(|a| !a.starts_with('-')).collect();
     let fixture = checks::fixture();

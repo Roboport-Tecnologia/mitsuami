@@ -26,6 +26,15 @@ impl Ui {
                 mitsuami_reactive::batch(|| handler());
                 continue;
             }
+            let clicked = {
+                let mut inner = self.inner.borrow_mut();
+                let id = inner.notification_queue.pop_front();
+                id.map(|id| (id, inner.notification_handlers.values().cloned().collect::<Vec<_>>()))
+            };
+            if let Some((id, handlers)) = clicked {
+                mitsuami_reactive::batch(|| handlers.iter().for_each(|handler| handler(&id)));
+                continue;
+            }
             let next = self.inner.borrow().events.pop();
             let Some((id, event)) = next else { break };
             let (handlers, drawn) = {
@@ -136,7 +145,7 @@ impl Ui {
             }
             let idle = {
                 let inner = self.inner.borrow();
-                inner.events.is_empty() && inner.menu_queue.is_empty()
+                inner.events.is_empty() && inner.menu_queue.is_empty() && inner.notification_queue.is_empty()
             };
             if idle && !self.executor.has_ready() {
                 return;

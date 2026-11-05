@@ -38,6 +38,8 @@ mod list;
 #[cfg(target_os = "linux")]
 mod locale;
 #[cfg(target_os = "linux")]
+mod notifications;
+#[cfg(target_os = "linux")]
 mod popover;
 #[cfg(target_os = "linux")]
 mod radio;

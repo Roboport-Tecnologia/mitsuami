@@ -1,5 +1,6 @@
 //! The real WinUI services, end to end: clipboard (kept in memory), the
-//! menu bar, alerts (`ContentDialog`) and file pickers. App tests use
+//! menu bar, alerts (`ContentDialog`), file pickers and withdrawing
+//! notifications (none is shown). App tests use
 //! scripted services instead, so this is where the native ones are checked.
 //!
 //! A plain `main` (harness = false): XAML runs on the thread that started it.
@@ -319,6 +320,17 @@ mod checks {
         pump_until(&f.ui, "the answers", || *answers.borrow() == (Some(1), Some(None)));
         pump_until(&f.ui, "the file dialog to close", || file_dialog().is_none());
     }
+
+    /// Withdrawing ids nothing has shows nothing and answers nothing; it
+    /// registers the test with Windows (where the platform has app
+    /// notifications) and asks to remove tags none has, one long enough
+    /// to go as a hash.
+    pub fn withdrawing_unknown_notifications_does_nothing(f: &Fixture) {
+        f.ui.withdraw_notification("mitsuami-never-shown");
+        f.ui.withdraw_notification(&"x".repeat(100));
+        f.ui.tick();
+        mitsuami_winui::pump();
+    }
 }
 
 #[cfg(all(windows, target_env = "msvc"))]
@@ -326,7 +338,7 @@ fn main() {
     use std::panic::{AssertUnwindSafe, catch_unwind};
 
     type Check = (&'static str, fn(&checks::Fixture));
-    let checks: [Check; 7] = [
+    let checks: [Check; 8] = [
         ("clipboard_round_trips", checks::clipboard_round_trips),
         ("menus_are_installed_and_activate", checks::menus_are_installed_and_activate),
         ("window_menus_nest_and_check", checks::window_menus_nest_and_check),
@@ -334,6 +346,7 @@ fn main() {
         ("alerts_are_answered_through_their_dialog", checks::alerts_are_answered_through_their_dialog),
         ("open_pickers_report_cancellation", checks::open_pickers_report_cancellation),
         ("dialogs_close_with_their_window", checks::dialogs_close_with_their_window),
+        ("withdrawing_unknown_notifications_does_nothing", checks::withdrawing_unknown_notifications_does_nothing),
     ];
     let filter: Vec<String> = std::env::args().skip(1).filter(|a| !a.starts_with('-')).collect();
     let fixture = checks::fixture();

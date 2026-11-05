@@ -1,5 +1,6 @@
 //! The real AppKit services, end to end: clipboard (on a private
-//! pasteboard), the menu bar, alert sheets, file panels and the trash. App tests use
+//! pasteboard), the menu bar, alert sheets, file panels, the trash and
+//! notifications outside a bundle. App tests use
 //! scripted services instead, so this is where the native ones are checked.
 //!
 //! A plain `main` (harness = false): AppKit has to run on the main thread.
@@ -10,7 +11,9 @@ mod checks {
     use std::rc::Rc;
 
     use mitsuami_appkit::{AppKitBackend, AppKitHandle, BackendOptions, NativeView};
-    use mitsuami_core::services::{Alert, Menu, MenuBar, MenuItem, MenuRole, OpenFile, ServiceError, Shortcut};
+    use mitsuami_core::services::{
+        Alert, Menu, MenuBar, MenuItem, MenuRole, Notification, OpenFile, ServiceError, Shortcut,
+    };
     use mitsuami_core::{Key, Size, Ui, View};
     use objc2::rc::Retained;
     use objc2::runtime::AnyObject;
@@ -456,6 +459,19 @@ mod checks {
         pump_until(&f.ui, || answer.borrow().is_some());
         assert!(matches!(*answer.borrow(), Some(Err(ServiceError::Failed(_)))), "{:?}", answer.borrow());
     }
+
+    /// The test process has no bundle, so there's no notification center
+    /// for it: the framework raises an exception if asked for one, which
+    /// took the process down. It answers that there's nothing to show it.
+    pub fn notifications_need_a_bundle(f: &Fixture) {
+        let answer = Rc::new(RefCell::new(None));
+        let a = answer.clone();
+        let reply = f.ui.notify(Notification::new("Not shown").id("check"));
+        f.ui.spawn_local(async move { *a.borrow_mut() = Some(reply.await) });
+        pump_until(&f.ui, || answer.borrow().is_some());
+        assert_eq!(*answer.borrow(), Some(Err(ServiceError::Unavailable)));
+        f.ui.withdraw_notification("check");
+    }
 }
 
 #[cfg(target_os = "macos")]
@@ -463,7 +479,7 @@ fn main() {
     use std::panic::{AssertUnwindSafe, catch_unwind};
 
     type Check = (&'static str, fn(&checks::Fixture));
-    let checks: [Check; 10] = [
+    let checks: [Check; 11] = [
         ("clipboard_round_trips", checks::clipboard_round_trips),
         ("menus_are_installed_and_activate", checks::menus_are_installed_and_activate),
         ("submenus_check_marks_and_roles", checks::submenus_check_marks_and_roles),
@@ -474,6 +490,7 @@ fn main() {
         ("sheets_end_with_their_window", checks::sheets_end_with_their_window),
         ("sheets_wait_for_their_window", checks::sheets_wait_for_their_window),
         ("trash_moves_files_to_the_users_trash", checks::trash_moves_files_to_the_users_trash),
+        ("notifications_need_a_bundle", checks::notifications_need_a_bundle),
     ];
     let filter: Vec<String> = std::env::args().skip(1).filter(|a| !a.starts_with('-')).collect();
     let fixture = checks::fixture();

@@ -1,5 +1,5 @@
-//! Clipboard, dialogs, the Recycle Bin, launching and the menu bar on
-//! Windows.
+//! Clipboard, dialogs, the Recycle Bin, launching, notifications and the
+//! menu bar on Windows.
 
 use std::cell::RefCell;
 use std::collections::VecDeque;
@@ -8,7 +8,8 @@ use std::rc::Rc;
 
 use mitsuami_core::NodeId;
 use mitsuami_core::services::{
-    Alert, FileFilter, Launch, MenuBarData, OpenFile, Reply, SaveFile, ServiceError, Services, existing_folder,
+    Alert, FileFilter, Launch, MenuBarData, Notification, OpenFile, Reply, SaveFile, ServiceError, Services,
+    existing_folder,
 };
 use windows_core::{HSTRING, Interface};
 
@@ -345,6 +346,21 @@ impl Services for WinUiServices {
         later::on_ui_take(&self.queue, ticket, move |reply: Reply<Result<(), ServiceError>>| {
             reply(shell_open(owner.map(|hwnd| hwnd as w::HWND), &target));
         });
+    }
+
+    /// An app notification (`notifications.rs`). Windows takes it at once,
+    /// so the answer is too.
+    fn notify(
+        &mut self,
+        notification: &Notification,
+        activated: Rc<dyn Fn(String)>,
+        reply: Reply<Result<(), ServiceError>>,
+    ) {
+        reply(crate::notifications::show(&self.queue, &self.backend, notification, activated));
+    }
+
+    fn withdraw_notification(&mut self, id: &str) {
+        crate::notifications::withdraw(&self.queue, id);
     }
 
     /// The alert showing on the window is cancelled (`Cancel` on its

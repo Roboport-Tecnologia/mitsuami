@@ -146,6 +146,7 @@ pub fn run(info: AppInfo, setup: impl FnOnce(&Ui)) {
         })
     };
     app.setDelegate(Some(ProtocolObject::from_ref(&*delegate)));
+    crate::notifications::listen();
 
     let run_loop = CFRunLoop::main().expect("main run loop");
     // Common modes include event tracking, so live resizing relayouts too.

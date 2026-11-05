@@ -27,6 +27,22 @@ typedef void (*mq_input_callback)(uint64_t key, int32_t kind, int32_t code, int3
 // An object handed to Rust is being destroyed: its handles die.
 typedef void (*mq_gone_callback)(QObject* object);
 
+// What the session's notification server answers or says (MQ_NOTIFY_…):
+// the server's id of a notification in `id`, a close's reason (as the
+// freedesktop.org spec numbers them) in `reason`, an error, a token or an
+// action's key in `text`.
+typedef void (*mq_notify_callback)(uint64_t key, int32_t kind, uint32_t id, uint32_t reason, const char* text);
+
+// Notification kinds. A request's key gets one of the first three, once.
+enum {
+    MQ_NOTIFY_SHOWN = 0,        // the server has it, as `id`
+    MQ_NOTIFY_UNAVAILABLE = 1,  // no session bus, or no server on it
+    MQ_NOTIFY_FAILED = 2,       // the server refused it, saying why
+    MQ_NOTIFICATION_TOKEN = 3,  // the activation token for `id`'s action that follows
+    MQ_NOTIFICATION_ACTION = 4, // the user invoked one of `id`'s actions ("default": clicked it)
+    MQ_NOTIFICATION_CLOSED = 5, // `id` went, for `reason`
+};
+
 // Input kinds.
 enum {
     MQ_KEY_DOWN = 0,
@@ -74,6 +90,20 @@ public slots:
 private:
     uint64_t key;
     bool once;
+};
+
+// Forwards the notification server's signals to Rust. They're of every
+// app's notifications on some servers (GNOME's), so Rust keeps its own.
+class NotificationWatcher : public QObject {
+    Q_OBJECT
+public:
+    NotificationWatcher(uint64_t key) : key(key) {}
+public slots:
+    void actionInvoked(uint id, const QString& action);
+    void activationToken(uint id, const QString& token);
+    void closed(uint id, uint reason);
+private:
+    uint64_t key;
 };
 
 // A drawn custom widget: paints a flattened display list with QPainter and
@@ -250,6 +280,18 @@ int32_t mq_file_icon_loads(void);
 void mq_add_icon_fallback_path(const char* path);
 // Opens a local path (is_path) or a URL in its app; 0 if nothing did.
 int32_t mq_open_url(const char* target, int32_t is_path);
+
+// Notifications, through the freedesktop.org server on the session bus.
+void mq_set_notify_callback(mq_notify_callback callback);
+// Forwards the server's signals to `key`; 0 without a session bus.
+int32_t mq_watch_notifications(uint64_t key);
+// Sends one (`body` null for none), replacing the server's `replaces` (0
+// for none), and answers `key`.
+void mq_notify(uint64_t key, uint32_t replaces, const char* title, const char* body);
+void mq_close_notification(uint32_t id);
+// Brings the app forward after a click on its notification, with the
+// server's activation token (null for none).
+void mq_raise_app(const char* token);
 
 // Languages and formats: the system locale's (KDE's region settings), or
 // the locale named, if any. The user's languages, "a\nb" (free with

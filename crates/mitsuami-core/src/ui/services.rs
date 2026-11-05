@@ -1,15 +1,16 @@
 //! Platform services on a `Ui`: the clipboard, dialogs, the trash,
-//! launching, menus and quitting.
+//! launching, notifications, menus and quitting.
 
 use std::rc::Rc;
 
 use crate::command::UiEvent;
 use crate::services::{
-    Alert, Launch, MenuBar, MenuBarData, MenuRole, OpenFile, SaveFile, ServiceError, Services, reply_future,
+    Alert, Launch, MenuBar, MenuBarData, MenuRole, Notification, OpenFile, SaveFile, ServiceError, Services,
+    reply_future,
 };
 use crate::widget::NodeId;
 
-use super::{Handler0, Ui};
+use super::{Handler0, NotificationHandler, Ui};
 
 impl Ui {
     /// Replaces the platform services (tests install a scripted fake).
@@ -82,6 +83,64 @@ impl Ui {
         let (reply, done) = reply_future();
         self.services.borrow_mut().launch(parent, &target, reply);
         done
+    }
+
+    /// Shows a notification outside the app's windows; see
+    /// [`Services::notify`]. Resolves once the platform has it.
+    pub fn notify(
+        &self,
+        mut notification: Notification,
+    ) -> impl std::future::Future<Output = Result<(), ServiceError>> + use<> {
+        if notification.id.is_none() {
+            let mut inner = self.inner.borrow_mut();
+            notification.id = Some(format!("mitsuami-{}", inner.next_notification));
+            inner.next_notification += 1;
+        }
+        let (reply, done) = reply_future();
+        self.services.borrow_mut().notify(&notification, self.notification_activated(), reply);
+        done
+    }
+
+    /// Takes away the notification with this id, if it's still there.
+    pub fn withdraw_notification(&self, id: &str) {
+        self.services.borrow_mut().withdraw_notification(id);
+    }
+
+    /// Runs `handler` with a notification's id when the user clicks it,
+    /// until the current scope ends. The platform has brought the app
+    /// forward by then; the app shows what the notification was about.
+    pub fn on_notification_activated(&self, handler: impl Fn(&str) + 'static) {
+        // In the scope it was installed from, so it can spawn tasks that
+        // live as long as it, as menu items do.
+        let scope = mitsuami_reactive::Owner::current();
+        let handler: NotificationHandler = Rc::new(move |id| match scope {
+            Some(scope) if scope.is_alive() => scope.with(|| handler(id)),
+            _ => handler(id),
+        });
+        let token = {
+            let mut inner = self.inner.borrow_mut();
+            let token = inner.next_notification_handler;
+            inner.next_notification_handler += 1;
+            inner.notification_handlers.insert(token, handler);
+            token
+        };
+        let ui = self.downgrade();
+        mitsuami_reactive::on_cleanup(move || {
+            if let Some(ui) = ui.upgrade() {
+                ui.inner.borrow_mut().notification_handlers.remove(&token);
+            }
+        });
+    }
+
+    /// What platforms call with the id of the notification clicked.
+    fn notification_activated(&self) -> Rc<dyn Fn(String)> {
+        let weak = self.downgrade();
+        Rc::new(move |id| {
+            if let Some(ui) = weak.upgrade() {
+                ui.inner.borrow_mut().notification_queue.push_back(id);
+                ui.changed();
+            }
+        })
     }
 
     /// Installs the app's menus, replacing the ones installed before.
