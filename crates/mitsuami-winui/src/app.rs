@@ -2,6 +2,7 @@
 //! dispatcher queue.
 
 use std::cell::{Cell, RefCell};
+use std::os::windows::ffi::OsStrExt;
 use std::rc::Rc;
 use std::sync::Arc;
 
@@ -204,14 +205,58 @@ fn scheduler(queue: &w::DispatcherQueue, turn: Rc<dyn Fn()>) -> Rc<dyn Fn()> {
 pub fn fatal_error(title: &str, message: &str) {
     let wide = |s: &str| s.encode_utf16().chain([0]).collect::<Vec<u16>>();
     let (title, message) = (wide(title), wide(message));
+    // Apps call this before `run`, when nothing has made the process DPI
+    // aware yet.
+    runtime::dpi_aware();
+    let context = visual_styles();
+    let mut cookie = 0;
     unsafe {
+        let active = context.is_some_and(|context| w::ActivateActCtx(context, &mut cookie).as_bool());
         w::MessageBoxW(
             std::ptr::null_mut(),
             windows_core::PCWSTR(message.as_ptr()),
             windows_core::PCWSTR(title.as_ptr()),
             (w::MB_OK | w::MB_ICONERROR | w::MB_SETFOREGROUND) as u32,
         );
+        if active {
+            _ = w::DeactivateActCtx(0, cookie);
+        }
+        if let Some(context) = context {
+            w::ReleaseActCtx(context);
+        }
     }
+}
+
+/// An activation context with Common Controls 6, so the message box has
+/// the current button styles: without one, Windows draws it with the
+/// unthemed controls of Windows 2000. Apps get them from a manifest in
+/// their executable; a library can't put one there (a dependency's
+/// resources don't reach the final link), so we make the context from a
+/// manifest file, as `Application.EnableVisualStyles` does from its DLL's.
+/// Windows reads the file when the context is created; `None` if it can't
+/// be written, and the box shows unthemed.
+fn visual_styles() -> Option<w::HANDLE> {
+    const MANIFEST: &str = r#"<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<assembly xmlns="urn:schemas-microsoft-com:asm.v1" manifestVersion="1.0">
+  <dependency>
+    <dependentAssembly>
+      <assemblyIdentity type="win32" name="Microsoft.Windows.Common-Controls" version="6.0.0.0"
+        processorArchitecture="*" publicKeyToken="6595b64144ccf1df" language="*"/>
+    </dependentAssembly>
+  </dependency>
+</assembly>
+"#;
+    let path = std::env::temp_dir().join(format!("mitsuami-{}.manifest", std::process::id()));
+    std::fs::write(&path, MANIFEST).ok()?;
+    let source = path.as_os_str().encode_wide().chain([0]).collect::<Vec<u16>>();
+    let info = w::ACTCTXW {
+        cbSize: size_of::<w::ACTCTXW>() as u32,
+        lpSource: windows_core::PCWSTR(source.as_ptr()),
+        ..Default::default()
+    };
+    let context = unsafe { w::CreateActCtxW(&info) };
+    _ = std::fs::remove_file(&path);
+    (context != w::INVALID_HANDLE_VALUE).then_some(context)
 }
 
 /// Prepares WinUI for tests. XAML starts on the calling thread, which must

@@ -291,6 +291,12 @@ Windows.Win32.MessageBoxW
 Windows.Win32.MB_ICONERROR
 Windows.Win32.MB_OK
 Windows.Win32.MB_SETFOREGROUND
+Windows.Win32.CreateActCtxW
+Windows.Win32.ActivateActCtx
+Windows.Win32.DeactivateActCtx
+Windows.Win32.ReleaseActCtx
+Windows.Win32.ACTCTXW
+Windows.Win32.INVALID_HANDLE_VALUE
 Windows.Win32.GetDpiForSystem
 Windows.Win32.GetKeyState
 Windows.Win32.VK_SHIFT

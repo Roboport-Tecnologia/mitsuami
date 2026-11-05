@@ -51,15 +51,25 @@ pub fn start() -> std::result::Result<(), String> {
     Ok(())
 }
 
+/// Logical units everywhere; XAML scales per monitor. First, before
+/// anything can show: the bootstrap's errors and `fatal_error`'s message
+/// box would otherwise be bitmap-stretched, blurry, on a scaled display.
+/// Windows keeps the first awareness a process sets, so calling it again
+/// does nothing.
+pub(crate) fn dpi_aware() {
+    unsafe {
+        _ = SetProcessDpiAwarenessContext(DPI_AWARENESS_CONTEXT_PER_MONITOR_AWARE_V2);
+    }
+}
+
 fn try_init() -> Result<()> {
+    dpi_aware();
     // A package declares the runtime as a dependency in its manifest, and
     // Windows adds it to the package graph before we start.
     if !crate::backend::packaged() {
         bootstrap()?;
     }
     unsafe {
-        // Logical units everywhere; XAML scales per monitor.
-        _ = SetProcessDpiAwarenessContext(DPI_AWARENESS_CONTEXT_PER_MONITOR_AWARE_V2);
         let hr = CoInitializeEx(std::ptr::null(), COINIT_APARTMENTTHREADED as u32);
         if hr == RPC_E_CHANGED_MODE {
             return Err(windows_core::Error::new(hr, "WinUI needs a single-threaded apartment"));

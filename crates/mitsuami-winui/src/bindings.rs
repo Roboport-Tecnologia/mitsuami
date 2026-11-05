@@ -1,3 +1,4 @@
+windows_core::link!("kernel32.dll" "system" fn ActivateActCtx(hactctx : HANDLE, lpcookie : *mut usize) -> windows_core::BOOL);
 windows_core::link!("user32.dll" "system" fn CallNextHookEx(hhk : HHOOK, ncode : i32, wparam : WPARAM, lparam : LPARAM) -> LRESULT);
 windows_core::link!("user32.dll" "system" fn ClientToScreen(hwnd : HWND, lppoint : *mut POINT) -> windows_core::BOOL);
 windows_core::link!("user32.dll" "system" fn ClipCursor(lprect : *const RECT) -> windows_core::BOOL);
@@ -5,12 +6,14 @@ windows_core::link!("ole32.dll" "system" fn CoCreateInstance(rclsid : *const win
 windows_core::link!("ole32.dll" "system" fn CoInitializeEx(pvreserved : *const core::ffi::c_void, dwcoinit : u32) -> windows_core::HRESULT);
 windows_core::link!("ole32.dll" "system" fn CoTaskMemFree(pv : *mut core::ffi::c_void));
 windows_core::link!("ole32.dll" "system" fn CoUninitialize());
+windows_core::link!("kernel32.dll" "system" fn CreateActCtxW(pactctx : *const ACTCTXW) -> HANDLE);
 windows_core::link!("gdi32.dll" "system" fn CreateBitmap(nwidth : i32, nheight : i32, nplanes : u32, nbitcount : u32, lpbits : *const core::ffi::c_void) -> HBITMAP);
 windows_core::link!("gdi32.dll" "system" fn CreateCompatibleDC(hdc : HDC) -> HDC);
 windows_core::link!("gdi32.dll" "system" fn CreateDIBSection(hdc : HDC, pbmi : *const BITMAPINFO, usage : u32, ppvbits : *mut *mut core::ffi::c_void, hsection : HANDLE, offset : u32) -> HBITMAP);
 windows_core::link!("user32.dll" "system" fn CreateIconFromResourceEx(presbits : *const u8, dwressize : u32, ficon : windows_core::BOOL, dwver : u32, cxdesired : i32, cydesired : i32, flags : u32) -> HICON);
 windows_core::link!("user32.dll" "system" fn CreateIconIndirect(piconinfo : *const ICONINFO) -> HICON);
 windows_core::link!("user32.dll" "system" fn CreateWindowExW(dwexstyle : u32, lpclassname : windows_core::PCWSTR, lpwindowname : windows_core::PCWSTR, dwstyle : u32, x : i32, y : i32, nwidth : i32, nheight : i32, hwndparent : HWND, hmenu : HMENU, hinstance : HINSTANCE, lpparam : *const core::ffi::c_void) -> HWND);
+windows_core::link!("kernel32.dll" "system" fn DeactivateActCtx(dwflags : u32, ulcookie : usize) -> windows_core::BOOL);
 windows_core::link!("comctl32.dll" "system" fn DefSubclassProc(hwnd : HWND, umsg : u32, wparam : WPARAM, lparam : LPARAM) -> LRESULT);
 windows_core::link!("user32.dll" "system" fn DefWindowProcW(hwnd : HWND, msg : u32, wparam : WPARAM, lparam : LPARAM) -> LRESULT);
 windows_core::link!("gdi32.dll" "system" fn DeleteDC(hdc : HDC) -> windows_core::BOOL);
@@ -73,6 +76,7 @@ windows_core::link!("user32.dll" "system" fn PostThreadMessageW(idthread : u32, 
 windows_core::link!("advapi32.dll" "system" fn RegGetValueW(hkey : HKEY, lpsubkey : windows_core::PCWSTR, lpvalue : windows_core::PCWSTR, dwflags : u32, pdwtype : *mut u32, pvdata : *mut core::ffi::c_void, pcbdata : *mut u32) -> LSTATUS);
 windows_core::link!("user32.dll" "system" fn RegisterClassExW(param0 : *const WNDCLASSEXW) -> ATOM);
 windows_core::link!("user32.dll" "system" fn RegisterRawInputDevices(prawinputdevices : *const RAWINPUTDEVICE, uinumdevices : u32, cbsize : u32) -> windows_core::BOOL);
+windows_core::link!("kernel32.dll" "system" fn ReleaseActCtx(hactctx : HANDLE));
 windows_core::link!("user32.dll" "system" fn ReleaseCapture() -> windows_core::BOOL);
 windows_core::link!("comctl32.dll" "system" fn RemoveWindowSubclass(hwnd : HWND, pfnsubclass : SUBCLASSPROC, uidsubclass : usize) -> windows_core::BOOL);
 windows_core::link!("shell32.dll" "system" fn SHCreateItemFromParsingName(pszpath : windows_core::PCWSTR, pbc : *mut core::ffi::c_void, riid : *const windows_core::GUID, ppv : *mut *mut core::ffi::c_void) -> windows_core::HRESULT);
@@ -105,6 +109,19 @@ windows_core::link!("user32.dll" "system" fn TrackMouseEvent(lpeventtrack : *mut
 windows_core::link!("user32.dll" "system" fn TranslateMessage(lpmsg : *const MSG) -> windows_core::BOOL);
 windows_core::link!("user32.dll" "system" fn UnhookWindowsHookEx(hhk : HHOOK) -> windows_core::BOOL);
 windows_core::link!("user32.dll" "system" fn WindowFromPoint(point : POINT) -> HWND);
+#[repr(C)]
+#[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
+pub struct ACTCTXW {
+    pub cbSize: u32,
+    pub dwFlags: u32,
+    pub lpSource: windows_core::PCWSTR,
+    pub wProcessorArchitecture: u16,
+    pub wLangId: LANGID,
+    pub lpAssemblyDirectory: windows_core::PCWSTR,
+    pub lpResourceName: windows_core::PCWSTR,
+    pub lpApplicationName: windows_core::PCWSTR,
+    pub hModule: HMODULE,
+}
 pub const APPMODEL_ERROR_NO_PACKAGE: i32 = 15700;
 pub type ATOM = u16;
 #[repr(transparent)]
@@ -11591,6 +11608,7 @@ pub struct IMicaBackdropFactory_Vtbl {
     ) -> windows_core::HRESULT,
 }
 pub const INFINITE: u32 = 4294967295;
+pub const INVALID_HANDLE_VALUE: HANDLE = -1 as _;
 windows_core::imp::define_interface!(INavigationView, INavigationView_Vtbl, 0xe77a4b36_3dd1_53d9_9f97_65dccaa74a5c);
 impl windows_core::RuntimeType for INavigationView {
     const SIGNATURE: windows_core::imp::ConstBuffer = windows_core::imp::ConstBuffer::for_interface::<Self>();
@@ -19827,6 +19845,7 @@ impl windows_core::RuntimeType for KeyboardNavigationMode {
     const SIGNATURE: windows_core::imp::ConstBuffer =
         windows_core::imp::ConstBuffer::from_slice(b"enum(Microsoft.UI.Xaml.Input.KeyboardNavigationMode;i4)");
 }
+pub type LANGID = u16;
 pub type LCTYPE = u32;
 pub const LLKHF_EXTENDED: i32 = 1;
 pub const LLKHF_UP: i32 = 128;
