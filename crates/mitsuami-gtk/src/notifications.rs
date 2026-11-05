@@ -65,7 +65,16 @@ fn register(id: &str) -> Option<NotifyingApp> {
     app.add_action(&action);
     // A remote one would only forward to the process that has the id:
     // GIO sends notifications only from the primary instance.
-    match app.register(None::<&gio::Cancellable>) {
+    let registered = app.register(None::<&gio::Cancellable>);
+    // Kept for the whole process, as `g_application_run` keeps its app:
+    // GIO has no public unregister, so a registered app finalized at exit
+    // (the thread-local's destructor) unregisters from D-Bus inside
+    // `finalize`, through the subclass's `dbus_unregister`, which gtk-rs
+    // can't run on an object whose last reference is gone.
+    if app.is_registered() {
+        std::mem::forget(app.clone());
+    }
+    match registered {
         Ok(()) if !app.is_remote() => Some(app),
         _ => None,
     }
