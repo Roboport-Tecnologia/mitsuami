@@ -302,10 +302,14 @@ mod checks {
                 if let Some(dialog) = dialog {
                     let mut labels = Vec::new();
                     collect_labels(dialog.upcast_ref(), &mut labels);
-                    let ok = find::<gtk::Button>(dialog.upcast_ref(), &|b| b.label().as_deref() == Some("OK"));
-                    *shown.borrow_mut() = Some((labels, ok.is_some()));
-                    match ok {
-                        Some(ok) => ok.emit_clicked(),
+                    // GTK's own Close: mitsuami's strings aren't there without a `Ui`, and
+                    // an id where a label should be gave the button away once.
+                    let close = find::<gtk::Button>(dialog.upcast_ref(), &|b| {
+                        b.label().is_some_and(|l| !l.is_empty() && !l.starts_with("mitsuami-"))
+                    });
+                    *shown.borrow_mut() = Some((labels, close.as_ref().and_then(|b| b.label()).map(String::from)));
+                    match close {
+                        Some(close) => close.emit_clicked(),
                         None => dialog.close(),
                     }
                     return glib::ControlFlow::Break;
@@ -319,10 +323,10 @@ mod checks {
         mitsuami_gtk::fatal_error("Player can't start", "The disk image is gone.");
         let _ = watcher;
 
-        let (labels, has_ok) = shown.borrow_mut().take().expect("the fatal error's dialog");
+        let (labels, button) = shown.borrow_mut().take().expect("the fatal error's dialog");
         assert!(labels.iter().any(|l| l == "Player can't start"), "the title, in {labels:?}");
         assert!(labels.iter().any(|l| l == "The disk image is gone."), "the message, in {labels:?}");
-        assert!(has_ok, "an OK button");
+        assert!(button.is_some(), "a button labelled by GTK, in {labels:?}");
         while glib::MainContext::default().iteration(false) {}
         assert!(
             gtk::Window::list_toplevels()

@@ -30,7 +30,9 @@ fn init() {
 
 /// Tells the user the app can't run, in a `gtk::AlertDialog` of its own
 /// (no parent: there may be no window yet, or ever), and returns once
-/// they dismiss it. GLib's loop runs only for the dialog. Without a
+/// they dismiss it. GLib's loop runs only for the dialog. It has GTK's own
+/// Close button, in GTK's language: mitsuami's strings come with a `Ui`,
+/// and there's none. Without a
 /// display there's nowhere to show it, and it returns at once: the app's
 /// own stderr is all that's left then.
 pub fn fatal_error(title: &str, message: &str) {
@@ -38,7 +40,6 @@ pub fn fatal_error(title: &str, message: &str) {
         return;
     }
     let dialog = gtk::AlertDialog::builder().message(title).detail(message).modal(true).build();
-    dialog.set_buttons(&[mitsuami_core::l10n::tr("mitsuami-alert-ok", &[]).as_str()]);
     let main_loop = glib::MainLoop::new(None, false);
     let done = main_loop.clone();
     dialog.choose(None::<&gtk::Window>, None::<&gtk::gio::Cancellable>, move |_| done.quit());
