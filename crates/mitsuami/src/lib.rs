@@ -55,7 +55,7 @@
 mod app;
 mod platforms;
 
-pub use app::App;
+pub use app::{App, fatal_error};
 pub use mitsuami_core as core;
 /// The `raw-window-handle` a [`SurfaceHandle`](prelude::SurfaceHandle) implements.
 pub use mitsuami_core::raw_window_handle;
@@ -89,7 +89,7 @@ compile_error!("mitsuami: pick a Linux toolkit with the `gtk` (default) or `kde`
 pub use mitsuami_winui as winui;
 
 pub mod prelude {
-    pub use crate::{App, IntoValue, component, locales, platform, t, tr, view};
+    pub use crate::{App, IntoValue, component, fatal_error, locales, platform, t, tr, view};
     pub use mitsuami_core::draw::DisplayList;
     pub use mitsuami_core::l10n::{self, Locales};
     pub use mitsuami_core::services::{

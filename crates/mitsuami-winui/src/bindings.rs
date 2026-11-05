@@ -20142,6 +20142,8 @@ impl windows_core::RuntimeType for ListViewSelectionMode {
 }
 pub const MAPVK_VK_TO_VSC_EX: i32 = 4;
 pub const MB_ICONERROR: i32 = 16;
+pub const MB_OK: i32 = 0;
+pub const MB_SETFOREGROUND: i32 = 65536;
 pub const MK_LBUTTON: i32 = 1;
 pub const MK_MBUTTON: i32 = 16;
 pub const MK_RBUTTON: i32 = 2;

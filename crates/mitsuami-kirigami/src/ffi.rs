@@ -22,6 +22,9 @@ unsafe extern "C" {
     fn mq_process_events();
     fn mq_exec();
     fn mq_quit();
+    fn mq_fatal_error(title: *const c_char, message: *const c_char);
+    fn mq_test_accept_next_fatal_error();
+    fn mq_test_accepted_fatal_error(title: *mut *mut c_char, message: *mut *mut c_char) -> i32;
     fn mq_watch_loop(key: u64);
     fn mq_watch_session_end(key: u64);
     fn mq_keep_session();
@@ -286,6 +289,25 @@ pub(crate) fn exec() {
 
 pub(crate) fn quit() {
     unsafe { mq_quit() }
+}
+
+pub(crate) fn fatal_error(title: &str, message: &str) {
+    let (title, message) = (c(title), c(message));
+    unsafe { mq_fatal_error(title.as_ptr(), message.as_ptr()) }
+}
+
+pub(crate) fn test_accept_next_fatal_error() {
+    unsafe { mq_test_accept_next_fatal_error() }
+}
+
+/// What the fatal error accepted after `test_accept_next_fatal_error`
+/// showed, or `None` if none was.
+pub(crate) fn test_accepted_fatal_error() -> Option<(String, String)> {
+    let (mut title, mut message) = (std::ptr::null_mut(), std::ptr::null_mut());
+    if unsafe { mq_test_accepted_fatal_error(&mut title, &mut message) } == 0 {
+        return None;
+    }
+    Some((owned(title), owned(message)))
 }
 
 /// Calls `f` whenever the event loop is about to sleep.

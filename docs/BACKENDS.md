@@ -25,10 +25,11 @@ Native wins (ARCHITECTURE.md §1): widgets behave, size and respond as the platf
 | `TestHooks` on your shareable handle | `mitsuami_core::TestHooks` | `impl TestHooks for AppKitHandle` |
 | `run(info, setup)`: the app's run loop | your crate | `mitsuami-appkit/src/app.rs` |
 | `init_for_tests()` | your crate | same file |
+| `fatal_error(title, message)`: the app can't run (§15.1) | your crate | same file |
 
 You also touch these places outside your crate:
 
-1. **`crates/mitsuami/Cargo.toml`, `crates/mitsuami/src/app.rs`, `crates/mitsuami/src/lib.rs`:** `App::run` calls your `run`, behind a `cfg(target_os = …)`, and `lib.rs` re-exports your crate (`pub use mitsuami_<name> as <name>`). A new OS or toolkit also needs an arm of `platform!` (`crates/mitsuami/src/platforms.rs`).
+1. **`crates/mitsuami/Cargo.toml`, `crates/mitsuami/src/app.rs`, `crates/mitsuami/src/lib.rs`:** `App::run` calls your `run`, and `mitsuami::fatal_error` your `fatal_error`, behind a `cfg(target_os = …)`, and `lib.rs` re-exports your crate (`pub use mitsuami_<name> as <name>`). A new OS or toolkit also needs an arm of `platform!` (`crates/mitsuami/src/platforms.rs`).
 2. **`crates/mitsuami-test/Cargo.toml`, `crates/mitsuami-test/src/driver.rs`:**
    - Add a `native(appearance)` that builds your backend for tests, with your crate's own `BackendOptions` (AppKit's has `show_windows`, `record_commands`, `appearance`, `private_clipboard` and `locale`): offscreen unless `MITSUAMI_SHOW_WINDOWS=1`, recording commands, the appearance the test asks for (light, or a story's dark variant) whatever the system's, the test locale (§6.1), and a private clipboard if the platform allows it.
    - Add your platform to `native_available()`.
@@ -694,6 +695,17 @@ The conformance tests use three controls arranged so that reading order and posi
 | stop | `stop:` **plus an empty posted event** (otherwise it waits for the next real event) | `glib::MainLoop::quit` (there's no `gtk::Application`) | `EnqueueEventLoopExit`, then release XAML objects while XAML still runs | `QCoreApplication::quit` (`quitOnLastWindowClosed` off: the core decides) |
 
 Never call `tick()` from inside a widget callback; the loop calls it.
+
+### 15.1 When the app can't run
+
+`fatal_error(title, message)` tells the user the app can't run, and returns once they dismiss it. It's called instead of `run`, or before it: no `Ui`, no backend, maybe no window ever. Show the platform's own modal message, blocking in a loop of its own, with the platform's own OK button and an error icon where it has one. Start only what that needs, and nothing that may be what's missing. Where there's nowhere to show it, return at once; the app writes to stderr too.
+
+| | AppKit | GTK 4 | WinUI 3 | Kirigami |
+|---|---|---|---|---|
+| shown as | an app-modal `NSAlert`, `NSAlertStyle::Critical`, `runModal`, the app activated first | a `gtk::AlertDialog` with no parent, OK (`mitsuami-alert-ok`), a `glib::MainLoop` until it's answered | a Win32 `MessageBoxW` (`MB_ICONERROR`, `MB_SETFOREGROUND`), which needs no Windows App Runtime | `QMessageBox::Critical`, `exec()`, Qt started for it |
+| nowhere to show it | off the main thread | no display (`gtk::init` fails) | | |
+
+`run` uses it too where the platform can't start: WinUI shows the missing Windows App Runtime's message in it before panicking, since a GUI app's panic goes nowhere.
 
 ## 16. Sync and async in the contract
 

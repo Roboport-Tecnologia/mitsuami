@@ -20,6 +20,29 @@ fn init() {
     }
 }
 
+/// Tells the user the app can't run, in a `QMessageBox::critical` (KDE's
+/// apps show theirs with `KMessageBox::error`, the same widget dialog),
+/// and returns once they dismiss it. Qt starts for it if it hasn't.
+pub fn fatal_error(title: &str, message: &str) {
+    init();
+    ffi::fatal_error(title, message);
+}
+
+/// Tests: accept the next [`fatal_error`] once it's on screen, as its OK
+/// button does. Call before it, which blocks.
+#[doc(hidden)]
+pub fn test_accept_next_fatal_error() {
+    init();
+    ffi::test_accept_next_fatal_error();
+}
+
+/// Tests: the title and message of the fatal error
+/// [`test_accept_next_fatal_error`] accepted, or `None` if none was.
+#[doc(hidden)]
+pub fn test_accepted_fatal_error() -> Option<(String, String)> {
+    ffi::test_accepted_fatal_error()
+}
+
 /// Starts the app: `setup` creates the windows, then Qt's event loop takes
 /// over. Returns when the last window closes.
 pub fn run(info: AppInfo, setup: impl FnOnce(&Ui)) {

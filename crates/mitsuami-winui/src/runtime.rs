@@ -30,16 +30,25 @@ thread_local! {
 /// If the Windows App Runtime 2.4 (or later 2.x) is not installed, or XAML
 /// was already started differently on this thread.
 pub fn init() {
-    if READY.get() {
-        return;
+    if let Err(message) = start() {
+        panic!("{message}");
     }
-    if let Err(error) = try_init() {
-        panic!(
+}
+
+/// [`init`], answering what went wrong instead of panicking: `run` tells
+/// the user, who has no other way to learn why the app didn't open.
+pub fn start() -> std::result::Result<(), String> {
+    if READY.get() {
+        return Ok(());
+    }
+    try_init().map_err(|error| {
+        format!(
             "mitsuami-winui: could not start WinUI ({error}). Mitsuami needs the Windows App Runtime 2.4 or later: \
              https://learn.microsoft.com/windows/apps/windows-app-sdk/downloads"
-        );
-    }
+        )
+    })?;
     READY.set(true);
+    Ok(())
 }
 
 fn try_init() -> Result<()> {

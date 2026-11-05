@@ -55,7 +55,7 @@ mod toolbar;
 mod tweak;
 
 #[cfg(target_os = "macos")]
-pub use app::{init_for_tests, run};
+pub use app::{fatal_error, init_for_tests, run};
 #[cfg(target_os = "macos")]
 pub use backend::{AppKitBackend, AppKitHandle, BackendOptions};
 #[cfg(target_os = "macos")]

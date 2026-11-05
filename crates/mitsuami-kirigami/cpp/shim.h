@@ -101,6 +101,11 @@ int32_t mq_is_exiting(void);
 void mq_process_events(void);
 void mq_exec(void);
 void mq_quit(void);
+void mq_fatal_error(const char* title, const char* message);
+// Tests: accept the next fatal error once it shows, and read what it showed
+// (0 until one was accepted).
+void mq_test_accept_next_fatal_error(void);
+int32_t mq_test_accepted_fatal_error(char** title, char** message);
 void mq_watch_loop(uint64_t key);
 // The session is ending (logging out): calls back, and cancels the end if
 // the callback called `mq_keep_session`.

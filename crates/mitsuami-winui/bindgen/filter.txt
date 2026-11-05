@@ -289,6 +289,8 @@ Windows.Win32.SetForegroundWindow
 Windows.Win32.E_FAIL
 Windows.Win32.MessageBoxW
 Windows.Win32.MB_ICONERROR
+Windows.Win32.MB_OK
+Windows.Win32.MB_SETFOREGROUND
 Windows.Win32.GetDpiForSystem
 Windows.Win32.GetKeyState
 Windows.Win32.VK_SHIFT

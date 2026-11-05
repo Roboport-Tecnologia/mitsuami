@@ -85,7 +85,8 @@ mod tweak;
 
 #[cfg(all(windows, target_env = "msvc"))]
 pub use app::{
-    init_for_tests, pump, run, set_full_screen_menu_bar, set_menu_bar_place, set_toolbar_place, set_window_placement,
+    fatal_error, init_for_tests, pump, run, set_full_screen_menu_bar, set_menu_bar_place, set_toolbar_place,
+    set_window_placement,
 };
 #[cfg(all(windows, target_env = "msvc"))]
 pub use backend::{

@@ -7,15 +7,15 @@ use objc2::rc::Retained;
 use objc2::runtime::{NSObject, NSObjectProtocol, ProtocolObject};
 use objc2::{DefinedClass, MainThreadMarker, MainThreadOnly, define_class, msg_send};
 use objc2_app_kit::{
-    NSApplication, NSApplicationActivationPolicy, NSApplicationDelegate, NSApplicationTerminateReply, NSEvent,
-    NSEventModifierFlags, NSEventType,
+    NSAlert, NSAlertStyle, NSApplication, NSApplicationActivationPolicy, NSApplicationDelegate,
+    NSApplicationTerminateReply, NSEvent, NSEventModifierFlags, NSEventType,
 };
 use std::sync::Arc;
 
 use objc2_core_foundation::{
     CFAbsoluteTimeGetCurrent, CFRunLoop, CFRunLoopActivity, CFRunLoopObserver, CFRunLoopTimer, kCFRunLoopCommonModes,
 };
-use objc2_foundation::NSPoint;
+use objc2_foundation::{NSPoint, NSString};
 
 use crate::backend::{AppKitBackend, BackendOptions};
 
@@ -91,6 +91,24 @@ fn wake_main_run_loop() {
 
 fn main_thread() -> MainThreadMarker {
     MainThreadMarker::new().expect("mitsuami: AppKit must be driven from the main thread")
+}
+
+/// Tells the user the app can't run, in an app-modal critical `NSAlert`
+/// (`runModal`, which runs its own loop: there may be no window to put a
+/// sheet on), and returns once they dismiss it. The app comes to the
+/// front for it, as a launch that fails would otherwise show nothing.
+/// Off the main thread there's nothing AppKit can show, and it returns at
+/// once.
+pub fn fatal_error(title: &str, message: &str) {
+    let Some(mtm) = MainThreadMarker::new() else { return };
+    let app = NSApplication::sharedApplication(mtm);
+    app.setActivationPolicy(NSApplicationActivationPolicy::Regular);
+    app.activate();
+    let alert = NSAlert::new(mtm);
+    alert.setAlertStyle(NSAlertStyle::Critical);
+    alert.setMessageText(&NSString::from_str(title));
+    alert.setInformativeText(&NSString::from_str(message));
+    alert.runModal();
 }
 
 /// Starts the app: `setup` creates the windows, then AppKit's run loop takes

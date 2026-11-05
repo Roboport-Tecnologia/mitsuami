@@ -221,6 +221,17 @@ mod checks {
         f.ui.tick();
     }
 
+    /// A fatal error needs no window or running app: its message box shows
+    /// the title and message, and the call returns once OK dismisses it.
+    pub fn fatal_errors_show_until_dismissed(_: &Fixture) {
+        mitsuami_kirigami::test_accept_next_fatal_error();
+        mitsuami_kirigami::fatal_error("Player can't start", "The disk image is gone.");
+        assert_eq!(
+            mitsuami_kirigami::test_accepted_fatal_error(),
+            Some(("Player can't start".to_string(), "The disk image is gone.".to_string()))
+        );
+    }
+
     pub fn file_dialogs_report_cancellation(f: &Fixture) {
         let window = f.ui.create_window("dialog host", Size::new(600.0, 400.0));
         f.ui.tick();
@@ -315,7 +326,7 @@ fn main() {
     use std::panic::{AssertUnwindSafe, catch_unwind};
 
     type Check = (&'static str, fn(&checks::Fixture));
-    let checks: [Check; 11] = [
+    let checks: [Check; 12] = [
         ("clipboard_round_trips", checks::clipboard_round_trips),
         ("menus_are_installed_and_activate", checks::menus_are_installed_and_activate),
         ("submenus_check_marks_and_radio_groups", checks::submenus_check_marks_and_radio_groups),
@@ -323,6 +334,7 @@ fn main() {
         ("windows_have_their_own_menus", checks::windows_have_their_own_menus),
         ("dialogs_show_only_their_own_menus", checks::dialogs_show_only_their_own_menus),
         ("alerts_are_answered_through_their_buttons", checks::alerts_are_answered_through_their_buttons),
+        ("fatal_errors_show_until_dismissed", checks::fatal_errors_show_until_dismissed),
         ("file_dialogs_report_cancellation", checks::file_dialogs_report_cancellation),
         ("dialogs_close_with_their_window", checks::dialogs_close_with_their_window),
         (

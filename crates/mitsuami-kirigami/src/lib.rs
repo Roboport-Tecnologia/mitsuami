@@ -53,7 +53,7 @@ mod theme;
 mod tweak;
 
 #[cfg(all(target_os = "linux", feature = "qt"))]
-pub use app::{init_for_tests, run};
+pub use app::{fatal_error, init_for_tests, run, test_accept_next_fatal_error, test_accepted_fatal_error};
 #[cfg(all(target_os = "linux", feature = "qt"))]
 pub use backend::{BackendOptions, KirigamiBackend, KirigamiHandle};
 #[cfg(all(target_os = "linux", feature = "qt"))]

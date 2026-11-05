@@ -286,6 +286,64 @@ mod checks {
         f.ui.tick();
     }
 
+    /// A fatal error needs no window or running app: its dialog shows the
+    /// title and message, and the call returns once OK dismisses it.
+    pub fn fatal_errors_show_until_dismissed(f: &Fixture) {
+        let shown = Rc::new(RefCell::new(None));
+        let started = Instant::now();
+        let watcher = {
+            let shown = shown.clone();
+            let ours: Vec<gtk::Window> = f.handle_windows();
+            glib::timeout_add_local(Duration::from_millis(10), move || {
+                let dialog = gtk::Window::list_toplevels()
+                    .into_iter()
+                    .filter_map(|w| w.downcast::<gtk::Window>().ok())
+                    .find(|w| w.is_visible() && !ours.contains(w));
+                if let Some(dialog) = dialog {
+                    let mut labels = Vec::new();
+                    collect_labels(dialog.upcast_ref(), &mut labels);
+                    let ok = find::<gtk::Button>(dialog.upcast_ref(), &|b| b.label().as_deref() == Some("OK"));
+                    *shown.borrow_mut() = Some((labels, ok.is_some()));
+                    match ok {
+                        Some(ok) => ok.emit_clicked(),
+                        None => dialog.close(),
+                    }
+                    return glib::ControlFlow::Break;
+                }
+                if started.elapsed() > Duration::from_secs(5) {
+                    return glib::ControlFlow::Break;
+                }
+                glib::ControlFlow::Continue
+            })
+        };
+        mitsuami_gtk::fatal_error("Player can't start", "The disk image is gone.");
+        let _ = watcher;
+
+        let (labels, has_ok) = shown.borrow_mut().take().expect("the fatal error's dialog");
+        assert!(labels.iter().any(|l| l == "Player can't start"), "the title, in {labels:?}");
+        assert!(labels.iter().any(|l| l == "The disk image is gone."), "the message, in {labels:?}");
+        assert!(has_ok, "an OK button");
+        while glib::MainContext::default().iteration(false) {}
+        assert!(
+            gtk::Window::list_toplevels()
+                .into_iter()
+                .filter_map(|w| w.downcast::<gtk::Window>().ok())
+                .all(|w| !w.is_visible() || f.handle_windows().contains(&w)),
+            "the dialog is gone"
+        );
+    }
+
+    fn collect_labels(widget: &gtk::Widget, into: &mut Vec<String>) {
+        if let Some(label) = widget.downcast_ref::<gtk::Label>() {
+            into.push(label.text().to_string());
+        }
+        let mut child = widget.first_child();
+        while let Some(c) = child {
+            collect_labels(&c, into);
+            child = c.next_sibling();
+        }
+    }
+
     pub fn file_dialogs_report_cancellation(f: &Fixture) {
         let window = f.ui.create_window("dialog host", Size::new(600.0, 400.0));
         f.ui.tick();
@@ -390,13 +448,14 @@ fn main() {
     use std::panic::{AssertUnwindSafe, catch_unwind};
 
     type Check = (&'static str, fn(&checks::Fixture));
-    let checks: [Check; 10] = [
+    let checks: [Check; 11] = [
         ("clipboard_round_trips", checks::clipboard_round_trips),
         ("menus_are_installed_and_activate", checks::menus_are_installed_and_activate),
         ("items_check_nest_and_take_roles", checks::items_check_nest_and_take_roles),
         ("windows_show_their_own_menus", checks::windows_show_their_own_menus),
         ("dialogs_show_only_their_own_menus", checks::dialogs_show_only_their_own_menus),
         ("alerts_are_answered_through_their_buttons", checks::alerts_are_answered_through_their_buttons),
+        ("fatal_errors_show_until_dismissed", checks::fatal_errors_show_until_dismissed),
         ("file_dialogs_report_cancellation", checks::file_dialogs_report_cancellation),
         ("dialogs_close_with_their_window", checks::dialogs_close_with_their_window),
         (

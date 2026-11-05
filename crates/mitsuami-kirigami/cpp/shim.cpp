@@ -20,6 +20,8 @@
 #include <QLocale>
 #include <QMimeData>
 #include <QMimeDatabase>
+#include <QMessageBox>
+#include <QTimer>
 #include <QMouseEvent>
 #include <QPainter>
 #include <QPainterPath>
@@ -776,6 +778,45 @@ void mq_process_events(void) {
 void mq_exec(void) { QCoreApplication::exec(); }
 
 void mq_quit(void) { QCoreApplication::quit(); }
+
+// The app can't run: a modal QMessageBox of its own, as KMessageBox::error
+// shows one, whose nested loop returns when it's dismissed.
+void mq_fatal_error(const char* title, const char* message) {
+    QMessageBox box(QMessageBox::Critical, QString::fromUtf8(title), QString::fromUtf8(message), QMessageBox::Ok);
+    box.setObjectName("mitsuamiFatalError");
+    box.exec();
+}
+
+// Tests: what the last fatal error accepted by `mq_test_accept_next_fatal_error` showed.
+static QString g_fatal_title, g_fatal_message;
+static bool g_fatal_accepted = false;
+
+// A timer that accepts the next fatal error once it's on screen, as its OK
+// button does: the test is blocked in its nested loop until then.
+void mq_test_accept_next_fatal_error(void) {
+    g_fatal_accepted = false;
+    auto* timer = new QTimer(qApp);
+    QObject::connect(timer, &QTimer::timeout, timer, [timer]() {
+        for (QWidget* widget : QApplication::topLevelWidgets()) {
+            auto* box = qobject_cast<QMessageBox*>(widget);
+            if (!box || box->objectName() != "mitsuamiFatalError" || !box->isVisible()) continue;
+            g_fatal_title = box->windowTitle();
+            g_fatal_message = box->text();
+            g_fatal_accepted = true;
+            timer->deleteLater();
+            box->accept();
+            return;
+        }
+    });
+    timer->start(10);
+}
+
+int32_t mq_test_accepted_fatal_error(char** title, char** message) {
+    if (!g_fatal_accepted) return 0;
+    *title = dup(g_fatal_title);
+    *message = dup(g_fatal_message);
+    return 1;
+}
 
 void mq_watch_loop(uint64_t key) {
     QObject::connect(QAbstractEventDispatcher::instance(g_main_thread), &QAbstractEventDispatcher::aboutToBlock,

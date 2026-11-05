@@ -71,6 +71,12 @@ pub fn set_full_screen_menu_bar(menu_bar: FullScreenMenuBar) {
 /// the next `sleep` deadline. Ticks keep working inside modal loops (window
 /// moves and live resizing), which run the queue too.
 pub fn run(info: AppInfo, setup: impl FnOnce(&Ui)) {
+    // Without the Windows App Runtime nothing of the app can show, and a
+    // GUI app's panic goes nowhere: the user would see nothing happen.
+    if let Err(message) = runtime::start() {
+        fatal_error(&info.name.clone().unwrap_or_default(), &message);
+        panic!("{message}");
+    }
     let backend = WinUiBackend::new(BackendOptions {
         toolbar: TOOLBAR.with(Cell::get),
         menu_bar: MENU_BAR.with(Cell::get),
@@ -190,6 +196,22 @@ fn scheduler(queue: &w::DispatcherQueue, turn: Rc<dyn Fn()>) -> Rc<dyn Fn()> {
             scheduled.set(false);
         }
     })
+}
+
+/// Tells the user the app can't run, in a Win32 message box, and returns
+/// once they dismiss it. A message box needs no Windows App Runtime and no
+/// XAML, so it works when they're what's missing.
+pub fn fatal_error(title: &str, message: &str) {
+    let wide = |s: &str| s.encode_utf16().chain([0]).collect::<Vec<u16>>();
+    let (title, message) = (wide(title), wide(message));
+    unsafe {
+        w::MessageBoxW(
+            std::ptr::null_mut(),
+            windows_core::PCWSTR(message.as_ptr()),
+            windows_core::PCWSTR(title.as_ptr()),
+            (w::MB_OK | w::MB_ICONERROR | w::MB_SETFOREGROUND) as u32,
+        );
+    }
 }
 
 /// Prepares WinUI for tests. XAML starts on the calling thread, which must

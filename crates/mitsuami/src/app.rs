@@ -166,6 +166,38 @@ impl App {
     }
 }
 
+/// Tells the user the app can't run, the platform's way, and returns once
+/// they dismiss it: for a failure before [`App::run`], or one that keeps
+/// it from running at all (a missing file it needs, a server it can't
+/// reach). It needs no running app: an `NSAlert` on macOS, a
+/// `QMessageBox` on Kirigami (Qt starts for it), a `gtk::AlertDialog` on
+/// GTK and a Win32 message box on Windows, which works when the Windows
+/// App Runtime is what's missing. Call it on the main thread. Where there's
+/// nothing to show it on (GTK without a display, AppKit off the main
+/// thread) it returns at once, so an app that may run without a desktop
+/// writes the message to stderr too.
+///
+/// ```ignore
+/// if let Err(error) = load_library() {
+///     mitsuami::fatal_error("Player can't start", &format!("{error}"));
+///     std::process::exit(1);
+/// }
+/// ```
+pub fn fatal_error(title: &str, message: &str) {
+    #[cfg(target_os = "macos")]
+    mitsuami_appkit::fatal_error(title, message);
+    #[cfg(all(target_os = "linux", feature = "kde"))]
+    mitsuami_kirigami::fatal_error(title, message);
+    #[cfg(all(target_os = "linux", feature = "gtk", not(feature = "kde")))]
+    mitsuami_gtk::fatal_error(title, message);
+    #[cfg(all(target_os = "linux", not(any(feature = "gtk", feature = "kde"))))]
+    let _ = (title, message);
+    #[cfg(windows)]
+    mitsuami_winui::fatal_error(title, message);
+    #[cfg(not(any(target_os = "macos", target_os = "linux", windows)))]
+    let _ = (title, message);
+}
+
 fn open(ui: &Ui, app: Owner, spec: WindowSpec) {
     let title = spec.title;
     let window = ui.create_window(mitsuami_reactive::untrack(|| title.get()), spec.size);
