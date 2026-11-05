@@ -702,7 +702,7 @@ Never call `tick()` from inside a widget callback; the loop calls it.
 
 | | AppKit | GTK 4 | WinUI 3 | Kirigami |
 |---|---|---|---|---|
-| shown as | an app-modal `NSAlert`, `NSAlertStyle::Critical`, `runModal`, the app activated first | a `gtk::AlertDialog` with no parent and no buttons (GTK's own Close), a `glib::MainLoop` until it's answered | a Win32 `MessageBoxW` (`MB_ICONERROR`, `MB_SETFOREGROUND`), which needs no Windows App Runtime | `QMessageBox::Critical`, `exec()`, Qt started for it |
+| shown as | an app-modal `NSAlert`, `NSAlertStyle::Critical`, `runModal`, the app activated first | a `gtk::AlertDialog` with no parent and no buttons (GTK's own Close), a `glib::MainLoop` until it's answered | a Win32 `MessageBoxW` (`MB_ICONERROR`, `MB_SETFOREGROUND`), which needs no Windows App Runtime | `QMessageBox::Critical`, the title its text and the message its informative text (Plasma may show no title bar text), `exec()`, Qt started for it |
 | nowhere to show it | off the main thread | no display (`gtk::init` fails) | | |
 
 `run` uses it too where the platform can't start: WinUI shows the missing Windows App Runtime's message in it before panicking, since a GUI app's panic goes nowhere.

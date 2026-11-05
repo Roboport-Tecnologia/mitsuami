@@ -780,9 +780,13 @@ void mq_exec(void) { QCoreApplication::exec(); }
 void mq_quit(void) { QCoreApplication::quit(); }
 
 // The app can't run: a modal QMessageBox of its own, as KMessageBox::error
-// shows one, whose nested loop returns when it's dismissed.
+// shows one, whose nested loop returns when it's dismissed. The title is
+// its main text and the message its informative text, as GTK's message
+// and detail and AppKit's message and informative text: Plasma may show
+// no title bar text on a dialog, so a title only there went unseen.
 void mq_fatal_error(const char* title, const char* message) {
-    QMessageBox box(QMessageBox::Critical, QString::fromUtf8(title), QString::fromUtf8(message), QMessageBox::Ok);
+    QMessageBox box(QMessageBox::Critical, QString::fromUtf8(title), QString::fromUtf8(title), QMessageBox::Ok);
+    box.setInformativeText(QString::fromUtf8(message));
     box.setObjectName("mitsuamiFatalError");
     box.exec();
 }
@@ -800,8 +804,9 @@ void mq_test_accept_next_fatal_error(void) {
         for (QWidget* widget : QApplication::topLevelWidgets()) {
             auto* box = qobject_cast<QMessageBox*>(widget);
             if (!box || box->objectName() != "mitsuamiFatalError" || !box->isVisible()) continue;
-            g_fatal_title = box->windowTitle();
-            g_fatal_message = box->text();
+            // What the box shows in itself: Plasma may show no title bar text.
+            g_fatal_title = box->text();
+            g_fatal_message = box->informativeText();
             g_fatal_accepted = true;
             timer->deleteLater();
             box->accept();

@@ -22,7 +22,8 @@ fn init() {
 
 /// Tells the user the app can't run, in a `QMessageBox::critical` (KDE's
 /// apps show theirs with `KMessageBox::error`, the same widget dialog),
-/// and returns once they dismiss it. Qt starts for it if it hasn't.
+/// the title its main text and the message its informative text, and
+/// returns once they dismiss it. Qt starts for it if it hasn't.
 pub fn fatal_error(title: &str, message: &str) {
     init();
     ffi::fatal_error(title, message);
@@ -36,8 +37,9 @@ pub fn test_accept_next_fatal_error() {
     ffi::test_accept_next_fatal_error();
 }
 
-/// Tests: the title and message of the fatal error
-/// [`test_accept_next_fatal_error`] accepted, or `None` if none was.
+/// Tests: the title and message the fatal error
+/// [`test_accept_next_fatal_error`] accepted showed in its content (not its
+/// title bar, which Plasma may not show), or `None` if none was.
 #[doc(hidden)]
 pub fn test_accepted_fatal_error() -> Option<(String, String)> {
     ffi::test_accepted_fatal_error()
