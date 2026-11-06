@@ -250,6 +250,22 @@ Microsoft.Windows.AppNotifications.AppNotificationActivatedEventArgs::{}
 Microsoft.Windows.AppNotifications.IAppNotificationActivatedEventArgs2::get_Arguments
 Microsoft.Windows.AppNotifications.Builder.AppNotificationBuilder::CreateInstance
 Microsoft.Windows.AppNotifications.Builder.IAppNotificationBuilder::{AddArgument, AddText, SetTag, BuildNotification}
+Windows.UI.Notifications.ToastNotificationManager::{CreateToastNotifierWithId, get_History}
+Windows.UI.Notifications.ToastNotifier::{}
+Windows.UI.Notifications.IToastNotifier::{Show, get_Setting}
+Windows.UI.Notifications.NotificationSetting
+Windows.UI.Notifications.ToastNotification::CreateToastNotification
+Windows.UI.Notifications.IToastNotification::{add_Activated, remove_Activated}
+Windows.UI.Notifications.IToastNotification2::{put_Tag, put_Group}
+Windows.UI.Notifications.IToastActivatedEventArgs::get_Arguments
+Windows.UI.Notifications.ToastNotificationHistory::{}
+Windows.UI.Notifications.IToastNotificationHistory::RemoveGroupedTagWithId
+Windows.Data.Xml.Dom.XmlDocument::CreateInstance
+Windows.Data.Xml.Dom.IXmlDocumentIO::LoadXml
+Windows.Win32.RegSetKeyValueW
+Windows.Win32.RegDeleteKeyValueW
+Windows.Win32.REG_SZ
+Windows.Win32.REGDB_E_CLASSNOTREG
 Windows.UI.ViewManagement.UISettings::CreateInstance
 Windows.UI.ViewManagement.IUISettings::get_AnimationsEnabled
 Windows.UI.ViewManagement.IUISettings2::get_TextScaleFactor

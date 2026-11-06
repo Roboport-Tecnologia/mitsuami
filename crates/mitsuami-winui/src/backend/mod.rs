@@ -953,6 +953,8 @@ impl Backend for WinUiBackend {
             let id = HSTRING::from(id.as_str());
             _ = unsafe { w::SetCurrentProcessExplicitAppUserModelID(windows_core::PCWSTR(id.as_ptr())) };
         }
+        // Windows' own toasts name the app from the registry (`notifications.rs`).
+        crate::notifications::set_app_name(info.name.as_deref());
         let Some(icon) = info.icon.as_ref().and_then(window_icon) else { return };
         let mut state = self.state.borrow_mut();
         for id in &state.windows {
