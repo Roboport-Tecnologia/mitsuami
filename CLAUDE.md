@@ -134,7 +134,7 @@ linking) against Homebrew's Qt 6 (`brew install qt`):
 ```sh
 cd crates/mitsuami-kirigami && Q=/opt/homebrew/lib && clang++ -std=c++17 -fsyntax-only \
   -Icpp -F$Q -I/opt/homebrew/include $(for f in QtCore QtGui QtQml QtQuick \
-  QtQuickControls2 QtWidgets QtQmlIntegration; do echo -I$Q/$f.framework/Headers; done) \
+  QtQuickControls2 QtWidgets QtQmlIntegration QtDBus; do echo -I$Q/$f.framework/Headers; done) \
   -I$(echo $Q/QtGui.framework/Headers/6.*/QtGui) cpp/shim.cpp
 ```
  Say in `docs/ARCHITECTURE.md` when code was only type-checked.
