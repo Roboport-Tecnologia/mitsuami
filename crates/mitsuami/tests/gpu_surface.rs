@@ -207,6 +207,76 @@ async fn follows_the_scale_factor(app: TestApp) {
     assert_eq!(last_size(&seen), Some(SurfaceSize { width: 200, height: 100, scale: 2.0 }));
 }
 
+/// Whether the native surface shows: AppKit's view is in a window (a tab
+/// view takes the pages it doesn't show out of it) and neither it nor its
+/// ancestors are hidden, WinUI's child window is visible. `None` where it isn't read
+/// (headless has no surface; GTK's and Kirigami's are subsurfaces or child
+/// windows `mitsuami-linux` makes, not read here).
+fn native_surface_shows(handle: &SurfaceHandle) -> Option<bool> {
+    let window = handle.window_handle().ok()?.as_raw();
+    #[cfg(target_os = "macos")]
+    {
+        use mitsuami::appkit::objc2::msg_send;
+        use mitsuami::appkit::objc2::runtime::AnyObject;
+        use mitsuami::raw_window_handle::RawWindowHandle;
+        let RawWindowHandle::AppKit(appkit) = window else { return None };
+        // SAFETY: the handle keeps the view alive.
+        let view: &AnyObject = unsafe { appkit.ns_view.cast().as_ref() };
+        let window: *const AnyObject = unsafe { msg_send![view, window] };
+        let hidden: bool = unsafe { msg_send![view, isHiddenOrHasHiddenAncestor] };
+        Some(!window.is_null() && !hidden)
+    }
+    #[cfg(windows)]
+    {
+        use mitsuami::raw_window_handle::RawWindowHandle;
+        #[link(name = "user32")]
+        unsafe extern "system" {
+            fn IsWindowVisible(hwnd: isize) -> i32;
+        }
+        let RawWindowHandle::Win32(child) = window else { return None };
+        Some(unsafe { IsWindowVisible(child.hwnd.get()) } != 0)
+    }
+    #[cfg(not(any(target_os = "macos", windows)))]
+    {
+        let _ = window;
+        None
+    }
+}
+
+#[derive(Clone, Copy, Debug, PartialEq)]
+enum Page {
+    Screen,
+    Other,
+}
+
+/// A page of `Tabs` stays mounted while another is chosen, and its surface
+/// mustn't show over that one: WinUI collapses the page, which keeps it
+/// loaded at its size, and its child window stayed over the page chosen,
+/// above that page's own surface (SourceGit's code views).
+#[mitsuami_test::test]
+async fn hides_while_its_tab_s_page_isn_t_shown(app: TestApp) {
+    let seen = Rc::new(RefCell::new(Vec::new()));
+    let page = signal(Page::Screen);
+    let s = seen.clone();
+    app.mount(move || {
+        Tabs::new(page).children((
+            Tab::new("Screen", Page::Screen).child(surface(&s).size(120.px(), 80.px())),
+            Tab::new("Other", Page::Other).child(Text::new("Other page")),
+        ))
+    });
+    app.settle().await;
+    let handle = handle(&seen);
+    assert_ne!(native_surface_shows(&handle), Some(false), "shown on its page");
+
+    page.set(Page::Other);
+    app.expect(by_text("Other page")).to_be_visible().await;
+    assert_ne!(native_surface_shows(&handle), Some(true), "hidden with its page");
+
+    page.set(Page::Screen);
+    app.expect(screen()).to_be_visible().await;
+    assert_ne!(native_surface_shows(&handle), Some(false), "back with its page");
+}
+
 /// What an input handler got.
 fn input_log() -> (Rc<RefCell<Vec<SurfaceInput>>>, impl Fn(SurfaceInput) + 'static) {
     let log = Rc::new(RefCell::new(Vec::new()));

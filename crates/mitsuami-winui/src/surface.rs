@@ -1290,7 +1290,8 @@ impl HostState {
     }
 
     /// The canvas in the window's client area, in pixels; `None` while it
-    /// isn't laid out or has no size. XAML's root fills the client area.
+    /// isn't laid out, has no size or isn't shown. XAML's root fills the
+    /// client area.
     /// Its size is the frame `SetFrame` set: XAML lays it out at that size
     /// only at its next frame, which may not come for a while (none came
     /// after the window was resized while the canvas held its text box,
@@ -1299,7 +1300,7 @@ impl HostState {
         let fe: w::IFrameworkElement = self.element.cast()?;
         let set = |set: f64, actual: f64| if set.is_finite() { set } else { actual };
         let (width, height) = (set(fe.Width()?, fe.ActualWidth()?), set(fe.Height()?, fe.ActualHeight()?));
-        if !fe.IsLoaded()? || width <= 0.0 || height <= 0.0 {
+        if !fe.IsLoaded()? || width <= 0.0 || height <= 0.0 || self.collapsed() {
             return Ok(None);
         }
         let transform = self.element.cast::<w::IUIElement>()?.TransformToVisual(None::<&w::UIElement>)?;
@@ -1307,6 +1308,23 @@ impl HostState {
         let scale = self.scale();
         let px = |v: f64| (v * scale).round() as i32;
         Ok(Some((px(origin.x as f64), px(origin.y as f64), px(width), px(height))))
+    }
+
+    /// Whether the canvas or one of its ancestors is collapsed: a page of
+    /// `Tabs` not chosen, a `Split`'s hidden pane. A collapsed element stays
+    /// loaded with the size `SetFrame` gave it, so the child window, which
+    /// isn't in XAML's tree, would stay over the page shown instead, raised
+    /// above its own surface and taking no keys (SourceGit's code views).
+    fn collapsed(&self) -> bool {
+        let mut current: Option<w::DependencyObject> = self.element.cast().ok();
+        while let Some(object) = current {
+            if object.cast::<w::IUIElement>().and_then(|e| e.Visibility()).is_ok_and(|v| v == w::Visibility::Collapsed)
+            {
+                return true;
+            }
+            current = w::VisualTreeHelper::GetParent(&object).ok();
+        }
+        false
     }
 }
 
