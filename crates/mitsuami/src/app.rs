@@ -37,6 +37,7 @@ pub struct App {
     locales: Option<Locales>,
     windows: Vec<Startup>,
     setups: Vec<Setup>,
+    runs_without_windows: bool,
 }
 
 impl App {
@@ -118,10 +119,21 @@ impl App {
         self
     }
 
-    /// Runs until the last window closes.
+    /// Keeps it running while no window is open, until [`quit`](crate::prelude::quit):
+    /// for an app that waits before showing one, as for a notification's
+    /// click or another process's request. It can start with no window.
+    pub fn runs_without_windows(mut self) -> App {
+        self.runs_without_windows = true;
+        self
+    }
+
+    /// Runs until the last window closes, or, for an app that
+    /// [runs without windows](App::runs_without_windows), until it quits.
     pub fn run(self) {
         let (info, locales, windows, setups) = (self.info, self.locales, self.windows, self.setups);
+        let runs_without_windows = self.runs_without_windows;
         let setup = move |ui: &Ui| {
+            ui.set_runs_without_windows(runs_without_windows);
             // Before any window, so the first is in the app's language.
             if let Some(locales) = locales {
                 ui.set_locales(locales);

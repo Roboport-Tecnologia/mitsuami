@@ -76,7 +76,7 @@ pub fn run(info: AppInfo, setup: impl FnOnce(&Ui)) {
                 if let Some(delay) = ui.time_to_next_timer() {
                     timer.start(delay.as_millis().min(i32::MAX as u128) as i32);
                 }
-                if ui.windows().is_empty() {
+                if ui.should_end() {
                     *running.borrow_mut() = false;
                     ffi::quit();
                 }
@@ -110,7 +110,7 @@ pub fn run(info: AppInfo, setup: impl FnOnce(&Ui)) {
     setup(&ui);
     ui.tick();
     handle.show_pending_windows();
-    if !ui.windows().is_empty() {
+    if !ui.should_end() {
         ffi::exec();
     }
     *running.borrow_mut() = false;

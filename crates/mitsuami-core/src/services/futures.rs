@@ -92,6 +92,13 @@ pub fn notify(notification: Notification) -> impl Future<Output = Result<(), Ser
     ui().notify(notification)
 }
 
+/// Ends the app once this turn is done, windows open or not; see
+/// [`Ui::quit`]. An app that [runs without windows](Ui::set_runs_without_windows)
+/// ends this way.
+pub fn quit() {
+    ui().quit();
+}
+
 /// Takes away the notification with this id, if it's still there.
 pub fn withdraw_notification(id: &str) {
     ui().withdraw_notification(id);

@@ -222,6 +222,31 @@ impl Ui {
         }
     }
 
+    /// Keeps the app running while no window is open, until [`Ui::quit`]:
+    /// for an app that waits before it shows one, as for a notification's
+    /// click or a request from another process. Without, an app ends when
+    /// its last window closes.
+    pub fn set_runs_without_windows(&self, runs: bool) {
+        self.inner.borrow_mut().runs_without_windows = runs;
+        self.changed();
+    }
+
+    /// Ends the app once this turn of its run loop is done, with any
+    /// windows still open, without asking them first (unlike
+    /// [`Ui::request_quit`]).
+    pub fn quit(&self) {
+        self.inner.borrow_mut().quit_requested = true;
+        self.changed();
+    }
+
+    /// Whether the run loop should end now: [`Ui::quit`] was called, or no
+    /// window is open and the app doesn't run without them. Backends ask
+    /// after each turn, and before running at all.
+    pub fn should_end(&self) -> bool {
+        let inner = self.inner.borrow();
+        inner.quit_requested || (inner.windows.is_empty() && !inner.runs_without_windows)
+    }
+
     /// Quitting as the platform asks for it from outside the app's menus
     /// (macOS's Dock, logging out, the session ending): the app's Quit item,
     /// as if chosen, if it has one; otherwise every window is asked to

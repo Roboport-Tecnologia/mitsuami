@@ -95,7 +95,8 @@ pub mod prelude {
     pub use mitsuami_core::services::{
         Alert, AlertStyle, FileFilter, Launch, Menu, MenuBar, MenuItem, MenuRole, MenuSeparator, Notification,
         OpenFile, SaveFile, ServiceError, Shortcut, alert, clipboard_text, launch, launch_url, notify,
-        on_notification_activated, open_file, save_file, set_clipboard_text, set_menu, trash, withdraw_notification,
+        on_notification_activated, open_file, quit, save_file, set_clipboard_text, set_menu, trash,
+        withdraw_notification,
     };
     pub use mitsuami_core::task::{TaskHandle, sleep, spawn_blocking, spawn_local};
     pub use mitsuami_core::{

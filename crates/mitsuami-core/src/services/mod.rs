@@ -19,7 +19,7 @@ mod notifications;
 pub use dialogs::{Alert, AlertStyle, FileFilter, Launch, OpenFile, SaveFile, existing_folder};
 pub(crate) use futures::reply_future;
 pub use futures::{
-    alert, clipboard_text, launch, launch_url, notify, on_notification_activated, open_file, save_file,
+    alert, clipboard_text, launch, launch_url, notify, on_notification_activated, open_file, quit, save_file,
     set_clipboard_text, set_menu, trash, withdraw_notification,
 };
 pub use menu::{Menu, MenuBar, MenuEntries, MenuItem, MenuSeparator, Menus};

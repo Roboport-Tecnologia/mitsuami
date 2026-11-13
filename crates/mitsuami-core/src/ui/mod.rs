@@ -177,6 +177,10 @@ struct Inner {
     focus_dirty: bool,
     /// The focused control of each window, as reported by the backend.
     focused: BTreeMap<NodeId, NodeId>,
+    /// The app keeps running while no window is open (until `quit`).
+    runs_without_windows: bool,
+    /// `quit` was called: the run loop ends after this turn.
+    quit_requested: bool,
     commit_scheduler: Option<Rc<dyn Fn()>>,
     commit_scheduled: bool,
     /// The app's language last given to the backend.
@@ -286,6 +290,8 @@ impl Ui {
                 next_notification_handler: 1,
                 notification_queue: Default::default(),
                 next_notification: 1,
+                runs_without_windows: false,
+                quit_requested: false,
                 commit_scheduler: None,
                 commit_scheduled: false,
                 language: None,

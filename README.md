@@ -119,7 +119,7 @@ cargo run -p mitsuami --example button
 ```
 
 The others in [`crates/mitsuami/examples`](crates/mitsuami/examples) run the
-same way: `checkbox`, `color_well`, `context_menu`, `document_tabs`,
+same way: `background`, `checkbox`, `color_well`, `context_menu`, `document_tabs`,
 `file_drag`, `file_drop`, `file_icon`, `focus`, `glass`, `group`, `hover`,
 `icon`, `image`, `keys`, `launch`, `list`, `measurements`, `menu_button`,
 `menus`, `number_input`, `password_input`, `popover`, `progress`,

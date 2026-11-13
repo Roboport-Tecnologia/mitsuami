@@ -164,7 +164,7 @@ pub fn run(info: AppInfo, setup: impl FnOnce(&Ui)) {
         handle.show_pending_windows();
         let next = ui.time_to_next_timer().map_or(NEVER, |d| CFAbsoluteTimeGetCurrent() + d.as_secs_f64());
         timer.set_next_fire_date(next);
-        if ui.windows().is_empty() {
+        if ui.should_end() {
             stop(&NSApplication::sharedApplication(main_thread()));
         }
     });

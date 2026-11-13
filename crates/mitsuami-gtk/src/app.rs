@@ -95,7 +95,7 @@ pub fn run(info: AppInfo, setup: impl FnOnce(&Ui)) {
                         schedule_tick();
                     })));
                 }
-                if ui.windows().is_empty() {
+                if ui.should_end() {
                     main_loop.quit();
                 }
                 glib::ControlFlow::Break
@@ -136,7 +136,7 @@ pub fn run(info: AppInfo, setup: impl FnOnce(&Ui)) {
         )
     };
     schedule_tick();
-    if !ui.windows().is_empty() {
+    if !ui.should_end() {
         main_loop.run();
     }
     SCHEDULE_TICK.with(|s| s.borrow_mut().take());

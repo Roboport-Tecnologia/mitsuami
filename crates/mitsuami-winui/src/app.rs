@@ -167,7 +167,7 @@ fn turn(ui: &Ui, handle: &WinUiHandle, queue: &w::DispatcherQueue) -> Rc<dyn Fn(
             _ = timer.SetInterval(windows_time::TimeSpan::from_micros(micros));
             _ = timer.Start();
         }
-        if ui.windows().is_empty() {
+        if ui.should_end() {
             _ = queue.cast::<w::IDispatcherQueue3>().and_then(|q| q.EnqueueEventLoopExit());
         }
     })

@@ -102,6 +102,10 @@ name = "notifications"
 harness = false
 
 [[test]]
+name = "runs_without_windows"
+harness = false
+
+[[test]]
 name = "file_icon"
 harness = false
 
