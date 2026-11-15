@@ -349,7 +349,8 @@ impl Ui {
     /// Whether the tray icon is showing right now: false before the app
     /// sets one, where the platform has no tray (plain GNOME), and while a
     /// Linux tray host is away. An app that hides its window on close only
-    /// when there's a tray to bring it back watches it.
+    /// when there's a tray to bring it back watches it. The signal lives as
+    /// long as the Ui.
     pub fn tray_shown(&self) -> mitsuami_reactive::Signal<bool> {
         self.inner.borrow().tray_shown
     }

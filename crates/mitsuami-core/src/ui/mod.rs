@@ -190,6 +190,8 @@ struct Inner {
     /// Bumped by `set_app_info`: the tray shows the app's icon when it
     /// gives none, so it's sent again.
     app_info_changes: mitsuami_reactive::Signal<u64>,
+    /// The root the Ui's own signals live in, disposed with it.
+    _signals: SignalRoot,
     /// Last focus order sent, per window.
     focus_orders: BTreeMap<NodeId, Vec<NodeId>>,
     /// Whether a tab index, or what a page shown or a surface taking input
@@ -266,6 +268,17 @@ pub struct NodeInfo {
     pub children: Vec<NodeInfo>,
 }
 
+/// The Ui's own signals' root, disposed when the Ui goes (each `Ui` made
+/// one root per signal before, kept until the thread ended, as tests make
+/// many). Disposing does nothing once the thread's runtime is gone.
+struct SignalRoot(mitsuami_reactive::Owner);
+
+impl Drop for SignalRoot {
+    fn drop(&mut self) {
+        self.0.dispose();
+    }
+}
+
 impl Ui {
     pub fn new(backend: impl Backend + 'static) -> Ui {
         let mut backend: Box<dyn Backend> = Box::new(backend);
@@ -274,6 +287,9 @@ impl Ui {
         let metrics = backend.metrics();
         let services = Rc::new(RefCell::new(backend.services()));
         let l10n = crate::l10n::Localization::new(backend.locale());
+        // In a root of their own: they live as long as the Ui, whatever
+        // scope makes it.
+        let signals = SignalRoot(mitsuami_reactive::Owner::new_root());
         let ui = Ui {
             executor: Rc::default(),
             services,
@@ -318,10 +334,9 @@ impl Ui {
                 tray_effect: None,
                 next_tray: 1,
                 tray_handlers: Default::default(),
-                // In a root of its own: it lives as long as the Ui, whatever
-                // scope makes it.
-                tray_shown: mitsuami_reactive::Owner::new_root().with(|| mitsuami_reactive::signal(false)),
-                app_info_changes: mitsuami_reactive::Owner::new_root().with(|| mitsuami_reactive::signal(0)),
+                tray_shown: signals.0.with(|| mitsuami_reactive::signal(false)),
+                app_info_changes: signals.0.with(|| mitsuami_reactive::signal(0)),
+                _signals: signals,
                 runs_without_windows: false,
                 quit_requested: false,
                 commit_scheduler: None,
