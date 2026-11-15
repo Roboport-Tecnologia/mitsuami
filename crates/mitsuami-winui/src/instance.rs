@@ -5,6 +5,7 @@
 //! `run` does once the runtime is there.
 
 use std::cell::RefCell;
+use std::os::windows::io::AsRawHandle;
 use std::path::PathBuf;
 use std::rc::Rc;
 
@@ -50,8 +51,33 @@ fn redirect(id: &str) -> windows_core::Result<bool> {
     // Windows lets a process take the foreground only when the one in front
     // allows it: this one is, as the user just launched it.
     unsafe { _ = w::AllowSetForegroundWindow(found.ProcessId()?) };
-    found.RedirectActivationToAsync(&args)?.join()?;
+    wait(found.RedirectActivationToAsync(&args)?)?;
     Ok(true)
+}
+
+/// Waits for `action` without blocking this thread's single-threaded
+/// apartment, which the SDK calls back into to finish the redirect: a
+/// plain wait here never returned, and the launch never ended. Another
+/// thread waits, in the multithreaded apartment, while this one keeps
+/// dispatching messages (how COM reaches it), as the SDK's samples do.
+fn wait(action: windows_future::IAsyncAction) -> windows_core::Result<()> {
+    let waiter = std::thread::spawn(move || {
+        let com = unsafe { w::CoInitializeEx(std::ptr::null(), w::COINIT_MULTITHREADED as u32) }.is_ok();
+        let done = action.join();
+        if com {
+            unsafe { w::CoUninitialize() };
+        }
+        done
+    });
+    let thread = waiter.as_raw_handle() as w::HANDLE;
+    // WAIT_OBJECT_0: the thread has ended; anything else, a message came.
+    while unsafe {
+        w::MsgWaitForMultipleObjectsEx(1, &thread, w::INFINITE, w::QS_ALLINPUT as u32, w::MWMO_INPUTAVAILABLE as u32)
+    } != 0
+    {
+        crate::runtime::pump();
+    }
+    waiter.join().unwrap_or_else(|panic| std::panic::resume_unwind(panic))
 }
 
 /// Connects the running instance to the app: later launches bring its
