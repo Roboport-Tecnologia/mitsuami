@@ -312,6 +312,7 @@ Windows.Win32.PM_REMOVE
 Windows.Win32.QS_ALLINPUT
 Windows.Win32.MWMO_INPUTAVAILABLE
 Windows.Win32.WM_NULL
+Windows.Win32.WM_SETTINGCHANGE
 Windows.Win32.INFINITE
 Windows.Win32.GetWindowLongW
 Windows.Win32.SetWindowLongW

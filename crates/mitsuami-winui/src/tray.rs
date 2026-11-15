@@ -7,7 +7,9 @@
 //! the app's id, so Windows keeps the user's choice to show it; for an
 //! unsigned app Windows ties that GUID to the executable's path, and when
 //! it's taken by another path the icon goes without one. Explorer
-//! restarting (`TaskbarCreated`) adds it again.
+//! restarting (`TaskbarCreated`) adds it again. Windows doesn't recolor
+//! tray icons for the taskbar's theme: an icon's dark variant shows on a
+//! dark one, swapped when the user changes it, as Windows' own apps do.
 
 use std::cell::RefCell;
 use std::rc::Rc;
@@ -17,6 +19,10 @@ use mitsuami_core::services::{MenuCheck, MenuEntry, TrayData};
 use windows_core::{GUID, HSTRING, PCWSTR, PWSTR};
 
 use crate::bindings as w;
+
+/// Where Windows keeps the taskbar's theme ("Choose your default Windows
+/// mode"), which isn't the apps' one.
+const PERSONALIZE: &str = r"Software\Microsoft\Windows\CurrentVersion\Themes\Personalize";
 
 /// The message the icon's callbacks come as.
 const CALLBACK: u32 = w::WM_APP as u32 + 1;
@@ -40,6 +46,8 @@ struct State {
     /// Whether Windows took the GUID: without, the icon goes by its id.
     with_guid: bool,
     icon: w::HICON,
+    /// Whether the taskbar is dark, as the icon was loaded for.
+    dark: bool,
     added: bool,
     activate: Activate,
     shown: Shown,
@@ -67,6 +75,7 @@ pub(crate) fn set(tray: Option<&TrayData>, info: &mitsuami_core::AppInfo, activa
             guid: guid(&info.id.clone().unwrap_or_else(exe)),
             with_guid: true,
             icon: std::ptr::null_mut(),
+            dark: taskbar_dark(),
             added: false,
             activate: activate.clone(),
             shown: shown.clone(),
@@ -89,7 +98,7 @@ pub(crate) fn set(tray: Option<&TrayData>, info: &mitsuami_core::AppInfo, activa
 impl State {
     /// Adds the icon, or sends what changed.
     fn update(&mut self) {
-        let icon = load_icon(self.data.icon.as_ref().or(self.app_icon.as_ref()));
+        let icon = load_icon(self.data.icon.as_ref().or(self.app_icon.as_ref()), self.dark);
         let old = std::mem::replace(&mut self.icon, icon);
         let mut data = self.notify_data();
         if self.added {
@@ -187,12 +196,31 @@ fn ico_image(bytes: &[u8], size: i32) -> Option<&[u8]> {
     best.map(|(_, image)| image)
 }
 
-/// The small icon's size for the system's DPI: an `.ico` file at the size
-/// it has, else the image as an icon of its own.
-fn load_icon(icon: Option<&AppIcon>) -> w::HICON {
+/// Whether the taskbar is dark. Windows 10 before 1903 had only a dark
+/// one, and no value for it.
+fn taskbar_dark() -> bool {
+    let (key, value) = (HSTRING::from(PERSONALIZE), HSTRING::from("SystemUsesLightTheme"));
+    let (mut data, mut size) = (0u32, size_of::<u32>() as u32);
+    let read = unsafe {
+        w::RegGetValueW(
+            w::HKEY_CURRENT_USER,
+            PCWSTR(key.as_ptr()),
+            PCWSTR(value.as_ptr()),
+            w::RRF_RT_REG_DWORD as u32,
+            std::ptr::null_mut(),
+            (&raw mut data).cast(),
+            &mut size,
+        )
+    };
+    read != 0 || data == 0
+}
+
+/// The small icon's size for the system's DPI, for the taskbar's theme: an
+/// `.ico` file at the size it has, else the image as an icon of its own.
+fn load_icon(icon: Option<&AppIcon>, dark: bool) -> w::HICON {
     let dpi = unsafe { w::GetDpiForSystem() };
     let size = unsafe { w::GetSystemMetricsForDpi(w::SM_CXSMICON, dpi) };
-    let loaded = match icon {
+    let loaded = match icon.and_then(|icon| icon.image_for(dark)) {
         Some(AppIcon::File(path)) if path.extension().is_some_and(|e| e.eq_ignore_ascii_case("ico")) => {
             let path = HSTRING::from(path.as_os_str());
             unsafe {
@@ -248,7 +276,9 @@ fn message_window() -> Option<w::HWND> {
             0,
             0,
             0,
-            w::HWND_MESSAGE,
+            // A top-level window, never shown: a message-only one gets no
+            // broadcasts, and `TaskbarCreated` and `WM_SETTINGCHANGE` are.
+            std::ptr::null_mut(),
             std::ptr::null_mut(),
             w::GetModuleHandleW(PCWSTR::null()),
             std::ptr::null(),
@@ -280,7 +310,26 @@ unsafe extern "system" fn window_proc(hwnd: w::HWND, message: u32, wparam: w::WP
         shown(added);
         return 0;
     }
+    if message == w::WM_SETTINGCHANGE as u32 && setting_is(lparam, "ImmersiveColorSet") {
+        // The theme changed; the taskbar's may have.
+        let dark = taskbar_dark();
+        STATE.with(|s| {
+            if let Some(state) = s.borrow_mut().as_mut()
+                && state.dark != dark
+            {
+                state.dark = dark;
+                state.update();
+            }
+        });
+    }
     unsafe { w::DefWindowProcW(hwnd, message, wparam, lparam) }
+}
+
+/// Whether a `WM_SETTINGCHANGE` names `setting`: its `lParam` is the area
+/// that changed, as a string, or null.
+fn setting_is(lparam: w::LPARAM, setting: &str) -> bool {
+    let name = lparam as *const u16;
+    !name.is_null() && unsafe { PCWSTR(name).to_string() }.is_ok_and(|name| name == setting)
 }
 
 /// Opens the menu at the icon and reports the item chosen. Windows wants

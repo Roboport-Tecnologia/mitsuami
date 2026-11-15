@@ -30,9 +30,9 @@ pub(crate) fn packaged() -> bool {
 }
 
 /// An `.ico` file as it is, or else the image (PNG, which icons may hold)
-/// as one icon of its own size.
+/// as one icon of its own size. A dark variant is the tray's alone.
 pub(super) fn window_icon(icon: &AppIcon) -> Option<WindowIcon> {
-    if let AppIcon::File(path) = icon
+    if let Some(AppIcon::File(path)) = icon.image_for(false)
         && path.extension().is_some_and(|e| e.eq_ignore_ascii_case("ico"))
     {
         return Some(WindowIcon::File(path.to_string_lossy().into_owned()));

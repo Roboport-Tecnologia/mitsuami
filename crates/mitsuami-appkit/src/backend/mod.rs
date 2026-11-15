@@ -569,11 +569,13 @@ pub(crate) fn opaque(color: &objc2_app_kit::NSColor) -> mitsuami_core::Color {
 }
 
 /// An app icon as an image: a named one shows its image, as macOS has no
-/// icon theme.
+/// icon theme, and one with a dark variant its light one, since macOS
+/// tints the tray's template image for the menu bar itself.
 pub(crate) fn app_icon_image(icon: &AppIcon) -> Option<Retained<NSImage>> {
     match icon {
         AppIcon::File(path) => NSImage::initWithContentsOfFile(NSImage::alloc(), &ns(&path.to_string_lossy())),
         AppIcon::Bytes(bytes) => NSImage::initWithData(NSImage::alloc(), &NSData::with_bytes(bytes)),
         AppIcon::Named { image, .. } => app_icon_image(image.as_ref()?),
+        AppIcon::Themed { light, .. } => app_icon_image(light),
     }
 }

@@ -77,6 +77,10 @@ async fn the_window_chooses_how_the_icon_is_given(app: TestApp) {
 
     app.get_by_label("Icon").select_option(example::CHOICES[1]).await;
     assert_eq!(icon(), Some(example::image()), "an image, for every platform");
+    // Windows doesn't recolor tray icons, so the example gives a white one
+    // for a dark taskbar; the others recolor or tint theirs.
+    let image = icon().expect("an image");
+    assert_eq!(image.image_for(true) != image.image_for(false), cfg!(windows), "a dark variant on Windows");
 
     app.get_by_label("Icon").select_option(example::CHOICES[2]).await;
     let named = icon().expect("a named icon");

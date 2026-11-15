@@ -29,10 +29,12 @@ pub const CHOICES: [&str; 4] =
 /// The image for platforms without an icon theme: a monochrome PNG, which
 /// macOS tints as a template for the menu bar, or on Windows an `.ico`
 /// with the small sizes (16 to 48 pixels), which it picks from for the
-/// screen's DPI.
+/// screen's DPI, black, and white for a dark taskbar: Windows doesn't
+/// recolor tray icons.
 pub fn image() -> AppIcon {
     if cfg!(windows) {
         AppIcon::bytes(include_bytes!("../tests/assets/tray.ico").as_slice())
+            .dark(AppIcon::bytes(include_bytes!("../tests/assets/tray-dark.ico").as_slice()))
     } else {
         AppIcon::bytes(include_bytes!("../tests/assets/tray-32.png").as_slice())
     }
@@ -83,8 +85,8 @@ pub fn page(paused: Signal<bool>, choice: Signal<usize>) -> impl View {
             </Grid>
             <Text text_style=TextStyle::Caption>
                 "Linux shows a theme icon by name, or an image's pixels. macOS shows the image, tinted as a \
-                 template for the menu bar. Windows shows the image, or an .ico at its small sizes. With no \
-                 icon, each shows the app's own."
+                 template for the menu bar. Windows shows the image, or an .ico at its small sizes, and its \
+                 dark variant on a dark taskbar. With no icon, each shows the app's own."
             </Text>
             <Row justify=Justify::End gap=Spacing::Sm align=Align::Center>
                 <Switch bind=paused>"Paused"</Switch>

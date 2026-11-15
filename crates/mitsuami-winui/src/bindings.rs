@@ -26875,6 +26875,7 @@ pub const WM_QUERYENDSESSION: i32 = 17;
 pub const WM_RBUTTONDOWN: i32 = 516;
 pub const WM_RBUTTONUP: i32 = 517;
 pub const WM_SETCURSOR: i32 = 32;
+pub const WM_SETTINGCHANGE: i32 = 26;
 pub const WM_SYSKEYDOWN: i32 = 260;
 pub const WM_XBUTTONDOWN: i32 = 523;
 pub const WM_XBUTTONUP: i32 = 524;
