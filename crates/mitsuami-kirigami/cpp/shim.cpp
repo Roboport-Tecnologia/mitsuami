@@ -1778,6 +1778,13 @@ void mq_raise_app(const char* token) {
     window->requestActivate();
 }
 
+// A tray click's token, as KStatusNotifierItem's ProvideXdgActivationToken
+// keeps it (KWindowSystem::setCurrentXdgActivationToken): the item's window
+// takes it when it asks to be active, or when it first shows.
+void mq_set_activation_token(const char* token) {
+    if (token && on_wayland()) qputenv("XDG_ACTIVATION_TOKEN", token);
+}
+
 // ------------------------------------------------------------ single instance
 
 static mq_reopen_callback g_reopen = nullptr;

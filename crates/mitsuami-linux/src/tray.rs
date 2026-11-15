@@ -11,6 +11,12 @@
 //! (a panel restarting). It says `ItemIsMenu`, so hosts open the menu on a
 //! click rather than calling `Activate`. Whether it shows is whether a
 //! watcher with a host is there; plain GNOME has none.
+//!
+//! Plasma's tray and GNOME's AppIndicator extension call
+//! `ProvideXdgActivationToken` before they send a menu item's click: the
+//! compositor's token for that click, which the backend gets just before
+//! the item runs, so a window the item opens or presents can take the
+//! focus on Wayland.
 
 use std::cell::RefCell;
 use std::collections::HashMap;
@@ -54,6 +60,7 @@ const XML: &str = r#"<node>
     <method name="Activate"><arg name="x" type="i" direction="in"/><arg name="y" type="i" direction="in"/></method>
     <method name="SecondaryActivate"><arg name="x" type="i" direction="in"/><arg name="y" type="i" direction="in"/></method>
     <method name="Scroll"><arg name="delta" type="i" direction="in"/><arg name="orientation" type="s" direction="in"/></method>
+    <method name="ProvideXdgActivationToken"><arg name="token" type="s" direction="in"/></method>
     <signal name="NewTitle"/>
     <signal name="NewIcon"/>
     <signal name="NewAttentionIcon"/>
@@ -113,15 +120,14 @@ const XML: &str = r#"<node>
 
 type Activate = Rc<dyn Fn(u32)>;
 type Shown = Rc<dyn Fn(bool)>;
+type Token = Rc<dyn Fn(String)>;
 
 /// The app's tray icon: give it to the backend's services and pass
 /// `Services::set_tray` on.
-#[derive(Default)]
 pub struct Tray {
     state: Rc<RefCell<State>>,
 }
 
-#[derive(Default)]
 struct State {
     app_id: Option<String>,
     data: Option<TrayData>,
@@ -131,6 +137,11 @@ struct State {
     shown: Option<Shown>,
     showing: bool,
     exported: Option<Exported>,
+    /// Hands the backend a host's activation token for the click that
+    /// follows.
+    on_token: Token,
+    /// The token the host gave for the next click.
+    token: Option<String>,
 }
 
 /// What's on the bus while the icon is set.
@@ -146,8 +157,23 @@ struct Exported {
 }
 
 impl Tray {
-    pub fn new() -> Tray {
-        Tray::default()
+    /// `on_token` gets a host's activation token for a menu click, just
+    /// before the item runs: the backend brings forward with it the window
+    /// the item presents or opens.
+    pub fn new(on_token: impl Fn(String) + 'static) -> Tray {
+        let state = State {
+            app_id: None,
+            data: None,
+            menu: Menu::default(),
+            revision: 0,
+            activate: None,
+            shown: None,
+            showing: false,
+            exported: None,
+            on_token: Rc::new(on_token),
+            token: None,
+        };
+        Tray { state: Rc::new(RefCell::new(state)) }
     }
 
     /// The app's id: the icon theme's name for the app's own icon, shown
@@ -256,7 +282,18 @@ fn export(state: &Rc<RefCell<State>>) {
     let weak = Rc::downgrade(state);
     let item = bus
         .register_object(ITEM_PATH, &node.lookup_interface(ITEM).expect("the item's interface"))
-        .method_call(|_, _, _, _, _, _, invocation| invocation.return_value(None))
+        .method_call({
+            let weak = weak.clone();
+            move |_, _, _, _, method, args, invocation| {
+                if method == "ProvideXdgActivationToken" {
+                    let token = args.child_value(0).get::<String>().filter(|token| !token.is_empty());
+                    if let Some(state) = weak.upgrade() {
+                        state.borrow_mut().token = token;
+                    }
+                }
+                invocation.return_value(None)
+            }
+        })
         .property({
             let weak = weak.clone();
             move |_, _, _, _, name| item_property(&weak, name)
@@ -628,16 +665,20 @@ fn menu_call(weak: &Weak<RefCell<State>>, method: &str, args: &Variant, invocati
     invocation.return_value(reply.as_ref());
 }
 
-/// A host reports an event on an item: a click chooses it.
+/// A host reports an event on an item: a click chooses it, with the
+/// activation token the host gave for it, if any.
 fn event_on(state: &Rc<RefCell<State>>, id: i32, event: &str) {
     if event != "clicked" {
         return;
     }
-    let (activates, activate) = {
-        let state = state.borrow();
-        (state.menu.items.get(&id).and_then(|item| item.activates), state.activate.clone())
+    let (activates, activate, token, on_token) = {
+        let mut state = state.borrow_mut();
+        let activates = state.menu.items.get(&id).and_then(|item| item.activates);
+        (activates, state.activate.clone(), state.token.take(), state.on_token.clone())
     };
-    if let (Some(id), Some(activate)) = (activates, activate) {
-        activate(id);
+    let (Some(id), Some(activate)) = (activates, activate) else { return };
+    if let Some(token) = token {
+        on_token(token);
     }
+    activate(id);
 }

@@ -616,7 +616,7 @@ impl KirigamiServices {
         KirigamiServices {
             backend,
             notifications: Notifications::default(),
-            tray: mitsuami_linux::tray::Tray::new(),
+            tray: mitsuami_linux::tray::Tray::new(|token| ffi::set_activation_token(&token)),
             glib_pump: None,
         }
     }

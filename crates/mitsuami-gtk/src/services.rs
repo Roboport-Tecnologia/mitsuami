@@ -785,7 +785,15 @@ struct OpenDialogs {
 
 impl GtkServices {
     pub(crate) fn new(backend: GtkHandle) -> GtkServices {
-        GtkServices { backend, dialogs: Rc::default(), tray: mitsuami_linux::tray::Tray::new() }
+        // A tray click's token waits for the window the item presents or
+        // opens, as a launch's does.
+        let weak = backend.downgrade();
+        let tray = mitsuami_linux::tray::Tray::new(move |token| {
+            if let Some(backend) = weak.upgrade() {
+                backend.set_activation_token(Some(token));
+            }
+        });
+        GtkServices { backend, dialogs: Rc::default(), tray }
     }
 
     /// The window a dialog goes on, and the cancellable that closes it with

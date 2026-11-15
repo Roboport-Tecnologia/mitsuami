@@ -308,6 +308,9 @@ void mq_close_notification(uint32_t id);
 // Brings the app forward after a click on its notification, with the
 // server's activation token (null for none).
 void mq_raise_app(const char* token);
+// Keeps a tray host's activation token for the window that next asks to be
+// active (Wayland only), without raising one.
+void mq_set_activation_token(const char* token);
 
 // Single instance. A later launch, handed over: its arguments (`nargs`),
 // working folder (null for none) and files (`nfiles`), all UTF-8. The app
