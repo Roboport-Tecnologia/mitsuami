@@ -79,7 +79,7 @@ pub fn page(paused: Signal<bool>, choice: Signal<usize>) -> impl View {
                  template for the menu bar. Windows shows the image, or an .ico at its small sizes. With no \
                  icon, each shows the app's own."
             </Text>
-            <Row justify=Justify::End gap=Spacing::Sm>
+            <Row justify=Justify::End gap=Spacing::Sm align=Align::Center>
                 <Switch bind=paused>"Paused"</Switch>
                 <Button @click=quit>"Quit"</Button>
             </Row>
