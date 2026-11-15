@@ -109,6 +109,14 @@ impl Ui {
         if refocus {
             inner.sync_focus_orders();
         }
+        // Before focus: the focus goes into the window that comes forward.
+        let mut presented = Vec::new();
+        for id in std::mem::take(&mut inner.pending_present) {
+            if let Some(window) = inner.window_of(id).filter(|w| !presented.contains(w)) {
+                presented.push(window);
+                inner.pending.push(Command::Present { window });
+            }
+        }
         for id in std::mem::take(&mut inner.pending_focus) {
             if inner.nodes.contains_key(&id) {
                 inner.pending.push(Command::Focus { id });

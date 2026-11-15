@@ -153,7 +153,14 @@ fn reopened_on_ui((args, files): (Vec<String>, Vec<PathBuf>)) {
 /// takes the foreground this process was allowed.
 pub(crate) fn bring_forward(backend: &WinUiHandle) {
     let Some(hwnd) = backend.window_parts(None, |p| p.hwnd as isize) else { return };
-    let hwnd = hwnd as w::HWND;
+    raise(hwnd as w::HWND);
+}
+
+/// Restores a window if it's minimized and makes it the foreground one,
+/// which Windows allows a process that has the foreground or was given
+/// it: the tray's menu takes it (`SetForegroundWindow` before
+/// `TrackPopupMenuEx`), and a later launch hands it on.
+pub(crate) fn raise(hwnd: w::HWND) {
     unsafe {
         if w::IsIconic(hwnd).as_bool() {
             _ = w::ShowWindow(hwnd, w::SW_RESTORE);

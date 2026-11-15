@@ -369,8 +369,9 @@ struct State {
     /// What waits for a window in `pending_show` to be shown: a dialog
     /// asked for on it before its first layout (`when_shown`).
     on_shown: Vec<(NodeId, Box<dyn FnOnce()>)>,
-    /// The user chose a tray item, which doesn't activate the app: a window
-    /// it opens activates it, until the next windows are shown.
+    /// A window shown next activates the app: the user chose a tray item,
+    /// which doesn't activate it, or the app presented a window not shown
+    /// yet. Until the next windows are shown.
     activate_on_show: bool,
     /// The key view chain last built for each window.
     focus_orders: HashMap<NodeId, Vec<NodeId>>,

@@ -35,6 +35,13 @@ impl Ui {
         self.changed();
     }
 
+    /// Brings the window `id` is in (or the window `id` is) forward, at
+    /// the next commit.
+    pub fn present(&self, id: NodeId) {
+        self.inner.borrow_mut().pending_present.push(id);
+        self.changed();
+    }
+
     /// Focuses a text field or text area and selects these grapheme
     /// clusters of its text, at the next commit; a range past its end is
     /// cut to it. Other controls are only focused.

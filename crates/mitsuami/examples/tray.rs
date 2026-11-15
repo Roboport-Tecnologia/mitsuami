@@ -4,7 +4,8 @@
 //!   bar, Windows' notification area, and on Linux a StatusNotifierItem
 //!   host (Plasma's system tray, waybar, GNOME with the AppIndicator
 //!   extension).
-//! - A click opens its menu: Open Tray opens the window, Paused swaps the
+//! - A click opens its menu: Open Tray opens the window, or brings it
+//!   forward if it's open behind other apps' windows, Paused swaps the
 //!   icon and its tooltip, Quit ends it. Closing the window leaves it
 //!   running, and a click on its Dock icon (macOS) or launching it again
 //!   opens the window.
@@ -43,12 +44,17 @@ fn theme_name(paused: bool) -> &'static str {
 }
 
 /// The icon and its menu, following `paused`, with the icon given the
-/// way `choice` (an index into [`CHOICES`]) says.
-pub fn tray(open: Signal<bool>, paused: Signal<bool>, choice: usize) -> TrayIcon {
+/// way `choice` (an index into [`CHOICES`]) says. Open Tray opens
+/// `window`, and brings it forward if it's open: setting `open` alone does
+/// nothing then.
+pub fn tray(open: Signal<bool>, window: NodeRef, paused: Signal<bool>, choice: usize) -> TrayIcon {
     let tray = TrayIcon::new("Tray")
         .tooltip(move || if paused.get() { "Paused".to_owned() } else { "Running".to_owned() })
         .menu(Menu::new("").children((
-            MenuItem::new("Open Tray").on_select(move || open.set(true)),
+            MenuItem::new("Open Tray").on_select(move || {
+                open.set(true);
+                window.present();
+            }),
             MenuItem::new("Paused").bind(paused),
             MenuSeparator,
             MenuItem::new("Quit").role(MenuRole::Quit).on_select(quit),
@@ -90,13 +96,14 @@ pub fn page(paused: Signal<bool>, choice: Signal<usize>) -> impl View {
 
 pub fn window() -> Window {
     let open = signal(false);
+    let window = node_ref();
     let paused = signal(false);
     let choice = signal(0usize);
     // Set again when the choice changes: "the app's own icon" is a tray
     // with no icon given, not an icon that changes.
     effect(move || {
         let choice = choice.get();
-        untrack(|| set_tray(tray(open, paused, choice)));
+        untrack(|| set_tray(tray(open, window, paused, choice)));
     });
     // A click on the Dock icon, or a second launch, which single instance
     // hands to this one.
@@ -108,7 +115,11 @@ pub fn window() -> Window {
             open.set(true);
         }
     });
-    Window::new("Tray").size(WindowSize::FitHeight(420.0)).bind(open).content(move || page(paused, choice))
+    Window::new("Tray")
+        .size(WindowSize::FitHeight(420.0))
+        .bind(open)
+        .node_ref(window)
+        .content(move || page(paused, choice))
 }
 
 fn main() {

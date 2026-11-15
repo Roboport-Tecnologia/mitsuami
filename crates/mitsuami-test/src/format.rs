@@ -380,6 +380,7 @@ pub(crate) fn commands(log: &[Command]) -> String {
             }
             Command::ScrollTo { id, offset } => format!("scroll {id} to {},{}", Num(offset.x), Num(offset.y)),
             Command::Focus { id } => format!("focus {id}"),
+            Command::Present { window } => format!("present {window}"),
             Command::SelectText { id, range } => format!("select {id} {}..{}", range.start, range.end),
             Command::ScrollToRow { id, row } => format!("scroll {id} to row {}", row.0),
         };

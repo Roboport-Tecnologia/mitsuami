@@ -76,6 +76,14 @@ pub enum Command {
     Focus {
         id: NodeId,
     },
+    /// Brings a window forward as the platform's apps do when asked to
+    /// show one that's open already: the app activated, the window
+    /// restored if minimized, raised and made the one taking keys. Before
+    /// any `Focus` in the batch. A window not shown yet (created in this
+    /// batch) comes forward when it is.
+    Present {
+        window: NodeId,
+    },
     /// Selects these characters of a text field's or text area's text,
     /// counted in Unicode scalar values, within it and on grapheme
     /// boundaries (the app counts graphemes). A `Focus` for the

@@ -145,6 +145,8 @@ struct Inner {
     /// Focus requests, sent after the structure of the batch: a node focused
     /// right after it's built isn't in a window yet.
     pending_focus: Vec<NodeId>,
+    /// Nodes whose windows code asked to bring forward.
+    pending_present: Vec<NodeId>,
     /// Text selections asked for, sent after the focus requests.
     pending_selections: Vec<(NodeId, std::ops::Range<usize>)>,
     windows: Vec<NodeId>,
@@ -289,6 +291,7 @@ impl Ui {
                 pending: Vec::new(),
                 created: Default::default(),
                 pending_focus: Vec::new(),
+                pending_present: Vec::new(),
                 pending_selections: Vec::new(),
                 windows: Vec::new(),
                 destroyed_windows: Vec::new(),

@@ -195,6 +195,9 @@ impl HeadlessBackend {
                     if state.focused == Some(*id) {
                         state.focused = None;
                     }
+                    if state.active_window == Some(*id) {
+                        state.active_window = None;
+                    }
                     state.focus_orders.remove(id);
                 }
                 Command::SetFrame { id, frame } => {
@@ -242,6 +245,12 @@ impl HeadlessBackend {
                 Command::Focus { id } => {
                     state.node(*id, command);
                     state.focus(*id);
+                }
+                Command::Present { window } => {
+                    if state.node(*window, command).kind != WidgetKind::Window {
+                        violation(command, "not a window");
+                    }
+                    state.activate_window(*window);
                 }
                 Command::SelectText { id, range } => {
                     let node = state.node(*id, command);

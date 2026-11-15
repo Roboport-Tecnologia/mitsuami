@@ -783,4 +783,99 @@ async fn a_fixed_window_keeps_its_size(app: TestApp) {
     assert_eq!(app.ui().window_size(window), Some(Size::new(500.0, 400.0)));
 }
 
+/// What the backend was asked to bring forward since the last call.
+fn presented(app: &TestApp) -> Vec<NodeId> {
+    let log = app.take_command_log();
+    log.iter()
+        .filter_map(|command| match command {
+            mitsuami::core::Command::Present { window } => Some(*window),
+            _ => None,
+        })
+        .collect()
+}
+
+/// Buttons in the main window that ask, as a tray menu's items would.
+async fn press(app: &TestApp, name: &str) {
+    app.get_by_role(Role::Button, name).click().await;
+}
+
+/// A window's ref brings it forward: a closed one opens forward, an open one comes in front of
+/// the app's others, and a node's ref brings its window. Asked while the window is closed, it's
+/// done once the window opens.
+#[mitsuami_test::test]
+async fn present_brings_a_window_forward(app: TestApp) {
+    let (machine_ref, tools_ref, field) = (node_ref(), node_ref(), node_ref());
+    let open = signal(false);
+    app.mount(move || {
+        Column::new().children((
+            Button::new("Open tools").on_click(move || {
+                open.set(true);
+                tools_ref.present();
+            }),
+            Button::new("Ask for tools").on_click(move || tools_ref.present()),
+            Button::new("Show the name").on_click(move || field.present()),
+            Window::new("Machine")
+                .node_ref(machine_ref)
+                .content(move || TextInput::new().a11y_label("Name").node_ref(field)),
+            Window::new("Tools").bind(open).node_ref(tools_ref).content(|| Text::new("Tools")),
+        ))
+    });
+    app.settle().await;
+    let machine = machine(&app).expect("open");
+    assert_eq!(machine_ref.get_untracked(), Some(machine));
+    assert_eq!(tools_ref.get_untracked(), None, "closed");
+    app.take_command_log();
+
+    press(&app, "Open tools").await;
+    let tools = app.window_titled("Tools").expect("opened");
+    assert_eq!(tools_ref.get_untracked(), Some(tools));
+    assert_eq!(presented(&app), [tools]);
+
+    // Open already, it comes forward again: setting the flag alone wouldn't.
+    press(&app, "Open tools").await;
+    assert_eq!(presented(&app), [tools]);
+
+    press(&app, "Show the name").await;
+    assert_eq!(presented(&app), [machine], "a node brings its window");
+
+    // Closed, the ref lets go; asked then, it waits for the window to open.
+    app.close_window(tools).await;
+    assert_eq!(tools_ref.get_untracked(), None);
+    press(&app, "Ask for tools").await;
+    assert!(presented(&app).is_empty());
+    open.set(true);
+    app.settle().await;
+    let tools = app.window_titled("Tools").expect("opened");
+    assert_eq!(presented(&app), [tools]);
+}
+
+/// The window presented becomes the one taking keys, and the one that was says it isn't.
+/// Headless: whether a test process may take the focus from the user's apps is up to the
+/// platform.
+#[mitsuami_test::test(headless)]
+async fn the_window_presented_becomes_active(app: TestApp) {
+    let (machine_ref, tools_ref) = (node_ref(), node_ref());
+    let heard = signal(Vec::<(&str, bool)>::new());
+    app.mount(move || {
+        Column::new().children((
+            Button::new("Machine forward").on_click(move || machine_ref.present()),
+            Button::new("Tools forward").on_click(move || tools_ref.present()),
+            Window::new("Machine")
+                .node_ref(machine_ref)
+                .on_active_changed(move |active| heard.update(|h| h.push(("Machine", active))))
+                .content(|| Text::new("Machine")),
+            Window::new("Tools")
+                .node_ref(tools_ref)
+                .on_active_changed(move |active| heard.update(|h| h.push(("Tools", active))))
+                .content(|| Text::new("Tools")),
+        ))
+    });
+    app.settle().await;
+    press(&app, "Tools forward").await;
+    press(&app, "Machine forward").await;
+    press(&app, "Machine forward").await;
+    assert_eq!(heard.get_untracked(), [("Tools", true), ("Tools", false), ("Machine", true)]);
+    assert_eq!(app.headless().active_window(), machine_ref.get_untracked());
+}
+
 mitsuami_test::main!();

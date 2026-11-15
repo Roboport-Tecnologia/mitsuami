@@ -122,6 +122,8 @@ struct State {
     recording: bool,
     log: Vec<Command>,
     focused: Option<NodeId>,
+    /// The window taking keys, as `Present` and `set_window_active` left it.
+    active_window: Option<NodeId>,
     /// Whether an input method's composition is going on, on the focused
     /// surface (`SyntheticInput::Compose`).
     composing: bool,
@@ -164,6 +166,7 @@ impl HeadlessBackend {
                 recording: false,
                 log: Vec::new(),
                 focused: None,
+                active_window: None,
                 composing: false,
                 selection: None,
                 drop_hover: None,
