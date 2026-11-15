@@ -114,28 +114,40 @@ pub(crate) fn claim(id: &str) -> bool {
             return true;
         }
     };
-    if has_owner(&bus, id) {
-        hand_over_or_warn(&bus, id);
-        return false;
+    // Twice: a running one that's ending (its loop quit, its process not
+    // yet gone) doesn't answer, and the id is free once it has ended.
+    for _ in 0..2 {
+        if has_owner(&bus, id) {
+            if handed_over(&bus, id) {
+                return false;
+            }
+            continue;
+        }
+        let app = match register(id) {
+            Registered::Primary(app) => Some(app),
+            // Another process took the id meanwhile.
+            Registered::Remote => {
+                if handed_over(&bus, id) {
+                    return false;
+                }
+                continue;
+            }
+            Registered::Failed(_) if has_owner(&bus, id) => {
+                if handed_over(&bus, id) {
+                    return false;
+                }
+                continue;
+            }
+            Registered::Failed(why) => {
+                eprintln!("mitsuami: {id} runs as its own instance, since it can't look for others: {why}");
+                None
+            }
+        };
+        APP.with(|slot| *slot.borrow_mut() = Some((id.to_owned(), app)));
+        return true;
     }
-    let app = match register(id) {
-        Registered::Primary(app) => Some(app),
-        Registered::Remote => {
-            hand_over_or_warn(&bus, id);
-            return false;
-        }
-        // Another process took the id meanwhile.
-        Registered::Failed(_) if has_owner(&bus, id) => {
-            hand_over_or_warn(&bus, id);
-            return false;
-        }
-        Registered::Failed(why) => {
-            eprintln!("mitsuami: {id} runs as its own instance, since it can't look for others: {why}");
-            None
-        }
-    };
-    APP.with(|slot| *slot.borrow_mut() = Some((id.to_owned(), app)));
-    true
+    eprintln!("mitsuami: couldn't hand this launch to the running {id}: it ended as this one started");
+    false
 }
 
 /// Whether a process owns `name` on the bus.
@@ -154,11 +166,18 @@ fn has_owner(bus: &gio::DBusConnection, name: &str) -> bool {
     reply.ok().and_then(|reply| reply.get::<(bool,)>()).is_some_and(|(owned,)| owned)
 }
 
-fn hand_over_or_warn(bus: &gio::DBusConnection, id: &str) {
-    // The running one is there but didn't take it: running a second
-    // instance would do what single instance prevents.
-    if let Err(error) = hand_over(bus, id) {
-        eprintln!("mitsuami: couldn't hand this launch to the running {id}: {error}");
+/// Hands the launch over; false when the running one ended meanwhile
+/// (it didn't answer, and the id is free), for the caller to claim it.
+fn handed_over(bus: &gio::DBusConnection, id: &str) -> bool {
+    match hand_over(bus, id) {
+        Ok(()) => true,
+        Err(_) if !has_owner(bus, id) => false,
+        // The running one is there but didn't take it: running a second
+        // instance would do what single instance prevents.
+        Err(error) => {
+            eprintln!("mitsuami: couldn't hand this launch to the running {id}: {error}");
+            true
+        }
     }
 }
 
@@ -174,7 +193,9 @@ fn hand_over(bus: &gio::DBusConnection, id: &str) -> Result<(), glib::Error> {
     if let Some(id) = std::env::var("DESKTOP_STARTUP_ID").ok().filter(|t| !t.is_empty()) {
         data.insert("desktop-startup-id", id);
     }
-    let args: Vec<String> = std::env::args().skip(1).collect();
+    // Lossy, as D-Bus strings are UTF-8: `args()` would panic on a name
+    // in another encoding.
+    let args: Vec<String> = std::env::args_os().skip(1).map(|arg| arg.to_string_lossy().into_owned()).collect();
     data.insert(ARGS, args);
     if let Ok(cwd) = std::env::current_dir() {
         data.insert(CWD, cwd.to_string_lossy().into_owned());

@@ -725,6 +725,8 @@ Windows.Win32.NIN_KEYSELECT
 Windows.Win32.WM_CONTEXTMENU
 Windows.Win32.WM_APP
 Windows.Win32.RegisterWindowMessageW
+Windows.Win32.ChangeWindowMessageFilterEx
+Windows.Win32.MSGFLT_ALLOW
 Windows.Win32.CreatePopupMenu
 Windows.Win32.DestroyMenu
 Windows.Win32.InsertMenuItemW

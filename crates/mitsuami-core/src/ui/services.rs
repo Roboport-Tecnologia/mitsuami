@@ -271,6 +271,9 @@ impl Ui {
         let shown = self.tray_shown_reporter();
         let weak = self.downgrade();
         let mut ids = Vec::new();
+        // What the platform shows, so a change that leaves it the same
+        // (a hidden item's title) isn't sent again.
+        let mut sent: Option<TrayData> = None;
         let effect = mitsuami_reactive::effect(move || {
             let Some(ui) = weak.upgrade() else { return };
             let mut new_id = || {
@@ -295,7 +298,14 @@ impl Ui {
                     (id, handler)
                 })
                 .collect();
-            ui.services.borrow_mut().set_tray(Some(&data), activate.clone(), shown.clone());
+            if sent.as_ref() != Some(&data) {
+                // Batched: the backend reports `tray_shown` from inside, and
+                // effects watching it may call services themselves.
+                mitsuami_reactive::batch(|| {
+                    ui.services.borrow_mut().set_tray(Some(&data), activate.clone(), shown.clone())
+                });
+                sent = Some(data);
+            }
         });
         let token = {
             let mut inner = self.inner.borrow_mut();
@@ -328,7 +338,9 @@ impl Ui {
         if let Some(effect) = effect {
             effect.dispose();
         }
-        self.services.borrow_mut().set_tray(None, self.menu_activate(), self.tray_shown_reporter());
+        mitsuami_reactive::batch(|| {
+            self.services.borrow_mut().set_tray(None, self.menu_activate(), self.tray_shown_reporter())
+        });
     }
 
     /// Whether the tray icon is showing right now: false before the app

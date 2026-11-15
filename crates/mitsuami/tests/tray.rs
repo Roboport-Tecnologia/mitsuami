@@ -161,4 +161,40 @@ async fn without_a_tray_the_window_opens(app: TestApp) {
     assert!(app.ui().tray_shown().get(), "a host that comes shows it");
 }
 
+#[mitsuami_test::test]
+async fn what_watches_it_may_call_services(app: TestApp) {
+    // The platform reports `tray_shown` while it takes the icon; an effect
+    // that watches it and calls a service runs after.
+    let owner = Owner::new_root();
+    owner.with(|| {
+        provide(app.ui().clone());
+        let ui = app.ui().clone();
+        effect(move || {
+            if ui.tray_shown().get() {
+                _ = set_clipboard_text("shown");
+            }
+        });
+        app.ui().set_tray(TrayIcon::new("Watched"));
+    });
+    app.settle().await;
+    assert!(app.ui().tray_shown().get());
+    owner.dispose();
+    app.settle().await;
+    assert!(!app.ui().tray_shown().get());
+}
+
+#[mitsuami_test::test]
+async fn a_named_icons_dark_image_goes_in_either_order(app: TestApp) {
+    let (light, dark) = (AppIcon::bytes(vec![1]), AppIcon::bytes(vec![2]));
+    for icon in [
+        AppIcon::named("n").image(light.clone()).dark(dark.clone()),
+        AppIcon::named("n").dark(dark.clone()).image(light.clone()),
+    ] {
+        assert_eq!(icon.name(), Some("n"));
+        assert_eq!(icon.image_for(false), Some(&light));
+        assert_eq!(icon.image_for(true), Some(&dark));
+    }
+    _ = app;
+}
+
 mitsuami_test::main!();

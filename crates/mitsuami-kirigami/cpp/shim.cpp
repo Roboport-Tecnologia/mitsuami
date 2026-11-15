@@ -1850,32 +1850,37 @@ int32_t mq_claim_instance(const char* id_utf8, const char* token, const char* co
     }
     const QString id = QString::fromUtf8(id_utf8);
     const QString path = application_path(id);
-    // The object first, so a launch that finds the name finds it too.
-    auto* adaptor = new ApplicationAdaptor(qApp);
-    bus.registerObject(path, adaptor, QDBusConnection::ExportAllSlots);
-    if (bus.registerService(id)) return MQ_INSTANCE_PRIMARY;
-    bus.unregisterObject(path);
-    delete adaptor;
-    if (!bus.interface()->isServiceRegistered(id)) {
-        *error = dup(bus.lastError().message());
-        return MQ_INSTANCE_UNCLAIMED;
-    }
     QVariantMap data;
     if (token) data.insert(QStringLiteral("activation-token"), QString::fromUtf8(token));
     QStringList list;
     for (int32_t i = 0; i < nargs; ++i) list.append(QString::fromUtf8(args[i]));
     data.insert(kArgs, list);
     if (cwd) data.insert(kCwd, QString::fromUtf8(cwd));
-    auto message = QDBusMessage::createMethodCall(id, path, QStringLiteral("org.freedesktop.Application"),
-                                                  QStringLiteral("Activate"));
-    message << data;
-    // Long enough for a busy app's loop to come round.
-    const QDBusMessage reply = bus.call(message, QDBus::Block, 10000);
-    if (reply.type() == QDBusMessage::ErrorMessage) {
-        *error = dup(reply.errorMessage());
-        return MQ_INSTANCE_FAILED;
+    // Twice: a running one that's ending (its loop quit, its process not
+    // yet gone) doesn't answer, and the id is free once it has ended.
+    for (int attempt = 0; attempt < 2; ++attempt) {
+        // The object first, so a launch that finds the name finds it too.
+        auto* adaptor = new ApplicationAdaptor(qApp);
+        bus.registerObject(path, adaptor, QDBusConnection::ExportAllSlots);
+        if (bus.registerService(id)) return MQ_INSTANCE_PRIMARY;
+        bus.unregisterObject(path);
+        delete adaptor;
+        if (!bus.interface()->isServiceRegistered(id)) {
+            *error = dup(bus.lastError().message());
+            return MQ_INSTANCE_UNCLAIMED;
+        }
+        auto message = QDBusMessage::createMethodCall(id, path, QStringLiteral("org.freedesktop.Application"),
+                                                      QStringLiteral("Activate"));
+        message << data;
+        // Long enough for a busy app's loop to come round.
+        const QDBusMessage reply = bus.call(message, QDBus::Block, 10000);
+        if (reply.type() != QDBusMessage::ErrorMessage) return MQ_INSTANCE_HANDED_OVER;
+        if (attempt == 1 || bus.interface()->isServiceRegistered(id)) {
+            *error = dup(reply.errorMessage());
+            return MQ_INSTANCE_FAILED;
+        }
     }
-    return MQ_INSTANCE_HANDED_OVER;
+    return MQ_INSTANCE_FAILED;
 }
 
 int32_t mq_loop_runs_glib(void) {

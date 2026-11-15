@@ -112,6 +112,10 @@ impl AppIcon {
     pub fn image(self, image: AppIcon) -> AppIcon {
         match self {
             AppIcon::Named { name, .. } => AppIcon::Named { name, image: Some(Arc::new(image)) },
+            // `named(…).dark(…).image(…)`: the light side's.
+            AppIcon::Themed { light, dark } => {
+                AppIcon::Themed { light: Arc::new(Arc::unwrap_or_clone(light).image(image)), dark }
+            }
             icon => icon,
         }
     }
@@ -121,12 +125,15 @@ impl AppIcon {
     /// the image itself shows: macOS tints the tray's image for the menu
     /// bar, Linux recolors a theme's symbolic icons, and nothing tells an
     /// app what's under a Linux tray (GNOME's top bar is dark in light
-    /// mode too). A [`named`](Self::named) icon's image takes it.
+    /// mode too). A [`named`](Self::named) icon's image takes it, in either
+    /// order with [`image`](Self::image).
     pub fn dark(self, dark: AppIcon) -> AppIcon {
         match self {
-            AppIcon::Named { name, image } => {
-                AppIcon::Named { name, image: image.map(|image| Arc::new(Arc::unwrap_or_clone(image).dark(dark))) }
+            AppIcon::Named { name, image: Some(image) } => {
+                AppIcon::Named { name, image: Some(Arc::new(Arc::unwrap_or_clone(image).dark(dark))) }
             }
+            // No image yet: the pair holds the name, and `image` gives the
+            // light side.
             AppIcon::Themed { light, .. } => AppIcon::Themed { light, dark: Arc::new(dark) },
             light => AppIcon::Themed { light: Arc::new(light), dark: Arc::new(dark) },
         }

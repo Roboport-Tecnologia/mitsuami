@@ -137,6 +137,12 @@ struct State {
     shown: Option<Shown>,
     showing: bool,
     exported: Option<Exported>,
+    /// Whether putting the item on the bus failed (no session bus): it's
+    /// tried again when the app sets an icon anew, not on each change.
+    export_failed: bool,
+    /// The icon as a pixmap, made when it changes: hosts read every
+    /// property again after each signal, a tooltip's too.
+    pixmap: Option<Variant>,
     /// Hands the backend a host's activation token for the click that
     /// follows.
     on_token: Token,
@@ -170,6 +176,8 @@ impl Tray {
             shown: None,
             showing: false,
             exported: None,
+            export_failed: false,
+            pixmap: None,
             on_token: Rc::new(on_token),
             token: None,
         };
@@ -194,6 +202,8 @@ impl Tray {
             let exported = {
                 let mut state = self.state.borrow_mut();
                 state.data = None;
+                state.pixmap = None;
+                state.export_failed = false;
                 state.exported.take()
             };
             if let Some(exported) = exported {
@@ -203,6 +213,9 @@ impl Tray {
             return;
         };
         let previous = self.state.borrow_mut().data.replace(tray.clone());
+        if previous.as_ref().is_none_or(|previous| previous.icon != tray.icon) {
+            self.state.borrow_mut().pixmap = tray.icon.as_ref().and_then(pixmap);
+        }
         let menu = Menu::new(&tray.menu);
         let menu_changed = self.state.borrow().menu != menu;
         if menu_changed {
@@ -211,7 +224,9 @@ impl Tray {
             state.revision += 1;
         }
         let Some(previous) = previous.filter(|_| self.state.borrow().exported.is_some()) else {
-            export(&self.state);
+            if !self.state.borrow().export_failed {
+                export(&self.state);
+            }
             return;
         };
         let state = self.state.borrow();
@@ -275,7 +290,10 @@ fn report(state: &Rc<RefCell<State>>, showing: bool) {
 fn export(state: &Rc<RefCell<State>>) {
     let bus = match gio::bus_get_sync(gio::BusType::Session, None::<&gio::Cancellable>) {
         Ok(bus) => bus,
-        Err(_) => return report(state, false),
+        Err(_) => {
+            state.borrow_mut().export_failed = true;
+            return report(state, false);
+        }
     };
     let node = gio::DBusNodeInfo::for_xml(XML).expect("the tray's D-Bus interfaces");
     let mut registrations = Vec::new();
@@ -441,7 +459,7 @@ fn item_property(weak: &Weak<RefCell<State>>, name: &str) -> Variant {
             // The app's own icon, which its theme has under its id.
             None => state.app_id.clone().unwrap_or_default().to_variant(),
         },
-        "IconPixmap" => match data.and_then(|d| d.icon.as_ref()).and_then(pixmap) {
+        "IconPixmap" => match state.pixmap.clone() {
             Some(pixmap) => Variant::array_from_iter_with_type(VariantTy::new("(iiay)").unwrap(), [pixmap]),
             None => no_pixmaps(),
         },
@@ -586,12 +604,12 @@ impl Menu {
 
     /// `(ia{sv}av)`, with children down to `depth` (-1: all).
     fn layout(&self, id: i32, depth: i32, names: &[String]) -> Variant {
+        // Any negative depth is all of it, and `i32::MIN - 1` would overflow.
+        let next = if depth < 0 { -1 } else { depth - 1 };
         let children: Vec<Variant> = match self.items.get(&id) {
-            Some(item) if depth != 0 => item
-                .children
-                .iter()
-                .map(|child| Variant::from_variant(&self.layout(*child, depth - 1, names)))
-                .collect(),
+            Some(item) if depth != 0 => {
+                item.children.iter().map(|child| Variant::from_variant(&self.layout(*child, next, names))).collect()
+            }
             _ => Vec::new(),
         };
         Variant::tuple_from_iter([
@@ -614,9 +632,12 @@ fn menu_call(weak: &Weak<RefCell<State>>, method: &str, args: &Variant, invocati
             let (ids, names) = args.get::<(Vec<i32>, Vec<String>)>().unwrap_or_default();
             let state = state.borrow();
             let ids: Vec<i32> = if ids.is_empty() { state.menu.items.keys().copied().collect() } else { ids };
+            // Each item once, however often it's asked for: the reply is
+            // built in memory, and any client on the bus may ask.
+            let mut seen = std::collections::HashSet::new();
             let entries = ids
                 .into_iter()
-                .filter(|id| state.menu.items.contains_key(id))
+                .filter(|id| state.menu.items.contains_key(id) && seen.insert(*id))
                 .map(|id| Variant::tuple_from_iter([id.to_variant(), state.menu.props(id, &names)]));
             let array = Variant::array_from_iter_with_type(VariantTy::new("(ia{sv})").unwrap(), entries);
             Some(Variant::tuple_from_iter([array]))

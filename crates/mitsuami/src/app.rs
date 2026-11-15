@@ -142,7 +142,7 @@ impl App {
     /// app (no exit status, no output), since only Linux could send one.
     ///
     /// Each platform's own: Launch Services on macOS (a Unix socket for a
-    /// process outside a bundle), the session bus's
+    /// process it didn't start), the session bus's
     /// `org.freedesktop.Application` on Linux, the Windows App SDK's
     /// `AppInstance` on Windows. Where the platform can't tell (Linux
     /// without a session bus), the app runs as its own instance.

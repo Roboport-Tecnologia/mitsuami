@@ -151,6 +151,7 @@ pub fn run_with(info: AppInfo, options: RunOptions, setup: impl FnOnce(&Ui)) {
     SCHEDULE.with(|s| s.borrow_mut().take());
     crate::notifications::unregister();
     crate::instance::disconnect();
+    crate::tray::shutdown();
     // Close everything while XAML is still running.
     drop(ui);
     runtime::pump();

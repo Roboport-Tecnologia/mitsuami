@@ -8,13 +8,14 @@
 use std::cell::RefCell;
 use std::rc::Rc;
 
+use mitsuami_core::AppIcon;
 use mitsuami_core::services::TrayData;
 use objc2::rc::Retained;
 use objc2::{MainThreadMarker, sel};
 use objc2_app_kit::{
-    NSAccessibility, NSApplication, NSMenuItem, NSStatusBar, NSStatusItem, NSVariableStatusItemLength,
+    NSAccessibility, NSApplication, NSImage, NSMenuItem, NSStatusBar, NSStatusItem, NSVariableStatusItemLength,
 };
-use objc2_foundation::{NSSize, NSString};
+use objc2_foundation::{NSCopying, NSSize, NSString};
 
 use crate::backend::{AppKitHandle, app_icon_image};
 use crate::classes::ClosureTarget;
@@ -33,6 +34,9 @@ pub(crate) struct Tray {
     target: Retained<ClosureTarget>,
     activate: Activate,
     shown: bool,
+    /// The icon the status item shows and what it was made from, so a
+    /// change to the tooltip or menu doesn't decode it again.
+    image: Option<(Option<AppIcon>, Option<Retained<NSImage>>)>,
 }
 
 impl Tray {
@@ -49,7 +53,7 @@ impl Tray {
                 }
             }
         });
-        Tray { mtm, item: None, target, activate, shown: false }
+        Tray { mtm, item: None, target, activate, shown: false, image: None }
     }
 
     pub(crate) fn set(
@@ -64,6 +68,7 @@ impl Tray {
             if let Some(item) = self.item.take() {
                 NSStatusBar::systemStatusBar().removeStatusItem(&item);
             }
+            self.image = None;
             self.report(false, &shown);
             return;
         };
@@ -75,17 +80,11 @@ impl Tray {
             item
         });
         if let Some(button) = item.button(self.mtm) {
-            // The app's own icon, in colour, when it gives none.
-            let image = match &tray.icon {
-                Some(icon) => app_icon_image(icon).inspect(|image| image.setTemplate(true)),
-                None => NSApplication::sharedApplication(self.mtm).applicationIconImage(),
-            };
-            if let Some(image) = &image {
-                let size = image.size();
-                let width = if size.height > 0.0 { size.width * IMAGE_HEIGHT / size.height } else { IMAGE_HEIGHT };
-                image.setSize(NSSize::new(width, IMAGE_HEIGHT));
+            if self.image.as_ref().is_none_or(|(icon, _)| *icon != tray.icon) {
+                let image = status_image(self.mtm, tray.icon.as_ref());
+                button.setImage(image.as_deref());
+                self.image = Some((tray.icon.clone(), image));
             }
-            button.setImage(image.as_deref());
             let tooltip = (!tray.tooltip.is_empty()).then(|| NSString::from_str(&tray.tooltip));
             button.setToolTip(tooltip.as_deref());
             button.setAccessibilityLabel(Some(&NSString::from_str(&tray.title)));
@@ -101,6 +100,21 @@ impl Tray {
             shown(showing);
         }
     }
+}
+
+/// The status item's image, sized to the menu bar: the app's icon, in
+/// colour, when it gives none.
+fn status_image(mtm: MainThreadMarker, icon: Option<&AppIcon>) -> Option<Retained<NSImage>> {
+    let image = match icon {
+        Some(icon) => app_icon_image(icon).inspect(|image| image.setTemplate(true)),
+        // A copy: the app's icon is one shared image, and resizing it
+        // would shrink it everywhere else it's drawn (alerts, About).
+        None => Some(NSApplication::sharedApplication(mtm).applicationIconImage()?.copy()),
+    }?;
+    let size = image.size();
+    let width = if size.height > 0.0 { size.width * IMAGE_HEIGHT / size.height } else { IMAGE_HEIGHT };
+    image.setSize(NSSize::new(width, IMAGE_HEIGHT));
+    Some(image)
 }
 
 impl Drop for Tray {

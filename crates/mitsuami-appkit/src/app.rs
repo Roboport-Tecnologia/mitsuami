@@ -142,9 +142,9 @@ pub fn run(info: AppInfo, setup: impl FnOnce(&Ui)) {
 }
 
 /// [`run`], with options. Launch Services keeps a bundled app to one
-/// process already; for a single-instance app, a bundled executable started
-/// directly brings the running one forward and returns, and one outside a
-/// bundle hands its launch over a Unix socket.
+/// process already; for a single-instance app, a process it didn't start
+/// (run from a terminal, or outside a bundle) hands its launch to the
+/// running one over a Unix socket and returns.
 pub fn run_with(info: AppInfo, options: RunOptions, setup: impl FnOnce(&Ui)) {
     let mtm = main_thread();
     if options.single_instance

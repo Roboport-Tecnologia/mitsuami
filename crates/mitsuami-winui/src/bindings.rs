@@ -1,6 +1,7 @@
 windows_core::link!("kernel32.dll" "system" fn ActivateActCtx(hactctx : HANDLE, lpcookie : *mut usize) -> windows_core::BOOL);
 windows_core::link!("user32.dll" "system" fn AllowSetForegroundWindow(dwprocessid : u32) -> windows_core::BOOL);
 windows_core::link!("user32.dll" "system" fn CallNextHookEx(hhk : HHOOK, ncode : i32, wparam : WPARAM, lparam : LPARAM) -> LRESULT);
+windows_core::link!("user32.dll" "system" fn ChangeWindowMessageFilterEx(hwnd : HWND, message : u32, action : u32, pchangefilterstruct : *mut CHANGEFILTERSTRUCT) -> windows_core::BOOL);
 windows_core::link!("user32.dll" "system" fn ClientToScreen(hwnd : HWND, lppoint : *mut POINT) -> windows_core::BOOL);
 windows_core::link!("user32.dll" "system" fn ClipCursor(lprect : *const RECT) -> windows_core::BOOL);
 windows_core::link!("ole32.dll" "system" fn CoCreateInstance(rclsid : *const windows_core::GUID, punkouter : *mut core::ffi::c_void, dwclscontext : u32, riid : *const windows_core::GUID, ppv : *mut *mut core::ffi::c_void) -> windows_core::HRESULT);
@@ -1650,6 +1651,12 @@ pub struct CANDIDATEFORM {
 }
 pub const CFS_EXCLUDE: i32 = 128;
 pub const CFS_POINT: i32 = 2;
+#[repr(C)]
+#[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
+pub struct CHANGEFILTERSTRUCT {
+    pub cbSize: u32,
+    pub ExtStatus: u32,
+}
 pub const CLSCTX_ALL: i32 = 23;
 pub type COINIT = i32;
 pub const COINIT_APARTMENTTHREADED: COINIT = 2;
@@ -21264,6 +21271,7 @@ pub struct MSG {
     pub time: u32,
     pub pt: POINT,
 }
+pub const MSGFLT_ALLOW: i32 = 1;
 pub const MUI_LANGUAGE_NAME: i32 = 8;
 pub const MWMO_INPUTAVAILABLE: i32 = 4;
 #[repr(transparent)]

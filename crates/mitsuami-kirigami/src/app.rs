@@ -62,7 +62,9 @@ pub fn run_with(info: AppInfo, options: RunOptions, setup: impl FnOnce(&Ui)) {
     if options.single_instance
         && let Some(id) = &info.id
     {
-        let args: Vec<String> = std::env::args().skip(1).collect();
+        // Lossy, as D-Bus strings are UTF-8: `args()` would panic on a
+        // name in another encoding.
+        let args: Vec<String> = std::env::args_os().skip(1).map(|arg| arg.to_string_lossy().into_owned()).collect();
         let cwd = std::env::current_dir().ok().map(|cwd| cwd.to_string_lossy().into_owned());
         match ffi::claim_instance(id, token.as_deref(), &args, cwd.as_deref()) {
             ffi::Instance::Primary => {}

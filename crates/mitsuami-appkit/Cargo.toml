@@ -21,6 +21,7 @@ objc2-core-foundation.workspace = true
 objc2-game-controller.workspace = true
 block2.workspace = true
 dispatch2.workspace = true
+libc.workspace = true
 objc2-uniform-type-identifiers.workspace = true
 objc2-quick-look-thumbnailing.workspace = true
 objc2-user-notifications.workspace = true

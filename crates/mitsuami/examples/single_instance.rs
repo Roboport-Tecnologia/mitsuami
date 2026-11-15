@@ -65,7 +65,7 @@ pub fn window(hidden: bool) -> Window {
 }
 
 fn main() {
-    let hidden = std::env::args().any(|arg| arg == "--hidden");
+    let hidden = std::env::args_os().any(|arg| arg == "--hidden");
     App::new()
         .id("br.com.roboport.mitsuami.SingleInstance")
         .name("Single Instance")

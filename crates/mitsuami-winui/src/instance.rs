@@ -115,7 +115,11 @@ fn read(args: &w::AppActivationArguments) -> (Vec<String>, Vec<PathBuf>) {
     match kind {
         w::ExtendedActivationKind::Launch => {
             let line = data.cast::<ILaunchActivatedEventArgs>().and_then(|launch| launch.Arguments());
-            (line.map(|line| split(&line)).unwrap_or_default(), Vec::new())
+            // An unpackaged app's launch carries its whole command line, a
+            // packaged one's only the arguments (both ends are the same app,
+            // so this process can tell for the other).
+            let program = !crate::backend::new_window::packaged();
+            (line.map(|line| split(&line, program)).unwrap_or_default(), Vec::new())
         }
         w::ExtendedActivationKind::File => {
             let files = data.cast::<w::IFileActivatedEventArgs>().and_then(|file| file.Files());
@@ -129,15 +133,21 @@ fn read(args: &w::AppActivationArguments) -> (Vec<String>, Vec<PathBuf>) {
 }
 
 /// Splits a command line as the C runtime does (`CommandLineToArgvW`),
-/// without the program: the SDK passes a launch's whole command line.
-fn split(line: &str) -> Vec<String> {
+/// without the program when it starts with one.
+fn split(line: &str, program: bool) -> Vec<String> {
+    if !program && line.trim().is_empty() {
+        // `CommandLineToArgvW` gives the executable's path for an empty line.
+        return Vec::new();
+    }
     let wide = HSTRING::from(line);
     let mut count = 0;
     let argv = unsafe { w::CommandLineToArgvW(PCWSTR(wide.as_ptr()), &mut count) };
     if argv.is_null() {
         return Vec::new();
     }
-    let args = (1..count.max(0) as usize).map(|i| unsafe { (*argv.add(i)).to_string() }.unwrap_or_default()).collect();
+    let args = (usize::from(program)..count.max(0) as usize)
+        .map(|i| unsafe { (*argv.add(i)).to_string() }.unwrap_or_default())
+        .collect();
     unsafe { _ = w::LocalFree(argv as w::HLOCAL) };
     args
 }

@@ -46,7 +46,12 @@ struct State {
     /// Whether Windows took the GUID: without, the icon goes by its id.
     with_guid: bool,
     icon: w::HICON,
-    /// Whether the taskbar is dark, as the icon was loaded for.
+    /// Whether `icon` is this app's to destroy, not the system's shared one.
+    owned: bool,
+    /// What `icon` was loaded from, so a change to the tooltip or menu
+    /// doesn't load it again.
+    loaded: Option<(Option<AppIcon>, bool)>,
+    /// Whether the taskbar is dark, as the icon is loaded for.
     dark: bool,
     added: bool,
     activate: Activate,
@@ -66,6 +71,11 @@ pub(crate) fn set(tray: Option<&TrayData>, info: &mitsuami_core::AppInfo, activa
     if !exists {
         let Some(window) = message_window() else { return shown(false) };
         let taskbar_created = unsafe { w::RegisterWindowMessageW(windows_core::w!("TaskbarCreated")) };
+        // An elevated app gets Explorer's broadcast only when it lets it
+        // through: its integrity level is higher than Explorer's.
+        unsafe {
+            _ = w::ChangeWindowMessageFilterEx(window, taskbar_created, w::MSGFLT_ALLOW as u32, std::ptr::null_mut())
+        };
         let exe = || std::env::current_exe().map(|exe| exe.display().to_string()).unwrap_or_default();
         let state = State {
             window,
@@ -75,6 +85,8 @@ pub(crate) fn set(tray: Option<&TrayData>, info: &mitsuami_core::AppInfo, activa
             guid: guid(&info.id.clone().unwrap_or_else(exe)),
             with_guid: true,
             icon: std::ptr::null_mut(),
+            owned: false,
+            loaded: None,
             dark: taskbar_dark(),
             added: false,
             activate: activate.clone(),
@@ -98,25 +110,38 @@ pub(crate) fn set(tray: Option<&TrayData>, info: &mitsuami_core::AppInfo, activa
 impl State {
     /// Adds the icon, or sends what changed.
     fn update(&mut self) {
-        let icon = load_icon(self.data.icon.as_ref().or(self.app_icon.as_ref()), self.dark);
-        let old = std::mem::replace(&mut self.icon, icon);
+        let source = (self.data.icon.clone().or_else(|| self.app_icon.clone()), self.dark);
+        let mut old = None;
+        if self.loaded.as_ref() != Some(&source) {
+            let (icon, owned) = load_icon(source.0.as_ref(), self.dark);
+            old = Some((std::mem::replace(&mut self.icon, icon), std::mem::replace(&mut self.owned, owned)));
+            self.loaded = Some(source);
+        }
         let mut data = self.notify_data();
         if self.added {
             unsafe { _ = w::Shell_NotifyIconW(w::NIM_MODIFY as u32, &data) };
         } else {
             self.added = unsafe { w::Shell_NotifyIconW(w::NIM_ADD as u32, &data) }.as_bool();
             if !self.added && self.with_guid {
-                // The GUID belongs to this app at another path.
+                // The GUID may belong to this app at another path. If the
+                // icon can't be added without it either, the notification
+                // area isn't there yet (a launch at login): `TaskbarCreated`
+                // comes once it is, and the GUID is tried again.
                 self.with_guid = false;
                 data = self.notify_data();
                 self.added = unsafe { w::Shell_NotifyIconW(w::NIM_ADD as u32, &data) }.as_bool();
+                if !self.added {
+                    self.with_guid = true;
+                }
             }
             if self.added {
                 data.Anonymous.uVersion = w::NOTIFYICON_VERSION_4 as u32;
                 unsafe { _ = w::Shell_NotifyIconW(w::NIM_SETVERSION as u32, &data) };
             }
         }
-        if !old.is_null() {
+        if let Some((old, true)) = old
+            && !old.is_null()
+        {
             unsafe { _ = w::DestroyIcon(old) };
         }
     }
@@ -149,7 +174,7 @@ impl State {
             if self.added {
                 _ = w::Shell_NotifyIconW(w::NIM_DELETE as u32, &data);
             }
-            if !self.icon.is_null() {
+            if self.owned && !self.icon.is_null() {
                 _ = w::DestroyIcon(self.icon);
             }
             _ = w::DestroyWindow(self.window);
@@ -215,9 +240,20 @@ fn taskbar_dark() -> bool {
     read != 0 || data == 0
 }
 
+/// Takes the tray icon away as the app ends, so it doesn't stay in the
+/// notification area until the pointer passes over it: the core's removal
+/// runs only while the `Ui` lives.
+pub(crate) fn shutdown() {
+    if let Some(state) = STATE.with(|s| s.borrow_mut().take()) {
+        state.remove();
+    }
+}
+
 /// The small icon's size for the system's DPI, for the taskbar's theme: an
 /// `.ico` file at the size it has, else the image as an icon of its own.
-fn load_icon(icon: Option<&AppIcon>, dark: bool) -> w::HICON {
+/// Says whether the icon is the app's own to destroy: the fallback is the
+/// system's shared one.
+fn load_icon(icon: Option<&AppIcon>, dark: bool) -> (w::HICON, bool) {
     let dpi = unsafe { w::GetDpiForSystem() };
     let size = unsafe { w::GetSystemMetricsForDpi(w::SM_CXSMICON, dpi) };
     let loaded = match icon.and_then(|icon| icon.image_for(dark)) {
@@ -251,7 +287,11 @@ fn load_icon(icon: Option<&AppIcon>, dark: bool) -> w::HICON {
         },
         None => std::ptr::null_mut(),
     };
-    if loaded.is_null() { unsafe { w::LoadIconW(std::ptr::null_mut(), w::IDI_APPLICATION) } } else { loaded }
+    if loaded.is_null() {
+        (unsafe { w::LoadIconW(std::ptr::null_mut(), w::IDI_APPLICATION) }, false)
+    } else {
+        (loaded, true)
+    }
 }
 
 fn message_window() -> Option<w::HWND> {
@@ -298,23 +338,35 @@ unsafe extern "system" fn window_proc(hwnd: w::HWND, message: u32, wparam: w::WP
         }
         return 0;
     }
-    let restarted = STATE.with(|s| s.borrow().as_ref().is_some_and(|state| message == state.taskbar_created));
+    // Nobody but the app closes it: a `WM_CLOSE` from outside (`taskkill`
+    // without `/f`, an installer) would leave the app with no icon.
+    if message == w::WM_CLOSE as u32 {
+        return 0;
+    }
+    // The state is borrowed while `Shell_NotifyIconW` waits on Explorer,
+    // and messages sent in the meantime (a theme change's broadcasts) come
+    // here: they're let by, as a panic here would end the process.
+    let restarted =
+        STATE.with(|s| s.try_borrow().is_ok_and(|s| s.as_ref().is_some_and(|state| message == state.taskbar_created)));
     if restarted {
-        let (added, shown) = STATE.with(|s| {
-            let mut s = s.borrow_mut();
-            let state = s.as_mut().expect("the tray's state");
+        let reported = STATE.with(|s| {
+            let mut s = s.try_borrow_mut().ok()?;
+            let state = s.as_mut()?;
             state.added = false;
             state.update();
-            (state.added, state.shown.clone())
+            Some((state.added, state.shown.clone()))
         });
-        shown(added);
+        if let Some((added, shown)) = reported {
+            shown(added);
+        }
         return 0;
     }
     if message == w::WM_SETTINGCHANGE as u32 && setting_is(lparam, "ImmersiveColorSet") {
         // The theme changed; the taskbar's may have.
         let dark = taskbar_dark();
         STATE.with(|s| {
-            if let Some(state) = s.borrow_mut().as_mut()
+            if let Ok(mut s) = s.try_borrow_mut()
+                && let Some(state) = s.as_mut()
                 && state.dark != dark
             {
                 state.dark = dark;
@@ -337,7 +389,7 @@ fn setting_is(lparam: w::LPARAM, setting: &str) -> bool {
 /// elsewhere, and a message after, so it closes at once next time.
 fn show_menu(hwnd: w::HWND, x: i32, y: i32) {
     let Some((entries, activate)) =
-        STATE.with(|s| s.borrow().as_ref().map(|s| (s.data.menu.clone(), s.activate.clone())))
+        STATE.with(|s| s.try_borrow().ok()?.as_ref().map(|s| (s.data.menu.clone(), s.activate.clone())))
     else {
         return;
     };

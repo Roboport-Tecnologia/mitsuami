@@ -11,7 +11,7 @@ mod keys;
 mod measure;
 mod menus;
 mod native_state;
-mod new_window;
+pub(crate) mod new_window;
 mod perform;
 mod props;
 pub(crate) mod reveal;
