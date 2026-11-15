@@ -546,10 +546,23 @@ impl Drop for TestApp {
         if self.owner.is_alive() {
             self.owner.dispose();
         }
-        // Then the window, as closing one does: nodes no scope built (a C
-        // caller's) go with it.
+        // Then the windows, as closing one does: nodes no scope built (a C
+        // caller's) go with it. Every window, not only the mounted one: a
+        // test may build one in a scope of its own, which can outlive the
+        // test (one holding the `Ui`, as the app scope does), and WinUI
+        // fails fast when a window is still open as the process exits.
         if let Some(window) = self.window.get() {
             self.ui.destroy(window);
+        }
+        for window in self.ui.windows() {
+            self.ui.destroy(window);
+        }
+        // Destroying only queues it, and a `Ui` that outlives the test never
+        // drops its backend, so the windows close in a tick of their own.
+        // Not while a failed test unwinds: a panic in the tick would abort.
+        if !std::thread::panicking() {
+            self.ui.tick();
+            self.driver.settle();
         }
     }
 }
