@@ -20,7 +20,10 @@ impl Ui {
             let chosen = {
                 let mut inner = self.inner.borrow_mut();
                 let id = inner.menu_queue.pop_front();
-                id.and_then(|id| inner.menu_handlers.values().find_map(|handlers| handlers.get(&id)).cloned())
+                id.and_then(|id| {
+                    let mut bars = inner.menu_handlers.values().chain(std::iter::once(&inner.tray_handlers));
+                    bars.find_map(|handlers| handlers.get(&id)).cloned()
+                })
             };
             if let Some(handler) = chosen {
                 mitsuami_reactive::batch(|| handler());

@@ -315,6 +315,9 @@ void mq_raise_app(const char* token);
 typedef void (*mq_reopen_callback)(const char* const* args, int32_t nargs, const char* cwd,
                                    const char* const* files, int32_t nfiles);
 void mq_set_reopen_callback(mq_reopen_callback callback);
+// Whether Qt's loop is GLib's (its GLib event dispatcher), which runs
+// GLib's sources (GIO's D-Bus) too: 0 with QT_NO_GLIB set.
+int32_t mq_loop_runs_glib(void);
 enum {
     MQ_INSTANCE_PRIMARY = 0,      // this process has the id now
     MQ_INSTANCE_HANDED_OVER = 1,  // another has it, and took the launch

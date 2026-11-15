@@ -1,6 +1,6 @@
 [package]
 name = "mitsuami-linux"
-description = "GpuSurface on Linux for mitsuami's GTK and Kirigami backends: a Wayland subsurface or an X11 child window, pointer locks and a shortcuts inhibitor"
+description = "What mitsuami's GTK and Kirigami backends share on Linux: GpuSurface (a Wayland subsurface or an X11 child window, pointer locks, a shortcuts inhibitor) and the tray icon (StatusNotifierItem)"
 version.workspace = true
 edition.workspace = true
 rust-version.workspace = true
@@ -17,6 +17,9 @@ wayland-client.workspace = true
 wayland-backend.workspace = true
 wayland-protocols.workspace = true
 x11rb.workspace = true
+gio.workspace = true
+glib.workspace = true
+png.workspace = true
 
 [lints]
 workspace = true

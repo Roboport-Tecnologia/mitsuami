@@ -111,6 +111,7 @@ unsafe extern "C" {
     fn mq_notify(key: u64, replaces: u32, title: *const c_char, body: *const c_char);
     fn mq_close_notification(id: u32);
     fn mq_raise_app(token: *const c_char);
+    fn mq_loop_runs_glib() -> i32;
     fn mq_set_reopen_callback(
         callback: extern "C" fn(*const *const c_char, i32, *const c_char, *const *const c_char, i32),
     );
@@ -576,6 +577,12 @@ pub(crate) fn close_notification(id: u32) {
 pub(crate) fn raise_app(token: Option<&str>) {
     let token = token.map(c);
     unsafe { mq_raise_app(token.as_ref().map_or(std::ptr::null(), |t| t.as_ptr())) }
+}
+
+/// Whether Qt's loop runs GLib's sources (GIO's D-Bus) too, as its GLib
+/// event dispatcher does: not with `QT_NO_GLIB` set.
+pub(crate) fn loop_runs_glib() -> bool {
+    unsafe { mq_loop_runs_glib() != 0 }
 }
 
 /// What [`claim_instance`] found.

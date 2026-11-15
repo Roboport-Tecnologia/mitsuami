@@ -9,7 +9,7 @@ use std::rc::Rc;
 use mitsuami_core::NodeId;
 use mitsuami_core::services::{
     Alert, Launch, MenuBarData, MenuItemData, Notification, OpenFile, Reply, SaveFile, ServiceError, Services,
-    find_menu_item,
+    TrayData, find_menu_item,
 };
 
 /// A request waiting for the test to answer it.
@@ -62,6 +62,12 @@ struct State {
     menu: Option<MenuBarData>,
     window_menus: BTreeMap<NodeId, MenuBarData>,
     activate: Option<Rc<dyn Fn(u32)>>,
+    tray: Option<TrayData>,
+    tray_activate: Option<Rc<dyn Fn(u32)>>,
+    tray_shown: Option<Rc<dyn Fn(bool)>>,
+    /// Whether the platform has somewhere to show it: a tray host is
+    /// running, until a test says it went.
+    tray_host_away: bool,
 }
 
 /// Install with [`Ui::set_services`](mitsuami_core::Ui::set_services).
@@ -189,6 +195,41 @@ impl FakeServicesHandle {
     }
 }
 
+impl FakeServicesHandle {
+    /// The tray icon the app shows, if any.
+    pub fn tray(&self) -> Option<TrayData> {
+        self.state.borrow().tray.clone()
+    }
+
+    /// The tray menu's item at `path`: its submenus, then the item's title.
+    pub fn tray_item(&self, path: &[&str]) -> Option<MenuItemData> {
+        let state = self.state.borrow();
+        find_menu_item(&state.tray.as_ref()?.menu, path).cloned()
+    }
+
+    /// Chooses the tray menu's item at `path`, as a click on it would.
+    /// Returns `false` if there is no such item or it is disabled.
+    pub fn choose_tray_item(&self, path: &[&str]) -> bool {
+        let Some(item) = self.tray_item(path).filter(|item| item.enabled) else { return false };
+        let Some(activate) = self.state.borrow().tray_activate.clone() else { return false };
+        activate(item.id);
+        true
+    }
+
+    /// The tray's host goes away (`false`, as when a Linux panel quits) or
+    /// comes back: the app hears whether its icon shows.
+    pub fn set_tray_host(&self, running: bool) {
+        let shown = {
+            let mut state = self.state.borrow_mut();
+            state.tray_host_away = !running;
+            state.tray.as_ref().and(state.tray_shown.clone())
+        };
+        if let Some(shown) = shown {
+            shown(running);
+        }
+    }
+}
+
 impl Services for FakeServices {
     fn clipboard_text(&mut self, reply: Reply<Option<String>>) {
         let text = self.state.borrow().clipboard.clone();
@@ -272,5 +313,16 @@ impl Services for FakeServices {
         }
         // Ids are unique across bars, and every bar reports to the same Ui.
         state.activate = Some(activate);
+    }
+
+    fn set_tray(&mut self, tray: Option<&TrayData>, activate: Rc<dyn Fn(u32)>, shown: Rc<dyn Fn(bool)>) {
+        let showing = {
+            let mut state = self.state.borrow_mut();
+            state.tray = tray.cloned();
+            state.tray_activate = Some(activate);
+            state.tray_shown = Some(shown.clone());
+            tray.is_some() && !state.tray_host_away
+        };
+        shown(showing);
     }
 }

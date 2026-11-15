@@ -807,6 +807,7 @@ name = "mitsuami-kirigami"
 version = "2.3.0"
 dependencies = [
  "cc",
+ "glib",
  "mitsuami-core",
  "mitsuami-linux",
  "mitsuami-reactive",
@@ -818,7 +819,10 @@ dependencies = [
 name = "mitsuami-linux"
 version = "2.3.0"
 dependencies = [
+ "gio",
+ "glib",
  "mitsuami-core",
+ "png",
  "wayland-backend",
  "wayland-client",
  "wayland-protocols",

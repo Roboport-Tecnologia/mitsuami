@@ -110,6 +110,10 @@ name = "single_instance"
 harness = false
 
 [[test]]
+name = "tray"
+harness = false
+
+[[test]]
 name = "file_icon"
 harness = false
 

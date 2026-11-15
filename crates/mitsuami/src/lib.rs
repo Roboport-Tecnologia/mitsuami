@@ -94,9 +94,9 @@ pub mod prelude {
     pub use mitsuami_core::l10n::{self, Locales};
     pub use mitsuami_core::services::{
         Alert, AlertStyle, FileFilter, Launch, Menu, MenuBar, MenuItem, MenuRole, MenuSeparator, Notification,
-        OpenFile, Reopen, SaveFile, ServiceError, Shortcut, alert, clipboard_text, launch, launch_url, notify,
-        on_notification_activated, on_reopen, open_file, quit, save_file, set_clipboard_text, set_menu, trash,
-        withdraw_notification,
+        OpenFile, Reopen, SaveFile, ServiceError, Shortcut, TrayIcon, alert, clipboard_text, launch, launch_url,
+        notify, on_notification_activated, on_reopen, open_file, quit, save_file, set_clipboard_text, set_menu,
+        set_tray, trash, tray_shown, withdraw_notification,
     };
     pub use mitsuami_core::task::{TaskHandle, sleep, spawn_blocking, spawn_local};
     pub use mitsuami_core::{

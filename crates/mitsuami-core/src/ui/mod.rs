@@ -177,6 +177,14 @@ struct Inner {
     next_reopen_handler: u64,
     /// Later launches the backend handed over, for the next dispatch.
     reopen_queue: std::collections::VecDeque<crate::services::Reopen>,
+    /// The effect keeping the tray icon up to date, by the token its
+    /// scope's cleanup checks it's still the one shown.
+    tray_effect: Option<(u64, mitsuami_reactive::Effect)>,
+    next_tray: u64,
+    /// The tray menu's item handlers; ids are the menu bars'.
+    tray_handlers: std::collections::HashMap<u32, Handler0>,
+    /// Whether the tray icon is showing, as the backend says.
+    tray_shown: mitsuami_reactive::Signal<bool>,
     /// Last focus order sent, per window.
     focus_orders: BTreeMap<NodeId, Vec<NodeId>>,
     /// Whether a tab index, or what a page shown or a surface taking input
@@ -301,6 +309,12 @@ impl Ui {
                 reopen_handlers: BTreeMap::new(),
                 next_reopen_handler: 1,
                 reopen_queue: Default::default(),
+                tray_effect: None,
+                next_tray: 1,
+                tray_handlers: Default::default(),
+                // In a root of its own: it lives as long as the Ui, whatever
+                // scope makes it.
+                tray_shown: mitsuami_reactive::Owner::new_root().with(|| mitsuami_reactive::signal(false)),
                 runs_without_windows: false,
                 quit_requested: false,
                 commit_scheduler: None,

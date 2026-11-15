@@ -23,7 +23,12 @@
 //!
 //! Pointer locks report on a thread of their own ([`LockEvent`]); the
 //! backend sends what they report to its UI thread.
+//!
+//! The tray icon ([`tray`]) is a StatusNotifierItem over GIO's D-Bus,
+//! which both toolkits' loops run.
 
+#[cfg(target_os = "linux")]
+pub mod tray;
 #[cfg(target_os = "linux")]
 pub mod wayland;
 #[cfg(target_os = "linux")]

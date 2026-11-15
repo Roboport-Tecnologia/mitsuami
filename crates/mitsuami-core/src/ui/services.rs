@@ -1,12 +1,13 @@
 //! Platform services on a `Ui`: the clipboard, dialogs, the trash,
-//! launching, notifications, later launches, menus and quitting.
+//! launching, notifications, later launches, menus, the tray icon and
+//! quitting.
 
 use std::rc::Rc;
 
 use crate::command::UiEvent;
 use crate::services::{
     Alert, Launch, MenuBar, MenuBarData, MenuRole, Notification, OpenFile, Reopen, SaveFile, ServiceError, Services,
-    reply_future,
+    TrayData, TrayIcon, reply_future,
 };
 use crate::widget::NodeId;
 
@@ -256,6 +257,100 @@ impl Ui {
             effect.dispose();
             self.services.borrow_mut().set_menu(target, &MenuBarData::default(), self.menu_activate());
         }
+    }
+
+    /// Shows the app's icon in the platform's tray until the current scope
+    /// ends, replacing the one shown before. Its reactive parts (title,
+    /// icon, tooltip, the menu's items) are sent to the platform again
+    /// when they change. Where there's no tray to show it in (plain GNOME,
+    /// or a Linux tray host that isn't running yet), it shows once one
+    /// comes: see [`tray_shown`](Self::tray_shown).
+    pub fn set_tray(&self, tray: TrayIcon) {
+        let scope = mitsuami_reactive::Owner::current();
+        let activate = self.menu_activate();
+        let shown = self.tray_shown_reporter();
+        let weak = self.downgrade();
+        let mut ids = Vec::new();
+        let effect = mitsuami_reactive::effect(move || {
+            let Some(ui) = weak.upgrade() else { return };
+            let mut new_id = || {
+                let mut inner = ui.inner.borrow_mut();
+                inner.next_menu_id += 1;
+                inner.next_menu_id - 1
+            };
+            let (menu, handlers) = tray.menu.collect_entries(&mut ids, &mut new_id);
+            let data = TrayData {
+                title: tray.title.get(),
+                icon: tray.icon.as_ref().map(|icon| icon.get()),
+                tooltip: tray.tooltip.get(),
+                menu,
+            };
+            ui.inner.borrow_mut().tray_handlers = handlers
+                .into_iter()
+                .map(|(id, handler)| {
+                    let handler: Handler0 = Rc::new(move || match scope {
+                        Some(scope) if scope.is_alive() => scope.with(|| handler()),
+                        _ => handler(),
+                    });
+                    (id, handler)
+                })
+                .collect();
+            ui.services.borrow_mut().set_tray(Some(&data), activate.clone(), shown.clone());
+        });
+        let token = {
+            let mut inner = self.inner.borrow_mut();
+            let token = inner.next_tray;
+            inner.next_tray += 1;
+            token
+        };
+        if let Some((_, replaced)) = self.inner.borrow_mut().tray_effect.replace((token, effect)) {
+            replaced.dispose();
+        }
+        let ui = self.downgrade();
+        mitsuami_reactive::on_cleanup(move || {
+            if let Some(ui) = ui.upgrade() {
+                ui.remove_tray(token);
+            }
+        });
+    }
+
+    /// Takes the tray icon away when the scope that installed it ends,
+    /// unless another replaced it since.
+    fn remove_tray(&self, token: u64) {
+        let effect = {
+            let mut inner = self.inner.borrow_mut();
+            if inner.tray_effect.as_ref().is_none_or(|(shown, _)| *shown != token) {
+                return;
+            }
+            inner.tray_handlers.clear();
+            inner.tray_effect.take().map(|(_, effect)| effect)
+        };
+        if let Some(effect) = effect {
+            effect.dispose();
+        }
+        self.services.borrow_mut().set_tray(None, self.menu_activate(), self.tray_shown_reporter());
+    }
+
+    /// Whether the tray icon is showing right now: false before the app
+    /// sets one, where the platform has no tray (plain GNOME), and while a
+    /// Linux tray host is away. An app that hides its window on close only
+    /// when there's a tray to bring it back watches it.
+    pub fn tray_shown(&self) -> mitsuami_reactive::Signal<bool> {
+        self.inner.borrow().tray_shown
+    }
+
+    /// What platforms call when the icon starts or stops showing.
+    fn tray_shown_reporter(&self) -> Rc<dyn Fn(bool)> {
+        let weak = self.downgrade();
+        Rc::new(move |shown| {
+            if let Some(ui) = weak.upgrade() {
+                let signal = ui.inner.borrow().tray_shown;
+                if signal.get_untracked() != shown {
+                    signal.set(shown);
+                }
+                ui.changed();
+            }
+        })
     }
 
     /// Keeps the app running while no window is open, until [`Ui::quit`]:

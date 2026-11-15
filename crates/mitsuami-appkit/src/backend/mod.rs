@@ -526,10 +526,7 @@ impl Backend for AppKitBackend {
         let has_icon = ["CFBundleIconFile", "CFBundleIconName"]
             .iter()
             .any(|key| bundle.objectForInfoDictionaryKey(&ns(key)).is_some());
-        let image = info.icon.as_ref().filter(|_| !has_icon).and_then(|icon| match icon {
-            AppIcon::File(path) => NSImage::initWithContentsOfFile(NSImage::alloc(), &ns(&path.to_string_lossy())),
-            AppIcon::Bytes(bytes) => NSImage::initWithData(NSImage::alloc(), &NSData::with_bytes(bytes)),
-        });
+        let image = info.icon.as_ref().filter(|_| !has_icon).and_then(app_icon_image);
         if let Some(image) = image {
             unsafe { NSApplication::sharedApplication(state.mtm).setApplicationIconImage(Some(&image)) };
         }
@@ -559,5 +556,15 @@ pub(crate) fn opaque(color: &objc2_app_kit::NSColor) -> mitsuami_core::Color {
     match native_state::rgba(color) {
         mitsuami_core::Color::Rgba(r, g, b, _) => mitsuami_core::Color::rgb(r, g, b),
         other => other,
+    }
+}
+
+/// An app icon as an image: a named one shows its image, as macOS has no
+/// icon theme.
+pub(crate) fn app_icon_image(icon: &AppIcon) -> Option<Retained<NSImage>> {
+    match icon {
+        AppIcon::File(path) => NSImage::initWithContentsOfFile(NSImage::alloc(), &ns(&path.to_string_lossy())),
+        AppIcon::Bytes(bytes) => NSImage::initWithData(NSImage::alloc(), &NSData::with_bytes(bytes)),
+        AppIcon::Named { image, .. } => app_icon_image(image.as_ref()?),
     }
 }

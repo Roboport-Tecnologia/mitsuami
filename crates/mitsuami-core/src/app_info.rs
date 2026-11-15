@@ -77,6 +77,13 @@ pub enum AppIcon {
     File(PathBuf),
     /// An image file's bytes, as `include_bytes!` gives them.
     Bytes(Arc<[u8]>),
+    /// An icon from the user's icon theme, by name, as Linux apps give
+    /// theirs (installed with the app); `image` where there's no theme
+    /// (macOS, Windows). See [`AppIcon::named`].
+    Named {
+        name: String,
+        image: Option<Arc<AppIcon>>,
+    },
 }
 
 impl AppIcon {
@@ -88,11 +95,36 @@ impl AppIcon {
         AppIcon::Bytes(bytes.into())
     }
 
-    /// The image's bytes: read from its file, or as given.
+    /// An icon from the icon theme, by name: Linux shows it; macOS and
+    /// Windows show the [`image`](Self::image) given with it, or nothing.
+    pub fn named(name: impl Into<String>) -> AppIcon {
+        AppIcon::Named { name: name.into(), image: None }
+    }
+
+    /// The image a [`named`](Self::named) icon shows where there's no icon
+    /// theme. Other icons are images already, and stay as they are.
+    pub fn image(self, image: AppIcon) -> AppIcon {
+        match self {
+            AppIcon::Named { name, .. } => AppIcon::Named { name, image: Some(Arc::new(image)) },
+            icon => icon,
+        }
+    }
+
+    /// A named icon's name in the theme.
+    pub fn name(&self) -> Option<&str> {
+        match self {
+            AppIcon::Named { name, .. } => Some(name),
+            AppIcon::File(_) | AppIcon::Bytes(_) => None,
+        }
+    }
+
+    /// The image's bytes: read from its file, or as given; a named icon's
+    /// image's, if it has one.
     pub fn read(&self) -> Option<Arc<[u8]>> {
         match self {
             AppIcon::File(path) => std::fs::read(path).ok().map(Into::into),
             AppIcon::Bytes(bytes) => Some(bytes.clone()),
+            AppIcon::Named { image, .. } => image.as_ref()?.read(),
         }
     }
 }
@@ -103,7 +135,23 @@ impl fmt::Debug for AppIcon {
         match self {
             AppIcon::File(path) => f.debug_tuple("File").field(path).finish(),
             AppIcon::Bytes(bytes) => write!(f, "Bytes({} bytes)", bytes.len()),
+            AppIcon::Named { name, image } => {
+                f.debug_struct("Named").field("name", name).field("image", image).finish()
+            }
         }
+    }
+}
+
+impl mitsuami_reactive::IntoValue<AppIcon> for AppIcon {
+    fn into_value(self) -> mitsuami_reactive::Value<AppIcon> {
+        mitsuami_reactive::Value::Static(self)
+    }
+}
+
+/// A name from the icon theme: `.icon("player-symbolic")`.
+impl mitsuami_reactive::IntoValue<AppIcon> for &str {
+    fn into_value(self) -> mitsuami_reactive::Value<AppIcon> {
+        mitsuami_reactive::Value::Static(AppIcon::named(self))
     }
 }
 

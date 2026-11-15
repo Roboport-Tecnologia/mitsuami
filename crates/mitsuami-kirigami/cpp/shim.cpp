@@ -1870,3 +1870,8 @@ int32_t mq_claim_instance(const char* id_utf8, const char* token, const char* co
     }
     return MQ_INSTANCE_HANDED_OVER;
 }
+
+int32_t mq_loop_runs_glib(void) {
+    QAbstractEventDispatcher* dispatcher = QAbstractEventDispatcher::instance();
+    return dispatcher && dispatcher->inherits("QEventDispatcherGlib");
+}
