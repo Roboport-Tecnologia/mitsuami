@@ -1841,8 +1841,8 @@ void ApplicationAdaptor::ActivateAction(const QString&, const QVariantList&, con
     reopened({}, platform_data);
 }
 
-int32_t mq_claim_instance(const char* id_utf8, const char* token, const char* const* args, int32_t nargs,
-                          const char* cwd, char** error) {
+int32_t mq_claim_instance(const char* id_utf8, const char* token, const char* startup_id,
+                          const char* const* args, int32_t nargs, const char* cwd, char** error) {
     QDBusConnection bus = QDBusConnection::sessionBus();
     if (!bus.isConnected()) {
         *error = dup(bus.lastError().message());
@@ -1852,6 +1852,8 @@ int32_t mq_claim_instance(const char* id_utf8, const char* token, const char* co
     const QString path = application_path(id);
     QVariantMap data;
     if (token) data.insert(QStringLiteral("activation-token"), QString::fromUtf8(token));
+    // As GTK sends it: a GTK primary on X11 brings its window up with it.
+    if (startup_id) data.insert(QStringLiteral("desktop-startup-id"), QString::fromUtf8(startup_id));
     QStringList list;
     for (int32_t i = 0; i < nargs; ++i) list.append(QString::fromUtf8(args[i]));
     data.insert(kArgs, list);

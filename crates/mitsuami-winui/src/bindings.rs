@@ -3368,6 +3368,7 @@ unsafe impl Send for DropDownButton {}
 unsafe impl Sync for DropDownButton {}
 pub const ERROR_CANCELLED: i32 = 1223;
 pub const ERROR_NO_ASSOCIATION: i32 = 1155;
+pub const ERROR_TIMEOUT: i32 = 1460;
 pub const E_FAIL: windows_core::HRESULT = windows_core::HRESULT(0x80004005_u32 as _);
 #[repr(transparent)]
 #[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]

@@ -28,7 +28,8 @@ use std::time::Duration;
 use dispatch2::DispatchQueue;
 use mitsuami_core::services::Reopen;
 use objc2::MainThreadMarker;
-use objc2_app_kit::NSApplication;
+use objc2::rc::Retained;
+use objc2_app_kit::{NSApplication, NSWindow};
 
 /// Where later launches go: the app's `Ui::reopen`.
 type Reopened = Rc<dyn Fn(Reopen)>;
@@ -234,16 +235,19 @@ fn receive(mut stream: UnixStream) {
 }
 
 /// What a Dock click does, which Launch Services' reopen gets from AppKit:
-/// the app active, and the window the user last used in front, restored if
-/// it's minimized.
+/// the app active, with the window the user last used in front (front to
+/// back: `mainWindow` is nil while the app is inactive, and `windows` is
+/// in creation order), and a minimized one restored only when none shows.
 fn bring_forward(mtm: MainThreadMarker) {
     let app = NSApplication::sharedApplication(mtm);
     app.activate();
-    let window = app.mainWindow().or_else(|| {
-        app.windows()
-            .iter()
-            .find(|window| window.canBecomeMainWindow() && (window.isVisible() || window.isMiniaturized()))
-    });
+    let main = |window: &Retained<NSWindow>| window.canBecomeMainWindow();
+    // `orderedWindows` may leave out minimized ones, which `windows` has.
+    let window = app
+        .orderedWindows()
+        .iter()
+        .find(|window| main(window) && window.isVisible())
+        .or_else(|| app.windows().iter().find(|window| main(window) && window.isMiniaturized()));
     if let Some(window) = window {
         if window.isMiniaturized() {
             window.deminiaturize(None);

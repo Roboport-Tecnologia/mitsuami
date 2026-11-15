@@ -119,6 +119,7 @@ unsafe extern "C" {
     fn mq_claim_instance(
         id: *const c_char,
         token: *const c_char,
+        startup_id: *const c_char,
         args: *const *const c_char,
         nargs: i32,
         cwd: *const c_char,
@@ -608,9 +609,16 @@ pub(crate) enum Instance {
 /// Owns the app id on the session bus, exporting
 /// `org.freedesktop.Application`, or hands this launch to the process
 /// that owns it.
-pub(crate) fn claim_instance(id: &str, token: Option<&str>, args: &[String], cwd: Option<&str>) -> Instance {
+pub(crate) fn claim_instance(
+    id: &str,
+    token: Option<&str>,
+    startup_id: Option<&str>,
+    args: &[String],
+    cwd: Option<&str>,
+) -> Instance {
     let id = c(id);
     let token = token.map(c);
+    let startup_id = startup_id.map(c);
     let cwd = cwd.map(c);
     let args: Vec<CString> = args.iter().map(|arg| c(arg)).collect();
     let pointers: Vec<*const c_char> = args.iter().map(|arg| arg.as_ptr()).collect();
@@ -619,6 +627,7 @@ pub(crate) fn claim_instance(id: &str, token: Option<&str>, args: &[String], cwd
         mq_claim_instance(
             id.as_ptr(),
             token.as_ref().map_or(std::ptr::null(), |t| t.as_ptr()),
+            startup_id.as_ref().map_or(std::ptr::null(), |t| t.as_ptr()),
             pointers.as_ptr(),
             pointers.len() as i32,
             cwd.as_ref().map_or(std::ptr::null(), |c| c.as_ptr()),

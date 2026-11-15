@@ -328,11 +328,11 @@ enum {
     MQ_INSTANCE_FAILED = 3,       // another has it, and didn't answer
 };
 // Owns `id` on the session bus with org.freedesktop.Application exported,
-// or hands the launch (`token`, `args`, `cwd`; null for none) to the
-// process that owns it. `error` gets why for the last two (free with
-// mq_free).
-int32_t mq_claim_instance(const char* id, const char* token, const char* const* args, int32_t nargs,
-                          const char* cwd, char** error);
+// or hands the launch (`token`, X11's `startup_id`, `args`, `cwd`; null
+// for none) to the process that owns it. `error` gets why for the last two
+// (free with mq_free).
+int32_t mq_claim_instance(const char* id, const char* token, const char* startup_id, const char* const* args,
+                          int32_t nargs, const char* cwd, char** error);
 
 // Languages and formats: the system locale's (KDE's region settings), or
 // the locale named, if any. The user's languages, "a\nb" (free with

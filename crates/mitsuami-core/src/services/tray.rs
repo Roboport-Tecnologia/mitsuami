@@ -59,7 +59,9 @@ impl TrayIcon {
     /// wants its own: a monochrome template image on macOS (AppKit tints
     /// it), an icon name from the theme on Linux ([`AppIcon::named`], a
     /// `-symbolic` one where the theme has it), an `.ico` with the small
-    /// sizes on Windows. Without, the app's icon.
+    /// sizes on Windows. Without, the app's icon. An image is read when
+    /// the icon changes: to show other pixels, give other bytes or another
+    /// path.
     pub fn icon(mut self, icon: impl IntoValue<AppIcon>) -> TrayIcon {
         self.icon = Some(icon.into_value());
         self

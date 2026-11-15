@@ -258,6 +258,22 @@ impl Drop for Tray {
     }
 }
 
+/// A connection of the item's own to the session bus. Taking the item
+/// away closes it, so its unique name goes and every watcher drops the
+/// item: one registered by its unique name (below) would otherwise stay
+/// with hosts, as the app's shared connection lives as long as it does.
+fn private_bus() -> Result<gio::DBusConnection, glib::Error> {
+    let address = gio::dbus_address_get_for_bus_sync(gio::BusType::Session, None::<&gio::Cancellable>)?;
+    let bus = gio::DBusConnection::for_address_sync(
+        &address,
+        gio::DBusConnectionFlags::AUTHENTICATION_CLIENT | gio::DBusConnectionFlags::MESSAGE_BUS_CONNECTION,
+        None,
+        None::<&gio::Cancellable>,
+    )?;
+    bus.set_exit_on_close(false);
+    Ok(bus)
+}
+
 impl Exported {
     fn remove(self) {
         for registration in self.registrations {
@@ -270,6 +286,7 @@ impl Exported {
             gio::bus_unown_name(owner);
         }
         drop(self.hosts);
+        self.bus.close(None::<&gio::Cancellable>, |_| {});
     }
 }
 
@@ -289,7 +306,7 @@ fn report(state: &Rc<RefCell<State>>, showing: bool) {
 }
 
 fn export(state: &Rc<RefCell<State>>) {
-    let bus = match gio::bus_get_sync(gio::BusType::Session, None::<&gio::Cancellable>) {
+    let bus = match private_bus() {
         Ok(bus) => bus,
         Err(_) => {
             state.borrow_mut().export_failed = true;

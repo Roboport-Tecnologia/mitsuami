@@ -58,6 +58,8 @@ pub fn run(info: AppInfo, setup: impl FnOnce(&Ui)) {
 pub fn run_with(info: AppInfo, options: RunOptions, setup: impl FnOnce(&Ui)) {
     // Before Qt starts: its Wayland plugin takes the token from there.
     let token = std::env::var("XDG_ACTIVATION_TOKEN").ok().filter(|token| !token.is_empty());
+    // X11's, which Qt's xcb plugin takes from the environment as it starts.
+    let startup_id = std::env::var("DESKTOP_STARTUP_ID").ok().filter(|id| !id.is_empty());
     init();
     if options.single_instance
         && let Some(id) = &info.id
@@ -66,7 +68,7 @@ pub fn run_with(info: AppInfo, options: RunOptions, setup: impl FnOnce(&Ui)) {
         // name in another encoding.
         let args: Vec<String> = std::env::args_os().skip(1).map(|arg| arg.to_string_lossy().into_owned()).collect();
         let cwd = std::env::current_dir().ok().map(|cwd| cwd.to_string_lossy().into_owned());
-        match ffi::claim_instance(id, token.as_deref(), &args, cwd.as_deref()) {
+        match ffi::claim_instance(id, token.as_deref(), startup_id.as_deref(), &args, cwd.as_deref()) {
             ffi::Instance::Primary => {}
             ffi::Instance::HandedOver => return,
             ffi::Instance::Unclaimed(why) => {

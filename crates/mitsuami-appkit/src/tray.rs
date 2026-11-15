@@ -105,14 +105,18 @@ impl Tray {
 }
 
 /// The status item's image, sized to the menu bar: the app's icon, in
-/// colour, when it gives none.
+/// colour, when it gives none, or none macOS can show (a theme name alone,
+/// a file that won't load), rather than an empty slot in the menu bar.
 fn status_image(mtm: MainThreadMarker, icon: Option<&AppIcon>) -> Option<Retained<NSImage>> {
-    let image = match icon {
-        Some(icon) => app_icon_image(icon).inspect(|image| image.setTemplate(true)),
+    let image = match icon.and_then(app_icon_image) {
+        Some(image) => {
+            image.setTemplate(true);
+            image
+        }
         // A copy: the app's icon is one shared image, and resizing it
         // would shrink it everywhere else it's drawn (alerts, About).
-        None => Some(NSApplication::sharedApplication(mtm).applicationIconImage()?.copy()),
-    }?;
+        None => NSApplication::sharedApplication(mtm).applicationIconImage()?.copy(),
+    };
     let size = image.size();
     let width = if size.height > 0.0 { size.width * IMAGE_HEIGHT / size.height } else { IMAGE_HEIGHT };
     image.setSize(NSSize::new(width, IMAGE_HEIGHT));

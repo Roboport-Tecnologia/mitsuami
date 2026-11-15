@@ -730,6 +730,7 @@ Windows.Win32.MSGFLT_ALLOW
 Windows.Win32.SetTimer
 Windows.Win32.KillTimer
 Windows.Win32.WM_TIMER
+Windows.Win32.ERROR_TIMEOUT
 Windows.Win32.CreatePopupMenu
 Windows.Win32.DestroyMenu
 Windows.Win32.InsertMenuItemW

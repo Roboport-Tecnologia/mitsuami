@@ -42,12 +42,13 @@ type Shown = Rc<dyn Fn(bool)>;
 
 thread_local! {
     static STATE: RefCell<Option<State>> = const { RefCell::new(None) };
+    /// `TaskbarCreated`, which Explorer sends when it starts again: out of
+    /// `STATE`, so it's recognized while the state is borrowed.
+    static TASKBAR_CREATED: std::cell::Cell<u32> = const { std::cell::Cell::new(0) };
 }
 
 struct State {
     window: w::HWND,
-    /// `TaskbarCreated`, which Explorer sends when it starts again.
-    taskbar_created: u32,
     data: TrayData,
     /// `AppInfo::icon`, for a tray icon that gives none.
     app_icon: Option<AppIcon>,
@@ -83,6 +84,7 @@ pub(crate) fn set(tray: Option<&TrayData>, info: &mitsuami_core::AppInfo, activa
     if !exists {
         let Some(window) = message_window() else { return shown(false) };
         let taskbar_created = unsafe { w::RegisterWindowMessageW(windows_core::w!("TaskbarCreated")) };
+        TASKBAR_CREATED.set(taskbar_created);
         // An elevated app gets Explorer's broadcast only when it lets it
         // through: its integrity level is higher than Explorer's.
         unsafe {
@@ -91,7 +93,6 @@ pub(crate) fn set(tray: Option<&TrayData>, info: &mitsuami_core::AppInfo, activa
         let exe = || std::env::current_exe().map(|exe| exe.display().to_string()).unwrap_or_default();
         let state = State {
             window,
-            taskbar_created,
             data: tray.clone(),
             app_icon: None,
             guid: guid(&info.id.clone().unwrap_or_else(exe)),
@@ -114,15 +115,16 @@ pub(crate) fn set(tray: Option<&TrayData>, info: &mitsuami_core::AppInfo, activa
         state.app_icon = info.icon.clone();
         state.activate = activate;
         state.shown = shown.clone();
-        state.update();
+        state.update(false);
         state.added
     });
     shown(added);
 }
 
 impl State {
-    /// Adds the icon, or sends what changed.
-    fn update(&mut self) {
+    /// Adds the icon, or sends what changed. `retry` is the timer's, which
+    /// tries again to add an icon Explorer didn't take.
+    fn update(&mut self, retry: bool) {
         let source = (self.data.icon.clone().or_else(|| self.app_icon.clone()), self.dark);
         let mut old = None;
         if self.loaded.as_ref() != Some(&source) {
@@ -130,30 +132,33 @@ impl State {
             old = Some((std::mem::replace(&mut self.icon, icon), std::mem::replace(&mut self.owned, owned)));
             self.loaded = Some(source);
         }
-        let mut data = self.notify_data();
         if self.added {
-            unsafe { _ = w::Shell_NotifyIconW(w::NIM_MODIFY as u32, &data) };
-        } else {
-            if self.tried {
-                self.added = unsafe { w::Shell_NotifyIconW(w::NIM_MODIFY as u32, &data) }.as_bool();
+            let data = self.notify_data();
+            if !unsafe { w::Shell_NotifyIconW(w::NIM_MODIFY as u32, &data) }.as_bool() {
+                // Explorer lost it (restarted, its `TaskbarCreated` missed)
+                // or timed out: the timer adds it again, modifying first.
+                self.added = false;
+                self.tried = true;
+                unsafe { w::SetTimer(self.window, RETRY, RETRY_MS, None) };
             }
-            if !self.added {
-                self.added = unsafe { w::Shell_NotifyIconW(w::NIM_ADD as u32, &data) }.as_bool();
-            }
-            self.tried = true;
-            if !self.added && self.with_guid {
-                // The GUID may belong to this app at another path. If the
-                // icon can't be added without it either, the notification
-                // area isn't there yet or is busy (a launch at login): the
-                // timer below tries again, with the GUID.
+        } else if !self.tried || retry {
+            // Each try may block on a busy Explorer, so once one has failed
+            // only the timer tries again; changes meanwhile are kept.
+            let mut timed_out = false;
+            self.added = self.try_add(&mut timed_out);
+            if !self.added && self.with_guid && !timed_out {
+                // The GUID belongs to this app at another path: the icon
+                // goes by its id. A timeout says nothing about the GUID
+                // (and the add may still land), so it's left to the timer.
                 self.with_guid = false;
-                data = self.notify_data();
-                self.added = unsafe { w::Shell_NotifyIconW(w::NIM_ADD as u32, &data) }.as_bool();
+                self.added = self.try_add(&mut timed_out);
                 if !self.added {
                     self.with_guid = true;
                 }
             }
+            self.tried = true;
             if self.added {
+                let mut data = self.notify_data();
                 data.Anonymous.uVersion = w::NOTIFYICON_VERSION_4 as u32;
                 unsafe { _ = w::Shell_NotifyIconW(w::NIM_SETVERSION as u32, &data) };
             }
@@ -173,6 +178,19 @@ impl State {
         {
             unsafe { _ = w::DestroyIcon(old) };
         }
+    }
+
+    /// Adds the icon by its GUID or id, as `with_guid` says. An add that
+    /// failed earlier may have gone through late (it timed out), so after
+    /// one it's modified first: adding again would show it twice.
+    fn try_add(&self, timed_out: &mut bool) -> bool {
+        let data = self.notify_data();
+        if self.tried && unsafe { w::Shell_NotifyIconW(w::NIM_MODIFY as u32, &data) }.as_bool() {
+            return true;
+        }
+        let added = unsafe { w::Shell_NotifyIconW(w::NIM_ADD as u32, &data) }.as_bool();
+        *timed_out = !added && unsafe { w::GetLastError() } == w::ERROR_TIMEOUT as u32;
+        added
     }
 
     fn notify_data(&self) -> w::NOTIFYICONDATAW {
@@ -376,8 +394,7 @@ unsafe extern "system" fn window_proc(hwnd: w::HWND, message: u32, wparam: w::WP
     // and messages sent in the meantime (a theme change's broadcasts) come
     // here: a panic here would end the process, so those are posted again,
     // to be handled once the borrow is over.
-    let restarted = message == RESTARTED
-        || STATE.with(|s| s.try_borrow().is_ok_and(|s| s.as_ref().is_some_and(|st| message == st.taskbar_created)));
+    let restarted = message == RESTARTED || (message != 0 && message == TASKBAR_CREATED.get());
     if restarted || (message == w::WM_TIMER as u32 && wparam == RETRY) {
         let reported = STATE.with(|s| {
             let Ok(mut s) = s.try_borrow_mut() else {
@@ -393,7 +410,7 @@ unsafe extern "system" fn window_proc(hwnd: w::HWND, message: u32, wparam: w::WP
             } else if state.added {
                 return None;
             }
-            state.update();
+            state.update(true);
             Some((state.added, state.shown.clone()))
         });
         if let Some((added, shown)) = reported {
@@ -411,7 +428,7 @@ unsafe extern "system" fn window_proc(hwnd: w::HWND, message: u32, wparam: w::WP
                     && state.dark != dark
                 {
                     state.dark = dark;
-                    state.update();
+                    state.update(false);
                 }
             }
             Err(_) => unsafe { _ = w::PostMessageW(hwnd, THEME_CHANGED, 0, 0) },
