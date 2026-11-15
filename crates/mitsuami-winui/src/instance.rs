@@ -133,21 +133,19 @@ fn read(args: &w::AppActivationArguments) -> (Vec<String>, Vec<PathBuf>) {
 }
 
 /// Splits a command line as the C runtime does (`CommandLineToArgvW`),
-/// without the program when it starts with one.
+/// without the program. A line of arguments alone gets a stand-in program
+/// first: the first token is parsed by the program's rules (no escapes,
+/// ended by the first space outside quotes), and an empty line gives the
+/// executable's path.
 fn split(line: &str, program: bool) -> Vec<String> {
-    if !program && line.trim().is_empty() {
-        // `CommandLineToArgvW` gives the executable's path for an empty line.
-        return Vec::new();
-    }
+    let line = if program { line.to_owned() } else { format!("x {line}") };
     let wide = HSTRING::from(line);
     let mut count = 0;
     let argv = unsafe { w::CommandLineToArgvW(PCWSTR(wide.as_ptr()), &mut count) };
     if argv.is_null() {
         return Vec::new();
     }
-    let args = (usize::from(program)..count.max(0) as usize)
-        .map(|i| unsafe { (*argv.add(i)).to_string() }.unwrap_or_default())
-        .collect();
+    let args = (1..count.max(0) as usize).map(|i| unsafe { (*argv.add(i)).to_string() }.unwrap_or_default()).collect();
     unsafe { _ = w::LocalFree(argv as w::HLOCAL) };
     args
 }

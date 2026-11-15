@@ -187,6 +187,9 @@ struct Inner {
     tray_handlers: std::collections::HashMap<u32, Handler0>,
     /// Whether the tray icon is showing, as the backend says.
     tray_shown: mitsuami_reactive::Signal<bool>,
+    /// Bumped by `set_app_info`: the tray shows the app's icon when it
+    /// gives none, so it's sent again.
+    app_info_changes: mitsuami_reactive::Signal<u64>,
     /// Last focus order sent, per window.
     focus_orders: BTreeMap<NodeId, Vec<NodeId>>,
     /// Whether a tab index, or what a page shown or a surface taking input
@@ -318,6 +321,7 @@ impl Ui {
                 // In a root of its own: it lives as long as the Ui, whatever
                 // scope makes it.
                 tray_shown: mitsuami_reactive::Owner::new_root().with(|| mitsuami_reactive::signal(false)),
+                app_info_changes: mitsuami_reactive::Owner::new_root().with(|| mitsuami_reactive::signal(0)),
                 runs_without_windows: false,
                 quit_requested: false,
                 commit_scheduler: None,
@@ -396,7 +400,12 @@ impl Ui {
     /// The app's id, name and icon, for the platform to show. Set it
     /// before the app's first window; `App` does.
     pub fn set_app_info(&self, info: AppInfo) {
-        self.inner.borrow_mut().backend.set_app_info(&info);
+        let changes = {
+            let mut inner = self.inner.borrow_mut();
+            inner.backend.set_app_info(&info);
+            inner.app_info_changes
+        };
+        changes.update(|n| *n += 1);
     }
 
     /// Tasks that have not finished yet.

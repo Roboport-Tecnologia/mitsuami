@@ -26,6 +26,15 @@ const PERSONALIZE: &str = r"Software\Microsoft\Windows\CurrentVersion\Themes\Per
 
 /// The message the icon's callbacks come as.
 const CALLBACK: u32 = w::WM_APP as u32 + 1;
+/// A `TaskbarCreated` that came while the state was borrowed, posted to
+/// be handled from the queue.
+const RESTARTED: u32 = w::WM_APP as u32 + 2;
+/// The same for a theme change (its `WM_SETTINGCHANGE` string doesn't
+/// outlive the send).
+const THEME_CHANGED: u32 = w::WM_APP as u32 + 3;
+/// The timer that tries again to add an icon Explorer didn't take.
+const RETRY: usize = 1;
+const RETRY_MS: u32 = 5_000;
 const CLASS: PCWSTR = windows_core::w!("MitsuamiTray");
 
 type Activate = Rc<dyn Fn(u32)>;
@@ -54,6 +63,9 @@ struct State {
     /// Whether the taskbar is dark, as the icon is loaded for.
     dark: bool,
     added: bool,
+    /// Whether an add was tried since Explorer last started: one that
+    /// timed out may have gone through, so a retry modifies first.
+    tried: bool,
     activate: Activate,
     shown: Shown,
 }
@@ -89,6 +101,7 @@ pub(crate) fn set(tray: Option<&TrayData>, info: &mitsuami_core::AppInfo, activa
             loaded: None,
             dark: taskbar_dark(),
             added: false,
+            tried: false,
             activate: activate.clone(),
             shown: shown.clone(),
         };
@@ -121,12 +134,18 @@ impl State {
         if self.added {
             unsafe { _ = w::Shell_NotifyIconW(w::NIM_MODIFY as u32, &data) };
         } else {
-            self.added = unsafe { w::Shell_NotifyIconW(w::NIM_ADD as u32, &data) }.as_bool();
+            if self.tried {
+                self.added = unsafe { w::Shell_NotifyIconW(w::NIM_MODIFY as u32, &data) }.as_bool();
+            }
+            if !self.added {
+                self.added = unsafe { w::Shell_NotifyIconW(w::NIM_ADD as u32, &data) }.as_bool();
+            }
+            self.tried = true;
             if !self.added && self.with_guid {
                 // The GUID may belong to this app at another path. If the
                 // icon can't be added without it either, the notification
-                // area isn't there yet (a launch at login): `TaskbarCreated`
-                // comes once it is, and the GUID is tried again.
+                // area isn't there yet or is busy (a launch at login): the
+                // timer below tries again, with the GUID.
                 self.with_guid = false;
                 data = self.notify_data();
                 self.added = unsafe { w::Shell_NotifyIconW(w::NIM_ADD as u32, &data) }.as_bool();
@@ -137,6 +156,16 @@ impl State {
             if self.added {
                 data.Anonymous.uVersion = w::NOTIFYICON_VERSION_4 as u32;
                 unsafe { _ = w::Shell_NotifyIconW(w::NIM_SETVERSION as u32, &data) };
+            }
+            // At login Explorer may be up but too busy to answer, with its
+            // `TaskbarCreated` sent before this window was made: without a
+            // retry the icon would never show that session.
+            unsafe {
+                if self.added {
+                    _ = w::KillTimer(self.window, RETRY);
+                } else {
+                    w::SetTimer(self.window, RETRY, RETRY_MS, None);
+                }
             }
         }
         if let Some((old, true)) = old
@@ -345,14 +374,25 @@ unsafe extern "system" fn window_proc(hwnd: w::HWND, message: u32, wparam: w::WP
     }
     // The state is borrowed while `Shell_NotifyIconW` waits on Explorer,
     // and messages sent in the meantime (a theme change's broadcasts) come
-    // here: they're let by, as a panic here would end the process.
-    let restarted =
-        STATE.with(|s| s.try_borrow().is_ok_and(|s| s.as_ref().is_some_and(|state| message == state.taskbar_created)));
-    if restarted {
+    // here: a panic here would end the process, so those are posted again,
+    // to be handled once the borrow is over.
+    let restarted = message == RESTARTED
+        || STATE.with(|s| s.try_borrow().is_ok_and(|s| s.as_ref().is_some_and(|st| message == st.taskbar_created)));
+    if restarted || (message == w::WM_TIMER as u32 && wparam == RETRY) {
         let reported = STATE.with(|s| {
-            let mut s = s.try_borrow_mut().ok()?;
+            let Ok(mut s) = s.try_borrow_mut() else {
+                if restarted {
+                    unsafe { _ = w::PostMessageW(hwnd, RESTARTED, 0, 0) };
+                }
+                return None;
+            };
             let state = s.as_mut()?;
-            state.added = false;
+            if restarted {
+                state.added = false;
+                state.tried = false;
+            } else if state.added {
+                return None;
+            }
             state.update();
             Some((state.added, state.shown.clone()))
         });
@@ -361,18 +401,24 @@ unsafe extern "system" fn window_proc(hwnd: w::HWND, message: u32, wparam: w::WP
         }
         return 0;
     }
-    if message == w::WM_SETTINGCHANGE as u32 && setting_is(lparam, "ImmersiveColorSet") {
+    let theme = message == THEME_CHANGED;
+    if theme || message == w::WM_SETTINGCHANGE as u32 && setting_is(lparam, "ImmersiveColorSet") {
         // The theme changed; the taskbar's may have.
         let dark = taskbar_dark();
-        STATE.with(|s| {
-            if let Ok(mut s) = s.try_borrow_mut()
-                && let Some(state) = s.as_mut()
-                && state.dark != dark
-            {
-                state.dark = dark;
-                state.update();
+        STATE.with(|s| match s.try_borrow_mut() {
+            Ok(mut s) => {
+                if let Some(state) = s.as_mut()
+                    && state.dark != dark
+                {
+                    state.dark = dark;
+                    state.update();
+                }
             }
+            Err(_) => unsafe { _ = w::PostMessageW(hwnd, THEME_CHANGED, 0, 0) },
         });
+        if theme {
+            return 0;
+        }
     }
     unsafe { w::DefWindowProcW(hwnd, message, wparam, lparam) }
 }

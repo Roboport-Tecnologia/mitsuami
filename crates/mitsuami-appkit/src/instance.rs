@@ -6,9 +6,12 @@
 //! from a terminal, or `cargo run` outside a bundle) gets past it, so a
 //! single-instance app also listens on a Unix socket named after its id,
 //! as other platforms' apps do without a bus, and a later launch hands its
-//! folder and arguments over it. The socket is in the user's own temporary
-//! folder (`confstr(_CS_DARWIN_USER_TEMP_DIR)`, mode 0700), not `$TMPDIR`,
-//! which may be unset (ssh, `env -i`) and fall back to the shared `/tmp`.
+//! folder and arguments over it. The socket is in the user's own folder
+//! (`confstr(_CS_DARWIN_USER_DIR)`, which only they can write to), not
+//! `$TMPDIR`, which may be
+//! unset (ssh, `env -i`) and fall back to the shared `/tmp`, and whose
+//! files `dirhelper` removes after three days, under an app that runs for
+//! longer.
 
 use std::cell::RefCell;
 use std::ffi::{CStr, OsStr};
@@ -46,7 +49,7 @@ const MAX_MESSAGE: u64 = 2 << 20;
 /// to the running one. Returns whether this process should go on and run
 /// the app.
 pub(crate) fn claim(id: &str) -> bool {
-    let Some(dir) = user_temp_dir() else {
+    let Some(dir) = user_dir() else {
         eprintln!("mitsuami: {id} runs as its own instance, since it has no private folder to look for others in");
         return true;
     };
@@ -76,7 +79,11 @@ pub(crate) fn claim(id: &str) -> bool {
             // Nobody listens: a socket left by a process that ended goes.
             let _ = std::fs::remove_file(&path);
             match UnixListener::bind(&path) {
-                Ok(listener) => listen(listener),
+                Ok(listener) => {
+                    // Only the user may connect; others can see the folder.
+                    _ = std::fs::set_permissions(&path, std::os::unix::fs::PermissionsExt::from_mode(0o600));
+                    listen(listener);
+                }
                 Err(error) => {
                     eprintln!("mitsuami: {id} runs as its own instance, since it can't listen for others: {error}")
                 }
@@ -86,12 +93,12 @@ pub(crate) fn claim(id: &str) -> bool {
     }
 }
 
-/// The user's private temporary folder, checked to be theirs alone.
-fn user_temp_dir() -> Option<PathBuf> {
+/// The user's private folder, checked to be theirs alone.
+fn user_dir() -> Option<PathBuf> {
     let mut buffer = [0u8; 1024];
     // SAFETY: the buffer is as long as we say; confstr NUL-terminates
     // what it writes and returns the length it needed, 0 on failure.
-    let needed = unsafe { libc::confstr(libc::_CS_DARWIN_USER_TEMP_DIR, buffer.as_mut_ptr().cast(), buffer.len()) };
+    let needed = unsafe { libc::confstr(libc::_CS_DARWIN_USER_DIR, buffer.as_mut_ptr().cast(), buffer.len()) };
     if needed == 0 || needed > buffer.len() {
         return None;
     }
@@ -166,11 +173,22 @@ fn hand_over(mut stream: UnixStream) -> std::io::Result<()> {
 fn listen(listener: UnixListener) {
     std::thread::spawn(move || {
         for stream in listener.incoming() {
-            let Ok(stream) = stream else { continue };
+            let stream = match stream {
+                Ok(stream) => stream,
+                // Out of descriptors, say: accepting again at once would
+                // spin while the connection waits.
+                Err(_) => {
+                    std::thread::sleep(Duration::from_millis(100));
+                    continue;
+                }
+            };
             if !same_user(&stream) {
                 continue;
             }
-            std::thread::spawn(move || receive(stream));
+            // A thread that can't be made drops the connection, rather than
+            // ending the listener, after which a launch would run as a
+            // second instance.
+            _ = std::thread::Builder::new().spawn(move || receive(stream));
         }
     });
 }
@@ -209,10 +227,29 @@ fn receive(mut stream: UnixStream) {
     DispatchQueue::main().exec_async(move || {
         let cwd = (!cwd.is_empty()).then(|| PathBuf::from(cwd));
         if let Some(mtm) = MainThreadMarker::new() {
-            NSApplication::sharedApplication(mtm).activate();
+            bring_forward(mtm);
         }
         reopened(Reopen::new(fields, cwd, Vec::new()));
     });
+}
+
+/// What a Dock click does, which Launch Services' reopen gets from AppKit:
+/// the app active, and the window the user last used in front, restored if
+/// it's minimized.
+fn bring_forward(mtm: MainThreadMarker) {
+    let app = NSApplication::sharedApplication(mtm);
+    app.activate();
+    let window = app.mainWindow().or_else(|| {
+        app.windows()
+            .iter()
+            .find(|window| window.canBecomeMainWindow() && (window.isVisible() || window.isMiniaturized()))
+    });
+    if let Some(window) = window {
+        if window.isMiniaturized() {
+            window.deminiaturize(None);
+        }
+        window.makeKeyAndOrderFront(None);
+    }
 }
 
 /// Where later launches go, set by `run` before the app's setup.

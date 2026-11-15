@@ -80,7 +80,9 @@ impl Tray {
             item
         });
         if let Some(button) = item.button(self.mtm) {
-            if self.image.as_ref().is_none_or(|(icon, _)| *icon != tray.icon) {
+            // Without an icon of its own it shows the app's, which the app
+            // may have changed: copying that one decodes nothing.
+            if tray.icon.is_none() || self.image.as_ref().is_none_or(|(icon, _)| *icon != tray.icon) {
                 let image = status_image(self.mtm, tray.icon.as_ref());
                 button.setImage(image.as_deref());
                 self.image = Some((tray.icon.clone(), image));

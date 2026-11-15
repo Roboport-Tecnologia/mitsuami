@@ -73,6 +73,7 @@ windows_core::link!("user32.dll" "system" fn InsertMenuItemW(hmenu : HMENU, item
 windows_core::link!("user32.dll" "system" fn IsIconic(hwnd : HWND) -> windows_core::BOOL);
 windows_core::link!("user32.dll" "system" fn IsWindowEnabled(hwnd : HWND) -> windows_core::BOOL);
 windows_core::link!("user32.dll" "system" fn IsWindowVisible(hwnd : HWND) -> windows_core::BOOL);
+windows_core::link!("user32.dll" "system" fn KillTimer(hwnd : HWND, uidevent : usize) -> windows_core::BOOL);
 windows_core::link!("user32.dll" "system" fn LoadCursorW(hinstance : HINSTANCE, lpcursorname : windows_core::PCWSTR) -> HCURSOR);
 windows_core::link!("user32.dll" "system" fn LoadIconW(hinstance : HINSTANCE, lpiconname : windows_core::PCWSTR) -> HICON);
 windows_core::link!("user32.dll" "system" fn LoadImageW(hinst : HINSTANCE, name : windows_core::PCWSTR, r#type : u32, cx : i32, cy : i32, fuload : u32) -> HANDLE);
@@ -105,6 +106,7 @@ windows_core::link!("user32.dll" "system" fn SetForegroundWindow(hwnd : HWND) ->
 windows_core::link!("user32.dll" "system" fn SetLayeredWindowAttributes(hwnd : HWND, crkey : COLORREF, balpha : u8, dwflags : u32) -> windows_core::BOOL);
 windows_core::link!("user32.dll" "system" fn SetParent(hwndchild : HWND, hwndnewparent : HWND) -> HWND);
 windows_core::link!("user32.dll" "system" fn SetProcessDpiAwarenessContext(value : DPI_AWARENESS_CONTEXT) -> windows_core::BOOL);
+windows_core::link!("user32.dll" "system" fn SetTimer(hwnd : HWND, nidevent : usize, uelapse : u32, lptimerfunc : TIMERPROC) -> usize);
 #[cfg(any(target_arch = "aarch64", target_arch = "arm64ec", target_arch = "x86_64"))]
 windows_core::link!("user32.dll" "system" fn SetWindowLongPtrW(hwnd : HWND, nindex : i32, dwnewlong : isize) -> isize);
 #[cfg(target_pointer_width = "32")]
@@ -24776,6 +24778,7 @@ impl windows_core::RuntimeName for SystemBackdrop {
 }
 unsafe impl Send for SystemBackdrop {}
 unsafe impl Sync for SystemBackdrop {}
+pub type TIMERPROC = Option<unsafe extern "system" fn(param0: HWND, param1: u32, param2: usize, param3: u32)>;
 pub const TIME_NOSECONDS: i32 = 2;
 #[repr(C)]
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -26885,6 +26888,7 @@ pub const WM_RBUTTONUP: i32 = 517;
 pub const WM_SETCURSOR: i32 = 32;
 pub const WM_SETTINGCHANGE: i32 = 26;
 pub const WM_SYSKEYDOWN: i32 = 260;
+pub const WM_TIMER: i32 = 275;
 pub const WM_XBUTTONDOWN: i32 = 523;
 pub const WM_XBUTTONUP: i32 = 524;
 #[repr(C)]

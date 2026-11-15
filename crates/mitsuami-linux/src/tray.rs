@@ -138,7 +138,8 @@ struct State {
     showing: bool,
     exported: Option<Exported>,
     /// Whether putting the item on the bus failed (no session bus): it's
-    /// tried again when the app sets an icon anew, not on each change.
+    /// tried again once the icon is taken away and set again, not on each
+    /// change.
     export_failed: bool,
     /// The icon as a pixmap, made when it changes: hosts read every
     /// property again after each signal, a tooltip's too.
@@ -342,7 +343,11 @@ fn export(state: &Rc<RefCell<State>>) {
         hosts: Vec::new(),
     });
     // Registered with the watcher once the name is ours, so the watcher
-    // finds it there.
+    // finds it there. The name has the pid, which isn't unique across PID
+    // namespaces sharing the bus (each Flatpak app is pid 2), and a sandbox
+    // may not let the app own it: then the item registers by the
+    // connection's unique name, as watchers allow (libayatana-appindicator
+    // does the same).
     let owner = gio::bus_own_name_on_connection(
         &bus,
         &name,
@@ -351,7 +356,22 @@ fn export(state: &Rc<RefCell<State>>) {
             let weak = weak.clone();
             move |bus, _| watch(&weak, &bus)
         },
-        |_, _| {},
+        {
+            let weak = weak.clone();
+            move |bus, _| {
+                let Some(state) = weak.upgrade() else { return };
+                let Some(unique) = bus.unique_name() else { return };
+                let first = {
+                    let mut state = state.borrow_mut();
+                    let Some(exported) = state.exported.as_mut() else { return };
+                    exported.name = unique.to_string();
+                    exported.unwatch.is_none()
+                };
+                if first {
+                    watch(&weak, &bus);
+                }
+            }
+        },
     );
     if let Some(exported) = state.borrow_mut().exported.as_mut() {
         exported.owner = Some(owner);
