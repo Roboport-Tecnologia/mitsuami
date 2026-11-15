@@ -159,6 +159,34 @@ fn guid(id: &str) -> GUID {
     GUID::from_u128(value)
 }
 
+/// The image in an `.ico` file's bytes (`include_bytes!` of one) that's
+/// the size asked for, else the smallest larger, else the largest: what
+/// `LoadImageW` picks from a file. `None` for bytes that aren't an `.ico`
+/// (a PNG), which go to Windows as they are.
+fn ico_image(bytes: &[u8], size: i32) -> Option<&[u8]> {
+    let u16_at = |at: usize| Some(u16::from_le_bytes(bytes.get(at..at + 2)?.try_into().ok()?));
+    let u32_at = |at: usize| Some(u32::from_le_bytes(bytes.get(at..at + 4)?.try_into().ok()?));
+    if u16_at(0)? != 0 || u16_at(2)? != 1 {
+        return None;
+    }
+    let images = (0..usize::from(u16_at(4)?)).filter_map(|i| {
+        let entry = 6 + i * 16;
+        // A width of 0 is 256.
+        let width = match *bytes.get(entry)? {
+            0 => 256,
+            width => i32::from(width),
+        };
+        let (length, offset) = (u32_at(entry + 8)? as usize, u32_at(entry + 12)? as usize);
+        Some((width, bytes.get(offset..offset.checked_add(length)?)?))
+    });
+    let (larger, smaller): (Vec<_>, Vec<_>) = images.partition(|(width, _)| *width >= size);
+    let best = larger
+        .into_iter()
+        .min_by_key(|(width, _)| *width)
+        .or_else(|| smaller.into_iter().max_by_key(|(width, _)| *width));
+    best.map(|(_, image)| image)
+}
+
 /// The small icon's size for the system's DPI: an `.ico` file at the size
 /// it has, else the image as an icon of its own.
 fn load_icon(icon: Option<&AppIcon>) -> w::HICON {
@@ -180,6 +208,7 @@ fn load_icon(icon: Option<&AppIcon>) -> w::HICON {
         }
         Some(icon) => match icon.read() {
             Some(bytes) => unsafe {
+                let bytes = ico_image(&bytes, size).unwrap_or(&bytes);
                 w::CreateIconFromResourceEx(
                     bytes.as_ptr(),
                     bytes.len() as u32,

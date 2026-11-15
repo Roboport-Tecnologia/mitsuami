@@ -68,6 +68,33 @@ async fn its_items_run_and_its_parts_follow(app: TestApp) {
 }
 
 #[mitsuami_test::test]
+async fn the_window_chooses_how_the_icon_is_given(app: TestApp) {
+    let _app = start(&app);
+    app.settle().await;
+    assert!(app.services().choose_tray_item(&["Open Tray"]));
+    app.settle().await;
+    let icon = || app.services().tray().expect("a tray icon").icon;
+
+    app.get_by_label("Icon").select_option(example::CHOICES[1]).await;
+    assert_eq!(icon(), Some(example::image()), "an image, for every platform");
+
+    app.get_by_label("Icon").select_option(example::CHOICES[2]).await;
+    let named = icon().expect("a named icon");
+    assert_eq!(named.name(), Some("media-playback-start-symbolic"));
+    assert!(named.read().is_none(), "nothing for platforms without a theme");
+
+    app.get_by_label("Icon").select_option(example::CHOICES[3]).await;
+    assert_eq!(icon(), None, "the app's own");
+    assert!(app.services().choose_tray_item(&["Paused"]), "its menu stays");
+
+    app.get_by_label("Icon").select_option(example::CHOICES[0]).await;
+    let named = icon().expect("a named icon");
+    assert_eq!(named.name(), Some("media-playback-pause-symbolic"));
+    assert!(named.read().is_some());
+    assert!(app.ui().tray_shown().get());
+}
+
+#[mitsuami_test::test]
 async fn it_goes_with_its_scope(app: TestApp) {
     let owner = start(&app);
     app.settle().await;
