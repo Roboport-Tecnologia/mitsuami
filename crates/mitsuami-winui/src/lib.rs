@@ -59,6 +59,8 @@ mod group;
 #[cfg(all(windows, target_env = "msvc"))]
 mod hover;
 #[cfg(all(windows, target_env = "msvc"))]
+mod instance;
+#[cfg(all(windows, target_env = "msvc"))]
 mod later;
 #[cfg(all(windows, target_env = "msvc"))]
 mod list;
@@ -87,7 +89,7 @@ mod tweak;
 
 #[cfg(all(windows, target_env = "msvc"))]
 pub use app::{
-    fatal_error, init_for_tests, pump, run, set_full_screen_menu_bar, set_menu_bar_place, set_toolbar_place,
+    fatal_error, init_for_tests, pump, run, run_with, set_full_screen_menu_bar, set_menu_bar_place, set_toolbar_place,
     set_window_placement,
 };
 #[cfg(all(windows, target_env = "msvc"))]

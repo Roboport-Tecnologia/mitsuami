@@ -109,6 +109,15 @@ impl TestApp {
         &self.services
     }
 
+    /// Launches a single-instance app again, as the backend hands the
+    /// launch over (`Ui::reopen`), then settles: the app's `on_reopen`
+    /// handlers run. Bringing a window forward, which the backend does
+    /// first, isn't simulated.
+    pub async fn reopen(&self, reopen: mitsuami_core::services::Reopen) {
+        self.ui.reopen(reopen);
+        self.settle().await;
+    }
+
     /// Moves the test clock forward, firing due timers, then settles.
     pub async fn advance(&self, by: Duration) {
         self.clock.advance(by);

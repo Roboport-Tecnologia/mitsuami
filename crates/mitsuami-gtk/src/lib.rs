@@ -16,6 +16,8 @@
 #[cfg(target_os = "linux")]
 mod app;
 #[cfg(target_os = "linux")]
+mod application;
+#[cfg(target_os = "linux")]
 mod backend;
 #[cfg(target_os = "linux")]
 mod custom;
@@ -61,7 +63,7 @@ mod tabs;
 mod tweak;
 
 #[cfg(target_os = "linux")]
-pub use app::{fatal_error, init_for_tests, run};
+pub use app::{fatal_error, init_for_tests, run, run_with};
 #[cfg(target_os = "linux")]
 pub use backend::{BackendOptions, GtkBackend, GtkHandle};
 #[cfg(target_os = "linux")]

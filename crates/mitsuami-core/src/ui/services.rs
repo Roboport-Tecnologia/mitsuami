@@ -1,16 +1,16 @@
 //! Platform services on a `Ui`: the clipboard, dialogs, the trash,
-//! launching, notifications, menus and quitting.
+//! launching, notifications, later launches, menus and quitting.
 
 use std::rc::Rc;
 
 use crate::command::UiEvent;
 use crate::services::{
-    Alert, Launch, MenuBar, MenuBarData, MenuRole, Notification, OpenFile, SaveFile, ServiceError, Services,
+    Alert, Launch, MenuBar, MenuBarData, MenuRole, Notification, OpenFile, Reopen, SaveFile, ServiceError, Services,
     reply_future,
 };
 use crate::widget::NodeId;
 
-use super::{Handler0, NotificationHandler, Ui};
+use super::{Handler0, NotificationHandler, ReopenHandler, Ui};
 
 impl Ui {
     /// Replaces the platform services (tests install a scripted fake).
@@ -141,6 +141,42 @@ impl Ui {
                 ui.changed();
             }
         })
+    }
+
+    /// Runs `handler` each time a single-instance app is launched again,
+    /// with what the launch passed on, until the current scope ends. The
+    /// backend has brought the last active window forward by then, with
+    /// the platform's activation token; an app with none opens one here,
+    /// and the token is still there for it. Without a handler, a launch
+    /// only brings the window forward. On macOS a click on the Dock icon
+    /// comes here too: it's how macOS apps reopen a closed window.
+    pub fn on_reopen(&self, handler: impl Fn(&Reopen) + 'static) {
+        let scope = mitsuami_reactive::Owner::current();
+        let handler: ReopenHandler = Rc::new(move |reopen| match scope {
+            Some(scope) if scope.is_alive() => scope.with(|| handler(reopen)),
+            _ => handler(reopen),
+        });
+        let token = {
+            let mut inner = self.inner.borrow_mut();
+            let token = inner.next_reopen_handler;
+            inner.next_reopen_handler += 1;
+            inner.reopen_handlers.insert(token, handler);
+            token
+        };
+        let ui = self.downgrade();
+        mitsuami_reactive::on_cleanup(move || {
+            if let Some(ui) = ui.upgrade() {
+                ui.inner.borrow_mut().reopen_handlers.remove(&token);
+            }
+        });
+    }
+
+    /// What backends call, on the main thread, when the app is launched
+    /// again, once they've brought its window forward: the `on_reopen`
+    /// handlers run in the next turn.
+    pub fn reopen(&self, reopen: Reopen) {
+        self.inner.borrow_mut().reopen_queue.push_back(reopen);
+        self.changed();
     }
 
     /// Installs the app's menus, replacing the ones installed before.

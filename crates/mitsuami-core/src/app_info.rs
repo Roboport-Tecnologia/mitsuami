@@ -46,6 +46,28 @@ impl AppInfo {
     }
 }
 
+/// How the app runs, beyond who it is: what `App` gives its backend's
+/// `run_with`.
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+#[non_exhaustive]
+pub struct RunOptions {
+    /// One process per app id and user session: a later launch hands its
+    /// arguments to the running one ([`Ui::reopen`](crate::Ui::reopen)) and
+    /// ends, without starting the app. Needs [`AppInfo::id`].
+    pub single_instance: bool,
+}
+
+impl RunOptions {
+    pub fn new() -> RunOptions {
+        RunOptions::default()
+    }
+
+    pub fn single_instance(mut self, single: bool) -> RunOptions {
+        self.single_instance = single;
+        self
+    }
+}
+
 /// The app's icon, decoded by the platform: PNG everywhere, other formats
 /// where the platform reads them (an `.ico` file on Windows, with its
 /// sizes). Give it large (256 or 512 pixels square): platforms scale it

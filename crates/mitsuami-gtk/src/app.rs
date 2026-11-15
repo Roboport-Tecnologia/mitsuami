@@ -6,7 +6,7 @@ use std::sync::Arc;
 
 use gtk::glib;
 use mitsuami_core::services::MenuBar;
-use mitsuami_core::{AppInfo, Ui};
+use mitsuami_core::{AppInfo, RunOptions, Ui};
 
 use crate::backend::{BackendOptions, GtkBackend};
 
@@ -49,6 +49,19 @@ pub fn fatal_error(title: &str, message: &str) {
 /// Starts the app: `setup` creates the windows, then GLib's main loop takes
 /// over. Returns when the last window closes.
 pub fn run(info: AppInfo, setup: impl FnOnce(&Ui)) {
+    run_with(info, RunOptions::default(), setup);
+}
+
+/// [`run`], with options. A single-instance app registers its
+/// `GApplication` first, before GTK starts, and a later launch hands
+/// itself to the running one there and returns.
+pub fn run_with(info: AppInfo, options: RunOptions, setup: impl FnOnce(&Ui)) {
+    if options.single_instance
+        && let Some(id) = &info.id
+        && !crate::application::claim(id)
+    {
+        return;
+    }
     let startup_id = crate::session::take_startup_id();
     // GDK's X11 backend takes the windows' class from it as it starts.
     if let Some(id) = &info.id {
@@ -117,6 +130,15 @@ pub fn run(info: AppInfo, setup: impl FnOnce(&Ui)) {
         });
     }));
 
+    let reopened: Rc<dyn Fn(mitsuami_core::services::Reopen)> = {
+        let weak = ui.downgrade();
+        Rc::new(move |reopen| {
+            if let Some(ui) = weak.upgrade() {
+                ui.reopen(reopen);
+            }
+        })
+    };
+    crate::application::connect(&handle, reopened);
     setup(&ui);
     ui.tick();
     handle.show_pending_windows();

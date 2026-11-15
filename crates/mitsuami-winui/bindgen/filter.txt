@@ -250,6 +250,16 @@ Microsoft.Windows.AppNotifications.AppNotificationActivatedEventArgs::{}
 Microsoft.Windows.AppNotifications.IAppNotificationActivatedEventArgs2::get_Arguments
 Microsoft.Windows.AppNotifications.Builder.AppNotificationBuilder::CreateInstance
 Microsoft.Windows.AppNotifications.Builder.IAppNotificationBuilder::{AddArgument, AddText, SetTag, BuildNotification}
+Microsoft.Windows.AppLifecycle.AppInstance::{FindOrRegisterForKey, GetCurrent}
+Microsoft.Windows.AppLifecycle.IAppInstance::{get_IsCurrent, get_ProcessId, RedirectActivationToAsync, GetActivatedEventArgs, add_Activated, remove_Activated}
+Microsoft.Windows.AppLifecycle.AppActivationArguments::{}
+Microsoft.Windows.AppLifecycle.IAppActivationArguments::{get_Kind, get_Data}
+Microsoft.Windows.AppLifecycle.ExtendedActivationKind
+Windows.ApplicationModel.Activation.IFileActivatedEventArgs::get_Files
+Windows.Storage.IStorageItem::get_Path
+Windows.Win32.AllowSetForegroundWindow
+Windows.Win32.CommandLineToArgvW
+Windows.Win32.LocalFree
 Windows.UI.Notifications.ToastNotificationManager::{CreateToastNotifierWithId, get_History}
 Windows.UI.Notifications.ToastNotifier::{}
 Windows.UI.Notifications.IToastNotifier::{Show, get_Setting}

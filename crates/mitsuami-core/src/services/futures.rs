@@ -9,7 +9,7 @@ use std::task::{Poll, Waker};
 
 use crate::ui::Ui;
 
-use super::{Alert, Launch, MenuBar, Notification, OpenFile, Reply, SaveFile, ServiceError};
+use super::{Alert, Launch, MenuBar, Notification, OpenFile, Reopen, Reply, SaveFile, ServiceError};
 
 struct OneShot<T> {
     value: Option<T>,
@@ -108,6 +108,12 @@ pub fn withdraw_notification(id: &str) {
 /// the current scope ends; see [`Ui::on_notification_activated`].
 pub fn on_notification_activated(handler: impl Fn(&str) + 'static) {
     ui().on_notification_activated(handler);
+}
+
+/// Runs `handler` in a single-instance app each time it's launched again,
+/// until the current scope ends; see [`Ui::on_reopen`].
+pub fn on_reopen(handler: impl Fn(&Reopen) + 'static) {
+    ui().on_reopen(handler);
 }
 
 /// Installs the app's menus; see [`Ui::set_menu`]. A window's own menus

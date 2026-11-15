@@ -44,6 +44,8 @@ pub(crate) type Handler = Rc<dyn Fn(&UiEvent)>;
 type Handler0 = Rc<dyn Fn()>;
 /// Runs with the id of a notification the user clicked.
 type NotificationHandler = Rc<dyn Fn(&str)>;
+/// Runs with a later launch of a single-instance app.
+type ReopenHandler = Rc<dyn Fn(&crate::services::Reopen)>;
 
 struct Node {
     kind: WidgetKind,
@@ -169,6 +171,12 @@ struct Inner {
     notification_queue: std::collections::VecDeque<String>,
     /// For the ids the core gives notifications the app didn't name.
     next_notification: u64,
+    /// What runs when a single-instance app is launched again, by the
+    /// token `on_reopen` removes it with when its scope ends.
+    reopen_handlers: BTreeMap<u64, ReopenHandler>,
+    next_reopen_handler: u64,
+    /// Later launches the backend handed over, for the next dispatch.
+    reopen_queue: std::collections::VecDeque<crate::services::Reopen>,
     /// Last focus order sent, per window.
     focus_orders: BTreeMap<NodeId, Vec<NodeId>>,
     /// Whether a tab index, or what a page shown or a surface taking input
@@ -290,6 +298,9 @@ impl Ui {
                 next_notification_handler: 1,
                 notification_queue: Default::default(),
                 next_notification: 1,
+                reopen_handlers: BTreeMap::new(),
+                next_reopen_handler: 1,
+                reopen_queue: Default::default(),
                 runs_without_windows: false,
                 quit_requested: false,
                 commit_scheduler: None,

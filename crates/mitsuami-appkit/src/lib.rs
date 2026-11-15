@@ -24,6 +24,8 @@ mod document_tabs;
 #[cfg(target_os = "macos")]
 mod header;
 #[cfg(target_os = "macos")]
+mod instance;
+#[cfg(target_os = "macos")]
 mod keys;
 #[cfg(target_os = "macos")]
 mod list;
@@ -57,7 +59,7 @@ mod toolbar;
 mod tweak;
 
 #[cfg(target_os = "macos")]
-pub use app::{fatal_error, init_for_tests, run};
+pub use app::{fatal_error, init_for_tests, run, run_with};
 #[cfg(target_os = "macos")]
 pub use backend::{AppKitBackend, AppKitHandle, BackendOptions};
 #[cfg(target_os = "macos")]

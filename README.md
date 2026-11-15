@@ -119,14 +119,14 @@ cargo run -p mitsuami --example button
 ```
 
 The others in [`crates/mitsuami/examples`](crates/mitsuami/examples) run the
-same way: `background`, `checkbox`, `color_well`, `context_menu`, `document_tabs`,
-`file_drag`, `file_drop`, `file_icon`, `focus`, `glass`, `group`, `hover`,
-`icon`, `image`, `keys`, `launch`, `list`, `measurements`, `menu_button`,
-`menus`, `number_input`, `password_input`, `popover`, `progress`,
-`radio_group`, `row_moves`, `scroll_view`, `search_input`, `select`,
-`separator`, `shortcuts`, `sidebar`, `slider`, `spinner`, `split`,
-`split_button`, `switch`, `table`, `tabs`, `text`, `text_area`,
-`text_input`, `toolbar`, `tooltip`, `trash`, `tree`, `windows`.
+same way: `background`, `checkbox`, `color_well`, `context_menu`,
+`document_tabs`, `file_drag`, `file_drop`, `file_icon`, `focus`, `glass`,
+`group`, `hover`, `icon`, `image`, `keys`, `launch`, `list`, `measurements`,
+`menu_button`, `menus`, `number_input`, `password_input`, `popover`,
+`progress`, `radio_group`, `row_moves`, `scroll_view`, `search_input`,
+`select`, `separator`, `shortcuts`, `sidebar`, `single_instance`, `slider`,
+`spinner`, `split`, `split_button`, `switch`, `table`, `tabs`, `text`,
+`text_area`, `text_input`, `toolbar`, `tooltip`, `trash`, `tree`, `windows`.
 
 Whole apps:
 

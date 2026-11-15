@@ -1,8 +1,8 @@
 //! Running an app: NSApplication, the menu bar and the run-loop hook.
 
 use block2::RcBlock;
-use mitsuami_core::services::MenuBar;
-use mitsuami_core::{AppInfo, Ui};
+use mitsuami_core::services::{MenuBar, Reopen};
+use mitsuami_core::{AppInfo, RunOptions, Ui};
 use objc2::rc::Retained;
 use objc2::runtime::{NSObject, NSObjectProtocol, ProtocolObject};
 use objc2::{DefinedClass, MainThreadMarker, MainThreadOnly, define_class, msg_send};
@@ -15,7 +15,7 @@ use std::sync::Arc;
 use objc2_core_foundation::{
     CFAbsoluteTimeGetCurrent, CFRunLoop, CFRunLoopActivity, CFRunLoopObserver, CFRunLoopTimer, kCFRunLoopCommonModes,
 };
-use objc2_foundation::{NSPoint, NSString};
+use objc2_foundation::{NSArray, NSPoint, NSString, NSURL};
 
 use crate::backend::{AppKitBackend, BackendOptions};
 
@@ -47,7 +47,7 @@ pub(crate) struct AppIvars {
 }
 
 define_class!(
-    /// The app's delegate, for the system's Quit.
+    /// The app's delegate, for the system's Quit and later launches.
     #[unsafe(super(NSObject))]
     #[thread_kind = MainThreadOnly]
     #[ivars = AppIvars]
@@ -67,6 +67,30 @@ define_class!(
                 NSApplicationTerminateReply::TerminateNow
             } else {
                 NSApplicationTerminateReply::TerminateCancel
+            }
+        }
+
+        /// Launched again (a second `open`, a click on its Dock icon):
+        /// AppKit brings a window forward, restoring a minimized one, and
+        /// the app hears.
+        #[unsafe(method(applicationShouldHandleReopen:hasVisibleWindows:))]
+        fn application_should_handle_reopen(&self, _sender: &NSApplication, _visible: bool) -> bool {
+            crate::instance::reopened(Reopen::default());
+            true
+        }
+
+        /// Files from Finder (Open With, a drop on the Dock icon), at
+        /// launch or later.
+        #[unsafe(method(application:openURLs:))]
+        fn application_open_urls(&self, _application: &NSApplication, urls: &NSArray<NSURL>) {
+            let files: Vec<_> = urls
+                .iter()
+                .filter(|url| url.isFileURL())
+                .filter_map(|url| url.path())
+                .map(|path| std::path::PathBuf::from(path.to_string()))
+                .collect();
+            if !files.is_empty() {
+                crate::instance::reopened(Reopen::new(Vec::new(), None, files));
             }
         }
     }
@@ -114,7 +138,21 @@ pub fn fatal_error(title: &str, message: &str) {
 /// Starts the app: `setup` creates the windows, then AppKit's run loop takes
 /// over. Returns when the last window closes.
 pub fn run(info: AppInfo, setup: impl FnOnce(&Ui)) {
+    run_with(info, RunOptions::default(), setup);
+}
+
+/// [`run`], with options. Launch Services keeps a bundled app to one
+/// process already; for a single-instance app, a bundled executable started
+/// directly brings the running one forward and returns, and one outside a
+/// bundle hands its launch over a Unix socket.
+pub fn run_with(info: AppInfo, options: RunOptions, setup: impl FnOnce(&Ui)) {
     let mtm = main_thread();
+    if options.single_instance
+        && let Some(id) = &info.id
+        && !crate::instance::claim(id)
+    {
+        return;
+    }
     let app = NSApplication::sharedApplication(mtm);
     app.setActivationPolicy(NSApplicationActivationPolicy::Regular);
 
@@ -130,6 +168,14 @@ pub fn run(info: AppInfo, setup: impl FnOnce(&Ui)) {
     // main run loop turn, which ticks the UI.
     ui.set_waker(Arc::new(wake_main_run_loop));
 
+    crate::instance::connect({
+        let weak = ui.downgrade();
+        std::rc::Rc::new(move |reopen| {
+            if let Some(ui) = weak.upgrade() {
+                ui.reopen(reopen);
+            }
+        })
+    });
     setup(&ui);
     ui.tick();
     handle.show_pending_windows();

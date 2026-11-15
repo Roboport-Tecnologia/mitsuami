@@ -35,6 +35,15 @@ impl Ui {
                 mitsuami_reactive::batch(|| handlers.iter().for_each(|handler| handler(&id)));
                 continue;
             }
+            let reopened = {
+                let mut inner = self.inner.borrow_mut();
+                let reopen = inner.reopen_queue.pop_front();
+                reopen.map(|reopen| (reopen, inner.reopen_handlers.values().cloned().collect::<Vec<_>>()))
+            };
+            if let Some((reopen, handlers)) = reopened {
+                mitsuami_reactive::batch(|| handlers.iter().for_each(|handler| handler(&reopen)));
+                continue;
+            }
             let next = self.inner.borrow().events.pop();
             let Some((id, event)) = next else { break };
             let (handlers, drawn) = {
@@ -145,7 +154,10 @@ impl Ui {
             }
             let idle = {
                 let inner = self.inner.borrow();
-                inner.events.is_empty() && inner.menu_queue.is_empty() && inner.notification_queue.is_empty()
+                inner.events.is_empty()
+                    && inner.menu_queue.is_empty()
+                    && inner.notification_queue.is_empty()
+                    && inner.reopen_queue.is_empty()
             };
             if idle && !self.executor.has_ready() {
                 return;

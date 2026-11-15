@@ -1,7 +1,9 @@
 //! Starting an app on the native backend of the target platform.
 
 use mitsuami_core::l10n::Locales;
-use mitsuami_core::{AnyView, AppIcon, AppInfo, CurrentWindow, Prop, Ui, UiEvent, View, WindowSize, provide_stores};
+use mitsuami_core::{
+    AnyView, AppIcon, AppInfo, CurrentWindow, Prop, RunOptions, Ui, UiEvent, View, WindowSize, provide_stores,
+};
 use mitsuami_reactive::{IntoValue, Owner, Value, effect, provide};
 use mitsuami_widgets::Window;
 
@@ -38,6 +40,7 @@ pub struct App {
     windows: Vec<Startup>,
     setups: Vec<Setup>,
     runs_without_windows: bool,
+    options: RunOptions,
 }
 
 impl App {
@@ -127,9 +130,37 @@ impl App {
         self
     }
 
+    /// Makes it one process per id and user session, as the platform's own
+    /// apps are: launching it again hands the launch to the running one,
+    /// whose [`on_reopen`](crate::prelude::on_reopen) handlers get its
+    /// arguments, and brings its window forward. Needs [`id`](App::id).
+    ///
+    /// The later launch ends in [`run`](App::run), which returns without
+    /// running `setup` or opening a window. Code before `run` still runs
+    /// in it, so keep what must happen once (mounting, opening files,
+    /// binding ports) in `setup`. It gets no answer back from the running
+    /// app (no exit status, no output), since only Linux could send one.
+    ///
+    /// Each platform's own: Launch Services on macOS (a Unix socket for a
+    /// process outside a bundle), the session bus's
+    /// `org.freedesktop.Application` on Linux, the Windows App SDK's
+    /// `AppInstance` on Windows. Where the platform can't tell (Linux
+    /// without a session bus), the app runs as its own instance.
+    pub fn single_instance(mut self) -> App {
+        self.options.single_instance = true;
+        self
+    }
+
     /// Runs until the last window closes, or, for an app that
     /// [runs without windows](App::runs_without_windows), until it quits.
+    /// In a later launch of a [single-instance](App::single_instance) app,
+    /// hands the launch over and returns at once.
     pub fn run(self) {
+        assert!(
+            !self.options.single_instance || self.info.id.is_some(),
+            "mitsuami: App::single_instance needs App::id, which is how a later launch finds the first"
+        );
+        let options = self.options;
         let (info, locales, windows, setups) = (self.info, self.locales, self.windows, self.setups);
         let runs_without_windows = self.runs_without_windows;
         let setup = move |ui: &Ui| {
@@ -161,18 +192,18 @@ impl App {
             }
         };
         #[cfg(target_os = "macos")]
-        mitsuami_appkit::run(info, setup);
+        mitsuami_appkit::run_with(info, options, setup);
         #[cfg(all(target_os = "linux", feature = "kde"))]
-        mitsuami_kirigami::run(info, setup);
+        mitsuami_kirigami::run_with(info, options, setup);
         #[cfg(all(target_os = "linux", feature = "gtk", not(feature = "kde")))]
-        mitsuami_gtk::run(info, setup);
+        mitsuami_gtk::run_with(info, options, setup);
         #[cfg(all(target_os = "linux", not(any(feature = "gtk", feature = "kde"))))]
-        let _ = (info, setup);
+        let _ = (info, options, setup);
         #[cfg(windows)]
-        mitsuami_winui::run(info, setup);
+        mitsuami_winui::run_with(info, options, setup);
         #[cfg(not(any(target_os = "macos", target_os = "linux", windows)))]
         {
-            let _ = (info, setup);
+            let _ = (info, options, setup);
             panic!("mitsuami: no native backend for this platform");
         }
     }

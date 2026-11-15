@@ -1,5 +1,6 @@
 //! Platform services: clipboard, dialogs, the menu bar, the trash,
-//! opening files in other apps and notifications.
+//! opening files in other apps, notifications and later launches of a
+//! single-instance app.
 //! Widgets' context menus are made of the same menus.
 //!
 //! [`Services`] is the contract each platform implements, separately from
@@ -15,12 +16,13 @@ mod menu;
 mod menu_collect;
 mod menu_data;
 mod notifications;
+mod reopen;
 
 pub use dialogs::{Alert, AlertStyle, FileFilter, Launch, OpenFile, SaveFile, existing_folder};
 pub(crate) use futures::reply_future;
 pub use futures::{
-    alert, clipboard_text, launch, launch_url, notify, on_notification_activated, open_file, quit, save_file,
-    set_clipboard_text, set_menu, trash, withdraw_notification,
+    alert, clipboard_text, launch, launch_url, notify, on_notification_activated, on_reopen, open_file, quit,
+    save_file, set_clipboard_text, set_menu, trash, withdraw_notification,
 };
 pub use menu::{Menu, MenuBar, MenuEntries, MenuItem, MenuSeparator, Menus};
 #[doc(hidden)]
@@ -31,6 +33,7 @@ pub use menu_data::{
     menu_item_by_id,
 };
 pub use notifications::Notification;
+pub use reopen::Reopen;
 
 use std::path::PathBuf;
 use std::rc::Rc;
