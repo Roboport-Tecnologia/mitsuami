@@ -6,7 +6,8 @@
 //!   extension).
 //! - A click opens its menu: Open Tray opens the window, Paused swaps the
 //!   icon and its tooltip, Quit ends it. Closing the window leaves it
-//!   running.
+//!   running, and a click on its Dock icon (macOS) or launching it again
+//!   opens the window.
 //! - The window chooses how the icon is given, each platform taking what
 //!   it understands: a theme icon with an image for the others, an image
 //!   alone (an `.ico` on Windows), a theme name alone, or none (the app's
@@ -97,6 +98,9 @@ pub fn window() -> Window {
         let choice = choice.get();
         untrack(|| set_tray(tray(open, paused, choice)));
     });
+    // A click on the Dock icon, or a second launch, which single instance
+    // hands to this one.
+    on_reopen(move |_| open.set(true));
     let shown = tray_shown();
     spawn_local(async move {
         sleep(Duration::from_secs(1)).await;
@@ -108,5 +112,11 @@ pub fn window() -> Window {
 }
 
 fn main() {
-    App::new().id("br.com.roboport.mitsuami.Tray").name("Tray").runs_without_windows().open(window).run();
+    App::new()
+        .id("br.com.roboport.mitsuami.Tray")
+        .name("Tray")
+        .runs_without_windows()
+        .single_instance()
+        .open(window)
+        .run();
 }

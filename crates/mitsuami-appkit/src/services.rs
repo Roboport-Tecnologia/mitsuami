@@ -306,15 +306,8 @@ impl AppKitServices {
                 None,
             );
         }
-        AppKitServices {
-            mtm,
-            backend,
-            pasteboard,
-            menus,
-            menu_target,
-            sheets: Rc::default(),
-            tray: crate::tray::Tray::new(mtm),
-        }
+        let tray = crate::tray::Tray::new(mtm, backend.clone());
+        AppKitServices { mtm, backend, pasteboard, menus, menu_target, sheets: Rc::default(), tray }
     }
 
     /// What a dialog needs once it goes up, which may be after this call

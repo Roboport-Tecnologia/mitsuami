@@ -16,7 +16,7 @@ use objc2_app_kit::{
 };
 use objc2_foundation::{NSSize, NSString};
 
-use crate::backend::app_icon_image;
+use crate::backend::{AppKitHandle, app_icon_image};
 use crate::classes::ClosureTarget;
 use crate::services::{ItemTarget, context_menu};
 
@@ -36,13 +36,15 @@ pub(crate) struct Tray {
 }
 
 impl Tray {
-    pub(crate) fn new(mtm: MainThreadMarker) -> Tray {
+    pub(crate) fn new(mtm: MainThreadMarker, backend: AppKitHandle) -> Tray {
         let activate: Activate = Rc::default();
         let target = ClosureTarget::new(mtm, {
             let activate = activate.clone();
             move |sender| {
                 let chosen = activate.borrow().clone();
                 if let (Some(item), Some(activate)) = (sender.downcast_ref::<NSMenuItem>(), chosen) {
+                    // A status item's menu leaves the app inactive.
+                    backend.activate_on_show();
                     activate(item.tag() as u32);
                 }
             }

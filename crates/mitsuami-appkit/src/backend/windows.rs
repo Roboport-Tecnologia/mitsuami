@@ -37,7 +37,10 @@ impl AppKitHandle {
     /// on the window it belongs to, a window in the app's modal loop, or
     /// an ordinary window.
     pub fn show_pending_windows(&self) {
-        let pending = std::mem::take(&mut self.state.borrow_mut().pending_show);
+        let (pending, activate) = {
+            let mut state = self.state.borrow_mut();
+            (std::mem::take(&mut state.pending_show), std::mem::take(&mut state.activate_on_show))
+        };
         for id in pending {
             let Some(window) = self.ns_window(id) else { continue };
             let modal = self.state.borrow().nodes.get(&id).and_then(|n| n.modal);
@@ -53,6 +56,12 @@ impl AppKitHandle {
                 }
                 (None, _) => {
                     window.center();
+                    // Opened from the tray's menu, it comes forward with
+                    // the app, as menu bar apps' windows do; it would
+                    // otherwise open behind the active app's.
+                    if activate {
+                        NSApplication::sharedApplication(self.state.borrow().mtm).activate();
+                    }
                     window.makeKeyAndOrderFront(None);
                 }
             }
@@ -71,6 +80,12 @@ impl AppKitHandle {
                 run();
             }
         }
+    }
+
+    /// The user chose a tray item: a window it opens in the next turn
+    /// activates the app.
+    pub(crate) fn activate_on_show(&self) {
+        self.state.borrow_mut().activate_on_show = true;
     }
 
     /// Runs `run` once the window `on` has been shown: at once if it has

@@ -369,6 +369,9 @@ struct State {
     /// What waits for a window in `pending_show` to be shown: a dialog
     /// asked for on it before its first layout (`when_shown`).
     on_shown: Vec<(NodeId, Box<dyn FnOnce()>)>,
+    /// The user chose a tray item, which doesn't activate the app: a window
+    /// it opens activates it, until the next windows are shown.
+    activate_on_show: bool,
     /// The key view chain last built for each window.
     focus_orders: HashMap<NodeId, Vec<NodeId>>,
     /// The app's name, for the app menu.
@@ -449,6 +452,7 @@ impl AppKitBackend {
                 log: Vec::new(),
                 pending_show: Vec::new(),
                 on_shown: Vec::new(),
+                activate_on_show: false,
                 focus_orders: HashMap::new(),
                 app_name: None,
                 app_id: None,
