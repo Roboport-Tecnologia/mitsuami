@@ -19,3 +19,4 @@ crates/mitsuami/tests/*/win32/*
 !crates/mitsuami/tests/*/win32/windows-2025/
 # The AppImage tools .github/scripts/appimage.sh downloads.
 /.appimage-tools/
+.playwright-mcp
