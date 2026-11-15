@@ -15,7 +15,7 @@ use std::sync::Arc;
 use objc2_core_foundation::{
     CFAbsoluteTimeGetCurrent, CFRunLoop, CFRunLoopActivity, CFRunLoopObserver, CFRunLoopTimer, kCFRunLoopCommonModes,
 };
-use objc2_foundation::{NSArray, NSPoint, NSString, NSURL};
+use objc2_foundation::{NSArray, NSBundle, NSNumber, NSPoint, NSString, NSURL};
 
 use crate::backend::{AppKitBackend, BackendOptions};
 
@@ -154,7 +154,15 @@ pub fn run_with(info: AppInfo, options: RunOptions, setup: impl FnOnce(&Ui)) {
         return;
     }
     let app = NSApplication::sharedApplication(mtm);
-    app.setActivationPolicy(NSApplicationActivationPolicy::Regular);
+    // A bundle with `LSUIElement` (a menu bar app) has said it wants no
+    // Dock icon: Launch Services set its policy already.
+    let ui_element = NSBundle::mainBundle()
+        .objectForInfoDictionaryKey(&NSString::from_str("LSUIElement"))
+        .and_then(|value| value.downcast::<NSNumber>().ok())
+        .is_some_and(|value| value.boolValue());
+    if !ui_element {
+        app.setActivationPolicy(NSApplicationActivationPolicy::Regular);
+    }
 
     let backend = AppKitBackend::new(mtm, BackendOptions::default());
     let handle = backend.handle();
@@ -179,6 +187,7 @@ pub fn run_with(info: AppInfo, options: RunOptions, setup: impl FnOnce(&Ui)) {
     setup(&ui);
     ui.tick();
     handle.show_pending_windows();
+    let ui_was_empty = ui.windows().is_empty();
 
     // The app's own handlers run now, in this turn: the answer is due
     // before `applicationShouldTerminate:` returns.
@@ -218,7 +227,11 @@ pub fn run_with(info: AppInfo, options: RunOptions, setup: impl FnOnce(&Ui)) {
         unsafe { CFRunLoopObserver::with_handler(None, CFRunLoopActivity::BeforeWaiting.0, true, 0, Some(&tick)) };
     run_loop.add_observer(observer.as_deref(), common);
 
-    app.activate();
+    // An app that starts with no window (one that runs in the background,
+    // perhaps started at login) doesn't take the focus.
+    if !ui_was_empty {
+        app.activate();
+    }
     app.run();
 }
 

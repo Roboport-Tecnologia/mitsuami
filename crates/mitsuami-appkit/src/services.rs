@@ -11,7 +11,8 @@ use block2::RcBlock;
 use dispatch2::{DispatchQoS, DispatchQueue, GlobalQueueIdentifier};
 use mitsuami_core::services::{
     Alert, AlertStyle, FileFilter, Launch, MenuBarData, MenuCheck, MenuData, MenuEntry, MenuItemData, MenuRole,
-    Notification, OpenFile, Reply, SaveFile, ServiceError, Services, Shortcut, existing_folder, menu_item_by_id,
+    Notification, OpenFile, Reply, SaveFile, ServiceError, Services, Shortcut, TrayData, existing_folder,
+    menu_item_by_id,
 };
 use mitsuami_core::{Key, NodeId};
 use objc2::rc::Retained;
@@ -135,6 +136,7 @@ pub struct AppKitServices {
     /// Menu items only hold weak references to their target.
     menu_target: Retained<MenuTarget>,
     sheets: Rc<RefCell<Sheets>>,
+    tray: crate::tray::Tray,
 }
 
 /// Alerts and panels shown as sheets, until they answer: the window each is
@@ -304,7 +306,15 @@ impl AppKitServices {
                 None,
             );
         }
-        AppKitServices { mtm, backend, pasteboard, menus, menu_target, sheets: Rc::default() }
+        AppKitServices {
+            mtm,
+            backend,
+            pasteboard,
+            menus,
+            menu_target,
+            sheets: Rc::default(),
+            tray: crate::tray::Tray::new(mtm),
+        }
     }
 
     /// What a dialog needs once it goes up, which may be after this call
@@ -550,6 +560,10 @@ impl Services for AppKitServices {
             }
         }
         self.menu_target.install(&self.menus.borrow());
+    }
+    fn set_tray(&mut self, tray: Option<&TrayData>, activate: Rc<dyn Fn(u32)>, shown: Rc<dyn Fn(bool)>) {
+        let app_id = self.backend.app_id();
+        self.tray.set(tray, app_id.as_deref(), activate, shown);
     }
 }
 

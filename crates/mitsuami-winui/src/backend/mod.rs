@@ -720,6 +720,8 @@ pub(crate) struct State {
     menus: Menus,
     /// The app's icon, which every window gets.
     icon: Option<WindowIcon>,
+    /// The app's id and icon as given, for the tray icon.
+    pub(crate) app_info: AppInfo,
     /// A tab view's bar height, once one is measured (`tab_insets`).
     tab_bar: crate::tabs::BarHeight,
     /// A group's heading height, once one is measured (`titled_group_insets`).
@@ -811,6 +813,7 @@ impl WinUiBackend {
                 commanding_layer: Vec::new(),
                 menus: Menus::default(),
                 icon: None,
+                app_info: AppInfo::default(),
                 tab_bar: Rc::default(),
                 group_heading: Rc::default(),
                 right_to_left: false,
@@ -947,6 +950,7 @@ impl Backend for WinUiBackend {
     /// executable's (its version resource) or its shortcut's, so it's left.
     /// Each window gets the icon, as a Win32 app's get its class's.
     fn set_app_info(&mut self, info: &AppInfo) {
+        self.state.borrow_mut().app_info = info.clone();
         if let Some(id) = &info.id
             && !packaged()
         {

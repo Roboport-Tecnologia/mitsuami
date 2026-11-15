@@ -373,6 +373,8 @@ struct State {
     focus_orders: HashMap<NodeId, Vec<NodeId>>,
     /// The app's name, for the app menu.
     app_name: Option<String>,
+    /// The app's id, which the tray icon's place is saved under.
+    pub(crate) app_id: Option<String>,
     /// Where tab views put their pages, from the last metrics: measuring
     /// one would otherwise make a tab view to probe each time.
     tab_insets: std::cell::Cell<Option<mitsuami_core::Insets>>,
@@ -449,6 +451,7 @@ impl AppKitBackend {
                 on_shown: Vec::new(),
                 focus_orders: HashMap::new(),
                 app_name: None,
+                app_id: None,
                 tab_insets: std::cell::Cell::new(None),
                 group_probes: RefCell::default(),
                 children: HashMap::new(),
@@ -522,6 +525,7 @@ impl Backend for AppKitBackend {
     fn set_app_info(&mut self, info: &AppInfo) {
         let mut state = self.state.borrow_mut();
         state.app_name = info.name.clone();
+        state.app_id = info.id.clone();
         let bundle = NSBundle::mainBundle();
         let has_icon = ["CFBundleIconFile", "CFBundleIconName"]
             .iter()

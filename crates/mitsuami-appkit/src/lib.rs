@@ -56,6 +56,8 @@ mod text_area;
 #[cfg(target_os = "macos")]
 mod toolbar;
 #[cfg(target_os = "macos")]
+mod tray;
+#[cfg(target_os = "macos")]
 mod tweak;
 
 #[cfg(target_os = "macos")]

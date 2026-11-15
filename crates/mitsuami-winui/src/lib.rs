@@ -85,6 +85,8 @@ mod surface;
 #[cfg(all(windows, target_env = "msvc"))]
 mod tabs;
 #[cfg(all(windows, target_env = "msvc"))]
+mod tray;
+#[cfg(all(windows, target_env = "msvc"))]
 mod tweak;
 
 #[cfg(all(windows, target_env = "msvc"))]

@@ -14,6 +14,7 @@ windows_core::link!("gdi32.dll" "system" fn CreateCompatibleDC(hdc : HDC) -> HDC
 windows_core::link!("gdi32.dll" "system" fn CreateDIBSection(hdc : HDC, pbmi : *const BITMAPINFO, usage : u32, ppvbits : *mut *mut core::ffi::c_void, hsection : HANDLE, offset : u32) -> HBITMAP);
 windows_core::link!("user32.dll" "system" fn CreateIconFromResourceEx(presbits : *const u8, dwressize : u32, ficon : windows_core::BOOL, dwver : u32, cxdesired : i32, cydesired : i32, flags : u32) -> HICON);
 windows_core::link!("user32.dll" "system" fn CreateIconIndirect(piconinfo : *const ICONINFO) -> HICON);
+windows_core::link!("user32.dll" "system" fn CreatePopupMenu() -> HMENU);
 windows_core::link!("user32.dll" "system" fn CreateWindowExW(dwexstyle : u32, lpclassname : windows_core::PCWSTR, lpwindowname : windows_core::PCWSTR, dwstyle : u32, x : i32, y : i32, nwidth : i32, nheight : i32, hwndparent : HWND, hmenu : HMENU, hinstance : HINSTANCE, lpparam : *const core::ffi::c_void) -> HWND);
 windows_core::link!("kernel32.dll" "system" fn DeactivateActCtx(dwflags : u32, ulcookie : usize) -> windows_core::BOOL);
 windows_core::link!("comctl32.dll" "system" fn DefSubclassProc(hwnd : HWND, umsg : u32, wparam : WPARAM, lparam : LPARAM) -> LRESULT);
@@ -21,6 +22,7 @@ windows_core::link!("user32.dll" "system" fn DefWindowProcW(hwnd : HWND, msg : u
 windows_core::link!("gdi32.dll" "system" fn DeleteDC(hdc : HDC) -> windows_core::BOOL);
 windows_core::link!("gdi32.dll" "system" fn DeleteObject(ho : HGDIOBJ) -> windows_core::BOOL);
 windows_core::link!("user32.dll" "system" fn DestroyIcon(hicon : HICON) -> windows_core::BOOL);
+windows_core::link!("user32.dll" "system" fn DestroyMenu(hmenu : HMENU) -> windows_core::BOOL);
 windows_core::link!("user32.dll" "system" fn DestroyWindow(hwnd : HWND) -> windows_core::BOOL);
 windows_core::link!("user32.dll" "system" fn DispatchMessageW(lpmsg : *const MSG) -> LRESULT);
 windows_core::link!("user32.dll" "system" fn EnableWindow(hwnd : HWND, benable : windows_core::BOOL) -> windows_core::BOOL);
@@ -52,6 +54,7 @@ windows_core::link!("gdi32.dll" "system" fn GetObjectW(h : HANDLE, c : i32, pv :
 windows_core::link!("kernel32.dll" "system" fn GetProcAddress(hmodule : HMODULE, lpprocname : windows_core::PCSTR) -> FARPROC);
 windows_core::link!("kernel32.dll" "system" fn GetProcessHeap() -> HANDLE);
 windows_core::link!("user32.dll" "system" fn GetRawInputData(hrawinput : HRAWINPUT, uicommand : u32, pdata : *mut core::ffi::c_void, pcbsize : *mut u32, cbsizeheader : u32) -> u32);
+windows_core::link!("user32.dll" "system" fn GetSystemMetricsForDpi(nindex : i32, dpi : u32) -> i32);
 windows_core::link!("kernel32.dll" "system" fn GetTimeFormatEx(lplocalename : windows_core::PCWSTR, dwflags : u32, lptime : *const SYSTEMTIME, lpformat : windows_core::PCWSTR, lptimestr : windows_core::PWSTR, cchtime : i32) -> i32);
 windows_core::link!("kernel32.dll" "system" fn GetUserPreferredUILanguages(dwflags : u32, pulnumlanguages : *mut u32, pwszlanguagesbuffer : *mut u16, pcchlanguagesbuffer : *mut u32) -> windows_core::BOOL);
 windows_core::link!("user32.dll" "system" fn GetWindow(hwnd : HWND, ucmd : u32) -> HWND);
@@ -65,10 +68,13 @@ windows_core::link!("imm32.dll" "system" fn ImmGetContext(param0 : HWND) -> HIMC
 windows_core::link!("imm32.dll" "system" fn ImmReleaseContext(param0 : HWND, param1 : HIMC) -> windows_core::BOOL);
 windows_core::link!("imm32.dll" "system" fn ImmSetCandidateWindow(param0 : HIMC, lpcandidate : *const CANDIDATEFORM) -> windows_core::BOOL);
 windows_core::link!("imm32.dll" "system" fn ImmSetCompositionWindow(param0 : HIMC, lpcompform : *const COMPOSITIONFORM) -> windows_core::BOOL);
+windows_core::link!("user32.dll" "system" fn InsertMenuItemW(hmenu : HMENU, item : u32, fbyposition : windows_core::BOOL, lpmi : *const MENUITEMINFOW) -> windows_core::BOOL);
 windows_core::link!("user32.dll" "system" fn IsIconic(hwnd : HWND) -> windows_core::BOOL);
 windows_core::link!("user32.dll" "system" fn IsWindowEnabled(hwnd : HWND) -> windows_core::BOOL);
 windows_core::link!("user32.dll" "system" fn IsWindowVisible(hwnd : HWND) -> windows_core::BOOL);
 windows_core::link!("user32.dll" "system" fn LoadCursorW(hinstance : HINSTANCE, lpcursorname : windows_core::PCWSTR) -> HCURSOR);
+windows_core::link!("user32.dll" "system" fn LoadIconW(hinstance : HINSTANCE, lpiconname : windows_core::PCWSTR) -> HICON);
+windows_core::link!("user32.dll" "system" fn LoadImageW(hinst : HINSTANCE, name : windows_core::PCWSTR, r#type : u32, cx : i32, cy : i32, fuload : u32) -> HANDLE);
 windows_core::link!("kernel32.dll" "system" fn LocalFree(hmem : HLOCAL) -> HLOCAL);
 windows_core::link!("user32.dll" "system" fn MapVirtualKeyW(ucode : u32, umaptype : u32) -> u32);
 windows_core::link!("user32.dll" "system" fn MessageBoxW(hwnd : HWND, lptext : windows_core::PCWSTR, lpcaption : windows_core::PCWSTR, utype : u32) -> i32);
@@ -82,6 +88,7 @@ windows_core::link!("advapi32.dll" "system" fn RegGetValueW(hkey : HKEY, lpsubke
 windows_core::link!("advapi32.dll" "system" fn RegSetKeyValueW(hkey : HKEY, lpsubkey : windows_core::PCWSTR, lpvaluename : windows_core::PCWSTR, dwtype : u32, lpdata : *const core::ffi::c_void, cbdata : u32) -> LSTATUS);
 windows_core::link!("user32.dll" "system" fn RegisterClassExW(param0 : *const WNDCLASSEXW) -> ATOM);
 windows_core::link!("user32.dll" "system" fn RegisterRawInputDevices(prawinputdevices : *const RAWINPUTDEVICE, uinumdevices : u32, cbsize : u32) -> windows_core::BOOL);
+windows_core::link!("user32.dll" "system" fn RegisterWindowMessageW(lpstring : windows_core::PCWSTR) -> u32);
 windows_core::link!("kernel32.dll" "system" fn ReleaseActCtx(hactctx : HANDLE));
 windows_core::link!("user32.dll" "system" fn ReleaseCapture() -> windows_core::BOOL);
 windows_core::link!("comctl32.dll" "system" fn RemoveWindowSubclass(hwnd : HWND, pfnsubclass : SUBCLASSPROC, uidsubclass : usize) -> windows_core::BOOL);
@@ -106,6 +113,7 @@ windows_core::link!("user32.dll" "system" fn SetWindowPos(hwnd : HWND, hwndinser
 windows_core::link!("comctl32.dll" "system" fn SetWindowSubclass(hwnd : HWND, pfnsubclass : SUBCLASSPROC, uidsubclass : usize, dwrefdata : usize) -> windows_core::BOOL);
 windows_core::link!("user32.dll" "system" fn SetWindowsHookExW(idhook : i32, lpfn : HOOKPROC, hmod : HINSTANCE, dwthreadid : u32) -> HHOOK);
 windows_core::link!("shell32.dll" "system" fn ShellExecuteExW(pexecinfo : *mut SHELLEXECUTEINFOW) -> windows_core::BOOL);
+windows_core::link!("shell32.dll" "system" fn Shell_NotifyIconW(dwmessage : u32, lpdata : *const NOTIFYICONDATAW) -> windows_core::BOOL);
 windows_core::link!("user32.dll" "system" fn ShowCursor(bshow : windows_core::BOOL) -> i32);
 windows_core::link!("user32.dll" "system" fn ShowWindow(hwnd : HWND, ncmdshow : i32) -> windows_core::BOOL);
 windows_core::link!("user32.dll" "system" fn ShutdownBlockReasonCreate(hwnd : HWND, pwszreason : windows_core::PCWSTR) -> windows_core::BOOL);
@@ -113,6 +121,7 @@ windows_core::link!("user32.dll" "system" fn ShutdownBlockReasonDestroy(hwnd : H
 windows_core::link!("kernel32.dll" "system" fn SystemTimeToTzSpecificLocalTime(lptimezoneinformation : *const TIME_ZONE_INFORMATION, lpuniversaltime : *const SYSTEMTIME, lplocaltime : *mut SYSTEMTIME) -> windows_core::BOOL);
 windows_core::link!("user32.dll" "system" fn ToUnicodeEx(wvirtkey : u32, wscancode : u32, lpkeystate : *const u8, pwszbuff : windows_core::PWSTR, cchbuff : i32, wflags : u32, dwhkl : HKL) -> i32);
 windows_core::link!("user32.dll" "system" fn TrackMouseEvent(lpeventtrack : *mut TRACKMOUSEEVENT) -> windows_core::BOOL);
+windows_core::link!("user32.dll" "system" fn TrackPopupMenuEx(hmenu : HMENU, uflags : u32, x : i32, y : i32, hwnd : HWND, lptpm : *const TPMPARAMS) -> windows_core::BOOL);
 windows_core::link!("user32.dll" "system" fn TranslateMessage(lpmsg : *const MSG) -> windows_core::BOOL);
 windows_core::link!("user32.dll" "system" fn UnhookWindowsHookEx(hhk : HHOOK) -> windows_core::BOOL);
 windows_core::link!("user32.dll" "system" fn WindowFromPoint(point : POINT) -> HWND);
@@ -8577,6 +8586,7 @@ pub struct IControlStatics_Vtbl {
         unsafe extern "system" fn(*mut core::ffi::c_void, *mut *mut core::ffi::c_void) -> windows_core::HRESULT,
 }
 pub const IDC_ARROW: windows_core::PCWSTR = windows_core::PCWSTR(32512 as _);
+pub const IDI_APPLICATION: windows_core::PCWSTR = windows_core::PCWSTR(32512 as _);
 windows_core::imp::define_interface!(IDataPackage, IDataPackage_Vtbl, 0x61ebf5c7_efea_4346_9554_981d7e198ffe);
 impl windows_core::RuntimeType for IDataPackage {
     const SIGNATURE: windows_core::imp::ConstBuffer = windows_core::imp::ConstBuffer::for_interface::<Self>();
@@ -12048,6 +12058,7 @@ pub struct IListViewItemFactory_Vtbl {
         *mut *mut core::ffi::c_void,
     ) -> windows_core::HRESULT,
 }
+pub const IMAGE_ICON: i32 = 1;
 windows_core::imp::define_interface!(IMenuBar, IMenuBar_Vtbl, 0xba97f337_8f1e_5141_b53f_e77a8ba3ebbd);
 impl windows_core::RuntimeType for IMenuBar {
     const SIGNATURE: windows_core::imp::ConstBuffer = windows_core::imp::ConstBuffer::for_interface::<Self>();
@@ -20899,6 +20910,7 @@ pub const LOCALE_STHOUSAND: i32 = 15;
 pub type LPARAM = isize;
 pub type LRESULT = isize;
 pub const LR_DEFAULTCOLOR: i32 = 0;
+pub const LR_LOADFROMFILE: i32 = 16;
 pub type LSTATUS = i32;
 pub const LWA_ALPHA: i32 = 2;
 #[repr(transparent)]
@@ -21201,6 +21213,32 @@ pub const MAPVK_VK_TO_VSC_EX: i32 = 4;
 pub const MB_ICONERROR: i32 = 16;
 pub const MB_OK: i32 = 0;
 pub const MB_SETFOREGROUND: i32 = 65536;
+#[repr(C)]
+#[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
+pub struct MENUITEMINFOW {
+    pub cbSize: u32,
+    pub fMask: u32,
+    pub fType: u32,
+    pub fState: u32,
+    pub wID: u32,
+    pub hSubMenu: HMENU,
+    pub hbmpChecked: HBITMAP,
+    pub hbmpUnchecked: HBITMAP,
+    pub dwItemData: usize,
+    pub dwTypeData: windows_core::PWSTR,
+    pub cch: u32,
+    pub hbmpItem: HBITMAP,
+}
+pub const MFS_CHECKED: i32 = 8;
+pub const MFS_DISABLED: i32 = 3;
+pub const MFT_RADIOCHECK: i32 = 512;
+pub const MFT_SEPARATOR: i32 = 2048;
+pub const MFT_STRING: i32 = 0;
+pub const MIIM_FTYPE: i32 = 256;
+pub const MIIM_ID: i32 = 2;
+pub const MIIM_STATE: i32 = 1;
+pub const MIIM_STRING: i32 = 64;
+pub const MIIM_SUBMENU: i32 = 4;
 pub const MK_LBUTTON: i32 = 1;
 pub const MK_MBUTTON: i32 = 16;
 pub const MK_RBUTTON: i32 = 2;
@@ -21590,6 +21628,96 @@ impl windows_core::RuntimeType for MicaKind {
     const SIGNATURE: windows_core::imp::ConstBuffer =
         windows_core::imp::ConstBuffer::from_slice(b"enum(Microsoft.UI.Composition.SystemBackdrops.MicaKind;i4)");
 }
+pub const NIF_GUID: i32 = 32;
+pub const NIF_ICON: i32 = 2;
+pub const NIF_MESSAGE: i32 = 1;
+pub const NIF_SHOWTIP: i32 = 128;
+pub const NIF_TIP: i32 = 4;
+pub const NIM_ADD: i32 = 0;
+pub const NIM_DELETE: i32 = 2;
+pub const NIM_MODIFY: i32 = 1;
+pub const NIM_SETVERSION: i32 = 4;
+pub const NIN_KEYSELECT: i32 = 1025;
+pub const NIN_SELECT: i32 = 1024;
+#[repr(C, packed(1))]
+#[cfg(target_arch = "x86")]
+#[derive(Clone, Copy)]
+pub struct NOTIFYICONDATAW {
+    pub cbSize: u32,
+    pub hWnd: HWND,
+    pub uID: u32,
+    pub uFlags: u32,
+    pub uCallbackMessage: u32,
+    pub hIcon: HICON,
+    pub szTip: [u16; 128],
+    pub dwState: u32,
+    pub dwStateMask: u32,
+    pub szInfo: [u16; 256],
+    pub Anonymous: NOTIFYICONDATAW_0,
+    pub szInfoTitle: [u16; 64],
+    pub dwInfoFlags: u32,
+    pub guidItem: windows_core::GUID,
+    pub hBalloonIcon: HICON,
+}
+#[cfg(target_arch = "x86")]
+impl Default for NOTIFYICONDATAW {
+    fn default() -> Self {
+        unsafe { core::mem::zeroed() }
+    }
+}
+#[repr(C, packed(1))]
+#[cfg(target_arch = "x86")]
+#[derive(Clone, Copy)]
+pub union NOTIFYICONDATAW_0 {
+    pub uTimeout: u32,
+    pub uVersion: u32,
+}
+#[cfg(target_arch = "x86")]
+impl Default for NOTIFYICONDATAW_0 {
+    fn default() -> Self {
+        unsafe { core::mem::zeroed() }
+    }
+}
+#[repr(C)]
+#[cfg(any(target_arch = "aarch64", target_arch = "arm64ec", target_arch = "x86_64"))]
+#[derive(Clone, Copy)]
+pub struct NOTIFYICONDATAW {
+    pub cbSize: u32,
+    pub hWnd: HWND,
+    pub uID: u32,
+    pub uFlags: u32,
+    pub uCallbackMessage: u32,
+    pub hIcon: HICON,
+    pub szTip: [u16; 128],
+    pub dwState: u32,
+    pub dwStateMask: u32,
+    pub szInfo: [u16; 256],
+    pub Anonymous: NOTIFYICONDATAW_0,
+    pub szInfoTitle: [u16; 64],
+    pub dwInfoFlags: u32,
+    pub guidItem: windows_core::GUID,
+    pub hBalloonIcon: HICON,
+}
+#[cfg(any(target_arch = "aarch64", target_arch = "arm64ec", target_arch = "x86_64"))]
+impl Default for NOTIFYICONDATAW {
+    fn default() -> Self {
+        unsafe { core::mem::zeroed() }
+    }
+}
+#[repr(C)]
+#[cfg(any(target_arch = "aarch64", target_arch = "arm64ec", target_arch = "x86_64"))]
+#[derive(Clone, Copy)]
+pub union NOTIFYICONDATAW_0 {
+    pub uTimeout: u32,
+    pub uVersion: u32,
+}
+#[cfg(any(target_arch = "aarch64", target_arch = "arm64ec", target_arch = "x86_64"))]
+impl Default for NOTIFYICONDATAW_0 {
+    fn default() -> Self {
+        unsafe { core::mem::zeroed() }
+    }
+}
+pub const NOTIFYICON_VERSION_4: i32 = 4;
 #[repr(transparent)]
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct NavigationView(windows_core::IUnknown);
@@ -23467,6 +23595,7 @@ pub struct SIZE {
     pub cx: i32,
     pub cy: i32,
 }
+pub const SM_CXSMICON: i32 = 49;
 pub const STATEREPOSITORY_E_DEPENDENCY_NOT_RESOLVED: windows_core::HRESULT = windows_core::HRESULT(0x80670016_u32 as _);
 pub type SUBCLASSPROC = Option<
     unsafe extern "system" fn(
@@ -24657,6 +24786,16 @@ impl Default for TIME_ZONE_INFORMATION {
     }
 }
 pub const TME_LEAVE: i32 = 2;
+#[repr(C)]
+#[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
+pub struct TPMPARAMS {
+    pub cbSize: u32,
+    pub rcExclude: RECT,
+}
+pub const TPM_BOTTOMALIGN: i32 = 32;
+pub const TPM_RETURNCMD: i32 = 256;
+pub const TPM_RIGHTALIGN: i32 = 8;
+pub const TPM_RIGHTBUTTON: i32 = 2;
 #[repr(C)]
 #[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
 pub struct TRACKMOUSEEVENT {
@@ -26705,8 +26844,10 @@ impl windows_core::RuntimeName for VisualTreeHelper {
 unsafe impl Send for VisualTreeHelper {}
 unsafe impl Sync for VisualTreeHelper {}
 pub const WH_KEYBOARD_LL: i32 = 13;
+pub const WM_APP: i32 = 32768;
 pub const WM_CHAR: i32 = 258;
 pub const WM_CLOSE: i32 = 16;
+pub const WM_CONTEXTMENU: i32 = 123;
 pub const WM_DEADCHAR: i32 = 259;
 pub const WM_ENDSESSION: i32 = 22;
 pub const WM_GETICON: i32 = 127;

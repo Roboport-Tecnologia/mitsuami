@@ -126,7 +126,8 @@ same way: `background`, `checkbox`, `color_well`, `context_menu`,
 `progress`, `radio_group`, `row_moves`, `scroll_view`, `search_input`,
 `select`, `separator`, `shortcuts`, `sidebar`, `single_instance`, `slider`,
 `spinner`, `split`, `split_button`, `switch`, `table`, `tabs`, `text`,
-`text_area`, `text_input`, `toolbar`, `tooltip`, `trash`, `tree`, `windows`.
+`text_area`, `text_input`, `toolbar`, `tooltip`, `trash`, `tray`, `tree`,
+`windows`.
 
 Whole apps:
 

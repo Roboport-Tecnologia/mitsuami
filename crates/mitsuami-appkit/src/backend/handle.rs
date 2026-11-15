@@ -11,6 +11,12 @@ use super::{AppKitHandle, State, Widget};
 impl AppKitHandle {
     /// The app's name as its menu shows it: the app's, or else the
     /// process's (a bundled app's executable).
+    /// The app's id: `AppInfo::id`, else its bundle's.
+    pub(crate) fn app_id(&self) -> Option<String> {
+        let id = self.state.borrow().app_id.clone();
+        id.or_else(|| objc2_foundation::NSBundle::mainBundle().bundleIdentifier().map(|id| id.to_string()))
+    }
+
     pub(crate) fn app_name(&self) -> String {
         let name = self.state.borrow().app_name.clone();
         name.unwrap_or_else(|| NSProcessInfo::processInfo().processName().to_string())
