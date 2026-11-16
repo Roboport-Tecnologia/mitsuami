@@ -212,6 +212,12 @@ struct Data {
     width: Option<f32>,
     row_width: Option<f32>,
     scroll: Option<w::IScrollViewer>,
+    /// Scrolled to the end: it stays there as the rows realised there are
+    /// measured (`keep_at_end`), until its rows change. The scrollable
+    /// height last seen tells XAML's moves, as rows above the view are
+    /// measured, from scrolls.
+    at_end: bool,
+    extent: f64,
     /// Where a row's content starts in its container: after the check box
     /// `ListViewItem`s show with multiple selection, else 0.
     inset: f64,
@@ -314,6 +320,13 @@ impl Data {
         let border = if self.style.is_some_and(ListStyle::framed) { 2.0 * FRAME_BORDER } else { 0.0 };
         (self.width.unwrap_or(0.0) - border).max(0.0)
     }
+}
+
+/// Whether a scroll viewer is at the end of its content, with something to
+/// scroll.
+fn at_end(scroll: &w::IScrollViewer) -> bool {
+    let end = scroll.ScrollableHeight().unwrap_or(0.0);
+    end > 0.0 && scroll.VerticalOffset().unwrap_or(0.0) >= end - 0.5
 }
 
 /// Sizes a table's row cell, and places its cells' hosts: across at their
@@ -1115,6 +1128,15 @@ impl List {
         if let Ok(revoker) = scroll.ViewChanged(move |sender, _| {
             if let Some(scroll) = sender.as_ref().and_then(|s| s.cast::<w::IScrollViewer>().ok()) {
                 report_offset(&events, id, &last, &scroll, table);
+                let mut d = data.borrow_mut();
+                let extent = scroll.ScrollableHeight().unwrap_or(0.0);
+                if at_end(&scroll) {
+                    d.at_end = true;
+                } else if extent == d.extent {
+                    d.at_end = false;
+                }
+                d.extent = extent;
+                drop(d);
                 if table {
                     let mut d = data.borrow_mut();
                     d.sideways = scroll.HorizontalOffset().unwrap_or(0.0);
@@ -1132,6 +1154,8 @@ impl List {
     /// after the part that changed keep their containers. Selected rows
     /// that stayed stay selected; selected rows that went are reported.
     pub(crate) fn set_rows(&self, rows: Vec<RowKey>) -> R<()> {
+        // Other rows: the end scrolled to was theirs.
+        self.data.borrow_mut().at_end = false;
         let selected = self.data.borrow().selection.clone();
         let (prefix, removed, added) = {
             let d = self.data.borrow();
@@ -1380,11 +1404,16 @@ impl List {
 
     pub(crate) fn scroll_to(&self, offset: Point) -> R<()> {
         let Some(scroll) = self.scroll_viewer() else { return Ok(()) };
+        // To the end as the extent was when the scroll was asked for: laying
+        // out realises rows there and moves it.
+        let to_end = offset.y > 0.0 && offset.y as f64 >= scroll.ScrollableHeight()? - 0.5;
         let element: w::IUIElement = scroll.cast()?;
         element.UpdateLayout()?;
         let x = self.is_table().then_some(offset.x as f64);
         scroll.ChangeViewWithOptionalAnimation(x, Some(offset.y as f64), None, true)?;
         element.UpdateLayout()?;
+        self.data.borrow_mut().at_end = to_end;
+        self.keep_at_end(&scroll);
         report_offset(&self.events, self.id, &self.offset, &scroll, self.is_table());
         Ok(())
     }
@@ -1411,9 +1440,26 @@ impl List {
         self.measure_inset();
         measure_rows(&self.data, &self.events, self.id);
         if let Some(scroll) = self.scroll_viewer() {
+            self.keep_at_end(&scroll);
             report_offset(&self.events, self.id, &self.offset, &scroll, self.is_table());
         }
         report(&self.data, &self.events, self.id);
+    }
+
+    /// XAML's extent counts rows it hasn't realised as high as those it
+    /// has, so a scroll to the end stops where the estimate ended, and the
+    /// rows realised there, measured, leave the last one past the bottom.
+    /// The list follows the end until it's scrolled elsewhere or its rows
+    /// change, as Qt's `positionViewAtEnd()` does.
+    fn keep_at_end(&self, scroll: &w::IScrollViewer) {
+        if !self.data.borrow().at_end || at_end(scroll) {
+            return;
+        }
+        let end = scroll.ScrollableHeight().unwrap_or(0.0);
+        _ = scroll.ChangeViewWithOptionalAnimation(None, Some(end), None, true);
+        _ = self.view.cast::<w::IUIElement>().and_then(|e| e.UpdateLayout());
+        measure_rows(&self.data, &self.events, self.id);
+        self.data.borrow_mut().at_end = true;
     }
 
     /// How high the list is with all its rows.
