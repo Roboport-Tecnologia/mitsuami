@@ -1,16 +1,17 @@
 //! Platform services on a `Ui`: the clipboard, dialogs, the trash,
-//! launching, notifications, menus and quitting.
+//! launching, notifications, later launches, menus, the tray icon and
+//! quitting.
 
 use std::rc::Rc;
 
 use crate::command::UiEvent;
 use crate::services::{
-    Alert, Launch, MenuBar, MenuBarData, MenuRole, Notification, OpenFile, SaveFile, ServiceError, Services,
-    reply_future,
+    Alert, Launch, MenuBar, MenuBarData, MenuRole, Notification, OpenFile, Reopen, SaveFile, ServiceError, Services,
+    TrayData, TrayIcon, reply_future,
 };
 use crate::widget::NodeId;
 
-use super::{Handler0, NotificationHandler, Ui};
+use super::{Handler0, NotificationHandler, ReopenHandler, Ui};
 
 impl Ui {
     /// Replaces the platform services (tests install a scripted fake).
@@ -143,6 +144,42 @@ impl Ui {
         })
     }
 
+    /// Runs `handler` each time a single-instance app is launched again,
+    /// with what the launch passed on, until the current scope ends. The
+    /// backend has brought the last active window forward by then, with
+    /// the platform's activation token; an app with none opens one here,
+    /// and the token is still there for it. Without a handler, a launch
+    /// only brings the window forward. On macOS a click on the Dock icon
+    /// comes here too: it's how macOS apps reopen a closed window.
+    pub fn on_reopen(&self, handler: impl Fn(&Reopen) + 'static) {
+        let scope = mitsuami_reactive::Owner::current();
+        let handler: ReopenHandler = Rc::new(move |reopen| match scope {
+            Some(scope) if scope.is_alive() => scope.with(|| handler(reopen)),
+            _ => handler(reopen),
+        });
+        let token = {
+            let mut inner = self.inner.borrow_mut();
+            let token = inner.next_reopen_handler;
+            inner.next_reopen_handler += 1;
+            inner.reopen_handlers.insert(token, handler);
+            token
+        };
+        let ui = self.downgrade();
+        mitsuami_reactive::on_cleanup(move || {
+            if let Some(ui) = ui.upgrade() {
+                ui.inner.borrow_mut().reopen_handlers.remove(&token);
+            }
+        });
+    }
+
+    /// What backends call, on the main thread, when the app is launched
+    /// again, once they've brought its window forward: the `on_reopen`
+    /// handlers run in the next turn.
+    pub fn reopen(&self, reopen: Reopen) {
+        self.inner.borrow_mut().reopen_queue.push_back(reopen);
+        self.changed();
+    }
+
     /// Installs the app's menus, replacing the ones installed before.
     /// Their reactive parts (titles, enabled and checked states, which
     /// items there are) are sent to the platform again when they change,
@@ -220,6 +257,116 @@ impl Ui {
             effect.dispose();
             self.services.borrow_mut().set_menu(target, &MenuBarData::default(), self.menu_activate());
         }
+    }
+
+    /// Shows the app's icon in the platform's tray until the current scope
+    /// ends, replacing the one shown before. Its reactive parts (title,
+    /// icon, tooltip, the menu's items) are sent to the platform again
+    /// when they change. Where there's no tray to show it in (plain GNOME,
+    /// or a Linux tray host that isn't running yet), it shows once one
+    /// comes: see [`tray_shown`](Self::tray_shown).
+    pub fn set_tray(&self, tray: TrayIcon) {
+        let scope = mitsuami_reactive::Owner::current();
+        let activate = self.menu_activate();
+        let shown = self.tray_shown_reporter();
+        let weak = self.downgrade();
+        let mut ids = Vec::new();
+        // What the platform shows, so a change that leaves it the same
+        // (a hidden item's title) isn't sent again; with the app info's
+        // version, as a tray without an icon shows the app's.
+        let mut sent: Option<(TrayData, u64)> = None;
+        let effect = mitsuami_reactive::effect(move || {
+            let Some(ui) = weak.upgrade() else { return };
+            let mut new_id = || {
+                let mut inner = ui.inner.borrow_mut();
+                inner.next_menu_id += 1;
+                inner.next_menu_id - 1
+            };
+            let (menu, handlers) = tray.menu.collect_entries(&mut ids, &mut new_id);
+            let data = TrayData {
+                title: tray.title.get(),
+                icon: tray.icon.as_ref().map(|icon| icon.get()),
+                tooltip: tray.tooltip.get(),
+                menu,
+            };
+            ui.inner.borrow_mut().tray_handlers = handlers
+                .into_iter()
+                .map(|(id, handler)| {
+                    let handler: Handler0 = Rc::new(move || match scope {
+                        Some(scope) if scope.is_alive() => scope.with(|| handler()),
+                        _ => handler(),
+                    });
+                    (id, handler)
+                })
+                .collect();
+            let app_info = ui.inner.borrow().app_info_changes;
+            let sending = (data, app_info.get());
+            if sent.as_ref() != Some(&sending) {
+                // Batched: the backend reports `tray_shown` from inside, and
+                // effects watching it may call services themselves.
+                mitsuami_reactive::batch(|| {
+                    ui.services.borrow_mut().set_tray(Some(&sending.0), activate.clone(), shown.clone())
+                });
+                sent = Some(sending);
+            }
+        });
+        let token = {
+            let mut inner = self.inner.borrow_mut();
+            let token = inner.next_tray;
+            inner.next_tray += 1;
+            token
+        };
+        if let Some((_, replaced)) = self.inner.borrow_mut().tray_effect.replace((token, effect)) {
+            replaced.dispose();
+        }
+        let ui = self.downgrade();
+        mitsuami_reactive::on_cleanup(move || {
+            if let Some(ui) = ui.upgrade() {
+                ui.remove_tray(token);
+            }
+        });
+    }
+
+    /// Takes the tray icon away when the scope that installed it ends,
+    /// unless another replaced it since.
+    fn remove_tray(&self, token: u64) {
+        let effect = {
+            let mut inner = self.inner.borrow_mut();
+            if inner.tray_effect.as_ref().is_none_or(|(shown, _)| *shown != token) {
+                return;
+            }
+            inner.tray_handlers.clear();
+            inner.tray_effect.take().map(|(_, effect)| effect)
+        };
+        if let Some(effect) = effect {
+            effect.dispose();
+        }
+        mitsuami_reactive::batch(|| {
+            self.services.borrow_mut().set_tray(None, self.menu_activate(), self.tray_shown_reporter())
+        });
+    }
+
+    /// Whether the tray icon is showing right now: false before the app
+    /// sets one, where the platform has no tray (plain GNOME), and while a
+    /// Linux tray host is away. An app that hides its window on close only
+    /// when there's a tray to bring it back watches it. The signal lives as
+    /// long as the Ui.
+    pub fn tray_shown(&self) -> mitsuami_reactive::Signal<bool> {
+        self.inner.borrow().tray_shown
+    }
+
+    /// What platforms call when the icon starts or stops showing.
+    fn tray_shown_reporter(&self) -> Rc<dyn Fn(bool)> {
+        let weak = self.downgrade();
+        Rc::new(move |shown| {
+            if let Some(ui) = weak.upgrade() {
+                let signal = ui.inner.borrow().tray_shown;
+                if signal.get_untracked() != shown {
+                    signal.set(shown);
+                }
+                ui.changed();
+            }
+        })
     }
 
     /// Keeps the app running while no window is open, until [`Ui::quit`]:

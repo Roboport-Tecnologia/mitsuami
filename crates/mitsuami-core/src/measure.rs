@@ -28,7 +28,8 @@ use crate::widget::{CurrentWindow, NodeId};
 /// A handle to the node a view builds, set with `.node_ref(…)`. It follows
 /// the node: a view built again (by `Show`, `For`) sets it again, and it's
 /// `None` while nothing is built. It also focuses the node from code
-/// ([`focus`](NodeRef::focus), [`select_text`](NodeRef::select_text)).
+/// ([`focus`](NodeRef::focus), [`select_text`](NodeRef::select_text)), and
+/// brings a window forward ([`present`](NodeRef::present)).
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct NodeRef {
     node: Signal<Option<NodeId>>,
@@ -41,6 +42,7 @@ pub struct NodeRef {
 enum Request {
     Focus,
     Select(Range<usize>),
+    Present,
 }
 
 /// Creates a [`NodeRef`] owned by the current scope.
@@ -78,6 +80,21 @@ impl NodeRef {
         self.request(Request::Select(range));
     }
 
+    /// Brings the window forward (the one this node is in, or the window
+    /// itself, given `Window::node_ref`), as the platform's apps do when asked to
+    /// show a window that's open already: from a tray menu's Open item, or
+    /// a later launch. The app comes forward with it, a minimized window
+    /// is restored, and it takes the keys. Asked while the window is
+    /// closed, it's done once it opens: `open.set(true)` with this shows
+    /// it whether it was closed or behind other apps' windows.
+    ///
+    /// Platforms may refuse to take the focus from another app: on
+    /// Wayland the compositor only gives it for a user's action it can
+    /// tell (a launch's token), and asks for attention otherwise.
+    pub fn present(&self) {
+        self.request(Request::Present);
+    }
+
     fn request(&self, request: Request) {
         match self.get_untracked() {
             Some(id) => request.send(&current_ui(), id),
@@ -87,8 +104,10 @@ impl NodeRef {
     }
 
     /// Points the ref at `id` until the current scope ends, and does what
-    /// was asked while nothing was built.
-    pub(crate) fn attach(self, ui: &Ui, id: NodeId) {
+    /// was asked while nothing was built. What `.node_ref(…)` does, for
+    /// widgets that build their nodes themselves (`Window`).
+    #[doc(hidden)]
+    pub fn attach(self, ui: &Ui, id: NodeId) {
         self.node.set(Some(id));
         if let Some(request) = self.waiting.get_untracked() {
             self.waiting.set(None);
@@ -107,6 +126,7 @@ impl Request {
         match self {
             Request::Focus => ui.focus(id),
             Request::Select(range) => ui.select_text(id, range),
+            Request::Present => ui.present(id),
         }
     }
 }

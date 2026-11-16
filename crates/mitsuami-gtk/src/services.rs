@@ -20,7 +20,7 @@ use gtk::prelude::*;
 use gtk::{gdk, gio, glib};
 use mitsuami_core::services::{
     Alert, Launch, MenuBarData, MenuCheck, MenuData, MenuEntry, MenuItemData, MenuOnOpen, MenuRole, Notification,
-    OpenFile, Reply, SaveFile, ServiceError, Services, Shortcut, existing_folder, menu_item_by_id,
+    OpenFile, Reply, SaveFile, ServiceError, Services, Shortcut, TrayData, existing_folder, menu_item_by_id,
 };
 use mitsuami_core::{ActionError, Key, NodeId};
 
@@ -771,6 +771,8 @@ fn parse_trigger(accel: &str) -> Option<Shortcut> {
 pub struct GtkServices {
     backend: GtkHandle,
     dialogs: Rc<RefCell<OpenDialogs>>,
+    /// GTK 4 has no tray: a StatusNotifierItem of mitsuami's.
+    tray: mitsuami_linux::tray::Tray,
 }
 
 /// Alerts and file dialogs waiting for an answer, by the window they're on,
@@ -783,7 +785,15 @@ struct OpenDialogs {
 
 impl GtkServices {
     pub(crate) fn new(backend: GtkHandle) -> GtkServices {
-        GtkServices { backend, dialogs: Rc::default() }
+        // A tray click's token waits for the window the item presents or
+        // opens, as a launch's does.
+        let weak = backend.downgrade();
+        let tray = mitsuami_linux::tray::Tray::new(move |token| {
+            if let Some(backend) = weak.upgrade() {
+                backend.set_activation_token(Some(token));
+            }
+        });
+        GtkServices { backend, dialogs: Rc::default(), tray }
     }
 
     /// The window a dialog goes on, and the cancellable that closes it with
@@ -1001,6 +1011,11 @@ impl Services for GtkServices {
 
     fn set_menu(&mut self, window: Option<NodeId>, menu: &MenuBarData, activate: Rc<dyn Fn(u32)>) {
         self.backend.set_menu(window, menu, activate);
+    }
+
+    fn set_tray(&mut self, tray: Option<&TrayData>, activate: Rc<dyn Fn(u32)>, shown: Rc<dyn Fn(bool)>) {
+        self.tray.set_app_id(self.backend.app_id().as_deref());
+        self.tray.set(tray, activate, shown);
     }
 }
 

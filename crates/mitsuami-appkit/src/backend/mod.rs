@@ -369,10 +369,16 @@ struct State {
     /// What waits for a window in `pending_show` to be shown: a dialog
     /// asked for on it before its first layout (`when_shown`).
     on_shown: Vec<(NodeId, Box<dyn FnOnce()>)>,
+    /// A window shown next activates the app: the user chose a tray item,
+    /// which doesn't activate it, or the app presented a window not shown
+    /// yet. Until the next windows are shown.
+    activate_on_show: bool,
     /// The key view chain last built for each window.
     focus_orders: HashMap<NodeId, Vec<NodeId>>,
     /// The app's name, for the app menu.
     app_name: Option<String>,
+    /// The app's id, which the tray icon's place is saved under.
+    pub(crate) app_id: Option<String>,
     /// Where tab views put their pages, from the last metrics: measuring
     /// one would otherwise make a tab view to probe each time.
     tab_insets: std::cell::Cell<Option<mitsuami_core::Insets>>,
@@ -447,8 +453,10 @@ impl AppKitBackend {
                 log: Vec::new(),
                 pending_show: Vec::new(),
                 on_shown: Vec::new(),
+                activate_on_show: false,
                 focus_orders: HashMap::new(),
                 app_name: None,
+                app_id: None,
                 tab_insets: std::cell::Cell::new(None),
                 group_probes: RefCell::default(),
                 children: HashMap::new(),
@@ -522,14 +530,12 @@ impl Backend for AppKitBackend {
     fn set_app_info(&mut self, info: &AppInfo) {
         let mut state = self.state.borrow_mut();
         state.app_name = info.name.clone();
+        state.app_id = info.id.clone();
         let bundle = NSBundle::mainBundle();
         let has_icon = ["CFBundleIconFile", "CFBundleIconName"]
             .iter()
             .any(|key| bundle.objectForInfoDictionaryKey(&ns(key)).is_some());
-        let image = info.icon.as_ref().filter(|_| !has_icon).and_then(|icon| match icon {
-            AppIcon::File(path) => NSImage::initWithContentsOfFile(NSImage::alloc(), &ns(&path.to_string_lossy())),
-            AppIcon::Bytes(bytes) => NSImage::initWithData(NSImage::alloc(), &NSData::with_bytes(bytes)),
-        });
+        let image = info.icon.as_ref().filter(|_| !has_icon).and_then(app_icon_image);
         if let Some(image) = image {
             unsafe { NSApplication::sharedApplication(state.mtm).setApplicationIconImage(Some(&image)) };
         }
@@ -559,5 +565,17 @@ pub(crate) fn opaque(color: &objc2_app_kit::NSColor) -> mitsuami_core::Color {
     match native_state::rgba(color) {
         mitsuami_core::Color::Rgba(r, g, b, _) => mitsuami_core::Color::rgb(r, g, b),
         other => other,
+    }
+}
+
+/// An app icon as an image: a named one shows its image, as macOS has no
+/// icon theme, and one with a dark variant its light one, since macOS
+/// tints the tray's template image for the menu bar itself.
+pub(crate) fn app_icon_image(icon: &AppIcon) -> Option<Retained<NSImage>> {
+    match icon {
+        AppIcon::File(path) => NSImage::initWithContentsOfFile(NSImage::alloc(), &ns(&path.to_string_lossy())),
+        AppIcon::Bytes(bytes) => NSImage::initWithData(NSImage::alloc(), &NSData::with_bytes(bytes)),
+        AppIcon::Named { image, .. } => app_icon_image(image.as_ref()?),
+        AppIcon::Themed { light, .. } => app_icon_image(light),
     }
 }

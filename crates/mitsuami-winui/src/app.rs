@@ -7,7 +7,7 @@ use std::rc::Rc;
 use std::sync::Arc;
 
 use mitsuami_core::services::MenuBar;
-use mitsuami_core::{AppInfo, Ui};
+use mitsuami_core::{AppInfo, RunOptions, Ui};
 use windows_core::Interface;
 
 use crate::backend::{
@@ -72,11 +72,24 @@ pub fn set_full_screen_menu_bar(menu_bar: FullScreenMenuBar) {
 /// the next `sleep` deadline. Ticks keep working inside modal loops (window
 /// moves and live resizing), which run the queue too.
 pub fn run(info: AppInfo, setup: impl FnOnce(&Ui)) {
+    run_with(info, RunOptions::default(), setup);
+}
+
+/// [`run`], with options. A single-instance app registers its id with
+/// the Windows App SDK's `AppInstance` before XAML starts, and a later
+/// launch redirects itself to the running one there and returns.
+pub fn run_with(info: AppInfo, options: RunOptions, setup: impl FnOnce(&Ui)) {
     // Without the Windows App Runtime nothing of the app can show, and a
     // GUI app's panic goes nowhere: the user would see nothing happen.
     if let Err(message) = runtime::start() {
         fatal_error(&info.name.clone().unwrap_or_default(), &message);
         panic!("{message}");
+    }
+    if options.single_instance
+        && let Some(id) = &info.id
+        && !crate::instance::claim(id)
+    {
+        return;
     }
     let backend = WinUiBackend::new(BackendOptions {
         toolbar: TOOLBAR.with(Cell::get),
@@ -110,6 +123,14 @@ pub fn run(info: AppInfo, setup: impl FnOnce(&Ui)) {
         }
     }));
 
+    crate::instance::connect(&queue, &handle, {
+        let weak = ui.downgrade();
+        Rc::new(move |reopen| {
+            if let Some(ui) = weak.upgrade() {
+                ui.reopen(reopen);
+            }
+        })
+    });
     setup(&ui);
     turn();
     // The session ending asks the app as its own Quit does; its handlers
@@ -129,6 +150,8 @@ pub fn run(info: AppInfo, setup: impl FnOnce(&Ui)) {
     }
     SCHEDULE.with(|s| s.borrow_mut().take());
     crate::notifications::unregister();
+    crate::instance::disconnect();
+    crate::tray::shutdown();
     // Close everything while XAML is still running.
     drop(ui);
     runtime::pump();

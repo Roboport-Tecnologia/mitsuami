@@ -67,7 +67,18 @@ impl HeadlessHandle {
 
     /// Simulates a window becoming the active one, or another taking over.
     pub fn set_window_active(&self, window: NodeId, active: bool) {
-        self.state.borrow_mut().emit(window, UiEvent::WindowActiveChanged(active));
+        let mut state = self.state.borrow_mut();
+        if active {
+            state.active_window = Some(window);
+        } else if state.active_window == Some(window) {
+            state.active_window = None;
+        }
+        state.emit(window, UiEvent::WindowActiveChanged(active));
+    }
+
+    /// The window taking keys: the last one presented or made active.
+    pub fn active_window(&self) -> Option<NodeId> {
+        self.state.borrow().active_window
     }
 
     /// Simulates the user putting a window in full screen, or taking it

@@ -9,7 +9,7 @@ use std::rc::Rc;
 use std::sync::Arc;
 
 use mitsuami_core::services::MenuBar;
-use mitsuami_core::{AppInfo, Ui};
+use mitsuami_core::{AppInfo, RunOptions, Ui};
 
 use crate::backend::{BackendOptions, KirigamiBackend};
 use crate::ffi;
@@ -48,7 +48,40 @@ pub fn test_accepted_fatal_error() -> Option<(String, String)> {
 /// Starts the app: `setup` creates the windows, then Qt's event loop takes
 /// over. Returns when the last window closes.
 pub fn run(info: AppInfo, setup: impl FnOnce(&Ui)) {
+    run_with(info, RunOptions::default(), setup);
+}
+
+/// [`run`], with options. A single-instance app owns its id on the
+/// session bus once Qt has started, exporting `org.freedesktop.Application`
+/// as KDE apps' `KDBusService(Unique)` does; a later launch calls the
+/// running one's `Activate` with its arguments, and returns.
+pub fn run_with(info: AppInfo, options: RunOptions, setup: impl FnOnce(&Ui)) {
+    // Before Qt starts: its Wayland plugin takes the token from there.
+    let token = std::env::var("XDG_ACTIVATION_TOKEN").ok().filter(|token| !token.is_empty());
+    // X11's, which Qt's xcb plugin takes from the environment as it starts.
+    let startup_id = std::env::var("DESKTOP_STARTUP_ID").ok().filter(|id| !id.is_empty());
     init();
+    if options.single_instance
+        && let Some(id) = &info.id
+    {
+        // Lossy, as D-Bus strings are UTF-8: `args()` would panic on a
+        // name in another encoding.
+        let args: Vec<String> = std::env::args_os().skip(1).map(|arg| arg.to_string_lossy().into_owned()).collect();
+        let cwd = std::env::current_dir().ok().map(|cwd| cwd.to_string_lossy().into_owned());
+        match ffi::claim_instance(id, token.as_deref(), startup_id.as_deref(), &args, cwd.as_deref()) {
+            ffi::Instance::Primary => {}
+            ffi::Instance::HandedOver => return,
+            ffi::Instance::Unclaimed(why) => {
+                eprintln!("mitsuami: {id} runs as its own instance, since it can't look for others: {why}");
+            }
+            // The running one is there but didn't take it: running a
+            // second instance would do what single instance prevents.
+            ffi::Instance::Failed(why) => {
+                eprintln!("mitsuami: couldn't hand this launch to the running {id}: {why}");
+                return;
+            }
+        }
+    }
     let backend = KirigamiBackend::new(BackendOptions::default());
     let handle = backend.handle();
     let ui = Ui::new(backend);
@@ -107,6 +140,14 @@ pub fn run(info: AppInfo, setup: impl FnOnce(&Ui)) {
     // Tasks woken from other threads (background work finishing).
     ui.set_waker(Arc::new(ffi::wake));
 
+    {
+        let weak = ui.downgrade();
+        ffi::on_reopen(move |reopen| {
+            if let Some(ui) = weak.upgrade() {
+                ui.reopen(reopen);
+            }
+        });
+    }
     setup(&ui);
     ui.tick();
     handle.show_pending_windows();

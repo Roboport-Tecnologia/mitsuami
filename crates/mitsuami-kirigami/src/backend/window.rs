@@ -16,6 +16,8 @@ use super::{KirigamiHandle, State, Widget, WindowRoot, size_of};
 const FULL_SCREEN: i32 = 0x4;
 /// `Qt::WindowMaximized`.
 const MAXIMIZED: i32 = 0x2;
+/// `Qt::WindowMinimized`.
+const MINIMIZED: i32 = 0x1;
 
 /// `QWINDOWSIZE_MAX`, a window's largest side and its default maximum.
 const WINDOW_SIZE_MAX: i32 = 16_777_215;
@@ -95,6 +97,19 @@ impl WindowRoot {
             self.state_changed.set(true);
             self.window.set_window_states(wanted);
         }
+    }
+
+    /// Brings it forward as `mq_raise_app` does a launch's: restored if
+    /// minimized (keeping it maximized or in full screen), raised and
+    /// activated. Without a launch's token, KWin's focus stealing
+    /// prevention may only ask for attention.
+    pub(super) fn present(&self) {
+        let states = self.window.window_states();
+        if states & MINIMIZED != 0 {
+            self.window.set_window_states(states & !MINIMIZED);
+        }
+        self.window.invoke("raise");
+        self.window.invoke("requestActivate");
     }
 
     /// The content sets the height: a minimum and a maximum at the height

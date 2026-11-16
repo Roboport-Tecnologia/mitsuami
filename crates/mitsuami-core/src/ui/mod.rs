@@ -44,6 +44,8 @@ pub(crate) type Handler = Rc<dyn Fn(&UiEvent)>;
 type Handler0 = Rc<dyn Fn()>;
 /// Runs with the id of a notification the user clicked.
 type NotificationHandler = Rc<dyn Fn(&str)>;
+/// Runs with a later launch of a single-instance app.
+type ReopenHandler = Rc<dyn Fn(&crate::services::Reopen)>;
 
 struct Node {
     kind: WidgetKind,
@@ -143,6 +145,8 @@ struct Inner {
     /// Focus requests, sent after the structure of the batch: a node focused
     /// right after it's built isn't in a window yet.
     pending_focus: Vec<NodeId>,
+    /// Nodes whose windows code asked to bring forward.
+    pending_present: Vec<NodeId>,
     /// Text selections asked for, sent after the focus requests.
     pending_selections: Vec<(NodeId, std::ops::Range<usize>)>,
     windows: Vec<NodeId>,
@@ -169,6 +173,25 @@ struct Inner {
     notification_queue: std::collections::VecDeque<String>,
     /// For the ids the core gives notifications the app didn't name.
     next_notification: u64,
+    /// What runs when a single-instance app is launched again, by the
+    /// token `on_reopen` removes it with when its scope ends.
+    reopen_handlers: BTreeMap<u64, ReopenHandler>,
+    next_reopen_handler: u64,
+    /// Later launches the backend handed over, for the next dispatch.
+    reopen_queue: std::collections::VecDeque<crate::services::Reopen>,
+    /// The effect keeping the tray icon up to date, by the token its
+    /// scope's cleanup checks it's still the one shown.
+    tray_effect: Option<(u64, mitsuami_reactive::Effect)>,
+    next_tray: u64,
+    /// The tray menu's item handlers; ids are the menu bars'.
+    tray_handlers: std::collections::HashMap<u32, Handler0>,
+    /// Whether the tray icon is showing, as the backend says.
+    tray_shown: mitsuami_reactive::Signal<bool>,
+    /// Bumped by `set_app_info`: the tray shows the app's icon when it
+    /// gives none, so it's sent again.
+    app_info_changes: mitsuami_reactive::Signal<u64>,
+    /// The root the Ui's own signals live in, disposed with it.
+    _signals: SignalRoot,
     /// Last focus order sent, per window.
     focus_orders: BTreeMap<NodeId, Vec<NodeId>>,
     /// Whether a tab index, or what a page shown or a surface taking input
@@ -245,6 +268,17 @@ pub struct NodeInfo {
     pub children: Vec<NodeInfo>,
 }
 
+/// The Ui's own signals' root, disposed when the Ui goes (each `Ui` made
+/// one root per signal before, kept until the thread ended, as tests make
+/// many). Disposing does nothing once the thread's runtime is gone.
+struct SignalRoot(mitsuami_reactive::Owner);
+
+impl Drop for SignalRoot {
+    fn drop(&mut self) {
+        self.0.dispose();
+    }
+}
+
 impl Ui {
     pub fn new(backend: impl Backend + 'static) -> Ui {
         let mut backend: Box<dyn Backend> = Box::new(backend);
@@ -253,6 +287,9 @@ impl Ui {
         let metrics = backend.metrics();
         let services = Rc::new(RefCell::new(backend.services()));
         let l10n = crate::l10n::Localization::new(backend.locale());
+        // In a root of their own: they live as long as the Ui, whatever
+        // scope makes it.
+        let signals = SignalRoot(mitsuami_reactive::Owner::new_root());
         let ui = Ui {
             executor: Rc::default(),
             services,
@@ -273,6 +310,7 @@ impl Ui {
                 pending: Vec::new(),
                 created: Default::default(),
                 pending_focus: Vec::new(),
+                pending_present: Vec::new(),
                 pending_selections: Vec::new(),
                 windows: Vec::new(),
                 destroyed_windows: Vec::new(),
@@ -290,6 +328,15 @@ impl Ui {
                 next_notification_handler: 1,
                 notification_queue: Default::default(),
                 next_notification: 1,
+                reopen_handlers: BTreeMap::new(),
+                next_reopen_handler: 1,
+                reopen_queue: Default::default(),
+                tray_effect: None,
+                next_tray: 1,
+                tray_handlers: Default::default(),
+                tray_shown: signals.0.with(|| mitsuami_reactive::signal(false)),
+                app_info_changes: signals.0.with(|| mitsuami_reactive::signal(0)),
+                _signals: signals,
                 runs_without_windows: false,
                 quit_requested: false,
                 commit_scheduler: None,
@@ -368,7 +415,12 @@ impl Ui {
     /// The app's id, name and icon, for the platform to show. Set it
     /// before the app's first window; `App` does.
     pub fn set_app_info(&self, info: AppInfo) {
-        self.inner.borrow_mut().backend.set_app_info(&info);
+        let changes = {
+            let mut inner = self.inner.borrow_mut();
+            inner.backend.set_app_info(&info);
+            inner.app_info_changes
+        };
+        changes.update(|n| *n += 1);
     }
 
     /// Tasks that have not finished yet.

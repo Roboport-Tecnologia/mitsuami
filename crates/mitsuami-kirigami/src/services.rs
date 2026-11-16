@@ -19,7 +19,7 @@ use std::rc::Rc;
 use mitsuami_core::l10n::tr;
 use mitsuami_core::services::{
     Alert, AlertStyle, FileFilter, Launch, MenuBarData, MenuCheck, MenuData, MenuEntry, MenuItemData, MenuOnOpen,
-    MenuRole, Notification, OpenFile, Reply, SaveFile, ServiceError, Services, Shortcut, existing_folder,
+    MenuRole, Notification, OpenFile, Reply, SaveFile, ServiceError, Services, Shortcut, TrayData, existing_folder,
 };
 use mitsuami_core::{Key, NodeId};
 
@@ -604,12 +604,43 @@ fn retire(menu: QmlObject) {
 pub struct KirigamiServices {
     backend: KirigamiHandle,
     notifications: Notifications,
+    /// A StatusNotifierItem, as GTK's backend exports it (the shim links
+    /// no KDE Frameworks for `KStatusNotifierItem`).
+    tray: mitsuami_linux::tray::Tray,
+    /// Runs GLib's sources, where Qt's loop doesn't, while there's a tray.
+    glib_pump: Option<Rc<ffi::Timer>>,
 }
 
 impl KirigamiServices {
     pub(crate) fn new(backend: KirigamiHandle) -> KirigamiServices {
-        KirigamiServices { backend, notifications: Notifications::default() }
+        KirigamiServices {
+            backend,
+            notifications: Notifications::default(),
+            tray: mitsuami_linux::tray::Tray::new(|token| ffi::set_activation_token(&token)),
+            glib_pump: None,
+        }
     }
+}
+
+/// The tray is on GIO's D-Bus, whose calls come in through GLib's default
+/// context. Qt's loop on Linux is GLib's and runs it; without (Qt started
+/// with `QT_NO_GLIB`), a timer runs it every 20 ms.
+fn pump_glib() -> Option<Rc<ffi::Timer>> {
+    if ffi::loop_runs_glib() {
+        return None;
+    }
+    let timer = Rc::new_cyclic(|weak: &std::rc::Weak<ffi::Timer>| {
+        let weak = weak.clone();
+        ffi::Timer::new(move || {
+            let context = glib::MainContext::default();
+            while context.iteration(false) {}
+            if let Some(timer) = weak.upgrade() {
+                timer.start(20);
+            }
+        })
+    });
+    timer.start(0);
+    Some(timer)
 }
 
 /// A reply several signals may answer; the first one wins, and the dialog
@@ -857,6 +888,18 @@ impl Services for KirigamiServices {
                 let (shown, dialog) = self.backend.with_menus(|menus| (menus.of(id), menus.modal.contains(&id)));
                 wiring.update(&root, shown, dialog);
             }
+        }
+    }
+
+    fn set_tray(&mut self, tray: Option<&TrayData>, activate: Rc<dyn Fn(u32)>, shown: Rc<dyn Fn(bool)>) {
+        let (id, _) = ffi::app_id_and_name();
+        self.tray.set_app_id(Some(id.as_str()).filter(|id| !id.is_empty()));
+        if tray.is_some() && self.glib_pump.is_none() {
+            self.glib_pump = pump_glib();
+        }
+        self.tray.set(tray, activate, shown);
+        if tray.is_none() {
+            self.glib_pump = None;
         }
     }
 }

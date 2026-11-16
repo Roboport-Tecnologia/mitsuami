@@ -2,7 +2,9 @@
 
 use std::rc::Rc;
 
-use mitsuami_core::{AnyView, CurrentWindow, Modality, NodeId, Prop, Size, Ui, UiEvent, View, WidgetKind, WindowSize};
+use mitsuami_core::{
+    AnyView, CurrentWindow, Modality, NodeId, NodeRef, Prop, Size, Ui, UiEvent, View, WidgetKind, WindowSize,
+};
 use mitsuami_reactive::{IntoValue, Signal, Value, computed, effect, inject, on_cleanup, provide, untrack};
 
 /// A window the app opens while it runs: shown while `open` is true, with
@@ -37,6 +39,7 @@ pub struct Window<T = Value<String>> {
     on_open: Option<Rc<dyn Fn()>>,
     on_close_request: Option<Rc<dyn Fn()>>,
     on_active_changed: Option<Rc<dyn Fn(bool)>>,
+    node_ref: Option<NodeRef>,
     content: Option<Rc<dyn Fn() -> AnyView>>,
 }
 
@@ -55,6 +58,7 @@ impl Window {
             on_open: None,
             on_close_request: None,
             on_active_changed: None,
+            node_ref: None,
             content: None,
         }
     }
@@ -154,6 +158,14 @@ impl<T> Window<T> {
         self
     }
 
+    /// Points `node` at the window while it's open, to bring it forward
+    /// from code ([`NodeRef::present`]): `open.set(true)` alone does
+    /// nothing to a window that's open behind other apps' windows.
+    pub fn node_ref(mut self, node: NodeRef) -> Window<T> {
+        self.node_ref = Some(node);
+        self
+    }
+
     /// What it shows, built each time it opens.
     pub fn content<V: View>(mut self, content: impl Fn() -> V + 'static) -> Window<T> {
         self.content = Some(Rc::new(move || AnyView::new(content())));
@@ -178,6 +190,7 @@ impl View for Window {
             on_open,
             on_close_request,
             on_active_changed,
+            node_ref,
             content,
         } = self;
         // The window it's declared in, which a modal window belongs to.
@@ -220,6 +233,9 @@ impl View for Window {
                 effect(move || ui.set_prop(window, Prop::Resizable(resizable.get())));
             }
             provide(CurrentWindow(window));
+            if let Some(node) = node_ref {
+                node.attach(&ui, window);
+            }
             if let Some(handler) = &on_open {
                 handler();
             }
@@ -294,6 +310,7 @@ impl<T> Window<T> {
             on_open,
             on_close_request,
             on_active_changed,
+            node_ref,
             content,
         } = self;
         Window {
@@ -308,6 +325,7 @@ impl<T> Window<T> {
             on_open,
             on_close_request,
             on_active_changed,
+            node_ref,
             content,
         }
     }

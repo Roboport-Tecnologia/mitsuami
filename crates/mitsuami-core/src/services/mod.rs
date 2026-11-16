@@ -1,5 +1,6 @@
 //! Platform services: clipboard, dialogs, the menu bar, the trash,
-//! opening files in other apps and notifications.
+//! opening files in other apps, notifications, later launches of a
+//! single-instance app and the tray icon.
 //! Widgets' context menus are made of the same menus.
 //!
 //! [`Services`] is the contract each platform implements, separately from
@@ -15,12 +16,14 @@ mod menu;
 mod menu_collect;
 mod menu_data;
 mod notifications;
+mod reopen;
+mod tray;
 
 pub use dialogs::{Alert, AlertStyle, FileFilter, Launch, OpenFile, SaveFile, existing_folder};
 pub(crate) use futures::reply_future;
 pub use futures::{
-    alert, clipboard_text, launch, launch_url, notify, on_notification_activated, open_file, quit, save_file,
-    set_clipboard_text, set_menu, trash, withdraw_notification,
+    alert, clipboard_text, launch, launch_url, notify, on_notification_activated, on_reopen, open_file, quit,
+    save_file, set_clipboard_text, set_menu, set_tray, trash, tray_shown, withdraw_notification,
 };
 pub use menu::{Menu, MenuBar, MenuEntries, MenuItem, MenuSeparator, Menus};
 #[doc(hidden)]
@@ -31,6 +34,8 @@ pub use menu_data::{
     menu_item_by_id,
 };
 pub use notifications::Notification;
+pub use reopen::Reopen;
+pub use tray::{TrayData, TrayIcon};
 
 use std::path::PathBuf;
 use std::rc::Rc;
@@ -127,4 +132,15 @@ pub trait Services {
     /// Platforms keep their standard menus (e.g. the macOS app and Edit
     /// menus) and call `activate` with an item's id when it is chosen.
     fn set_menu(&mut self, window: Option<NodeId>, menu: &MenuBarData, activate: Rc<dyn Fn(u32)>);
+
+    /// Shows the app's icon in the platform's tray, or takes it away
+    /// (`None`). Called again whenever it changes. A click opens its menu
+    /// (there's no other click), and the backend calls `activate` with
+    /// the id of the item chosen. Call `shown` whenever whether it's
+    /// showing changes: on Linux the tray's host can come and go, and
+    /// plain GNOME has none. A platform without a tray keeps the default,
+    /// which shows nothing.
+    fn set_tray(&mut self, tray: Option<&TrayData>, activate: Rc<dyn Fn(u32)>, shown: Rc<dyn Fn(bool)>) {
+        let _ = (tray, activate, shown);
+    }
 }

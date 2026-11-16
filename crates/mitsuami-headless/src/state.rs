@@ -56,6 +56,20 @@ impl State {
         self.emit(id, UiEvent::FocusIn);
     }
 
+    /// A window becomes the active one, the one before it saying it no
+    /// longer is.
+    pub(super) fn activate_window(&mut self, window: NodeId) {
+        if self.active_window == Some(window) {
+            return;
+        }
+        if let Some(previous) = self.active_window.replace(window)
+            && self.nodes.contains_key(&previous)
+        {
+            self.emit(previous, UiEvent::WindowActiveChanged(false));
+        }
+        self.emit(window, UiEvent::WindowActiveChanged(true));
+    }
+
     /// Ends a GPU surface's pointer lock or keyboard grab (`off` says
     /// which), if it has it, as platforms end them.
     pub(super) fn end_lock(&mut self, id: NodeId, off: Prop) {

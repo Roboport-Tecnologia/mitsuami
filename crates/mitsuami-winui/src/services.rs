@@ -8,7 +8,7 @@ use std::rc::Rc;
 
 use mitsuami_core::NodeId;
 use mitsuami_core::services::{
-    Alert, FileFilter, Launch, MenuBarData, Notification, OpenFile, Reply, SaveFile, ServiceError, Services,
+    Alert, FileFilter, Launch, MenuBarData, Notification, OpenFile, Reply, SaveFile, ServiceError, Services, TrayData,
     existing_folder,
 };
 use windows_core::{HSTRING, Interface};
@@ -392,6 +392,10 @@ impl Services for WinUiServices {
 
     fn set_menu(&mut self, window: Option<NodeId>, menu: &MenuBarData, activate: Rc<dyn Fn(u32)>) {
         self.backend.set_menu(window, menu, activate);
+    }
+
+    fn set_tray(&mut self, tray: Option<&TrayData>, activate: Rc<dyn Fn(u32)>, shown: Rc<dyn Fn(bool)>) {
+        crate::tray::set(tray, &self.backend.app_info(), activate, shown);
     }
 }
 

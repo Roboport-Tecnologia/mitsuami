@@ -8,6 +8,8 @@
 #pragma once
 
 #include <QObject>
+#include <QStringList>
+#include <QVariantMap>
 #include <QQuickPaintedItem>
 #include <QTimer>
 #include <cstdint>
@@ -104,6 +106,20 @@ public slots:
     void closed(uint id, uint reason);
 private:
     uint64_t key;
+};
+
+// org.freedesktop.Application, which a single-instance app exports on the
+// session bus as KDBusService(Unique) and GApplication do: later launches
+// call Activate (GTK's backend too), and D-Bus activation Open.
+class ApplicationAdaptor : public QObject {
+    Q_OBJECT
+    Q_CLASSINFO("D-Bus Interface", "org.freedesktop.Application")
+public:
+    using QObject::QObject;
+public slots:
+    void Activate(const QVariantMap& platform_data);
+    void Open(const QStringList& uris, const QVariantMap& platform_data);
+    void ActivateAction(const QString& name, const QVariantList& parameter, const QVariantMap& platform_data);
 };
 
 // A drawn custom widget: paints a flattened display list with QPainter and
@@ -292,6 +308,31 @@ void mq_close_notification(uint32_t id);
 // Brings the app forward after a click on its notification, with the
 // server's activation token (null for none).
 void mq_raise_app(const char* token);
+// Keeps a tray host's activation token for the window that next asks to be
+// active (Wayland only), without raising one.
+void mq_set_activation_token(const char* token);
+
+// Single instance. A later launch, handed over: its arguments (`nargs`),
+// working folder (null for none) and files (`nfiles`), all UTF-8. The app
+// was brought forward with its token first.
+typedef void (*mq_reopen_callback)(const char* const* args, int32_t nargs, const char* cwd,
+                                   const char* const* files, int32_t nfiles);
+void mq_set_reopen_callback(mq_reopen_callback callback);
+// Whether Qt's loop is GLib's (its GLib event dispatcher), which runs
+// GLib's sources (GIO's D-Bus) too: 0 with QT_NO_GLIB set.
+int32_t mq_loop_runs_glib(void);
+enum {
+    MQ_INSTANCE_PRIMARY = 0,      // this process has the id now
+    MQ_INSTANCE_HANDED_OVER = 1,  // another has it, and took the launch
+    MQ_INSTANCE_UNCLAIMED = 2,    // no session bus, or the id can't be owned
+    MQ_INSTANCE_FAILED = 3,       // another has it, and didn't answer
+};
+// Owns `id` on the session bus with org.freedesktop.Application exported,
+// or hands the launch (`token`, X11's `startup_id`, `args`, `cwd`; null
+// for none) to the process that owns it. `error` gets why for the last two
+// (free with mq_free).
+int32_t mq_claim_instance(const char* id, const char* token, const char* startup_id, const char* const* args,
+                          int32_t nargs, const char* cwd, char** error);
 
 // Languages and formats: the system locale's (KDE's region settings), or
 // the locale named, if any. The user's languages, "a\nb" (free with

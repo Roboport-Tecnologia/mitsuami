@@ -12,12 +12,13 @@ homepage.workspace = true
 [features]
 # Builds the backend. Without it the crate is empty, so the workspace builds
 # on Linux machines without Qt; `mitsuami`'s `kde` feature turns it on.
-qt = ["dep:mitsuami-linux"]
+qt = ["dep:mitsuami-linux", "dep:glib"]
 
 [dependencies]
 mitsuami-core.workspace = true
 mitsuami-widgets.workspace = true
 mitsuami-linux = { workspace = true, optional = true }
+glib = { workspace = true, optional = true }
 
 [dev-dependencies]
 mitsuami-reactive.workspace = true

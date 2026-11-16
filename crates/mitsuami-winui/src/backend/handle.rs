@@ -18,6 +18,11 @@ use crate::bindings as w;
 use crate::runtime;
 
 impl WinUiHandle {
+    /// The app's id and icon, as `Ui::set_app_info` gave them.
+    pub(crate) fn app_info(&self) -> mitsuami_core::AppInfo {
+        self.state.borrow().app_info.clone()
+    }
+
     pub fn take_command_log(&self) -> Vec<Command> {
         std::mem::take(&mut self.state.borrow_mut().log)
     }

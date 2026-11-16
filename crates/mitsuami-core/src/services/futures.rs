@@ -9,7 +9,7 @@ use std::task::{Poll, Waker};
 
 use crate::ui::Ui;
 
-use super::{Alert, Launch, MenuBar, Notification, OpenFile, Reply, SaveFile, ServiceError};
+use super::{Alert, Launch, MenuBar, Notification, OpenFile, Reopen, Reply, SaveFile, ServiceError, TrayIcon};
 
 struct OneShot<T> {
     value: Option<T>,
@@ -110,8 +110,25 @@ pub fn on_notification_activated(handler: impl Fn(&str) + 'static) {
     ui().on_notification_activated(handler);
 }
 
+/// Runs `handler` in a single-instance app each time it's launched again,
+/// until the current scope ends; see [`Ui::on_reopen`].
+pub fn on_reopen(handler: impl Fn(&Reopen) + 'static) {
+    ui().on_reopen(handler);
+}
+
 /// Installs the app's menus; see [`Ui::set_menu`]. A window's own menus
 /// are a [`MenuBar`] in its content.
 pub fn set_menu(menu: MenuBar) {
     ui().set_menu(menu);
+}
+
+/// Shows the app's icon in the platform's tray until the current scope
+/// ends, replacing the one shown before; see [`Ui::set_tray`].
+pub fn set_tray(tray: TrayIcon) {
+    ui().set_tray(tray);
+}
+
+/// Whether the tray icon is showing right now; see [`Ui::tray_shown`].
+pub fn tray_shown() -> mitsuami_reactive::Signal<bool> {
+    ui().tray_shown()
 }

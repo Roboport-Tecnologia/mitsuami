@@ -60,14 +60,27 @@ impl GtkHandle {
         pump_until(Duration::from_secs(2), || (WidgetExt::width(&host), WidgetExt::height(&host)) == target);
     }
 
-    /// Presents windows whose first layout has been applied.
+    /// Presents windows whose first layout has been applied. A launch's
+    /// activation token goes to the first, and is dropped either way: the
+    /// launch's handlers ran in the turn before.
     pub fn show_pending_windows(&self) {
-        let pending = std::mem::take(&mut self.state.borrow_mut().pending_show);
+        let (pending, mut token) = {
+            let mut state = self.state.borrow_mut();
+            (std::mem::take(&mut state.pending_show), state.activation_token.take())
+        };
         for id in pending {
             if let Some(window) = self.gtk_window(id) {
+                if let Some(token) = token.take() {
+                    window.set_startup_id(&token);
+                }
                 window.present();
             }
         }
+    }
+
+    /// Keeps a launch's activation token for the next window presented.
+    pub(crate) fn set_activation_token(&self, token: Option<String>) {
+        self.state.borrow_mut().activation_token = token;
     }
 
     /// Lets list views that changed lay out now, rather than at the next

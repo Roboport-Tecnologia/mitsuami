@@ -317,15 +317,7 @@ fn on_invoked(
 /// its own apps' notifications; a minimized window is restored first.
 fn clicked(id: String) {
     let Some(Clicked { backend, activated }) = CLICKED.with(|c| c.borrow().clone()) else { return };
-    if let Some(hwnd) = backend.window_parts(None, |p| p.hwnd as isize) {
-        let hwnd = hwnd as w::HWND;
-        unsafe {
-            if w::IsIconic(hwnd).as_bool() {
-                _ = w::ShowWindow(hwnd, w::SW_RESTORE);
-            }
-            _ = w::SetForegroundWindow(hwnd);
-        }
-    }
+    crate::instance::bring_forward(&backend);
     activated(id);
 }
 

@@ -33,7 +33,7 @@ impl MenuBar {
 impl Menu {
     /// The menu's entries as data, for a context menu (whose title isn't
     /// shown), and each item's handler; see [`MenuBar::collect`].
-    fn collect_entries(
+    pub(crate) fn collect_entries(
         &self,
         ids: &mut Vec<u32>,
         new_id: &mut dyn FnMut() -> u32,
@@ -294,6 +294,16 @@ impl View for MenuBar {
             Some(CurrentWindow(window)) => ui.set_window_menu(window, self),
             None => ui.set_menu(self),
         }
+        placeholder
+    }
+}
+
+impl View for super::TrayIcon {
+    /// A placeholder in the tree, which takes no room: the icon is the
+    /// app's, in the platform's tray.
+    fn build(self, ui: &Ui) -> NodeId {
+        let placeholder = ui.create(WidgetKind::Fragment, Vec::new());
+        ui.set_tray(self);
         placeholder
     }
 }

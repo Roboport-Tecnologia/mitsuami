@@ -6,7 +6,9 @@
 #include <QApplication>
 #include <QClipboard>
 #include <QCursor>
+#include <QDBusArgument>
 #include <QDBusConnection>
+#include <QDBusConnectionInterface>
 #include <QDBusError>
 #include <QDBusMessage>
 #include <QDBusPendingCallWatcher>
@@ -58,6 +60,7 @@
 #include <functional>
 #include <optional>
 #include <utility>
+#include <vector>
 
 static mq_callback g_callback = nullptr;
 static mq_input_callback g_input = nullptr;
@@ -1773,4 +1776,116 @@ void mq_raise_app(const char* token) {
     if (!window) return;
     window->raise();
     window->requestActivate();
+}
+
+// A tray click's token, as KStatusNotifierItem's ProvideXdgActivationToken
+// keeps it (KWindowSystem::setCurrentXdgActivationToken): the item's window
+// takes it when it asks to be active, or when it first shows.
+void mq_set_activation_token(const char* token) {
+    if (token && on_wayland()) qputenv("XDG_ACTIVATION_TOKEN", token);
+}
+
+// ------------------------------------------------------------ single instance
+
+static mq_reopen_callback g_reopen = nullptr;
+
+void mq_set_reopen_callback(mq_reopen_callback callback) { g_reopen = callback; }
+
+// Where GIO exports an application: its id with '.' as '/' and '-' as '_'.
+static QString application_path(QString id) {
+    return QLatin1Char('/') + id.replace(QLatin1Char('.'), QLatin1Char('/')).replace(QLatin1Char('-'), QLatin1Char('_'));
+}
+
+// The platform data keys GTK's backend sends a launch's arguments (as) and
+// folder (s) in, next to the activation token.
+static const QString kArgs = QStringLiteral("mitsuami-args");
+static const QString kCwd = QStringLiteral("mitsuami-cwd");
+
+// A later launch: the last window comes forward with its token (or the
+// next one to show takes it), then the app hears.
+static void reopened(const QStringList& files, const QVariantMap& data) {
+    QString token = data.value(QStringLiteral("activation-token")).toString();
+    if (token.isEmpty()) token = data.value(QStringLiteral("desktop-startup-id")).toString();
+    const QByteArray token_bytes = token.toUtf8();
+    mq_raise_app(token.isEmpty() ? nullptr : token_bytes.constData());
+    if (!g_reopen || g_exiting) return;
+    const QStringList args = qdbus_cast<QStringList>(data.value(kArgs));
+    const QString cwd = data.value(kCwd).toString();
+    auto utf8 = [](const QStringList& list) {
+        QList<QByteArray> bytes;
+        for (const QString& item : list) bytes.append(item.toUtf8());
+        return bytes;
+    };
+    const QList<QByteArray> arg_bytes = utf8(args), file_bytes = utf8(files);
+    std::vector<const char*> arg_ptrs, file_ptrs;
+    for (const QByteArray& b : arg_bytes) arg_ptrs.push_back(b.constData());
+    for (const QByteArray& b : file_bytes) file_ptrs.push_back(b.constData());
+    const QByteArray cwd_bytes = cwd.toUtf8();
+    g_reopen(arg_ptrs.data(), int32_t(arg_ptrs.size()), cwd.isEmpty() ? nullptr : cwd_bytes.constData(),
+             file_ptrs.data(), int32_t(file_ptrs.size()));
+}
+
+void ApplicationAdaptor::Activate(const QVariantMap& platform_data) { reopened({}, platform_data); }
+
+void ApplicationAdaptor::Open(const QStringList& uris, const QVariantMap& platform_data) {
+    QStringList files;
+    for (const QString& uri : uris) {
+        const QUrl url(uri);
+        if (url.isLocalFile()) files.append(url.toLocalFile());
+    }
+    reopened(files, platform_data);
+}
+
+// mitsuami apps export no actions: it brings the app forward, as Activate.
+void ApplicationAdaptor::ActivateAction(const QString&, const QVariantList&, const QVariantMap& platform_data) {
+    reopened({}, platform_data);
+}
+
+int32_t mq_claim_instance(const char* id_utf8, const char* token, const char* startup_id,
+                          const char* const* args, int32_t nargs, const char* cwd, char** error) {
+    QDBusConnection bus = QDBusConnection::sessionBus();
+    if (!bus.isConnected()) {
+        *error = dup(bus.lastError().message());
+        return MQ_INSTANCE_UNCLAIMED;
+    }
+    const QString id = QString::fromUtf8(id_utf8);
+    const QString path = application_path(id);
+    QVariantMap data;
+    if (token) data.insert(QStringLiteral("activation-token"), QString::fromUtf8(token));
+    // As GTK sends it: a GTK primary on X11 brings its window up with it.
+    if (startup_id) data.insert(QStringLiteral("desktop-startup-id"), QString::fromUtf8(startup_id));
+    QStringList list;
+    for (int32_t i = 0; i < nargs; ++i) list.append(QString::fromUtf8(args[i]));
+    data.insert(kArgs, list);
+    if (cwd) data.insert(kCwd, QString::fromUtf8(cwd));
+    // Twice: a running one that's ending (its loop quit, its process not
+    // yet gone) doesn't answer, and the id is free once it has ended.
+    for (int attempt = 0; attempt < 2; ++attempt) {
+        // The object first, so a launch that finds the name finds it too.
+        auto* adaptor = new ApplicationAdaptor(qApp);
+        bus.registerObject(path, adaptor, QDBusConnection::ExportAllSlots);
+        if (bus.registerService(id)) return MQ_INSTANCE_PRIMARY;
+        bus.unregisterObject(path);
+        delete adaptor;
+        if (!bus.interface()->isServiceRegistered(id)) {
+            *error = dup(bus.lastError().message());
+            return MQ_INSTANCE_UNCLAIMED;
+        }
+        auto message = QDBusMessage::createMethodCall(id, path, QStringLiteral("org.freedesktop.Application"),
+                                                      QStringLiteral("Activate"));
+        message << data;
+        // Long enough for a busy app's loop to come round.
+        const QDBusMessage reply = bus.call(message, QDBus::Block, 10000);
+        if (reply.type() != QDBusMessage::ErrorMessage) return MQ_INSTANCE_HANDED_OVER;
+        if (attempt == 1 || bus.interface()->isServiceRegistered(id)) {
+            *error = dup(reply.errorMessage());
+            return MQ_INSTANCE_FAILED;
+        }
+    }
+    return MQ_INSTANCE_FAILED;
+}
+
+int32_t mq_loop_runs_glib(void) {
+    QAbstractEventDispatcher* dispatcher = QAbstractEventDispatcher::instance();
+    return dispatcher && dispatcher->inherits("QEventDispatcherGlib");
 }

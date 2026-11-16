@@ -46,6 +46,28 @@ impl AppInfo {
     }
 }
 
+/// How the app runs, beyond who it is: what `App` gives its backend's
+/// `run_with`.
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+#[non_exhaustive]
+pub struct RunOptions {
+    /// One process per app id and user session: a later launch hands its
+    /// arguments to the running one ([`Ui::reopen`](crate::Ui::reopen)) and
+    /// ends, without starting the app. Needs [`AppInfo::id`].
+    pub single_instance: bool,
+}
+
+impl RunOptions {
+    pub fn new() -> RunOptions {
+        RunOptions::default()
+    }
+
+    pub fn single_instance(mut self, single: bool) -> RunOptions {
+        self.single_instance = single;
+        self
+    }
+}
+
 /// The app's icon, decoded by the platform: PNG everywhere, other formats
 /// where the platform reads them (an `.ico` file on Windows, with its
 /// sizes). Give it large (256 or 512 pixels square): platforms scale it
@@ -55,6 +77,19 @@ pub enum AppIcon {
     File(PathBuf),
     /// An image file's bytes, as `include_bytes!` gives them.
     Bytes(Arc<[u8]>),
+    /// An icon from the user's icon theme, by name, as Linux apps give
+    /// theirs (installed with the app); `image` where there's no theme
+    /// (macOS, Windows). See [`AppIcon::named`].
+    Named {
+        name: String,
+        image: Option<Arc<AppIcon>>,
+    },
+    /// An image with another for dark backgrounds, where the platform
+    /// wants one. See [`AppIcon::dark`].
+    Themed {
+        light: Arc<AppIcon>,
+        dark: Arc<AppIcon>,
+    },
 }
 
 impl AppIcon {
@@ -66,11 +101,71 @@ impl AppIcon {
         AppIcon::Bytes(bytes.into())
     }
 
-    /// The image's bytes: read from its file, or as given.
-    pub fn read(&self) -> Option<Arc<[u8]>> {
+    /// An icon from the icon theme, by name: Linux shows it; macOS and
+    /// Windows show the [`image`](Self::image) given with it, or nothing.
+    pub fn named(name: impl Into<String>) -> AppIcon {
+        AppIcon::Named { name: name.into(), image: None }
+    }
+
+    /// The image a [`named`](Self::named) icon shows where there's no icon
+    /// theme. Other icons are images already, and stay as they are.
+    pub fn image(self, image: AppIcon) -> AppIcon {
         match self {
+            AppIcon::Named { name, .. } => AppIcon::Named { name, image: Some(Arc::new(image)) },
+            // `named(…).dark(…).image(…)`: the light side's.
+            AppIcon::Themed { light, dark } => {
+                AppIcon::Themed { light: Arc::new(Arc::unwrap_or_clone(light).image(image)), dark }
+            }
+            icon => icon,
+        }
+    }
+
+    /// The image to show on a dark background, where the platform doesn't
+    /// recolor the icon for it: Windows' tray on a dark taskbar. Elsewhere
+    /// the image itself shows: macOS tints the tray's image for the menu
+    /// bar, Linux recolors a theme's symbolic icons, and nothing tells an
+    /// app what's under a Linux tray (GNOME's top bar is dark in light
+    /// mode too). A [`named`](Self::named) icon's image takes it, in either
+    /// order with [`image`](Self::image).
+    pub fn dark(self, dark: AppIcon) -> AppIcon {
+        match self {
+            AppIcon::Named { name, image: Some(image) } => {
+                AppIcon::Named { name, image: Some(Arc::new(Arc::unwrap_or_clone(image).dark(dark))) }
+            }
+            // No image yet: the pair holds the name, and `image` gives the
+            // light side.
+            AppIcon::Themed { light, .. } => AppIcon::Themed { light, dark: Arc::new(dark) },
+            light => AppIcon::Themed { light: Arc::new(light), dark: Arc::new(dark) },
+        }
+    }
+
+    /// A named icon's name in the theme.
+    pub fn name(&self) -> Option<&str> {
+        match self {
+            AppIcon::Named { name, .. } => Some(name),
+            AppIcon::Themed { light, .. } => light.name(),
+            AppIcon::File(_) | AppIcon::Bytes(_) => None,
+        }
+    }
+
+    /// The image (a file or bytes) for a light or dark background: a named
+    /// icon's image, and a [`dark`](Self::dark) one's on a dark one.
+    pub fn image_for(&self, dark: bool) -> Option<&AppIcon> {
+        match self {
+            AppIcon::File(_) | AppIcon::Bytes(_) => Some(self),
+            AppIcon::Named { image, .. } => image.as_ref()?.image_for(dark),
+            AppIcon::Themed { light, dark: on_dark } => if dark { on_dark } else { light }.image_for(dark),
+        }
+    }
+
+    /// The image's bytes: read from its file, or as given; a named icon's
+    /// image's, if it has one, and the light one of a [`dark`](Self::dark)
+    /// pair.
+    pub fn read(&self) -> Option<Arc<[u8]>> {
+        match self.image_for(false)? {
             AppIcon::File(path) => std::fs::read(path).ok().map(Into::into),
             AppIcon::Bytes(bytes) => Some(bytes.clone()),
+            AppIcon::Named { .. } | AppIcon::Themed { .. } => None,
         }
     }
 }
@@ -81,7 +176,26 @@ impl fmt::Debug for AppIcon {
         match self {
             AppIcon::File(path) => f.debug_tuple("File").field(path).finish(),
             AppIcon::Bytes(bytes) => write!(f, "Bytes({} bytes)", bytes.len()),
+            AppIcon::Named { name, image } => {
+                f.debug_struct("Named").field("name", name).field("image", image).finish()
+            }
+            AppIcon::Themed { light, dark } => {
+                f.debug_struct("Themed").field("light", light).field("dark", dark).finish()
+            }
         }
+    }
+}
+
+impl mitsuami_reactive::IntoValue<AppIcon> for AppIcon {
+    fn into_value(self) -> mitsuami_reactive::Value<AppIcon> {
+        mitsuami_reactive::Value::Static(self)
+    }
+}
+
+/// A name from the icon theme: `.icon("player-symbolic")`.
+impl mitsuami_reactive::IntoValue<AppIcon> for &str {
+    fn into_value(self) -> mitsuami_reactive::Value<AppIcon> {
+        mitsuami_reactive::Value::Static(AppIcon::named(self))
     }
 }
 

@@ -20,7 +20,10 @@ impl Ui {
             let chosen = {
                 let mut inner = self.inner.borrow_mut();
                 let id = inner.menu_queue.pop_front();
-                id.and_then(|id| inner.menu_handlers.values().find_map(|handlers| handlers.get(&id)).cloned())
+                id.and_then(|id| {
+                    let mut bars = inner.menu_handlers.values().chain(std::iter::once(&inner.tray_handlers));
+                    bars.find_map(|handlers| handlers.get(&id)).cloned()
+                })
             };
             if let Some(handler) = chosen {
                 mitsuami_reactive::batch(|| handler());
@@ -33,6 +36,15 @@ impl Ui {
             };
             if let Some((id, handlers)) = clicked {
                 mitsuami_reactive::batch(|| handlers.iter().for_each(|handler| handler(&id)));
+                continue;
+            }
+            let reopened = {
+                let mut inner = self.inner.borrow_mut();
+                let reopen = inner.reopen_queue.pop_front();
+                reopen.map(|reopen| (reopen, inner.reopen_handlers.values().cloned().collect::<Vec<_>>()))
+            };
+            if let Some((reopen, handlers)) = reopened {
+                mitsuami_reactive::batch(|| handlers.iter().for_each(|handler| handler(&reopen)));
                 continue;
             }
             let next = self.inner.borrow().events.pop();
@@ -97,6 +109,14 @@ impl Ui {
         if refocus {
             inner.sync_focus_orders();
         }
+        // Before focus: the focus goes into the window that comes forward.
+        let mut presented = Vec::new();
+        for id in std::mem::take(&mut inner.pending_present) {
+            if let Some(window) = inner.window_of(id).filter(|w| !presented.contains(w)) {
+                presented.push(window);
+                inner.pending.push(Command::Present { window });
+            }
+        }
         for id in std::mem::take(&mut inner.pending_focus) {
             if inner.nodes.contains_key(&id) {
                 inner.pending.push(Command::Focus { id });
@@ -145,7 +165,10 @@ impl Ui {
             }
             let idle = {
                 let inner = self.inner.borrow();
-                inner.events.is_empty() && inner.menu_queue.is_empty() && inner.notification_queue.is_empty()
+                inner.events.is_empty()
+                    && inner.menu_queue.is_empty()
+                    && inner.notification_queue.is_empty()
+                    && inner.reopen_queue.is_empty()
             };
             if idle && !self.executor.has_ready() {
                 return;

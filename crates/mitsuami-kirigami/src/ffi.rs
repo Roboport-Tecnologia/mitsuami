@@ -111,6 +111,20 @@ unsafe extern "C" {
     fn mq_notify(key: u64, replaces: u32, title: *const c_char, body: *const c_char);
     fn mq_close_notification(id: u32);
     fn mq_raise_app(token: *const c_char);
+    fn mq_set_activation_token(token: *const c_char);
+    fn mq_loop_runs_glib() -> i32;
+    fn mq_set_reopen_callback(
+        callback: extern "C" fn(*const *const c_char, i32, *const c_char, *const *const c_char, i32),
+    );
+    fn mq_claim_instance(
+        id: *const c_char,
+        token: *const c_char,
+        startup_id: *const c_char,
+        args: *const *const c_char,
+        nargs: i32,
+        cwd: *const c_char,
+        error: *mut *mut c_char,
+    ) -> i32;
     fn mq_file_icon(icon: Raw, path: *const c_char);
     fn mq_file_icon_by_name(icon: Raw, path: *const c_char, folder: i32);
     fn mq_file_icon_loads() -> i32;
@@ -565,6 +579,105 @@ pub(crate) fn close_notification(id: u32) {
 pub(crate) fn raise_app(token: Option<&str>) {
     let token = token.map(c);
     unsafe { mq_raise_app(token.as_ref().map_or(std::ptr::null(), |t| t.as_ptr())) }
+}
+
+/// Keeps a tray host's activation token for the window that next asks to
+/// be active or shows, as Qt's Wayland plugin reads it.
+pub(crate) fn set_activation_token(token: &str) {
+    let token = c(token);
+    unsafe { mq_set_activation_token(token.as_ptr()) }
+}
+
+/// Whether Qt's loop runs GLib's sources (GIO's D-Bus) too, as its GLib
+/// event dispatcher does: not with `QT_NO_GLIB` set.
+pub(crate) fn loop_runs_glib() -> bool {
+    unsafe { mq_loop_runs_glib() != 0 }
+}
+
+/// What [`claim_instance`] found.
+pub(crate) enum Instance {
+    /// This process has the id now.
+    Primary,
+    /// Another has it, and took the launch.
+    HandedOver,
+    /// No session bus, or the id can't be owned: why.
+    Unclaimed(String),
+    /// Another has it, and didn't answer: why.
+    Failed(String),
+}
+
+/// Owns the app id on the session bus, exporting
+/// `org.freedesktop.Application`, or hands this launch to the process
+/// that owns it.
+pub(crate) fn claim_instance(
+    id: &str,
+    token: Option<&str>,
+    startup_id: Option<&str>,
+    args: &[String],
+    cwd: Option<&str>,
+) -> Instance {
+    let id = c(id);
+    let token = token.map(c);
+    let startup_id = startup_id.map(c);
+    let cwd = cwd.map(c);
+    let args: Vec<CString> = args.iter().map(|arg| c(arg)).collect();
+    let pointers: Vec<*const c_char> = args.iter().map(|arg| arg.as_ptr()).collect();
+    let mut error = std::ptr::null_mut();
+    let found = unsafe {
+        mq_claim_instance(
+            id.as_ptr(),
+            token.as_ref().map_or(std::ptr::null(), |t| t.as_ptr()),
+            startup_id.as_ref().map_or(std::ptr::null(), |t| t.as_ptr()),
+            pointers.as_ptr(),
+            pointers.len() as i32,
+            cwd.as_ref().map_or(std::ptr::null(), |c| c.as_ptr()),
+            &mut error,
+        )
+    };
+    let why = || if error.is_null() { String::new() } else { owned(error) };
+    match found {
+        0 => Instance::Primary,
+        1 => Instance::HandedOver,
+        2 => Instance::Unclaimed(why()),
+        _ => Instance::Failed(why()),
+    }
+}
+
+/// Where later launches go: the app's `Ui::reopen`.
+type Reopened = Box<dyn Fn(mitsuami_core::services::Reopen)>;
+
+thread_local! {
+    static REOPENED: RefCell<Option<Reopened>> = const { RefCell::new(None) };
+}
+
+/// Calls `f` with each later launch the shim hands over.
+pub(crate) fn on_reopen(f: impl Fn(mitsuami_core::services::Reopen) + 'static) {
+    REOPENED.with(|slot| *slot.borrow_mut() = Some(Box::new(f)));
+    unsafe { mq_set_reopen_callback(dispatch_reopen) };
+}
+
+extern "C" fn dispatch_reopen(
+    args: *const *const c_char,
+    nargs: i32,
+    cwd: *const c_char,
+    files: *const *const c_char,
+    nfiles: i32,
+) {
+    // SAFETY: the shim's UTF-8 arrays, alive for the call.
+    let list = |items: *const *const c_char, count: i32| -> Vec<String> {
+        (0..count.max(0) as usize)
+            .map(|i| unsafe { CStr::from_ptr(*items.add(i)) }.to_string_lossy().into_owned())
+            .collect()
+    };
+    let cwd =
+        (!cwd.is_null()).then(|| std::path::PathBuf::from(unsafe { CStr::from_ptr(cwd) }.to_string_lossy().as_ref()));
+    let files = list(files, nfiles).into_iter().map(std::path::PathBuf::from).collect();
+    let reopen = mitsuami_core::services::Reopen::new(list(args, nargs), cwd, files);
+    let _ = REOPENED.try_with(|slot| {
+        if let Some(f) = slot.borrow().as_ref() {
+            f(reopen);
+        }
+    });
 }
 
 /// The user's languages, from the system locale (KDE's settings) or the

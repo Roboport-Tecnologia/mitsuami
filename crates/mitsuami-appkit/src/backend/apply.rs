@@ -782,6 +782,23 @@ impl State {
                 let Some(node) = self.nodes.get(id) else { violation(command, "node does not exist") };
                 super::selection::select(&node.widget, range.clone());
             }
+            Command::Present { window: id } => {
+                let Some(Widget::Window { window, .. }) = self.nodes.get(id).map(|n| &n.widget) else {
+                    violation(command, "not a window")
+                };
+                if self.pending_show.contains(id) {
+                    // Ordered front after its first layout, the app with it.
+                    self.activate_on_show = true;
+                } else {
+                    // A sheet comes forward with its window.
+                    let window = window.sheetParent().unwrap_or_else(|| window.clone());
+                    NSApplication::sharedApplication(self.mtm).activate();
+                    if window.isMiniaturized() {
+                        window.deminiaturize(None);
+                    }
+                    window.makeKeyAndOrderFront(None);
+                }
+            }
         }
     }
 }

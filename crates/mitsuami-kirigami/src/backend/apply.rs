@@ -434,6 +434,13 @@ impl State {
                 }
             }
             Command::SelectText { id, range } => super::selection::select(self.widget(*id, command), range.clone()),
+            // Not shown yet, it's activated when it is.
+            Command::Present { window } => {
+                let root = self.window_root(*window, command);
+                if !self.pending_show.contains(window) {
+                    root.present();
+                }
+            }
             Command::ScrollToRow { id, row } => match self.nodes.get(id).map(|n| &n.widget) {
                 Some(Widget::List(list)) => list.scroll_to_row(*row),
                 _ => violation(command, "not a List"),

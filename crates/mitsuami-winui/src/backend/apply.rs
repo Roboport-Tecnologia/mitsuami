@@ -456,6 +456,15 @@ impl State {
                     *parts.wanted_focus.borrow_mut() = (!focused).then_some((*id, None));
                 }
             }
+            // Not shown yet, it takes the foreground when it is.
+            Command::Present { window } => match self.nodes.get(window).map(|n| &n.widget) {
+                Some(Widget::Window(parts)) => {
+                    if parts.shown {
+                        crate::instance::raise(parts.hwnd);
+                    }
+                }
+                _ => violation(command, "not a window"),
+            },
             Command::SelectText { id, range } => {
                 let Some(node) = self.nodes.get(id) else { violation(command, "node does not exist") };
                 if !matches!(

@@ -250,6 +250,16 @@ Microsoft.Windows.AppNotifications.AppNotificationActivatedEventArgs::{}
 Microsoft.Windows.AppNotifications.IAppNotificationActivatedEventArgs2::get_Arguments
 Microsoft.Windows.AppNotifications.Builder.AppNotificationBuilder::CreateInstance
 Microsoft.Windows.AppNotifications.Builder.IAppNotificationBuilder::{AddArgument, AddText, SetTag, BuildNotification}
+Microsoft.Windows.AppLifecycle.AppInstance::{FindOrRegisterForKey, GetCurrent}
+Microsoft.Windows.AppLifecycle.IAppInstance::{get_IsCurrent, get_ProcessId, RedirectActivationToAsync, GetActivatedEventArgs, add_Activated, remove_Activated}
+Microsoft.Windows.AppLifecycle.AppActivationArguments::{}
+Microsoft.Windows.AppLifecycle.IAppActivationArguments::{get_Kind, get_Data}
+Microsoft.Windows.AppLifecycle.ExtendedActivationKind
+Windows.ApplicationModel.Activation.IFileActivatedEventArgs::get_Files
+Windows.Storage.IStorageItem::get_Path
+Windows.Win32.AllowSetForegroundWindow
+Windows.Win32.CommandLineToArgvW
+Windows.Win32.LocalFree
 Windows.UI.Notifications.ToastNotificationManager::{CreateToastNotifierWithId, get_History}
 Windows.UI.Notifications.ToastNotifier::{}
 Windows.UI.Notifications.IToastNotifier::{Show, get_Setting}
@@ -302,6 +312,7 @@ Windows.Win32.PM_REMOVE
 Windows.Win32.QS_ALLINPUT
 Windows.Win32.MWMO_INPUTAVAILABLE
 Windows.Win32.WM_NULL
+Windows.Win32.WM_SETTINGCHANGE
 Windows.Win32.INFINITE
 Windows.Win32.GetWindowLongW
 Windows.Win32.SetWindowLongW
@@ -697,3 +708,52 @@ Microsoft.UI.Xaml.Automation.Provider.IExpandCollapseProvider
 Microsoft.UI.Xaml.Automation.ExpandCollapsePatternIdentifiers::get_ExpandCollapseStateProperty
 Microsoft.UI.Xaml.Automation.ExpandCollapseState
 Microsoft.UI.Xaml.Automation.Peers.PatternInterface
+Windows.Win32.Shell_NotifyIconW
+Windows.Win32.NOTIFYICONDATAW
+Windows.Win32.NIM_ADD
+Windows.Win32.NIM_MODIFY
+Windows.Win32.NIM_DELETE
+Windows.Win32.NIM_SETVERSION
+Windows.Win32.NIF_MESSAGE
+Windows.Win32.NIF_ICON
+Windows.Win32.NIF_TIP
+Windows.Win32.NIF_GUID
+Windows.Win32.NIF_SHOWTIP
+Windows.Win32.NOTIFYICON_VERSION_4
+Windows.Win32.NIN_SELECT
+Windows.Win32.NIN_KEYSELECT
+Windows.Win32.WM_CONTEXTMENU
+Windows.Win32.WM_APP
+Windows.Win32.RegisterWindowMessageW
+Windows.Win32.ChangeWindowMessageFilterEx
+Windows.Win32.MSGFLT_ALLOW
+Windows.Win32.SetTimer
+Windows.Win32.KillTimer
+Windows.Win32.WM_TIMER
+Windows.Win32.ERROR_TIMEOUT
+Windows.Win32.CreatePopupMenu
+Windows.Win32.DestroyMenu
+Windows.Win32.InsertMenuItemW
+Windows.Win32.MENUITEMINFOW
+Windows.Win32.MIIM_ID
+Windows.Win32.MIIM_STRING
+Windows.Win32.MIIM_STATE
+Windows.Win32.MIIM_FTYPE
+Windows.Win32.MIIM_SUBMENU
+Windows.Win32.MFT_STRING
+Windows.Win32.MFT_SEPARATOR
+Windows.Win32.MFT_RADIOCHECK
+Windows.Win32.MFS_CHECKED
+Windows.Win32.MFS_DISABLED
+Windows.Win32.TrackPopupMenuEx
+Windows.Win32.TPM_RETURNCMD
+Windows.Win32.TPM_RIGHTBUTTON
+Windows.Win32.TPM_BOTTOMALIGN
+Windows.Win32.TPM_RIGHTALIGN
+Windows.Win32.LoadImageW
+Windows.Win32.IMAGE_ICON
+Windows.Win32.LR_LOADFROMFILE
+Windows.Win32.GetSystemMetricsForDpi
+Windows.Win32.SM_CXSMICON
+Windows.Win32.LoadIconW
+Windows.Win32.IDI_APPLICATION

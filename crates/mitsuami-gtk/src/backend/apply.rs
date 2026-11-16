@@ -473,6 +473,18 @@ impl State {
                 }
                 None => violation(command, "node does not exist"),
             },
+            // Not shown yet, it's presented after its first layout. A
+            // launch's token goes with it, else GTK's own: on Wayland the
+            // compositor may only ask for attention for it.
+            Command::Present { window: id } => {
+                let window = self.window_root(*id, command).0.window.clone();
+                if !self.pending_show.contains(id) {
+                    if let Some(token) = self.activation_token.take() {
+                        window.set_startup_id(&token);
+                    }
+                    window.present();
+                }
+            }
             // After the field's `Focus`, so this selection replaces the
             // one focusing makes (`gtk-entry-select-on-focus`).
             Command::SelectText { id, range } => match self.nodes.get(id) {

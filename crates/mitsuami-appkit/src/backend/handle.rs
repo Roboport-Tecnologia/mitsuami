@@ -9,6 +9,12 @@ use objc2_foundation::{NSBundle, NSDate, NSDefaultRunLoopMode, NSPoint, NSProces
 use super::{AppKitHandle, State, Widget};
 
 impl AppKitHandle {
+    /// The app's id: `AppInfo::id`, else its bundle's.
+    pub(crate) fn app_id(&self) -> Option<String> {
+        let id = self.state.borrow().app_id.clone();
+        id.or_else(|| objc2_foundation::NSBundle::mainBundle().bundleIdentifier().map(|id| id.to_string()))
+    }
+
     /// The app's name as its menu shows it: the app's, or else the
     /// process's (a bundled app's executable).
     pub(crate) fn app_name(&self) -> String {

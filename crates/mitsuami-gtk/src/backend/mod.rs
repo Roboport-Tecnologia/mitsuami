@@ -421,6 +421,9 @@ pub(crate) struct State {
     /// The window that was active last, which a click on a notification
     /// brings forward.
     pub(crate) last_active: Rc<Cell<Option<NodeId>>>,
+    /// The activation token of a launch that found no window to bring
+    /// forward, for the window its handler opens: the next presented.
+    pub(crate) activation_token: Option<String>,
 }
 
 impl Drop for State {
@@ -530,6 +533,7 @@ impl GtkBackend {
             loads: file_icon::Loads::default(),
             app_id: None,
             last_active: Rc::default(),
+            activation_token: None,
         }));
         state.borrow_mut().menus.backend = Rc::downgrade(&state);
         GtkBackend { state }
