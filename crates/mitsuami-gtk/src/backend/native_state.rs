@@ -42,6 +42,10 @@ impl GtkBackend {
                 props.push(Prop::HeightFollowsContent(if parts.resizable { !resizable } else { parts.height_locked }));
                 props.push(Prop::Resizable(if parts.height_locked { parts.resizable } else { resizable }));
                 props.push(Prop::Maximized(parts.maximized.shown(&parts.window)));
+                if let Some(root) = parts.host.window_root() {
+                    props.extend(root.frame.get().map(Prop::Frame));
+                    props.extend(root.placement.get().map(Prop::Placement));
+                }
                 props.extend(node.modal.map(|(owner, modality)| Prop::Modal { owner, modality }));
             }
             Widget::Label(l) => {

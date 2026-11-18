@@ -60,6 +60,10 @@ impl State {
             // AppKit's maximize is zoom: the title bar's green button with
             // Option, or a double-click on the title bar.
             (Prop::Maximized(on), Widget::Window { window, _delegate, .. }) => _delegate.set_zoomed(window, *on),
+            (Prop::Frame(frame), Widget::Window { window, _delegate, .. }) => _delegate.set_frame(window, *frame),
+            // A new window is centred either way: AppKit's own place for
+            // one is the screen's bottom-left corner.
+            (Prop::Placement(placement), Widget::Window { _delegate, .. }) => _delegate.set_placement(*placement),
             (Prop::Resizable(on), Widget::Window { window, .. }) => {
                 let mask = window.styleMask();
                 window.setStyleMask(if *on {

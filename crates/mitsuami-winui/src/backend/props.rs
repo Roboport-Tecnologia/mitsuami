@@ -73,6 +73,14 @@ impl State {
                 parts.maximized.set(*on);
                 apply_maximized(parts);
             }
+            (Prop::Frame(frame), Widget::Window(parts)) => super::windows::apply_frame(parts, *frame),
+            (Prop::Placement(placement), Widget::Window(parts)) => {
+                parts.placement_prop = Some(*placement);
+                parts.placement = match placement {
+                    mitsuami_core::Placement::System => super::WindowPlacement::System,
+                    mitsuami_core::Placement::Centred => super::WindowPlacement::Centred,
+                };
+            }
             // On its own presenter, which comes back after full screen.
             (Prop::Resizable(on), Widget::Window(parts)) => {
                 parts.resizable = *on;

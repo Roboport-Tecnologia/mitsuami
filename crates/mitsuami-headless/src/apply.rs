@@ -63,6 +63,8 @@ impl HeadlessBackend {
                             surface: None,
                             windowed: None,
                             restored: None,
+                            position: None,
+                            centre_on_place: false,
                         },
                     );
                     if find_prop!(props, Maximized) == Some(true) {
@@ -113,6 +115,7 @@ impl HeadlessBackend {
                     match prop {
                         Prop::FullScreen(on) => state.fill_screen(*id, *on),
                         Prop::Maximized(on) => state.maximize(*id, *on),
+                        Prop::Frame(frame) if state.nodes[id].position.is_some() => state.place(*id, *frame),
                         Prop::MinSize(_) => {
                             let size = state.nodes[id].frame.size;
                             state.resize(*id, size);
@@ -252,6 +255,17 @@ impl HeadlessBackend {
                     }
                     state.activate_window(*window);
                 }
+                Command::CentreWindow { window } => {
+                    if state.node(*window, command).kind != WidgetKind::Window {
+                        violation(command, "not a window");
+                    }
+                    if state.nodes[window].position.is_some() {
+                        state.centre(*window);
+                    } else {
+                        // Not placed yet: centred as it is.
+                        state.nodes.get_mut(window).unwrap().centre_on_place = true;
+                    }
+                }
                 Command::SelectText { id, range } => {
                     let node = state.node(*id, command);
                     if !matches!(
@@ -283,6 +297,10 @@ impl HeadlessBackend {
         }
         state.unlink(&mut unlinked);
         touched.retain(|id| state.nodes.contains_key(id));
+        // Windows show once the batch that made them is in: placed then,
+        // and every window's frame reported if it moved.
+        state.place_new_windows();
+        state.report_frames();
         if let Some(last) = batch.last() {
             // New data, sizes or rows: what's in view may have changed. Only
             // in the lists the batch touched: the others are as they were.

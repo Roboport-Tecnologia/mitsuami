@@ -84,6 +84,12 @@ pub enum Command {
     Present {
         window: NodeId,
     },
+    /// Centres a window on its screen's work area now, as `Placement::Centred`
+    /// does when it opens; a window not shown yet is centred as it shows.
+    /// Where the platform places windows itself (Wayland, GTK), it stays.
+    CentreWindow {
+        window: NodeId,
+    },
     /// Selects these characters of a text field's or text area's text,
     /// counted in Unicode scalar values, within it and on grapheme
     /// boundaries (the app counts graphemes). A `Focus` for the
@@ -152,6 +158,11 @@ pub enum UiEvent {
     /// did. Not reported for the app's own `Maximized`. The core absorbs
     /// it as `Maximized`.
     MaximizedChanged(bool),
+    /// A window's restored frame (`Prop::Frame`): once as it shows, then as
+    /// the user moves or resizes it while it's neither maximized nor in full
+    /// screen. Not reported for the app's own `Frame`. The core absorbs it
+    /// as `Frame`.
+    FrameChanged(crate::WindowFrame),
     /// The user showed or hid a `Sidebar` (the platform's own toggle, its
     /// divider dragged away), or the platform did. Not reported for the
     /// app's own `SidebarShown`. The core absorbs it as `SidebarShown`.

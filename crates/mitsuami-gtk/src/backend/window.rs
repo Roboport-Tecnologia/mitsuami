@@ -15,6 +15,11 @@ use crate::host::{Host, WindowRoot};
 use super::{GtkBackend, State, Widget, WindowParts, owning_node, pump_until};
 
 impl WindowParts {
+    /// What's above the content.
+    pub(super) fn header_height(&self) -> i32 {
+        self.header_height
+    }
+
     /// How much larger the window is than its content: by the header bar,
     /// and beside a sidebar, by it.
     pub(super) fn extra(&self, content: Size) -> (i32, i32) {
@@ -71,6 +76,18 @@ impl MinSize {
             _ => Size::new(requested(width), requested(height)),
         }
     }
+}
+
+/// The content size of a window filling its monitor: GTK 4 has no work
+/// area, so the monitor's whole geometry, less the header bar (`header`,
+/// a window's, else an Adwaita header bar's 47).
+pub(super) fn work_area(window: Option<&gtk::Window>, header: Option<i32>) -> Option<Size> {
+    let monitor = match window {
+        Some(window) => monitor_of(window)?,
+        None => gdk::Display::default()?.monitors().item(0).and_downcast()?,
+    };
+    let area = monitor.geometry();
+    Some(Size::new(area.width() as f32, (area.height() - header.unwrap_or(47)).max(0) as f32))
 }
 
 /// The monitor the window is on, or before it has a surface, the first.
@@ -395,6 +412,8 @@ impl State {
             size: Cell::new(Size::ZERO),
             resizing: Cell::new(None),
             focus_order: RefCell::new(Vec::new()),
+            frame: Cell::new(None),
+            placement: Cell::new(None),
         };
         let host = Host::new(self.frames.clone(), Some(root));
         window.set_child(Some(&host));

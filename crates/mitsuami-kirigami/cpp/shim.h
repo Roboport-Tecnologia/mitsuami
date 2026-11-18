@@ -269,6 +269,8 @@ void mq_window_set_states(QObject* window, int32_t states);
 // The most a window's client area can be on its screen: the screen's
 // available area less the window's frame. Returns 0 without a screen.
 int32_t mq_window_available_size(QObject* window, double* width, double* height);
+int32_t mq_screen_available_at(QObject* window, int32_t x, int32_t y, int32_t* left, int32_t* top, int32_t* width,
+                               int32_t* height);
 
 // The app's id (its desktop file's name: the Wayland app id), its display
 // name (which Qt adds to window titles) and icon: the theme's icon named

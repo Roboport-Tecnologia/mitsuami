@@ -8,8 +8,8 @@ use std::rc::Rc;
 
 use mitsuami_core::services::{MenuEntry, MenuOnOpen, Shortcut};
 use mitsuami_core::{
-    DisplayList, EventSink, EventValue, FileDrop, Insets, Key, NodeId, Point, PointerEvent, PointerKind, Size, UiEvent,
-    WidgetKind,
+    DisplayList, EventSink, EventValue, FileDrop, Insets, Key, NodeId, Placement, Point, PointerEvent, PointerKind,
+    Size, UiEvent, WidgetKind, WindowFrame,
 };
 use objc2::rc::Retained;
 use objc2::runtime::{AnyObject, Bool, NSObject, NSObjectProtocol, ProtocolObject, Sel};
@@ -687,6 +687,21 @@ pub(crate) struct WindowIvars {
     /// The window's content (its host), when it's beside a sidebar: the
     /// window's content area is larger by the sidebar and the title bar.
     detail: RefCell<Option<Retained<NSView>>>,
+    /// Its restored frame, as last reported or as the app set it.
+    frame: Cell<Option<WindowFrame>>,
+    /// The app's frame placed it: shown, it isn't centred.
+    framed: Cell<bool>,
+    /// The app's frame, set while it was zoomed, miniaturized or in full screen:
+    /// applied as it's back to its own size.
+    pending_frame: Cell<Option<WindowFrame>>,
+    /// Asked to be centred while it was zoomed, miniaturized or in full screen:
+    /// centred as it's back to its own size.
+    pending_centre: Cell<bool>,
+    /// While the app's own frame is being applied: its moves and resizes aren't
+    /// reported one by one, only where it ends.
+    frame_held: Cell<bool>,
+    /// The app's `Placement`, if it chose, for its native state.
+    placement: Cell<Option<Placement>>,
 }
 
 define_class!(
@@ -834,10 +849,31 @@ define_class!(
             if self.ivars().detail.borrow().is_none() {
                 self.ivars().events.emit(self.ivars().id, UiEvent::WindowResized(size));
             }
-            // A zoom by the user, or one a resize undid.
-            let zoomed = self.zoomed(window);
-            if self.ivars().zoomed.replace(zoomed) != zoomed {
-                self.ivars().events.emit(self.ivars().id, UiEvent::MaximizedChanged(zoomed));
+            // A zoom by the user, or one a resize undid; not the app's own frame
+            // being applied (a window zoomed as it opens is zoomed again after).
+            if !self.ivars().frame_held.get() {
+                let zoomed = self.zoomed(window);
+                if self.ivars().zoomed.replace(zoomed) != zoomed {
+                    self.ivars().events.emit(self.ivars().id, UiEvent::MaximizedChanged(zoomed));
+                }
+            }
+            self.report_frame(window);
+        }
+
+        #[unsafe(method(windowDidMove:))]
+        fn window_did_move(&self, notification: &NSNotification) {
+            if let Some(window) = notification.object().and_then(|o| o.downcast::<NSWindow>().ok()) {
+                // A move (a drag) doesn't apply a pending frame: that would move the
+                // window under the pointer.
+                self.report_frame_with(&window, false);
+            }
+        }
+
+        /// Back from the Dock: a frame or centring asked for meanwhile applies.
+        #[unsafe(method(windowDidDeminiaturize:))]
+        fn window_did_deminiaturize(&self, notification: &NSNotification) {
+            if let Some(window) = notification.object().and_then(|o| o.downcast::<NSWindow>().ok()) {
+                self.report_frame(&window);
             }
         }
 
@@ -913,6 +949,12 @@ impl WindowDelegate {
             min_size: Cell::new(None),
             height_locked: Cell::new(false),
             detail: RefCell::new(None),
+            frame: Cell::new(None),
+            framed: Cell::new(false),
+            pending_frame: Cell::new(None),
+            pending_centre: Cell::new(false),
+            frame_held: Cell::new(false),
+            placement: Cell::new(None),
         });
         unsafe { msg_send![super(this), init] }
     }
@@ -1030,6 +1072,167 @@ impl WindowDelegate {
         }
     }
 
+    /// Reports the window's restored frame if it changed: its top-left
+    /// corner (AppKit's coordinates, from the bottom left of the main
+    /// screen) and content size, while it's shown and neither zoomed,
+    /// miniaturized nor in full screen.
+    pub(crate) fn report_frame(&self, window: &NSWindow) {
+        self.report_frame_with(window, true);
+    }
+
+    /// [`Self::report_frame`], applying first a frame or centring asked for while it
+    /// wasn't at its own frame when `apply_pending` (it's back: un-zoomed,
+    /// deminiaturized, out of full screen); else, with one pending, nothing.
+    fn report_frame_with(&self, window: &NSWindow, apply_pending: bool) {
+        if !window.isVisible() || self.away_from_its_frame(window) || self.ivars().frame_held.get() {
+            return;
+        }
+        let pending_frame = self.ivars().pending_frame.take();
+        let pending_centre = self.ivars().pending_centre.get();
+        if !apply_pending && (pending_frame.is_some() || pending_centre) {
+            self.ivars().pending_frame.set(pending_frame);
+            return;
+        }
+        if let Some(frame) = pending_frame {
+            self.set_frame(window, frame);
+            return;
+        }
+        if self.ivars().pending_centre.replace(false) {
+            self.centre(window);
+            return;
+        }
+        let outer = window.frame();
+        let content = window.contentRectForFrameRect(outer).size;
+        let extra = self.extra(window);
+        let frame = WindowFrame {
+            position: Some(Point::new(outer.origin.x as f32, (outer.origin.y + outer.size.height) as f32)),
+            size: Size::new((content.width - extra.width) as f32, (content.height - extra.height) as f32),
+        };
+        if self.ivars().frame.replace(Some(frame)) != Some(frame) {
+            self.ivars().events.emit(self.ivars().id, UiEvent::FrameChanged(frame));
+        }
+    }
+
+    /// The frame as last reported or set, for the window's native state.
+    pub(crate) fn frame(&self) -> Option<WindowFrame> {
+        self.ivars().frame.get()
+    }
+
+    /// Whether the app's frame placed it, so showing it doesn't centre it.
+    pub(crate) fn framed(&self) -> bool {
+        self.ivars().framed.get()
+    }
+
+    pub(crate) fn set_placement(&self, placement: Placement) {
+        self.ivars().placement.set(Some(placement));
+    }
+
+    pub(crate) fn placement(&self) -> Option<Placement> {
+        self.ivars().placement.get()
+    }
+
+    /// Places and sizes the window at the app's frame, no larger than the
+    /// visible area of the screen it lands on, and moved onto it (a screen
+    /// unplugged since the frame was saved takes it to the main one), as
+    /// AppKit's saved frames are restored.
+    /// Zoomed, miniaturized or in full screen (or on its way): not at its own frame.
+    fn away_from_its_frame(&self, window: &NSWindow) -> bool {
+        window.isMiniaturized()
+            || self.zoomed(window)
+            || window.styleMask().contains(NSWindowStyleMask::FullScreen)
+            || self.ivars().full_screen_moving.get()
+    }
+
+    pub(crate) fn set_frame(&self, window: &NSWindow, frame: WindowFrame) {
+        self.ivars().frame.set(Some(frame));
+        // Zoomed, miniaturized or in full screen: the frame it goes back to. (A
+        // miniaturized window isn't visible, nor one not shown yet, which is placed
+        // now: zoomed as it opens, it's zoomed again below.)
+        let shown = window.isVisible() || window.isMiniaturized();
+        if shown && self.away_from_its_frame(window) {
+            self.ivars().pending_frame.set(Some(frame));
+            return;
+        }
+        // Its moves and resizes as this applies are reported once, where it ends.
+        self.ivars().frame_held.set(true);
+        let extra = self.extra(window);
+        let mtm = MainThreadMarker::from(self);
+        let at = frame.position.map(|p| NSPoint::new(p.x as f64, p.y as f64)).unwrap_or_else(|| {
+            let outer = window.frame();
+            NSPoint::new(outer.origin.x, outer.origin.y + outer.size.height)
+        });
+        // The screen the frame's top-left corner is on, else the main one.
+        let screens = NSScreen::screens(mtm);
+        let screen = screens
+            .iter()
+            .find(|s| {
+                let f = s.frame();
+                at.x >= f.origin.x
+                    && at.x < f.origin.x + f.size.width
+                    && at.y > f.origin.y
+                    && at.y <= f.origin.y + f.size.height
+            })
+            .or_else(|| NSScreen::mainScreen(mtm));
+        let visible = screen.map(|s| s.visibleFrame());
+        // One whose content sets its height keeps it: the frame gives its width.
+        let height = if self.ivars().height_locked.get() {
+            window.contentRectForFrameRect(window.frame()).size.height - extra.height
+        } else {
+            frame.size.height as f64
+        };
+        let mut size = NSSize::new(frame.size.width as f64 + extra.width, height + extra.height);
+        if let Some(visible) = visible {
+            let most = window.contentRectForFrameRect(visible).size;
+            size = NSSize::new(size.width.min(most.width), size.height.min(most.height));
+        }
+        // Between its minimum and maximum, as a drag goes (`setContentSize:` alone
+        // goes past them); the minimum wins.
+        let (min, max) = (window.contentMinSize(), window.contentMaxSize());
+        size = NSSize::new(size.width.min(max.width).max(min.width), size.height.min(max.height).max(min.height));
+        window.setContentSize(size);
+        if frame.position.is_some() {
+            self.ivars().framed.set(true);
+            let outer = window.frame().size;
+            let at = match visible {
+                Some(v) => NSPoint::new(
+                    at.x.min(v.origin.x + v.size.width - outer.width).max(v.origin.x),
+                    at.y.max(v.origin.y + outer.height).min(v.origin.y + v.size.height),
+                ),
+                None => at,
+            };
+            window.setFrameTopLeftPoint(at);
+        }
+        // Not shown yet and to open zoomed: the frame is the one it un-zooms to.
+        if !shown && self.ivars().zoomed.get() && !self.zoomed(window) {
+            window.zoom(None);
+        }
+        self.ivars().frame_held.set(false);
+        self.report_frame(window);
+    }
+
+    /// Centres the window on its screen now; one not shown yet is centred
+    /// as it shows.
+    pub(crate) fn centre(&self, window: &NSWindow) {
+        self.ivars().framed.set(false);
+        // Zoomed, miniaturized or in full screen: centred as it's back.
+        if (window.isVisible() || window.isMiniaturized()) && self.away_from_its_frame(window) {
+            self.ivars().pending_centre.set(true);
+            return;
+        }
+        if window.isVisible() {
+            window.center();
+            self.report_frame(window);
+        }
+    }
+
+    /// The content size of a window filling its screen's visible area.
+    pub(crate) fn work_area(&self, window: &NSWindow) -> Option<Size> {
+        let screen = window.screen().or_else(|| NSScreen::mainScreen(MainThreadMarker::from(self)))?;
+        let area = window.contentRectForFrameRect(screen.visibleFrame()).size;
+        let extra = self.extra(window);
+        Some(Size::new((area.width - extra.width) as f32, (area.height - extra.height) as f32))
+    }
+
     /// Zoomed, as AppKit maximizes a window: to its standard frame, the
     /// screen's visible area unless the window's delegate says otherwise.
     /// `zoom:` goes back to the frame it had before. In full screen, it
@@ -1096,6 +1299,9 @@ impl WindowDelegate {
         self.ivars().full_screen_moving.set(false);
         if let Some(window) = notification.object().and_then(|o| o.downcast::<NSWindow>().ok()) {
             self.apply_full_screen(&window);
+            // Out of full screen: a frame or centring asked for meanwhile applies,
+            // and where it is now is reported.
+            self.report_frame(&window);
         }
     }
 

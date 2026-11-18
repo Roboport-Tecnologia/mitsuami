@@ -52,8 +52,15 @@ impl KirigamiHandle {
         let pending = std::mem::take(&mut self.state.borrow_mut().pending_show);
         for id in pending {
             if let Some(root) = self.window_root(id) {
+                let centre = root.take_centre_on_show()
+                    || (!root.framed() && root.placement() == Some(mitsuami_core::Placement::Centred));
                 root.window.set_bool("visible", true);
+                // Shown, at the size its first layout gave it: centred now.
+                if centre {
+                    root.centre();
+                }
                 root.window.invoke("requestActivate");
+                root.report_frame();
             }
         }
     }

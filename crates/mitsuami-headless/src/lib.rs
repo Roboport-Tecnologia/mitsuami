@@ -69,6 +69,12 @@ struct HeadlessNode {
     windowed: Option<Size>,
     /// Maximized windows only: their size before, to go back to.
     restored: Option<Size>,
+    /// Windows only: their top-left corner on the screen, title bar
+    /// included; `None` until placed, at the end of the batch that made
+    /// them.
+    position: Option<Point>,
+    /// Windows only: centred as it's placed (`CentreWindow` before it was).
+    centre_on_place: bool,
 }
 
 /// A user who reads US English, and numbers and dates written as
@@ -209,6 +215,10 @@ impl Backend for HeadlessBackend {
 
     fn native_state(&self, id: NodeId) -> Option<NativeState> {
         self.read_native_state(id)
+    }
+
+    fn work_area(&self, _window: Option<NodeId>) -> Option<Size> {
+        Some(metrics::WORK_AREA)
     }
 
     fn locale(&self) -> Rc<dyn PlatformLocale> {

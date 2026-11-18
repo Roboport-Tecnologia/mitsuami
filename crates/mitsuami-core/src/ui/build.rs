@@ -72,7 +72,18 @@ impl Ui {
     /// A window fitting its height is sized at its first layout, so give it
     /// its content before the next commit.
     pub fn create_window(&self, title: impl Into<String>, size: impl Into<WindowSize>) -> NodeId {
-        let size = size.into();
+        let size = match size.into() {
+            // A fraction of the work area of the screen it opens on, as the
+            // platform tells it now; without a screen, a common default.
+            WindowSize::Screen { width, height } => {
+                let area = self.inner.borrow().backend.work_area(None).unwrap_or(Size::new(1024.0, 768.0));
+                WindowSize::Fixed(Size::new(
+                    (area.width * width.clamp(0.0, 1.0)).round(),
+                    (area.height * height.clamp(0.0, 1.0)).round(),
+                ))
+            }
+            size => size,
+        };
         let mut props = vec![Prop::Title(title.into())];
         if let WindowSize::FollowHeight(_) = size {
             props.push(Prop::HeightFollowsContent(true));
@@ -85,6 +96,7 @@ impl Ui {
             WindowSize::FitHeight(width) => (Size::new(width, 0.0), Fit::Once),
             WindowSize::FollowHeight(width) => (Size::new(width, 0.0), Fit::Follow { until_resized: false }),
             WindowSize::FollowHeightUntilResized(width) => (Size::new(width, 0.0), Fit::Follow { until_resized: true }),
+            WindowSize::Screen { .. } => unreachable!("resolved above"),
         };
         node.window_size = size;
         node.fit = fit;
@@ -95,6 +107,29 @@ impl Ui {
             inner.pending.push(Command::SetWindowSize { id, size });
         }
         id
+    }
+
+    /// The work area of a window's screen (the screen less its bars and
+    /// docks), as the content size of a window filling it, in points: what
+    /// to size a window to a fraction of its screen with
+    /// [`Ui::set_window_size`]. With `None`, of the screen a new window opens
+    /// on. `None` if the platform can't tell.
+    pub fn work_area(&self, window: Option<NodeId>) -> Option<Size> {
+        self.inner.borrow().backend.work_area(window)
+    }
+
+    /// Centres a window on its screen's work area now, as
+    /// `Placement::Centred` does when it opens. Where the platform places
+    /// windows itself (Wayland, GTK), it stays where it is.
+    pub fn centre_window(&self, window: NodeId) {
+        {
+            let mut inner = self.inner.borrow_mut();
+            if !inner.nodes.get(&window).is_some_and(|n| n.kind == WidgetKind::Window) {
+                return;
+            }
+            inner.pending.push(Command::CentreWindow { window });
+        }
+        self.changed();
     }
 
     /// Asks for a window's content size, in points, as the app would resize

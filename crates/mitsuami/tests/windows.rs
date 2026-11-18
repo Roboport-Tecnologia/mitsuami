@@ -740,6 +740,238 @@ async fn maximized_follows_the_app(app: TestApp) {
     assert_eq!(app.ui().window_size(window), Some(restored));
 }
 
+/// A window asked to open maximized stays asked: the sizing it goes
+/// through on its way to the screen isn't the user restoring it. (An app
+/// that remembers how its window was left opens it this way.) WinUI
+/// maximizes a window as it shows, and test windows never do, so there
+/// the asked-for state is what it will show.
+#[mitsuami_test::test]
+async fn opens_maximized(app: TestApp) {
+    let zoomed = signal(true);
+    app.mount(move || {
+        Window::new("Machine").size(Size::new(400.0, 300.0)).maximized(zoomed).content(|| Text::new("Screen"))
+    });
+    let window = machine(&app).expect("open");
+    app.settle().await;
+    assert!(zoomed.get_untracked(), "still maximized");
+    assert!(native_props(&app, window).contains(&Prop::Maximized(true)));
+}
+
+/// A frame it opens at places and sizes it: the content is laid out at
+/// its size, and the frame stays the app's. Where the platform can't place
+/// windows (GTK), the size still holds.
+#[mitsuami_test::test]
+async fn opens_at_its_frame(app: TestApp) {
+    let at = WindowFrame { position: Some(Point::new(200.0, 150.0)), size: Size::new(500.0, 400.0) };
+    let frame = signal(Some(at));
+    app.mount(move || {
+        Window::new("Machine")
+            .size(Size::new(300.0, 200.0))
+            .frame(frame)
+            .content(|| Column::new().child(Row::new().test_id("fill").size(100.vw(), 100.vh())))
+    });
+    let window = machine(&app).expect("open");
+    app.settle().await;
+    assert_eq!(app.ui().window_size(window), Some(Size::new(500.0, 400.0)));
+    app.expect(by_test_id("fill")).to_have_frame(Rect::new(0.0, 0.0, 500.0, 400.0)).await;
+    assert_eq!(frame.get_untracked().map(|f| f.size), Some(Size::new(500.0, 400.0)));
+    if app.is_headless() {
+        assert_eq!(frame.get_untracked(), Some(at));
+        assert_eq!(native_props(&app, window).iter().find(|p| matches!(p, Prop::Frame(_))), Some(&Prop::Frame(at)));
+    }
+}
+
+/// Opened with no frame, the platform says where it put it: the app hears
+/// its frame, at its size, and keeps it to open it there next time.
+#[mitsuami_test::test]
+async fn says_where_it_opened(app: TestApp) {
+    let frame = signal(None::<WindowFrame>);
+    app.mount(move || {
+        Window::new("Machine").size(Size::new(400.0, 300.0)).frame(frame).content(|| Text::new("Screen"))
+    });
+    machine(&app).expect("open");
+    app.settle().await;
+    let heard = frame.get_untracked().expect("a frame");
+    assert_eq!(heard.size, Size::new(400.0, 300.0));
+    if app.is_headless() {
+        assert_eq!(heard.position, Some(app.headless().new_window_at()));
+    }
+}
+
+/// The user moving or resizing it changes its frame; maximizing it
+/// doesn't, and restoring it brings back the frame it had.
+#[mitsuami_test::test(headless)]
+async fn the_user_moves_and_resizes_its_frame(app: TestApp) {
+    let frame = signal(None::<WindowFrame>);
+    let zoomed = signal(false);
+    app.mount(move || {
+        Window::new("Machine")
+            .size(Size::new(400.0, 300.0))
+            .frame(frame)
+            .maximized(zoomed)
+            .content(|| Text::new("Screen"))
+    });
+    let window = machine(&app).expect("open");
+    app.settle().await;
+
+    app.headless().move_window(window, Point::new(300.0, 200.0));
+    app.settle().await;
+    assert_eq!(frame.get_untracked().and_then(|f| f.position), Some(Point::new(300.0, 200.0)));
+
+    app.headless().resize_window(window, Size::new(500.0, 350.0));
+    app.settle().await;
+    let left = WindowFrame { position: Some(Point::new(300.0, 200.0)), size: Size::new(500.0, 350.0) };
+    assert_eq!(frame.get_untracked(), Some(left));
+
+    app.headless().set_maximized(window, true);
+    app.settle().await;
+    assert_eq!(frame.get_untracked(), Some(left), "maximizing keeps the frame to go back to");
+    app.headless().set_maximized(window, false);
+    app.settle().await;
+    assert_eq!(app.ui().window_size(window), Some(Size::new(500.0, 350.0)));
+}
+
+/// A frame on a screen that isn't there any more (a display unplugged since
+/// it was saved) comes back onto the screen, no larger than it.
+#[mitsuami_test::test(headless)]
+async fn a_frame_off_the_screen_comes_back(app: TestApp) {
+    let frame =
+        signal(Some(WindowFrame { position: Some(Point::new(4000.0, 3000.0)), size: Size::new(5000.0, 300.0) }));
+    app.mount(move || Window::new("Machine").frame(frame).content(|| Text::new("Screen")));
+    let window = machine(&app).expect("open");
+    app.settle().await;
+    let area = app.ui().work_area(Some(window)).expect("a work area");
+    let now = frame.get_untracked().expect("a frame");
+    assert_eq!(now.size, Size::new(area.width, 300.0));
+    let at = now.position.expect("placed");
+    assert!(at.x + now.size.width <= app.headless().screen().width, "on the screen: {at:?}");
+    assert!(at.y + now.size.height <= app.headless().screen().height, "on the screen: {at:?}");
+}
+
+/// Placed centred when no frame says where, and centred again when the
+/// app asks; the user can still move it.
+#[mitsuami_test::test]
+async fn opens_centred(app: TestApp) {
+    let frame = signal(None::<WindowFrame>);
+    app.mount(move || {
+        Window::new("Machine")
+            .size(Size::new(400.0, 300.0))
+            .placement(Placement::Centred)
+            .frame(frame)
+            .content(|| Text::new("Screen"))
+    });
+    let window = machine(&app).expect("open");
+    app.settle().await;
+    assert!(native_props(&app, window).contains(&Prop::Placement(Placement::Centred)));
+    if !app.is_headless() {
+        return;
+    }
+    let centred = frame.get_untracked().and_then(|f| f.position).expect("placed");
+    let screen = app.headless().screen();
+    assert_eq!(centred.x, (screen.width - 400.0) / 2.0);
+
+    app.headless().move_window(window, Point::new(10.0, 40.0));
+    app.settle().await;
+    assert_eq!(frame.get_untracked().and_then(|f| f.position), Some(Point::new(10.0, 40.0)));
+    app.ui().centre_window(window);
+    app.settle().await;
+    assert_eq!(frame.get_untracked().and_then(|f| f.position), Some(centred));
+}
+
+/// A size in fractions of the screen's work area.
+#[mitsuami_test::test]
+async fn opens_at_a_fraction_of_the_screen(app: TestApp) {
+    app.mount(|| {
+        Window::new("Machine").size(WindowSize::Screen { width: 0.5, height: 0.25 }).content(|| Text::new("Screen"))
+    });
+    let window = machine(&app).expect("open");
+    app.settle().await;
+    let area = app.ui().work_area(None).expect("a work area");
+    let size = app.ui().window_size(window).expect("sized");
+    assert_eq!(size, Size::new((area.width * 0.5).round(), (area.height * 0.25).round()));
+}
+
+/// Centred as it's made (in the same turn, before it's shown): centred as it shows.
+#[mitsuami_test::test(headless)]
+async fn centred_as_it_is_made(app: TestApp) {
+    let frame = signal(None::<WindowFrame>);
+    app.mount(move || {
+        Window::new("Machine")
+            .size(Size::new(400.0, 300.0))
+            .frame(frame)
+            .on_open(|| {
+                let ui = inject::<Ui>().expect("in the app");
+                let CurrentWindow(window) = inject::<CurrentWindow>().expect("its window");
+                ui.centre_window(window);
+            })
+            .content(|| Text::new("Screen"))
+    });
+    machine(&app).expect("open");
+    app.settle().await;
+    let at = frame.get_untracked().and_then(|f| f.position).expect("placed");
+    assert_eq!(at.x, (app.headless().screen().width - 400.0) / 2.0);
+}
+
+/// A window that follows its content's height and opens at a frame it was left at
+/// still follows its content: the frame gives its width (and where it is), not a
+/// fixed height.
+#[mitsuami_test::test(headless)]
+async fn a_following_window_opened_at_its_frame_still_follows(app: TestApp) {
+    let frame = signal(Some(WindowFrame { position: Some(Point::new(200.0, 150.0)), size: Size::new(500.0, 333.0) }));
+    let rows = signal(1usize);
+    app.mount(move || {
+        Window::new("Machine").size(WindowSize::FollowHeight(300.0)).frame(frame).content(move || {
+            Column::new().children(For::new(
+                move || (0..rows.get()).collect::<Vec<_>>(),
+                |i| *i,
+                |i| Text::new(format!("Row {i}")),
+            ))
+        })
+    });
+    let window = machine(&app).expect("open");
+    app.settle().await;
+    assert_eq!(app.ui().window_size(window).map(|s| s.width), Some(500.0));
+    assert!(native_props(&app, window).contains(&Prop::HeightFollowsContent(true)));
+    let before = app.ui().window_size(window).unwrap().height;
+    assert!(before < 100.0, "as tall as its one row, not the frame's 333: {before}");
+    rows.set(5);
+    app.settle().await;
+    let grown = app.ui().window_size(window).unwrap().height;
+    assert!(grown > before, "it grew with its content");
+    // A frame set while it's open moves it and gives its width; its height stays its
+    // content's.
+    frame.set(Some(WindowFrame { position: Some(Point::new(100.0, 100.0)), size: Size::new(450.0, 600.0) }));
+    app.settle().await;
+    assert_eq!(app.ui().window_size(window), Some(Size::new(450.0, grown)));
+}
+
+/// A frame set while it's in full screen is the frame it comes back to: kept, not
+/// dropped for the size it had before.
+#[mitsuami_test::test(headless)]
+async fn a_frame_set_in_full_screen_is_where_it_comes_back(app: TestApp) {
+    let frame = signal(None::<WindowFrame>);
+    let full = signal(false);
+    app.mount(move || {
+        Window::new("Machine")
+            .size(Size::new(400.0, 300.0))
+            .frame(frame)
+            .full_screen(full)
+            .content(|| Text::new("Screen"))
+    });
+    let window = machine(&app).expect("open");
+    app.settle().await;
+    full.set(true);
+    app.settle().await;
+    let asked = WindowFrame { position: Some(Point::new(200.0, 150.0)), size: Size::new(500.0, 350.0) };
+    frame.set(Some(asked));
+    app.settle().await;
+    assert_eq!(frame.get_untracked(), Some(asked), "kept while in full screen");
+    full.set(false);
+    app.settle().await;
+    assert_eq!(app.ui().window_size(window), Some(Size::new(500.0, 350.0)));
+    assert_eq!(frame.get_untracked(), Some(asked));
+}
+
 /// The user maximizes it, or restores it, the platform's way (the title
 /// bar's button, a double-click on it): the app's signal follows.
 #[mitsuami_test::test(headless)]

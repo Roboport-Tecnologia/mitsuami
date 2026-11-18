@@ -50,6 +50,13 @@ pub(super) const TEXT_AREA_INSETS: Insets = Insets::new(4.0, 4.0, 4.0, 4.0);
 pub(super) const SPLIT_DIVIDER: f32 = 1.0;
 
 pub(super) const WORK_AREA: Size = Size::new(1280.0, 740.0);
+/// The screen's bar, above the work area.
+pub(super) const BAR: f32 = 24.0;
+/// A window's title bar, above its content.
+pub(super) const TITLE_BAR: f32 = 36.0;
+/// Where the platform puts a new window that isn't placed: the work
+/// area's top left, a little in.
+pub(super) const NEW_WINDOW_AT: mitsuami_core::Point = mitsuami_core::Point::new(60.0, 84.0);
 
 /// Fixed metrics: 16px body text, 4/8/12/16/24 spacing, scale factor 1.
 pub fn metrics() -> PlatformMetrics {

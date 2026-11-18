@@ -319,6 +319,8 @@ Windows.Win32.SetWindowLongW
 Windows.Win32.GWL_EXSTYLE
 Windows.Win32.WS_EX_LAYERED
 Windows.Win32.SetLayeredWindowAttributes
+Windows.Win32.DwmGetWindowAttribute
+Windows.Win32.DWMWA_EXTENDED_FRAME_BOUNDS
 Windows.Win32.LWA_ALPHA
 Windows.Win32.SetForegroundWindow
 Windows.Win32.E_FAIL
@@ -521,6 +523,7 @@ Windows.Win32.WM_QUERYENDSESSION
 Windows.Win32.WM_ENDSESSION
 Windows.Win32.ShutdownBlockReasonCreate
 Windows.Win32.ShutdownBlockReasonDestroy
+Windows.Win32.MonitorFromRect
 Windows.Win32.MonitorFromWindow
 Windows.Win32.MONITOR_DEFAULTTONEAREST
 Windows.Win32.GetMonitorInfoW
@@ -590,6 +593,15 @@ Windows.Win32.ShellExecuteExW
 Windows.Win32.SHELLEXECUTEINFOW
 Windows.Win32.SW_SHOWNORMAL
 Windows.Win32.SW_RESTORE
+Windows.Win32.SW_SHOWMAXIMIZED
+Windows.Win32.AdjustWindowRectExForDpi
+Windows.Win32.GetWindowRect
+Windows.Win32.GetWindowPlacement
+Windows.Win32.SetWindowPlacement
+Windows.Win32.WINDOWPLACEMENT
+Windows.Win32.GWL_STYLE
+Windows.Win32.SWP_NOZORDER
+Windows.Win32.WS_CAPTION
 Windows.Win32.ShowWindow
 Windows.Win32.IsIconic
 Windows.Win32.GetLastError

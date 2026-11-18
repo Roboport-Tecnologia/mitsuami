@@ -157,6 +157,15 @@ impl WindowRoot {
             self.state_changed.set(true);
             self.events.emit(self.id, UiEvent::MaximizedChanged(now));
         }
+        // Back to its own size: a frame set meanwhile is the one it takes.
+        if self.window.window_states() & (MAXIMIZED | FULL_SCREEN | MINIMIZED) == 0 {
+            if let Some(frame) = self.pending_frame.take() {
+                self.set_frame(frame);
+            }
+            if self.pending_centre.replace(false) {
+                self.centre();
+            }
+        }
     }
 
     /// The window's minimum is the content's and Kirigami's toolbar above
@@ -286,6 +295,129 @@ impl WindowRoot {
         if self.size.replace(size) != size {
             self.events.emit(self.id, UiEvent::WindowResized(size));
         }
+        self.report_frame();
+    }
+
+    /// Reports its restored frame if it changed, while it's neither
+    /// maximized, minimized nor in full screen: its position as Qt has it
+    /// on X11 (none on Wayland, where no client knows) and its content
+    /// size.
+    pub(super) fn report_frame(&self) {
+        if self.window.window_states() & (MAXIMIZED | FULL_SCREEN | MINIMIZED) != 0
+            || self.requested.get().is_some()
+            || self.frame_held.get()
+        {
+            return;
+        }
+        let position = (crate::ffi::wayland_display().is_none())
+            .then(|| mitsuami_core::Point::new(self.window.int("x") as f32, self.window.int("y") as f32));
+        let frame = mitsuami_core::WindowFrame { position, size: self.size.get() };
+        if self.frame.replace(Some(frame)) != Some(frame) {
+            self.events.emit(self.id, UiEvent::FrameChanged(frame));
+        }
+    }
+
+    pub(super) fn frame(&self) -> Option<mitsuami_core::WindowFrame> {
+        self.frame.get()
+    }
+
+    pub(super) fn set_placement(&self, placement: mitsuami_core::Placement) {
+        self.placement.set(Some(placement));
+    }
+
+    pub(super) fn placement(&self) -> Option<mitsuami_core::Placement> {
+        self.placement.get()
+    }
+
+    /// Places and sizes it at the app's frame: no larger than the
+    /// available area of the screen it lands on, and moved onto it (a
+    /// screen unplugged since takes it to the window's own). Only its size
+    /// on Wayland, where the compositor places windows.
+    pub(super) fn set_frame(&self, frame: mitsuami_core::WindowFrame) {
+        self.frame.set(Some(frame));
+        // Shown and maximized, minimized or in full screen: the frame it goes back
+        // to. One not shown yet is placed now, whatever it'll show as (Qt keeps the
+        // states asked of a hidden window): on the screen it was left on.
+        if self.shown() && self.window.window_states() & (MAXIMIZED | FULL_SCREEN | MINIMIZED) != 0 {
+            self.pending_frame.set(Some(frame));
+            return;
+        }
+        let at = frame.position.filter(|_| crate::ffi::wayland_display().is_none());
+        let (x, y) = at.map_or((self.window.int("x"), self.window.int("y")), |p| (p.x as i32, p.y as i32));
+        let area = self.window.screen_available_at(x, y);
+        let header = self.header();
+        // One whose content sets its height keeps it: the frame gives its width.
+        let asked_height = if self.height_locked.get() { self.size.get().height } else { frame.size.height };
+        let size = match area {
+            Some((_, _, width, height)) => Size::new(
+                frame.size.width.min(width as f32),
+                asked_height.min((height as f64 - header).max(0.0) as f32),
+            ),
+            None => Size::new(frame.size.width, asked_height),
+        };
+        if !self.in_full_screen() {
+            self.resize_to(size);
+        }
+        if let (Some(_), Some((left, top, width, height))) = (at, area) {
+            self.framed.set(true);
+            let outer = (size.width as f64 + self.side(), size.height as f64 + header);
+            // The window manager's decoration (its title bar) is outside x/y: kept on
+            // the screen too, so it can still be dragged.
+            let (margin_x, margin_y) = self.window.content_origin(); // `QWindow::frameMargins` (left, top)
+            // x, then y: reported once, where it ends.
+            self.frame_held.set(true);
+            self.window.set_int("x", x.min(left + width - outer.0 as i32).max(left + margin_x));
+            self.window.set_int("y", y.min(top + height - outer.1 as i32).max(top + margin_y));
+            self.frame_held.set(false);
+            self.report_frame();
+        }
+    }
+
+    /// Whether the app's frame placed it, so showing it doesn't centre it.
+    pub(super) fn framed(&self) -> bool {
+        self.framed.get()
+    }
+
+    /// Centres it on its screen's available area (X11; on Wayland the
+    /// compositor places windows).
+    pub(super) fn centre(&self) {
+        self.framed.set(false);
+        if crate::ffi::wayland_display().is_some() {
+            return;
+        }
+        // Not shown yet: centred as it shows, at the size its first layout gives
+        // it. Maximized, minimized or in full screen: centred as it's back.
+        if !self.shown() {
+            self.centre_on_show.set(true);
+            return;
+        }
+        if self.window.window_states() & (MAXIMIZED | FULL_SCREEN | MINIMIZED) != 0 {
+            self.pending_centre.set(true);
+            return;
+        }
+        let (x, y) = (self.window.int("x"), self.window.int("y"));
+        let Some((left, top, width, height)) = self.window.screen_available_at(x, y) else { return };
+        // The decoration around x/y (its title bar above) is part of what's centred.
+        let (margin_x, margin_y) = self.window.content_origin(); // `QWindow::frameMargins` (left, top)
+        let (w, h) = (self.window.int("width") + 2 * margin_x, self.window.int("height") + margin_y + margin_x);
+        self.window.set_int("x", left + ((width - w) / 2).max(0) + margin_x);
+        self.window.set_int("y", top + ((height - h) / 2).max(0) + margin_y);
+    }
+
+    /// Whether it has been shown (Qt's `visible`).
+    pub(super) fn shown(&self) -> bool {
+        self.window.bool("visible")
+    }
+
+    /// Asked to be centred before it was shown: centred now, as it shows.
+    pub(super) fn take_centre_on_show(&self) -> bool {
+        self.centre_on_show.replace(false)
+    }
+
+    /// The content size of a window filling its screen's available area.
+    pub(super) fn work_area(&self) -> Option<Size> {
+        let (width, height) = self.window.available_size()?;
+        Some(Size::new((width - self.side()).max(0.0) as f32, (height - self.header()).max(0.0) as f32))
     }
 
     fn request(&self, size: Size) {
@@ -306,6 +438,21 @@ impl WindowRoot {
             self.events.emit(self.id, UiEvent::WindowResized(asked));
         }
         let size = self.at_least_min(asked);
+        // Already that size (a frame that only moves it, the same size again): no
+        // width or height change comes to clear a request, which would then hold
+        // back every later report (`host_resized`, `report_frame`).
+        let host = self.host_size();
+        if self.has_rendered()
+            && self.requested.get().is_none()
+            && (host.width - size.width).abs() < 1.0
+            && (host.height - size.height).abs() < 1.0
+        {
+            self.requested.set(None);
+            if self.size.replace(host) != host {
+                self.events.emit(self.id, UiEvent::WindowResized(host));
+            }
+            return;
+        }
         self.requested.set(Some(size));
         self.place(size);
     }
@@ -347,7 +494,23 @@ impl State {
             min: Cell::new(None),
             height_locked: Cell::new(false),
             sidebar: Cell::new(None),
+            frame: Cell::new(None),
+            framed: Cell::new(false),
+            pending_frame: Cell::new(None),
+            pending_centre: Cell::new(false),
+            centre_on_show: Cell::new(false),
+            frame_held: Cell::new(false),
+            placement: Cell::new(None),
         });
+        // Moved: its restored frame (X11; Wayland doesn't say).
+        for signal in ["xChanged(int)", "yChanged(int)"] {
+            let weak = Rc::downgrade(&root);
+            window.connect(signal, move || {
+                if let Some(root) = weak.upgrade() {
+                    root.report_frame();
+                }
+            });
+        }
         let weak = Rc::downgrade(&root);
         window.connect("windowStateChanged(Qt::WindowState)", move || {
             if let Some(root) = weak.upgrade() {

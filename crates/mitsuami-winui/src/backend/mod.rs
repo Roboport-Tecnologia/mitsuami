@@ -231,6 +231,13 @@ pub(crate) struct WindowParts {
     emitter: Events,
     /// The content size, as last reported.
     size: Rc<Cell<Option<Size>>>,
+    /// Its restored frame, as last reported or as the app set it.
+    frames: Rc<windows::FrameReport>,
+    /// The app's `Frame` placed it: shown, it's only kept on its work
+    /// area, whatever `placement` says.
+    framed: bool,
+    /// The app's `Placement`, if it chose, for its native state.
+    placement_prop: Option<mitsuami_core::Placement>,
     /// A content size `resize_client` aimed for, and the size before it,
     /// until XAML lays the content out at the window's new size.
     aimed: Rc<Cell<Option<(Size, Size)>>>,
@@ -292,7 +299,13 @@ pub(crate) struct WindowParts {
     resizable: bool,
     /// Made visible: full screen and maximizing wait for it, as a hidden
     /// window would fill the screen unseen, or be shown by `Maximize`.
-    shown: bool,
+    /// Shared with the window's `Changed` handler, for which sizing before
+    /// then isn't the user maximizing or restoring it.
+    shown: Rc<Cell<bool>>,
+    /// A window to open maximized, sized as maximized before its first show
+    /// (`windows::presize_maximized`): its placement before, whose restored
+    /// rect it goes back to, until it's shown.
+    presized: Option<w::WINDOWPLACEMENT>,
     /// The window's own presenter while it's in full screen, to go back
     /// to with its settings (modal, minimum size).
     overlapped: Option<w::AppWindowPresenter>,
@@ -943,6 +956,14 @@ impl Backend for WinUiBackend {
 
     fn native_state(&self, id: NodeId) -> Option<NativeState> {
         self.read_native_state(id)
+    }
+
+    fn work_area(&self, window: Option<NodeId>) -> Option<Size> {
+        let state = self.state.borrow();
+        match window.and_then(|id| state.nodes.get(&id)).map(|n| &n.widget) {
+            Some(Widget::Window(parts)) => windows::window_work_area(parts),
+            _ => windows::primary_work_area(),
+        }
     }
 
     /// The AppUserModelID groups the app's windows on the taskbar; only an

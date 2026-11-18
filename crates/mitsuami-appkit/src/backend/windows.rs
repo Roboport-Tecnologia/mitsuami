@@ -55,7 +55,15 @@ impl AppKitHandle {
                     self.run_modal(id, window.clone());
                 }
                 (None, _) => {
-                    window.center();
+                    // Where the app's frame put it, else centred: AppKit
+                    // would put a new window in the screen's corner.
+                    let framed = matches!(
+                        self.state.borrow().nodes.get(&id).map(|n| &n.widget),
+                        Some(Widget::Window { _delegate, .. }) if _delegate.framed()
+                    );
+                    if !framed {
+                        window.center();
+                    }
                     // Opened from the tray's menu, it comes forward with
                     // the app, as menu bar apps' windows do; it would
                     // otherwise open behind the active app's.
@@ -65,9 +73,10 @@ impl AppKitHandle {
                     window.makeKeyAndOrderFront(None);
                 }
             }
-            // Full screen asked for before it was shown.
+            // Full screen asked for before it was shown; and where it is.
             if let Some(Widget::Window { _delegate, .. }) = self.state.borrow().nodes.get(&id).map(|n| &n.widget) {
                 _delegate.apply_full_screen(&window);
+                _delegate.report_frame(&window);
             }
             // The dialogs asked for on it before it was shown.
             let waiting = {

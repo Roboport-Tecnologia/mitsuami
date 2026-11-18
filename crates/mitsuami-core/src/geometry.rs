@@ -37,6 +37,47 @@ pub enum WindowSize {
     /// Like `FollowHeight` until the user, or `Ui::set_window_size`,
     /// changes its height: then it's an ordinary window.
     FollowHeightUntilResized(f32),
+    /// These fractions (`0.0`–`1.0`) of the work area of the screen it
+    /// opens on (the screen less its bars and docks), as an app sizes its
+    /// first window to the screen it has.
+    Screen {
+        width: f32,
+        height: f32,
+    },
+}
+
+/// Where a window opens when no [`WindowFrame`] says.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub enum Placement {
+    /// Where the platform puts a new window. The default.
+    #[default]
+    System,
+    /// Centred on its screen's work area. Where the platform places
+    /// windows itself (Wayland, and GTK everywhere), it still does.
+    Centred,
+}
+
+impl IntoValue<Placement> for Placement {
+    fn into_value(self) -> Value<Placement> {
+        Value::Static(self)
+    }
+}
+
+/// A window's restored frame: where it is and how large while it's neither
+/// maximized nor in full screen, and what it goes back to when it stops
+/// being either, the frame an app keeps to open its window as it was left
+/// (as Windows' `GetWindowPlacement`, AppKit's saved frames and Qt's
+/// `saveGeometry` keep it).
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct WindowFrame {
+    /// Its top-left corner in the platform's own desktop coordinates
+    /// (Windows' physical pixels, AppKit's points from the bottom left of
+    /// the main screen, X11's pixels): a value to hand back to the same
+    /// platform, not to compute with. `None` where a window can't know
+    /// where it is (Wayland, and GTK everywhere).
+    pub position: Option<Point>,
+    /// Its content size in points, what `Window::size` takes.
+    pub size: Size,
 }
 
 impl From<Size> for WindowSize {

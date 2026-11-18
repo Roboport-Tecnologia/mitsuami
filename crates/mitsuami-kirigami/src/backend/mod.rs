@@ -99,6 +99,23 @@ pub(crate) struct WindowRoot {
     height_locked: Cell<bool>,
     /// Its sidebar's node and page, while it has one.
     sidebar: Cell<Option<(NodeId, QmlObject)>>,
+    /// Its restored frame, as last reported or as the app set it.
+    frame: Cell<Option<mitsuami_core::WindowFrame>>,
+    /// The app's frame placed it: shown, it isn't centred.
+    framed: Cell<bool>,
+    /// The app's frame, set while it was maximized, minimized or in full screen:
+    /// applied as it's back to its own size.
+    pending_frame: Cell<Option<mitsuami_core::WindowFrame>>,
+    /// Asked to be centred while it was maximized, minimized or in full screen:
+    /// centred as it's back.
+    pending_centre: Cell<bool>,
+    /// Asked to be centred before it was shown: centred as it shows.
+    centre_on_show: Cell<bool>,
+    /// While the app's own frame is being applied: its moves aren't reported one
+    /// by one (x, then y), only where it ends.
+    frame_held: Cell<bool>,
+    /// The app's `Placement`, if it chose.
+    placement: Cell<Option<mitsuami_core::Placement>>,
 }
 
 /// `TextEdit.NoWrap` and `TextEdit.Wrap` (at word boundaries, or anywhere).
@@ -587,6 +604,18 @@ impl Backend for KirigamiBackend {
 
     fn native_state(&self, id: NodeId) -> Option<NativeState> {
         self.read_native_state(id)
+    }
+
+    fn work_area(&self, window: Option<NodeId>) -> Option<Size> {
+        let state = self.state.borrow();
+        match window.and_then(|id| state.nodes.get(&id)).map(|n| &n.widget) {
+            Some(Widget::Window { root }) => root.work_area(),
+            // A new window's: the primary screen's, less a toolbar's room.
+            _ => {
+                let (width, height) = ffi::primary_available_size()?;
+                Some(Size::new(width as f32, (height - 50.0).max(0.0) as f32))
+            }
+        }
     }
 
     fn locale(&self) -> std::rc::Rc<dyn mitsuami_core::l10n::PlatformLocale> {

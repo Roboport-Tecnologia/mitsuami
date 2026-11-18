@@ -10,9 +10,7 @@ use windows_core::Interface;
 use super::focus::{report_focus, resolve, restore_focus};
 use super::menus::refresh_menu;
 use super::new_window::{icon_size, request_close};
-use super::windows::{
-    apply_full_screen, apply_maximized, apply_min_size, place_window, resize_client, set_transparent,
-};
+use super::windows::{apply_full_screen, apply_maximized, apply_min_size, place_window, resize_client};
 use super::{State, Widget, WinUiHandle, WindowParts};
 use crate::bindings as w;
 use crate::runtime;
@@ -77,28 +75,60 @@ impl WinUiHandle {
     pub fn show_pending_windows(&self) {
         self.state.borrow().focus_wanted();
         let pending = std::mem::take(&mut self.state.borrow_mut().pending_show);
+        // Windows sized as maximized this time, shown at the next.
+        let mut presized = Vec::new();
         for id in pending {
+            // Placed, and to open maximized, sized as maximized first: shown once
+            // the content is laid out at that size (the next tick), so it shows at
+            // its final size from its first frame.
+            let deferred = {
+                let mut state = self.state.borrow_mut();
+                match state.nodes.get_mut(&id).map(|n| &mut n.widget) {
+                    Some(Widget::Window(parts)) if parts.presized.is_none() => {
+                        // A dialog is centred on its owner (`make_modal`).
+                        if parts.modal.is_none() {
+                            place_window(parts);
+                        }
+                        parts.maximized.get() && !parts.full_screen.get() && super::windows::presize_maximized(parts)
+                    }
+                    _ => false,
+                }
+            };
+            if deferred {
+                presized.push(id);
+                continue;
+            }
             self.make_modal(id);
             let mut state = self.state.borrow_mut();
             let (by_element, emitter) = (state.by_element.clone(), state.emitter.clone());
             if let Some(Widget::Window(parts)) = state.nodes.get_mut(&id).map(|n| &mut n.widget) {
-                // A dialog is centred on its owner (`make_modal`).
-                if parts.modal.is_none() {
-                    place_window(parts);
+                parts.shown.set(true);
+                // Its first show, with Windows' opening animation: maximized
+                // straight away if it's to open maximized, as a native window
+                // restored maximized opens, not growing from its size.
+                if parts.presized.is_some() {
+                    super::windows::show_presized(parts);
+                } else if parts.maximized.get() && !parts.full_screen.get() {
+                    unsafe { _ = w::ShowWindow(parts.hwnd, w::SW_SHOWMAXIMIZED) };
+                } else {
+                    _ = parts.window.cast::<w::IWindow>().and_then(|w| w.Activate());
                 }
-                set_transparent(parts.hwnd, false);
                 unsafe { _ = w::SetForegroundWindow(parts.hwnd) };
-                parts.shown = true;
                 // Full screen, or maximized, asked for before it was shown.
                 apply_full_screen(parts);
                 apply_maximized(parts);
-                // It was activated when made, before its content: its
-                // controls can take focus now, unless one asked for still
-                // can't.
+                // Activated now, its content in place: its controls can take
+                // focus, unless one asked for still can't.
                 if parts.wanted_focus.borrow().is_none() {
                     restore_focus(&parts.root, &by_element, &parts.focus, &parts.tab_order.borrow(), &emitter);
                 }
             }
+        }
+        if !presized.is_empty() {
+            let mut state = self.state.borrow_mut();
+            state.pending_show.extend(presized);
+            // Their sizes are reported: the next tick lays them out, then shows them.
+            state.emitter.wake();
         }
         // Windows moved to another display since, and full-screen menu
         // bars the pointer went to or left (`reveal`).
@@ -109,6 +139,9 @@ impl WinUiHandle {
                 if parts.moved.replace(false) {
                     apply_min_size(parts);
                 }
+                // Back from maximized, minimized or full screen: what was asked of it
+                // meanwhile.
+                super::windows::apply_pending(parts);
                 super::reveal::update_reveal(parts);
                 super::menus::rebuild_closed_menu(parts, &state.menus);
             }

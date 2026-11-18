@@ -4,7 +4,7 @@ use mitsuami_core::a11y::A11yProps;
 use mitsuami_core::backend::PlatformMetrics;
 use mitsuami_core::{
     ActionError, Command, Insets, NativeAppInfo, NativeIcon, NodeId, Point, Prop, Size, SurfaceInput, UiEvent,
-    WidgetKind, find_prop,
+    WidgetKind, WindowFrame, find_prop,
 };
 
 use super::measure::png_size;
@@ -58,6 +58,7 @@ impl HeadlessHandle {
             node.frame.size = size;
         }
         state.emit(window, UiEvent::WindowResized(size));
+        state.report_frames();
     }
 
     /// The size of the screen a window in full screen fills.
@@ -96,6 +97,21 @@ impl HeadlessHandle {
     /// The size of a maximized window's content.
     pub fn work_area(&self) -> Size {
         WORK_AREA
+    }
+
+    /// Where a new window opens when nothing places it.
+    pub fn new_window_at(&self) -> Point {
+        super::metrics::NEW_WINDOW_AT
+    }
+
+    /// Simulates the user moving a window by its title bar; it stays on
+    /// the screen.
+    pub fn move_window(&self, window: NodeId, to: Point) {
+        let mut state = self.state.borrow_mut();
+        let Some(node) = state.nodes.get(&window) else { return };
+        let size = super::windows::restored_size(node);
+        state.place(window, WindowFrame { position: Some(to), size });
+        state.report_frames();
     }
 
     /// Simulates the user maximizing a window, or restoring it (the title

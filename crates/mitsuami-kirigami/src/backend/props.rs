@@ -114,6 +114,8 @@ impl State {
             (Prop::FullScreen(on), Widget::Window { root }) => root.set_full_screen(*on),
             (Prop::HeightFollowsContent(on), Widget::Window { root }) => root.set_height_locked(*on),
             (Prop::Maximized(on), Widget::Window { root }) => root.set_maximized(*on),
+            (Prop::Frame(frame), Widget::Window { root }) => root.set_frame(*frame),
+            (Prop::Placement(placement), Widget::Window { root }) => root.set_placement(*placement),
             (Prop::Resizable(on), Widget::Window { root }) => root.set_resizable(*on),
             // Qt keeps the user from making it smaller; a window smaller
             // already grows, as on the other platforms.

@@ -782,6 +782,12 @@ impl State {
                 let Some(node) = self.nodes.get(id) else { violation(command, "node does not exist") };
                 super::selection::select(&node.widget, range.clone());
             }
+            Command::CentreWindow { window: id } => {
+                let Some(Widget::Window { window, _delegate, .. }) = self.nodes.get(id).map(|n| &n.widget) else {
+                    violation(command, "not a window")
+                };
+                _delegate.centre(window);
+            }
             Command::Present { window: id } => {
                 let Some(Widget::Window { window, .. }) = self.nodes.get(id).map(|n| &n.widget) else {
                     violation(command, "not a window")

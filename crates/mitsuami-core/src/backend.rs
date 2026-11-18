@@ -303,6 +303,12 @@ pub trait Backend {
 
     fn native_state(&self, id: NodeId) -> Option<NativeState>;
 
+    /// The work area of a window's screen (the screen less its bars and
+    /// docks), as the content size of a window filling it, in points; with
+    /// `None`, of the screen a new window opens on. `None` if the platform
+    /// can't tell (no screen).
+    fn work_area(&self, window: Option<NodeId>) -> Option<Size>;
+
     /// Offscreen screenshot of a window or node. Async because some
     /// platforms render asynchronously (WinUI's `RenderTargetBitmap`);
     /// reply whenever it's ready, right away if possible.

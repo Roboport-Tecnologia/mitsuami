@@ -4,7 +4,7 @@
 use std::cell::Cell;
 use std::rc::Rc;
 
-use mitsuami_core::{NodeId, Rect, Size, UiEvent};
+use mitsuami_core::{NodeId, Point, Rect, Size, UiEvent, WindowFrame};
 use windows_core::{IInspectable, Interface};
 
 use super::measure::measure_element;
@@ -19,6 +19,255 @@ impl WindowParts {
     /// right away, and XAML's `SizeChanged` echoes them later.
     fn report_size(&self, size: Size) {
         report_size(&self.emitter, self.node, &self.size, size);
+        self.frames.report(&self.emitter, self.node);
+    }
+}
+
+/// A window's restored frame, reported as it changes: its position (in
+/// physical pixels, as `AppWindow` has it) and content size, while it's
+/// neither maximized, minimized nor in full screen. Shared by the window's
+/// `Changed` handler (moves) and its content's `SizeChanged` (sizes).
+pub(super) struct FrameReport {
+    app_window: w::AppWindow,
+    size: Rc<Cell<Option<Size>>>,
+    last: Cell<Option<WindowFrame>>,
+    /// While the app's own frame is being applied: its moves and sizes
+    /// aren't the user's, and what it ends at is reported once.
+    held: Cell<bool>,
+    /// A frame, and centring, the app asked for while the window was maximized,
+    /// minimized or in full screen: applied once it's back to its own size
+    /// (`apply_pending`), and nothing reported until then. Not applied to the
+    /// window as it is: a maximized window moved or resized would be displaced,
+    /// and its restored rect set through `SetWindowPlacement` would activate it.
+    pending_frame: Cell<Option<WindowFrame>>,
+    pending_centre: Cell<bool>,
+}
+
+impl FrameReport {
+    pub(super) fn new(app_window: w::AppWindow, size: Rc<Cell<Option<Size>>>) -> Rc<FrameReport> {
+        Rc::new(FrameReport {
+            app_window,
+            size,
+            last: Cell::new(None),
+            held: Cell::new(false),
+            pending_frame: Cell::new(None),
+            pending_centre: Cell::new(false),
+        })
+    }
+
+    /// The frame as last reported or set, for the window's native state.
+    pub(super) fn last(&self) -> Option<WindowFrame> {
+        self.last.get()
+    }
+
+    fn has_pending(&self) -> bool {
+        let frame = self.pending_frame.take();
+        self.pending_frame.set(frame);
+        frame.is_some() || self.pending_centre.get()
+    }
+
+    pub(super) fn report(&self, emitter: &Events, window: NodeId) {
+        if self.held.get() || self.has_pending() || in_full_screen(&self.app_window) {
+            return;
+        }
+        let state = overlapped(&self.app_window).and_then(|p| p.State().ok());
+        if state != Some(w::OverlappedPresenterState::Restored) {
+            return;
+        }
+        let (Some(size), Ok(at)) =
+            (self.size.get(), self.app_window.cast::<w::IAppWindow>().and_then(|a| a.Position()))
+        else {
+            return;
+        };
+        let frame = WindowFrame { position: Some(Point::new(at.x as f32, at.y as f32)), size };
+        if self.last.replace(Some(frame)) != Some(frame) {
+            emitter.emit(window, UiEvent::FrameChanged(frame));
+        }
+    }
+}
+
+/// Places and sizes a window at the app's frame: no larger than its work
+/// area, and moved onto it (a display unplugged since the frame was saved
+/// takes the window to the nearest one), as Windows' `SetWindowPlacement`
+/// does. Applied at once, shown or not: moving a hidden window doesn't show
+/// it. What it ends at is reported if it isn't the app's frame.
+pub(super) fn apply_frame(parts: &mut WindowParts, frame: WindowFrame) {
+    // Shown, and maximized, minimized or in full screen: the frame is the one it
+    // goes back to, not where it is now (`Frame` is the restored frame).
+    if away_from_its_frame(parts) {
+        parts.frames.last.set(Some(frame));
+        parts.frames.pending_frame.set(Some(frame));
+        return;
+    }
+    parts.frames.last.set(Some(frame));
+    parts.frames.held.set(true);
+    let asked = frame.position.map(|at| w::PointInt32 { x: at.x.round() as i32, y: at.y.round() as i32 });
+    // There first, to be sized by the work area of the display it goes to.
+    if let (Some(at), Ok(app)) = (asked, parts.app_window.cast::<w::IAppWindow>()) {
+        _ = app.Move(at);
+    }
+    let area = window_work_area(parts).unwrap_or(frame.size);
+    // One whose content sets its height keeps it: the frame gives its width.
+    let height = match parts.size.get() {
+        Some(now) if parts.height_locked => now.height,
+        _ => frame.size.height,
+    };
+    let size = Size::new(frame.size.width.min(area.width), height.min(area.height));
+    parts.requested = Some(size);
+    resize_client(parts, size);
+    // Kept on the screen by the size it has now: a new window is made large
+    // (three quarters of the screen), and placed by that size one left on
+    // the right of the screen was pulled back left.
+    if let Some(at) = asked {
+        parts.framed = true;
+        move_onto_screen(parts, at);
+    }
+    parts.frames.held.set(false);
+    parts.frames.report(&parts.emitter, parts.node);
+}
+
+/// Shown, and maximized, minimized or in full screen: not at its own frame.
+fn away_from_its_frame(parts: &WindowParts) -> bool {
+    if !parts.shown.get() {
+        return false;
+    }
+    in_full_screen(&parts.app_window)
+        || overlapped(&parts.app_window)
+            .and_then(|p| p.State().ok())
+            .is_some_and(|s| s != w::OverlappedPresenterState::Restored)
+}
+
+/// Back to its own size: the frame, and centring, asked for meanwhile apply
+/// (called after each tick, by `show_pending_windows`'s pass over the windows).
+pub(super) fn apply_pending(parts: &mut WindowParts) {
+    if !parts.frames.has_pending() || away_from_its_frame(parts) {
+        return;
+    }
+    let (frame, centre) = (parts.frames.pending_frame.take(), parts.frames.pending_centre.replace(false));
+    if let Some(frame) = frame {
+        apply_frame(parts, frame);
+    }
+    if centre {
+        centre_window(parts);
+    }
+    parts.frames.report(&parts.emitter, parts.node);
+}
+
+/// Moves a window to `at`, its outer frame inside the work area of the
+/// display nearest to where that puts it.
+fn move_onto_screen(parts: &WindowParts, at: w::PointInt32) {
+    let Ok(app) = parts.app_window.cast::<w::IAppWindow>() else { return };
+    let Ok(size) = app.Size() else { return };
+    let rect = w::RECT { left: at.x, top: at.y, right: at.x + size.width, bottom: at.y + size.height };
+    let monitor = unsafe { w::MonitorFromRect(&rect, w::MONITOR_DEFAULTTONEAREST as u32) };
+    let Some(work) = work_rect(monitor) else { return };
+    // Its visible frame kept on the work area, its invisible resize borders (left,
+    // right, bottom) allowed past it, where Windows puts them for a window flush
+    // against the screen's edge, or snapped there: clamping the outer rect pulled such
+    // a window in by the border each time it reopened.
+    let (left, top, right, bottom) = invisible_borders(parts.hwnd);
+    let to = w::PointInt32 {
+        x: at.x.min(work.right - size.width + right).max(work.left - left),
+        y: at.y.min(work.bottom - size.height + bottom).max(work.top - top),
+    };
+    _ = app.Move(to);
+}
+
+/// The window's invisible resize borders, in pixels (left, top, right, bottom): its
+/// outer rect less what DWM draws of it. None where DWM can't say.
+fn invisible_borders(hwnd: w::HWND) -> (i32, i32, i32, i32) {
+    let mut outer = w::RECT::default();
+    let mut visible = w::RECT::default();
+    let got = unsafe { w::GetWindowRect(hwnd, &mut outer) }.as_bool()
+        && unsafe {
+            w::DwmGetWindowAttribute(
+                hwnd,
+                w::DWMWA_EXTENDED_FRAME_BOUNDS as u32,
+                (&mut visible as *mut w::RECT).cast(),
+                std::mem::size_of::<w::RECT>() as u32,
+            )
+        }
+        .is_ok();
+    if !got {
+        // Not shown yet, DWM can't say: the sizing frame and its padding, less the
+        // border it draws (a pixel per 96 dpi), on the sides and the bottom (the
+        // content is extended into the title bar: none above). Measured on Windows
+        // 11: 11 px at 200%, 7 at 100%, as DWM reports once it's shown.
+        let dpi = unsafe { w::GetDpiForWindow(hwnd) };
+        let frame = unsafe { w::GetSystemMetricsForDpi(32, dpi) + w::GetSystemMetricsForDpi(92, dpi) }; // SM_CXSIZEFRAME, SM_CXPADDEDBORDER
+        let invisible = (frame - (dpi as i32 / 96).max(1)).clamp(0, 64);
+        return (invisible, 0, invisible, invisible);
+    }
+    let border = |d: i32| d.clamp(0, 64);
+    (
+        border(visible.left - outer.left),
+        border(visible.top - outer.top),
+        border(outer.right - visible.right),
+        border(outer.bottom - visible.bottom),
+    )
+}
+
+/// A display's work area, in physical pixels.
+fn work_rect(monitor: w::HMONITOR) -> Option<w::RECT> {
+    let mut info = w::MONITORINFO { cbSize: std::mem::size_of::<w::MONITORINFO>() as u32, ..Default::default() };
+    if monitor.is_null() || !unsafe { w::GetMonitorInfoW(monitor, &mut info) }.as_bool() {
+        return None;
+    }
+    Some(info.rcWork)
+}
+
+/// The content size of a window filling its display's work area, in
+/// points: the work area less the window's frame and what sits above its
+/// content.
+pub(super) fn window_work_area(parts: &WindowParts) -> Option<Size> {
+    let monitor = unsafe { w::MonitorFromWindow(parts.hwnd, w::MONITOR_DEFAULTTONEAREST as u32) };
+    let work = work_rect(monitor)?;
+    let scale = scale_of(parts);
+    let (frame_w, frame_h) = frame_pixels(parts, scale);
+    Some(Size::new(
+        ((work.right - work.left - frame_w) as f64 / scale).max(0.0) as f32,
+        ((work.bottom - work.top - frame_h) as f64 / scale - chrome_height(parts)).max(0.0) as f32,
+    ))
+}
+
+/// The work area a new window opens in, the primary display's, as the
+/// content size of a window filling it: less a title bar (32 epx, the
+/// Windows 11 caption) and the frame's resize border.
+pub(super) fn primary_work_area() -> Option<Size> {
+    let origin = w::RECT::default();
+    let monitor = unsafe { w::MonitorFromRect(&origin, MONITOR_DEFAULTTOPRIMARY) };
+    let work = work_rect(monitor)?;
+    let dpi = unsafe { w::GetDpiForSystem() };
+    let scale = dpi as f64 / 96.0;
+    // A restored window's resize borders (the content is extended into its title
+    // bar, so none above): its sides and bottom.
+    let mut border = w::RECT::default();
+    let thick_frame = 0x0004_0000; // `WS_THICKFRAME`
+    if !unsafe { w::AdjustWindowRectExForDpi(&mut border, thick_frame, false.into(), 0, dpi) }.as_bool() {
+        border = w::RECT::default();
+    }
+    Some(Size::new(
+        ((work.right - work.left - (border.right - border.left)) as f64 / scale) as f32,
+        (((work.bottom - work.top - border.bottom) as f64 / scale) - 32.0).max(0.0) as f32,
+    ))
+}
+
+/// `MONITOR_DEFAULTTOPRIMARY`, which the bindings' filter doesn't name.
+const MONITOR_DEFAULTTOPRIMARY: u32 = 1;
+
+/// Centres a shown window on its work area now (`Command::CentreWindow`);
+/// one not shown yet is centred as it shows.
+pub(super) fn centre_window(parts: &mut WindowParts) {
+    parts.framed = false;
+    // Maximized, minimized or in full screen: centred as it's back.
+    if away_from_its_frame(parts) {
+        parts.frames.pending_centre.set(true);
+        return;
+    }
+    if parts.shown.get() {
+        place_window_as(parts, WindowPlacement::Centred);
+    } else {
+        parts.placement = WindowPlacement::Centred;
     }
 }
 
@@ -636,6 +885,75 @@ pub(super) fn resize_client_with(parts: &WindowParts, size: Size, (inset_w, inse
     }
 }
 
+/// Sizes a window that's to open maximized, before its first show, as Windows
+/// will maximize it (its display's work area, its resize borders past it), and
+/// reports that content size: the app lays its content out, and draws its
+/// surfaces, at the size it shows at, rather than at its restored size for the
+/// frame before it hears the maximized one. Its placement is kept for the show
+/// (`show_presized`), which restores its restored rect. Not for a dialog, which
+/// isn't maximized. Whether it was.
+pub(super) fn presize_maximized(parts: &mut WindowParts) -> bool {
+    if parts.modal.is_some() {
+        return false;
+    }
+    let mut placement: w::WINDOWPLACEMENT = unsafe { std::mem::zeroed() };
+    placement.length = std::mem::size_of::<w::WINDOWPLACEMENT>() as u32;
+    if !unsafe { w::GetWindowPlacement(parts.hwnd, &mut placement) }.as_bool() {
+        return false;
+    }
+    let monitor = unsafe { w::MonitorFromWindow(parts.hwnd, w::MONITOR_DEFAULTTONEAREST as u32) };
+    let Some(work) = work_rect(monitor) else { return false };
+    // The borders a maximized window has past its work area, on every side:
+    // its frame's sides (and bottom), as the window's style has them. Its
+    // caption is in the work area, so its top is past it by the sides' width.
+    let style = unsafe { w::GetWindowLongW(parts.hwnd, w::GWL_STYLE) } as u32;
+    let ex_style = unsafe { w::GetWindowLongW(parts.hwnd, w::GWL_EXSTYLE) } as u32;
+    let mut border = w::RECT::default();
+    let dpi = unsafe { w::GetDpiForWindow(parts.hwnd) };
+    if !unsafe { w::AdjustWindowRectExForDpi(&mut border, style, false.into(), ex_style, dpi) }.as_bool() {
+        return false;
+    }
+    parts.frames.held.set(true);
+    unsafe {
+        _ = w::SetWindowPos(
+            parts.hwnd,
+            std::ptr::null_mut(),
+            work.left + border.left,
+            work.top + border.left,
+            (work.right + border.right) - (work.left + border.left),
+            (work.bottom + border.bottom) - (work.top + border.left),
+            (w::SWP_NOZORDER | w::SWP_NOACTIVATE) as u32,
+        );
+    }
+    parts.presized = Some(placement);
+    // Its content as it will be maximized: its client area is then its work area
+    // (its borders past the screen, no resize border inside), not the client area
+    // it has hidden, which counts its bottom border.
+    let scale = scale_of(parts);
+    let (width, height) = ((work.right - work.left) as f64 / scale, (work.bottom - work.top) as f64 / scale);
+    let border_h = content_border(parts);
+    // Beside a sidebar, the pane `Auto` shows at the window's width, and the
+    // content inside the view's border while it does (as `resize_client`).
+    let side =
+        parts.sidebar.as_ref().map_or(0.0, |(_, view)| crate::sidebar::Sidebar::pane_width_at(view, width as f32));
+    let border_w = if side > 0.0 { border_h } else { 0.0 };
+    let view_width = width as f32 - border_w;
+    parts.report_size(Size::new(view_width - side, (height - chrome_height(parts)).max(0.0) as f32 - border_h));
+    true
+}
+
+/// Shows a window sized maximized before (`presize_maximized`) as maximized,
+/// its first show (Windows plays its opening animation), at the size it has:
+/// nothing to lay out again. Its restored rect is the one it had before.
+pub(super) fn show_presized(parts: &mut WindowParts) {
+    let Some(mut placement) = parts.presized.take() else { return };
+    unsafe { _ = w::ShowWindow(parts.hwnd, w::SW_SHOWMAXIMIZED) };
+    placement.showCmd = w::SW_SHOWMAXIMIZED as u32;
+    placement.flags = 0;
+    unsafe { _ = w::SetWindowPlacement(parts.hwnd, &placement) };
+    parts.frames.held.set(false);
+}
+
 /// Windows keeps a resize border inside the client area of windows with
 /// extended title bars (1 px along the top): measured off the live root.
 /// A root XAML hasn't laid out at the window's size yet is off by more
@@ -690,7 +1008,7 @@ pub(super) fn is_maximized(app_window: &w::AppWindow) -> bool {
 /// Maximizes the window, or restores it, as the app wants, once it's shown
 /// (`Maximize` would show a hidden window) and out of full screen.
 pub(super) fn apply_maximized(parts: &WindowParts) {
-    if !parts.shown || in_full_screen(&parts.app_window) {
+    if !parts.shown.get() || in_full_screen(&parts.app_window) {
         return;
     }
     let on = parts.maximized.get();
@@ -704,7 +1022,7 @@ pub(super) fn apply_maximized(parts: &WindowParts) {
 /// app wants, once it's shown. `FullScreenPresenter` has no caption, so
 /// the title bar goes too.
 pub(super) fn apply_full_screen(parts: &mut WindowParts) {
-    if !parts.shown {
+    if !parts.shown.get() {
         return;
     }
     let on = parts.full_screen.get();
@@ -729,6 +1047,8 @@ pub(super) fn apply_full_screen(parts: &mut WindowParts) {
     if !on {
         apply_min_size(parts);
         apply_maximized(parts);
+        // A frame set, or centring asked for, while it was in full screen.
+        apply_pending(parts);
     }
     // Refused: the window stays as it is, and the app hears so.
     if done.is_err() || now != on {
@@ -762,6 +1082,12 @@ fn frame_pixels(parts: &WindowParts, scale: f64) -> (i32, i32) {
 /// window that would is moved back inside the work area either way. A
 /// window larger than the work area keeps its top left corner in it.
 pub(super) fn place_window(parts: &WindowParts) {
+    // The app's frame placed it: it's only kept on its work area.
+    let placement = if parts.framed { WindowPlacement::System } else { parts.placement };
+    place_window_as(parts, placement);
+}
+
+fn place_window_as(parts: &WindowParts, placement: WindowPlacement) {
     let Ok(app) = parts.app_window.cast::<w::IAppWindow>() else { return };
     let monitor = unsafe { w::MonitorFromWindow(parts.hwnd, w::MONITOR_DEFAULTTONEAREST as u32) };
     let mut info = w::MONITORINFO { cbSize: std::mem::size_of::<w::MONITORINFO>() as u32, ..Default::default() };
@@ -771,7 +1097,7 @@ pub(super) fn place_window(parts: &WindowParts) {
     let (Ok(size), Ok(at)) = (app.Size(), app.Position()) else { return };
     let work = info.rcWork;
     let room = (work.right - work.left - size.width, work.bottom - work.top - size.height);
-    let to = match parts.placement {
+    let to = match placement {
         WindowPlacement::Centred => w::PointInt32 { x: work.left + room.0.max(0) / 2, y: work.top + room.1.max(0) / 2 },
         WindowPlacement::System => w::PointInt32 {
             x: at.x.min(work.left + room.0).max(work.left),

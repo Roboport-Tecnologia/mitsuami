@@ -302,6 +302,23 @@ impl Sidebar {
         }
     }
 
+    /// The pane's width in a view this wide (content and pane), as `Auto` shows
+    /// it: the inverse of [`Self::extra_width`], for a width the window has
+    /// rather than the content's.
+    pub(crate) fn pane_width_at(view: &w::NavigationView, whole: f32) -> f32 {
+        let open = view.OpenPaneLength().unwrap_or(320.0) as f32;
+        let compact = view.CompactPaneLength().unwrap_or(48.0) as f32;
+        let expanded_from = view.ExpandedModeThresholdWidth().map_or(EXPANDED_FROM, |w| w as f32);
+        let compact_from = view.CompactModeThresholdWidth().map_or(COMPACT_FROM, |w| w as f32);
+        if whole >= expanded_from {
+            open
+        } else if compact_from < expanded_from && whole >= compact_from {
+            compact
+        } else {
+            0.0
+        }
+    }
+
     /// Puts the menu button in the window's title bar while the pane is
     /// hidden, as Task Manager has it, and in the pane while it shows: the
     /// view's own sits over the content's top corner. The title bar's

@@ -459,10 +459,14 @@ impl State {
             // Not shown yet, it takes the foreground when it is.
             Command::Present { window } => match self.nodes.get(window).map(|n| &n.widget) {
                 Some(Widget::Window(parts)) => {
-                    if parts.shown {
+                    if parts.shown.get() {
                         crate::instance::raise(parts.hwnd);
                     }
                 }
+                _ => violation(command, "not a window"),
+            },
+            Command::CentreWindow { window } => match self.nodes.get_mut(window).map(|n| &mut n.widget) {
+                Some(Widget::Window(parts)) => super::windows::centre_window(parts),
                 _ => violation(command, "not a window"),
             },
             Command::SelectText { id, range } => {

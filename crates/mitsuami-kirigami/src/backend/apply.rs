@@ -384,6 +384,7 @@ impl State {
                 item.set_str("mitsuamiA11yDescription", shown.as_deref().unwrap_or_default());
                 item.set_bool("mitsuamiA11yHidden", *hidden);
             }
+            Command::CentreWindow { window } => self.window_root(*window, command).centre(),
             // A window in full screen keeps the screen's size.
             Command::SetWindowSize { id, size } => {
                 let root = self.window_root(*id, command);

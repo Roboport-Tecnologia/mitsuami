@@ -54,12 +54,14 @@ impl WinUiBackend {
                 props.push(Prop::Title(parts.window.cast::<w::IWindow>().ok()?.Title().ok()?));
                 props.extend(parts.modal.map(|(owner, modality)| Prop::Modal { owner, modality }));
                 // Until it's shown, what it will show.
-                let full = if parts.shown { in_full_screen(&parts.app_window) } else { parts.full_screen.get() };
+                let full = if parts.shown.get() { in_full_screen(&parts.app_window) } else { parts.full_screen.get() };
                 props.push(Prop::FullScreen(full));
                 props.extend(parts.min_size.map(Prop::MinSize));
                 props.push(Prop::HeightFollowsContent(height_locked(parts)));
                 // Until it's shown, and in full screen, what it will show.
-                let shows = parts.shown && !in_full_screen(&parts.app_window);
+                let shows = parts.shown.get() && !in_full_screen(&parts.app_window);
+                props.extend(parts.frames.last().map(Prop::Frame));
+                props.extend(parts.placement_prop.map(Prop::Placement));
                 props.push(Prop::Maximized(if shows {
                     is_maximized(&parts.app_window)
                 } else {

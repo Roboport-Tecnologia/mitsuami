@@ -430,26 +430,11 @@ impl State {
             // size would apply when it leaves); none goes below its minimum.
             Command::SetWindowSize { id, size } => {
                 let (parts, root) = self.window_root(*id, command);
-                if parts.full_screen.in_effect(&parts.window) {
-                    return;
-                }
-                let (min_width, min_height) = parts.host.size_request();
-                let asked = *size;
-                let size = Size::new(size.width.max(requested(min_width)), size.height.max(requested(min_height)));
-                // Before it's first allocated, it's the size the content
-                // has, reported now: the core lays out at the size it opened
-                // with until it hears, and the allocation reports only a
-                // size other than this one (an app that resizes the window
-                // while building its content kept its first layout). After,
-                // the allocation reports it (the app resizing it,
-                // `Ui::set_window_size`, hears only from that), and so does
-                // one the minimum grows.
-                if !parts.window.is_mapped() && root.size.replace(asked) != asked {
-                    root.events.emit(root.id, UiEvent::WindowResized(asked));
-                }
-                root.resizing.set((root.size.get() != size).then_some(size));
-                let (width, height) = parts.extra(size);
-                resize(&parts.window, size.width as i32 + width, size.height as i32 + height);
+                size_window(parts, root, *size);
+            }
+            Command::CentreWindow { window } => {
+                // GTK 4 places windows itself: there's no moving one.
+                self.window_root(*window, command);
             }
             Command::SetFocusOrder { window, order } => {
                 let widgets: Vec<gtk::Widget> = order
@@ -518,4 +503,30 @@ fn nth_child(parent: &gtk::Widget, index: usize) -> Option<gtk::Widget> {
     let mut children =
         std::iter::successors(parent.first_child(), |w| w.next_sibling()).filter(|w| !w.is::<gtk::Popover>());
     children.nth(index)
+}
+
+/// Gives a window a content size, as the app asked (`SetWindowSize`, or
+/// its `Frame`): none in full screen, which keeps the screen's, and none
+/// below its minimum.
+pub(super) fn size_window(parts: &WindowParts, root: &WindowRoot, size: Size) {
+    if parts.full_screen.in_effect(&parts.window) {
+        return;
+    }
+    let (min_width, min_height) = parts.host.size_request();
+    let asked = size;
+    let size = Size::new(size.width.max(requested(min_width)), size.height.max(requested(min_height)));
+    // Before it's first allocated, it's the size the content
+    // has, reported now: the core lays out at the size it opened
+    // with until it hears, and the allocation reports only a
+    // size other than this one (an app that resizes the window
+    // while building its content kept its first layout). After,
+    // the allocation reports it (the app resizing it,
+    // `Ui::set_window_size`, hears only from that), and so does
+    // one the minimum grows.
+    if !parts.window.is_mapped() && root.size.replace(asked) != asked {
+        root.events.emit(root.id, UiEvent::WindowResized(asked));
+    }
+    root.resizing.set((root.size.get() != size).then_some(size));
+    let (width, height) = parts.extra(size);
+    resize(&parts.window, size.width as i32 + width, size.height as i32 + height);
 }

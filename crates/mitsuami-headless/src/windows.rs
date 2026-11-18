@@ -1,8 +1,8 @@
 //! Windows' sizes (resized, in full screen, maximized) and GPU surfaces' sizes.
 
-use mitsuami_core::{NodeId, Size, SurfaceSize, UiEvent, find_prop};
+use mitsuami_core::{NodeId, Placement, Point, Prop, Size, SurfaceSize, UiEvent, WidgetKind, WindowFrame, find_prop};
 
-use super::metrics::{SCREEN, WORK_AREA};
+use super::metrics::{BAR, NEW_WINDOW_AT, SCREEN, TITLE_BAR, WORK_AREA};
 use super::{HeadlessNode, State};
 
 impl State {
@@ -15,7 +15,9 @@ impl State {
             node.restored = Some(at_least_min(node, size));
             return;
         }
+        // One in full screen keeps the screen, and takes it when it leaves.
         if node.windowed.is_some() {
+            node.windowed = Some(at_least_min(node, size));
             return;
         }
         let size = at_least_min(node, size);
@@ -62,6 +64,77 @@ impl State {
         self.emit(window, UiEvent::WindowResized(size));
     }
 
+    /// Places the windows made since the last batch, as they show: where
+    /// their `Frame` puts them, else as their `Placement` says.
+    pub(super) fn place_new_windows(&mut self) {
+        let new: Vec<NodeId> = self
+            .nodes
+            .iter()
+            .filter(|(_, n)| n.kind == WidgetKind::Window && n.position.is_none())
+            .map(|(id, _)| *id)
+            .collect();
+        for window in new {
+            let node = &self.nodes[&window];
+            let frame = find_prop!(node.props, Frame);
+            let centred = find_prop!(node.props, Placement) == Some(Placement::Centred) || node.centre_on_place;
+            self.nodes.get_mut(&window).unwrap().position = Some(NEW_WINDOW_AT);
+            match frame {
+                Some(frame) => self.place(window, frame),
+                None if centred => self.centre(window),
+                None => {}
+            }
+        }
+    }
+
+    /// Moves and sizes a window to a frame, onto the work area: no larger
+    /// than it, and moved into it.
+    pub(super) fn place(&mut self, window: NodeId, frame: WindowFrame) {
+        // One whose content sets its height keeps it: the frame gives its width.
+        let height = match self.nodes.get(&window) {
+            Some(node) if find_prop!(node.props, HeightFollowsContent) == Some(true) => restored_size(node).height,
+            _ => frame.size.height,
+        };
+        let size = Size::new(frame.size.width.min(WORK_AREA.width), height.min(WORK_AREA.height));
+        self.resize(window, size);
+        let Some(node) = self.nodes.get_mut(&window) else { return };
+        let size = restored_size(node);
+        let at = frame.position.or(node.position).unwrap_or(NEW_WINDOW_AT);
+        node.position = Some(Point::new(
+            at.x.clamp(0.0, (SCREEN.width - size.width).max(0.0)),
+            at.y.clamp(BAR, (SCREEN.height - size.height - TITLE_BAR).max(BAR)),
+        ));
+    }
+
+    /// Centres a window on the work area.
+    pub(super) fn centre(&mut self, window: NodeId) {
+        let Some(node) = self.nodes.get_mut(&window) else { return };
+        let size = restored_size(node);
+        node.position = Some(Point::new(
+            ((SCREEN.width - size.width) / 2.0).max(0.0),
+            BAR + ((SCREEN.height - BAR - size.height - TITLE_BAR) / 2.0).max(0.0),
+        ));
+    }
+
+    /// Reports each placed window's restored frame that isn't the `Frame`
+    /// it has, as platforms report the user's moves and resizes, and keeps
+    /// it as the window's prop (its native state).
+    pub(super) fn report_frames(&mut self) {
+        let windows: Vec<NodeId> = self
+            .nodes
+            .iter()
+            .filter(|(_, n)| n.kind == WidgetKind::Window && n.position.is_some())
+            .map(|(id, _)| *id)
+            .collect();
+        for window in windows {
+            let node = &self.nodes[&window];
+            let frame = WindowFrame { position: node.position, size: restored_size(node) };
+            if find_prop!(node.props, Frame) != Some(frame) {
+                self.set_prop(window, Prop::Frame(frame));
+                self.emit(window, UiEvent::FrameChanged(frame));
+            }
+        }
+    }
+
     /// Reports a GPU surface's size in pixels (its frame at the scale
     /// factor, rounded, as platforms round), if it changed.
     pub(super) fn size_surface(&self, id: NodeId) {
@@ -77,6 +150,11 @@ impl State {
             self.emit(id, UiEvent::SurfaceResized(size));
         }
     }
+}
+
+/// A window's size when it's neither maximized nor in full screen.
+pub(super) fn restored_size(node: &HeadlessNode) -> Size {
+    node.restored.or(node.windowed).unwrap_or(node.frame.size)
 }
 
 /// A window's size, grown to its minimum, which goes no larger than the

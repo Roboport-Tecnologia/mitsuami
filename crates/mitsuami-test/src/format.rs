@@ -232,6 +232,10 @@ fn describe_props(props: &[Prop]) -> String {
             Prop::KeyboardGrab(b) => extra.push(format!("keyboard_grab={b}")),
             Prop::FullScreen(b) => extra.push(format!("full_screen={b}")),
             Prop::Maximized(b) => extra.push(format!("maximized={b}")),
+            // Where the platform put the window, which differs by machine;
+            // its size is the window's own.
+            Prop::Frame(_) => {}
+            Prop::Placement(placement) => extra.push(format!("placement={placement:?}")),
             Prop::Resizable(b) => extra.push(format!("resizable={b}")),
             Prop::MinSize(size) => extra.push(format!("min_size={}x{}", Num(size.width), Num(size.height))),
             Prop::HeightFollowsContent(b) => extra.push(format!("height_follows_content={b}")),
@@ -381,6 +385,7 @@ pub(crate) fn commands(log: &[Command]) -> String {
             Command::ScrollTo { id, offset } => format!("scroll {id} to {},{}", Num(offset.x), Num(offset.y)),
             Command::Focus { id } => format!("focus {id}"),
             Command::Present { window } => format!("present {window}"),
+            Command::CentreWindow { window } => format!("centre {window}"),
             Command::SelectText { id, range } => format!("select {id} {}..{}", range.start, range.end),
             Command::ScrollToRow { id, row } => format!("scroll {id} to row {}", row.0),
         };

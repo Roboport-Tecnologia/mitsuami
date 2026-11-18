@@ -3,7 +3,8 @@
 use std::rc::Rc;
 
 use mitsuami_core::{
-    AnyView, CurrentWindow, Modality, NodeId, NodeRef, Prop, Size, Ui, UiEvent, View, WidgetKind, WindowSize,
+    AnyView, CurrentWindow, Modality, NodeId, NodeRef, Placement, Prop, Size, Ui, UiEvent, View, WidgetKind,
+    WindowFrame, WindowSize,
 };
 use mitsuami_reactive::{IntoValue, Signal, Value, computed, effect, inject, on_cleanup, provide, untrack};
 
@@ -34,6 +35,8 @@ pub struct Window<T = Value<String>> {
     open: Value<bool>,
     full_screen: Option<Signal<bool>>,
     maximized: Option<Signal<bool>>,
+    frame: Option<Signal<Option<WindowFrame>>>,
+    placement: Option<Value<Placement>>,
     resizable: Option<Value<bool>>,
     min_size: Option<Value<Size>>,
     on_open: Option<Rc<dyn Fn()>>,
@@ -53,6 +56,8 @@ impl Window {
             open: Value::Static(true),
             full_screen: None,
             maximized: None,
+            frame: None,
+            placement: None,
             resizable: None,
             min_size: None,
             on_open: None,
@@ -123,6 +128,28 @@ impl<T> Window<T> {
         self
     }
 
+    /// Its restored frame (see [`WindowFrame`]): where it is and how large
+    /// when it's neither maximized nor in full screen. A `Some` when it
+    /// opens places and sizes it there, in place of its `size` and
+    /// `placement` (moved onto a screen if it's on none any more, and no
+    /// larger than that screen); setting it while it's open moves and
+    /// resizes it. The platform fills it in as the window shows and keeps
+    /// it as the user moves and resizes it, so an app saves it when the
+    /// window closes and hands it back the next time to open it as it was
+    /// left. Maximizing it doesn't change it.
+    pub fn frame(mut self, frame: Signal<Option<WindowFrame>>) -> Window<T> {
+        self.frame = Some(frame);
+        self
+    }
+
+    /// Where it opens when its `frame` doesn't say: where the platform
+    /// puts a new window (the default), or centred on its screen. Read each
+    /// time it opens. To centre it while it's open, `Ui::centre_window`.
+    pub fn placement(mut self, placement: impl IntoValue<Placement>) -> Window<T> {
+        self.placement = Some(placement.into_value());
+        self
+    }
+
     /// Whether the user can resize it; they can unless it's set false.
     /// The app can still size it, and a window that follows its content's
     /// height still does.
@@ -185,6 +212,8 @@ impl View for Window {
             open,
             full_screen,
             maximized,
+            frame,
+            placement,
             resizable,
             min_size,
             on_open,
@@ -197,7 +226,20 @@ impl View for Window {
         let owner = inject::<CurrentWindow>().map(|w| w.0);
         let ui = ui.clone();
         let show = move || {
-            let window = ui.create_window(String::new(), size.get());
+            // A frame to open at sizes it, before its first layout.
+            let saved = frame.and_then(|f| f.get_untracked());
+            // A window whose content sets its height keeps it so: the frame gives
+            // only its width (and where it is). One that fitted its height once, or
+            // followed it until the user resized it, opens as it was left.
+            let opening = match (size.get(), saved) {
+                (size, None) => size,
+                (WindowSize::FollowHeight(_), Some(f)) => WindowSize::FollowHeight(f.size.width),
+                (_, Some(f)) => f.size.into(),
+            };
+            let window = ui.create_window(String::new(), opening);
+            if let Some(placement) = placement.as_ref().map(Value::get) {
+                ui.set_prop(window, Prop::Placement(placement));
+            }
             if let Some(modality) = modality.get() {
                 // With no window to block, it blocks the app.
                 let modality = if owner.is_some() { modality } else { Modality::Application };
@@ -225,6 +267,19 @@ impl View for Window {
                 ui.on_event(window, move |event| {
                     if let UiEvent::MaximizedChanged(on) = event {
                         maximized.set(*on);
+                    }
+                });
+            }
+            if let Some(frame) = frame {
+                let placed = ui.clone();
+                effect(move || {
+                    if let Some(frame) = frame.get() {
+                        placed.set_prop(window, Prop::Frame(frame));
+                    }
+                });
+                ui.on_event(window, move |event| {
+                    if let UiEvent::FrameChanged(now) = event {
+                        frame.set(Some(*now));
                     }
                 });
             }
@@ -305,6 +360,8 @@ impl<T> Window<T> {
             open,
             full_screen,
             maximized,
+            frame,
+            placement,
             resizable,
             min_size,
             on_open,
@@ -320,6 +377,8 @@ impl<T> Window<T> {
             open,
             full_screen,
             maximized,
+            frame,
+            placement,
             resizable,
             min_size,
             on_open,

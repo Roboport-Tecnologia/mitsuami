@@ -523,6 +523,24 @@ impl Backend for AppKitBackend {
         native_state::native_state(&self.state.borrow(), id)
     }
 
+    /// The visible area (less the menu bar and the Dock) of the window's
+    /// screen, or of the main screen for a new window, as the content of
+    /// a titled window filling it.
+    fn work_area(&self, window: Option<NodeId>) -> Option<Size> {
+        let state = self.state.borrow();
+        if let Some(Widget::Window { window, _delegate, .. }) =
+            window.and_then(|id| state.nodes.get(&id)).map(|n| &n.widget)
+        {
+            return _delegate.work_area(window);
+        }
+        let visible = objc2_app_kit::NSScreen::mainScreen(state.mtm)?.visibleFrame();
+        let mask = objc2_app_kit::NSWindowStyleMask::Titled
+            | objc2_app_kit::NSWindowStyleMask::Closable
+            | objc2_app_kit::NSWindowStyleMask::Resizable;
+        let area = objc2_app_kit::NSWindow::contentRectForFrameRect_styleMask(visible, mask, state.mtm).size;
+        Some(Size::new(area.width as f32, area.height as f32))
+    }
+
     /// The id is the bundle's, and so is the icon if the bundle has one: a
     /// bundle's icon has the sizes and variants (dark, tinted) that one
     /// image doesn't. The name goes in the app menu; the menu bar's title

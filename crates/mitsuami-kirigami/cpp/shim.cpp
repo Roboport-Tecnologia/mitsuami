@@ -1544,6 +1544,23 @@ int32_t mq_window_available_size(QObject* window, double* width, double* height)
     return 1;
 }
 
+// The available geometry (less panels) of the screen at (x, y), else of
+// the window's screen, else of the primary one: where a window placed at
+// (x, y) goes, kept on a screen that's still there.
+int32_t mq_screen_available_at(QObject* window, int32_t x, int32_t y, int32_t* left, int32_t* top, int32_t* width,
+                               int32_t* height) {
+    auto* w = qobject_cast<QWindow*>(window);
+    QScreen* screen = QGuiApplication::screenAt(QPoint(x, y));
+    if (!screen) screen = w && w->screen() ? w->screen() : QGuiApplication::primaryScreen();
+    if (!screen) return 0;
+    QRect available = screen->availableGeometry();
+    *left = available.x();
+    *top = available.y();
+    *width = available.width();
+    *height = available.height();
+    return 1;
+}
+
 // A real key press and release with a native scan code, through the
 // window's shortcuts first, as the platform delivers it.
 void mq_surface_key(QObject* window, int32_t key, uint32_t scan_code, const char* text) {

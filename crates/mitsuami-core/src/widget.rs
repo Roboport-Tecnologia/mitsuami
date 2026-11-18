@@ -1105,6 +1105,18 @@ pub enum Prop {
     /// The user can resize a window. Without, only the app sets its size;
     /// sent only if the app chose.
     Resizable(bool),
+    /// A window's restored frame (see [`WindowFrame`]). The app's places
+    /// and sizes the window, moved onto a screen if it's on none any more
+    /// and no larger than that screen's work area; the user moving or
+    /// resizing it changes it too: the backend reports `FrameChanged`
+    /// (once as it shows, then as it changes), which the core absorbs.
+    /// Maximizing it or putting it in full screen doesn't. Sent only if
+    /// the app chose.
+    Frame(crate::WindowFrame),
+    /// Where a window opens when no `Frame` places it. Read as it opens,
+    /// so the platform keeps it, not the window. Sent only if the app
+    /// chose.
+    Placement(crate::Placement),
     /// Text content of a `Text`.
     Text(String),
     /// How many lines a `Text` shows at most, the last one cut off with an

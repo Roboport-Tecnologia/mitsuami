@@ -85,6 +85,12 @@ pub(crate) struct WindowRoot {
     pub(crate) resizing: Cell<Option<Size>>,
     /// The core's Tab order.
     pub(crate) focus_order: RefCell<Vec<gtk::Widget>>,
+    /// Its restored frame, as last reported or as the app set it. GTK 4
+    /// can't tell where a window is, on X11 too: only its size.
+    pub(crate) frame: Cell<Option<mitsuami_core::WindowFrame>>,
+    /// The app's `Placement`, if it chose, for its native state: GTK
+    /// places windows itself.
+    pub(crate) placement: Cell<Option<mitsuami_core::Placement>>,
 }
 
 impl WindowRoot {
@@ -163,6 +169,14 @@ mod imp {
                 let size = Size::new(width as f32, height as f32);
                 if root.size.replace(size) != size {
                     root.events.emit(root.id, UiEvent::WindowResized(size));
+                }
+                // Its restored frame: not while maximized or in full screen.
+                let window = self.obj().root().and_downcast::<gtk::Window>();
+                if window.is_some_and(|w| !w.is_maximized() && !w.is_fullscreen()) {
+                    let frame = mitsuami_core::WindowFrame { position: None, size };
+                    if root.frame.replace(Some(frame)) != Some(frame) {
+                        root.events.emit(root.id, UiEvent::FrameChanged(frame));
+                    }
                 }
                 // Arrived: later changes start from here.
                 if root.resizing.get() == Some(size) {

@@ -1014,7 +1014,13 @@ impl HostState {
             _ = state.focus_island();
         }
         let covered = COVERED.with(|c| c.borrow().contains(&(state.window as isize)));
-        let at = if covered { None } else { state.rect().ok().flatten() };
+        // Nor before its window is first shown: nothing presented to it can be
+        // seen, and its size then may not be the one it shows at (a window that
+        // opens maximized is laid out at its restored size first). The app hears
+        // of a size as the window shows, and presents at that size from its first
+        // frame. (Test windows are shown, invisibly, from the start.)
+        let unshown = !unsafe { w::IsWindowVisible(state.window) }.as_bool();
+        let at = if covered || unshown { None } else { state.rect().ok().flatten() };
         if at != state.placed {
             state.placed = at;
             let flags = (w::SWP_NOACTIVATE | if at.is_some() { w::SWP_SHOWWINDOW } else { w::SWP_HIDEWINDOW }) as u32;

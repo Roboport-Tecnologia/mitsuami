@@ -272,6 +272,7 @@ impl Inner {
             | UiEvent::KeyboardGrabEnded
             | UiEvent::FullScreenChanged(_)
             | UiEvent::MaximizedChanged(_)
+            | UiEvent::FrameChanged(_)
             | UiEvent::SidebarShownChanged(_)
             | UiEvent::PopoverShownChanged(_) => {
                 let Some(node) = self.nodes.get_mut(&id) else { return };
@@ -280,6 +281,7 @@ impl Inner {
                     UiEvent::KeyboardGrabEnded => Prop::KeyboardGrab(false),
                     UiEvent::FullScreenChanged(on) => Prop::FullScreen(*on),
                     UiEvent::MaximizedChanged(on) => Prop::Maximized(*on),
+                    UiEvent::FrameChanged(frame) => Prop::Frame(*frame),
                     UiEvent::SidebarShownChanged(shown) => Prop::SidebarShown(*shown),
                     UiEvent::PopoverShownChanged(shown) => Prop::PopoverShown(*shown),
                     _ => unreachable!(),

@@ -194,6 +194,15 @@ unsafe extern "C" {
     fn mq_window_states(window: Raw) -> i32;
     fn mq_window_set_states(window: Raw, states: i32);
     fn mq_window_available_size(window: Raw, width: *mut f64, height: *mut f64) -> i32;
+    fn mq_screen_available_at(
+        window: Raw,
+        x: i32,
+        y: i32,
+        left: *mut i32,
+        top: *mut i32,
+        width: *mut i32,
+        height: *mut i32,
+    ) -> i32;
 }
 
 // ------------------------------------------------------------- callbacks
@@ -467,6 +476,14 @@ pub(crate) fn device_pixel_ratio() -> f64 {
 /// over (not the offscreen platform).
 pub(crate) fn platform_has_surfaces() -> bool {
     unsafe { mq_platform_has_surfaces() != 0 }
+}
+
+/// The most a new window's client area can be: the primary screen's
+/// available size, in points.
+pub(crate) fn primary_available_size() -> Option<(f64, f64)> {
+    let (mut width, mut height) = (0.0, 0.0);
+    let found = unsafe { mq_window_available_size(std::ptr::null_mut(), &mut width, &mut height) };
+    (found != 0).then_some((width, height))
 }
 
 /// Qt's `wl_display`, on Wayland.
@@ -1279,6 +1296,16 @@ impl QmlObject {
         let (mut width, mut height) = (0.0, 0.0);
         let found = unsafe { mq_window_available_size(raw, &mut width, &mut height) };
         (found != 0).then_some((width, height))
+    }
+
+    /// The available geometry (less panels) of the screen at `(x, y)`,
+    /// else of the window's, else of the primary one, in pixels: left,
+    /// top, width, height.
+    pub(crate) fn screen_available_at(self, x: i32, y: i32) -> Option<(i32, i32, i32, i32)> {
+        let raw = self.live()?;
+        let (mut left, mut top, mut width, mut height) = (0, 0, 0, 0);
+        let found = unsafe { mq_screen_available_at(raw, x, y, &mut left, &mut top, &mut width, &mut height) };
+        (found != 0).then_some((left, top, width, height))
     }
 
     /// A real key press and release with a native scan code, delivered to

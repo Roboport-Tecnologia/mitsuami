@@ -107,6 +107,29 @@ impl State {
                 parts.window.set_resizable(parts.resizable && !parts.height_locked);
             }
             (Prop::Maximized(on), Widget::Window(parts)) => parts.maximized.set(&parts.window, &parts.host, *on),
+            // Only its size: GTK 4 places windows itself, on X11 too.
+            (Prop::Frame(frame), Widget::Window(parts)) => {
+                if let Some(root) = parts.host.window_root() {
+                    root.frame.set(Some(*frame));
+                    let header = Some(parts.header_height());
+                    let most = super::window::work_area(Some(&parts.window), header).unwrap_or(frame.size);
+                    // One whose content sets its height keeps it: the frame gives its width.
+                    let height = if parts.height_locked { root.content_size().height } else { frame.size.height };
+                    let size = mitsuami_core::Size::new(frame.size.width.min(most.width), height.min(most.height));
+                    if parts.window.is_maximized() || parts.window.is_fullscreen() {
+                        // Its size when it's back from being maximized or in full screen.
+                        let (width, height) = parts.extra(size);
+                        parts.window.set_default_size(size.width as i32 + width, size.height as i32 + height);
+                    } else {
+                        super::apply::size_window(parts, root, size);
+                    }
+                }
+            }
+            (Prop::Placement(placement), Widget::Window(parts)) => {
+                if let Some(root) = parts.host.window_root() {
+                    root.placement.set(Some(*placement));
+                }
+            }
             (Prop::Text(t), Widget::Label(l)) => l.set_text(t),
             (Prop::Selectable(on), Widget::Label(l)) => l.set_selectable(*on),
             // GTK limits the lines of wrapping labels that ellipsize.

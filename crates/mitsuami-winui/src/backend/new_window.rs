@@ -176,11 +176,14 @@ impl State {
         let window_id = app_window.cast::<w::IAppWindow>()?.Id()?;
         let hwnd = window_id.value as usize as w::HWND;
         crate::session::watch(hwnd);
-        // Invisible until the first layout is applied (or for good, in
-        // tests). XAML only measures elements in a live tree, so the window
-        // must be activated before anything is measured.
-        set_transparent(hwnd, true);
+        // Not shown until its first layout is applied: then it's shown for the
+        // first time, which is when Windows plays its opening animation (it
+        // animates a window's first show only). Its content loads (and is
+        // measured) unshown. Test windows are never shown: activated now,
+        // layered nearly transparent, as XAML stops rendering windows it
+        // considers hidden, and captures need rendering.
         if !self.options.show_windows {
+            set_transparent(hwnd, true);
             // Not moved offscreen: XAML stops rendering windows it considers
             // hidden, and capture needs rendering.
             app_window.cast::<w::IAppWindow>()?.SetIsShownInSwitchers(false)?;
@@ -192,7 +195,9 @@ impl State {
             let loaded = loaded.clone();
             move |_, _| loaded.set(true)
         })?);
-        window.cast::<w::IWindow>()?.Activate()?;
+        if !self.options.show_windows {
+            window.cast::<w::IWindow>()?.Activate()?;
+        }
         let deadline = Instant::now() + Duration::from_secs(10);
         while !loaded.get() {
             assert!(Instant::now() < deadline, "winui backend: a window's content never loaded");
@@ -214,9 +219,11 @@ impl State {
             }
         })?);
         let size = Rc::new(Cell::new(None::<Size>));
+        let frames = super::windows::FrameReport::new(app_window.clone(), size.clone());
         let aimed = Rc::new(Cell::new(None::<(Size, Size)>));
         revokers.push(host.cast::<w::IFrameworkElement>()?.SizeChanged({
             let (emitter, last, aimed, app_window) = (emitter.clone(), size.clone(), aimed.clone(), app_window.clone());
+            let frames = frames.clone();
             move |sender, args| {
                 let Some(new) = args.as_ref().and_then(|a| a.cast::<w::ISizeChangedEventArgs>().ok()?.NewSize().ok())
                 else {
@@ -234,6 +241,7 @@ impl State {
                     correct_client(&app_window, host.as_ref(), want, new);
                 }
                 report_size(&emitter, id, &last, new);
+                frames.report(&emitter, id);
             }
         })?);
         let focus = Rc::new(Cell::new(None));
@@ -273,24 +281,38 @@ impl State {
         // app hears of it. Our own changes match what it asked for.
         let full_screen = Rc::new(Cell::new(false));
         let maximized = Rc::new(Cell::new(false));
+        let shown = Rc::new(Cell::new(false));
         let monitor = unsafe { w::MonitorFromWindow(hwnd, w::MONITOR_DEFAULTTONEAREST as u32) } as isize;
         let (monitor, moved) = (Rc::new(Cell::new(monitor)), Rc::new(Cell::new(false)));
         revokers.push(app_window.cast::<w::IAppWindow>()?.Changed({
             let (emitter, full_screen, title_bar) = (emitter.clone(), full_screen.clone(), title_bar.clone());
-            let (monitor, moved, maximized) = (monitor.clone(), moved.clone(), maximized.clone());
+            let (monitor, moved, maximized, shown) = (monitor.clone(), moved.clone(), maximized.clone(), shown.clone());
+            let frames = frames.clone();
             move |sender, args| {
                 let args = args.as_ref().and_then(|a| a.cast::<w::IAppWindowChangedEventArgs>().ok());
                 // Maximized or restored by the user (the caption's button, a
                 // double-click on it, Win+Up), which resizes it; the app's own
-                // match what it asked for. Full screen isn't maximized.
+                // match what it asked for. Full screen isn't maximized, and
+                // sizing before it's shown is the app's: a window asked to
+                // open maximized is still restored then, and maximizes as
+                // it shows.
                 if let (Some(true), Some(app_window)) =
                     (args.as_ref().and_then(|a| a.DidSizeChange().ok()), sender.as_ref())
+                    && shown.get()
                     && !in_full_screen(app_window)
                 {
                     let now = is_maximized(app_window);
                     if maximized.replace(now) != now {
                         emitter.emit(id, UiEvent::MaximizedChanged(now));
                     }
+                }
+                // Moved, or sized, by the user or the app: its restored
+                // frame, if that's what changed.
+                let moved_or_sized = args
+                    .as_ref()
+                    .is_some_and(|a| a.DidPositionChange().unwrap_or(false) || a.DidSizeChange().unwrap_or(false));
+                if moved_or_sized {
+                    frames.report(&emitter, id);
                 }
                 // Onto another display: its minimum is applied again after
                 // the next tick, where the backend's state is at hand.
@@ -416,7 +438,11 @@ impl State {
             full_screen,
             maximized,
             resizable: true,
-            shown: false,
+            shown,
+            presized: None,
+            frames,
+            framed: false,
+            placement_prop: None,
             overlapped: None,
             min_size: None,
             height_locked: false,

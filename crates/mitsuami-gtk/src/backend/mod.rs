@@ -601,6 +601,14 @@ impl Backend for GtkBackend {
         self.read_native_state(id)
     }
 
+    fn work_area(&self, window: Option<NodeId>) -> Option<Size> {
+        let state = self.state.borrow();
+        match window.and_then(|id| state.nodes.get(&id)).map(|n| &n.widget) {
+            Some(Widget::Window(parts)) => window::work_area(Some(&parts.window), Some(parts.header_height())),
+            _ => window::work_area(None, None),
+        }
+    }
+
     fn services(&self) -> Box<dyn mitsuami_core::services::Services> {
         Box::new(GtkServices::new(self.handle()))
     }

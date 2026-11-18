@@ -36,6 +36,8 @@ pub(super) fn native_state(state: &State, id: NodeId) -> Option<NativeState> {
             props.push(Prop::MinSize(_delegate.min_size(window)));
             props.push(Prop::HeightFollowsContent(_delegate.height_locked(window)));
             props.push(Prop::Maximized(_delegate.zoomed(window)));
+            props.extend(_delegate.frame().map(Prop::Frame));
+            props.extend(_delegate.placement().map(Prop::Placement));
             props.push(Prop::Resizable(window.styleMask().contains(NSWindowStyleMask::Resizable)));
             props.extend(node.modal.map(|(owner, modality)| Prop::Modal { owner, modality }));
         }

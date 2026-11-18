@@ -1,4 +1,5 @@
 windows_core::link!("kernel32.dll" "system" fn ActivateActCtx(hactctx : HANDLE, lpcookie : *mut usize) -> windows_core::BOOL);
+windows_core::link!("user32.dll" "system" fn AdjustWindowRectExForDpi(lprect : *mut RECT, dwstyle : u32, bmenu : windows_core::BOOL, dwexstyle : u32, dpi : u32) -> windows_core::BOOL);
 windows_core::link!("user32.dll" "system" fn AllowSetForegroundWindow(dwprocessid : u32) -> windows_core::BOOL);
 windows_core::link!("user32.dll" "system" fn CallNextHookEx(hhk : HHOOK, ncode : i32, wparam : WPARAM, lparam : LPARAM) -> LRESULT);
 windows_core::link!("user32.dll" "system" fn ChangeWindowMessageFilterEx(hwnd : HWND, message : u32, action : u32, pchangefilterstruct : *mut CHANGEFILTERSTRUCT) -> windows_core::BOOL);
@@ -26,6 +27,7 @@ windows_core::link!("user32.dll" "system" fn DestroyIcon(hicon : HICON) -> windo
 windows_core::link!("user32.dll" "system" fn DestroyMenu(hmenu : HMENU) -> windows_core::BOOL);
 windows_core::link!("user32.dll" "system" fn DestroyWindow(hwnd : HWND) -> windows_core::BOOL);
 windows_core::link!("user32.dll" "system" fn DispatchMessageW(lpmsg : *const MSG) -> LRESULT);
+windows_core::link!("dwmapi.dll" "system" fn DwmGetWindowAttribute(hwnd : HWND, dwattribute : u32, pvattribute : *mut core::ffi::c_void, cbattribute : u32) -> windows_core::HRESULT);
 windows_core::link!("user32.dll" "system" fn EnableWindow(hwnd : HWND, benable : windows_core::BOOL) -> windows_core::BOOL);
 windows_core::link!("user32.dll" "system" fn EnumChildWindows(hwndparent : HWND, lpenumfunc : WNDENUMPROC, lparam : LPARAM) -> windows_core::BOOL);
 windows_core::link!("user32.dll" "system" fn EnumWindows(lpenumfunc : WNDENUMPROC, lparam : LPARAM) -> windows_core::BOOL);
@@ -60,6 +62,8 @@ windows_core::link!("kernel32.dll" "system" fn GetTimeFormatEx(lplocalename : wi
 windows_core::link!("kernel32.dll" "system" fn GetUserPreferredUILanguages(dwflags : u32, pulnumlanguages : *mut u32, pwszlanguagesbuffer : *mut u16, pcchlanguagesbuffer : *mut u32) -> windows_core::BOOL);
 windows_core::link!("user32.dll" "system" fn GetWindow(hwnd : HWND, ucmd : u32) -> HWND);
 windows_core::link!("user32.dll" "system" fn GetWindowLongW(hwnd : HWND, nindex : i32) -> i32);
+windows_core::link!("user32.dll" "system" fn GetWindowPlacement(hwnd : HWND, lpwndpl : *mut WINDOWPLACEMENT) -> windows_core::BOOL);
+windows_core::link!("user32.dll" "system" fn GetWindowRect(hwnd : HWND, lprect : *mut RECT) -> windows_core::BOOL);
 windows_core::link!("user32.dll" "system" fn GetWindowTextW(hwnd : HWND, lpstring : windows_core::PWSTR, nmaxcount : i32) -> i32);
 windows_core::link!("user32.dll" "system" fn GetWindowThreadProcessId(hwnd : HWND, lpdwprocessid : *mut u32) -> u32);
 windows_core::link!("kernel32.dll" "system" fn HeapFree(hheap : HANDLE, dwflags : u32, lpmem : *mut core::ffi::c_void) -> windows_core::BOOL);
@@ -80,6 +84,7 @@ windows_core::link!("user32.dll" "system" fn LoadImageW(hinst : HINSTANCE, name 
 windows_core::link!("kernel32.dll" "system" fn LocalFree(hmem : HLOCAL) -> HLOCAL);
 windows_core::link!("user32.dll" "system" fn MapVirtualKeyW(ucode : u32, umaptype : u32) -> u32);
 windows_core::link!("user32.dll" "system" fn MessageBoxW(hwnd : HWND, lptext : windows_core::PCWSTR, lpcaption : windows_core::PCWSTR, utype : u32) -> i32);
+windows_core::link!("user32.dll" "system" fn MonitorFromRect(lprc : *const RECT, dwflags : u32) -> HMONITOR);
 windows_core::link!("user32.dll" "system" fn MonitorFromWindow(hwnd : HWND, dwflags : u32) -> HMONITOR);
 windows_core::link!("user32.dll" "system" fn MsgWaitForMultipleObjectsEx(ncount : u32, phandles : *const HANDLE, dwmilliseconds : u32, dwwakemask : u32, dwflags : u32) -> u32);
 windows_core::link!("user32.dll" "system" fn PeekMessageW(lpmsg : *mut MSG, hwnd : HWND, wmsgfiltermin : u32, wmsgfiltermax : u32, wremovemsg : u32) -> windows_core::BOOL);
@@ -112,6 +117,7 @@ windows_core::link!("user32.dll" "system" fn SetWindowLongPtrW(hwnd : HWND, nind
 #[cfg(target_pointer_width = "32")]
 pub use SetWindowLongW as SetWindowLongPtrW;
 windows_core::link!("user32.dll" "system" fn SetWindowLongW(hwnd : HWND, nindex : i32, dwnewlong : i32) -> i32);
+windows_core::link!("user32.dll" "system" fn SetWindowPlacement(hwnd : HWND, lpwndpl : *const WINDOWPLACEMENT) -> windows_core::BOOL);
 windows_core::link!("user32.dll" "system" fn SetWindowPos(hwnd : HWND, hwndinsertafter : HWND, x : i32, y : i32, cx : i32, cy : i32, uflags : u32) -> windows_core::BOOL);
 windows_core::link!("comctl32.dll" "system" fn SetWindowSubclass(hwnd : HWND, pfnsubclass : SUBCLASSPROC, uidsubclass : usize, dwrefdata : usize) -> windows_core::BOOL);
 windows_core::link!("user32.dll" "system" fn SetWindowsHookExW(idhook : i32, lpfn : HOOKPROC, hmod : HINSTANCE, dwthreadid : u32) -> HHOOK);
@@ -2503,6 +2509,8 @@ pub const DATE_SHORTDATE: i32 = 1;
 pub const DIB_RGB_COLORS: i32 = 0;
 pub type DPI_AWARENESS_CONTEXT = *mut core::ffi::c_void;
 pub const DPI_AWARENESS_CONTEXT_PER_MONITOR_AWARE_V2: DPI_AWARENESS_CONTEXT = -4 as _;
+pub const DWMWA_EXTENDED_FRAME_BOUNDS: DWMWINDOWATTRIBUTE = 9;
+pub type DWMWINDOWATTRIBUTE = i32;
 #[repr(transparent)]
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct DataPackage(windows_core::IUnknown);
@@ -4186,6 +4194,7 @@ pub const GA_ROOT: i32 = 2;
 pub const GCS_RESULTSTR: i32 = 2048;
 pub const GWLP_HWNDPARENT: i32 = -8;
 pub const GWL_EXSTYLE: i32 = -20;
+pub const GWL_STYLE: i32 = -16;
 pub const GW_CHILD: i32 = 5;
 pub const GW_OWNER: i32 = 4;
 #[repr(transparent)]
@@ -23622,8 +23631,10 @@ pub const SWP_HIDEWINDOW: i32 = 128;
 pub const SWP_NOACTIVATE: i32 = 16;
 pub const SWP_NOMOVE: i32 = 2;
 pub const SWP_NOSIZE: i32 = 1;
+pub const SWP_NOZORDER: i32 = 4;
 pub const SWP_SHOWWINDOW: i32 = 64;
 pub const SW_RESTORE: i32 = 9;
+pub const SW_SHOWMAXIMIZED: i32 = 3;
 pub const SW_SHOWNORMAL: i32 = 1;
 #[repr(C)]
 #[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
@@ -26856,6 +26867,16 @@ impl windows_core::RuntimeName for VisualTreeHelper {
 unsafe impl Send for VisualTreeHelper {}
 unsafe impl Sync for VisualTreeHelper {}
 pub const WH_KEYBOARD_LL: i32 = 13;
+#[repr(C)]
+#[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
+pub struct WINDOWPLACEMENT {
+    pub length: u32,
+    pub flags: u32,
+    pub showCmd: u32,
+    pub ptMinPosition: POINT,
+    pub ptMaxPosition: POINT,
+    pub rcNormalPosition: RECT,
+}
 pub const WM_APP: i32 = 32768;
 pub const WM_CHAR: i32 = 258;
 pub const WM_CLOSE: i32 = 16;
@@ -26912,6 +26933,7 @@ pub type WNDENUMPROC = Option<unsafe extern "system" fn(param0: HWND, param1: LP
 pub type WNDPROC =
     Option<unsafe extern "system" fn(param0: HWND, param1: u32, param2: WPARAM, param3: LPARAM) -> LRESULT>;
 pub type WPARAM = usize;
+pub const WS_CAPTION: i32 = 12582912;
 pub const WS_CHILD: i32 = 1073741824;
 pub const WS_CLIPSIBLINGS: i32 = 67108864;
 pub const WS_EX_LAYERED: i32 = 524288;

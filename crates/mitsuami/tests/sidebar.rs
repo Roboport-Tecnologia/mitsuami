@@ -5,7 +5,7 @@
 use std::cell::RefCell;
 use std::rc::Rc;
 
-use mitsuami::core::{Prop, WidgetKind};
+use mitsuami::core::{Prop, UiEvent, WidgetKind};
 use mitsuami::prelude::*;
 use mitsuami_test::prelude::*;
 
@@ -105,6 +105,32 @@ async fn the_content_keeps_the_window_size(app: TestApp) {
     app.resize(640.0, 480.0).await;
     let size = app.ui().window_size(app.window()).unwrap();
     assert!((size.width - 640.0).abs() < 1.0 && (size.height - 480.0).abs() < 1.0, "{size:?}");
+}
+
+/// Resized by the app, beside a sidebar, the content is reported at the size it got,
+/// first thing (the backend reports a size it sets right away): the pane `Auto` shows
+/// at the window's width taken off, and the view's border only while the pane shows.
+/// (XAML reports passing sizes of its own afterwards, as the pane changes mode.)
+#[mitsuami_test::test]
+async fn the_app_resizing_it_reports_the_content_it_gets(app: TestApp) {
+    let page = signal(Page::General);
+    app.mount(move || settings(page));
+    app.settle().await;
+    let window = app.window();
+    let reported = Rc::new(RefCell::new(Vec::new()));
+    let seen = reported.clone();
+    app.ui().on_event(window, move |event| {
+        if let UiEvent::WindowResized(size) = event {
+            seen.borrow_mut().push(size.width);
+        }
+    });
+    for width in [650.0, 900.0] {
+        reported.borrow_mut().clear();
+        app.ui().set_window_size(window, Size::new(width, 400.0));
+        app.settle().await;
+        assert_eq!(reported.borrow().first(), Some(&width), "reported: {:?}", reported.borrow());
+        assert_eq!(app.ui().window_size(window).map(|s| s.width), Some(width));
+    }
 }
 
 #[mitsuami_test::test]

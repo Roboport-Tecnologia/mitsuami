@@ -35,6 +35,8 @@ impl KirigamiBackend {
                 props.push(Prop::MinSize(root.min_size()));
                 props.push(Prop::HeightFollowsContent(root.height_locked()));
                 props.push(Prop::Maximized(root.is_maximized()));
+                props.extend(root.frame().map(Prop::Frame));
+                props.extend(root.placement().map(Prop::Placement));
                 props.push(Prop::Resizable(!root.width_fixed()));
                 // The modality as Qt has it; the owner as the node has it.
                 if let Some((owner, modality)) = node.modal {
