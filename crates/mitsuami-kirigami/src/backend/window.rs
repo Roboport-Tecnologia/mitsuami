@@ -440,12 +440,15 @@ impl WindowRoot {
         let size = self.at_least_min(asked);
         // Already that size (a frame that only moves it, the same size again): no
         // width or height change comes to clear a request, which would then hold
-        // back every later report (`host_resized`, `report_frame`).
+        // back every later report (`host_resized`, `report_frame`). The window's
+        // own size is what's compared: the content's stays put while a sidebar's
+        // column comes or goes, and the window is what must change.
         let host = self.host_size();
+        let (width, height) = ((size.width as f64 + self.side()).round(), (size.height as f64 + self.header()).round());
         if self.has_rendered()
             && self.requested.get().is_none()
-            && (host.width - size.width).abs() < 1.0
-            && (host.height - size.height).abs() < 1.0
+            && (self.window.real("width") - width).abs() < 1.0
+            && (self.window.real("height") - height).abs() < 1.0
         {
             self.requested.set(None);
             if self.size.replace(host) != host {

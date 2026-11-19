@@ -54,7 +54,13 @@ impl KirigamiHandle {
             if let Some(root) = self.window_root(id) {
                 let centre = root.take_centre_on_show()
                     || (!root.framed() && root.placement() == Some(mitsuami_core::Placement::Centred));
-                root.window.set_bool("visible", true);
+                // Maximized as it opens: shown so, as Qt apps restore a maximized
+                // window. Qt Quick's `visible` shows it normal, un-maximizing it.
+                if root.is_maximized() {
+                    root.window.invoke("showMaximized");
+                } else {
+                    root.window.set_bool("visible", true);
+                }
                 // Shown, at the size its first layout gave it: centred now.
                 if centre {
                     root.centre();
