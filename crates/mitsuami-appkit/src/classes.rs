@@ -702,6 +702,10 @@ pub(crate) struct WindowIvars {
     frame_held: Cell<bool>,
     /// The app's `Placement`, if it chose, for its native state.
     placement: Cell<Option<Placement>>,
+    /// A zoom under way (AppKit animates it, the user's or the app's): the
+    /// frame it ends at, and when it began. Its steps are neither the
+    /// restored frame nor a change of zoom: they're reported once it ends.
+    zooming: Cell<Option<(NSRect, std::time::Instant)>>,
 }
 
 define_class!(
@@ -849,6 +853,10 @@ define_class!(
             if self.ivars().detail.borrow().is_none() {
                 self.ivars().events.emit(self.ivars().id, UiEvent::WindowResized(size));
             }
+            // A zoom's steps on the way: reported where it ends.
+            if self.zoom_under_way(window) {
+                return;
+            }
             // A zoom by the user, or one a resize undid; not the app's own frame
             // being applied (a window zoomed as it opens is zoomed again after).
             if !self.ivars().frame_held.get() {
@@ -867,6 +875,15 @@ define_class!(
                 // window under the pointer.
                 self.report_frame_with(&window, false);
             }
+        }
+
+        /// A zoom begins, the user's or the app's (`zoom:`): where it ends.
+        #[unsafe(method(windowShouldZoom:toFrame:))]
+        fn window_should_zoom(&self, window: &NSWindow, frame: NSRect) -> Bool {
+            self.ivars().zooming.set(Some((frame, std::time::Instant::now())));
+            // Already there (nothing will resize): no zoom under way.
+            self.zoom_under_way(window);
+            Bool::YES
         }
 
         /// Back from the Dock: a frame or centring asked for meanwhile applies.
@@ -955,6 +972,7 @@ impl WindowDelegate {
             pending_centre: Cell::new(false),
             frame_held: Cell::new(false),
             placement: Cell::new(None),
+            zooming: Cell::new(None),
         });
         unsafe { msg_send![super(this), init] }
     }
@@ -1084,7 +1102,11 @@ impl WindowDelegate {
     /// wasn't at its own frame when `apply_pending` (it's back: un-zoomed,
     /// deminiaturized, out of full screen); else, with one pending, nothing.
     fn report_frame_with(&self, window: &NSWindow, apply_pending: bool) {
-        if !window.isVisible() || self.away_from_its_frame(window) || self.ivars().frame_held.get() {
+        if !window.isVisible()
+            || self.away_from_its_frame(window)
+            || self.ivars().frame_held.get()
+            || self.zoom_under_way(window)
+        {
             return;
         }
         let pending_frame = self.ivars().pending_frame.take();
@@ -1143,6 +1165,38 @@ impl WindowDelegate {
             || self.ivars().full_screen_moving.get()
     }
 
+    /// Whether a zoom is still on its way to its frame. AppKit animates it
+    /// in steps, each a resize: none is where the window is restored to, and
+    /// the first steps of a zoom aren't zoomed yet. Ended once the window is
+    /// at the frame it zooms to, or after a second (a zoom interrupted, or
+    /// ending off by a point).
+    fn zoom_under_way(&self, window: &NSWindow) -> bool {
+        let Some((to, since)) = self.ivars().zooming.get() else { return false };
+        let at = window.frame();
+        let near = |a: f64, b: f64| (a - b).abs() < 1.0;
+        let arrived = near(at.origin.x, to.origin.x)
+            && near(at.origin.y, to.origin.y)
+            && near(at.size.width, to.size.width)
+            && near(at.size.height, to.size.height);
+        if arrived || since.elapsed() > std::time::Duration::from_secs(1) {
+            self.ivars().zooming.set(None);
+            return false;
+        }
+        true
+    }
+
+    /// Zoomed, or not shown yet and to open zoomed.
+    pub(crate) fn zoomed_or_opening_zoomed(&self, window: &NSWindow) -> bool {
+        self.zoomed(window) || (!window.isVisible() && !window.isMiniaturized() && self.ivars().zoomed.get())
+    }
+
+    /// The app's size for a zoomed window (or one to open zoomed): the size
+    /// of the frame it un-zooms to, where that frame is.
+    pub(crate) fn set_restored_size(&self, window: &NSWindow, size: Size) {
+        let position = self.ivars().pending_frame.get().or(self.ivars().frame.get()).and_then(|f| f.position);
+        self.set_frame(window, WindowFrame { position, size });
+    }
+
     pub(crate) fn set_frame(&self, window: &NSWindow, frame: WindowFrame) {
         self.ivars().frame.set(Some(frame));
         // Zoomed, miniaturized or in full screen: the frame it goes back to. (A
@@ -1155,6 +1209,13 @@ impl WindowDelegate {
         }
         // Its moves and resizes as this applies are reported once, where it ends.
         self.ivars().frame_held.set(true);
+        // Not shown yet and zoomed as it opens: un-zoomed first, the way
+        // AppKit does it, so the zoom below keeps this frame as the one it
+        // un-zooms to (resized while zoomed, AppKit would go back to the
+        // frame it had before the first zoom).
+        if !shown && self.zoomed(window) {
+            window.zoom(None);
+        }
         let extra = self.extra(window);
         let mtm = MainThreadMarker::from(self);
         let at = frame.position.map(|p| NSPoint::new(p.x as f64, p.y as f64)).unwrap_or_else(|| {
@@ -1201,6 +1262,11 @@ impl WindowDelegate {
                 None => at,
             };
             window.setFrameTopLeftPoint(at);
+        } else if !shown && !self.ivars().framed.get() {
+            // Not placed and not shown yet: centred, as showing it would (a
+            // window zoomed as it opens isn't centred then, so its restored
+            // frame is centred now, not left where the zoom put it).
+            window.center();
         }
         // Not shown yet and to open zoomed: the frame is the one it un-zooms to.
         if !shown && self.ivars().zoomed.get() && !self.zoomed(window) {

@@ -729,7 +729,14 @@ impl State {
             Command::SetWindowSize { id, size } => match self.nodes.get(id).map(|n| &n.widget) {
                 Some(Widget::Window { window, _delegate, .. }) => {
                     if !in_full_screen(window) {
-                        window.setContentSize(_delegate.at_least_min(window, *size));
+                        // Zoomed, or to open so: the size it un-zooms to, as a
+                        // frame set then is (resizing it would un-zoom it, and a
+                        // window opening zoomed would open at this size instead).
+                        if _delegate.zoomed_or_opening_zoomed(window) {
+                            _delegate.set_restored_size(window, *size);
+                        } else {
+                            window.setContentSize(_delegate.at_least_min(window, *size));
+                        }
                     }
                 }
                 _ => violation(command, "not a window"),

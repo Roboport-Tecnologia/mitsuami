@@ -57,9 +57,11 @@ impl AppKitHandle {
                 (None, _) => {
                     // Where the app's frame put it, else centred: AppKit
                     // would put a new window in the screen's corner.
+                    // Zoomed, it fills the screen: its restored frame was
+                    // centred as it was sized (`set_frame`).
                     let framed = matches!(
                         self.state.borrow().nodes.get(&id).map(|n| &n.widget),
-                        Some(Widget::Window { _delegate, .. }) if _delegate.framed()
+                        Some(Widget::Window { _delegate, .. }) if _delegate.framed() || _delegate.zoomed(&window)
                     );
                     if !framed {
                         window.center();
