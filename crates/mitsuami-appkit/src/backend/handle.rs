@@ -131,6 +131,15 @@ impl mitsuami_core::TestHooks for AppKitHandle {
         state.layout_lists();
         state.layout_toolbars();
         state.extend_under_bars();
+        // Windows never shown report their frame here, once laid out, as a
+        // shown window does as it shows.
+        if !state.options.show_windows {
+            for node in state.nodes.values() {
+                if let Widget::Window { window, _delegate, .. } = &node.widget {
+                    _delegate.report_frame(window);
+                }
+            }
+        }
     }
 }
 

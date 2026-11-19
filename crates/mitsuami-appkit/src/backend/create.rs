@@ -78,7 +78,8 @@ impl State {
                 window.setAutorecalculatesKeyViewLoop(false);
                 let host = HostView::new(mtm);
                 window.setContentView(Some(&host));
-                let delegate = WindowDelegate::new(mtm, id, self.events.clone(), self.by_view.clone());
+                let delegate =
+                    WindowDelegate::new(mtm, id, self.events.clone(), self.by_view.clone(), self.options.show_windows);
                 window.setDelegate(Some(ProtocolObject::from_ref(&*delegate)));
                 delegate.observe_focus(&window);
                 if let Some(appearance) = self.options.appearance {

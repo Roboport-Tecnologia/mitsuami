@@ -700,6 +700,9 @@ pub(crate) struct WindowIvars {
     /// While the app's own frame is being applied: its moves and resizes aren't
     /// reported one by one, only where it ends.
     frame_held: Cell<bool>,
+    /// Whether it's ever ordered front: test windows stay offscreen, and
+    /// report their frame once sized, as WinUI's do.
+    shows: bool,
     /// The app's `Placement`, if it chose, for its native state.
     placement: Cell<Option<Placement>>,
     /// A zoom under way (AppKit animates it, the user's or the app's): the
@@ -951,6 +954,7 @@ impl WindowDelegate {
         id: NodeId,
         events: EventSink,
         views: ViewMap,
+        shows: bool,
     ) -> Retained<WindowDelegate> {
         let this = WindowDelegate::alloc(mtm).set_ivars(WindowIvars {
             id,
@@ -971,6 +975,7 @@ impl WindowDelegate {
             pending_frame: Cell::new(None),
             pending_centre: Cell::new(false),
             frame_held: Cell::new(false),
+            shows,
             placement: Cell::new(None),
             zooming: Cell::new(None),
         });
@@ -1102,7 +1107,7 @@ impl WindowDelegate {
     /// wasn't at its own frame when `apply_pending` (it's back: un-zoomed,
     /// deminiaturized, out of full screen); else, with one pending, nothing.
     fn report_frame_with(&self, window: &NSWindow, apply_pending: bool) {
-        if !window.isVisible()
+        if (self.ivars().shows && !window.isVisible())
             || self.away_from_its_frame(window)
             || self.ivars().frame_held.get()
             || self.zoom_under_way(window)
