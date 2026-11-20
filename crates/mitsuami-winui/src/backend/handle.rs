@@ -117,6 +117,9 @@ impl WinUiHandle {
                 // Full screen, or maximized, asked for before it was shown.
                 apply_full_screen(parts);
                 apply_maximized(parts);
+                // Where it shows is its frame, whatever sized it.
+                parts.frames.sized();
+                parts.frames.report(&parts.emitter, parts.node);
                 // Activated now, its content in place: its controls can take
                 // focus, unless one asked for still can't.
                 if parts.wanted_focus.borrow().is_none() {

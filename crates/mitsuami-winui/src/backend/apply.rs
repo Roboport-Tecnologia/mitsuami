@@ -429,6 +429,7 @@ impl State {
                             apply_min_size(parts);
                         }
                         resize_client_with(parts, *size, insets);
+                        parts.frames.sized();
                     }
                 }
                 _ => violation(command, "not a window"),

@@ -41,6 +41,12 @@ pub(super) struct FrameReport {
     /// and its restored rect set through `SetWindowPlacement` would activate it.
     pending_frame: Cell<Option<WindowFrame>>,
     pending_centre: Cell<bool>,
+    /// The app has sized it, given it a frame, or shown it. Until then it's
+    /// where and as large as Windows makes a new window (down its cascade,
+    /// as XAML's first `SizeChanged` has it), which is nobody's frame:
+    /// reported, it reached the app as the window's, and the app's own
+    /// frame, applied next, was never reported over it.
+    sized: Cell<bool>,
 }
 
 impl FrameReport {
@@ -52,7 +58,14 @@ impl FrameReport {
             held: Cell::new(false),
             pending_frame: Cell::new(None),
             pending_centre: Cell::new(false),
+            sized: Cell::new(false),
         })
+    }
+
+    /// The app sized it, gave it a frame, or showed it: its frame is reported
+    /// from now on.
+    pub(super) fn sized(&self) {
+        self.sized.set(true);
     }
 
     /// The frame as last reported or set, for the window's native state.
@@ -67,7 +80,7 @@ impl FrameReport {
     }
 
     pub(super) fn report(&self, emitter: &Events, window: NodeId) {
-        if self.held.get() || self.has_pending() || in_full_screen(&self.app_window) {
+        if !self.sized.get() || self.held.get() || self.has_pending() || in_full_screen(&self.app_window) {
             return;
         }
         let state = overlapped(&self.app_window).and_then(|p| p.State().ok());
@@ -101,6 +114,7 @@ pub(super) fn apply_frame(parts: &mut WindowParts, frame: WindowFrame) {
     }
     parts.frames.last.set(Some(frame));
     parts.frames.held.set(true);
+    parts.frames.sized();
     let asked = frame.position.map(|at| w::PointInt32 { x: at.x.round() as i32, y: at.y.round() as i32 });
     // There first, to be sized by the work area of the display it goes to.
     if let (Some(at), Ok(app)) = (asked, parts.app_window.cast::<w::IAppWindow>()) {

@@ -306,12 +306,15 @@ impl State {
                         emitter.emit(id, UiEvent::MaximizedChanged(now));
                     }
                 }
-                // Moved, or sized, by the user or the app: its restored
-                // frame, if that's what changed.
-                let moved_or_sized = args
+                // Moved by the user or the app: its restored frame, if that's
+                // what changed. Sized too, and the content's `SizeChanged`
+                // reports it: the size the frame is read with is the
+                // content's, which XAML only has then (restored from
+                // maximized, it was reported at its maximized size).
+                let moved_only = args
                     .as_ref()
-                    .is_some_and(|a| a.DidPositionChange().unwrap_or(false) || a.DidSizeChange().unwrap_or(false));
-                if moved_or_sized {
+                    .is_some_and(|a| a.DidPositionChange().unwrap_or(false) && !a.DidSizeChange().unwrap_or(false));
+                if moved_only {
                     frames.report(&emitter, id);
                 }
                 // Onto another display: its minimum is applied again after
